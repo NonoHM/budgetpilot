@@ -1,0 +1,36 @@
+# Optional local-AI overlay. Combine with the base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
+#
+# Adds a self-hosted Ollama service on the internal Compose network and points
+# the app at it. Requires an NVIDIA GPU + nvidia-container-toolkit on the host
+# for the `deploy.resources` block below; on a machine without a GPU, remove
+# that block and Ollama will run on CPU (functional, slower).
+services:
+  budgetpilot:
+    depends_on:
+      - ollama
+    environment:
+      LLM_ENABLED: ${LLM_ENABLED:-true}
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      LLM_BASE_URL: http://ollama:11434
+      LLM_MODEL: ${LLM_MODEL}
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS}
+      LLM_ALLOWED_HOSTS: ${LLM_ALLOWED_HOSTS},ollama
+      LLM_HTTP_PERMITTED_HOSTS: ${LLM_HTTP_PERMITTED_HOSTS},ollama
+
+  ollama:
+    image: ollama/ollama
+    container_name: budgetpilot_ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+
+volumes:
+  ollama_data:

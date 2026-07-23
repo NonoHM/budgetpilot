@@ -1,0 +1,65 @@
+[
+	{
+		"key": "travel_air_france",
+		"match": "air france",
+		"isRegex": false,
+		"targetCategoryKey": "travel",
+		"targetNature": null
+	},
+	{
+		"key": "travel_easyjet",
+		"match": "easyjet",
+		"isRegex": false,
+		"targetCategoryKey": "travel",
+		"targetNature": null
+	},
+	{
+		"key": "travel_ryanair",
+		"match": "ryanair",
+		"isRegex": false,
+		"targetCategoryKey": "travel",
+		"targetNature": null
+	},
+	{
+		"key": "travel_booking",
+		"match": "booking.com",
+		"isRegex": false,
+		"targetCategoryKey": "travel",
+		"targetNature": null
+	},
+	{
+		"key": "travel_airbnb",
+		"match": "airbnb",
+		"isRegex": false,
+		"targetCategoryKey": "travel",
+		"targetNature": null
+	},
+	{
+		"key": "travel_expedia",
+		"match": "expedia",
+		"isRegex": false,
+		"targetCategoryKey": "travel",
+		"targetNature": null
+	},
+	{
+		"key": "travel_eurostar",
+		"match": "eurostar",
+		"isRegex": false,
+		"targetCategoryKey": "travel",
+		"targetNature": null
+	},
+	{
+		"key": "travel_hotels_com",
+		"match": "hotels.com",
+		"isRegex": false,
+		"targetCategoryKey": "travel",
+		"targetNature": null
+	},
+	{
+		"key": "travel_getyourguide",
+		"match": "getyourguide",
+		"isRegex": false,
+		"targetCategoryKey": "travel",
+		"targetNature": null
+	}
+]

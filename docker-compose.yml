@@ -1,0 +1,22 @@
+services:
+  budgetpilot:
+    build: .
+    container_name: budgetpilot
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: file:/data/dev.db
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      ORIGIN: http://localhost:3000
+      BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN}
+      BODY_SIZE_LIMIT: 21000000
+    ports:
+      - '3000:3000'
+    volumes:
+      - budgetpilot_data:/data
+    restart: unless-stopped
+
+volumes:
+  budgetpilot_data:

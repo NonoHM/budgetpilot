@@ -1,0 +1,58 @@
+[
+	{
+		"key": "health_pharmacie",
+		"match": "pharmacie",
+		"isRegex": false,
+		"targetCategoryKey": "health",
+		"targetNature": null
+	},
+	{
+		"key": "health_doctolib",
+		"match": "doctolib",
+		"isRegex": false,
+		"targetCategoryKey": "health",
+		"targetNature": null
+	},
+	{
+		"key": "health_harmonie_mutuelle",
+		"match": "harmonie mutuelle",
+		"isRegex": false,
+		"targetCategoryKey": "health",
+		"targetNature": null
+	},
+	{
+		"key": "health_mgen",
+		"match": "mgen",
+		"isRegex": false,
+		"targetCategoryKey": "health",
+		"targetNature": null
+	},
+	{
+		"key": "health_malakoff_humanis",
+		"match": "malakoff humanis",
+		"isRegex": false,
+		"targetCategoryKey": "health",
+		"targetNature": null
+	},
+	{
+		"key": "health_optic2000",
+		"match": "optic 2000",
+		"isRegex": false,
+		"targetCategoryKey": "health",
+		"targetNature": null
+	},
+	{
+		"key": "health_afflelou",
+		"match": "afflelou",
+		"isRegex": false,
+		"targetCategoryKey": "health",
+		"targetNature": null
+	},
+	{
+		"key": "health_krys",
+		"match": "krys",
+		"isRegex": false,
+		"targetCategoryKey": "health",
+		"targetNature": null
+	}
+]

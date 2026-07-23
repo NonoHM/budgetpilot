@@ -1,0 +1,226 @@
+[
+	{
+		"key": "shopping_amazon",
+		"match": "amazon",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_fnac",
+		"match": "fnac",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_darty",
+		"match": "darty",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_cdiscount",
+		"match": "cdiscount",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_zalando",
+		"match": "zalando",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_asos",
+		"match": "asos",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_shein",
+		"match": "shein",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_zara",
+		"match": "zara",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_hm",
+		"match": "h&m|h & m",
+		"isRegex": true,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_uniqlo",
+		"match": "uniqlo",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_decathlon",
+		"match": "decathlon",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_ikea",
+		"match": "ikea",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_leroy_merlin",
+		"match": "leroy merlin",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_castorama",
+		"match": "castorama",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_boulanger",
+		"match": "boulanger",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_sephora",
+		"match": "sephora",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_nocibe",
+		"match": "nocibe",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_vinted",
+		"match": "vinted",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_leboncoin",
+		"match": "leboncoin",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_aliexpress",
+		"match": "aliexpress",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "shopping_ebay",
+		"match": "ebay",
+		"isRegex": false,
+		"targetCategoryKey": "shopping",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_ugc",
+		"match": "ugc",
+		"isRegex": false,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_pathe",
+		"match": "pathe",
+		"isRegex": false,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_gaumont",
+		"match": "gaumont",
+		"isRegex": false,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_mk2",
+		"match": "mk2",
+		"isRegex": false,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_basic_fit",
+		"match": "basic fit|basic-fit",
+		"isRegex": true,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_fitness_park",
+		"match": "fitness park",
+		"isRegex": false,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_cultura",
+		"match": "cultura",
+		"isRegex": false,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_ticketmaster",
+		"match": "ticketmaster",
+		"isRegex": false,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_playstation_store",
+		"match": "playstation store",
+		"isRegex": false,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_nintendo_eshop",
+		"match": "nintendo eshop",
+		"isRegex": false,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	},
+	{
+		"key": "leisure_steam",
+		"match": "steam games|steampowered",
+		"isRegex": true,
+		"targetCategoryKey": "leisure",
+		"targetNature": null
+	}
+]

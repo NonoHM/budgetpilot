@@ -1,0 +1,160 @@
+import { fail, type Actions } from '@sveltejs/kit';
+import * as m from '$lib/paraglide/messages';
+import { TRANSACTION_NATURES } from '$lib/domain/transaction';
+import {
+	applyCategoryRules,
+	parseCategoryRuleInput,
+	previewCategoryRules
+} from '$lib/server/categorization/rules';
+import { restoreMissingDefaultRules } from '$lib/server/categorization/defaultRules';
+import { requireUser } from '$lib/server/auth';
+import { prisma } from '$lib/server/db';
+import { normalizeId } from '$lib/server/transactions/where';
+import type { PageServerLoad } from './$types';
+
+export const load: PageServerLoad = async ({ locals, url }) => {
+	const user = requireUser(locals.user);
+	const [rules, categories, preview] = await Promise.all([
+		prisma.categoryRule.findMany({
+			where: { userId: user.id },
+			orderBy: { createdAt: 'desc' },
+			select: {
+				id: true,
+				name: true,
+				matchText: true,
+				targetCategory: true,
+				targetNature: true,
+				isRegex: true,
+				enabled: true,
+				defaultRuleKey: true,
+				createdAt: true,
+				updatedAt: true
+			}
+		}),
+		prisma.category.findMany({
+			where: { userId: user.id },
+			select: { name: true, defaultKey: true }
+		}),
+		url.searchParams.get('preview') === '1' ? previewCategoryRules(user.id) : Promise.resolve(null)
+	]);
+
+	return {
+		rules: rules.map((rule) => ({
+			...rule,
+			createdAt: rule.createdAt.toISOString(),
+			updatedAt: rule.updatedAt.toISOString()
+		})),
+		categories,
+		natureOptions: TRANSACTION_NATURES,
+		preview
+	};
+};
+
+export const actions: Actions = {
+	create: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const parsed = parseCategoryRuleInput({
+			name: getFormValue(formData, 'name'),
+			matchText: getFormValue(formData, 'matchText'),
+			targetCategory: getFormValue(formData, 'targetCategory'),
+			targetNature: getFormValue(formData, 'targetNature'),
+			enabled: getFormValue(formData, 'enabled') !== 'off',
+			isRegex: getFormValue(formData, 'isRegex') === 'true'
+		});
+
+		if (!parsed.ok) return fail(400, { error: parsed.error });
+
+		await prisma.categoryRule.create({
+			data: {
+				userId: user.id,
+				...parsed.value
+			}
+		});
+
+		return { success: m.rules_success_created() };
+	},
+	toggle: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+		const enabled = getFormValue(formData, 'enabled') === 'true';
+		if (!id) return fail(400, { error: m.rules_error_invalid() });
+
+		const result = await prisma.categoryRule.updateMany({
+			where: { id, userId: user.id },
+			data: { enabled }
+		});
+		if (result.count === 0) return fail(404, { error: m.rules_error_not_found() });
+
+		return { success: enabled ? m.rules_success_enabled() : m.rules_success_disabled() };
+	},
+	delete: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+		if (!id) return fail(400, { error: m.rules_error_invalid() });
+
+		const result = await prisma.categoryRule.deleteMany({
+			where: { id, userId: user.id }
+		});
+		if (result.count === 0) return fail(404, { error: m.rules_error_not_found() });
+
+		return { success: m.rules_success_deleted() };
+	},
+	update: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+		if (!id) return fail(400, { error: m.rules_error_invalid() });
+
+		const parsed = parseCategoryRuleInput({
+			name: getFormValue(formData, 'name'),
+			matchText: getFormValue(formData, 'matchText'),
+			targetCategory: getFormValue(formData, 'targetCategory'),
+			targetNature: getFormValue(formData, 'targetNature'),
+			enabled: true,
+			isRegex: getFormValue(formData, 'isRegex') === 'true'
+		});
+
+		if (!parsed.ok) return fail(400, { error: parsed.error });
+
+		const result = await prisma.categoryRule.updateMany({
+			where: { id, userId: user.id },
+			data: {
+				name: parsed.value.name,
+				matchText: parsed.value.matchText,
+				targetCategory: parsed.value.targetCategory,
+				targetNature: parsed.value.targetNature,
+				isRegex: parsed.value.isRegex,
+				// Editing a predefined rule freezes it as a custom rule (same logic as
+				// renaming a category): never re-seeded or overwritten by "Restore" again.
+				defaultRuleKey: null
+			}
+		});
+		if (result.count === 0) return fail(404, { error: m.rules_error_not_found() });
+
+		return { success: m.rules_success_updated() };
+	},
+	apply: async ({ locals }) => {
+		const user = requireUser(locals.user);
+		const updated = await applyCategoryRules(user.id);
+
+		return { success: m.rules_success_applied({ count: updated }) };
+	},
+	restoreDefaults: async ({ locals }) => {
+		const user = requireUser(locals.user);
+		const created = await restoreMissingDefaultRules(user.id);
+		return {
+			success:
+				created > 0
+					? m.rules_success_defaults_restored({ count: created })
+					: m.rules_success_defaults_all_present()
+		};
+	}
+};
+
+function getFormValue(formData: FormData, key: string): string {
+	const value = formData.get(key);
+	return typeof value === 'string' ? value : '';
+}

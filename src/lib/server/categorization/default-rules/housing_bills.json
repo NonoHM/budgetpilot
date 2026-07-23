@@ -1,0 +1,135 @@
+[
+	{
+		"key": "bills_edf",
+		"match": "edf",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_engie",
+		"match": "engie",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_free_mobile",
+		"match": "free mobile",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_orange",
+		"match": "orange",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_sfr",
+		"match": "sfr",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_bouygues_telecom",
+		"match": "bouygues telecom",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "housing_loyer",
+		"match": "loyer",
+		"isRegex": false,
+		"targetCategoryKey": "housing",
+		"targetNature": null
+	},
+	{
+		"key": "housing_maif",
+		"match": "maif",
+		"isRegex": false,
+		"targetCategoryKey": "housing",
+		"targetNature": null
+	},
+	{
+		"key": "housing_macif",
+		"match": "macif",
+		"isRegex": false,
+		"targetCategoryKey": "housing",
+		"targetNature": null
+	},
+	{
+		"key": "housing_gmf",
+		"match": "gmf",
+		"isRegex": false,
+		"targetCategoryKey": "housing",
+		"targetNature": null
+	},
+	{
+		"key": "housing_groupama",
+		"match": "groupama",
+		"isRegex": false,
+		"targetCategoryKey": "housing",
+		"targetNature": null
+	},
+	{
+		"key": "housing_matmut",
+		"match": "matmut",
+		"isRegex": false,
+		"targetCategoryKey": "housing",
+		"targetNature": null
+	},
+	{
+		"key": "housing_allianz",
+		"match": "allianz",
+		"isRegex": false,
+		"targetCategoryKey": "housing",
+		"targetNature": null
+	},
+	{
+		"key": "bills_veolia",
+		"match": "veolia",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_suez",
+		"match": "suez",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_sosh",
+		"match": "sosh",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_la_poste_mobile",
+		"match": "la poste mobile",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_direct_energie",
+		"match": "direct energie",
+		"isRegex": false,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	},
+	{
+		"key": "bills_totalenergies_energie",
+		"match": "totalenergies.*(elec|gaz)",
+		"isRegex": true,
+		"targetCategoryKey": "bills_energy",
+		"targetNature": null
+	}
+]
