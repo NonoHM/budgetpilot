@@ -1,0 +1,128 @@
+[
+	{
+		"key": "transport_sncf",
+		"match": "sncf",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_ratp",
+		"match": "ratp",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_blablacar",
+		"match": "blablacar",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_totalenergies",
+		"match": "total energies",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_uber",
+		"match": "uber",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_navigo",
+		"match": "navigo",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_transilien",
+		"match": "transilien",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_flixbus",
+		"match": "flixbus",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_trainline",
+		"match": "trainline",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_bolt",
+		"match": "bolt",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_esso",
+		"match": "esso",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_shell",
+		"match": "shell",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_bp",
+		"match": "bp station|bp fuel",
+		"isRegex": true,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_vinci_autoroutes",
+		"match": "vinci autoroutes",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_aprr",
+		"match": "aprr",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_sanef",
+		"match": "sanef",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_indigo_parking",
+		"match": "indigo park|parking indigo",
+		"isRegex": true,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	},
+	{
+		"key": "transport_velib",
+		"match": "velib",
+		"isRegex": false,
+		"targetCategoryKey": "transport",
+		"targetNature": null
+	}
+]

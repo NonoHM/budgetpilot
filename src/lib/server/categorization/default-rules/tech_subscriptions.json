@@ -1,0 +1,156 @@
+[
+	{
+		"key": "subscriptions_netflix",
+		"match": "netflix",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_spotify",
+		"match": "spotify",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_disney",
+		"match": "disney",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_amazon_prime",
+		"match": "amazon prime",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_google_play",
+		"match": "google play",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_apple_bill",
+		"match": "apple.com/bill",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_deezer",
+		"match": "deezer",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_youtube_premium",
+		"match": "youtube premium",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_canal_plus",
+		"match": "canal\\+|canal plus",
+		"isRegex": true,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_ocs",
+		"match": "ocs",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_microsoft365",
+		"match": "microsoft 365",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_adobe",
+		"match": "adobe",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_playstation_plus",
+		"match": "playstation plus",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_xbox_game_pass",
+		"match": "xbox game pass",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_crunchyroll",
+		"match": "crunchyroll",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_molotov",
+		"match": "molotov",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_dropbox",
+		"match": "dropbox",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_google_one",
+		"match": "google one",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_nordvpn",
+		"match": "nordvpn",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_linkedin_premium",
+		"match": "linkedin premium",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_openai",
+		"match": "openai",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	},
+	{
+		"key": "subscriptions_anthropic",
+		"match": "anthropic",
+		"isRegex": false,
+		"targetCategoryKey": "subscriptions",
+		"targetNature": null
+	}
+]

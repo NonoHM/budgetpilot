@@ -1,0 +1,72 @@
+[
+	{
+		"key": "investment_trade_republic",
+		"match": "trade republic",
+		"isRegex": false,
+		"targetCategoryKey": "investment",
+		"targetNature": null
+	},
+	{
+		"key": "investment_boursorama",
+		"match": "boursorama",
+		"isRegex": false,
+		"targetCategoryKey": "investment",
+		"targetNature": null
+	},
+	{
+		"key": "investment_degiro",
+		"match": "degiro",
+		"isRegex": false,
+		"targetCategoryKey": "investment",
+		"targetNature": null
+	},
+	{
+		"key": "investment_coinbase",
+		"match": "coinbase",
+		"isRegex": false,
+		"targetCategoryKey": "investment",
+		"targetNature": null
+	},
+	{
+		"key": "investment_trading212",
+		"match": "trading 212",
+		"isRegex": false,
+		"targetCategoryKey": "investment",
+		"targetNature": null
+	},
+	{
+		"key": "savings_livret_a",
+		"match": "livret a",
+		"isRegex": false,
+		"targetCategoryKey": "savings",
+		"targetNature": null
+	},
+	{
+		"key": "savings_pea",
+		"match": "\\bpea\\b|plan.{0,4}[ée]pargne.{0,4}actions?",
+		"isRegex": true,
+		"targetCategoryKey": "savings",
+		"targetNature": null
+	},
+	{
+		"key": "savings_assurance_vie",
+		"match": "assurance vie",
+		"isRegex": false,
+		"targetCategoryKey": "savings",
+		"targetNature": null
+	},
+	{
+		"key": "income_caf",
+		"match": "\\bcaf\\b|caisse.{0,4}allocations",
+		"isRegex": true,
+		"targetCategoryKey": "income",
+		"targetNature": null
+	},
+	{
+		"key": "income_france_travail",
+		"match": "p[oô]le emploi|france travail",
+		"isRegex": true,
+		"targetCategoryKey": "income",
+		"targetNature": null
+	}
+]

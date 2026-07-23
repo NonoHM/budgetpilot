@@ -1,0 +1,35 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+
+/*
+ * Popover entrance keyframe (component referential V2's final brick, see
+ * src/lib/motion.ts). Bits UI's DropdownMenu.Content is only mounted once
+ * already open (no prior "closed" frame for a CSS transition to key off), so
+ * the open direction needs a real @keyframes animation; the close direction
+ * still uses a plain CSS transition off data-state, since there the element
+ * stays mounted while data-state flips to "closed" before Bits UI's Presence
+ * layer removes it.
+ */
+@keyframes bp-popover-in {
+	from {
+		opacity: 0;
+		transform: scale(0.97);
+	}
+	to {
+		opacity: 1;
+		transform: scale(1);
+	}
+}
+
+/*
+ * Bits UI (Select/Combobox with a `name`) renders a visually-hidden mirror
+ * <input aria-hidden="true" tabindex="-1"> for native form submission, hidden
+ * via an inline style. A hydration quirk can drop that inline style attribute,
+ * leaving a naked visible input sitting in the middle of filter forms (seen on
+ * /transactions). Keep such inputs out of the layout unconditionally —
+ * display:none inputs still submit their value with the form.
+ */
+input[aria-hidden='true'][tabindex='-1'] {
+	display: none;
+}

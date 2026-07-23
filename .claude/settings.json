@@ -1,0 +1,11 @@
+{
+	"permissions": {
+		"deny": [
+			"Bash(npx prisma migrate reset*)",
+			"Bash(prisma migrate reset*)",
+			"Bash(docker compose down -v*)",
+			"Bash(docker-compose down -v*)"
+		],
+		"ask": ["Bash(npx prisma migrate*)", "Bash(docker compose down*)"]
+	}
+}
