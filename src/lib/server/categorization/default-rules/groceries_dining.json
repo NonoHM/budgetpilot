@@ -1,0 +1,268 @@
+[
+	{
+		"key": "food_leclerc",
+		"match": "leclerc",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_carrefour",
+		"match": "carrefour",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_lidl",
+		"match": "lidl",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_intermarche",
+		"match": "intermarche",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_super_u",
+		"match": "super u",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_u_express",
+		"match": "u express",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_hyper_u",
+		"match": "hyper u",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_auchan",
+		"match": "auchan",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_monoprix",
+		"match": "monoprix",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_franprix",
+		"match": "franprix",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_aldi",
+		"match": "aldi",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_casino",
+		"match": "casino",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_systeme_u",
+		"match": "systeme u",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_cora",
+		"match": "cora",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_grand_frais",
+		"match": "grand frais",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_biocoop",
+		"match": "biocoop",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_naturalia",
+		"match": "naturalia",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_picard",
+		"match": "picard",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_netto",
+		"match": "netto",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_spar",
+		"match": "spar",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_leader_price",
+		"match": "leader price",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_metro_cc",
+		"match": "metro cash",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "dining_uber_eats",
+		"match": "uber eats",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_deliveroo",
+		"match": "deliveroo",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_mcdonald",
+		"match": "mcdonald",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_burger_king",
+		"match": "burger king",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_kfc",
+		"match": "kfc",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_quick",
+		"match": "quick",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_subway",
+		"match": "subway",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_starbucks",
+		"match": "starbucks",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_costa_coffee",
+		"match": "costa coffee",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_dominos",
+		"match": "domino's|dominos",
+		"isRegex": true,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_pizza_hut",
+		"match": "pizza hut",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_sushi_shop",
+		"match": "sushi shop",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_otacos",
+		"match": "o'tacos",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_five_guys",
+		"match": "five guys",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_columbus_cafe",
+		"match": "columbus cafe",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	},
+	{
+		"key": "dining_just_eat",
+		"match": "just eat",
+		"isRegex": false,
+		"targetCategoryKey": "dining",
+		"targetNature": null
+	}
+]

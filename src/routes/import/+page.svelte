@@ -1,0 +1,425 @@
+<script lang="ts">
+	import { resolve } from '$app/paths';
+	import { formatCents } from '$lib/domain/budget';
+	import type { ActionData, PageData } from './$types';
+	import Button from '$lib/components/Button.svelte';
+	import AlertBanner from '$lib/components/AlertBanner.svelte';
+	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
+	import Combobox from '$lib/components/ui/Combobox.svelte';
+	import Badge from '$lib/components/ui/Badge.svelte';
+	import { cardBase } from '$lib/styles';
+	import * as m from '$lib/paraglide/messages';
+
+	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	const importResult = $derived(form?.importResult);
+	const netWorthAccountOptions = $derived([
+		{ value: '', label: m.import_field_net_worth_account_placeholder() },
+		...data.linkableNetWorthAccounts.map((account) => ({ value: account.id, label: account.name }))
+	]);
+	let selectedNetWorthAccountId = $state('');
+
+	// The parser's `reason` values are stable codes (historical French strings);
+	// translated here for display, falling back to the raw value if unknown.
+	const REASON_LABELS: Record<string, () => string> = {
+		'date invalide': m.import_reason_invalid_date,
+		'devise Revolut non supportée': m.import_reason_unsupported_currency,
+		'état Revolut non terminé': m.import_reason_state_not_completed,
+		'frais invalide': m.import_reason_invalid_fee,
+		'ligne ignorée: footer bancaire': m.import_reason_footer_ignored,
+		'montant à zéro refusé': m.import_reason_zero_amount,
+		'montant invalide': m.import_reason_invalid_amount,
+		'nombre de colonnes incorrect': m.import_reason_bad_column_count,
+		'solde invalide': m.import_reason_invalid_balance,
+		'débit et crédit remplis en même temps': m.import_reason_debit_credit_both,
+		'débit et crédit vides': m.import_reason_debit_credit_empty,
+		'type et signe du montant incohérents': m.import_reason_type_amount_mismatch,
+		'nature invalide': m.import_reason_invalid_nature,
+		'catégorie réservée refusée': m.import_reason_reserved_category
+	};
+	function reasonLabel(reason: string): string {
+		return REASON_LABELS[reason]?.() ?? reason;
+	}
+	const errorReport = $derived(
+		importResult?.invalidRowDetails
+			?.map(
+				(row) =>
+					`${m.import_invalid_table_line()} ${row.lineNumber}; ${m.import_invalid_table_reason()}=${reasonLabel(row.reason)}; ${m.import_invalid_table_field()}=${row.field}; ${m.import_invalid_table_preview()}=${row.preview}`
+			)
+			.join('\n') ?? ''
+	);
+
+	async function copyErrorReport() {
+		if (!errorReport || !navigator.clipboard) return;
+		await navigator.clipboard.writeText(errorReport);
+	}
+</script>
+
+<svelte:head>
+	<title>{m.import_page_title()}</title>
+</svelte:head>
+
+<main class="min-h-screen bg-zinc-50 px-4 py-8 text-zinc-950 sm:px-6 lg:px-8">
+	<!-- ============ DESKTOP (≥lg, unchanged) ============ -->
+	<section class="mx-auto hidden max-w-7xl space-y-8 lg:block">
+		<div class="rounded-lg border border-zinc-200 bg-white p-6">
+			<div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+				<div>
+					<h1 class="text-2xl font-semibold tracking-normal">{m.import_heading()}</h1>
+					<p class="mt-2 max-w-3xl text-sm text-zinc-600">
+						{m.import_description()}
+					</p>
+				</div>
+				<a class="text-sm font-medium text-zinc-500 hover:text-zinc-700" href={resolve('/')}
+					>{m.import_back_to_dashboard()}</a
+				>
+			</div>
+
+			<form class="mt-6 grid gap-4" method="POST" enctype="multipart/form-data">
+				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
+					<span class="font-medium text-zinc-800">{m.import_supported_formats()}</span>
+					<br />
+					<span class="font-medium text-zinc-800">{m.import_supported_profiles_label()}</span>
+					{m.import_supported_profiles_list()}
+				</div>
+				<FileDropZone
+					name="csvFile"
+					accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+					label={m.import_file_label()}
+					required
+					chooseLabel={m.common_file_dropzone_choose()}
+					noFileLabel={m.common_file_dropzone_no_file()}
+					desktopInputClass="lg:rounded-md lg:border lg:border-zinc-300 lg:bg-white lg:p-2 lg:text-sm lg:focus:border-zinc-500 lg:focus:outline-none lg:focus:ring-2 lg:focus:ring-zinc-400"
+				/>
+
+				{#if data.hasAllImportBucketsExisting}
+					<p class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-500">
+						{m.import_existing_bucket_notice()}
+					</p>
+				{:else if data.linkableNetWorthAccounts.length > 0}
+					<label class="block text-sm font-medium text-zinc-700">
+						{m.import_field_net_worth_account()}
+						<div class="mt-1.5">
+							<Combobox
+								name="netWorthAccountId"
+								bind:value={selectedNetWorthAccountId}
+								options={netWorthAccountOptions}
+								placeholder={m.import_field_net_worth_account_placeholder()}
+								ariaLabel={m.import_field_net_worth_account()}
+							/>
+						</div>
+						<span class="mt-1 block text-xs font-normal text-zinc-500"
+							>{m.import_field_net_worth_account_hint()}</span
+						>
+					</label>
+				{/if}
+
+				{#if form?.error}
+					<AlertBanner variant="error">{form.error}</AlertBanner>
+				{/if}
+
+				<Button type="submit">{m.import_submit()}</Button>
+			</form>
+		</div>
+
+		{#if importResult}
+			<div class="rounded-lg border border-zinc-200 bg-white p-5">
+				<div
+					class="flex flex-col gap-3 border-b border-zinc-200 pb-4 md:flex-row md:items-start md:justify-between"
+				>
+					<div>
+						<h2 class="text-lg font-semibold">{m.import_summary_heading()}</h2>
+						{#if importResult.fileName}
+							<p class="mt-1 text-sm text-zinc-500">
+								{m.import_summary_file({ name: importResult.fileName })}
+							</p>
+						{/if}
+					</div>
+					{#if importResult.profile}
+						<span class="w-fit rounded-md border border-zinc-200 px-3 py-1 text-sm font-medium">
+							{importResult.profile}
+						</span>
+					{/if}
+				</div>
+
+				{#if importResult.netWorthLinkStatus}
+					<p
+						class="mt-4 rounded-xl border p-3 text-xs"
+						class:border-emerald-200={importResult.netWorthLinkStatus === 'applied'}
+						class:bg-emerald-50={importResult.netWorthLinkStatus === 'applied'}
+						class:text-emerald-700={importResult.netWorthLinkStatus === 'applied'}
+						class:border-zinc-200={importResult.netWorthLinkStatus === 'ignored'}
+						class:bg-zinc-50={importResult.netWorthLinkStatus === 'ignored'}
+						class:text-zinc-500={importResult.netWorthLinkStatus === 'ignored'}
+					>
+						{importResult.netWorthLinkStatus === 'applied'
+							? m.import_link_applied_notice()
+							: m.import_link_ignored_notice()}
+					</p>
+				{/if}
+
+				<div class="mt-4 grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+						<p class="text-xs uppercase text-zinc-500">{m.import_stat_rows_read()}</p>
+						<p class="mt-1 text-xl font-semibold">{importResult.totalRows}</p>
+					</div>
+					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+						<p class="text-xs uppercase text-zinc-500">{m.import_stat_imported()}</p>
+						<p class="mt-1 text-xl font-semibold text-emerald-700">{importResult.importedRows}</p>
+					</div>
+					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+						<p class="text-xs uppercase text-zinc-500">{m.import_stat_duplicates()}</p>
+						<p class="mt-1 text-xl font-semibold">{importResult.duplicateRows}</p>
+					</div>
+					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+						<p class="text-xs uppercase text-zinc-500">{m.import_stat_invalid()}</p>
+						<p class="mt-1 text-xl font-semibold text-rose-700">{importResult.invalidRows}</p>
+					</div>
+					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+						<p class="text-xs uppercase text-zinc-500">{m.import_stat_total_debit()}</p>
+						<p class="mt-1 text-xl font-semibold">{formatCents(importResult.totalDebitCents)}</p>
+					</div>
+					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+						<p class="text-xs uppercase text-zinc-500">{m.import_stat_total_credit()}</p>
+						<p class="mt-1 text-xl font-semibold">{formatCents(importResult.totalCreditCents)}</p>
+					</div>
+				</div>
+
+				{#if importResult.period}
+					<p class="mt-4 text-sm text-zinc-600">
+						{m.import_period({
+							from: importResult.period.from ?? 'n/a',
+							to: importResult.period.to ?? 'n/a'
+						})}
+					</p>
+				{/if}
+
+				{#if importResult.invalidRowDetails?.length > 0}
+					<section class="mt-6 border-t border-zinc-200 pt-5">
+						<div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+							<div>
+								<h3 class="font-semibold">{m.import_invalid_heading()}</h3>
+								<p class="mt-1 text-sm text-zinc-600">
+									{m.import_invalid_description()}
+								</p>
+							</div>
+							<Button type="button" variant="secondary" size="sm" onclick={copyErrorReport}
+								>{m.import_copy_error_report()}</Button
+							>
+						</div>
+
+						<div class="mt-4 overflow-x-auto rounded-xl border border-zinc-200">
+							<table class="w-full min-w-[760px] text-left text-sm">
+								<thead class="bg-zinc-50 text-xs uppercase text-zinc-500">
+									<tr>
+										<th class="px-3 py-2 font-medium">{m.import_invalid_table_line()}</th>
+										<th class="px-3 py-2 font-medium">{m.import_invalid_table_reason()}</th>
+										<th class="px-3 py-2 font-medium">{m.import_invalid_table_field()}</th>
+										<th class="px-3 py-2 font-medium">{m.import_invalid_table_preview()}</th>
+									</tr>
+								</thead>
+								<tbody>
+									{#each importResult.invalidRowDetails as row (row.lineNumber)}
+										<tr class="border-t border-zinc-100">
+											<td class="px-3 py-2 font-medium">{row.lineNumber}</td>
+											<td class="px-3 py-2 text-rose-700">{reasonLabel(row.reason)}</td>
+											<td class="px-3 py-2">{row.field}</td>
+											<td class="px-3 py-2 text-zinc-600">{row.preview}</td>
+										</tr>
+									{/each}
+								</tbody>
+							</table>
+						</div>
+
+						{#if importResult.hiddenInvalidRowsCount > 0}
+							<p class="mt-3 text-sm text-zinc-600">
+								{m.import_hidden_errors({ count: importResult.hiddenInvalidRowsCount })}
+							</p>
+						{/if}
+					</section>
+				{/if}
+
+				<Button href="/transactions" class="mt-5">
+					{m.import_view_transactions()}
+				</Button>
+			</div>
+		{/if}
+	</section>
+
+	<!-- ============ MOBILE (<lg) ============ -->
+	<section class="mx-auto max-w-7xl space-y-6 lg:hidden">
+		<div>
+			<a class="text-sm text-zinc-500 hover:text-zinc-700" href={resolve('/')}
+				>{m.import_back_to_dashboard()}</a
+			>
+			<h1 class="mt-2 text-2xl font-bold tracking-tight">{m.import_heading()}</h1>
+			<p class="mt-1 text-sm text-zinc-500">{m.import_description()}</p>
+		</div>
+
+		<div class="rounded-xl bg-zinc-50 p-4 text-xs text-zinc-500">
+			<span class="font-medium text-zinc-700">{m.import_supported_formats()}</span>
+			<br />
+			<span class="font-medium text-zinc-700">{m.import_supported_profiles_label()}</span>
+			{m.import_supported_profiles_list()}
+		</div>
+
+		<form class="grid gap-4" method="POST" enctype="multipart/form-data">
+			<FileDropZone
+				name="csvFile"
+				accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+				label={m.import_file_label()}
+				required
+				chooseLabel={m.common_file_dropzone_choose()}
+				noFileLabel={m.common_file_dropzone_no_file()}
+			/>
+
+			{#if data.hasAllImportBucketsExisting}
+				<p class="rounded-xl bg-zinc-50 p-3 text-xs text-zinc-500">
+					{m.import_existing_bucket_notice()}
+				</p>
+			{:else if data.linkableNetWorthAccounts.length > 0}
+				<label class="block text-sm font-medium text-zinc-700">
+					{m.import_field_net_worth_account()}
+					<div class="mt-1.5">
+						<Combobox
+							name="netWorthAccountId"
+							bind:value={selectedNetWorthAccountId}
+							options={netWorthAccountOptions}
+							placeholder={m.import_field_net_worth_account_placeholder()}
+							ariaLabel={m.import_field_net_worth_account()}
+							triggerClass="!bg-zinc-50"
+						/>
+					</div>
+					<span class="mt-1 block text-xs font-normal text-zinc-500"
+						>{m.import_field_net_worth_account_hint()}</span
+					>
+				</label>
+			{/if}
+
+			{#if form?.error}
+				<AlertBanner variant="error">{form.error}</AlertBanner>
+			{/if}
+
+			<Button type="submit" class="h-11 w-full !rounded-xl">{m.import_submit()}</Button>
+		</form>
+
+		{#if importResult}
+			<div class="{cardBase} p-5">
+				<div class="flex items-start justify-between gap-3">
+					<div>
+						<h2 class="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+							{m.import_summary_heading()}
+						</h2>
+						{#if importResult.fileName}
+							<p class="mt-1 break-all text-sm font-medium text-zinc-900">
+								{importResult.fileName}
+							</p>
+						{/if}
+					</div>
+					{#if importResult.profile}
+						<span class="shrink-0">
+							<Badge tone="neutral">{importResult.profile}</Badge>
+						</span>
+					{/if}
+				</div>
+
+				{#if importResult.netWorthLinkStatus}
+					<p
+						class="mt-3 rounded-xl p-3 text-xs"
+						class:bg-emerald-50={importResult.netWorthLinkStatus === 'applied'}
+						class:text-emerald-700={importResult.netWorthLinkStatus === 'applied'}
+						class:bg-zinc-50={importResult.netWorthLinkStatus === 'ignored'}
+						class:text-zinc-500={importResult.netWorthLinkStatus === 'ignored'}
+					>
+						{importResult.netWorthLinkStatus === 'applied'
+							? m.import_link_applied_notice()
+							: m.import_link_ignored_notice()}
+					</p>
+				{/if}
+
+				<div class="mt-4 grid grid-cols-2 gap-3">
+					<div class="rounded-xl bg-zinc-50 p-3">
+						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_rows_read()}</p>
+						<p class="mt-1 text-lg font-bold">{importResult.totalRows}</p>
+					</div>
+					<div class="rounded-xl bg-zinc-50 p-3">
+						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_imported()}</p>
+						<p class="mt-1 text-lg font-bold text-emerald-700">{importResult.importedRows}</p>
+					</div>
+					<div class="rounded-xl bg-zinc-50 p-3">
+						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_duplicates()}</p>
+						<p class="mt-1 text-lg font-bold" class:text-amber-600={importResult.duplicateRows > 0}>
+							{importResult.duplicateRows}
+						</p>
+					</div>
+					<div class="rounded-xl bg-zinc-50 p-3">
+						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_invalid()}</p>
+						<p class="mt-1 text-lg font-bold" class:text-rose-700={importResult.invalidRows > 0}>
+							{importResult.invalidRows}
+						</p>
+					</div>
+					<div class="rounded-xl bg-zinc-50 p-3">
+						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_total_debit()}</p>
+						<p class="mt-1 text-lg font-bold">{formatCents(importResult.totalDebitCents)}</p>
+					</div>
+					<div class="rounded-xl bg-zinc-50 p-3">
+						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_total_credit()}</p>
+						<p class="mt-1 text-lg font-bold">{formatCents(importResult.totalCreditCents)}</p>
+					</div>
+				</div>
+
+				{#if importResult.period}
+					<p class="mt-4 text-xs text-zinc-500">
+						{m.import_period({
+							from: importResult.period.from ?? 'n/a',
+							to: importResult.period.to ?? 'n/a'
+						})}
+					</p>
+				{/if}
+
+				<Button href="/transactions" class="mt-5 flex h-11 w-full">
+					{m.import_view_transactions()}
+				</Button>
+			</div>
+
+			{#if importResult.invalidRowDetails?.length > 0}
+				<div class="{cardBase} p-5">
+					<div class="flex items-center justify-between gap-3">
+						<h3 class="font-bold text-zinc-950">{m.import_invalid_heading()}</h3>
+						<Button type="button" variant="secondary" size="sm" onclick={copyErrorReport}>
+							{m.import_copy_error_report()}
+						</Button>
+					</div>
+					<p class="mt-1 text-sm text-zinc-500">{m.import_invalid_description()}</p>
+
+					<div class="mt-4 space-y-3">
+						{#each importResult.invalidRowDetails as row (row.lineNumber)}
+							<div class="rounded-xl border border-zinc-100 bg-zinc-50/60 p-3">
+								<p class="text-xs text-zinc-400">
+									{m.import_invalid_table_line()}
+									{row.lineNumber}
+								</p>
+								<p class="mt-0.5 font-semibold text-rose-600">{reasonLabel(row.reason)}</p>
+								<p class="mt-1 text-xs text-zinc-500">
+									{m.import_invalid_field_prefix()}
+									{row.field}
+								</p>
+								<p
+									class="mt-2 whitespace-pre-wrap break-words rounded-lg bg-zinc-100 px-2.5 py-2 font-mono text-xs text-zinc-600"
+								>
+									{row.preview}
+								</p>
+							</div>
+						{/each}
+					</div>
+
+					{#if importResult.hiddenInvalidRowsCount > 0}
+						<p class="mt-3 text-center text-xs text-zinc-400">
+							{m.import_hidden_errors({ count: importResult.hiddenInvalidRowsCount })}
+						</p>
+					{/if}
+				</div>
+			{/if}
+		{/if}
+	</section>
+</main>

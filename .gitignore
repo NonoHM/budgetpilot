@@ -1,0 +1,51 @@
+node_modules
+
+# Output
+.output
+.vercel
+.netlify
+.wrangler
+/.svelte-kit
+/build
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Env
+.env
+.env.*
+!.env.example
+!.env.test
+
+# Local databases and exports
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+*.csv
+*.7z
+*.zip
+*.xlsx
+csv/
+exports/
+backups/
+scr/
+
+# Vite
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+# Playwright
+test-results
+# e2e throwaway DB (also covered by *.db above, kept explicit for clarity) and storageState
+# (contains a live session cookie for the e2e test account — never commit it).
+/e2e/.data/
+/e2e/.auth/
+
+# Paraglide (généré)
+/src/lib/paraglide/
+
+# Local credentials
+docs/local/
+keys/
+*.pem
