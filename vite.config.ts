@@ -27,7 +27,16 @@ export default defineConfig({
 						instances: [{ browser: 'chromium', headless: true }]
 					},
 					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
-					exclude: ['src/lib/server/**']
+					exclude: ['src/lib/server/**'],
+					// Same pre-existing Bits UI hydration-race flake documented in AccountMenu.svelte
+					// and mitigated the same way in playwright.config.ts: a click on a DropdownMenu
+					// trigger can fire before Bits UI's handler finishes attaching, so a poll-based
+					// assertion right after occasionally times out. Never reproduces locally (fast,
+					// uncontended CPU) — only showed up once CI's push trigger was fixed and these
+					// real-Chromium tests actually ran on a GitHub-hosted runner for the first time.
+					// Raising the timeout doesn't help (the element genuinely isn't wired up yet), so
+					// retry like the e2e suite does, not a longer wait.
+					retry: 2
 				}
 			},
 
