@@ -28,15 +28,16 @@ export default defineConfig({
 					},
 					include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
 					exclude: ['src/lib/server/**'],
-					// Same pre-existing Bits UI hydration-race flake documented in AccountMenu.svelte
-					// and mitigated the same way in playwright.config.ts: a click on a DropdownMenu
-					// trigger can fire before Bits UI's handler finishes attaching, so a poll-based
-					// assertion right after occasionally times out. Never reproduces locally (fast,
-					// uncontended CPU) — only showed up once CI's push trigger was fixed and these
-					// real-Chromium tests actually ran on a GitHub-hosted runner for the first time.
-					// Raising the timeout doesn't help (the element genuinely isn't wired up yet), so
-					// retry like the e2e suite does, not a longer wait.
-					retry: 2
+					// Component specs assert French copy (fr is the app's baseLocale). Paraglide resolves
+					// its display language via 'cookie' > 'preferredLanguage' > 'baseLocale' (see
+					// src/lib/paraglide/runtime.js), and the headless Chromium spun up by
+					// @vitest/browser-playwright has no PARAGLIDE_LOCALE cookie, so it falls through to
+					// 'preferredLanguage' — the browser's own default language. That happens to be
+					// French on a dev machine but is en-US on GitHub's runners, so every test asserting
+					// French text (buttons, aria-labels, menu items) failed there while passing locally.
+					// Same root cause the e2e suite hit and fixed the same way — see e2e/fixtures.ts's
+					// comment — rather than relying on the browser's own locale.
+					setupFiles: ['./vitest.client.setup.ts']
 				}
 			},
 
