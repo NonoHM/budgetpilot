@@ -49,3 +49,6 @@ test-results
 docs/local/
 keys/
 *.pem
+
+# Internal working notes (not for the public repo)
+docs/architecture-audit.md
