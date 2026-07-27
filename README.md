@@ -3,44 +3,36 @@
 [![CI](https://github.com/NonoHM/budgetpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/NonoHM/budgetpilot/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
 
-**Local-first, privacy-first personal budgeting.** BudgetPilot is a
-self-hosted alternative to apps like Monarch or YNAB for people who want
-real budgeting features — without handing their bank credentials or
-transaction history to a third-party cloud service. Your data lives in a
-single SQLite file you control.
+A local-first, privacy-first personal budgeting app. Think Monarch or YNAB, but self-hosted, and your bank data never leaves your own machine.
 
-- No mandatory external calls, no analytics, no scraping.
-- Optional PSD2 bank sync (Enable Banking) and optional local AI insights
-  (Ollama) are both opt-in and off by default.
+## Why this exists
 
-## Features
+Honest answer: my personal finances were kind of a mess, and I wanted an excuse to test agentic AI coding on something real, not just a toy script. Something with an actual UI, actual users (well, me), and enough moving parts to be a genuine test of whether "vibe coding" with an AI assistant could produce something solid, not just something that looks fine in a demo.
 
-- **Manual + CSV transaction import**, with configurable bank profiles and
-  duplicate detection.
-- **Optional PSD2 bank connections** (Enable Banking) for automatic
-  transaction sync — disabled by default, https-only, explicit host
-  allowlist, never any credential scraping.
-- **Budgets**: monthly per-category budgets with alerts.
-- **Net worth tracking**: multiple accounts, balance history over time.
-- **Savings goals**: target amount/date, pace tracking, linkable to a net
-  worth account.
-- **Cash-flow forecast**: deterministic projection of upcoming balance
-  based on detected recurring income/expenses — no ML, fully local.
-- **Categorization rules**: text/regex matching rules, auto-applied on
-  import, never overriding a manual correction.
-- **Optional local AI budget advice** (Ollama): only aggregated, anonymized
-  summaries are ever sent to the model — never raw transactions — and only
-  if you explicitly enable it.
-- **Backup/restore**: full JSON export/import of your own data, scoped to
-  your account.
-- Localized UI (French/English).
+I'm not a professional developer. I built this over several months with Claude, trying to hold myself to real standards anyway: proper security reviews, a real test suite, a design system that's actually consistent instead of every page inventing its own button style. Whether I pulled that off is for you to judge by reading the code, not by trusting this README.
+
+This isn't trying to replace Monarch, YNAB, or the other well-established players in this space. There are open source alternatives out there (Firefly III, Actual Budget, to name two) that are more mature and, in some areas, better built than this. BudgetPilot is just my take on it, local-first and privacy-first by default, and I'm putting it out there in case it's useful to someone else too.
+
+The weakest part right now is honestly CSV import: only a handful of bank profiles are supported, and the parser system needs more work to cover more banks and formats. Contributions there especially welcome.
+
+## What it does
+
+- **Manual and CSV import**, with bank-specific profiles and duplicate detection.
+- **Optional automatic bank sync** (PSD2, via Enable Banking). Off by default. HTTPS only, explicit host allowlist, no credential scraping, ever.
+- **Budgets**: monthly, per category, with alerts when you're close to the limit.
+- **Net worth tracking** across multiple accounts, with history over time.
+- **Savings goals**, with pace tracking and an optional link to a real account.
+- **Cash flow forecasting**: a deterministic projection of your upcoming balance, based on recurring income and expenses it actually detects from your history. No machine learning involved, nothing sent anywhere.
+- **Categorization rules** (text or regex), applied automatically on import, never overriding something you fixed by hand.
+- **Optional local AI advice** via Ollama. By default, only anonymized aggregates reach the model. An opt-in setting can add the labels of your largest expenses, never your full transaction history.
+- **Backup and restore**: a full export of your own data, nothing held hostage.
+- French and English, out of the box.
 
 ## Tech stack
 
-SvelteKit + TypeScript · Prisma + SQLite · Tailwind CSS · Vitest +
-Playwright · Docker (Node 24, `adapter-node`).
+SvelteKit, TypeScript, Prisma, SQLite, Tailwind CSS, Vitest, Playwright, Docker.
 
-## Quick start (without Docker)
+## Quick start (no Docker)
 
 ```bash
 nvm install && nvm use
@@ -48,11 +40,9 @@ npm install
 cp .env.example .env
 ```
 
-Then generate the required secrets and paste them into `.env` (leaving them
-blank will crash `/register` and `/login` at startup):
+Then generate three secrets and paste them into `.env`. Skipping this step will crash `/register` and `/login` on first load, so don't skip it:
 
 ```bash
-# Fill BOOTSTRAP_TOKEN, RATE_LIMIT_HASH_SECRET and TOTP_ENCRYPTION_KEY in .env
 openssl rand -base64 32   # -> BOOTSTRAP_TOKEN
 openssl rand -hex 32      # -> RATE_LIMIT_HASH_SECRET
 openssl rand -hex 32      # -> TOTP_ENCRYPTION_KEY
@@ -63,32 +53,23 @@ npx prisma generate && npx prisma migrate dev
 npm run dev
 ```
 
-Open `http://localhost:5173`. Registering the first account requires the
-`BOOTSTRAP_TOKEN` value you just generated, and that account automatically
-becomes an admin.
+Open `http://localhost:5173`. The first account you register needs the `BOOTSTRAP_TOKEN` you just generated, and it becomes an admin automatically.
 
 ## Docker
 
-### Without GPU / AI (default)
+### Without a GPU or AI (default)
 
 ```bash
 cp .env.example .env
-# Fill BOOTSTRAP_TOKEN, RATE_LIMIT_HASH_SECRET and TOTP_ENCRYPTION_KEY in .env
-# (see "Quick start" above for the openssl commands) — required even here.
+# fill in the three secrets from above, same as the non Docker setup
 docker compose up -d --build
 ```
 
-This starts BudgetPilot alone, backed by a persistent SQLite volume. No
-Ollama container, no GPU requirement.
+Just the app, backed by a persistent SQLite volume. No Ollama container, no GPU needed.
 
 ### With local AI (Ollama)
 
-Requires an NVIDIA GPU with
-[nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-installed on the host (`nvidia-ctk runtime configure --runtime=docker`, then
-restart the Docker daemon). Without a GPU, remove the `deploy.resources`
-block from `docker-compose.ai.yml` — Ollama will run on CPU (slower, still
-functional).
+You'll need an NVIDIA GPU with [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed. No GPU? Drop the `deploy.resources` block from `docker-compose.ai.yml` and Ollama will just run on CPU. Slower, but it works.
 
 ```bash
 cp .env.example .env
@@ -96,22 +77,19 @@ docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
 docker compose exec ollama ollama pull qwen2.5:0.5b
 ```
 
-Set `LLM_ENABLED=true` in `.env` (and, per-user, enable AI insights in
-Settings) to turn on AI budget advice.
+Set `LLM_ENABLED=true` in `.env`, then enable AI insights per user in Settings.
 
-Stop either variant with `docker compose down` (never `-v`, unless you
-intend to delete the persistent data volume).
+To stop either setup: `docker compose down`. Never add `-v` unless you actually want to wipe your data.
 
 ## Contributing
 
-See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup, test commands, and
-commit conventions. Release notes are tracked in
-[CHANGELOG.md](./CHANGELOG.md).
+Bug reports, feature ideas, and pull requests are all welcome. See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, tests, and commit conventions. If you're using an AI coding assistant, there's an [AGENTS.md](./AGENTS.md) with project context it should read first.
+
+Release notes live in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Security
 
-See [SECURITY.md](./SECURITY.md) for the supported-versions policy and how
-to privately report a vulnerability.
+This is a finance app, so security gets taken seriously. See [SECURITY.md](./SECURITY.md) for what's supported and how to report a vulnerability privately (please don't open a public issue for that one).
 
 ## License
 
