@@ -40,12 +40,17 @@ console.log('BudgetPilot setup\n');
 console.log("This walks you through creating your .env file. It won't touch anything else.\n");
 
 if (existsSync(envPath)) {
-	const overwrite = await askYesNo(
-		'.env already exists. Overwrite it with a freshly generated one?',
-		{ defaultYes: false }
+	console.log(
+		'.env already exists. Continuing replaces the WHOLE file from the template, including any values you edited by hand (ORIGIN, bank sync credentials, ...), and rotates all three secrets.'
 	);
+	console.log(
+		'Rotating TOTP_ENCRYPTION_KEY breaks two-factor login for any account that already has it enabled.'
+	);
+	const overwrite = await askYesNo('Continue anyway?', { defaultYes: false });
 	if (!overwrite) {
-		console.log('\nKept your existing .env untouched. Nothing was changed.');
+		console.log(
+			'\nKept your existing .env untouched. To flip a single setting, edit .env directly instead of rerunning this script.'
+		);
 		rl.close();
 		process.exit(0);
 	}

@@ -99,6 +99,8 @@ docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
 docker compose exec ollama ollama pull qwen2.5:0.5b
 ```
 
+Already have a `.env` from a previous run and just want to turn AI on? Edit `LLM_ENABLED=true` in `.env` directly rather than rerunning `npm run setup` — rerunning it replaces the whole file and rotates all three secrets, which breaks two-factor login for any account that already has it enabled.
+
 The two `-f` flags just tell Compose to merge both files — the base app plus the optional Ollama service — into one stack.
 
 Then enable AI insights per user in Settings.
