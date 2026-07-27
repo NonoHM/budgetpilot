@@ -5,6 +5,7 @@
 	"version": "0.1.2",
 	"type": "module",
 	"scripts": {
+		"setup": "node scripts/setup.mjs",
 		"dev": "vite dev",
 		"dev:ai": "node scripts/ensure-ollama.mjs && vite dev",
 		"setup:llm": "node scripts/ensure-ollama.mjs --pull",
