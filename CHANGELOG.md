@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.1.2...budgetpilot-v0.1.3) (2026-07-27)
+
+
+### Bug Fixes
+
+* **docker:** make ORIGIN configurable, close Docker install friction points ([#23](https://github.com/NonoHM/budgetpilot/issues/23)) ([e8d4146](https://github.com/NonoHM/budgetpilot/commit/e8d414691b9550623a34b8ad67ff3b6bf5f5548e))
+
 ## [0.1.2](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.1.1...budgetpilot-v0.1.2) (2026-07-27)
 
 
