@@ -2,12 +2,7 @@ import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 
 export type PeriodKey =
-	| 'this-month'
-	| 'last-month'
-	| 'last-30-days'
-	| 'last-90-days'
-	| 'all-time'
-	| 'custom';
+	'this-month' | 'last-month' | 'last-30-days' | 'last-90-days' | 'all-time' | 'custom';
 
 export interface DateRange {
 	key: PeriodKey;

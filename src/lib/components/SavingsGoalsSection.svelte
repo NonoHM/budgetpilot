@@ -62,8 +62,7 @@
 			name: goal?.name ?? '',
 			targetAmountEuros: goal ? formatEurosInput(goal.targetAmountCents) : '',
 			trackingMode: (goal?.linkedAccount || goal?.linkStale ? 'linked' : 'manual') as
-				| 'manual'
-				| 'linked',
+				'manual' | 'linked',
 			netWorthAccountId: goal?.linkedAccount?.id ?? '',
 			currentAmountEuros: goal ? formatEurosInput(goal.currentAmountCents) : '',
 			targetDate: goal?.targetDate ? goal.targetDate.slice(0, 10) : ''
