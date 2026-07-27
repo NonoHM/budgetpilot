@@ -21,9 +21,11 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     steps:
+      # No explicit `ref:` override: for a release event, checkout already resolves to the
+      # tagged commit automatically; for workflow_dispatch, it checks out whatever ref the
+      # run was dispatched against (main by default) — which is what we want for a
+      # retroactive publish, since the tag itself may predate a since-fixed Dockerfile bug.
       - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
 
       - uses: docker/setup-buildx-action@v3
 
