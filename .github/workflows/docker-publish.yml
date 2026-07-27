@@ -7,6 +7,11 @@ name: Docker publish
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag to publish (e.g. budgetpilot-v0.1.1) — for retroactively publishing a release whose published event never fired'
+        required: true
 
 permissions:
   contents: read
@@ -17,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
 
       - uses: docker/setup-buildx-action@v3
 
@@ -29,9 +36,14 @@ jobs:
       - name: Extract version from release tag
         id: version
         env:
-          TAG_NAME: ${{ github.event.release.tag_name }}
+          # release-please's tag format is "<component>-v<version>" (component prefix on by
+          # default) — e.g. "budgetpilot-v0.1.1". Strip up to the first "-v" first, then a
+          # leading bare "v" as a fallback, so this also handles a plain "vX.Y.Z" tag if the
+          # component-prefix config setting ever changes.
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
         run: |
-          version="${TAG_NAME#v}"
+          version="${TAG_NAME#*-v}"
+          version="${version#v}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Lowercase repository name (GHCR requires it)
