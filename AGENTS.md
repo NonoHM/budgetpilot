@@ -96,7 +96,7 @@ docker compose down   # NEVER -v — that deletes the Docker DB volume
 ```
 src/
   lib/
-    components/   shared Svelte components (see "Reusable pieces")
+    components/    shared Svelte components
     domain/        pure, framework-agnostic business logic
     server/        server-only logic (Prisma access, external calls, auth)
     paraglide/      generated i18n runtime + messages
