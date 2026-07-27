@@ -12,7 +12,12 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
+      # Releases created via the default GITHUB_TOKEN do NOT emit a `release: published`
+      # event to other workflows (GitHub's recursion guard) — docker-publish.yml would
+      # silently never trigger. A PAT (RELEASE_PLEASE_PAT) makes the release attributable
+      # to a real actor, so the event fires normally.
       - uses: googleapis/release-please-action@v4
         with:
+          token: ${{ secrets.RELEASE_PLEASE_PAT }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
