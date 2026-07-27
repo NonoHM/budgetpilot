@@ -34,10 +34,17 @@ jobs:
           version="${TAG_NAME#v}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Lowercase repository name (GHCR requires it)
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          echo "name=${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/metadata-action@v5
         id: meta
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ steps.image.outputs.name }}
           tags: |
             type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=latest
