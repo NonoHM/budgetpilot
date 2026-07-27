@@ -51,59 +51,42 @@ SvelteKit, TypeScript, Prisma, SQLite, Tailwind CSS, Vitest, Playwright, Docker.
 ```bash
 nvm install && nvm use
 npm install
-cp .env.example .env
+npm run setup
 ```
 
-Then generate three secrets and paste them into `.env`. Skipping this step will crash `/register` and `/login` on first load, so don't skip it:
-
-```bash
-openssl rand -base64 32   # -> BOOTSTRAP_TOKEN
-openssl rand -hex 32      # -> RATE_LIMIT_HASH_SECRET
-openssl rand -hex 32      # -> TOTP_ENCRYPTION_KEY
-```
+`npm run setup` walks you through a few questions (Docker or not, optional AI, optional bank sync) and writes a complete `.env` for you, including three freshly generated secrets — no `openssl` needed. If you'd rather do it by hand, see [manual .env setup](#manual-env-setup) below.
 
 ```bash
 npx prisma generate && npx prisma migrate dev
 npm run dev
 ```
 
-Open `http://localhost:5173`. The first account you register needs the `BOOTSTRAP_TOKEN` you just generated, and it becomes an admin automatically.
+Open `http://localhost:5173`. The first account you register needs the `BOOTSTRAP_TOKEN` from your new `.env`, and it becomes an admin automatically.
 
 ## Docker
 
-**Prerequisite:** Docker Engine 24+ with the Compose plugin (`docker compose version` should print `v2.x` or newer). Don't have it yet? [Install Docker](https://docs.docker.com/get-started/get-docker/), then come back here.
+**Prerequisite:** Docker Engine 24+ with the Compose plugin (`docker compose version` should print `v2.x` or newer). Don't have it yet? [Install Docker](https://docs.docker.com/get-started/get-docker/), then come back here. `npm run setup` (below) also needs Node.js installed, only to run that one setup script — the app itself runs entirely inside the container. No Node? Use [manual .env setup](#manual-env-setup) instead.
 
 ### Without a GPU or AI (default)
 
 ```bash
-cp .env.example .env
-```
-
-Generate three secrets and paste them into `.env`. Skipping this crashes `/register` and `/login` on first load, so don't skip it:
-
-```bash
-openssl rand -base64 32   # -> BOOTSTRAP_TOKEN
-openssl rand -hex 32      # -> RATE_LIMIT_HASH_SECRET
-openssl rand -hex 32      # -> TOTP_ENCRYPTION_KEY
-```
-
-A generated value ending in `=`, or containing `+` or `/`, is normal `openssl` output — paste it exactly as printed, it isn't a copy mistake.
-
-```bash
+npm run setup
 docker compose up -d --build
 ```
 
+`npm run setup` writes a complete `.env` for you (three freshly generated secrets, no `openssl` needed) — say yes to Docker when asked, no to AI and bank sync unless you want them. Prefer doing it by hand? See [manual .env setup](#manual-env-setup) below.
+
 `-d` runs the app in the background ("detached"); `--build` builds the image (needed the first time, and again after any code change).
 
-Once the command returns, open **http://localhost:3000**. The first account you register needs the `BOOTSTRAP_TOKEN` you just generated, and it becomes an admin automatically. The interface defaults to French — switch to English any time from Settings.
+Once the command returns, open the URL `npm run setup` printed at the end (**http://localhost:3000** unless it detected that port was already taken and picked another one for you). The first account you register needs the `BOOTSTRAP_TOKEN` from your `.env`, and it becomes an admin automatically. The interface defaults to French — switch to English any time from Settings.
 
 Just the app, backed by a persistent SQLite volume. No Ollama container, no GPU needed.
 
 **If something doesn't work:** `docker compose logs -f budgetpilot` streams the app's logs (`-f` follows them live, Ctrl+C to stop watching). The most common cause of a broken `/register` or `/login` is a blank secret in `.env` — it shows up there as a clear `"<VAR_NAME> is required"` line.
 
-**If port 3000 is already used** by something else on your machine, change **both** of these to match each other (changing only one causes every form submission — login, register, ... — to fail with a `403 Cross-site POST form submissions are forbidden` error):
+**If port 3000 is already used** by something else on your machine, `npm run setup` detects that automatically and asks you for an alternate port — it writes both `APP_PORT` and `ORIGIN` in `.env` for you, so they can't drift out of sync. Doing it by hand instead? Set **both** of these to match each other (changing only one causes every form submission — login, register, ... — to fail with a `403 Cross-site POST form submissions are forbidden` error):
 
-- the `ports:` line in `docker-compose.yml`, e.g. `'3001:3000'`
+- `APP_PORT=3001` in `.env` (the host-side port Compose publishes, e.g. `'3001:3000'` in the `ports:` mapping)
 - `ORIGIN=http://localhost:3001` in `.env` (must match the port you actually open in the browser)
 
 ### With local AI (Ollama)
@@ -111,21 +94,40 @@ Just the app, backed by a persistent SQLite volume. No Ollama container, no GPU 
 You'll need an NVIDIA GPU with [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) installed. No GPU? Drop the `deploy.resources` block from `docker-compose.ai.yml` and Ollama will just run on CPU. Slower, but it works.
 
 ```bash
-cp .env.example .env
-# same three secrets as above (openssl rand -base64 32 / -hex 32 / -hex 32)
+npm run setup   # say yes to AI when asked — this sets LLM_ENABLED=true for you
 docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
 docker compose exec ollama ollama pull qwen2.5:0.5b
 ```
 
+Already have a `.env` from a previous run and just want to turn AI on? Edit `LLM_ENABLED=true` in `.env` directly rather than rerunning `npm run setup` — rerunning it replaces the whole file and rotates all three secrets, which breaks two-factor login for any account that already has it enabled.
+
 The two `-f` flags just tell Compose to merge both files — the base app plus the optional Ollama service — into one stack.
 
-Set `LLM_ENABLED=true` in `.env`, then enable AI insights per user in Settings.
+Then enable AI insights per user in Settings.
 
 To stop either setup: `docker compose down`. Add `-v` only if you actually want to wipe your data — it also deletes the named volumes (your SQLite database, and any downloaded Ollama models).
 
+## Manual .env setup
+
+Prefer not to run `npm run setup`, or don't have Node.js available? Do it by hand instead:
+
+```bash
+cp .env.example .env
+```
+
+Generate three secrets and paste them into `.env`. Skipping this step will crash `/register` and `/login` on first load, so don't skip it:
+
+```bash
+openssl rand -base64 32   # -> BOOTSTRAP_TOKEN
+openssl rand -hex 32      # -> RATE_LIMIT_HASH_SECRET
+openssl rand -hex 32      # -> TOTP_ENCRYPTION_KEY
+```
+
+A generated value ending in `=`, or containing `+` or `/`, is normal `openssl` output — paste it exactly as printed, it isn't a copy mistake. To enable optional AI or bank sync, also set `LLM_ENABLED=true` and/or `BANK_SYNC_ENABLED=true` in `.env`.
+
 ## Troubleshooting
 
-- **Port 3000 already in use?** Remap it — see [If port 3000 is already used](#without-a-gpu-or-ai-default) above. You must update `ORIGIN` in `.env` to match, or every form submission will fail.
+- **Port 3000 already in use?** If you haven't created `.env` yet, `npm run setup` checks for this and offers an alternate port automatically. Already have a working `.env` (rerunning setup would rotate its secrets)? Set `APP_PORT` and `ORIGIN` by hand instead — see [If port 3000 is already used](#without-a-gpu-or-ai-default) above; both must match the port you actually open in the browser, or every form submission will fail.
 - **App crash-loops, logs show a missing-secret error?** Run `docker compose logs budgetpilot` and check all three secrets (`BOOTSTRAP_TOKEN`, `RATE_LIMIT_HASH_SECRET`, `TOTP_ENCRYPTION_KEY`) are set in `.env`.
 - **UI shows up in French?** That's the default locale, not a bug — switch to English from Settings.
 
