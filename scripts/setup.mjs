@@ -6,6 +6,7 @@ import { createInterface } from 'node:readline/promises';
 import { existsSync } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { createServer } from 'node:net';
 import path from 'node:path';
 
 const rootDir = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
@@ -26,6 +27,41 @@ async function askYesNo(question, { defaultYes = false } = {}) {
 	const answer = (done ? '' : value).trim().toLowerCase();
 	if (!answer) return defaultYes;
 	return answer === 'y' || answer === 'yes';
+}
+
+async function askPort(question, defaultPort) {
+	process.stdout.write(`${question} [${defaultPort}] `);
+	const { value, done } = await lines.next();
+	const answer = (done ? '' : value).trim();
+	if (!answer) return defaultPort;
+	if (!/^\d+$/.test(answer) || Number(answer) < 1 || Number(answer) > 65535) {
+		console.log(`"${answer}" isn't a valid port, using ${defaultPort} instead.`);
+		return defaultPort;
+	}
+	return Number(answer);
+}
+
+function isPortFree(port) {
+	return new Promise((resolve) => {
+		const server = createServer();
+		server.once('error', (err) => {
+			if (err.code !== 'EADDRINUSE') {
+				console.log(`Couldn't check port ${port} (${err.code}), assuming it's free.`);
+				resolve(true);
+				return;
+			}
+			resolve(false);
+		});
+		server.once('listening', () => server.close(() => resolve(true)));
+		server.listen(port, '0.0.0.0');
+	});
+}
+
+async function findFreePort(startPort, { limit = 50 } = {}) {
+	for (let port = startPort; port < startPort + limit; port++) {
+		if (await isPortFree(port)) return port;
+	}
+	return null;
 }
 
 function setEnvValue(content, key, value) {
@@ -58,6 +94,28 @@ if (existsSync(envPath)) {
 
 const useDocker = await askYesNo('\nWill you run BudgetPilot with Docker?', { defaultYes: true });
 
+let appPort = 3000;
+if (useDocker) {
+	if (await isPortFree(3000)) {
+		appPort = 3000;
+	} else {
+		console.log('\nPort 3000 is already in use on this machine.');
+		const suggestion = await findFreePort(3001);
+		appPort = await askPort('Which host port should BudgetPilot use instead?', suggestion ?? 3001);
+		if (!(await isPortFree(appPort))) {
+			const fallback = await findFreePort(appPort + 1);
+			if (fallback) {
+				console.log(`Port ${appPort} is also taken, using ${fallback} instead.`);
+				appPort = fallback;
+			} else {
+				console.log(
+					`Port ${appPort} is also taken, and no free port was found nearby. Writing it anyway — edit APP_PORT in .env before running docker compose up.`
+				);
+			}
+		}
+	}
+}
+
 const enableLlm = await askYesNo(
 	'\nEnable optional local AI advice (Ollama)? You can turn this on later in .env.',
 	{ defaultYes: false }
@@ -81,6 +139,10 @@ content = setEnvValue(content, 'RATE_LIMIT_HASH_SECRET', rateLimitHashSecret);
 content = setEnvValue(content, 'TOTP_ENCRYPTION_KEY', totpEncryptionKey);
 content = setEnvValue(content, 'LLM_ENABLED', String(enableLlm));
 content = setEnvValue(content, 'BANK_SYNC_ENABLED', String(enableBankSync));
+if (useDocker) {
+	content = setEnvValue(content, 'APP_PORT', String(appPort));
+	content = setEnvValue(content, 'ORIGIN', `http://localhost:${appPort}`);
+}
 
 await writeFile(envPath, content, 'utf8');
 
@@ -89,7 +151,7 @@ console.log('\n.env created with three freshly generated secrets.\n');
 console.log('Next steps:\n');
 if (useDocker) {
 	console.log('  docker compose up -d --build');
-	console.log('\nThen open http://localhost:3000');
+	console.log(`\nThen open http://localhost:${appPort}`);
 } else {
 	console.log('  npx prisma generate && npx prisma migrate dev');
 	console.log('  npm run dev');
