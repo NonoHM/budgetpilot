@@ -29,6 +29,16 @@ RUN npx prisma generate
 # values (never baked into the /app/build output, never used at runtime) satisfy that
 # check the same way CI's test-and-build job does. Real values are supplied via env/volume
 # when the image actually runs.
+#
+# Linters (e.g. Docker Scout) may flag these as "sensitive data in ENV" — false positive
+# for this specific case: they're declared ONLY in this `builder` stage, which the final
+# `runner` stage below never derives FROM (it starts its own `FROM node:...`) and never
+# COPYs anything from except the compiled `build` output, `prisma`, and `prisma.config.ts`
+# — never the builder's image config/layers. Verified empirically via `docker inspect
+# --format '{{json .Config.Env}}'` and `docker history --no-trunc` on a locally built
+# image: neither value (nor this stage's placeholder DATABASE_URL) appears anywhere in
+# the final `runner` image's env or layer history. Do not "fix" this by moving them to
+# build ARGs or otherwise restructuring — there is nothing to fix, only document.
 ENV DATABASE_URL=file:/tmp/build-placeholder.db
 ENV TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
 ENV RATE_LIMIT_HASH_SECRET=docker-build-only-fake-rate-limit-hash-secret-do-not-reuse
