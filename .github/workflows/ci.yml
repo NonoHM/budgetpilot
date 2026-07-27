@@ -11,7 +11,56 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  ci:
+  # Split from a single sequential job into independent parallel jobs: lint and type-check
+  # only need `npm ci` + Prisma client generation, not the build/test artifacts, so they gain
+  # nothing from running after unit tests/build/e2e. Each job pays its own `npm ci`/`prisma
+  # generate` cost (npm's install is cached via setup-node's `cache: npm`, and Prisma codegen
+  # is a few seconds), which is cheap next to the wall-clock time saved by not serializing them
+  # behind the much longer test-and-build job.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Lint
+        run: npm run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # npm run check also compiles Paraglide translations (paraglide:compile) internally.
+      - name: Type + Svelte check
+        run: npm run check
+
+  # Unit tests, the production-build smoke check, and e2e stay sequential in one job: unit
+  # tests and the build are cheap and fail fast, so a broken build never triggers the much
+  # pricier e2e run (which does its own separate build internally, isolated from this smoke
+  # build's env/DB, against a dedicated throwaway DB — see e2e/config.ts).
+  test-and-build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -30,6 +79,9 @@ jobs:
       # The vitest "client" project (component tests) runs against a real Chromium via
       # @vitest/browser-playwright, and the e2e suite needs it too — installed once here,
       # ahead of test:unit, and reused (via cache + a no-op re-check) by test:e2e later.
+      # Chromium only: playwright.config.ts scopes `projects` to chromium (matches this
+      # install and vite.config.ts's browser instance) — installing/running the default
+      # Firefox/WebKit projects here would fail with no system deps installed for them.
       - name: Cache Playwright browsers
         uses: actions/cache@v6
         with:
@@ -38,12 +90,6 @@ jobs:
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type + Svelte check
-        run: npm run check
 
       - name: Unit tests
         run: npm run test:unit -- --run
