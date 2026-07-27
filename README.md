@@ -15,6 +15,11 @@ This isn't trying to replace Monarch, YNAB, or the other well-established player
 
 The weakest part right now is honestly CSV import: only a handful of bank profiles are supported, and the parser system needs more work to cover more banks and formats. Contributions there especially welcome.
 
+**Known limitations:**
+
+- SQLite only for now — Postgres/MariaDB aren't supported.
+- CSV import covers a limited set of bank profiles; unlisted banks need a new parser.
+
 ![Dashboard](docs/screenshots/dashboard-desktop.png)
 
 <p align="center">
@@ -66,15 +71,40 @@ Open `http://localhost:5173`. The first account you register needs the `BOOTSTRA
 
 ## Docker
 
+**Prerequisite:** Docker Engine 24+ with the Compose plugin (`docker compose version` should print `v2.x` or newer). Don't have it yet? [Install Docker](https://docs.docker.com/get-started/get-docker/), then come back here.
+
 ### Without a GPU or AI (default)
 
 ```bash
 cp .env.example .env
-# fill in the three secrets from above, same as the non Docker setup
+```
+
+Generate three secrets and paste them into `.env`. Skipping this crashes `/register` and `/login` on first load, so don't skip it:
+
+```bash
+openssl rand -base64 32   # -> BOOTSTRAP_TOKEN
+openssl rand -hex 32      # -> RATE_LIMIT_HASH_SECRET
+openssl rand -hex 32      # -> TOTP_ENCRYPTION_KEY
+```
+
+A generated value ending in `=`, or containing `+` or `/`, is normal `openssl` output — paste it exactly as printed, it isn't a copy mistake.
+
+```bash
 docker compose up -d --build
 ```
 
+`-d` runs the app in the background ("detached"); `--build` builds the image (needed the first time, and again after any code change).
+
+Once the command returns, open **http://localhost:3000**. The first account you register needs the `BOOTSTRAP_TOKEN` you just generated, and it becomes an admin automatically. The interface defaults to French — switch to English any time from Settings.
+
 Just the app, backed by a persistent SQLite volume. No Ollama container, no GPU needed.
+
+**If something doesn't work:** `docker compose logs -f budgetpilot` streams the app's logs (`-f` follows them live, Ctrl+C to stop watching). The most common cause of a broken `/register` or `/login` is a blank secret in `.env` — it shows up there as a clear `"<VAR_NAME> is required"` line.
+
+**If port 3000 is already used** by something else on your machine, change **both** of these to match each other (changing only one causes every form submission — login, register, ... — to fail with a `403 Cross-site POST form submissions are forbidden` error):
+
+- the `ports:` line in `docker-compose.yml`, e.g. `'3001:3000'`
+- `ORIGIN=http://localhost:3001` in `.env` (must match the port you actually open in the browser)
 
 ### With local AI (Ollama)
 
@@ -82,13 +112,24 @@ You'll need an NVIDIA GPU with [nvidia-container-toolkit](https://docs.nvidia.co
 
 ```bash
 cp .env.example .env
+# same three secrets as above (openssl rand -base64 32 / -hex 32 / -hex 32)
 docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
 docker compose exec ollama ollama pull qwen2.5:0.5b
 ```
 
+The two `-f` flags just tell Compose to merge both files — the base app plus the optional Ollama service — into one stack.
+
 Set `LLM_ENABLED=true` in `.env`, then enable AI insights per user in Settings.
 
-To stop either setup: `docker compose down`. Never add `-v` unless you actually want to wipe your data.
+To stop either setup: `docker compose down`. Add `-v` only if you actually want to wipe your data — it also deletes the named volumes (your SQLite database, and any downloaded Ollama models).
+
+## Troubleshooting
+
+- **Port 3000 already in use?** Remap it — see [If port 3000 is already used](#without-a-gpu-or-ai-default) above. You must update `ORIGIN` in `.env` to match, or every form submission will fail.
+- **App crash-loops, logs show a missing-secret error?** Run `docker compose logs budgetpilot` and check all three secrets (`BOOTSTRAP_TOKEN`, `RATE_LIMIT_HASH_SECRET`, `TOTP_ENCRYPTION_KEY`) are set in `.env`.
+- **UI shows up in French?** That's the default locale, not a bug — switch to English from Settings.
+
+Found something else? Please [open a GitHub issue](https://github.com/NonoHM/budgetpilot/issues) rather than expecting it documented here — this section covers known gotchas, not a running bug list.
 
 ## Contributing
 
