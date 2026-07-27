@@ -23,6 +23,16 @@ COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
 RUN npx prisma generate
+
+# SvelteKit's postbuild analysis step imports every server module to find prerendering
+# candidates, which runs each module's top-level validation — these throwaway build-time
+# values (never baked into the /app/build output, never used at runtime) satisfy that
+# check the same way CI's test-and-build job does. Real values are supplied via env/volume
+# when the image actually runs.
+ENV DATABASE_URL=file:/tmp/build-placeholder.db
+ENV TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
+ENV RATE_LIMIT_HASH_SECRET=docker-build-only-fake-rate-limit-hash-secret-do-not-reuse
+
 RUN npm run build
 
 
