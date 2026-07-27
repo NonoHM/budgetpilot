@@ -1,19 +1,9 @@
 export type TransactionSource =
-	| 'manual'
-	| 'csv'
-	| 'banque_populaire'
-	| 'mock_connector'
-	| 'enablebanking';
+	'manual' | 'csv' | 'banque_populaire' | 'mock_connector' | 'enablebanking';
 
 export type TransactionKind = 'income' | 'expense';
 export type TransactionNature =
-	| 'income'
-	| 'spending'
-	| 'transfer'
-	| 'investment'
-	| 'refund'
-	| 'fee'
-	| 'uncategorized';
+	'income' | 'spending' | 'transfer' | 'investment' | 'refund' | 'fee' | 'uncategorized';
 
 export const TRANSACTION_NATURES = [
 	'income',
