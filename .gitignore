@@ -50,8 +50,14 @@ docs/local/
 keys/
 *.pem
 
-# Internal working notes (not for the public repo)
+# Internal working notes (not for the public repo): audits, planning dumps and
+# refactor reports written for me, not for readers of the repo. Some quote real
+# database contents. Kept on disk, never tracked.
 docs/architecture-audit.md
+docs/Rapport Fusion Account.txt
+docs/règles_filtre.txt
+docs/regex-filter-plan.md
+docs/responsive-consistency-audit.md
 
 # Local-only agent instructions (public shared file is AGENTS.md)
 /CLAUDE.md
