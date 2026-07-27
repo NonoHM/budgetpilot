@@ -78,15 +78,15 @@ docker compose up -d --build
 
 `-d` runs the app in the background ("detached"); `--build` builds the image (needed the first time, and again after any code change).
 
-Once the command returns, open **http://localhost:3000**. The first account you register needs the `BOOTSTRAP_TOKEN` you just generated, and it becomes an admin automatically. The interface defaults to French — switch to English any time from Settings.
+Once the command returns, open the URL `npm run setup` printed at the end (**http://localhost:3000** unless it detected that port was already taken and picked another one for you). The first account you register needs the `BOOTSTRAP_TOKEN` from your `.env`, and it becomes an admin automatically. The interface defaults to French — switch to English any time from Settings.
 
 Just the app, backed by a persistent SQLite volume. No Ollama container, no GPU needed.
 
 **If something doesn't work:** `docker compose logs -f budgetpilot` streams the app's logs (`-f` follows them live, Ctrl+C to stop watching). The most common cause of a broken `/register` or `/login` is a blank secret in `.env` — it shows up there as a clear `"<VAR_NAME> is required"` line.
 
-**If port 3000 is already used** by something else on your machine, change **both** of these to match each other (changing only one causes every form submission — login, register, ... — to fail with a `403 Cross-site POST form submissions are forbidden` error):
+**If port 3000 is already used** by something else on your machine, `npm run setup` detects that automatically and asks you for an alternate port — it writes both `APP_PORT` and `ORIGIN` in `.env` for you, so they can't drift out of sync. Doing it by hand instead? Set **both** of these to match each other (changing only one causes every form submission — login, register, ... — to fail with a `403 Cross-site POST form submissions are forbidden` error):
 
-- the `ports:` line in `docker-compose.yml`, e.g. `'3001:3000'`
+- `APP_PORT=3001` in `.env` (the host-side port Compose publishes, e.g. `'3001:3000'` in the `ports:` mapping)
 - `ORIGIN=http://localhost:3001` in `.env` (must match the port you actually open in the browser)
 
 ### With local AI (Ollama)
@@ -127,7 +127,7 @@ A generated value ending in `=`, or containing `+` or `/`, is normal `openssl` o
 
 ## Troubleshooting
 
-- **Port 3000 already in use?** Remap it — see [If port 3000 is already used](#without-a-gpu-or-ai-default) above. You must update `ORIGIN` in `.env` to match, or every form submission will fail.
+- **Port 3000 already in use?** If you haven't created `.env` yet, `npm run setup` checks for this and offers an alternate port automatically. Already have a working `.env` (rerunning setup would rotate its secrets)? Set `APP_PORT` and `ORIGIN` by hand instead — see [If port 3000 is already used](#without-a-gpu-or-ai-default) above; both must match the port you actually open in the browser, or every form submission will fail.
 - **App crash-loops, logs show a missing-secret error?** Run `docker compose logs budgetpilot` and check all three secrets (`BOOTSTRAP_TOKEN`, `RATE_LIMIT_HASH_SECRET`, `TOTP_ENCRYPTION_KEY`) are set in `.env`.
 - **UI shows up in French?** That's the default locale, not a bug — switch to English from Settings.
 
