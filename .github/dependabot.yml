@@ -24,3 +24,11 @@ updates:
         update-types:
           - patch
           - minor
+    ignore:
+      # Node 26 is a deliberate runtime decision, not a dependency bump: the
+      # version is pinned in .nvmrc, in CI via node-version-file, and across all
+      # four Dockerfile stages, so moving it is a coordinated change reviewed on
+      # its own merits (PR #1 was closed for that reason). Scoped to 26.x only —
+      # 24.x patches still surface, and a future major would too.
+      - dependency-name: 'node'
+        versions: ['26.x']
