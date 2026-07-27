@@ -9,7 +9,7 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
-      ORIGIN: http://localhost:3000
+      ORIGIN: ${ORIGIN:-http://localhost:3000}
       BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN}
       BODY_SIZE_LIMIT: 21000000
     ports:

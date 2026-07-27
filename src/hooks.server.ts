@@ -7,6 +7,13 @@ import {
 	readSessionUser,
 	SESSION_COOKIE
 } from '$lib/server/auth';
+// Side-effect imports only: both modules throw at load time if their required secret
+// (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
+// the one module SvelteKit always loads at boot, so importing them here turns a missing
+// secret into a loud crash-on-startup instead of a generic 500 on the first /login or
+// /register request that happens to touch these route-specific server chunks.
+import '$lib/server/auth/rateLimit';
+import '$lib/server/crypto';
 
 const PUBLIC_ROUTES = new Set(['/login', '/register', '/login/verify-totp']);
 
