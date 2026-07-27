@@ -15,6 +15,11 @@ This isn't trying to replace Monarch, YNAB, or the other well-established player
 
 The weakest part right now is honestly CSV import: only a handful of bank profiles are supported, and the parser system needs more work to cover more banks and formats. Contributions there especially welcome.
 
+**Known limitations:**
+
+- SQLite only for now — Postgres/MariaDB aren't supported.
+- CSV import covers a limited set of bank profiles; unlisted banks need a new parser.
+
 ![Dashboard](docs/screenshots/dashboard-desktop.png)
 
 <p align="center">
@@ -117,6 +122,14 @@ The two `-f` flags just tell Compose to merge both files — the base app plus t
 Set `LLM_ENABLED=true` in `.env`, then enable AI insights per user in Settings.
 
 To stop either setup: `docker compose down`. Add `-v` only if you actually want to wipe your data — it also deletes the named volumes (your SQLite database, and any downloaded Ollama models).
+
+## Troubleshooting
+
+- **Port 3000 already in use?** Remap it — see [If port 3000 is already used](#without-a-gpu-or-ai-default) above. You must update `ORIGIN` in `.env` to match, or every form submission will fail.
+- **App crash-loops, logs show a missing-secret error?** Run `docker compose logs budgetpilot` and check all three secrets (`BOOTSTRAP_TOKEN`, `RATE_LIMIT_HASH_SECRET`, `TOTP_ENCRYPTION_KEY`) are set in `.env`.
+- **UI shows up in French?** That's the default locale, not a bug — switch to English from Settings.
+
+Found something else? Please [open a GitHub issue](https://github.com/NonoHM/budgetpilot/issues) rather than expecting it documented here — this section covers known gotchas, not a running bug list.
 
 ## Contributing
 
