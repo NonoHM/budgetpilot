@@ -52,3 +52,6 @@ keys/
 
 # Internal working notes (not for the public repo)
 docs/architecture-audit.md
+
+# Local-only agent instructions (public shared file is AGENTS.md)
+/CLAUDE.md
