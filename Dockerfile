@@ -1,4 +1,4 @@
-FROM node:24.18.0-trixie-slim AS deps
+FROM node:26.5.0-trixie-slim AS deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -16,7 +16,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 
-FROM node:24.18.0-trixie-slim AS builder
+FROM node:26.5.0-trixie-slim AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -36,7 +36,7 @@ ENV RATE_LIMIT_HASH_SECRET=docker-build-only-fake-rate-limit-hash-secret-do-not-
 RUN npm run build
 
 
-FROM node:24.18.0-trixie-slim AS prod-deps
+FROM node:26.5.0-trixie-slim AS prod-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -61,7 +61,7 @@ COPY prisma.config.ts ./prisma.config.ts
 RUN npx prisma generate
 
 
-FROM node:24.18.0-trixie-slim AS runner
+FROM node:26.5.0-trixie-slim AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
