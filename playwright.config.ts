@@ -1,8 +1,14 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 import { E2E_BASE_URL, E2E_ENV, E2E_PORT } from './e2e/config';
 
 export default defineConfig({
 	testDir: 'e2e',
+	// Chromium only, deliberately: matches the vitest "client" browser project
+	// (@vitest/browser-playwright, see vite.config.ts) and CI only installs Chromium
+	// (`playwright install --with-deps chromium`). Without this, Playwright falls back to its
+	// default 3-project set (chromium/firefox/webkit) and CI fails trying to launch Firefox/WebKit
+	// with no system deps installed for them.
+	projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
 	// Test files under e2e/ are named *.spec.ts (helper modules like config.ts/seed.ts are
 	// excluded automatically since they don't match this glob).
 	testMatch: '**/*.spec.ts',
