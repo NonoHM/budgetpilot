@@ -153,3 +153,12 @@ i18n system (Paraglide).
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, the pre-PR validation
 checklist, and commit message conventions.
+
+## Git workflow (mandatory, effective immediately)
+
+**No direct commits or pushes to `main`, ever.** Always: create a branch,
+push it, open a PR, wait for CI to pass, then merge. This applies even
+though the repo is currently private and GitHub isn't yet technically
+blocking direct pushes on the free plan — the discipline is voluntary now
+and becomes enforced the moment the repo goes public. Every session should
+default to this flow without needing to be asked again.
