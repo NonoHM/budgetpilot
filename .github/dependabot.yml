@@ -27,6 +27,16 @@ updates:
       # Revisit once upstream ships TS 7 support.
       - dependency-name: 'typescript'
         versions: ['7.x']
+      # 9.3.0 replaced the DOM XML parser with a SAX one and introduced a real
+      # regression: `readFiles()` in xlsx/parseSpreadsheetContents.js returns
+      # a plain object (not a Promise) whenever every nested parse call
+      # resolves synchronously (small/simple .xlsx files), but the caller
+      # unconditionally chains `.then()` on it — `TypeError: readFiles(...)
+      # .then is not a function`. Reproduced against the real 9.3.4 package
+      # (latest as of this writing), not just our test fixture. Revisit once
+      # upstream ships a fix past 9.3.4.
+      - dependency-name: 'read-excel-file'
+        versions: ['>=9.3.0']
 
   - package-ecosystem: docker
     directory: /
