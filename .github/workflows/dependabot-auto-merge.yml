@@ -1,0 +1,58 @@
+name: Dependabot auto-merge
+
+on: pull_request_target
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    if: github.actor == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Read Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: '${{ secrets.GITHUB_TOKEN }}'
+
+      - name: Decide whether this update qualifies for auto-merge
+        # Covers both PR shapes Dependabot opens:
+        #   - regular version-bump PRs from dependabot.yml's groups
+        #     (npm-patch-minor / docker-patch-minor / npm-lint-tooling)
+        #   - CVE-triggered security PRs, which are NEVER grouped
+        #     (dependency-group-names is empty for them), so the
+        #     lint/tooling exclusion below also checks dependency-names
+        #     directly rather than relying on the group name alone.
+        #
+        # Never auto-merge a major, security or not — a human always checks
+        # breaking-change risk. Never auto-merge eslint*/prettier*/
+        # @typescript-eslint*/typescript-eslint: a formatter or linter bump
+        # can change what "correctly formatted"/"lint-clean" means across the
+        # whole repo (see PR #41), so it always needs manual review even at
+        # patch/minor, grouped or not.
+        id: decide
+        env:
+          UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
+          GROUP_NAMES: ${{ steps.metadata.outputs.dependency-group-names }}
+          DEP_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+        run: |
+          qualifies=false
+          if [[ "$UPDATE_TYPE" == "version-update:semver-patch" || "$UPDATE_TYPE" == "version-update:semver-minor" ]]; then
+            if [[ "$GROUP_NAMES" != *"npm-lint-tooling"* ]] \
+              && ! grep -qiE '(^|,)\s*(eslint|prettier|typescript-eslint|@typescript-eslint/)' <<<"$DEP_NAMES"; then
+              qualifies=true
+            fi
+          fi
+          echo "qualifies=$qualifies" >> "$GITHUB_OUTPUT"
+
+      - name: Enable auto-merge
+        # Only flips the auto-merge flag - branch protection's required
+        # checks (lint, typecheck, test-and-build) still gate the actual
+        # merge, so nothing here bypasses CI.
+        if: steps.decide.outputs.qualifies == 'true'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

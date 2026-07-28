@@ -8,7 +8,21 @@ updates:
     commit-message:
       prefix: chore
     groups:
+      npm-lint-tooling:
+        patterns:
+          - 'eslint*'
+          - 'prettier*'
+          - '@typescript-eslint/*'
+          - 'typescript-eslint'
+        update-types:
+          - patch
+          - minor
       npm-patch-minor:
+        exclude-patterns:
+          - 'eslint*'
+          - 'prettier*'
+          - '@typescript-eslint/*'
+          - 'typescript-eslint'
         update-types:
           - patch
           - minor
