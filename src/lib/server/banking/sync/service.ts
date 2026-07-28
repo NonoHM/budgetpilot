@@ -89,8 +89,8 @@ function resolveOptions(options: BankSyncOptions) {
 	return {
 		env,
 		now: options.now ?? (() => new Date()),
-		// Thread the resolved env into the default registry: under `vite dev` only the
-		// injected $env/dynamic/private carries .env values, never process.env.
+		// Thread the resolved env into the default registry so a connector never silently
+		// falls back to a different env than the one this call was configured with.
 		getConnector:
 			options.getConnector ?? ((provider: string) => getBankConnector(provider, { env }))
 	};

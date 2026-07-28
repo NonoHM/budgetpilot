@@ -1,4 +1,4 @@
-import { redirect, type Handle } from '@sveltejs/kit';
+import { redirect, type Handle, type ServerInit } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import {
@@ -7,13 +7,22 @@ import {
 	readSessionUser,
 	SESSION_COOKIE
 } from '$lib/server/auth';
-// Side-effect imports only: both modules throw at load time if their required secret
+import { assertBootstrapTokenConfigured } from '$lib/server/auth/bootstrapToken';
+// Side-effect imports only: each module throws at load time if its required secret
 // (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
 // the one module SvelteKit always loads at boot, so importing them here turns a missing
 // secret into a loud crash-on-startup instead of a generic 500 on the first /login or
 // /register request that happens to touch these route-specific server chunks.
 import '$lib/server/auth/rateLimit';
 import '$lib/server/crypto';
+
+// Boot checks that need the database, and therefore can't be module-level: module code
+// also runs during SvelteKit's postbuild analysis, where no database exists. `init` runs
+// once per server start and adapter-node awaits it before listening, so throwing here is
+// still a crash-at-startup rather than a failure on some later request.
+export const init: ServerInit = async () => {
+	await assertBootstrapTokenConfigured();
+};
 
 const PUBLIC_ROUTES = new Set(['/login', '/register', '/login/verify-totp']);
 
@@ -22,11 +31,13 @@ const PUBLIC_ROUTES = new Set(['/login', '/register', '/login/verify-totp']);
 // startup instead of relying on an operator happening to re-read the logs.
 const secureCookies = areSecureCookiesEnabled();
 console.log(
-	`[budgetpilot] startup — NODE_ENV=${process.env.NODE_ENV ?? 'undefined'} PUBLIC_INSTANCE=${process.env.PUBLIC_INSTANCE ?? 'false'} cookies-secure=${secureCookies}`
+	`[budgetpilot] startup: PUBLIC_INSTANCE=${process.env.PUBLIC_INSTANCE ?? 'unset (defaults to secure)'} cookies-secure=${secureCookies}`
 );
+// The warning fires on the opt-OUT, since that is the only way to reach this state:
+// secure cookies are the default whenever PUBLIC_INSTANCE is anything but "false".
 if (!secureCookies) {
 	console.warn(
-		'[budgetpilot] ⚠️ SECURITY: session cookies without the Secure flag. If this instance is exposed on the Internet, set PUBLIC_INSTANCE=true (requires real HTTPS access).'
+		'[budgetpilot] ⚠️ SECURITY: PUBLIC_INSTANCE=false, LAN mode: session cookies are sent WITHOUT the Secure flag. This is correct for a private instance reached over plain http:// on a trusted network, and unsafe anywhere else. If this instance is reachable from the Internet, remove PUBLIC_INSTANCE=false and serve it over HTTPS.'
 	);
 }
 

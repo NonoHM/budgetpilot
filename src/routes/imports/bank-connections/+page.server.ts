@@ -27,7 +27,8 @@ const DEFAULT_COUNTRY = 'FR';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
-	// $env/dynamic/private, not process.env: under `vite dev` only the former sees .env.
+	// $env/dynamic/private is the explicit source here, so this route never depends on
+	// process.env being backfilled from .env (which vite.config.ts only does in dev).
 	const enabled = isBankSyncEnabled(env);
 
 	const countryParam = url.searchParams.get('country') ?? '';

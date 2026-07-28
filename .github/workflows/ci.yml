@@ -103,8 +103,9 @@ jobs:
           # unset, not just the ones the app touches at request time. Currently that's
           # db.ts (DATABASE_URL), crypto.ts (TOTP_ENCRYPTION_KEY), and rateLimit.ts
           # (RATE_LIMIT_HASH_SECRET) — grep `is required` under src/lib/server for the
-          # current list if this ever needs updating. All three values below are throwaway,
-          # CI-only fakes, never copied from a real .env.
+          # current list if this ever needs updating. Checks that need the database live
+          # in hooks.server.ts's `init` hook instead, which this step never runs. All three
+          # values below are throwaway, CI-only fakes, never copied from a real .env.
           DATABASE_URL: file:./dev.db
           # Must be valid 64-hex-char (32-byte) input for crypto.ts's decode check; the
           # repeating pattern signals "obviously not a real key" rather than looking random.

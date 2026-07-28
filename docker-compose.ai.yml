@@ -7,16 +7,18 @@
 # for the `deploy.resources` block below; on a machine without a GPU, remove
 # that block and Ollama will run on CPU (functional, slower).
 #
-# LLM_ENABLED must be true in your .env for the app to actually use Ollama:
-# the `:-true` fallback below only applies when the variable is absent from
-# .env entirely, and .env.example ships it set to false. See
-# docs/ai-insights.md.
+# Adding this overlay IS the opt-in: LLM_ENABLED is forced to true below, so
+# the stack can never end up in the state this file used to allow: an Ollama
+# container running, a model downloaded, and the app ignoring all of it
+# because .env still said LLM_ENABLED=false, with nothing explaining why.
+# .env's own LLM_ENABLED still governs the setups that don't use this overlay
+# (bare metal, `npm run dev`). See docs/ai-insights.md.
 services:
   budgetpilot:
     depends_on:
       - ollama
     environment:
-      LLM_ENABLED: ${LLM_ENABLED:-true}
+      LLM_ENABLED: 'true'
       LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
       LLM_BASE_URL: http://ollama:11434
       # Defaults mirror .env.example so this overlay also works with the

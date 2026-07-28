@@ -1,4 +1,3 @@
-import { timingSafeEqual } from 'node:crypto';
 import { error, fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
@@ -9,6 +8,7 @@ import {
 	validateEmail,
 	validatePassword
 } from '$lib/server/auth';
+import { isBootstrapTokenValid } from '$lib/server/auth/bootstrapToken';
 import { findValidInvitationByToken } from '$lib/server/auth/invitations';
 import { getRegistrationMode, isOnlyBackfillUser } from '$lib/server/auth/registration';
 import {
@@ -21,7 +21,6 @@ import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
 import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRules';
 import { prisma } from '$lib/server/db';
 import type { PageServerLoad } from './$types';
-import { env } from '$env/dynamic/private';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const inviteToken = url.searchParams.get('invite') ?? '';
@@ -207,19 +206,6 @@ async function claimBackfillUser(email: string, passwordHash: string): Promise<{
 	});
 	if (result.count !== 1) throw new Error('BACKFILL_CLAIM_FAILED');
 	return { id: BACKFILL_USER_ID };
-}
-
-function isBootstrapTokenValid(value: string): boolean {
-	const expected = env.BOOTSTRAP_TOKEN;
-	if (!expected || !value) return false;
-	const expectedBuf = Buffer.from(expected);
-	const valueBuf = Buffer.from(value);
-	// timingSafeEqual requires buffers of the same length: we always compare against a
-	// buffer of the expected length (the real token if the sizes match, otherwise a
-	// dummy buffer) to never leak the length via an early short-circuit.
-	const lengthsMatch = valueBuf.length === expectedBuf.length;
-	const comparand = lengthsMatch ? valueBuf : Buffer.alloc(expectedBuf.length);
-	return timingSafeEqual(expectedBuf, comparand) && lengthsMatch;
 }
 
 function isUniqueConstraintError(caught: unknown): boolean {

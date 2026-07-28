@@ -14,6 +14,7 @@ const db = vi.hoisted(() => ({
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
 const {
+	areSecureCookiesEnabled,
 	createSession,
 	generateTemporaryPassword,
 	getSessionCookieOptions,
@@ -59,7 +60,17 @@ describe('auth locale', () => {
 		const cookieSet = vi.fn();
 		db.prisma.session.create.mockResolvedValue({ id: 'session-1' });
 
-		await createSession('user-a', { set: cookieSet } as never);
+		// Pinned explicitly: the secure flag now defaults to true whenever
+		// PUBLIC_INSTANCE is anything but "false", so leaving it to the ambient
+		// environment would make this assertion depend on the shell.
+		const previousPublicInstance = process.env.PUBLIC_INSTANCE;
+		process.env.PUBLIC_INSTANCE = 'false';
+		try {
+			await createSession('user-a', { set: cookieSet } as never);
+		} finally {
+			if (previousPublicInstance === undefined) delete process.env.PUBLIC_INSTANCE;
+			else process.env.PUBLIC_INSTANCE = previousPublicInstance;
+		}
 
 		const createArgs = db.prisma.session.create.mock.calls[0][0];
 		const cookieArgs = cookieSet.mock.calls[0];
@@ -152,18 +163,75 @@ describe('auth locale', () => {
 		expect(options.expires.toISOString()).toBe('2026-07-01T00:00:00.000Z');
 	});
 
-	it("PUBLIC_INSTANCE=true force le cookie secure même si NODE_ENV n'est pas production", () => {
+	// The Secure flag is fail-secure: only the literal string "false" opts out.
+	// Every other value (unset, empty, "true", a typo, "FALSE" with a different
+	// case) must keep the flag on.
+	const secureCookieCases: Array<[string | undefined, boolean]> = [
+		[undefined, true],
+		['', true],
+		['true', true],
+		['TRUE', true],
+		['1', true],
+		['ture', true],
+		['FALSE', true],
+		[' false ', true],
+		['false', false]
+	];
+
+	it.each(secureCookieCases)(
+		'PUBLIC_INSTANCE=%p => cookie secure %p (fail-secure, NODE_ENV ignoré)',
+		(value, expected) => {
+			expect.assertions(2);
+
+			const previousPublicInstance = process.env.PUBLIC_INSTANCE;
+			const previousNodeEnv = process.env.NODE_ENV;
+			// NODE_ENV is pinned to development to prove it no longer takes part in
+			// the decision: it used to force secure cookies on its own.
+			process.env.NODE_ENV = 'development';
+			if (value === undefined) delete process.env.PUBLIC_INSTANCE;
+			else process.env.PUBLIC_INSTANCE = value;
+
+			try {
+				expect(areSecureCookiesEnabled()).toBe(expected);
+				expect(getSessionCookieOptions(new Date()).secure).toBe(expected);
+			} finally {
+				if (previousPublicInstance === undefined) delete process.env.PUBLIC_INSTANCE;
+				else process.env.PUBLIC_INSTANCE = previousPublicInstance;
+				process.env.NODE_ENV = previousNodeEnv;
+			}
+		}
+	);
+
+	it('force le cookie secure quand NODE_ENV=production ET PUBLIC_INSTANCE absent', () => {
 		expect.assertions(1);
 
 		const previousPublicInstance = process.env.PUBLIC_INSTANCE;
 		const previousNodeEnv = process.env.NODE_ENV;
-		process.env.NODE_ENV = 'development';
-		process.env.PUBLIC_INSTANCE = 'true';
+		process.env.NODE_ENV = 'production';
+		delete process.env.PUBLIC_INSTANCE;
 
 		try {
-			expect(getSessionCookieOptions(new Date()).secure).toBe(true);
+			expect(areSecureCookiesEnabled()).toBe(true);
 		} finally {
-			process.env.PUBLIC_INSTANCE = previousPublicInstance;
+			if (previousPublicInstance === undefined) delete process.env.PUBLIC_INSTANCE;
+			else process.env.PUBLIC_INSTANCE = previousPublicInstance;
+			process.env.NODE_ENV = previousNodeEnv;
+		}
+	});
+
+	it('laisse PUBLIC_INSTANCE=false désactiver le secure même en production (LAN)', () => {
+		expect.assertions(1);
+
+		const previousPublicInstance = process.env.PUBLIC_INSTANCE;
+		const previousNodeEnv = process.env.NODE_ENV;
+		process.env.NODE_ENV = 'production';
+		process.env.PUBLIC_INSTANCE = 'false';
+
+		try {
+			expect(areSecureCookiesEnabled()).toBe(false);
+		} finally {
+			if (previousPublicInstance === undefined) delete process.env.PUBLIC_INSTANCE;
+			else process.env.PUBLIC_INSTANCE = previousPublicInstance;
 			process.env.NODE_ENV = previousNodeEnv;
 		}
 	});

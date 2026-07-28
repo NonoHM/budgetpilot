@@ -18,6 +18,10 @@ Thumbs.db
 !.env.example
 !.env.test
 
+# Reverse proxy: the operator's own Caddyfile (their real domain), built from
+# Caddyfile.example which is the tracked template.
+/Caddyfile
+
 # Local databases and exports
 *.db
 *.db-journal

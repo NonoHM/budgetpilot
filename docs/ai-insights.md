@@ -25,19 +25,16 @@ required to be `https://`, plain HTTP is refused.
 
 ## Setup with Docker
 
-You need the `ollama` container plus the model.
+You need the `ollama` container plus the model. Nothing to change in `.env`:
+adding the overlay is itself the opt-in, so it forces `LLM_ENABLED=true` for
+the app container regardless of what your `.env` says. It used to leave you
+with a running Ollama container, a downloaded model and no AI in the app if
+`.env` still said `false`, with nothing explaining why.
 
-### 1. Turn it on in `.env`
+`LLM_ENABLED` in `.env` still governs the setups that don't use this
+overlay, such as a bare-metal run or `npm run dev`.
 
-```dotenv
-LLM_ENABLED=true
-```
-
-This step is not optional and it's the one people miss. Starting the AI
-overlay while `LLM_ENABLED=false` gives you a running Ollama container, a
-downloaded model, and no AI in the app, with nothing explaining why.
-
-### 2. Start both services
+### 1. Start both services
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.ai.yml up -d --build
@@ -53,7 +50,7 @@ The two `-f` flags merge the base stack with the Ollama overlay. First run
 downloads the `ollama/ollama` image, which is over a gigabyte, so give it a
 few minutes.
 
-### 3. Pull a model
+### 2. Pull a model
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.ai.yml exec ollama ollama pull qwen2.5:0.5b
@@ -73,7 +70,7 @@ LLM_MODEL=qwen2.5:7b
 
 Then `docker compose ... up -d` again to pick up the change.
 
-### 4. Enable it for your account
+### 3. Enable it for your account
 
 The env flag is the global gate. Each user also flips their own switch in
 **Settings**. Both have to be on before anything appears on the dashboard.
@@ -108,7 +105,9 @@ shouldn't nag you.
 
 Work through these in order:
 
-1. `LLM_ENABLED=true` in `.env`, and the app restarted since.
+1. The AI overlay actually in your `docker compose` command
+   (`-f docker-compose.ai.yml`), and the app restarted since. Outside
+   Docker, `LLM_ENABLED=true` in `.env`.
 2. The per-user switch on in Settings.
 3. The model actually pulled:
    `docker compose ... exec ollama ollama list` should show it.

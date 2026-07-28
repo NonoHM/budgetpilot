@@ -104,12 +104,22 @@ docker compose -f docker-compose.prebuilt.yml logs budgetpilot
 You want these two lines near the end:
 
 ```
-[budgetpilot] startup — NODE_ENV=production PUBLIC_INSTANCE=false cookies-secure=true
+[budgetpilot] startup: PUBLIC_INSTANCE=unset (defaults to secure) cookies-secure=true
 Listening on http://0.0.0.0:3000
 ```
 
+(If you used `npm run setup` rather than the `.env` block above, the first
+line reads `PUBLIC_INSTANCE=true` instead. Same thing: the flag defaults to
+on when it isn't set at all.)
+
 `0.0.0.0:3000` is the port _inside_ the container, which never changes. The
 one you open in the browser is your `APP_PORT`.
+
+`cookies-secure=true` is the default and the right value here: browsers
+accept a `Secure` cookie over `http://localhost`. If you plan to reach the
+app from another device on your LAN instead, read
+[reaching it from another device](#reaching-it-from-another-device) before
+you try.
 
 If instead you see the container restarting in a loop, jump to
 [troubleshooting](./troubleshooting.md).
@@ -209,6 +219,40 @@ Your database is a single file, `dev.db`, at the root of the checkout.
 
 ---
 
+## Reaching it from another device
+
+Everything above assumes you open the app on the machine running it, at
+`http://localhost:3000`. Two extra lines are needed to reach it from your
+phone or laptop instead, and skipping them is the single most common way to
+get stuck.
+
+Over plain HTTP on your LAN, at the machine's own address:
+
+```dotenv
+ORIGIN=http://192.168.1.42:3000
+PUBLIC_INSTANCE=false
+```
+
+Both matter. `ORIGIN` has to be the exact URL you type, or every form
+returns a 403. `PUBLIC_INSTANCE=false` drops the `Secure` flag from the
+session cookie, which browsers otherwise refuse to store on a plain-HTTP
+address that isn't `localhost`, leaving you logged out on every page load.
+The app prints a warning at startup while this is on, because your session
+cookie then travels in clear text on your network. That is a reasonable
+trade on a home LAN and not one to make anywhere else.
+
+Restart after editing, then check the logs say what you expect:
+
+```
+[budgetpilot] startup: PUBLIC_INSTANCE=false cookies-secure=false
+```
+
+Want a real domain and HTTPS instead? That's a Caddy overlay and three
+commands: see [reverse proxy](./reverse-proxy.md). Leave
+`PUBLIC_INSTANCE` alone in that case.
+
+---
+
 ## First steps in the app
 
 A fresh account is empty apart from 14 default categories. Two ways to fill
@@ -282,6 +326,8 @@ and random. Use three different values, never the same one twice.
 
 - [Configuration](./configuration.md): every setting, and how to reach the
   app from your phone or another machine.
+- [Reverse proxy](./reverse-proxy.md): a real domain with automatic HTTPS,
+  via the optional Caddy overlay.
 - [Operations](./operations.md): updating, backups, moving to another
   machine.
 - [Local AI advice](./ai-insights.md): the optional Ollama setup.

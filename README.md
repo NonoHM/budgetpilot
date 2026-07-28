@@ -73,10 +73,13 @@ Open **http://localhost:3000** and create your account. Registration is closed b
 
 On Windows, run all of this from Git Bash or WSL. Port 3000 already taken, or want to run it from a source checkout instead? The [full walkthrough](docs/getting-started.md) covers both, plus running it without Docker.
 
+Reaching it from another device on your LAN takes two extra lines in `.env` (`ORIGIN` and `PUBLIC_INSTANCE=false`), and a real domain with automatic HTTPS takes an optional [Caddy overlay](docs/reverse-proxy.md).
+
 ## Documentation
 
 - **[Getting started](docs/getting-started.md)**: the detailed version of the above, three install paths, and what to do once you're in.
 - **[Configuration](docs/configuration.md)**: every setting, and how to reach the app from your phone or another machine.
+- **[Reverse proxy](docs/reverse-proxy.md)**: optional Caddy overlay for a real domain with automatic HTTPS.
 - **[Running it day to day](docs/operations.md)**: updating, backups, moving machines.
 - **[Local AI advice](docs/ai-insights.md)** and **[bank sync](docs/bank-sync.md)**: the two optional features.
 - **[Troubleshooting](docs/troubleshooting.md)**: when something's broken.
