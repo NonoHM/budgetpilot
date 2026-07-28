@@ -13,7 +13,9 @@
 
 <svg
 	class="spinner-icon {extraClass}"
-	style="width: {size}px; height: {size}px; --spinner-duration: {speedMs}ms;"
+	style:width="{size}px"
+	style:height="{size}px"
+	style:--spinner-duration="{speedMs}ms"
 	viewBox="0 0 24 24"
 	fill="none"
 	aria-hidden="true"
