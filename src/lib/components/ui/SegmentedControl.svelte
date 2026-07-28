@@ -55,7 +55,7 @@
 			tabindex={value === option.value ? 0 : -1}
 			onclick={() => select(option.value)}
 			onkeydown={(event) => handleKeydown(event, index)}
-			class="flex h-7 w-7 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1 {value ===
+			class="flex h-7 w-7 items-center justify-center rounded-md transition-colors focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1 focus-visible:outline-none {value ===
 			option.value
 				? 'bg-zinc-900 text-white'
 				: 'text-zinc-500 hover:bg-zinc-100'}"

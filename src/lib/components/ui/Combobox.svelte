@@ -71,7 +71,7 @@
 >
 	<div class="relative {className}">
 		<Combobox.Input
-			class="h-11 w-full rounded-xl border border-zinc-200 bg-white pl-3 pr-8 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-400 disabled:cursor-not-allowed disabled:opacity-50 {triggerClass}"
+			class="h-11 w-full rounded-xl border border-zinc-200 bg-white pr-8 pl-3 text-sm text-zinc-900 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 {triggerClass}"
 			aria-label={ariaLabel ?? placeholder}
 			placeholder={open ? m.common_combobox_search_placeholder() : placeholder}
 			oninput={(e) => {
@@ -80,7 +80,7 @@
 			}}
 		/>
 		<Combobox.Trigger
-			class="absolute inset-y-0 right-0 flex items-center rounded-r-xl px-2 text-zinc-400 hover:text-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 disabled:pointer-events-none"
+			class="absolute inset-y-0 right-0 flex items-center rounded-r-xl px-2 text-zinc-400 hover:text-zinc-600 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none disabled:pointer-events-none"
 			aria-label={m.common_combobox_open_list_aria()}
 		>
 			<svg class="h-4 w-4 shrink-0" viewBox="0 0 20 20" fill="none" aria-hidden="true">
@@ -110,7 +110,7 @@
 						<Combobox.Item
 							value={option.value}
 							label={option.label}
-							class="relative flex cursor-pointer select-none items-center justify-between rounded px-3 py-1.5 text-sm text-zinc-700 outline-none data-[highlighted]:bg-zinc-100 data-[highlighted]:text-zinc-900 data-[selected]:font-medium data-[selected]:text-zinc-900"
+							class="relative flex cursor-pointer items-center justify-between rounded px-3 py-1.5 text-sm text-zinc-700 outline-none select-none data-[highlighted]:bg-zinc-100 data-[highlighted]:text-zinc-900 data-[selected]:font-medium data-[selected]:text-zinc-900"
 						>
 							{#snippet children({ selected })}
 								{option.label}

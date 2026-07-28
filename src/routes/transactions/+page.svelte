@@ -514,7 +514,7 @@
 		<!-- ============ BANDEAU "À CLASSER" — DESKTOP ============ -->
 		{#if data.uncategorizedCount > 0}
 			<div
-				class="hidden lg:flex items-center gap-4 rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3"
+				class="hidden items-center gap-4 rounded-lg border border-zinc-300 bg-zinc-50 px-4 py-3 lg:flex"
 			>
 				<span
 					aria-label={data.uncategorizedCount > 1
@@ -546,7 +546,7 @@
 
 		<!-- ============ BANDEAU "À CLASSER" — MOBILE ============ -->
 		{#if data.uncategorizedCount > 0}
-			<div class="lg:hidden space-y-4 {cardBase} !bg-zinc-50 p-5">
+			<div class="space-y-4 lg:hidden {cardBase} !bg-zinc-50 p-5">
 				<div class="flex items-start gap-3.5">
 					<span
 						aria-label={data.uncategorizedCount > 1
@@ -601,7 +601,7 @@
 						{/if}
 						<a
 							href={resolve(buildFilterHref('all'))}
-							class="flex min-h-[44px] shrink-0 items-center justify-center px-3 text-[13.5px] font-semibold text-zinc-600 underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 rounded-md"
+							class="flex min-h-[44px] shrink-0 items-center justify-center rounded-md px-3 text-[13.5px] font-semibold text-zinc-600 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none"
 						>
 							{m.transactions_classify_finish()}
 						</a>
@@ -623,7 +623,7 @@
 		{/if}
 
 		<!-- ============ BARRE DE FILTRES — DESKTOP ============ -->
-		<div class="hidden lg:block rounded-lg border border-zinc-200 bg-white p-4 space-y-3">
+		<div class="hidden space-y-3 rounded-lg border border-zinc-200 bg-white p-4 lg:block">
 			<!-- Onglets type -->
 			<div class="flex flex-wrap items-center gap-3">
 				<div
@@ -637,7 +637,7 @@
 							aria-selected={data.filters.type === tab.t}
 							class="{tab.badge !== undefined
 								? 'inline-flex items-center gap-1.5'
-								: ''} rounded-md px-3 py-1 font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1 {data
+								: ''} rounded-md px-3 py-1 font-medium transition-colors focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-1 focus-visible:outline-none {data
 								.filters.type === tab.t
 								? 'bg-zinc-900 text-white'
 								: 'text-zinc-600 hover:bg-zinc-100'}"
@@ -757,7 +757,7 @@
 		</div>
 
 		<!-- ============ ONGLETS + FILTRES — MOBILE ============ -->
-		<div class="lg:hidden space-y-4">
+		<div class="space-y-4 lg:hidden">
 			<div class="flex gap-2 overflow-x-auto pb-0.5">
 				{#each visibleTabs as tab (tab.t)}
 					<a
@@ -766,7 +766,7 @@
 						aria-selected={data.filters.type === tab.t}
 						class="flex h-9 shrink-0 items-center {tab.badge !== undefined
 							? 'gap-1.5'
-							: ''} whitespace-nowrap rounded-full px-4 text-[13px] {tab.badge !== undefined
+							: ''} rounded-full px-4 text-[13px] whitespace-nowrap {tab.badge !== undefined
 							? 'font-semibold'
 							: 'font-medium'} transition-colors {data.filters.type === tab.t
 							? 'bg-zinc-900 text-white'
@@ -902,7 +902,7 @@
 		</div>
 
 		<!-- ============ TABLEAU + PANNEAU DÉTAIL — DESKTOP ============ -->
-		<div class="hidden lg:grid gap-6 xl:grid-cols-[1fr_400px]">
+		<div class="hidden gap-6 lg:grid xl:grid-cols-[1fr_400px]">
 			<!-- Section tableau -->
 			<section class="rounded-lg border border-zinc-200 bg-white">
 				<!-- En-tête tableau : pagination -->
@@ -939,11 +939,11 @@
 					{#if visibleTransactions.length > 0}
 						<table class="w-full text-left text-sm">
 							<thead
-								class="border-b border-zinc-100 bg-zinc-50 text-[11px] font-semibold uppercase tracking-wide text-zinc-500"
+								class="border-b border-zinc-100 bg-zinc-50 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase"
 							>
 								{#if classificationMode}
 									<tr>
-										<th class="px-4 py-2.5 w-52">{m.transactions_table_classify_transaction()}</th>
+										<th class="w-52 px-4 py-2.5">{m.transactions_table_classify_transaction()}</th>
 										<th class="px-4 py-2.5">{m.transactions_table_classify_proposal()}</th>
 									</tr>
 								{:else}
@@ -962,18 +962,18 @@
 											<tr
 												class="border-b border-zinc-100 last:border-0 {data.selectedTransaction
 													?.id === tx.id
-													? 'bg-zinc-50 ring-1 ring-inset ring-zinc-900/10'
+													? 'bg-zinc-50 ring-1 ring-zinc-900/10 ring-inset'
 													: 'hover:bg-zinc-50/50'}"
 											>
 												<td class="px-4 py-3 align-top">
 													<a href={resolve(buildSelectedHref(tx.id))} class="block">
 														<span
-															class="font-medium text-zinc-900 hover:underline underline-offset-2 line-clamp-2"
+															class="line-clamp-2 font-medium text-zinc-900 underline-offset-2 hover:underline"
 															>{tx.label}</span
 														>
 														<span class="mt-0.5 block text-xs text-zinc-400">
 															{formatDate(tx.date)} ·
-															<span class="font-semibold tabular-nums text-zinc-700"
+															<span class="font-semibold text-zinc-700 tabular-nums"
 																>{formatCents(tx.amountCents)}</span
 															>
 														</span>
@@ -995,7 +995,7 @@
 																</span>
 																{#if tx.suggestion.nature}
 																	<span
-																		class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500"
+																		class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[11px] font-medium tracking-wide text-zinc-500 uppercase"
 																	>
 																		{formatNatureLabel(tx.suggestion.nature)}
 																	</span>
@@ -1069,12 +1069,12 @@
 											<tr
 												class="border-b border-zinc-100 last:border-0 {data.selectedTransaction
 													?.id === tx.id
-													? 'bg-zinc-50 ring-1 ring-inset ring-zinc-900/10'
+													? 'bg-zinc-50 ring-1 ring-zinc-900/10 ring-inset'
 													: 'hover:bg-zinc-50/50'}"
 											>
 												<td class="max-w-[260px] px-4 py-3">
 													<a
-														class="font-medium text-zinc-900 hover:underline underline-offset-2 line-clamp-2"
+														class="line-clamp-2 font-medium text-zinc-900 underline-offset-2 hover:underline"
 														href={resolve(buildSelectedHref(tx.id))}>{tx.label}</a
 													>
 													<p class="mt-0.5 text-xs text-zinc-400">{formatDate(tx.date)}</p>
@@ -1086,7 +1086,7 @@
 														></span>
 														<span class="text-zinc-700">{displayCategory(tx.category)}</span>
 													</div>
-													<p class="ml-3.5 mt-0.5 text-xs text-zinc-500">
+													<p class="mt-0.5 ml-3.5 text-xs text-zinc-500">
 														{formatNatureLabel(tx.nature)}
 													</p>
 												</td>
@@ -1176,12 +1176,12 @@
 							/>
 						{/if}
 
-						<div class="px-4 py-4 space-y-4">
+						<div class="space-y-4 px-4 py-4">
 							<!-- Résumé rapide -->
 							<dl class="grid gap-2 text-sm">
 								<div class="flex justify-between gap-3">
 									<dt class="text-zinc-500">{m.transactions_summary_source()}</dt>
-									<dd class="font-medium text-right">{data.selectedTransaction.source}</dd>
+									<dd class="text-right font-medium">{data.selectedTransaction.source}</dd>
 								</div>
 								<div class="flex justify-between gap-3">
 									<dt class="text-zinc-500">{m.transactions_summary_type()}</dt>
@@ -1306,7 +1306,7 @@
 								<h3 class="m-0">
 									<button
 										type="button"
-										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-900"
+										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
 										onclick={() => toggleSection('bankFields')}
 										aria-expanded={openSections.has('bankFields')}
 									>
@@ -1381,7 +1381,7 @@
 								<h3 class="m-0">
 									<button
 										type="button"
-										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-900"
+										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
 										onclick={() => toggleSection('traceability')}
 										aria-expanded={openSections.has('traceability')}
 									>
@@ -1416,7 +1416,7 @@
 													<dt class="font-medium text-zinc-700">{m.transactions_import_label()}</dt>
 													<dd class="mt-0.5 text-zinc-600">
 														<a
-															class="text-zinc-700 hover:underline underline-offset-2"
+															class="text-zinc-700 underline-offset-2 hover:underline"
 															href={resolve(
 																`/transactions?importBatch=${data.selectedTransaction.importBatch.id}` as `/transactions?${string}`
 															)}
@@ -1459,7 +1459,7 @@
 								<h3 class="m-0">
 									<button
 										type="button"
-										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-900"
+										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
 										onclick={() => toggleSection('notes')}
 										aria-expanded={openSections.has('notes')}
 									>
@@ -1505,7 +1505,7 @@
 		</div>
 
 		<!-- ============ LISTE — MOBILE ============ -->
-		<div class="lg:hidden space-y-4">
+		<div class="space-y-4 lg:hidden">
 			<div class="flex items-center justify-between gap-2">
 				<p class="text-sm text-zinc-500">
 					{data.pagination.totalTransactions > 1
@@ -1551,7 +1551,7 @@
 								<ListCard active={data.selectedTransaction?.id === tx.id}>
 									<a
 										href={resolve(buildSelectedHref(tx.id))}
-										class="flex items-center gap-3 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2"
+										class="flex items-center gap-3 rounded-lg focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:outline-none"
 									>
 										<Avatar initials={getInitials(tx.label)} size={32} />
 										<div class="min-w-0 flex-1">
@@ -2083,7 +2083,7 @@
 									<dt class="font-medium text-zinc-700">{m.transactions_import_label()}</dt>
 									<dd class="mt-0.5 text-zinc-600">
 										<a
-											class="text-zinc-700 hover:underline underline-offset-2"
+											class="text-zinc-700 underline-offset-2 hover:underline"
 											href={resolve(
 												`/transactions?importBatch=${data.selectedTransaction.importBatch.id}` as `/transactions?${string}`
 											)}

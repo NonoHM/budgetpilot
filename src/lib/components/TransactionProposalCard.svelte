@@ -168,7 +168,7 @@
 	</div>
 {:else}
 	<div class="border-b border-zinc-100 bg-zinc-50 px-4 py-3.5">
-		<p class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+		<p class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 			{m.transactions_proposal_heading()}
 		</p>
 		<div class="mt-2 flex flex-wrap items-center gap-2">

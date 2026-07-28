@@ -175,7 +175,7 @@
 			<div class="flex items-center justify-between gap-3">
 				<div class="min-w-0">
 					<p class="text-lg font-bold text-zinc-950">{m.transactions_focus_mode()}</p>
-					<p class="text-xs font-medium tabular-nums text-zinc-500">
+					<p class="text-xs font-medium text-zinc-500 tabular-nums">
 						{m.transactions_focus_progress({ position, total })}
 					</p>
 				</div>
@@ -262,7 +262,7 @@
 			<div class="flex items-center justify-between gap-2 pt-1">
 				<button
 					type="button"
-					class="text-sm font-medium text-zinc-600 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 rounded-md px-1"
+					class="rounded-md px-1 text-sm font-medium text-zinc-600 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
 					disabled={!canGoPrevious}
 					onclick={onPrevious}
 				>
@@ -270,7 +270,7 @@
 				</button>
 				<button
 					type="button"
-					class="text-sm font-medium text-zinc-600 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 rounded-md px-1"
+					class="rounded-md px-1 text-sm font-medium text-zinc-600 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40"
 					disabled={!canGoNext}
 					onclick={onNext}
 				>

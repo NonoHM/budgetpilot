@@ -131,18 +131,18 @@
 			<div class="{cardBase} p-5 lg:hidden">
 				<div class="flex items-center justify-between gap-4">
 					<div>
-						<div class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+						<div class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 							{m.budgets_spent_this_month()}
 						</div>
-						<div class="mt-0.5 text-lg font-semibold tabular-nums text-zinc-900">
+						<div class="mt-0.5 text-lg font-semibold text-zinc-900 tabular-nums">
 							{formatCents(totalSpentCents)}
 						</div>
 					</div>
 					<div class="text-right">
-						<div class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+						<div class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 							{m.budgets_total_budget()}
 						</div>
-						<div class="mt-0.5 text-lg font-semibold tabular-nums text-zinc-900">
+						<div class="mt-0.5 text-lg font-semibold text-zinc-900 tabular-nums">
 							{formatCents(totalLimitCents)}
 						</div>
 					</div>
@@ -239,19 +239,19 @@
 				class="hidden flex-wrap items-center gap-x-6 gap-y-3 rounded-lg border border-zinc-200 bg-zinc-50/70 px-5 py-4 lg:flex"
 			>
 				<div>
-					<div class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+					<div class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 						{m.budgets_spent_this_month()}
 					</div>
-					<div class="mt-0.5 text-lg font-semibold tabular-nums text-zinc-900">
+					<div class="mt-0.5 text-lg font-semibold text-zinc-900 tabular-nums">
 						{formatCents(totalSpentCents)}
 					</div>
 				</div>
 				<div class="hidden h-8 w-px bg-zinc-200 sm:block"></div>
 				<div>
-					<div class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+					<div class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 						{m.budgets_total_budget()}
 					</div>
-					<div class="mt-0.5 text-lg font-semibold tabular-nums text-zinc-900">
+					<div class="mt-0.5 text-lg font-semibold text-zinc-900 tabular-nums">
 						{formatCents(totalLimitCents)}
 					</div>
 				</div>

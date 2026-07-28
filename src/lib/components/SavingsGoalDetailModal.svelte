@@ -122,7 +122,7 @@
 			</Badge>
 
 			<div class="mt-2 flex items-baseline gap-2">
-				<span class="text-2xl font-semibold tabular-nums text-zinc-900"
+				<span class="text-2xl font-semibold text-zinc-900 tabular-nums"
 					>{formatCents(goal.currentAmountCents)}</span
 				>
 				<span class="text-sm text-zinc-400">/ {formatCents(goal.targetAmountCents)}</span>
@@ -160,7 +160,7 @@
 		{#if targetDateObj && monthlyPaceCents !== null}
 			<div class="rounded-xl border border-amber-200 bg-amber-50/60 p-3.5">
 				<div class="text-xs font-medium text-amber-900">{m.savings_goal_pace_title()}</div>
-				<div class="mt-1 text-lg font-semibold tabular-nums text-amber-900">
+				<div class="mt-1 text-lg font-semibold text-amber-900 tabular-nums">
 					{m.savings_goal_pace_per_month({ amount: formatCents(monthlyPaceCents) })}
 				</div>
 				<div class="mt-1 text-xs text-amber-700">

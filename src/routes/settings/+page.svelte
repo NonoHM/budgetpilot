@@ -162,7 +162,7 @@
 		<div class="grid gap-4 lg:grid-cols-3">
 			<!-- Compte -->
 			<div class={card}>
-				<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+				<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 					{m.settings_account_heading()}
 				</h2>
 				<div class="mt-4 flex items-center gap-3">
@@ -181,7 +181,7 @@
 						<dt class="text-zinc-500">{m.settings_role_label()}</dt>
 						<dd>
 							<span
-								class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-600"
+								class="rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-600 uppercase"
 							>
 								{data.account.role}
 							</span>
@@ -192,7 +192,7 @@
 
 			<!-- Statut sécurité -->
 			<div class="{card} lg:col-span-2">
-				<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+				<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 					{m.settings_security_status_heading()}
 				</h2>
 				<div class="mt-4 grid grid-cols-2 gap-x-6 gap-y-4">
@@ -227,7 +227,7 @@
 					<!-- Dernière session : informatif, pas de dot -->
 					<div>
 						<div class="text-sm font-medium text-zinc-900">{m.settings_last_session_label()}</div>
-						<div class="text-xs tabular-nums text-zinc-500">
+						<div class="text-xs text-zinc-500 tabular-nums">
 							{formatDate(data.security.latestSessionCreatedAt)}
 						</div>
 					</div>
@@ -237,7 +237,7 @@
 
 		<!-- LANGUE -->
 		<div class={card}>
-			<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 				{m.settings_language_heading()}
 			</h2>
 			<div class="mt-3 lg:max-w-xs">
@@ -253,7 +253,7 @@
 
 		<!-- SÉCURITÉ -->
 		<div class={card}>
-			<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 				{m.settings_security_heading()}
 			</h2>
 			<div
@@ -297,7 +297,7 @@
 
 		<!-- MFA (TOTP) -->
 		<div class={card}>
-			<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 				{m.settings_mfa_heading()}
 			</h2>
 			<div
@@ -346,7 +346,7 @@
 		<!-- SESSIONS -->
 		<div class={card}>
 			<div class="flex items-center justify-between">
-				<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+				<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 					{m.settings_sessions_heading()}
 				</h2>
 				<Badge tone="success">
@@ -395,7 +395,7 @@
 								</span>
 								{#if session.isCurrent}
 									<span
-										class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500"
+										class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-zinc-500 uppercase"
 									>
 										{m.settings_current_badge()}
 									</span>
@@ -483,7 +483,7 @@
 							<div class="flex items-center gap-2">
 								<span class="text-sm font-medium text-zinc-900">{m.settings_this_session()}</span>
 								<span
-									class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-zinc-500"
+									class="rounded border border-zinc-200 bg-zinc-50 px-1.5 py-0.5 text-[10px] font-medium tracking-wide text-zinc-500 uppercase"
 								>
 									{m.settings_current_badge()}
 								</span>
@@ -543,7 +543,7 @@
 					<table class="w-full text-sm">
 						<thead>
 							<tr
-								class="border-b border-zinc-100 text-[11px] uppercase tracking-wide text-zinc-400"
+								class="border-b border-zinc-100 text-[11px] tracking-wide text-zinc-400 uppercase"
 							>
 								<th class="px-4 py-2 text-left font-medium">{m.settings_table_session()}</th>
 								<th class="px-4 py-2 text-left font-medium">{m.settings_table_created()}</th>
@@ -564,15 +564,15 @@
 											{m.settings_session_n({ n: i + 1 })}
 										{/if}
 									</td>
-									<td class="px-4 py-3 tabular-nums text-zinc-500">
+									<td class="px-4 py-3 text-zinc-500 tabular-nums">
 										{formatDate(session.createdAt)}
 									</td>
-									<td class="px-4 py-3 tabular-nums text-zinc-500">
+									<td class="px-4 py-3 text-zinc-500 tabular-nums">
 										{formatDate(session.expiresAt)}
 									</td>
 									<td class="px-4 py-3 text-right">
 										<span
-											class="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+											class="rounded px-1.5 py-0.5 text-[10px] font-semibold tracking-wide uppercase"
 											class:bg-emerald-50={session.status === 'active'}
 											class:text-emerald-700={session.status === 'active'}
 											class:bg-zinc-100={session.status !== 'active'}
@@ -609,7 +609,7 @@
 
 		<!-- SAUVEGARDE ET RESTAURATION -->
 		<div class={card}>
-			<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 				{m.settings_backup_heading()}
 			</h2>
 
@@ -747,7 +747,7 @@
 
 		<!-- ASSISTANT IA -->
 		<div class={card} class:opacity-50={!data.aiSettings.llmGloballyEnabled}>
-			<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 				{m.settings_ai_heading()}
 			</h2>
 			{#if !data.aiSettings.llmGloballyEnabled}
@@ -818,7 +818,7 @@
 		<!-- ZONE DANGER -->
 		<div>
 			<div class="flex items-center gap-2">
-				<h2 class="text-[11px] font-semibold uppercase tracking-wide text-rose-500">
+				<h2 class="text-[11px] font-semibold tracking-wide text-rose-500 uppercase">
 					{m.settings_danger_heading()}
 				</h2>
 				<div class="h-px flex-1 bg-rose-100"></div>
@@ -872,7 +872,7 @@
 									placeholder="SUPPRIMER"
 									autocomplete="off"
 									bind:value={dangerConfirmValue}
-									class="h-11 w-full rounded-xl border border-rose-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-rose-300 focus:border-rose-400 focus:outline-none focus:ring-2 focus:ring-rose-200 lg:w-48"
+									class="h-11 w-full rounded-xl border border-rose-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none lg:w-48"
 								/>
 								<Button
 									type="submit"
@@ -915,14 +915,14 @@
 	<form class="space-y-4" method="POST" action="?/changePassword" autocomplete="off">
 		<div class="space-y-4">
 			<label class="block space-y-1.5 text-sm">
-				<span class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+				<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 					{m.settings_current_password_label()}
 				</span>
 				<PasswordInput name="currentPassword" required autocomplete="current-password" />
 			</label>
 
 			<label class="block space-y-1.5 text-sm">
-				<span class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+				<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 					{m.settings_new_password_label()}
 				</span>
 				<PasswordInput
@@ -939,7 +939,7 @@
 			</label>
 
 			<label class="block space-y-1.5 text-sm">
-				<span class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+				<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 					{m.settings_confirm_password_label()}
 				</span>
 				<PasswordInput
@@ -1013,18 +1013,18 @@
 			</div>
 
 			<div class="space-y-1.5 text-sm">
-				<p class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+				<p class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 					{m.settings_mfa_setup_secret_label()}
 				</p>
 				<p
-					class="break-all rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm text-zinc-900"
+					class="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 font-mono text-sm break-all text-zinc-900"
 				>
 					{form.totpSetupPending.secretBase32}
 				</p>
 			</div>
 
 			<label class="block space-y-1.5 text-sm">
-				<span class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+				<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 					{m.settings_current_password_label()}
 				</span>
 				<PasswordInput
@@ -1036,7 +1036,7 @@
 			</label>
 
 			<label class="block space-y-1.5 text-sm">
-				<span class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+				<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 					{m.settings_mfa_setup_code_label()}
 				</span>
 				<input
@@ -1084,14 +1084,14 @@
 	</div>
 	<form class="space-y-4" method="POST" action="?/disableTotp" autocomplete="off">
 		<label class="block space-y-1.5 text-sm">
-			<span class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+			<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 				{m.settings_current_password_label()}
 			</span>
 			<PasswordInput name="currentPassword" required autocomplete="current-password" />
 		</label>
 
 		<label class="block space-y-1.5 text-sm">
-			<span class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+			<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 				{m.settings_mfa_setup_code_label()}
 			</span>
 			<input
