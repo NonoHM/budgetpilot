@@ -38,7 +38,7 @@
 	}}
 >
 	<Select.Trigger
-		class="inline-flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-400 disabled:cursor-not-allowed disabled:opacity-50 {triggerClass}"
+		class="inline-flex h-11 w-full items-center justify-between gap-2 rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-900 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 {triggerClass}"
 		aria-label={ariaLabel ?? placeholder}
 	>
 		<span class={value ? 'text-zinc-900' : 'text-zinc-400'}>{selectedLabel}</span>
@@ -63,7 +63,7 @@
 					<Select.Item
 						value={option.value}
 						label={option.label}
-						class="relative flex cursor-pointer select-none items-center justify-between rounded px-3 py-1.5 text-sm text-zinc-700 outline-none data-[highlighted]:bg-zinc-100 data-[highlighted]:text-zinc-900 data-[selected]:font-medium data-[selected]:text-zinc-900"
+						class="relative flex cursor-pointer items-center justify-between rounded px-3 py-1.5 text-sm text-zinc-700 outline-none select-none data-[highlighted]:bg-zinc-100 data-[highlighted]:text-zinc-900 data-[selected]:font-medium data-[selected]:text-zinc-900"
 					>
 						{#snippet children({ selected })}
 							{option.label}

@@ -270,19 +270,19 @@
 			{/each}
 		</svg>
 		<div
-			class="pointer-events-none absolute top-0 z-10 -translate-x-1/2 whitespace-nowrap rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-bold text-white"
+			class="pointer-events-none absolute top-0 z-10 -translate-x-1/2 rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-bold whitespace-nowrap text-white"
 			style:left="{(todayX / WIDTH) * 100}%"
 		>
 			{m.forecast_chart_today_label()}
 		</div>
 		{#if activePoint}
 			<div
-				class="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs shadow-sm"
+				class="pointer-events-none absolute z-10 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs whitespace-nowrap shadow-sm"
 				style:left="{(activePoint.x / WIDTH) * 100}%"
 				style:top="{(activePoint.y / HEIGHT) * 100}%"
 				style:transform={activeCardTransform}
 			>
-				<div class="font-semibold tabular-nums text-zinc-900">
+				<div class="font-semibold text-zinc-900 tabular-nums">
 					{formatCents(activePoint.balanceCents)}
 				</div>
 				<div class="mt-0.5 text-zinc-400">
@@ -291,7 +291,7 @@
 				{#each activePoint.events as event (event.label + event.amountCents)}
 					<div class="mt-1 flex items-center gap-1.5 border-t border-zinc-100 pt-1 text-zinc-500">
 						<span class="truncate">{event.label}</span>
-						<span class="tabular-nums font-medium text-zinc-700"
+						<span class="font-medium text-zinc-700 tabular-nums"
 							>{formatCents(event.amountCents)}</span
 						>
 					</div>

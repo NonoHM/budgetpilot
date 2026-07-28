@@ -124,7 +124,7 @@
 		{/if}
 
 		<!-- ============ DESKTOP (≥lg, unchanged) ============ -->
-		<div class="hidden lg:block rounded-lg border border-zinc-200 bg-white">
+		<div class="hidden rounded-lg border border-zinc-200 bg-white lg:block">
 			<div class="space-y-4 p-5">
 				<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 					<div>
@@ -180,7 +180,7 @@
 						{#if data.preview.examples.length > 0}
 							<div class="mt-3 overflow-x-auto">
 								<table class="w-full min-w-[640px] text-left text-sm">
-									<thead class="text-xs uppercase text-zinc-500">
+									<thead class="text-xs text-zinc-500 uppercase">
 										<tr class="border-b border-zinc-200">
 											<th class="py-2 pr-4 font-medium">{m.rules_preview_label()}</th>
 											<th class="py-2 pr-4 font-medium">{m.rules_preview_current()}</th>
@@ -239,7 +239,7 @@
 				{:else}
 					<div class="overflow-x-auto">
 						<table class="w-full min-w-[760px] text-left text-sm">
-							<thead class="text-xs uppercase text-zinc-500">
+							<thead class="text-xs text-zinc-500 uppercase">
 								<tr class="border-b border-zinc-200">
 									<th class="py-2.5 pr-4 font-medium">{m.rules_table_name()}</th>
 									<th class="py-2.5 pr-4 font-medium">{m.rules_table_match()}</th>
@@ -325,7 +325,7 @@
 		</div>
 
 		<!-- ============ MOBILE (<lg) ============ -->
-		<div class="lg:hidden space-y-4">
+		<div class="space-y-4 lg:hidden">
 			<div>
 				<h2 class="text-xl font-semibold">{m.rules_heading()}</h2>
 				<p class="mt-1 text-sm text-zinc-500">{m.rules_subtitle()}</p>
@@ -383,10 +383,10 @@
 
 			{#if data.preview}
 				<div class="{cardBase} p-5">
-					<p class="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+					<p class="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
 						{m.rules_preview_heading_mobile()}
 					</p>
-					<p class="mt-2 text-2xl font-bold leading-tight text-zinc-950">
+					<p class="mt-2 text-2xl leading-tight font-bold text-zinc-950">
 						{m.rules_preview_count({ count: data.preview.count })}
 					</p>
 					{#if data.preview.examples.length > 0}
@@ -395,7 +395,7 @@
 								<div class="py-3 first:pt-0 last:pb-0">
 									<p class="font-mono text-xs text-zinc-700">{item.labelPreview}</p>
 									<p class="mt-1 text-sm">
-										<span class="italic text-zinc-400">{displayCategory(item.currentCategory)}</span
+										<span class="text-zinc-400 italic">{displayCategory(item.currentCategory)}</span
 										>
 										<span class="text-zinc-400"> → </span>
 										<span class="font-semibold text-zinc-950"
@@ -516,7 +516,7 @@
 										</IconButton>
 									</div>
 								</div>
-								<p class="mt-1 font-mono text-xs italic text-zinc-400">
+								<p class="mt-1 font-mono text-xs text-zinc-400 italic">
 									{rule.matchText}
 									{#if rule.isRegex}
 										<Badge tone="neutral" shape="rounded">{m.rules_badge_regex()}</Badge>

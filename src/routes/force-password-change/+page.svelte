@@ -42,14 +42,14 @@
 
 	<form class="space-y-4" method="POST" autocomplete="off">
 		<label class="block space-y-1.5 text-sm">
-			<span class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+			<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 				{m.force_password_new_label()}
 			</span>
 			<PasswordInput name="newPassword" required minlength={12} autocomplete="new-password" />
 		</label>
 
 		<label class="block space-y-1.5 text-sm">
-			<span class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+			<span class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 				{m.force_password_confirm_label()}
 			</span>
 			<PasswordInput name="confirmPassword" required minlength={12} autocomplete="new-password" />

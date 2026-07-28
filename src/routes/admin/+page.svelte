@@ -119,7 +119,7 @@
 		<div class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
 			<table class="w-full text-sm">
 				<thead
-					class="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500"
+					class="border-b border-zinc-200 bg-zinc-50 text-left text-xs tracking-wide text-zinc-500 uppercase"
 				>
 					<tr>
 						<th class="px-4 py-3 font-medium">{m.admin_table_email()}</th>
@@ -136,20 +136,20 @@
 							<td class="px-4 py-3">
 								{#if user.role === 'ADMIN'}
 									<span
-										class="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white"
+										class="rounded bg-zinc-900 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-white uppercase"
 									>
 										{user.role}
 									</span>
 								{:else}
 									<span
-										class="rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-600"
+										class="rounded border border-zinc-200 px-1.5 py-0.5 text-[10px] font-semibold tracking-wide text-zinc-600 uppercase"
 									>
 										{user.role}
 									</span>
 								{/if}
 							</td>
 							<td class="px-4 py-3 text-zinc-500">{formatDate(user.createdAt)}</td>
-							<td class="px-4 py-3 tabular-nums text-zinc-500">{user.transactionCount}</td>
+							<td class="px-4 py-3 text-zinc-500 tabular-nums">{user.transactionCount}</td>
 							<td class="px-4 py-3">
 								{#if user.id !== data.currentUserId}
 									<div class="flex items-center gap-3">
@@ -297,7 +297,7 @@
 				<div class="overflow-hidden rounded-lg border border-zinc-200 bg-white">
 					<table class="w-full text-sm">
 						<thead
-							class="border-b border-zinc-200 bg-zinc-50 text-left text-xs uppercase tracking-wide text-zinc-500"
+							class="border-b border-zinc-200 bg-zinc-50 text-left text-xs tracking-wide text-zinc-500 uppercase"
 						>
 							<tr>
 								<th class="px-4 py-3 font-medium">{m.admin_table_email()}</th>
@@ -337,7 +337,7 @@
 		{#if form?.temporaryPassword}
 			<div class="rounded-xl border border-amber-200 bg-amber-50 p-4">
 				<div
-					class="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-800"
+					class="flex items-center gap-1.5 text-[11px] font-bold tracking-wide text-amber-800 uppercase"
 				>
 					<svg
 						class="h-3.5 w-3.5 shrink-0"
@@ -477,7 +477,7 @@
 							<div class="flex items-center justify-end">
 								<button
 									type="button"
-									class="flex min-h-11 items-center justify-center text-sm font-medium text-rose-600 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+									class="flex min-h-11 items-center justify-center text-sm font-medium text-rose-600 hover:text-rose-700 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none"
 									onclick={() => (deleteTarget = user)}
 								>
 									{m.common_delete()}
@@ -614,7 +614,7 @@
 								</div>
 								<button
 									type="button"
-									class="flex min-h-11 shrink-0 items-center text-sm font-medium text-rose-600 hover:text-rose-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+									class="flex min-h-11 shrink-0 items-center text-sm font-medium text-rose-600 hover:text-rose-700 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none"
 									onclick={() => (revokeInviteTarget = invitation)}
 								>
 									{m.admin_invitation_revoke()}

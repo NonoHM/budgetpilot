@@ -70,7 +70,7 @@
 		<span
 			id={tooltipId}
 			role="tooltip"
-			class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[12px] text-white"
+			class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 -translate-x-1/2 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[12px] whitespace-nowrap text-white"
 			in:fade={{ duration: motionDuration(MOTION.popoverInMs), easing: easeOut }}
 			out:fade={{ duration: motionDuration(MOTION.popoverOutMs), easing: easeIn }}
 		>

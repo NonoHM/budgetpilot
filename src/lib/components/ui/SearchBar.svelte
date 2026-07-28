@@ -65,7 +65,7 @@
 		type="search"
 		{placeholder}
 		aria-label={ariaLabel}
-		class="{inputSearchPill} w-full !h-full [&::-webkit-search-cancel-button]:appearance-none {error
+		class="{inputSearchPill} !h-full w-full [&::-webkit-search-cancel-button]:appearance-none {error
 			? '!border-rose-300 !bg-rose-50'
 			: ''} {value ? 'pr-11' : ''} {inputClass}"
 	/>

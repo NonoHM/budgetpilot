@@ -102,10 +102,10 @@
 			<div
 				class="absolute inset-[22px] flex flex-col items-center justify-center rounded-full bg-white lg:inset-[15px]"
 			>
-				<span class="text-[10px] font-medium uppercase tracking-wide text-zinc-400 lg:text-[9px]">
+				<span class="text-[10px] font-medium tracking-wide text-zinc-400 uppercase lg:text-[9px]">
 					{centerCaption}
 				</span>
-				<span class="text-xl font-semibold tabular-nums text-zinc-900 lg:text-base">
+				<span class="text-xl font-semibold text-zinc-900 tabular-nums lg:text-base">
 					{centerValue}
 				</span>
 			</div>
@@ -117,7 +117,7 @@
 						<rect width="10" height="10" rx="2" fill={segment.color} />
 					</svg>
 					<span class="flex-1 truncate text-zinc-700">{segment.label}</span>
-					<span class="tabular-nums font-medium text-zinc-900">{Math.round(segment.pct)} %</span>
+					<span class="font-medium text-zinc-900 tabular-nums">{Math.round(segment.pct)} %</span>
 				</li>
 			{/each}
 		</ul>

@@ -134,7 +134,7 @@
 					class:bg-zinc-900={isItemActive(item.key)}
 					class:text-white={isItemActive(item.key)}
 					class:text-zinc-400={!isItemActive(item.key)}
-					class="flex flex-col items-center gap-0.5 rounded-2xl px-3 py-1.5 text-[11px] font-medium leading-tight transition-colors"
+					class="flex flex-col items-center gap-0.5 rounded-2xl px-3 py-1.5 text-[11px] leading-tight font-medium transition-colors"
 				>
 					{@render tabIcon(item.key, 'h-5 w-5')}
 					{item.label}
@@ -154,7 +154,7 @@
 					class:bg-zinc-900={isMoreActive}
 					class:text-white={isMoreActive}
 					class:text-zinc-400={!isMoreActive}
-					class="flex flex-col items-center gap-0.5 rounded-2xl px-3 py-1.5 text-[11px] font-medium leading-tight transition-colors"
+					class="flex flex-col items-center gap-0.5 rounded-2xl px-3 py-1.5 text-[11px] leading-tight font-medium transition-colors"
 				>
 					{@render moreIcon('h-5 w-5')}
 					{m.nav_more()}
