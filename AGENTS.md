@@ -41,10 +41,18 @@ to report a vulnerability.
 - Self-registration is closed by default; enabling it is an explicit,
   informed opt-in, especially for a publicly reachable instance.
 - The admin panel can reset passwords and delete accounts, but an admin can
-  never reset or delete their own account through it.
+  never reset or delete their own account through it. There is no admin
+  action to disable another user's TOTP/MFA — intentional, since that would
+  let an admin unilaterally weaken another account's second factor; don't
+  propose adding one.
 - No external host (local AI, bank-sync providers) is ever called without
   validating it against an explicit, configurable allowlist — never a
   hardcoded or inferred trusted URL.
+- Content-Security-Policy is enforced via SvelteKit's `kit.csp`
+  (`svelte.config.js`) — nonce-based `script-src`, no `'unsafe-inline'`
+  anywhere. Don't introduce a literal, dynamically-valued `style=""`
+  attribute; it's silently blocked, not warned about — use static classes,
+  SVG presentation attributes, or Svelte's `style:` directive instead.
 
 ## Architecture conventions
 
@@ -127,6 +135,12 @@ messages/           Paraglide translation source (fr.json / en.json)
 - **Backup/restore**: export is a full JSON dump scoped to the requesting
   user; restore is a full, transactional replacement (never a merge) — IDs
   are regenerated on import.
+- **Net worth**: the evolution curve plots one point per distinct snapshot
+  timestamp (never grouped/bucketed by month). The alternate donut view
+  breaks down assets by account type and shows **non-negative type totals
+  only** — debt, and any other type netting to zero or below, is excluded
+  from the donut and surfaced separately as a single negative-balance total
+  instead.
 
 ## UI/UX conventions
 
@@ -148,6 +162,11 @@ messages/           Paraglide translation source (fr.json / en.json)
 Code, identifiers, and comments are always written in English, regardless
 of the app's own UI language(s). Only user-facing strings go through the
 i18n system (Paraglide).
+
+## Backlog / roadmap
+
+Tracked in [GitHub Issues](https://github.com/NonoHM/budgetpilot/issues),
+not here — this file documents what's built, not what's planned.
 
 ## Contributing
 
