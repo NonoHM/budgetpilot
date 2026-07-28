@@ -34,8 +34,7 @@ describe('DashboardInsights.svelte', () => {
 	it('keeps the insights content collapsed by default when there is content to show', async () => {
 		render(DashboardInsights, {
 			insights: alertInsights,
-			advice: null,
-			localAiUnavailable: false,
+			aiAdvice: null,
 			aiAllowed: false,
 			categories: []
 		});
@@ -50,8 +49,7 @@ describe('DashboardInsights.svelte', () => {
 	it('reveals the insights content when the toggle is clicked', async () => {
 		render(DashboardInsights, {
 			insights: alertInsights,
-			advice: null,
-			localAiUnavailable: false,
+			aiAdvice: null,
 			aiAllowed: false,
 			categories: []
 		});
@@ -68,8 +66,7 @@ describe('DashboardInsights.svelte', () => {
 	it('renders nothing for the insights section when there is no content', async () => {
 		render(DashboardInsights, {
 			insights: emptyInsights,
-			advice: null,
-			localAiUnavailable: false,
+			aiAdvice: null,
 			aiAllowed: false,
 			categories: []
 		});
@@ -82,17 +79,19 @@ describe('DashboardInsights.svelte', () => {
 		// the server contract, but the component must not rely on that alone — advice wins.
 		render(DashboardInsights, {
 			insights: emptyInsights,
-			advice: [
-				{
-					id: '1',
-					source: 'local-llm',
-					title: 'Réduisez vos abonnements',
-					message: 'Détail',
-					severity: 'info',
-					category: 'spending'
-				}
-			],
-			localAiUnavailable: true,
+			aiAdvice: {
+				insights: [
+					{
+						id: '1',
+						source: 'local-llm',
+						title: 'Réduisez vos abonnements',
+						message: 'Détail',
+						severity: 'info',
+						category: 'spending'
+					}
+				],
+				unavailable: true
+			},
 			aiAllowed: true,
 			categories: []
 		});
@@ -103,5 +102,68 @@ describe('DashboardInsights.svelte', () => {
 		});
 		await expect.element(adviceToggle).toHaveTextContent('Réduisez vos abonnements');
 		expect(page.getByText(m.dashboard_insights_ai_unavailable_title()).elements()).toHaveLength(0);
+	});
+
+	it('shows the pending placeholder while the streamed advice has not resolved', async () => {
+		render(DashboardInsights, {
+			insights: emptyInsights,
+			// Never resolves: the component must show the pending state rather than nothing.
+			aiAdvice: new Promise<never>(() => {}),
+			aiAllowed: true,
+			categories: []
+		});
+
+		await expect.element(page.getByText(m.dashboard_insights_ai_pending())).toBeInTheDocument();
+	});
+
+	it('replaces the placeholder with the advice once it resolves', async () => {
+		render(DashboardInsights, {
+			insights: emptyInsights,
+			aiAdvice: Promise.resolve({
+				insights: [
+					{
+						id: '1',
+						source: 'local-llm' as const,
+						title: 'Réduisez vos abonnements',
+						message: 'Détail',
+						severity: 'info' as const,
+						category: 'spending' as const
+					}
+				],
+				unavailable: false
+			}),
+			aiAllowed: true,
+			categories: []
+		});
+
+		await expect
+			.element(page.getByRole('button', { name: m.dashboard_insights_ai_badge(), exact: false }))
+			.toHaveTextContent('Réduisez vos abonnements');
+		expect(page.getByText(m.dashboard_insights_ai_pending()).elements()).toHaveLength(0);
+	});
+
+	it('shows the unavailable card when the streamed advice resolves unavailable', async () => {
+		render(DashboardInsights, {
+			insights: emptyInsights,
+			aiAdvice: Promise.resolve({ insights: [], unavailable: true }),
+			aiAllowed: true,
+			categories: []
+		});
+
+		await expect
+			.element(page.getByText(m.dashboard_insights_ai_unavailable_title()))
+			.toBeInTheDocument();
+	});
+
+	it('renders no AI section at all when the feature is off, pending or not', async () => {
+		render(DashboardInsights, {
+			insights: emptyInsights,
+			aiAdvice: new Promise<never>(() => {}),
+			aiAllowed: false,
+			categories: []
+		});
+
+		expect(page.getByText(m.dashboard_insights_ai_pending()).elements()).toHaveLength(0);
+		expect(page.getByText(m.dashboard_insights_ai_badge()).elements()).toHaveLength(0);
 	});
 });
