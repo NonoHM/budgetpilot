@@ -25,7 +25,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 
 	let failureCode: string | null = null;
 	try {
-		// $env/dynamic/private, not process.env: under `vite dev` only the former sees .env.
+		// $env/dynamic/private is the explicit source here, so this route never depends on
+		// process.env being backfilled from .env (which vite.config.ts only does in dev).
 		await completeBankAuthorization({ userId: user.id, params }, { env });
 	} catch (caught) {
 		failureCode = caught instanceof BankSyncError ? caught.code : 'failed';

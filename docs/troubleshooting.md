@@ -42,10 +42,12 @@ break in the middle:
 grep BOOTSTRAP_TOKEN .env
 ```
 
-An empty `BOOTSTRAP_TOKEN` is no longer a possible cause: in `admin_only`
-mode (the default) the app now refuses to start without one, with
-`BOOTSTRAP_TOKEN is required when REGISTRATION_MODE=admin_only` in the logs.
-It used to start fine and reject every registration silently instead.
+An empty `BOOTSTRAP_TOKEN` is no longer a silent cause. Before your first
+account exists, the app refuses to start without one
+(`BOOTSTRAP_TOKEN is required to create the first account` in the logs).
+After that, a blank value logs a warning saying registration now only works
+through an invitation link. Either way it's in the logs, which it never used
+to be.
 
 Another possibility: you're using the value from a `.env` you regenerated
 since. `npm run setup` rewrites all three secrets every time it runs, so an

@@ -49,17 +49,20 @@ first anyway, see below.
 
 ### Before you upgrade past 0.2.0
 
-Three changes need a look at your `.env` first, because each can stop an
-instance that works today.
+Two changes need a look at your `.env` first, and one is worth knowing
+about.
 
-**`BOOTSTRAP_TOKEN` is now required** whenever `REGISTRATION_MODE` is
-`admin_only`, which is the default. An instance that bootstrapped long ago
-and has since blanked the value used to run fine; it now refuses to start,
-with `BOOTSTRAP_TOKEN is required when REGISTRATION_MODE=admin_only` in the
-logs. Put any long random value back (`openssl rand -base64 32`), or set
-`REGISTRATION_MODE=open` if that's genuinely what you want. The old
-behaviour was to accept the blank value and silently reject every
-registration attempt, which is the bug being fixed.
+**`BOOTSTRAP_TOKEN` is now required to bootstrap.** If
+`REGISTRATION_MODE=admin_only` (the default), the token is blank, **and no
+admin account exists yet**, the app refuses to start rather than accepting
+the blank value and silently rejecting every registration attempt, which is
+the bug being fixed. Generate one (`openssl rand -base64 32`), or set
+`REGISTRATION_MODE=open` if that's genuinely what you want.
+
+An instance that already has its admin account is unaffected: a blank token
+there just means nobody can register except through an invitation link from
+the admin panel, which is a normal way to run a finished instance. You get a
+warning in the logs, not a crash.
 
 **`PUBLIC_INSTANCE=false` now really does drop the `Secure` flag** from the
 session cookie, and HSTS with it. It used to be a no-op under Docker, where

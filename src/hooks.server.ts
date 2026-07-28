@@ -1,4 +1,4 @@
-import { redirect, type Handle } from '@sveltejs/kit';
+import { redirect, type Handle, type ServerInit } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { paraglideMiddleware } from '$lib/paraglide/server';
 import {
@@ -7,15 +7,22 @@ import {
 	readSessionUser,
 	SESSION_COOKIE
 } from '$lib/server/auth';
+import { assertBootstrapTokenConfigured } from '$lib/server/auth/bootstrapToken';
 // Side-effect imports only: each module throws at load time if its required secret
-// (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY, BOOTSTRAP_TOKEN in admin_only mode) is
-// missing/malformed. hooks.server.ts is the one module SvelteKit always loads at boot, so
-// importing them here turns a missing secret into a loud crash-on-startup instead of a
-// generic 500 — or, for BOOTSTRAP_TOKEN, a silently rejected registration — on the first
-// /login or /register request that happens to touch these route-specific server chunks.
-import '$lib/server/auth/bootstrapToken';
+// (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
+// the one module SvelteKit always loads at boot, so importing them here turns a missing
+// secret into a loud crash-on-startup instead of a generic 500 on the first /login or
+// /register request that happens to touch these route-specific server chunks.
 import '$lib/server/auth/rateLimit';
 import '$lib/server/crypto';
+
+// Boot checks that need the database, and therefore can't be module-level: module code
+// also runs during SvelteKit's postbuild analysis, where no database exists. `init` runs
+// once per server start and adapter-node awaits it before listening, so throwing here is
+// still a crash-at-startup rather than a failure on some later request.
+export const init: ServerInit = async () => {
+	await assertBootstrapTokenConfigured();
+};
 
 const PUBLIC_ROUTES = new Set(['/login', '/register', '/login/verify-totp']);
 

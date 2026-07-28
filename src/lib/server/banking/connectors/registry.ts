@@ -7,8 +7,9 @@ import type { BankConnector } from './types';
  * pattern (import/registry.ts): one place resolving an identifier to an implementation.
  *
  * `env` must be threaded from the caller (the sync service resolves it from the route's
- * `$env/dynamic/private`): under `vite dev` the .env file never reaches process.env, so
- * a connector built without an explicit env would see bank sync as unconfigured in dev.
+ * `$env/dynamic/private`): that stays the explicit contract, and is what lets tests hand
+ * a connector its own env. It originally also worked around `vite dev` not populating
+ * process.env from .env at all, which vite.config.ts now handles in development.
  */
 export function getBankConnector(
 	provider: string,

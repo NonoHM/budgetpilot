@@ -90,13 +90,11 @@ export function getSessionExpiresAt(): Date {
 // cannot use them, with no way to opt out. The security posture describes PUBLIC_INSTANCE
 // as the mechanism — this is that, and nothing else.
 //
-// Known dev-only limitation: this reads process.env rather than $env/dynamic/private, so
-// under `vite dev` a .env-only PUBLIC_INSTANCE=false is not seen and the flag stays on
-// (fail-secure, so never a security hole — but `vite dev --host` on a LAN IP cannot log
-// in, and the startup log then prints "unset"). Same latent issue as
-// isLocalLlmEnabled(process.env); switching this one would force every caller of
-// areSecureCookiesEnabled() and its tests off process.env. Export a real PUBLIC_INSTANCE
-// in the shell for that case.
+// process.env is read directly on purpose (rather than $env/dynamic/private, which would
+// force every caller and every test off process.env). `vite dev` doesn't populate
+// process.env from .env by itself, so vite.config.ts copies the loaded values across in
+// development — see the comment there. Without that, a .env-only PUBLIC_INSTANCE=false
+// was invisible in local dev while working under Docker.
 export function areSecureCookiesEnabled(): boolean {
 	return process.env.PUBLIC_INSTANCE !== 'false';
 }

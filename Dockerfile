@@ -42,7 +42,6 @@ RUN npx prisma generate
 ENV DATABASE_URL=file:/tmp/build-placeholder.db
 ENV TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
 ENV RATE_LIMIT_HASH_SECRET=docker-build-only-fake-rate-limit-hash-secret-do-not-reuse
-ENV BOOTSTRAP_TOKEN=docker-build-only-fake-bootstrap-token-do-not-reuse
 
 RUN npm run build
 

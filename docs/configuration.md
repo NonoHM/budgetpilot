@@ -13,13 +13,15 @@ docker compose up -d          # or: docker compose -f docker-compose.prebuilt.ym
 
 ## The three secrets
 
-Required. The app refuses to start without any of them.
+Required. The app refuses to start without `RATE_LIMIT_HASH_SECRET` or
+`TOTP_ENCRYPTION_KEY`, and without `BOOTSTRAP_TOKEN` until you've created
+your first account.
 
-| Variable                 | What it does                                                                                  | If it's missing                                                                                                                                                                     |
-| ------------------------ | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BOOTSTRAP_TOKEN`        | Gates account creation while registration is closed                                           | Crash at startup with `BOOTSTRAP_TOKEN is required when REGISTRATION_MODE=admin_only`. Only required in `admin_only` mode (the default), since `open` mode genuinely doesn't use it |
-| `RATE_LIMIT_HASH_SECRET` | HMAC key for the emails and IPs stored by login rate limiting, so they're never in clear text | Crash at startup with `RATE_LIMIT_HASH_SECRET is required`                                                                                                                          |
-| `TOTP_ENCRYPTION_KEY`    | AES-256-GCM key encrypting two-factor secrets at rest                                         | Crash at startup with `TOTP_ENCRYPTION_KEY is required`                                                                                                                             |
+| Variable                 | What it does                                                                                  | If it's missing                                                                                                                                                                                                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BOOTSTRAP_TOKEN`        | Gates account creation while registration is closed                                           | Crash at startup with `BOOTSTRAP_TOKEN is required to create the first account`, but only while the instance still has no admin account. Once you have one, a blank value is a warning: registration then only works through an invitation link. Not used at all in `open` mode |
+| `RATE_LIMIT_HASH_SECRET` | HMAC key for the emails and IPs stored by login rate limiting, so they're never in clear text | Crash at startup with `RATE_LIMIT_HASH_SECRET is required`                                                                                                                                                                                                                      |
+| `TOTP_ENCRYPTION_KEY`    | AES-256-GCM key encrypting two-factor secrets at rest                                         | Crash at startup with `TOTP_ENCRYPTION_KEY is required`                                                                                                                                                                                                                         |
 
 `TOTP_ENCRYPTION_KEY` is the one to never lose or rotate casually: change it
 and every account with two-factor enabled is locked out of its second
