@@ -173,6 +173,12 @@ not here — this file documents what's built, not what's planned.
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for setup, the pre-PR validation
 checklist, and commit message conventions.
 
+User-facing documentation lives in [docs/](./docs/): install and first
+login, configuration, day-to-day operations, the two optional features (AI
+advice, bank sync), and troubleshooting. A change to install steps, an env
+variable, or a user-visible failure mode should update the matching page
+there in the same PR.
+
 ## Git workflow (mandatory, effective immediately)
 
 **No direct commits or pushes to `main`, ever.** Always: create a branch,
