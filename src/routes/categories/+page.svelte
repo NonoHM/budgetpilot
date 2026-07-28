@@ -67,7 +67,7 @@
 
 	<section class="mx-auto max-w-4xl space-y-4">
 		<!-- ============ DESKTOP (≥lg, unchanged) ============ -->
-		<div class="hidden lg:block rounded-lg border border-zinc-200 bg-white">
+		<div class="hidden rounded-lg border border-zinc-200 bg-white lg:block">
 			<div class="flex items-center justify-between border-b border-zinc-200 px-5 py-4">
 				<div>
 					<h1 class="text-xl font-semibold">{m.categories_heading()}</h1>
@@ -107,14 +107,14 @@
 			{:else}
 				<div class="overflow-x-auto">
 					<table class="w-full min-w-[560px] text-left text-sm">
-						<thead class="text-xs uppercase text-zinc-500">
+						<thead class="text-xs text-zinc-500 uppercase">
 							<tr class="border-b border-zinc-200">
 								<th class="px-5 py-2.5 font-medium">{m.categories_table_name()}</th>
 								<th class="px-5 py-2.5 font-medium">{m.categories_table_nature()}</th>
-								<th class="px-5 py-2.5 font-medium text-right"
+								<th class="px-5 py-2.5 text-right font-medium"
 									>{m.categories_table_transactions()}</th
 								>
-								<th class="px-5 py-2.5 sr-only text-right">{m.categories_table_actions()}</th>
+								<th class="sr-only px-5 py-2.5 text-right">{m.categories_table_actions()}</th>
 							</tr>
 						</thead>
 						<tbody>
@@ -169,12 +169,12 @@
 													}}
 												/>
 												{#if savedNatureIds.has(cat.id)}
-													<span aria-hidden="true" class="text-emerald-500 text-xs">✓</span>
+													<span aria-hidden="true" class="text-xs text-emerald-500">✓</span>
 												{/if}
 											</div>
 										</form>
 									</td>
-									<td class="px-5 py-2.5 text-right tabular-nums text-zinc-500">
+									<td class="px-5 py-2.5 text-right text-zinc-500 tabular-nums">
 										{cat.transactionCount}
 									</td>
 									<td class="px-5 py-2.5 text-right">
@@ -281,7 +281,7 @@
 									>
 									{#if isUnclassified}
 										<span
-											class="flex h-[18px] shrink-0 items-center rounded-md bg-zinc-100 px-1.5 text-[10px] font-bold uppercase tracking-wide text-zinc-500"
+											class="flex h-[18px] shrink-0 items-center rounded-md bg-zinc-100 px-1.5 text-[10px] font-bold tracking-wide text-zinc-500 uppercase"
 										>
 											{m.categories_system_badge()}
 										</span>
@@ -353,7 +353,7 @@
 								{#if savedNatureIds.has(cat.id)}
 									<span
 										aria-hidden="true"
-										class="pointer-events-none absolute right-3.5 top-1/2 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-emerald-100"
+										class="pointer-events-none absolute top-1/2 right-3.5 flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded-full bg-emerald-100"
 									>
 										<svg class="h-3 w-3 text-emerald-600" viewBox="0 0 20 20" fill="none">
 											<path

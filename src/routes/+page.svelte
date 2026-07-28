@@ -246,7 +246,7 @@
 		<!-- KPIs — toujours visibles -->
 		<div class="mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
 			<div class="{cardBase} px-5 py-5 lg:py-4">
-				<div class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+				<div class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 					{m.reports_kpi_income()}
 				</div>
 				<div class="mt-1.5 text-3xl font-bold text-emerald-600 lg:text-2xl lg:font-semibold">
@@ -254,7 +254,7 @@
 				</div>
 			</div>
 			<div class="{cardBase} px-5 py-5 lg:py-4">
-				<div class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+				<div class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 					{m.reports_kpi_expense()}
 				</div>
 				<div class="mt-1.5 text-3xl font-bold text-rose-600 lg:text-2xl lg:font-semibold">
@@ -262,7 +262,7 @@
 				</div>
 			</div>
 			<div class="{cardBase} px-5 py-5 lg:py-4">
-				<div class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+				<div class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 					{m.dashboard_kpi_balance_period()}
 				</div>
 				<div
@@ -426,37 +426,37 @@
 							<div class="grid gap-2.5 border-t border-zinc-100 px-5 py-5 text-sm lg:px-4 lg:py-4">
 								<div class="flex items-center justify-between gap-3">
 									<span class="text-zinc-600">{m.dashboard_nature_spending()}</span>
-									<span class="font-semibold tabular-nums text-zinc-900">
+									<span class="font-semibold text-zinc-900 tabular-nums">
 										{formatCents(natureAnalysis.spendingCents)}
 									</span>
 								</div>
 								<div class="flex items-center justify-between gap-3">
 									<span class="text-zinc-600">{m.dashboard_nature_investment()}</span>
-									<span class="font-semibold tabular-nums text-zinc-900">
+									<span class="font-semibold text-zinc-900 tabular-nums">
 										{formatCents(natureAnalysis.investmentCents)}
 									</span>
 								</div>
 								<div class="flex items-center justify-between gap-3">
 									<span class="text-zinc-600">{m.dashboard_nature_transfer()}</span>
-									<span class="font-semibold tabular-nums text-zinc-900">
+									<span class="font-semibold text-zinc-900 tabular-nums">
 										{formatCents(natureAnalysis.transferCents)}
 									</span>
 								</div>
 								<div class="flex items-center justify-between gap-3">
 									<span class="text-zinc-600">{m.dashboard_nature_refund()}</span>
-									<span class="font-semibold tabular-nums text-zinc-900">
+									<span class="font-semibold text-zinc-900 tabular-nums">
 										{formatCents(natureAnalysis.refundCents)}
 									</span>
 								</div>
 								<div class="flex items-center justify-between gap-3">
 									<span class="text-zinc-600">{m.dashboard_nature_fee()}</span>
-									<span class="font-semibold tabular-nums text-zinc-900">
+									<span class="font-semibold text-zinc-900 tabular-nums">
 										{formatCents(natureAnalysis.feeCents)}
 									</span>
 								</div>
 								<div class="flex items-center justify-between gap-3">
 									<span class="text-zinc-600">{m.dashboard_nature_uncategorized()}</span>
-									<span class="font-semibold tabular-nums text-zinc-900">
+									<span class="font-semibold text-zinc-900 tabular-nums">
 										{formatCents(natureAnalysis.uncategorizedCents)}
 									</span>
 								</div>
@@ -571,7 +571,7 @@
 							{/if}
 						</div>
 						{#if hasConfirmedForecastFlows}
-							<div class="mt-2 flex items-baseline gap-2 flex-wrap">
+							<div class="mt-2 flex flex-wrap items-baseline gap-2">
 								<span
 									class="text-2xl font-bold tabular-nums {forecastDeltaCents >= 0
 										? 'text-emerald-700'

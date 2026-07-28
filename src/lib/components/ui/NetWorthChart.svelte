@@ -238,12 +238,12 @@
 		</svg>
 		{#if activePoint}
 			<div
-				class="pointer-events-none absolute z-10 whitespace-nowrap rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs shadow-sm"
+				class="pointer-events-none absolute z-10 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs whitespace-nowrap shadow-sm"
 				style:left="{(activePoint.x / WIDTH) * 100}%"
 				style:top="{(activePoint.y / HEIGHT) * 100}%"
 				style:transform={activeCardTransform}
 			>
-				<div class="font-semibold tabular-nums text-zinc-900">
+				<div class="font-semibold text-zinc-900 tabular-nums">
 					{formatCents(activePoint.totalCents)}
 				</div>
 				<div class="mt-0.5 text-zinc-400">{formatFullDate(activePoint.capturedAt)}</div>

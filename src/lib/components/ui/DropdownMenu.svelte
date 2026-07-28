@@ -43,7 +43,7 @@
 
 	<DropdownMenu.Portal>
 		<DropdownMenu.Content
-			class="z-50 origin-[var(--bits-dropdown-menu-content-transform-origin)] overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg ring-1 ring-black/5 data-[state=open]:animate-[bp-popover-in_160ms_ease-out] data-[state=closed]:scale-95 data-[state=closed]:opacity-0 data-[state=closed]:transition-[opacity,transform] data-[state=closed]:duration-[120ms] data-[state=closed]:ease-in motion-reduce:animate-none! motion-reduce:data-[state=closed]:transition-none! {contentClass}"
+			class="z-50 origin-[var(--bits-dropdown-menu-content-transform-origin)] overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-lg ring-1 ring-black/5 data-[state=closed]:scale-95 data-[state=closed]:opacity-0 data-[state=closed]:transition-[opacity,transform] data-[state=closed]:duration-[120ms] data-[state=closed]:ease-in data-[state=open]:animate-[bp-popover-in_160ms_ease-out] motion-reduce:animate-none! motion-reduce:data-[state=closed]:transition-none! {contentClass}"
 			{side}
 			{sideOffset}
 			{align}

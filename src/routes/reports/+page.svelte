@@ -253,10 +253,10 @@
 			class="hidden grid-cols-2 divide-x divide-zinc-200 overflow-hidden rounded-lg border border-zinc-200 bg-white sm:grid-cols-3 lg:grid lg:grid-cols-6"
 		>
 			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 					{m.reports_kpi_income()}
 				</div>
-				<div class="mt-1 text-2xl font-bold tabular-nums text-emerald-600">
+				<div class="mt-1 text-2xl font-bold text-emerald-600 tabular-nums">
 					{formatCents(report.incomeCents)}
 				</div>
 				{#if report.previousMonth}
@@ -269,10 +269,10 @@
 				{/if}
 			</div>
 			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 					{m.reports_kpi_expense()}
 				</div>
-				<div class="mt-1 text-2xl font-bold tabular-nums text-rose-600">
+				<div class="mt-1 text-2xl font-bold text-rose-600 tabular-nums">
 					{formatCents(report.expenseCents)}
 				</div>
 				{#if report.previousMonth}
@@ -285,7 +285,7 @@
 				{/if}
 			</div>
 			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 					{m.reports_kpi_balance()}
 				</div>
 				<div
@@ -305,23 +305,23 @@
 				{/if}
 			</div>
 			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 					{m.reports_kpi_transactions()}
 				</div>
-				<div class="mt-1 text-2xl font-bold tabular-nums text-zinc-900">
+				<div class="mt-1 text-2xl font-bold text-zinc-900 tabular-nums">
 					{report.transactionCount}
 				</div>
 			</div>
 			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 					{m.reports_kpi_expense_per_day()}
 				</div>
-				<div class="mt-1 text-2xl font-bold tabular-nums text-zinc-900">
+				<div class="mt-1 text-2xl font-bold text-zinc-900 tabular-nums">
 					{formatCents(report.expenseAveragePerDayCents)}
 				</div>
 			</div>
 			<div class="border-t-2 border-zinc-300 px-4 py-3.5">
-				<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+				<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 					{m.reports_kpi_savings_rate()}
 				</div>
 				<div
@@ -342,10 +342,10 @@
 		<div class="grid grid-cols-1 gap-3 lg:hidden">
 			<div class="grid grid-cols-2 divide-x divide-zinc-200 {cardBase} p-4">
 				<div class="pr-4">
-					<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_income()}
 					</div>
-					<div class="mt-1 text-2xl font-bold tabular-nums text-emerald-600">
+					<div class="mt-1 text-2xl font-bold text-emerald-600 tabular-nums">
 						{formatCents(report.incomeCents)}
 					</div>
 					{#if report.previousMonth}
@@ -358,10 +358,10 @@
 					{/if}
 				</div>
 				<div class="pl-4">
-					<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_expense()}
 					</div>
-					<div class="mt-1 text-2xl font-bold tabular-nums text-rose-600">
+					<div class="mt-1 text-2xl font-bold text-rose-600 tabular-nums">
 						{formatCents(report.expenseCents)}
 					</div>
 					{#if report.previousMonth}
@@ -376,7 +376,7 @@
 			</div>
 			<div class="grid grid-cols-2 divide-x divide-zinc-200 {cardBase} p-4">
 				<div class="pr-4">
-					<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_balance()}
 					</div>
 					<div
@@ -396,25 +396,25 @@
 					{/if}
 				</div>
 				<div class="pl-4">
-					<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_transactions()}
 					</div>
-					<div class="mt-1 text-2xl font-bold tabular-nums text-zinc-900">
+					<div class="mt-1 text-2xl font-bold text-zinc-900 tabular-nums">
 						{report.transactionCount}
 					</div>
 				</div>
 			</div>
 			<div class="grid grid-cols-2 divide-x divide-zinc-200 {cardBase} p-4">
 				<div class="pr-4">
-					<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_expense_per_day()}
 					</div>
-					<div class="mt-1 text-2xl font-bold tabular-nums text-zinc-900">
+					<div class="mt-1 text-2xl font-bold text-zinc-900 tabular-nums">
 						{formatCents(report.expenseAveragePerDayCents)}
 					</div>
 				</div>
 				<div class="pl-4">
-					<div class="text-[10px] font-bold uppercase tracking-wide text-zinc-500">
+					<div class="text-[10px] font-bold tracking-wide text-zinc-500 uppercase">
 						{m.reports_kpi_savings_rate()}
 					</div>
 					<div
@@ -471,7 +471,7 @@
 			<!-- 2 · À RETENIR -->
 			{#if report.takeaways.length > 0}
 				<div class="{cardBase} p-5">
-					<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+					<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 						{m.reports_takeaways_heading()}
 					</h2>
 					<ul class="mt-3 space-y-2.5">
@@ -492,7 +492,7 @@
 
 			<!-- 3 · ANALYSE VISUELLE -->
 			<div>
-				<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+				<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 					{m.reports_analysis_heading()}
 				</h2>
 				<div class="mt-3 grid gap-4 lg:grid-cols-2">
@@ -545,7 +545,7 @@
 										<span class="h-2.5 w-2.5 shrink-0 rounded-sm {hexToBgClass(segment.color)}"
 										></span>
 										<span class="flex-1 text-zinc-700">{segment.label}</span>
-										<span class="tabular-nums font-medium text-zinc-900">
+										<span class="font-medium text-zinc-900 tabular-nums">
 											{formatCents(segment.cents)}
 										</span>
 									</li>
@@ -571,7 +571,7 @@
 						{#if report.topCategories.length > 0}
 							<table class="w-full text-sm">
 								<thead>
-									<tr class="text-[11px] uppercase tracking-wide text-zinc-400">
+									<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
 										<th class="px-5 py-2 text-left font-medium"
 											>{m.reports_top_categories_table_category()}</th
 										>
@@ -598,10 +598,10 @@
 													></div>
 												</div>
 											</td>
-											<td class="px-5 py-3 text-right tabular-nums text-zinc-500">
+											<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">
 												{category.transactionCount}
 											</td>
-											<td class="px-5 py-3 text-right tabular-nums font-medium text-rose-600">
+											<td class="px-5 py-3 text-right font-medium text-rose-600 tabular-nums">
 												{Math.round(category.percentageOfExpenses * 100)} %
 											</td>
 										</tr>
@@ -615,7 +615,7 @@
 
 					<!-- mobile -->
 					<div class="lg:hidden">
-						<h3 class="px-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+						<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 							{m.reports_top_categories_title()}
 						</h3>
 						{#if report.topCategories.length > 0}
@@ -627,7 +627,7 @@
 												>{displayCategory(category.category)}</span
 											>
 											<div class="flex shrink-0 items-baseline gap-3">
-												<span class="text-xs tabular-nums text-zinc-500">
+												<span class="text-xs text-zinc-500 tabular-nums">
 													{category.transactionCount === 1
 														? m.reports_top_categories_count_one({
 																count: category.transactionCount
@@ -636,7 +636,7 @@
 																count: category.transactionCount
 															})}
 												</span>
-												<span class="text-sm tabular-nums font-semibold text-zinc-900">
+												<span class="text-sm font-semibold text-zinc-900 tabular-nums">
 													{Math.round(category.percentageOfExpenses * 100)} %
 												</span>
 											</div>
@@ -668,7 +668,7 @@
 						{#if report.largestExpenses.length > 0}
 							<table class="w-full text-sm">
 								<thead>
-									<tr class="text-[11px] uppercase tracking-wide text-zinc-400">
+									<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
 										<th class="px-5 py-2 text-left font-medium"
 											>{m.reports_largest_expenses_table_label()}</th
 										>
@@ -685,7 +685,7 @@
 										<tr>
 											<td class="px-5 py-3 font-medium text-zinc-900">{expense.label}</td>
 											<td class="px-5 py-3 text-zinc-500">{displayCategory(expense.category)}</td>
-											<td class="px-5 py-3 text-right tabular-nums font-semibold text-rose-600">
+											<td class="px-5 py-3 text-right font-semibold text-rose-600 tabular-nums">
 												{formatCents(expense.amountCents)}
 											</td>
 										</tr>
@@ -699,7 +699,7 @@
 
 					<!-- mobile -->
 					<div class="lg:hidden">
-						<h3 class="px-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+						<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 							{m.reports_largest_expenses_title()}
 						</h3>
 						{#if report.largestExpenses.length > 0}
@@ -714,7 +714,7 @@
 												{displayCategory(expense.category)}
 											</div>
 										</div>
-										<div class="shrink-0 text-sm tabular-nums font-semibold text-rose-600">
+										<div class="shrink-0 text-sm font-semibold text-rose-600 tabular-nums">
 											{formatCents(expense.amountCents)}
 										</div>
 									</div>
@@ -732,7 +732,7 @@
 			<!-- 5 · PRÉVISION DE TRÉSORERIE -->
 			<div>
 				<div class="flex items-center gap-2">
-					<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+					<h2 class="text-[11px] font-semibold tracking-wide text-zinc-400 uppercase">
 						{m.reports_forecast_heading()}
 					</h2>
 					<div class="h-px flex-1 bg-zinc-200"></div>
@@ -763,7 +763,7 @@
 						<div class="overflow-x-auto">
 							<table class="w-full min-w-[760px] text-sm">
 								<thead>
-									<tr class="text-[11px] uppercase tracking-wide text-zinc-400">
+									<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
 										<th class="px-5 py-2 text-left font-medium"
 											>{m.reports_forecast_table_label()}</th
 										>
@@ -795,7 +795,7 @@
 												>
 											</td>
 											<td
-												class="px-5 py-3 text-right tabular-nums font-medium {flow.direction ===
+												class="px-5 py-3 text-right font-medium tabular-nums {flow.direction ===
 												'income'
 													? 'text-emerald-700'
 													: 'text-rose-600'}"
@@ -811,7 +811,7 @@
 
 					<!-- mobile -->
 					<div class="mt-3 lg:hidden">
-						<h3 class="px-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+						<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 							{m.reports_forecast_flows_title()}
 						</h3>
 						<p class="mt-1 px-1 text-xs text-zinc-500">{m.reports_forecast_flows_intro()}</p>
@@ -836,7 +836,7 @@
 											{forecastCadenceLabel(flow.cadence)}
 										</div>
 										<div
-											class="shrink-0 tabular-nums font-semibold {flow.direction === 'income'
+											class="shrink-0 font-semibold tabular-nums {flow.direction === 'income'
 												? 'text-emerald-700'
 												: 'text-rose-600'}"
 										>
@@ -864,7 +864,7 @@
 			{#if report.recurringPayments.length > 0}
 				<div id="annexe-recurrences" class="scroll-mt-6">
 					<div class="flex items-center gap-2">
-						<h2 class="text-[11px] font-semibold uppercase tracking-wide text-zinc-400">
+						<h2 class="text-[11px] font-semibold tracking-wide text-zinc-400 uppercase">
 							{m.reports_appendix_heading()}
 						</h2>
 						<div class="h-px flex-1 bg-zinc-200"></div>
@@ -880,7 +880,7 @@
 						<div class="overflow-x-auto">
 							<table class="w-full min-w-[760px] text-sm">
 								<thead>
-									<tr class="text-[11px] uppercase tracking-wide text-zinc-400">
+									<tr class="text-[11px] tracking-wide text-zinc-400 uppercase">
 										<th class="px-5 py-2 text-left font-medium"
 											>{m.reports_recurring_table_label()}</th
 										>
@@ -909,16 +909,16 @@
 										<tr>
 											<td class="px-5 py-3 font-medium text-zinc-700">{rec.label}</td>
 											<td class="px-5 py-3 text-zinc-500">{displayCategory(rec.category)}</td>
-											<td class="px-5 py-3 text-right tabular-nums text-zinc-500">{rec.count}</td>
-											<td class="px-5 py-3 text-right tabular-nums text-zinc-500">{rec.lastDate}</td
+											<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">{rec.count}</td>
+											<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">{rec.lastDate}</td
 											>
 											<td class="px-5 py-3 text-right text-zinc-500"
 												>{confidenceLabel(rec.confidence)}</td
 											>
-											<td class="px-5 py-3 text-right tabular-nums font-medium text-zinc-700">
+											<td class="px-5 py-3 text-right font-medium text-zinc-700 tabular-nums">
 												{formatCents(rec.amountCents)}
 											</td>
-											<td class="px-5 py-3 text-right tabular-nums font-medium text-zinc-700">
+											<td class="px-5 py-3 text-right font-medium text-zinc-700 tabular-nums">
 												{formatCents(rec.totalAmountCents)}
 											</td>
 										</tr>
@@ -930,7 +930,7 @@
 
 					<!-- mobile -->
 					<div class="mt-3 lg:hidden">
-						<h3 class="px-1 text-[11px] font-semibold uppercase tracking-wide text-zinc-500">
+						<h3 class="px-1 text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
 							{m.reports_recurring_title()}
 						</h3>
 						<p class="mt-1 px-1 text-xs text-zinc-500">{m.reports_recurring_subtitle()}</p>
@@ -959,10 +959,10 @@
 												: m.reports_recurring_meta_many({ count: rec.count, date: rec.lastDate })}
 										</div>
 										<div class="shrink-0 text-right">
-											<div class="tabular-nums font-semibold text-zinc-900">
+											<div class="font-semibold text-zinc-900 tabular-nums">
 												{formatCents(rec.amountCents)}
 											</div>
-											<div class="tabular-nums text-xs text-zinc-500">
+											<div class="text-xs text-zinc-500 tabular-nums">
 												{m.reports_recurring_table_total()}: {formatCents(rec.totalAmountCents)}
 											</div>
 										</div>

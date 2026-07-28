@@ -160,27 +160,27 @@
 
 				<div class="mt-4 grid gap-3 md:grid-cols-3 lg:grid-cols-6">
 					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs uppercase text-zinc-500">{m.import_stat_rows_read()}</p>
+						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_rows_read()}</p>
 						<p class="mt-1 text-xl font-semibold">{importResult.totalRows}</p>
 					</div>
 					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs uppercase text-zinc-500">{m.import_stat_imported()}</p>
+						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_imported()}</p>
 						<p class="mt-1 text-xl font-semibold text-emerald-700">{importResult.importedRows}</p>
 					</div>
 					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs uppercase text-zinc-500">{m.import_stat_duplicates()}</p>
+						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_duplicates()}</p>
 						<p class="mt-1 text-xl font-semibold">{importResult.duplicateRows}</p>
 					</div>
 					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs uppercase text-zinc-500">{m.import_stat_invalid()}</p>
+						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_invalid()}</p>
 						<p class="mt-1 text-xl font-semibold text-rose-700">{importResult.invalidRows}</p>
 					</div>
 					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs uppercase text-zinc-500">{m.import_stat_total_debit()}</p>
+						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_total_debit()}</p>
 						<p class="mt-1 text-xl font-semibold">{formatCents(importResult.totalDebitCents)}</p>
 					</div>
 					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs uppercase text-zinc-500">{m.import_stat_total_credit()}</p>
+						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_total_credit()}</p>
 						<p class="mt-1 text-xl font-semibold">{formatCents(importResult.totalCreditCents)}</p>
 					</div>
 				</div>
@@ -210,7 +210,7 @@
 
 						<div class="mt-4 overflow-x-auto rounded-xl border border-zinc-200">
 							<table class="w-full min-w-[760px] text-left text-sm">
-								<thead class="bg-zinc-50 text-xs uppercase text-zinc-500">
+								<thead class="bg-zinc-50 text-xs text-zinc-500 uppercase">
 									<tr>
 										<th class="px-3 py-2 font-medium">{m.import_invalid_table_line()}</th>
 										<th class="px-3 py-2 font-medium">{m.import_invalid_table_reason()}</th>
@@ -307,11 +307,11 @@
 			<div class="{cardBase} p-5">
 				<div class="flex items-start justify-between gap-3">
 					<div>
-						<h2 class="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+						<h2 class="text-xs font-semibold tracking-wide text-zinc-400 uppercase">
 							{m.import_summary_heading()}
 						</h2>
 						{#if importResult.fileName}
-							<p class="mt-1 break-all text-sm font-medium text-zinc-900">
+							<p class="mt-1 text-sm font-medium break-all text-zinc-900">
 								{importResult.fileName}
 							</p>
 						{/if}
@@ -339,31 +339,31 @@
 
 				<div class="mt-4 grid grid-cols-2 gap-3">
 					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_rows_read()}</p>
+						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_rows_read()}</p>
 						<p class="mt-1 text-lg font-bold">{importResult.totalRows}</p>
 					</div>
 					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_imported()}</p>
+						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_imported()}</p>
 						<p class="mt-1 text-lg font-bold text-emerald-700">{importResult.importedRows}</p>
 					</div>
 					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_duplicates()}</p>
+						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_duplicates()}</p>
 						<p class="mt-1 text-lg font-bold" class:text-amber-600={importResult.duplicateRows > 0}>
 							{importResult.duplicateRows}
 						</p>
 					</div>
 					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_invalid()}</p>
+						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_invalid()}</p>
 						<p class="mt-1 text-lg font-bold" class:text-rose-700={importResult.invalidRows > 0}>
 							{importResult.invalidRows}
 						</p>
 					</div>
 					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_total_debit()}</p>
+						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_total_debit()}</p>
 						<p class="mt-1 text-lg font-bold">{formatCents(importResult.totalDebitCents)}</p>
 					</div>
 					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] uppercase text-zinc-400">{m.import_stat_total_credit()}</p>
+						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_total_credit()}</p>
 						<p class="mt-1 text-lg font-bold">{formatCents(importResult.totalCreditCents)}</p>
 					</div>
 				</div>
@@ -405,7 +405,7 @@
 									{row.field}
 								</p>
 								<p
-									class="mt-2 whitespace-pre-wrap break-words rounded-lg bg-zinc-100 px-2.5 py-2 font-mono text-xs text-zinc-600"
+									class="mt-2 rounded-lg bg-zinc-100 px-2.5 py-2 font-mono text-xs break-words whitespace-pre-wrap text-zinc-600"
 								>
 									{row.preview}
 								</p>

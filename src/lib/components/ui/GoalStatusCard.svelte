@@ -74,7 +74,7 @@
 
 	<div class="mt-2 flex items-baseline justify-between gap-2 text-sm">
 		<div
-			class="tabular-nums text-zinc-900"
+			class="text-zinc-900 tabular-nums"
 			class:font-semibold={variant === 'card'}
 			class:font-medium={variant === 'plain'}
 		>
@@ -97,7 +97,7 @@
 {#if onclick}
 	<button
 		type="button"
-		class="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 {variant ===
+		class="w-full text-left focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:outline-none {variant ===
 		'card'
 			? `${cardBase} p-4 hover:bg-zinc-50`
 			: ''}"

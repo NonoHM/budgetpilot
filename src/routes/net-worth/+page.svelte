@@ -166,7 +166,7 @@
 			<div class="{cardBase} p-5">
 				<div class="flex items-start justify-between gap-3">
 					<div>
-						<div class="text-[11px] font-medium uppercase tracking-wide text-zinc-500">
+						<div class="text-[11px] font-medium tracking-wide text-zinc-500 uppercase">
 							{m.net_worth_total_label()}
 						</div>
 						<div class="mt-0.5 text-2xl font-semibold tabular-nums {toneClass(totalCents)}">
@@ -231,7 +231,7 @@
 						<div class="mt-5 border-t border-zinc-100 pt-4">
 							<div class="flex items-center justify-between gap-3">
 								<span class="text-sm font-semibold text-zinc-900">{m.net_worth_debt_label()}</span>
-								<span class="text-sm font-semibold tabular-nums text-rose-600">
+								<span class="text-sm font-semibold text-rose-600 tabular-nums">
 									{formatCents(negativeBalanceDisplayCents(negativeBalanceTotalCents))}
 								</span>
 							</div>

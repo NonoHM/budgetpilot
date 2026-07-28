@@ -74,7 +74,7 @@
 			class="{baseInputClass} {inputClass}"
 		/>
 		<span
-			class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-zinc-400"
+			class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-zinc-400"
 			aria-hidden="true"
 		>
 			€

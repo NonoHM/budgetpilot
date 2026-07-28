@@ -103,7 +103,7 @@
 			<div class="hidden rounded-lg border border-zinc-200 bg-white lg:block">
 				<div class="overflow-x-auto">
 					<table class="w-full min-w-[900px] text-left text-sm">
-						<thead class="border-b border-zinc-200 text-xs uppercase text-zinc-500">
+						<thead class="border-b border-zinc-200 text-xs text-zinc-500 uppercase">
 							<tr>
 								<th class="px-4 py-3 font-medium">{m.imports_table_date()}</th>
 								<th class="px-4 py-3 font-medium">{m.imports_table_file()}</th>

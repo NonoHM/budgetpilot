@@ -39,7 +39,7 @@
      backgrounds respect the card radius) would clip a default outline or an
      offset ring drawn outside the focused element. -->
 <div
-	class="overflow-hidden {cardBase} {active ? 'bg-zinc-50 ring-1 ring-inset ring-zinc-900/10' : ''}"
+	class="overflow-hidden {cardBase} {active ? 'bg-zinc-50 ring-1 ring-zinc-900/10 ring-inset' : ''}"
 >
 	{#if href}
 		<!-- generic reusable component: `href` is an arbitrary caller-supplied string (internal route
@@ -48,7 +48,7 @@
 		<a
 			{href}
 			id={linkId}
-			class="block p-4 hover:bg-zinc-50 active:bg-zinc-100 {transitionHover} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-400"
+			class="block p-4 hover:bg-zinc-50 active:bg-zinc-100 {transitionHover} focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none focus-visible:ring-inset"
 		>
 			{@render children()}
 		</a>
@@ -62,7 +62,7 @@
 	{#if details}
 		<button
 			type="button"
-			class="flex min-h-[44px] w-full items-center justify-center border-t border-zinc-100 text-xs font-medium text-zinc-500 hover:bg-zinc-50 {transitionHover} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-zinc-400"
+			class="flex min-h-[44px] w-full items-center justify-center border-t border-zinc-100 text-xs font-medium text-zinc-500 hover:bg-zinc-50 {transitionHover} focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none focus-visible:ring-inset"
 			onclick={() => (expanded = !expanded)}
 			aria-expanded={expanded}
 			aria-label={expandAriaLabel ??

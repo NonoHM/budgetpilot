@@ -78,7 +78,7 @@
 
 	<div class="mt-2 flex items-baseline justify-between gap-2 text-sm">
 		<div
-			class="tabular-nums text-zinc-900"
+			class="text-zinc-900 tabular-nums"
 			class:font-semibold={variant === 'card'}
 			class:font-medium={variant === 'plain'}
 		>
