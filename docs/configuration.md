@@ -13,12 +13,11 @@ docker compose up -d          # or: docker compose -f docker-compose.prebuilt.ym
 
 ## The three secrets
 
-Required. The app refuses to start without two of them, and account creation
-silently fails without the third.
+Required. The app refuses to start without any of them.
 
 | Variable                 | What it does                                                                                  | If it's missing                                                                                                                                                                                                              |
 | ------------------------ | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BOOTSTRAP_TOKEN`        | Gates account creation while registration is closed                                           | The app starts fine, but **every** registration attempt is rejected as an invalid token, with nothing in the logs. If registration keeps failing and you're sure you pasted the right value, check this variable isn't empty |
+| `BOOTSTRAP_TOKEN`        | Gates account creation while registration is closed                                           | Crash at startup with `BOOTSTRAP_TOKEN is required when REGISTRATION_MODE=admin_only`. Only required in `admin_only` mode (the default), since `open` mode genuinely doesn't use it                                           |
 | `RATE_LIMIT_HASH_SECRET` | HMAC key for the emails and IPs stored by login rate limiting, so they're never in clear text | Crash at startup with `RATE_LIMIT_HASH_SECRET is required`                                                                                                                                                                   |
 | `TOTP_ENCRYPTION_KEY`    | AES-256-GCM key encrypting two-factor secrets at rest                                         | Crash at startup with `TOTP_ENCRYPTION_KEY is required`                                                                                                                                                                      |
 
@@ -51,32 +50,51 @@ ORIGIN=http://localhost:3001
 `APP_PORT` is the host-side port Docker publishes. The container always
 listens on 3000 internally, that never changes.
 
-### Plain HTTP only works on localhost
+### `PUBLIC_INSTANCE` and the session cookie
 
-This one surprises people, so here it is plainly: **a Docker install serves
-`Secure` session cookies always**, because the container runs with
-`NODE_ENV=production` and the app treats that, on its own, as "this deserves
-Secure cookies". `PUBLIC_INSTANCE` can add that flag, it can't remove it.
+`PUBLIC_INSTANCE` is the single switch governing the `Secure` flag on the
+session cookie, and it is fail-secure: unset, empty, `true` or a typo all
+mean `Secure`. Only the literal value `false` turns it off. `NODE_ENV` plays
+no part in the decision.
 
-Browsers accept a `Secure` cookie over `http://localhost` and
-`http://127.0.0.1`, which they consider trustworthy origins. They refuse it
-over `http://192.168.1.42:3000` or `http://budget.lan`. On those, login
-appears to work and then bounces you straight back to the login page,
-forever, because the session cookie was never stored.
+That matters because browsers only accept a `Secure` cookie over HTTPS, plus
+the two plain-HTTP origins they consider trustworthy anyway: `localhost` and
+`127.0.0.1`. They refuse it over `http://192.168.1.42:3000` or
+`http://budget.lan`. On those, login appears to work and then bounces you
+straight back to the login page, forever, because the cookie was never
+stored.
 
-So reaching the app from another device means one of these:
+So pick the line that matches how you reach the app:
 
-**A reverse proxy with a real certificate** (Caddy, nginx, Traefik). The
-right answer:
+**HTTPS behind a reverse proxy**, the right answer for anything beyond your
+own machine:
 
 ```dotenv
 ORIGIN=https://budget.example.com
 PUBLIC_INSTANCE=true
 ```
 
-Point the proxy at the container's published port. The app stays on plain
-HTTP internally, the proxy terminates TLS. `PUBLIC_INSTANCE=true` is what
-makes the cookie policy explicit rather than incidental.
+The proxy terminates TLS and forwards to the container over plain HTTP.
+There's a ready-made Caddy overlay in
+[reverse proxy](./reverse-proxy.md), which gets you automatic
+certificates in about three commands.
+
+**Plain HTTP on your LAN**, at an address that isn't localhost:
+
+```dotenv
+ORIGIN=http://192.168.1.42:3000
+PUBLIC_INSTANCE=false
+```
+
+This is the one case where dropping the flag is correct, and the only way to
+make LAN access work at all. Session cookies then travel in clear text on
+your network, so keep it to a network you trust and never to an
+internet-reachable instance. The app logs a warning at startup while this is
+active, on purpose.
+
+**Localhost only**, the default: change nothing. `ORIGIN` stays
+`http://localhost:3000` and `PUBLIC_INSTANCE` stays `true`, since browsers
+accept the `Secure` cookie there regardless.
 
 **Or a tunnel**, so the browser still talks to localhost. A Tailscale
 tailnet with its HTTPS certificates, or plain SSH port forwarding:
@@ -86,12 +104,12 @@ ssh -L 3000:localhost:3000 you@your-server
 ```
 
 Then browse `http://localhost:3000` on your laptop, with `ORIGIN` left at
-`http://localhost:3000`. Nothing to configure in the app at all.
+`http://localhost:3000` and `PUBLIC_INSTANCE` left alone.
 
 Exposing this to the open internet is your call to make, but the honest
 answer is that a self-hosted finance app belongs on your LAN or behind a
-VPN. If you do expose it, use HTTPS, set `PUBLIC_INSTANCE=true`, and leave
-registration closed.
+VPN. If you do expose it, use HTTPS, leave `PUBLIC_INSTANCE` at `true`, and
+leave registration closed.
 
 ## Who can create an account
 

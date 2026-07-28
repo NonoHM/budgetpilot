@@ -101,15 +101,17 @@ jobs:
           # prerendering candidates, which runs each module's top-level validation — so this
           # must cover every env var any src/lib/server/**/*.ts throws on at import time if
           # unset, not just the ones the app touches at request time. Currently that's
-          # db.ts (DATABASE_URL), crypto.ts (TOTP_ENCRYPTION_KEY), and rateLimit.ts
-          # (RATE_LIMIT_HASH_SECRET) — grep `is required` under src/lib/server for the
-          # current list if this ever needs updating. All three values below are throwaway,
-          # CI-only fakes, never copied from a real .env.
+          # db.ts (DATABASE_URL), crypto.ts (TOTP_ENCRYPTION_KEY), rateLimit.ts
+          # (RATE_LIMIT_HASH_SECRET) and auth/bootstrapToken.ts (BOOTSTRAP_TOKEN, in the
+          # default REGISTRATION_MODE=admin_only) — grep `is required` under src/lib/server
+          # for the current list if this ever needs updating. All four values below are
+          # throwaway, CI-only fakes, never copied from a real .env.
           DATABASE_URL: file:./dev.db
           # Must be valid 64-hex-char (32-byte) input for crypto.ts's decode check; the
           # repeating pattern signals "obviously not a real key" rather than looking random.
           TOTP_ENCRYPTION_KEY: 'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1'
           RATE_LIMIT_HASH_SECRET: 'ci-only-fake-rate-limit-hash-secret-do-not-reuse'
+          BOOTSTRAP_TOKEN: 'ci-only-fake-bootstrap-token-do-not-reuse'
 
       - name: E2E tests
         run: npm run test:e2e

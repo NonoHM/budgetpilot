@@ -1,0 +1,32 @@
+# Copy to `Caddyfile` and replace budget.example.com with your own domain.
+# Used by docker-compose.proxy.yml. See docs/reverse-proxy.md.
+#
+# Caddy obtains and renews a Let's Encrypt certificate on its own. Nothing to
+# configure for that: it just needs the domain pointed at this host and ports
+# 80 and 443 reachable from the Internet.
+
+budget.example.com {
+	# `budgetpilot` is the service name in docker-compose.yml, resolved over the
+	# internal Compose network. Port 3000 is the container's own port, which
+	# never changes (APP_PORT only affects host publishing, unused here).
+	reverse_proxy budgetpilot:3000
+
+	# The bank consent callback carries an OAuth-style one-time `code` in its
+	# query string. Dropping `code` and `state` from the access log keeps that
+	# secret out of a file that tends to be world-readable, shipped to a log
+	# collector, or kept far longer than the code stays valid.
+	log {
+		format filter {
+			wrap console
+			fields {
+				request>uri query {
+					delete code
+					delete state
+				}
+			}
+		}
+	}
+}
+
+# Serving several apps from one Caddy? Add another site block; each domain gets
+# its own certificate automatically.

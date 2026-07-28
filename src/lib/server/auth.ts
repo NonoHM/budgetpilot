@@ -79,11 +79,26 @@ export function getSessionExpiresAt(): Date {
 	return new Date(Date.now() + safeTtlDays * 24 * 60 * 60 * 1000);
 }
 
-// PUBLIC_INSTANCE=true forces the Secure cookie flag independently of NODE_ENV: an
-// explicit mechanism for an instance genuinely exposed on the Internet (requires HTTPS),
-// rather than relying on a NODE_ENV that could be misconfigured in deployment.
+// PUBLIC_INSTANCE is the ONE switch governing the Secure cookie flag, and it is
+// fail-secure: anything other than an explicit "false" (unset, empty, "true", a typo)
+// yields Secure cookies. Only a deliberate PUBLIC_INSTANCE=false drops the flag, which
+// is what a LAN-only instance served over plain http:// needs — browsers reject a Secure
+// cookie on http://192.168.x.x, so forcing it there makes login structurally impossible.
+//
+// NODE_ENV is deliberately NOT consulted: every Docker install runs with
+// NODE_ENV=production, so keying off it forced Secure cookies on LAN deployments that
+// cannot use them, with no way to opt out. The security posture describes PUBLIC_INSTANCE
+// as the mechanism — this is that, and nothing else.
+//
+// Known dev-only limitation: this reads process.env rather than $env/dynamic/private, so
+// under `vite dev` a .env-only PUBLIC_INSTANCE=false is not seen and the flag stays on
+// (fail-secure, so never a security hole — but `vite dev --host` on a LAN IP cannot log
+// in, and the startup log then prints "unset"). Same latent issue as
+// isLocalLlmEnabled(process.env); switching this one would force every caller of
+// areSecureCookiesEnabled() and its tests off process.env. Export a real PUBLIC_INSTANCE
+// in the shell for that case.
 export function areSecureCookiesEnabled(): boolean {
-	return process.env.PUBLIC_INSTANCE === 'true' || process.env.NODE_ENV === 'production';
+	return process.env.PUBLIC_INSTANCE !== 'false';
 }
 
 export function getSessionCookieOptions(expires: Date) {

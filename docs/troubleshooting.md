@@ -32,20 +32,20 @@ cat .env    # every one of the three secrets should have a long value
 
 ## Registration always says the token is invalid
 
-You paste the `BOOTSTRAP_TOKEN` and the form rejects it every time, with
-nothing in the logs.
+You paste the `BOOTSTRAP_TOKEN` and the form rejects it every time.
 
-Almost always: `BOOTSTRAP_TOKEN` is empty in `.env`. Unlike the other two
-secrets, a blank one doesn't crash the app, it just makes every token
-comparison fail. Check with:
+It's a copy-paste problem. Copy the entire value after the `=`, including
+any trailing `=` characters, with no leading or trailing space and no line
+break in the middle:
 
 ```bash
 grep BOOTSTRAP_TOKEN .env
 ```
 
-If it does have a value, then it's a copy-paste problem. Copy the entire
-value after the `=`, including any trailing `=` characters, with no leading
-or trailing space and no line break in the middle.
+An empty `BOOTSTRAP_TOKEN` is no longer a possible cause: in `admin_only`
+mode (the default) the app now refuses to start without one, with
+`BOOTSTRAP_TOKEN is required when REGISTRATION_MODE=admin_only` in the logs.
+It used to start fine and reject every registration silently instead.
 
 Another possibility: you're using the value from a `.env` you regenerated
 since. `npm run setup` rewrites all three secrets every time it runs, so an
@@ -72,21 +72,32 @@ Restart after editing.
 You're reaching the app over plain HTTP at something that isn't localhost:
 a LAN address like `http://192.168.1.42:3000`, or a bare hostname.
 
-The session cookie is `Secure` on any Docker install, and browsers refuse to
-store a `Secure` cookie on a plain-HTTP origin unless it's `localhost` or
+The session cookie carries the `Secure` flag by default, and browsers refuse
+to store a `Secure` cookie on a plain-HTTP origin unless it's `localhost` or
 `127.0.0.1`. So the login itself works, the cookie is thrown away, and the
-next page load looks logged-out. Setting `PUBLIC_INSTANCE=false` does not
-help, it can't remove that flag.
+next page load looks logged-out.
 
-Fix it with HTTPS (a reverse proxy with a real certificate, or Tailscale) or
-by tunnelling so the browser still talks to localhost:
+Fix it by telling the app this is a LAN instance:
+
+```dotenv
+PUBLIC_INSTANCE=false
+```
+
+Restart, and the startup log should read `cookies-secure=false`. Your
+session cookie then travels in clear text on your network, which is the
+trade you're making. Do it on a network you trust, never on an
+internet-reachable instance.
+
+Prefer HTTPS? Put a certificate in front of it with the
+[Caddy overlay](./reverse-proxy.md) and leave `PUBLIC_INSTANCE` alone. Or
+tunnel, so the browser still talks to localhost:
 
 ```bash
 ssh -L 3000:localhost:3000 you@your-server
 ```
 
 Full explanation in
-[configuration](./configuration.md#plain-http-only-works-on-localhost).
+[configuration](./configuration.md#public_instance-and-the-session-cookie).
 
 ## Port is already allocated
 

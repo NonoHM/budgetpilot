@@ -1,0 +1,50 @@
+# Optional HTTPS reverse proxy. Combine with either base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml up -d --build
+#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml up -d
+#
+# Only needed if you want a real domain with automatic HTTPS. A LAN-only
+# instance over plain http:// works without any of this: set
+# PUBLIC_INSTANCE=false in .env and use the base compose file alone.
+#
+# Before starting:
+#   1. cp Caddyfile.example Caddyfile   and put your domain in it
+#   2. in .env: ORIGIN=https://your.domain  and remove any PUBLIC_INSTANCE=false
+#      (secure cookies are the default, which is what you want behind TLS)
+#   3. point your domain's DNS at this host, with ports 80 and 443 reachable
+#      from the Internet (Caddy needs both to obtain a certificate)
+#
+# See docs/reverse-proxy.md.
+services:
+  budgetpilot:
+    # The app is no longer published on the host: Caddy reaches it over the
+    # internal Compose network, and it is the only way in. Overriding with an
+    # empty list cancels the base file's "${APP_PORT:-3000}:3000" mapping.
+    ports: []
+    environment:
+      # Without these, every request reaches the app with Caddy's container IP,
+      # collapsing every per-IP rate limit (login, MFA, registration, bank-sync
+      # consent) into a single shared bucket. adapter-node reads the client IP
+      # from this header instead. Safe here precisely because `ports: []` above
+      # makes Caddy the only way in: a client that could reach the app directly
+      # would be able to forge its own address this way.
+      ADDRESS_HEADER: X-Forwarded-For
+      XFF_DEPTH: '1'
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: budgetpilot_caddy
+    depends_on:
+      - budgetpilot
+    ports:
+      - '80:80'
+      - '443:443'
+      - '443:443/udp'
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    restart: unless-stopped
+
+volumes:
+  caddy_data:
+  caddy_config:

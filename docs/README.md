@@ -4,6 +4,8 @@
   or without Docker. Start here.
 - **[Configuration](./configuration.md)**: every setting, and how to reach
   the app from another machine.
+- **[Reverse proxy](./reverse-proxy.md)**: optional Caddy overlay for a real
+  domain with automatic HTTPS.
 - **[Running it day to day](./operations.md)**: updating, backups, moving
   machines, uninstalling.
 - **[Local AI advice](./ai-insights.md)**: the optional Ollama setup.
