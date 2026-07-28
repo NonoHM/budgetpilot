@@ -1,0 +1,33 @@
+# Runs the published image instead of building from source. This is the file
+# to use if you just want BudgetPilot running and don't intend to work on the
+# code: no clone, no build, no Node.js needed.
+#
+#   docker compose -f docker-compose.prebuilt.yml up -d
+#
+# It needs a .env next to it with at least the three secrets (BOOTSTRAP_TOKEN,
+# RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY). See docs/getting-started.md.
+#
+# Working on the code instead? Use docker-compose.yml, which builds the image
+# from your checkout.
+services:
+  budgetpilot:
+    image: ghcr.io/nonohm/budgetpilot:${BUDGETPILOT_VERSION:-latest}
+    container_name: budgetpilot
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: file:/data/dev.db
+      NODE_ENV: production
+      PORT: 3000
+      HOST: 0.0.0.0
+      ORIGIN: ${ORIGIN:-http://localhost:3000}
+      BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN}
+      BODY_SIZE_LIMIT: 21000000
+    ports:
+      - '${APP_PORT:-3000}:3000'
+    volumes:
+      - budgetpilot_data:/data
+    restart: unless-stopped
+
+volumes:
+  budgetpilot_data:

@@ -6,6 +6,10 @@ please keep changes focused and discuss larger ones in an issue first.
 
 ## Setup
 
+Prerequisites: Node 24.18.0 and a C++ toolchain (bcrypt and better-sqlite3
+compile native code during `npm install`). On Debian/Ubuntu that's
+`python3 build-essential pkg-config`, on macOS `xcode-select --install`.
+
 ```bash
 nvm install && nvm use   # Node 24.18.0
 npm install
@@ -26,6 +30,11 @@ npx prisma generate
 npx prisma migrate dev
 npm run dev
 ```
+
+`npm run setup` generates the three secrets for you instead of the manual
+`openssl` step above. Running the app with Docker rather than the dev
+server, or stuck on any of this? See
+[docs/getting-started.md](./docs/getting-started.md).
 
 ## Before opening a PR
 
