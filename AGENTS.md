@@ -182,8 +182,19 @@ there in the same PR.
 ## Git workflow (mandatory, effective immediately)
 
 **No direct commits or pushes to `main`, ever.** Always: create a branch,
-push it, open a PR, wait for CI to pass, then merge. This applies even
-though the repo is currently private and GitHub isn't yet technically
-blocking direct pushes on the free plan — the discipline is voluntary now
-and becomes enforced the moment the repo goes public. Every session should
-default to this flow without needing to be asked again.
+push it, open a PR, wait for CI to pass, then merge. The repo is public and
+GitHub's branch protection ruleset enforces this (PR required, all 3
+required checks green — `lint`, `typecheck`, `test-and-build` — no bypass).
+
+## Dependency updates (Dependabot auto-merge)
+
+`.github/workflows/dependabot-auto-merge.yml` auto-enables `gh pr merge
+--auto --squash` (never a direct merge — the required checks above still
+gate it) on a Dependabot PR only when the update is `semver-patch` or
+`semver-minor` (never major) AND the package isn't in `.github/dependabot.yml`'s
+`npm-lint-tooling` group (`eslint*`, `prettier*`, `@typescript-eslint/*`,
+`typescript-eslint` — a formatter/linter bump can change what
+"lint-clean"/"correctly formatted" means repo-wide, so it always needs a
+manual look, patch or not). Applies the same way to ungrouped CVE-triggered
+security PRs. Everything else (majors, lint/tooling bumps, anything CI
+doesn't pass) needs a human to merge.
