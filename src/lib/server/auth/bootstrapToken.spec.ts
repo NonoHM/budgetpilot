@@ -48,7 +48,7 @@ describe('boot guard BOOTSTRAP_TOKEN', () => {
 	});
 
 	it.each([undefined, ''])(
-		"ne jette pas en mode open, où le token est réellement inutilisé (%p)",
+		'ne jette pas en mode open, où le token est réellement inutilisé (%p)',
 		async (value) => {
 			expect.assertions(1);
 
@@ -89,7 +89,7 @@ describe('isBootstrapTokenValid', () => {
 		expect(isBootstrapTokenValid(candidate)).toBe(false);
 	});
 
-	it("fail-closed quand BOOTSTRAP_TOKEN est absent (cas atteignable en mode open)", async () => {
+	it('fail-closed quand BOOTSTRAP_TOKEN est absent (cas atteignable en mode open)', async () => {
 		expect.assertions(2);
 
 		registration.getRegistrationMode.mockReturnValue('open');
