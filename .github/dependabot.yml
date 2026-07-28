@@ -29,12 +29,11 @@ updates:
     ignore:
       # @types/node tracks the Node runtime major, which is pinned at 24
       # (.nvmrc, CI's node-version-file, four Dockerfile stages). Typing the
-      # codebase against Node 26 APIs the runtime doesn't have would be a silent
-      # mismatch, so this is scoped to the same 26.x range ignored for the node
-      # image itself and is revisited with that decision in October 2026 — not
-      # separately.
+      # codebase against Node 25/26 APIs the runtime doesn't have would be a
+      # silent mismatch, so every major above 24 is blocked until the runtime
+      # itself is bumped to a newer LTS.
       - dependency-name: '@types/node'
-        versions: ['26.x']
+        versions: ['>=25.0.0']
       # TypeScript 7 cannot land while typescript-eslint caps its peer range at
       # ">=4.8.4 <6.1.0" — 8.65.0 is the latest published version and still caps
       # it, so `npm run lint` would break with no newer release to upgrade to.
