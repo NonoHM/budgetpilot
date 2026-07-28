@@ -41,3 +41,9 @@ export interface LocalLlmResult {
 	insights: BudgetInsight[];
 	unavailable?: boolean;
 }
+
+/** What the dashboard needs from a local-model run — streamed, so it arrives after the page. */
+export interface LocalAiAdvice {
+	insights: BudgetInsight[];
+	unavailable: boolean;
+}

@@ -4,21 +4,22 @@
 	import { widthClass } from '$lib/domain/widthClass';
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import type { DashboardInsights } from '$lib/server/dashboard/insights';
-	import type { BudgetInsight } from '$lib/server/insights/types';
+	import type { LocalAiAdvice } from '$lib/server/insights/types';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import * as m from '$lib/paraglide/messages';
 
 	let {
 		insights,
-		advice,
-		localAiUnavailable,
+		aiAdvice,
 		aiAllowed,
 		categories
 	}: {
 		insights: DashboardInsights;
-		advice: BudgetInsight[] | null;
-		localAiUnavailable: boolean;
+		// A promise while the local model is still generating (the server streams it rather
+		// than blocking the page on it). A plain value is accepted too, which keeps tests and
+		// any non-streaming caller straightforward — `{#await}` resolves those immediately.
+		aiAdvice: LocalAiAdvice | Promise<LocalAiAdvice | null> | null;
 		aiAllowed: boolean;
 		categories: Array<{ name: string; defaultKey: string | null }>;
 	} = $props();
@@ -28,19 +29,15 @@
 		return categoryLabelByName(name, defaultKeyByName);
 	}
 
-	const aiAdvice = $derived((advice ?? []).filter((item) => item.source === 'local-llm'));
-	// Enforced mutually exclusive here (not just assumed from the server contract): advice
-	// takes priority whenever both flags are somehow true at once, so `aiOpen` sharing below
-	// (see the AI-advice card's comment) is guaranteed safe regardless of caller input.
-	const showAiAdviceCard = $derived(aiAllowed && aiAdvice.length > 0);
-	const showAiUnavailableCard = $derived(aiAllowed && localAiUnavailable && !showAiAdviceCard);
-
 	const insightsHasContent = $derived(
 		insights.alerts.length > 0 ||
 			insights.unusualSpending !== null ||
 			insights.uncategorizedCount > 0
 	);
-	const aiHasContent = $derived(showAiUnavailableCard || showAiAdviceCard);
+	// The AI card is the only thing that can still be pending, and the section has to render
+	// for its placeholder to be visible at all — otherwise a user with no rule insights sees
+	// nothing until the model finishes and the whole section pops in.
+	const aiHasContent = $derived(aiAllowed);
 	const totalAlertCount = $derived(insights.alerts.length + insights.alertOverflowCount);
 	const worstAlertStatus = $derived(
 		insights.alerts.some((alert) => alert.status === 'over_budget') ? 'over_budget' : 'near_limit'
@@ -241,95 +238,124 @@
 
 {#if aiHasContent}
 	<section class={insightsHasContent ? 'mt-3' : 'mt-6'}>
-		{#if showAiUnavailableCard}
+		{#await aiAdvice}
 			<div class="rounded-lg border border-dashed border-zinc-300 p-4">
-				<button
-					type="button"
-					class="flex min-h-11 w-full items-center gap-2 text-left"
-					onclick={() => (aiOpen = !aiOpen)}
-					aria-expanded={aiOpen}
-					aria-controls="dashboard-ai-unavailable-content"
-				>
+				<div class="flex min-h-11 items-center gap-2">
+					<span class="shrink-0">
+						<Badge tone="neutral">{m.dashboard_insights_ai_badge()}</Badge>
+					</span>
+					<span class="min-w-0 flex-1 truncate text-sm text-zinc-500">
+						{m.dashboard_insights_ai_pending()}
+					</span>
+				</div>
+			</div>
+		{:then resolved}
+			{@const aiItems = (resolved?.insights ?? []).filter((item) => item.source === 'local-llm')}
+			{@const showAiAdviceCard = aiItems.length > 0}
+			{@const showAiUnavailableCard = resolved?.unavailable === true && !showAiAdviceCard}
+			{#if showAiUnavailableCard}
+				<div class="rounded-lg border border-dashed border-zinc-300 p-4">
+					<button
+						type="button"
+						class="flex min-h-11 w-full items-center gap-2 text-left"
+						onclick={() => (aiOpen = !aiOpen)}
+						aria-expanded={aiOpen}
+						aria-controls="dashboard-ai-unavailable-content"
+					>
+						<span class="shrink-0">
+							<Badge tone="neutral">{m.dashboard_insights_ai_badge()}</Badge>
+						</span>
+						<span class="min-w-0 flex-1 truncate text-sm font-medium text-zinc-900">
+							{m.dashboard_insights_ai_unavailable_title()}
+						</span>
+						<svg
+							class="ml-auto h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150"
+							class:rotate-180={aiOpen}
+							viewBox="0 0 20 20"
+							fill="none"
+							aria-hidden="true"
+						>
+							<path
+								d="M5.5 7.5 10 12l4.5-4.5"
+								stroke="currentColor"
+								stroke-width="1.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+					</button>
+					<p
+						id="dashboard-ai-unavailable-content"
+						class="{aiOpen ? '' : 'hidden'} mt-1 text-xs text-zinc-500"
+					>
+						{m.dashboard_insights_ai_unavailable_message()}
+						<a
+							class="font-medium text-zinc-600 underline hover:text-zinc-800"
+							href={resolve('/settings')}
+						>
+							{m.dashboard_insights_settings_link()}
+						</a>.
+					</p>
+				</div>
+			{/if}
+
+			{#if showAiAdviceCard}
+				<div class="rounded-lg bg-zinc-50 p-4">
+					<!-- showAiUnavailableCard/showAiAdviceCard are mutually exclusive (see the
+					     $const above), so sharing aiOpen across both cards never desyncs two
+					     visible cards at once. -->
+					<button
+						type="button"
+						class="flex min-h-11 w-full items-center gap-2 text-left"
+						onclick={() => (aiOpen = !aiOpen)}
+						aria-expanded={aiOpen}
+						aria-controls="dashboard-ai-advice-content"
+					>
+						<span class="shrink-0">
+							<Badge tone="neutral">{m.dashboard_insights_ai_badge()}</Badge>
+						</span>
+						<span class="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">
+							{aiOpen ? m.dashboard_insights_ai_advice_title() : aiItems[0].title}
+						</span>
+						<svg
+							class="ml-auto h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150"
+							class:rotate-180={aiOpen}
+							viewBox="0 0 20 20"
+							fill="none"
+							aria-hidden="true"
+						>
+							<path
+								d="M5.5 7.5 10 12l4.5-4.5"
+								stroke="currentColor"
+								stroke-width="1.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+					</button>
+					<div id="dashboard-ai-advice-content" class="{aiOpen ? '' : 'hidden'} mt-2.5 space-y-2.5">
+						{#each aiItems as item (item.id)}
+							<div>
+								<div class="text-sm font-medium text-zinc-900">{item.title}</div>
+								<p class="text-xs text-zinc-600">{item.message}</p>
+							</div>
+						{/each}
+					</div>
+				</div>
+			{/if}
+		{:catch}
+			<!-- The server already converts a failed generation into `unavailable`, so this only
+			     catches a caller handing us a rejecting promise. Same card either way. -->
+			<div class="rounded-lg border border-dashed border-zinc-300 p-4">
+				<div class="flex min-h-11 items-center gap-2">
 					<span class="shrink-0">
 						<Badge tone="neutral">{m.dashboard_insights_ai_badge()}</Badge>
 					</span>
 					<span class="min-w-0 flex-1 truncate text-sm font-medium text-zinc-900">
 						{m.dashboard_insights_ai_unavailable_title()}
 					</span>
-					<svg
-						class="ml-auto h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150"
-						class:rotate-180={aiOpen}
-						viewBox="0 0 20 20"
-						fill="none"
-						aria-hidden="true"
-					>
-						<path
-							d="M5.5 7.5 10 12l4.5-4.5"
-							stroke="currentColor"
-							stroke-width="1.5"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-					</svg>
-				</button>
-				<p
-					id="dashboard-ai-unavailable-content"
-					class="{aiOpen ? '' : 'hidden'} mt-1 text-xs text-zinc-500"
-				>
-					{m.dashboard_insights_ai_unavailable_message()}
-					<a
-						class="font-medium text-zinc-600 underline hover:text-zinc-800"
-						href={resolve('/settings')}
-					>
-						{m.dashboard_insights_settings_link()}
-					</a>.
-				</p>
-			</div>
-		{/if}
-
-		{#if showAiAdviceCard}
-			<div class="rounded-lg bg-zinc-50 p-4">
-				<!-- showAiUnavailableCard/showAiAdviceCard are mutually exclusive (see their
-				     $derived above), so sharing aiOpen across both cards never desyncs two
-				     visible cards at once. -->
-				<button
-					type="button"
-					class="flex min-h-11 w-full items-center gap-2 text-left"
-					onclick={() => (aiOpen = !aiOpen)}
-					aria-expanded={aiOpen}
-					aria-controls="dashboard-ai-advice-content"
-				>
-					<span class="shrink-0">
-						<Badge tone="neutral">{m.dashboard_insights_ai_badge()}</Badge>
-					</span>
-					<span class="min-w-0 flex-1 truncate text-sm font-semibold text-zinc-900">
-						{aiOpen ? m.dashboard_insights_ai_advice_title() : aiAdvice[0].title}
-					</span>
-					<svg
-						class="ml-auto h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150"
-						class:rotate-180={aiOpen}
-						viewBox="0 0 20 20"
-						fill="none"
-						aria-hidden="true"
-					>
-						<path
-							d="M5.5 7.5 10 12l4.5-4.5"
-							stroke="currentColor"
-							stroke-width="1.5"
-							stroke-linecap="round"
-							stroke-linejoin="round"
-						/>
-					</svg>
-				</button>
-				<div id="dashboard-ai-advice-content" class="{aiOpen ? '' : 'hidden'} mt-2.5 space-y-2.5">
-					{#each aiAdvice as item (item.id)}
-						<div>
-							<div class="text-sm font-medium text-zinc-900">{item.title}</div>
-							<p class="text-xs text-zinc-600">{item.message}</p>
-						</div>
-					{/each}
 				</div>
 			</div>
-		{/if}
+		{/await}
 	</section>
 {/if}

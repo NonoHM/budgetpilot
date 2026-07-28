@@ -5,7 +5,7 @@ import type { BudgetInsight, LocalLlmResult } from './types';
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:11434';
 const DEFAULT_MODEL = 'qwen2.5:0.5b';
-const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_TIMEOUT_MS = 45_000;
 const DEFAULT_ALLOWED_HOSTS = ['localhost', '127.0.0.1', '[::1]'];
 // host.docker.internal refers to the host machine itself from inside a Docker container:
 // it isn't a remote server, so http: remains acceptable (Ollama doesn't serve TLS there).
