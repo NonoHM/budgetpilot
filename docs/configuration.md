@@ -141,8 +141,8 @@ Raising `PASSWORD_HASH_COST` makes login slower for everyone by design. 12
 is a sane default, don't go below it.
 
 Two-factor authentication (TOTP) is per user and opt-in, enabled from
-Settings. There's deliberately no admin action to disable someone else's
-second factor, so keep your recovery codes.
+Settings. No admin action exists to disable someone else's second factor,
+deliberately, so keep your recovery codes.
 
 ## Database
 

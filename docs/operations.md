@@ -25,7 +25,7 @@ docker compose down                  # stop and remove the container, keep your 
 
 `docker compose down` is safe. **`docker compose down -v` is not**: the `-v`
 deletes the named volumes, which means your database and any downloaded
-Ollama models. There is no undo.
+Ollama models. Nothing undoes it.
 
 ## Updating
 
@@ -153,8 +153,8 @@ for merging two accounts.
 | Secrets and settings     | `.env` next to your compose file                     | `.env` in the checkout         |
 | Ollama models (if AI on) | `ollama_data` volume                                 | wherever Ollama installed them |
 
-Nothing else leaves the machine. There's no telemetry, no phone-home, no
-account on anyone's server.
+Nothing else leaves the machine: no telemetry, no phone-home, no account on
+anyone's server.
 
 ## Uninstalling
 

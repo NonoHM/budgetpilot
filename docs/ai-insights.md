@@ -13,9 +13,9 @@ makes no network call at all, it doesn't even build a prompt.
 By default, **aggregates only**: totals per category, budget status, the
 shape of the month. No transaction labels, no account numbers, no names.
 
-There's one opt-in switch per user in Settings that adds the labels of your
-largest expenses, the same ones already shown in the insights above the
-card. Never your full transaction history, in either mode.
+One opt-in switch per user in Settings adds the labels of your largest
+expenses, the same ones already shown in the insights above the card. Never
+your full transaction history, in either mode.
 
 Where that data goes depends on `LLM_ALLOWED_HOSTS`. Keep it on localhost or
 the bundled `ollama` container and it never leaves the machine. Point it at
@@ -113,8 +113,8 @@ Work through these in order:
    `docker compose ... exec ollama ollama list` should show it.
 4. `LLM_MODEL` in `.env` spelled exactly like the pulled tag,
    `qwen2.5:0.5b` and `qwen2.5` are different names.
-5. Enough data. There's nothing to comment on in an account with four
-   transactions.
+5. Enough data: an account with four transactions gives the model nothing
+   to comment on.
 
 If the card says the service is unavailable, the app reached the point of
 trying and failed. Check `docker compose ... logs ollama`.
