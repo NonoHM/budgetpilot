@@ -11,7 +11,7 @@ Honest answer: my personal finances were kind of a mess, and I wanted an excuse 
 
 I'm not a professional developer. I built this over several months with Claude, trying to hold myself to real standards anyway: proper security reviews, a real test suite, a design system that's actually consistent instead of every page inventing its own button style. Whether I pulled that off is for you to judge by reading the code, not by trusting this README.
 
-This isn't trying to replace Monarch, YNAB, or the other well-established players in this space. There are open source alternatives out there (Firefly III, Actual Budget, to name two) that are more mature and, in some areas, better built than this. BudgetPilot is just my take on it, local-first and privacy-first by default, and I'm putting it out there in case it's useful to someone else too.
+This isn't trying to replace Monarch, YNAB, or the other well-established players in this space. Open source alternatives exist too (Firefly III, Actual Budget, to name two), and they're more mature and, in some areas, better built than this. BudgetPilot is just my take on it, local-first and privacy-first by default, and I'm putting it out there in case it's useful to someone else too.
 
 The weakest part right now is honestly CSV import: only a handful of bank profiles are supported, and the parser system needs more work to cover more banks and formats. Contributions there especially welcome.
 
