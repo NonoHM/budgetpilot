@@ -5,6 +5,8 @@ import { buildPeriodReport } from '$lib/server/reports/monthly';
 import type { FlaggedCategoryLabels, TransactionSummary } from './types';
 
 const MAX_FLAGGED_LABELS_PER_CATEGORY = 3;
+const ANONYMIZED_EXPENSE_LABEL = 'Expense';
+const ANONYMIZED_RECURRING_LABEL = 'Recurring payment';
 
 export function buildTransactionSummary(
 	transactions: Transaction[],
@@ -32,12 +34,18 @@ export function buildTransactionSummary(
 		balanceCents: monthlySummary.balanceCents,
 		transactionCount: report.transactionCount,
 		topCategories: report.topCategories,
+		// These placeholders replace real labels when the user hasn't opted into sharing them.
+		// They only ever reach the model, never the UI, so they're plain English code
+		// constants rather than i18n messages.
 		largestExpenses: options.includeLabels
 			? report.largestExpenses
-			: report.largestExpenses.map((expense) => ({ ...expense, label: 'Dépense' })),
+			: report.largestExpenses.map((expense) => ({ ...expense, label: ANONYMIZED_EXPENSE_LABEL })),
 		recurringPayments: options.includeLabels
 			? report.recurringPayments
-			: report.recurringPayments.map((payment) => ({ ...payment, label: 'Paiement récurrent' })),
+			: report.recurringPayments.map((payment) => ({
+					...payment,
+					label: ANONYMIZED_RECURRING_LABEL
+				})),
 		previousMonth: report.previousMonth,
 		flaggedCategoryLabels
 	};
