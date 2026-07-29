@@ -279,7 +279,14 @@ model Transaction {
   /// NULL exactly when `manualCategory` is NULL, once the boot-time backfill has run.
   manualCategoryKey String?
   natureManual      TransactionNature?
+  /// Readable import fingerprint, kept for traceability. Never write it without its hash:
+  /// use `dedupeKeyUpdate()` (server/import/dedupeKey.ts), which writes both columns.
   dedupeKey         String?
+  /// Collation- and length-independent equality key for `dedupeKey` (see
+  /// server/import/dedupeKey.ts). The raw key stays for traceability; every duplicate check
+  /// compares this instead. Nullable only until the boot-time backfill has run once, and
+  /// whenever `dedupeKey` itself is NULL.
+  dedupeKeyHash     String?
   metadataJson      String?
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
@@ -298,6 +305,7 @@ model Transaction {
   @@index([userId, accountId, date])
   @@index([userId, manualCategory])
   @@index([userId, manualCategoryKey])
+  @@index([userId, dedupeKeyHash])
   @@index([userId, categoryId])
   @@index([userId, natureManual])
 }

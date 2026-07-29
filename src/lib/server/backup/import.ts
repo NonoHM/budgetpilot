@@ -5,6 +5,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { DEFAULT_CATEGORIES } from '$lib/server/categories/defaults';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
+import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import type { BackupExport } from './schema';
 
 export class BackupImportError extends Error {}
@@ -239,7 +240,9 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 						transaction.manualCategory ? normalizeCategoryName(transaction.manualCategory) : null
 					),
 					natureManual: transaction.natureManual,
-					dedupeKey: transaction.dedupeKey,
+					// Recomputed here, never read from the file: the hash is the app's own answer
+					// to "is this the same row", not something a backup gets to assert.
+					...dedupeKeyUpdate(transaction.dedupeKey),
 					metadataJson: transaction.metadataJson
 				}))
 			});

@@ -4,6 +4,7 @@ import { hashFingerprint } from '$lib/server/import/utils/safety';
 import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { computeDedupeKeyHash, dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import type { ImportedTransaction } from './types';
 
 /**
@@ -240,8 +241,11 @@ async function persistTransaction(
 ): Promise<string | null> {
 	const dedupeKey = transaction.metadata.deduplicationKey;
 	if (dedupeKey) {
+		// Matched on the hash, never on the raw key: the raw comparison is the database's
+		// opinion, and on an accent-insensitive collation it treats two different transactions
+		// as one. See server/import/dedupeKey.ts.
 		const existing = await prisma.transaction.findFirst({
-			where: { userId, dedupeKey }
+			where: { userId, dedupeKeyHash: computeDedupeKeyHash(dedupeKey) }
 		});
 		if (existing) return null;
 	}
@@ -263,7 +267,7 @@ async function persistTransaction(
 				notes: transaction.metadata.notes || null,
 				bankOperationType: transaction.metadata.bankOperationType || null,
 				natureManual: transaction.metadata.natureManual ?? null,
-				dedupeKey: dedupeKey || null,
+				...dedupeKeyUpdate(dedupeKey),
 				metadataJson: JSON.stringify({
 					reference: transaction.metadata.reference,
 					banquePopulaireCategory: transaction.metadata.banquePopulaireCategory,
@@ -280,7 +284,27 @@ async function persistTransaction(
 		});
 		return created.id;
 	} catch (caught) {
-		if (isUniqueConstraintError(caught)) return null;
+		if (!isUniqueConstraintError(caught)) throw caught;
+		if (!dedupeKey) return null;
+
+		// The unique constraint still sits on the RAW `dedupeKey` until the multi-DB work moves
+		// it onto the hash, so a conflict here can mean one of two very different things.
+		//
+		// Either another request inserted the same row between the pre-check and this insert,
+		// which is an ordinary race and the row really is a duplicate. Or the database's own
+		// equality disagrees with the app's: an accent-insensitive collation, or a unique index
+		// covering only a prefix of a long key, both of which make two genuinely different
+		// transactions collide. Re-asking on the hash separates the two, since the hash is the
+		// app's answer and nothing else writes it.
+		const conflictingRow = await prisma.transaction.findFirst({
+			where: { userId, dedupeKeyHash: computeDedupeKeyHash(dedupeKey) },
+			select: { id: true }
+		});
+		if (conflictingRow) return null;
+
+		// No row carries our hash, so the constraint rejected a transaction the app considers
+		// new. Swallowing it as a duplicate would drop a real transaction and say nothing,
+		// which is the exact failure this column exists to prevent. Fail the import instead.
 		throw caught;
 	}
 }

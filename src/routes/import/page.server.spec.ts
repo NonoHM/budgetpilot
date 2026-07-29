@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { buildMaisonDeduplicationKey } from '$lib/server/import/utils/safety';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -62,6 +63,7 @@ const db = vi.hoisted(() => {
 		manualCategory: string | null;
 		natureManual: string | null;
 		dedupeKey: string | null;
+		dedupeKeyHash: string | null;
 		metadataJson: string | null;
 	};
 	type AccountUpsertArgs = {
@@ -76,7 +78,7 @@ const db = vi.hoisted(() => {
 		where: { userId_name: { userId: string; name: string } };
 		create: Omit<Category, 'id'>;
 	};
-	type TransactionFindFirstArgs = { where: { userId: string; dedupeKey: string } };
+	type TransactionFindFirstArgs = { where: { userId: string; dedupeKeyHash: string } };
 	type TransactionCreateArgs = {
 		data: Omit<Transaction, 'id' | 'manualCategory'> & { manualCategory?: string | null };
 	};
@@ -243,10 +245,13 @@ const db = vi.hoisted(() => {
 			},
 			transaction: {
 				findFirst: vi.fn(async ({ where }: TransactionFindFirstArgs) => {
+					// Matched on the hash, like the real duplicate pre-check: the raw key is the
+					// comparison that column exists to replace.
 					return (
 						state.transactions.find(
 							(transaction) =>
-								transaction.userId === where.userId && transaction.dedupeKey === where.dedupeKey
+								transaction.userId === where.userId &&
+								transaction.dedupeKeyHash === where.dedupeKeyHash
 						) ?? null
 					);
 				}),
@@ -1180,6 +1185,7 @@ describe('/import actions', () => {
 			manualCategory: null,
 			natureManual: null,
 			dedupeKey: existingFingerprint,
+			dedupeKeyHash: computeDedupeKeyHash(existingFingerprint),
 			metadataJson: null
 		});
 

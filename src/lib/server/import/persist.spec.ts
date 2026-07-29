@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { hashFingerprint } from '$lib/server/import/utils/safety';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { computeDedupeKeyHash } from './dedupeKey';
 import type { ImportedTransaction } from './types';
 
 /**
@@ -393,6 +394,67 @@ describe('persistImportedTransactions', () => {
 		expect(result.importedTransactionIds).toEqual(['tx-Courses', 'tx-Salaire']);
 	});
 
+	it('looks the duplicate up by hash and writes both deduplication columns', async () => {
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'csv',
+			transactions: [baseTransaction({ label: 'Courses' })]
+		});
+
+		// The raw key is kept for traceability, but the comparison runs on the hash: on an
+		// accent-insensitive collation the raw one treats two different transactions as one.
+		expect(prismaMock.transaction.findFirst).toHaveBeenCalledWith({
+			where: { userId: 'user-1', dedupeKeyHash: computeDedupeKeyHash('dedupe-1') }
+		});
+		expect(prismaMock.transaction.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				data: expect.objectContaining({
+					dedupeKey: 'dedupe-1',
+					dedupeKeyHash: computeDedupeKeyHash('dedupe-1')
+				})
+			})
+		);
+	});
+
+	it('skips the row whose hash already exists, without creating anything', async () => {
+		prismaMock.transaction.findFirst.mockResolvedValueOnce({ id: 'existing' });
+
+		const result = await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'csv',
+			transactions: [baseTransaction({ label: 'Courses' })]
+		});
+
+		expect(result.duplicateRows).toBe(1);
+		expect(prismaMock.transaction.create).not.toHaveBeenCalled();
+	});
+
+	it('leaves both deduplication columns null when the source provides no key', async () => {
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'csv',
+			transactions: [
+				baseTransaction({
+					label: 'Sans cle',
+					metadata: { reference: '', notes: '', type: 'expense', deduplicationKey: '' }
+				})
+			]
+		});
+
+		expect(prismaMock.transaction.findFirst).not.toHaveBeenCalled();
+		expect(prismaMock.transaction.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				data: expect.objectContaining({ dedupeKey: null, dedupeKeyHash: null })
+			})
+		);
+	});
+
 	it('calls applyCategoryRules with the userId and the imported ids', async () => {
 		await persistImportedTransactions({
 			userId: 'user-1',
@@ -457,9 +519,13 @@ describe('persistImportedTransactions', () => {
 		});
 	});
 
-	it('counts a P2002 unique-constraint error from transaction.create as a duplicate, not a rethrow', async () => {
+	it('counts a P2002 as a duplicate when a row carrying the same hash does exist', async () => {
 		const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
 		prismaMock.transaction.create.mockRejectedValueOnce(p2002);
+		// Pre-check finds nothing, then a concurrent request inserts the same row before this
+		// one lands: an ordinary race, and the row genuinely is a duplicate.
+		prismaMock.transaction.findFirst.mockResolvedValueOnce(null);
+		prismaMock.transaction.findFirst.mockResolvedValueOnce({ id: 'inserted-meanwhile' });
 
 		const result = await persistImportedTransactions({
 			userId: 'user-1',
@@ -467,6 +533,49 @@ describe('persistImportedTransactions', () => {
 			importBatchId: 'batch-1',
 			source: 'csv',
 			transactions: [baseTransaction({ label: 'Courses' })]
+		});
+
+		expect(result.importedRows).toBe(0);
+		expect(result.duplicateRows).toBe(1);
+	});
+
+	it('rethrows a P2002 that no row with the same hash explains, rather than dropping the row', async () => {
+		const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+		prismaMock.transaction.create.mockRejectedValueOnce(p2002);
+		// Nothing carries this hash before or after the conflict, so the constraint rejected a
+		// transaction the app considers new: the database's equality disagrees with ours, which
+		// is what an accent-insensitive collation or a prefix-only index does. Counting it as a
+		// duplicate would drop a real transaction and say nothing.
+		prismaMock.transaction.findFirst.mockResolvedValue(null);
+
+		await expect(
+			persistImportedTransactions({
+				userId: 'user-1',
+				accountId: 'account-1',
+				importBatchId: 'batch-1',
+				source: 'csv',
+				transactions: [baseTransaction({ label: 'Courses' })]
+			})
+		).rejects.toThrow('Unique constraint failed');
+	});
+
+	it('still counts a P2002 as a duplicate for a row carrying no deduplication key', async () => {
+		const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+		prismaMock.transaction.create.mockRejectedValueOnce(p2002);
+
+		// With no key there is no hash to re-ask about, so there is nothing to disagree over
+		// and the previous behavior stands.
+		const result = await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'csv',
+			transactions: [
+				baseTransaction({
+					label: 'Sans cle',
+					metadata: { reference: '', notes: '', type: 'expense', deduplicationKey: '' }
+				})
+			]
 		});
 
 		expect(result.importedRows).toBe(0);
