@@ -18,23 +18,17 @@ permissions:
   packages: write
 
 jobs:
-  build-and-push:
+  # Computes the version/image name/tags once so every other job (and both
+  # platform builds) uses the exact same values — nothing is recomputed
+  # per-matrix-leg.
+  prepare:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      image: ${{ steps.image.outputs.name }}
+      tags: ${{ steps.meta.outputs.tags }}
+      labels: ${{ steps.meta.outputs.labels }}
     steps:
-      # No explicit `ref:` override: for a release event, checkout already resolves to the
-      # tagged commit automatically; for workflow_dispatch, it checks out whatever ref the
-      # run was dispatched against (main by default) — which is what we want for a
-      # retroactive publish, since the tag itself may predate a since-fixed Dockerfile bug.
-      - uses: actions/checkout@v7
-
-      - uses: docker/setup-buildx-action@v4
-
-      - uses: docker/login-action@v4
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Extract version from release tag
         id: version
         env:
@@ -63,11 +57,122 @@ jobs:
             type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=latest
 
-      - uses: docker/build-push-action@v7
+  # One native leg per platform — no QEMU emulation. GitHub's free arm64 hosted
+  # runner (ubuntu-24.04-arm) builds bcrypt/better-sqlite3 at native speed
+  # instead of emulated. Each leg pushes its own platform image to GHCR by
+  # digest only (no tag yet); the merge job below assembles the real tags as a
+  # multi-arch manifest list from these digests.
+  build:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          platforms: ${{ matrix.platform }}
+          labels: ${{ needs.prepare.outputs.labels }}
+          outputs: type=image,name=ghcr.io/${{ needs.prepare.outputs.image }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Sanitize platform name for artifact key
+        id: platform-key
+        run: echo "key=${platform//\//-}" >> "$GITHUB_OUTPUT"
+        env:
+          platform: ${{ matrix.platform }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ steps.platform-key.outputs.key }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Combines the amd64 + arm64 digests into a single multi-arch manifest list
+  # under the real tags (version + latest) — `docker buildx imagetools create`
+  # is the standard way to do this without re-uploading any image data.
+  merge:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - uses: docker/setup-buildx-action@v4
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        env:
+          IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
+          TAGS: ${{ needs.prepare.outputs.tags }}
+        run: |
+          tag_args=()
+          while IFS= read -r tag; do
+            [ -n "$tag" ] && tag_args+=(-t "$tag")
+          done <<< "$TAGS"
+          digest_refs=()
+          for digest in *; do
+            digest_refs+=("$IMAGE@sha256:$digest")
+          done
+          docker buildx imagetools create "${tag_args[@]}" "${digest_refs[@]}"
+
+      - name: Inspect pushed manifest
+        env:
+          IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: docker buildx imagetools inspect "$IMAGE:$VERSION"
+
+  # Pulls the just-published manifest tag on a native arm64 runner and checks
+  # the actual downloaded image reports linux/arm64 — proof the arm64 layer
+  # served to a real arm64 machine isn't an emulated amd64 blob, with no QEMU
+  # anywhere in this check either.
+  verify-arm64:
+    needs: [prepare, merge]
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Pull and verify architecture
+        env:
+          IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+          DOCKER_CLI_EXPERIMENTAL: enabled
+        run: |
+          docker pull "$IMAGE:$VERSION"
+          arch="$(docker inspect --format '{{.Architecture}}' "$IMAGE:$VERSION")"
+          echo "Pulled architecture: $arch"
+          test "$arch" = "arm64"
+          docker manifest inspect "$IMAGE:$VERSION"
