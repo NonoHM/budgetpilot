@@ -10,6 +10,7 @@ import {
 } from '$lib/domain/netWorth';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import { ensureManualAccount, findManualAccount } from '$lib/server/budget/dashboard';
 
 const MAX_NAME_LENGTH = 120;
@@ -70,7 +71,7 @@ export async function createNetWorthAccount(
 		await assertNameAvailable(tx, userId, name, null);
 
 		const created = await tx.netWorthAccount.create({
-			data: { userId, name, type, balanceCents }
+			data: { userId, name, nameKey: computeNameKey(name), type, balanceCents }
 		});
 		await tx.netWorthSnapshot.create({
 			data: { userId, accountId: created.id, type, balanceCents, capturedAt }
@@ -102,7 +103,7 @@ export async function updateNetWorthAccount(
 
 		await tx.netWorthAccount.updateMany({
 			where: { id: accountId, userId },
-			data: { name, type, balanceCents }
+			data: { name, nameKey: computeNameKey(name), type, balanceCents }
 		});
 
 		// A snapshot is written on any change that affects the signed value shown on the
@@ -309,7 +310,14 @@ export async function recordSyncedBalance(
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
-/** Uniqueness of (userId, name) enforced here against ACTIVE accounts only (see schema.prisma). */
+/**
+ * Uniqueness of (userId, name) enforced here against ACTIVE accounts only (see
+ * schema.prisma).
+ *
+ * Compares on `nameKey`, not on `name`: a raw SQL equality on user text is answered by the
+ * column's collation, so the same two names would be a conflict on one database engine and
+ * not on another. The key is computed by the app, so the answer is the same everywhere.
+ */
 async function assertNameAvailable(
 	tx: Tx,
 	userId: string,
@@ -319,7 +327,7 @@ async function assertNameAvailable(
 	const conflict = await tx.netWorthAccount.findFirst({
 		where: {
 			userId,
-			name,
+			nameKey: computeNameKey(name),
 			deletedAt: null,
 			...(excludeAccountId ? { id: { not: excludeAccountId } } : {})
 		},

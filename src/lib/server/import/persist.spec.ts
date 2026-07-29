@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { hashFingerprint } from '$lib/server/import/utils/safety';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import type { ImportedTransaction } from './types';
 
 /**
@@ -21,6 +22,7 @@ const prismaMock = vi.hoisted(() => ({
 		update: vi.fn()
 	},
 	category: {
+		findFirst: vi.fn(),
 		upsert: vi.fn()
 	},
 	transaction: {
@@ -64,10 +66,12 @@ function baseTransaction(overrides: Partial<ImportedTransaction> = {}): Imported
 describe('resolveImportBucketAccount', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// resolveCategoryByName probes for an existing folded match before upserting.
+		prismaMock.category.findFirst.mockResolvedValue(null);
 	});
 
 	it('returns the existing account with created: false and never calls upsert', async () => {
-		prismaMock.account.findUnique.mockResolvedValueOnce({ id: 'account-1' });
+		prismaMock.account.findFirst.mockResolvedValueOnce({ id: 'account-1' });
 
 		const result = await resolveImportBucketAccount({
 			userId: 'user-1',
@@ -77,16 +81,20 @@ describe('resolveImportBucketAccount', () => {
 
 		expect(result).toEqual({ accountId: 'account-1', created: false });
 		expect(prismaMock.account.upsert).not.toHaveBeenCalled();
-		expect(prismaMock.account.findUnique).toHaveBeenCalledWith({
+		// Matched on the folded name key, not on the raw (userId, name, source) tuple: an
+		// import announcing "compte import csv" must land on the existing bucket.
+		expect(prismaMock.account.findFirst).toHaveBeenCalledWith({
 			where: {
-				userId_name_source: { userId: 'user-1', name: 'Compte import CSV', source: 'csv' }
+				userId: 'user-1',
+				nameKey: computeNameKey('Compte import CSV'),
+				source: 'csv'
 			},
 			select: { id: true }
 		});
 	});
 
 	it('creates a new account with created: true, defaulting currency to EUR and links to null', async () => {
-		prismaMock.account.findUnique.mockResolvedValueOnce(null);
+		prismaMock.account.findFirst.mockResolvedValueOnce(null);
 		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-2' });
 
 		const result = await resolveImportBucketAccount({
@@ -104,6 +112,7 @@ describe('resolveImportBucketAccount', () => {
 			create: {
 				userId: 'user-1',
 				name: 'Compte import CSV',
+				nameKey: computeNameKey('Compte import CSV'),
 				source: 'csv',
 				currency: 'EUR',
 				netWorthAccountId: null,
@@ -115,7 +124,7 @@ describe('resolveImportBucketAccount', () => {
 	});
 
 	it('applies netWorthAccountId/bankConnectionId/currency when provided on creation', async () => {
-		prismaMock.account.findUnique.mockResolvedValueOnce(null);
+		prismaMock.account.findFirst.mockResolvedValueOnce(null);
 		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-3' });
 
 		await resolveImportBucketAccount({
@@ -156,7 +165,8 @@ describe('resolveImportBucketAccount', () => {
 			where: { userId: 'user-1', source: 'enablebanking', providerAccountId: 'provider-acc-1' },
 			select: { id: true, bankConnectionId: true }
 		});
-		expect(prismaMock.account.findUnique).not.toHaveBeenCalled();
+		// The provider lookup is the only query: the name lookup never runs.
+		expect(prismaMock.account.findFirst).toHaveBeenCalledTimes(1);
 		expect(prismaMock.account.upsert).not.toHaveBeenCalled();
 	});
 
@@ -202,7 +212,7 @@ describe('resolveImportBucketAccount', () => {
 
 	it('creates a new bucket under the exact requested name when providerAccountId lookup misses and the name is free', async () => {
 		prismaMock.account.findFirst.mockResolvedValueOnce(null);
-		prismaMock.account.findUnique.mockResolvedValueOnce(null);
+		prismaMock.account.findFirst.mockResolvedValueOnce(null);
 		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-new' });
 
 		await resolveImportBucketAccount({
@@ -231,7 +241,7 @@ describe('resolveImportBucketAccount', () => {
 
 	it('disambiguates with a hashed suffix (never the raw provider uid) when the name is already held by another bucket', async () => {
 		prismaMock.account.findFirst.mockResolvedValueOnce(null);
-		prismaMock.account.findUnique.mockResolvedValueOnce({ id: 'account-existing' });
+		prismaMock.account.findFirst.mockResolvedValueOnce({ id: 'account-existing' });
 		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-disambiguated' });
 
 		const result = await resolveImportBucketAccount({
@@ -260,8 +270,8 @@ describe('resolveImportBucketAccount', () => {
 		expect(createCall.create.name).not.toContain('provider-acc-secret-uid');
 	});
 
-	it('the CSV path (no providerAccountId) never calls account.findFirst and keeps returning the existing bucket by name', async () => {
-		prismaMock.account.findUnique.mockResolvedValueOnce({ id: 'account-csv' });
+	it('the CSV path (no providerAccountId) skips the provider lookup and resolves by name alone', async () => {
+		prismaMock.account.findFirst.mockResolvedValueOnce({ id: 'account-csv' });
 
 		const result = await resolveImportBucketAccount({
 			userId: 'user-1',
@@ -270,7 +280,12 @@ describe('resolveImportBucketAccount', () => {
 		});
 
 		expect(result).toEqual({ accountId: 'account-csv', created: false });
-		expect(prismaMock.account.findFirst).not.toHaveBeenCalled();
+		// A single query, and it is the name one: nothing looks up a provider account for a
+		// CSV import.
+		expect(prismaMock.account.findFirst).toHaveBeenCalledTimes(1);
+		expect(prismaMock.account.findFirst.mock.calls[0][0].where).not.toHaveProperty(
+			'providerAccountId'
+		);
 		expect(prismaMock.account.upsert).not.toHaveBeenCalled();
 	});
 });
@@ -278,6 +293,8 @@ describe('resolveImportBucketAccount', () => {
 describe('createImportBatch', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// resolveCategoryByName probes for an existing folded match before upserting.
+		prismaMock.category.findFirst.mockResolvedValue(null);
 	});
 
 	it('maps period ISO strings to UTC-midnight Dates and returns the created batch id', async () => {
@@ -324,6 +341,8 @@ describe('createImportBatch', () => {
 describe('persistImportedTransactions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// resolveCategoryByName probes for an existing folded match before upserting.
+		prismaMock.category.findFirst.mockResolvedValue(null);
 		prismaMock.transaction.findFirst.mockResolvedValue(null);
 		prismaMock.category.upsert.mockImplementation(
 			async ({ where }: { where: { userId_name: { userId: string; name: string } } }) => ({
@@ -468,7 +487,7 @@ describe('persistImportedTransactions', () => {
 		).rejects.toThrow('database is on fire');
 	});
 
-	it('upserts the category keyed by {userId_name: {userId, name}}', async () => {
+	it('resolves the category by folded name before falling back to an upsert', async () => {
 		await persistImportedTransactions({
 			userId: 'user-1',
 			accountId: 'account-1',
@@ -477,10 +496,17 @@ describe('persistImportedTransactions', () => {
 			transactions: [baseTransaction({ label: 'Courses', category: 'Alimentation' })]
 		});
 
+		// The folded probe comes first, so an import announcing "alimentation" reuses an
+		// existing "Alimentation" instead of creating a second category.
+		expect(prismaMock.category.findFirst).toHaveBeenCalledWith({
+			where: { userId: 'user-1', nameKey: computeNameKey('Alimentation') },
+			select: { id: true }
+		});
 		expect(prismaMock.category.upsert).toHaveBeenCalledWith({
 			where: { userId_name: { userId: 'user-1', name: 'Alimentation' } },
-			update: {},
-			create: { userId: 'user-1', name: 'Alimentation' }
+			update: { nameKey: computeNameKey('Alimentation') },
+			create: { userId: 'user-1', name: 'Alimentation', nameKey: computeNameKey('Alimentation') },
+			select: { id: true }
 		});
 	});
 

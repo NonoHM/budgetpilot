@@ -2,6 +2,8 @@ import { applyCategoryRules } from '$lib/server/categorization/rules';
 import { prisma } from '$lib/server/db';
 import { hashFingerprint } from '$lib/server/import/utils/safety';
 import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
+import { resolveCategoryByName } from '$lib/server/categories/resolve';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import type { ImportedTransaction } from './types';
 
 /**
@@ -97,8 +99,10 @@ export async function resolveImportBucketAccount(
 	}
 
 	let name = input.name;
-	const existing = await prisma.account.findUnique({
-		where: { userId_name_source: { userId: input.userId, name, source: input.source } },
+	// Folded match, like categories: a bucket named "Courses" and an import announcing
+	// "courses" are the same bucket, and creating a second one would split the history.
+	const existing = await prisma.account.findFirst({
+		where: { userId: input.userId, nameKey: computeNameKey(name), source: input.source },
 		select: { id: true }
 	});
 	if (existing) {
@@ -115,6 +119,7 @@ export async function resolveImportBucketAccount(
 		create: {
 			userId: input.userId,
 			name,
+			nameKey: computeNameKey(name),
 			source: input.source,
 			currency: input.currency ?? 'EUR',
 			netWorthAccountId: input.netWorthAccountId ?? null,
@@ -241,11 +246,7 @@ async function persistTransaction(
 		if (existing) return null;
 	}
 
-	const category = await prisma.category.upsert({
-		where: { userId_name: { userId, name: transaction.category } },
-		update: {},
-		create: { userId, name: transaction.category }
-	});
+	const category = await resolveCategoryByName(userId, transaction.category);
 
 	try {
 		const created = await prisma.transaction.create({

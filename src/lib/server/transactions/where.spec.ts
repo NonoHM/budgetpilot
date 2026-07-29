@@ -1,3 +1,4 @@
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import { describe, expect, it } from 'vitest';
 import {
 	buildTransactionWhere,
@@ -74,7 +75,7 @@ describe('buildTransactionWhere', () => {
 
 		expect(where).not.toHaveProperty('type');
 		expect(where.OR).toEqual([
-			{ manualCategory: 'uncategorized' },
+			{ manualCategoryKey: computeNameKey('uncategorized') },
 			{ AND: [{ manualCategory: null }, { categoryId: 'cat-uncat-id' }] }
 		]);
 	});
@@ -90,7 +91,7 @@ describe('buildTransactionWhere', () => {
 		});
 
 		expect(where.OR).toEqual([
-			{ manualCategory: 'uncategorized' },
+			{ manualCategoryKey: computeNameKey('uncategorized') },
 			{ AND: [{ manualCategory: null }, { categoryId: '__none__' }] }
 		]);
 	});
@@ -109,17 +110,17 @@ describe('buildTransactionWhere', () => {
 		expect(where.AND).toEqual([
 			{
 				OR: [
-					{ manualCategory: 'uncategorized' },
+					{ manualCategoryKey: computeNameKey('uncategorized') },
 					{ AND: [{ manualCategory: null }, { categoryId: 'cat-uncat-id' }] }
 				]
 			},
 			{
 				OR: [
-					{ manualCategory: 'Alimentation' },
+					{ manualCategoryKey: computeNameKey('Alimentation') },
 					{
 						AND: [
 							{ manualCategory: null },
-							{ category: { is: { userId: 'user-a', name: 'Alimentation' } } }
+							{ category: { is: { userId: 'user-a', nameKey: computeNameKey('Alimentation') } } }
 						]
 					}
 				]
@@ -138,11 +139,11 @@ describe('buildTransactionWhere', () => {
 		});
 
 		expect(where.OR).toEqual([
-			{ manualCategory: 'Alimentation' },
+			{ manualCategoryKey: computeNameKey('Alimentation') },
 			{
 				AND: [
 					{ manualCategory: null },
-					{ category: { is: { userId: 'user-a', name: 'Alimentation' } } }
+					{ category: { is: { userId: 'user-a', nameKey: computeNameKey('Alimentation') } } }
 				]
 			}
 		]);

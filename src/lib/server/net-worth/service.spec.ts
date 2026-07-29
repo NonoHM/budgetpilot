@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 
 const tx = vi.hoisted(() => ({
 	netWorthAccount: {
@@ -151,7 +152,13 @@ describe('createNetWorthAccount', () => {
 		});
 
 		expect(tx.netWorthAccount.create).toHaveBeenCalledWith({
-			data: { userId, name: 'Livret A', type: 'savings', balanceCents: 100_000 }
+			data: {
+				userId,
+				name: 'Livret A',
+				nameKey: computeNameKey('Livret A'),
+				type: 'savings',
+				balanceCents: 100_000
+			}
 		});
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
@@ -252,7 +259,7 @@ describe('updateNetWorthAccount', () => {
 	it('scope la mise à jour par id ET userId, et crée un nouveau snapshot si le solde change', async () => {
 		tx.netWorthAccount.findFirst.mockImplementation(
 			async ({ where }: { where: Record<string, unknown> }) =>
-				'name' in where
+				'nameKey' in where
 					? null
 					: { id: 'acc-00000001', userId, type: 'savings', balanceCents: 50_000 }
 		);
@@ -265,7 +272,12 @@ describe('updateNetWorthAccount', () => {
 
 		expect(tx.netWorthAccount.updateMany).toHaveBeenCalledWith({
 			where: { id: 'acc-00000001', userId },
-			data: { name: 'Livret A', type: 'savings', balanceCents: 70_000 }
+			data: {
+				name: 'Livret A',
+				nameKey: computeNameKey('Livret A'),
+				type: 'savings',
+				balanceCents: 70_000
+			}
 		});
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
@@ -281,7 +293,7 @@ describe('updateNetWorthAccount', () => {
 	it('ne crée pas de nouveau snapshot si ni le solde ni le type ne changent (renommage seul)', async () => {
 		tx.netWorthAccount.findFirst.mockImplementation(
 			async ({ where }: { where: Record<string, unknown> }) =>
-				'name' in where
+				'nameKey' in where
 					? null
 					: { id: 'acc-00000001', userId, type: 'savings', balanceCents: 50_000 }
 		);
@@ -298,7 +310,7 @@ describe('updateNetWorthAccount', () => {
 	it('crée un nouveau snapshot si seul le type change (bug #1 : le signe doit changer explicitement)', async () => {
 		tx.netWorthAccount.findFirst.mockImplementation(
 			async ({ where }: { where: Record<string, unknown> }) =>
-				'name' in where
+				'nameKey' in where
 					? null
 					: { id: 'acc-00000001', userId, type: 'savings', balanceCents: 50_000 }
 		);
@@ -341,7 +353,7 @@ describe('updateNetWorthAccount', () => {
 	it('délie tous les Account (manuel ET buckets CSV) quand le type devient non-liable (checking -> real_estate)', async () => {
 		tx.netWorthAccount.findFirst.mockImplementation(
 			async ({ where }: { where: Record<string, unknown> }) =>
-				'name' in where
+				'nameKey' in where
 					? null
 					: { id: 'acc-00000001', userId, type: 'checking', balanceCents: 50_000 }
 		);
@@ -362,7 +374,7 @@ describe('updateNetWorthAccount', () => {
 	it('ne touche à aucun Account quand le type reste liable (savings -> debt)', async () => {
 		tx.netWorthAccount.findFirst.mockImplementation(
 			async ({ where }: { where: Record<string, unknown> }) =>
-				'name' in where
+				'nameKey' in where
 					? null
 					: { id: 'acc-00000001', userId, type: 'savings', balanceCents: 50_000 }
 		);
@@ -384,7 +396,7 @@ describe('updateNetWorthAccount', () => {
 		async () => {
 			tx.netWorthAccount.findFirst.mockImplementation(
 				async ({ where }: { where: Record<string, unknown> }) =>
-					'name' in where
+					'nameKey' in where
 						? null
 						: { id: 'acc-00000001', userId, type: 'real_estate', balanceCents: 50_000 }
 			);
@@ -406,7 +418,7 @@ describe('updateNetWorthAccount', () => {
 	it('ne touche à aucun Account quand le type non-liable ne change pas (real_estate -> real_estate)', async () => {
 		tx.netWorthAccount.findFirst.mockImplementation(
 			async ({ where }: { where: Record<string, unknown> }) =>
-				'name' in where
+				'nameKey' in where
 					? null
 					: { id: 'acc-00000001', userId, type: 'real_estate', balanceCents: 50_000 }
 		);

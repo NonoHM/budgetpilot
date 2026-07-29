@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { buildMaisonDeduplicationKey } from '$lib/server/import/utils/safety';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -13,6 +14,7 @@ const db = vi.hoisted(() => {
 		source: string;
 		currency: string;
 		netWorthAccountId?: string | null;
+		providerAccountId?: string | null;
 	};
 	type NetWorthAccount = {
 		id: string;
@@ -152,6 +154,31 @@ const db = vi.hoisted(() => {
 								account.name === where.userId_name_source.name &&
 								account.source === where.userId_name_source.source
 						) ?? null
+				),
+				// Two distinct lookups share findFirst: the bank-sync one keyed on
+				// providerAccountId, and the bucket-name one keyed on the folded nameKey.
+				findFirst: vi.fn(
+					async ({
+						where
+					}: {
+						where: {
+							userId: string;
+							source: string;
+							nameKey?: string;
+							providerAccountId?: string;
+						};
+					}) =>
+						state.accounts.find(
+							(account) =>
+								account.userId === where.userId &&
+								account.source === where.source &&
+								(where.nameKey === undefined
+									? true
+									: computeNameKey(account.name) === where.nameKey) &&
+								(where.providerAccountId === undefined
+									? true
+									: account.providerAccountId === where.providerAccountId)
+						) ?? null
 				)
 			},
 			importBatch: {
@@ -194,6 +221,14 @@ const db = vi.hoisted(() => {
 				)
 			},
 			category: {
+				findFirst: vi.fn(async ({ where }: { where: { userId: string; nameKey: string } }) => {
+					return (
+						state.categories.find(
+							(category) =>
+								category.userId === where.userId && computeNameKey(category.name) === where.nameKey
+						) ?? null
+					);
+				}),
 				upsert: vi.fn(async ({ where, create }: CategoryUpsertArgs) => {
 					const found = state.categories.find(
 						(category) =>

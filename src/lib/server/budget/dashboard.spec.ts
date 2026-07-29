@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 
 const db = vi.hoisted(() => ({
 	prisma: {
@@ -21,6 +22,7 @@ const db = vi.hoisted(() => ({
 		},
 		category: {
 			upsert: vi.fn(),
+			findFirst: vi.fn(),
 			findMany: vi.fn()
 		}
 	}
@@ -141,7 +143,9 @@ describe('saveBudget validation', () => {
 		await saveBudget('user-a', { category: 'Loisirs', limit: '250' });
 
 		expect(db.prisma.monthlyBudget.upsert).toHaveBeenCalledWith(
-			expect.objectContaining({ update: { amountCents: 25_000 } })
+			expect.objectContaining({
+				update: expect.objectContaining({ amountCents: 25_000 })
+			})
 		);
 	});
 
@@ -152,7 +156,9 @@ describe('saveBudget validation', () => {
 		await saveBudget('user-a', { category: 'Loisirs', limit: '999999.99' });
 
 		expect(db.prisma.monthlyBudget.upsert).toHaveBeenCalledWith(
-			expect.objectContaining({ update: { amountCents: 99_999_999 } })
+			expect.objectContaining({
+				update: expect.objectContaining({ amountCents: 99_999_999 })
+			})
 		);
 	});
 });
@@ -176,6 +182,10 @@ describe('readDashboardData', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// resolveCategoryByName / upsertBudgetByFoldedName look for an existing folded match
+		// before upserting; "none yet" is the default these specs assume.
+		db.prisma.category.findFirst.mockResolvedValue(null);
+		db.prisma.monthlyBudget.findFirst.mockResolvedValue(null);
 		db.prisma.transaction.findMany.mockResolvedValue([
 			{
 				id: 'income-any-source',
@@ -286,6 +296,10 @@ describe('écritures dashboard', () => {
 
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// resolveCategoryByName / upsertBudgetByFoldedName look for an existing folded match
+		// before upserting; "none yet" is the default these specs assume.
+		db.prisma.category.findFirst.mockResolvedValue(null);
+		db.prisma.monthlyBudget.findFirst.mockResolvedValue(null);
 		db.prisma.account.upsert.mockResolvedValue({ id: 'account-a' });
 		db.prisma.category.upsert.mockResolvedValue({ id: 'category-a', name: 'Alimentation' });
 		db.prisma.category.findMany.mockResolvedValue([]);
@@ -344,26 +358,24 @@ describe('écritures dashboard', () => {
 		expect(db.prisma.transaction.create).not.toHaveBeenCalled();
 	});
 
-	it('enregistre un budget avec une clé unique scopée utilisateur', async () => {
-		expect.assertions(2);
+	it('scopes every budget write to the calling user', async () => {
+		expect.assertions(3);
 
+		// A budget already exists for this folded name (see beforeEach), so the save takes
+		// the update branch rather than the upsert one.
 		await saveBudget(userId, {
 			category: 'Alimentation',
 			limit: '500'
 		});
 
-		expect(db.prisma.category.upsert.mock.calls[0][0].where.userId_name.userId).toBe(userId);
-		expect(db.prisma.monthlyBudget.upsert.mock.calls[0][0]).toMatchObject({
-			where: {
-				userId_categoryName: {
-					userId,
-					categoryName: 'Alimentation'
-				}
-			},
-			create: {
-				userId,
-				categoryName: 'Alimentation'
-			}
+		expect(db.prisma.category.findFirst.mock.calls[0][0].where.userId).toBe(userId);
+		expect(db.prisma.monthlyBudget.findFirst.mock.calls[0][0].where).toMatchObject({
+			userId,
+			categoryNameKey: computeNameKey('Alimentation')
+		});
+		expect(db.prisma.monthlyBudget.updateMany.mock.calls[0][0].where).toMatchObject({
+			id: 'budget-a',
+			userId
 		});
 	});
 

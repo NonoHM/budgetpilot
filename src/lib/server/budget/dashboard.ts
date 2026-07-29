@@ -2,6 +2,8 @@ import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import type { CategoryBudget } from '$lib/domain/budget';
+import { resolveCategoryByName } from '$lib/server/categories/resolve';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import type { Transaction, TransactionSource, TransactionNature } from '$lib/domain/transaction';
 import { validateTransaction } from '$lib/domain/transaction';
 import { parseManualAmountCents } from '$lib/domain/money';
@@ -150,7 +152,7 @@ export async function createManualTransaction(
 
 	const [account, category] = await Promise.all([
 		ensureManualAccount(userId),
-		upsertCategory(userId, transaction.category)
+		resolveCategoryByName(userId, transaction.category)
 	]);
 
 	await prisma.transaction.create({
@@ -175,23 +177,8 @@ export async function saveBudget(userId: string, input: SaveBudgetInput): Promis
 	if (limitCents === null) throw error(400, m.budgets_error_invalid_amount());
 	if (!categoryName) throw error(400, m.budgets_error_invalid_category());
 
-	await upsertCategory(userId, categoryName);
-	await prisma.monthlyBudget.upsert({
-		where: {
-			userId_categoryName: {
-				userId,
-				categoryName
-			}
-		},
-		update: {
-			amountCents: limitCents
-		},
-		create: {
-			userId,
-			categoryName,
-			amountCents: limitCents
-		}
-	});
+	await resolveCategoryByName(userId, categoryName);
+	await upsertBudgetByFoldedName(userId, categoryName, limitCents);
 }
 
 export async function readMonthlyBudgets(userId: string): Promise<MonthlyBudgetRecord[]> {
@@ -235,9 +222,9 @@ export async function updateBudget(
 	if (!categoryName) throw error(400, m.budgets_error_invalid_category());
 	if (amountCents === null) throw error(400, m.budgets_error_invalid_amount());
 
-	await upsertCategory(userId, categoryName);
+	await resolveCategoryByName(userId, categoryName);
 
-	if (existing.categoryName === categoryName) {
+	if (computeNameKey(existing.categoryName) === computeNameKey(categoryName)) {
 		await prisma.monthlyBudget.updateMany({
 			where: { id: budgetId, userId },
 			data: { amountCents }
@@ -245,20 +232,7 @@ export async function updateBudget(
 		return;
 	}
 
-	const target = await prisma.monthlyBudget.upsert({
-		where: {
-			userId_categoryName: {
-				userId,
-				categoryName
-			}
-		},
-		update: { amountCents },
-		create: {
-			userId,
-			categoryName,
-			amountCents
-		}
-	});
+	const target = await upsertBudgetByFoldedName(userId, categoryName, amountCents);
 
 	if (target.id !== existing.id) {
 		await prisma.monthlyBudget.deleteMany({
@@ -293,6 +267,39 @@ export async function readBudgetCategoryOptions(userId: string): Promise<string[
 	].sort((left, right) => left.localeCompare(right, 'fr'));
 }
 
+/**
+ * Get-or-create for a budget, matching on the folded category name.
+ *
+ * Mirrors resolveCategoryByName: a budget saved on "courses" has to land on the row already
+ * held by "Courses", because the two are one category for every reader of this table.
+ */
+async function upsertBudgetByFoldedName(
+	userId: string,
+	categoryName: string,
+	amountCents: number
+): Promise<{ id: string }> {
+	const categoryNameKey = computeNameKey(categoryName);
+
+	const existing = await prisma.monthlyBudget.findFirst({
+		where: { userId, categoryNameKey },
+		select: { id: true }
+	});
+	if (existing) {
+		await prisma.monthlyBudget.updateMany({
+			where: { id: existing.id, userId },
+			data: { amountCents }
+		});
+		return existing;
+	}
+
+	return prisma.monthlyBudget.upsert({
+		where: { userId_categoryName: { userId, categoryName } },
+		update: { amountCents, categoryNameKey },
+		create: { userId, categoryName, categoryNameKey, amountCents },
+		select: { id: true }
+	});
+}
+
 /** Idempotent upsert of the implicit manual-entry bucket — never overwrites an existing link. */
 export async function ensureManualAccount(userId: string) {
 	return prisma.account.upsert({
@@ -307,6 +314,7 @@ export async function ensureManualAccount(userId: string) {
 		create: {
 			userId,
 			name: MANUAL_ACCOUNT_NAME,
+			nameKey: computeNameKey(MANUAL_ACCOUNT_NAME),
 			source: 'manual',
 			currency: 'EUR'
 		}
@@ -326,14 +334,6 @@ export async function findManualAccount(
 			}
 		},
 		select: { id: true, netWorthAccountId: true }
-	});
-}
-
-async function upsertCategory(userId: string, name: string) {
-	return prisma.category.upsert({
-		where: { userId_name: { userId, name } },
-		update: {},
-		create: { userId, name }
 	});
 }
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 
 const db = vi.hoisted(() => {
 	// Must stay aligned with UNCLASSIFIED_CATEGORY ($lib/domain/categories) — literal
@@ -41,7 +42,10 @@ const db = vi.hoisted(() => {
 						categories.find(
 							(cat) =>
 								cat.userId === where.userId &&
-								(where.id ? cat.id === where.id : cat.name === where.name)
+								(where.id
+									? cat.id === where.id
+									: computeNameKey(cat.name) === where.nameKey &&
+										(!where.id?.not || cat.id !== where.id.not))
 						) ?? null
 				),
 				upsert: vi.fn(async ({ where, create }) => {
@@ -74,7 +78,7 @@ const db = vi.hoisted(() => {
 					for (let i = mappings.length - 1; i >= 0; i--) {
 						if (
 							mappings[i].userId === where.userId &&
-							mappings[i].categoryName === where.categoryName
+							computeNameKey(mappings[i].categoryName) === where.categoryNameKey
 						) {
 							mappings.splice(i, 1);
 						}
@@ -84,7 +88,10 @@ const db = vi.hoisted(() => {
 				updateMany: vi.fn(async ({ where, data }) => {
 					let count = 0;
 					for (const mapping of mappings) {
-						if (mapping.userId === where.userId && mapping.categoryName === where.categoryName) {
+						if (
+							mapping.userId === where.userId &&
+							computeNameKey(mapping.categoryName) === where.categoryNameKey
+						) {
 							Object.assign(mapping, data);
 							count++;
 						}
@@ -98,7 +105,7 @@ const db = vi.hoisted(() => {
 					for (let i = budgets.length - 1; i >= 0; i--) {
 						if (
 							budgets[i].userId === where.userId &&
-							budgets[i].categoryName === where.categoryName
+							computeNameKey(budgets[i].categoryName) === where.categoryNameKey
 						) {
 							budgets.splice(i, 1);
 						}
@@ -149,7 +156,7 @@ describe('deleteCategory — orphelins CategoryNatureMapping / MonthlyBudget', (
 		await runAction('deleteCategory', { id: 'cat-alimentation' });
 
 		expect(db.prisma.categoryNatureMapping.deleteMany).toHaveBeenCalledWith({
-			where: { userId: 'user-a', categoryName: 'Alimentation' }
+			where: { userId: 'user-a', categoryNameKey: computeNameKey('Alimentation') }
 		});
 		expect(db.mappings).toHaveLength(0);
 	});
@@ -160,7 +167,7 @@ describe('deleteCategory — orphelins CategoryNatureMapping / MonthlyBudget', (
 		await runAction('deleteCategory', { id: 'cat-alimentation' });
 
 		expect(db.prisma.monthlyBudget.deleteMany).toHaveBeenCalledWith({
-			where: { userId: 'user-a', categoryName: 'Alimentation' }
+			where: { userId: 'user-a', categoryNameKey: computeNameKey('Alimentation') }
 		});
 		expect(db.budgets).toHaveLength(0);
 	});
@@ -246,8 +253,8 @@ describe('renameCategory — pas de régression sur le mapping', () => {
 
 		expect(db.prisma.categoryNatureMapping.deleteMany).not.toHaveBeenCalled();
 		expect(db.prisma.categoryNatureMapping.updateMany).toHaveBeenCalledWith({
-			where: { userId: 'user-a', categoryName: 'Alimentation' },
-			data: { categoryName: 'Courses' }
+			where: { userId: 'user-a', categoryNameKey: computeNameKey('Alimentation') },
+			data: { categoryName: 'Courses', categoryNameKey: computeNameKey('Courses') }
 		});
 		expect(db.mappings[0]).toMatchObject({ categoryName: 'Courses' });
 	});

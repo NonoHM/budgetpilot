@@ -8,6 +8,8 @@ import {
 } from '$lib/domain/transaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { normalizeId } from '$lib/server/transactions/where';
+import { normalizeForMatch } from '$lib/domain/normalize';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 
 const MAX_CATEGORY_NAME_LENGTH = 80;
 const NATURE_DEFAULT_BY_KIND: Record<TransactionKind, TransactionNature> = {
@@ -67,8 +69,10 @@ export function getEffectiveTransactionNature(
 		return { nature: transaction.natureManual, source: 'manual' };
 	}
 
-	const mappedNature =
-		mappings instanceof Map ? mappings.get(transaction.category) : mappings[transaction.category];
+	// buildCategoryNatureMap keys on the folded name, so the lookup folds too: a mapping
+	// saved on "Courses" applies to a transaction pinned to "courses".
+	const lookup = normalizeForMatch(transaction.category);
+	const mappedNature = mappings instanceof Map ? mappings.get(lookup) : mappings[lookup];
 	if (mappedNature) {
 		return { nature: mappedNature, source: 'category' };
 	}
@@ -99,10 +103,19 @@ export function isUncategorizedByCategory(transaction: {
 	return getEffectiveCategory(transaction) === UNCLASSIFIED_CATEGORY;
 }
 
+/**
+ * Keyed by the folded category name (see domain/normalize.ts), not the raw one, so nature
+ * mappings match the same way categories are compared everywhere else.
+ *
+ * Two mappings folding to one name cannot coexist after the name-key backfill, so this
+ * introduces no last-one-wins ambiguity.
+ */
 export function buildCategoryNatureMap(
 	mappings: Array<{ categoryName: string; nature: TransactionNature }>
 ): Map<string, TransactionNature> {
-	return new Map(mappings.map((mapping) => [mapping.categoryName, mapping.nature]));
+	return new Map(
+		mappings.map((mapping) => [normalizeForMatch(mapping.categoryName), mapping.nature])
+	);
 }
 
 export async function readCategoryNatureMappings(
@@ -131,6 +144,21 @@ export async function saveCategoryNatureMapping(
 	if (!categoryName) throw new Error('Invalid category');
 	if (!nature) throw new Error('Invalid nature');
 
+	const categoryNameKey = computeNameKey(categoryName);
+	// Folded lookup first: a mapping already stored under "Courses" is the row a save on
+	// "courses" must update, and the raw-name unique constraint would not catch that.
+	const existing = await prisma.categoryNatureMapping.findFirst({
+		where: { userId, categoryNameKey },
+		select: { id: true }
+	});
+	if (existing) {
+		await prisma.categoryNatureMapping.updateMany({
+			where: { id: existing.id, userId },
+			data: { nature }
+		});
+		return;
+	}
+
 	await prisma.categoryNatureMapping.upsert({
 		where: {
 			userId_categoryName: {
@@ -138,10 +166,11 @@ export async function saveCategoryNatureMapping(
 				categoryName
 			}
 		},
-		update: { nature },
+		update: { nature, categoryNameKey },
 		create: {
 			userId,
 			categoryName,
+			categoryNameKey,
 			nature
 		}
 	});
@@ -196,16 +225,20 @@ export function analyzeTransactionNatures(transactions: Transaction[]): Transact
 export async function countUncategorizedTransactions(userId: string): Promise<number> {
 	const uncategorizedMappings = await prisma.categoryNatureMapping.findMany({
 		where: { userId, nature: 'uncategorized' },
-		select: { categoryName: true }
+		select: { categoryNameKey: true }
 	});
-	const mappedNames = uncategorizedMappings.map((mapping) => mapping.categoryName);
+	// Matched on the key columns rather than the names: a raw `name IN (...)` is decided by
+	// the database's collation, which is exactly what the keys exist to avoid.
+	const mappedKeys = uncategorizedMappings
+		.map((mapping) => mapping.categoryNameKey)
+		.filter((key): key is string => key !== null);
 
-	if (mappedNames.length === 0) {
+	if (mappedKeys.length === 0) {
 		return prisma.transaction.count({ where: { userId, natureManual: 'uncategorized' } });
 	}
 
 	const mappedCategories = await prisma.category.findMany({
-		where: { userId, name: { in: mappedNames } },
+		where: { userId, nameKey: { in: mappedKeys } },
 		select: { id: true }
 	});
 	const mappedCategoryIds = mappedCategories.map((category) => category.id);
@@ -218,7 +251,7 @@ export async function countUncategorizedTransactions(userId: string): Promise<nu
 				{
 					natureManual: null,
 					OR: [
-						{ manualCategory: { in: mappedNames } },
+						{ manualCategoryKey: { in: mappedKeys } },
 						{ manualCategory: null, categoryId: { in: mappedCategoryIds } }
 					]
 				}
@@ -233,7 +266,7 @@ export function shouldCountTransactionInBudget(
 ): boolean {
 	const kind = getTransactionKind(transaction);
 	if (kind !== 'expense') return false;
-	if (budgetCategories.has(transaction.category)) return true;
+	if (budgetCategories.has(normalizeForMatch(transaction.category))) return true;
 
 	const nature = transaction.nature ?? getDefaultTransactionNature(transaction);
 	return nature === 'spending' || nature === 'fee';

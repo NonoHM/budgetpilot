@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TransactionNature } from '$lib/domain/transaction';
+import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
 
 // Volume/equivalence tests for the batched-scan refactor (see CLAUDE.md technical debt on
 // rawForClassify/unbounded findMany): verifies that computing the same aggregates via bounded
@@ -51,12 +52,17 @@ const db = vi.hoisted(() => {
 				continue;
 			}
 			if (key === 'category') {
-				const is = (value as { is: { userId?: string; name: string } }).is;
-				if (row.category.name !== is.name) return false;
+				const is = (value as { is: { userId?: string; nameKey: string } }).is;
+				if (computeNameKey(row.category.name) !== is.nameKey) return false;
 				if (is.userId && row.userId !== is.userId) return false;
 				continue;
 			}
-			const actual = (row as unknown as Record<string, unknown>)[key];
+			// The key columns are a pure function of the name, so the fake derives them
+			// rather than carrying a second copy that could drift out of sync.
+			const actual =
+				key === 'manualCategoryKey'
+					? computeNullableNameKey(row.manualCategory)
+					: (row as unknown as Record<string, unknown>)[key];
 			if (value && typeof value === 'object' && !Array.isArray(value) && 'in' in value) {
 				// Generic `{ field: { in: [...] } }` support (manualCategory, categoryId, id...).
 				if (!(value as { in: unknown[] }).in.includes(actual)) return false;
@@ -128,13 +134,17 @@ const db = vi.hoisted(() => {
 			)
 		},
 		category: {
-			findFirst: vi.fn(async ({ where }: { where: { userId: string; name: string } }) => {
-				const found = categories.find((c) => c.userId === where.userId && c.name === where.name);
+			findFirst: vi.fn(async ({ where }: { where: { userId: string; nameKey: string } }) => {
+				const found = categories.find(
+					(c) => c.userId === where.userId && computeNameKey(c.name) === where.nameKey
+				);
 				return found ? { id: found.id } : null;
 			}),
-			findMany: vi.fn(async ({ where }: { where: { userId: string; name: { in: string[] } } }) =>
+			findMany: vi.fn(async ({ where }: { where: { userId: string; nameKey: { in: string[] } } }) =>
 				categories
-					.filter((c) => c.userId === where.userId && where.name.in.includes(c.name))
+					.filter(
+						(c) => c.userId === where.userId && where.nameKey.in.includes(computeNameKey(c.name))
+					)
 					.map((c) => ({ id: c.id }))
 			)
 		},
@@ -142,7 +152,7 @@ const db = vi.hoisted(() => {
 			findMany: vi.fn(async ({ where }: { where: { userId: string; nature?: string } }) =>
 				categoryNatureMappings
 					.filter((m) => m.userId === where.userId && (!where.nature || m.nature === where.nature))
-					.map((m) => ({ categoryName: m.categoryName }))
+					.map((m) => ({ categoryNameKey: computeNameKey(m.categoryName) }))
 			)
 		},
 		categoryRule: {

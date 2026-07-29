@@ -38,38 +38,38 @@ enum BankConnectionStatus {
 }
 
 model User {
-  id           String               @id @default(cuid())
-  email        String               @unique
-  passwordHash String
-  role         Role                 @default(USER)
-  forcePasswordChange Boolean       @default(false)
-  defaultsSeededAt DateTime?
-  defaultRulesSeededAt DateTime?
-  aiInsightsEnabled Boolean         @default(true)
-  aiIncludeLabels   Boolean         @default(false)
+  id                        String                     @id @default(cuid())
+  email                     String                     @unique
+  passwordHash              String
+  role                      Role                       @default(USER)
+  forcePasswordChange       Boolean                    @default(false)
+  defaultsSeededAt          DateTime?
+  defaultRulesSeededAt      DateTime?
+  aiInsightsEnabled         Boolean                    @default(true)
+  aiIncludeLabels           Boolean                    @default(false)
   /// TOTP secret encrypted at rest (AES-256-GCM, iv:authTag:ciphertext format in base64url).
   /// Never log or expose client-side. NULL as long as TOTP has never been configured.
-  totpSecretEncrypted String?
-  totpEnabled         Boolean       @default(false)
-  totpEnabledAt       DateTime?
-  createdAt    DateTime             @default(now())
-  updatedAt    DateTime             @updatedAt
-  accounts     Account[]
-  categories   Category[]
-  transactions Transaction[]
-  importBatches ImportBatch[]
-  rules        CategorizationRule[]
-  categoryRules CategoryRule[]
-  monthlyBudgets MonthlyBudget[]
-  categoryNatureMappings CategoryNatureMapping[]
-  sessions     Session[]
-  invitationsCreated Invitation[] @relation("InvitationCreatedBy")
-  invitationsUsed    Invitation[] @relation("InvitationUsedBy")
-  recoveryCodes       RecoveryCode[]
-  pendingMfaChallenges PendingMfaChallenge[]
-  netWorthAccounts    NetWorthAccount[]
-  savingsGoals        SavingsGoal[]
-  bankConnections     BankConnection[]
+  totpSecretEncrypted       String?
+  totpEnabled               Boolean                    @default(false)
+  totpEnabledAt             DateTime?
+  createdAt                 DateTime                   @default(now())
+  updatedAt                 DateTime                   @updatedAt
+  accounts                  Account[]
+  categories                Category[]
+  transactions              Transaction[]
+  importBatches             ImportBatch[]
+  rules                     CategorizationRule[]
+  categoryRules             CategoryRule[]
+  monthlyBudgets            MonthlyBudget[]
+  categoryNatureMappings    CategoryNatureMapping[]
+  sessions                  Session[]
+  invitationsCreated        Invitation[]               @relation("InvitationCreatedBy")
+  invitationsUsed           Invitation[]               @relation("InvitationUsedBy")
+  recoveryCodes             RecoveryCode[]
+  pendingMfaChallenges      PendingMfaChallenge[]
+  netWorthAccounts          NetWorthAccount[]
+  savingsGoals              SavingsGoal[]
+  bankConnections           BankConnection[]
   bankAuthorizationRequests BankAuthorizationRequest[]
 }
 
@@ -131,41 +131,46 @@ model Invitation {
 }
 
 model Account {
-  id           String        @id @default(cuid())
-  userId       String
-  name         String
-  currency     String        @default("EUR")
-  source       String        @default("manual")
+  id                      String           @id @default(cuid())
+  userId                  String
+  name                    String
+  currency                String           @default("EUR")
+  source                  String           @default("manual")
   /// Optional link to the net worth account this technical/import bucket belongs to.
   /// Several Account rows (e.g. one manual bucket + one per import profile) can point to
   /// the same NetWorthAccount. Nullable: most Account rows have no link yet (legacy buckets,
   /// or the user hasn't connected them). SetNull on delete: losing the net worth account must
   /// not delete transactions.
-  netWorthAccountId String?
+  netWorthAccountId       String?
   /// Optional link to the live bank connection that feeds this bucket. SetNull on
   /// delete, same principle as netWorthAccountId: losing the connection must never
   /// delete transactions.
-  bankConnectionId String?
+  bankConnectionId        String?
   /// Provider-side account identifier (opaque uid) for bank-sync buckets — the stable
   /// mapping between a provider account and its bucket, independent of display name.
   /// NULL for every non-bank-sync bucket. Never displayed raw to the user.
-  providerAccountId String?
+  providerAccountId       String?
   /// Provider-side cash account type (Enable Banking's `cash_account_type`, e.g.
   /// "CACC"/"SVGS"/"CARD"/"LOAN"/"CASH"/"OTHR"), captured at bucket creation. NULL for
   /// every non-bank-sync bucket. Non-sensitive metadata: it only feeds a NetWorthAccount
   /// TYPE suggestion at explicit-link time (see domain/netWorth.ts's
   /// suggestNetWorthAccountType) — never authoritative, never used to auto-link.
   providerCashAccountType String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  netWorthAccount NetWorthAccount? @relation(fields: [netWorthAccountId], references: [id], onDelete: SetNull)
-  bankConnection BankConnection? @relation(fields: [bankConnectionId], references: [id], onDelete: SetNull)
-  transactions Transaction[]
+  /// Collation-independent equality key for `name` (see server/naming/nameKey.ts).
+  /// Computed by the app, never supplied by a client. Nullable only until the boot-time
+  /// backfill has run once; every write path fills it.
+  nameKey                 String?
+  createdAt               DateTime         @default(now())
+  updatedAt               DateTime         @updatedAt
+  user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  netWorthAccount         NetWorthAccount? @relation(fields: [netWorthAccountId], references: [id], onDelete: SetNull)
+  bankConnection          BankConnection?  @relation(fields: [bankConnectionId], references: [id], onDelete: SetNull)
+  transactions            Transaction[]
 
   @@unique([userId, name, source])
   @@index([userId])
   @@index([source])
+  @@index([userId, source, nameKey])
   @@index([netWorthAccountId])
   @@index([bankConnectionId])
   @@index([userId, source, providerAccountId])
@@ -174,33 +179,33 @@ model Account {
 /// A live open-banking connection (aggregator consent/session) owned by one user.
 /// No route consumes it yet — schema laid down ahead of the Enable Banking connector.
 model BankConnection {
-  id       String               @id @default(cuid())
-  userId   String
+  id                   String               @id @default(cuid())
+  userId               String
   /// Connector identifier (e.g. "enablebanking", "mock") — never a URL; the provider
   /// API host is validated against the BANK_SYNC_ALLOWED_HOSTS allowlist at call time.
-  provider String
+  provider             String
   /// Provider-side session/consent identifier. Nullable: stripped from backup exports,
   /// so a restored connection has none until the user re-authorizes.
-  providerSessionId String?
+  providerSessionId    String?
   /// Connection credentials/keys encrypted at rest via $lib/server/crypto
   /// (AES-256-GCM, "iv:authTag:ciphertext" base64url — see that module for the key
   /// rotation story). Never log or expose client-side; excluded from backup exports.
   credentialsEncrypted String?
-  status           BankConnectionStatus @default(active)
+  status               BankConnectionStatus @default(active)
   /// Bank (ASPSP) this connection targets, as validated against the provider's own
   /// bank list at authorization time — display metadata, non-sensitive.
-  aspspName    String?
-  aspspCountry String?
+  aspspName            String?
+  aspspCountry         String?
   /// End of the PSD2 consent window granted by the bank (~180 days for most). NULL when
   /// unknown. Past this date the connection requires a re-authorization by the user.
-  consentExpiresAt DateTime?
-  lastSyncAt       DateTime?
-  lastSyncStatus   String?
-  lastSyncError    String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  accounts  Account[]
+  consentExpiresAt     DateTime?
+  lastSyncAt           DateTime?
+  lastSyncStatus       String?
+  lastSyncError        String?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accounts             Account[]
 
   @@index([userId])
 }
@@ -213,23 +218,23 @@ model BankConnection {
 /// constant-time comparison runs against the genuine server-stored value). Excluded
 /// from backup exports entirely: it is worthless outside the live flow.
 model BankAuthorizationRequest {
-  id             String    @id @default(cuid())
-  userId         String
-  provider       String
+  id                 String    @id @default(cuid())
+  userId             String
+  provider           String
   /// sha256 (hex) of the anti-CSRF state — unique lookup key for the callback.
-  stateHash      String    @unique
+  stateHash          String    @unique
   /// The state itself, AES-256-GCM encrypted via $lib/server/crypto. Never logged.
-  stateEncrypted String
-  aspspName      String
-  aspspCountry   String
+  stateEncrypted     String
+  aspspName          String
+  aspspCountry       String
   /// When set, the callback RENEWS this existing connection (same user) instead of
   /// creating a new one — no FK on purpose: a deleted target must not invalidate the
   /// row lookup, the callback re-validates ownership and falls back to creation.
   renewsConnectionId String?
-  expiresAt      DateTime
-  consumedAt     DateTime?
-  createdAt      DateTime  @default(now())
-  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt          DateTime
+  consumedAt         DateTime?
+  createdAt          DateTime  @default(now())
+  user               User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])
@@ -242,6 +247,10 @@ model Category {
   /// Stable key of a default category (e.g. "food"), resolved to a translated label
   /// at display time. NULL = custom or renamed category: name is displayed as-is.
   defaultKey   String?
+  /// Collation-independent equality key for `name` (see server/naming/nameKey.ts).
+  /// Computed by the app, never supplied by a client. Nullable only until the boot-time
+  /// backfill has run once; every write path fills it.
+  nameKey      String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -249,31 +258,35 @@ model Category {
 
   @@unique([userId, name])
   @@index([userId])
+  @@index([userId, nameKey])
 }
 
 model Transaction {
-  id            String       @id @default(cuid())
-  userId        String
-  accountId     String
-  categoryId    String
-  importBatchId String?
-  date          DateTime
-  label         String
-  amountCents   Int
-  type          String?
-  source        String
-  notes         String?
+  id                String             @id @default(cuid())
+  userId            String
+  accountId         String
+  categoryId        String
+  importBatchId     String?
+  date              DateTime
+  label             String
+  amountCents       Int
+  type              String?
+  source            String
+  notes             String?
   bankOperationType String?
-  manualCategory String?
-  natureManual  TransactionNature?
-  dedupeKey     String?
-  metadataJson  String?
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
-  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account       Account      @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  category      Category     @relation(fields: [categoryId], references: [id])
-  importBatch   ImportBatch? @relation(fields: [importBatchId], references: [id])
+  manualCategory    String?
+  /// Collation-independent equality key for `manualCategory` (see server/naming/nameKey.ts).
+  /// NULL exactly when `manualCategory` is NULL, once the boot-time backfill has run.
+  manualCategoryKey String?
+  natureManual      TransactionNature?
+  dedupeKey         String?
+  metadataJson      String?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  user              User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  category          Category           @relation(fields: [categoryId], references: [id])
+  importBatch       ImportBatch?       @relation(fields: [importBatchId], references: [id])
 
   @@unique([userId, dedupeKey])
   @@index([userId])
@@ -284,6 +297,7 @@ model Transaction {
   @@index([userId, date])
   @@index([userId, accountId, date])
   @@index([userId, manualCategory])
+  @@index([userId, manualCategoryKey])
   @@index([userId, categoryId])
   @@index([userId, natureManual])
 }
@@ -327,22 +341,22 @@ model CategorizationRule {
 }
 
 model CategoryRule {
-  id             String   @id @default(cuid())
+  id             String             @id @default(cuid())
   userId         String
   name           String
   matchText      String
   targetCategory String
   targetNature   TransactionNature?
-  isRegex        Boolean  @default(false)
-  enabled        Boolean  @default(true)
+  isRegex        Boolean            @default(false)
+  enabled        Boolean            @default(true)
   /// Stable key of the predefined rule pack (default-rules/*.json) that seeded this
   /// row. Set to NULL as soon as the user edits the rule: it permanently becomes
   /// custom (same logic as Category.defaultKey), so it's never re-seeded or
   /// overwritten by "Restore suggested rules" again.
   defaultRuleKey String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([userId, enabled])
@@ -350,16 +364,21 @@ model CategoryRule {
 }
 
 model MonthlyBudget {
-  id           String   @id @default(cuid())
-  userId       String
-  categoryName String
-  amountCents  Int
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String   @id @default(cuid())
+  userId          String
+  categoryName    String
+  /// Collation-independent equality key for `categoryName` (see server/naming/nameKey.ts).
+  /// Computed by the app, never supplied by a client. Nullable only until the boot-time
+  /// backfill has run once; every write path fills it.
+  categoryNameKey String?
+  amountCents     Int
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, categoryName])
   @@index([userId])
+  @@index([userId, categoryNameKey])
 }
 
 model LoginAttempt {
@@ -378,16 +397,21 @@ model LoginAttempt {
 }
 
 model CategoryNatureMapping {
-  id           String            @id @default(cuid())
-  userId       String
-  categoryName String
-  nature       TransactionNature
-  createdAt    DateTime          @default(now())
-  updatedAt    DateTime          @updatedAt
-  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String            @id @default(cuid())
+  userId          String
+  categoryName    String
+  /// Collation-independent equality key for `categoryName` (see server/naming/nameKey.ts).
+  /// Computed by the app, never supplied by a client. Nullable only until the boot-time
+  /// backfill has run once; every write path fills it.
+  categoryNameKey String?
+  nature          TransactionNature
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, categoryName])
   @@index([userId])
+  @@index([userId, categoryNameKey])
   @@index([userId, nature])
 }
 
@@ -401,6 +425,11 @@ model NetWorthAccount {
   /// "removed" from the current list/donut. Uniqueness of (userId, name) is therefore
   /// enforced in application code (service.ts) against active accounts only, not here.
   deletedAt    DateTime?
+  /// Collation-independent equality key for `name` (see server/naming/nameKey.ts). Carries
+  /// no unique constraint: the soft delete above means uniqueness only holds among active
+  /// rows, which no provider-portable index expresses. The service compares on this column
+  /// instead of on `name`, so the answer no longer depends on the database's collation.
+  nameKey      String?
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
   user         User                @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -410,6 +439,7 @@ model NetWorthAccount {
 
   @@index([userId])
   @@index([userId, deletedAt])
+  @@index([userId, nameKey])
 }
 
 /// One point per balance change (created when the account is created, then on every
@@ -431,35 +461,35 @@ model NetWorthSnapshot {
 }
 
 model SavingsGoal {
-  id                 String    @id @default(cuid())
-  userId             String
-  name               String
-  targetAmountCents  Int
+  id                       String           @id @default(cuid())
+  userId                   String
+  name                     String
+  targetAmountCents        Int
   /// Optional link to a NetWorthAccount: when set, progress is read live from the account's
   /// balance instead of currentAmountCents. Several goals can point to the same account (no
   /// uniqueness constraint), and no attempt is made to reconcile the sum of goals against the
   /// account's real balance — that's left to the user.
-  netWorthAccountId  String?
+  netWorthAccountId        String?
   /// Declarative, used only when not linked to an account (manual tracking).
-  currentAmountCents Int       @default(0)
+  currentAmountCents       Int              @default(0)
   /// Informational only (e.g. "since €X" display) — never used in the progress calculation,
   /// which always stays an absolute value vs the target. Used as the starting point to estimate
   /// the real saving pace (vs the pace required to hit targetDate).
-  startingBalanceCents Int     @default(0)
-  targetDate         DateTime?
+  startingBalanceCents     Int              @default(0)
+  targetDate               DateTime?
   /// Written once, lazily, the first time a load detects live progress reaching the target —
   /// never rewritten afterwards. The status badge stays always live-recomputed and independent
   /// of this field (can drop back to "in progress" even after reachedAt is set).
-  reachedAt          DateTime?
+  reachedAt                DateTime?
   /// Written by the "dismiss reached banner" action. Once set, the one-time "goal reached"
   /// banner never reappears, even after a later re-crossing of the target.
   reachedBannerDismissedAt DateTime?
   /// Soft delete, consistent with NetWorthAccount.
-  deletedAt          DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  user               User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  netWorthAccount    NetWorthAccount? @relation(fields: [netWorthAccountId], references: [id], onDelete: SetNull)
+  deletedAt                DateTime?
+  createdAt                DateTime         @default(now())
+  updatedAt                DateTime         @updatedAt
+  user                     User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  netWorthAccount          NetWorthAccount? @relation(fields: [netWorthAccountId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([userId, deletedAt])

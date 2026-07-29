@@ -9,6 +9,7 @@ import {
 } from '$lib/domain/transaction';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
+import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
 import {
 	findMatchingCategoryRule,
 	applyCategoryRules,
@@ -319,14 +320,17 @@ export const actions: Actions = {
 
 		if (categoryResult.value) {
 			const cat = await prisma.category.findFirst({
-				where: { userId: user.id, name: categoryResult.value }
+				where: { userId: user.id, nameKey: computeNameKey(categoryResult.value) }
 			});
 			if (!cat) return fail(400, { manualCategoryError: m.categories_error_invalid() });
 		}
 
 		const result = await prisma.transaction.updateMany({
 			where: { id: transactionId, userId: user.id },
-			data: { manualCategory: categoryResult.value }
+			data: {
+				manualCategory: categoryResult.value,
+				manualCategoryKey: computeNullableNameKey(categoryResult.value)
+			}
 		});
 
 		if (result.count === 0)

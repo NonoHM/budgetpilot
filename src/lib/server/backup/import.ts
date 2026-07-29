@@ -3,6 +3,7 @@ import { prisma } from '$lib/server/db';
 import { LONG_TRANSACTION_OPTIONS } from '$lib/server/dbTransaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { DEFAULT_CATEGORIES } from '$lib/server/categories/defaults';
+import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
 import type { BackupExport } from './schema';
 
 export class BackupImportError extends Error {}
@@ -78,6 +79,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 				data: {
 					userId,
 					name: account.name,
+					nameKey: computeNameKey(account.name),
 					type: account.type,
 					balanceCents: account.balanceCents,
 					deletedAt: account.deletedAt ? new Date(account.deletedAt) : null
@@ -136,7 +138,18 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// Account/Category/ImportBatch next (ids regenerated, one by one to know the new id
 		// and build the Maps oldId(file) → newId).
 		const accountIdMap = new Map<string, string>();
+		const accountKeyMap = new Map<string, string>();
 		for (const account of payload.accounts) {
+			// First spelling wins: an older export can hold two buckets whose names fold
+			// together, and recreating both would rebuild the duplicate the app no longer
+			// accepts. The second one's transactions follow the first through the id map.
+			const accountKey = `${account.source} ${computeNameKey(account.name)}`;
+			const alreadyRestored = accountKeyMap.get(accountKey);
+			if (alreadyRestored) {
+				accountIdMap.set(account.id, alreadyRestored);
+				continue;
+			}
+
 			const created = await tx.account.create({
 				data: {
 					userId,
@@ -150,25 +163,38 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 						? (bankConnectionIdMap.get(account.bankConnectionId) ?? null)
 						: null,
 					providerAccountId: account.providerAccountId ?? null,
-					providerCashAccountType: account.providerCashAccountType ?? null
+					providerCashAccountType: account.providerCashAccountType ?? null,
+					nameKey: computeNameKey(account.name)
 				},
 				select: { id: true }
 			});
 			accountIdMap.set(account.id, created.id);
+			accountKeyMap.set(accountKey, created.id);
 		}
 
 		const categoryIdMap = new Map<string, string>();
+		const categoryKeyMap = new Map<string, string>();
 		for (const category of payload.categories) {
 			const name = normalizeCategoryName(category.name);
+			// Same first-wins rule as accounts above.
+			const nameKey = computeNameKey(name);
+			const alreadyRestored = categoryKeyMap.get(nameKey);
+			if (alreadyRestored) {
+				categoryIdMap.set(category.id, alreadyRestored);
+				continue;
+			}
+
 			const created = await tx.category.create({
 				data: {
 					userId,
 					name,
+					nameKey,
 					defaultKey: normalizeCategoryDefaultKey(name, category.defaultKey)
 				},
 				select: { id: true }
 			});
 			categoryIdMap.set(category.id, created.id);
+			categoryKeyMap.set(nameKey, created.id);
 		}
 
 		const importBatchIdMap = new Map<string, string>();
@@ -211,6 +237,9 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 					manualCategory: transaction.manualCategory
 						? normalizeCategoryName(transaction.manualCategory)
 						: transaction.manualCategory,
+					manualCategoryKey: computeNullableNameKey(
+						transaction.manualCategory ? normalizeCategoryName(transaction.manualCategory) : null
+					),
 					natureManual: transaction.natureManual,
 					dedupeKey: transaction.dedupeKey,
 					metadataJson: transaction.metadataJson
@@ -220,11 +249,15 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 
 		if (payload.monthlyBudgets.length > 0) {
 			await tx.monthlyBudget.createMany({
-				data: payload.monthlyBudgets.map((budget) => ({
-					userId,
-					categoryName: normalizeCategoryName(budget.categoryName),
-					amountCents: budget.amountCents
-				}))
+				data: dedupeByNameKey(
+					payload.monthlyBudgets.map((budget) => ({
+						userId,
+						categoryName: normalizeCategoryName(budget.categoryName),
+						categoryNameKey: computeNameKey(normalizeCategoryName(budget.categoryName)),
+						amountCents: budget.amountCents
+					})),
+					(row) => row.categoryNameKey
+				)
 			});
 		}
 
@@ -255,11 +288,15 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 
 		if (payload.categoryNatureMappings.length > 0) {
 			await tx.categoryNatureMapping.createMany({
-				data: payload.categoryNatureMappings.map((mapping) => ({
-					userId,
-					categoryName: normalizeCategoryName(mapping.categoryName),
-					nature: mapping.nature
-				}))
+				data: dedupeByNameKey(
+					payload.categoryNatureMappings.map((mapping) => ({
+						userId,
+						categoryName: normalizeCategoryName(mapping.categoryName),
+						categoryNameKey: computeNameKey(normalizeCategoryName(mapping.categoryName)),
+						nature: mapping.nature
+					})),
+					(row) => row.categoryNameKey
+				)
 			});
 		}
 
@@ -280,8 +317,12 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// c. Guarantee the "to classify" category exists for this user, even if absent from the file.
 		await tx.category.upsert({
 			where: { userId_name: { userId, name: UNCLASSIFIED_CATEGORY } },
-			update: {},
-			create: { userId, name: UNCLASSIFIED_CATEGORY }
+			update: { nameKey: computeNameKey(UNCLASSIFIED_CATEGORY) },
+			create: {
+				userId,
+				name: UNCLASSIFIED_CATEGORY,
+				nameKey: computeNameKey(UNCLASSIFIED_CATEGORY)
+			}
 		});
 	}, LONG_TRANSACTION_OPTIONS);
 }
@@ -333,4 +374,22 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 			);
 		}
 	}
+}
+
+/**
+ * Keeps the first row per folded name.
+ *
+ * A backup file written before names were folded can hold two rows that now mean one row.
+ * Recreating both would rebuild, inside a fresh restore, exactly the duplicate the app no
+ * longer accepts. First wins: a restore replays a snapshot with no history to weigh, so
+ * there is nothing to prefer beyond the order the file already has.
+ */
+function dedupeByNameKey<T>(rows: T[], keyOf: (row: T) => string): T[] {
+	const seen = new Set<string>();
+	return rows.filter((row) => {
+		const key = keyOf(row);
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
 }

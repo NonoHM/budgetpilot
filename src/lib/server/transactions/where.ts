@@ -1,6 +1,7 @@
 import { isHttpError } from '@sveltejs/kit';
 import type { Prisma } from '@prisma/client';
 import { parseCustomDateRange } from '$lib/server/date-range';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { prisma } from '$lib/server/db';
 
@@ -13,7 +14,7 @@ export type TransactionFilter = 'all' | 'income' | 'expense' | 'classify';
  */
 export async function resolveUncategorizedCategoryId(userId: string): Promise<string | null> {
 	const category = await prisma.category.findFirst({
-		where: { userId, name: UNCLASSIFIED_CATEGORY },
+		where: { userId, nameKey: computeNameKey(UNCLASSIFIED_CATEGORY) },
 		select: { id: true }
 	});
 	return category?.id ?? null;
@@ -42,7 +43,7 @@ export function buildTransactionWhere(input: {
 	if (input.type === 'classify') {
 		conditions.push({
 			OR: [
-				{ manualCategory: UNCLASSIFIED_CATEGORY },
+				{ manualCategoryKey: computeNameKey(UNCLASSIFIED_CATEGORY) },
 				{
 					AND: [
 						{ manualCategory: null },
@@ -58,11 +59,15 @@ export function buildTransactionWhere(input: {
 	if (input.category) {
 		conditions.push({
 			OR: [
-				{ manualCategory: input.category },
+				{ manualCategoryKey: computeNameKey(input.category) },
 				{
 					AND: [
 						{ manualCategory: null },
-						{ category: { is: { userId: input.userId, name: input.category } } }
+						{
+							category: {
+								is: { userId: input.userId, nameKey: computeNameKey(input.category) }
+							}
+						}
 					]
 				}
 			]
