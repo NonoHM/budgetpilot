@@ -122,6 +122,40 @@ docker compose start
 Outside Docker, the database is just `dev.db` at the root of the checkout.
 Copy the file.
 
+### The encryption key
+
+`TOTP_ENCRYPTION_KEY` lives in `.env`, never in the database. A database
+backup does not contain it. Back it up separately, in a password manager or
+wherever you keep your other secrets, and keep it out of the same archive as
+the database copy.
+
+That key encrypts two things at rest:
+
+- two-factor (TOTP) secrets,
+- bank connection credentials, for connectors that store any.
+
+Restoring a database next to the wrong key plays out like this:
+
+- With `TOTP_ENCRYPTION_KEY` unset, the app refuses to start. You cannot get
+  this wrong quietly.
+- With a different key, the app starts normally and every stored two-factor
+  secret becomes unreadable. Nothing warns you until an affected user tries
+  to sign in.
+- Those users can still sign in with a **recovery code**. Recovery codes are
+  hashed, not encrypted, so they survive a key change. Tell them to turn
+  two-factor off and set it up again straight after.
+- A user with two-factor on and no recovery code left is locked out for
+  good. An admin password reset does not clear two-factor, and no admin
+  action can disable someone else's. Deleting and recreating the account is
+  the only way back, and it loses that account's data.
+- Bank connections recover on their own: reconnect the bank from
+  **Imports > Bank connections**.
+
+There is no way to read the encrypted values back without the original key.
+Losing it is permanent. See
+[configuration](./configuration.md#the-three-secrets) for the other two
+secrets and how they behave.
+
 ### The JSON export
 
 In the app, **Settings > Backup and restore** exports everything belonging
@@ -141,7 +175,8 @@ for merging two accounts.
    account.
 3. Copy your old `.env` across, or at minimum the same three secrets. A
    different `TOTP_ENCRYPTION_KEY` means every two-factor setup in the
-   restored database is unreadable.
+   restored database is unreadable, permanently. See
+   [the encryption key](#the-encryption-key).
 4. Restore the database file with the `docker compose cp` command above.
 5. Adjust `ORIGIN` if the URL changed.
 
