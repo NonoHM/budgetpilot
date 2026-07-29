@@ -18,6 +18,10 @@ open the app on the machine running it, skip this page entirely.
   for the certificate challenge and to redirect to HTTPS, 443 serves the
   app.
 - Nothing else already listening on those ports.
+- Docker Compose 2.24 or newer (`docker compose version`). The overlay uses
+  the `!reset` tag to unpublish the app's own port, and older Compose
+  versions don't understand it. This is the one page with that requirement;
+  everything else works on any Compose v2.
 
 ## Setup
 
@@ -62,13 +66,32 @@ longer works, which is the point. It sets `ADDRESS_HEADER=X-Forwarded-For`
 at the same time, so the app still sees each visitor's real address and the
 per-IP rate limits keep working instead of counting everyone as one client.
 
+Those two go together and neither is optional: the app only trusts
+`X-Forwarded-For` because Caddy is the sole way in. If the port were still
+published, anyone reaching it could forge that header, hand themselves a
+fresh address on every request, and walk straight through the rate limits on
+login, MFA, registration and bank-sync consent. Which is why the next step
+is worth the ten seconds.
+
 The AI overlay stacks on top if you use it, any order:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.ai.yml -f docker-compose.proxy.yml up -d --build
 ```
 
-### 4. Check the certificate
+### 4. Check the app's own port is really closed
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.proxy.yml ps
+```
+
+The `budgetpilot` line must show **no** host port — only `3000/tcp`, with no
+`0.0.0.0:...->` arrow in front of it. Only `caddy` publishes anything (80 and
+443). If you see the app publishing a port, stop the stack: your Compose is
+older than 2.24 and silently ignored the overlay's `!reset`. Upgrade Compose
+and start again.
+
+### 5. Check the certificate
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.proxy.yml logs caddy
