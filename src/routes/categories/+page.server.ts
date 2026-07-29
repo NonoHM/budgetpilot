@@ -11,6 +11,9 @@ import {
 	deleteCategoryNatureMapping
 } from '$lib/server/transactions/nature';
 import { normalizeId } from '$lib/server/transactions/where';
+import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
+import { computeNameKey } from '$lib/server/naming/nameKey';
+import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import type { PageServerLoad } from './$types';
 
 export type CategoryRow = {
@@ -66,8 +69,19 @@ export const actions: Actions = {
 		if (name === UNCLASSIFIED_CATEGORY)
 			return fail(400, { error: m.categories_error_reserved_name() });
 
+		// Folded pre-check: the unique constraint still covers the raw name only, so it would
+		// let "courses" through next to an existing "Courses" while every reader downstream
+		// treats them as one category.
+		const clash = await prisma.category.findFirst({
+			where: { userId: user.id, nameKey: computeNameKey(name) },
+			select: { id: true }
+		});
+		if (clash) return fail(400, { error: m.categories_error_duplicate() });
+
 		try {
-			await prisma.category.create({ data: { userId: user.id, name } });
+			await prisma.category.create({
+				data: { userId: user.id, name, nameKey: computeNameKey(name) }
+			});
 		} catch (err: unknown) {
 			if (isPrismaUniqueError(err)) return fail(400, { error: m.categories_error_duplicate() });
 			throw err;
@@ -94,20 +108,32 @@ export const actions: Actions = {
 			return fail(400, { error: m.categories_error_rename_unclassified() });
 		}
 
-		const oldName = cat.name;
+		const oldKey = computeNameKey(cat.name);
+		const newKey = computeNameKey(newName);
+
+		const clash = await prisma.category.findFirst({
+			where: { userId: user.id, nameKey: newKey, id: { not: id } },
+			select: { id: true }
+		});
+		if (clash) return fail(400, { error: m.categories_error_duplicate() });
 
 		try {
 			await prisma.$transaction([
 				// Renaming freezes the name as free text: defaultKey is set to null, the category
 				// will never be translated again — the user-typed text becomes authoritative.
-				prisma.category.update({ where: { id }, data: { name: newName, defaultKey: null } }),
+				prisma.category.update({
+					where: { id },
+					data: { name: newName, nameKey: newKey, defaultKey: null }
+				}),
+				// Matched on the key so every spelling the user pinned follows the rename, not
+				// just the one that happened to match the old name character for character.
 				prisma.transaction.updateMany({
-					where: { userId: user.id, manualCategory: oldName },
-					data: { manualCategory: newName }
+					where: { userId: user.id, manualCategoryKey: oldKey },
+					data: manualCategoryUpdate(newName)
 				}),
 				prisma.categoryNatureMapping.updateMany({
-					where: { userId: user.id, categoryName: oldName },
-					data: { categoryName: newName }
+					where: { userId: user.id, categoryNameKey: oldKey },
+					data: { categoryName: newName, categoryNameKey: newKey }
 				})
 			]);
 		} catch (err: unknown) {
@@ -133,26 +159,25 @@ export const actions: Actions = {
 
 		const txCount = await prisma.transaction.count({ where: { categoryId: id, userId: user.id } });
 
-		const fallback = await prisma.category.upsert({
-			where: { userId_name: { userId: user.id, name: UNCLASSIFIED_CATEGORY } },
-			create: { userId: user.id, name: UNCLASSIFIED_CATEGORY },
-			update: {}
-		});
+		const fallback = await resolveCategoryByName(user.id, UNCLASSIFIED_CATEGORY);
+		const deletedKey = computeNameKey(cat.name);
 
 		await prisma.$transaction([
 			prisma.transaction.updateMany({
 				where: { categoryId: id, userId: user.id },
 				data: { categoryId: fallback.id }
 			}),
+			// Keyed, like the rename above: a budget or a pin written as "courses" belongs to
+			// the "Courses" being deleted and must not survive it.
 			prisma.transaction.updateMany({
-				where: { userId: user.id, manualCategory: cat.name },
-				data: { manualCategory: null }
+				where: { userId: user.id, manualCategoryKey: deletedKey },
+				data: manualCategoryUpdate(null)
 			}),
 			prisma.categoryNatureMapping.deleteMany({
-				where: { userId: user.id, categoryName: cat.name }
+				where: { userId: user.id, categoryNameKey: deletedKey }
 			}),
 			prisma.monthlyBudget.deleteMany({
-				where: { userId: user.id, categoryName: cat.name }
+				where: { userId: user.id, categoryNameKey: deletedKey }
 			}),
 			prisma.category.delete({ where: { id } })
 		]);
@@ -174,7 +199,9 @@ export const actions: Actions = {
 
 		if (!categoryName) return fail(400, { error: m.categories_error_invalid() });
 
-		const cat = await prisma.category.findFirst({ where: { userId: user.id, name: categoryName } });
+		const cat = await prisma.category.findFirst({
+			where: { userId: user.id, nameKey: computeNameKey(categoryName) }
+		});
 		if (!cat) return fail(404, { error: m.categories_error_not_found() });
 
 		if (!nature) {

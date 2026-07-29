@@ -1,5 +1,5 @@
 import type { Prisma } from '@prisma/client';
-import { normalizeForMatch } from '$lib/server/matching/normalize';
+import { normalizeForMatch } from '$lib/domain/normalize';
 import { isSafeRegexPattern, safeRegexTest } from '$lib/server/matching/regex';
 import { forEachTransactionBatch } from '$lib/server/transactions/batch';
 

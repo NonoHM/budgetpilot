@@ -1,4 +1,5 @@
 import { prisma } from '$lib/server/db';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import type { TransactionNature } from '$lib/domain/transaction';
 import type { DefaultCategoryKey } from '$lib/domain/categories';
 
@@ -69,15 +70,22 @@ async function createMissingDefaultCategories(userId: string): Promise<number> {
 		prisma.category.findMany({ where: { userId }, select: { name: true } }),
 		prisma.categoryNatureMapping.findMany({ where: { userId }, select: { categoryName: true } })
 	]);
-	const existingCategoryNames = new Set(existingCategories.map((c) => c.name));
-	const existingMappingNames = new Set(existingMappings.map((m) => m.categoryName));
+	// Compared on the folded name: restoring the defaults must not add a second "Loisirs"
+	// to a user who already renamed one to "loisirs".
+	const existingCategoryNames = new Set(existingCategories.map((c) => computeNameKey(c.name)));
+	const existingMappingNames = new Set(existingMappings.map((m) => computeNameKey(m.categoryName)));
 
 	const categoriesToCreate = DEFAULT_CATEGORIES.filter(
-		({ name }) => !existingCategoryNames.has(name)
-	).map(({ name, key }) => ({ userId, name, defaultKey: key }));
+		({ name }) => !existingCategoryNames.has(computeNameKey(name))
+	).map(({ name, key }) => ({ userId, name, nameKey: computeNameKey(name), defaultKey: key }));
 	const mappingsToCreate = DEFAULT_CATEGORIES.filter(
-		({ name }) => !existingMappingNames.has(name)
-	).map(({ name, nature }) => ({ userId, categoryName: name, nature }));
+		({ name }) => !existingMappingNames.has(computeNameKey(name))
+	).map(({ name, nature }) => ({
+		userId,
+		categoryName: name,
+		categoryNameKey: computeNameKey(name),
+		nature
+	}));
 
 	if (categoriesToCreate.length > 0) {
 		await prisma.category.createMany({ data: categoriesToCreate });

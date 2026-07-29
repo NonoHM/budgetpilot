@@ -9,6 +9,8 @@ import {
 } from '$lib/domain/transaction';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
+import { computeNameKey } from '$lib/server/naming/nameKey';
+import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import {
 	findMatchingCategoryRule,
 	applyCategoryRules,
@@ -319,14 +321,14 @@ export const actions: Actions = {
 
 		if (categoryResult.value) {
 			const cat = await prisma.category.findFirst({
-				where: { userId: user.id, name: categoryResult.value }
+				where: { userId: user.id, nameKey: computeNameKey(categoryResult.value) }
 			});
 			if (!cat) return fail(400, { manualCategoryError: m.categories_error_invalid() });
 		}
 
 		const result = await prisma.transaction.updateMany({
 			where: { id: transactionId, userId: user.id },
-			data: { manualCategory: categoryResult.value }
+			data: manualCategoryUpdate(categoryResult.value)
 		});
 
 		if (result.count === 0)
@@ -369,7 +371,7 @@ export const actions: Actions = {
 			return fail(400, { acceptError: m.transactions_error_category_required() });
 
 		const cat = await prisma.category.findFirst({
-			where: { userId: user.id, name: categoryResult.value }
+			where: { userId: user.id, nameKey: computeNameKey(categoryResult.value) }
 		});
 		if (!cat) return fail(400, { acceptError: m.categories_error_invalid() });
 
@@ -381,7 +383,7 @@ export const actions: Actions = {
 		const result = await prisma.transaction.updateMany({
 			where: { id: transactionId, userId: user.id },
 			data: {
-				manualCategory: categoryResult.value,
+				...manualCategoryUpdate(categoryResult.value),
 				natureManual: natureResult.value
 			}
 		});
@@ -473,7 +475,7 @@ export const actions: Actions = {
 			await prisma.transaction.updateMany({
 				where: { id: { in: autoAppliedIds }, userId: user.id, manualCategory: null },
 				data: {
-					manualCategory: createdRule.targetCategory,
+					...manualCategoryUpdate(createdRule.targetCategory),
 					...(createdRule.targetNature ? { natureManual: createdRule.targetNature } : {})
 				}
 			});

@@ -47,6 +47,41 @@ Database migrations run automatically when the container starts, so there's
 no separate step and your data carries across the update. Take a backup
 first anyway, see below.
 
+### Before you upgrade past 0.2.2
+
+**Category names that differ only in case or accents become one category.**
+"Courses" and "courses", "Café" and "Cafe" used to be two separate
+categories. From this version they are the same one, everywhere: budgets,
+category natures, reports, and the import rules that already worked this
+way.
+
+This is a consistency fix, not a new feature. Rules and label search have
+always matched names this way, so a budget on "Courses" already looked
+broken to anyone who had also pinned transactions to "courses": the spending
+simply never counted. Now it does.
+
+What happens on your data, once, the first time the new version starts:
+
+- Categories, import buckets, budgets, and category natures whose names fold
+  together are merged into the oldest of them. Transactions follow.
+- For a budget or a nature, the value kept is the one you edited most
+  recently.
+- Import buckets pointing at different bank connections or different
+  provider accounts are **not** merged, because that would drop a real link.
+  You get a warning in the logs naming how many.
+- Net worth accounts are **not** merged either, because merging balances and
+  snapshot histories has no automatic answer. Existing pairs keep working.
+  Only creating or renaming one onto another is refused from now on.
+
+Read exactly what will change on your own data before upgrading:
+
+```bash
+docker compose run --rm budgetpilot npm run db:normalize-names -- --dry-run
+```
+
+That prints every merge it would make, by name, and writes nothing. Take a
+backup first either way, see [Backups](#backups).
+
 ### Before you upgrade past 0.2.0
 
 Two changes need a look at your `.env` first, and one is worth knowing

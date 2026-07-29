@@ -1,5 +1,6 @@
 import type { Transaction } from './transaction';
 import { getTransactionKind } from './transaction';
+import { normalizeForMatch } from './normalize';
 import { getLocale } from '$lib/paraglide/runtime';
 import * as m from '$lib/paraglide/messages';
 
@@ -49,18 +50,19 @@ export function summarizeBudgetTransactions(
 	const expenseCents = transactions
 		.filter((transaction) => getTransactionKind(transaction) === 'expense')
 		.reduce((total, transaction) => total + Math.abs(transaction.amountCents), 0);
+	// Spend is accumulated per folded category name, not per raw one: "Courses" and
+	// "courses" are one category everywhere else in the app, so they have to be one line in
+	// the budget too. See domain/normalize.ts.
 	const spentByCategory = new Map<string, number>();
-	const budgetCategories = new Set(budgets.map((budget) => budget.category));
+	const budgetCategories = new Set(budgets.map((budget) => normalizeForMatch(budget.category)));
 	for (const transaction of transactions) {
 		if (!shouldCountTransactionForBudget(transaction, budgetCategories)) continue;
-		spentByCategory.set(
-			transaction.category,
-			(spentByCategory.get(transaction.category) ?? 0) + Math.abs(transaction.amountCents)
-		);
+		const key = normalizeForMatch(transaction.category);
+		spentByCategory.set(key, (spentByCategory.get(key) ?? 0) + Math.abs(transaction.amountCents));
 	}
 
 	const categorySummaries = budgets.map((budget) => {
-		const spentCents = spentByCategory.get(budget.category) ?? 0;
+		const spentCents = spentByCategory.get(normalizeForMatch(budget.category)) ?? 0;
 		const remainingCents = budget.limitCents - spentCents;
 		const status: CategoryBudgetSummary['status'] =
 			remainingCents < 0
@@ -90,12 +92,13 @@ export function summarizeBudgetTransactions(
 	};
 }
 
+/** `budgetCategories` holds folded names (see the call site), so the lookup folds too. */
 function shouldCountTransactionForBudget(
 	transaction: Transaction,
 	budgetCategories: Set<string>
 ): boolean {
 	if (getTransactionKind(transaction) !== 'expense') return false;
-	if (budgetCategories.has(transaction.category)) return true;
+	if (budgetCategories.has(normalizeForMatch(transaction.category))) return true;
 
 	return transaction.nature === 'spending' || transaction.nature === 'fee' || !transaction.nature;
 }

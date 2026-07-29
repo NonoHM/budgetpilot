@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { constantTimeEquals } from '$lib/server/banking/constantTime';
-import { normalizeForMatch } from '$lib/server/matching/normalize';
+import { normalizeForMatch } from '$lib/domain/normalize';
 import { filterBalancesByCurrency, selectPreferredBalance } from '$lib/domain/bankBalance';
 import type { ImportedTransaction, ImportedTransactionType } from '$lib/server/import/types';
 import {

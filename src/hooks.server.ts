@@ -8,6 +8,7 @@ import {
 	SESSION_COOKIE
 } from '$lib/server/auth';
 import { assertBootstrapTokenConfigured } from '$lib/server/auth/bootstrapToken';
+import { ensureNameKeysBackfilled } from '$lib/server/naming/boot';
 // Side-effect imports only: each module throws at load time if its required secret
 // (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
 // the one module SvelteKit always loads at boot, so importing them here turns a missing
@@ -22,6 +23,7 @@ import '$lib/server/crypto';
 // still a crash-at-startup rather than a failure on some later request.
 export const init: ServerInit = async () => {
 	await assertBootstrapTokenConfigured();
+	await ensureNameKeysBackfilled();
 };
 
 const PUBLIC_ROUTES = new Set(['/login', '/register', '/login/verify-totp']);

@@ -1,7 +1,8 @@
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
 import { forEachTransactionBatch } from '$lib/server/transactions/batch';
-import { normalizeForMatch } from '$lib/server/matching/normalize';
+import { normalizeForMatch } from '$lib/domain/normalize';
+import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import {
 	isSafeRegexPattern as isSafeRegexPatternShared,
 	safeRegexTest
@@ -302,7 +303,7 @@ export async function applyCategoryRules(
 				...(targetNature ? { natureManual: null } : {})
 			},
 			data: {
-				manualCategory: targetCategory,
+				...manualCategoryUpdate(targetCategory),
 				...(targetNature ? { natureManual: targetNature } : {})
 			}
 		});

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
+import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
 
 const db = vi.hoisted(() => {
 	interface MockTransaction {
@@ -101,8 +102,8 @@ const db = vi.hoisted(() => {
 				continue;
 			}
 			if (key === 'category') {
-				const is = (value as { is: { userId?: string; name: string } }).is;
-				if (t.category.name !== is.name) return false;
+				const is = (value as { is: { userId?: string; nameKey: string } }).is;
+				if (computeNameKey(t.category.name) !== is.nameKey) return false;
 				if (is.userId && t.userId !== is.userId) return false;
 				continue;
 			}
@@ -119,6 +120,11 @@ const db = vi.hoisted(() => {
 				} else if (value && typeof value === 'object' && 'in' in value) {
 					if (!(value as { in: string[] }).in.includes(t.id)) return false;
 				}
+				continue;
+			}
+			if (key === 'manualCategoryKey') {
+				// Derived, not stored on the fixture: the key is a pure function of the name.
+				if (computeNullableNameKey(t.manualCategory) !== value) return false;
 				continue;
 			}
 			// Scalar fields: userId, type, importBatchId, manualCategory, natureManual, categoryId...
@@ -181,6 +187,7 @@ const db = vi.hoisted(() => {
 						if ('manualCategory' in where && transaction.manualCategory !== where.manualCategory)
 							continue;
 						if ('manualCategory' in data) transaction.manualCategory = data.manualCategory;
+						// manualCategoryKey rides along with manualCategory in the real write path.
 						if ('natureManual' in data) transaction.natureManual = data.natureManual;
 						count++;
 					}
@@ -204,8 +211,10 @@ const db = vi.hoisted(() => {
 					{ name: 'Autre' },
 					{ name: 'uncategorized' }
 				]),
-				findFirst: vi.fn(async ({ where }: { where: { userId: string; name: string } }) => {
-					const found = Object.entries(CATEGORY_IDS).find(([name]) => name === where.name);
+				findFirst: vi.fn(async ({ where }: { where: { userId: string; nameKey: string } }) => {
+					const found = Object.entries(CATEGORY_IDS).find(
+						([name]) => computeNameKey(name) === where.nameKey
+					);
 					return found ? { id: found[1], name: found[0] } : null;
 				})
 			},
@@ -330,12 +339,18 @@ describe('/transactions load', () => {
 		expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
 			expect.objectContaining({
 				where: expect.objectContaining({
+					// Filtered on the folded key on both branches, so "alimentation" and
+					// "Alimentation" select the same rows on every database engine.
 					OR: [
-						{ manualCategory: 'Alimentation' },
+						{ manualCategoryKey: computeNameKey('Alimentation') },
 						{
 							AND: [
 								{ manualCategory: null },
-								{ category: { is: { userId: testUser.id, name: 'Alimentation' } } }
+								{
+									category: {
+										is: { userId: testUser.id, nameKey: computeNameKey('Alimentation') }
+									}
+								}
 							]
 						}
 					]
@@ -528,7 +543,10 @@ describe('/transactions load', () => {
 		expect(result).toEqual({ manualCategorySuccess: true });
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
 			where: { id: 'transaction-1', userId: testUser.id },
-			data: { manualCategory: 'Alimentation' }
+			data: {
+				manualCategory: 'Alimentation',
+				manualCategoryKey: computeNameKey('Alimentation')
+			}
 		});
 		expect(db.transactions[0].manualCategory).toBe('Alimentation');
 	});
@@ -544,7 +562,10 @@ describe('/transactions load', () => {
 		expect(result.status).toBe(404);
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
 			where: { id: 'other-user-transaction', userId: testUser.id },
-			data: { manualCategory: 'Alimentation' }
+			data: {
+				manualCategory: 'Alimentation',
+				manualCategoryKey: computeNameKey('Alimentation')
+			}
 		});
 	});
 
@@ -571,7 +592,7 @@ describe('/transactions load', () => {
 		});
 
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith(
-			expect.objectContaining({ data: { manualCategory: null } })
+			expect.objectContaining({ data: { manualCategory: null, manualCategoryKey: null } })
 		);
 	});
 
@@ -905,6 +926,72 @@ describe('createRule — application automatique en mode focus (focusRemainingId
 		expect(result.autoAppliedIds).toEqual(['transaction-5']);
 		expect(db.transactions.find((t) => t.id === 'transaction-6')?.manualCategory).toBeNull();
 	});
+
+	it('writes the manual category key alongside the name', async () => {
+		expect.assertions(1);
+
+		// The key column is what every query matches on, so a write that sets the name alone
+		// would leave the transaction invisible to the very category it was just pinned to.
+		await runCreateRule(
+			{ name: 'Regle test', matchText: 'Transaction 5', targetCategory: 'Alimentation' },
+			['transaction-5']
+		);
+
+		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith(
+			expect.objectContaining({
+				data: expect.objectContaining({
+					manualCategory: 'Alimentation',
+					manualCategoryKey: computeNameKey('Alimentation')
+				})
+			})
+		);
+	});
+});
+
+describe('acceptSuggestion', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	afterEach(() => {
+		const transaction = db.transactions.find((t) => t.id === 'transaction-5');
+		if (transaction) {
+			transaction.manualCategory = null;
+			transaction.natureManual = null;
+		}
+	});
+
+	it('writes the manual category key alongside the name', async () => {
+		expect.assertions(2);
+
+		const result = await runAcceptSuggestion({
+			transactionId: 'transaction-5',
+			category: 'Alimentation'
+		});
+
+		expect(result).toEqual({ acceptSuccess: true });
+		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
+			where: { id: 'transaction-5', userId: testUser.id },
+			data: {
+				manualCategory: 'Alimentation',
+				manualCategoryKey: computeNameKey('Alimentation'),
+				natureManual: null
+			}
+		});
+	});
+
+	it('accepts a category spelled with a different case, since names fold', async () => {
+		expect.assertions(1);
+
+		// The validation looks the category up by key, exactly like every other write path:
+		// "alimentation" is the same category as "Alimentation", not an invalid one.
+		const result = await runAcceptSuggestion({
+			transactionId: 'transaction-5',
+			category: 'alimentation'
+		});
+
+		expect(result).toEqual({ acceptSuccess: true });
+	});
 });
 
 async function runLoad(path: string) {
@@ -948,6 +1035,24 @@ async function runSaveManualNature(input: Record<string, string>) {
 			body: formData
 		})
 	})) as { status?: number; manualNatureSuccess?: boolean };
+}
+
+async function runAcceptSuggestion(input: Record<string, string>) {
+	const formData = new FormData();
+	for (const [key, value] of Object.entries(input)) formData.set(key, value);
+
+	return (await (
+		actions.acceptSuggestion as (event: {
+			locals: { user: typeof testUser };
+			request: Request;
+		}) => Promise<unknown>
+	)({
+		locals: { user: testUser },
+		request: new Request('http://localhost/transactions', {
+			method: 'POST',
+			body: formData
+		})
+	})) as { status?: number; acceptSuccess?: boolean };
 }
 
 async function runCreateRule(input: Record<string, string>, focusRemainingIds: string[] = []) {
