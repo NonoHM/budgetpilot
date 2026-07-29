@@ -127,10 +127,14 @@ If instead you see the container restarting in a loop, jump to
 ### 5. Create your account
 
 Open **http://localhost:3000** (or your custom port). You'll land on the
-login page. Click "create an account".
+login page.
 
-Registration is closed by default, so the form asks for a token. It's the
-`BOOTSTRAP_TOKEN` in your `.env`:
+**The interface starts in French**, so the link you're looking for reads
+"créer un compte", not "create an account". Click it. You can switch the
+whole app to English from **Settings** > **Language** once you're in.
+
+Registration is closed by default, so the form asks for a token
+("jeton d'inscription"). It's the `BOOTSTRAP_TOKEN` in your `.env`:
 
 ```bash
 grep BOOTSTRAP_TOKEN .env
@@ -139,9 +143,6 @@ grep BOOTSTRAP_TOKEN .env
 Copy the value after the `=` (the whole thing, including a trailing `=` if
 there is one) and paste it into the form. The first account created this way
 becomes the admin automatically.
-
-The interface starts in French. Switch to English from **Settings**, under
-**Language**, if you prefer.
 
 You're done. Next: [put some data in it](#first-steps-in-the-app).
 
