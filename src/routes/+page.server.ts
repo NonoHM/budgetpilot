@@ -65,14 +65,26 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		)
 	]);
 	const aiAllowed = isLocalLlmEnabled(process.env) && aiPreferences.aiInsightsEnabled;
-	const budgetInsights = aiAllowed
-		? await getBudgetInsights({
+	// Deliberately NOT awaited: a local model generating a few hundred tokens takes seconds
+	// to tens of seconds, and awaiting it here held the whole dashboard hostage for exactly
+	// that long — the page rendered nothing until the model was done or LLM_TIMEOUT_MS blew.
+	// Returning the promise streams it instead: the dashboard paints immediately and the AI
+	// card fills in when it's ready, which is also what makes a realistic timeout safe.
+	// `.catch` keeps a failing model from taking the whole page down with it — the card has
+	// an "unavailable" state for exactly this.
+	const aiAdvice = aiAllowed
+		? getBudgetInsights({
 				transactions,
 				monthlySummary: summary,
 				previousMonth: previousSummary,
 				env: process.env,
 				includeLabels: aiPreferences.aiIncludeLabels
 			})
+				.then((result) => ({
+					insights: result.insights.filter((item) => item.source === 'local-llm'),
+					unavailable: result.localAiUnavailable
+				}))
+				.catch(() => ({ insights: [], unavailable: true }))
 		: null;
 
 	return {
@@ -86,8 +98,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		budgets,
 		summary,
 		natureAnalysis: analyzeTransactionNatures(transactions),
-		advice: budgetInsights?.insights ?? null,
-		localAiUnavailable: budgetInsights?.localAiUnavailable ?? false,
+		aiAdvice,
 		aiAllowed,
 		recentTransactions: transactions.slice(0, 10),
 		insights,
