@@ -91,6 +91,13 @@ jobs:
           context: .
           platforms: ${{ matrix.platform }}
           labels: ${{ needs.prepare.outputs.labels }}
+          # provenance/sbom off: buildx defaults provenance to "mode=min" whenever it pushes,
+          # which adds an extra unknown/unknown "attestation-manifest" entry per platform to
+          # the final index (visible in `docker manifest inspect` alongside the real
+          # linux/amd64 and linux/arm64 entries) — noise for a local-first app with no
+          # supply-chain-attestation requirement, not a bug in the digest/merge flow itself.
+          provenance: false
+          sbom: false
           outputs: type=image,name=ghcr.io/${{ needs.prepare.outputs.image }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
