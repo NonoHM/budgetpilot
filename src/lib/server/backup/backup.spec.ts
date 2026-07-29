@@ -148,8 +148,13 @@ const db = vi.hoisted(() => {
 			netWorthSnapshot: table(store.netWorthSnapshots, 'net-worth-snapshot'),
 			savingsGoal: table(store.savingsGoals, 'savings-goal'),
 			bankConnection: table(store.bankConnections, 'bank-connection'),
-			$transaction: vi.fn(async (callback: (tx: unknown) => Promise<unknown>) =>
-				callback(db.prisma)
+			// Second parameter mirrors the real client's interactive-transaction options, so
+			// specs can assert what the caller asked for (see LONG_TRANSACTION_OPTIONS).
+			$transaction: vi.fn(
+				async (
+					callback: (tx: unknown) => Promise<unknown>,
+					_options?: { maxWait: number; timeout: number }
+				) => callback(db.prisma)
 			)
 		}
 	};
@@ -160,6 +165,7 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 const { buildBackupExport } = await import('./export');
 const { restoreBackup, BackupImportError } = await import('./import');
 const { UNCLASSIFIED_CATEGORY } = await import('$lib/domain/categories');
+const { LONG_TRANSACTION_OPTIONS } = await import('$lib/server/dbTransaction');
 
 describe('buildBackupExport', () => {
 	beforeEach(() => {
@@ -592,6 +598,22 @@ describe('restoreBackup', () => {
 			}>
 		};
 	}
+
+	it('runs the restore with a transaction budget sized for a non-local database', async () => {
+		expect.assertions(3);
+
+		await restoreBackup('user-a', buildValidPayload());
+
+		// Prisma's defaults (maxWait 2s, timeout 5s) only ever fitted a local SQLite file:
+		// the recreation phase issues one statement per parent row, so the round trips add
+		// up as soon as the database is reached over a socket.
+		const [, options] = db.prisma.$transaction.mock.calls[0];
+		expect(options).toEqual(LONG_TRANSACTION_OPTIONS);
+
+		// Guards the constant itself against a careless edit back under Prisma's defaults.
+		expect(LONG_TRANSACTION_OPTIONS.timeout).toBeGreaterThan(5_000);
+		expect(LONG_TRANSACTION_OPTIONS.maxWait).toBeGreaterThan(2_000);
+	});
 
 	it('restores all tables with FKs remapped to newly generated ids', async () => {
 		expect.assertions(9);
