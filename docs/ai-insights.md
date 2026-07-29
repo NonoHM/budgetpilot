@@ -97,6 +97,20 @@ npm run dev:ai       # dev server, making sure Ollama is running first
 `LLM_BASE_URL` defaults to `http://127.0.0.1:11434`, which is where a local
 Ollama listens.
 
+## The first load is the slow one
+
+The dashboard doesn't wait for the model. The page renders immediately and
+the AI card shows "Analyse en cours…" until the advice arrives, so a slow
+generation costs you a late card, never a late page.
+
+Expect the first one after starting the stack to take a while: Ollama has to
+load the model into memory before it can generate anything. Later loads are
+much faster, seconds or less with a small model. On CPU, everything here is
+slower but still works.
+
+If it consistently gives up, raise `LLM_TIMEOUT_MS` (default 45000, in
+milliseconds) and restart.
+
 ## Nothing shows up
 
 The card has three states, and the quiet one is deliberate: if AI is
@@ -115,6 +129,8 @@ Work through these in order:
    `qwen2.5:0.5b` and `qwen2.5` are different names.
 5. Enough data: an account with four transactions gives the model nothing
    to comment on.
+6. Still on the first load? See above — give it a moment, the card fills in
+   on its own without reloading the page.
 
 If the card says the service is unavailable, the app reached the point of
 trying and failed. Check `docker compose ... logs ollama`.

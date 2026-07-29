@@ -551,6 +551,7 @@
 	"dashboard_insights_uncategorized_hint": "· classify them to make your budgets reliable",
 	"dashboard_insights_open_assistant": "Open assistant",
 	"dashboard_insights_ai_badge": "AI",
+	"dashboard_insights_ai_pending": "Analysing…",
 	"dashboard_insights_ai_unavailable_title": "AI assistant unavailable",
 	"dashboard_insights_ai_unavailable_message": "Could not reach the local model. Check the configuration in",
 	"dashboard_insights_settings_link": "settings",
