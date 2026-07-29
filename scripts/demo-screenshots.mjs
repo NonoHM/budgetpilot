@@ -178,13 +178,13 @@ async function seedDemoData() {
 async function extendNetWorthHistory(page) {
 	for (const account of NET_WORTH_ACCOUNTS) {
 		for (const point of account.history.slice(1)) {
-			await page.getByRole('button', { name: `Modifier ${account.name}`, exact: true }).click();
+			await page.getByRole('button', { name: `Edit ${account.name}`, exact: true }).click();
 			// Name-attribute locators (not getByLabel): the date field's accessible name
 			// includes its hint text, which was observed to make Playwright's label-substring
 			// matching ambiguous between the two fields.
 			await page.locator('input[name="balance"]').fill(point.balance);
 			await page.locator('input[name="asOfDate"]').fill(point.asOfDate);
-			await page.getByRole('button', { name: 'Mettre à jour' }).click();
+			await page.getByRole('button', { name: 'Update' }).click();
 			await page.waitForTimeout(400);
 		}
 	}
@@ -201,7 +201,7 @@ async function captureScreenshots() {
 			viewport: { width: 1440, height: 960 },
 			deviceScaleFactor: 1
 		});
-		await desktop.addCookies([{ name: 'PARAGLIDE_LOCALE', value: 'fr', url: BASE_URL }]);
+		await desktop.addCookies([{ name: 'PARAGLIDE_LOCALE', value: 'en', url: BASE_URL }]);
 		const desktopPage = await desktop.newPage();
 
 		await gotoAndSettle(desktopPage, '/');
@@ -234,7 +234,7 @@ async function captureScreenshots() {
 			viewport: { width: 390, height: 844 },
 			deviceScaleFactor: 1
 		});
-		await mobile.addCookies([{ name: 'PARAGLIDE_LOCALE', value: 'fr', url: BASE_URL }]);
+		await mobile.addCookies([{ name: 'PARAGLIDE_LOCALE', value: 'en', url: BASE_URL }]);
 		const mobilePage = await mobile.newPage();
 		await gotoAndSettle(mobilePage, '/');
 		await mobilePage.screenshot({ path: path.join(SCREENSHOT_DIR, 'dashboard-mobile.png') });
@@ -254,66 +254,81 @@ async function gotoAndSettle(page, urlPath) {
 const TRANSACTIONS = [
 	// Recurring flows (3 monthly occurrences each) so the cash-flow forecast has something to
 	// detect and project.
-	{ date: '2026-05-01', label: 'Salaire Entreprise Demo', amount: '2850.00', category: 'Revenus' },
-	{ date: '2026-06-01', label: 'Salaire Entreprise Demo', amount: '2850.00', category: 'Revenus' },
-	{ date: '2026-07-01', label: 'Salaire Entreprise Demo', amount: '2850.00', category: 'Revenus' },
-	{ date: '2026-05-05', label: 'Loyer Appartement', amount: '-980.00', category: 'Logement' },
-	{ date: '2026-06-05', label: 'Loyer Appartement', amount: '-980.00', category: 'Logement' },
-	{ date: '2026-07-05', label: 'Loyer Appartement', amount: '-980.00', category: 'Logement' },
-	{ date: '2026-05-08', label: 'Abonnement StreamFlix', amount: '-13.99', category: 'Abonnements' },
-	{ date: '2026-06-08', label: 'Abonnement StreamFlix', amount: '-13.99', category: 'Abonnements' },
-	{ date: '2026-07-08', label: 'Abonnement StreamFlix', amount: '-13.99', category: 'Abonnements' },
+	{ date: '2026-05-01', label: 'Demo Corp Salary', amount: '2850.00', category: 'Revenus' },
+	{ date: '2026-06-01', label: 'Demo Corp Salary', amount: '2850.00', category: 'Revenus' },
+	{ date: '2026-07-01', label: 'Demo Corp Salary', amount: '2850.00', category: 'Revenus' },
+	{ date: '2026-05-05', label: 'Apartment Rent', amount: '-980.00', category: 'Logement' },
+	{ date: '2026-06-05', label: 'Apartment Rent', amount: '-980.00', category: 'Logement' },
+	{ date: '2026-07-05', label: 'Apartment Rent', amount: '-980.00', category: 'Logement' },
+	{
+		date: '2026-05-08',
+		label: 'StreamFlix Subscription',
+		amount: '-13.99',
+		category: 'Abonnements'
+	},
+	{
+		date: '2026-06-08',
+		label: 'StreamFlix Subscription',
+		amount: '-13.99',
+		category: 'Abonnements'
+	},
+	{
+		date: '2026-07-08',
+		label: 'StreamFlix Subscription',
+		amount: '-13.99',
+		category: 'Abonnements'
+	},
 
 	// May
-	{ date: '2026-05-04', label: 'CARREFOUR MARKET', amount: '-58.20', category: 'Alimentation' },
-	{ date: '2026-05-19', label: 'CARREFOUR MARKET', amount: '-61.10', category: 'Alimentation' },
-	{ date: '2026-05-11', label: 'SNCF CONNECT PARIS', amount: '-29.90', category: 'Transport' },
+	{ date: '2026-05-04', label: 'CORNER MARKET', amount: '-58.20', category: 'Alimentation' },
+	{ date: '2026-05-19', label: 'CORNER MARKET', amount: '-61.10', category: 'Alimentation' },
+	{ date: '2026-05-11', label: 'CITY TRANSIT PASS', amount: '-29.90', category: 'Transport' },
 	{
 		date: '2026-05-14',
-		label: 'RESTAURANT LE PETIT BISTRO',
+		label: 'THE CORNER BISTRO',
 		amount: '-40.00',
 		category: 'Restauration'
 	},
-	{ date: '2026-05-21', label: 'FNAC', amount: '-29.99', category: 'Shopping' },
-	{ date: '2026-05-25', label: 'CAMPING LES PINS', amount: '-120.00', category: 'Voyage' },
+	{ date: '2026-05-21', label: 'BOOKS & TECH STORE', amount: '-29.99', category: 'Shopping' },
+	{ date: '2026-05-25', label: 'PINEWOOD CAMPGROUND', amount: '-120.00', category: 'Voyage' },
 
 	// June
-	{ date: '2026-06-06', label: 'CARREFOUR MARKET', amount: '-70.40', category: 'Alimentation' },
-	{ date: '2026-06-20', label: 'CARREFOUR MARKET', amount: '-55.00', category: 'Alimentation' },
-	{ date: '2026-06-09', label: 'SNCF CONNECT PARIS', amount: '-31.50', category: 'Transport' },
+	{ date: '2026-06-06', label: 'CORNER MARKET', amount: '-70.40', category: 'Alimentation' },
+	{ date: '2026-06-20', label: 'CORNER MARKET', amount: '-55.00', category: 'Alimentation' },
+	{ date: '2026-06-09', label: 'CITY TRANSIT PASS', amount: '-31.50', category: 'Transport' },
 	{ date: '2026-06-16', label: 'UBER', amount: '-18.00', category: 'Transport' },
 	{
 		date: '2026-06-12',
-		label: 'RESTAURANT LE PETIT BISTRO',
+		label: 'THE CORNER BISTRO',
 		amount: '-48.00',
 		category: 'Restauration'
 	},
-	{ date: '2026-06-23', label: 'CINEMA GAUMONT', amount: '-12.50', category: 'Loisirs' },
-	{ date: '2026-06-27', label: 'PHARMACIE CENTRALE', amount: '-22.00', category: 'Santé' },
-	{ date: '2026-06-29', label: 'DECATHLON', amount: '-60.00', category: 'Shopping' },
+	{ date: '2026-06-23', label: 'DOWNTOWN CINEMA', amount: '-12.50', category: 'Loisirs' },
+	{ date: '2026-06-27', label: 'CENTRAL PHARMACY', amount: '-22.00', category: 'Santé' },
+	{ date: '2026-06-29', label: 'SPORTS OUTFITTERS', amount: '-60.00', category: 'Shopping' },
 
 	// July (current month — drives budgets and the dashboard's monthly insights)
-	{ date: '2026-07-03', label: 'CARREFOUR MARKET', amount: '-64.32', category: 'Alimentation' },
-	{ date: '2026-07-10', label: 'BOULANGERIE DU COIN', amount: '-8.50', category: 'Alimentation' },
-	{ date: '2026-07-18', label: 'CARREFOUR MARKET', amount: '-52.10', category: 'Alimentation' },
+	{ date: '2026-07-03', label: 'CORNER MARKET', amount: '-64.32', category: 'Alimentation' },
+	{ date: '2026-07-10', label: 'CORNER BAKERY', amount: '-8.50', category: 'Alimentation' },
+	{ date: '2026-07-18', label: 'CORNER MARKET', amount: '-52.10', category: 'Alimentation' },
 	{
 		date: '2026-07-06',
-		label: 'RESTAURANT LE PETIT BISTRO',
+		label: 'THE CORNER BISTRO',
 		amount: '-45.00',
 		category: 'Restauration'
 	},
 	{
 		date: '2026-07-14',
-		label: 'RESTAURANT LE PETIT BISTRO',
+		label: 'THE CORNER BISTRO',
 		amount: '-38.50',
 		category: 'Restauration'
 	},
 	{ date: '2026-07-20', label: 'SUSHI HOUSE', amount: '-32.00', category: 'Restauration' },
-	{ date: '2026-07-12', label: 'SNCF CONNECT PARIS', amount: '-34.90', category: 'Transport' },
+	{ date: '2026-07-12', label: 'CITY TRANSIT PASS', amount: '-34.90', category: 'Transport' },
 	{ date: '2026-07-22', label: 'UBER', amount: '-15.20', category: 'Transport' },
-	{ date: '2026-07-15', label: 'CINEMA GAUMONT', amount: '-12.50', category: 'Loisirs' },
-	{ date: '2026-07-09', label: 'PHARMACIE CENTRALE', amount: '-18.90', category: 'Santé' },
-	{ date: '2026-07-24', label: 'DECATHLON', amount: '-55.00', category: 'Shopping' }
+	{ date: '2026-07-15', label: 'DOWNTOWN CINEMA', amount: '-12.50', category: 'Loisirs' },
+	{ date: '2026-07-09', label: 'CENTRAL PHARMACY', amount: '-18.90', category: 'Santé' },
+	{ date: '2026-07-24', label: 'SPORTS OUTFITTERS', amount: '-55.00', category: 'Shopping' }
 ];
 
 const BUDGETS = [
@@ -325,7 +340,7 @@ const BUDGETS = [
 
 const NET_WORTH_ACCOUNTS = [
 	{
-		name: 'Compte Courant Demo',
+		name: 'Demo Checking Account',
 		type: 'checking',
 		history: [
 			{ asOfDate: '2026-05-01', balance: '3200', type: 'checking' },
@@ -335,7 +350,7 @@ const NET_WORTH_ACCOUNTS = [
 		]
 	},
 	{
-		name: 'Livret Épargne Demo',
+		name: 'Demo Savings Account',
 		type: 'savings',
 		history: [
 			{ asOfDate: '2026-05-01', balance: '5000', type: 'savings' },
@@ -347,7 +362,7 @@ const NET_WORTH_ACCOUNTS = [
 ];
 
 const SAVINGS_GOAL = {
-	name: 'Fonds Vacances Demo',
+	name: 'Demo Vacation Fund',
 	targetAmount: '10000',
 	trackingMode: 'manual',
 	currentAmount: '5800'
