@@ -1,5 +1,6 @@
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
+import { LONG_TRANSACTION_OPTIONS } from '$lib/server/dbTransaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { DEFAULT_CATEGORIES } from '$lib/server/categories/defaults';
 import type { BackupExport } from './schema';
@@ -44,6 +45,11 @@ function normalizeCategoryDefaultKey(
  *
  * First validates the file's internal referential consistency (before any write),
  * then executes purge + recreation in a single Prisma transaction.
+ *
+ * That transaction runs with LONG_TRANSACTION_OPTIONS rather than Prisma's defaults: the
+ * recreation phase issues one statement per parent row to capture its regenerated id, so
+ * the round trips add up on any database reached over a socket. See that module for why
+ * the default budget only ever fitted a local SQLite file.
  */
 export async function restoreBackup(userId: string, payload: BackupExport): Promise<void> {
 	assertReferentialIntegrity(payload);
@@ -277,7 +283,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			update: {},
 			create: { userId, name: UNCLASSIFIED_CATEGORY }
 		});
-	});
+	}, LONG_TRANSACTION_OPTIONS);
 }
 
 function assertReferentialIntegrity(payload: BackupExport): void {
