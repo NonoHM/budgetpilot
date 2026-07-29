@@ -260,9 +260,24 @@ const TRANSACTIONS = [
 	{ date: '2026-05-05', label: 'Apartment Rent', amount: '-980.00', category: 'Logement' },
 	{ date: '2026-06-05', label: 'Apartment Rent', amount: '-980.00', category: 'Logement' },
 	{ date: '2026-07-05', label: 'Apartment Rent', amount: '-980.00', category: 'Logement' },
-	{ date: '2026-05-08', label: 'StreamFlix Subscription', amount: '-13.99', category: 'Abonnements' },
-	{ date: '2026-06-08', label: 'StreamFlix Subscription', amount: '-13.99', category: 'Abonnements' },
-	{ date: '2026-07-08', label: 'StreamFlix Subscription', amount: '-13.99', category: 'Abonnements' },
+	{
+		date: '2026-05-08',
+		label: 'StreamFlix Subscription',
+		amount: '-13.99',
+		category: 'Abonnements'
+	},
+	{
+		date: '2026-06-08',
+		label: 'StreamFlix Subscription',
+		amount: '-13.99',
+		category: 'Abonnements'
+	},
+	{
+		date: '2026-07-08',
+		label: 'StreamFlix Subscription',
+		amount: '-13.99',
+		category: 'Abonnements'
+	},
 
 	// May
 	{ date: '2026-05-04', label: 'CORNER MARKET', amount: '-58.20', category: 'Alimentation' },
