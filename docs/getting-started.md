@@ -42,6 +42,10 @@ PowerShell.
 No clone, no build, no Node.js. You download one file, generate three
 secrets, and start the app.
 
+The published image is multi-arch (`linux/amd64` and `linux/arm64`): Docker
+pulls the right one automatically, whether you're on a regular PC/server or
+an arm64 machine (Raspberry Pi 4/5, Apple Silicon, AWS Graviton).
+
 ### 1. Make a folder and grab the compose file
 
 ```bash
