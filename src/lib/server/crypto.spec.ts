@@ -30,7 +30,13 @@ describe('encryptSecret / decryptSecret', () => {
 	it('rejette un authTag altéré même si le ciphertext est intact', () => {
 		const encrypted = encryptSecret('secret original');
 		const [iv, authTag, ciphertext] = encrypted.split(':');
-		const tampered = [iv, authTag.slice(0, -2) + 'aa', ciphertext].join(':');
+		// Flip the last byte rather than hardcoding one: a fixed 'aa' silently
+		// leaves the tag untouched the ~1 run in 256 where it already ends in aa,
+		// and the test then passes a valid tag to decryptSecret and fails.
+		const flippedLastByte = ((parseInt(authTag.slice(-2), 16) ^ 0xff) & 0xff)
+			.toString(16)
+			.padStart(2, '0');
+		const tampered = [iv, authTag.slice(0, -2) + flippedLastByte, ciphertext].join(':');
 		expect(() => decryptSecret(tampered)).toThrow();
 	});
 

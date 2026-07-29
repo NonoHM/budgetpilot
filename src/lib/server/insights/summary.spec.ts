@@ -65,8 +65,8 @@ describe('buildTransactionSummary - includeLabels', () => {
 
 		expect(summary.largestExpenses.length).toBeGreaterThan(0);
 		expect(
-			summary.largestExpenses.every((expense) => expense.label === 'Dépense') &&
-				summary.recurringPayments.every((payment) => payment.label === 'Paiement récurrent')
+			summary.largestExpenses.every((expense) => expense.label === 'Expense') &&
+				summary.recurringPayments.every((payment) => payment.label === 'Recurring payment')
 		).toBe(true);
 	});
 

@@ -17,16 +17,25 @@
 services:
   budgetpilot:
     # The app is no longer published on the host: Caddy reaches it over the
-    # internal Compose network, and it is the only way in. Overriding with an
-    # empty list cancels the base file's "${APP_PORT:-3000}:3000" mapping.
-    ports: []
+    # internal Compose network, and it is the only way in.
+    #
+    # The `!reset` tag is load-bearing and must not be simplified to a plain
+    # `ports: []`. Compose merges sequences from several -f files by APPENDING,
+    # so an empty list appends nothing and the base file's
+    # "${APP_PORT:-3000}:3000" mapping silently survives — the app stays
+    # published on 0.0.0.0 while the block below tells it to trust
+    # X-Forwarded-For, which together let anyone reaching that port forge their
+    # own client address and reset every per-IP rate limit at will.
+    # `!reset` removes the key outright, which is the only thing that actually
+    # cancels it. Requires Compose >= 2.24 (see docs/reverse-proxy.md).
+    ports: !reset []
     environment:
       # Without these, every request reaches the app with Caddy's container IP,
       # collapsing every per-IP rate limit (login, MFA, registration, bank-sync
       # consent) into a single shared bucket. adapter-node reads the client IP
-      # from this header instead. Safe here precisely because `ports: []` above
-      # makes Caddy the only way in: a client that could reach the app directly
-      # would be able to forge its own address this way.
+      # from this header instead. Safe here precisely because `ports: !reset []`
+      # above makes Caddy the only way in: a client that could reach the app
+      # directly would be able to forge its own address this way.
       ADDRESS_HEADER: X-Forwarded-For
       XFF_DEPTH: '1'
 
