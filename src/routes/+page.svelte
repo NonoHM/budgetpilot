@@ -278,8 +278,7 @@
 
 		<DashboardInsights
 			insights={data.insights}
-			advice={data.advice}
-			localAiUnavailable={data.localAiUnavailable}
+			aiAdvice={data.aiAdvice}
 			aiAllowed={data.aiAllowed}
 			categories={data.categories}
 		/>

@@ -551,6 +551,7 @@
 	"dashboard_insights_uncategorized_hint": "· catégorisez-les pour fiabiliser vos budgets",
 	"dashboard_insights_open_assistant": "Ouvrir l'assistant",
 	"dashboard_insights_ai_badge": "IA",
+	"dashboard_insights_ai_pending": "Analyse en cours…",
 	"dashboard_insights_ai_unavailable_title": "Assistant IA indisponible",
 	"dashboard_insights_ai_unavailable_message": "Impossible de joindre le modèle local. Vérifiez la configuration dans les",
 	"dashboard_insights_settings_link": "paramètres",
