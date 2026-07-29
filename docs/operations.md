@@ -82,6 +82,15 @@ docker compose run --rm budgetpilot npm run db:normalize-names -- --dry-run
 That prints every merge it would make, by name, and writes nothing. Take a
 backup first either way, see [Backups](#backups).
 
+**One more one-time step runs at the same start**, and this one changes
+nothing you can see. The app computes a fingerprint for each imported
+transaction, used to recognise a row you already have when you re-import a
+statement. It now compares those fingerprints itself instead of leaving the
+comparison to the database, which is groundwork for running BudgetPilot on
+PostgreSQL or MySQL later. You get one log line, `[dedupe-keys] hashing
+existing deduplication keys, this runs once`, and nothing else: no
+transaction is merged, moved, or dropped.
+
 ### Before you upgrade past 0.2.0
 
 Two changes need a look at your `.env` first, and one is worth knowing
