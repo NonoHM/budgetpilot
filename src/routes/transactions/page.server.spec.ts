@@ -926,6 +926,72 @@ describe('createRule — application automatique en mode focus (focusRemainingId
 		expect(result.autoAppliedIds).toEqual(['transaction-5']);
 		expect(db.transactions.find((t) => t.id === 'transaction-6')?.manualCategory).toBeNull();
 	});
+
+	it('writes the manual category key alongside the name', async () => {
+		expect.assertions(1);
+
+		// The key column is what every query matches on, so a write that sets the name alone
+		// would leave the transaction invisible to the very category it was just pinned to.
+		await runCreateRule(
+			{ name: 'Regle test', matchText: 'Transaction 5', targetCategory: 'Alimentation' },
+			['transaction-5']
+		);
+
+		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith(
+			expect.objectContaining({
+				data: expect.objectContaining({
+					manualCategory: 'Alimentation',
+					manualCategoryKey: computeNameKey('Alimentation')
+				})
+			})
+		);
+	});
+});
+
+describe('acceptSuggestion', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	afterEach(() => {
+		const transaction = db.transactions.find((t) => t.id === 'transaction-5');
+		if (transaction) {
+			transaction.manualCategory = null;
+			transaction.natureManual = null;
+		}
+	});
+
+	it('writes the manual category key alongside the name', async () => {
+		expect.assertions(2);
+
+		const result = await runAcceptSuggestion({
+			transactionId: 'transaction-5',
+			category: 'Alimentation'
+		});
+
+		expect(result).toEqual({ acceptSuccess: true });
+		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
+			where: { id: 'transaction-5', userId: testUser.id },
+			data: {
+				manualCategory: 'Alimentation',
+				manualCategoryKey: computeNameKey('Alimentation'),
+				natureManual: null
+			}
+		});
+	});
+
+	it('accepts a category spelled with a different case, since names fold', async () => {
+		expect.assertions(1);
+
+		// The validation looks the category up by key, exactly like every other write path:
+		// "alimentation" is the same category as "Alimentation", not an invalid one.
+		const result = await runAcceptSuggestion({
+			transactionId: 'transaction-5',
+			category: 'alimentation'
+		});
+
+		expect(result).toEqual({ acceptSuccess: true });
+	});
 });
 
 async function runLoad(path: string) {
@@ -969,6 +1035,24 @@ async function runSaveManualNature(input: Record<string, string>) {
 			body: formData
 		})
 	})) as { status?: number; manualNatureSuccess?: boolean };
+}
+
+async function runAcceptSuggestion(input: Record<string, string>) {
+	const formData = new FormData();
+	for (const [key, value] of Object.entries(input)) formData.set(key, value);
+
+	return (await (
+		actions.acceptSuggestion as (event: {
+			locals: { user: typeof testUser };
+			request: Request;
+		}) => Promise<unknown>
+	)({
+		locals: { user: testUser },
+		request: new Request('http://localhost/transactions', {
+			method: 'POST',
+			body: formData
+		})
+	})) as { status?: number; acceptSuccess?: boolean };
 }
 
 async function runCreateRule(input: Record<string, string>, focusRemainingIds: string[] = []) {

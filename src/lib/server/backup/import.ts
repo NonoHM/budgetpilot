@@ -3,7 +3,8 @@ import { prisma } from '$lib/server/db';
 import { LONG_TRANSACTION_OPTIONS } from '$lib/server/dbTransaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { DEFAULT_CATEGORIES } from '$lib/server/categories/defaults';
-import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
+import { computeNameKey } from '$lib/server/naming/nameKey';
+import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import type { BackupExport } from './schema';
 
 export class BackupImportError extends Error {}
@@ -234,10 +235,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 					source: transaction.source,
 					notes: transaction.notes,
 					bankOperationType: transaction.bankOperationType,
-					manualCategory: transaction.manualCategory
-						? normalizeCategoryName(transaction.manualCategory)
-						: transaction.manualCategory,
-					manualCategoryKey: computeNullableNameKey(
+					...manualCategoryUpdate(
 						transaction.manualCategory ? normalizeCategoryName(transaction.manualCategory) : null
 					),
 					natureManual: transaction.natureManual,

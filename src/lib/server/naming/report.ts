@@ -1,4 +1,5 @@
 import type { NameKeyBackfillReport, UserNameKeyReport } from './backfill.ts';
+import type { AccountMergeBlockReason } from './mergePlan.ts';
 
 /**
  * Renders a backfill plan as plain text for an operator to read before upgrading.
@@ -37,7 +38,9 @@ export function renderNameKeyReport(report: NameKeyBackfillReport): string {
 	lines.push('------');
 	lines.push(`  Users scanned            ${report.users.length}`);
 	lines.push(`  Rows merged away         ${report.rowsDeleted}`);
-	lines.push(`  Transactions repointed   ${report.transactionsReassigned}`);
+	// Counts repointings, not distinct transactions: one transaction whose category AND whose
+	// bucket are both merged is repointed twice, and saying "7" there would understate the work.
+	lines.push(`  Repointings              ${report.transactionsReassigned}`);
 	lines.push(`  Keys written             ${totalKeysWritten(report)}`);
 	if (report.dryRun) {
 		lines.push('');
@@ -51,7 +54,7 @@ export function renderSummaryLine(report: NameKeyBackfillReport): string {
 	return (
 		`[name-keys] backfill complete: ${report.users.length} user(s), ` +
 		`${totalKeysWritten(report)} key(s) written, ${report.rowsDeleted} duplicate row(s) merged, ` +
-		`${report.transactionsReassigned} transaction(s) repointed`
+		`${report.transactionsReassigned} transaction repointing(s)`
 	);
 }
 
@@ -124,11 +127,26 @@ function renderAccounts(user: UserNameKeyReport, lines: string[]): void {
 			`    left as is: ${blocked.names.map((name) => `"${name}"`).join(', ')}  ` +
 				`[source ${blocked.source}]`
 		);
-		lines.push(
-			`      they hold different ${blocked.conflictingField} values, so merging them would ` +
-				'drop a real link. Rename one of them if they are meant to be one bucket.'
+		lines.push(`      ${describeBlockReason(blocked.reason)}`);
+		lines.push('      Rename one of them if they are meant to be one bucket.');
+	}
+}
+
+function describeBlockReason(reason: AccountMergeBlockReason): string {
+	if (reason.kind === 'multiple-linked-rows') {
+		return (
+			'more than one of them is linked to something (a net worth account, a bank ' +
+			'connection or a provider account), so merging them would build a single bucket ' +
+			'wearing links that belonged to two different ones.'
 		);
 	}
+	if (reason.field === 'currency') {
+		return (
+			'they are held in different currencies, so merging them would add amounts in two ' +
+			'currencies together under one of them.'
+		);
+	}
+	return `they hold different ${reason.field} values, so merging them would drop a real link.`;
 }
 
 function renderBudgets(user: UserNameKeyReport, lines: string[]): void {

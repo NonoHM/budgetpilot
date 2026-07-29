@@ -27,6 +27,7 @@ function account(overrides: Partial<AccountRow> & { id: string; name: string }):
 	return {
 		createdAt: MID,
 		source: 'csv',
+		currency: 'EUR',
 		netWorthAccountId: null,
 		bankConnectionId: null,
 		providerAccountId: null,
@@ -225,7 +226,35 @@ describe('planAccountMerges', () => {
 
 		expect(plan.merges).toEqual([]);
 		expect(plan.blocked).toHaveLength(1);
-		expect(plan.blocked[0].conflictingField).toBe(field);
+		expect(plan.blocked[0].reason).toEqual({ kind: 'conflicting-value', field });
+	});
+
+	it('refuses to merge buckets held in different currencies', () => {
+		expect.assertions(2);
+
+		// Merging these would add amounts in two currencies together under one bucket, which
+		// misstates money rather than only losing a link.
+		const plan = planAccountMerges([
+			account({ id: 'old', name: 'Compte', createdAt: OLD, currency: 'EUR' }),
+			account({ id: 'young', name: 'compte', createdAt: NEW, currency: 'USD' })
+		]);
+
+		expect(plan.merges).toEqual([]);
+		expect(plan.blocked[0].reason).toEqual({ kind: 'conflicting-value', field: 'currency' });
+	});
+
+	it('refuses to merge when two rows are each linked, even to different things', () => {
+		expect.assertions(2);
+
+		// No single field disagrees, so a field-by-field adoption would happily produce one
+		// bucket wearing both links. These are two real buckets that happen to be named alike.
+		const plan = planAccountMerges([
+			account({ id: 'old', name: 'Compte', createdAt: OLD, netWorthAccountId: 'nwa-1' }),
+			account({ id: 'young', name: 'compte', createdAt: NEW, bankConnectionId: 'conn-1' })
+		]);
+
+		expect(plan.merges).toEqual([]);
+		expect(plan.blocked[0].reason).toEqual({ kind: 'multiple-linked-rows' });
 	});
 
 	it('merges when only one row carries the link, since nothing is lost', () => {

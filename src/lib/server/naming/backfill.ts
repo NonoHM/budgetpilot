@@ -144,6 +144,7 @@ async function processUser(
 				id: true,
 				name: true,
 				source: true,
+				currency: true,
 				netWorthAccountId: true,
 				bankConnectionId: true,
 				providerAccountId: true,
@@ -331,25 +332,46 @@ async function processUser(
 
 type TransactionClient = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0];
 
+/** Rows per `id: { in: [...] }` batch, well under every provider's bind-parameter limit. */
+const KEY_UPDATE_BATCH = 500;
+
 /**
  * `manualCategory` is a free-text pin on a transaction, so its key is a plain per-row
- * derivation with no merge decision attached. Distinct values are few (they come from the
- * same category vocabulary), so one update per distinct value beats one per row.
+ * derivation with no merge decision attached.
+ *
+ * Rows are selected by id, never by re-matching the name in SQL. This code exists precisely
+ * because name equality in SQL is the database's opinion rather than the app's: on a
+ * case-insensitive collation, `manualCategory = 'Courses'` also matches every row pinned to
+ * "courses", and under `utf8mb4_general_ci` a single emoji matches every other emoji. Writing
+ * the key of the row you asked for onto rows you did not is exactly the failure mode this
+ * whole change removes, so the backfill must not depend on that equality either.
  */
 async function backfillTransactionKeys(tx: TransactionClient, userId: string): Promise<number> {
-	const distinct = await tx.transaction.findMany({
+	const rows = await tx.transaction.findMany({
 		where: { userId, manualCategory: { not: null } },
-		distinct: ['manualCategory'],
-		select: { manualCategory: true }
+		select: { id: true, manualCategory: true }
 	});
 
+	// One update per distinct key rather than per row: the pins come from the same category
+	// vocabulary, so the grouping is small even on a large history.
+	const idsByKey = new Map<string, string[]>();
+	for (const row of rows) {
+		const key = computeNullableNameKey(row.manualCategory);
+		if (key === null) continue;
+		const bucket = idsByKey.get(key);
+		if (bucket) bucket.push(row.id);
+		else idsByKey.set(key, [row.id]);
+	}
+
 	let updated = 0;
-	for (const row of distinct) {
-		const result = await tx.transaction.updateMany({
-			where: { userId, manualCategory: row.manualCategory },
-			data: { manualCategoryKey: computeNullableNameKey(row.manualCategory) }
-		});
-		updated += result.count;
+	for (const [key, ids] of idsByKey) {
+		for (let start = 0; start < ids.length; start += KEY_UPDATE_BATCH) {
+			const result = await tx.transaction.updateMany({
+				where: { userId, id: { in: ids.slice(start, start + KEY_UPDATE_BATCH) } },
+				data: { manualCategoryKey: key }
+			});
+			updated += result.count;
+		}
 	}
 	return updated;
 }

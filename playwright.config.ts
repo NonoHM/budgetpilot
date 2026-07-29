@@ -47,13 +47,16 @@ export default defineConfig({
 		// test code rather than an inferred side effect of the browser's default locale.
 	},
 	webServer: {
-		command: `npm run build && npm run preview -- --port ${E2E_PORT} --strictPort`,
+		// The database is recreated here, as the command's first step, so it is ready before the
+		// app process starts. It used to be recreated from globalSetup, which Playwright only runs
+		// once the server is already up: fine while nothing queried the database at boot, broken
+		// as soon as something did. See e2e/prepare-db.ts.
+		command: `node e2e/prepare-db.ts && npm run build && npm run preview -- --port ${E2E_PORT} --strictPort`,
 		// Distinct from 4173 (default `npm run preview`) and 3000/5173 (dev) so this suite can run
 		// alongside a local `npm run dev` without a port collision.
 		port: E2E_PORT,
-		// `port` (not `url`): Playwright's readiness probe is then a bare TCP connect, never a real
-		// HTTP request — see global-setup.ts's comment on ordering for why that matters (it must
-		// never touch the DB file before global-setup has deleted/re-migrated it).
+		// `port` (not `url`): Playwright's readiness probe is a bare TCP connect. globalSetup's own
+		// HTTP polling is what actually establishes that the app serves requests.
 		reuseExistingServer: false,
 		timeout: 120_000,
 		env: E2E_ENV

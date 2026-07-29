@@ -11,6 +11,7 @@ import {
 	deleteCategoryNatureMapping
 } from '$lib/server/transactions/nature';
 import { normalizeId } from '$lib/server/transactions/where';
+import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import type { PageServerLoad } from './$types';
@@ -128,7 +129,7 @@ export const actions: Actions = {
 				// just the one that happened to match the old name character for character.
 				prisma.transaction.updateMany({
 					where: { userId: user.id, manualCategoryKey: oldKey },
-					data: { manualCategory: newName, manualCategoryKey: newKey }
+					data: manualCategoryUpdate(newName)
 				}),
 				prisma.categoryNatureMapping.updateMany({
 					where: { userId: user.id, categoryNameKey: oldKey },
@@ -170,7 +171,7 @@ export const actions: Actions = {
 			// the "Courses" being deleted and must not survive it.
 			prisma.transaction.updateMany({
 				where: { userId: user.id, manualCategoryKey: deletedKey },
-				data: { manualCategory: null, manualCategoryKey: null }
+				data: manualCategoryUpdate(null)
 			}),
 			prisma.categoryNatureMapping.deleteMany({
 				where: { userId: user.id, categoryNameKey: deletedKey }

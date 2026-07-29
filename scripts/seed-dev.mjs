@@ -6,6 +6,9 @@
 // Credentials et usage : voir docs/local/dev-credentials.md (non versionné).
 import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import prismaClientPkg from '@prisma/client';
+// Imported from the app rather than restated here, so seeded rows carry the same keys the app
+// writes (Node runs the TypeScript source directly, same as scripts/normalize-names.mjs).
+import { computeNameKey } from '../src/lib/server/naming/nameKey.ts';
 
 const { PrismaClient } = prismaClientPkg;
 
@@ -64,14 +67,18 @@ const user = await prisma.user.findUniqueOrThrow({ where: { email: EMAIL } });
 const account = await prisma.account.upsert({
 	where: { userId_name_source: { userId: user.id, name: 'Compte principal', source: 'manual' } },
 	update: {},
-	create: { userId: user.id, name: 'Compte principal' }
+	create: {
+		userId: user.id,
+		name: 'Compte principal',
+		nameKey: computeNameKey('Compte principal')
+	}
 });
 
 async function ensureCategory(name) {
 	return prisma.category.upsert({
 		where: { userId_name: { userId: user.id, name } },
 		update: {},
-		create: { userId: user.id, name }
+		create: { userId: user.id, name, nameKey: computeNameKey(name) }
 	});
 }
 

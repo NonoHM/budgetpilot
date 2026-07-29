@@ -123,6 +123,7 @@ function buildDb() {
 				userId: 'user-a',
 				name: 'Compte',
 				source: 'csv',
+				currency: 'EUR',
 				netWorthAccountId: null,
 				bankConnectionId: null,
 				providerAccountId: null,
