@@ -19,7 +19,8 @@ const config = {
 		// quantized to 101 static w-[N%] classes) or SVG fill/stroke presentation
 		// attributes (not governed by style-src). The only remaining dynamic
 		// styling (drag/swipe transforms in BottomSheet/TransactionFocusOverlay,
-		// NetWorthChart's hover card) uses Svelte's `style:` directive, which
+		// NetWorthChart's hover card, Spinner's size/duration) uses Svelte's
+		// `style:` directive, which
 		// applies via el.style.setProperty(...) client-side after hydration and is
 		// unaffected by this directive (unlike a literal style="" attribute, which
 		// CSP blocks regardless of a matching nonce). img-src allows data: for the
@@ -30,6 +31,22 @@ const config = {
 				'default-src': ['self'],
 				'script-src': ['self'],
 				'style-src': ['self'],
+				// Scoped exception for style="" attributes only — `style-src: self` above still
+				// governs stylesheets and <style> blocks, and script-src is untouched.
+				//
+				// Needed because the remaining inline style attributes all come from
+				// dependencies, not from this app: SvelteKit hardcodes one on its
+				// #svelte-announcer live region (core/sync/write_root.js), and bits-ui hides
+				// its helper inputs with svelte-toolbelt's srOnlyStyles. Both are on
+				// visually-hidden accessibility elements, neither is reachable from app code,
+				// and every page was reporting at least one violation because of them.
+				//
+				// The exposure this adds is narrow: a style attribute can't execute script,
+				// and the usual CSS-based exfiltration trick (background: url(https://evil))
+				// is already blocked by img-src's self/data allowlist. Silencing the constant
+				// noise is worth more than that margin — a console that always has violations
+				// in it is a console nobody reads a real violation out of.
+				'style-src-attr': ['unsafe-inline'],
 				'img-src': ['self', 'data:'],
 				'font-src': ['self'],
 				'connect-src': ['self'],
