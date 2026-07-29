@@ -8,6 +8,25 @@ vi.hoisted(() => {
 const { encryptSecret, decryptSecret } = await import('./crypto');
 const { encryptTotpSecret, decryptTotpSecret } = await import('./auth/totp');
 
+/**
+ * Flips every bit of the first byte of a base64url-encoded part, and re-encodes it.
+ *
+ * Tampering tests must go through the decoded bytes. Editing the base64url characters
+ * directly is not equivalent: the trailing character of a base64url string carries
+ * padding bits that no decoder reads back, so some character edits decode to the exact
+ * same buffer and hand `decryptSecret` a perfectly valid value. A previous version of
+ * these tests also ran hex arithmetic (`parseInt(part.slice(-2), 16)`) over characters
+ * that are base64url, not hex. Both made the tests fail at random in CI.
+ *
+ * Flipping a real byte always changes the value, so these tests are deterministic.
+ */
+function flipFirstByte(base64urlPart: string): string {
+	const bytes = Buffer.from(base64urlPart, 'base64url');
+	expect(bytes.length).toBeGreaterThan(0);
+	bytes[0] ^= 0xff;
+	return bytes.toString('base64url');
+}
+
 describe('encryptSecret / decryptSecret', () => {
 	it('round-trip : déchiffre exactement le texte chiffré', () => {
 		const plaintext = 'un secret bancaire très sensible';
@@ -20,23 +39,17 @@ describe('encryptSecret / decryptSecret', () => {
 		expect(encryptSecret(plaintext)).not.toBe(encryptSecret(plaintext));
 	});
 
-	it('rejette un texte chiffré altéré (authTag GCM)', () => {
+	it('rejects a tampered ciphertext (GCM authTag)', () => {
 		const encrypted = encryptSecret('secret original');
 		const [iv, authTag, ciphertext] = encrypted.split(':');
-		const tampered = [iv, authTag, ciphertext.slice(0, -2) + 'aa'].join(':');
+		const tampered = [iv, authTag, flipFirstByte(ciphertext)].join(':');
 		expect(() => decryptSecret(tampered)).toThrow();
 	});
 
-	it('rejette un authTag altéré même si le ciphertext est intact', () => {
+	it('rejects a tampered authTag even when the ciphertext is intact', () => {
 		const encrypted = encryptSecret('secret original');
 		const [iv, authTag, ciphertext] = encrypted.split(':');
-		// Flip the last byte rather than hardcoding one: a fixed 'aa' silently
-		// leaves the tag untouched the ~1 run in 256 where it already ends in aa,
-		// and the test then passes a valid tag to decryptSecret and fails.
-		const flippedLastByte = ((parseInt(authTag.slice(-2), 16) ^ 0xff) & 0xff)
-			.toString(16)
-			.padStart(2, '0');
-		const tampered = [iv, authTag.slice(0, -2) + flippedLastByte, ciphertext].join(':');
+		const tampered = [iv, flipFirstByte(authTag), ciphertext].join(':');
 		expect(() => decryptSecret(tampered)).toThrow();
 	});
 
