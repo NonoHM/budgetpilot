@@ -146,14 +146,58 @@ deliberately, so keep your recovery codes.
 
 ## Database
 
+BudgetPilot runs on SQLite, PostgreSQL, or MySQL/MariaDB. Two variables
+configure all three, and there is nothing else to set.
+
 ```dotenv
+DATABASE_PROVIDER=sqlite
 DATABASE_URL="file:./dev.db"
 ```
 
-Only used outside Docker. Both compose files override it to
-`file:/data/dev.db`, which lives in the `budgetpilot_data` volume. SQLite is
-the only supported engine right now, so this isn't really a knob you can
-turn.
+`DATABASE_PROVIDER` accepts `sqlite`, `postgresql` (or `postgres`), and
+`mysql` (or `mariadb`). Leave it unset and you get SQLite, which is the
+recommended setup: it needs no server, and the whole database is one file you
+can copy. Under Docker, both variables come from your `.env`. Set neither and
+the compose files default `DATABASE_URL` to `file:/data/dev.db`, which lives
+in the `budgetpilot_data` volume.
+
+An unrecognized value stops the app at startup rather than falling back to
+SQLite. Falling back would start you against an empty local file while your
+real database sat untouched, and every screen would report no data.
+
+To use PostgreSQL:
+
+```dotenv
+DATABASE_PROVIDER=postgresql
+DATABASE_URL="postgresql://budgetpilot:yourpassword@db:5432/budgetpilot"
+```
+
+To use MySQL or MariaDB:
+
+```dotenv
+DATABASE_PROVIDER=mysql
+DATABASE_URL="mysql://budgetpilot:yourpassword@db:3306/budgetpilot"
+```
+
+Create the database and its user yourself before first boot. BudgetPilot
+applies its own schema on every start, but it never creates the database.
+
+Two things to know before you pick a server engine:
+
+- Migrating an existing SQLite install to PostgreSQL or MySQL is not
+  automatic. Export your data from Settings first, start the new instance
+  empty, then import the file.
+- On MySQL and MariaDB, an account email is limited to 191 characters.
+
+### Which engine to choose
+
+Pick SQLite unless you have a reason not to. It is the default, it is what
+most installs run, and for a household-sized budget it is faster than a
+network round trip to a server.
+
+Choose PostgreSQL or MySQL when you already run one, when you keep your
+database on separate storage from your application, or when your backup
+tooling is built around a database server.
 
 ## Optional features
 

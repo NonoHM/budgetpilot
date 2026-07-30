@@ -16,7 +16,12 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: file:/data/dev.db
+      # Defaults to the SQLite file on the persistent volume, which is what almost every
+      # install wants. Set DATABASE_URL in .env to point at a PostgreSQL or MySQL server
+      # instead, alongside DATABASE_PROVIDER (see docs/configuration.md). Written as a
+      # default rather than a fixed value precisely so that .env can win here.
+      DATABASE_URL: ${DATABASE_URL:-file:/data/dev.db}
+      DATABASE_PROVIDER: ${DATABASE_PROVIDER:-sqlite}
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0

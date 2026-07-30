@@ -5,6 +5,7 @@ import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeDedupeKeyHash, dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
+import { isUniqueConstraintViolation, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { ImportedTransaction } from './types';
 
 /**
@@ -122,22 +123,25 @@ export async function resolveImportBucketAccount(
 		name = `${input.name} · ${hashFingerprint(input.providerAccountId).slice(0, 6)}`;
 	}
 
-	// Upsert (not create) so a concurrent first import of the same bucket cannot throw.
-	const account = await prisma.account.upsert({
-		where: { userId_name_source: { userId: input.userId, name, source: input.source } },
-		update: {},
-		create: {
-			userId: input.userId,
-			name,
-			nameKey: computeNameKey(name),
-			source: input.source,
-			currency: input.currency ?? 'EUR',
-			netWorthAccountId: input.netWorthAccountId ?? null,
-			bankConnectionId: input.bankConnectionId ?? null,
-			providerAccountId: input.providerAccountId ?? null,
-			providerCashAccountType: input.providerCashAccountType ?? null
-		}
-	});
+	// Upsert (not create) so a concurrent first import of the same bucket cannot throw, wrapped
+	// because the empty update below costs it Prisma's atomic form (server/database/upsert.ts).
+	const account = await withConcurrentWriteRetry(() =>
+		prisma.account.upsert({
+			where: { userId_name_source: { userId: input.userId, name, source: input.source } },
+			update: {},
+			create: {
+				userId: input.userId,
+				name,
+				nameKey: computeNameKey(name),
+				source: input.source,
+				currency: input.currency ?? 'EUR',
+				netWorthAccountId: input.netWorthAccountId ?? null,
+				bankConnectionId: input.bankConnectionId ?? null,
+				providerAccountId: input.providerAccountId ?? null,
+				providerCashAccountType: input.providerCashAccountType ?? null
+			}
+		})
+	);
 	return { accountId: account.id, created: true };
 }
 
@@ -300,7 +304,7 @@ async function persistTransaction(
 		});
 		return created.id;
 	} catch (caught) {
-		if (!isUniqueConstraintError(caught)) throw caught;
+		if (!isUniqueConstraintViolation(caught)) throw caught;
 
 		// No dedupeKey means dedupeKeyHash is NULL, and a NULL never conflicts on
 		// @@unique([userId, dedupeKeyHash]) on any of the three providers. So a conflict here is
@@ -335,14 +339,5 @@ function sanitizeMetadataCsvFields(csvFields: Record<string, string>): Record<st
 			label,
 			anonymizeImportCell(csvFields[label] ?? '')
 		]).filter(([, value]) => value !== '')
-	);
-}
-
-function isUniqueConstraintError(caught: unknown): boolean {
-	return (
-		typeof caught === 'object' &&
-		caught !== null &&
-		'code' in caught &&
-		(caught as { code?: string }).code === 'P2002'
 	);
 }

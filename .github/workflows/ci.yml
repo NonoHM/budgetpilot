@@ -10,6 +10,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.head_ref || github.run_id }}
   cancel-in-progress: true
 
+# The repository's default token is read/write, because the Dependabot auto-merge workflow needs
+# it. Nothing in this workflow does: every job checks out, installs, and runs a check. Declared
+# here so a new job inherits the narrow token rather than the repository default.
+permissions:
+  contents: read
+
 jobs:
   # Split from a single sequential job into independent parallel jobs: lint and type-check
   # only need `npm ci` + Prisma client generation, not the build/test artifacts, so they gain
@@ -121,3 +127,86 @@ jobs:
 
       - name: E2E tests
         run: npm run test:e2e
+
+  # Multi-database support that is never exercised against the other engines is a claim, not a
+  # feature. Everything else in this workflow runs on SQLite, whose binary collation and
+  # single-writer locking hide exactly the failures this job exists to catch: a folded duplicate
+  # a case-insensitive collation would have accepted, two concurrent writers under an isolation
+  # level that does not serialize them, a caught unique violation on an engine that aborts the
+  # enclosing transaction.
+  #
+  # One job definition, one matrix leg per engine. The `db` service takes its image and health
+  # probe from the leg; the credentials below are throwaway values for a container that lives
+  # and dies inside this job, never copied from anywhere real.
+  db-matrix:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - provider: postgresql
+            image: postgres:17-alpine
+            port: 5432
+            health-cmd: pg_isready -U budgetpilot -d budgetpilot
+            url: postgresql://budgetpilot:budgetpilot@127.0.0.1:5432/budgetpilot
+          # MariaDB rather than MySQL: it is what a self-hoster is most likely to already run,
+          # it shares the `mysql` Prisma provider, and it is the stricter of the two for what
+          # this job checks (its default collation is accent- and case-insensitive).
+          - provider: mysql
+            image: mariadb:11
+            port: 3306
+            health-cmd: healthcheck.sh --connect --innodb_initialized
+            url: mysql://budgetpilot:budgetpilot@127.0.0.1:3306/budgetpilot
+
+    services:
+      db:
+        image: ${{ matrix.image }}
+        # Both images ignore the other's variables, so one block serves both legs.
+        env:
+          POSTGRES_USER: budgetpilot
+          POSTGRES_PASSWORD: budgetpilot
+          POSTGRES_DB: budgetpilot
+          MARIADB_USER: budgetpilot
+          MARIADB_PASSWORD: budgetpilot
+          MARIADB_DATABASE: budgetpilot
+          MARIADB_ROOT_PASSWORD: budgetpilot-root
+        ports:
+          - ${{ matrix.port }}:${{ matrix.port }}
+        options: >-
+          --health-cmd "${{ matrix.health-cmd }}"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+
+    env:
+      DATABASE_PROVIDER: ${{ matrix.provider }}
+      DATABASE_URL: ${{ matrix.url }}
+      # Same throwaway CI-only fakes as the build step above, for the modules the suite imports.
+      TOTP_ENCRYPTION_KEY: 'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1'
+      RATE_LIMIT_HASH_SECRET: 'ci-only-fake-rate-limit-hash-secret-do-not-reuse'
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Reads the schema for DATABASE_PROVIDER through prisma.config.ts, so this produces a
+      # client for the engine this leg targets. The same step the Docker entrypoint runs when an
+      # operator sets a non-default provider.
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      # The provider's own migration history, applied to an empty database — the upgrade path an
+      # operator on this engine actually takes.
+      - name: Apply migrations
+        run: npx prisma migrate deploy
+
+      - name: Cross-provider suite
+        run: npm run test:db

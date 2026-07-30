@@ -319,6 +319,12 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// Keyed on the folded name, like every other category write: a file whose own
 		// "non catégorisé" row differs only in case or accents already occupies this key, and
 		// re-creating it under the raw name would now be refused by the constraint.
+		//
+		// Not wrapped in `withConcurrentWriteRetry` like the other empty-update upserts, and
+		// deliberately so: it runs inside this restore's transaction, where PostgreSQL would
+		// abort everything on the violation and leave the retry nothing to succeed at. Nothing
+		// races it either. A restore replaces one user's entire dataset, and the rows it could
+		// collide with are ones this same transaction just wrote.
 		await tx.category.upsert({
 			where: {
 				userId_nameKey: { userId, nameKey: computeNameKey(UNCLASSIFIED_CATEGORY) }
