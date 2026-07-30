@@ -102,8 +102,17 @@ export async function resolveImportBucketAccount(
 	let name = input.name;
 	// Folded match, like categories: a bucket named "Courses" and an import announcing
 	// "courses" are the same bucket, and creating a second one would split the history.
+	//
+	// Ordered, unlike the category lookup next door, because more than one row can match here.
+	// `Account` is the one name-keyed table with no unique constraint on its key: the name-key
+	// backfill deliberately refuses to merge two buckets carrying conflicting bank or net-worth
+	// links, and leaves both in place. An unordered `findFirst` would then be free to answer
+	// with a different bucket on each call — stable on SQLite, arbitrary on PostgreSQL — and
+	// the same import would scatter its rows. Oldest first, matching the survivor rule the
+	// merge plan uses, so both agree on which bucket is the real one.
 	const existing = await prisma.account.findFirst({
 		where: { userId: input.userId, nameKey: computeNameKey(name), source: input.source },
+		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
 		select: { id: true }
 	});
 	if (existing) {
@@ -231,7 +240,14 @@ export async function persistImportedTransactions(
 	};
 }
 
-/** Returns the created transaction id, or null when the row is a duplicate. */
+/**
+ * Returns the created transaction id, or null when the row is a duplicate.
+ *
+ * Must never run inside a `prisma.$transaction`. It relies on catching a unique violation and
+ * carrying on with the next row, and on PostgreSQL a constraint violation aborts the enclosing
+ * transaction: every later statement would fail too, turning one duplicate into a failed
+ * import. Both callers (routes/import, the bank-sync service) invoke it outside one.
+ */
 async function persistTransaction(
 	userId: string,
 	transaction: ImportedTransaction,
@@ -285,26 +301,30 @@ async function persistTransaction(
 		return created.id;
 	} catch (caught) {
 		if (!isUniqueConstraintError(caught)) throw caught;
-		if (!dedupeKey) return null;
 
-		// The unique constraint still sits on the RAW `dedupeKey` until the multi-DB work moves
-		// it onto the hash, so a conflict here can mean one of two very different things.
+		// No dedupeKey means dedupeKeyHash is NULL, and a NULL never conflicts on
+		// @@unique([userId, dedupeKeyHash]) on any of the three providers. So a conflict here is
+		// a constraint this code did not anticipate, not a duplicate. Reporting it as one would
+		// count a real transaction as already-imported and drop it without a word.
+		if (!dedupeKey) throw caught;
+
+		// The unique constraint now sits on `dedupeKeyHash`, so a conflict means another request
+		// inserted the same fingerprint between the pre-check above and this insert: an ordinary
+		// race, and the row really is a duplicate. That is the whole point of moving it there.
+		// While the constraint was still on the raw key, the database's own equality could
+		// disagree with the app's (an accent-insensitive collation, or an index covering only a
+		// prefix of a long key), so this branch had to re-query before believing it.
 		//
-		// Either another request inserted the same row between the pre-check and this insert,
-		// which is an ordinary race and the row really is a duplicate. Or the database's own
-		// equality disagrees with the app's: an accent-insensitive collation, or a unique index
-		// covering only a prefix of a long key, both of which make two genuinely different
-		// transactions collide. Re-asking on the hash separates the two, since the hash is the
-		// app's answer and nothing else writes it.
+		// The re-query stays anyway, because it is the difference between "a duplicate" and "some
+		// other constraint we did not anticipate". Reporting the second as a duplicate would drop
+		// a real transaction and say nothing, which is the exact failure this column exists to
+		// prevent.
 		const conflictingRow = await prisma.transaction.findFirst({
 			where: { userId, dedupeKeyHash: computeDedupeKeyHash(dedupeKey) },
 			select: { id: true }
 		});
 		if (conflictingRow) return null;
 
-		// No row carries our hash, so the constraint rejected a transaction the app considers
-		// new. Swallowing it as a duplicate would drop a real transaction and say nothing,
-		// which is the exact failure this column exists to prevent. Fail the import instead.
 		throw caught;
 	}
 }

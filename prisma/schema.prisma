@@ -157,8 +157,15 @@ model Account {
   /// suggestNetWorthAccountType) — never authoritative, never used to auto-link.
   providerCashAccountType String?
   /// Collation-independent equality key for `name` (see server/naming/nameKey.ts).
-  /// Computed by the app, never supplied by a client. Nullable only until the boot-time
-  /// backfill has run once; every write path fills it.
+  /// Computed by the app, never supplied by a client.
+  ///
+  /// Carries NO unique constraint, unlike Category.nameKey, and this is deliberate rather
+  /// than pending: the name-key backfill refuses to merge two buckets whose bank or net worth
+  /// links conflict, because merging them would lose one of the links, so it reports them and
+  /// leaves both in place. Those rows legitimately share a key, and a unique index would have
+  /// made `migrate deploy` fail on exactly the installs that have them. Uniqueness is
+  /// therefore enforced in application code (server/import/persist.ts), which resolves the
+  /// folded name oldest-row-first so every provider picks the same bucket.
   nameKey                 String?
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
@@ -248,17 +255,19 @@ model Category {
   /// at display time. NULL = custom or renamed category: name is displayed as-is.
   defaultKey   String?
   /// Collation-independent equality key for `name` (see server/naming/nameKey.ts).
-  /// Computed by the app, never supplied by a client. Nullable only until the boot-time
-  /// backfill has run once; every write path fills it.
+  /// Computed by the app, never supplied by a client. THE uniqueness key for a category:
+  /// the constraint below is what makes "Courses" and "courses" one row on every provider.
+  /// Still nullable so the boot-time backfill can fill it after `migrate deploy` has run;
+  /// NULLs are distinct in a unique index on all three providers, so a not-yet-backfilled
+  /// database satisfies it. Every write path fills it.
   nameKey      String?
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
 
-  @@unique([userId, name])
+  @@unique([userId, nameKey])
   @@index([userId])
-  @@index([userId, nameKey])
 }
 
 model Transaction {
@@ -284,8 +293,10 @@ model Transaction {
   dedupeKey         String?
   /// Collation- and length-independent equality key for `dedupeKey` (see
   /// server/import/dedupeKey.ts). The raw key stays for traceability; every duplicate check
-  /// compares this instead. Nullable only until the boot-time backfill has run once, and
-  /// whenever `dedupeKey` itself is NULL.
+  /// compares this instead, and the constraint below is what enforces it. NULL whenever
+  /// `dedupeKey` is NULL (a manually entered transaction has no import fingerprint), and
+  /// until the boot-time backfill has run on rows imported before the column existed —
+  /// NULLs are distinct in a unique index on all three providers, so both cases are fine.
   dedupeKeyHash     String?
   metadataJson      String?
   createdAt         DateTime           @default(now())
@@ -295,7 +306,7 @@ model Transaction {
   category          Category           @relation(fields: [categoryId], references: [id])
   importBatch       ImportBatch?       @relation(fields: [importBatchId], references: [id])
 
-  @@unique([userId, dedupeKey])
+  @@unique([userId, dedupeKeyHash])
   @@index([userId])
   @@index([date])
   @@index([source])
@@ -305,7 +316,6 @@ model Transaction {
   @@index([userId, accountId, date])
   @@index([userId, manualCategory])
   @@index([userId, manualCategoryKey])
-  @@index([userId, dedupeKeyHash])
   @@index([userId, categoryId])
   @@index([userId, natureManual])
 }
@@ -376,17 +386,17 @@ model MonthlyBudget {
   userId          String
   categoryName    String
   /// Collation-independent equality key for `categoryName` (see server/naming/nameKey.ts).
-  /// Computed by the app, never supplied by a client. Nullable only until the boot-time
-  /// backfill has run once; every write path fills it.
+  /// Computed by the app, never supplied by a client. THE uniqueness key for a budget, same
+  /// contract as Category.nameKey: nullable so the boot-time backfill can fill it after
+  /// `migrate deploy`, and NULLs are distinct in a unique index on all three providers.
   categoryNameKey String?
   amountCents     Int
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, categoryName])
+  @@unique([userId, categoryNameKey])
   @@index([userId])
-  @@index([userId, categoryNameKey])
 }
 
 model LoginAttempt {
@@ -409,17 +419,17 @@ model CategoryNatureMapping {
   userId          String
   categoryName    String
   /// Collation-independent equality key for `categoryName` (see server/naming/nameKey.ts).
-  /// Computed by the app, never supplied by a client. Nullable only until the boot-time
-  /// backfill has run once; every write path fills it.
+  /// Computed by the app, never supplied by a client. THE uniqueness key for a mapping, same
+  /// contract as Category.nameKey: nullable so the boot-time backfill can fill it after
+  /// `migrate deploy`, and NULLs are distinct in a unique index on all three providers.
   categoryNameKey String?
   nature          TransactionNature
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
   user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, categoryName])
+  @@unique([userId, categoryNameKey])
   @@index([userId])
-  @@index([userId, categoryNameKey])
   @@index([userId, nature])
 }
 

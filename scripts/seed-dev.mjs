@@ -72,7 +72,7 @@ const account = await prisma.account.upsert({
 
 async function ensureCategory(name) {
 	return prisma.category.upsert({
-		where: { userId_name: { userId: user.id, name } },
+		where: { userId_nameKey: { userId: user.id, nameKey: computeNameKey(name) } },
 		update: {},
 		create: { userId: user.id, name, nameKey: computeNameKey(name) }
 	});

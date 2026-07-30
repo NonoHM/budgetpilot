@@ -17,14 +17,16 @@ import { createHash } from 'node:crypto';
  *   the key merges transactions that differ past it. Truncating a deduplication key is silent
  *   financial data loss, so the compared value is a fixed 64 ASCII characters instead.
  *
- * **What this does not do yet.** The unique constraint still sits on the raw `dedupeKey`, and
- * moving it onto the hash belongs to the multi-database work, for the same reason the name
- * keys were staged that way: `prisma migrate deploy` runs before any app code, so the
- * constraint cannot be created in the release that first populates the column it covers. Until
- * then the raw index still governs inserts on a provider whose collation folds accents, so
- * `persistTransaction` treats a conflict the hash says is not a duplicate as an error rather
- * than swallowing the row. Loud beats silent: the transaction is never dropped without saying
- * so. Moving that constraint is a hard prerequisite for shipping any non-SQLite provider.
+ * The unique constraint sits on this hash, not on the raw key. It was staged that way on
+ * purpose, over two releases: `prisma migrate deploy` runs before any app code, so the
+ * constraint could not be created in the release that first populated the column it covers.
+ * The column landed first, the constraint followed once every row carried a value.
+ *
+ * `persistTransaction` still re-queries on the hash before treating a unique violation as a
+ * duplicate. That is not leftover caution from the staging: it is the permanent guard that
+ * separates "the row really is already there" from "some constraint we did not anticipate".
+ * Loud beats silent, because the alternative is counting a real transaction as a duplicate and
+ * dropping it without a word.
  *
  * Deliberately NOT `computeNameKey` (see server/naming/nameKey.ts): that one folds case and
  * accents on purpose, because two spellings of a category name mean the same category. Here

@@ -75,7 +75,7 @@ const db = vi.hoisted(() => {
 		data: Partial<Omit<Batch, 'id'>> & Pick<Batch, 'userId' | 'source' | 'rowCount'>;
 	};
 	type CategoryUpsertArgs = {
-		where: { userId_name: { userId: string; name: string } };
+		where: { userId_nameKey: { userId: string; nameKey: string } };
 		create: Omit<Category, 'id'>;
 	};
 	type TransactionFindFirstArgs = { where: { userId: string; dedupeKeyHash: string } };
@@ -232,10 +232,12 @@ const db = vi.hoisted(() => {
 					);
 				}),
 				upsert: vi.fn(async ({ where, create }: CategoryUpsertArgs) => {
+					// Keyed on the folded name, matching the unique constraint the real table
+					// carries: two spellings of one category resolve to the same row.
 					const found = state.categories.find(
 						(category) =>
-							category.userId === where.userId_name.userId &&
-							category.name === where.userId_name.name
+							category.userId === where.userId_nameKey.userId &&
+							computeNameKey(category.name) === where.userId_nameKey.nameKey
 					);
 					if (found) return found;
 					const category = { id: id('category'), ...create };

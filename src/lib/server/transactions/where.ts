@@ -9,8 +9,9 @@ export type TransactionFilter = 'all' | 'income' | 'expense' | 'classify';
 
 /**
  * Resolves the userId-scoped id of the "Non catégorisé" (UNCLASSIFIED_CATEGORY) category row.
- * Backed by the unique (userId, name) index — a fast point lookup, not a scan. Used so the
- * "to classify" pile can be filtered by categoryId equality in SQL instead of a name join.
+ * Backed by the unique (userId, nameKey) index — a fast point lookup, not a scan, and at most
+ * one row. Used so the "to classify" pile can be filtered by categoryId equality in SQL
+ * instead of a name join.
  */
 export async function resolveUncategorizedCategoryId(userId: string): Promise<string | null> {
 	const category = await prisma.category.findFirst({

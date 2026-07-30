@@ -83,13 +83,17 @@ describe('resolveImportBucketAccount', () => {
 		expect(result).toEqual({ accountId: 'account-1', created: false });
 		expect(prismaMock.account.upsert).not.toHaveBeenCalled();
 		// Matched on the folded name key, not on the raw (userId, name, source) tuple: an
-		// import announcing "compte import csv" must land on the existing bucket.
+		// import announcing "compte import csv" must land on the existing bucket. Ordered
+		// oldest-first because Account is the one name-keyed table with no unique constraint on
+		// its key, so more than one row can match and an unordered findFirst would be free to
+		// answer differently on each call under PostgreSQL.
 		expect(prismaMock.account.findFirst).toHaveBeenCalledWith({
 			where: {
 				userId: 'user-1',
 				nameKey: computeNameKey('Compte import CSV'),
 				source: 'csv'
 			},
+			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
 			select: { id: true }
 		});
 	});
@@ -342,12 +346,12 @@ describe('createImportBatch', () => {
 describe('persistImportedTransactions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		// resolveCategoryByName probes for an existing folded match before upserting.
 		prismaMock.category.findFirst.mockResolvedValue(null);
 		prismaMock.transaction.findFirst.mockResolvedValue(null);
+		// resolveCategoryByName is one upsert keyed on the folded name.
 		prismaMock.category.upsert.mockImplementation(
-			async ({ where }: { where: { userId_name: { userId: string; name: string } } }) => ({
-				id: `category-${where.userId_name.name}`
+			async ({ create }: { create: { name: string } }) => ({
+				id: `category-${create.name}`
 			})
 		);
 		prismaMock.transaction.create.mockImplementation(
@@ -559,27 +563,28 @@ describe('persistImportedTransactions', () => {
 		).rejects.toThrow('Unique constraint failed');
 	});
 
-	it('still counts a P2002 as a duplicate for a row carrying no deduplication key', async () => {
+	it('rethrows a P2002 on a row carrying no deduplication key, rather than calling it a duplicate', async () => {
 		const p2002 = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
 		prismaMock.transaction.create.mockRejectedValueOnce(p2002);
 
-		// With no key there is no hash to re-ask about, so there is nothing to disagree over
-		// and the previous behavior stands.
-		const result = await persistImportedTransactions({
-			userId: 'user-1',
-			accountId: 'account-1',
-			importBatchId: 'batch-1',
-			source: 'csv',
-			transactions: [
-				baseTransaction({
-					label: 'Sans cle',
-					metadata: { reference: '', notes: '', type: 'expense', deduplicationKey: '' }
-				})
-			]
-		});
-
-		expect(result.importedRows).toBe(0);
-		expect(result.duplicateRows).toBe(1);
+		// No key means no hash, and a NULL never conflicts on @@unique([userId, dedupeKeyHash])
+		// on any provider. So this conflict is a constraint the code did not anticipate, and
+		// counting it as a duplicate would drop a real transaction and report it as one the user
+		// already had.
+		await expect(
+			persistImportedTransactions({
+				userId: 'user-1',
+				accountId: 'account-1',
+				importBatchId: 'batch-1',
+				source: 'csv',
+				transactions: [
+					baseTransaction({
+						label: 'Sans cle',
+						metadata: { reference: '', notes: '', type: 'expense', deduplicationKey: '' }
+					})
+				]
+			})
+		).rejects.toBe(p2002);
 	});
 
 	it('rethrows any error from transaction.create that is not a P2002 unique-constraint violation', async () => {
@@ -596,7 +601,7 @@ describe('persistImportedTransactions', () => {
 		).rejects.toThrow('database is on fire');
 	});
 
-	it('resolves the category by folded name before falling back to an upsert', async () => {
+	it('resolves the category with a single upsert on the folded key', async () => {
 		await persistImportedTransactions({
 			userId: 'user-1',
 			accountId: 'account-1',
@@ -605,15 +610,15 @@ describe('persistImportedTransactions', () => {
 			transactions: [baseTransaction({ label: 'Courses', category: 'Alimentation' })]
 		});
 
-		// The folded probe comes first, so an import announcing "alimentation" reuses an
-		// existing "Alimentation" instead of creating a second category.
-		expect(prismaMock.category.findFirst).toHaveBeenCalledWith({
-			where: { userId: 'user-1', nameKey: computeNameKey('Alimentation') },
-			select: { id: true }
-		});
+		// One upsert keyed on the folded name, so an import announcing "alimentation" reuses an
+		// existing "Alimentation" instead of creating a second category, and two concurrent
+		// imports of a new one cannot both insert. `update` is empty: an existing category keeps
+		// the spelling the user chose.
 		expect(prismaMock.category.upsert).toHaveBeenCalledWith({
-			where: { userId_name: { userId: 'user-1', name: 'Alimentation' } },
-			update: { nameKey: computeNameKey('Alimentation') },
+			where: {
+				userId_nameKey: { userId: 'user-1', nameKey: computeNameKey('Alimentation') }
+			},
+			update: {},
 			create: { userId: 'user-1', name: 'Alimentation', nameKey: computeNameKey('Alimentation') },
 			select: { id: true }
 		});

@@ -85,12 +85,17 @@ const db = vi.hoisted(() => {
 			update,
 			create
 		}: {
-			where: { userId_name: { userId: string; name: string } };
+			where: { userId_nameKey: { userId: string; nameKey: string } };
 			update: Record<string, unknown>;
 			create: Record<string, unknown>;
 		}) => {
+			// Keyed on the folded name, matching the unique constraint the real table carries:
+			// a file whose own "Non catégorisé" row differs only in case already holds this key.
+			// Compared against the stored column, like the real index, rather than recomputing
+			// it here (this fake is hoisted above the imports and has no app code available).
 			const found = store.categories.find(
-				(row) => row.userId === where.userId_name.userId && row.name === where.userId_name.name
+				(row) =>
+					row.userId === where.userId_nameKey.userId && row.nameKey === where.userId_nameKey.nameKey
 			);
 			if (found) {
 				Object.assign(found, update);
