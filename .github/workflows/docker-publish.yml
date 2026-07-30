@@ -29,6 +29,29 @@ jobs:
       tags: ${{ steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
     steps:
+      # Every job here checks out `github.ref`, while the version comes from `tag_name` — and
+      # nothing made the two agree. Dispatching this workflow from `main` with
+      # `tag_name: budgetpilot-v0.1.1` built main's HEAD and pushed it as both `:0.1.1` and
+      # `:latest`. The docker-smoke gate does not catch that: it checks out the same ref, so it
+      # faithfully tests main and passes. The gate was working; it was guarding a different
+      # artifact than the tag name advertised.
+      #
+      # On a `release: published` event this passes by construction (github.ref is the tag). For
+      # workflow_dispatch it means selecting the tag as the ref to run on, which is what the
+      # input's description already assumes.
+      - name: Refuse to publish a ref that is not the tag being named
+        env:
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            echo "Run this from a tag. Got $GITHUB_REF_TYPE \"$GITHUB_REF_NAME\"." >&2
+            exit 1
+          fi
+          if [ "$GITHUB_REF_NAME" != "$TAG_NAME" ]; then
+            echo "Checked-out tag \"$GITHUB_REF_NAME\" does not match tag_name \"$TAG_NAME\"." >&2
+            exit 1
+          fi
+
       - name: Extract version from release tag
         id: version
         env:

@@ -54,6 +54,29 @@ describe('createPrismaClient', () => {
 		);
 	});
 
+	it('hands the adapter a trimmed URL, not the padded one it validated', () => {
+		expect.assertions(1);
+
+		// A leading space survives .env parsing, a Compose `environment:` entry and `docker run
+		// -e` alike. It used to pass the scheme check (which trims) and then miss the scheme
+		// rewrite (anchored on ^), so the MariaDB driver got a string it cannot parse — and its
+		// parse error quotes the whole connection string, password included.
+		createPrismaClient({
+			DATABASE_PROVIDER: 'mysql',
+			DATABASE_URL: '  mysql://u:p@localhost:3306/b\n'
+		});
+
+		expect(createDatabaseAdapter).toHaveBeenCalledWith('mysql', 'mysql://u:p@localhost:3306/b');
+	});
+
+	it('treats a whitespace-only URL as unset rather than connecting to it', () => {
+		expect.assertions(1);
+
+		expect(() =>
+			createPrismaClient({ DATABASE_PROVIDER: 'postgresql', DATABASE_URL: '   ' })
+		).toThrow(/DATABASE_URL is required/);
+	});
+
 	it('rejects a URL belonging to another engine before connecting to anything', () => {
 		expect.assertions(1);
 

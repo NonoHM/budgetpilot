@@ -74,7 +74,30 @@ export function resolveDatabaseProvider(env: DatabaseEnv): DatabaseProvider {
 }
 
 /**
+ * The one place a raw `DATABASE_URL` becomes the string every other function here may assume.
+ *
+ * Only trimming, and that is the point: it has to happen exactly once, at the boundary, because
+ * the functions below disagreed about it. The scheme check trimmed before matching; both scheme
+ * rewrites are anchored on `^`, so they did not. A `DATABASE_URL` with a leading space — which
+ * survives `.env` parsing, a Compose `environment:` entry and `docker run -e` alike — therefore
+ * passed validation as `mysql://` and then missed the rewrite, handing the MariaDB driver a
+ * string it cannot parse. That is the one error path that interpolates the whole connection
+ * string, so a stray space put the database password in the logs.
+ *
+ * Whitespace-only becomes empty rather than surviving as a truthy string, so it is treated as
+ * unset by every caller that checks.
+ */
+export function normalizeDatabaseUrl(url: string | undefined): string | undefined {
+	const trimmed = url?.trim();
+	return trimmed ? trimmed : undefined;
+}
+
+/**
  * Rejects a `DATABASE_URL` whose scheme belongs to a different engine.
+ *
+ * Expects a URL that has already been through `normalizeDatabaseUrl`. It trims again anyway:
+ * the cost is nothing and the alternative is this function silently depending on a caller
+ * remembering.
  *
  * The failure this prevents is quiet and expensive: pointing a PostgreSQL install at
  * `file:./dev.db` connects to nothing an operator expects, and the app then looks empty rather

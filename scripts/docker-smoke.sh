@@ -23,21 +23,38 @@
 
 set -euo pipefail
 
-IMAGE=${IMAGE:-budgetpilot:smoke}
+# Fixed, not overridable. `cleanup` force-removes both images on every exit path including
+# Ctrl-C, so an `IMAGE=` override would let `IMAGE=budgetpilot:latest ./scripts/docker-smoke.sh`
+# destroy a real local image. Nothing needs the override.
+IMAGE=budgetpilot:smoke
 BUILDER_IMAGE="${IMAGE}-builder"
-NETWORK=${NETWORK:-budgetpilot-smoke}
+NETWORK=budgetpilot-smoke
 APP_PORT=${APP_PORT:-3999}
 BOOT_TIMEOUT=${BOOT_TIMEOUT:-90}
 
 # Throwaway values for containers that live and die inside this script. The two secrets are the
 # same shape CI uses elsewhere: 64 hex characters for the TOTP key (crypto.ts decodes it at
 # import time and crashes on anything else), any non-empty string for the rest.
+#
+# Hardcoded rather than `${DB_PASSWORD:-…}`, and that is load-bearing: on failure this script
+# echoes container logs into what is a public CI log on pull requests, and a connection string
+# is the one thing that can appear there. Do not "harmonise" these into env overrides — a local
+# run against a real database would then dump a real password. redact() below is the second
+# layer, not the only one.
 DB_USER=budgetpilot
 DB_PASSWORD=smoke-only-not-a-real-password
 DB_NAME=budgetpilot
 TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
 RATE_LIMIT_HASH_SECRET=docker-smoke-only-fake-rate-limit-hash-secret
 BOOTSTRAP_TOKEN=docker-smoke-only-fake-bootstrap-token
+
+# Strips `user:password@` out of any URL-shaped thing before it reaches stdout. The app itself
+# never logs a connection string, but a driver's own parse error does — see toDriverConnectionUrl
+# in src/lib/server/database/provider.ts — and that error is exactly what a failing leg would
+# dump here.
+redact() {
+	sed -E 's#([a-z][a-z0-9+.-]*://)[^@/[:space:]]*@#\1***:***@#gi'
+}
 
 CREATED_CONTAINERS=()
 
@@ -73,7 +90,7 @@ wait_for_db() {
 		fi
 		sleep 2
 	done
-	docker logs "$name" || true
+	docker logs "$name" 2>&1 | redact || true
 	echo "FAIL: $name never became ready" >&2
 	return 1
 }
@@ -198,7 +215,10 @@ for leg in "${LEGS[@]}"; do
 		sleep 1
 	done
 
-	logs=$(docker logs "$app" 2>&1 || true)
+	# Redacted at capture, not at each echo below, so there is no unredacted copy in scope for a
+	# later edit to print by accident. Redaction touches only `scheme://user:pass@`, which none
+	# of the three assertions below match on.
+	logs=$(docker logs "$app" 2>&1 | redact || true)
 
 	if [ "$ready" != true ]; then
 		echo "$logs"

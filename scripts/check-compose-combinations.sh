@@ -16,10 +16,41 @@
 set -euo pipefail
 
 # Values only present so the merge resolves without unset-variable warnings. Compose never
-# connects to anything here; nothing is read from a real .env.
-export BOOTSTRAP_TOKEN=${BOOTSTRAP_TOKEN:-compose-check-only}
-export RATE_LIMIT_HASH_SECRET=${RATE_LIMIT_HASH_SECRET:-compose-check-only}
-export TOTP_ENCRYPTION_KEY=${TOTP_ENCRYPTION_KEY:-compose-check-only}
+# connects to anything here.
+#
+# Assigned unconditionally rather than `${VAR:-…}`, and paired with `--env-file /dev/null`
+# below, which stops Compose auto-loading ./.env for *interpolation*. On a contributor's machine
+# that would otherwise substitute real secrets into the rendered project, and the failure path
+# echoes Compose's stderr, which quotes the offending value on an interpolation error.
+#
+# It does not stop the `env_file: - .env` declared inside the Compose files themselves, which
+# loads .env into each service's environment. That content is never printed: `config -q`
+# suppresses the rendered project, and Compose's validation errors do not quote it.
+export BOOTSTRAP_TOKEN=compose-check-only
+export RATE_LIMIT_HASH_SECRET=compose-check-only
+export TOTP_ENCRYPTION_KEY=compose-check-only
+
+# Both base files declare `env_file: - .env`, and Compose refuses to render a project whose
+# env_file is missing — so on a fresh checkout, which is every CI run, all seven combinations
+# fail on a missing file rather than on anything about the combination. A placeholder stands in,
+# and only ever when there is nothing to overwrite.
+ENV_FILE=.env
+CREATED_ENV_FILE=false
+
+if [ ! -e "$ENV_FILE" ]; then
+	printf 'BOOTSTRAP_TOKEN=compose-check-only\n' >"$ENV_FILE"
+	CREATED_ENV_FILE=true
+fi
+
+cleanup() {
+	# `if`, not `[ … ] && rm`: a trailing test that evaluates false makes the trap return 1, and
+	# on an EXIT trap that becomes the script's exit status — so the check "failed" on every run
+	# where a real .env already existed.
+	if [ "$CREATED_ENV_FILE" = true ]; then
+		rm -f "$ENV_FILE"
+	fi
+}
+trap cleanup EXIT INT TERM
 
 # Two bases — docker-compose.yml builds from the checkout, docker-compose.prebuilt.yml pulls the
 # published image — each combined with the overlays the docs pair it with.
@@ -47,7 +78,7 @@ for combination in "${COMBINATIONS[@]}"; do
 		args+=(-f "$file")
 	done
 
-	if output=$(docker compose "${args[@]}" config -q 2>&1); then
+	if output=$(docker compose --env-file /dev/null "${args[@]}" config -q 2>&1); then
 		echo "ok:   $combination"
 	else
 		echo "FAIL: $combination" >&2

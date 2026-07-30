@@ -5,6 +5,7 @@ import { createDatabaseAdapter } from './adapter.ts';
 import {
 	assertDatabaseUrlMatchesProvider,
 	DEFAULT_SQLITE_URL,
+	normalizeDatabaseUrl,
 	resolveDatabaseProvider,
 	type DatabaseEnv
 } from './provider.ts';
@@ -35,16 +36,20 @@ type PrismaClientType = SqlitePrismaClient;
  */
 export function createPrismaClient(env: DatabaseEnv = process.env): PrismaClientType {
 	const provider = resolveDatabaseProvider(env);
-	assertDatabaseUrlMatchesProvider(provider, env.DATABASE_URL);
+	// Normalised once, here, and everything downstream uses the result. Validating one string
+	// and connecting with another is how a stray leading space used to reach the driver's
+	// parse error, which quotes the whole connection string.
+	const databaseUrl = normalizeDatabaseUrl(env.DATABASE_URL);
+	assertDatabaseUrlMatchesProvider(provider, databaseUrl);
 
 	// Only SQLite has somewhere sensible to default to. PostgreSQL and MySQL have no local file
 	// to fall back on, and inventing a host would produce a connection error naming the wrong
 	// problem.
-	if (!env.DATABASE_URL && provider !== 'sqlite') {
+	if (!databaseUrl && provider !== 'sqlite') {
 		throw new Error(`DATABASE_URL is required when DATABASE_PROVIDER is "${provider}"`);
 	}
 
-	const adapter = createDatabaseAdapter(provider, env.DATABASE_URL ?? DEFAULT_SQLITE_URL);
+	const adapter = createDatabaseAdapter(provider, databaseUrl ?? DEFAULT_SQLITE_URL);
 
 	// A generated client embeds the schema it came from and refuses an adapter that does not
 	// match it, so the client and the adapter have to be chosen from the same provider.
