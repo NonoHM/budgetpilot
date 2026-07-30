@@ -1,0 +1,30 @@
+name: Docker smoke
+
+# Reusable, and deliberately so: this same check gates both pull requests (CI) and every GHCR
+# publish (Docker publish). Publishing an image whose only build-time proof came from a PR run on
+# a different commit is exactly the gap that let a broken Dockerfile merge green once already —
+# nothing in CI built the image, and the publish workflow only built it after the tag was cut.
+on:
+  workflow_call:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  docker-smoke:
+    runs-on: ubuntu-latest
+    # Generous: a cold build installs two full dependency trees and then boots four containers.
+    # Set at all so a container that never becomes ready fails the job instead of hanging for
+    # the six-hour default.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      # No buildx, no registry cache, no CI-only flags. The script runs here exactly as a
+      # contributor runs it locally, which is the point: a check that only works in CI cannot be
+      # reproduced when it fails. It builds the image, asserts all three generated Prisma clients
+      # coexist in it, then boots it against throwaway PostgreSQL and MariaDB containers plus the
+      # default SQLite. See the header of the script for what each step proves.
+      - name: Build the image and boot it on every provider
+        run: ./scripts/docker-smoke.sh

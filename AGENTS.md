@@ -98,7 +98,9 @@ nvm use && npm run dev
 npm run dev:ai          # dev server + ensures Ollama is running
 
 # Validation before any commit
-npx prisma generate && npm run check && npm run test:unit -- --run
+# db:generate, not `npx prisma generate`: the latter builds only the SQLite client, and
+# nothing type-checks until all three exist.
+npm run db:generate && npm run check && npm run test:unit -- --run
 
 # Single test file / watch mode
 npx vitest run path/to/file.spec.ts
@@ -117,6 +119,14 @@ npm run test:e2e
 docker compose up -d --build
 docker compose logs -f budgetpilot
 docker compose down   # NEVER -v — that deletes the Docker DB volume
+
+# Builds the image and boots it on SQLite, PostgreSQL and MariaDB. Same script CI runs,
+# so a failure there reproduces here exactly. Needs ~4 GB free; cleans up after itself.
+./scripts/docker-smoke.sh
+
+# Merges and validates every Compose combination the docs document. Run it after touching
+# any docker-compose*.yml, and add the combination to the script if you document a new one.
+./scripts/check-compose-combinations.sh
 ```
 
 - Never run `prisma migrate reset` against a database you care about.

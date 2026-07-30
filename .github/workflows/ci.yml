@@ -147,6 +147,7 @@ jobs:
         include:
           - provider: postgresql
             image: postgres:17-alpine
+            schema: prisma/schema.postgresql.prisma
             port: 5432
             health-cmd: pg_isready -U budgetpilot -d budgetpilot
             url: postgresql://budgetpilot:budgetpilot@127.0.0.1:5432/budgetpilot
@@ -155,6 +156,7 @@ jobs:
           # this job checks (its default collation is accent- and case-insensitive).
           - provider: mysql
             image: mariadb:11
+            schema: prisma/schema.mysql.prisma
             port: 3306
             health-cmd: healthcheck.sh --connect --innodb_initialized
             url: mysql://budgetpilot:budgetpilot@127.0.0.1:3306/budgetpilot
@@ -208,5 +210,65 @@ jobs:
       - name: Apply migrations
         run: npx prisma migrate deploy
 
+      # Applying without error is not the same as arriving where the schema says. Each provider's
+      # history evolves on its own, so a hand-written migration that diverges from the authored
+      # model — a column left NULLable, an index never created — passes the step above and every
+      # test that does not happen to touch it, then surfaces as a constraint failure on the one
+      # engine an operator happens to run. `db:schemas:check` proves the three *schemas* stay in
+      # sync with the source; nothing until now proved the three *migration histories* converge on
+      # them.
+      - name: Check the migration history reaches the schema
+        env:
+          SCHEMA: ${{ matrix.schema }}
+        run: npx prisma migrate diff --from-config-datasource --to-schema "$SCHEMA" --exit-code
+
       - name: Cross-provider suite
         run: npm run test:db
+
+  # SQLite's own migration history, checked the same way the db-matrix legs check theirs.
+  #
+  # It gets its own job because it needs no service container, and it needs checking most: it is
+  # by far the longest of the three (it predates multi-provider support, where the other two start
+  # from a squashed init), it is what almost every install actually runs, and until now nothing
+  # ever applied it to an empty database and compared the result against the schema. The e2e suite
+  # migrates a database, but it asserts about the app, not about the shape it landed on.
+  #
+  # No `db:generate`: `migrate deploy` and `migrate diff` are CLI operations against the schema
+  # files, and prisma.config.ts imports only the dependency-free provider module.
+  sqlite-migrations:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_PROVIDER: sqlite
+      DATABASE_URL: file:/tmp/ci-migration-check.db
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Apply migrations to an empty database
+        run: npx prisma migrate deploy
+
+      - name: Check the migration history reaches the schema
+        run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
+
+  # Every Compose file combination the docs hand an operator, merged and validated. Same blind
+  # spot as the three Prisma clients, one layer up: the overlays are only ever used stacked, and
+  # nothing checked any stack of them. Needs no npm install — docker compose ships on the runner.
+  compose-combinations:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Validate every documented Compose combination
+        run: ./scripts/check-compose-combinations.sh
+
+  # The Docker image, built for real and booted on every provider. Nothing else in this workflow
+  # builds it — see .github/workflows/docker-smoke.yml.
+  docker-smoke:
+    uses: ./.github/workflows/docker-smoke.yml
