@@ -1,5 +1,6 @@
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 
 /**
  * Get-or-create for a category, matching on the folded name.
@@ -20,13 +21,19 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
  *
  * `name` is only written on creation. An existing category keeps the spelling the user chose,
  * which is why `update` touches nothing: an import announcing "COURSES" must not rewrite a
- * category the user deliberately named "Courses".
+ * category the user deliberately named "Courses". That empty update is also why the upsert
+ * needs `withConcurrentWriteRetry` around it — see server/database/upsert.ts for what Prisma
+ * does with it and why one retry is the whole fix.
  */
 export async function resolveCategoryByName(userId: string, name: string): Promise<{ id: string }> {
-	return prisma.category.upsert({
-		where: { userId_nameKey: { userId, nameKey: computeNameKey(name) } },
-		update: {},
-		create: { userId, name, nameKey: computeNameKey(name) },
-		select: { id: true }
-	});
+	const nameKey = computeNameKey(name);
+
+	return withConcurrentWriteRetry(() =>
+		prisma.category.upsert({
+			where: { userId_nameKey: { userId, nameKey } },
+			update: {},
+			create: { userId, name, nameKey },
+			select: { id: true }
+		})
+	);
 }

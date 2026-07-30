@@ -23,6 +23,7 @@
 		"format": "prettier --write .",
 		"test:unit": "vitest",
 		"test:sandbox": "vitest run --config vitest.sandbox.config.ts",
+		"test:db": "vitest run --config vitest.db.config.ts",
 		"test": "npm run test:unit -- --run && npm run test:e2e",
 		"test:e2e": "playwright install chromium && playwright test"
 	},

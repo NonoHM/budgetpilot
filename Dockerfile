@@ -94,6 +94,24 @@ RUN apt-get update \
 	&& chown -R app:app /app /data
 
 COPY --from=prod-deps /app/node_modules ./node_modules
+# The generated Prisma client is writable by the app user, so the entrypoint can regenerate it
+# when DATABASE_PROVIDER is not sqlite: the client shipped here was generated for the default
+# schema, and Prisma refuses an adapter that does not match it.
+#
+# Be clear about what this grants. `.prisma/client` is not data, it is code that
+# `@prisma/client` requires on every boot, so this is write access to something that then
+# executes. It is scoped to that one directory rather than `--chown` on the whole COPY, and the
+# packages under node_modules stay root-owned.
+#
+# It is not, however, the tightest thing in this image: `chown -R app:app /app` above owns the
+# /app directory itself, and write permission on a directory allows replacing the entries in it
+# whoever owns them. Tightening that is worth doing and is deliberately not bundled into this
+# change, because the boot-time `npx prisma generate` needs a writable HOME (which is /app) and
+# moving it wants an image build to verify.
+#
+# The alternative that avoids the grant entirely, an image built per provider, would break the
+# operator contract this feature exists to keep: two environment variables, nothing else.
+RUN chown -R app:app /app/node_modules/.prisma
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
@@ -101,9 +119,10 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # prisma.config.ts, which imports this module to pick the provider's migration history.
 COPY --from=builder /app/src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
 COPY package.json package-lock.json ./
+COPY --chmod=555 docker-entrypoint.sh ./docker-entrypoint.sh
 
 USER app
 
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma migrate deploy && node build"]
+CMD ["./docker-entrypoint.sh"]

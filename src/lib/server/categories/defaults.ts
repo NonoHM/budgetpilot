@@ -1,5 +1,6 @@
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { TransactionNature } from '$lib/domain/transaction';
 import type { DefaultCategoryKey } from '$lib/domain/categories';
 
@@ -94,19 +95,27 @@ async function createMissingDefaultCategories(userId: string): Promise<number> {
 	// constraint into a 500 instead of doing nothing, which is the wrong answer for an action
 	// whose whole contract is idempotence. `createMany({ skipDuplicates })` would say this in
 	// one statement, but SQLite does not support it. Fourteen rows, on an explicit user action.
+	//
+	// The upsert alone is not enough, which is the whole point of this paragraph: `update: {}`
+	// costs Prisma its atomic `INSERT ... ON CONFLICT`, leaving a select followed by an insert
+	// that two clicks can still both reach. See server/database/upsert.ts.
 	for (const data of categoriesToCreate) {
-		await prisma.category.upsert({
-			where: { userId_nameKey: { userId, nameKey: data.nameKey } },
-			update: {},
-			create: data
-		});
+		await withConcurrentWriteRetry(() =>
+			prisma.category.upsert({
+				where: { userId_nameKey: { userId, nameKey: data.nameKey } },
+				update: {},
+				create: data
+			})
+		);
 	}
 	for (const data of mappingsToCreate) {
-		await prisma.categoryNatureMapping.upsert({
-			where: { userId_categoryNameKey: { userId, categoryNameKey: data.categoryNameKey } },
-			update: {},
-			create: data
-		});
+		await withConcurrentWriteRetry(() =>
+			prisma.categoryNatureMapping.upsert({
+				where: { userId_categoryNameKey: { userId, categoryNameKey: data.categoryNameKey } },
+				update: {},
+				create: data
+			})
+		);
 	}
 
 	// What was missing when we looked. A concurrent restore can make this overstate by the rows

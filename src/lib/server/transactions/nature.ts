@@ -10,6 +10,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { normalizeId } from '$lib/server/transactions/where';
 import { normalizeForMatch } from '$lib/domain/normalize';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 
 const MAX_CATEGORY_NAME_LENGTH = 80;
 const NATURE_DEFAULT_BY_KIND: Record<TransactionKind, TransactionNature> = {
@@ -135,14 +136,23 @@ export async function readCategoryNatureMappings(
 	}));
 }
 
+/**
+ * Rejected input, as opposed to a write that failed.
+ *
+ * Its own type so a caller can tell the user "that nature is not valid" without also saying it
+ * about a database error. Before the two were distinguishable, a `catch` around this function
+ * blamed the user's input for anything that went wrong underneath.
+ */
+export class InvalidCategoryNatureInputError extends Error {}
+
 export async function saveCategoryNatureMapping(
 	userId: string,
 	input: { categoryName: string; nature: string }
 ): Promise<void> {
 	const categoryName = normalizeCategoryName(input.categoryName);
 	const nature = parseTransactionNatureInput(input.nature);
-	if (!categoryName) throw new Error('Invalid category');
-	if (!nature) throw new Error('Invalid nature');
+	if (!categoryName) throw new InvalidCategoryNatureInputError('Invalid category');
+	if (!nature) throw new InvalidCategoryNatureInputError('Invalid nature');
 
 	const categoryNameKey = computeNameKey(categoryName);
 
@@ -150,16 +160,21 @@ export async function saveCategoryNatureMapping(
 	// "Courses" is the row a save on "courses" must update, and two concurrent saves must not
 	// each insert their own row. `categoryName` is only written on creation, so an existing
 	// mapping keeps the spelling it was created with.
-	await prisma.categoryNatureMapping.upsert({
-		where: { userId_categoryNameKey: { userId, categoryNameKey } },
-		update: { nature },
-		create: {
-			userId,
-			categoryName,
-			categoryNameKey,
-			nature
-		}
-	});
+	//
+	// Retried, because the upsert is not itself atomic on every engine (server/database/upsert.ts):
+	// on MySQL two concurrent saves of one folded category still both reached the insert.
+	await withConcurrentWriteRetry(() =>
+		prisma.categoryNatureMapping.upsert({
+			where: { userId_categoryNameKey: { userId, categoryNameKey } },
+			update: { nature },
+			create: {
+				userId,
+				categoryName,
+				categoryNameKey,
+				nature
+			}
+		})
+	);
 }
 
 export async function deleteCategoryNatureMapping(

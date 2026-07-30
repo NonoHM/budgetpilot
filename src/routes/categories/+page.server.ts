@@ -7,6 +7,7 @@ import { restoreMissingDefaultCategories } from '$lib/server/categories/defaults
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import {
 	readCategoryNatureMappings,
+	InvalidCategoryNatureInputError,
 	saveCategoryNatureMapping,
 	deleteCategoryNatureMapping
 } from '$lib/server/transactions/nature';
@@ -215,7 +216,10 @@ export const actions: Actions = {
 
 		try {
 			await saveCategoryNatureMapping(user.id, { categoryName, nature });
-		} catch {
+		} catch (err: unknown) {
+			// Only the rejected-input case. Anything else is a failed write, and telling the user
+			// their nature was invalid would send them rechecking a form that was fine.
+			if (!(err instanceof InvalidCategoryNatureInputError)) throw err;
 			return fail(400, { error: m.categories_error_invalid_nature() });
 		}
 

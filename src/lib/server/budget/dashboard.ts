@@ -4,6 +4,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import type { CategoryBudget } from '$lib/domain/budget';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { Transaction, TransactionSource, TransactionNature } from '$lib/domain/transaction';
 import { validateTransaction } from '$lib/domain/transaction';
 import { parseManualAmountCents } from '$lib/domain/money';
@@ -285,33 +286,43 @@ async function upsertBudgetByFoldedName(
 ): Promise<{ id: string }> {
 	const categoryNameKey = computeNameKey(categoryName);
 
-	return prisma.monthlyBudget.upsert({
-		where: { userId_categoryNameKey: { userId, categoryNameKey } },
-		update: { amountCents },
-		create: { userId, categoryName, categoryNameKey, amountCents },
-		select: { id: true }
-	});
+	return withConcurrentWriteRetry(() =>
+		prisma.monthlyBudget.upsert({
+			where: { userId_categoryNameKey: { userId, categoryNameKey } },
+			update: { amountCents },
+			create: { userId, categoryName, categoryNameKey, amountCents },
+			select: { id: true }
+		})
+	);
 }
 
-/** Idempotent upsert of the implicit manual-entry bucket — never overwrites an existing link. */
+/**
+ * Idempotent upsert of the implicit manual-entry bucket — never overwrites an existing link.
+ *
+ * Retried on a concurrent insert for the reason in server/database/upsert.ts: this runs on the
+ * very first manual transaction a user creates, and two submissions arriving together would
+ * otherwise have one of them fail on the unique constraint.
+ */
 export async function ensureManualAccount(userId: string) {
-	return prisma.account.upsert({
-		where: {
-			userId_name_source: {
+	return withConcurrentWriteRetry(() =>
+		prisma.account.upsert({
+			where: {
+				userId_name_source: {
+					userId,
+					name: MANUAL_ACCOUNT_NAME,
+					source: 'manual'
+				}
+			},
+			update: {},
+			create: {
 				userId,
 				name: MANUAL_ACCOUNT_NAME,
-				source: 'manual'
+				nameKey: computeNameKey(MANUAL_ACCOUNT_NAME),
+				source: 'manual',
+				currency: 'EUR'
 			}
-		},
-		update: {},
-		create: {
-			userId,
-			name: MANUAL_ACCOUNT_NAME,
-			nameKey: computeNameKey(MANUAL_ACCOUNT_NAME),
-			source: 'manual',
-			currency: 'EUR'
-		}
-	});
+		})
+	);
 }
 
 /** Read-only lookup: unlike ensureManualAccount, never creates the bucket as a side effect. */

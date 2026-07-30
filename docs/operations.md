@@ -93,10 +93,17 @@ backup first either way, see [Backups](#backups).
 nothing you can see. The app computes a fingerprint for each imported
 transaction, used to recognise a row you already have when you re-import a
 statement. It now compares those fingerprints itself instead of leaving the
-comparison to the database, which is groundwork for running BudgetPilot on
-PostgreSQL or MySQL later. You get one log line, `[dedupe-keys] hashing
-existing deduplication keys, this runs once`, and nothing else: no
-transaction is merged, moved, or dropped.
+comparison to the database, which is what lets BudgetPilot run on PostgreSQL
+and MySQL. You get one log line, `[dedupe-keys] hashing existing
+deduplication keys, this runs once`, and nothing else: no transaction is
+merged, moved, or dropped.
+
+**PostgreSQL and MySQL/MariaDB are supported from this version.** Nothing
+changes for you if you do nothing: SQLite stays the default and stays the
+recommended setup. See [the database
+section](configuration.md#database) if you want to move to a server engine,
+and note that moving an existing install means exporting your data and
+importing it into an empty instance. There is no in-place conversion.
 
 ### Before you upgrade past 0.2.0
 
