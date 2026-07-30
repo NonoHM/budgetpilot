@@ -147,7 +147,6 @@ jobs:
         include:
           - provider: postgresql
             image: postgres:17-alpine
-            schema: prisma/schema.postgresql.prisma
             port: 5432
             health-cmd: pg_isready -U budgetpilot -d budgetpilot
             url: postgresql://budgetpilot:budgetpilot@127.0.0.1:5432/budgetpilot
@@ -156,7 +155,6 @@ jobs:
           # this job checks (its default collation is accent- and case-insensitive).
           - provider: mysql
             image: mariadb:11
-            schema: prisma/schema.mysql.prisma
             port: 3306
             health-cmd: healthcheck.sh --connect --innodb_initialized
             url: mysql://budgetpilot:budgetpilot@127.0.0.1:3306/budgetpilot
@@ -217,10 +215,14 @@ jobs:
       # engine an operator happens to run. `db:schemas:check` proves the three *schemas* stay in
       # sync with the source; nothing until now proved the three *migration histories* converge on
       # them.
+      #
+      # The path is derived from DATABASE_PROVIDER rather than carried as a matrix key on
+      # purpose: GitHub builds a matrix job's name from every value in its `include` entry, so
+      # adding one renames both legs — and the branch ruleset requires them by name. A new key
+      # here silently retires two required status checks and blocks every merge until someone
+      # notices. Same rule for anything added to this matrix later.
       - name: Check the migration history reaches the schema
-        env:
-          SCHEMA: ${{ matrix.schema }}
-        run: npx prisma migrate diff --from-config-datasource --to-schema "$SCHEMA" --exit-code
+        run: npx prisma migrate diff --from-config-datasource --to-schema "prisma/schema.$DATABASE_PROVIDER.prisma" --exit-code
 
       - name: Cross-provider suite
         run: npm run test:db
