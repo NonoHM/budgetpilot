@@ -82,7 +82,8 @@ npx vitest run path/to/file.spec.ts
 npm run check:watch
 
 # Schema migration (only if schema.prisma changes)
-npx prisma migrate dev --name <name> && npx prisma generate
+# db:schemas regenerates the PostgreSQL/MySQL schemas from it; CI fails if they are stale.
+npx prisma migrate dev --name <name> && npx prisma generate && npm run db:schemas
 
 # End-to-end tests (self-contained, own throwaway DB)
 npm run test:e2e

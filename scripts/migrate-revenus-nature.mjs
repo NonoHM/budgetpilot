@@ -7,15 +7,9 @@
 //
 // Usage : node scripts/migrate-revenus-nature.mjs
 
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
-import prismaClientPkg from '@prisma/client';
+import { createPrismaClient } from '../src/lib/server/database/client.ts';
 
-const { PrismaClient } = prismaClientPkg;
-
-const adapter = new PrismaBetterSqlite3({
-	url: process.env.DATABASE_URL ?? 'file:./dev.db'
-});
-const prisma = new PrismaClient({ adapter });
+const prisma = createPrismaClient();
 
 const result = await prisma.categoryNatureMapping.updateMany({
 	where: { categoryName: 'Revenus', nature: 'uncategorized' },

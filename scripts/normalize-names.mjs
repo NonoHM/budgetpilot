@@ -12,15 +12,14 @@
  * It imports the very same modules the app uses, so what it prints is what runs.
  */
 import process from 'node:process';
-import { PrismaClient } from '@prisma/client';
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
+import { createPrismaClient } from '../src/lib/server/database/client.ts';
 import { runNameKeyBackfill } from '../src/lib/server/naming/backfill.ts';
 import { renderNameKeyReport } from '../src/lib/server/naming/report.ts';
 
 const dryRun = process.argv.includes('--dry-run');
 
-const url = process.env.DATABASE_URL ?? 'file:./dev.db';
-const prisma = new PrismaClient({ adapter: new PrismaBetterSqlite3({ url }) });
+// Same client the app builds, so this preview reaches the same database the app will.
+const prisma = createPrismaClient();
 
 try {
 	const report = await runNameKeyBackfill({ prisma, dryRun });

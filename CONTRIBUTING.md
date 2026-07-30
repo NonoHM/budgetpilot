@@ -52,12 +52,24 @@ npm run test:e2e        # self-contained, uses its own throwaway DB
 The same commands run in CI (`.github/workflows/ci.yml`) on every push and
 PR — a red CI run blocks merge.
 
-If you changed `prisma/schema.prisma`, generate a migration:
+If you changed `prisma/schema.prisma`, generate a migration and refresh the
+other providers' schemas:
 
 ```bash
 npx prisma migrate dev --name <name>
 npx prisma generate
+npm run db:schemas
 ```
+
+`prisma/schema.prisma` is the authored source and stays on SQLite, the default
+provider. The PostgreSQL and MySQL schemas next to it are generated from it and
+committed, so `npm run db:schemas` is not optional: CI runs
+`npm run db:schemas:check` and fails if they are stale. Never edit a generated
+schema by hand, your change is overwritten on the next run.
+
+Each provider keeps its own migration history under
+`prisma/migrations/<provider>/`. `npx prisma migrate dev` writes to the one
+matching `DATABASE_PROVIDER`, which is SQLite unless you set it.
 
 Never run `prisma migrate reset` against a database you care about.
 
