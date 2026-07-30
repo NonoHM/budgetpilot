@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.3.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.2.2...budgetpilot-v0.3.0) (2026-07-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **db:** category names differing only in case or accents are now one category everywhere, and rows that fold together are merged once at startup. "Courses" and "courses" were two categories and are now one; a budget on "Courses" now counts transactions pinned to "courses", where it silently ignored them before. Import buckets pointing at different bank connections or provider accounts are not merged, and net worth accounts are never merged; both are reported instead. Preview it on your own data with `npm run db:normalize-names -- --dry-run`. See docs/operations.md.
+
+### Features
+
+* **db:** compare import deduplication keys on an app-computed hash ([#68](https://github.com/NonoHM/budgetpilot/issues/68)) ([557dd82](https://github.com/NonoHM/budgetpilot/commit/557dd82a5537e0be0e7ac1098f839da12dbb4ad4))
+* **db:** compare names on an app-computed key instead of the database collation ([#66](https://github.com/NonoHM/budgetpilot/issues/66)) ([4b407af](https://github.com/NonoHM/budgetpilot/commit/4b407af5f15e8cdd413433376f36c6634360792a))
+* **db:** enforce name and fingerprint uniqueness on the app-computed keys ([#70](https://github.com/NonoHM/budgetpilot/issues/70)) ([96d82fc](https://github.com/NonoHM/budgetpilot/commit/96d82fc967a270193c0f9acb7fb629d1f91be022))
+* **db:** generate a Prisma schema and a migration history per provider ([#69](https://github.com/NonoHM/budgetpilot/issues/69)) ([adbcc95](https://github.com/NonoHM/budgetpilot/commit/adbcc950318085544dfe9bd50799c1bcd6abbd33))
+* **db:** generate every provider's Prisma client at build time, and prove all three ship ([#74](https://github.com/NonoHM/budgetpilot/issues/74)) ([34557e1](https://github.com/NonoHM/budgetpilot/commit/34557e17df6d58ad0c153eb8d300a74b7156f948))
+* **db:** PostgreSQL and MySQL Compose overlays, and the docs for switching ([#75](https://github.com/NonoHM/budgetpilot/issues/75)) ([492431c](https://github.com/NonoHM/budgetpilot/commit/492431cf8fa0e3cf07863ffbb115799e1a53f887))
+* **db:** run the full CI matrix on PostgreSQL and MySQL, and fix what it found ([#71](https://github.com/NonoHM/budgetpilot/issues/71)) ([3c0f414](https://github.com/NonoHM/budgetpilot/commit/3c0f41436d5bf7551076a73316a06bc355d859a4))
+* **db:** size every column for MySQL and stop the collation deciding email identity ([#73](https://github.com/NonoHM/budgetpilot/issues/73)) ([68a9f83](https://github.com/NonoHM/budgetpilot/commit/68a9f839d57563ed5791db43ff0081b2429685f4))
+
 ## [0.2.2](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.2.1...budgetpilot-v0.2.2) (2026-07-29)
 
 
