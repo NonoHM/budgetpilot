@@ -187,7 +187,12 @@ Two things to know before you pick a server engine:
 - Migrating an existing SQLite install to PostgreSQL or MySQL is not
   automatic. Export your data from Settings first, start the new instance
   empty, then import the file.
-- On MySQL and MariaDB, an account email is limited to 191 characters.
+- Account emails must be ASCII. MySQL and MariaDB compare emails without
+  regard to accents, so "café@example.com" and "cafe@example.com" would be
+  the same account there and two different ones on SQLite and PostgreSQL.
+  Requiring ASCII keeps one answer on every engine. This applies when an
+  account is created or invited; an account registered with a non-ASCII
+  address before this rule can still sign in.
 
 ### Which engine to choose
 

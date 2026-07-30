@@ -4,7 +4,7 @@ import {
 	generateTemporaryPassword,
 	hashPassword,
 	requireAdmin,
-	validateEmail
+	validateNewEmail
 } from '$lib/server/auth';
 import {
 	createInvitation,
@@ -128,7 +128,7 @@ export const actions: Actions = {
 		const admin = requireAdmin(locals.user);
 		const formData = await request.formData();
 		const rawEmail = getFormValue(formData, 'email');
-		const email = rawEmail ? validateEmail(rawEmail) : null;
+		const email = rawEmail ? validateNewEmail(rawEmail) : null;
 		if (rawEmail && !email) return fail(400, { inviteError: m.admin_error_invalid_email() });
 
 		const invitation = await createInvitation(admin.id, email);

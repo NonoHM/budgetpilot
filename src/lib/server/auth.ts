@@ -17,6 +17,8 @@ const PASSWORD_COST =
 		: MIN_PASSWORD_COST;
 const DEFAULT_SESSION_TTL_DAYS = 30;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Printable ASCII only, no control characters. See validateNewEmail() for why. */
+const ASCII_ONLY_PATTERN = /^[\x20-\x7e]+$/;
 
 export interface AuthUser {
 	id: string;
@@ -32,6 +34,33 @@ export function normalizeEmail(value: string): string {
 export function validateEmail(value: string): string | null {
 	const email = normalizeEmail(value);
 	if (!email || email.length > 254 || !EMAIL_PATTERN.test(email)) return null;
+	return email;
+}
+
+/**
+ * Same as `validateEmail()`, plus an ASCII-only rule. For the paths that CREATE an identity
+ * (registration, admin invitation), never for the login lookup.
+ *
+ * `User.email` is unique-indexed, and on MySQL/MariaDB that index is read through the table's
+ * collation, `utf8mb4_unicode_ci`, which is accent-insensitive: "café@example.com" and
+ * "cafe@example.com" are one value there and two on SQLite and PostgreSQL. Verified against the
+ * generated MySQL schema, where inserting the second raises a duplicate key error on
+ * `User_email_key`. So which addresses count as the same account would be decided by the
+ * database engine, which is the exact defect this whole multi-provider effort removes
+ * everywhere else (see server/naming/nameKey.ts).
+ *
+ * `normalizeEmail()` already folds ASCII case, and a trim removes the trailing-space
+ * difference, so restricting the rest to ASCII leaves no pair of distinct valid addresses that
+ * any of the three collations can fold together. Addresses outside ASCII need SMTPUTF8
+ * (RFC 6531), which this app does not implement.
+ *
+ * Deliberately NOT applied to login: an account registered with a non-ASCII address before this
+ * rule existed must keep signing in, and locking the only user out of a self-hosted finance app
+ * is worse than the narrow divergence that remains for such an install.
+ */
+export function validateNewEmail(value: string): string | null {
+	const email = validateEmail(value);
+	if (email === null || !ASCII_ONLY_PATTERN.test(email)) return null;
 	return email;
 }
 

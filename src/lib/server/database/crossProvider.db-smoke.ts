@@ -326,7 +326,83 @@ describe(`cross-provider database behavior (${provider})`, () => {
 		});
 	});
 
+	describe('column lengths', () => {
+		// MySQL maps a bare `String` to varchar(191), the only length limit of the three
+		// providers. `validateEmail()` accepts up to RFC 5321's 254, so before `User.email` was
+		// widened this insert failed on MySQL alone with "Data too long for column 'email'",
+		// which is a registration an operator could not complete on one engine only.
+		it('stores an email at its full RFC 5321 length of 254 characters', async () => {
+			const email = `${'a'.repeat(234)}@budgetpilot.invalid`;
+			expect(email).toHaveLength(254);
+
+			const created = await prisma.user.create({
+				data: { email, passwordHash: 'db-smoke-not-a-real-hash' },
+				select: { id: true }
+			});
+			createdUserIds.push(created.id);
+
+			// Read it back rather than trusting the write: a MySQL server left in a non-strict
+			// sql_mode truncates instead of raising, and a silently shortened address is worse
+			// than a rejected one on a column that identifies an account.
+			const stored = await prisma.user.findUnique({
+				where: { id: created.id },
+				select: { email: true }
+			});
+
+			expect(stored?.email).toBe(email);
+		});
+
+		it('stores a bank operation type longer than 191 characters', async () => {
+			// Enable Banking's `bank_transaction_code.description`, free text the bank writes and
+			// the connector does not cap. Not indexed, so it is `@db.Text` on MySQL.
+			const bankOperationType = 'V'.repeat(300);
+			const accountId = (await resolveImportBucketAccount({ userId, name: 'Long', source: 'csv' }))
+				.accountId;
+			const categoryId = (await resolveCategoryByName(userId, 'Non catégorisé')).id;
+
+			const created = await prisma.transaction.create({
+				data: {
+					userId,
+					accountId,
+					categoryId,
+					date: new Date('2026-03-01T00:00:00.000Z'),
+					label: 'LONG OPERATION TYPE',
+					amountCents: -100,
+					source: 'csv',
+					bankOperationType
+				},
+				select: { id: true }
+			});
+			const stored = await prisma.transaction.findUnique({
+				where: { id: created.id },
+				select: { bankOperationType: true }
+			});
+
+			expect(stored?.bankOperationType).toBe(bankOperationType);
+		});
+	});
+
 	describe('bucket resolution', () => {
+		it('caps a bank-supplied bucket name so it cannot overflow the indexed column', async () => {
+			// A bank names its own accounts and the connector puts no bound on what it returns,
+			// so `Account.name` is the one indexed column an outside party can overflow. The cap
+			// keeps it inside varchar(255) on MySQL, where an over-length write is rejected
+			// rather than truncated, and keeps the name usable as a display name everywhere.
+			const bucket = await resolveImportBucketAccount({
+				userId,
+				name: 'B'.repeat(400),
+				source: 'bank'
+			});
+			const stored = await prisma.account.findUniqueOrThrow({
+				where: { id: bucket.accountId },
+				select: { name: true, nameKey: true }
+			});
+
+			expect(stored.name).toHaveLength(120);
+			// The key is derived from the capped name, so it stays inside the column too.
+			expect(stored.nameKey?.length).toBeLessThanOrEqual(120);
+		});
+
 		it('lands every folded spelling on one bucket', async () => {
 			const first = await resolveImportBucketAccount({
 				userId,

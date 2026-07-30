@@ -26,6 +26,7 @@ const {
 	revokeSessionToken,
 	SESSION_COOKIE,
 	validateEmail,
+	validateNewEmail,
 	validatePassword,
 	verifyPasswordTimingSafe
 } = await import('./auth');
@@ -52,6 +53,39 @@ describe('auth locale', () => {
 		expect(validateEmail('not-an-email')).toBeNull();
 		expect(validatePassword('123456789012')).toBe(true);
 		expect(validatePassword('too-short')).toBe(false);
+	});
+
+	it('accepte une adresse de 254 caractères et rejette au-delà', () => {
+		expect.assertions(2);
+
+		// RFC 5321 caps an address at 254. This is the length the MySQL schema had to be widened
+		// to accept (varchar(254)), so the app's own bound and the column's must agree exactly.
+		const at254 = `${'a'.repeat(234)}@budgetpilot.invalid`;
+		const at255 = `${'a'.repeat(235)}@budgetpilot.invalid`;
+
+		expect(validateEmail(at254)).toBe(at254);
+		expect(validateEmail(at255)).toBeNull();
+	});
+
+	it("refuse une adresse non-ASCII à la création d'un compte", () => {
+		expect.assertions(3);
+
+		// MySQL reads User.email's unique index through utf8mb4_unicode_ci, which folds accents:
+		// "café@" and "cafe@" are one row there and two on SQLite and PostgreSQL. Restricting
+		// creation to ASCII means no two valid addresses can ever fold together.
+		expect(validateNewEmail('cafe@example.com')).toBe('cafe@example.com');
+		expect(validateNewEmail('café@example.com')).toBeNull();
+		// Still a valid address as far as the shared rules go: only the ASCII rule rejects it.
+		expect(validateEmail('café@example.com')).toBe('café@example.com');
+	});
+
+	it('laisse une adresse non-ASCII déjà enregistrée se connecter', () => {
+		expect.assertions(1);
+
+		// Deliberate asymmetry: the ASCII rule guards account creation only. Applying it to the
+		// login lookup would lock an existing account out of a self-hosted finance app, which is
+		// worse than the divergence it would close.
+		expect(validateEmail('café@example.com')).not.toBeNull();
 	});
 
 	it('crée une session avec cookie opaque et hash uniquement stocké', async () => {

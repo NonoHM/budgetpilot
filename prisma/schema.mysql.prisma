@@ -47,7 +47,7 @@ enum BankConnectionStatus {
 
 model User {
   id                        String                     @id @default(cuid())
-  email                     String                     @unique
+  email                     String                     @unique @db.VarChar(254)
   passwordHash              String
   role                      Role                       @default(USER)
   forcePasswordChange       Boolean                    @default(false)
@@ -124,7 +124,7 @@ model Invitation {
   id              String    @id @default(cuid())
   tokenHash       String    @unique
   /// Target email if the invitation is nominative; NULL = generic link usable by anyone.
-  email           String?
+  email           String? @db.VarChar(254)
   createdByUserId String?
   createdBy       User?     @relation("InvitationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
   expiresAt       DateTime
@@ -141,7 +141,7 @@ model Invitation {
 model Account {
   id                      String           @id @default(cuid())
   userId                  String
-  name                    String
+  name                    String @db.VarChar(255)
   currency                String           @default("EUR")
   source                  String           @default("manual")
   /// Optional link to the net worth account this technical/import bucket belongs to.
@@ -174,7 +174,7 @@ model Account {
   /// made `migrate deploy` fail on exactly the installs that have them. Uniqueness is
   /// therefore enforced in application code (server/import/persist.ts), which resolves the
   /// folded name oldest-row-first so every provider picks the same bucket.
-  nameKey                 String?
+  nameKey                 String? @db.VarChar(255)
   createdAt               DateTime         @default(now())
   updatedAt               DateTime         @updatedAt
   user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -209,7 +209,7 @@ model BankConnection {
   status               BankConnectionStatus @default(active)
   /// Bank (ASPSP) this connection targets, as validated against the provider's own
   /// bank list at authorization time — display metadata, non-sensitive.
-  aspspName            String?
+  aspspName            String? @db.Text
   aspspCountry         String?
   /// End of the PSD2 consent window granted by the bank (~180 days for most). NULL when
   /// unknown. Past this date the connection requires a re-authorization by the user.
@@ -240,7 +240,7 @@ model BankAuthorizationRequest {
   stateHash          String    @unique
   /// The state itself, AES-256-GCM encrypted via $lib/server/crypto. Never logged.
   stateEncrypted     String @db.Text
-  aspspName          String
+  aspspName          String @db.Text
   aspspCountry       String
   /// When set, the callback RENEWS this existing connection (same user) instead of
   /// creating a new one — no FK on purpose: a deleted target must not invalidate the
@@ -290,7 +290,7 @@ model Transaction {
   type              String?
   source            String
   notes             String? @db.Text
-  bankOperationType String?
+  bankOperationType String? @db.Text
   manualCategory    String?
   /// Collation-independent equality key for `manualCategory` (see server/naming/nameKey.ts).
   /// NULL exactly when `manualCategory` is NULL, once the boot-time backfill has run.

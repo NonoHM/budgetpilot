@@ -124,13 +124,9 @@ describe('withNativeTypes', () => {
 });
 
 describe('NATIVE_TYPE_OVERRIDES', () => {
-	it('never annotates a column that carries an index or a unique constraint', () => {
-		expect.assertions(1);
-
-		// MySQL cannot index `text` without a prefix length, and a prefix index merges rows
-		// differing past it. Any override on an indexed column is either an invalid schema or
-		// silent data loss, so the table is checked against the real schema's index blocks.
-		const indexedFields = new Set<string>();
+	/** Every `Model.field` the real schema puts under an `@@index`, `@@unique` or `@@id`. */
+	function indexedFields(): Set<string> {
+		const fields = new Set<string>();
 		let model: string | null = null;
 		for (const line of sourceSchema.split('\n')) {
 			const modelStart = /^model\s+(\w+)\s*\{/.exec(line);
@@ -139,14 +135,81 @@ describe('NATIVE_TYPE_OVERRIDES', () => {
 
 			const block = /^\s{2}@@(?:unique|index|id)\(\[([^\]]+)\]/.exec(line);
 			if (!model || !block) continue;
-			for (const field of block[1].split(',')) indexedFields.add(`${model}.${field.trim()}`);
+			for (const field of block[1].split(',')) fields.add(`${model}.${field.trim()}`);
+		}
+		return fields;
+	}
+
+	// This rule used to be "no override at all on an indexed column", which was the right rule
+	// while every override was `@db.Text`. It is narrowed rather than dropped, because the two
+	// override shapes fail differently. `text` is the dangerous one: MySQL cannot index it
+	// without a prefix length, and a prefix index silently merges rows differing past the
+	// prefix, which on `Transaction.dedupeKey` would have merged two distinct transactions.
+	// A `varchar(n)` indexes whole values, so it merges nothing and truncates nothing; an
+	// over-length write is rejected outright. `User.email` needs exactly that to reach its
+	// RFC 5321 length of 254 under a unique index.
+	it('never annotates an indexed column with an unbounded type', () => {
+		expect.assertions(1);
+
+		const indexed = indexedFields();
+		const unboundedAndIndexed = Object.entries(NATIVE_TYPE_OVERRIDES)
+			.filter(([key]) => indexed.has(key))
+			.filter(([, byProvider]) =>
+				Object.values(byProvider).some((attribute) => !/^@db\.VarChar\(\d+\)$/.test(attribute))
+			)
+			.map(([key]) => key);
+
+		expect(unboundedAndIndexed).toEqual([]);
+	});
+
+	it('keeps every indexed column inside InnoDB key limit', () => {
+		expect.assertions(1);
+
+		// A varchar override on an indexed column is only safe while the whole key fits InnoDB's
+		// 3072-byte limit on the DYNAMIC row format, at 4 bytes per utf8mb4 character. Nothing
+		// enforces that but arithmetic, so the arithmetic is a test: a future PR widening a
+		// column that sits in a multi-column index finds out here rather than on an operator's
+		// `migrate deploy`.
+		const INNODB_KEY_LIMIT_BYTES = 3072;
+		const BYTES_PER_CHAR = 4;
+		const DEFAULT_VARCHAR_CHARS = 191;
+
+		const declaredChars = (field: string): number => {
+			const attribute = NATIVE_TYPE_OVERRIDES[field]?.mysql;
+			const varchar = attribute && /^@db\.VarChar\((\d+)\)$/.exec(attribute);
+			return varchar ? Number(varchar[1]) : DEFAULT_VARCHAR_CHARS;
+		};
+
+		// Only `String` columns count toward the key: an Int, a DateTime or an enum is small and
+		// fixed, and none of them can be widened by an override.
+		const stringFields = new Set<string>();
+		let model: string | null = null;
+		for (const line of sourceSchema.split('\n')) {
+			const modelStart = /^model\s+(\w+)\s*\{/.exec(line);
+			if (modelStart) model = modelStart[1];
+			else if (model && line.startsWith('}')) model = null;
+			const field = /^\s{2}(\w+)\s+String\??\s/.exec(line);
+			if (model && field) stringFields.add(`${model}.${field[1]}`);
 		}
 
-		const annotatedAndIndexed = Object.keys(NATIVE_TYPE_OVERRIDES).filter((key) =>
-			indexedFields.has(key)
-		);
+		const oversized: string[] = [];
+		model = null;
+		for (const line of sourceSchema.split('\n')) {
+			const modelStart = /^model\s+(\w+)\s*\{/.exec(line);
+			if (modelStart) model = modelStart[1];
+			else if (model && line.startsWith('}')) model = null;
 
-		expect(annotatedAndIndexed).toEqual([]);
+			const block = /^\s{2}@@(unique|index|id)\(\[([^\]]+)\]/.exec(line);
+			if (!model || !block) continue;
+
+			const fields = block[2].split(',').map((field) => `${model}.${field.trim()}`);
+			const bytes = fields
+				.filter((field) => stringFields.has(field))
+				.reduce((total, field) => total + declaredChars(field) * BYTES_PER_CHAR, 0);
+			if (bytes > INNODB_KEY_LIMIT_BYTES) oversized.push(`${model}.@@${block[1]}: ${bytes} bytes`);
+		}
+
+		expect(oversized).toEqual([]);
 	});
 });
 
