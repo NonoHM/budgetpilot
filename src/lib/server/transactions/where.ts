@@ -1,5 +1,5 @@
 import { isHttpError } from '@sveltejs/kit';
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '../database/types.ts';
 import { parseCustomDateRange } from '$lib/server/date-range';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';

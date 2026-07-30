@@ -11,6 +11,7 @@
 		"setup:llm": "node scripts/ensure-ollama.mjs --pull",
 		"seed:dev": "node scripts/seed-dev.mjs",
 		"db:normalize-names": "node scripts/normalize-names.mjs",
+		"db:generate": "node scripts/generate-prisma-clients.mjs",
 		"db:schemas": "node scripts/generate-prisma-schemas.mjs",
 		"db:schemas:check": "node scripts/generate-prisma-schemas.mjs --check",
 		"build": "vite build",

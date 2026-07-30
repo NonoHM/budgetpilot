@@ -1,5 +1,5 @@
 import { prisma } from '$lib/server/db';
-import type { Prisma } from '@prisma/client';
+import type { Prisma } from '../database/types.ts';
 
 const DEFAULT_BATCH_SIZE = 1000;
 

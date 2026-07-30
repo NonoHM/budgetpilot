@@ -29,6 +29,29 @@ jobs:
       tags: ${{ steps.meta.outputs.tags }}
       labels: ${{ steps.meta.outputs.labels }}
     steps:
+      # Every job here checks out `github.ref`, while the version comes from `tag_name` — and
+      # nothing made the two agree. Dispatching this workflow from `main` with
+      # `tag_name: budgetpilot-v0.1.1` built main's HEAD and pushed it as both `:0.1.1` and
+      # `:latest`. The docker-smoke gate does not catch that: it checks out the same ref, so it
+      # faithfully tests main and passes. The gate was working; it was guarding a different
+      # artifact than the tag name advertised.
+      #
+      # On a `release: published` event this passes by construction (github.ref is the tag). For
+      # workflow_dispatch it means selecting the tag as the ref to run on, which is what the
+      # input's description already assumes.
+      - name: Refuse to publish a ref that is not the tag being named
+        env:
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" != tag ]; then
+            echo "Run this from a tag. Got $GITHUB_REF_TYPE \"$GITHUB_REF_NAME\"." >&2
+            exit 1
+          fi
+          if [ "$GITHUB_REF_NAME" != "$TAG_NAME" ]; then
+            echo "Checked-out tag \"$GITHUB_REF_NAME\" does not match tag_name \"$TAG_NAME\"." >&2
+            exit 1
+          fi
+
       - name: Extract version from release tag
         id: version
         env:
@@ -57,13 +80,21 @@ jobs:
             type=raw,value=${{ steps.version.outputs.version }}
             type=raw,value=latest
 
+  # Builds the image and boots it on every provider before a single layer reaches GHCR. It runs
+  # on pull requests too (see ci.yml), but repeating it here is not redundant: this workflow
+  # publishes from a release tag, which is a different commit from whatever last passed CI, and
+  # `workflow_dispatch` can be pointed at a tag nobody re-checked. A published image is the one
+  # artifact users pull without reading anything, so the gate belongs on the publish path itself.
+  smoke:
+    uses: ./.github/workflows/docker-smoke.yml
+
   # One native leg per platform — no QEMU emulation. GitHub's free arm64 hosted
   # runner (ubuntu-24.04-arm) builds bcrypt/better-sqlite3 at native speed
   # instead of emulated. Each leg pushes its own platform image to GHCR by
   # digest only (no tag yet); the merge job below assembles the real tags as a
   # multi-arch manifest list from these digests.
   build:
-    needs: prepare
+    needs: [prepare, smoke]
     strategy:
       fail-fast: false
       matrix:
@@ -183,3 +214,42 @@ jobs:
           echo "Pulled architecture: $arch"
           test "$arch" = "arm64"
           docker manifest inspect "$IMAGE:$VERSION"
+
+      # Reporting linux/arm64 and *running* on linux/arm64 are different claims, and only the
+      # second one matters to someone pulling this tag. The docker-smoke gate above builds and
+      # boots on the runner's own architecture, which is amd64 — so without this step the arm64
+      # half of the published manifest is the one thing never executed anywhere. Native
+      # dependencies (bcrypt, better-sqlite3) are compiled per-platform, so it is also the half
+      # most likely to break.
+      #
+      # SQLite and the image's default DATABASE_URL only: this is an architecture check, not a
+      # provider check. The three secrets are throwaway values for a container that lives about
+      # a minute.
+      - name: Boot the published arm64 image
+        env:
+          IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          docker run -d --name verify-arm64 -p 127.0.0.1:3000:3000 \
+            -e TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1 \
+            -e RATE_LIMIT_HASH_SECRET=publish-check-only-fake-secret \
+            -e BOOTSTRAP_TOKEN=publish-check-only-fake-token \
+            -e ORIGIN=http://127.0.0.1:3000 \
+            "$IMAGE:$VERSION"
+
+          for _ in $(seq 1 90); do
+            if [ "$(docker inspect -f '{{.State.Running}}' verify-arm64)" != "true" ]; then
+              break
+            fi
+            if curl -fs -o /dev/null http://127.0.0.1:3000/login 2>/dev/null; then
+              echo "The published arm64 image booted and served /login."
+              docker rm -f verify-arm64 >/dev/null
+              exit 0
+            fi
+            sleep 1
+          done
+
+          docker logs verify-arm64 || true
+          docker rm -f verify-arm64 >/dev/null 2>&1 || true
+          echo "The published arm64 image never served /login." >&2
+          exit 1

@@ -49,6 +49,11 @@ test-results
 # Paraglide (généré)
 /src/lib/paraglide/
 
+# Prisma clients, one per provider, generated at build time by `npx prisma generate`
+# (see the README kept inside, which is tracked on purpose).
+/src/lib/server/database/generated/*
+!/src/lib/server/database/generated/README.md
+
 # Local credentials
 docs/local/
 keys/

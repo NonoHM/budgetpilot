@@ -67,6 +67,29 @@ to report a vulnerability.
   `+page.server.ts` where it can only be verified indirectly.
 - Before adding a utility, check whether it already exists.
 
+### Database providers
+
+BudgetPilot runs on SQLite (the zero-config default), PostgreSQL or MySQL/MariaDB,
+chosen by two environment variables: `DATABASE_PROVIDER` and `DATABASE_URL`.
+
+`prisma/schema.prisma` is the only hand-authored schema. The PostgreSQL and MySQL
+schemas are derived from it by `schemaGenerator.ts` and committed; each provider
+keeps its own migration history under `prisma/migrations/<provider>/`, because the
+same logical change is different SQL on each engine.
+
+**All three generated clients ship in the same published image**, regardless of
+which provider an operator actually runs. This is a deliberate trade: deployment
+stays one image and two environment variables, at the cost of carrying two clients
+that will never execute. The Rust-free `prisma-client` generator keeps that cost
+small (the query engine is shared, so three clients are a few MB of generated
+TypeScript, not three full engines). Revisit only if image size becomes a real
+operational problem — not on principle.
+
+The clients are generated at **build** time, never at boot. That is what allows
+`node_modules` to stay read-only to the app user in the runtime image; an earlier
+design regenerated on startup and needed write access to code it would then
+execute.
+
 ## Commands
 
 ```bash
@@ -75,7 +98,9 @@ nvm use && npm run dev
 npm run dev:ai          # dev server + ensures Ollama is running
 
 # Validation before any commit
-npx prisma generate && npm run check && npm run test:unit -- --run
+# db:generate, not `npx prisma generate`: the latter builds only the SQLite client, and
+# nothing type-checks until all three exist.
+npm run db:generate && npm run check && npm run test:unit -- --run
 
 # Single test file / watch mode
 npx vitest run path/to/file.spec.ts
@@ -83,7 +108,9 @@ npm run check:watch
 
 # Schema migration (only if schema.prisma changes)
 # db:schemas regenerates the PostgreSQL/MySQL schemas from it; CI fails if they are stale.
-npx prisma migrate dev --name <name> && npx prisma generate && npm run db:schemas
+# db:generate regenerates all three clients — the app imports every provider's client
+# statically, so nothing builds or type-checks until all three exist.
+npx prisma migrate dev --name <name> && npm run db:schemas && npm run db:generate
 
 # End-to-end tests (self-contained, own throwaway DB)
 npm run test:e2e
@@ -92,9 +119,24 @@ npm run test:e2e
 docker compose up -d --build
 docker compose logs -f budgetpilot
 docker compose down   # NEVER -v — that deletes the Docker DB volume
+
+# Builds the image and boots it on SQLite, PostgreSQL and MariaDB. Same script CI runs,
+# so a failure there reproduces here exactly. Needs ~4 GB free; cleans up after itself.
+./scripts/docker-smoke.sh
+
+# Merges and validates every Compose combination the docs document. Run it after touching
+# any docker-compose*.yml, and add the combination to the script if you document a new one.
+./scripts/check-compose-combinations.sh
 ```
 
 - Never run `prisma migrate reset` against a database you care about.
+- `src/lib/server/database/generated/` is build output (one Prisma client per
+  provider) and is gitignored. If a build complains it is missing, run
+  `npm run db:generate` rather than hand-editing anything in it.
+- Import Prisma types from `$lib/server/database/types`, never from
+  `@prisma/client`. That module names the one generated client the types come
+  from; importing the package directly reintroduces a second, unrelated
+  `PrismaClient` type and produces union errors across the codebase.
 - `npm run check` also compiles Paraglide translations — don't skip it to
   save time; generated message types depend on it.
 - The test suite is expected to stay 100% green. A failure means a real

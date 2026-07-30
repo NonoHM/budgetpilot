@@ -74,7 +74,30 @@ export function resolveDatabaseProvider(env: DatabaseEnv): DatabaseProvider {
 }
 
 /**
+ * The one place a raw `DATABASE_URL` becomes the string every other function here may assume.
+ *
+ * Only trimming, and that is the point: it has to happen exactly once, at the boundary, because
+ * the functions below disagreed about it. The scheme check trimmed before matching; both scheme
+ * rewrites are anchored on `^`, so they did not. A `DATABASE_URL` with a leading space — which
+ * survives `.env` parsing, a Compose `environment:` entry and `docker run -e` alike — therefore
+ * passed validation as `mysql://` and then missed the rewrite, handing the MariaDB driver a
+ * string it cannot parse. That is the one error path that interpolates the whole connection
+ * string, so a stray space put the database password in the logs.
+ *
+ * Whitespace-only becomes empty rather than surviving as a truthy string, so it is treated as
+ * unset by every caller that checks.
+ */
+export function normalizeDatabaseUrl(url: string | undefined): string | undefined {
+	const trimmed = url?.trim();
+	return trimmed ? trimmed : undefined;
+}
+
+/**
  * Rejects a `DATABASE_URL` whose scheme belongs to a different engine.
+ *
+ * Expects a URL that has already been through `normalizeDatabaseUrl`. It trims again anyway:
+ * the cost is nothing and the alternative is this function silently depending on a caller
+ * remembering.
  *
  * The failure this prevents is quiet and expensive: pointing a PostgreSQL install at
  * `file:./dev.db` connects to nothing an operator expects, and the app then looks empty rather
@@ -115,6 +138,23 @@ export function toDriverConnectionUrl(provider: DatabaseProvider, url: string): 
 }
 
 /**
+ * Adapts a `DATABASE_URL` to what the Prisma CLI parses, which is the mirror image of the above.
+ *
+ * `resolveDatabaseProvider` accepts `DATABASE_PROVIDER=mariadb`, and an operator who writes that
+ * naturally writes `mariadb://` for the URL to match. The app is fine with it — the driver wants
+ * that scheme anyway. The Prisma CLI is not: `migrate deploy` knows only `mysql://` for the
+ * `mysql` provider and rejects anything else with `P1013`, a message that names neither variable
+ * and offers no way to guess which of the two is wrong.
+ *
+ * So the container booted, ran the app's own validation clean, and then died at the migrate step
+ * on a configuration this module had just declared valid. Accepting a spelling everywhere except
+ * the one place it has to work is not acceptance; normalising it here makes it real.
+ */
+export function toPrismaConnectionUrl(provider: DatabaseProvider, url: string): string {
+	return provider === 'mysql' ? url.replace(/^mariadb:\/\//i, 'mysql://') : url;
+}
+
+/**
  * Path to the Prisma schema for a provider.
  *
  * SQLite reads `prisma/schema.prisma` directly: it is the hand-authored source every other
@@ -125,6 +165,21 @@ export function schemaPathFor(provider: DatabaseProvider): string {
 	return provider === DEFAULT_DATABASE_PROVIDER
 		? 'prisma/schema.prisma'
 		: `prisma/schema.${provider}.prisma`;
+}
+
+/**
+ * Where a provider's generated Prisma client is written, as the schema's `output` sees it.
+ *
+ * Relative to the schema file, because that is what Prisma resolves it against. All three land
+ * in the source tree rather than in `node_modules`: generating into `node_modules` is Prisma's
+ * legacy pattern, and it makes the client something the Dockerfile has to remember to COPY, so
+ * a future refactor that drops a COPY step produces an image whose client is missing at
+ * runtime. In the source tree they ride along with `src/` and no COPY can forget them.
+ *
+ * The directory is build output, never committed. See its README.
+ */
+export function clientOutputPathFor(provider: DatabaseProvider): string {
+	return `../src/lib/server/database/generated/${provider}`;
 }
 
 /**

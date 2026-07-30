@@ -1,6 +1,6 @@
 // Relative, `.ts`-suffixed import: this module is run by plain Node from
 // scripts/generate-prisma-schemas.mjs, with no Vite resolution and no `$lib` alias.
-import type { DatabaseProvider } from './provider.ts';
+import { clientOutputPathFor, type DatabaseProvider } from './provider.ts';
 
 /**
  * Derives the PostgreSQL and MySQL Prisma schemas from the authored SQLite one.
@@ -124,6 +124,32 @@ export function withDatasourceProvider(schema: string, provider: DatabaseProvide
 }
 
 /**
+ * Rewrites the `generator` block's `output` to this provider's client directory.
+ *
+ * Each provider needs its own generated client, and a client embeds the schema it came from,
+ * so three schemas sharing one `output` would overwrite each other and leave exactly one
+ * client on disk. That was the state before this generator handled the block: the image
+ * shipped a SQLite client and regenerated at boot for anything else.
+ *
+ * Derived rather than hand-written for the same reason the datasource block is: a path edited
+ * in one schema and forgotten in another is drift that nothing catches until a provider's
+ * client turns out to be someone else's.
+ */
+export function withGeneratorOutput(schema: string, provider: DatabaseProvider): string {
+	const generator = /generator\s+\w+\s*\{[^}]*\}/.exec(schema);
+	if (!generator) throw new Error('No generator block found in the source schema');
+
+	const rewritten = generator[0].replace(
+		/(output\s*=\s*)"[^"]*"/,
+		(_match, assignment: string) => `${assignment}"${clientOutputPathFor(provider)}"`
+	);
+	if (rewritten === generator[0]) {
+		throw new Error('The generator block in the source schema has no output to rewrite');
+	}
+	return schema.replace(generator[0], rewritten);
+}
+
+/**
  * Appends this provider's native type attribute to every overridden field.
  *
  * Line-oriented on purpose. A field declaration is one line in a formatted Prisma schema, and
@@ -188,8 +214,9 @@ export function generatedHeader(sourcePath: string, provider: DatabaseProvider):
 // Produced from ${sourcePath} by scripts/generate-prisma-schemas.mjs.
 // Edit the source schema and run \`npm run db:schemas\`; CI fails if this file is stale.
 //
-// Differences from the source: the datasource provider below, and the native column types in
-// the generator's NATIVE_TYPE_OVERRIDES table (${differences}).
+// Differences from the source: the datasource provider below, the generated client's output
+// directory, and the native column types in the generator's NATIVE_TYPE_OVERRIDES table
+// (${differences}).
 `;
 }
 
@@ -201,7 +228,7 @@ export function generateSchema(
 	overrides: NativeTypeOverrides = NATIVE_TYPE_OVERRIDES
 ): string {
 	return `${generatedHeader(sourcePath, provider)}\n${withNativeTypes(
-		withDatasourceProvider(source, provider),
+		withGeneratorOutput(withDatasourceProvider(source, provider), provider),
 		provider,
 		overrides
 	)}`;
