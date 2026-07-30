@@ -70,6 +70,37 @@ export interface ImportBucketResult {
 }
 
 /**
+ * Longest bucket name written to `Account.name`, matching the cap the net worth and savings
+ * goal services already apply to their own names.
+ *
+ * A bucket name is not always the app's to choose: on the bank-sync path it is whatever the
+ * bank called the account (`toConnectorAccount`, from the provider's `name` or `product`), and
+ * the connector puts no bound on it. `Account.name` is the one indexed column an outside party
+ * can therefore overflow, and MySQL rejects the write rather than truncating it, so an
+ * uncapped name is a sync that fails on one provider only. Capping here rather than in
+ * `sanitizeImportedText()` keeps the bound on the column that has one: labels and notes are
+ * `@db.Text` and want no cap.
+ *
+ * Leaves room for the ` · xxxxxx` disambiguation suffix appended below (9 characters), and the
+ * column itself is `varchar(255)` on MySQL, so a name from before this cap still restores.
+ */
+const MAX_BUCKET_NAME_LENGTH = 120;
+
+function capBucketName(name: string): string {
+	if (name.length <= MAX_BUCKET_NAME_LENGTH) return name;
+
+	// Cut on characters, not UTF-16 code units: slicing mid-surrogate leaves a lone half that is
+	// not valid UTF-8, which MySQL's utf8mb4 rejects. `Array.from` iterates code points, so an
+	// emoji or any astral character is kept whole or dropped whole.
+	const capped = Array.from(name).slice(0, MAX_BUCKET_NAME_LENGTH).join('').trim();
+
+	// A name that is only whitespace past the cut would trim to nothing, and an empty bucket
+	// name is worse than a long one: it collides with every other empty-named bucket under
+	// (userId, name, source). Keep the untrimmed cut in that case.
+	return capped || Array.from(name).slice(0, MAX_BUCKET_NAME_LENGTH).join('');
+}
+
+/**
  * Resolves (or creates) the technical Account bucket a batch of imported transactions
  * lands on, keyed by the (userId, name, source) unique constraint.
  */
@@ -100,7 +131,7 @@ export async function resolveImportBucketAccount(
 		}
 	}
 
-	let name = input.name;
+	let name = capBucketName(input.name);
 	// Folded match, like categories: a bucket named "Courses" and an import announcing
 	// "courses" are the same bucket, and creating a second one would split the history.
 	//
@@ -120,7 +151,7 @@ export async function resolveImportBucketAccount(
 		if (!input.providerAccountId) return { accountId: existing.id, created: false };
 		// The name is held by a bucket mapped to a DIFFERENT provider account (or none):
 		// disambiguate with an opaque suffix (never the raw uid) instead of merging.
-		name = `${input.name} · ${hashFingerprint(input.providerAccountId).slice(0, 6)}`;
+		name = `${name} · ${hashFingerprint(input.providerAccountId).slice(0, 6)}`;
 	}
 
 	// Upsert (not create) so a concurrent first import of the same bucket cannot throw, wrapped

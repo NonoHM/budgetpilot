@@ -5,7 +5,7 @@ import {
 	BACKFILL_USER_ID,
 	createSession,
 	hashPassword,
-	validateEmail,
+	validateNewEmail,
 	validatePassword
 } from '$lib/server/auth';
 import { isBootstrapTokenValid } from '$lib/server/auth/bootstrapToken';
@@ -80,7 +80,7 @@ export const actions: Actions = {
 		if (!canRegister) return fail(403, { error: m.register_error_unavailable() });
 
 		const formData = await request.formData();
-		const email = validateEmail(getFormValue(formData, 'email'));
+		const email = validateNewEmail(getFormValue(formData, 'email'));
 		const password = getFormValue(formData, 'password');
 		const bootstrapToken = getFormValue(formData, 'bootstrapToken');
 

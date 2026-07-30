@@ -29,8 +29,12 @@ export type NativeTypeOverrides = Record<string, Partial<Record<DatabaseProvider
  * block alone.
  *
  * A column left out of this table is one whose content is bounded well under 191 characters:
- * cuid ids (25), sha256 hex keys (64), bcrypt hashes (60), category and account names, ISO
- * country codes, enum-like discriminators.
+ * cuid ids (25), sha256 hex keys (64), bcrypt hashes (60), category names (capped at 80 on every
+ * write path), ISO country codes, enum-like discriminators.
+ *
+ * Two shapes of override, and the difference matters. `@db.Text` is for columns with no useful
+ * upper bound, and is only ever valid on a column carrying no index. `@db.VarChar(n)` is for
+ * columns with a real bound the app enforces, and is the only form allowed on an indexed column.
  */
 export const NATIVE_TYPE_OVERRIDES: NativeTypeOverrides = {
 	// Free text from a bank statement or from the user. Length has no useful upper bound, and
@@ -53,15 +57,55 @@ export const NATIVE_TYPE_OVERRIDES: NativeTypeOverrides = {
 	'BankConnection.credentialsEncrypted': { mysql: '@db.Text' },
 	'BankAuthorizationRequest.stateEncrypted': { mysql: '@db.Text' },
 	// A sanitized machine summary today, but the one column that quotes a third party.
-	'BankConnection.lastSyncError': { mysql: '@db.Text' }
+	'BankConnection.lastSyncError': { mysql: '@db.Text' },
+	// Bank-supplied, and neither is indexed. `bankOperationType` is Enable Banking's
+	// `bank_transaction_code.description`, a free-text label with no documented bound; the two
+	// `aspspName` columns are the bank's own name as its API reports it.
+	'Transaction.bankOperationType': { mysql: '@db.Text' },
+	'BankConnection.aspspName': { mysql: '@db.Text' },
+	'BankAuthorizationRequest.aspspName': { mysql: '@db.Text' },
+
+	// Fixed-length overrides on indexed columns. These are safe where `@db.Text` is not: a
+	// `varchar(n)` carries a whole-value index, so no prefix truncation and no silently merged
+	// rows. The budget is InnoDB's 3072-byte key limit on the DYNAMIC row format (verified on
+	// the `mariadb:11` image the CI matrix runs), against 4 bytes per utf8mb4 character.
+
+	// RFC 5321 caps an address at 254 characters and `validateEmail()` enforces exactly that, so
+	// varchar(191) made MySQL the only provider that rejected a legal address. 254 x 4 = 1016
+	// bytes, well inside the limit for these single-column unique indexes.
+	'User.email': { mysql: '@db.VarChar(254)' },
+	'Invitation.email': { mysql: '@db.VarChar(254)' },
+	// A bank names its own accounts and the connector does not cap what it returns, so this is
+	// the one indexed column an outside party can overflow. `resolveImportBucketAccount()` now
+	// caps what it writes, and the column is widened as well so that restoring a backup taken
+	// before that cap cannot fail on MySQL alone. `nameKey` is derived from `name`, so it needs
+	// the same room. Widest index over them is `@@unique([userId, name, source])`:
+	// (191 + 255 + 191) x 4 = 2548 bytes.
+	'Account.name': { mysql: '@db.VarChar(255)' },
+	'Account.nameKey': { mysql: '@db.VarChar(255)' }
 
 	// Deliberately absent, do not add without reading this:
 	//
-	// - `User.email` and `Invitation.email` need 254 characters, above MySQL's 191 default.
-	//   Sizing every bounded-but-not-tiny column is its own pass.
-	// - Any column under an `@@index` or `@@unique`. MySQL cannot index `text` without a prefix
-	//   length, and a prefix index silently merges rows differing past it. A test asserts this
-	//   against the real schema, so an override added to an indexed column fails the suite.
+	// - `@db.Text` on any column under an `@@index` or `@@unique`. MySQL cannot index `text`
+	//   without a prefix length, and a prefix index silently merges rows differing past it. A
+	//   test asserts this against the real schema, so a `text` override on an indexed column
+	//   fails the suite. A fixed-length `@db.VarChar(n)` is allowed there instead, subject to
+	//   the byte budget above.
+	// - Every column `server/backup/schema.ts` accepts above 191 characters on restore, which
+	//   `server/backup/import.ts` then writes verbatim. Indexed: `Transaction.manualCategory`
+	//   and `Account.providerAccountId` (500 each), `Account.source` (200, and it sits inside
+	//   `@@unique([userId, name, source])`), `CategorizationRule.targetCategory` and
+	//   `CategoryRule.targetCategory` (200). Unindexed: `ImportBatch.source` and
+	//   `ImportBatch.profile`, `Transaction.source`, `CategoryRule.name`,
+	//   `NetWorthAccount.name`, `SavingsGoal.name`, `MonthlyBudget.categoryName`,
+	//   `CategoryNatureMapping.categoryName`, `BankConnection.provider` (200 each).
+	//
+	//   Nothing in the app writes any of them past 191: names are capped at 80 or 120 on every
+	//   write path, a source and a profile are app-constants, and a provider account uid is
+	//   short. So the only way to reach the gap is a hand-edited backup file, where a restore in
+	//   the 192-200 range fails on MySQL alone. Loud, not silent, and availability only.
+	//   Tightening those bounds to what the app can actually produce is the open follow-up, and
+	//   is the right fix rather than widening a dozen more columns toward the InnoDB key limit.
 };
 
 /** Rewrites the `datasource` block's provider. */
