@@ -27,6 +27,7 @@ const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
  * skipped the failed-attempt record that feeds the rate limiter. No legitimately registered
  * address can contain one, so rejecting them locks nobody out.
  */
+// eslint-disable-next-line no-control-regex -- matching control characters is the point here
 const CONTROL_CHAR_PATTERN = /[\x00-\x1f\x7f]/;
 /** Printable ASCII only, no control characters. See validateNewEmail() for why. */
 const ASCII_ONLY_PATTERN = /^[\x20-\x7e]+$/;
