@@ -100,10 +100,11 @@ merged, moved, or dropped.
 
 **PostgreSQL and MySQL/MariaDB are supported from this version.** Nothing
 changes for you if you do nothing: SQLite stays the default and stays the
-recommended setup. See [the database
-section](configuration.md#database) if you want to move to a server engine,
-and note that moving an existing install means exporting your data and
-importing it into an empty instance. There is no in-place conversion.
+recommended setup. See [using PostgreSQL or MySQL](./database-providers.md)
+if you want to move to a server engine — there are two optional Compose
+overlays that run one for you — and note that moving an existing install
+means exporting your data and importing it into an empty instance. There is
+no in-place conversion.
 
 ### Before you upgrade past 0.2.0
 
@@ -154,9 +155,16 @@ plain HTTP doesn't need it, see
 
 ## Backups
 
-Two options, and they answer different questions.
+Two options, and they answer different questions: a full copy of the
+database, which is what you restore from, and the in-app JSON export, which
+is what you move one account's data with.
 
-### The whole database file
+If you run PostgreSQL or MySQL instead of the default SQLite, the first one
+is a dump rather than a file copy — skip to [PostgreSQL or
+MySQL](#the-whole-database-on-postgresql-or-mysql). Everything else on this
+page is the same on every engine.
+
+### The whole database file (SQLite)
 
 This is the real backup: every user, every setting, every transaction.
 
@@ -179,6 +187,60 @@ docker compose start
 
 Outside Docker, the database is just `dev.db` at the root of the checkout.
 Copy the file.
+
+### The whole database on PostgreSQL or MySQL
+
+There is no file to copy: use the engine's own dump tool, which is the only
+thing that can produce a consistent snapshot while the app keeps running.
+The commands below assume the bundled overlays from [using PostgreSQL or
+MySQL](./database-providers.md), where the server runs as a service next to
+the app. Pointing at a server you run yourself is the same command with your
+own host and credentials.
+
+BudgetPilot ships no backup wrapper on purpose. A wrapper that silently
+produces a corrupt dump is worse than a one-liner you can read.
+
+**PostgreSQL:**
+
+```bash
+docker compose exec -T postgres pg_dump -U budgetpilot -Fc budgetpilot > ~/budgetpilot-backup.dump
+```
+
+Restoring, into a stopped app so nothing writes underneath you:
+
+```bash
+docker compose stop budgetpilot
+docker compose exec -T postgres pg_restore -U budgetpilot -d budgetpilot --clean --if-exists < ~/budgetpilot-backup.dump
+docker compose start budgetpilot
+```
+
+**MySQL/MariaDB:**
+
+```bash
+docker compose exec -T mysql mariadb-dump -u budgetpilot -p --single-transaction budgetpilot > ~/budgetpilot-backup.sql
+```
+
+```bash
+docker compose stop budgetpilot
+docker compose exec -T mysql mariadb -u budgetpilot -p budgetpilot < ~/budgetpilot-backup.sql
+docker compose start budgetpilot
+```
+
+`--single-transaction` is what makes the dump consistent without locking the
+app out of its own tables. `-p` prompts for the password rather than taking
+it on the command line, where it would land in your shell history and in the
+process list; it is the `DATABASE_PASSWORD` from your `.env`.
+
+The `~/` in those paths is deliberate: the dump holds every account's data,
+password hashes and encrypted two-factor secrets, so it does not belong in a
+checkout of a public repository where one `git add -A` publishes it. Treat it
+exactly like the SQLite file — same care, same place, not next to the compose
+file.
+
+Two things this backup does not contain, on any engine: `.env` (see the next
+section — the dump is useless without it) and the volume itself. Restoring
+into a database whose schema is older than the dump is fine; the app runs
+its migrations at the next start.
 
 ### The encryption key
 
@@ -227,7 +289,8 @@ for merging two accounts.
 
 ## Moving to another machine
 
-1. Back up the database file as above.
+1. Back up the database as above — the file on SQLite, a dump on PostgreSQL
+   or MySQL.
 2. Install BudgetPilot on the new machine, following
    [getting started](./getting-started.md), but stop before creating an
    account.
@@ -235,14 +298,17 @@ for merging two accounts.
    different `TOTP_ENCRYPTION_KEY` means every two-factor setup in the
    restored database is unreadable, permanently. See
    [the encryption key](#the-encryption-key).
-4. Restore the database file with the `docker compose cp` command above.
+4. Restore the database with the matching command above (`docker compose cp`
+   on SQLite, `pg_restore` or `mariadb` on a server engine).
 5. Adjust `ORIGIN` if the URL changed.
 
 ## Where your data actually is
 
 |                          | Docker                                               | No Docker                      |
 | ------------------------ | ---------------------------------------------------- | ------------------------------ |
-| Database                 | `budgetpilot_data` volume, mounted at `/data/dev.db` | `./dev.db` in the checkout     |
+| Database (SQLite)        | `budgetpilot_data` volume, mounted at `/data/dev.db` | `./dev.db` in the checkout     |
+| Database (PostgreSQL)    | `postgres_data` volume, or your own server           | your own server                |
+| Database (MySQL)         | `mysql_data` volume, or your own server              | your own server                |
 | Secrets and settings     | `.env` next to your compose file                     | `.env` in the checkout         |
 | Ollama models (if AI on) | `ollama_data` volume                                 | wherever Ollama installed them |
 

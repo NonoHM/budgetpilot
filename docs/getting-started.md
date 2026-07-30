@@ -333,6 +333,8 @@ and random. Use three different values, never the same one twice.
   app from your phone or another machine.
 - [Reverse proxy](./reverse-proxy.md): a real domain with automatic HTTPS,
   via the optional Caddy overlay.
+- [PostgreSQL or MySQL](./database-providers.md): only if you already run a
+  database server. The install above uses SQLite and needs nothing.
 - [Operations](./operations.md): updating, backups, moving to another
   machine.
 - [Local AI advice](./ai-insights.md): the optional Ollama setup.

@@ -28,6 +28,11 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 *.csv
+# Operator database dumps (docs/operations.md tells you to write them to ~/, this is
+# the second layer). Anchored and prefixed rather than a blanket *.sql, which would
+# swallow prisma/migrations/**/migration.sql.
+*.dump
+/budgetpilot-backup.*
 *.7z
 *.zip
 *.xlsx

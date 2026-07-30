@@ -9,6 +9,7 @@ import {
 } from '$lib/server/auth';
 import { assertBootstrapTokenConfigured } from '$lib/server/auth/bootstrapToken';
 import { resolveDatabaseProvider } from '$lib/server/database/provider';
+import { warnIfDatabaseRoleIsOverprivileged } from '$lib/server/database/privileges';
 import { ensureNameKeysBackfilled } from '$lib/server/naming/boot';
 import { ensureDedupeKeyHashesBackfilled } from '$lib/server/import/dedupeBoot';
 // Side-effect imports only: each module throws at load time if its required secret
@@ -25,6 +26,9 @@ import '$lib/server/crypto';
 // still a crash-at-startup rather than a failure on some later request.
 export const init: ServerInit = async () => {
 	await assertBootstrapTokenConfigured();
+	// Reports, never gates: see the module for why an over-privileged role is a loud warning
+	// rather than a refusal to start.
+	await warnIfDatabaseRoleIsOverprivileged();
 	await ensureNameKeysBackfilled();
 	await ensureDedupeKeyHashesBackfilled();
 };

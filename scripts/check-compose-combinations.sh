@@ -24,11 +24,28 @@ set -euo pipefail
 # echoes Compose's stderr, which quotes the offending value on an interpolation error.
 #
 # It does not stop the `env_file: - .env` declared inside the Compose files themselves, which
-# loads .env into each service's environment. That content is never printed: `config -q`
-# suppresses the rendered project, and Compose's validation errors do not quote it.
+# loads .env into each service's environment. `config -q` suppresses the rendered project, so
+# that content never reaches stdout — but it is NOT true that Compose's errors never quote it.
+# Tried, rather than assumed: a line whose *key* is malformed (`FOO$BAR=…`, `"quoted=…`) makes
+# the dotenv parser report `unexpected character "$" in variable name "FOO$BAR=<the value>"`,
+# with the whole line, value included. A contributor with one stray character in a real .env
+# would have printed a secret. Hence redact() below, applied to every Compose error this script
+# echoes.
 export BOOTSTRAP_TOKEN=compose-check-only
 export RATE_LIMIT_HASH_SECRET=compose-check-only
 export TOTP_ENCRYPTION_KEY=compose-check-only
+# The two database overlays declare DATABASE_PASSWORD with `:?`, so an unset value is a hard
+# Compose error rather than a database published with a blank password. That is the behaviour
+# an operator gets, and it means this script has to supply one like any other caller.
+export DATABASE_PASSWORD=compose-check-only
+
+# Everything Compose says goes through this before it is echoed. Two rules: strip credentials
+# out of anything URL-shaped, and keep only the key of any KEY=VALUE the message quotes back.
+# Compose's own diagnostics say what is wrong outside the `=` (line number, offending
+# character, missing variable name), so redacting the right-hand side costs no diagnostic value.
+redact() {
+	sed -E 's#([a-z][a-z0-9+.-]*://)[^@/[:space:]]*@#\1***:***@#gi; s/=[^"[:space:]]*/=<redacted>/g'
+}
 
 # Both base files declare `env_file: - .env`, and Compose refuses to render a project whose
 # env_file is missing — so on a fresh checkout, which is every CI run, all seven combinations
@@ -60,6 +77,13 @@ trap cleanup EXIT INT TERM
 #   + docker-compose.ai.yml                docs/ai-insights.md
 #   + docker-compose.proxy.yml             docs/reverse-proxy.md
 #   + both                                 docs/reverse-proxy.md
+#   + docker-compose.postgres.yml          docs/database-providers.md
+#   + docker-compose.mysql.yml             docs/database-providers.md
+#   + a provider overlay and both others   docs/database-providers.md
+#
+# The two provider overlays are never stacked with each other — both set DATABASE_URL, so the
+# result is one server the app never opens. That combination is documented as forbidden and is
+# deliberately absent below.
 COMBINATIONS=(
 	"docker-compose.yml"
 	"docker-compose.prebuilt.yml"
@@ -68,6 +92,12 @@ COMBINATIONS=(
 	"docker-compose.yml docker-compose.proxy.yml"
 	"docker-compose.prebuilt.yml docker-compose.proxy.yml"
 	"docker-compose.yml docker-compose.ai.yml docker-compose.proxy.yml"
+	"docker-compose.yml docker-compose.postgres.yml"
+	"docker-compose.prebuilt.yml docker-compose.postgres.yml"
+	"docker-compose.yml docker-compose.mysql.yml"
+	"docker-compose.prebuilt.yml docker-compose.mysql.yml"
+	"docker-compose.yml docker-compose.postgres.yml docker-compose.ai.yml docker-compose.proxy.yml"
+	"docker-compose.yml docker-compose.mysql.yml docker-compose.ai.yml docker-compose.proxy.yml"
 )
 
 failed=0
@@ -82,9 +112,129 @@ for combination in "${COMBINATIONS[@]}"; do
 		echo "ok:   $combination"
 	else
 		echo "FAIL: $combination" >&2
-		echo "$output" >&2
+		echo "$output" | redact >&2
 		failed=1
 	fi
+done
+
+# A valid project is not the claim that matters for the database overlays. Two of their
+# properties are load-bearing and both are one careless edit away from being silently lost, with
+# a stack that still merges, still validates and still starts:
+#
+#   - the app is actually pointed at the server the overlay starts. Drop DATABASE_PROVIDER and
+#     the base file's `sqlite` default wins: the database container runs, the app writes to a
+#     file on the volume, and every screen looks fine while the server stays empty.
+#   - the database port is not published. Add a `ports:` entry and the server is reachable from
+#     the whole LAN, with its password the only thing in front of every account's financial data.
+#   - PostgreSQL's app account is not the cluster's bootstrap superuser. The image makes
+#     POSTGRES_USER one, and PostgreSQL will not let that role drop the attribute afterwards,
+#     so the app gets a separate role created by an inline initdb script. Point DATABASE_URL
+#     back at POSTGRES_USER and the stack still merges, still validates, still starts — with an
+#     app holding COPY … TO PROGRAM.
+#
+# Asserted against the *merged* project — the same thing `up` would run — because that is where
+# an overlay ordering or a stray key from another file decides the answer. Only these extracted
+# fields are ever printed; the rendered project carries DATABASE_URL, which is a credential.
+echo
+echo "--- database overlay properties ---"
+
+DATABASE_OVERLAY_CASES=(
+	"docker-compose.postgres.yml|postgres|postgresql"
+	"docker-compose.mysql.yml|mysql|mysql"
+)
+
+for case in "${DATABASE_OVERLAY_CASES[@]}"; do
+	IFS='|' read -r overlay service expected_provider <<<"$case"
+
+	for base in docker-compose.yml docker-compose.prebuilt.yml; do
+		label="$base $overlay"
+
+		# stderr goes nowhere, deliberately: a warning merged into `$project` would corrupt the
+		# JSON, and jq quotes its input back on a parse error — input that is the rendered
+		# project, DATABASE_URL and all. The loop above already renders every one of these
+		# combinations and reports what Compose said, so nothing diagnostic is lost here.
+		if ! project=$(docker compose --env-file /dev/null -f "$base" -f "$overlay" config --format json 2>/dev/null); then
+			echo "FAIL: $label could not be rendered (see the combination above for the reason)" >&2
+			failed=1
+			continue
+		fi
+
+		provider=$(jq -r --arg s budgetpilot '.services[$s].environment.DATABASE_PROVIDER // ""' <<<"$project")
+		if [ "$provider" != "$expected_provider" ]; then
+			echo "FAIL: $label leaves the app on DATABASE_PROVIDER=\"$provider\", expected \"$expected_provider\"" >&2
+			failed=1
+			continue
+		fi
+
+		published=$(jq -r --arg s "$service" '.services[$s].ports // [] | length' <<<"$project")
+		if [ "$published" != 0 ]; then
+			echo "FAIL: $label publishes $published host port(s) on the $service service" >&2
+			failed=1
+			continue
+		fi
+
+		# PostgreSQL only: the app must not connect as the cluster's bootstrap superuser, and the
+		# role it does connect as has to be created by the initdb script — so all three halves
+		# are asserted. Static by nature: this proves the stack is *configured* that way. That
+		# the running server then agrees was proven by querying `rolsuper` on a live container,
+		# which is where every surprise in this design turned up (Compose eats `$` in
+		# `content:`; PostgreSQL will not let the bootstrap superuser give up the attribute).
+		if [ "$expected_provider" = postgresql ]; then
+			bootstrap_role=$(jq -r --arg s "$service" '.services[$s].environment.POSTGRES_USER // ""' <<<"$project")
+			# Only the userinfo's user is extracted, never the password that follows it.
+			app_role=$(jq -r --arg s budgetpilot \
+				'.services[$s].environment.DATABASE_URL // "" | capture("^postgresql://(?<user>[^:@/]+)").user // ""' \
+				<<<"$project")
+			target=$(jq -r --arg s "$service" \
+				'[(.services[$s].configs // [])[] | select(.source == "postgres_least_privilege") | .target][0] // ""' \
+				<<<"$project")
+			content=$(jq -r '.configs.postgres_least_privilege.content // ""' <<<"$project")
+
+			if [ -z "$app_role" ] || [ "$app_role" = "$bootstrap_role" ]; then
+				echo "FAIL: $label connects as \"$app_role\", which is the cluster's bootstrap superuser" >&2
+				failed=1
+				continue
+			fi
+
+			case "$target" in
+			/docker-entrypoint-initdb.d/*) ;;
+			*)
+				echo "FAIL: $label does not mount the least-privilege config into initdb (target: \"$target\")" >&2
+				failed=1
+				continue
+				;;
+			esac
+
+			if [[ "$content" != *"CREATE ROLE $app_role LOGIN"* ]]; then
+				echo "FAIL: $label no longer creates \"$app_role\" as a plain LOGIN role" >&2
+				failed=1
+				continue
+			fi
+
+			# Drop this statement and everything above still passes, while the cluster keeps a
+			# superuser reachable over the Compose network on the same password the app holds.
+			if [[ "$content" != *"ALTER ROLE $bootstrap_role PASSWORD NULL"* ]]; then
+				echo "FAIL: $label leaves \"$bootstrap_role\" with a password the app also knows" >&2
+				failed=1
+				continue
+			fi
+
+			# The password must reach psql through the environment, never through a `$`-prefixed
+			# substitution: Compose interpolates `content:`, so `$APP_DB_PASSWORD` written with
+			# one dollar becomes the empty string and the app role is created with no password.
+			# The role is still created, so every other assertion here would stay green.
+			if [[ "$content" != *'\getenv pw APP_DB_PASSWORD'* ]]; then
+				echo "FAIL: $label no longer reads the app password with psql's \\getenv" >&2
+				failed=1
+				continue
+			fi
+
+			echo "ok:   $label (app on $expected_provider as \"$app_role\", not the bootstrap superuser, $service port unpublished)"
+			continue
+		fi
+
+		echo "ok:   $label (app on $expected_provider, $service port unpublished)"
+	done
 done
 
 exit "$failed"

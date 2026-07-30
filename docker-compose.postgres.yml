@@ -1,0 +1,146 @@
+# Optional PostgreSQL overlay. Combine with either base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
+#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.postgres.yml up -d
+#
+# Runs a PostgreSQL server on the internal Compose network and points the app at it.
+# You do not need this: SQLite is the default and the recommended setup, and this
+# overlay exists for installs that already keep their data in a database server.
+# See docs/database-providers.md before switching — there is no in-place conversion
+# from an existing SQLite install, only export + import.
+#
+# Adding this overlay IS the switch, exactly like the AI overlay: it sets both
+# DATABASE_PROVIDER and DATABASE_URL below, so the stack cannot end up with a
+# PostgreSQL container running while .env still says sqlite and the app quietly
+# reads an empty file on the volume.
+#
+# Never stack this with docker-compose.mysql.yml. Both set DATABASE_URL; the last
+# -f wins, and you would be running one database server the app never opens.
+#
+# DATABASE_PASSWORD comes from .env and has no default on purpose — Compose refuses
+# to start rather than handing you a database whose password is in a public file.
+# Generate one with `openssl rand -hex 32` and keep .env out of version control.
+# Hex rather than base64: the value is spliced into DATABASE_URL below, where
+# base64's "/" ends the host part and "+" can be read as a space. The server would
+# be seeded with the literal password and the app would then fail to authenticate
+# with it, reporting nothing that points at the alphabet.
+services:
+  budgetpilot:
+    depends_on:
+      postgres:
+        # The app runs `prisma migrate deploy` before it serves anything, so it needs
+        # a server that accepts connections, not merely a container that exists.
+        condition: service_healthy
+    environment:
+      DATABASE_PROVIDER: postgresql
+      DATABASE_URL: postgresql://budgetpilot:${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in .env to use the PostgreSQL overlay}@postgres:5432/budgetpilot
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: budgetpilot_postgres
+    environment:
+      # The cluster's bootstrap superuser, which the app is deliberately NOT. The init script
+      # below creates the app's own `budgetpilot` role instead, without that attribute, and
+      # hands it ownership of the database.
+      POSTGRES_USER: postgres
+      POSTGRES_DB: budgetpilot
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in .env to use the PostgreSQL overlay}
+      # Read by that script during initdb. It then stays in this container's environment for
+      # its lifetime and shows up in `docker inspect`, exactly like POSTGRES_PASSWORD above —
+      # no new exposure, but no scoping guarantee either. Same value the app connects with:
+      # one password for one database, which is the whole contract this overlay asks for.
+      APP_DB_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in .env to use the PostgreSQL overlay}
+    # No `ports:` on purpose. The app reaches the server over the Compose network,
+    # and publishing 5432 would expose the database to your whole LAN, with its
+    # password the only thing in front of every account's financial data. If you
+    # genuinely need a host-side client, see the psql section of
+    # docs/database-providers.md, which keeps the port inside the container.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    configs:
+      - source: postgres_least_privilege
+        target: /docker-entrypoint-initdb.d/10-least-privilege.sh
+        mode: 0555
+    healthcheck:
+      # `-h 127.0.0.1`, and that is the load-bearing part. During initdb the entrypoint runs a
+      # temporary server that listens on the Unix socket ONLY, so a socket-based pg_isready
+      # reports ready while the init script below has not run yet — the app would then start,
+      # fail to reach the server over TCP, and restart-loop until initdb happened to finish.
+      # Over TCP the probe is false for exactly that window. `postgres` rather than the app's
+      # role, because the app's role does not exist until that script creates it.
+      test: ['CMD-SHELL', 'pg_isready -h 127.0.0.1 -U postgres -d budgetpilot']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+# Least privilege for the app's own account, and the reasons this file looks the way it does.
+#
+# The image creates POSTGRES_USER as the cluster's *bootstrap* superuser, and PostgreSQL will
+# not let that role give up the attribute — `permission denied to alter role`, DETAIL: `The
+# bootstrap superuser must have the SUPERUSER attribute`. Observed, not deduced: the first
+# version of this overlay named the app's role POSTGRES_USER and tried to drop it afterwards,
+# and initdb refused. So the bootstrap superuser stays `postgres`, and the app gets a separate
+# role that never had the attribute at all.
+#
+# What the app actually needs is ownership of one database, which the script grants: with
+# `budgetpilot` owning `budgetpilot`, `prisma migrate deploy` creates and alters every table it
+# wants. What it loses is `COPY … TO PROGRAM`, i.e. the step from a future foothold in the app
+# to command execution inside this container.
+#
+# `postgres` loses its password in the script's FIRST statement, and the order is deliberate.
+# It starts out holding POSTGRES_PASSWORD, which is DATABASE_PASSWORD, which is the value the
+# app itself carries — a superuser reachable over the Compose network on a password the app
+# knows. initdb has already written PG_VERSION by the time these statements run, so the
+# entrypoint skips this whole directory on every later start: a script that fails halfway
+# leaves a cluster nothing will ever revisit. Nulling the password first makes every partial
+# state a safe one — the worst case becomes an app role that was never created, i.e. an app
+# that cannot connect and says so.
+#
+# Password authentication cannot succeed for a role with no password, so the superuser is
+# unreachable over the network even if the port were published, while the image's pg_hba
+# trusts the local socket: `docker compose exec postgres psql -U postgres` still works for
+# rescue work and for the `pg_upgrade` a future PostgreSQL major will need. Same shape as
+# MariaDB's root, one step further — MariaDB's random root password is printed once in that
+# container's log, this one exists nowhere at all.
+#
+# `content:` keeps the script inside this file. A `volumes:` bind mount of a sibling .sh would
+# fail SILENTLY when that file is absent — Docker creates a directory in its place, and the
+# entrypoint runs only *.sql/*.sh files, so a missing script would mean a superuser app account
+# and a stack that starts perfectly. The prebuilt-image flow is exactly where that happens: the
+# operator curls compose files rather than cloning. An inline config cannot go missing.
+#
+# psql's own `:'pw'` quoting is what puts the password into the statement, never shell
+# interpolation: the value comes from an operator's .env and may contain anything. It is read
+# with `\getenv` rather than passed as `-v pw=…`, which would put the password in the psql
+# process's argv, readable through /proc for as long as that process lives.
+#
+# Compose interpolates `content:` before the container ever sees it, so any `$` a future edit
+# introduces here has to be doubled — the earlier version of this script read
+# `-v pw="$APP_DB_PASSWORD"`, Compose substituted its own empty value, and the app role was
+# created with a blank password. `\getenv` sidesteps the trap by never writing a `$` at all.
+# check-compose-combinations.sh asserts the script's shape; to read what a stack would really
+# get:
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml config --format json |
+#     jq -r '.configs.postgres_least_privilege.content'
+#
+# Needs Compose 2.23 or newer (`docker compose version`), which is when `configs: content:`
+# landed. That is below the 2.24 the proxy overlay already requires for `!reset`.
+#
+# This runs at initdb time, i.e. only when the data volume is created. A volume created before
+# this existed keeps its superuser app role — hooks.server.ts warns loudly at every boot when
+# it finds one, with the statement that fixes it.
+configs:
+  postgres_least_privilege:
+    content: |
+      #!/bin/sh
+      set -e
+      psql -v ON_ERROR_STOP=1 --username postgres --dbname postgres <<'SQL'
+      \getenv pw APP_DB_PASSWORD
+      ALTER ROLE postgres PASSWORD NULL;
+      CREATE ROLE budgetpilot LOGIN PASSWORD :'pw';
+      ALTER DATABASE budgetpilot OWNER TO budgetpilot;
+      SQL
+
+volumes:
+  postgres_data:
