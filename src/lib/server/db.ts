@@ -1,9 +1,6 @@
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
-import prismaClientPkg from '@prisma/client';
+import { createPrismaClient } from './database/client';
 
 type PrismaClient = import('@prisma/client').PrismaClient;
-
-const { PrismaClient } = prismaClientPkg;
 
 const globalForPrisma = globalThis as unknown as {
 	prisma?: PrismaClient;
@@ -15,11 +12,9 @@ if (!process.env.DATABASE_URL && process.env.NODE_ENV === 'production') {
 	throw new Error('DATABASE_URL is required in production (set it in your environment)');
 }
 
-const adapter = new PrismaBetterSqlite3({
-	url: process.env.DATABASE_URL ?? 'file:./dev.db'
-});
-
-export const prisma = globalForPrisma.prisma ?? new PrismaClient({ adapter });
+// Which engine, and how it is reached, lives in database/client.ts — shared with the
+// maintenance scripts so there is one answer to "how does this app connect".
+export const prisma = globalForPrisma.prisma ?? createPrismaClient(process.env);
 
 if (process.env.NODE_ENV !== 'production') {
 	globalForPrisma.prisma = prisma;

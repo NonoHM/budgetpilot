@@ -4,13 +4,10 @@
 // hachage de mot de passe ou du seed des catégories par défaut).
 //
 // Credentials et usage : voir docs/local/dev-credentials.md (non versionné).
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
-import prismaClientPkg from '@prisma/client';
+import { createPrismaClient } from '../src/lib/server/database/client.ts';
 // Imported from the app rather than restated here, so seeded rows carry the same keys the app
 // writes (Node runs the TypeScript source directly, same as scripts/normalize-names.mjs).
 import { computeNameKey } from '../src/lib/server/naming/nameKey.ts';
-
-const { PrismaClient } = prismaClientPkg;
 
 const BASE = process.env.SEED_DEV_BASE_URL ?? 'http://localhost:5173';
 const EMAIL = 'dev@budgetpilot.local';
@@ -59,8 +56,7 @@ try {
 	process.exit(1);
 }
 
-const adapter = new PrismaBetterSqlite3({ url: process.env.DATABASE_URL ?? 'file:./dev.db' });
-const prisma = new PrismaClient({ adapter });
+const prisma = createPrismaClient();
 
 const user = await prisma.user.findUniqueOrThrow({ where: { email: EMAIL } });
 

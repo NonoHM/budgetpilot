@@ -67,6 +67,10 @@ RUN npm ci --omit=dev --no-audit --no-fund
 
 COPY prisma ./prisma
 COPY prisma.config.ts ./prisma.config.ts
+# prisma.config.ts resolves the schema and the migration history from DATABASE_PROVIDER, so it
+# imports this one module. Dependency-free by design, precisely so it can be dropped into a
+# stage that has no application source.
+COPY src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
 
 RUN npx prisma generate
 
@@ -93,6 +97,9 @@ COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
+# Same reason as the prod-deps stage: the CMD below runs `prisma migrate deploy`, which loads
+# prisma.config.ts, which imports this module to pick the provider's migration history.
+COPY --from=builder /app/src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
 COPY package.json package-lock.json ./
 
 USER app

@@ -11,6 +11,8 @@
 		"setup:llm": "node scripts/ensure-ollama.mjs --pull",
 		"seed:dev": "node scripts/seed-dev.mjs",
 		"db:normalize-names": "node scripts/normalize-names.mjs",
+		"db:schemas": "node scripts/generate-prisma-schemas.mjs",
+		"db:schemas:check": "node scripts/generate-prisma-schemas.mjs --check",
 		"build": "vite build",
 		"preview": "vite preview",
 		"prepare": "(svelte-kit sync && npm run paraglide:compile) || echo ''",
@@ -61,6 +63,8 @@
 	},
 	"dependencies": {
 		"@prisma/adapter-better-sqlite3": "^7.9.1",
+		"@prisma/adapter-mariadb": "^7.9.1",
+		"@prisma/adapter-pg": "^7.9.1",
 		"@prisma/client": "^7.9.1",
 		"bcrypt": "^6.0.0",
 		"bits-ui": "^2.18.1",
