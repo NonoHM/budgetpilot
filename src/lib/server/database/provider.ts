@@ -115,6 +115,23 @@ export function toDriverConnectionUrl(provider: DatabaseProvider, url: string): 
 }
 
 /**
+ * Adapts a `DATABASE_URL` to what the Prisma CLI parses, which is the mirror image of the above.
+ *
+ * `resolveDatabaseProvider` accepts `DATABASE_PROVIDER=mariadb`, and an operator who writes that
+ * naturally writes `mariadb://` for the URL to match. The app is fine with it — the driver wants
+ * that scheme anyway. The Prisma CLI is not: `migrate deploy` knows only `mysql://` for the
+ * `mysql` provider and rejects anything else with `P1013`, a message that names neither variable
+ * and offers no way to guess which of the two is wrong.
+ *
+ * So the container booted, ran the app's own validation clean, and then died at the migrate step
+ * on a configuration this module had just declared valid. Accepting a spelling everywhere except
+ * the one place it has to work is not acceptance; normalising it here makes it real.
+ */
+export function toPrismaConnectionUrl(provider: DatabaseProvider, url: string): string {
+	return provider === 'mysql' ? url.replace(/^mariadb:\/\//i, 'mysql://') : url;
+}
+
+/**
  * Path to the Prisma schema for a provider.
  *
  * SQLite reads `prisma/schema.prisma` directly: it is the hand-authored source every other

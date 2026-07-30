@@ -5,7 +5,8 @@ import {
 	DEFAULT_SQLITE_URL,
 	migrationsPathFor,
 	resolveDatabaseProvider,
-	schemaPathFor
+	schemaPathFor,
+	toPrismaConnectionUrl
 } from './src/lib/server/database/provider.ts';
 
 const envPath = '.env';
@@ -32,6 +33,9 @@ export default defineConfig({
 		path: migrationsPathFor(provider)
 	},
 	datasource: {
-		url: process.env.DATABASE_URL ?? DEFAULT_SQLITE_URL
+		// Normalised, not passed through: the CLI accepts only `mysql://` for the `mysql`
+		// provider, while `DATABASE_PROVIDER=mariadb` invites `mariadb://`. See
+		// toPrismaConnectionUrl.
+		url: toPrismaConnectionUrl(provider, process.env.DATABASE_URL ?? DEFAULT_SQLITE_URL)
 	}
 });

@@ -4,7 +4,8 @@ import {
 	migrationsPathFor,
 	resolveDatabaseProvider,
 	schemaPathFor,
-	toDriverConnectionUrl
+	toDriverConnectionUrl,
+	toPrismaConnectionUrl
 } from './provider';
 
 describe('resolveDatabaseProvider', () => {
@@ -130,6 +131,59 @@ describe('toDriverConnectionUrl', () => {
 		expect.assertions(1);
 
 		expect(toDriverConnectionUrl(provider, url)).toBe(url);
+	});
+});
+
+describe('toPrismaConnectionUrl', () => {
+	it('rewrites a mariadb:// URL to the only scheme the Prisma CLI parses', () => {
+		expect.assertions(1);
+
+		// The failure this prevents: `DATABASE_PROVIDER=mariadb` with a matching `mariadb://`
+		// URL passed every check this module makes, then killed the container at
+		// `migrate deploy` with P1013 — an error naming neither variable.
+		expect(toPrismaConnectionUrl('mysql', 'mariadb://user:pass@localhost:3306/budgetpilot')).toBe(
+			'mysql://user:pass@localhost:3306/budgetpilot'
+		);
+	});
+
+	it('changes nothing but the scheme', () => {
+		expect.assertions(1);
+
+		expect(
+			toPrismaConnectionUrl('mysql', 'mariadb://u:p%40ss@db.internal:3306/bp?connectTimeout=5000')
+		).toBe('mysql://u:p%40ss@db.internal:3306/bp?connectTimeout=5000');
+	});
+
+	it('leaves an already-mysql:// URL alone', () => {
+		expect.assertions(1);
+
+		expect(toPrismaConnectionUrl('mysql', 'mysql://user@localhost/bp')).toBe(
+			'mysql://user@localhost/bp'
+		);
+	});
+
+	it.each([
+		['sqlite', 'file:./dev.db'],
+		['postgresql', 'postgresql://user@localhost/bp']
+	] as const)('leaves a %s URL untouched', (provider, url) => {
+		expect.assertions(1);
+
+		expect(toPrismaConnectionUrl(provider, url)).toBe(url);
+	});
+
+	it('inverts toDriverConnectionUrl exactly', () => {
+		expect.assertions(2);
+
+		// The two rewrites are mirror images, and a round trip through both must land back on
+		// the operator's original string. If either drifts, one of the two consumers silently
+		// starts talking to the wrong scheme.
+		const mysqlUrl = 'mysql://u:p@h:3306/bp';
+		const mariadbUrl = 'mariadb://u:p@h:3306/bp';
+
+		expect(toPrismaConnectionUrl('mysql', toDriverConnectionUrl('mysql', mysqlUrl))).toBe(mysqlUrl);
+		expect(toDriverConnectionUrl('mysql', toPrismaConnectionUrl('mysql', mariadbUrl))).toBe(
+			mariadbUrl
+		);
 	});
 });
 
