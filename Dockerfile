@@ -36,7 +36,15 @@ COPY . .
 # runner through the existing `COPY --from=builder /app/build`. Nothing here needs a COPY of its
 # own, which is the point: a client that lived in node_modules could go missing at runtime if a
 # future refactor dropped a COPY step.
-RUN npm run db:generate
+#
+# `svelte-kit sync` first, and it is not optional here. The `prisma-client` generator emits
+# TypeScript and reads tsconfig.json to do it; this repo's tsconfig.json extends
+# ./.svelte-kit/tsconfig.json, which only exists once SvelteKit has synced. Locally and in CI it
+# is already there (npm's `prepare` script runs it during `npm ci`), but this stage installs
+# nothing — it copies node_modules from `deps` — so nothing has created it yet, and
+# `prisma generate` fails with "File './.svelte-kit/tsconfig.json' not found."
+RUN npx svelte-kit sync \
+	&& npm run db:generate
 
 # SvelteKit's postbuild analysis step imports every server module to find prerendering
 # candidates, which runs each module's top-level validation — these throwaway build-time
