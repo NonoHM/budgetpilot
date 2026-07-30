@@ -155,8 +155,7 @@ CREATE TABLE `Category` (
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `Category_userId_idx`(`userId`),
-    INDEX `Category_userId_nameKey_idx`(`userId`, `nameKey`),
-    UNIQUE INDEX `Category_userId_name_key`(`userId`, `name`),
+    UNIQUE INDEX `Category_userId_nameKey_key`(`userId`, `nameKey`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -177,7 +176,7 @@ CREATE TABLE `Transaction` (
     `manualCategory` VARCHAR(191) NULL,
     `manualCategoryKey` VARCHAR(191) NULL,
     `natureManual` ENUM('income', 'spending', 'transfer', 'investment', 'refund', 'fee', 'uncategorized') NULL,
-    `dedupeKey` VARCHAR(191) NULL,
+    `dedupeKey` TEXT NULL,
     `dedupeKeyHash` VARCHAR(191) NULL,
     `metadataJson` TEXT NULL,
     `createdAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
@@ -192,10 +191,9 @@ CREATE TABLE `Transaction` (
     INDEX `Transaction_userId_accountId_date_idx`(`userId`, `accountId`, `date`),
     INDEX `Transaction_userId_manualCategory_idx`(`userId`, `manualCategory`),
     INDEX `Transaction_userId_manualCategoryKey_idx`(`userId`, `manualCategoryKey`),
-    INDEX `Transaction_userId_dedupeKeyHash_idx`(`userId`, `dedupeKeyHash`),
     INDEX `Transaction_userId_categoryId_idx`(`userId`, `categoryId`),
     INDEX `Transaction_userId_natureManual_idx`(`userId`, `natureManual`),
-    UNIQUE INDEX `Transaction_userId_dedupeKey_key`(`userId`, `dedupeKey`),
+    UNIQUE INDEX `Transaction_userId_dedupeKeyHash_key`(`userId`, `dedupeKeyHash`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -269,8 +267,7 @@ CREATE TABLE `MonthlyBudget` (
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `MonthlyBudget_userId_idx`(`userId`),
-    INDEX `MonthlyBudget_userId_categoryNameKey_idx`(`userId`, `categoryNameKey`),
-    UNIQUE INDEX `MonthlyBudget_userId_categoryName_key`(`userId`, `categoryName`),
+    UNIQUE INDEX `MonthlyBudget_userId_categoryNameKey_key`(`userId`, `categoryNameKey`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
@@ -299,9 +296,8 @@ CREATE TABLE `CategoryNatureMapping` (
     `updatedAt` DATETIME(3) NOT NULL,
 
     INDEX `CategoryNatureMapping_userId_idx`(`userId`),
-    INDEX `CategoryNatureMapping_userId_categoryNameKey_idx`(`userId`, `categoryNameKey`),
     INDEX `CategoryNatureMapping_userId_nature_idx`(`userId`, `nature`),
-    UNIQUE INDEX `CategoryNatureMapping_userId_categoryName_key`(`userId`, `categoryName`),
+    UNIQUE INDEX `CategoryNatureMapping_userId_categoryNameKey_key`(`userId`, `categoryNameKey`),
     PRIMARY KEY (`id`)
 ) DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 

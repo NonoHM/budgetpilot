@@ -37,6 +37,11 @@ export const NATIVE_TYPE_OVERRIDES: NativeTypeOverrides = {
 	// none of these is indexed, so `text` costs nothing.
 	'Transaction.label': { mysql: '@db.Text' },
 	'Transaction.notes': { mysql: '@db.Text' },
+	// Unbounded, and safe to widen now that its unique constraint sits on `dedupeKeyHash`
+	// instead. While the constraint was still on the raw key this had to stay varchar(191),
+	// because MySQL cannot unique-index `text` without a prefix length, and a prefix index
+	// merges two transactions differing past it.
+	'Transaction.dedupeKey': { mysql: '@db.Text' },
 	'Transaction.metadataJson': { mysql: '@db.Text' },
 	'ImportBatch.fileName': { mysql: '@db.Text' },
 	// Match patterns, including user-supplied regexes.
@@ -52,13 +57,11 @@ export const NATIVE_TYPE_OVERRIDES: NativeTypeOverrides = {
 
 	// Deliberately absent, do not add without reading this:
 	//
-	// - `Transaction.dedupeKey` is unbounded too, but it sits under `@@unique([userId,
-	//   dedupeKey])`, and MySQL cannot put a unique index on `text` without a prefix length. A
-	//   prefix index would merge two transactions differing past the prefix, which is the silent
-	//   data loss `Transaction.dedupeKeyHash` was added to remove. It becomes `@db.Text` in the
-	//   same change that moves that constraint onto the hash, not before.
 	// - `User.email` and `Invitation.email` need 254 characters, above MySQL's 191 default.
 	//   Sizing every bounded-but-not-tiny column is its own pass.
+	// - Any column under an `@@index` or `@@unique`. MySQL cannot index `text` without a prefix
+	//   length, and a prefix index silently merges rows differing past it. A test asserts this
+	//   against the real schema, so an override added to an indexed column fails the suite.
 };
 
 /** Rewrites the `datasource` block's provider. */

@@ -87,12 +87,30 @@ async function createMissingDefaultCategories(userId: string): Promise<number> {
 		nature
 	}));
 
-	if (categoriesToCreate.length > 0) {
-		await prisma.category.createMany({ data: categoriesToCreate });
+	// Upserted one by one rather than a single `createMany`, because the read above and these
+	// writes are not one atomic step. `ensureDefaultCategoriesSeeded` is protected by its
+	// `defaultsSeededAt` claim, but "Restore default categories" is a plain button: two clicks,
+	// or two tabs, both compute the same missing set and both insert. That raced the unique
+	// constraint into a 500 instead of doing nothing, which is the wrong answer for an action
+	// whose whole contract is idempotence. `createMany({ skipDuplicates })` would say this in
+	// one statement, but SQLite does not support it. Fourteen rows, on an explicit user action.
+	for (const data of categoriesToCreate) {
+		await prisma.category.upsert({
+			where: { userId_nameKey: { userId, nameKey: data.nameKey } },
+			update: {},
+			create: data
+		});
 	}
-	if (mappingsToCreate.length > 0) {
-		await prisma.categoryNatureMapping.createMany({ data: mappingsToCreate });
+	for (const data of mappingsToCreate) {
+		await prisma.categoryNatureMapping.upsert({
+			where: { userId_categoryNameKey: { userId, categoryNameKey: data.categoryNameKey } },
+			update: {},
+			create: data
+		});
 	}
 
+	// What was missing when we looked. A concurrent restore can make this overstate by the rows
+	// it created first: a cosmetic difference in the "N categories restored" message, where the
+	// alternative was failing the request outright.
 	return categoriesToCreate.length;
 }

@@ -335,7 +335,7 @@ describe('écritures dashboard', () => {
 		});
 
 		expect(db.prisma.account.upsert.mock.calls[0][0].where.userId_name_source.userId).toBe(userId);
-		expect(db.prisma.category.upsert.mock.calls[0][0].where.userId_name.userId).toBe(userId);
+		expect(db.prisma.category.upsert.mock.calls[0][0].where.userId_nameKey.userId).toBe(userId);
 		expect(db.prisma.transaction.create.mock.calls[0][0].data).toMatchObject({
 			userId,
 			accountId: 'account-a',
@@ -361,21 +361,20 @@ describe('écritures dashboard', () => {
 	it('scopes every budget write to the calling user', async () => {
 		expect.assertions(3);
 
-		// A budget already exists for this folded name (see beforeEach), so the save takes
-		// the update branch rather than the upsert one.
 		await saveBudget(userId, {
 			category: 'Alimentation',
 			limit: '500'
 		});
 
-		expect(db.prisma.category.findFirst.mock.calls[0][0].where.userId).toBe(userId);
-		expect(db.prisma.monthlyBudget.findFirst.mock.calls[0][0].where).toMatchObject({
-			userId,
-			categoryNameKey: computeNameKey('Alimentation')
+		// One upsert per table, each keyed on the folded name and scoped to the caller's own
+		// userId. No read-then-write: the database decides whether the row already exists, so
+		// two concurrent saves cannot each insert their own.
+		expect(db.prisma.category.upsert.mock.calls[0][0].where.userId_nameKey.userId).toBe(userId);
+		expect(db.prisma.monthlyBudget.upsert.mock.calls[0][0].where).toEqual({
+			userId_categoryNameKey: { userId, categoryNameKey: computeNameKey('Alimentation') }
 		});
-		expect(db.prisma.monthlyBudget.updateMany.mock.calls[0][0].where).toMatchObject({
-			id: 'budget-a',
-			userId
+		expect(db.prisma.monthlyBudget.upsert.mock.calls[0][0].update).toEqual({
+			amountCents: 50_000
 		});
 	});
 

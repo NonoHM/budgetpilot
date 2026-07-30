@@ -270,8 +270,13 @@ export async function readBudgetCategoryOptions(userId: string): Promise<string[
 /**
  * Get-or-create for a budget, matching on the folded category name.
  *
- * Mirrors resolveCategoryByName: a budget saved on "courses" has to land on the row already
- * held by "Courses", because the two are one category for every reader of this table.
+ * Mirrors resolveCategoryByName, including why it is one `upsert` on the key rather than a
+ * read then a write: a budget saved on "courses" has to land on the row already held by
+ * "Courses", because the two are one category for every reader of this table, and two
+ * concurrent saves must not each insert their own row.
+ *
+ * `categoryName` is only written on creation, so an existing budget keeps the spelling it was
+ * created with while its amount is updated.
  */
 async function upsertBudgetByFoldedName(
 	userId: string,
@@ -280,21 +285,9 @@ async function upsertBudgetByFoldedName(
 ): Promise<{ id: string }> {
 	const categoryNameKey = computeNameKey(categoryName);
 
-	const existing = await prisma.monthlyBudget.findFirst({
-		where: { userId, categoryNameKey },
-		select: { id: true }
-	});
-	if (existing) {
-		await prisma.monthlyBudget.updateMany({
-			where: { id: existing.id, userId },
-			data: { amountCents }
-		});
-		return existing;
-	}
-
 	return prisma.monthlyBudget.upsert({
-		where: { userId_categoryName: { userId, categoryName } },
-		update: { amountCents, categoryNameKey },
+		where: { userId_categoryNameKey: { userId, categoryNameKey } },
+		update: { amountCents },
 		create: { userId, categoryName, categoryNameKey, amountCents },
 		select: { id: true }
 	});

@@ -73,6 +73,13 @@ What happens on your data, once, the first time the new version starts:
   snapshot histories has no automatic answer. Existing pairs keep working.
   Only creating or renaming one onto another is refused from now on.
 
+Once the merge has run, the database itself enforces the rule, not just the
+app: two categories, two budgets, or two category natures whose names fold
+together can no longer exist at all. Import buckets and net worth accounts
+are the two exceptions, and stay checked by the app alone, because both have
+a state a database constraint cannot express: the pair of buckets left
+unmerged just above, and a deleted net worth account that keeps its history.
+
 Read exactly what will change on your own data before upgrading:
 
 ```bash

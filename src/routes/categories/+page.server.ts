@@ -69,9 +69,11 @@ export const actions: Actions = {
 		if (name === UNCLASSIFIED_CATEGORY)
 			return fail(400, { error: m.categories_error_reserved_name() });
 
-		// Folded pre-check: the unique constraint still covers the raw name only, so it would
-		// let "courses" through next to an existing "Courses" while every reader downstream
-		// treats them as one category.
+		// Folded pre-check, kept for the message rather than for the guarantee: the unique
+		// constraint on (userId, nameKey) already refuses "courses" next to an existing
+		// "Courses". Asking first turns that into "this category already exists" instead of a
+		// P2002 the user never asked about. The constraint is what makes it true; this is what
+		// makes it readable.
 		const clash = await prisma.category.findFirst({
 			where: { userId: user.id, nameKey: computeNameKey(name) },
 			select: { id: true }

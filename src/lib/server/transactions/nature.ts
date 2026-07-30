@@ -145,28 +145,14 @@ export async function saveCategoryNatureMapping(
 	if (!nature) throw new Error('Invalid nature');
 
 	const categoryNameKey = computeNameKey(categoryName);
-	// Folded lookup first: a mapping already stored under "Courses" is the row a save on
-	// "courses" must update, and the raw-name unique constraint would not catch that.
-	const existing = await prisma.categoryNatureMapping.findFirst({
-		where: { userId, categoryNameKey },
-		select: { id: true }
-	});
-	if (existing) {
-		await prisma.categoryNatureMapping.updateMany({
-			where: { id: existing.id, userId },
-			data: { nature }
-		});
-		return;
-	}
 
+	// One upsert on the folded key, not a read then a write: a mapping already stored under
+	// "Courses" is the row a save on "courses" must update, and two concurrent saves must not
+	// each insert their own row. `categoryName` is only written on creation, so an existing
+	// mapping keeps the spelling it was created with.
 	await prisma.categoryNatureMapping.upsert({
-		where: {
-			userId_categoryName: {
-				userId,
-				categoryName
-			}
-		},
-		update: { nature, categoryNameKey },
+		where: { userId_categoryNameKey: { userId, categoryNameKey } },
+		update: { nature },
 		create: {
 			userId,
 			categoryName,

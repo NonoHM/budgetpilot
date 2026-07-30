@@ -379,10 +379,7 @@ CREATE INDEX "BankAuthorizationRequest_expiresAt_idx" ON "BankAuthorizationReque
 CREATE INDEX "Category_userId_idx" ON "Category"("userId");
 
 -- CreateIndex
-CREATE INDEX "Category_userId_nameKey_idx" ON "Category"("userId", "nameKey");
-
--- CreateIndex
-CREATE UNIQUE INDEX "Category_userId_name_key" ON "Category"("userId", "name");
+CREATE UNIQUE INDEX "Category_userId_nameKey_key" ON "Category"("userId", "nameKey");
 
 -- CreateIndex
 CREATE INDEX "Transaction_userId_idx" ON "Transaction"("userId");
@@ -412,16 +409,13 @@ CREATE INDEX "Transaction_userId_manualCategory_idx" ON "Transaction"("userId", 
 CREATE INDEX "Transaction_userId_manualCategoryKey_idx" ON "Transaction"("userId", "manualCategoryKey");
 
 -- CreateIndex
-CREATE INDEX "Transaction_userId_dedupeKeyHash_idx" ON "Transaction"("userId", "dedupeKeyHash");
-
--- CreateIndex
 CREATE INDEX "Transaction_userId_categoryId_idx" ON "Transaction"("userId", "categoryId");
 
 -- CreateIndex
 CREATE INDEX "Transaction_userId_natureManual_idx" ON "Transaction"("userId", "natureManual");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "Transaction_userId_dedupeKey_key" ON "Transaction"("userId", "dedupeKey");
+CREATE UNIQUE INDEX "Transaction_userId_dedupeKeyHash_key" ON "Transaction"("userId", "dedupeKeyHash");
 
 -- CreateIndex
 CREATE INDEX "ImportBatch_userId_idx" ON "ImportBatch"("userId");
@@ -454,10 +448,7 @@ CREATE INDEX "CategoryRule_userId_targetCategory_idx" ON "CategoryRule"("userId"
 CREATE INDEX "MonthlyBudget_userId_idx" ON "MonthlyBudget"("userId");
 
 -- CreateIndex
-CREATE INDEX "MonthlyBudget_userId_categoryNameKey_idx" ON "MonthlyBudget"("userId", "categoryNameKey");
-
--- CreateIndex
-CREATE UNIQUE INDEX "MonthlyBudget_userId_categoryName_key" ON "MonthlyBudget"("userId", "categoryName");
+CREATE UNIQUE INDEX "MonthlyBudget_userId_categoryNameKey_key" ON "MonthlyBudget"("userId", "categoryNameKey");
 
 -- CreateIndex
 CREATE INDEX "LoginAttempt_emailHash_createdAt_idx" ON "LoginAttempt"("emailHash", "createdAt");
@@ -472,13 +463,10 @@ CREATE INDEX "LoginAttempt_ipHash_kind_createdAt_idx" ON "LoginAttempt"("ipHash"
 CREATE INDEX "CategoryNatureMapping_userId_idx" ON "CategoryNatureMapping"("userId");
 
 -- CreateIndex
-CREATE INDEX "CategoryNatureMapping_userId_categoryNameKey_idx" ON "CategoryNatureMapping"("userId", "categoryNameKey");
-
--- CreateIndex
 CREATE INDEX "CategoryNatureMapping_userId_nature_idx" ON "CategoryNatureMapping"("userId", "nature");
 
 -- CreateIndex
-CREATE UNIQUE INDEX "CategoryNatureMapping_userId_categoryName_key" ON "CategoryNatureMapping"("userId", "categoryName");
+CREATE UNIQUE INDEX "CategoryNatureMapping_userId_categoryNameKey_key" ON "CategoryNatureMapping"("userId", "categoryNameKey");
 
 -- CreateIndex
 CREATE INDEX "NetWorthAccount_userId_idx" ON "NetWorthAccount"("userId");

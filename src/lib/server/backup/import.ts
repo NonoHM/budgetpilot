@@ -316,9 +316,14 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		}
 
 		// c. Guarantee the "to classify" category exists for this user, even if absent from the file.
+		// Keyed on the folded name, like every other category write: a file whose own
+		// "non catégorisé" row differs only in case or accents already occupies this key, and
+		// re-creating it under the raw name would now be refused by the constraint.
 		await tx.category.upsert({
-			where: { userId_name: { userId, name: UNCLASSIFIED_CATEGORY } },
-			update: { nameKey: computeNameKey(UNCLASSIFIED_CATEGORY) },
+			where: {
+				userId_nameKey: { userId, nameKey: computeNameKey(UNCLASSIFIED_CATEGORY) }
+			},
+			update: {},
 			create: {
 				userId,
 				name: UNCLASSIFIED_CATEGORY,

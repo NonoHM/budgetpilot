@@ -49,8 +49,12 @@ const db = vi.hoisted(() => {
 						) ?? null
 				),
 				upsert: vi.fn(async ({ where, create }) => {
+					// Keyed on the folded name, matching the unique constraint the real table now
+					// carries: two spellings of one category resolve to the same row.
 					const existing = categories.find(
-						(cat) => cat.userId === where.userId_name.userId && cat.name === where.userId_name.name
+						(cat) =>
+							cat.userId === where.userId_nameKey.userId &&
+							computeNameKey(cat.name) === where.userId_nameKey.nameKey
 					);
 					if (existing) return existing;
 					const created = { defaultKey: null, ...create };
