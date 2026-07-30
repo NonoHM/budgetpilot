@@ -126,6 +126,11 @@ done
 #     file on the volume, and every screen looks fine while the server stays empty.
 #   - the database port is not published. Add a `ports:` entry and the server is reachable from
 #     the whole LAN, with its password the only thing in front of every account's financial data.
+#   - PostgreSQL's app account is not the cluster's bootstrap superuser. The image makes
+#     POSTGRES_USER one, and PostgreSQL will not let that role drop the attribute afterwards,
+#     so the app gets a separate role created by an inline initdb script. Point DATABASE_URL
+#     back at POSTGRES_USER and the stack still merges, still validates, still starts — with an
+#     app holding COPY … TO PROGRAM.
 #
 # Asserted against the *merged* project — the same thing `up` would run — because that is where
 # an overlay ordering or a stray key from another file decides the answer. Only these extracted
@@ -165,6 +170,66 @@ for case in "${DATABASE_OVERLAY_CASES[@]}"; do
 		if [ "$published" != 0 ]; then
 			echo "FAIL: $label publishes $published host port(s) on the $service service" >&2
 			failed=1
+			continue
+		fi
+
+		# PostgreSQL only: the app must not connect as the cluster's bootstrap superuser, and the
+		# role it does connect as has to be created by the initdb script — so all three halves
+		# are asserted. Static by nature: this proves the stack is *configured* that way. That
+		# the running server then agrees was proven by querying `rolsuper` on a live container,
+		# which is where every surprise in this design turned up (Compose eats `$` in
+		# `content:`; PostgreSQL will not let the bootstrap superuser give up the attribute).
+		if [ "$expected_provider" = postgresql ]; then
+			bootstrap_role=$(jq -r --arg s "$service" '.services[$s].environment.POSTGRES_USER // ""' <<<"$project")
+			# Only the userinfo's user is extracted, never the password that follows it.
+			app_role=$(jq -r --arg s budgetpilot \
+				'.services[$s].environment.DATABASE_URL // "" | capture("^postgresql://(?<user>[^:@/]+)").user // ""' \
+				<<<"$project")
+			target=$(jq -r --arg s "$service" \
+				'[(.services[$s].configs // [])[] | select(.source == "postgres_least_privilege") | .target][0] // ""' \
+				<<<"$project")
+			content=$(jq -r '.configs.postgres_least_privilege.content // ""' <<<"$project")
+
+			if [ -z "$app_role" ] || [ "$app_role" = "$bootstrap_role" ]; then
+				echo "FAIL: $label connects as \"$app_role\", which is the cluster's bootstrap superuser" >&2
+				failed=1
+				continue
+			fi
+
+			case "$target" in
+			/docker-entrypoint-initdb.d/*) ;;
+			*)
+				echo "FAIL: $label does not mount the least-privilege config into initdb (target: \"$target\")" >&2
+				failed=1
+				continue
+				;;
+			esac
+
+			if [[ "$content" != *"CREATE ROLE $app_role LOGIN"* ]]; then
+				echo "FAIL: $label no longer creates \"$app_role\" as a plain LOGIN role" >&2
+				failed=1
+				continue
+			fi
+
+			# Drop this statement and everything above still passes, while the cluster keeps a
+			# superuser reachable over the Compose network on the same password the app holds.
+			if [[ "$content" != *"ALTER ROLE $bootstrap_role PASSWORD NULL"* ]]; then
+				echo "FAIL: $label leaves \"$bootstrap_role\" with a password the app also knows" >&2
+				failed=1
+				continue
+			fi
+
+			# The password must reach psql through the environment, never through a `$`-prefixed
+			# substitution: Compose interpolates `content:`, so `$APP_DB_PASSWORD` written with
+			# one dollar becomes the empty string and the app role is created with no password.
+			# The role is still created, so every other assertion here would stay green.
+			if [[ "$content" != *'\getenv pw APP_DB_PASSWORD'* ]]; then
+				echo "FAIL: $label no longer reads the app password with psql's \\getenv" >&2
+				failed=1
+				continue
+			fi
+
+			echo "ok:   $label (app on $expected_provider as \"$app_role\", not the bootstrap superuser, $service port unpublished)"
 			continue
 		fi
 

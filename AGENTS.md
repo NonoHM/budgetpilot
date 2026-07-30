@@ -91,7 +91,12 @@ one, on the same pattern as the AI and proxy overlays: adding the overlay sets b
 variables, so the stack can never run a database container while the app quietly
 writes to the SQLite file on the volume. They are mutually exclusive, they never
 publish the database port, and their password comes from `DATABASE_PASSWORD` in
-`.env` with no default. See `docs/database-providers.md`.
+`.env` with no default. On both engines the app connects as a role scoped to its own
+database, never an administrative one — PostgreSQL's is created by an inline initdb
+config, since the image's `POSTGRES_USER` is the bootstrap superuser and PostgreSQL
+will not let that role give up the attribute. `hooks.server.ts` warns at every boot if
+it finds itself connected as a PostgreSQL superuser anyway (an operator's own server,
+say). See `docs/database-providers.md`.
 
 The clients are generated at **build** time, never at boot. That is what allows
 `node_modules` to stay read-only to the app user in the runtime image; an earlier

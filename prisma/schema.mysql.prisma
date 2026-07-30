@@ -184,6 +184,20 @@ model Account {
   bankConnection          BankConnection?  @relation(fields: [bankConnectionId], references: [id], onDelete: SetNull)
   transactions            Transaction[]
 
+  // The one uniqueness rule in this schema still read through a collation, and therefore the
+  // one place where MySQL can answer differently from SQLite and PostgreSQL. `utf8mb4_unicode_ci`
+  // folds pairs that `nameKey` deliberately keeps apart — "Strasse"/"Straße", "CO2"/"co₂",
+  // verified against the mariadb:11 image — so on MySQL a second bucket with such a name is
+  // rejected here, and the `userId_name_source` lookup in server/import/persist.ts finds the
+  // first one instead of missing it.
+  //
+  // Not reachable through the app today: every write path resolves the bucket by `nameKey`
+  // first (persist.ts) or de-duplicates by it before inserting (backup/import.ts), and both
+  // treat those pairs as distinct names, so the folded row is never the one being written.
+  // Left as is rather than swapped for a `nameKey` unique, because this table cannot carry
+  // one: the backfill legitimately leaves two buckets sharing a key when their bank or
+  // net-worth links conflict (see `nameKey` above). Closing it means deciding what should
+  // happen to those rows, which is a schema decision of its own and not a rename.
   @@unique([userId, name, source])
   @@index([userId])
   @@index([source])

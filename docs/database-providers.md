@@ -99,21 +99,61 @@ Two things the overlays deliberately do not do:
   server over the Compose network, which is all it needs. See
   [Connecting a client](#connecting-a-client) for the times you need more.
 
-One thing the bundled PostgreSQL is not: least-privilege. The official image
-creates `POSTGRES_USER` as the cluster's superuser, so the account the app
-connects with owns more than its own database. It is a single-purpose
-container with no published port, running an app that issues no raw SQL, so
-the exposure is bounded — but if you already run a server, the section below
-is the better posture, and there you create a plain owner account yourself.
-MariaDB's overlay does not have this property: its `budgetpilot` user is
-scoped to the `budgetpilot` database and nothing else.
-
 They stack with the AI and reverse-proxy overlays in any order:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.postgres.yml \
   -f docker-compose.ai.yml -f docker-compose.proxy.yml up -d --build
 ```
+
+### The app's database account
+
+**The account the app connects with is not a superuser**, on either engine.
+BudgetPilot needs to own one database and nothing else, so that is all it
+gets: the PostgreSQL overlay creates a plain `budgetpilot` login role and
+hands it ownership of the `budgetpilot` database, and MariaDB's `budgetpilot`
+user is scoped to the `budgetpilot` database the same way. There is nothing
+for you to do — it happens the first time the stack creates its volume.
+
+Each engine keeps one administrative account for the maintenance you might
+one day need (a major-version upgrade, a restore), and neither is usable from
+outside its own container:
+
+- PostgreSQL's `postgres` ends up with **no password at all**, which no
+  network login can satisfy. `docker compose exec postgres psql -U postgres`
+  still works, because the server trusts its own local socket.
+- MariaDB's `root` gets a random password and only accepts connections from
+  `localhost`. That password is printed once in the container's log, so strip
+  it before pasting logs anywhere.
+
+Neither is a password you have to store, rotate, or type.
+
+**If the app warns at startup that it has more privilege than it uses**, it
+means this setup did not apply — an operator's own server where the account
+was granted extra rights, or a volume created before this overlay existed.
+The warning names the fix for your case, and there are only three:
+
+- The role already owns its database: `ALTER ROLE "<role>" NOSUPERUSER;`, and
+  revoke any `pg_execute_server_program`, `pg_write_server_files` or
+  `pg_read_server_files` membership. Nothing the app does needs them.
+- The role does not own the database it writes to: give it ownership first
+  (`ALTER DATABASE <database> OWNER TO "<role>";`), then drop the excess. In
+  that order — the extra privilege is what is letting it write today.
+- The role is the cluster's **bootstrap** superuser (the one `initdb`
+  created). PostgreSQL refuses to demote it, so there is nothing to alter:
+  create a separate login role, hand it ownership of the database, and point
+  `DATABASE_URL` at it. On the bundled overlay, a dump into a fresh volume is
+  the shorter path.
+
+Run those as a superuser, over the local socket:
+`docker compose exec postgres psql -U postgres`.
+
+**If the PostgreSQL container fails during its very first start**, remove the
+volume rather than restarting it: `docker compose down -v` and start again.
+The server sets up its account layout once, when the volume is created, and
+never revisits it — a half-finished first start would otherwise be permanent.
+This is safe only then, on a stack with no data yet; `-v` deletes everything
+at any other time.
 
 ## Pointing at a server you already run
 
@@ -132,7 +172,11 @@ DATABASE_URL="mysql://budgetpilot:yourpassword@db.example.lan:3306/budgetpilot"
 
 **Create the database and its user yourself first.** BudgetPilot applies its
 own schema on every start, but it never creates the database, and it does
-not need — or want — an account with permission to.
+not need — or want — an account with permission to. Ownership of that one
+database is the whole requirement: no superuser, no `CREATEDB`, no
+`pg_execute_server_program`. The app says so at startup if it finds itself
+with more, see [the app's database
+account](#the-apps-database-account).
 
 Details of both variables, including the accepted spellings, are in
 [configuration](./configuration.md#database).
