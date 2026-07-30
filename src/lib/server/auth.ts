@@ -17,6 +17,17 @@ const PASSWORD_COST =
 		: MIN_PASSWORD_COST;
 const DEFAULT_SESSION_TTL_DAYS = 30;
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/**
+ * C0 and C7 control characters, rejected on every path including the login lookup.
+ *
+ * EMAIL_PATTERN's `[^\s@]` excludes whitespace but not NUL or the other control characters, so
+ * "a\x00b@example.com" used to reach `prisma.user.findUnique`. PostgreSQL rejects a NUL inside a
+ * text parameter at the protocol level, which turned a would-be "invalid credentials" into an
+ * unhandled 500: an unauthenticated caller could tell the providers apart by it, and the throw
+ * skipped the failed-attempt record that feeds the rate limiter. No legitimately registered
+ * address can contain one, so rejecting them locks nobody out.
+ */
+const CONTROL_CHAR_PATTERN = /[\x00-\x1f\x7f]/;
 /** Printable ASCII only, no control characters. See validateNewEmail() for why. */
 const ASCII_ONLY_PATTERN = /^[\x20-\x7e]+$/;
 
@@ -33,7 +44,8 @@ export function normalizeEmail(value: string): string {
 
 export function validateEmail(value: string): string | null {
 	const email = normalizeEmail(value);
-	if (!email || email.length > 254 || !EMAIL_PATTERN.test(email)) return null;
+	if (!email || email.length > 254 || CONTROL_CHAR_PATTERN.test(email)) return null;
+	if (!EMAIL_PATTERN.test(email)) return null;
 	return email;
 }
 

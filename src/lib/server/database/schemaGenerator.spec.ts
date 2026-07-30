@@ -124,7 +124,15 @@ describe('withNativeTypes', () => {
 });
 
 describe('NATIVE_TYPE_OVERRIDES', () => {
-	/** Every `Model.field` the real schema puts under an `@@index`, `@@unique` or `@@id`. */
+	/**
+	 * Every `Model.field` the real schema indexes, both shapes.
+	 *
+	 * The block attributes (`@@unique`, `@@index`, `@@id`) are the obvious half. The field-level
+	 * `@unique`/`@id` half is the one that matters most and is easiest to miss: `User.email`,
+	 * `Session.tokenHash` and `Invitation.tokenHash` carry their uniqueness inline, so a check
+	 * that only read block attributes would skip exactly the columns most dangerous to widen to
+	 * `text`. A prefix index on `Session.tokenHash` would match a session by prefix.
+	 */
 	function indexedFields(): Set<string> {
 		const fields = new Set<string>();
 		let model: string | null = null;
@@ -132,10 +140,16 @@ describe('NATIVE_TYPE_OVERRIDES', () => {
 			const modelStart = /^model\s+(\w+)\s*\{/.exec(line);
 			if (modelStart) model = modelStart[1];
 			else if (model && line.startsWith('}')) model = null;
+			if (!model) continue;
 
 			const block = /^\s{2}@@(?:unique|index|id)\(\[([^\]]+)\]/.exec(line);
-			if (!model || !block) continue;
-			for (const field of block[1].split(',')) fields.add(`${model}.${field.trim()}`);
+			if (block) {
+				for (const field of block[1].split(',')) fields.add(`${model}.${field.trim()}`);
+				continue;
+			}
+
+			const inline = /^\s{2}(\w+)\s+\S+.*\s@(?:unique|id)\b/.exec(line);
+			if (inline) fields.add(`${model}.${inline[1]}`);
 		}
 		return fields;
 	}
@@ -192,21 +206,36 @@ describe('NATIVE_TYPE_OVERRIDES', () => {
 			if (model && field) stringFields.add(`${model}.${field[1]}`);
 		}
 
+		const keyBytes = (fields: string[]): number =>
+			fields
+				.filter((field) => stringFields.has(field))
+				.reduce((total, field) => total + declaredChars(field) * BYTES_PER_CHAR, 0);
+
 		const oversized: string[] = [];
 		model = null;
 		for (const line of sourceSchema.split('\n')) {
 			const modelStart = /^model\s+(\w+)\s*\{/.exec(line);
 			if (modelStart) model = modelStart[1];
 			else if (model && line.startsWith('}')) model = null;
+			if (!model) continue;
 
+			// Multi-column keys: every String member counts toward the same limit.
 			const block = /^\s{2}@@(unique|index|id)\(\[([^\]]+)\]/.exec(line);
-			if (!model || !block) continue;
+			if (block) {
+				const bytes = keyBytes(block[2].split(',').map((field) => `${model}.${field.trim()}`));
+				if (bytes > INNODB_KEY_LIMIT_BYTES) {
+					oversized.push(`${model}.@@${block[1]}: ${bytes} bytes`);
+				}
+				continue;
+			}
 
-			const fields = block[2].split(',').map((field) => `${model}.${field.trim()}`);
-			const bytes = fields
-				.filter((field) => stringFields.has(field))
-				.reduce((total, field) => total + declaredChars(field) * BYTES_PER_CHAR, 0);
-			if (bytes > INNODB_KEY_LIMIT_BYTES) oversized.push(`${model}.@@${block[1]}: ${bytes} bytes`);
+			// Field-level `@unique`/`@id`, a single-column key. This is where `User.email` lives.
+			const inline = /^\s{2}(\w+)\s+\S+.*\s@(unique|id)\b/.exec(line);
+			if (!inline) continue;
+			const bytes = keyBytes([`${model}.${inline[1]}`]);
+			if (bytes > INNODB_KEY_LIMIT_BYTES) {
+				oversized.push(`${model}.${inline[1]} @${inline[2]}: ${bytes} bytes`);
+			}
 		}
 
 		expect(oversized).toEqual([]);

@@ -54,6 +54,18 @@ if (!process.env.DATABASE_URL) {
 	);
 }
 
+// Requiring DATABASE_URL to be *set* is not the same as requiring it to be throwaway, and the
+// difference is the developer who exports it in their shell for the Prisma CLI and then runs
+// this suite: the guard above passes and the global backfills delete their real rows. Name the
+// one file the app itself defaults to and refuse it outright.
+if (/(^|[/\\])dev\.db(\?|$)/.test(process.env.DATABASE_URL)) {
+	throw new Error(
+		'DATABASE_URL points at dev.db, the default local development database. This suite runs ' +
+			'the global boot backfills, which merge categories across every user and delete rows. ' +
+			'Point it at a throwaway database instead.'
+	);
+}
+
 const provider = resolveDatabaseProvider(process.env);
 
 /** Users are the isolation boundary here, exactly as they are in the app. */

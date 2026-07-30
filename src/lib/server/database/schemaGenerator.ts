@@ -91,11 +91,21 @@ export const NATIVE_TYPE_OVERRIDES: NativeTypeOverrides = {
 	//   test asserts this against the real schema, so a `text` override on an indexed column
 	//   fails the suite. A fixed-length `@db.VarChar(n)` is allowed there instead, subject to
 	//   the byte budget above.
-	// - `Transaction.manualCategory` and `Account.providerAccountId`, both indexed, which
-	//   `server/backup/schema.ts` still accepts up to 500 characters on restore. Nothing in the
-	//   app writes either past 191 (a manual category is a category name, capped at 80; a
-	//   provider account uid is short), so widening them would buy nothing. Tightening the two
-	//   restore bounds is the open follow-up.
+	// - Every column `server/backup/schema.ts` accepts above 191 characters on restore, which
+	//   `server/backup/import.ts` then writes verbatim. Indexed: `Transaction.manualCategory`
+	//   and `Account.providerAccountId` (500 each), `Account.source` (200, and it sits inside
+	//   `@@unique([userId, name, source])`), `CategorizationRule.targetCategory` and
+	//   `CategoryRule.targetCategory` (200). Unindexed: `ImportBatch.source` and
+	//   `ImportBatch.profile`, `Transaction.source`, `CategoryRule.name`,
+	//   `NetWorthAccount.name`, `SavingsGoal.name`, `MonthlyBudget.categoryName`,
+	//   `CategoryNatureMapping.categoryName`, `BankConnection.provider` (200 each).
+	//
+	//   Nothing in the app writes any of them past 191: names are capped at 80 or 120 on every
+	//   write path, a source and a profile are app-constants, and a provider account uid is
+	//   short. So the only way to reach the gap is a hand-edited backup file, where a restore in
+	//   the 192-200 range fails on MySQL alone. Loud, not silent, and availability only.
+	//   Tightening those bounds to what the app can actually produce is the open follow-up, and
+	//   is the right fix rather than widening a dozen more columns toward the InnoDB key limit.
 };
 
 /** Rewrites the `datasource` block's provider. */

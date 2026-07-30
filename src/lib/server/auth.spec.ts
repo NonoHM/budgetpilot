@@ -67,6 +67,17 @@ describe('auth locale', () => {
 		expect(validateEmail(at255)).toBeNull();
 	});
 
+	it('refuse les caractères de contrôle, y compris à la connexion', () => {
+		expect.assertions(3);
+
+		// EMAIL_PATTERN's `[^\s@]` excludes whitespace but not NUL, so these used to reach the
+		// user lookup. PostgreSQL rejects a NUL in a text parameter at the protocol level, which
+		// turned a 400 into a 500 and skipped the failed-attempt record the rate limiter reads.
+		expect(validateEmail('a\x00b@example.com')).toBeNull();
+		expect(validateEmail('a\x1fb@example.com')).toBeNull();
+		expect(validateEmail('a\x7fb@example.com')).toBeNull();
+	});
+
 	it("refuse une adresse non-ASCII à la création d'un compte", () => {
 		expect.assertions(3);
 
