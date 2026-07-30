@@ -179,8 +179,26 @@ DATABASE_PROVIDER=mysql
 DATABASE_URL="mysql://budgetpilot:yourpassword@db:3306/budgetpilot"
 ```
 
+`mysql://` is the canonical form and the one to write, for MariaDB as much
+as for MySQL: they are one engine as far as the app is concerned. A
+`mariadb://` URL is accepted too and normalized internally, so an operator
+who sets `DATABASE_PROVIDER=mariadb` and writes the matching scheme gets a
+working stack rather than a startup error naming neither variable. The two
+schemes are equivalent; the examples here are the documented form.
+
+The scheme and the provider have to agree. `postgresql://` (or `postgres://`)
+goes with `postgresql`, `mysql://` (or `mariadb://`) with `mysql`. A mismatch
+stops the app at startup, because the alternative is connecting to a database
+you didn't mean and finding out later.
+
 Create the database and its user yourself before first boot. BudgetPilot
 applies its own schema on every start, but it never creates the database.
+
+Don't want to run a server yourself? There are two optional Compose overlays
+that start one for you, alongside the app and unpublished to the host:
+[using PostgreSQL or MySQL](./database-providers.md). Adding the overlay sets
+both variables for you, so you leave them out of `.env` entirely — its
+`DATABASE_PASSWORD` is the only value you supply.
 
 Two things to know before you pick a server engine:
 
@@ -202,7 +220,9 @@ network round trip to a server.
 
 Choose PostgreSQL or MySQL when you already run one, when you keep your
 database on separate storage from your application, or when your backup
-tooling is built around a database server.
+tooling is built around a database server. [Using PostgreSQL or
+MySQL](./database-providers.md) walks through both, including what switching
+an existing install actually costs.
 
 ## Optional features
 

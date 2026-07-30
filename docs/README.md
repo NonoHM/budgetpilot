@@ -6,6 +6,9 @@
   the app from another machine.
 - **[Reverse proxy](./reverse-proxy.md)**: optional Caddy overlay for a real
   domain with automatic HTTPS.
+- **[PostgreSQL or MySQL](./database-providers.md)**: optional, for installs
+  that already run a database server. SQLite is the default and needs no
+  setup.
 - **[Running it day to day](./operations.md)**: updating, backups, moving
   machines, uninstalling.
 - **[Local AI advice](./ai-insights.md)**: the optional Ollama setup.

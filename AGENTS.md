@@ -85,6 +85,14 @@ small (the query engine is shared, so three clients are a few MB of generated
 TypeScript, not three full engines). Revisit only if image size becomes a real
 operational problem — not on principle.
 
+Two optional Compose overlays (`docker-compose.postgres.yml`,
+`docker-compose.mysql.yml`) run a server next to the app for operators who want
+one, on the same pattern as the AI and proxy overlays: adding the overlay sets both
+variables, so the stack can never run a database container while the app quietly
+writes to the SQLite file on the volume. They are mutually exclusive, they never
+publish the database port, and their password comes from `DATABASE_PASSWORD` in
+`.env` with no default. See `docs/database-providers.md`.
+
 The clients are generated at **build** time, never at boot. That is what allows
 `node_modules` to stay read-only to the app user in the runtime image; an earlier
 design regenerated on startup and needed write access to code it would then

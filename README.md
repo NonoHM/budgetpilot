@@ -80,6 +80,7 @@ Reaching it from another device on your LAN takes two extra lines in `.env` (`OR
 - **[Getting started](docs/getting-started.md)**: the detailed version of the above, three install paths, and what to do once you're in.
 - **[Configuration](docs/configuration.md)**: every setting, and how to reach the app from your phone or another machine.
 - **[Reverse proxy](docs/reverse-proxy.md)**: optional Caddy overlay for a real domain with automatic HTTPS.
+- **[PostgreSQL or MySQL](docs/database-providers.md)**: optional overlays for installs that already run a database server. SQLite is the default and needs nothing.
 - **[Running it day to day](docs/operations.md)**: updating, backups, moving machines.
 - **[Local AI advice](docs/ai-insights.md)** and **[bank sync](docs/bank-sync.md)**: the two optional features.
 - **[Troubleshooting](docs/troubleshooting.md)**: when something's broken.

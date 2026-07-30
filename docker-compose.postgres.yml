@@ -1,0 +1,69 @@
+# Optional PostgreSQL overlay. Combine with either base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.postgres.yml up -d --build
+#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.postgres.yml up -d
+#
+# Runs a PostgreSQL server on the internal Compose network and points the app at it.
+# You do not need this: SQLite is the default and the recommended setup, and this
+# overlay exists for installs that already keep their data in a database server.
+# See docs/database-providers.md before switching — there is no in-place conversion
+# from an existing SQLite install, only export + import.
+#
+# Adding this overlay IS the switch, exactly like the AI overlay: it sets both
+# DATABASE_PROVIDER and DATABASE_URL below, so the stack cannot end up with a
+# PostgreSQL container running while .env still says sqlite and the app quietly
+# reads an empty file on the volume.
+#
+# Never stack this with docker-compose.mysql.yml. Both set DATABASE_URL; the last
+# -f wins, and you would be running one database server the app never opens.
+#
+# DATABASE_PASSWORD comes from .env and has no default on purpose — Compose refuses
+# to start rather than handing you a database whose password is in a public file.
+# Generate one with `openssl rand -hex 32` and keep .env out of version control.
+# Hex rather than base64: the value is spliced into DATABASE_URL below, where
+# base64's "/" ends the host part and "+" can be read as a space. The server would
+# be seeded with the literal password and the app would then fail to authenticate
+# with it, reporting nothing that points at the alphabet.
+services:
+  budgetpilot:
+    depends_on:
+      postgres:
+        # The app runs `prisma migrate deploy` before it serves anything, so it needs
+        # a server that accepts connections, not merely a container that exists.
+        condition: service_healthy
+    environment:
+      DATABASE_PROVIDER: postgresql
+      DATABASE_URL: postgresql://budgetpilot:${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in .env to use the PostgreSQL overlay}@postgres:5432/budgetpilot
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: budgetpilot_postgres
+    environment:
+      # The image creates POSTGRES_USER as the cluster superuser, so this account owns
+      # more than the app's own database — a known gap, not an oversight. Narrowing it
+      # takes an /docker-entrypoint-initdb.d script, which is one more file an operator
+      # of the prebuilt setup has to fetch alongside the compose files and which fails
+      # silently if it is missing (a bind mount of a missing file becomes a directory,
+      # and the entrypoint skips it). Bounded meanwhile by: no published port, a
+      # single-purpose container, and an app that issues no raw SQL. Operators pointing
+      # at a server they already run create a plain owner account instead — see
+      # docs/database-providers.md. The MariaDB overlay has no equivalent gap.
+      POSTGRES_USER: budgetpilot
+      POSTGRES_DB: budgetpilot
+      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in .env to use the PostgreSQL overlay}
+    # No `ports:` on purpose. The app reaches the server over the Compose network,
+    # and publishing 5432 would expose the database to your whole LAN, with its
+    # password the only thing in front of every account's financial data. If you
+    # genuinely need a host-side client, see the psql section of
+    # docs/database-providers.md, which keeps the port inside the container.
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U budgetpilot -d budgetpilot']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

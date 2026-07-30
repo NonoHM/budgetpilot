@@ -1,0 +1,80 @@
+# Optional MySQL/MariaDB overlay. Combine with either base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d --build
+#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.mysql.yml up -d
+#
+# Runs a MariaDB server on the internal Compose network and points the app at it.
+# You do not need this: SQLite is the default and the recommended setup, and this
+# overlay exists for installs that already keep their data in a database server.
+# See docs/database-providers.md before switching — there is no in-place conversion
+# from an existing SQLite install, only export + import.
+#
+# MariaDB rather than MySQL because it is what CI and scripts/docker-smoke.sh boot
+# the image against on every change. MySQL 8 speaks the same protocol and the same
+# `mysql` Prisma provider, so pointing DATABASE_URL at one works; it is simply not
+# the server this stack is tested with.
+#
+# Adding this overlay IS the switch, exactly like the AI overlay: it sets both
+# DATABASE_PROVIDER and DATABASE_URL below, so the stack cannot end up with a
+# MariaDB container running while .env still says sqlite and the app quietly reads
+# an empty file on the volume.
+#
+# Never stack this with docker-compose.postgres.yml. Both set DATABASE_URL; the last
+# -f wins, and you would be running one database server the app never opens.
+#
+# DATABASE_PASSWORD comes from .env and has no default on purpose — Compose refuses
+# to start rather than handing you a database whose password is in a public file.
+# Generate one with `openssl rand -hex 32` and keep .env out of version control.
+# Hex rather than base64: the value is spliced into DATABASE_URL below, where
+# base64's "/" ends the host part and "+" can be read as a space. The server would
+# be seeded with the literal password and the app would then fail to authenticate
+# with it, reporting nothing that points at the alphabet.
+services:
+  budgetpilot:
+    depends_on:
+      mysql:
+        # The app runs `prisma migrate deploy` before it serves anything, so it needs
+        # a server that accepts connections, not merely a container that exists.
+        condition: service_healthy
+    environment:
+      DATABASE_PROVIDER: mysql
+      # mysql://, not mariadb://, even against MariaDB: both are accepted and
+      # normalised internally, and mysql:// is the documented canonical form.
+      DATABASE_URL: mysql://budgetpilot:${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in .env to use the MySQL overlay}@mysql:3306/budgetpilot
+
+  mysql:
+    image: mariadb:11
+    container_name: budgetpilot_mariadb
+    environment:
+      MARIADB_USER: budgetpilot
+      MARIADB_DATABASE: budgetpilot
+      MARIADB_PASSWORD: ${DATABASE_PASSWORD:?DATABASE_PASSWORD must be set in .env to use the MySQL overlay}
+      # The image insists on a root account existing. Nothing here uses it — the app
+      # connects as `budgetpilot` — so it gets a random password nobody records, and
+      # is reachable only from inside its own container. That password is printed
+      # once in the container's startup logs, which is why root is pinned to
+      # localhost: a pasted log cannot become a login from another container.
+      MARIADB_RANDOM_ROOT_PASSWORD: 'yes'
+      MARIADB_ROOT_HOST: localhost
+    # No `ports:` on purpose. The app reaches the server over the Compose network,
+    # and publishing 3306 would expose the database to your whole LAN, with its
+    # password the only thing in front of every account's financial data. If you
+    # genuinely need a host-side client, see the mariadb section of
+    # docs/database-providers.md, which keeps the port inside the container.
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      # The image's own probe. `--connect` proves the server answers a real
+      # connection and `--innodb_initialized` that the storage engine finished
+      # coming up; a plain TCP check passes several seconds before either is true.
+      test: ['CMD', 'healthcheck.sh', '--connect', '--innodb_initialized']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    restart: unless-stopped
+
+# Character set and collation are not set here, deliberately. Every table is created
+# with an explicit `utf8mb4 / utf8mb4_unicode_ci` by the migration itself, so the
+# server's own defaults never decide how the app compares text — including emails.
+volumes:
+  mysql_data:
