@@ -55,8 +55,11 @@ RUN npx svelte-kit sync \
 # Linters (e.g. Docker Scout) may flag these as "sensitive data in ENV" — false positive
 # for this specific case: they're declared ONLY in this `builder` stage, which the final
 # `runner` stage below never derives FROM (it starts its own `FROM node:...`) and never
-# COPYs anything from except the compiled `build` output, `prisma`, and `prisma.config.ts`
-# — never the builder's image config/layers. Verified empirically via `docker inspect
+# COPYs anything from except the compiled `build` output, `prisma`, `prisma.config.ts` and
+# the dependency-free `provider.ts` — never the builder's image config/layers. The three
+# generated Prisma clients arrive inside `build`, and carry no credential of their own: the
+# datasource block in every schema has no `url` field, so the `inlineSchema` baked into each
+# client holds no connection string. Verified empirically via `docker inspect
 # --format '{{json .Config.Env}}'` and `docker history --no-trunc` on a locally built
 # image: neither value (nor this stage's placeholder DATABASE_URL) appears anywhere in
 # the final `runner` image's env or layer history. Do not "fix" this by moving them to
@@ -113,13 +116,22 @@ RUN apt-get update \
 		openssl \
 	&& rm -rf /var/lib/apt/lists/* \
 	&& groupadd --system app \
-	&& useradd --system --gid app --home /app app \
+	&& useradd --system --gid app --home /home/app --create-home app \
 	&& mkdir -p /data \
-	&& chown -R app:app /app /data
+	&& chown -R app:app /data /home/app
 
-# node_modules is root-owned and stays that way: nothing in this image regenerates code at
-# boot any more, so the app user never needs to write to anything it will later execute. The
-# three provider clients arrive compiled inside ./build below.
+# /app stays root-owned, and the app user's home is deliberately NOT /app.
+#
+# Owning the entries is not enough: unlink and rename are governed by the write bit on the
+# *parent directory*, not by the ownership of what sits inside it. While the app user owned
+# /app it could `mv /app/build /app/build.bak` and put its own there — same for
+# docker-entrypoint.sh and node_modules, root-owned and 555 though they are. That turns any
+# RCE in the app into persistence across a restart, which is the exact property removing the
+# boot-time `prisma generate` was meant to eliminate.
+#
+# /app had to be writable while the entrypoint ran `npx prisma generate` at boot, because npx
+# wants a writable HOME. Nothing regenerates code at boot any more, so nothing needs it, and
+# /data is the only writable thing left in the image.
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/prisma ./prisma
