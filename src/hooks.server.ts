@@ -8,6 +8,7 @@ import {
 	SESSION_COOKIE
 } from '$lib/server/auth';
 import { assertBootstrapTokenConfigured } from '$lib/server/auth/bootstrapToken';
+import { resolveDatabaseProvider } from '$lib/server/database/provider';
 import { ensureNameKeysBackfilled } from '$lib/server/naming/boot';
 import { ensureDedupeKeyHashesBackfilled } from '$lib/server/import/dedupeBoot';
 // Side-effect imports only: each module throws at load time if its required secret
@@ -34,8 +35,12 @@ const PUBLIC_ROUTES = new Set(['/login', '/register', '/login/verify-totp']);
 // PUBLIC_INSTANCE), but this log makes the security state visible on every
 // startup instead of relying on an operator happening to re-read the logs.
 const secureCookies = areSecureCookiesEnabled();
+// The provider is safe to print and worth printing: it is the one thing that decides which
+// generated client and migration history the app just used, and a mismatch between what an
+// operator intended and what actually loaded is otherwise invisible. Never log DATABASE_URL
+// alongside it — that carries the database password, which is why only the provider is here.
 console.log(
-	`[budgetpilot] startup: PUBLIC_INSTANCE=${process.env.PUBLIC_INSTANCE ?? 'unset (defaults to secure)'} cookies-secure=${secureCookies}`
+	`[budgetpilot] startup: PUBLIC_INSTANCE=${process.env.PUBLIC_INSTANCE ?? 'unset (defaults to secure)'} cookies-secure=${secureCookies} database-provider=${resolveDatabaseProvider(process.env)}`
 );
 // The warning fires on the opt-OUT, since that is the only way to reach this state:
 // secure cookies are the default whenever PUBLIC_INSTANCE is anything but "false".

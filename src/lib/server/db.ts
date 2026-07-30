@@ -1,6 +1,6 @@
 import { createPrismaClient } from './database/client';
 
-type PrismaClient = import('@prisma/client').PrismaClient;
+type PrismaClient = ReturnType<typeof createPrismaClient>;
 
 const globalForPrisma = globalThis as unknown as {
 	prisma?: PrismaClient;

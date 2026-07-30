@@ -36,8 +36,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
-        run: npx prisma generate
+      - name: Generate Prisma clients
+        run: npm run db:generate
 
       # prisma/schema.prisma is the authored source; the PostgreSQL and MySQL schemas are
       # derived from it and committed. Regenerating here and comparing catches the one failure
@@ -62,8 +62,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
-        run: npx prisma generate
+      - name: Generate Prisma clients
+        run: npm run db:generate
 
       # npm run check also compiles Paraglide translations (paraglide:compile) internally.
       - name: Type + Svelte check
@@ -86,8 +86,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
-        run: npx prisma generate
+      - name: Generate Prisma clients
+        run: npm run db:generate
 
       # The vitest "client" project (component tests) runs against a real Chromium via
       # @vitest/browser-playwright, and the e2e suite needs it too — installed once here,
@@ -197,11 +197,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Reads the schema for DATABASE_PROVIDER through prisma.config.ts, so this produces a
-      # client for the engine this leg targets. The same step the Docker entrypoint runs when an
-      # operator sets a non-default provider.
-      - name: Generate Prisma client
-        run: npx prisma generate
+      # All three, not just this leg's: the app imports every provider's generated client
+      # statically, so the suite will not load without all three on disk. Which one actually
+      # connects is decided at runtime by DATABASE_PROVIDER above.
+      - name: Generate Prisma clients
+        run: npm run db:generate
 
       # The provider's own migration history, applied to an empty database — the upgrade path an
       # operator on this engine actually takes.

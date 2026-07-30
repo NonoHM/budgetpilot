@@ -128,6 +128,21 @@ export function schemaPathFor(provider: DatabaseProvider): string {
 }
 
 /**
+ * Where a provider's generated Prisma client is written, as the schema's `output` sees it.
+ *
+ * Relative to the schema file, because that is what Prisma resolves it against. All three land
+ * in the source tree rather than in `node_modules`: generating into `node_modules` is Prisma's
+ * legacy pattern, and it makes the client something the Dockerfile has to remember to COPY, so
+ * a future refactor that drops a COPY step produces an image whose client is missing at
+ * runtime. In the source tree they ride along with `src/` and no COPY can forget them.
+ *
+ * The directory is build output, never committed. See its README.
+ */
+export function clientOutputPathFor(provider: DatabaseProvider): string {
+	return `../src/lib/server/database/generated/${provider}`;
+}
+
+/**
  * Path to a provider's migration history.
  *
  * One history per provider, never shared. The same logical change is different SQL on each

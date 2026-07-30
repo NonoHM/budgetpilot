@@ -26,7 +26,7 @@ Worth stating, because it contradicts the assumption the work started from:
   `provider = "sqlite"`.
 - CI's db-matrix passed because it regenerates per matrix job with `DATABASE_PROVIDER` set. That
   proves each client works in isolation. It never proved three coexisting.
-- `client.ts` dispatched *driver adapters* across three providers (real), but the generated client
+- `client.ts` dispatched _driver adapters_ across three providers (real), but the generated client
   was a single static `import prismaClientPkg from '@prisma/client'`. Nothing selected a client.
 
 So bundling all three was not a Docker wiring task awaiting hookup. It was unimplemented, and the
@@ -41,11 +41,11 @@ codegen at boot, so `node_modules` goes fully read-only again.
 
 Each schema's generator writes into the source tree:
 
-| schema                            | output                                             |
-| --------------------------------- | -------------------------------------------------- |
-| `prisma/schema.prisma`            | `../src/lib/server/database/generated/sqlite`       |
-| `prisma/schema.postgresql.prisma` | `../src/lib/server/database/generated/postgresql`   |
-| `prisma/schema.mysql.prisma`      | `../src/lib/server/database/generated/mysql`        |
+| schema                            | output                                            |
+| --------------------------------- | ------------------------------------------------- |
+| `prisma/schema.prisma`            | `../src/lib/server/database/generated/sqlite`     |
+| `prisma/schema.postgresql.prisma` | `../src/lib/server/database/generated/postgresql` |
+| `prisma/schema.mysql.prisma`      | `../src/lib/server/database/generated/mysql`      |
 
 Not `node_modules`. Generating there is Prisma's legacy pattern and carries a documented
 multi-stage-COPY hazard: the generated client goes silently missing at runtime if a future

@@ -22,7 +22,21 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-RUN npx prisma generate
+# One generated client per provider, all three baked into the image. A generated client embeds
+# the schema it came from and refuses a driver adapter that does not match it, so a single client
+# cannot serve three engines, and client.ts picks the right one at runtime from
+# DATABASE_PROVIDER.
+#
+# Generating all three here rather than at boot is what lets node_modules stay read-only to the
+# app user in the runner stage: the alternative this replaced regenerated on startup and needed
+# write access to a directory that then executes.
+#
+# Each client is written into src/lib/server/database/generated/<provider> (the `output` in each
+# schema's generator block), so they are compiled into the build output below and reach the
+# runner through the existing `COPY --from=builder /app/build`. Nothing here needs a COPY of its
+# own, which is the point: a client that lived in node_modules could go missing at runtime if a
+# future refactor dropped a COPY step.
+RUN npm run db:generate
 
 # SvelteKit's postbuild analysis step imports every server module to find prerendering
 # candidates, which runs each module's top-level validation — these throwaway build-time
@@ -72,7 +86,9 @@ COPY prisma.config.ts ./prisma.config.ts
 # stage that has no application source.
 COPY src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
 
-RUN npx prisma generate
+# No `prisma generate` here. The three clients this image runs on are generated in the builder
+# stage and compiled into the build output; this stage exists only for the production
+# dependency tree and for the schemas `prisma migrate deploy` reads at boot.
 
 
 FROM node:24.18.0-trixie-slim AS runner
@@ -93,25 +109,10 @@ RUN apt-get update \
 	&& mkdir -p /data \
 	&& chown -R app:app /app /data
 
+# node_modules is root-owned and stays that way: nothing in this image regenerates code at
+# boot any more, so the app user never needs to write to anything it will later execute. The
+# three provider clients arrive compiled inside ./build below.
 COPY --from=prod-deps /app/node_modules ./node_modules
-# The generated Prisma client is writable by the app user, so the entrypoint can regenerate it
-# when DATABASE_PROVIDER is not sqlite: the client shipped here was generated for the default
-# schema, and Prisma refuses an adapter that does not match it.
-#
-# Be clear about what this grants. `.prisma/client` is not data, it is code that
-# `@prisma/client` requires on every boot, so this is write access to something that then
-# executes. It is scoped to that one directory rather than `--chown` on the whole COPY, and the
-# packages under node_modules stay root-owned.
-#
-# It is not, however, the tightest thing in this image: `chown -R app:app /app` above owns the
-# /app directory itself, and write permission on a directory allows replacing the entries in it
-# whoever owns them. Tightening that is worth doing and is deliberately not bundled into this
-# change, because the boot-time `npx prisma generate` needs a writable HOME (which is /app) and
-# moving it wants an image build to verify.
-#
-# The alternative that avoids the grant entirely, an image built per provider, would break the
-# operator contract this feature exists to keep: two environment variables, nothing else.
-RUN chown -R app:app /app/node_modules/.prisma
 COPY --from=builder /app/build ./build
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/prisma.config.ts ./prisma.config.ts

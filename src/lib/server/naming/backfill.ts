@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../database/types.ts';
 import { computeNameKey, computeNullableNameKey } from './nameKey.ts';
 import {
 	findNetWorthCollisions,

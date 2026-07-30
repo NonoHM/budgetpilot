@@ -3,11 +3,13 @@
 // Produced from prisma/schema.prisma by scripts/generate-prisma-schemas.mjs.
 // Edit the source schema and run `npm run db:schemas`; CI fails if this file is stale.
 //
-// Differences from the source: the datasource provider below, and the native column types in
-// the generator's NATIVE_TYPE_OVERRIDES table (none for PostgreSQL, which maps `String` to `text`).
+// Differences from the source: the datasource provider below, the generated client's output
+// directory, and the native column types in the generator's NATIVE_TYPE_OVERRIDES table
+// (none for PostgreSQL, which maps `String` to `text`).
 
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/lib/server/database/generated/postgresql"
 }
 
 datasource db {

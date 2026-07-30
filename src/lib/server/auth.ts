@@ -3,7 +3,7 @@ import bcrypt from 'bcrypt';
 import { error, redirect, type Cookies } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
-import type { Role } from '@prisma/client';
+import type { Role } from './database/types.ts';
 
 export const SESSION_COOKIE = 'budgetpilot_session';
 export const BACKFILL_USER_ID = 'local-backfill-user';

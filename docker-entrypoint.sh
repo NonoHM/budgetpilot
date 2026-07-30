@@ -1,21 +1,14 @@
 #!/bin/sh
 set -e
 
-# The published image ships a Prisma client generated for SQLite, the zero-config default.
-# That client is provider-specific: it embeds the schema it was generated from, and Prisma
-# refuses a driver adapter that does not match it. An operator running PostgreSQL or MySQL
-# therefore needs a client generated for their schema, and the operator contract is two
-# environment variables and nothing else, so the image has to produce it itself.
+# No code generation at boot. The image carries a generated Prisma client for every supported
+# provider, built into ./build, and the app selects one at runtime from DATABASE_PROVIDER.
+# Earlier versions regenerated here for anything but SQLite, which is why the image had to leave
+# node_modules/.prisma writable by the app user — write access to code that is then executed.
+# Nothing in the runtime image is writable to the app user now except /data.
 #
-# Only when the provider is not the default, so a SQLite install pays nothing and boots exactly
-# as it did before multi-database support existed. `prisma generate` reads the schema for
-# DATABASE_PROVIDER through prisma.config.ts, needs no network, and writes only to
-# node_modules/.prisma (the one directory this image leaves writable to the app user).
-if [ -n "${DATABASE_PROVIDER}" ] && [ "${DATABASE_PROVIDER}" != "sqlite" ]; then
-	echo "DATABASE_PROVIDER=${DATABASE_PROVIDER}: generating the Prisma client for this database"
-	npx prisma generate
-fi
-
+# migrate deploy still runs per boot, and still reads the schema and migration history for
+# DATABASE_PROVIDER through prisma.config.ts. It writes to the database, never to the image.
 npx prisma migrate deploy
 
 exec node build

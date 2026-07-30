@@ -19,3 +19,7 @@ CHANGELOG.md
 # Per-machine, untracked: Prettier would otherwise fail `npm run lint` for any
 # contributor whose Claude Code has written one
 .claude/settings.local.json
+
+# Generated Prisma clients, one per provider (~5 MB of generated TypeScript).
+# Same reason paraglide's output is not formatted: nobody reads or edits it.
+/src/lib/server/database/generated/

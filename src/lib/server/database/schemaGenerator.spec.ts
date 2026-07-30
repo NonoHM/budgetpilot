@@ -7,6 +7,7 @@ import {
 	generatedHeader,
 	NATIVE_TYPE_OVERRIDES,
 	withDatasourceProvider,
+	withGeneratorOutput,
 	withNativeTypes,
 	type NativeTypeOverrides
 } from './schemaGenerator';
@@ -15,7 +16,8 @@ const projectRoot = fileURLToPath(new URL('../../../..', import.meta.url));
 const sourceSchema = readFileSync(resolve(projectRoot, 'prisma/schema.prisma'), 'utf8');
 
 const MINIMAL_SCHEMA = `generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client"
+  output   = "../src/lib/server/database/generated/sqlite"
 }
 
 datasource db {
@@ -48,8 +50,47 @@ describe('withDatasourceProvider', () => {
 		expect.assertions(1);
 
 		// Both blocks carry a `provider =` line. Only the datasource one describes the engine.
-		expect(withDatasourceProvider(MINIMAL_SCHEMA, 'mysql')).toContain(
-			'provider = "prisma-client-js"'
+		expect(withDatasourceProvider(MINIMAL_SCHEMA, 'mysql')).toContain('provider = "prisma-client"');
+	});
+});
+
+describe('withGeneratorOutput', () => {
+	it.each(['postgresql', 'mysql'] as const)('points the client output at %s', (provider) => {
+		expect.assertions(2);
+
+		const result = withGeneratorOutput(MINIMAL_SCHEMA, provider);
+
+		expect(result).toContain(`output   = "../src/lib/server/database/generated/${provider}"`);
+		expect(result).not.toContain('generated/sqlite');
+	});
+
+	it('leaves the datasource block alone', () => {
+		expect.assertions(1);
+
+		// Only the generator block carries an `output =` line today, but the datasource block is
+		// the one this must never touch: rewriting it would repoint the database, not the client.
+		expect(withGeneratorOutput(MINIMAL_SCHEMA, 'mysql')).toContain('provider = "sqlite"');
+	});
+
+	it('refuses a generator block with no output to rewrite', () => {
+		expect.assertions(1);
+
+		// Silently returning the schema unchanged would give this provider SQLite's client
+		// directory, so all three would overwrite each other and the last one generated would
+		// win — exactly the failure three separate outputs exist to prevent.
+		const noOutput = MINIMAL_SCHEMA.replace(
+			'\n  output   = "../src/lib/server/database/generated/sqlite"',
+			''
+		);
+
+		expect(() => withGeneratorOutput(noOutput, 'mysql')).toThrow(/no output to rewrite/);
+	});
+
+	it('refuses a schema with no generator block at all', () => {
+		expect.assertions(1);
+
+		expect(() => withGeneratorOutput('datasource db {\n  provider = "sqlite"\n}', 'mysql')).toThrow(
+			/No generator block/
 		);
 	});
 

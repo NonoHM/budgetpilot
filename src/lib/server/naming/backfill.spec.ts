@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../database/types.ts';
 import { hasPendingNameKeys, runNameKeyBackfill } from './backfill';
 import { computeNameKey } from './nameKey';
 

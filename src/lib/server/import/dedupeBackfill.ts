@@ -1,4 +1,4 @@
-import type { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '../database/types.ts';
 // Relative, `.ts`-suffixed imports, like server/naming/backfill.ts: this module is also
 // imported by plain Node (no Vite, no `$lib` alias) so a backfill can be run and inspected
 // outside the app.
