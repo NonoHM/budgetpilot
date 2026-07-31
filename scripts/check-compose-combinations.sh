@@ -48,8 +48,8 @@ redact() {
 }
 
 # Both base files declare `env_file: - .env`, and Compose refuses to render a project whose
-# env_file is missing — so on a fresh checkout, which is every CI run, all seven combinations
-# fail on a missing file rather than on anything about the combination. A placeholder stands in,
+# env_file is missing — so on a fresh checkout, which is every CI run, every combination below
+# fails on a missing file rather than on anything about the combination. A placeholder stands in,
 # and only ever when there is nothing to overwrite.
 ENV_FILE=.env
 CREATED_ENV_FILE=false
@@ -102,6 +102,7 @@ COMBINATIONS=(
 	"docker-compose.yml docker-compose.proxy.yml"
 	"docker-compose.prebuilt.yml docker-compose.proxy.yml"
 	"docker-compose.yml docker-compose.ai.yml docker-compose.proxy.yml"
+	"docker-compose.prebuilt.yml docker-compose.ai.yml docker-compose.proxy.yml"
 	"docker-compose.yml docker-compose.postgres.yml"
 	"docker-compose.prebuilt.yml docker-compose.postgres.yml"
 	"docker-compose.yml docker-compose.mysql.yml"
