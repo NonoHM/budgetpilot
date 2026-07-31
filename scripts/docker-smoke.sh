@@ -57,6 +57,10 @@ redact() {
 }
 
 CREATED_CONTAINERS=()
+# Image filesystems get extracted here for the host-side assertions, and the dry run below needs
+# a scratch volume. Both are cleaned up on every exit path, including Ctrl-C.
+WORK_DIR=$(mktemp -d)
+DRY_RUN_VOLUME=budgetpilot-smoke-dryrun
 
 cleanup() {
 	local status=$?
@@ -66,10 +70,51 @@ cleanup() {
 		[ -n "$container" ] && docker rm -f "$container" >/dev/null 2>&1 || true
 	done
 	docker network rm "$NETWORK" >/dev/null 2>&1 || true
+	docker volume rm -f "$DRY_RUN_VOLUME" >/dev/null 2>&1 || true
 	docker image rm -f "$IMAGE" "$BUILDER_IMAGE" >/dev/null 2>&1 || true
+	rm -rf "$WORK_DIR"
 	exit "$status"
 }
 trap cleanup EXIT INT TERM
+
+# Copies an image's filesystem onto the host — all of it, or one path out of it — so that the
+# assertions below run here rather than inside the image under test. They then need nothing
+# (no sh, no grep, no coreutils) in that image, which is what makes a distroless image as
+# assertable as a Debian one. `docker export` flattens the final filesystem, which is also the
+# honest artifact: it is what a container actually sees.
+#
+# The whole-filesystem form is used where the claim is about the whole filesystem (the leak
+# scan). Where the claim is about one directory, the third argument copies just that: the
+# builder stage is several gigabytes and writing all of it to disk to read one tree is how a
+# CI runner runs out of space.
+extract_from_image() {
+	local image=$1 dest=$2 path=${3:-}
+	local cid
+	cid=$(docker create "$image")
+
+	if [ -n "$path" ]; then
+		mkdir -p "$(dirname "$dest")"
+		docker cp "$cid:$path" "$dest" >/dev/null
+	else
+		mkdir -p "$dest"
+		docker export "$cid" | tar -x -C "$dest"
+	fi
+	docker rm "$cid" >/dev/null
+
+	# An extraction that quietly produced nothing would make every assertion below pass by
+	# finding nothing — the "scanned nothing, reported success" failure this repo has already
+	# had once, in the awk range that feeds the leak scan.
+	if [ -z "$(ls -A "$dest" 2>/dev/null)" ]; then
+		echo "FAIL: extracting ${path:-the filesystem} from $image produced an empty tree" >&2
+		exit 1
+	fi
+
+	# Everything here is owned by us, so this always succeeds, and it removes the one way a
+	# host-side scan can be weaker than the in-container one it replaces: a file the archive
+	# stored unreadable would otherwise be skipped, and "cannot read it" would be silently
+	# counted as "nothing in it".
+	chmod -R u+rwX "$dest"
+}
 
 run_container() {
 	local name=$1
@@ -111,20 +156,22 @@ docker build -t "$IMAGE" .
 # Coexistence assertions
 # ---------------------------------------------------------------------------------------------
 
+# The final image's whole filesystem, extracted once and read twice: by the bundle assertion
+# just below and by the leak scan further down.
+IMAGE_ROOTFS="$WORK_DIR/image-rootfs"
+BUILDER_ROOTFS="$WORK_DIR/builder-rootfs"
+extract_from_image "$IMAGE" "$IMAGE_ROOTFS"
+# Only the generated tree is needed out of the builder, and the builder is the big stage.
+extract_from_image "$BUILDER_IMAGE" \
+	"$BUILDER_ROOTFS/app/src/lib/server/database/generated" \
+	/app/src/lib/server/database/generated
+
 echo
 echo "=== asserting all three generated clients exist and are distinct ==="
-# Mounted rather than baked in, so the assertions can change without invalidating the build
-# cache, and so the same script runs against both stages.
-assert_in_image() {
-	docker run --rm \
-		-v "$PWD/scripts/assert-generated-clients.sh:/assert.sh:ro" \
-		--entrypoint sh "$1" /assert.sh "$2"
-}
-
-assert_in_image "$BUILDER_IMAGE" dirs
+./scripts/assert-generated-clients.sh dirs "$BUILDER_ROOTFS"
 echo
 echo "=== asserting the shipped bundle carries all three ==="
-assert_in_image "$IMAGE" bundle
+./scripts/assert-generated-clients.sh bundle "$IMAGE_ROOTFS"
 
 # The name-normalization preview, run for real against an empty throwaway database.
 #
@@ -138,14 +185,31 @@ assert_in_image "$IMAGE" bundle
 # relative paths, so adding an import without adding the file to the Dockerfile breaks it again
 # and only this step says so. An empty database is enough: the failure being guarded against is
 # resolution, not the plan.
+#
+# This one stays a real execution in a live container, and deliberately so: it is the only check
+# here whose subject is that the command *runs*. Asserting the file's presence in the extracted
+# rootfs — which is what the two assertions above do, correctly, for their own subject — would
+# be strictly weaker than what it replaces. scripts/normalize-names.mjs was present in the image
+# throughout the two releases in which this command was broken.
+#
+# What changed is only the shell: the migrate step and the dry run are now two runs against the
+# node entrypoint, sharing one throwaway volume, with no `sh -c` and no `npm` between them.
 echo
 echo "=== asserting the documented dry run works in the image ==="
-docker run --rm \
-	-e DATABASE_PROVIDER=sqlite \
-	-e DATABASE_URL=file:/data/smoke.db \
-	--entrypoint sh "$IMAGE" -c \
-	'./node_modules/.bin/prisma migrate deploy >/dev/null && npm run db:normalize-names -- --dry-run' \
+docker volume create "$DRY_RUN_VOLUME" >/dev/null
+dry_run_env=(-e DATABASE_PROVIDER=sqlite -e DATABASE_URL=file:/data/smoke.db)
+# The Prisma CLI at its declared bin entry, not node_modules/.bin/prisma: that shim is a
+# `#!/usr/bin/env node` script, and the image this will soon be has no /usr/bin/env. Same
+# invocation boot.mjs makes.
+docker run --rm -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" \
+	"$IMAGE" node_modules/prisma/build/index.js migrate deploy >/dev/null
+# The published command from docs/operations.md, verbatim after `docker run`. A named volume
+# inherits /data's ownership from the image, so the `app` user can write to it; if that ever
+# stopped being true this run would be the thing that says so.
+docker run --rm -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" \
+	"$IMAGE" scripts/normalize-names.mjs --dry-run \
 	| tail -n 20
+docker volume rm "$DRY_RUN_VOLUME" >/dev/null
 
 # The builder stage's throwaway values do not reach the shipped image.
 #
@@ -202,11 +266,14 @@ for pair in "${BUILD_ONLY_ENV[@]}"; do
 		fi
 	done
 
-	# As root, not as the image's `app` user: /app is deliberately root-owned and the scan
-	# must not mistake "cannot read it" for "nothing in it".
-	if ! docker run --rm --user 0 --entrypoint sh "$IMAGE" -c \
-		'grep -rqF -- "$1" /app 2>/dev/null && exit 1 || exit 0' sh "$value"; then
-		echo "FAIL: builder-stage $name was found in the final image's filesystem under /app." >&2
+	# The filesystem surface, scanned on the host over the *whole* extracted root rather than
+	# in-image over /app. Both halves of that are improvements and neither is cosmetic: the
+	# scan no longer needs a shell in the image under test, and it now covers everything a
+	# container would see — a value written outside /app used to be invisible to it. The
+	# extraction made every file readable by us, so there is no "cannot read it" hole left for
+	# the old `--user 0` to have covered.
+	if grep -rqF -- "$value" "$IMAGE_ROOTFS"; then
+		echo "FAIL: builder-stage $name was found in the final image's filesystem." >&2
 		leaked=1
 	fi
 done
@@ -217,7 +284,7 @@ if [ "$leaked" -ne 0 ]; then
 	exit 1
 fi
 
-echo "  ok: ${#BUILD_ONLY_ENV[@]} builder-stage values, none in the image's env, history or /app"
+echo "  ok: ${#BUILD_ONLY_ENV[@]} builder-stage values, none in the image's env, history or filesystem"
 
 # ---------------------------------------------------------------------------------------------
 # Boot
