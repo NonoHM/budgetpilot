@@ -83,11 +83,17 @@ unmerged just above, and a deleted net worth account that keeps its history.
 Read exactly what will change on your own data before upgrading:
 
 ```bash
-docker compose run --rm budgetpilot npm run db:normalize-names -- --dry-run
+docker compose run --rm budgetpilot scripts/normalize-names.mjs --dry-run
 ```
 
 That prints every merge it would make, by name, and writes nothing. Take a
 backup first either way, see [Backups](#backups).
+
+The container's entrypoint is `node`, so what you append is what node runs.
+Outside Docker — a checkout with `npm install` — the same preview is
+`npm run db:normalize-names -- --dry-run`, and that form stays in
+`package.json`. It is only the _in-container_ form that changed: the image no
+longer ships npm, and soon ships no shell at all.
 
 **One more one-time step runs at the same start**, and this one changes
 nothing you can see. The app computes a fingerprint for each imported

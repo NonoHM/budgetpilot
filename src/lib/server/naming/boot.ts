@@ -21,8 +21,10 @@ import { renderSummaryLine } from './report.ts';
  * half-applied either way: each user's merge runs in its own transaction.
  *
  * Only counts reach the log. The names themselves are the user's financial data and stay
- * out of it; `npm run db:normalize-names -- --dry-run` is where an operator reads the
- * detail, on their own terminal.
+ * out of it; the normalize-names dry run is where an operator reads the detail, on their own
+ * terminal. The warning below names the in-container form first, because that is where most
+ * installs read this line, and the image's entrypoint is `node` — `npm run` does not work
+ * there. See docs/operations.md.
  *
  * The merge runs under a database-level lock on PostgreSQL and MySQL, because two application
  * instances sharing one database would otherwise compute and apply the same plan at the same
@@ -52,7 +54,8 @@ export async function ensureNameKeysBackfilled(): Promise<void> {
 			console.warn(
 				`[name-keys] ${blocked} account group(s) and ${netWorth} net worth account group(s) have ` +
 					'names that now read as duplicates and were left untouched. Run ' +
-					'"npm run db:normalize-names -- --dry-run" to see which ones.'
+					'"docker compose run --rm budgetpilot scripts/normalize-names.mjs --dry-run" ' +
+					'(or "npm run db:normalize-names -- --dry-run" outside Docker) to see which ones.'
 			);
 		}
 	});
