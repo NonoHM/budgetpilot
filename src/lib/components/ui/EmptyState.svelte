@@ -14,6 +14,11 @@
 	// `onCtaClick`/`ctaHref` props (rendered as a Button or a Button-styled
 	// anchor). `action` takes priority when both are supplied.
 	//
+	// `detail` renders an optional block between the description and the
+	// action/CTA — e.g. an "observation counter" listing merchants a
+	// recurrence detector has seen but not yet confirmed. Documented slot
+	// (not a one-off) so other call sites can reuse it the same way.
+	//
 	// `secondaryLabel`/`onSecondaryClick` render a TapLink below the primary
 	// CTA — scoped to the dashboard's double CTA (import + manual entry) per
 	// CLAUDE.md; other call sites should use a single CTA or a custom
@@ -28,6 +33,7 @@
 		iconBgClass = 'bg-zinc-100',
 		title,
 		description,
+		detail,
 		action,
 		ctaLabel,
 		ctaHref,
@@ -41,6 +47,8 @@
 		iconBgClass?: string;
 		title?: string;
 		description?: string;
+		// Optional data block under the description — e.g. observation counters. Documented slot, referential brick 7.
+		detail?: Snippet;
 		action?: Snippet;
 		ctaLabel?: string;
 		ctaHref?: string;
@@ -70,6 +78,11 @@
 	{/if}
 	{#if description}
 		<p class="max-w-xs text-[13px] leading-relaxed text-zinc-500">{description}</p>
+	{/if}
+	{#if detail}
+		<div class="mt-1 w-full max-w-xs">
+			{@render detail()}
+		</div>
 	{/if}
 	{#if action}
 		{@render action()}

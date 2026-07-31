@@ -129,6 +129,38 @@ describe('EmptyState.svelte', () => {
 		expect(page.getByText('Ajouter manuellement').elements().length).toBe(0);
 	});
 
+	it('renders the detail snippet between the description and the CTA, in DOM order', async () => {
+		const detailSnippet = createRawSnippet(() => ({
+			render: () => '<span data-testid="detail-block">3 marchands observés</span>'
+		}));
+		const { container } = render(EmptyState, {
+			title: 'Vide',
+			description: 'Description ici.',
+			detail: detailSnippet,
+			ctaLabel: 'Confirmer'
+		});
+
+		await expect.element(page.getByText('3 marchands observés')).toBeInTheDocument();
+
+		const wrapper = container.querySelector('div')!;
+		const children = Array.from(wrapper.children);
+		const descriptionIndex = children.findIndex((el) => el.tagName === 'P');
+		const detailIndex = children.findIndex((el) =>
+			el.querySelector('[data-testid="detail-block"]')
+		);
+		const ctaIndex = children.findIndex((el) => el.querySelector('button'));
+
+		expect(descriptionIndex).toBeGreaterThanOrEqual(0);
+		expect(detailIndex).toBeGreaterThan(descriptionIndex);
+		expect(ctaIndex).toBeGreaterThan(detailIndex);
+	});
+
+	it('does not render a detail block when none is passed', async () => {
+		const { container } = render(EmptyState, { title: 'Vide', description: 'Rien.' });
+
+		expect(container.querySelector('[data-testid="detail-block"]')).toBeNull();
+	});
+
 	it('renders cleanly with only icon/title/description and no CTA at all', async () => {
 		const { container } = render(EmptyState, {
 			title: 'Rien à afficher',

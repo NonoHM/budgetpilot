@@ -51,4 +51,42 @@ describe('AlertBanner.svelte', () => {
 
 		await expect.poll(() => page.getByText('OK').elements().length).toBe(0);
 	});
+
+	it('renders an action snippet that is clickable and does not replace the close button', async () => {
+		const onUndo = () => {
+			undone = true;
+		};
+		let undone = false;
+		const actionSnippet = createRawSnippet(() => ({
+			render: () => '<button type="button">Annuler</button>',
+			setup: (node) => {
+				node.addEventListener('click', onUndo);
+			}
+		}));
+		render(AlertBanner, {
+			variant: 'warning',
+			children: textSnippet('Careful'),
+			action: actionSnippet
+		});
+
+		await userEvent.click(page.getByRole('button', { name: 'Annuler' }));
+		expect(undone).toBe(true);
+
+		await expect.element(page.getByRole('button', { name: 'Fermer' })).toBeInTheDocument();
+	});
+
+	it('still auto-dismisses a success banner when an action snippet is present', async () => {
+		const actionSnippet = createRawSnippet(() => ({
+			render: () => '<button type="button">Annuler</button>'
+		}));
+		render(AlertBanner, {
+			variant: 'success',
+			autoDismissMs: 20,
+			children: textSnippet('OK'),
+			action: actionSnippet
+		});
+
+		await expect.element(page.getByText('OK')).toBeInTheDocument();
+		await expect.poll(() => page.getByText('OK').elements().length).toBe(0);
+	});
 });
