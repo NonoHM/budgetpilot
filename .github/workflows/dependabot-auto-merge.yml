@@ -32,14 +32,24 @@ jobs:
         # can change what "correctly formatted"/"lint-clean" means across the
         # whole repo (see PR #41), so it always needs manual review even at
         # patch/minor, grouped or not.
+        #
+        # Never auto-merge the github-actions ecosystem at any level: those PRs
+        # edit .github/workflows/* — a change to what runs with the repo's token
+        # (packages: write on the publish path, security-events: write daily).
+        # The SHA pins defend against a moved tag, not against a malicious new
+        # release, and a new release is exactly what Dependabot follows. The
+        # required checks build the app; none of them reviews workflow content,
+        # so a human reads those diffs.
         id: decide
         env:
           UPDATE_TYPE: ${{ steps.metadata.outputs.update-type }}
           GROUP_NAMES: ${{ steps.metadata.outputs.dependency-group-names }}
           DEP_NAMES: ${{ steps.metadata.outputs.dependency-names }}
+          ECOSYSTEM: ${{ steps.metadata.outputs.package-ecosystem }}
         run: |
           qualifies=false
-          if [[ "$UPDATE_TYPE" == "version-update:semver-patch" || "$UPDATE_TYPE" == "version-update:semver-minor" ]]; then
+          if [[ "$ECOSYSTEM" != "github_actions" ]] \
+            && [[ "$UPDATE_TYPE" == "version-update:semver-patch" || "$UPDATE_TYPE" == "version-update:semver-minor" ]]; then
             if [[ "$GROUP_NAMES" != *"npm-lint-tooling"* ]] \
               && ! grep -qiE '(^|,)\s*(eslint|prettier|typescript-eslint|@typescript-eslint/)' <<<"$DEP_NAMES"; then
               qualifies=true
