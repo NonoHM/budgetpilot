@@ -3,6 +3,7 @@ import * as m from '$lib/paraglide/messages';
 import {
 	generateTemporaryPassword,
 	hashPassword,
+	isNonAsciiEmail,
 	requireAdmin,
 	validateNewEmail
 } from '$lib/server/auth';
@@ -129,7 +130,15 @@ export const actions: Actions = {
 		const formData = await request.formData();
 		const rawEmail = getFormValue(formData, 'email');
 		const email = rawEmail ? validateNewEmail(rawEmail) : null;
-		if (rawEmail && !email) return fail(400, { inviteError: m.admin_error_invalid_email() });
+		if (rawEmail && !email) {
+			// Same split as /register: an address rejected only by the ASCII rule is well-formed,
+			// so saying "invalid" would send the admin looking for a typo that is not there.
+			return fail(400, {
+				inviteError: isNonAsciiEmail(rawEmail)
+					? m.admin_error_email_non_ascii()
+					: m.admin_error_invalid_email()
+			});
+		}
 
 		const invitation = await createInvitation(admin.id, email);
 		const inviteUrl = new URL(`/register?invite=${invitation.token}`, request.url).toString();

@@ -98,6 +98,22 @@ and MySQL. You get one log line, `[dedupe-keys] hashing existing
 deduplication keys, this runs once`, and nothing else: no transaction is
 merged, moved, or dropped.
 
+**Account emails have to be ASCII from this version.** The rule applies when
+an account is created or invited, never when one signs in: an account already
+registered with a non-ASCII address keeps working and keeps signing in
+normally. MySQL and MariaDB compare emails without regard to accents, so
+"café@example.com" and "cafe@example.com" would be one account there and two
+on SQLite and PostgreSQL. Requiring ASCII keeps one answer on every engine.
+
+One case needs an action from you: **a pending invitation whose address
+contains non-ASCII characters can no longer be used.** The invitee cannot
+register with it, and no amount of retrying changes that. Open
+**Admin > Invitations**, revoke it, and issue a new one to an ASCII address
+(or to no address at all, which makes the link usable by whoever holds it).
+Invitations you issued to ASCII addresses are unaffected. Someone who hits
+this is told what is wrong on the registration page, so they can tell you
+which invitation to reissue.
+
 **PostgreSQL and MySQL/MariaDB are supported from this version.** Nothing
 changes for you if you do nothing: SQLite stays the default and stays the
 recommended setup. See [using PostgreSQL or MySQL](./database-providers.md)

@@ -26,7 +26,7 @@ describe('createPrismaClient', () => {
 		// The zero-config default: no environment at all still starts against dev.db.
 		createPrismaClient({});
 
-		expect(createDatabaseAdapter).toHaveBeenCalledWith('sqlite', DEFAULT_SQLITE_URL);
+		expect(createDatabaseAdapter).toHaveBeenCalledWith('sqlite', DEFAULT_SQLITE_URL, {});
 	});
 
 	it.each(['postgresql', 'mysql'])('refuses to guess a URL for %s', (provider) => {
@@ -50,7 +50,8 @@ describe('createPrismaClient', () => {
 		// "postgres" resolves to Prisma's own provider name on the way through.
 		expect(createDatabaseAdapter).toHaveBeenCalledWith(
 			'postgresql',
-			'postgresql://user:pass@localhost:5432/budgetpilot'
+			'postgresql://user:pass@localhost:5432/budgetpilot',
+			{}
 		);
 	});
 
@@ -66,7 +67,7 @@ describe('createPrismaClient', () => {
 			DATABASE_URL: '  mysql://u:p@localhost:3306/b\n'
 		});
 
-		expect(createDatabaseAdapter).toHaveBeenCalledWith('mysql', 'mysql://u:p@localhost:3306/b');
+		expect(createDatabaseAdapter).toHaveBeenCalledWith('mysql', 'mysql://u:p@localhost:3306/b', {});
 	});
 
 	it('treats a whitespace-only URL as unset rather than connecting to it', () => {

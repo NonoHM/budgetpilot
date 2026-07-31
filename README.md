@@ -17,8 +17,8 @@ The weakest part right now is honestly CSV import: only a handful of bank profil
 
 **Known limitations:**
 
-- SQLite only for now, Postgres and MariaDB aren't supported.
 - CSV import covers a limited set of bank profiles; unlisted banks need a new parser.
+- Account emails have to be ASCII, on every database engine. See [configuration](docs/configuration.md#database).
 
 ![Dashboard](docs/screenshots/dashboard-desktop.png)
 
@@ -87,7 +87,7 @@ Reaching it from another device on your LAN takes two extra lines in `.env` (`OR
 
 ## Tech stack
 
-SvelteKit, TypeScript, Prisma, SQLite, Tailwind CSS, Vitest, Playwright, Docker.
+SvelteKit, TypeScript, Prisma, SQLite by default (PostgreSQL and MySQL/MariaDB optional), Tailwind CSS, Vitest, Playwright, Docker.
 
 ## Contributing
 

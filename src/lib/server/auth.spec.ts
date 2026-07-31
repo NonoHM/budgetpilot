@@ -20,6 +20,7 @@ const {
 	getSessionCookieOptions,
 	hashPassword,
 	hashSessionToken,
+	isNonAsciiEmail,
 	readSessionUser,
 	requireAdmin,
 	requireUser,
@@ -88,6 +89,21 @@ describe('auth locale', () => {
 		expect(validateNewEmail('café@example.com')).toBeNull();
 		// Still a valid address as far as the shared rules go: only the ASCII rule rejects it.
 		expect(validateEmail('café@example.com')).toBe('café@example.com');
+	});
+
+	it('tells a non-ASCII address apart from a malformed one', () => {
+		expect.assertions(5);
+
+		// Drives which message the two identity-creating routes show. "Invalid email" in front
+		// of an address that looks entirely normal sends the reader hunting for a typo, and it
+		// is what an invitee saw when their invitation predated the ASCII rule.
+		expect(isNonAsciiEmail('café@example.com')).toBe(true);
+		expect(isNonAsciiEmail('спорт@example.com')).toBe(true);
+		// Genuinely malformed, so the generic message is the right one.
+		expect(isNonAsciiEmail('not-an-email')).toBe(false);
+		expect(isNonAsciiEmail('a\x00b@example.com')).toBe(false);
+		// Accepted outright, so no message at all.
+		expect(isNonAsciiEmail('cafe@example.com')).toBe(false);
 	});
 
 	it('laisse une adresse non-ASCII déjà enregistrée se connecter', () => {

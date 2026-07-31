@@ -4,6 +4,11 @@ import { PrismaPg } from '@prisma/adapter-pg';
 import { describe, expect, it, vi } from 'vitest';
 import { createDatabaseAdapter } from './adapter';
 
+vi.mock('@prisma/adapter-pg', async (importOriginal) => {
+	const original = await importOriginal<typeof import('@prisma/adapter-pg')>();
+	return { ...original, PrismaPg: vi.fn(original.PrismaPg) };
+});
+
 vi.mock('@prisma/adapter-mariadb', async (importOriginal) => {
 	const original = await importOriginal<typeof import('@prisma/adapter-mariadb')>();
 	// Spied rather than stubbed: the real constructor still runs (it does not connect), and the
@@ -46,5 +51,24 @@ describe('createDatabaseAdapter', () => {
 		expect(vi.mocked(PrismaMariaDb)).toHaveBeenCalledWith(
 			'mariadb://user:pass@localhost:3306/budgetpilot'
 		);
+	});
+
+	it('pins the pg pool to one never-reaped connection when asked for a single connection', () => {
+		expect.assertions(1);
+
+		// pg's pool defaults are `min: 0` and `idleTimeoutMillis: 10000`, so a connection holding
+		// a session-scoped advisory lock is closed ten seconds after it goes quiet, and
+		// PostgreSQL releases the lock with the session. Reproduced against a real server before
+		// this existed: the lock vanished from pg_locks partway through the backfill.
+		vi.mocked(PrismaPg).mockClear();
+		createDatabaseAdapter('postgresql', 'postgresql://user:pass@localhost:5432/budgetpilot', {
+			singleConnection: true
+		});
+
+		expect(vi.mocked(PrismaPg)).toHaveBeenCalledWith({
+			connectionString: 'postgresql://user:pass@localhost:5432/budgetpilot',
+			max: 1,
+			idleTimeoutMillis: 0
+		});
 	});
 });

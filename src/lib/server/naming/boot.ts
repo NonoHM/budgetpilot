@@ -1,4 +1,5 @@
 import { prisma } from '$lib/server/db';
+import { withBootBackfillLock } from '$lib/server/database/advisoryLock';
 import { hasPendingNameKeys, runNameKeyBackfill } from './backfill.ts';
 import { renderSummaryLine } from './report.ts';
 
@@ -22,21 +23,37 @@ import { renderSummaryLine } from './report.ts';
  * Only counts reach the log. The names themselves are the user's financial data and stay
  * out of it; `npm run db:normalize-names -- --dry-run` is where an operator reads the
  * detail, on their own terminal.
+ *
+ * The merge runs under a database-level lock on PostgreSQL and MySQL, because two application
+ * instances sharing one database would otherwise compute and apply the same plan at the same
+ * time. See server/database/advisoryLock.ts. The cheap check runs twice on purpose: once
+ * outside the lock so an already-migrated database pays nothing at all, and once inside it so
+ * the instance that waited does not redo work the winner just finished.
  */
 export async function ensureNameKeysBackfilled(): Promise<void> {
 	if (!(await hasPendingNameKeys(prisma))) return;
 
-	console.log('[name-keys] backfilling name keys, this runs once');
-	const report = await runNameKeyBackfill({ prisma });
-	console.log(renderSummaryLine(report));
+	await withBootBackfillLock('name-keys', async () => {
+		if (!(await hasPendingNameKeys(prisma))) return;
 
-	const blocked = report.users.reduce((total, user) => total + user.accountMergesBlocked.length, 0);
-	const netWorth = report.users.reduce((total, user) => total + user.netWorthCollisions.length, 0);
-	if (blocked > 0 || netWorth > 0) {
-		console.warn(
-			`[name-keys] ${blocked} account group(s) and ${netWorth} net worth account group(s) have ` +
-				'names that now read as duplicates and were left untouched. Run ' +
-				'"npm run db:normalize-names -- --dry-run" to see which ones.'
+		console.log('[name-keys] backfilling name keys, this runs once');
+		const report = await runNameKeyBackfill({ prisma });
+		console.log(renderSummaryLine(report));
+
+		const blocked = report.users.reduce(
+			(total, user) => total + user.accountMergesBlocked.length,
+			0
 		);
-	}
+		const netWorth = report.users.reduce(
+			(total, user) => total + user.netWorthCollisions.length,
+			0
+		);
+		if (blocked > 0 || netWorth > 0) {
+			console.warn(
+				`[name-keys] ${blocked} account group(s) and ${netWorth} net worth account group(s) have ` +
+					'names that now read as duplicates and were left untouched. Run ' +
+					'"npm run db:normalize-names -- --dry-run" to see which ones.'
+			);
+		}
+	});
 }
