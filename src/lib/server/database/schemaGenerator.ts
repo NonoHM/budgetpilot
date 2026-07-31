@@ -64,6 +64,12 @@ export const NATIVE_TYPE_OVERRIDES: NativeTypeOverrides = {
 	'Transaction.bankOperationType': { mysql: '@db.Text' },
 	'BankConnection.aspspName': { mysql: '@db.Text' },
 	'BankAuthorizationRequest.aspspName': { mysql: '@db.Text' },
+	// A JSON array of transaction ids, one per occurrence of the anchored stream. No useful upper
+	// bound (a weekly stream over the 12-month detection window carries ~52), and it is matched in
+	// JS rather than in SQL, so it carries no index and `@db.Text` is the legal form here.
+	// `RecurringStreamAction.normalizedLabel` and `.label` are deliberately not overridden: the
+	// write path caps both at 191, the same convention as category names.
+	'RecurringStreamAction.anchorTransactionIds': { mysql: '@db.Text' },
 
 	// Fixed-length overrides on indexed columns. These are safe where `@db.Text` is not: a
 	// `varchar(n)` carries a whole-value index, so no prefix truncation and no silently merged

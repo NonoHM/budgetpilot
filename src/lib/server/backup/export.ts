@@ -6,6 +6,10 @@ type CategorizationRuleKind = BackupExport['categorizationRules'][number]['type'
 type DefaultCategoryKeyExport = BackupExport['categories'][number]['defaultKey'];
 type NetWorthAccountTypeExport = BackupExport['netWorthAccounts'][number]['type'];
 type BankConnectionStatusExport = BackupExport['bankConnections'][number]['status'];
+// `direction` is a plain String column (FlowDirection lives in the domain, not in the DB), so
+// the export narrows it to the two values the backup schema accepts. `kind` needs no such cast:
+// it is a Prisma enum and already has the exact literal type.
+type RecurringActionDirectionExport = BackupExport['recurringStreamActions'][number]['direction'];
 
 /**
  * Builds the full export of a user's data, strictly scoped by `userId`.
@@ -26,7 +30,8 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		netWorthAccounts,
 		netWorthSnapshots,
 		savingsGoals,
-		bankConnections
+		bankConnections,
+		recurringStreamActions
 	] = await Promise.all([
 		prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } }),
 		prisma.account.findMany({
@@ -144,6 +149,20 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				consentExpiresAt: true,
 				lastSyncAt: true
 			}
+		}),
+		prisma.recurringStreamAction.findMany({
+			where: { userId },
+			select: {
+				id: true,
+				kind: true,
+				direction: true,
+				normalizedLabel: true,
+				label: true,
+				anchorTransactionIds: true,
+				dueDate: true,
+				createdAt: true,
+				updatedAt: true
+			}
 		})
 	]);
 
@@ -198,6 +217,13 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				? connection.consentExpiresAt.toISOString()
 				: null,
 			lastSyncAt: connection.lastSyncAt ? connection.lastSyncAt.toISOString() : null
+		})),
+		recurringStreamActions: recurringStreamActions.map((action) => ({
+			...action,
+			direction: action.direction as RecurringActionDirectionExport,
+			dueDate: action.dueDate ? action.dueDate.toISOString() : null,
+			createdAt: action.createdAt.toISOString(),
+			updatedAt: action.updatedAt.toISOString()
 		}))
 	};
 }

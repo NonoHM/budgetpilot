@@ -204,6 +204,24 @@ const backupSavingsGoalSchema = z
 	})
 	.strict();
 
+const backupRecurringStreamActionSchema = z
+	.object({
+		id: z.string().min(1),
+		kind: z.enum(['IGNORE', 'PAID', 'EXCLUDE']),
+		direction: z.enum(['income', 'expense']),
+		normalizedLabel: z.string().min(1).max(MAX_PORTABLE_STRING),
+		label: z.string().min(1).max(MAX_PORTABLE_STRING),
+		// Bound above MAX_PORTABLE_STRING on purpose, and legal there: the column carries a
+		// `@db.Text` override in NATIVE_TYPE_OVERRIDES, so MySQL stores it as `text` like every
+		// other provider. It holds a JSON array of transaction ids, one per occurrence of the
+		// anchored stream, so 191 would refuse a perfectly ordinary weekly stream.
+		anchorTransactionIds: z.string().max(4000),
+		dueDate: isoDateString.nullable(),
+		createdAt: isoDateString,
+		updatedAt: isoDateString
+	})
+	.strict();
+
 export const backupExportSchema = z
 	.object({
 		formatVersion: z.literal(1),
@@ -225,7 +243,9 @@ export const backupExportSchema = z
 		// Absent from exports predating savings goals: defaulted to empty rather than required.
 		savingsGoals: z.array(backupSavingsGoalSchema).default([]),
 		// Absent from exports predating bank connections: defaulted to empty.
-		bankConnections: z.array(backupBankConnectionSchema).default([])
+		bankConnections: z.array(backupBankConnectionSchema).default([]),
+		// Absent from exports predating recurring stream actions: defaulted to empty.
+		recurringStreamActions: z.array(backupRecurringStreamActionSchema).default([])
 	})
 	.strict();
 

@@ -38,6 +38,12 @@ enum BankConnectionStatus {
   error
 }
 
+enum RecurringActionKind {
+  IGNORE
+  PAID
+  EXCLUDE
+}
+
 model User {
   id                        String                     @id @default(cuid())
   email                     String                     @unique
@@ -72,6 +78,7 @@ model User {
   savingsGoals              SavingsGoal[]
   bankConnections           BankConnection[]
   bankAuthorizationRequests BankAuthorizationRequest[]
+  recurringStreamActions    RecurringStreamAction[]
 }
 
 model RecoveryCode {
@@ -527,4 +534,32 @@ model SavingsGoal {
   @@index([userId])
   @@index([userId, deletedAt])
   @@index([netWorthAccountId])
+}
+
+/// A user decision about a detected recurring stream ("échéances" feature). Detection is
+/// re-derived on every request and streams have no persisted identity, so a row anchors its
+/// stream two ways: the transaction ids the flow was built from at action time (primary —
+/// survives label drift and re-categorization), and the direction + normalized label pair
+/// (fallback once anchors age out of the 12-month detection window). Matching logic lives in
+/// src/lib/domain/upcomingBills.ts (actionMatchesFlow); nothing here is matched in SQL.
+model RecurringStreamAction {
+  id                   String              @id @default(cuid())
+  userId               String
+  kind                 RecurringActionKind
+  /// FlowDirection: 'income' | 'expense'.
+  direction            String
+  /// normalizeRecurringLabel() of the flow's label at action time. Capped at 191 by the write path.
+  normalizedLabel      String
+  /// Raw flow label at action time, capped at 191 by the write path. Display and debugging only.
+  label                String
+  /// JSON array of transaction ids (the flow's occurrenceIds at action time). No index, JS-matched.
+  anchorTransactionIds String
+  /// The projected occurrence date an IGNORE/PAID targets. Null for EXCLUDE.
+  dueDate              DateTime?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, kind])
 }

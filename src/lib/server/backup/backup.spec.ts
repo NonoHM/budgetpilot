@@ -21,7 +21,8 @@ const db = vi.hoisted(() => {
 		netWorthAccounts: [] as Row[],
 		netWorthSnapshots: [] as Row[],
 		savingsGoals: [] as Row[],
-		bankConnections: [] as Row[]
+		bankConnections: [] as Row[],
+		recurringStreamActions: [] as Row[]
 	};
 
 	let counter = 0;
@@ -123,6 +124,7 @@ const db = vi.hoisted(() => {
 			store.netWorthSnapshots.length = 0;
 			store.savingsGoals.length = 0;
 			store.bankConnections.length = 0;
+			store.recurringStreamActions.length = 0;
 			counter = 0;
 		},
 		prisma: {
@@ -153,6 +155,7 @@ const db = vi.hoisted(() => {
 			netWorthSnapshot: table(store.netWorthSnapshots, 'net-worth-snapshot'),
 			savingsGoal: table(store.savingsGoals, 'savings-goal'),
 			bankConnection: table(store.bankConnections, 'bank-connection'),
+			recurringStreamAction: table(store.recurringStreamActions, 'recurring-action'),
 			// Second parameter mirrors the real client's interactive-transaction options, so
 			// specs can assert what the caller asked for (see LONG_TRANSACTION_OPTIONS).
 			$transaction: vi.fn(
@@ -337,6 +340,37 @@ describe('buildBackupExport', () => {
 		expect(result.savingsGoals).toHaveLength(1);
 		expect(result.savingsGoals[0].name).toBe('Vacances');
 		expect(JSON.stringify(result)).not.toContain('Secret objectif B');
+	});
+
+	it('scope les actions de flux récurrents par userId, sans fuite entre utilisateurs', async () => {
+		expect.assertions(3);
+
+		db.store.users.push(
+			{ id: 'user-a', email: 'a@example.test' },
+			{ id: 'user-b', email: 'b@example.test' }
+		);
+		const action = (id: string, userId: string, label: string) => ({
+			id,
+			userId,
+			kind: 'IGNORE',
+			direction: 'expense',
+			normalizedLabel: label.toLowerCase(),
+			label,
+			anchorTransactionIds: JSON.stringify([`tx-${userId}`]),
+			dueDate: new Date('2026-08-15T00:00:00.000Z'),
+			createdAt: new Date('2026-07-31T00:00:00.000Z'),
+			updatedAt: new Date('2026-07-31T00:00:00.000Z')
+		});
+		db.store.recurringStreamActions.push(
+			action('action-a', 'user-a', 'EDF'),
+			action('action-b', 'user-b', 'Secret action B')
+		);
+
+		const result = await buildBackupExport('user-a');
+
+		expect(result.recurringStreamActions).toHaveLength(1);
+		expect(result.recurringStreamActions[0].label).toBe('EDF');
+		expect(JSON.stringify(result)).not.toContain('Secret action B');
 	});
 
 	it('inclut Account.netWorthAccountId dans les comptes exportés, sans fuite entre utilisateurs', async () => {
@@ -600,6 +634,17 @@ describe('restoreBackup', () => {
 				status: 'active' | 'expired' | 'revoked' | 'error';
 				consentExpiresAt: string | null;
 				lastSyncAt: string | null;
+			}>,
+			recurringStreamActions: [] as Array<{
+				id: string;
+				kind: 'IGNORE' | 'PAID' | 'EXCLUDE';
+				direction: 'income' | 'expense';
+				normalizedLabel: string;
+				label: string;
+				anchorTransactionIds: string;
+				dueDate: string | null;
+				createdAt: string;
+				updatedAt: string;
 			}>
 		};
 	}
@@ -1160,5 +1205,96 @@ describe('restoreBackup', () => {
 
 		expect(db.store.bankConnections.some((c) => c.id === 'old-conn-a')).toBe(false);
 		expect(db.store.bankConnections.some((c) => c.id === 'conn-b')).toBe(true);
+	});
+
+	const anchoredAction = (anchors: string[]) => ({
+		id: 'file-action-1',
+		kind: 'IGNORE' as const,
+		direction: 'expense' as const,
+		normalizedLabel: 'carrefour',
+		label: 'Carrefour',
+		anchorTransactionIds: JSON.stringify(anchors),
+		dueDate: new Date('2026-08-15T00:00:00.000Z').toISOString(),
+		createdAt: new Date('2026-07-31T00:00:00.000Z').toISOString(),
+		updatedAt: new Date('2026-07-31T00:00:00.000Z').toISOString()
+	});
+
+	/**
+	 * The security property of this model. Anchors are transaction ids inside a JSON cell, so
+	 * nothing at the database level rewrites them the way a foreign key column gets rewritten:
+	 * an id left exactly as the file wrote it would, after a restore into another account, name
+	 * a row belonging to somebody else.
+	 */
+	it("remappe les ids d'ancrage d'une action vers les transactions recréées", async () => {
+		expect.assertions(4);
+
+		const payload = buildValidPayload();
+		payload.recurringStreamActions = [anchoredAction(['file-tx-1'])];
+
+		await restoreBackup('user-a', payload);
+
+		expect(db.store.recurringStreamActions).toHaveLength(1);
+
+		const [transaction] = db.store.transactions;
+		const [action] = db.store.recurringStreamActions;
+
+		expect(transaction.id).not.toBe('file-tx-1');
+		expect(action.anchorTransactionIds).toBe(JSON.stringify([transaction.id]));
+		expect(action.userId).toBe('user-a');
+	});
+
+	/**
+	 * Dropping an unmappable anchor degrades the action to label-based matching, which is what
+	 * the fallback exists for. Keeping it would leave a foreign id in the user's own row.
+	 */
+	it("laisse tomber un id d'ancrage sans correspondance dans le fichier", async () => {
+		expect.assertions(2);
+
+		const payload = buildValidPayload();
+		payload.recurringStreamActions = [anchoredAction(['file-tx-1', 'tx-from-another-user'])];
+
+		await restoreBackup('user-a', payload);
+
+		const [transaction] = db.store.transactions;
+		const [action] = db.store.recurringStreamActions;
+
+		expect(action.anchorTransactionIds).toBe(JSON.stringify([transaction.id]));
+		expect(action.anchorTransactionIds).not.toContain('tx-from-another-user');
+	});
+
+	it('tolère un anchorTransactionIds illisible sans faire échouer la restauration', async () => {
+		expect.assertions(2);
+
+		const payload = buildValidPayload();
+		payload.recurringStreamActions = [{ ...anchoredAction([]), anchorTransactionIds: 'not json' }];
+
+		await restoreBackup('user-a', payload);
+
+		expect(db.store.recurringStreamActions).toHaveLength(1);
+		expect(db.store.recurringStreamActions[0].anchorTransactionIds).toBe('[]');
+	});
+
+	it("ne restaure pas d'actions si le fichier n'en contient pas (compat rétroactive)", async () => {
+		expect.assertions(2);
+
+		await restoreBackup('user-a', buildValidPayload());
+
+		expect(db.store.recurringStreamActions).toHaveLength(0);
+		// Every transaction still goes through the bulk path when nothing is anchored.
+		expect(db.prisma.transaction.create).not.toHaveBeenCalled();
+	});
+
+	it("purge les actions existantes de l'utilisateur restauré sans toucher celles d'un autre utilisateur", async () => {
+		expect.assertions(2);
+
+		db.store.recurringStreamActions.push(
+			{ id: 'old-action-a', userId: 'user-a', kind: 'PAID' },
+			{ id: 'action-b', userId: 'user-b', kind: 'PAID' }
+		);
+
+		await restoreBackup('user-a', buildValidPayload());
+
+		expect(db.store.recurringStreamActions.some((a) => a.id === 'old-action-a')).toBe(false);
+		expect(db.store.recurringStreamActions.some((a) => a.id === 'action-b')).toBe(true);
 	});
 });
