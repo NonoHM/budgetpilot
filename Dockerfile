@@ -131,6 +131,13 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
 ENV DATABASE_URL=file:/data/dev.db
+# Read by the `prisma migrate deploy` boot.mjs spawns, which inherits this environment. They
+# were an inline prefix on the shell entrypoint's command line before there was an image-level
+# place to put them. CHECKPOINT_DISABLE suppresses Prisma's version-check request *and the
+# cache write it makes into HOME* — that second half is what keeps boot from needing a writable
+# home directory, so do not drop it as a mere network optimisation.
+ENV CHECKPOINT_DISABLE=1
+ENV PRISMA_HIDE_UPDATE_MESSAGE=1
 
 RUN apt-get update \
 	&& apt-get install -y --no-install-recommends \
@@ -146,10 +153,10 @@ RUN apt-get update \
 #
 # Owning the entries is not enough: unlink and rename are governed by the write bit on the
 # *parent directory*, not by the ownership of what sits inside it. While the app user owned
-# /app it could `mv /app/build /app/build.bak` and put its own there — same for
-# docker-entrypoint.sh and node_modules, root-owned and 555 though they are. That turns any
-# RCE in the app into persistence across a restart, which is the exact property removing the
-# boot-time `prisma generate` was meant to eliminate.
+# /app it could `mv /app/build /app/build.bak` and put its own there — same for boot.mjs and
+# node_modules, root-owned though they are. That turns any RCE in the app into persistence
+# across a restart, which is the exact property removing the boot-time `prisma generate` was
+# meant to eliminate.
 #
 # /app had to be writable while the entrypoint ran `npx prisma generate` at boot, because npx
 # wants a writable HOME. Nothing regenerates code at boot any more, so nothing needs it, and
@@ -200,10 +207,17 @@ COPY --from=builder /app/src/lib/server/naming/backfill.ts \
 	./src/lib/server/naming/
 
 COPY package.json package-lock.json ./
-COPY --chmod=555 docker-entrypoint.sh ./docker-entrypoint.sh
+# No --chmod: boot.mjs is never executed directly, only read by node.
+COPY boot.mjs ./boot.mjs
 
 USER app
 
 EXPOSE 3000
 
-CMD ["./docker-entrypoint.sh"]
+# ENTRYPOINT is `node` rather than the boot script itself, and that is load-bearing for what
+# comes next: the distroless base this image is moving to has ENTRYPOINT ["/nodejs/bin/node"],
+# so anything an operator appends — `docker compose run --rm budgetpilot scripts/foo.mjs` — is
+# node argv on both bases. Setting it here means the documented commands are written once and
+# survive the base swap unchanged.
+ENTRYPOINT ["node"]
+CMD ["boot.mjs"]

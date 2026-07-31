@@ -341,5 +341,114 @@ for leg in "${LEGS[@]}"; do
 	docker rm -f "$app" >/dev/null
 done
 
+# ---------------------------------------------------------------------------------------------
+# boot.mjs: the two properties the four legs above cannot see
+# ---------------------------------------------------------------------------------------------
+
+# The legs prove the happy path. They would keep passing if boot.mjs started the server anyway
+# after a failed migration — which is exactly what the shell entrypoint's `set -e` used to
+# prevent and what a JavaScript rewrite has to re-establish by hand. Serving requests against a
+# schema the migration failed to apply is the failure this guards: the app would answer, and
+# answer wrongly.
+#
+# The exit code alone is NOT evidence here, and this was watched rather than assumed: with the
+# exit-code check in boot.mjs disabled on purpose, the container still exited non-zero — the
+# server started, hooks.server.ts's init queried the same unreachable database, and the process
+# died a few seconds later. A "container exited non-zero" assertion goes green on a boot.mjs
+# that no longer refuses anything. What separates the two is which of them decided: boot.mjs
+# saying so before the import, with no adapter-node line after it.
+echo
+echo "=== asserting a failed migration aborts boot ==="
+failpath_app=smoke-app-failpath
+CREATED_CONTAINERS+=("$failpath_app")
+set +e
+timeout 120 docker run --name "$failpath_app" --network "$NETWORK" \
+	-e DATABASE_PROVIDER=postgresql \
+	-e DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@no-such-host:5432/$DB_NAME" \
+	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
+	-e PUBLIC_INSTANCE=false \
+	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
+	-e RATE_LIMIT_HASH_SECRET="$RATE_LIMIT_HASH_SECRET" \
+	-e BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+	"$IMAGE" >/dev/null 2>&1
+failpath_status=$?
+set -e
+failpath_logs=$(docker logs "$failpath_app" 2>&1 | redact || true)
+
+if [ "$failpath_status" -eq 124 ]; then
+	echo "$failpath_logs"
+	echo "FAIL: the container hung with an unreachable database instead of exiting" >&2
+	exit 1
+fi
+if [ "$failpath_status" -eq 0 ]; then
+	echo "$failpath_logs"
+	echo "FAIL: the container exited 0 with an unreachable database — a failed migrate deploy no longer aborts boot" >&2
+	exit 1
+fi
+if ! grep -q 'refusing to start' <<<"$failpath_logs"; then
+	echo "$failpath_logs"
+	echo "FAIL: boot.mjs did not refuse to start after migrate deploy failed; whatever exited, it was not the guard" >&2
+	exit 1
+fi
+# adapter-node prints this once it holds the socket. Its absence is what proves the import
+# below the guard never ran, rather than having run and crashed on its own.
+if grep -q 'Listening on' <<<"$failpath_logs"; then
+	echo "$failpath_logs"
+	echo "FAIL: the server started despite a failed migrate deploy" >&2
+	exit 1
+fi
+echo "  ok: refused to start, never listened, exited $failpath_status"
+docker rm -f "$failpath_app" >/dev/null
+
+# The container has to stop on SIGTERM by draining, not by being killed 10 seconds later.
+# `exec node build` gave that for free: node was PID 1 and adapter-node's own SIGTERM handler
+# ran. boot.mjs keeps node as PID 1 and starts the server by *importing* the build output, in
+# the same process, precisely so that stays true — a version that spawned the server as a child
+# would look identical here until docker stop, and then take the full timeout and get SIGKILLed.
+echo
+echo "=== asserting SIGTERM stops the container promptly (no SIGKILL) ==="
+term_app=smoke-app-sigterm
+run_container "$term_app" \
+	-p "127.0.0.1:$APP_PORT:3000" \
+	-e DATABASE_URL="file:/data/dev.db" \
+	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
+	-e PUBLIC_INSTANCE=false \
+	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
+	-e RATE_LIMIT_HASH_SECRET="$RATE_LIMIT_HASH_SECRET" \
+	-e BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+	"$IMAGE"
+
+ready=false
+for _ in $(seq 1 "$BOOT_TIMEOUT"); do
+	if curl -fs -o /dev/null "http://127.0.0.1:$APP_PORT/login" 2>/dev/null; then
+		ready=true
+		break
+	fi
+	sleep 1
+done
+if [ "$ready" != true ]; then
+	docker logs "$term_app" 2>&1 | redact || true
+	echo "FAIL: the SIGTERM leg never served /login" >&2
+	exit 1
+fi
+
+# Well above a clean drain and well under docker's own 10s default, so a container that ignores
+# the signal is reported by this script rather than silently SIGKILLed by docker.
+stop_started=$SECONDS
+docker stop --timeout 30 "$term_app" >/dev/null
+stop_elapsed=$((SECONDS - stop_started))
+term_status=$(docker inspect -f '{{.State.ExitCode}}' "$term_app")
+
+if [ "$term_status" -eq 137 ]; then
+	echo "FAIL: the container ignored SIGTERM and was SIGKILLed (exit 137)" >&2
+	exit 1
+fi
+if [ "$stop_elapsed" -ge 10 ]; then
+	echo "FAIL: SIGTERM took ${stop_elapsed}s to stop the container; the handler is not draining" >&2
+	exit 1
+fi
+echo "  ok: stopped in ${stop_elapsed}s with exit code $term_status"
+docker rm -f "$term_app" >/dev/null
+
 echo
 echo "=== docker smoke passed on all ${#LEGS[@]} legs ==="
