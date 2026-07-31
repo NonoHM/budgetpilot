@@ -961,5 +961,11 @@
 	"bank_connections_link_existing_label": "Compte patrimoine",
 	"bank_connections_link_existing_placeholder": "Choisir un compte…",
 	"bank_connections_link_submit": "Enregistrer",
-	"bank_connections_link_none_hint": "Ce compte bancaire ne sera lié à aucun compte patrimoine."
+	"bank_connections_link_none_hint": "Ce compte bancaire ne sera lié à aucun compte patrimoine.",
+	"upcoming_bills_error_invalid_month": "Mois invalide.",
+	"upcoming_bills_error_invalid_action": "Action invalide.",
+	"upcoming_bills_error_invalid_stream": "Échéance introuvable ou déjà obsolète. Rechargez la page.",
+	"upcoming_bills_error_invalid_date": "Date d'échéance invalide.",
+	"upcoming_bills_error_action_limit": "Vous avez atteint la limite de décisions enregistrées sur vos échéances. Annulez-en une avant d'en ajouter une nouvelle.",
+	"upcoming_bills_error_not_found": "Décision introuvable."
 }

@@ -34,7 +34,7 @@ const isoDateString = z.string().refine((value) => !Number.isNaN(Date.parse(valu
  * Columns with a `@db.Text` or a wider `@db.VarChar(n)` in NATIVE_TYPE_OVERRIDES are not bound
  * by this and keep their own, larger, bounds.
  */
-const MAX_PORTABLE_STRING = 191;
+export const MAX_PORTABLE_STRING = 191;
 
 /**
  * The two bounds on `RecurringStreamAction.anchorTransactionIds`, which are a pair and have to
@@ -66,6 +66,14 @@ const MAX_PORTABLE_STRING = 191;
  */
 export const MAX_ANCHOR_IDS = 250;
 export const MAX_ANCHOR_CELL_CHARS = 7_500;
+
+/**
+ * How many `RecurringStreamAction` rows one user may hold. Lives here, next to the validator that
+ * enforces it on the way in, because the write path (`recordStreamAction`) has to enforce the SAME
+ * number: a validator-only bound lets a user accumulate more rows than their own export is allowed
+ * to carry, and the failure surfaces at the worst possible moment — restoring their own backup.
+ */
+export const MAX_RECURRING_STREAM_ACTIONS = 500;
 
 const transactionNature = z.enum(TRANSACTION_NATURES);
 const defaultCategoryKey = z.enum(DEFAULT_CATEGORY_KEYS);
@@ -283,7 +291,13 @@ export const backupExportSchema = z
 		// holds a pooled connection for the whole LONG_TRANSACTION_OPTIONS ceiling. It rolls
 		// back cleanly — this is availability, not corruption — but the bound costs nothing:
 		// 500 actions is far past what detection can produce for one user.
-		recurringStreamActions: z.array(backupRecurringStreamActionSchema).max(500).default([])
+		//
+		// The same constant bounds the write path (`recordStreamAction`), so a user cannot
+		// accumulate a set of actions their own export would then be refused on restore.
+		recurringStreamActions: z
+			.array(backupRecurringStreamActionSchema)
+			.max(MAX_RECURRING_STREAM_ACTIONS)
+			.default([])
 	})
 	.strict();
 

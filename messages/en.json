@@ -961,5 +961,11 @@
 	"bank_connections_link_existing_label": "Net worth account",
 	"bank_connections_link_existing_placeholder": "Choose an account…",
 	"bank_connections_link_submit": "Save",
-	"bank_connections_link_none_hint": "This bank account won't be linked to any net worth account."
+	"bank_connections_link_none_hint": "This bank account won't be linked to any net worth account.",
+	"upcoming_bills_error_invalid_month": "Invalid month.",
+	"upcoming_bills_error_invalid_action": "Invalid action.",
+	"upcoming_bills_error_invalid_stream": "This bill could not be found or is no longer up to date. Reload the page.",
+	"upcoming_bills_error_invalid_date": "Invalid due date.",
+	"upcoming_bills_error_action_limit": "You have reached the limit of saved decisions on your upcoming bills. Undo one before adding another.",
+	"upcoming_bills_error_not_found": "Decision not found."
 }
