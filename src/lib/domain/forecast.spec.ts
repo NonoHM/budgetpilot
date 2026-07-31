@@ -5,6 +5,8 @@ import {
 	buildRealizedLedgerDays,
 	computeResidualDailyCents,
 	detectRecurringFlows,
+	getFlowAmountVariability,
+	getFlowDisplayTier,
 	getRemainingDaysInMonthUtc,
 	hasReliableConfirmedFlow,
 	isReliableConfirmedFlow,
@@ -296,6 +298,8 @@ function flow(
 		confidence: 'high',
 		occurrenceCount: 3,
 		averageAmountCents: 10_000,
+		minAmountCents: 10_000,
+		maxAmountCents: 10_000,
 		medianIntervalDays: 30,
 		intervalCoefficientOfVariation: 0,
 		amountCoefficientOfVariation: 0,
@@ -734,5 +738,70 @@ describe('isReliableConfirmedFlow / hasReliableConfirmedFlow', () => {
 				{ status: 'confirmed', confidence: 'medium' }
 			])
 		).toBe(true);
+	});
+
+	describe('flow display tier and amount bounds', () => {
+		it('exposes the observed min and max amounts on a detected flow', () => {
+			const flows = detectRecurringFlows([
+				{
+					id: 't1',
+					date: '2026-01-05',
+					label: 'EDF',
+					amountCents: -7400,
+					category: 'Énergie',
+					type: 'expense'
+				},
+				{
+					id: 't2',
+					date: '2026-02-05',
+					label: 'EDF',
+					amountCents: -7700,
+					category: 'Énergie',
+					type: 'expense'
+				},
+				{
+					id: 't3',
+					date: '2026-03-05',
+					label: 'EDF',
+					amountCents: -7600,
+					category: 'Énergie',
+					type: 'expense'
+				}
+			]);
+			expect(flows).toHaveLength(1);
+			expect(flows[0].minAmountCents).toBe(7400);
+			expect(flows[0].maxAmountCents).toBe(7700);
+		});
+
+		it('maps confirmed+high to confirmed, confirmed+medium to likely, everything else to uncertain', () => {
+			expect(getFlowDisplayTier({ status: 'confirmed', confidence: 'high' })).toBe('confirmed');
+			expect(getFlowDisplayTier({ status: 'confirmed', confidence: 'medium' })).toBe('likely');
+			expect(getFlowDisplayTier({ status: 'confirmed', confidence: 'low' })).toBe('uncertain');
+			expect(getFlowDisplayTier({ status: 'tentative', confidence: 'high' })).toBe('uncertain');
+		});
+
+		it('tier !== uncertain is exactly the existing reliability predicate', () => {
+			const statuses = ['confirmed', 'tentative'] as const;
+			const confidences = ['low', 'medium', 'high'] as const;
+			for (const status of statuses) {
+				for (const confidence of confidences) {
+					expect(getFlowDisplayTier({ status, confidence }) !== 'uncertain').toBe(
+						isReliableConfirmedFlow({ status, confidence })
+					);
+				}
+			}
+		});
+
+		it('calls a spread under one euro fixed, and one euro or more variable', () => {
+			expect(getFlowAmountVariability({ minAmountCents: 1349, maxAmountCents: 1349 })).toBe(
+				'fixed'
+			);
+			expect(getFlowAmountVariability({ minAmountCents: 1349, maxAmountCents: 1448 })).toBe(
+				'fixed'
+			);
+			expect(getFlowAmountVariability({ minAmountCents: 7400, maxAmountCents: 9600 })).toBe(
+				'variable'
+			);
+		});
 	});
 });

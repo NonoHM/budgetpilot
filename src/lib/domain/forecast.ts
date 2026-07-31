@@ -21,6 +21,10 @@ export interface RecurringFlow {
 	occurrenceCount: number;
 	/** Magnitude (unsigned) — the caller applies the sign via `direction`. */
 	averageAmountCents: number;
+	/** Smallest observed occurrence amount (unsigned) — the low bound of the displayed range. */
+	minAmountCents: number;
+	/** Largest observed occurrence amount (unsigned) — the high bound of the displayed range. */
+	maxAmountCents: number;
 	medianIntervalDays: number;
 	intervalCoefficientOfVariation: number;
 	amountCoefficientOfVariation: number;
@@ -134,7 +138,7 @@ function computeConfidence(
 	return 'low';
 }
 
-type ForecastInputTransaction = Pick<
+export type ForecastInputTransaction = Pick<
 	Transaction,
 	'id' | 'date' | 'label' | 'amountCents' | 'category' | 'type'
 >;
@@ -188,6 +192,7 @@ export function detectRecurringFlows(
 			const intervalCV = coefficientOfVariation(intervals);
 			const amountCV = coefficientOfVariation(amounts);
 			const concentration = dayOfMonthConcentration(dates);
+			const magnitudes = group.map((t) => Math.abs(t.amountCents));
 
 			flows.push({
 				key,
@@ -201,6 +206,8 @@ export function detectRecurringFlows(
 				averageAmountCents: Math.round(
 					amounts.reduce((sum, amount) => sum + amount, 0) / amounts.length
 				),
+				minAmountCents: Math.min(...magnitudes),
+				maxAmountCents: Math.max(...magnitudes),
 				medianIntervalDays,
 				intervalCoefficientOfVariation: intervalCV,
 				amountCoefficientOfVariation: amountCV,
@@ -355,6 +362,30 @@ export function hasReliableConfirmedFlow(
 	flows: readonly Pick<RecurringFlow, 'status' | 'confidence'>[]
 ): boolean {
 	return flows.some(isReliableConfirmedFlow);
+}
+
+export type FlowDisplayTier = 'confirmed' | 'likely' | 'uncertain';
+
+/**
+ * The design's three confidence badges (Confirmé / Probable / Incertain) collapsed from the
+ * engine's two orthogonal fields. `tier !== 'uncertain'` is by construction equivalent to
+ * `isReliableConfirmedFlow` — the upcoming-bills view and the cash-flow forecast must never
+ * disagree about which streams are trustworthy.
+ */
+export function getFlowDisplayTier(
+	flow: Pick<RecurringFlow, 'status' | 'confidence'>
+): FlowDisplayTier {
+	if (flow.status === 'tentative' || flow.confidence === 'low') return 'uncertain';
+	return flow.confidence === 'high' ? 'confirmed' : 'likely';
+}
+
+export type FlowAmountVariability = 'fixed' | 'variable';
+
+/** Under one euro of observed spread the amount is displayed as fixed. */
+export function getFlowAmountVariability(
+	flow: Pick<RecurringFlow, 'minAmountCents' | 'maxAmountCents'>
+): FlowAmountVariability {
+	return flow.maxAmountCents - flow.minAmountCents >= 100 ? 'variable' : 'fixed';
 }
 
 export interface CashFlowForecastInput {

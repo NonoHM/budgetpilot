@@ -25,6 +25,8 @@ function flow(overrides: Partial<RecurringFlow> = {}): RecurringFlow {
 		confidence: 'high',
 		occurrenceCount: 3,
 		averageAmountCents: 200_000,
+		minAmountCents: 200_000,
+		maxAmountCents: 200_000,
 		medianIntervalDays: 30,
 		intervalCoefficientOfVariation: 0,
 		amountCoefficientOfVariation: 0,
