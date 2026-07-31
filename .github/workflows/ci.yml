@@ -77,7 +77,10 @@ jobs:
   # build's env/DB, against a dedicated throwaway DB — see e2e/config.ts).
   test-and-build:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 25 rather than something near the ~3m30s this normally takes, because the Playwright step
+    # below is allowed 15 on its own: the step timeout has to be the one that fires, so a
+    # failure names the thing that stalled instead of the whole job.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -116,8 +119,13 @@ jobs:
       # turns a hang into a failed job instead of an occupied runner. Job-level timeouts above
       # are the backstop for the same class of problem elsewhere, in the same spirit as the
       # 30-minute one docker-smoke.yml already carries.
+      #
+      # 15 and not something tighter, and the number comes from the incident rather than from
+      # taste: that step did not hang forever, it took 10m21s and then succeeded. A bound below
+      # that turns a slow run into a red one, which is how a timeout starts costing more than
+      # the problem it guards. This one only catches a stall worse than any observed.
       - name: Install Playwright Chromium
-        timeout-minutes: 8
+        timeout-minutes: 15
         env:
           DEBIAN_FRONTEND: noninteractive
           NEEDRESTART_MODE: a
