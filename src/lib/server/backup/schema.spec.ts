@@ -395,7 +395,13 @@ describe('backupExportSchema', () => {
 		['ImportBatch.source', (p, v) => void (p.importBatches[0].source = v)],
 		['ImportBatch.profile', (p, v) => void (p.importBatches[0].profile = v)],
 		['Transaction.source', (p, v) => void (p.transactions[0].source = v)],
-		['Transaction.manualCategory', (p, v) => void (p.transactions[0].manualCategory = v)],
+		// `manualCategory` is null in the fixture, so TypeScript narrows the property to `null`.
+		// The Zod schema types it `string | null`; the assertion re-widens it to what the column
+		// actually holds rather than loosening the fixture and weakening every other test.
+		[
+			'Transaction.manualCategory',
+			(p, v) => void ((p.transactions[0] as { manualCategory: string | null }).manualCategory = v)
+		],
 		['MonthlyBudget.categoryName', (p, v) => void (p.monthlyBudgets[0].categoryName = v)],
 		['CategoryRule.name', (p, v) => void (p.categoryRules[0].name = v)],
 		['CategoryRule.targetCategory', (p, v) => void (p.categoryRules[0].targetCategory = v)],
