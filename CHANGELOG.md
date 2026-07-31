@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.4.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.3.1...budgetpilot-v0.4.0) (2026-07-31)
+
+
+### ⚠ BREAKING CHANGES
+
+* **docker:** the container runs as uid 65532 instead of the old image's system uid. A SQLite install's existing /data volume is owned by the old uid, and the new container cannot write to it. boot.mjs checks this before Prisma is ever reached and refuses to start with the exact remediation (`docker run --rm -v <volume>:/data busybox chown -R 65532:65532 /data`), rather than letting the first symptom be SQLITE_CANTOPEN. The fix runs in a helper image because this one has no chown — that is the base, not an oversight. PostgreSQL and MySQL installs are unaffected. See docs/operations.md, which also documents what replaces `docker compose exec budgetpilot sh`.
+
+### Features
+
+* **ci:** CVE gate at publish, daily scan of the published image, and per-release SBOM ([#89](https://github.com/NonoHM/budgetpilot/issues/89)) ([b71b95a](https://github.com/NonoHM/budgetpilot/commit/b71b95ac6f3c747c4d4a6f8c5cfde396f754c807))
+* **docker:** distroless runtime image ([#85](https://github.com/NonoHM/budgetpilot/issues/85)) ([29ac8db](https://github.com/NonoHM/budgetpilot/commit/29ac8dbe3f70ad268f7ffa3542cfce9e843b956d))
+* **docker:** read-only, cap-dropped, no-new-privileges runtime posture ([#86](https://github.com/NonoHM/budgetpilot/issues/86)) ([3bd5d16](https://github.com/NonoHM/budgetpilot/commit/3bd5d162177bfe495bdda8fea243214faba7075c))
+
+
+### Bug Fixes
+
+* **ci:** bound every job, and stop the Playwright install hanging on apt ([#87](https://github.com/NonoHM/budgetpilot/issues/87)) ([157ca71](https://github.com/NonoHM/budgetpilot/commit/157ca71a167bef937c7749d7adca81a377d508cb))
+* **docker:** replace the shell entrypoint with a shell-free boot.mjs ([#83](https://github.com/NonoHM/budgetpilot/issues/83)) ([18f0e16](https://github.com/NonoHM/budgetpilot/commit/18f0e16f44030304683d778870e26c67d23f994e))
+* **ops:** pin ollama/ollama to a fixed tag ([#81](https://github.com/NonoHM/budgetpilot/issues/81)) ([cdc7942](https://github.com/NonoHM/budgetpilot/commit/cdc7942f462f3919a6acb5c41b5f0f420db182d0))
+
 ## [0.3.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.3.0...budgetpilot-v0.3.1) (2026-07-31)
 
 
