@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.3.0...budgetpilot-v0.3.1) (2026-07-31)
+
+
+### Bug Fixes
+
+* **ops:** make the documented upgrade preview work, serialize boot backfills, split the AI overlay ([#76](https://github.com/NonoHM/budgetpilot/issues/76)) ([d95a8e7](https://github.com/NonoHM/budgetpilot/commit/d95a8e7496120db8aab6c4a214cc44f45ea52196))
+
 ## [0.3.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.2.2...budgetpilot-v0.3.0) (2026-07-30)
 
 
