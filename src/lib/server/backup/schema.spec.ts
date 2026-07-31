@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { backupExportSchema, MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS } from './schema';
+import {
+	backupExportSchema,
+	MAX_ANCHOR_IDS,
+	MAX_ANCHOR_CELL_CHARS,
+	MAX_IMPORTED_RECURRING_STREAM_ACTIONS,
+	MAX_RECURRING_STREAM_ACTIONS
+} from './schema';
 
 function buildValidPayload() {
 	return {
@@ -545,8 +551,8 @@ describe('backupExportSchema', () => {
 	 * unbounded list lets a small hand-edited file hold a pooled connection for the whole
 	 * LONG_TRANSACTION_OPTIONS ceiling.
 	 */
-	it('rejette un fichier portant plus de 500 actions', () => {
-		expect.assertions(2);
+	it('rejette un fichier au-delà de MAX_IMPORTED_RECURRING_STREAM_ACTIONS', () => {
+		expect.assertions(4);
 
 		const build = (count: number) => ({
 			...buildValidPayload(),
@@ -556,8 +562,21 @@ describe('backupExportSchema', () => {
 			}))
 		});
 
-		expect(backupExportSchema.safeParse(build(500)).success).toBe(true);
-		expect(backupExportSchema.safeParse(build(501)).success).toBe(false);
+		expect(backupExportSchema.safeParse(build(MAX_IMPORTED_RECURRING_STREAM_ACTIONS)).success).toBe(
+			true
+		);
+		expect(
+			backupExportSchema.safeParse(build(MAX_IMPORTED_RECURRING_STREAM_ACTIONS + 1)).success
+		).toBe(false);
+
+		// The gap that keeps a user's own export restorable: the write path refuses past
+		// MAX_RECURRING_STREAM_ACTIONS, but a concurrent count-then-insert can overshoot it by a
+		// little, and an import bound equal to the write cap would turn that race into a permanent
+		// restore failure. Anything in the gap must still validate.
+		expect(MAX_IMPORTED_RECURRING_STREAM_ACTIONS).toBeGreaterThan(MAX_RECURRING_STREAM_ACTIONS);
+		expect(backupExportSchema.safeParse(build(MAX_RECURRING_STREAM_ACTIONS + 1)).success).toBe(
+			true
+		);
 	});
 
 	/**

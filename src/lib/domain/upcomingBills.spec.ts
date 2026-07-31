@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ForecastInputTransaction, RecurringFlow } from './forecast';
-import { normalizeRecurringLabel } from './recurrence';
+import {
+	normalizeRecurringLabel,
+	normalizeStoredRecurringLabel,
+	STORED_LABEL_MAX_CHARS
+} from './recurrence';
 import { formatMonthLabel } from './dateFormat';
 import {
 	actionMatchesFlow,
@@ -128,6 +132,43 @@ describe('actionMatchesFlow', () => {
 					anchorTransactionIds: ['zzz', 't2']
 				},
 				target
+			)
+		).toBe(true);
+	});
+
+	/**
+	 * The write path stores `normalizeRecurringLabel(truncateStoredLabel(label))`, so the matcher has
+	 * to normalize the SAME truncated form. Normalizing the full label instead produces a different
+	 * string for any label past the cap, and the visible symptom is a stream the user excluded
+	 * silently reappearing once its anchors age out of the 12-month lookback.
+	 *
+	 * `Transaction.label` is `@db.Text` and bank connectors write provider labels through
+	 * unmodified, so a label this long is reachable, not hypothetical.
+	 */
+	it('associe un flux dont le libellé dépasse la borne de stockage', () => {
+		expect.assertions(3);
+
+		const longLabel = `Assurance habitation ${'x'.repeat(200)}`;
+		expect(longLabel.length).toBeGreaterThan(STORED_LABEL_MAX_CHARS);
+
+		const storedNormalizedLabel = normalizeStoredRecurringLabel(longLabel);
+		// The bug this guards: the two normalizations genuinely differ for this label.
+		expect(storedNormalizedLabel).not.toBe(normalizeRecurringLabel(longLabel));
+
+		expect(
+			actionMatchesFlow(
+				{
+					direction: 'expense',
+					normalizedLabel: storedNormalizedLabel,
+					anchorTransactionIds: ['aged-out']
+				},
+				flow({
+					label: longLabel,
+					direction: 'expense',
+					averageAmountCents: 4890,
+					lastDate: '2026-06-10',
+					occurrenceIds: ['t9']
+				})
 			)
 		).toBe(true);
 	});

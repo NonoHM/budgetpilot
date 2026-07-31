@@ -9,7 +9,7 @@ import {
 	groupTransactionsForRecurrence,
 	projectFlowOccurrences
 } from './forecast';
-import { getSimilarAmountGroups, normalizeRecurringLabel } from './recurrence';
+import { getSimilarAmountGroups, normalizeStoredRecurringLabel } from './recurrence';
 
 /**
  * Upcoming-bills schedule: turns the detected recurring flows into dated occurrences carrying a
@@ -68,6 +68,13 @@ function wholeDaysBetween(dateIso: string, todayIso: string): number {
  * they survive a label the detector later re-reads from a more recent occurrence. The normalized
  * label + direction pair is the fallback for a stream whose historical transactions have since
  * rolled out of the lookback window.
+ *
+ * The fallback goes through `normalizeStoredRecurringLabel`, NOT `normalizeRecurringLabel`: the
+ * write path truncates the label to `STORED_LABEL_MAX_CHARS` before normalizing it, so comparing
+ * against the normalization of the FULL label diverges for any label past the cap — and bank
+ * connectors do write provider labels through unmodified into a `@db.Text` column. The visible
+ * symptom of getting this wrong is a stream the user excluded silently reappearing once its
+ * anchors age out.
  */
 export function actionMatchesFlow(
 	action: Pick<StreamActionInput, 'direction' | 'normalizedLabel' | 'anchorTransactionIds'>,
@@ -75,7 +82,7 @@ export function actionMatchesFlow(
 ): boolean {
 	if (action.anchorTransactionIds.some((id) => flow.occurrenceIds.includes(id))) return true;
 	if (action.direction !== flow.direction) return false;
-	return action.normalizedLabel === normalizeRecurringLabel(flow.label);
+	return action.normalizedLabel === normalizeStoredRecurringLabel(flow.label);
 }
 
 /** Drops every flow the user has excluded from the upcoming-bills view entirely. */

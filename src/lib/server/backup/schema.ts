@@ -68,12 +68,27 @@ export const MAX_ANCHOR_IDS = 250;
 export const MAX_ANCHOR_CELL_CHARS = 7_500;
 
 /**
- * How many `RecurringStreamAction` rows one user may hold. Lives here, next to the validator that
- * enforces it on the way in, because the write path (`recordStreamAction`) has to enforce the SAME
- * number: a validator-only bound lets a user accumulate more rows than their own export is allowed
- * to carry, and the failure surfaces at the worst possible moment — restoring their own backup.
+ * The two bounds on how many `RecurringStreamAction` rows exist, and the gap between them.
+ *
+ * `MAX_RECURRING_STREAM_ACTIONS` is what the WRITE path (`recordStreamAction`) refuses to exceed.
+ * `MAX_IMPORTED_RECURRING_STREAM_ACTIONS` is what the IMPORT validator accepts, and it is
+ * deliberately higher rather than equal.
+ *
+ * The write-path check is a count-then-insert inside one transaction, which bounds normal growth
+ * but cannot be exact: under READ COMMITTED — PostgreSQL's and MySQL's default, and the only
+ * isolation SQLite's single writer makes moot — two concurrent submits can both read a count below
+ * the cap and both insert. The overshoot is small and self-limiting.
+ *
+ * If the validator's bound were the same number, that small overshoot would make the user's OWN
+ * export unrestorable, which is precisely the failure the write cap was added to prevent — a hard
+ * equality would convert a harmless race into permanent data loss on restore. The headroom absorbs
+ * it. Twice the write cap is far beyond what any race can produce and still far below the point
+ * where the per-row restore work this bound exists to limit becomes a problem.
+ *
+ * Only lower `MAX_IMPORTED_…` if `MAX_RECURRING_STREAM_ACTIONS` goes down with it.
  */
 export const MAX_RECURRING_STREAM_ACTIONS = 500;
+export const MAX_IMPORTED_RECURRING_STREAM_ACTIONS = MAX_RECURRING_STREAM_ACTIONS * 2;
 
 const transactionNature = z.enum(TRANSACTION_NATURES);
 const defaultCategoryKey = z.enum(DEFAULT_CATEGORY_KEYS);
@@ -289,14 +304,15 @@ export const backupExportSchema = z
 		// anchors leaves the bulk `createMany` and gets its own `create`, inside the single
 		// interactive transaction. Unbounded, a hand-edited file well under the upload limit
 		// holds a pooled connection for the whole LONG_TRANSACTION_OPTIONS ceiling. It rolls
-		// back cleanly — this is availability, not corruption — but the bound costs nothing:
-		// 500 actions is far past what detection can produce for one user.
+		// back cleanly — this is availability, not corruption — but the bound costs nothing: the
+		// write cap is far past what detection can produce for one user.
 		//
-		// The same constant bounds the write path (`recordStreamAction`), so a user cannot
-		// accumulate a set of actions their own export would then be refused on restore.
+		// Bounded at MAX_IMPORTED_RECURRING_STREAM_ACTIONS, which is HIGHER than the write path's
+		// own cap on purpose. See those two constants: the gap absorbs the small overshoot a
+		// concurrent count-then-insert can produce, so that a user's own export is never refused.
 		recurringStreamActions: z
 			.array(backupRecurringStreamActionSchema)
-			.max(MAX_RECURRING_STREAM_ACTIONS)
+			.max(MAX_IMPORTED_RECURRING_STREAM_ACTIONS)
 			.default([])
 	})
 	.strict();

@@ -3,7 +3,6 @@ import * as m from '$lib/paraglide/messages';
 import {
 	detectRecurringFlows,
 	getFlowAmountVariability,
-	getFlowDisplayTier,
 	type FlowAmountVariability,
 	type FlowCadence,
 	type FlowDirection,
@@ -23,7 +22,7 @@ import {
 	type StreamActionKind
 } from '$lib/domain/upcomingBills';
 import { getInitials } from '$lib/domain/initials';
-import { normalizeRecurringLabel } from '$lib/domain/recurrence';
+import { normalizeStoredRecurringLabel, truncateStoredLabel } from '$lib/domain/recurrence';
 import type { Transaction } from '$lib/domain/transaction';
 import { readDashboardDataForRange } from '$lib/server/budget/dashboard';
 import { FORECAST_LOOKBACK_MONTHS } from '$lib/server/forecast';
@@ -33,8 +32,8 @@ import { anonymizeMerchant } from '$lib/server/reports/monthly';
 // every page load of the widget and the month view. Never duplicate it, never inline a parse.
 import { parseAnchorTransactionIds } from '$lib/server/backup/import';
 import {
+	MAX_ANCHOR_CELL_CHARS,
 	MAX_ANCHOR_IDS,
-	MAX_PORTABLE_STRING,
 	MAX_RECURRING_STREAM_ACTIONS
 } from '$lib/server/backup/schema';
 import { prisma } from '$lib/server/db';
@@ -45,9 +44,17 @@ import { normalizeId } from '$lib/server/transactions/where';
  * them into a period, applies the user's persisted per-stream actions, and exposes the three
  * mutations behind those actions.
  *
- * Every raw label leaves this module through `anonymizeMerchant` — with ONE deliberate exception, the
- * `actionPayload.label` hidden field, which is not display copy but the value `recordStreamAction`
- * will store, and which must therefore round-trip unchanged (see UpcomingBillRowView).
+ * Every DISPLAYED label leaves this module through `anonymizeMerchant`. Three fields are derived
+ * from the raw flow label instead, none of which is display copy, and a fourth kind of field must
+ * not be added without deciding which group it belongs to:
+ *
+ *  - `actionPayload.label` — the raw label capped at `STORED_LABEL_MAX_CHARS`. It is the value
+ *    `recordStreamAction` stores, so it has to round-trip unchanged.
+ *  - `actionPayload.normalizedLabel` and `rowKey` — `normalizeStoredRecurringLabel(flow.label)`.
+ *    That is NOT the anonymizer: it lowercases, strips diacritics, digits and punctuation, but it
+ *    does NOT strip bank keywords (CB, SEPA, VIREMENT…) and does not cap the merchant at 28
+ *    characters. No confidentiality impact — it is the user's own data going to the user's own
+ *    browser, with every digit removed — but do not read it as "already anonymized".
  */
 
 const MONTH_PATTERN = /^\d{4}-\d{2}$/;
@@ -59,18 +66,33 @@ const WIDGET_WINDOW_DAYS = 30;
 const WIDGET_ROW_LIMIT = 5;
 
 /**
- * Longest a stored id may be. A cuid is 25 characters; 32 leaves room without letting a forged
- * payload push an arbitrarily long string into the `IN (...)` list of the ownership query below.
+ * Longest a stored anchor id may be, DERIVED from the cell budget rather than picked.
+ *
+ * `MAX_ANCHOR_CELL_CHARS` was sized as `MAX_ANCHOR_IDS * 28 + 2`, where 28 = 25 (a cuid) + 2
+ * (quotes) + 1 (comma). Any per-id bound above that per-element budget lets this write path emit a
+ * cell the backup validator refuses — 250 ids of 32 characters serialize to 8752 > 7500. That was
+ * unreachable today only because the ownership filter means every surviving id is a real 25-char
+ * cuid, i.e. the safety rested on a property of the id generator, not on the bound. It would break
+ * silently the day ids become uuid v7 (36) or anything else longer.
+ *
+ * Solving `MAX_ANCHOR_IDS * (n + 3) + 2 <= MAX_ANCHOR_CELL_CHARS` gives 26, which still clears a
+ * cuid with room. `fitAnchorCell` then asserts the real property on the real string, so nothing
+ * downstream depends on this arithmetic being right.
  */
-const MAX_ANCHOR_ID_CHARS = 32;
+export const MAX_ANCHOR_ID_CHARS = Math.floor((MAX_ANCHOR_CELL_CHARS - 2) / MAX_ANCHOR_IDS) - 3;
 
 /**
- * Tolerance used by the idempotence check when deciding whether a stored ignore/paid action already
- * covers the requested due date. Derived from the domain's own window function rather than written
- * as a literal: at record time there is no flow in hand to read a cadence off, so the widest window
- * the domain ever grants is used, which is the clamp ceiling of `occurrenceActionWindowDays`.
+ * Idempotence window used only when the request carries fewer than two owned anchors, i.e. when
+ * there are no dates to derive a cadence from. The widest window the domain ever grants — the
+ * clamp ceiling of `occurrenceActionWindowDays` — expressed through that function rather than as a
+ * literal so it cannot drift from it.
+ *
+ * With two or more anchors the real median interval is computed instead: a fixed 15 days is WRONG
+ * for a weekly stream, whose own window is 3. Ignoring this week's occurrence and then next week's
+ * (7 days apart, 7 <= 15) matched the first action and wrote no row, so the second occurrence
+ * stayed on the page and the tap looked broken.
  */
-const IDEMPOTENCE_WINDOW_DAYS = occurrenceActionWindowDays({ medianIntervalDays: 365 });
+const FALLBACK_IDEMPOTENCE_WINDOW_DAYS = occurrenceActionWindowDays({ medianIntervalDays: 365 });
 
 type DbActionKind = 'IGNORE' | 'PAID' | 'EXCLUDE';
 
@@ -224,12 +246,14 @@ export async function loadUpcomingBillsWidget(userId: string): Promise<UpcomingB
 	const lookbackStart = new Date(
 		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - FORECAST_LOOKBACK_MONTHS, now.getUTCDate())
 	);
+	// `today + 30 days` is unconditionally after `now`, so unlike the month view — which can be
+	// asked for a period entirely in the past — this range needs no max() against `now`.
 	const windowEnd = new Date(`${toIsoExclusive}T00:00:00.000Z`);
 
 	const [{ transactions }, actionRows] = await Promise.all([
 		readDashboardDataForRange(userId, {
 			from: lookbackStart,
-			to: windowEnd > now ? windowEnd : now,
+			to: windowEnd,
 			budgetMonth: todayIso.slice(0, 7)
 		}),
 		findStreamActions(userId)
@@ -292,22 +316,29 @@ export async function recordStreamAction(
 	const kind = parseActionKind(input.kind);
 	const direction = parseDirection(input.direction);
 
+	// Neither field is trusted to BE a string / an array. Both come off a form body, so an absent or
+	// wrongly shaped field would otherwise throw a TypeError out of `.trim()` / `.map()` and surface
+	// as a 500. Every rejection in this function is a 400.
+	const rawLabel = typeof input.label === 'string' ? input.label : '';
+	const rawAnchors = Array.isArray(input.anchorTransactionIds) ? input.anchorTransactionIds : [];
+
 	// Both columns are varchar(191) on MySQL, and the schema's own doc comments name this function
-	// as the cap that makes that safe. Real bank labels do exceed 191 (Transaction.label is
-	// @db.Text), so without the slice the same input succeeds on SQLite/PostgreSQL and errors on
-	// MySQL under STRICT_TRANS_TABLES — the provider divergence this codebase removes on sight.
+	// as the cap that makes that safe. Real bank labels do exceed it (Transaction.label is
+	// @db.Text), so without the truncation the same input succeeds on SQLite/PostgreSQL and errors
+	// on MySQL under STRICT_TRANS_TABLES — the provider divergence this codebase removes on sight.
+	// `truncateStoredLabel` also refuses to cut inside a surrogate pair; see it for why the bound is
+	// counted in UTF-16 units rather than code points.
 	//
 	// The column is NOT NULL and the backup validator requires `min(1)`, so an empty label would
 	// produce a row whose own export cannot be restored — refused rather than written.
-	const label = input.label.trim().slice(0, MAX_PORTABLE_STRING);
+	const label = truncateStoredLabel(rawLabel.trim());
 	if (!label) throw error(400, m.upcoming_bills_error_invalid_action());
 
 	// DERIVED, never taken from the request. `normalizedLabel` is the fallback half of the stream
 	// identity `actionMatchesFlow` uses once the anchors have aged out, so a client-supplied value
-	// is a way to point an action at a stream the user never acted on. Computed from the label that
-	// is ACTUALLY stored (already trimmed and capped), so the stored pair cannot disagree with
-	// itself. The second cap is belt-and-braces — normalization only ever removes characters.
-	const normalizedLabel = normalizeRecurringLabel(label).slice(0, MAX_PORTABLE_STRING);
+	// is a way to point an action at a stream the user never acted on. Goes through the same
+	// truncate-then-normalize helper the domain matcher uses, so the two sides cannot diverge.
+	const normalizedLabel = normalizeStoredRecurringLabel(label);
 	// Unreachable from the app: a label that normalizes to nothing is dropped by
 	// `groupTransactionsForRecurrence`, so no flow can carry one. A forged payload can, and such a
 	// row would be unmatchable by anything but its anchors.
@@ -321,7 +352,7 @@ export async function recordStreamAction(
 	// the same reason: dropping old anchors only weakens the action to label-based matching.
 	const requestedAnchors = [
 		...new Set(
-			input.anchorTransactionIds
+			rawAnchors
 				.map((id) => (typeof id === 'string' ? id.trim() : ''))
 				.filter((id) => id.length > 0 && id.length <= MAX_ANCHOR_ID_CHARS)
 		)
@@ -332,13 +363,19 @@ export async function recordStreamAction(
 	// forged (or stale-after-restore) id would be persisted into this user's row and then read back
 	// as one of their anchors, which is a cross-user reference. Only ids this user actually owns
 	// survive, and if none does the action is refused rather than stored anchor-less.
+	//
+	// `date` is selected as well because the idempotence window below needs the stream's real
+	// cadence, and these rows are the only occurrences of it this function has in hand.
 	const owned = await prisma.transaction.findMany({
 		where: { userId, id: { in: requestedAnchors } },
-		select: { id: true }
+		select: { id: true, date: true }
 	});
 	const ownedIds = new Set(owned.map((transaction) => transaction.id));
-	const anchors = requestedAnchors.filter((id) => ownedIds.has(id));
+	const anchors = fitAnchorCell(requestedAnchors.filter((id) => ownedIds.has(id)));
 	if (anchors.length === 0) throw error(400, m.upcoming_bills_error_invalid_stream());
+
+	// The window this stream's own cadence justifies, from the anchor dates just fetched.
+	const windowDays = resolveIdempotenceWindowDays(owned.map((transaction) => transaction.date));
 
 	const dbKind = DB_KIND_BY_ACTION_KIND[kind];
 	// Scoped to (userId, kind) — the composite index this model carries exists for this read.
@@ -365,33 +402,39 @@ export async function recordStreamAction(
 		}
 		if (dueDate === null) return true;
 		if (row.dueDate === null) return false;
-		return (
-			Math.abs(daysBetween(toIsoDate(row.dueDate), toIsoDate(dueDate))) <= IDEMPOTENCE_WINDOW_DAYS
-		);
+		return Math.abs(daysBetween(toIsoDate(row.dueDate), toIsoDate(dueDate))) <= windowDays;
 	});
 	if (duplicate) return { actionId: duplicate.id };
 
-	// Refuse rather than prune. The backup validator caps a payload at MAX_RECURRING_STREAM_ACTIONS,
-	// so an unbounded write path lets a user build a set their OWN export is then refused on — but
-	// pruning to make room would silently delete a decision the user made (an excluded stream would
-	// reappear with no trace). Refusing is visible, recoverable with one undo, and reachable only
-	// far past what detection can produce.
-	const total = await prisma.recurringStreamAction.count({ where: { userId } });
-	if (total >= MAX_RECURRING_STREAM_ACTIONS) {
-		throw error(400, m.upcoming_bills_error_action_limit());
-	}
+	// Refuse rather than prune. The backup validator bounds a payload, so an unbounded write path
+	// lets a user build a set their OWN export is then refused on — but pruning to make room would
+	// silently delete a decision the user made (an excluded stream would reappear with no trace).
+	// Refusing is visible, recoverable with one undo, and reachable only far past what detection can
+	// produce.
+	//
+	// Count and insert share one transaction so the check cannot be read stale by the time the row
+	// lands. That bounds normal growth; it is NOT exact under READ COMMITTED, which is why the
+	// import validator is given headroom above this cap rather than the same number — see
+	// MAX_IMPORTED_RECURRING_STREAM_ACTIONS. No `withConcurrentWriteRetry`: there is no unique
+	// constraint here to race on, so there would be nothing to retry.
+	const created = await prisma.$transaction(async (tx) => {
+		const total = await tx.recurringStreamAction.count({ where: { userId } });
+		if (total >= MAX_RECURRING_STREAM_ACTIONS) {
+			throw error(400, m.upcoming_bills_error_action_limit());
+		}
 
-	const created = await prisma.recurringStreamAction.create({
-		data: {
-			userId,
-			kind: dbKind,
-			direction,
-			normalizedLabel,
-			label,
-			anchorTransactionIds: JSON.stringify(anchors),
-			dueDate
-		},
-		select: { id: true }
+		return tx.recurringStreamAction.create({
+			data: {
+				userId,
+				kind: dbKind,
+				direction,
+				normalizedLabel,
+				label,
+				anchorTransactionIds: JSON.stringify(anchors),
+				dueDate
+			},
+			select: { id: true }
+		});
 	});
 
 	return { actionId: created.id };
@@ -463,7 +506,10 @@ function toRowView(occurrence: BillOccurrence, index: number): UpcomingBillRowVi
 	// `getInitials` over that form reads its " - " as a word and renders "N-" on the avatar. Same
 	// sanitizer, same anonymization boundary, just not the composed string.
 	const label = anonymizeMerchant(flow.label);
-	const normalizedLabel = normalizeRecurringLabel(flow.label);
+	// The STORED normalized form (truncate, then normalize), so the value the form posts back is
+	// already the value `recordStreamAction` derives — and so `rowKey` groups a row under the same
+	// identity the persisted action carries.
+	const normalizedLabel = normalizeStoredRecurringLabel(flow.label);
 
 	return {
 		rowKey: `${flow.direction}:${normalizedLabel}:${occurrence.dateIso}:${index}`,
@@ -492,13 +538,14 @@ function toRowView(occurrence: BillOccurrence, index: number): UpcomingBillRowVi
 		appliedActionId: occurrence.appliedActionId,
 		actionPayload: {
 			direction: flow.direction,
-			// Capped here as well as in recordStreamAction: the form posts these values back, and a
-			// payload the write path would silently truncate is a payload whose idempotence check
-			// compares a different string than the one that gets stored.
-			normalizedLabel: normalizedLabel.slice(0, MAX_PORTABLE_STRING),
-			label: flow.label.slice(0, MAX_PORTABLE_STRING),
+			// Capped the same way recordStreamAction caps, so the value posted back is already the
+			// value that gets stored: a payload the write path would silently truncate is a payload
+			// whose idempotence check compares a different string than the one on disk.
+			// `normalizedLabel` needs no cap of its own — it is derived from an already-capped label.
+			normalizedLabel,
+			label: truncateStoredLabel(flow.label),
 			dueDate: occurrence.dateIso,
-			anchorTransactionIds: JSON.stringify(flow.occurrenceIds.slice(-MAX_ANCHOR_IDS))
+			anchorTransactionIds: JSON.stringify(fitAnchorCell(flow.occurrenceIds.slice(-MAX_ANCHOR_IDS)))
 		}
 	};
 }
@@ -519,6 +566,52 @@ function toObservationCandidateViews(
 	}));
 }
 
+/**
+ * Drops the OLDEST anchors until the serialized cell fits `MAX_ANCHOR_CELL_CHARS`.
+ *
+ * `MAX_ANCHOR_IDS` and `MAX_ANCHOR_ID_CHARS` together already keep the cell inside the budget, so
+ * this normally removes nothing. It exists because that is an arithmetic argument about two
+ * constants, and the property that actually matters — "the string this function writes is a string
+ * the backup validator accepts" — is worth asserting on the string itself. Same direction of
+ * degradation as every other anchor truncation here: fewer anchors only weakens the action to
+ * label-based matching.
+ */
+function fitAnchorCell(anchors: readonly string[]): string[] {
+	let fitted = [...anchors];
+	while (fitted.length > 1 && JSON.stringify(fitted).length > MAX_ANCHOR_CELL_CHARS) {
+		fitted = fitted.slice(1);
+	}
+	return fitted;
+}
+
+/**
+ * Idempotence tolerance for THIS stream, from the dates of the anchors the user owns.
+ *
+ * A fixed window cannot work: `occurrenceActionWindowDays` grants 3 days to a weekly stream and 15
+ * to a monthly one, so a single value either merges two consecutive weekly occurrences into one
+ * action or splits a monthly one. The anchors are that stream's own past occurrences, so their
+ * median consecutive interval is the same quantity the domain reads off a detected flow.
+ */
+function resolveIdempotenceWindowDays(anchorDates: readonly Date[]): number {
+	if (anchorDates.length < 2) return FALLBACK_IDEMPOTENCE_WINDOW_DAYS;
+
+	const sorted = [...anchorDates].map(toIsoDate).sort((left, right) => left.localeCompare(right));
+	const intervals = sorted
+		.slice(1)
+		.map((date, index) => daysBetween(sorted[index], date))
+		.sort((left, right) => left - right);
+	const middle = Math.floor(intervals.length / 2);
+	const medianIntervalDays =
+		intervals.length % 2 === 0
+			? (intervals[middle - 1] + intervals[middle]) / 2
+			: intervals[middle];
+
+	// Two anchors on the same day (a split payment, say) give a median of 0, which is not a cadence.
+	if (medianIntervalDays <= 0) return FALLBACK_IDEMPOTENCE_WINDOW_DAYS;
+
+	return occurrenceActionWindowDays({ medianIntervalDays });
+}
+
 function parseActionKind(raw: string): StreamActionKind {
 	if (raw === 'ignore' || raw === 'paid' || raw === 'exclude') return raw;
 	throw error(400, m.upcoming_bills_error_invalid_action());
@@ -530,6 +623,13 @@ function parseDirection(raw: string): FlowDirection {
 }
 
 function parseDueDate(kind: StreamActionKind, raw: string | null): Date | null {
+	// Not trusted to be a string either: a number or an object from a form body would throw a
+	// TypeError out of `.trim()` and become a 500. Absent (null/undefined) is a legitimate value —
+	// it is what an `exclude` must carry — but anything else is a malformed payload, refused as
+	// such rather than silently read as "no due date".
+	if (raw !== null && raw !== undefined && typeof raw !== 'string') {
+		throw error(400, m.upcoming_bills_error_invalid_date());
+	}
 	const trimmed = (raw ?? '').trim();
 
 	// An exclude targets the whole stream, so a due date on one is not "extra data" — it is a
