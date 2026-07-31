@@ -222,6 +222,12 @@ jobs:
       # dependencies (bcrypt, better-sqlite3) are compiled per-platform, so it is also the half
       # most likely to break.
       #
+      # It covers one more native binary than it looks like it does. The container runs
+      # `prisma migrate deploy` before it serves anything, so reaching /login means the arm64
+      # build of Prisma's schema-engine — an ELF, not JavaScript — executed against this base's
+      # glibc and OpenSSL. That is the piece with no fallback path if the runtime image's base
+      # ever drifts from the builder's.
+      #
       # SQLite and the image's default DATABASE_URL only: this is an architecture check, not a
       # provider check. The three secrets are throwaway values for a container that lives about
       # a minute.

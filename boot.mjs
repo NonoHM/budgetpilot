@@ -30,6 +30,36 @@
 // dispositions from the kernel, but registered handlers fire fine, so no init shim is needed.
 // The only window without a handler is the migrate phase below, which installs its own.
 import { spawn } from 'node:child_process';
+import { accessSync, constants } from 'node:fs';
+import path from 'node:path';
+
+// SQLite is the only provider that writes to the container's own filesystem, and /data is the
+// only place it may write. This check exists for one upgrade in particular: images before the
+// distroless base ran as a `useradd --system` uid (typically 999), this one runs as 65532, and a
+// named volume or bind mount created by the older image is still owned by the older uid. Without
+// this, the first symptom is Prisma reporting SQLITE_CANTOPEN or "unable to open database file",
+// which names neither the cause nor the fix.
+//
+// The remediation has to run in another image because there is no chown in this one — that is
+// the point of the base, not an oversight.
+const databaseUrl = process.env.DATABASE_URL ?? 'file:/data/dev.db';
+if (databaseUrl.startsWith('file:')) {
+	const directory = path.dirname(databaseUrl.slice('file:'.length));
+	try {
+		accessSync(directory, constants.W_OK);
+	} catch {
+		console.error(
+			`${directory} is not writable by uid ${process.getuid()}. If you upgraded from an ` +
+				'image older than the distroless one, the volume is still owned by the old uid. ' +
+				'Fix it once, with the container stopped:\n' +
+				'  docker run --rm -v budgetpilot_data:/data busybox chown -R 65532:65532 /data\n' +
+				'Replace budgetpilot_data with your volume name (docker volume ls), or for a bind ' +
+				'mount run: sudo chown -R 65532:65532 /your/host/path\n' +
+				'PostgreSQL and MySQL installs are not affected by this and never see this message.'
+		);
+		process.exit(1);
+	}
+}
 
 const migrate = spawn(
 	process.execPath,

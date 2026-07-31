@@ -142,6 +142,14 @@ docker compose down   # NEVER -v — that deletes the Docker DB volume
 ./scripts/check-compose-combinations.sh
 ```
 
+- The runtime image is distroless: no shell, no npm, no coreutils. Starting a
+  shell in it (`docker compose exec budgetpilot sh`) does not work and is not
+  meant to. Its entrypoint is `node`, so run things as
+  `docker compose run --rm budgetpilot scripts/<name>.mjs [args]` or
+  `docker compose exec budgetpilot /nodejs/bin/node -e '<snippet>'`. Anything
+  a smoke assertion needs to read out of the image is extracted to the host
+  first — see `extract_from_image` in `scripts/docker-smoke.sh`; do not add a
+  check that shells into the image, because it cannot work.
 - Never run `prisma migrate reset` against a database you care about.
 - `src/lib/server/database/generated/` is build output (one Prisma client per
   provider) and is gitignored. If a build complains it is missing, run

@@ -47,6 +47,47 @@ Database migrations run automatically when the container starts, so there's
 no separate step and your data carries across the update. Take a backup
 first anyway, see below.
 
+### Before you upgrade to the distroless image
+
+**SQLite installs need a one-time `chown` on the data volume. PostgreSQL and
+MySQL/MariaDB installs need nothing** — they don't use `/data`.
+
+The runtime image now runs as user ID 65532 instead of the one earlier
+images used. Your existing volume is still owned by the old ID, and the new
+container cannot write to it. It tells you so and refuses to start rather
+than failing later with a database error that names neither the cause nor
+the fix:
+
+```
+/data is not writable by uid 65532. If you upgraded from an image older
+than the distroless one, the volume is still owned by the old uid.
+```
+
+Fix it once, with the container stopped:
+
+```bash
+docker compose down
+docker volume ls                    # find your volume, usually <project>_budgetpilot_data
+docker run --rm -v budgetpilot_budgetpilot_data:/data busybox chown -R 65532:65532 /data
+docker compose up -d
+```
+
+The `busybox` helper is not an oddity to work around: the app image has no
+`chown`, and no shell to run one in. That is the point of the new base — the
+image contains node and the app, and essentially nothing else. Use any image
+you like for this, `busybox` is just small.
+
+If you use a bind mount instead of a named volume (`- ./data:/data` in your
+compose file), the equivalent is:
+
+```bash
+sudo chown -R 65532:65532 /path/to/your/data
+```
+
+Nothing else changes: same commands, same environment variables, same
+volume, same data. Two things that were possible before are not any more,
+both covered under [Looking inside the container](#looking-inside-the-container).
+
 ### Before you upgrade past 0.2.2
 
 **Category names that differ only in case or accents become one category.**
@@ -323,6 +364,47 @@ for merging two accounts.
 4. Restore the database with the matching command above (`docker compose cp`
    on SQLite, `pg_restore` or `mariadb` on a server engine).
 5. Adjust `ORIGIN` if the URL changed.
+
+## Looking inside the container
+
+`docker compose logs -f budgetpilot` is the tool, and it is unchanged.
+
+Two things that used to work no longer do, because the runtime image now
+contains node and the app and essentially nothing else — no shell, no
+package manager, no `curl`, no `ls`:
+
+```bash
+docker compose exec budgetpilot sh          # no shell to start
+docker compose exec budgetpilot npm run ... # no npm
+```
+
+This is deliberate. Anything that gets code execution inside the container
+finds no interpreter and no tooling waiting for it, and the image is a good
+deal smaller and carries far fewer packages that can turn up in a CVE feed.
+
+What replaces them:
+
+- **Run a script that ships with the app.** The entrypoint is `node`, so
+  append what you want it to run:
+  ```bash
+  docker compose run --rm budgetpilot scripts/normalize-names.mjs --dry-run
+  ```
+- **Run a one-off snippet.** Same idea, with node's own flag:
+  ```bash
+  docker compose exec budgetpilot /nodejs/bin/node -e 'console.log(process.version)'
+  ```
+- **Poke at the filesystem or fix ownership.** Use any image that has the
+  tools, mounting the same volume — this is how the upgrade `chown` above
+  works:
+  ```bash
+  docker run --rm -v budgetpilot_budgetpilot_data:/data busybox ls -ln /data
+  ```
+- **Get a real shell to look around, on your own machine.** The base image
+  has a debug variant that adds busybox. Never run it in production:
+  ```bash
+  docker run --rm -it --entrypoint /busybox/sh \
+    gcr.io/distroless/nodejs24-debian13:debug-nonroot
+  ```
 
 ## Where your data actually is
 
