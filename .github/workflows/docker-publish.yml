@@ -189,12 +189,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: digests-linux-amd64
           path: /tmp/scan-digests/amd64
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: digests-linux-arm64
           path: /tmp/scan-digests/arm64
@@ -306,7 +306,7 @@ jobs:
     needs: [prepare, build, scan]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: digests-*
@@ -455,7 +455,7 @@ jobs:
     permissions:
       contents: write # gh release upload — and nothing third-party runs here
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: sbom
 
