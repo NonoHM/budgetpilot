@@ -42,7 +42,7 @@ jobs:
       # The package is public today (verified by an anonymous pull), so this is not strictly
       # needed — but if its visibility ever flips, an unauthenticated scan would fail on the
       # pull and the zero-commit CVE alerting this workflow exists for would silently stop.
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -89,7 +89,7 @@ jobs:
       # findings share one view. Runs on the default branch (schedule/dispatch context),
       # which is exactly where the Security tab's default alert list looks.
       - name: Upload amd64 results to the Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v4.37.3
         with:
           sarif_file: trivy-published-amd64.sarif
           category: trivy-published-image-amd64
@@ -107,7 +107,7 @@ jobs:
           skip-setup-trivy: true
 
       - name: Upload arm64 results to the Security tab
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v4.37.3
         with:
           sarif_file: trivy-published-arm64.sarif
           category: trivy-published-image-arm64
