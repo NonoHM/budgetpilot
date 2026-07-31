@@ -61,6 +61,7 @@ CREATED_CONTAINERS=()
 # a scratch volume. Both are cleaned up on every exit path, including Ctrl-C.
 WORK_DIR=$(mktemp -d)
 DRY_RUN_VOLUME=budgetpilot-smoke-dryrun
+UPGRADE_VOLUME=budgetpilot-smoke-upgrade
 
 cleanup() {
 	local status=$?
@@ -70,7 +71,7 @@ cleanup() {
 		[ -n "$container" ] && docker rm -f "$container" >/dev/null 2>&1 || true
 	done
 	docker network rm "$NETWORK" >/dev/null 2>&1 || true
-	docker volume rm -f "$DRY_RUN_VOLUME" >/dev/null 2>&1 || true
+	docker volume rm -f "$DRY_RUN_VOLUME" "$UPGRADE_VOLUME" >/dev/null 2>&1 || true
 	docker image rm -f "$IMAGE" "$BUILDER_IMAGE" >/dev/null 2>&1 || true
 	rm -rf "$WORK_DIR"
 	exit "$status"
@@ -172,6 +173,63 @@ echo "=== asserting all three generated clients exist and are distinct ==="
 echo
 echo "=== asserting the shipped bundle carries all three ==="
 ./scripts/assert-generated-clients.sh bundle "$IMAGE_ROOTFS"
+
+# ---------------------------------------------------------------------------------------------
+# The distroless base's properties, each proven the way it can actually fail
+# ---------------------------------------------------------------------------------------------
+
+# "There is no shell in the image" is a claim about what can be executed, so it is asserted by
+# trying to execute one, not only by looking for the files. The two halves catch different
+# things: a shell added back by a future COPY or base change shows up in the file scan, and a
+# shell reachable under a name nobody listed shows up in the exec attempt. `stat` said one thing
+# and `mv` said another once already in this repo; only the attempt is evidence.
+echo
+echo "=== asserting the final image has no shell ==="
+for candidate in bin/sh bin/bash bin/dash usr/bin/sh usr/bin/bash usr/bin/env busybox/sh; do
+	if [ -e "$IMAGE_ROOTFS/$candidate" ]; then
+		echo "FAIL: the final image contains /$candidate" >&2
+		exit 1
+	fi
+done
+for entrypoint in /bin/sh /bin/bash /busybox/sh /usr/bin/env; do
+	set +e
+	docker run --rm --entrypoint "$entrypoint" "$IMAGE" -c true >/dev/null 2>&1
+	shell_status=$?
+	set -e
+	if [ "$shell_status" -eq 0 ]; then
+		echo "FAIL: $entrypoint executed inside the final image" >&2
+		exit 1
+	fi
+done
+echo "  ok: no shell on disk, and none of 4 candidate interpreters can be executed"
+
+# What boot.mjs needs in order to migrate, and the uid it runs as.
+#
+# node_modules/prisma/build/index.js is the CLI's declared bin entry rather than a documented
+# API surface, and it is the one unversioned assumption in the boot path: a future Prisma
+# release that moved it would break every container start, at boot, in production. Asserting
+# the file exists turns that into a build-time failure here instead.
+echo
+echo "=== asserting the migrate path and runtime uid survive the base swap ==="
+[ -f "$IMAGE_ROOTFS/app/node_modules/prisma/build/index.js" ] \
+	|| { echo "FAIL: prisma CLI bin entry missing — check prisma's package.json \"bin\" mapping" >&2; exit 1; }
+[ -x "$IMAGE_ROOTFS/app/node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x" ] \
+	|| { echo "FAIL: the schema-engine binary is missing or not executable in the image" >&2; exit 1; }
+image_user=$(docker inspect --format '{{.Config.User}}' "$IMAGE")
+[ "$image_user" = "65532" ] \
+	|| { echo "FAIL: image USER is '$image_user', expected 65532" >&2; exit 1; }
+# /data has to arrive owned by the runtime uid: a fresh named volume inherits its ownership from
+# the image, and that inheritance is the only reason a zero-config SQLite install can write.
+#
+# Asked of a running container rather than of $IMAGE_ROOTFS, and that is not a style choice: the
+# export is unpacked by an unprivileged user, so every file in it belongs to whoever ran this
+# script. Ownership is one of the few things the extracted tree cannot answer — no permission or
+# ownership assertion belongs there.
+data_owner=$(docker run --rm "$IMAGE" \
+	-e 'const s = require("node:fs").statSync("/data"); console.log(`${s.uid}:${s.gid}`)')
+[ "$data_owner" = "65532:65532" ] \
+	|| { echo "FAIL: /data in the image is owned by $data_owner, expected 65532:65532" >&2; exit 1; }
+echo "  ok: prisma CLI entry, schema engine, USER 65532, /data owned by 65532:65532"
 
 # The name-normalization preview, run for real against an empty throwaway database.
 #
@@ -466,6 +524,96 @@ if grep -q 'Listening on' <<<"$failpath_logs"; then
 fi
 echo "  ok: refused to start, never listened, exited $failpath_status"
 docker rm -f "$failpath_app" >/dev/null
+
+# The upgrade path from any pre-distroless image, which is the one operator-breaking change in
+# this base swap. Those images ran as a `useradd --system` uid (999 here), this one runs as
+# 65532, and an existing SQLite install's volume is still owned by the old uid. Without the
+# preflight in boot.mjs the first symptom is Prisma's SQLITE_CANTOPEN, which names neither the
+# cause nor the fix — and the fix cannot run in this image, because it has no chown.
+#
+# Both halves are asserted: that it refuses with the remediation, and that the remediation it
+# prints actually works. A message nobody has followed end to end is not a remediation.
+echo
+echo "=== asserting an old-uid volume is refused, and that the printed fix resolves it ==="
+docker volume create "$UPGRADE_VOLUME" >/dev/null
+# busybox, exactly as the message tells an operator to do it — the helper image is the whole
+# point, since neither chown nor a shell exists in the app image.
+docker run --rm -v "$UPGRADE_VOLUME:/data" busybox:1.37 \
+	sh -c 'touch /data/dev.db && chown -R 999:999 /data' >/dev/null
+
+upgrade_app=smoke-app-upgrade
+CREATED_CONTAINERS+=("$upgrade_app")
+set +e
+timeout 120 docker run --name "$upgrade_app" -v "$UPGRADE_VOLUME:/data" \
+	-e DATABASE_URL="file:/data/dev.db" \
+	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
+	-e PUBLIC_INSTANCE=false \
+	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
+	-e RATE_LIMIT_HASH_SECRET="$RATE_LIMIT_HASH_SECRET" \
+	-e BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+	"$IMAGE" >/dev/null 2>&1
+upgrade_status=$?
+set -e
+upgrade_logs=$(docker logs "$upgrade_app" 2>&1 | redact || true)
+docker rm -f "$upgrade_app" >/dev/null
+
+if [ "$upgrade_status" -eq 0 ]; then
+	echo "$upgrade_logs"
+	echo "FAIL: the container started on a volume owned by the old uid" >&2
+	exit 1
+fi
+# The remediation string itself, not merely "it failed": an operator who cannot act on the
+# message is no better off than with SQLITE_CANTOPEN.
+if ! grep -q 'chown -R 65532:65532 /data' <<<"$upgrade_logs"; then
+	echo "$upgrade_logs"
+	echo "FAIL: the refusal did not print the chown remediation" >&2
+	exit 1
+fi
+# Prisma must never have been reached: the whole value of the preflight is that it speaks before
+# the driver produces its opaque error.
+if grep -qE 'SQLITE_CANTOPEN|unable to open database file' <<<"$upgrade_logs"; then
+	echo "$upgrade_logs"
+	echo "FAIL: Prisma's own error surfaced — the preflight did not run first" >&2
+	exit 1
+fi
+echo "  ok: refused with the remediation, before Prisma saw the volume"
+
+# Now follow the printed instruction verbatim and boot again.
+docker run --rm -v "$UPGRADE_VOLUME:/data" busybox:1.37 chown -R 65532:65532 /data >/dev/null
+upgrade_app=smoke-app-upgraded
+run_container "$upgrade_app" \
+	-p "127.0.0.1:$APP_PORT:3000" \
+	-v "$UPGRADE_VOLUME:/data" \
+	-e DATABASE_URL="file:/data/dev.db" \
+	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
+	-e PUBLIC_INSTANCE=false \
+	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
+	-e RATE_LIMIT_HASH_SECRET="$RATE_LIMIT_HASH_SECRET" \
+	-e BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+	"$IMAGE"
+
+ready=false
+for _ in $(seq 1 "$BOOT_TIMEOUT"); do
+	if curl -fs -o /dev/null "http://127.0.0.1:$APP_PORT/login" 2>/dev/null; then
+		ready=true
+		break
+	fi
+	sleep 1
+done
+upgrade_logs=$(docker logs "$upgrade_app" 2>&1 | redact || true)
+if [ "$ready" != true ]; then
+	echo "$upgrade_logs"
+	echo "FAIL: the remediation the image prints does not actually make it bootable" >&2
+	exit 1
+fi
+if ! grep -qE 'migration(s)? have been successfully applied|No pending migrations' <<<"$upgrade_logs"; then
+	echo "$upgrade_logs"
+	echo "FAIL: no evidence that migrate deploy ran after the remediation" >&2
+	exit 1
+fi
+echo "  ok: after the printed chown, migrations applied and /login served"
+docker rm -f "$upgrade_app" >/dev/null
+docker volume rm "$UPGRADE_VOLUME" >/dev/null
 
 # The container has to stop on SIGTERM by draining, not by being killed 10 seconds later.
 # `exec node build` gave that for free: node was PID 1 and adapter-node's own SIGTERM handler

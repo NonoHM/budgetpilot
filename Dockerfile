@@ -3,7 +3,23 @@
 # comment or instruction. The reasoning is at the `ENV` block in the `builder` stage below, and
 # so is the check that keeps the skip honest. Do not remove either half without reading it.
 
-FROM node:24.18.0-trixie-slim AS deps
+# Every FROM is pinned by digest, and specifically by the *index* (manifest-list) digest rather
+# than a per-architecture one: the publish workflow builds linux/amd64 and linux/arm64 from these
+# same lines, and a per-arch digest would pin the build to one of them. `docker buildx imagetools
+# inspect <ref>` prints the index digest first, then the per-arch manifests it covers — the first
+# one is what belongs here.
+#
+# Dependabot updates these in place under the existing `docker` ecosystem block, no config
+# change. Two quirks worth knowing rather than fixing: a digest-only bump renders as "from
+# `nonroot` to `nonroot`" because there is no version string to show, and a digest PR that is
+# *closed* is not re-offered until the next digest lands upstream — so do not close one expecting
+# it back.
+#
+# Builder and runtime are the same Debian release on purpose (trixie = Debian 13, glibc 2.41,
+# Node 24.18.0 in both, verified by running both images). better-sqlite3, bcrypt and Prisma's
+# schema-engine are native ELFs compiled in the builder stages and executed in the runtime one;
+# a base pair that drifted apart in glibc or in NODE_MODULE_VERSION would break them at boot.
+FROM node:24.18.0-trixie-slim@sha256:ae91dcc111a68c9d2d81ff2a17bda61be126426176fde6fe7d08ab13b7f50573 AS deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -21,7 +37,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 
-FROM node:24.18.0-trixie-slim AS builder
+FROM node:24.18.0-trixie-slim@sha256:ae91dcc111a68c9d2d81ff2a17bda61be126426176fde6fe7d08ab13b7f50573 AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -92,8 +108,14 @@ ENV RATE_LIMIT_HASH_SECRET=docker-build-only-fake-rate-limit-hash-secret-do-not-
 
 RUN npm run build
 
+# The runtime stage is distroless: no shell, so no RUN, so no `mkdir` and no `chown` there. The
+# /data mount point and its ownership by the runtime uid are prepared here and COPYed across.
+# Docker seeds a named volume from the image's contents at that path on first use, ownership
+# included, which is what lets the app create its SQLite database in a fresh volume.
+RUN mkdir -p /out/data && chown 65532:65532 /out/data
 
-FROM node:24.18.0-trixie-slim AS prod-deps
+
+FROM node:24.18.0-trixie-slim@sha256:ae91dcc111a68c9d2d81ff2a17bda61be126426176fde6fe7d08ab13b7f50573 AS prod-deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -124,7 +146,21 @@ COPY src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
 # dependency tree and for the schemas `prisma migrate deploy` reads at boot.
 
 
-FROM node:24.18.0-trixie-slim AS runner
+# Runtime: Google Distroless Node.js. Debian 13 (trixie) and glibc 2.41, the same release the
+# builder stages run, so better-sqlite3, bcrypt and Prisma's schema-engine execute against the
+# ABI they were compiled for. What the base contains beyond node: libstdc++/libgcc/libssl3/
+# zlib1g, CA certificates, tzdata, /etc/passwd, and a writable /tmp. What it does not contain:
+# a shell, /usr/bin/env, npm, a package manager, coreutils. Nothing here can `RUN`.
+#
+# The :nonroot tag runs as uid/gid 65532 and its ENTRYPOINT is already ["/nodejs/bin/node"], so
+# the CMD below is node argv and needs no ENTRYPOINT line of its own — the same shape the slim
+# base was given in the previous release, which is why the documented
+# `docker compose run --rm budgetpilot scripts/normalize-names.mjs --dry-run` is unaffected.
+#
+# Debugging: `docker compose exec budgetpilot sh` no longer exists. Use the same base's
+# debug-nonroot variant locally (`--entrypoint /busybox/sh`), never in production; see
+# docs/operations.md. `docker compose logs budgetpilot` is unchanged.
+FROM gcr.io/distroless/nodejs24-debian13:nonroot@sha256:af85d11ce7ef10172855a6e3649e3e8125b1b9e3ca41849ec2918036f05cb212 AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
@@ -139,17 +175,17 @@ ENV DATABASE_URL=file:/data/dev.db
 ENV CHECKPOINT_DISABLE=1
 ENV PRISMA_HIDE_UPDATE_MESSAGE=1
 
-RUN apt-get update \
-	&& apt-get install -y --no-install-recommends \
-		ca-certificates \
-		openssl \
-	&& rm -rf /var/lib/apt/lists/* \
-	&& groupadd --system app \
-	&& useradd --system --gid app --home /home/app --create-home app \
-	&& mkdir -p /data \
-	&& chown -R app:app /data /home/app
+# The apt-get layer the Debian-based runner used to need is gone with the base: ca-certificates
+# and openssl are both already in distroless (the schema-engine's libssl.so.3 is satisfied by the
+# base's libssl3t64 — proven by executing the engine inside this image, not by reading a package
+# list). So are the user and the group, hence no groupadd/useradd either.
+#
+# /data is the one exception, because a mount point cannot be created without a RUN: the builder
+# stage makes it and chowns it to 65532, and it arrives here as a COPY. Docker seeds a fresh
+# named volume from this, ownership included.
+COPY --from=builder --chown=65532:65532 /out/data /data
 
-# /app stays root-owned, and the app user's home is deliberately NOT /app.
+# /app stays root-owned, and the runtime user's home is deliberately NOT /app.
 #
 # Owning the entries is not enough: unlink and rename are governed by the write bit on the
 # *parent directory*, not by the ownership of what sits inside it. While the app user owned
@@ -206,18 +242,27 @@ COPY --from=builder /app/src/lib/server/naming/backfill.ts \
 	/app/src/lib/server/naming/report.ts \
 	./src/lib/server/naming/
 
+# package.json is not documentation here: jwt.ts resolves the project root by walking up to the
+# nearest one, so dropping it breaks token signing at runtime.
 COPY package.json package-lock.json ./
-# No --chmod: boot.mjs is never executed directly, only read by node.
+# No --chmod on either: they are never executed directly, only read by node.
 COPY boot.mjs ./boot.mjs
+COPY healthcheck.mjs ./healthcheck.mjs
 
-USER app
+# Restating what the :nonroot tag already sets, on purpose. Removing this line changes nothing
+# today — tried, and `docker inspect` still reported 65532 — which is exactly why it stays: it
+# is the difference between running unprivileged by intent and by inheritance, and a future
+# digest bump onto a tag without the nonroot default would land back on root silently. The
+# smoke suite asserts the built image's USER for the same reason, and that assertion was proven
+# by setting this to `root` and watching it fail.
+USER 65532
 
 EXPOSE 3000
 
-# ENTRYPOINT is `node` rather than the boot script itself, and that is load-bearing for what
-# comes next: the distroless base this image is moving to has ENTRYPOINT ["/nodejs/bin/node"],
-# so anything an operator appends — `docker compose run --rm budgetpilot scripts/foo.mjs` — is
-# node argv on both bases. Setting it here means the documented commands are written once and
-# survive the base swap unchanged.
-ENTRYPOINT ["node"]
+# Exec form, and it has to be: the shell form would need /bin/sh inside the container, and the
+# usual `curl -f localhost:3000` is doubly impossible — no curl either. The probe is node.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=90s --retries=3 \
+	CMD ["/nodejs/bin/node", "healthcheck.mjs"]
+
+# No ENTRYPOINT line: the base already sets ["/nodejs/bin/node"], so this is node argv.
 CMD ["boot.mjs"]
