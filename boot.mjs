@@ -30,7 +30,8 @@
 // dispositions from the kernel, but registered handlers fire fine, so no init shim is needed.
 // The only window without a handler is the migrate phase below, which installs its own.
 import { spawn } from 'node:child_process';
-import { accessSync, constants } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 // SQLite is the only provider that writes to the container's own filesystem, and /data is the
@@ -42,21 +43,76 @@ import path from 'node:path';
 //
 // The remediation has to run in another image because there is no chown in this one — that is
 // the point of the base, not an oversight.
+// A real write, not accessSync(W_OK): the two ways this fails need different instructions, and
+// only the errno tells them apart. accessSync consults the permission bits, so it reports the
+// same "no" for a directory owned by another uid and for one on a read-only mount — the second
+// of which was hit immediately once the container started running with --read-only and no
+// volume at /data, and the ownership advice it printed was useless there.
 const databaseUrl = process.env.DATABASE_URL ?? 'file:/data/dev.db';
 if (databaseUrl.startsWith('file:')) {
 	const directory = path.dirname(databaseUrl.slice('file:'.length));
+	// Three properties of this probe file, each closing a way the check itself could do harm:
+	//
+	//   randomUUID  two containers booting against one volume — a rolling restart, or the second
+	//               app instance withBootBackfillLock exists for — would otherwise share one
+	//               fixed name and unlink each other's probe, so the loser reads ENOENT and
+	//               refuses to start with a message saying the directory is unwritable when it
+	//               is. process.pid cannot disambiguate them: it is 1 in every container.
+	//   flag: 'wx'  O_EXCL|O_CREAT refuses to follow a symlink instead of opening its target,
+	//               and never truncates. With the default 'w', a symlink planted at this path by
+	//               anything able to write /data — which, with the root filesystem read-only, is
+	//               now the only place a dropped payload can live — would make the next boot
+	//               truncate whatever it pointed at. Pointed at dev.db, that is the database
+	//               emptied and then re-migrated into a clean schema, on a container that starts
+	//               and reports healthy.
+	//   finally     a SIGKILL between the write and the unlink otherwise leaves the file behind
+	//               for good, in the one directory operators back up and screenshot.
+	const probe = path.join(directory, `.budgetpilot-write-probe.${randomUUID()}`);
 	try {
-		accessSync(directory, constants.W_OK);
-	} catch {
-		console.error(
-			`${directory} is not writable by uid ${process.getuid()}. If you upgraded from an ` +
-				'image older than the distroless one, the volume is still owned by the old uid. ' +
-				'Fix it once, with the container stopped:\n' +
-				'  docker run --rm -v budgetpilot_data:/data busybox chown -R 65532:65532 /data\n' +
-				'Replace budgetpilot_data with your volume name (docker volume ls), or for a bind ' +
-				'mount run: sudo chown -R 65532:65532 /your/host/path\n' +
-				'PostgreSQL and MySQL installs are not affected by this and never see this message.'
-		);
+		try {
+			writeFileSync(probe, '', { flag: 'wx' });
+		} finally {
+			try {
+				unlinkSync(probe);
+			} catch {
+				// Never created, or already gone. Neither says anything about writability.
+			}
+		}
+	} catch (error) {
+		const uid = process.getuid();
+		if (error.code === 'EROFS') {
+			console.error(
+				`${directory} is on a read-only filesystem, so the SQLite database cannot be ` +
+					'written. The container runs with a read-only root filesystem by design, and ' +
+					`${directory} is expected to be a mounted volume — nothing is mounted there.\n` +
+					'In Compose that is the `budgetpilot_data:/data` volume the shipped files ' +
+					'declare; check it has not been removed. With plain docker run, add ' +
+					'`-v budgetpilot_data:/data`.' +
+					(directory === '/data'
+						? ''
+						: `\nNote that DATABASE_URL points at ${directory}, not at /data. Inside the ` +
+							'container the SQLite file has to live on the mounted volume: set ' +
+							'DATABASE_URL=file:/data/dev.db.')
+			);
+		} else if (error.code === 'EACCES' || error.code === 'EPERM') {
+			console.error(
+				`${directory} is not writable by uid ${uid}. If you upgraded from an image older ` +
+					'than the distroless one, the volume is still owned by the old uid.\n' +
+					"Fix it once, with the container stopped. Find the volume's real name first — " +
+					'Compose prefixes it with the project name, so what docker-compose.yml calls ' +
+					'budgetpilot_data is usually budgetpilot_budgetpilot_data:\n' +
+					'  docker volume ls\n' +
+					'  docker run --rm -v <that name>:/data busybox chown -R 65532:65532 /data\n' +
+					'Get the name wrong and this still exits 0: `-v` silently creates a volume that ' +
+					'does not exist, chowns that empty one, and changes nothing here. For a bind ' +
+					'mount instead: sudo chown -R 65532:65532 /your/host/path'
+			);
+		} else {
+			console.error(
+				`${directory} could not be written by uid ${uid}: ${error.code ?? error.message}. ` +
+					'The SQLite database lives there, so the app cannot start.'
+			);
+		}
 		process.exit(1);
 	}
 }

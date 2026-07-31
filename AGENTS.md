@@ -150,6 +150,14 @@ docker compose down   # NEVER -v — that deletes the Docker DB volume
   a smoke assertion needs to read out of the image is extracted to the host
   first — see `extract_from_image` in `scripts/docker-smoke.sh`; do not add a
   check that shells into the image, because it cannot work.
+- The app container runs `read_only`, with `/tmp` as its only tmpfs, all
+  capabilities dropped and `no-new-privileges`. **`/data` must be a mounted
+  volume** — under a read-only root it is otherwise unwritable, and boot.mjs
+  refuses to start rather than failing later inside Prisma. Anything you add
+  that writes to disk at runtime has to write under `/data`, or it will work
+  in `npm run dev` and fail in the image. `scripts/check-compose-combinations.sh`
+  asserts every documented stack keeps these flags; `scripts/docker-smoke.sh`
+  proves the kernel enforces them, by attempting the writes.
 - Never run `prisma migrate reset` against a database you care about.
 - `src/lib/server/database/generated/` is build output (one Prisma client per
   provider) and is gitignored. If a build complains it is missing, run
