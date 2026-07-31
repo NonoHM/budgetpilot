@@ -67,6 +67,24 @@ updates:
       - dependency-name: 'read-excel-file'
         versions: ['>=9.3.0']
 
+  # Covers every `uses:` in .github/workflows — the major-tag pins on trusted orgs
+  # (actions/*, docker/*, github/*) and the SHA pins on third-party actions
+  # (aquasecurity/trivy-action, anchore/sbom-action); for SHA pins Dependabot moves the
+  # digest and the trailing version comment together. Majors arrive as individual PRs,
+  # which is wanted: an action major (new Node runtime, changed inputs) is reviewed on
+  # its own, only patch/minor land grouped.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    groups:
+      actions-patch-minor:
+        update-types:
+          - patch
+          - minor
+
   - package-ecosystem: docker
     directory: /
     schedule:
