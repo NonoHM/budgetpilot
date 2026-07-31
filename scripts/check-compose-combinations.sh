@@ -130,6 +130,113 @@ for combination in "${COMBINATIONS[@]}"; do
 	fi
 done
 
+# The runtime hardening on the app service, asserted on every documented stack rather than on the
+# two base files. An overlay patching the `budgetpilot` service — the proxy one already does —
+# is one careless key away from resetting any of these back to the Compose default, and the
+# result still merges, still validates and still starts. It just starts with a writable root
+# filesystem or a full capability set, which nothing else here would notice.
+#
+# These are *configuration* assertions, and that is their limit. They prove the stack is written
+# this way; they cannot prove the kernel then enforces it. That half is proven where it can only
+# be proven — in a running container, by attempting the writes and reading /proc/self/status —
+# in scripts/docker-smoke.sh. Neither check replaces the other, and note that ownership and
+# permissions specifically cannot be asserted from an image export at all: an unprivileged
+# `docker export | tar -x` re-owns every file to whoever ran it.
+echo
+echo "--- runtime hardening on the app service ---"
+
+for combination in "${COMBINATIONS[@]}"; do
+	args=()
+	for file in $combination; do
+		args+=(-f "$file")
+	done
+
+	if ! project=$(docker compose --env-file /dev/null "${args[@]}" config --format json 2>/dev/null); then
+		echo "FAIL: $combination could not be rendered (see the combination above for the reason)" >&2
+		failed=1
+		continue
+	fi
+
+	read_only=$(jq -r '.services.budgetpilot.read_only // false' <<<"$project")
+	caps=$(jq -r '(.services.budgetpilot.cap_drop // []) | join(",")' <<<"$project")
+	added_caps=$(jq -r '(.services.budgetpilot.cap_add // []) | length' <<<"$project")
+	no_new_privs=$(jq -r '[(.services.budgetpilot.security_opt // [])[] | select(. == "no-new-privileges:true")] | length' <<<"$project")
+	tmpfs_mounts=$(jq -r '(.services.budgetpilot.tmpfs // []) | join(",")' <<<"$project")
+	# Absent is correct and expected: the image carries its own exec-form HEALTHCHECK, so there
+	# is deliberately nothing to declare here. What must never appear is a shell-form one — the
+	# image has no shell, so `test: ["CMD-SHELL", …]` would fail every probe and mark a healthy
+	# container unhealthy forever.
+	healthcheck_kind=$(jq -r '(.services.budgetpilot.healthcheck.test // [])[0] // "inherited-from-image"' <<<"$project")
+	healthcheck_disabled=$(jq -r '.services.budgetpilot.healthcheck.disable // false' <<<"$project")
+	# The keys that do not *look* like they belong to this list, and undo it anyway. Asserting
+	# the four flags are present says nothing while one of these is around to override them:
+	# `privileged: true` restores the whole capability set and drops seccomp/AppArmor without
+	# touching cap_drop; `security_opt` is a sequence and Compose *appends* across -f files, so
+	# an overlay can leave no-new-privileges in place and add `seccomp:unconfined` next to it;
+	# and `user:` puts the container back on whatever uid it names, no matter what the image
+	# says. Each merges cleanly and starts. This is the repo's recurring failure mode — a check
+	# that asserts the presence of what it knows about instead of the absence of what overrides
+	# it — so it is worth re-reading this list whenever Compose grows a new escape hatch.
+	privileged=$(jq -r '.services.budgetpilot.privileged // false' <<<"$project")
+	extra_security_opts=$(jq -r '[(.services.budgetpilot.security_opt // [])[] | select(. != "no-new-privileges:true")] | join(",")' <<<"$project")
+	run_as=$(jq -r '.services.budgetpilot.user // ""' <<<"$project")
+
+	if [ "$read_only" != true ]; then
+		echo "FAIL: $combination leaves the app's root filesystem writable (read_only: $read_only)" >&2
+		failed=1
+		continue
+	fi
+	if [ "$caps" != ALL ]; then
+		echo "FAIL: $combination drops capabilities \"$caps\", expected exactly ALL" >&2
+		failed=1
+		continue
+	fi
+	if [ "$added_caps" != 0 ]; then
+		echo "FAIL: $combination adds $added_caps capability/capabilities back; none is needed" >&2
+		failed=1
+		continue
+	fi
+	if [ "$no_new_privs" != 1 ]; then
+		echo "FAIL: $combination does not set no-new-privileges:true on the app service" >&2
+		failed=1
+		continue
+	fi
+	if [ "$tmpfs_mounts" != /tmp ]; then
+		echo "FAIL: $combination mounts tmpfs \"$tmpfs_mounts\", expected exactly /tmp" >&2
+		failed=1
+		continue
+	fi
+	if [ "$healthcheck_kind" = CMD-SHELL ]; then
+		echo "FAIL: $combination gives the app a shell-form healthcheck; the image has no shell" >&2
+		failed=1
+		continue
+	fi
+	# `disable: true` renders with no `test` at all, which reads exactly like "inherited from the
+	# image" — the healthy-looking answer for a container that has no healthcheck whatsoever.
+	if [ "$healthcheck_disabled" = true ]; then
+		echo "FAIL: $combination disables the app's healthcheck" >&2
+		failed=1
+		continue
+	fi
+	if [ "$privileged" != false ]; then
+		echo "FAIL: $combination runs the app privileged, which restores every dropped capability" >&2
+		failed=1
+		continue
+	fi
+	if [ -n "$extra_security_opts" ]; then
+		echo "FAIL: $combination adds security_opt entries \"$extra_security_opts\"; confinement must not be relaxed" >&2
+		failed=1
+		continue
+	fi
+	if [ -n "$run_as" ]; then
+		echo "FAIL: $combination overrides the app's user to \"$run_as\"" >&2
+		failed=1
+		continue
+	fi
+
+	echo "ok:   $combination (read-only root, all capabilities dropped, no-new-privileges, tmpfs=/tmp)"
+done
+
 # A valid project is not the claim that matters for the database overlays. Two of their
 # properties are load-bearing and both are one careless edit away from being silently lost, with
 # a stack that still merges, still validates and still starts:

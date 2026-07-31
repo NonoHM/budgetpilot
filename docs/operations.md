@@ -406,6 +406,52 @@ What replaces them:
     gcr.io/distroless/nodejs24-debian13:debug-nonroot
   ```
 
+## What the container is allowed to do
+
+The shipped Compose files run the app with four restrictions. You don't need
+to do anything about them — this section exists so they aren't a mystery if
+you ever hit one.
+
+| Setting                                  | What it means                                                          |
+| ---------------------------------------- | ---------------------------------------------------------------------- |
+| `read_only: true`                        | The container's own filesystem cannot be written to at all             |
+| `tmpfs: [/tmp]`                          | ...except `/tmp`, which is in RAM and disappears on restart            |
+| `cap_drop: [ALL]`                        | No Linux capabilities: no raw sockets, no mounting, no changing owners |
+| `security_opt: [no-new-privileges:true]` | Nothing inside can ever gain more privileges than it started with      |
+
+**Your data is unaffected.** `/data` is a mounted volume, and mounted volumes
+stay writable — that is where the SQLite database, and everything else the
+app persists, lives.
+
+The one thing to know: **`/data` has to be a real mount.** The shipped files
+mount `budgetpilot_data:/data` for you. If you write your own compose file or
+your own `docker run` and leave that out, the app now stops at startup and
+says so, instead of failing later with a database error:
+
+```
+/data is on a read-only filesystem, so the SQLite database cannot be written.
+```
+
+If you use PostgreSQL or MySQL, nothing in this section can affect you: the
+app writes to the server, not to the container.
+
+### Loosening a flag temporarily
+
+If you're debugging something and need the container writable for a moment,
+override it in a `docker-compose.override.yml` next to your compose file
+rather than editing the shipped ones (which an update would overwrite):
+
+```yaml
+services:
+  budgetpilot:
+    read_only: false
+```
+
+Compose merges it automatically. Delete the file when you're done. Note that
+`docker compose down && docker compose up -d` starts from a clean container
+either way, so most "let me write a file in there to test" instincts are
+better served by the volume or by `docker compose logs`.
+
 ## Where your data actually is
 
 |                          | Docker                                               | No Docker                      |
