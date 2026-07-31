@@ -205,12 +205,14 @@ describe('loadUpcomingBillsMonth', () => {
 		const row = view.rows[0];
 
 		expect(row.label).not.toContain('NETFLIX');
-		expect(row.label).toBe('Netflix - Loisirs');
-		// getInitials over the string the surface actually displays — including the " - category"
-		// suffix anonymizeLabel appends, whose "-" becomes the second initial for a single-word
-		// merchant. Deliberately NOT special-cased: a second initials rule is exactly what the
-		// Task 2 ruling forbids (see the `initials` field in service.ts).
-		expect(row.initials).toBe('N-');
+		// The merchant alone: the category is its own field and the design prints it in the row's
+		// sub-line, so the composed anonymizeLabel form would show "Loisirs" twice per row.
+		expect(row.label).toBe('Netflix');
+		expect(row.label).not.toContain(row.category);
+		// getInitials over exactly the string the surface displays. With the merchant alone a
+		// single-word one gives a sane badge; the composed "Netflix - Loisirs" gave "N-", because
+		// getInitials reads the hyphen as a word.
+		expect(row.initials).toBe('N');
 		// The hidden field is the value recordStreamAction will store, not display copy.
 		expect(row.actionPayload.label).toBe(SUBSCRIPTION_LABEL);
 		expect(row.actionPayload.normalizedLabel).toBe('cb abonnement netflix');
@@ -266,9 +268,7 @@ describe('loadUpcomingBillsMonth', () => {
 		const view = await loadUpcomingBillsMonth(userId, '2026-07');
 
 		expect(view.rows).toEqual([]);
-		expect(view.observationCandidates).toEqual([
-			{ label: 'Edf Facture - Énergie', occurrenceCount: 2 }
-		]);
+		expect(view.observationCandidates).toEqual([{ label: 'Edf Facture', occurrenceCount: 2 }]);
 	});
 
 	it('refuse un mois malformé avant toute requête', async () => {
@@ -340,7 +340,7 @@ describe('recordStreamAction', () => {
 		return {
 			kind: 'ignore' as const,
 			direction: 'expense',
-			normalizedLabel: 'cb abonnement netflix',
+			// No normalizedLabel: it is derived server-side from `label`, never accepted as input.
 			label: SUBSCRIPTION_LABEL,
 			dueDate: '2026-07-10',
 			anchorTransactionIds: ['sub-0', 'sub-1', 'sub-2'],
@@ -393,27 +393,37 @@ describe('recordStreamAction', () => {
 
 		await recordStreamAction(
 			userId,
-			input({
-				label: 'a'.repeat(MAX_PORTABLE_STRING),
-				normalizedLabel: 'b'.repeat(MAX_PORTABLE_STRING),
-				anchorTransactionIds: ['sub-0']
-			})
+			input({ label: 'a'.repeat(MAX_PORTABLE_STRING), anchorTransactionIds: ['sub-0'] })
 		);
 		const exact = db.prisma.recurringStreamAction.create.mock.calls[0][0].data;
 		expect(exact.label).toBe('a'.repeat(MAX_PORTABLE_STRING));
-		expect(exact.normalizedLabel).toBe('b'.repeat(MAX_PORTABLE_STRING));
+		// Derived from the stored label, so it is capped by construction as well as by its own slice.
+		expect(exact.normalizedLabel).toBe('a'.repeat(MAX_PORTABLE_STRING));
 
 		await recordStreamAction(
 			userId,
-			input({
-				label: 'a'.repeat(MAX_PORTABLE_STRING + 1),
-				normalizedLabel: 'b'.repeat(MAX_PORTABLE_STRING + 1),
-				anchorTransactionIds: ['sub-0']
-			})
+			input({ label: 'a'.repeat(MAX_PORTABLE_STRING + 1), anchorTransactionIds: ['sub-0'] })
 		);
 		const truncated = db.prisma.recurringStreamAction.create.mock.calls[1][0].data;
 		expect(truncated.label).toHaveLength(MAX_PORTABLE_STRING);
 		expect(truncated.normalizedLabel).toHaveLength(MAX_PORTABLE_STRING);
+	});
+
+	// P2: normalizedLabel is the fallback half of the stream identity, so a client-supplied value
+	// would be a way to aim an action at a stream the user never acted on.
+	it('dérive normalizedLabel du libellé stocké et ignore toute valeur fournie', async () => {
+		db.prisma.transaction.findMany.mockResolvedValue([{ id: 'sub-0' }]);
+
+		await recordStreamAction(userId, {
+			...input({ anchorTransactionIds: ['sub-0'] }),
+			// A forged extra field: the input type has no normalizedLabel, and nothing reads one.
+			normalizedLabel: 'loyer sci dupont'
+		} as Parameters<typeof recordStreamAction>[1]);
+
+		const data = db.prisma.recurringStreamAction.create.mock.calls[0][0].data;
+		expect(data.label).toBe(SUBSCRIPTION_LABEL);
+		expect(data.normalizedLabel).toBe('cb abonnement netflix');
+		expect(data.normalizedLabel).not.toBe('loyer sci dupont');
 	});
 
 	// T5-e: same truncation rule as the restore path, newest kept.
@@ -487,7 +497,10 @@ describe('recordStreamAction', () => {
 
 		await expectHttpError(recordStreamAction(userId, input({ kind: 'delete' as never })), 400);
 		await expectHttpError(recordStreamAction(userId, input({ direction: 'both' })), 400);
-		await expectHttpError(recordStreamAction(userId, input({ normalizedLabel: '   ' })), 400);
+		await expectHttpError(recordStreamAction(userId, input({ label: '   ' })), 400);
+		// A label that normalizes to nothing has no fallback identity at all — refused rather than
+		// written as a row only its anchors could ever match.
+		await expectHttpError(recordStreamAction(userId, input({ label: '0712 //' })), 400);
 		// ignore/paid require a real ISO date...
 		await expectHttpError(recordStreamAction(userId, input({ dueDate: null })), 400);
 		await expectHttpError(recordStreamAction(userId, input({ dueDate: '2026-02-30' })), 400);

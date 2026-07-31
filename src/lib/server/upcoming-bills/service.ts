@@ -27,7 +27,7 @@ import { normalizeRecurringLabel } from '$lib/domain/recurrence';
 import type { Transaction } from '$lib/domain/transaction';
 import { readDashboardDataForRange } from '$lib/server/budget/dashboard';
 import { FORECAST_LOOKBACK_MONTHS } from '$lib/server/forecast';
-import { anonymizeLabel } from '$lib/server/reports/monthly';
+import { anonymizeMerchant } from '$lib/server/reports/monthly';
 // The single reader of the anchor column, exported from the restore path for exactly this reuse:
 // a bare JSON.parse on a hand-edited (or restore-mangled) cell throws, and this column is read on
 // every page load of the widget and the month view. Never duplicate it, never inline a parse.
@@ -45,7 +45,7 @@ import { normalizeId } from '$lib/server/transactions/where';
  * them into a period, applies the user's persisted per-stream actions, and exposes the three
  * mutations behind those actions.
  *
- * Every raw label leaves this module through `anonymizeLabel` — with ONE deliberate exception, the
+ * Every raw label leaves this module through `anonymizeMerchant` — with ONE deliberate exception, the
  * `actionPayload.label` hidden field, which is not display copy but the value `recordStreamAction`
  * will store, and which must therefore round-trip unchanged (see UpcomingBillRowView).
  */
@@ -265,7 +265,9 @@ export async function loadUpcomingBillsWidget(userId: string): Promise<UpcomingB
 export interface RecordStreamActionInput {
 	kind: StreamActionKind;
 	direction: string;
-	normalizedLabel: string;
+	/** Raw flow label. `normalizedLabel` is DERIVED from this server-side and is deliberately not
+	 *  an input: see recordStreamAction. The row's `actionPayload` still carries a normalizedLabel
+	 *  for the client's own use (grouping, row keys) — the route simply does not forward it. */
 	label: string;
 	dueDate: string | null;
 	anchorTransactionIds: string[];
@@ -294,12 +296,22 @@ export async function recordStreamAction(
 	// as the cap that makes that safe. Real bank labels do exceed 191 (Transaction.label is
 	// @db.Text), so without the slice the same input succeeds on SQLite/PostgreSQL and errors on
 	// MySQL under STRICT_TRANS_TABLES — the provider divergence this codebase removes on sight.
-	const normalizedLabel = input.normalizedLabel.trim().slice(0, MAX_PORTABLE_STRING);
+	//
+	// The column is NOT NULL and the backup validator requires `min(1)`, so an empty label would
+	// produce a row whose own export cannot be restored — refused rather than written.
+	const label = input.label.trim().slice(0, MAX_PORTABLE_STRING);
+	if (!label) throw error(400, m.upcoming_bills_error_invalid_action());
+
+	// DERIVED, never taken from the request. `normalizedLabel` is the fallback half of the stream
+	// identity `actionMatchesFlow` uses once the anchors have aged out, so a client-supplied value
+	// is a way to point an action at a stream the user never acted on. Computed from the label that
+	// is ACTUALLY stored (already trimmed and capped), so the stored pair cannot disagree with
+	// itself. The second cap is belt-and-braces — normalization only ever removes characters.
+	const normalizedLabel = normalizeRecurringLabel(label).slice(0, MAX_PORTABLE_STRING);
+	// Unreachable from the app: a label that normalizes to nothing is dropped by
+	// `groupTransactionsForRecurrence`, so no flow can carry one. A forged payload can, and such a
+	// row would be unmatchable by anything but its anchors.
 	if (!normalizedLabel) throw error(400, m.upcoming_bills_error_invalid_action());
-	// Falls back to the normalized form rather than storing an empty string: the column is NOT NULL
-	// and the backup schema requires `min(1)`, so an empty label would produce a row whose own
-	// export cannot be restored.
-	const label = (input.label.trim() || normalizedLabel).slice(0, MAX_PORTABLE_STRING);
 
 	const dueDate = parseDueDate(kind, input.dueDate);
 
@@ -446,15 +458,19 @@ function toStreamActionInputs(rows: readonly StreamActionRow[]): StreamActionInp
 
 function toRowView(occurrence: BillOccurrence, index: number): UpcomingBillRowView {
 	const flow = occurrence.flow;
-	const label = anonymizeLabel(flow.label, flow.category);
+	// The merchant half only. The category travels as its own field and the design prints it in the
+	// row's sub-line, so the composed `anonymizeLabel` form would show it twice per row — and
+	// `getInitials` over that form reads its " - " as a word and renders "N-" on the avatar. Same
+	// sanitizer, same anonymization boundary, just not the composed string.
+	const label = anonymizeMerchant(flow.label);
 	const normalizedLabel = normalizeRecurringLabel(flow.label);
 
 	return {
 		rowKey: `${flow.direction}:${normalizedLabel}:${occurrence.dateIso}:${index}`,
 		label,
-		// Same rule and same input string as the transaction-label avatars already rendered on `/`
-		// and `/transactions`: the widget lands on that viewport, and a second initials rule would
-		// give one merchant two different badges side by side.
+		// Same function and same string as the transaction-label avatars already rendered on `/` and
+		// `/transactions`: the widget lands on that viewport, and a second initials rule would give
+		// one merchant two different badges side by side.
 		initials: getInitials(label),
 		category: flow.category,
 		direction: flow.direction,
@@ -488,25 +504,17 @@ function toRowView(occurrence: BillOccurrence, index: number): UpcomingBillRowVi
 }
 
 /**
- * Observation candidates carry the raw label of the transaction they were built from, and the
- * candidate type has no category to anonymize against — so the category is recovered from the
- * transaction that produced the label. A candidate whose label matches no transaction cannot
- * happen (the label IS a transaction's), but the fallback keeps the anonymizer's contract rather
- * than letting a raw label through.
+ * Observation candidates carry the RAW label of the transaction they were built from, so they have
+ * to cross the same anonymization boundary as everything else. `anonymizeMerchant` is what makes
+ * that straightforward: the candidate type has no category, and the composed form would have needed
+ * one recovered by label lookup for no gain.
  */
 function toObservationCandidateViews(
 	transactions: readonly Transaction[],
 	flows: readonly RecurringFlow[]
 ): { label: string; occurrenceCount: number }[] {
-	const categoryByLabel = new Map<string, string>();
-	for (const transaction of transactions) {
-		if (!categoryByLabel.has(transaction.label)) {
-			categoryByLabel.set(transaction.label, transaction.category);
-		}
-	}
-
 	return listObservationCandidates(transactions, flows).map((candidate) => ({
-		label: anonymizeLabel(candidate.label, categoryByLabel.get(candidate.label) ?? ''),
+		label: anonymizeMerchant(candidate.label),
 		occurrenceCount: candidate.occurrenceCount
 	}));
 }
