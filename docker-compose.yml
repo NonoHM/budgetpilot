@@ -22,6 +22,32 @@ services:
     volumes:
       - budgetpilot_data:/data
     restart: unless-stopped
+    # Runtime hardening. The image is distroless — no shell, no package manager, no coreutils —
+    # and these four lines are what turn that into a posture rather than a property of the base.
+    # Each was verified by attempting the thing it forbids, in a running container, not by
+    # reading the flag back: writes to /app, / and /nodejs fail with EROFS, writes to /tmp and
+    # /data succeed, and /proc/self/status reports CapPrm/CapEff/CapBnd all zero with
+    # NoNewPrivs: 1. scripts/docker-smoke.sh runs those probes on every change.
+    #
+    # Nothing is added back to cap_drop. Binding port 3000 as uid 65532 needs no capability
+    # (only ports below 1024 do), and nothing else in the runtime does anything privileged.
+    #
+    # read_only covers the container's own filesystem; the /data volume is mounted separately
+    # and stays writable, which is where every byte the app persists goes. The app was exercised
+    # under these flags for real — migrations, registration, login, a failed login's rate-limit
+    # row, the dashboard, and the normalize-names dry run — with no EROFS anywhere.
+    read_only: true
+    tmpfs:
+      # Margin, not a requirement: booted read-only with no tmpfs at all and the app still
+      # served. It is here because /tmp is the one path a Node dependency may reasonably reach
+      # for (os.tmpdir()), and discovering that in production would mean a crash loop rather
+      # than a slow path. Deliberately the only writable tmpfs — do not add more without a real
+      # error to point at.
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   budgetpilot_data:
