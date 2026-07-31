@@ -80,7 +80,7 @@
 		<p class="max-w-xs text-[13px] leading-relaxed text-zinc-500">{description}</p>
 	{/if}
 	{#if detail}
-		<div class="mt-1 w-full max-w-xs">
+		<div class="w-full max-w-xs">
 			{@render detail()}
 		</div>
 	{/if}
