@@ -5,11 +5,43 @@
 # configure for that: it just needs the domain pointed at this host and ports
 # 80 and 443 reachable from the Internet.
 
+# ---------------------------------------------------------------------------
+# REPLACE budget.example.com BELOW BEFORE YOU START THE STACK.
+#
+# Caddy asks Let's Encrypt for a certificate covering whatever name is on that
+# line. Nobody controls budget.example.com, so left as shipped the request can
+# never be validated and the site never gets a certificate.
+#
+# Nothing about that failure is loud. Caddy starts normally, logs `obtaining
+# certificate` for budget.example.com, then repeats `could not get certificate
+# from issuer` and keeps retrying in the background. The container stays up.
+#
+# In the browser the site does not load at all. There is no certificate warning
+# to click past, because there is no certificate: the TLS handshake itself
+# fails. Chrome and Firefox report that the site cannot provide a secure
+# connection, and `curl` reports `tlsv1 alert internal error`.
+#
+# Testing on a LAN, with no public domain? Put this host's name or address on
+# that line and uncomment `tls internal` below.
+# ---------------------------------------------------------------------------
 budget.example.com {
 	# `budgetpilot` is the service name in docker-compose.yml, resolved over the
 	# internal Compose network. Port 3000 is the container's own port, which
 	# never changes (APP_PORT only affects host publishing, unused here).
 	reverse_proxy budgetpilot:3000
+
+	# Local and LAN testing only. Uncomment to have Caddy issue the certificate
+	# from its own local authority instead of asking Let's Encrypt. The stack
+	# then comes up with working HTTPS on a name no public authority could
+	# validate, which is what lets you try the proxy without owning a domain.
+	# Set ORIGIN in .env to the same https:// address you type in the browser.
+	#
+	# The trade-off: every browser warns on the first visit, because nothing
+	# trusts that authority. That is fine while you are testing on your own
+	# network. Do not use it on an instance reachable from the Internet, where
+	# the only thing between a visitor and an impostor would be a warning you
+	# have taught them to click through.
+	# tls internal
 
 	# The bank consent callback carries an OAuth-style one-time `code` in its
 	# query string. Dropping `code` and `state` from the access log keeps that

@@ -147,6 +147,78 @@ docker run --rm \
 	'./node_modules/.bin/prisma migrate deploy >/dev/null && npm run db:normalize-names -- --dry-run' \
 	| tail -n 20
 
+# The builder stage's throwaway values do not reach the shipped image.
+#
+# The Dockerfile carries `# check=skip=SecretsUsedInArgOrEnv`, because BuildKit fires that check
+# on `ENV TOTP_ENCRYPTION_KEY=` and `ENV RATE_LIMIT_HASH_SECRET=` on the strength of the names
+# alone, and those two are literal build-only constants that SvelteKit's postbuild `analyse` step
+# cannot start without. The skip is file-wide — BuildKit has no per-line form — so on its own it
+# would also hide a real leak added later. This is the replacement: it asserts the property the
+# check was standing in for, against the built artefact rather than against the instruction.
+#
+# The values are read out of the Dockerfile rather than repeated here, so editing one there
+# cannot leave a stale literal passing here by accident. The count is asserted for the same
+# reason: an awk range that stops matching would otherwise scan nothing and report success.
+echo
+echo "=== asserting no build-time value reaches the final image ==="
+mapfile -t BUILD_ONLY_ENV < <(
+	awk '
+		/^FROM .* AS builder$/ { in_builder = 1; next }
+		/^FROM / { in_builder = 0 }
+		in_builder && /^ENV [A-Za-z_][A-Za-z0-9_]*=/ { sub(/^ENV /, ""); print }
+	' Dockerfile
+)
+
+if [ "${#BUILD_ONLY_ENV[@]}" -lt 3 ]; then
+	echo "FAIL: expected at least 3 ENV lines in the builder stage, found ${#BUILD_ONLY_ENV[@]}." >&2
+	echo "      The Dockerfile moved them; update this assertion rather than deleting it." >&2
+	exit 1
+fi
+
+image_config=$(docker inspect "$IMAGE")
+image_history=$(docker history --no-trunc "$IMAGE")
+leaked=0
+
+for pair in "${BUILD_ONLY_ENV[@]}"; do
+	name=${pair%%=*}
+	value=${pair#*=}
+
+	# The runner stage sets DATABASE_URL to its own runtime default, so only the builder's
+	# placeholder value is ever searched for, never the variable name.
+	for surface in config history; do
+		case $surface in
+			config) haystack=$image_config ;;
+			history) haystack=$image_history ;;
+		esac
+		# A here-string, not `printf … | grep -qF`. Under `set -o pipefail` that pipeline
+		# reports failure on a *match*: grep -q exits the moment it finds one, printf is
+		# still writing, and the SIGPIPE it takes becomes the pipeline's status. The small
+		# `docker inspect` output fits the pipe buffer and matched fine; the 90 KB of
+		# `docker history` did not, so the leak this is here to catch went unreported.
+		# Found by planting a leak on purpose and noticing only one of two surfaces failed.
+		if grep -qF -- "$value" <<<"$haystack"; then
+			echo "FAIL: builder-stage $name reached the final image's $surface." >&2
+			leaked=1
+		fi
+	done
+
+	# As root, not as the image's `app` user: /app is deliberately root-owned and the scan
+	# must not mistake "cannot read it" for "nothing in it".
+	if ! docker run --rm --user 0 --entrypoint sh "$IMAGE" -c \
+		'grep -rqF -- "$1" /app 2>/dev/null && exit 1 || exit 0' sh "$value"; then
+		echo "FAIL: builder-stage $name was found in the final image's filesystem under /app." >&2
+		leaked=1
+	fi
+done
+
+if [ "$leaked" -ne 0 ]; then
+	echo "A build-time value is baked into the shipped image. Do not silence this by widening" >&2
+	echo "the check=skip directive in the Dockerfile: this is the leak that skip assumes away." >&2
+	exit 1
+fi
+
+echo "  ok: ${#BUILD_ONLY_ENV[@]} builder-stage values, none in the image's env, history or /app"
+
 # ---------------------------------------------------------------------------------------------
 # Boot
 # ---------------------------------------------------------------------------------------------
