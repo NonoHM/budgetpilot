@@ -1,7 +1,7 @@
 // Relative, `.ts`-suffixed imports, like server/naming/backfill.ts: this module is also
 // imported by the maintenance scripts under scripts/, which plain Node runs with no Vite
 // resolution and no `$lib` alias.
-import { createDatabaseAdapter } from './adapter.ts';
+import { createDatabaseAdapter, type DatabaseAdapterOptions } from './adapter.ts';
 import {
 	assertDatabaseUrlMatchesProvider,
 	DEFAULT_SQLITE_URL,
@@ -34,7 +34,10 @@ type PrismaClientType = SqlitePrismaClient;
  * requirement, the hot-reload singleton); everything about which engine and which URL lives
  * here.
  */
-export function createPrismaClient(env: DatabaseEnv = process.env): PrismaClientType {
+export function createPrismaClient(
+	env: DatabaseEnv = process.env,
+	options: DatabaseAdapterOptions = {}
+): PrismaClientType {
 	const provider = resolveDatabaseProvider(env);
 	// Normalised once, here, and everything downstream uses the result. Validating one string
 	// and connecting with another is how a stray leading space used to reach the driver's
@@ -49,7 +52,7 @@ export function createPrismaClient(env: DatabaseEnv = process.env): PrismaClient
 		throw new Error(`DATABASE_URL is required when DATABASE_PROVIDER is "${provider}"`);
 	}
 
-	const adapter = createDatabaseAdapter(provider, databaseUrl ?? DEFAULT_SQLITE_URL);
+	const adapter = createDatabaseAdapter(provider, databaseUrl ?? DEFAULT_SQLITE_URL, options);
 
 	// A generated client embeds the schema it came from and refuses an adapter that does not
 	// match it, so the client and the adapter have to be chosen from the same provider.

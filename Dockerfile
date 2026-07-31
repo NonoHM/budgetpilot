@@ -139,6 +139,44 @@ COPY --from=builder /app/prisma.config.ts ./prisma.config.ts
 # Same reason as the prod-deps stage: the CMD below runs `prisma migrate deploy`, which loads
 # prisma.config.ts, which imports this module to pick the provider's migration history.
 COPY --from=builder /app/src/lib/server/database/provider.ts ./src/lib/server/database/provider.ts
+
+# The name-normalization preview, and everything it imports.
+#
+# docs/operations.md tells an operator to read exactly which rows the one-time name merge will
+# join, by name, before upgrading, and hooks.server.ts prints the same command when the
+# backfill leaves groups it refused to merge. Both said
+# `docker compose run --rm budgetpilot npm run db:normalize-names -- --dry-run`, and neither
+# could ever work: `scripts/` was not in this stage, so the one preview of an irreversible
+# change to financial data failed with MODULE_NOT_FOUND on every Docker install.
+#
+# The script imports the app's own modules through relative `.ts` paths, which Node runs
+# directly (type stripping, on by default since Node 22.18). So what ships is source, listed
+# file by file rather than as a directory: `src/lib/server/database/` also holds *.spec.ts and
+# the db-smoke suite, which have no business in a production image. Adding an import to any of
+# these modules without adding the file here breaks the command again, silently, since nothing
+# else in the image loads them. scripts/docker-smoke.sh runs the dry run against the built image
+# on every change, which is what turns that back into a build-time failure.
+#
+# The generated clients are the bulk of it (~5 MB) and are copied as source even though the app
+# already carries them compiled inside `build`: client.ts imports all three statically, and the
+# CLI resolves them from the source tree the same way the builder did. Two copies of one
+# generated artifact, produced by the same `npm run db:generate` in the same stage, so they
+# cannot disagree.
+COPY --from=builder /app/scripts/normalize-names.mjs ./scripts/normalize-names.mjs
+COPY --from=builder /app/src/lib/domain/normalize.ts ./src/lib/domain/normalize.ts
+COPY --from=builder /app/src/lib/server/dbTransaction.ts ./src/lib/server/dbTransaction.ts
+COPY --from=builder /app/src/lib/server/database/adapter.ts \
+	/app/src/lib/server/database/advisoryLock.ts \
+	/app/src/lib/server/database/client.ts \
+	/app/src/lib/server/database/types.ts \
+	./src/lib/server/database/
+COPY --from=builder /app/src/lib/server/database/generated ./src/lib/server/database/generated
+COPY --from=builder /app/src/lib/server/naming/backfill.ts \
+	/app/src/lib/server/naming/mergePlan.ts \
+	/app/src/lib/server/naming/nameKey.ts \
+	/app/src/lib/server/naming/report.ts \
+	./src/lib/server/naming/
+
 COPY package.json package-lock.json ./
 COPY --chmod=555 docker-entrypoint.sh ./docker-entrypoint.sh
 

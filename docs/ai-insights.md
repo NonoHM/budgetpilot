@@ -47,8 +47,9 @@ docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml up -d
 ```
 
 The two `-f` flags merge the base stack with the Ollama overlay. First run
-downloads the `ollama/ollama` image, which is over a gigabyte, so give it a
-few minutes.
+downloads the `ollama/ollama` image, which is around 3 GB compressed and
+several more once unpacked, so give it a few minutes and check you have the
+disk for it.
 
 ### 2. Pull a model
 
@@ -77,13 +78,30 @@ The env flag is the global gate. Each user also flips their own switch in
 
 ## GPU or not
 
-The overlay asks for an NVIDIA GPU through
-[nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html),
-which has to be installed on the host, not in the container.
+The overlay above runs Ollama on the CPU. That works on any machine, and with
+a small model on a modern one it is perfectly usable. Nothing to install and
+nothing to configure.
 
-No GPU, or not NVIDIA? Delete the `deploy.resources` block from
-`docker-compose.ai.yml`. Ollama falls back to CPU: it works, it's slower,
-and with a small model on a modern machine it's perfectly usable.
+Have an NVIDIA GPU? Install
+[nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
+on the host, not in the container, then add one more overlay to every command:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.ai.yml \
+  -f docker-compose.ai.gpu.yml up -d --build
+```
+
+Published image instead:
+
+```bash
+docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml \
+  -f docker-compose.ai.gpu.yml up -d
+```
+
+`docker-compose.ai.gpu.yml` goes on top of `docker-compose.ai.yml`, never
+instead of it: it adds the GPU reservation and nothing else. Add it on a host
+without the toolkit and `up` fails outright with "could not select device
+driver", so add it only once the toolkit is in place.
 
 ## Without Docker
 

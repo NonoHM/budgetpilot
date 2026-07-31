@@ -126,6 +126,27 @@ echo
 echo "=== asserting the shipped bundle carries all three ==="
 assert_in_image "$IMAGE" bundle
 
+# The name-normalization preview, run for real against an empty throwaway database.
+#
+# docs/operations.md hands an operator exactly this command to read what the one-time name merge
+# will do before they upgrade, and hooks.server.ts prints it when the backfill leaves groups it
+# refused to merge. It shipped broken for two releases: `scripts/` was not in the runner stage,
+# so it failed with MODULE_NOT_FOUND on every Docker install and nothing noticed, because nothing
+# else in the image loads those modules.
+#
+# It stays that way unless something runs it. The script imports the app's own modules through
+# relative paths, so adding an import without adding the file to the Dockerfile breaks it again
+# and only this step says so. An empty database is enough: the failure being guarded against is
+# resolution, not the plan.
+echo
+echo "=== asserting the documented dry run works in the image ==="
+docker run --rm \
+	-e DATABASE_PROVIDER=sqlite \
+	-e DATABASE_URL=file:/data/smoke.db \
+	--entrypoint sh "$IMAGE" -c \
+	'./node_modules/.bin/prisma migrate deploy >/dev/null && npm run db:normalize-names -- --dry-run' \
+	| tail -n 20
+
 # ---------------------------------------------------------------------------------------------
 # Boot
 # ---------------------------------------------------------------------------------------------

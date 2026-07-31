@@ -75,6 +75,7 @@ trap cleanup EXIT INT TERM
 #   docker-compose.yml                     README.md, docs/configuration.md
 #   docker-compose.prebuilt.yml            README.md, docs/getting-started.md
 #   + docker-compose.ai.yml                docs/ai-insights.md
+#   + docker-compose.ai.gpu.yml            docs/ai-insights.md
 #   + docker-compose.proxy.yml             docs/reverse-proxy.md
 #   + both                                 docs/reverse-proxy.md
 #   + docker-compose.postgres.yml          docs/database-providers.md
@@ -84,11 +85,20 @@ trap cleanup EXIT INT TERM
 # The two provider overlays are never stacked with each other — both set DATABASE_URL, so the
 # result is one server the app never opens. That combination is documented as forbidden and is
 # deliberately absent below.
+#
+# docker-compose.ai.gpu.yml only ever goes on top of docker-compose.ai.yml: alone it would patch
+# a service the project does not define. Its combinations therefore mirror the AI ones rather
+# than doubling every row.
+#
+# Both bases carry the full four-overlay stack now. That used to be the source-build base only,
+# and the prebuilt one is the base most operators actually run.
 COMBINATIONS=(
 	"docker-compose.yml"
 	"docker-compose.prebuilt.yml"
 	"docker-compose.yml docker-compose.ai.yml"
 	"docker-compose.prebuilt.yml docker-compose.ai.yml"
+	"docker-compose.yml docker-compose.ai.yml docker-compose.ai.gpu.yml"
+	"docker-compose.prebuilt.yml docker-compose.ai.yml docker-compose.ai.gpu.yml"
 	"docker-compose.yml docker-compose.proxy.yml"
 	"docker-compose.prebuilt.yml docker-compose.proxy.yml"
 	"docker-compose.yml docker-compose.ai.yml docker-compose.proxy.yml"
@@ -98,6 +108,8 @@ COMBINATIONS=(
 	"docker-compose.prebuilt.yml docker-compose.mysql.yml"
 	"docker-compose.yml docker-compose.postgres.yml docker-compose.ai.yml docker-compose.proxy.yml"
 	"docker-compose.yml docker-compose.mysql.yml docker-compose.ai.yml docker-compose.proxy.yml"
+	"docker-compose.prebuilt.yml docker-compose.postgres.yml docker-compose.ai.yml docker-compose.proxy.yml"
+	"docker-compose.prebuilt.yml docker-compose.mysql.yml docker-compose.ai.yml docker-compose.proxy.yml"
 )
 
 failed=0
@@ -236,5 +248,37 @@ for case in "${DATABASE_OVERLAY_CASES[@]}"; do
 		echo "ok:   $label (app on $expected_provider, $service port unpublished)"
 	done
 done
+
+# The AI overlay must start on a machine with no GPU, and the GPU overlay must actually ask for
+# one. `config -q` above cannot see either: a device reservation is valid Compose and only fails
+# at `up`, on the hosts least able to debug it. Asserted against the merged project, so moving
+# the block back into docker-compose.ai.yml fails here rather than in an operator's terminal.
+echo
+echo "--- ai overlay device reservations ---"
+
+ai_devices() {
+	local project
+	if ! project=$(docker compose --env-file /dev/null "$@" config --format json 2>/dev/null); then
+		echo "render-failed"
+		return
+	fi
+	jq -r '[.services.ollama.deploy.resources.reservations.devices // [] | .[]] | length' <<<"$project"
+}
+
+cpu_devices=$(ai_devices -f docker-compose.yml -f docker-compose.ai.yml)
+if [ "$cpu_devices" != 0 ]; then
+	echo "FAIL: docker-compose.ai.yml reserves $cpu_devices device(s); it must run on CPU anywhere" >&2
+	failed=1
+else
+	echo "ok:   docker-compose.ai.yml reserves no device (starts without a GPU)"
+fi
+
+gpu_devices=$(ai_devices -f docker-compose.yml -f docker-compose.ai.yml -f docker-compose.ai.gpu.yml)
+if [ "$gpu_devices" = 0 ] || [ "$gpu_devices" = render-failed ]; then
+	echo "FAIL: docker-compose.ai.gpu.yml no longer reserves a GPU device (got: $gpu_devices)" >&2
+	failed=1
+else
+	echo "ok:   docker-compose.ai.gpu.yml reserves $gpu_devices device(s)"
+fi
 
 exit "$failed"

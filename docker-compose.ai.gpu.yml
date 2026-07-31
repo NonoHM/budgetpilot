@@ -1,0 +1,24 @@
+# Optional NVIDIA GPU acceleration for the AI overlay. Always goes on top of
+# docker-compose.ai.yml, never instead of it:
+#   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
+#     -f docker-compose.ai.gpu.yml up -d --build
+#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml \
+#     -f docker-compose.ai.gpu.yml up -d
+#
+# Requires an NVIDIA GPU and nvidia-container-toolkit installed on the host. If
+# either is missing, `up` fails on the ollama service with "could not select
+# device driver \"nvidia\" with capabilities: [[gpu]]". That is the whole reason
+# this is a separate file: without it the AI overlay runs on the CPU on any
+# machine, which is slower and always starts.
+#
+# Nothing else changes. The model, the timeout and the host allowlist all stay
+# where they are, in docker-compose.ai.yml. See docs/ai-insights.md.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

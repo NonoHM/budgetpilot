@@ -3,9 +3,18 @@
 #   docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml up -d
 #
 # Adds a self-hosted Ollama service on the internal Compose network and points
-# the app at it. Requires an NVIDIA GPU + nvidia-container-toolkit on the host
-# for the `deploy.resources` block below; on a machine without a GPU, remove
-# that block and Ollama will run on CPU (functional, slower).
+# the app at it. Ollama runs on the CPU here, which works on any machine and is
+# slower. Have an NVIDIA GPU and nvidia-container-toolkit? Add one more overlay
+# on top and it will be used:
+#   docker compose -f docker-compose.yml -f docker-compose.ai.yml \
+#     -f docker-compose.ai.gpu.yml up -d --build
+#
+# The GPU reservation lives in that separate file rather than here because a
+# device reservation no host can satisfy is not a slow stack, it is a stack that
+# refuses to start: `up` fails on the ollama service with "could not select
+# device driver". Leaving it here meant every GPU-less operator had to edit a
+# version-controlled file, which the prebuilt flow downloads rather than clones,
+# so `docker compose pull` would never carry the edit forward.
 #
 # Adding this overlay IS the opt-in: LLM_ENABLED is forced to true below, so
 # the stack can never end up in the state this file used to allow: an Ollama
@@ -33,13 +42,6 @@ services:
     container_name: budgetpilot_ollama
     volumes:
       - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     restart: unless-stopped
 
 volumes:

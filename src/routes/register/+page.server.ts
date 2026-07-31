@@ -5,6 +5,7 @@ import {
 	BACKFILL_USER_ID,
 	createSession,
 	hashPassword,
+	isNonAsciiEmail,
 	validateNewEmail,
 	validatePassword
 } from '$lib/server/auth';
@@ -84,7 +85,17 @@ export const actions: Actions = {
 		const password = getFormValue(formData, 'password');
 		const bootstrapToken = getFormValue(formData, 'bootstrapToken');
 
-		if (!email) return fail(400, { error: m.register_error_invalid_email() });
+		if (!email) {
+			// Which rule was broken, not just that one was: an invitation issued before the ASCII
+			// rule existed names an address this route now refuses, and "Email invalide" in front
+			// of a perfectly normal-looking address points at nothing. Depends only on what was
+			// submitted, so it says nothing about which accounts exist.
+			return fail(400, {
+				error: isNonAsciiEmail(getFormValue(formData, 'email'))
+					? m.register_error_email_non_ascii()
+					: m.register_error_invalid_email()
+			});
+		}
 		if (invitation?.email && invitation.email !== email) {
 			return fail(400, { error: m.register_error_invitation_email_mismatch() });
 		}

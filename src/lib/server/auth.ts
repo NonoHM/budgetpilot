@@ -77,6 +77,21 @@ export function validateNewEmail(value: string): string | null {
 	return email;
 }
 
+/**
+ * True when an address is a perfectly well-formed email that only the ASCII rule above rejects.
+ *
+ * Lets the two identity-creating routes say which rule was broken. "Email invalide" is accurate
+ * but useless in front of an address that looks entirely normal to whoever typed it, and it is
+ * the exact message an invitee sees when their invitation predates the ASCII rule and names a
+ * non-ASCII address: unusable, with nothing pointing at the fix (the admin reissuing it).
+ *
+ * Safe to surface, and that is worth stating: the answer depends only on the string submitted,
+ * never on what the database holds, so it cannot tell a caller whether an account exists.
+ */
+export function isNonAsciiEmail(value: string): boolean {
+	return validateEmail(value) !== null && validateNewEmail(value) === null;
+}
+
 export function validatePassword(value: string): boolean {
 	return value.length >= 12 && value.length <= 256;
 }

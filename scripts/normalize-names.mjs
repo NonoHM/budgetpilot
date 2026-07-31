@@ -12,6 +12,7 @@
  * It imports the very same modules the app uses, so what it prints is what runs.
  */
 import process from 'node:process';
+import { withBootBackfillLock } from '../src/lib/server/database/advisoryLock.ts';
 import { createPrismaClient } from '../src/lib/server/database/client.ts';
 import { runNameKeyBackfill } from '../src/lib/server/naming/backfill.ts';
 import { renderNameKeyReport } from '../src/lib/server/naming/report.ts';
@@ -22,7 +23,13 @@ const dryRun = process.argv.includes('--dry-run');
 const prisma = createPrismaClient();
 
 try {
-	const report = await runNameKeyBackfill({ prisma, dryRun });
+	// Applying takes the same lock the app takes at startup, so running this against a live
+	// instance queues behind its boot backfill instead of merging alongside it. This is the same
+	// global, non-per-user merge, so the race is the same one; the only difference is that an
+	// operator can now start it by hand. A dry run only reads, so it never waits for anything.
+	const report = dryRun
+		? await runNameKeyBackfill({ prisma, dryRun })
+		: await withBootBackfillLock('name-keys', () => runNameKeyBackfill({ prisma }));
 	console.log(renderNameKeyReport(report));
 } catch (error) {
 	console.error('Name normalization failed:', error instanceof Error ? error.message : error);
