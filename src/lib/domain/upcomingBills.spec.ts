@@ -8,7 +8,6 @@ import {
 	buildBillOccurrences,
 	computeOccurrenceStatus,
 	computeTotals,
-	getLabelInitials,
 	listObservationCandidates,
 	occurrenceActionWindowDays,
 	type BillOccurrence,
@@ -442,6 +441,235 @@ describe('buildBillOccurrences', () => {
 			occurrences.map((occurrence) => `${occurrence.dateIso}/${occurrence.flow.label}`)
 		).toStrictEqual(['2026-07-05/MIDDLE', '2026-07-10/ALPHA', '2026-07-10/ZETA']);
 	});
+
+	it('n’estime jamais une échéance incertaine déjà réglée par une vraie transaction', () => {
+		expect.assertions(2);
+
+		const realized = tx({
+			date: '2026-07-05',
+			label: 'GYM CLUB',
+			amountCents: -1799,
+			category: 'Loisirs'
+		});
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'GYM CLUB',
+					direction: 'expense',
+					averageAmountCents: 1799,
+					lastDate: '2026-07-05',
+					status: 'tentative',
+					occurrenceCount: 2,
+					occurrenceIds: ['older-1', realized.id]
+				})
+			],
+			transactions: [realized],
+			actions: [],
+			fromIso: '2026-07-01',
+			toIsoExclusive: '2026-08-01',
+			todayIso: '2026-07-31'
+		});
+
+		expect(occurrences[0].status).toBe('settled');
+		// The row's date is a real transaction date, not an estimate, even though the flow is uncertain.
+		expect(occurrences[0].estimatePassed).toBe(false);
+	});
+
+	it('inclut une transaction datée exactement sur la borne de début et exclut celle sur la borne de fin', () => {
+		expect.assertions(2);
+
+		const onStart = tx({
+			id: 'on-start',
+			date: '2026-07-01',
+			label: 'EDF',
+			amountCents: -4890,
+			category: 'Divers'
+		});
+		const onEnd = tx({
+			id: 'on-end',
+			date: '2026-08-01',
+			label: 'EDF',
+			amountCents: -4890,
+			category: 'Divers'
+		});
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'EDF',
+					direction: 'expense',
+					averageAmountCents: 4890,
+					lastDate: '2026-08-01',
+					occurrenceIds: [onStart.id, onEnd.id]
+				})
+			],
+			transactions: [onStart, onEnd],
+			actions: [],
+			fromIso: '2026-07-01',
+			toIsoExclusive: '2026-08-01',
+			todayIso: '2026-07-31'
+		});
+
+		const settled = occurrences.filter((occurrence) => occurrence.status === 'settled');
+		expect(settled).toHaveLength(1);
+		expect(settled[0].settledTransactionId).toBe(onStart.id);
+	});
+
+	it('exclut une occurrence projetée tombant exactement sur la borne de fin exclusive', () => {
+		expect.assertions(1);
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'EDF',
+					direction: 'expense',
+					averageAmountCents: 4890,
+					lastDate: '2026-07-01',
+					cadence: 'monthly'
+				})
+			],
+			transactions: [],
+			actions: [],
+			fromIso: '2026-07-02',
+			toIsoExclusive: '2026-07-31',
+			todayIso: '2026-07-15'
+		});
+
+		// The flow's next monthly occurrence lands on 2026-07-31, i.e. exactly toIsoExclusive: dropped.
+		expect(occurrences).toStrictEqual([]);
+	});
+
+	it('ne produit aucune occurrence projetée pour une période dégénérée', () => {
+		expect.assertions(1);
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'EDF',
+					direction: 'expense',
+					averageAmountCents: 4890,
+					lastDate: '2026-06-28'
+				})
+			],
+			transactions: [],
+			actions: [],
+			fromIso: '2026-07-15',
+			toIsoExclusive: '2026-07-01',
+			todayIso: '2026-07-15'
+		});
+
+		expect(occurrences).toStrictEqual([]);
+	});
+
+	it("règle une seule occurrence quand deux actions 'paid' visent la même date, la première l'emporte", () => {
+		expect.assertions(2);
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'EDF',
+					direction: 'expense',
+					averageAmountCents: 4890,
+					lastDate: '2026-06-28'
+				})
+			],
+			transactions: [],
+			actions: [
+				action({
+					kind: 'paid',
+					id: 'paid-first',
+					normalizedLabel: normalizeRecurringLabel('EDF'),
+					dueDate: '2026-07-27'
+				}),
+				action({
+					kind: 'paid',
+					id: 'paid-second',
+					normalizedLabel: normalizeRecurringLabel('EDF'),
+					dueDate: '2026-07-29'
+				})
+			],
+			fromIso: '2026-07-01',
+			toIsoExclusive: '2026-08-01',
+			todayIso: '2026-07-31'
+		});
+
+		expect(occurrences).toHaveLength(1);
+		expect(occurrences[0].appliedActionId).toBe('paid-first');
+	});
+
+	it('associe une action par le libellé normalisé quand aucun identifiant ancré ne recoupe le flux', () => {
+		expect.assertions(2);
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'NETFLIX',
+					direction: 'expense',
+					averageAmountCents: 1349,
+					lastDate: '2026-06-28',
+					occurrenceIds: ['t1', 't2']
+				})
+			],
+			transactions: [],
+			actions: [
+				action({
+					kind: 'ignore',
+					id: 'ignore-by-label',
+					normalizedLabel: normalizeRecurringLabel('NETFLIX'),
+					// No overlap at all with the flow's occurrenceIds — forces the label fallback.
+					anchorTransactionIds: ['unrelated-1', 'unrelated-2'],
+					dueDate: '2026-07-28'
+				})
+			],
+			fromIso: '2026-07-01',
+			toIsoExclusive: '2026-08-01',
+			todayIso: '2026-07-31'
+		});
+
+		expect(occurrences[0].status).toBe('ignored');
+		expect(occurrences[0].appliedActionId).toBe('ignore-by-label');
+	});
+
+	it("règle une seule occurrence d'un flux bimensuel quand l'échéance tombe exactement à mi-chemin entre deux dates projetées", () => {
+		expect.assertions(3);
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'SALLE DE SPORT',
+					direction: 'expense',
+					averageAmountCents: 3000,
+					lastDate: '2026-06-24',
+					cadence: 'biweekly',
+					medianIntervalDays: 14,
+					occurrenceIds: ['t1', 't2', 't3']
+				})
+			],
+			transactions: [],
+			actions: [
+				action({
+					kind: 'paid',
+					id: 'paid-midpoint',
+					normalizedLabel: normalizeRecurringLabel('SALLE DE SPORT'),
+					// Occurrences project to 2026-07-08 and 2026-07-22; window is 7 days either side —
+					// this date is exactly 7 days from both.
+					dueDate: '2026-07-15'
+				})
+			],
+			fromIso: '2026-07-01',
+			toIsoExclusive: '2026-08-01',
+			todayIso: '2026-07-01'
+		});
+
+		const settled = occurrences.filter((occurrence) => occurrence.status === 'settled');
+		expect(occurrences.map((occurrence) => occurrence.dateIso)).toStrictEqual([
+			'2026-07-08',
+			'2026-07-22'
+		]);
+		expect(settled).toHaveLength(1);
+		expect(settled[0].dateIso).toBe('2026-07-08');
+	});
 });
 
 describe('computeTotals', () => {
@@ -522,13 +750,113 @@ describe('computeTotals', () => {
 		expect(totals.remainingExpenseCents).toBe(6000);
 	});
 
-	it('ignore les échéances réglées et sans occurrence', () => {
+	it('retourne des totaux nuls quand il n’y a aucune occurrence', () => {
 		expect.assertions(2);
 
 		const totals = computeTotals([] as readonly BillOccurrence[]);
 
 		expect(totals.remainingExpenseCents).toBe(0);
 		expect(totals.expectedIncomeCents).toBe(0);
+	});
+
+	it('exclut les échéances réglées, ignorées ou incertaines des deux totaux', () => {
+		expect.assertions(2);
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'EDF',
+					direction: 'expense',
+					averageAmountCents: 4890,
+					// lastDate matches the realized transaction below (the flow's most recent occurrence),
+					// so the projected series starts strictly after it and does not add a second row.
+					lastDate: '2026-07-02',
+					occurrenceIds: ['t1', 't2', 't3']
+				}),
+				flow({
+					label: 'NETFLIX',
+					direction: 'expense',
+					averageAmountCents: 1349,
+					lastDate: '2026-06-15',
+					occurrenceIds: ['t4']
+				}),
+				flow({
+					label: 'SALAIRE',
+					direction: 'income',
+					averageAmountCents: 200_000,
+					lastDate: '2026-07-03',
+					occurrenceIds: ['t5', 't6', 't7']
+				}),
+				flow({
+					label: 'PRIME',
+					direction: 'income',
+					averageAmountCents: 50_000,
+					lastDate: '2026-05-01',
+					status: 'tentative',
+					occurrenceCount: 2
+				})
+			],
+			transactions: [
+				// EDF settled automatically inside the period.
+				tx({ id: 't3', date: '2026-07-02', label: 'EDF', amountCents: -4890, category: 'Divers' }),
+				// SALAIRE settled automatically inside the period.
+				tx({
+					id: 't7',
+					date: '2026-07-03',
+					label: 'SALAIRE',
+					amountCents: 200_000,
+					category: 'Divers'
+				})
+			],
+			actions: [
+				action({
+					kind: 'ignore',
+					id: 'ignore-netflix',
+					normalizedLabel: normalizeRecurringLabel('NETFLIX'),
+					dueDate: '2026-07-15'
+				})
+			],
+			fromIso: '2026-07-01',
+			toIsoExclusive: '2026-08-01',
+			todayIso: '2026-07-20'
+		});
+
+		const totals = computeTotals(occurrences);
+
+		// EDF is settled (excluded), NETFLIX is ignored (excluded): nothing left to pay.
+		expect(totals.remainingExpenseCents).toBe(0);
+		// SALAIRE is settled and PRIME is uncertain: neither counts as "expected" income anymore.
+		expect(totals.expectedIncomeCents).toBe(0);
+	});
+
+	it("exclut du revenu attendu une échéance de revenu visée par une action 'ignore'", () => {
+		expect.assertions(1);
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'SALAIRE',
+					direction: 'income',
+					averageAmountCents: 200_000,
+					lastDate: '2026-06-28'
+				})
+			],
+			transactions: [],
+			actions: [
+				action({
+					kind: 'ignore',
+					id: 'ignore-salaire',
+					direction: 'income',
+					normalizedLabel: normalizeRecurringLabel('SALAIRE'),
+					dueDate: '2026-07-28'
+				})
+			],
+			fromIso: '2026-07-01',
+			toIsoExclusive: '2026-08-01',
+			todayIso: '2026-07-31'
+		});
+
+		expect(computeTotals(occurrences).expectedIncomeCents).toBe(0);
 	});
 });
 
@@ -621,22 +949,18 @@ describe('listObservationCandidates', () => {
 	});
 });
 
-describe('getLabelInitials', () => {
-	it('dérive des initiales déterministes selon le nombre de mots', () => {
-		expect.assertions(4);
-
-		expect(getLabelInitials('EDF')).toBe('EDF');
-		expect(getLabelInitials('Netflix')).toBe('NE');
-		expect(getLabelInitials('Assurance auto')).toBe('AA');
-		expect(getLabelInitials('   ')).toBe('');
-	});
-});
-
 describe('formatMonthLabel', () => {
 	it('rend un mois ISO en libellé long localisé', () => {
 		expect.assertions(2);
 
 		expect(formatMonthLabel('2026-07', 'fr')).toBe('juillet 2026');
 		expect(formatMonthLabel('2026-01', 'en')).toBe('January 2026');
+	});
+
+	it('rejette un mois malformé avec une erreur explicite plutôt que de laisser Intl planter', () => {
+		expect.assertions(2);
+
+		expect(() => formatMonthLabel('2026-13', 'fr')).toThrow(RangeError);
+		expect(() => formatMonthLabel('', 'fr')).toThrow(RangeError);
 	});
 });

@@ -144,6 +144,31 @@ export type ForecastInputTransaction = Pick<
 >;
 
 /**
+ * Groups transactions by direction + normalized merchant label + category — step 1 of the detector
+ * below, exported because the upcoming-bills "en observation" list has to rebuild exactly the same
+ * buckets. Sharing the code (rather than copying the four lines) is what makes it impossible for
+ * the two views to disagree about what counts as one stream. Keys are `direction:label:category`;
+ * transactions whose label normalizes to nothing are dropped.
+ */
+export function groupTransactionsForRecurrence(
+	transactions: readonly ForecastInputTransaction[]
+): Map<string, ForecastInputTransaction[]> {
+	const groups = new Map<string, ForecastInputTransaction[]>();
+
+	for (const transaction of transactions) {
+		const normalizedLabel = normalizeRecurringLabel(transaction.label);
+		if (!normalizedLabel) continue;
+
+		const direction: FlowDirection =
+			getTransactionKind(transaction) === 'income' ? 'income' : 'expense';
+		const key = `${direction}:${normalizedLabel}:${transaction.category}`;
+		groups.set(key, [...(groups.get(key) ?? []), transaction]);
+	}
+
+	return groups;
+}
+
+/**
  * Detects recurring income and expense flows from raw transactions — pure, deterministic,
  * no ML/AI (per the app's "deterministic insights" posture). Pipeline:
  *  1. Group by direction + normalized merchant label + category (reuses domain/recurrence.ts,
@@ -159,18 +184,7 @@ export type ForecastInputTransaction = Pick<
 export function detectRecurringFlows(
 	transactions: readonly ForecastInputTransaction[]
 ): RecurringFlow[] {
-	const groups = new Map<string, ForecastInputTransaction[]>();
-
-	for (const transaction of transactions) {
-		const normalizedLabel = normalizeRecurringLabel(transaction.label);
-		if (!normalizedLabel) continue;
-
-		const direction: FlowDirection =
-			getTransactionKind(transaction) === 'income' ? 'income' : 'expense';
-		const key = `${direction}:${normalizedLabel}:${transaction.category}`;
-		groups.set(key, [...(groups.get(key) ?? []), transaction]);
-	}
-
+	const groups = groupTransactionsForRecurrence(transactions);
 	const flows: RecurringFlow[] = [];
 
 	for (const [key, groupTransactions] of groups) {

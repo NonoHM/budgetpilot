@@ -4,9 +4,12 @@ import type {
 	ForecastInputTransaction,
 	RecurringFlow
 } from './forecast';
-import { getFlowDisplayTier, projectFlowOccurrences } from './forecast';
+import {
+	getFlowDisplayTier,
+	groupTransactionsForRecurrence,
+	projectFlowOccurrences
+} from './forecast';
 import { getSimilarAmountGroups, normalizeRecurringLabel } from './recurrence';
-import { getTransactionKind } from './transaction';
 
 /**
  * Upcoming-bills schedule: turns the detected recurring flows into dated occurrences carrying a
@@ -34,8 +37,10 @@ export interface BillOccurrence {
 	status: OccurrenceStatus;
 	/** Non-null ONLY when status === 'overdue'. */
 	daysLate: number | null;
-	/** Uncertain tier only: the estimated date is in the past. Drives the "date estimée dépassée"
-	 *  copy — a plain date comparison, deliberately NOT a lateness computation (see
+	/** True ONLY for an OPEN (upcoming) uncertain-tier occurrence whose estimated date is already
+	 *  past — always false once the row is settled or ignored, where the date is either a real
+	 *  transaction date or a user decision rather than an estimate. Drives the "date estimée
+	 *  dépassée" copy: a plain date comparison, deliberately NOT a lateness computation (see
 	 *  computeOccurrenceStatus). */
 	estimatePassed: boolean;
 	/** Signed; the actual transaction amount when auto-settled, the flow's average otherwise. */
@@ -85,10 +90,13 @@ export function applyStreamExclusions(
 
 /**
  * Tolerance, in days, between a stored action's `dueDate` and a projected occurrence date for the
- * action to still apply. Half the cadence absorbs the projection drift that appears as new
- * transactions shift the anchor, while staying strictly under one interval so a weekly stream's
- * action can never bleed onto the next occurrence. Clamped to [1, 15] so a yearly stream does not
+ * action to still be considered for that occurrence. Half the cadence absorbs the projection drift
+ * that appears as new transactions shift the anchor; clamped to [1, 15] so a yearly stream does not
  * get a six-month window.
+ *
+ * The window ALONE does not guarantee an action reaches only one occurrence — at half a cadence, a
+ * `dueDate` sitting exactly midway between two occurrences is inside both windows. That guarantee
+ * comes from `assignActionsToOccurrences`, which resolves each action to a single date.
  */
 export function occurrenceActionWindowDays(
 	flow: Pick<RecurringFlow, 'medianIntervalDays'>
@@ -127,20 +135,45 @@ export interface BuildBillOccurrencesInput {
 	todayIso: string;
 }
 
-function findApplicableAction(
+/**
+ * Resolves each `kind` action of this flow to AT MOST ONE of the flow's projected dates: the
+ * closest one inside the window, earliest on a tie. Resolving per action (rather than asking each
+ * occurrence whether some action is near enough) is what makes "one action, one occurrence" true —
+ * a `dueDate` exactly midway between two occurrences is inside both windows, so a per-occurrence
+ * test would settle two months of a bill from a single tap. `dates` is in ascending order, so the
+ * strict `<` on distance keeps the earlier occurrence when two are equidistant.
+ *
+ * When two actions of the same kind resolve to the same date, the first in input order wins and the
+ * later one is dropped — the caller orders actions deterministically (most recent last), so a
+ * duplicate row can never make the output flicker.
+ */
+function assignActionsToOccurrences(
 	actions: readonly StreamActionInput[],
 	kind: StreamActionKind,
 	flow: RecurringFlow,
-	dateIso: string
-): StreamActionInput | undefined {
+	dates: readonly string[]
+): Map<string, StreamActionInput> {
 	const windowDays = occurrenceActionWindowDays(flow);
-	return actions.find(
-		(action) =>
-			action.kind === kind &&
-			action.dueDate !== null &&
-			Math.abs(wholeDaysBetween(action.dueDate, dateIso)) <= windowDays &&
-			actionMatchesFlow(action, flow)
-	);
+	const assigned = new Map<string, StreamActionInput>();
+
+	for (const action of actions) {
+		if (action.kind !== kind || action.dueDate === null) continue;
+		if (!actionMatchesFlow(action, flow)) continue;
+
+		let bestDate: string | null = null;
+		let bestDistance = Number.POSITIVE_INFINITY;
+		for (const date of dates) {
+			const distance = Math.abs(wholeDaysBetween(action.dueDate, date));
+			if (distance <= windowDays && distance < bestDistance) {
+				bestDate = date;
+				bestDistance = distance;
+			}
+		}
+
+		if (bestDate !== null && !assigned.has(bestDate)) assigned.set(bestDate, action);
+	}
+
+	return assigned;
 }
 
 /**
@@ -182,7 +215,8 @@ export function buildBillOccurrences(input: BuildBillOccurrencesInput): BillOccu
 				dateIso: transaction.date,
 				status: 'settled',
 				daysLate: null,
-				estimatePassed: tier === 'uncertain' && transaction.date < input.todayIso,
+				// A realized row's date is a real transaction date, never an estimate.
+				estimatePassed: false,
 				amountCents: transaction.amountCents,
 				settledKind: 'auto',
 				settledTransactionId: transaction.id,
@@ -192,20 +226,24 @@ export function buildBillOccurrences(input: BuildBillOccurrencesInput): BillOccu
 		}
 
 		// Projected: everything still to come inside the period.
-		for (const projected of projectFlowOccurrences(flow, input.fromIso, horizonDays)) {
-			if (projected.date >= input.toIsoExclusive) continue;
+		const projectedDates = projectFlowOccurrences(flow, input.fromIso, horizonDays)
+			.map((projected) => projected.date)
+			.filter((date) => date < input.toIsoExclusive);
+		const paidByDate = assignActionsToOccurrences(input.actions, 'paid', flow, projectedDates);
+		const ignoredByDate = assignActionsToOccurrences(input.actions, 'ignore', flow, projectedDates);
 
-			const estimatePassed = tier === 'uncertain' && projected.date < input.todayIso;
-			const paid = findApplicableAction(input.actions, 'paid', flow, projected.date);
+		for (const date of projectedDates) {
+			const paid = paidByDate.get(date);
 
 			if (paid) {
 				occurrences.push({
 					flow,
 					tier,
-					dateIso: projected.date,
+					dateIso: date,
 					status: 'settled',
 					daysLate: null,
-					estimatePassed,
+					// Settled by the user; the estimate is no longer what the row is about.
+					estimatePassed: false,
 					amountCents: signedAverageCents,
 					settledKind: 'manual',
 					settledTransactionId: null,
@@ -215,16 +253,17 @@ export function buildBillOccurrences(input: BuildBillOccurrencesInput): BillOccu
 				continue;
 			}
 
-			const ignored = findApplicableAction(input.actions, 'ignore', flow, projected.date);
+			const ignored = ignoredByDate.get(date);
 
 			if (ignored) {
 				occurrences.push({
 					flow,
 					tier,
-					dateIso: projected.date,
+					dateIso: date,
 					status: 'ignored',
 					daysLate: null,
-					estimatePassed,
+					// Dismissed by the user; same reasoning as the manual-paid branch above.
+					estimatePassed: false,
 					amountCents: signedAverageCents,
 					settledKind: null,
 					settledTransactionId: null,
@@ -234,15 +273,15 @@ export function buildBillOccurrences(input: BuildBillOccurrencesInput): BillOccu
 				continue;
 			}
 
-			const { status, daysLate } = computeOccurrenceStatus(tier, projected.date, input.todayIso);
+			const { status, daysLate } = computeOccurrenceStatus(tier, date, input.todayIso);
 
 			occurrences.push({
 				flow,
 				tier,
-				dateIso: projected.date,
+				dateIso: date,
 				status,
 				daysLate,
-				estimatePassed,
+				estimatePassed: tier === 'uncertain' && date < input.todayIso,
 				amountCents: signedAverageCents,
 				settledKind: null,
 				settledTransactionId: null,
@@ -299,29 +338,27 @@ const OBSERVATION_CANDIDATE_LIMIT = 3;
 const OBSERVATION_CANDIDATE_OCCURRENCES = 2;
 
 /**
- * Streams the detector is still one occurrence short of accepting: exactly two same-label,
- * same-direction, same-category, similar-amount transactions that no detected flow claims. Rebuilds
- * the detector's own grouping (same normalization, same amount clustering) so the two views cannot
- * disagree about what counts as the same stream. Surfaced as "en observation" rather than silently
- * dropped, so the user sees the app noticed the pattern.
+ * Pairs the detector looked at and REJECTED: exactly two same-label, same-direction, same-category,
+ * similar-amount transactions that no detected flow claims.
+ *
+ * Note what this is not. A pair with a plausible cadence is already accepted by
+ * `detectRecurringFlows` as a `tentative` flow, so its ids land in some flow's `occurrenceIds` and
+ * the `claimedIds` filter removes it here — it is shown as an uncertain-tier bill, not as a
+ * candidate. What survives is the pairs whose median interval matched no cadence window (two
+ * transactions 45 days apart, say): too irregular to schedule, too suggestive to hide. They are
+ * surfaced as "en observation" so the user can see the app noticed the pattern and is waiting for a
+ * third occurrence to place it.
+ *
+ * Grouping goes through `groupTransactionsForRecurrence` and `getSimilarAmountGroups` — the
+ * detector's own two steps, called rather than reimplemented, so the two views cannot disagree
+ * about what counts as one stream.
  */
 export function listObservationCandidates(
 	transactions: readonly ForecastInputTransaction[],
 	flows: readonly RecurringFlow[]
 ): ObservationCandidate[] {
 	const claimedIds = new Set(flows.flatMap((flow) => flow.occurrenceIds));
-	const groups = new Map<string, ForecastInputTransaction[]>();
-
-	for (const transaction of transactions) {
-		const normalizedLabel = normalizeRecurringLabel(transaction.label);
-		if (!normalizedLabel) continue;
-
-		const direction: FlowDirection =
-			getTransactionKind(transaction) === 'income' ? 'income' : 'expense';
-		const key = `${direction}:${normalizedLabel}:${transaction.category}`;
-		groups.set(key, [...(groups.get(key) ?? []), transaction]);
-	}
-
+	const groups = groupTransactionsForRecurrence(transactions);
 	const candidates: { label: string; lastDate: string }[] = [];
 
 	for (const groupTransactions of groups.values()) {
@@ -348,23 +385,4 @@ export function listObservationCandidates(
 				occurrenceCount: OBSERVATION_CANDIDATE_OCCURRENCES
 			}))
 	);
-}
-
-/**
- * Avatar initials for a stream label. A single short word is kept whole ("EDF"), a single long one
- * is cut to two characters ("Netflix" -> "NE"), and a multi-word label takes the first letter of
- * its first two words ("Assurance auto" -> "AA"). Deterministic by design — the same label always
- * renders the same badge.
- */
-export function getLabelInitials(label: string): string {
-	const words = label.trim().split(/\s+/).filter(Boolean);
-	if (words.length === 0) return '';
-	if (words.length === 1) {
-		const word = words[0];
-		return (word.length <= 3 ? word.slice(0, 3) : word.slice(0, 2)).toUpperCase();
-	}
-	return words
-		.slice(0, 2)
-		.map((word) => word.slice(0, 1).toUpperCase())
-		.join('');
 }
