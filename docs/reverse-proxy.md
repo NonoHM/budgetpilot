@@ -23,6 +23,12 @@ open the app on the machine running it, skip this page entirely.
   versions don't understand it. This is the one page with that requirement;
   everything else works on any Compose v2.
 
+No domain, and you only want to see the proxy working on your own network?
+Use `tls internal` instead, described at the end of step 1. It skips Let's
+Encrypt entirely, so the first two requirements drop away. The last two still
+hold: ports 80 and 443 must be free on the machine, and Compose must be 2.24
+or newer.
+
 ## Setup
 
 ### 1. Write your Caddyfile
@@ -31,9 +37,36 @@ open the app on the machine running it, skip this page entirely.
 cp Caddyfile.example Caddyfile
 ```
 
-Open it and replace `budget.example.com` with your domain. That's the only
-edit needed. `Caddyfile` is gitignored, `Caddyfile.example` is the tracked
-template.
+Open it and replace `budget.example.com` on the first uncommented line with
+your domain. That's the only edit needed, and it is not optional: the name on
+that line is the one Caddy asks Let's Encrypt to certify. `Caddyfile` is
+gitignored, `Caddyfile.example` is the tracked template.
+
+**If you leave `budget.example.com` in place, the stack starts and the site
+never loads.** Nobody controls that domain, so validation can't succeed and
+Caddy never gets a certificate. The failure is quiet in three separate ways,
+which is why it's worth spelling out:
+
+- The container stays up. Nothing crashes and nothing exits.
+- The log shows `obtaining certificate` for `budget.example.com`, then
+  `could not get certificate from issuer`, retried in the background forever.
+- The browser shows no certificate warning, because there is no certificate
+  to warn about. The TLS handshake fails outright. Chrome and Firefox say the
+  site can't provide a secure connection, and `curl` reports
+  `tlsv1 alert internal error`.
+
+#### Testing without a domain
+
+Uncomment the `tls internal` line in the site block. Caddy then issues the
+certificate from its own local authority rather than asking Let's Encrypt, so
+HTTPS works on a LAN name or an IP address that no public authority could
+validate. Put that same name on the site address line, and set `ORIGIN` in
+`.env` to the matching `https://` URL.
+
+Every browser warns on the first visit, because nothing trusts that
+authority. That's fine while you're testing on your own network. Don't use it
+on an instance reachable from the Internet: the only thing left between a
+visitor and an impostor is a warning you've taught them to click through.
 
 ### 2. Point `.env` at the new URL
 
@@ -63,8 +96,9 @@ docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml up -d
 The overlay also stops publishing the app's own port on the host, so Caddy
 becomes the only way in. Reaching the container directly on `APP_PORT` no
 longer works, which is the point. It sets `ADDRESS_HEADER=X-Forwarded-For`
-at the same time, so the app still sees each visitor's real address and the
-per-IP rate limits keep working instead of counting everyone as one client.
+and `XFF_DEPTH=1` at the same time, so the app still sees each visitor's real
+address and the per-IP rate limits keep working instead of counting everyone
+as one client.
 
 Those two go together and neither is optional: the app only trusts
 `X-Forwarded-For` because Caddy is the sole way in. If the port were still
@@ -92,10 +126,10 @@ docker compose -f docker-compose.yml -f docker-compose.proxy.yml ps
 ```
 
 The `budgetpilot` line must show **no** host port — only `3000/tcp`, with no
-`0.0.0.0:...->` arrow in front of it. Only `caddy` publishes anything (80 and
-443). If you see the app publishing a port, stop the stack: your Compose is
-older than 2.24 and silently ignored the overlay's `!reset`. Upgrade Compose
-and start again.
+`0.0.0.0:...->` arrow in front of it. Only `caddy` publishes anything: 80,
+443, and 443/udp for HTTP/3. If you see the app publishing a port, stop the
+stack: your Compose is older than 2.24 and silently ignored the overlay's
+`!reset`. Upgrade Compose and start again.
 
 ### 5. Check the certificate
 
@@ -105,7 +139,9 @@ docker compose -f docker-compose.yml -f docker-compose.proxy.yml logs caddy
 
 The first start takes a few seconds while Caddy talks to Let's Encrypt. A
 line mentioning `certificate obtained successfully` means you're done. Open
-`https://budget.example.com`.
+`https://budget.example.com`. With `tls internal` the same line appears, with
+`"issuer":"local"` on it, and it arrives immediately because nothing leaves
+the machine.
 
 Certificates renew automatically, well before expiry. There's no cron job to
 add and nothing to remember.
@@ -127,15 +163,19 @@ keep that filter.
 
 ## If it doesn't work
 
-**Caddy exits immediately with an error about the config file.** You skipped
-step 1. With no `Caddyfile` in the folder, Docker creates an empty
-_directory_ under that name instead of failing usefully. Remove it, run the
-`cp` from step 1, and start again.
+**The caddy container won't start, and Docker complains about mounting a
+directory onto a file.** The full message ends with `Are you trying to mount a
+directory onto a file (or vice-versa)?` and names the `Caddyfile` path. You
+skipped step 1. With no `Caddyfile` in the folder, Docker creates an empty
+_directory_ under that name, and the caddy image already ships a file there.
+Remove the directory, run the `cp` from step 1, and start again.
 
-**Caddy can't get a certificate.** Almost always DNS or ports. Check the
-domain resolves to this machine from the outside, not just from your own
-network, and that ports 80 and 443 reach it. A firewall or an ISP blocking
-port 80 is the usual culprit.
+**Caddy can't get a certificate**, logging `could not get certificate from
+issuer` on repeat. First check you actually replaced `budget.example.com` in
+the `Caddyfile`, which is step 1 and the most common cause. After that it's
+almost always DNS or ports. Check the domain resolves to this machine from
+the outside, not just from your own network, and that ports 80 and 443 reach
+it. A firewall or an ISP blocking port 80 is the usual culprit.
 
 **The app loads but every form fails with a 403.** `ORIGIN` doesn't match.
 It must be `https://your.domain`, with no trailing slash and no port.
