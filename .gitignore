@@ -79,3 +79,6 @@ docs/superpowers/
 /CLAUDE.md
 # Per-machine Claude Code permissions (shared config is .claude/settings.json)
 .claude/settings.local.json
+
+# Subagent-driven-development scratch (ledger, briefs, review packages)
+.superpowers/
