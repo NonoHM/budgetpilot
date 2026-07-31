@@ -13,3 +13,18 @@ export function formatShortDate(iso: string, locale: string): string {
 		year: includeYear ? 'numeric' : undefined
 	});
 }
+
+/**
+ * Long month heading from a `yyyy-mm` period key ("2026-07" -> "juillet 2026"). Unlike
+ * `formatShortDate` this one pins `timeZone: 'UTC'`: the input has no day component, so it is
+ * anchored at the 1st at UTC midnight, and a caller west of Greenwich would otherwise be shown the
+ * PREVIOUS month.
+ */
+export function formatMonthLabel(month: string, locale: string): string {
+	const date = new Date(`${month}-01T00:00:00.000Z`);
+	return new Intl.DateTimeFormat(locale, {
+		month: 'long',
+		year: 'numeric',
+		timeZone: 'UTC'
+	}).format(date);
+}
