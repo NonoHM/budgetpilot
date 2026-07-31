@@ -92,20 +92,22 @@ export const NATIVE_TYPE_OVERRIDES: NativeTypeOverrides = {
 	//   fails the suite. A fixed-length `@db.VarChar(n)` is allowed there instead, subject to
 	//   the byte budget above.
 	// - Every column `server/backup/schema.ts` accepts above 191 characters on restore, which
-	//   `server/backup/import.ts` then writes verbatim. Indexed: `Transaction.manualCategory`
-	//   and `Account.providerAccountId` (500 each), `Account.source` (200, and it sits inside
-	//   `@@unique([userId, name, source])`), `CategorizationRule.targetCategory` and
-	//   `CategoryRule.targetCategory` (200). Unindexed: `ImportBatch.source` and
-	//   `ImportBatch.profile`, `Transaction.source`, `CategoryRule.name`,
-	//   `NetWorthAccount.name`, `SavingsGoal.name`, `MonthlyBudget.categoryName`,
-	//   `CategoryNatureMapping.categoryName`, `BankConnection.provider` (200 each).
+	//   `server/backup/import.ts` then writes verbatim. That list was fifteen columns wide and
+	//   is now one: `backup/schema.ts` bounds the other fourteen at `MAX_PORTABLE_STRING`
+	//   (= 191, the narrowest provider's width), so a value MySQL cannot store is refused by
+	//   the validator on every engine instead of reaching an insert on one.
 	//
-	//   Nothing in the app writes any of them past 191: names are capped at 80 or 120 on every
-	//   write path, a source and a profile are app-constants, and a provider account uid is
-	//   short. So the only way to reach the gap is a hand-edited backup file, where a restore in
-	//   the 192-200 range fails on MySQL alone. Loud, not silent, and availability only.
-	//   Tightening those bounds to what the app can actually produce is the open follow-up, and
-	//   is the right fix rather than widening a dozen more columns toward the InnoDB key limit.
+	//   The remaining entry is `Account.providerAccountId`, indexed, accepted at 500. It is the
+	//   only one whose length no app code decides — the bank's API supplies the uid and the
+	//   sync writes it uncapped — so narrowing it would reject a SQLite or PostgreSQL install's
+	//   own export rather than close a divergence. Closing it means capping the write path and
+	//   giving the column a `@db.VarChar(n)` here; `backup/schema.ts` carries the same note.
+	//
+	//   Regenerate this list mechanically, never by eye: cross-check every `.max(n)` with
+	//   n > 191 in `server/backup/schema.ts` against the keys of this table. The hand-maintained
+	//   version of this comment was wrong three ways at once — it omitted `Category.name`
+	//   entirely and filed `ImportBatch.source` and `Transaction.source` as unindexed when both
+	//   carry an `@@index([source])`.
 };
 
 /** Rewrites the `datasource` block's provider. */

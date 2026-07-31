@@ -79,6 +79,12 @@ The AI overlay stacks on top if you use it, any order:
 docker compose -f docker-compose.yml -f docker-compose.ai.yml -f docker-compose.proxy.yml up -d --build
 ```
 
+Same stack on the prebuilt base:
+
+```bash
+docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml -f docker-compose.proxy.yml up -d
+```
+
 ### 4. Check the app's own port is really closed
 
 ```bash

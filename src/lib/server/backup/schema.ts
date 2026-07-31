@@ -16,6 +16,26 @@ const isoDateString = z.string().refine((value) => !Number.isNaN(Date.parse(valu
 	message: 'date ISO invalide'
 });
 
+/**
+ * The narrowest width any provider gives a `String` column that carries no native-type
+ * override: MySQL's `varchar(191)`.
+ *
+ * Every bound above it used to make a restore's outcome depend on the engine — the same file
+ * restored on SQLite and PostgreSQL and failed at the insert on MySQL alone. That is the exact
+ * class of divergence the multi-database work exists to remove, so the validator now refuses
+ * what the narrowest provider cannot store, before any write, with the same message everywhere.
+ *
+ * 191 rather than the much smaller value each column's write path enforces today (60 for a
+ * manual category, 80 for a rule field or a budget category, 120 for a bucket or goal name):
+ * those caps bound what this version of the app produces, not what a row written by an older
+ * one holds, and rejecting a legal export to make a comment tidier is not worth it. 191 rejects
+ * nothing MySQL would have accepted.
+ *
+ * Columns with a `@db.Text` or a wider `@db.VarChar(n)` in NATIVE_TYPE_OVERRIDES are not bound
+ * by this and keep their own, larger, bounds.
+ */
+const MAX_PORTABLE_STRING = 191;
+
 const transactionNature = z.enum(TRANSACTION_NATURES);
 const defaultCategoryKey = z.enum(DEFAULT_CATEGORY_KEYS);
 
@@ -24,13 +44,21 @@ const backupAccountSchema = z
 		id: z.string().min(1),
 		name: z.string().min(1).max(200),
 		currency: z.string().min(1).max(10),
-		source: z.string().min(1).max(200),
+		source: z.string().min(1).max(MAX_PORTABLE_STRING),
 		// Absent from exports predating this link: treated as null (no net worth account
 		// connected) rather than required, so an older backup file still restores.
 		netWorthAccountId: z.string().min(1).nullable().optional(),
 		// Absent from exports predating bank connections: same treatment.
 		bankConnectionId: z.string().min(1).nullable().optional(),
 		// Provider-side account uid of a bank-sync bucket (opaque, non-sensitive).
+		//
+		// The one bound deliberately left above MAX_PORTABLE_STRING, and the only remaining
+		// entry in schemaGenerator.ts's gap list. Unlike every other column there, nothing in
+		// the app decides its length: `syncBankConnection()` writes the uid the bank's API
+		// returned, uncapped. Narrowing this to 191 would reject a SQLite or PostgreSQL
+		// install's own export if its bank ever returned a longer uid — trading a divergence
+		// for a data-loss path. Closing it properly means capping the write and giving the
+		// column a `@db.VarChar(n)`, which is a schema decision, not a bounds edit.
 		providerAccountId: z.string().min(1).max(500).nullable().optional(),
 		// Provider-side cash account type of a bank-sync bucket (opaque, non-sensitive
 		// metadata — feeds a net worth account type suggestion, never authoritative).
@@ -46,7 +74,7 @@ const backupAccountSchema = z
 const backupBankConnectionSchema = z
 	.object({
 		id: z.string().min(1),
-		provider: z.string().min(1).max(200),
+		provider: z.string().min(1).max(MAX_PORTABLE_STRING),
 		status: z.enum(['active', 'expired', 'revoked', 'error']),
 		// Display metadata (bank name/country) — absent from older exports.
 		aspspName: z.string().max(200).nullable().optional(),
@@ -59,7 +87,7 @@ const backupBankConnectionSchema = z
 const backupCategorySchema = z
 	.object({
 		id: z.string().min(1),
-		name: z.string().min(1).max(200),
+		name: z.string().min(1).max(MAX_PORTABLE_STRING),
 		// Absent from pre-i18n exports: re-derived on import from the canonical FR name.
 		// Constrained to real system keys: a defaultKey forged outside this enum is
 		// rejected here; a defaultKey valid but inconsistent with `name` is neutralized
@@ -71,9 +99,9 @@ const backupCategorySchema = z
 const backupImportBatchSchema = z
 	.object({
 		id: z.string().min(1),
-		source: z.string().min(1).max(200),
+		source: z.string().min(1).max(MAX_PORTABLE_STRING),
 		fileName: z.string().max(500).nullable(),
-		profile: z.string().min(1).max(200),
+		profile: z.string().min(1).max(MAX_PORTABLE_STRING),
 		rowCount: z.number().int(),
 		importedRows: z.number().int(),
 		duplicateRows: z.number().int(),
@@ -93,10 +121,10 @@ const backupTransactionSchema = z
 		label: z.string().min(1).max(2000),
 		amountCents: z.number().int(),
 		type: transactionKind.nullable(),
-		source: z.string().min(1).max(200),
+		source: z.string().min(1).max(MAX_PORTABLE_STRING),
 		notes: z.string().max(10_000).nullable(),
 		bankOperationType: z.string().max(500).nullable(),
-		manualCategory: z.string().max(500).nullable(),
+		manualCategory: z.string().max(MAX_PORTABLE_STRING).nullable(),
 		natureManual: transactionNature.nullable(),
 		dedupeKey: z.string().max(500).nullable(),
 		metadataJson: z.string().max(100_000).nullable()
@@ -106,7 +134,7 @@ const backupTransactionSchema = z
 const backupMonthlyBudgetSchema = z
 	.object({
 		id: z.string().min(1),
-		categoryName: z.string().min(1).max(200),
+		categoryName: z.string().min(1).max(MAX_PORTABLE_STRING),
 		amountCents: z.number().int()
 	})
 	.strict();
@@ -114,9 +142,9 @@ const backupMonthlyBudgetSchema = z
 const backupCategoryRuleSchema = z
 	.object({
 		id: z.string().min(1),
-		name: z.string().min(1).max(200),
+		name: z.string().min(1).max(MAX_PORTABLE_STRING),
 		matchText: z.string().min(1).max(500),
-		targetCategory: z.string().min(1).max(200),
+		targetCategory: z.string().min(1).max(MAX_PORTABLE_STRING),
 		targetNature: transactionNature.nullable(),
 		enabled: z.boolean()
 	})
@@ -126,7 +154,7 @@ const backupCategorizationRuleSchema = z
 	.object({
 		id: z.string().min(1),
 		pattern: z.string().min(1).max(500),
-		targetCategory: z.string().min(1).max(200),
+		targetCategory: z.string().min(1).max(MAX_PORTABLE_STRING),
 		type: categorizationRuleKind.nullable(),
 		active: z.boolean()
 	})
@@ -135,7 +163,7 @@ const backupCategorizationRuleSchema = z
 const backupCategoryNatureMappingSchema = z
 	.object({
 		id: z.string().min(1),
-		categoryName: z.string().min(1).max(200),
+		categoryName: z.string().min(1).max(MAX_PORTABLE_STRING),
 		nature: transactionNature
 	})
 	.strict();
@@ -145,7 +173,7 @@ const netWorthAccountType = z.enum(NET_WORTH_ACCOUNT_TYPES);
 const backupNetWorthAccountSchema = z
 	.object({
 		id: z.string().min(1),
-		name: z.string().min(1).max(200),
+		name: z.string().min(1).max(MAX_PORTABLE_STRING),
 		type: netWorthAccountType,
 		balanceCents: z.number().int(),
 		deletedAt: isoDateString.nullable()
@@ -165,7 +193,7 @@ const backupNetWorthSnapshotSchema = z
 const backupSavingsGoalSchema = z
 	.object({
 		id: z.string().min(1),
-		name: z.string().min(1).max(200),
+		name: z.string().min(1).max(MAX_PORTABLE_STRING),
 		targetAmountCents: z.number().int(),
 		netWorthAccountId: z.string().min(1).nullable(),
 		currentAmountCents: z.number().int(),
