@@ -1,0 +1,216 @@
+# Scheduled CVE scan of the *published* image. Per-release scans only run when someone cuts a
+# release; the runtime base (distroless) rebuilds on Debian's cadence with no CVE SLA, so a
+# known CVE can appear in the already-published image with zero commits to trigger anything.
+# This is the alerting the Chainguard-vs-distroless decision explicitly budgeted for.
+#
+# Deliberately WITHOUT ignore-unfixed, unlike the publish gate: this workflow's job is
+# awareness, including "Debian has not fixed it yet" — the reader decides whether to wait for
+# the base to rebuild, cut a release to pick up a fixed layer, or mitigate. A red run also
+# produces GitHub's normal workflow-failure notification on top of the issue.
+#
+# Daily is cheap (one pull + one scan, vulnerability DB cached between runs); if it ever
+# flakes on registry rate limits, drop the cron to '0 6 * * 1,4'.
+name: Scheduled image scan
+
+on:
+  schedule:
+    - cron: '17 6 * * *' # daily; the odd minute avoids the top-of-hour GH cron crush
+  workflow_dispatch:
+
+# The open-or-comment logic below is a read-then-write; two overlapping runs (cron firing
+# during a manual dispatch) could both see "no open issue" and both create one. One run at
+# a time closes that race; a second trigger queues instead of racing.
+concurrency:
+  group: trivy-scheduled
+
+permissions:
+  contents: read
+
+jobs:
+  scan-published:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read # GHCR pull (see login below)
+      issues: write # the cve-alert issue below
+      security-events: write # upload-sarif
+    steps:
+      # Only for upload-sarif's source context; the scan targets the published image.
+      - uses: actions/checkout@v7
+
+      # The package is public today (verified by an anonymous pull), so this is not strictly
+      # needed — but if its visibility ever flips, an unauthenticated scan would fail on the
+      # pull and the zero-commit CVE alerting this workflow exists for would silently stop.
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # The alert path below depends on this label existing; `gh issue create --label` on a
+      # missing label fails at exactly the moment the alert matters. --force makes this
+      # idempotent (it re-asserts color/description on the existing label).
+      - name: Ensure the cve-alert label exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh label create cve-alert --force \
+            --description "Scheduled Trivy scan found CRITICAL/HIGH CVEs in the published image" \
+            --color B60205
+
+      - name: Lowercase image name (GHCR requires it)
+        id: image
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: echo "ref=ghcr.io/${REPOSITORY,,}:latest" >> "$GITHUB_OUTPUT"
+
+      # Both halves of the published multi-arch manifest are scanned — TRIVY_PLATFORM picks
+      # the arm64 image from this amd64 runner. The package sets come from one Debian
+      # snapshot, but "same" is a claim to verify daily, not assume: an arm64-only
+      # divergence would otherwise be invisible between releases.
+      #
+      # No severity filter and no exit-code on the SARIF scans: the Security tab gets the
+      # complete inventory and filters natively. Policy (CRITICAL/HIGH) is applied by the
+      # gate steps below, not by what gets recorded.
+      - name: Scan published amd64 image — full inventory as SARIF
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/amd64
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.ref }}
+          scanners: vuln
+          format: sarif
+          output: trivy-published-amd64.sarif
+
+      # Same place CodeQL's default-setup results live, so code-level and image-level
+      # findings share one view. Runs on the default branch (schedule/dispatch context),
+      # which is exactly where the Security tab's default alert list looks.
+      - name: Upload amd64 results to the Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-published-amd64.sarif
+          category: trivy-published-image-amd64
+
+      - name: Scan published arm64 image — full inventory as SARIF
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.ref }}
+          scanners: vuln
+          format: sarif
+          output: trivy-published-arm64.sarif
+          skip-setup-trivy: true
+
+      - name: Upload arm64 results to the Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-published-arm64.sarif
+          category: trivy-published-image-arm64
+
+      # A scanner that sees zero packages exits 0 and the gates below pass green while
+      # proving nothing. setup-trivy (run by the first trivy-action step) leaves `trivy`
+      # on PATH with a warm DB cache, so this costs one cached scan per platform.
+      - name: Refuse to gate on an empty package inventory
+        env:
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+        run: |
+          for platform in linux/amd64 linux/arm64; do
+            count=$(trivy image --quiet --scanners vuln --platform "$platform" \
+              --format json --list-all-pkgs "$IMAGE_REF" \
+              | jq '[.Results[]?.Packages? // []] | flatten | length')
+            echo "$IMAGE_REF ($platform): $count packages"
+            if [ "$count" -eq 0 ]; then
+              echo "the scanner saw zero packages ($platform) — the gate would pass while proving nothing" >&2
+              exit 1
+            fi
+          done
+
+      - name: Fail on amd64 CRITICAL/HIGH (including Debian-unfixed)
+        id: gate-amd64
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/amd64
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.ref }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          format: table
+          output: trivy-report-amd64.txt
+          skip-setup-trivy: true
+
+      # Runs even when the amd64 gate just failed (so the issue carries both platforms'
+      # findings), but not after an infrastructure failure earlier in the job.
+      - name: Fail on arm64 CRITICAL/HIGH (including Debian-unfixed)
+        id: gate-arm64
+        if: success() || steps.gate-amd64.outcome == 'failure'
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_PLATFORM: linux/arm64
+        with:
+          scan-type: image
+          image-ref: ${{ steps.image.outputs.ref }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          exit-code: '1'
+          format: table
+          output: trivy-report-arm64.txt
+          skip-setup-trivy: true
+
+      - name: Show the reports in the log
+        if: always()
+        run: |
+          for f in trivy-report-amd64.txt trivy-report-arm64.txt; do
+            echo "== $f =="
+            cat "$f" 2>/dev/null || echo "(no report file produced)"
+          done
+
+      # One open cve-alert issue at a time: new findings land as comments on it rather than
+      # as duplicate issues (the workflow-level concurrency group closes the two-runs race).
+      # Gated on the gate steps' own outcomes, so a failure in the SARIF/upload/inventory
+      # steps does not file a CVE alert about nothing. A gate can also fail on scanner
+      # infrastructure (DB mirror, registry) without writing its report — the body says so
+      # instead of implying findings that were never seen. Four-backtick fences because the
+      # report text comes from third-party package metadata and may itself contain backticks.
+      # Everything interpolated into the body is repo-derived, no user-controlled input.
+      - name: Open or update the alert issue
+        if: always() && (steps.gate-amd64.outcome == 'failure' || steps.gate-arm64.outcome == 'failure')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          IMAGE_REF: ${{ steps.image.outputs.ref }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          {
+            echo "Scheduled Trivy scan failed on CRITICAL/HIGH severities for \`$IMAGE_REF\`."
+            echo
+            echo "Run: $RUN_URL"
+            for platform in amd64 arm64; do
+              echo
+              echo "### $platform"
+              if [ -s "trivy-report-$platform.txt" ]; then
+                echo '````'
+                head -c 30000 "trivy-report-$platform.txt"
+                echo
+                echo '````'
+              else
+                echo "_The $platform gate failed without producing a report — likely scanner"
+                echo "infrastructure (DB mirror, registry), not a confirmed CVE. Check the run log._"
+              fi
+            done
+          } > /tmp/cve-alert-body.md
+          existing=$(gh issue list --label cve-alert --state open --json number --jq '.[0].number')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file /tmp/cve-alert-body.md
+          else
+            gh issue create \
+              --title "CVE alert: CRITICAL/HIGH finding in published image" \
+              --label cve-alert \
+              --body-file /tmp/cve-alert-body.md
+          fi

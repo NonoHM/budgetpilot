@@ -23,6 +23,10 @@ jobs:
   # per-matrix-leg.
   prepare:
     runs-on: ubuntu-latest
+    # Computes strings; needs neither the registry nor write access. The workflow-level
+    # packages: write exists for build and merge — every other job narrows it.
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
       image: ${{ steps.image.outputs.name }}
@@ -152,11 +156,154 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # CVE gate: no CRITICAL/HIGH *fixable* vulnerability reaches a pullable tag. It sits between
+  # the per-digest pushes and the tagged merge — the same honest compromise verify-arm64 already
+  # documents: the untagged digests exist in GHCR either way; what this job controls is what a
+  # user can pull by tag.
+  #
+  # `ignore-unfixed: true` on this gate only, and deliberately: a CVE Debian has not fixed yet
+  # would block releases on something no rebuild of ours can remove. The scheduled scan
+  # (trivy-scheduled.yml) runs WITHOUT ignore-unfixed and reports those — awareness there,
+  # gating here. Both platform digests are gated: they are built from one distroless index and
+  # the same Debian snapshot, but "same packages" is a claim to verify per release, not assume.
+  #
+  # The SARIF step scans with no severity filter and no ignore-unfixed on purpose — the
+  # Security tab gets the complete inventory (it filters natively); only the gate applies
+  # policy. Alerts uploaded here land under the release tag's ref; the daily default-branch
+  # view comes from trivy-scheduled.yml.
+  scan:
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+      security-events: write # upload-sarif
+    steps:
+      # Only for upload-sarif's source context; the scan itself targets the pushed digests.
+      - uses: actions/checkout@v7
+
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: digests-linux-amd64
+          path: /tmp/scan-digests/amd64
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: digests-linux-arm64
+          path: /tmp/scan-digests/arm64
+
+      # The build job records each platform digest as an empty file named after the hex — the
+      # same encoding the merge job consumes. Exactly one per platform, or something upstream
+      # changed shape and this gate must fail rather than scan half the matrix; and the name
+      # must actually be a sha256 hex, or the refs below are garbage that fails later with a
+      # worse error.
+      - name: Resolve per-platform image refs
+        id: refs
+        env:
+          IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
+        run: |
+          shopt -s nullglob
+          for platform in amd64 arm64; do
+            files=(/tmp/scan-digests/"$platform"/*)
+            if [ "${#files[@]}" -ne 1 ]; then
+              echo "expected exactly one $platform digest file, found ${#files[@]}" >&2
+              exit 1
+            fi
+            digest=$(basename "${files[0]}")
+            case "$digest" in
+              *[!0-9a-f]* | '') echo "digest file name is not hex: $digest" >&2; exit 1 ;;
+            esac
+            if [ "${#digest}" -ne 64 ]; then
+              echo "not a sha256 hex digest: $digest" >&2
+              exit 1
+            fi
+            echo "$platform=$IMAGE@sha256:$digest" >> "$GITHUB_OUTPUT"
+          done
+
+      - name: Scan amd64 digest — full inventory as SARIF
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.refs.outputs.amd64 }}
+          scanners: vuln
+          format: sarif
+          output: trivy-release-amd64.sarif
+
+      - name: Upload amd64 results to the Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-release-amd64.sarif
+          category: trivy-image-release-amd64
+
+      - name: Scan arm64 digest — full inventory as SARIF
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.refs.outputs.arm64 }}
+          scanners: vuln
+          format: sarif
+          output: trivy-release-arm64.sarif
+          skip-setup-trivy: true
+
+      - name: Upload arm64 results to the Security tab
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: trivy-release-arm64.sarif
+          category: trivy-image-release-arm64
+
+      # A scanner that sees zero packages exits 0 and the gate below passes green while
+      # proving nothing — the empty-scan failure mode. setup-trivy (run by the first
+      # trivy-action step) leaves `trivy` on PATH and the vulnerability DB in its cache,
+      # so this probe costs one cached scan per platform.
+      - name: Refuse to gate on an empty package inventory
+        env:
+          AMD64_REF: ${{ steps.refs.outputs.amd64 }}
+          ARM64_REF: ${{ steps.refs.outputs.arm64 }}
+        run: |
+          for ref in "$AMD64_REF" "$ARM64_REF"; do
+            count=$(trivy image --quiet --scanners vuln --format json --list-all-pkgs "$ref" \
+              | jq '[.Results[]?.Packages? // []] | flatten | length')
+            echo "$ref: $count packages"
+            if [ "$count" -eq 0 ]; then
+              echo "the scanner saw zero packages in $ref — the CVE gate would pass while proving nothing" >&2
+              exit 1
+            fi
+          done
+
+      - name: Gate amd64 on fixable CRITICAL/HIGH
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.refs.outputs.amd64 }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+
+      - name: Gate arm64 on fixable CRITICAL/HIGH
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: ${{ steps.refs.outputs.arm64 }}
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          skip-setup-trivy: true
+
   # Combines the amd64 + arm64 digests into a single multi-arch manifest list
   # under the real tags (version + latest) — `docker buildx imagetools create`
   # is the standard way to do this without re-uploading any image data.
   merge:
-    needs: [prepare, build]
+    needs: [prepare, build, scan]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -202,6 +349,9 @@ jobs:
   verify-arm64:
     needs: [prepare, merge]
     runs-on: ubuntu-24.04-arm
+    # Anonymous pull of the (public) published tag; no token use at all.
+    permissions:
+      contents: read
     steps:
       - name: Pull and verify architecture
         env:
@@ -259,3 +409,62 @@ jobs:
           docker rm -f verify-arm64 >/dev/null 2>&1 || true
           echo "The published arm64 image never served /login." >&2
           exit 1
+
+  # SBOM for the release: generated by Syft from the just-published tag and attached to the
+  # GitHub release as an SPDX JSON asset. Syft rather than Trivy for *generation* (richer npm
+  # coverage of the node_modules tree); Trivy stays the scanner. buildx's own sbom/provenance
+  # remains off — the unknown/unknown attestation-manifest rationale at build-push-action
+  # stands, and is not re-litigated here: the SBOM ships next to the release notes instead of
+  # inside the manifest list. One format (SPDX JSON) until someone needs another; a second
+  # --clobber'ed asset is a one-line addition later.
+  #
+  # Generation and upload are separate jobs on purpose: sbom runs a third-party action, and a
+  # third-party action never shares a job with a token that can write to the repository —
+  # any step in a job can read every credential the job holds. This job gets read-only;
+  # only sbom-attach below, which runs no third-party code, holds contents: write.
+  sbom:
+    needs: [prepare, merge]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Generate SBOM (Syft, SPDX JSON)
+        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        with:
+          image: ghcr.io/${{ needs.prepare.outputs.image }}:${{ needs.prepare.outputs.version }}
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ secrets.GITHUB_TOKEN }}
+          format: spdx-json
+          output-file: budgetpilot-${{ needs.prepare.outputs.version }}.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: budgetpilot-*.spdx.json
+          if-no-files-found: error
+          retention-days: 1
+
+  sbom-attach:
+    needs: [prepare, sbom]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # gh release upload — and nothing third-party runs here
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
+
+      # On `release: published` the tag comes from the event; on workflow_dispatch from the
+      # input — the same fallback the version step uses. --clobber so a retroactive re-publish
+      # of a tag replaces the asset instead of failing on it.
+      - name: Attach SBOM to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+        run: gh release upload "$TAG_NAME" budgetpilot-*.spdx.json --clobber
