@@ -36,6 +36,37 @@ const isoDateString = z.string().refine((value) => !Number.isNaN(Date.parse(valu
  */
 const MAX_PORTABLE_STRING = 191;
 
+/**
+ * The two bounds on `RecurringStreamAction.anchorTransactionIds`, which are a pair and have to
+ * be changed as one.
+ *
+ * The cell is a JSON array of transaction ids and it is the one column a restore *rewrites*: the
+ * ids it holds are remapped to the ones this restore regenerated. A freshly generated cuid is 25
+ * characters, so a remapped cell can be larger than the cell that was validated on the way in,
+ * and nothing re-validates it before the insert. Bounding only the input therefore lets an
+ * oversized cell be written, leave through an export that never runs this schema, and be rejected
+ * on the way back in — the user is told their own export is corrupt.
+ *
+ * So the write path truncates to MAX_ANCHOR_IDS (see `restoreBackup`) and the two numbers satisfy
+ *
+ *     MAX_ANCHOR_IDS * 28 + 2 <= MAX_ANCHOR_CELL_CHARS
+ *
+ * where 28 = 25 (cuid) + 2 (quotes) + 1 (comma) per element, plus 2 for the brackets. A spec
+ * asserts both the arithmetic and the property it stands for — that the cell actually written can
+ * never exceed what this schema accepts.
+ *
+ * 250 rather than the "~52 for a weekly stream" this was first justified with, which bounded
+ * neither the input nor the output. The real ceiling: an action's anchors are the whole
+ * similar-amount occurrence group over the 12-month lookback, and the cadence test uses the
+ * MEDIAN interval, so a group counts as weekly with a median of 5 days. That is about
+ * 2 * 365 / 5 = 146 occurrences for an ordinary user with a frequent same-amount payment. 250
+ * clears that with room, and truncation keeps the NEWEST ids (`.slice(-MAX_ANCHOR_IDS)`) because
+ * dropping the oldest only weakens the action to label-based matching, which is what the fallback
+ * exists for.
+ */
+export const MAX_ANCHOR_IDS = 250;
+export const MAX_ANCHOR_CELL_CHARS = 7_500;
+
 const transactionNature = z.enum(TRANSACTION_NATURES);
 const defaultCategoryKey = z.enum(DEFAULT_CATEGORY_KEYS);
 
@@ -213,9 +244,8 @@ const backupRecurringStreamActionSchema = z
 		label: z.string().min(1).max(MAX_PORTABLE_STRING),
 		// Bound above MAX_PORTABLE_STRING on purpose, and legal there: the column carries a
 		// `@db.Text` override in NATIVE_TYPE_OVERRIDES, so MySQL stores it as `text` like every
-		// other provider. It holds a JSON array of transaction ids, one per occurrence of the
-		// anchored stream, so 191 would refuse a perfectly ordinary weekly stream.
-		anchorTransactionIds: z.string().max(4000),
+		// other provider. See MAX_ANCHOR_IDS for why the two bounds are a pair.
+		anchorTransactionIds: z.string().max(MAX_ANCHOR_CELL_CHARS),
 		dueDate: isoDateString.nullable(),
 		createdAt: isoDateString,
 		updatedAt: isoDateString
@@ -245,7 +275,15 @@ export const backupExportSchema = z
 		// Absent from exports predating bank connections: defaulted to empty.
 		bankConnections: z.array(backupBankConnectionSchema).default([]),
 		// Absent from exports predating recurring stream actions: defaulted to empty.
-		recurringStreamActions: z.array(backupRecurringStreamActionSchema).default([])
+		//
+		// The one root array with a length bound, because it is the one whose size decides how
+		// much work the restore does per row rather than in bulk: every transaction an action
+		// anchors leaves the bulk `createMany` and gets its own `create`, inside the single
+		// interactive transaction. Unbounded, a hand-edited file well under the upload limit
+		// holds a pooled connection for the whole LONG_TRANSACTION_OPTIONS ceiling. It rolls
+		// back cleanly — this is availability, not corruption — but the bound costs nothing:
+		// 500 actions is far past what detection can produce for one user.
+		recurringStreamActions: z.array(backupRecurringStreamActionSchema).max(500).default([])
 	})
 	.strict();
 

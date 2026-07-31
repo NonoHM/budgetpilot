@@ -551,6 +551,15 @@ model SavingsGoal {
 /// survives label drift and re-categorization), and the direction + normalized label pair
 /// (fallback once anchors age out of the 12-month detection window). Matching logic lives in
 /// src/lib/domain/upcomingBills.ts (actionMatchesFlow); nothing here is matched in SQL.
+///
+/// `@@index([userId, kind])` has a reader: the idempotence check on the write path loads this
+/// user's existing actions of the SAME kind before inserting. Not dead — do not drop it.
+///
+/// No `@@unique` and nothing prunes these rows, and that is a decision rather than an omission.
+/// Growth is bounded by the write path instead: repeating an action returns the existing row
+/// rather than inserting a second one, and undo DELETEs the row, so toggling a decision on and
+/// off cannot accumulate. A uniqueness constraint would have to be expressed over the anchor
+/// list, which is JSON and matched in JS.
 model RecurringStreamAction {
   id                   String              @id @default(cuid())
   userId               String

@@ -6,7 +6,7 @@ import { DEFAULT_CATEGORIES } from '$lib/server/categories/defaults';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
-import type { BackupExport } from './schema';
+import { MAX_ANCHOR_IDS, type BackupExport } from './schema';
 
 export class BackupImportError extends Error {}
 
@@ -48,8 +48,11 @@ function normalizeCategoryDefaultKey(
  * can put anything in it. Anything that is not a JSON array of non-empty strings yields an empty
  * anchor list, which costs the action nothing it cannot recover — matching falls back to the
  * direction + normalized label pair.
+ *
+ * Exported because every reader of this column must go through it. A bare `JSON.parse` on a
+ * malformed cell throws, and this one is read on a page load.
  */
-function parseAnchorTransactionIds(serialized: string): string[] {
+export function parseAnchorTransactionIds(serialized: string): string[] {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(serialized);
@@ -307,10 +310,18 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 					// Remapped, and ids with no mapping are dropped rather than kept. Dropping one
 					// only weakens this action to label-based matching; keeping one would let a
 					// restore point an anchor at a transaction this user does not own.
+					//
+					// Truncated to the NEWEST MAX_ANCHOR_IDS because this is the one column a
+					// restore rewrites: a 25-char cuid can be longer than the id it replaces, so
+					// the cell written here can outgrow the cell the schema validated on the way
+					// in. Without the cap an oversized cell leaves through an export — which does
+					// not run the schema — and is refused on the way back in, telling the user
+					// their own export is corrupt.
 					anchorTransactionIds: JSON.stringify(
 						parseAnchorTransactionIds(action.anchorTransactionIds)
 							.map((id) => transactionIdMap.get(id))
 							.filter((id): id is string => id !== undefined)
+							.slice(-MAX_ANCHOR_IDS)
 					),
 					dueDate: action.dueDate ? new Date(action.dueDate) : null,
 					createdAt: new Date(action.createdAt),

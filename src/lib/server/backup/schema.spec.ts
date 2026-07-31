@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { backupExportSchema } from './schema';
+import { backupExportSchema, MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS } from './schema';
 
 function buildValidPayload() {
 	return {
@@ -536,6 +536,45 @@ describe('backupExportSchema', () => {
 
 		expect(
 			backupExportSchema.safeParse(buildActionPayload({ anchorTransactionIds: serialized })).success
+		).toBe(true);
+	});
+
+	/**
+	 * Availability bound, not an integrity one. Every transaction an action anchors leaves the
+	 * bulk `createMany` for its own `create` inside the single interactive transaction, so an
+	 * unbounded list lets a small hand-edited file hold a pooled connection for the whole
+	 * LONG_TRANSACTION_OPTIONS ceiling.
+	 */
+	it('rejette un fichier portant plus de 500 actions', () => {
+		expect.assertions(2);
+
+		const build = (count: number) => ({
+			...buildValidPayload(),
+			recurringStreamActions: Array.from({ length: count }, (_, index) => ({
+				...buildActionPayload().recurringStreamActions[0],
+				id: `action-${index}`
+			}))
+		});
+
+		expect(backupExportSchema.safeParse(build(500)).success).toBe(true);
+		expect(backupExportSchema.safeParse(build(501)).success).toBe(false);
+	});
+
+	/**
+	 * The cell bound and the write-path cap are a pair: the restore rewrites this column with
+	 * freshly generated 25-char cuids, so a cell of MAX_ANCHOR_IDS of them must still be
+	 * something this schema accepts. Asserted here as well as against the real write path, so
+	 * narrowing the cell bound alone goes red.
+	 */
+	it('accepte une cellule pleine de MAX_ANCHOR_IDS cuids', () => {
+		expect.assertions(2);
+
+		expect(MAX_ANCHOR_IDS * 28 + 2).toBeLessThanOrEqual(MAX_ANCHOR_CELL_CHARS);
+
+		const full = JSON.stringify(Array.from({ length: MAX_ANCHOR_IDS }, () => 'c'.repeat(25)));
+
+		expect(
+			backupExportSchema.safeParse(buildActionPayload({ anchorTransactionIds: full })).success
 		).toBe(true);
 	});
 
