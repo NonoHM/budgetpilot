@@ -48,6 +48,21 @@ TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
 RATE_LIMIT_HASH_SECRET=docker-smoke-only-fake-rate-limit-hash-secret
 BOOTSTRAP_TOKEN=docker-smoke-only-fake-bootstrap-token
 
+# The runtime posture docker-compose.yml and docker-compose.prebuilt.yml declare, applied to
+# every container this script starts from the app image. Not just to one leg: the claim is that
+# the app works this way on every provider, and migrate deploy, the two boot backfills and the
+# advisory lock all run before a leg answers /login.
+#
+# Kept as one array so the smoke run and the Compose files cannot drift apart quietly — if a
+# flag is ever added back to Compose it belongs here too, and the write probes below say what
+# the kernel then actually does about it.
+HARDENED=(
+	--read-only
+	--tmpfs /tmp
+	--cap-drop ALL
+	--security-opt no-new-privileges
+)
+
 # Strips `user:password@` out of any URL-shaped thing before it reaches stdout. The app itself
 # never logs a connection string, but a driver's own parse error does — see toDriverConnectionUrl
 # in src/lib/server/database/provider.ts — and that error is exactly what a failing leg would
@@ -62,6 +77,12 @@ CREATED_CONTAINERS=()
 WORK_DIR=$(mktemp -d)
 DRY_RUN_VOLUME=budgetpilot-smoke-dryrun
 UPGRADE_VOLUME=budgetpilot-smoke-upgrade
+# /data has to be a mounted volume now, not a directory in the image's own filesystem: the
+# containers below run --read-only, so the image's /data is read-only like everything else. That
+# is exactly how the Compose files run it (`budgetpilot_data:/data`), and it is the reason the
+# hardened posture does not lock SQLite out — but it does mean a leg that forgets the mount fails
+# with a clear message from boot.mjs rather than working by accident.
+DATA_VOLUME=budgetpilot-smoke-data
 
 cleanup() {
 	local status=$?
@@ -71,7 +92,7 @@ cleanup() {
 		[ -n "$container" ] && docker rm -f "$container" >/dev/null 2>&1 || true
 	done
 	docker network rm "$NETWORK" >/dev/null 2>&1 || true
-	docker volume rm -f "$DRY_RUN_VOLUME" "$UPGRADE_VOLUME" >/dev/null 2>&1 || true
+	docker volume rm -f "$DRY_RUN_VOLUME" "$UPGRADE_VOLUME" "$DATA_VOLUME" >/dev/null 2>&1 || true
 	docker image rm -f "$IMAGE" "$BUILDER_IMAGE" >/dev/null 2>&1 || true
 	rm -rf "$WORK_DIR"
 	exit "$status"
@@ -115,6 +136,13 @@ extract_from_image() {
 	# stored unreadable would otherwise be skipped, and "cannot read it" would be silently
 	# counted as "nothing in it".
 	chmod -R u+rwX "$dest"
+}
+
+# A fresh, empty /data for whichever container is about to run. Recreated rather than emptied,
+# because emptying it would need a shell somewhere and this is the cheaper honest option.
+fresh_data_volume() {
+	docker volume rm -f "$DATA_VOLUME" >/dev/null 2>&1 || true
+	docker volume create "$DATA_VOLUME" >/dev/null
 }
 
 run_container() {
@@ -259,12 +287,12 @@ dry_run_env=(-e DATABASE_PROVIDER=sqlite -e DATABASE_URL=file:/data/smoke.db)
 # The Prisma CLI at its declared bin entry, not node_modules/.bin/prisma: that shim is a
 # `#!/usr/bin/env node` script, and the image this will soon be has no /usr/bin/env. Same
 # invocation boot.mjs makes.
-docker run --rm -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" \
+docker run --rm "${HARDENED[@]}" -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" \
 	"$IMAGE" node_modules/prisma/build/index.js migrate deploy >/dev/null
 # The published command from docs/operations.md, verbatim after `docker run`. A named volume
 # inherits /data's ownership from the image, so the `app` user can write to it; if that ever
 # stopped being true this run would be the thing that says so.
-docker run --rm -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" \
+docker run --rm "${HARDENED[@]}" -v "$DRY_RUN_VOLUME:/data" "${dry_run_env[@]}" \
 	"$IMAGE" scripts/normalize-names.mjs --dry-run \
 	| tail -n 20
 docker volume rm "$DRY_RUN_VOLUME" >/dev/null
@@ -408,7 +436,10 @@ for leg in "${LEGS[@]}"; do
 	echo "=== leg: $label (DATABASE_PROVIDER=${provider:-<unset>}, ${url%%:*}:// URL) ==="
 
 	app="smoke-app-$label"
+	fresh_data_volume
 	run_container "$app" \
+		"${HARDENED[@]}" \
+		-v "$DATA_VOLUME:/data" \
 		-p "127.0.0.1:$APP_PORT:3000" \
 		"${provider_args[@]}" \
 		-e DATABASE_URL="$url" \
@@ -488,6 +519,7 @@ failpath_app=smoke-app-failpath
 CREATED_CONTAINERS+=("$failpath_app")
 set +e
 timeout 120 docker run --name "$failpath_app" --network "$NETWORK" \
+	"${HARDENED[@]}" \
 	-e DATABASE_PROVIDER=postgresql \
 	-e DATABASE_URL="postgresql://$DB_USER:$DB_PASSWORD@no-such-host:5432/$DB_NAME" \
 	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
@@ -525,6 +557,174 @@ fi
 echo "  ok: refused to start, never listened, exited $failpath_status"
 docker rm -f "$failpath_app" >/dev/null
 
+# What the hardening flags actually do, asked of the kernel rather than of Compose.
+#
+# check-compose-combinations.sh asserts every documented stack is *written* this way. It cannot
+# assert what happens next, and the two questions have different answers often enough that this
+# repo has a rule about it: a protection claim is verified by attempting the thing it forbids.
+# `stat` once said node_modules was unwritable while `mv` renamed the whole tree.
+#
+# So: write to a path in the read-only root, expecting EROFS; write to the two paths that must
+# stay writable, expecting success; and read the capability sets and NoNewPrivs out of
+# /proc/self/status. All of it through the node entrypoint — there is no shell to run a probe in.
+#
+# Ownership is asked here too, for a reason worth keeping written down: it cannot be asked of
+# the extracted rootfs at all. `docker export | tar -x` as an unprivileged user re-owns every
+# file to whoever ran the script, so the export can answer "does this file exist" and never
+# "who owns it".
+echo
+echo "=== asserting the hardened posture holds inside a running container ==="
+probe_app=smoke-app-hardened
+fresh_data_volume
+run_container "$probe_app" \
+	"${HARDENED[@]}" \
+	-v "$DATA_VOLUME:/data" \
+	-e DATABASE_URL="file:/data/dev.db" \
+	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
+	-e PUBLIC_INSTANCE=false \
+	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
+	-e RATE_LIMIT_HASH_SECRET="$RATE_LIMIT_HASH_SECRET" \
+	-e BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+	"$IMAGE"
+
+# The container has to be up before docker exec can reach it; /login is not needed here, only a
+# live process, so this waits on the process rather than on the port.
+#
+# The explicit "did it stay up" check below is not ceremony. Without it, a container that exits
+# during this wait turns every probe into `Error response from daemon: container … is not
+# running`, and the script dies on that instead of on anything it was asserting — which is what
+# happened while breaking this check on purpose with --user 0. Worth knowing why that exits, and
+# it is not obvious: --cap-drop ALL removes CAP_DAC_OVERRIDE, so uid 0 loses its usual right to
+# ignore file permissions and cannot write a /data owned by 65532 either.
+for _ in $(seq 1 "$BOOT_TIMEOUT"); do
+	[ "$(docker inspect -f '{{.State.Running}}' "$probe_app")" = true ] && break
+	sleep 1
+done
+if [ "$(docker inspect -f '{{.State.Running}}' "$probe_app")" != true ]; then
+	docker logs "$probe_app" 2>&1 | redact || true
+	echo "FAIL: the container did not stay up under the hardened flags (exit $(docker inspect -f '{{.State.ExitCode}}' "$probe_app"))" >&2
+	exit 1
+fi
+
+# Runs a snippet in the probe container and prints what it said. Failures of `docker exec`
+# itself are turned into a diagnostic here rather than being left to `set -e`: the container can
+# die between the liveness check above and this call — it did, while breaking this check with
+# --user 0 — and what reaches the log then is "Error response from daemon: … is not running",
+# with the script exiting on the assignment before any of its own messages run.
+exec_in_probe() { # <node source> -> prints the snippet's output
+	local output
+	if ! output=$(docker exec "$probe_app" /nodejs/bin/node -e "$1" 2>&1); then
+		docker logs "$probe_app" 2>&1 | redact || true
+		echo "FAIL: could not run a probe in the hardened container: $output" >&2
+		return 1
+	fi
+	printf '%s' "$output"
+}
+
+probe_write() { # <path> -> prints WROTE or the errno
+	exec_in_probe "try { require('node:fs').writeFileSync('$1', 'x'); console.log('WROTE') } catch (error) { console.log(error.code) }"
+}
+
+for target in /app/smoke-probe /smoke-probe /nodejs/smoke-probe; do
+	result=$(probe_write "$target") || exit 1
+	if [ "$result" != EROFS ]; then
+		echo "FAIL: writing $target in the hardened container returned '$result', expected EROFS" >&2
+		exit 1
+	fi
+done
+for target in /tmp/smoke-probe /data/smoke-probe; do
+	result=$(probe_write "$target") || exit 1
+	if [ "$result" != WROTE ]; then
+		echo "FAIL: writing $target in the hardened container returned '$result', expected success" >&2
+		exit 1
+	fi
+done
+
+# The bounding set matters as much as the effective one: a non-empty CapBnd is a capability a
+# process could still acquire, which is the thing --cap-drop ALL is for.
+#
+# Read from /proc/1/status, not /proc/self/status: self is this `docker exec`, which is not the
+# process serving requests. Docker applies the same confinement to an exec today, so the two
+# agree — but the claim is about the server, and the server is PID 1.
+# Parsed by splitting on the tab /proc writes, not with a regex: the regex form had to survive
+# a shell single-quoted string on its way into node -e, and what arrived was mangled enough to
+# match nothing at all — which read as four empty fields, i.e. a green-looking "no capabilities"
+# if the comparison had been any looser. The expected string is compared whole for that reason.
+caps=$(exec_in_probe '
+	const wanted = ["CapPrm", "CapEff", "CapBnd", "NoNewPrivs"];
+	const found = new Map(
+		require("node:fs")
+			.readFileSync("/proc/1/status", "utf8")
+			.split("\n")
+			.map((line) => line.split(":"))
+			.filter((parts) => parts.length === 2)
+			.map(([key, value]) => [key.trim(), value.trim()])
+	);
+	console.log(wanted.map((key) => found.get(key) ?? "MISSING").join(" "));
+') || exit 1
+if [ "$caps" != "0000000000000000 0000000000000000 0000000000000000 1" ]; then
+	echo "FAIL: capability state is '$caps', expected all-zero sets with NoNewPrivs 1" >&2
+	exit 1
+fi
+
+# Same reasoning as the capability read above: the uid that matters is PID 1's.
+runtime_identity=$(exec_in_probe '
+	const status = require("node:fs").readFileSync("/proc/1/status", "utf8");
+	const field = (name) =>
+		(status.split("\n").find((line) => line.startsWith(`${name}:`)) ?? "").split(/\s+/)[1];
+	const stats = require("node:fs").statSync("/data");
+	console.log(`${field("Uid")}:${field("Gid")} ${stats.uid}:${stats.gid}`);
+') || exit 1
+if [ "$runtime_identity" != "65532:65532 65532:65532" ]; then
+	echo "FAIL: running as / owning /data is '$runtime_identity', expected 65532:65532 for both" >&2
+	exit 1
+fi
+echo "  ok: EROFS on 3 root paths, writable /tmp and /data, no capabilities, NoNewPrivs, uid 65532"
+docker rm -f "$probe_app" >/dev/null
+
+# The other half of the /data preflight, and the half that had no check at all until the review
+# of this change asked for one. boot.mjs distinguishes two reasons /data cannot be written —
+# EROFS (read-only root, nothing mounted there) from EACCES (mounted, owned by the old uid) —
+# and only the second was exercised, by the upgrade leg below. A regression collapsing both into
+# one message, or dropping the EROFS branch so it fell through to the generic errno text, would
+# have left every assertion green while an operator with a missing volume was told to chown one.
+#
+# So the discriminating assertion is the negative one: the ownership advice must NOT appear here.
+echo
+echo "=== asserting a missing /data mount is diagnosed as read-only, not as ownership ==="
+novolume_app=smoke-app-novolume
+CREATED_CONTAINERS+=("$novolume_app")
+set +e
+timeout 60 docker run --name "$novolume_app" "${HARDENED[@]}" \
+	-e DATABASE_URL="file:/data/dev.db" \
+	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
+	-e PUBLIC_INSTANCE=false \
+	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
+	-e RATE_LIMIT_HASH_SECRET="$RATE_LIMIT_HASH_SECRET" \
+	-e BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+	"$IMAGE" >/dev/null 2>&1
+novolume_status=$?
+set -e
+novolume_logs=$(docker logs "$novolume_app" 2>&1 | redact || true)
+docker rm -f "$novolume_app" >/dev/null
+
+if [ "$novolume_status" -eq 0 ]; then
+	echo "$novolume_logs"
+	echo "FAIL: the app started with no volume mounted at /data under a read-only root" >&2
+	exit 1
+fi
+if ! grep -q 'read-only filesystem' <<<"$novolume_logs"; then
+	echo "$novolume_logs"
+	echo "FAIL: a missing /data mount was not diagnosed as a read-only filesystem" >&2
+	exit 1
+fi
+if grep -q 'chown -R 65532:65532' <<<"$novolume_logs"; then
+	echo "$novolume_logs"
+	echo "FAIL: a missing /data mount printed the volume-ownership remediation, which cannot help here" >&2
+	exit 1
+fi
+echo "  ok: refused with the read-only diagnosis, and without the ownership advice"
+
 # The upgrade path from any pre-distroless image, which is the one operator-breaking change in
 # this base swap. Those images ran as a `useradd --system` uid (999 here), this one runs as
 # 65532, and an existing SQLite install's volume is still owned by the old uid. Without the
@@ -545,6 +745,7 @@ upgrade_app=smoke-app-upgrade
 CREATED_CONTAINERS+=("$upgrade_app")
 set +e
 timeout 120 docker run --name "$upgrade_app" -v "$UPGRADE_VOLUME:/data" \
+	"${HARDENED[@]}" \
 	-e DATABASE_URL="file:/data/dev.db" \
 	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
 	-e PUBLIC_INSTANCE=false \
@@ -582,6 +783,7 @@ echo "  ok: refused with the remediation, before Prisma saw the volume"
 docker run --rm -v "$UPGRADE_VOLUME:/data" busybox:1.37 chown -R 65532:65532 /data >/dev/null
 upgrade_app=smoke-app-upgraded
 run_container "$upgrade_app" \
+	"${HARDENED[@]}" \
 	-p "127.0.0.1:$APP_PORT:3000" \
 	-v "$UPGRADE_VOLUME:/data" \
 	-e DATABASE_URL="file:/data/dev.db" \
@@ -623,7 +825,10 @@ docker volume rm "$UPGRADE_VOLUME" >/dev/null
 echo
 echo "=== asserting SIGTERM stops the container promptly (no SIGKILL) ==="
 term_app=smoke-app-sigterm
+fresh_data_volume
 run_container "$term_app" \
+	"${HARDENED[@]}" \
+	-v "$DATA_VOLUME:/data" \
 	-p "127.0.0.1:$APP_PORT:3000" \
 	-e DATABASE_URL="file:/data/dev.db" \
 	-e ORIGIN="http://127.0.0.1:$APP_PORT" \

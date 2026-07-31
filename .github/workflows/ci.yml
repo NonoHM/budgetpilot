@@ -25,6 +25,7 @@ jobs:
   # behind the much longer test-and-build job.
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -51,6 +52,7 @@ jobs:
 
   typecheck:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
@@ -75,6 +77,10 @@ jobs:
   # build's env/DB, against a dedicated throwaway DB — see e2e/config.ts).
   test-and-build:
     runs-on: ubuntu-latest
+    # 25 rather than something near the ~3m30s this normally takes, because the Playwright step
+    # below is allowed 15 on its own: the step timeout has to be the one that fires, so a
+    # failure names the thing that stalled instead of the whole job.
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
 
@@ -101,7 +107,28 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
 
+      # `--with-deps` is not optional here — it is what installs Chromium's system libraries,
+      # and without them the browser fails to launch with a missing-shared-object error rather
+      # than anything about Playwright. But it shells out to apt-get, which is where this step
+      # can stop being a 25-second no-op: it waits on the dpkg lock if unattended-upgrades is
+      # still running on a fresh runner, and Ubuntu's needrestart can open an interactive prompt
+      # mid-install that nothing will ever answer. Both are silent — the step simply sits there.
+      # Seen once at eight minutes and still climbing on a run whose cache had hit.
+      #
+      # The two variables make the apt path answer its own questions; timeout-minutes is what
+      # turns a hang into a failed job instead of an occupied runner. Job-level timeouts above
+      # are the backstop for the same class of problem elsewhere, in the same spirit as the
+      # 30-minute one docker-smoke.yml already carries.
+      #
+      # 15 and not something tighter, and the number comes from the incident rather than from
+      # taste: that step did not hang forever, it took 10m21s and then succeeded. A bound below
+      # that turns a slow run into a red one, which is how a timeout starts costing more than
+      # the problem it guards. This one only catches a stall worse than any observed.
       - name: Install Playwright Chromium
+        timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
+          NEEDRESTART_MODE: a
         run: npx playwright install --with-deps chromium
 
       - name: Unit tests
@@ -140,6 +167,7 @@ jobs:
   # and dies inside this job, never copied from anywhere real.
   db-matrix:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     strategy:
       fail-fast: false
@@ -239,6 +267,7 @@ jobs:
   # files, and prisma.config.ts imports only the dependency-free provider module.
   sqlite-migrations:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     env:
       DATABASE_PROVIDER: sqlite
       DATABASE_URL: file:/tmp/ci-migration-check.db
@@ -264,6 +293,7 @@ jobs:
   # nothing checked any stack of them. Needs no npm install — docker compose ships on the runner.
   compose-combinations:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
 
