@@ -149,7 +149,7 @@ jobs:
         env:
           platform: ${{ matrix.platform }}
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: digests-${{ steps.platform-key.outputs.key }}
           path: /tmp/digests/*
@@ -441,7 +441,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: sbom
           path: budgetpilot-*.spdx.json
