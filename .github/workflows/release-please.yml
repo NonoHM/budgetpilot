@@ -16,7 +16,7 @@ jobs:
       # event to other workflows (GitHub's recursion guard) — docker-publish.yml would
       # silently never trigger. A PAT (RELEASE_PLEASE_PAT) makes the release attributable
       # to a real actor, so the event fires normally.
-      - uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v5
         with:
           token: ${{ secrets.RELEASE_PLEASE_PAT }}
           config-file: release-please-config.json
