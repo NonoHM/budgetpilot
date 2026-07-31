@@ -1,3 +1,8 @@
+# check=skip=SecretsUsedInArgOrEnv
+# ^ Parser directive, so it has to be line 1: BuildKit stops looking for these after the first
+# comment or instruction. The reasoning is at the `ENV` block in the `builder` stage below, and
+# so is the check that keeps the skip honest. Do not remove either half without reading it.
+
 FROM node:24.18.0-trixie-slim AS deps
 WORKDIR /app
 
@@ -52,18 +57,35 @@ RUN npx svelte-kit sync \
 # check the same way CI's test-and-build job does. Real values are supplied via env/volume
 # when the image actually runs.
 #
-# Linters (e.g. Docker Scout) may flag these as "sensitive data in ENV" — false positive
-# for this specific case: they're declared ONLY in this `builder` stage, which the final
-# `runner` stage below never derives FROM (it starts its own `FROM node:...`) and never
-# COPYs anything from except the compiled `build` output, `prisma`, `prisma.config.ts` and
-# the dependency-free `provider.ts` — never the builder's image config/layers. The three
-# generated Prisma clients arrive inside `build`, and carry no credential of their own: the
-# datasource block in every schema has no `url` field, so the `inlineSchema` baked into each
-# client holds no connection string. Verified empirically via `docker inspect
-# --format '{{json .Config.Env}}'` and `docker history --no-trunc` on a locally built
-# image: neither value (nor this stage's placeholder DATABASE_URL) appears anywhere in
-# the final `runner` image's env or layer history. Do not "fix" this by moving them to
-# build ARGs or otherwise restructuring — there is nothing to fix, only document.
+# BuildKit's SecretsUsedInArgOrEnv check fires on the two lines below, on the strength of the
+# variable *names* alone. It is a false positive here, and the `# check=skip=` directive at the
+# top of this file is what silences it. Four facts, each confirmed by running the thing rather
+# than by reading the Dockerfile:
+#
+#   1. No real value can reach these lines. Both are literal constants in a tracked file. There
+#      is no ARG, no `--mount=type=secret` and no `build.args` in any compose file, so nothing
+#      an operator supplies is interpolated here. An injection path would have to be added on
+#      purpose.
+#   2. Neither value survives into the shipped image. The `runner` stage starts its own
+#      `FROM node:...` rather than deriving from `builder`, and COPYs only build artefacts out
+#      of it. `docker inspect --format '{{json .Config.Env}}'`, `docker history --no-trunc` and
+#      a recursive grep of /app in the built image all come back empty for both values and for
+#      this stage's placeholder DATABASE_URL.
+#   3. They are not removable, which is the tempting "fix". Deleting both was tried: the build
+#      dies at `npm run build` with `Error: TOTP_ENCRYPTION_KEY is required (set it in your
+#      environment)`, thrown from crypto.ts inside the `analyse` step described above.
+#   4. The generated Prisma clients carry no credential either. The datasource block in every
+#      schema has no `url` field, so the `inlineSchema` baked into each client holds no
+#      connection string.
+#
+# The one real cost of the skip is that it is file-wide: BuildKit has no per-line suppression,
+# so a genuinely leaked secret in some future ENV would no longer be flagged. That is covered by
+# the "no build-time value in the final image" assertion in scripts/docker-smoke.sh, which
+# checks the artefact instead of the instruction and runs in CI on every change. Keep them
+# together: dropping the assertion turns the skip into an actual blind spot.
+#
+# So: nothing to fix here, only to document. Do not "solve" this by moving these to build ARGs
+# (same warning, same non-problem) or by deleting them (see 3).
 ENV DATABASE_URL=file:/tmp/build-placeholder.db
 ENV TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
 ENV RATE_LIMIT_HASH_SECRET=docker-build-only-fake-rate-limit-hash-secret-do-not-reuse
