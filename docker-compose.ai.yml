@@ -38,7 +38,7 @@ services:
       LLM_HTTP_PERMITTED_HOSTS: ${LLM_HTTP_PERMITTED_HOSTS:-},ollama
 
   ollama:
-    image: ollama/ollama
+    image: ollama/ollama:0.32.5
     container_name: budgetpilot_ollama
     volumes:
       - ollama_data:/root/.ollama
