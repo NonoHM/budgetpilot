@@ -72,6 +72,8 @@ docs/Rapport Fusion Account.txt
 docs/règles_filtre.txt
 docs/regex-filter-plan.md
 docs/responsive-consistency-audit.md
+docs/i18n.md
+docs/superpowers/
 
 # Local-only agent instructions (public shared file is AGENTS.md)
 /CLAUDE.md
