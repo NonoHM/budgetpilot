@@ -897,9 +897,9 @@ describe('/upcoming-bills page', () => {
 
 		expect(container.querySelector('#bills-excluded-toggle')).toBeNull();
 		const banner = container.querySelector('[role="alert"]');
-		// The prune only ever reaches decisions past the 12-month cutoff, so the copy says that
-		// rather than "the oldest", which is false of the oldest live ones.
-		expect(banner?.textContent).toContain("échéances de plus d'un an");
+		// The real cutoff (computeInertActionCutoff) is ~12.5 months, not a clean year, so the copy
+		// says "the oldest" rather than naming a duration it does not honour.
+		expect(banner?.textContent).toContain('plus anciennes');
 		// The remedy must be available in every reachable state: undoing a decision always is, the
 		// "Détection désactivée" section is not (it renders only with at least one exclusion).
 		expect(banner?.textContent).toContain('annulez des décisions');

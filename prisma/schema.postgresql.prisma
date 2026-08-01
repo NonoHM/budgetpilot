@@ -560,11 +560,15 @@ model SavingsGoal {
 /// by the write path instead: repeating an action returns the existing row rather than inserting
 /// a second one, and undo DELETEs the row, so toggling a decision on and off cannot accumulate.
 ///
-/// Rows ARE deleted here, by one path only: `recordStreamAction` (upcoming-bills/service.ts)
+/// Rows ARE deleted here, by one AUTOMATIC path: `recordStreamAction` (upcoming-bills/service.ts)
 /// prunes inert decisions inside its write transaction. That delete is narrowed to IGNORE/PAID by
 /// a `kind: { in: PRUNABLE_KINDS }` conjunct, and that conjunct is the ONLY thing keeping EXCLUDE
 /// out of it — a restored EXCLUDE can carry an old `dueDate` (see the field below), so the date
 /// bound alone would irreversibly delete a live exclusion. Load-bearing, not belt-and-braces.
+/// Two other paths delete rows outside that prune: `undoStreamAction` above, when the user
+/// reverses their own decision, and the restore purge in `backup/import.ts`, which DELETEs every
+/// row for the user (EXCLUDE included) before re-creating from the backup — EXCLUDE is not
+/// immune to a restore, only to the automatic prune.
 model RecurringStreamAction {
   id                   String              @id @default(cuid())
   userId               String

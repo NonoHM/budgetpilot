@@ -967,7 +967,7 @@
 	"upcoming_bills_error_invalid_action": "Invalid action.",
 	"upcoming_bills_error_invalid_stream": "This bill could not be found or is no longer up to date. Reload the page.",
 	"upcoming_bills_error_invalid_date": "Invalid due date.",
-	"upcoming_bills_error_action_limit": "You have reached the limit of saved decisions on your upcoming bills. Those on bills more than a year old are removed automatically; to free up space, undo decisions you no longer need.",
+	"upcoming_bills_error_action_limit": "You have reached the limit of saved decisions on your upcoming bills. The oldest ones are removed automatically; to free up space, undo decisions you no longer need.",
 	"upcoming_bills_error_not_found": "Decision not found.",
 	"dashboard_upcoming_title": "Upcoming bills",
 	"dashboard_upcoming_overdue_badge": "{count} overdue",
