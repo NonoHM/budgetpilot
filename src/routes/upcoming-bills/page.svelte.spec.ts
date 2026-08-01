@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
 import '../layout.css';
 import Page from './+page.svelte';
@@ -219,5 +220,167 @@ describe('/upcoming-bills page', () => {
 		}
 
 		expect(container.querySelectorAll('[role="listitem"]').length).toBe(3);
+	});
+
+	// ─── Row actions ──────────────────────────────────────────────────────────
+
+	/** Locked decision: exactly these four, in this order, on both surfaces. */
+	const LOCKED_ACTIONS = [
+		'Marquer comme payée',
+		'Ignorer cette occurrence',
+		'Voir les transactions liées',
+		'Ne plus détecter ce flux'
+	];
+
+	function isRose(element: Element): boolean {
+		return element.className.includes('text-rose-600');
+	}
+
+	it('renders exactly the four locked actions, in order, in the desktop row menu, only the last in rose', async () => {
+		// The desktop cell is `hidden lg:grid`, so at a narrower viewport its trigger is display:none
+		// and no role-based query can reach it. Widened here rather than queried around it: the
+		// subject of this test IS the desktop surface.
+		await page.viewport(1280, 900);
+		render(Page, { data: buildData() });
+
+		// Named per row, not "Actions de l'échéance": a page of them would otherwise expose several
+		// controls sharing one accessible name.
+		const trigger = page.getByRole('button', { name: 'Actions pour Netflix' });
+		await expect.element(trigger).toBeInTheDocument();
+		await userEvent.click(trigger);
+
+		// Bits UI portals the panel out of the render container, so this reads the document.
+		const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')];
+		expect(items.map((item) => item.textContent?.trim())).toEqual(LOCKED_ACTIONS);
+		expect(items.filter(isRose).length).toBe(1);
+		expect(isRose(items[3])).toBe(true);
+
+		// The third is a real link to the transactions page, filtered by the label that actually
+		// matches the stored transactions (the raw one), never the anonymized display form.
+		expect(items[2].getAttribute('href')).toBe(
+			`/transactions?q=${encodeURIComponent('NETFLIX.COM')}`
+		);
+	});
+
+	it('opens the mobile action sheet from the row, with the same four actions in the same order', async () => {
+		// 390px, design planche C1. Set explicitly because the viewport is shared across tests in a
+		// file and the desktop menu test above widens it.
+		await page.viewport(390, 844);
+		const { container } = render(Page, { data: buildData() });
+
+		// One focusable control per mobile row (design C1), distinguished from the desktop cell by
+		// its breakpoint class rather than by its text.
+		const rowButton = [...container.querySelectorAll('button')].find((button) =>
+			button.className.includes('lg:hidden')
+		);
+		expect(rowButton).toBeTruthy();
+		await userEvent.click(rowButton!);
+
+		const sheet = document.querySelector('[role="dialog"][aria-label="Netflix"]');
+		expect(sheet).not.toBeNull();
+		// The sheet's own header line: date · amount · lateness.
+		expect(sheet?.textContent).toContain('Attendue le');
+
+		const items = [...(sheet?.querySelectorAll('button, a') ?? [])].filter((item) =>
+			LOCKED_ACTIONS.includes(item.textContent?.trim() ?? '')
+		);
+		expect(items.map((item) => item.textContent?.trim())).toEqual(LOCKED_ACTIONS);
+		expect(items.filter(isRose).length).toBe(1);
+		expect(isRose(items[3])).toBe(true);
+		// 52px, above the 44px minimum (design C2).
+		for (const item of items) expect(item.className).toContain('min-h-[52px]');
+	});
+
+	it('gives a settled row no action surface at all, and an ignored row only its restore link', async () => {
+		const { container } = render(Page, {
+			data: buildData({
+				streamCount: 2,
+				rows: [
+					buildRow({
+						rowKey: 'income:salaire acme:2026-07-03:0',
+						label: 'Salaire ACME',
+						direction: 'income',
+						dateIso: '2026-07-03',
+						status: 'settled',
+						settledKind: 'auto',
+						amountCents: 320_000,
+						countsInRemainingTotal: false
+					}),
+					buildRow({
+						rowKey: 'expense:salle de sport:2026-07-15:1',
+						label: 'Salle de sport',
+						dateIso: '2026-07-15',
+						status: 'ignored',
+						countsInRemainingTotal: false,
+						appliedActionId: 'action-a'
+					})
+				]
+			})
+		});
+
+		expect(container.querySelector('button[aria-haspopup="menu"]')).toBeNull();
+		expect(container.textContent).not.toContain('Marquer payé');
+
+		// The restore link is a real submit control now, not the disabled placeholder Task 7 shipped.
+		const restore = container.querySelector<HTMLButtonElement>('[id^="bill-restore-"]');
+		expect(restore).not.toBeNull();
+		expect(restore?.tagName).toBe('BUTTON');
+		expect(restore?.getAttribute('type')).toBe('submit');
+		expect(restore?.disabled).toBe(false);
+		expect(restore?.closest('form')?.getAttribute('action')).toBe('?/undoAction');
+	});
+
+	it('posts the stored payload without normalizedLabel, and omits the due date on an exclude', async () => {
+		const { container } = render(Page, { data: buildData() });
+
+		const form = container.querySelector<HTMLFormElement>('form[action="?/markPaid"]');
+		expect(form).not.toBeNull();
+		const names = [...form!.querySelectorAll('input[type="hidden"]')].map((input) =>
+			input.getAttribute('name')
+		);
+		// The server recomputes it from the label it stores and the field was removed from the input
+		// type, so posting it would be a value silently ignored.
+		expect(names).not.toContain('normalizedLabel');
+		expect(names).toEqual([
+			'direction',
+			'label',
+			'displayLabel',
+			'anchorTransactionIds',
+			'dueDate'
+		]);
+		expect(form!.querySelector('input[name="label"]')?.getAttribute('value')).toBe('NETFLIX.COM');
+	});
+
+	it('announces a successful action in a polite live region and offers the undo', async () => {
+		const { container } = render(Page, {
+			data: buildData(),
+			form: { billAction: { kind: 'ignore', actionId: 'action-1', month: '2026-07', label: '' } }
+		});
+
+		const banner = container.querySelector('[role="status"][aria-live="polite"]');
+		expect(banner).not.toBeNull();
+		expect(banner?.textContent).toContain('Échéance ignorée pour juillet 2026');
+
+		// The undo posts through a form OUTSIDE the banner: AlertBanner renders a <p>, and a <form>
+		// start tag would close it in the HTML parser.
+		const undo = [...(banner?.querySelectorAll('button') ?? [])].find(
+			(button) => button.textContent?.trim() === 'Annuler'
+		);
+		expect(undo?.getAttribute('form')).toBe('bill-undo-banner');
+		expect(banner?.querySelector('form')).toBeNull();
+		expect(
+			container.querySelector('#bill-undo-banner')?.getAttribute('action')
+		).toBe('?/undoAction');
+	});
+
+	it('surfaces an action failure as an error banner rather than a success one', async () => {
+		const { container } = render(Page, {
+			data: buildData(),
+			form: { billError: 'Décision introuvable.' }
+		});
+
+		const banner = container.querySelector('[role="alert"]');
+		expect(banner?.textContent).toContain('Décision introuvable.');
+		expect(container.querySelector('[role="status"][aria-live="polite"]')).toBeNull();
 	});
 });

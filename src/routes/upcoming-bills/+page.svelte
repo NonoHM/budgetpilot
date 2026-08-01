@@ -1,10 +1,17 @@
 <script lang="ts">
+	import { tick } from 'svelte';
+	import { DropdownMenu } from 'bits-ui';
+	import { enhance } from '$app/forms';
 	import { navigating } from '$app/state';
 	import { resolve } from '$app/paths';
+	import type { SubmitFunction } from '@sveltejs/kit';
+	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
+	import BottomSheet from '$lib/components/BottomSheet.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import Menu from '$lib/components/ui/DropdownMenu.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
@@ -15,14 +22,17 @@
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import type { UpcomingBillRowView } from '$lib/server/upcoming-bills/service';
-	import type { PageData } from './$types';
+	import type { ActionData, PageData } from './$types';
 
 	let {
 		/** Server-resolved month view. Rows already carry their status, tier, amounts and
 		 *  `estimatePassed`, and the two period totals are already summed over them — this page
 		 *  groups and renders, it never re-filters, re-totals or re-derives a status. */
-		data
-	}: { data: PageData } = $props();
+		data,
+		/** Result of the last form action. Always supplied by the router; defaulted so a render that
+		 *  only exercises the read-only view does not have to pass a null explicitly. */
+		form = null
+	}: { data: PageData; form?: ActionData } = $props();
 
 	const MS_PER_DAY = 86_400_000;
 	/** At or under this many days out, the date is zinc-900 and the relative part bold zinc-700;
@@ -49,8 +59,17 @@
 	const UNCERTAIN_TIER_BADGE_CLASS = '!border-zinc-400 !text-zinc-400';
 
 	/** Five desktop columns: stream · date · amount · status · actions. Shared by the header row and
-	 *  every data row so the two cannot drift apart. */
-	const DESKTOP_GRID = 'lg:grid lg:grid-cols-[minmax(0,1fr)_150px_170px_120px_56px] lg:gap-4';
+	 *  every data row so the two cannot drift apart. The actions column holds the inline
+	 *  "Marquer payé" AND the "…" trigger side by side (design B1), hence 180px rather than the
+	 *  44px a lone icon button would need. */
+	const DESKTOP_GRID = 'lg:grid lg:grid-cols-[minmax(0,1fr)_150px_170px_120px_180px] lg:gap-4';
+
+	/** Hand-applied per call site, as everywhere else in the app that renders a Bits UI menu item. */
+	const MENU_ITEM_CLASS =
+		'flex min-h-11 w-full items-center px-4 text-left text-sm font-semibold outline-none data-[highlighted]:bg-zinc-50';
+	/** 52px, deliberately above the 44px minimum (design C2). */
+	const SHEET_ITEM_CLASS =
+		'flex min-h-[52px] w-full items-center rounded-lg px-2 text-left text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none';
 
 	const bills = $derived(data.bills);
 	const locale = $derived(getLocale());
@@ -286,6 +305,134 @@
 		const tail = row.tier === 'uncertain' ? m.bills_amount_excluded() : row.category;
 		return `${datePart} · ${variabilityLabel(row)} · ${tail}`;
 	}
+
+	// ─── Row actions ──────────────────────────────────────────────────────────
+	//
+	// Exactly four, in one order, on both breakpoints: mark paid · ignore this occurrence · view
+	// linked transactions · stop detecting. Only the fourth is rose — it is the only one that
+	// touches the detected stream itself. Desktop puts them in the "…" menu (never behind hover,
+	// design section "Accessibilité"), mobile in the bottom sheet the whole row opens.
+
+	/** Settled and ignored rows carry no menu: a settled row has nothing left to act on, and an
+	 *  ignored one gets the "Rétablir" link instead (design section D). */
+	function isActionable(row: UpcomingBillRowView): boolean {
+		return row.status === 'upcoming' || row.status === 'overdue';
+	}
+
+	/**
+	 * `?q=` on the transactions page is a plain accent-insensitive substring test over the RAW
+	 * `Transaction.label` (see `matchesQuery`). `row.label` is the anonymized form — digits and bank
+	 * keywords stripped, title-cased — so searching it finds nothing ("Netflix Com" is not a
+	 * substring of "NETFLIX.COM"). The action therefore uses the same raw, capped label the row's
+	 * hidden fields already carry. No new exposure: that string is already in this page's DOM, on
+	 * its owner's own screen; it is simply not a value the page ever RENDERS.
+	 */
+	function transactionsHref(row: UpcomingBillRowView) {
+		return `/transactions?q=${encodeURIComponent(row.actionPayload.label)}` as const;
+	}
+
+	/** Header line of the action sheet: date · amount · lateness (design C2). */
+	function sheetMeta(row: UpcomingBillRowView): string {
+		const base = m.bills_sheet_meta({
+			date: formatShortDate(row.dateIso, locale),
+			amount: amountText(row)
+		});
+		const relative = relativeDateLabel(row);
+		return relative ? `${base} · ${relative}` : base;
+	}
+
+	/** Month name alone of the period AFTER the displayed one, for "réapparaîtra en {nextMonth}". */
+	const nextMonthName = $derived(
+		new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' }).format(
+			new Date(`${shiftMonth(bills.month, 1)}-01T00:00:00.000Z`)
+		)
+	);
+
+	// `ActionData` is the union of every action's return, so a bare `form.billAction` would not
+	// typecheck against the branch that only carries `billError`. Narrowed once here.
+	const billAction = $derived(form && 'billAction' in form ? form.billAction : null);
+	const billError = $derived(form && 'billError' in form ? form.billError : null);
+
+	function bannerMessage(action: NonNullable<typeof billAction>): string {
+		if (action.kind === 'paid') return m.bills_banner_paid();
+		if (action.kind === 'ignore') {
+			return m.bills_banner_ignored({ month: formatMonthLabel(action.month, locale) });
+		}
+		if (action.kind === 'exclude') return m.bills_banner_excluded({ label: action.label });
+		return m.bills_banner_restored();
+	}
+
+	let sheetRow = $state<UpcomingBillRowView | null>(null);
+	let pendingIgnore = $state<UpcomingBillRowView | null>(null);
+	let pendingExclude = $state<UpcomingBillRowView | null>(null);
+	/** Per-row in-flight set, the `acceptSuggestion` idiom — a single boolean would spin every row. */
+	let submittingKeys = $state<Set<string>>(new Set());
+	let confirmSubmitting = $state(false);
+
+	/**
+	 * Where focus goes once the mutation has landed (decision S8). Each target is the nearest thing
+	 * that still exists afterwards: the "…" trigger an ignore was invoked from is gone from an
+	 * ignored row, and an excluded stream takes its whole row with it. Deliberately never the
+	 * AlertBanner, which auto-dismisses and would strand focus on a removed node.
+	 */
+	async function focusAfterAction(targetId: string) {
+		// `update()` has resolved but Svelte has not flushed the resulting DOM yet.
+		await tick();
+		document.getElementById(targetId)?.focus();
+	}
+
+	function rowSubmit(rowKey: string, focusId: string): SubmitFunction {
+		return () => {
+			submittingKeys = new Set([...submittingKeys, rowKey]);
+			return async ({ result, update }) => {
+				await update({ reset: false });
+				submittingKeys = new Set([...submittingKeys].filter((key) => key !== rowKey));
+				if (result.type === 'success') await focusAfterAction(focusId);
+			};
+		};
+	}
+
+	function confirmSubmit(focusId: string, close: () => void): SubmitFunction {
+		return () => {
+			confirmSubmitting = true;
+			return async ({ result, update }) => {
+				await update({ reset: false });
+				confirmSubmitting = false;
+				// The dialog stays open on failure so its error banner is readable next to the action.
+				if (result.type === 'success') {
+					close();
+					await focusAfterAction(focusId);
+				}
+			};
+		};
+	}
+
+	/** The banner's own "Annuler". Its own submit function rather than `confirmSubmit`'s: sharing
+	 *  `confirmSubmitting` would spin a dialog button that has nothing to do with it. */
+	const bannerSubmit: SubmitFunction = () => {
+		return async ({ result, update }) => {
+			await update({ reset: false });
+			if (result.type === 'success') await focusAfterAction('bills-list');
+		};
+	};
+
+	/** Mark paid is the one action with no confirmation, so the menu and the sheet re-submit the
+	 *  row's own inline form rather than each carrying a duplicate copy of its hidden fields. */
+	function submitMarkPaid(domKey: string) {
+		const element = document.getElementById(`bill-paid-${domKey}`);
+		if (element instanceof HTMLFormElement) element.requestSubmit();
+	}
+
+	/**
+	 * Closes the sheet BEFORE opening a dialog (design C2/C3). The `tick()` is not cosmetic: both
+	 * BottomSheet and Modal restore focus through `$lib/focus`, and without letting the sheet's
+	 * teardown flush first its restore would fire after the dialog had already taken focus.
+	 */
+	async function fromSheet(open: () => void) {
+		sheetRow = null;
+		await tick();
+		open();
+	}
 </script>
 
 <svelte:head>
@@ -342,6 +489,29 @@
 		<Badge tone="success">{statusLabel(row)}</Badge>
 	{:else}
 		<Badge tone="neutral" bordered>{statusLabel(row)}</Badge>
+	{/if}
+{/snippet}
+
+{#snippet dotsGlyph()}
+	<svg width="16" height="4" viewBox="0 0 16 4" fill="none" aria-hidden="true">
+		<circle cx="2" cy="2" r="1.6" fill="currentColor" />
+		<circle cx="8" cy="2" r="1.6" fill="currentColor" />
+		<circle cx="14" cy="2" r="1.6" fill="currentColor" />
+	</svg>
+{/snippet}
+
+<!-- The hidden payload every creator posts. `normalizedLabel` is deliberately ABSENT: the server
+     derives it from the label it stores and the field is not part of `RecordStreamActionInput`, so
+     posting it would be a value silently ignored. `label` is the raw capped label the write path
+     stores; `displayLabel` is the anonymized one, echoed back for the result banner. An exclude
+     targets the whole stream, and the service refuses one carrying a due date. -->
+{#snippet actionFields(row: UpcomingBillRowView, withDueDate: boolean)}
+	<input type="hidden" name="direction" value={row.actionPayload.direction} />
+	<input type="hidden" name="label" value={row.actionPayload.label} />
+	<input type="hidden" name="displayLabel" value={row.label} />
+	<input type="hidden" name="anchorTransactionIds" value={row.actionPayload.anchorTransactionIds} />
+	{#if withDueDate}
+		<input type="hidden" name="dueDate" value={row.actionPayload.dueDate} />
 	{/if}
 {/snippet}
 
@@ -435,6 +605,49 @@
 				<TapLink href={resolve('/upcoming-bills')}>{m.bills_back_to_current()}</TapLink>
 			{/if}
 		</header>
+
+		<!-- Result of the last mutation. AlertBanner is a polite live region for variant="success", so
+		     the recomputed "reste à sortir" arriving with the invalidated load is announced rather than
+		     changing silently (design note D). Keyed on the result object: SvelteKit hands back a new
+		     one per submission, which remounts the banner so a second identical action is announced
+		     again instead of reusing an already-dismissed one.
+		     The undo form sits OUTSIDE the banner on purpose — AlertBanner renders a <p>, and a <form>
+		     start tag closes an open <p> in the HTML parser. The button inside carries `form=`. -->
+		{#if billAction}
+			{#if billAction.actionId}
+				<form
+					id="bill-undo-banner"
+					method="POST"
+					action="?/undoAction"
+					class="hidden"
+					use:enhance={bannerSubmit}
+				>
+					<input type="hidden" name="actionId" value={billAction.actionId} />
+				</form>
+			{/if}
+			{#key billAction}
+				<AlertBanner variant="success">
+					{bannerMessage(billAction)}
+					{#snippet action()}
+						{#if billAction.actionId}
+							<button
+								type="submit"
+								form="bill-undo-banner"
+								class="-my-2.5 inline-flex min-h-11 shrink-0 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none"
+							>
+								{m.bills_banner_undo()}
+							</button>
+						{/if}
+					{/snippet}
+				</AlertBanner>
+			{/key}
+		{/if}
+
+		<!-- A failure raised outside a confirmation dialog (mark paid, restore) — the two dialogs show
+		     their own copy of this inline, next to the button that produced it. -->
+		{#if billError && !pendingIgnore && !pendingExclude}
+			<AlertBanner variant="error">{billError}</AlertBanner>
+		{/if}
 
 		{#if noStreamsAtAll}
 			<!-- Design B4 orders the page title, this headline, then the navigator, then the card. -->
@@ -603,72 +816,113 @@
 										</div>
 										<div class="min-w-0">{@render amountBlock(row)}</div>
 										<div>{@render statusBadge(row, false)}</div>
-										<div class="flex justify-end">
-											{#if row.status === 'upcoming' || row.status === 'overdue'}
-												<!-- Task 8 wires this trigger to the row action menu. Rendered disabled on
-												     purpose here so it is not an interactive control that silently does
-												     nothing. -->
-												<IconButton label={m.bills_row_actions_aria()} disabled>
-													<svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-														<circle cx="5" cy="12" r="1.6" />
-														<circle cx="12" cy="12" r="1.6" />
-														<circle cx="19" cy="12" r="1.6" />
-													</svg>
-												</IconButton>
+										<div class="flex items-center justify-end gap-1">
+											{#if isActionable(row)}
+												<!-- The row's ONE mark-paid form. The menu item and the mobile sheet
+												     `requestSubmit()` it by id rather than each rendering their own copy of
+												     the hidden fields, so the three surfaces cannot post different payloads.
+												     Form association is a DOM relationship: this container is display:none
+												     below lg, which does not affect it. -->
+												<form
+													id="bill-paid-{domKey}"
+													method="POST"
+													action="?/markPaid"
+													use:enhance={rowSubmit(row.rowKey, `bill-row-${domKey}`)}
+												>
+													{@render actionFields(row, true)}
+													<TapLink type="submit" disabled={submittingKeys.has(row.rowKey)}>
+														{m.bills_action_mark_paid_short()}
+													</TapLink>
+												</form>
+												<Menu
+													triggerAriaLabel={m.bills_row_menu_aria({ label: row.label })}
+													triggerClass="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+													contentClass="w-64"
+												>
+													{#snippet trigger()}
+														{@render dotsGlyph()}
+													{/snippet}
+													<div class="py-1.5">
+														<DropdownMenu.Item onSelect={() => submitMarkPaid(domKey)}>
+															{#snippet child({ props })}
+																<button {...props} type="button" class="{MENU_ITEM_CLASS} text-zinc-700">
+																	{m.bills_action_mark_paid()}
+																</button>
+															{/snippet}
+														</DropdownMenu.Item>
+														<DropdownMenu.Item onSelect={() => (pendingIgnore = row)}>
+															{#snippet child({ props })}
+																<button {...props} type="button" class="{MENU_ITEM_CLASS} text-zinc-700">
+																	{m.bills_action_ignore()}
+																</button>
+															{/snippet}
+														</DropdownMenu.Item>
+														<DropdownMenu.Item>
+															{#snippet child({ props })}
+																<a
+																	{...props}
+																	href={resolve(transactionsHref(row))}
+																	class="{MENU_ITEM_CLASS} text-zinc-700"
+																>
+																	{m.bills_action_view_transactions()}
+																</a>
+															{/snippet}
+														</DropdownMenu.Item>
+														<!-- The one destructive action, and the only rose item. -->
+														<DropdownMenu.Item onSelect={() => (pendingExclude = row)}>
+															{#snippet child({ props })}
+																<button
+																	{...props}
+																	type="button"
+																	class="{MENU_ITEM_CLASS} text-rose-600 data-[highlighted]:bg-rose-50"
+																>
+																	{m.bills_action_exclude()}
+																</button>
+															{/snippet}
+														</DropdownMenu.Item>
+													</div>
+												</Menu>
 											{/if}
 										</div>
 									</div>
 
-									<!-- Mobile: two lines plus a right-hand stack of badges. One focusable control per
-									     row, which Task 8 opens the action sheet from; inert here (aria-disabled rather
-									     than the native attribute, so the row's own content stays readable). -->
-									<button
-										type="button"
-										aria-disabled="true"
-										class="flex w-full items-start gap-3 px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none lg:hidden"
-									>
-										<Avatar initials={row.initials} size={32} />
-										<div class="min-w-0 flex-1">
-											<div class="flex items-baseline justify-between gap-2">
-												<span
-													class="truncate text-sm font-medium {row.status === 'ignored'
-														? 'text-zinc-400'
-														: row.status === 'settled'
-															? 'text-zinc-500'
-															: 'text-zinc-900'}">{row.label}</span
-												>
-												<span
-													class="shrink-0 text-sm font-semibold tabular-nums {row.status === 'ignored'
-														? 'text-zinc-400 line-through'
-														: row.status === 'settled'
-															? 'text-zinc-500'
-															: row.amountCents >= 0
-																? 'text-emerald-600'
-																: 'text-zinc-900'}">{amountText(row)}</span
-												>
-											</div>
-											<div
-												class="mt-0.5 truncate text-xs {row.status === 'overdue'
-													? OVERDUE_TEXT_CLASS
-													: 'text-zinc-500'}"
-											>
-												{mobileSubLine(row)}
-											</div>
+									<!-- Mobile: two lines plus a right-hand stack of badges. ONE focusable control per
+									     row, which opens the action sheet — but only where there is something to act on:
+									     a settled or ignored row renders the same content as a plain div rather than as a
+									     button that announces itself as interactive and does nothing. -->
+									{#if isActionable(row)}
+										<button
+											type="button"
+											onclick={() => (sheetRow = row)}
+											class="flex w-full items-start gap-3 px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none lg:hidden"
+										>
+											{@render mobileRowBody(row)}
+										</button>
+									{:else}
+										<div class="flex w-full items-start gap-3 px-4 py-3 text-left lg:hidden">
+											{@render mobileRowBody(row)}
 										</div>
-										<div class="flex shrink-0 flex-col items-end gap-1">
-											{@render statusBadge(row, true)}
-											{@render tierBadge(row)}
-										</div>
-									</button>
+									{/if}
 
 									{#if row.status === 'ignored'}
-										<!-- Rendered once per row (not per breakpoint) so the id Task 8 focuses is
-										     unique. Disabled until Task 8 wires the restore action. -->
-										<div class="flex px-4 pb-2 lg:justify-end">
-											<TapLink id="bill-restore-{domKey}" disabled>
+										<!-- Rendered once per row (not per breakpoint) so the id focused after an ignore
+										     is unique. `appliedActionId` is what the undo deletes; a row somehow missing
+										     one keeps the link inert rather than posting an empty id. -->
+										<form
+											method="POST"
+											action="?/undoAction"
+											class="flex px-4 pb-2 lg:justify-end"
+											use:enhance={rowSubmit(row.rowKey, 'bills-list')}
+										>
+											<input type="hidden" name="actionId" value={row.appliedActionId ?? ''} />
+											<TapLink
+												id="bill-restore-{domKey}"
+												type="submit"
+												disabled={!row.appliedActionId || submittingKeys.has(row.rowKey)}
+											>
 												{m.bills_restore()}
 											</TapLink>
-										</div>
+										</form>
 									{/if}
 								</div>
 							{/each}
@@ -677,9 +931,9 @@
 						{#if group.collapsible && !settledExpanded && group.rows.length > SETTLED_COLLAPSED_ROWS}
 							<TapLink onclick={() => (settledExpanded = true)}>
 								{@const hiddenCount = group.rows.length - SETTLED_COLLAPSED_ROWS}
-							{hiddenCount === 1
-								? m.bills_settled_show_more_one({ count: hiddenCount })
-								: m.bills_settled_show_more_many({ count: hiddenCount })}
+								{hiddenCount === 1
+									? m.bills_settled_show_more_one({ count: hiddenCount })
+									: m.bills_settled_show_more_many({ count: hiddenCount })}
 							</TapLink>
 						{/if}
 					</section>
@@ -688,3 +942,138 @@
 		</div>
 	</section>
 </main>
+
+{#snippet mobileRowBody(row: UpcomingBillRowView)}
+	<Avatar initials={row.initials} size={32} />
+	<div class="min-w-0 flex-1">
+		<div class="flex items-baseline justify-between gap-2">
+			<span
+				class="truncate text-sm font-medium {row.status === 'ignored'
+					? 'text-zinc-400'
+					: row.status === 'settled'
+						? 'text-zinc-500'
+						: 'text-zinc-900'}">{row.label}</span
+			>
+			<span
+				class="shrink-0 text-sm font-semibold tabular-nums {row.status === 'ignored'
+					? 'text-zinc-400 line-through'
+					: row.status === 'settled'
+						? 'text-zinc-500'
+						: row.amountCents >= 0
+							? 'text-emerald-600'
+							: 'text-zinc-900'}">{amountText(row)}</span
+			>
+		</div>
+		<div
+			class="mt-0.5 truncate text-xs {row.status === 'overdue'
+				? OVERDUE_TEXT_CLASS
+				: 'text-zinc-500'}"
+		>
+			{mobileSubLine(row)}
+		</div>
+	</div>
+	<div class="flex shrink-0 flex-col items-end gap-1">
+		{@render statusBadge(row, true)}
+		{@render tierBadge(row)}
+	</div>
+{/snippet}
+
+<!-- Mobile action sheet (design C2). Mounted only while a row is selected; BottomSheet is
+     `lg:hidden` and owns its own focus trap and restore-on-close. -->
+{#if sheetRow}
+	{@const row = sheetRow}
+	{@const domKey = toBillRowDomKey(row.rowKey)}
+	<BottomSheet open ariaLabel={row.label} onClose={() => (sheetRow = null)}>
+		<div class="pb-2">
+			<p class="text-base font-bold text-zinc-950">{row.label}</p>
+			<p class="mt-0.5 text-xs text-zinc-500">{sheetMeta(row)}</p>
+		</div>
+		<div class="flex flex-col">
+			<button
+				type="button"
+				class="{SHEET_ITEM_CLASS} text-zinc-700"
+				onclick={() => {
+					sheetRow = null;
+					submitMarkPaid(domKey);
+				}}
+			>
+				{m.bills_action_mark_paid()}
+			</button>
+			<button
+				type="button"
+				class="{SHEET_ITEM_CLASS} text-zinc-700"
+				onclick={() => fromSheet(() => (pendingIgnore = row))}
+			>
+				{m.bills_action_ignore()}
+			</button>
+			<a href={resolve(transactionsHref(row))} class="{SHEET_ITEM_CLASS} text-zinc-700">
+				{m.bills_action_view_transactions()}
+			</a>
+			<!-- The one destructive action, and the only rose item. -->
+			<button
+				type="button"
+				class="{SHEET_ITEM_CLASS} text-rose-600"
+				onclick={() => fromSheet(() => (pendingExclude = row))}
+			>
+				{m.bills_action_exclude()}
+			</button>
+		</div>
+	</BottomSheet>
+{/if}
+
+<!-- Ignoring an occurrence is reversible and local to one period, so the final button stays the
+     default black (design C3) — `tone="danger"` is reserved for the exclude below. -->
+{#if pendingIgnore}
+	{@const row = pendingIgnore}
+	<form
+		method="POST"
+		action="?/ignoreOccurrence"
+		use:enhance={confirmSubmit(
+			`bill-restore-${toBillRowDomKey(row.rowKey)}`,
+			() => (pendingIgnore = null)
+		)}
+	>
+		{@render actionFields(row, true)}
+		<ConfirmDialog
+			open
+			title={m.bills_ignore_confirm_title()}
+			description={m.bills_ignore_confirm_description({
+				label: row.label,
+				month: monthLabel,
+				nextMonth: nextMonthName
+			})}
+			confirmLabel={m.bills_ignore_confirm_cta({ month: monthName })}
+			confirmLoading={confirmSubmitting}
+			onClose={() => (pendingIgnore = null)}
+		>
+			{#if billError}
+				<AlertBanner variant="error" class="mt-2">{billError}</AlertBanner>
+			{/if}
+		</ConfirmDialog>
+	</form>
+{/if}
+
+{#if pendingExclude}
+	{@const row = pendingExclude}
+	<form
+		method="POST"
+		action="?/excludeStream"
+		use:enhance={confirmSubmit('bills-list', () => (pendingExclude = null))}
+	>
+		<!-- No due date: an exclude targets the whole stream and the service refuses one carrying it. -->
+		{@render actionFields(row, false)}
+		<ConfirmDialog
+			open
+			title={m.bills_exclude_confirm_title()}
+			description={m.bills_exclude_confirm_description({ label: row.label })}
+			confirmLabel={m.bills_exclude_confirm_cta()}
+			tone="danger"
+			confirmLoading={confirmSubmitting}
+			onClose={() => (pendingExclude = null)}
+		>
+			{#if billError}
+				<AlertBanner variant="error" class="mt-2">{billError}</AlertBanner>
+			{/if}
+		</ConfirmDialog>
+	</form>
+{/if}
