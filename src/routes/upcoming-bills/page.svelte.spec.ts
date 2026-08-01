@@ -238,6 +238,32 @@ describe('/upcoming-bills page', () => {
 
 			expect(container.textContent).toContain(m.bills_none_due_description());
 		});
+
+		/**
+		 * Fix round 1, IMPORTANT #2: `emptyState` is computed over the whole 12-month lookback, not
+		 * the displayed period, so it stays `'all-stale'` on every month — including ones where
+		 * "changez de mois pour les retrouver" is actually TRUE (the stream's own realized rows
+		 * really do sit in a different month). On a PAST month the stale copy would replace accurate,
+		 * month-named advice with a generic non-explanation that drops the month name the user
+		 * navigated by. The stale branch must therefore not fire there.
+		 */
+		it('keeps the ordinary past-month copy, never the stale copy, on a past month even when emptyState is all-stale', async () => {
+			expect.assertions(2);
+			const { container } = render(Page, {
+				data: buildData({
+					month: '2025-11',
+					isCurrentMonth: false,
+					isFutureMonth: false,
+					streamCount: 1,
+					emptyState: 'all-stale',
+					rows: [],
+					remainingExpenseCents: 0
+				})
+			});
+
+			expect(container.textContent).toContain(m.bills_none_due_title_past({ month: 'novembre' }));
+			expect(container.textContent).not.toContain(m.bills_none_due_stale_title());
+		});
 	});
 
 	// B2. Detection is pinned to the 12 months before today, so a month older than
