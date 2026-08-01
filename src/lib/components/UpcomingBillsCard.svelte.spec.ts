@@ -72,6 +72,21 @@ function wholeEuros(magnitudeCents: number): string {
 	}).format(magnitudeCents / 100);
 }
 
+/** Same, minus the currency symbol (and the non-break space that only exists for it): the range
+ *  prints the symbol ONCE, on the bound `fr` puts it next to — the upper one (design B1,
+ *  "−74 à −96 €"). Written out here rather than imported so the assertion still pins a string. */
+function wholeEurosBare(magnitudeCents: number): string {
+	return new Intl.NumberFormat('fr', {
+		style: 'currency',
+		currency: 'EUR',
+		maximumFractionDigits: 0
+	})
+		.formatToParts(magnitudeCents / 100)
+		.filter((part) => part.type !== 'currency' && part.type !== 'literal')
+		.map((part) => part.value)
+		.join('');
+}
+
 // Catches every Tailwind shape that hides an element, not just the `max-lg:hidden` one the
 // original regex happened to check for: a bare `hidden` (as in the mobile-first `hidden lg:flex`
 // idiom), any breakpoint/arbitrary variant of `hidden` (`lg:hidden`, `2xl:hidden`,
@@ -268,7 +283,7 @@ describe('UpcomingBillsCard.svelte', () => {
 		// Signed AND rounded to whole euros — not "74,12 € à 95,87 €", which would carry no sign and a
 		// false precision (F1).
 		await expect
-			.element(page.getByText(`−${wholeEuros(7412)} à −${wholeEuros(9587)}`))
+			.element(page.getByText(`−${wholeEurosBare(7412)} à −${wholeEuros(9587)}`))
 			.toBeInTheDocument();
 		await expect.element(page.getByText('variable')).toBeInTheDocument();
 	});
@@ -292,7 +307,7 @@ describe('UpcomingBillsCard.svelte', () => {
 		});
 
 		await expect
-			.element(page.getByText(`+${wholeEuros(7400)} à +${wholeEuros(9600)}`))
+			.element(page.getByText(`+${wholeEurosBare(7400)} à +${wholeEuros(9600)}`))
 			.toBeInTheDocument();
 	});
 

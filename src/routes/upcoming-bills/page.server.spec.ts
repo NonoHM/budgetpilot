@@ -23,12 +23,14 @@ const service = vi.hoisted(() => ({
 	recordStreamAction: vi.fn(async (_userId: string, _input: Record<string, unknown>) => ({
 		actionId: 'action-1'
 	})),
-	undoStreamAction: vi.fn(async (_userId: string, _actionId: string) => undefined)
+	undoStreamAction: vi.fn(async (_userId: string, _actionId: string) => undefined),
+	// A month no wall clock can produce, so the default-month test below fails if the load falls
+	// back to `parseMonth`'s own `getCurrentMonth()` (the server's LOCAL month) instead.
+	getCurrentBillsMonth: vi.fn(() => '1999-01')
 }));
 
 vi.mock('$lib/server/upcoming-bills/service', () => service);
 
-const { getCurrentMonth } = await import('$lib/server/budget/dashboard');
 const { load, actions } = await import('./+page.server');
 
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
@@ -47,13 +49,18 @@ describe('/upcoming-bills load', () => {
 		vi.clearAllMocks();
 	});
 
-	it('utilise le mois courant quand aucun parametre month n est fourni', async () => {
-		expect.assertions(2);
+	// F2: the default month comes from the SERVICE's UTC clock, not from `parseMonth`, whose default
+	// is the server's local month. The two differ east of Greenwich in the first hours of the 1st,
+	// and the view then calls its own default month "future": no "Ce mois" badge, future copy, and
+	// "Revenir à ce mois" pointing at the page already open.
+	it('utilise le mois courant du service (UTC) quand aucun parametre month n est fourni', async () => {
+		expect.assertions(3);
 
 		const data = await loadWith('');
 
-		expect(service.loadUpcomingBillsMonth).toHaveBeenCalledWith(testUser.id, getCurrentMonth());
-		expect(data.bills.month).toBe(getCurrentMonth());
+		expect(service.getCurrentBillsMonth).toHaveBeenCalledTimes(1);
+		expect(service.loadUpcomingBillsMonth).toHaveBeenCalledWith(testUser.id, '1999-01');
+		expect(data.bills.month).toBe('1999-01');
 	});
 
 	it('honore un mois explicite passe en query', async () => {

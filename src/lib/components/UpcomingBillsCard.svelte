@@ -5,6 +5,7 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import { formatCents } from '$lib/domain/budget';
 	import { formatShortDate } from '$lib/domain/dateFormat';
+	import { formatAmountRangeBounds } from '$lib/domain/upcomingBills';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -57,29 +58,20 @@
 		return m.bills_date_in_days_short({ count: delta });
 	}
 
-	/** Whole-euro formatting of an unsigned magnitude (design: "bornes réellement observées,
-	 *  arrondies à l'euro" — a `,00 €` here would assert a precision that isn't there). */
-	function formatWholeEuros(magnitudeCents: number): string {
-		return new Intl.NumberFormat(getLocale(), {
-			style: 'currency',
-			currency: 'EUR',
-			maximumFractionDigits: 0
-		}).format(magnitudeCents / 100);
-	}
-
 	/**
 	 * `minAmountCents`/`maxAmountCents` are UNSIGNED magnitudes (see `forecast.ts`), so the sign
 	 * carrying the row's direction has to be applied here — the message key composes two already
-	 * signed strings, it does not know the direction itself. Signed manually with the same '+'/'−'
-	 * glyph as the fixed-amount branch below, rather than handing a negative number to `Intl` — its
-	 * own negative-currency rendering uses a plain ASCII hyphen, a second minus glyph in one card.
+	 * signed strings, it does not know the direction itself. Signed with the same '+'/'−' glyph as
+	 * the fixed-amount branch below, rather than handing a negative number to `Intl` — its own
+	 * negative-currency rendering uses a plain ASCII hyphen, a second minus glyph in one card.
+	 * `formatAmountRangeBounds` also keeps the currency symbol to one occurrence ("−74 à −96 €") and
+	 * is shared with the /upcoming-bills page so the two surfaces cannot drift apart.
 	 */
 	function formatSignedRange(row: UpcomingBillsWidgetView['rows'][number]): string {
 		const sign = row.amountCents >= 0 ? '+' : '−';
-		return m.bills_amount_range({
-			min: `${sign}${formatWholeEuros(row.minAmountCents)}`,
-			max: `${sign}${formatWholeEuros(row.maxAmountCents)}`
-		});
+		return m.bills_amount_range(
+			formatAmountRangeBounds(row.minAmountCents, row.maxAmountCents, sign, getLocale())
+		);
 	}
 
 	// Overdue rows are the only tinted ones in this widget: `bg-amber-50` on the row plus
@@ -177,7 +169,8 @@
 								{m.bills_date_late_short({ count: row.daysLate ?? 0 })}
 							</div>
 						{:else if delta <= 0}
-							<div class="text-xs {near ? 'font-bold text-zinc-700' : 'text-zinc-400'}">
+							<!-- Always "near": `delta <= 0` is inside `delta <= NEAR_HORIZON_DAYS`. -->
+							<div class="text-xs font-bold text-zinc-700">
 								{m.bills_date_today()}
 							</div>
 						{:else}

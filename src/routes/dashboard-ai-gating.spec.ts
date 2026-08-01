@@ -198,7 +198,11 @@ describe('/ (dashboard) — gating IA à 3 états', () => {
 			hasStreams: false,
 			todayIso: '2026-06-15'
 		};
-		upcomingBills.loadUpcomingBillsWidget.mockResolvedValue(resolved);
+		// `Once`, not `mockResolvedValue`: the suite's `beforeEach` runs `vi.clearAllMocks()`, which
+		// clears calls but NOT implementations, so a permanent override here would leak into whatever
+		// test runs next. Harmless only while this one happens to be last — a property any reorder
+		// removes silently.
+		upcomingBills.loadUpcomingBillsWidget.mockResolvedValueOnce(resolved);
 
 		const data = (await load(buildLoadEvent())) as Awaited<ReturnType<typeof load>> & {
 			upcomingBills: unknown;

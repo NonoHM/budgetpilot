@@ -4,6 +4,7 @@ import type { StreamActionKind } from '$lib/domain/upcomingBills';
 import { requireUser } from '$lib/server/auth';
 import { parseMonth } from '$lib/server/budget/dashboard';
 import {
+	getCurrentBillsMonth,
 	loadUpcomingBillsMonth,
 	recordStreamAction,
 	undoStreamAction
@@ -13,14 +14,19 @@ import type { Actions, PageServerLoad } from './$types';
 /**
  * Read-only month view plus the four row mutations.
  *
- * The month goes through `parseMonth` rather than a local regex: it returns the current month for
- * an absent parameter and throws a 400 for a malformed one, which is what keeps `formatMonthLabel`
- * (a deliberate `RangeError` on a bad key) from turning a hand-edited URL into a 500 in the
- * component.
+ * An explicit month goes through `parseMonth` rather than a local regex: it throws a 400 for a
+ * malformed one, which is what keeps `formatMonthLabel` (a deliberate `RangeError` on a bad key)
+ * from turning a hand-edited URL into a 500 in the component.
+ *
+ * Its DEFAULT is deliberately not used. `parseMonth(null)` returns `getCurrentMonth()`, the
+ * server's LOCAL month, while the service derives `isCurrentMonth`/`isFutureMonth` from a UTC
+ * `todayIso` — so east of Greenwich, early on the 1st, the default load landed on a month the
+ * service then called future. The route follows the service's UTC clock instead.
  */
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
-	const month = parseMonth(url.searchParams.get('month'));
+	const monthParam = url.searchParams.get('month');
+	const month = monthParam ? parseMonth(monthParam) : getCurrentBillsMonth();
 
 	// `user.id` comes from the session, never from the query string.
 	return { bills: await loadUpcomingBillsMonth(user.id, month) };

@@ -358,6 +358,47 @@ export function computeTotals(occurrences: readonly BillOccurrence[]): {
 	return { remainingExpenseCents, expectedIncomeCents };
 }
 
+/**
+ * The two bounds of a variable amount, ready for `bills_amount_range` ("{min} à {max}").
+ *
+ * The currency symbol appears ONCE, as the design's plate does ("−74 à −96 €"): both bounds
+ * carrying it read as two separate amounts. Which bound keeps it is the locale's own decision —
+ * suffix locales (fr) put it on the max, prefix locales (en) on the min — read off `formatToParts`
+ * rather than hardcoded, so a locale change cannot strand the symbol mid-range.
+ *
+ * The SIGN stays on both bounds. It is the only thing distinguishing a variable income from a
+ * variable expense in text, and colour is not allowed to carry that alone.
+ *
+ * Magnitudes are unsigned (see `forecast.ts`) and rounded to the euro: a `,00 €` on an observed
+ * bound would assert a precision that does not exist.
+ */
+export function formatAmountRangeBounds(
+	minMagnitudeCents: number,
+	maxMagnitudeCents: number,
+	sign: string,
+	locale: string
+): { min: string; max: string } {
+	const formatter = new Intl.NumberFormat(locale, {
+		style: 'currency',
+		currency: 'EUR',
+		maximumFractionDigits: 0
+	});
+	const withSymbol = (magnitudeCents: number) => `${sign}${formatter.format(magnitudeCents / 100)}`;
+	const withoutSymbol = (magnitudeCents: number) =>
+		`${sign}${formatter
+			.formatToParts(magnitudeCents / 100)
+			// `literal` goes too: it is the separating space that only exists for the symbol.
+			.filter((part) => part.type !== 'currency' && part.type !== 'literal')
+			.map((part) => part.value)
+			.join('')}`;
+
+	const parts = formatter.formatToParts(1);
+	const symbolLast = parts[parts.length - 1]?.type === 'currency';
+	return symbolLast
+		? { min: withoutSymbol(minMagnitudeCents), max: withSymbol(maxMagnitudeCents) }
+		: { min: withSymbol(minMagnitudeCents), max: withoutSymbol(maxMagnitudeCents) };
+}
+
 export interface ObservationCandidate {
 	label: string;
 	occurrenceCount: number;

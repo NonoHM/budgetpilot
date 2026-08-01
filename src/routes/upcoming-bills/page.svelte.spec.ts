@@ -263,6 +263,75 @@ describe('/upcoming-bills page', () => {
 		expect(container.querySelectorAll('[role="listitem"]').length).toBe(3);
 	});
 
+	// F1, written RED against the previous code: the header, the settled heading and the nothing-due
+	// title all branched on `isCurrentMonth` alone, so ONE click on "Période précédente" rendered
+	// future-tense copy over two structurally-zero figures ("prévu en juin 0,00 € pour +0,00 €") —
+	// `projectFlowOccurrences` cannot emit an occurrence at or before `flow.lastDate`, so a past
+	// month holds realized rows only.
+	it('renders past-tense copy on a past month, never the future wording or its zeroed totals', async () => {
+		const { container } = render(Page, {
+			data: buildData({
+				month: '2026-06',
+				isCurrentMonth: false,
+				isFutureMonth: false,
+				streamCount: 9,
+				remainingExpenseCents: 0,
+				expectedIncomeCents: 0,
+				rows: [
+					buildRow({
+						rowKey: 'expense:netflix:2026-06-30:0',
+						dateIso: '2026-06-30',
+						status: 'settled',
+						settledKind: 'auto',
+						countsInRemainingTotal: false
+					})
+				]
+			})
+		});
+
+		const text = container.textContent ?? '';
+		expect(text).not.toContain('prévu en');
+		expect(text).not.toContain('0,00 €');
+		expect(text).toContain('échéances de juin');
+		// "Réglées ce mois" is false on a month that is over.
+		expect(text).not.toContain('Réglées ce mois');
+		expect(text).toContain('Réglées en juin');
+	});
+
+	it('titles an empty past month without claiming anything is still expected', async () => {
+		const { container } = render(Page, {
+			data: buildData({
+				month: '2026-06',
+				isCurrentMonth: false,
+				isFutureMonth: false,
+				streamCount: 4,
+				remainingExpenseCents: 0,
+				rows: []
+			})
+		});
+
+		const text = container.textContent ?? '';
+		expect(text).not.toContain('Rien de prévu en');
+		expect(text).toContain('Aucune échéance en juin');
+	});
+
+	// The future month keeps the wording the design specifies for it (plate B2).
+	it('keeps the future wording on a future month', async () => {
+		const { container } = render(Page, {
+			data: buildData({
+				month: '2026-08',
+				isCurrentMonth: false,
+				isFutureMonth: true,
+				streamCount: 9,
+				remainingExpenseCents: 41_230,
+				expectedIncomeCents: 320_000,
+				rows: [buildRow({ rowKey: 'expense:netflix:2026-08-31:0', dateIso: '2026-08-31' })]
+			})
+		});
+
+		expect(container.textContent).toContain('prévu en août');
+	});
+
 	// ─── Row actions ──────────────────────────────────────────────────────────
 
 	/** Locked decision: exactly these four, in this order, on both surfaces. */

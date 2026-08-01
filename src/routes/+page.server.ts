@@ -65,6 +65,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			loadCashFlowForecast(user.id, getRemainingDaysInMonthUtc(new Date())).then(
 				toDisplayCashFlowForecast
 			),
+			// Its OWN `readDashboardDataForRange` over a 12-month lookback — the widget does NOT ride
+			// the forecast's query, as the plan's note S3 claimed. This is the third independent
+			// full-year transaction read of a dashboard load. All three run concurrently here, so
+			// latency and correctness are unaffected; the sharing simply does not exist, and a future
+			// consolidation starts by knowing that.
 			loadUpcomingBillsWidget(user.id)
 		]);
 	const aiAllowed = isLocalLlmEnabled(process.env) && aiPreferences.aiInsightsEnabled;

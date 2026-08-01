@@ -184,6 +184,17 @@ export interface UpcomingBillsWidgetView {
 	todayIso: string;
 }
 
+/**
+ * The month `/upcoming-bills` shows when the URL names none — UTC, because that is what
+ * `isCurrentMonth`/`isFutureMonth` below are derived from. `getCurrentMonth()` reads the server's
+ * LOCAL month, and on a UTC+2 host between 00:00 and 02:00 on the 1st the two disagree: the load
+ * resolves the new month, the view calls that month FUTURE, and the page loses its "Ce mois" badge
+ * and renders "Revenir à ce mois" as a link to the page it is already on.
+ */
+export function getCurrentBillsMonth(): string {
+	return toIsoDate(new Date()).slice(0, 7);
+}
+
 export async function loadUpcomingBillsMonth(
 	userId: string,
 	month: string

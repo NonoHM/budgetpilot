@@ -17,7 +17,7 @@
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import { formatCents } from '$lib/domain/budget';
 	import { formatMonthLabel, formatShortDate } from '$lib/domain/dateFormat';
-	import { toBillRowDomKey } from '$lib/domain/upcomingBills';
+	import { formatAmountRangeBounds, toBillRowDomKey } from '$lib/domain/upcomingBills';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -99,6 +99,13 @@
 	 * predicate that means what the design means.
 	 */
 	const noStreamsAtAll = $derived(bills.streamCount === 0);
+	/**
+	 * The service computes BOTH `isCurrentMonth` and `isFutureMonth`, so "not current" is two states,
+	 * not one. A past month is where the future wording was wrong: `projectFlowOccurrences` cannot
+	 * emit an occurrence at or before `flow.lastDate`, so a month that is over holds realized rows
+	 * only and both period totals are structurally zero — "prévu en juin 0,00 € pour +0,00 €".
+	 */
+	const isPastMonth = $derived(!bills.isCurrentMonth && !bills.isFutureMonth);
 	/** Streams exist, this particular period just holds none of them. */
 	const nothingDueThisPeriod = $derived(!noStreamsAtAll && bills.rows.length === 0);
 
@@ -185,7 +192,10 @@
 			},
 			{
 				id: 'settled',
-				heading: m.bills_group_settled(),
+				// "Réglées ce mois" is only true of the current one; a past month names itself.
+				heading: isPastMonth
+					? m.bills_group_settled_past({ month: monthName })
+					: m.bills_group_settled(),
 				rows: rows.filter((row) => row.status === 'settled' || row.status === 'ignored'),
 				collapsible: true
 			}
@@ -230,26 +240,17 @@
 		return row.direction === 'income' ? m.bills_kind_credit() : m.bills_kind_debit();
 	}
 
-	/** Whole-euro formatting of an unsigned magnitude: the observed bounds of a variable stream are
-	 *  rounded to the euro, since a `,00 €` there would assert a precision that does not exist. */
-	function formatWholeEuros(magnitudeCents: number): string {
-		return new Intl.NumberFormat(locale, {
-			style: 'currency',
-			currency: 'EUR',
-			maximumFractionDigits: 0
-		}).format(magnitudeCents / 100);
-	}
-
 	/** `minAmountCents`/`maxAmountCents` are UNSIGNED magnitudes, so the direction's sign is applied
-	 *  here with the same U+2212 glyph the fixed branch uses — Intl's own negative-currency output
-	 *  is an ASCII hyphen, which would put two different minus glyphs in one list. */
+	 *  with the same U+2212 glyph the fixed branch uses — Intl's own negative-currency output is an
+	 *  ASCII hyphen, which would put two different minus glyphs in one list. `formatAmountRangeBounds`
+	 *  owns the signing and the once-only currency symbol; it is shared with UpcomingBillsCard so the
+	 *  two surfaces cannot print a range differently. */
 	function amountText(row: UpcomingBillRowView): string {
 		const sign = row.amountCents >= 0 ? '+' : '−';
 		if (row.variability === 'variable') {
-			return m.bills_amount_range({
-				min: `${sign}${formatWholeEuros(row.minAmountCents)}`,
-				max: `${sign}${formatWholeEuros(row.maxAmountCents)}`
-			});
+			return m.bills_amount_range(
+				formatAmountRangeBounds(row.minAmountCents, row.maxAmountCents, sign, locale)
+			);
 		}
 		return `${sign}${formatCents(Math.abs(row.amountCents))}`;
 	}
@@ -605,10 +606,11 @@
 				<li class="flex items-baseline justify-between gap-3 text-[13px]">
 					<span class="truncate text-zinc-700">{candidate.label}</span>
 					<span class="shrink-0 text-zinc-400">
+						<!-- Always plural: `listObservationCandidates` only ever surfaces PAIRS
+						     (OBSERVATION_CANDIDATE_OCCURRENCES = 2), a deliberate v1 scope cut. The
+						     singular branch and its message key were unreachable and are gone. -->
 						<span class="hidden lg:inline"
-							>{candidate.occurrenceCount === 1
-								? m.bills_empty_progress_one({ count: candidate.occurrenceCount })
-								: m.bills_empty_progress_many({ count: candidate.occurrenceCount })}</span
+							>{m.bills_empty_progress_many({ count: candidate.occurrenceCount })}</span
 						>
 						<span class="lg:hidden"
 							>{m.bills_empty_progress_short({ count: candidate.occurrenceCount })}</span
@@ -633,6 +635,10 @@
 							count: bills.streamCount,
 							amount: formatCents(bills.remainingExpenseCents)
 						})}
+					{:else if isPastMonth}
+						<!-- No figure: both totals are zero by construction on a month that is over (see
+						     `isPastMonth`), and a zero presented as a balance would read as a claim. -->
+						{m.bills_header_meta_past({ count: bills.streamCount, month: monthName })}
 					{:else}
 						{m.bills_header_meta_future({
 							count: bills.streamCount,
@@ -796,7 +802,9 @@
 				     them to. -->
 				<EmptyState
 					icon={emptyIcon}
-					title={m.bills_none_due_title({ month: monthName })}
+					title={isPastMonth
+						? m.bills_none_due_title_past({ month: monthName })
+						: m.bills_none_due_title({ month: monthName })}
 					description={m.bills_none_due_description()}
 				/>
 			{:else}
