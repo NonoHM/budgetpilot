@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.5.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.4.0...budgetpilot-v0.5.0) (2026-08-01)
+
+
+### Features
+
+* **upcoming-bills:** badge transfer/investment streams instead of hiding them ([#100](https://github.com/NonoHM/budgetpilot/issues/100)) ([0978e84](https://github.com/NonoHM/budgetpilot/commit/0978e8405d339832a971d3690158e0066dd55b97))
+* **upcoming-bills:** échéances à venir, widget and /upcoming-bills page ([#95](https://github.com/NonoHM/budgetpilot/issues/95)) ([995d1bb](https://github.com/NonoHM/budgetpilot/commit/995d1bbfb65c6862ff1d1b5e4899c38eb51e202f))
+
+
+### Bug Fixes
+
+* **forecast:** pin the detector's upper bound and apply the staleness guard to the cash-flow forecast ([#97](https://github.com/NonoHM/budgetpilot/issues/97)) ([cfab7a8](https://github.com/NonoHM/budgetpilot/commit/cfab7a80cb723b10ff7d907155c964691ad16893))
+* **upcoming-bills:** stop counting stale streams as streams you have ([#99](https://github.com/NonoHM/budgetpilot/issues/99)) ([b536e81](https://github.com/NonoHM/budgetpilot/commit/b536e81c1011fced8b56360df28870162c257f5a))
+
 ## [0.4.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.3.1...budgetpilot-v0.4.0) (2026-07-31)
 
 
