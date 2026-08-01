@@ -172,6 +172,87 @@ describe('toDisplayCashFlowForecast', () => {
 		expect(view.flows.find((f) => f.label.includes('Tentative Live'))?.feedsProjection).toBe(false);
 	});
 
+	// Task 2 of the detection-window-upper-bound chantier: the empty state used to collapse two
+	// different situations (nothing ever detected vs. everything detected but now silent) into a
+	// single boolean, so the route could only ever render one message. `emptyState` distinguishes
+	// them, computed from the same per-flow `feedsProjection` predicate above.
+	describe('emptyState', () => {
+		it("is 'none-detected' when no flow ever reaches reliable-confirmed", () => {
+			expect.assertions(1);
+
+			const todayIso = '2025-04-10';
+			const tentative = flow({ status: 'tentative', confidence: 'high', lastDate: '2025-03-28' });
+			const lowConfidence = flow({
+				status: 'confirmed',
+				confidence: 'low',
+				lastDate: '2025-03-28'
+			});
+
+			const forecast: CashFlowForecast = {
+				flows: [tentative, lowConfidence],
+				ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBe('none-detected');
+		});
+
+		it("is 'all-stale' when every reliable-confirmed flow has gone stale", () => {
+			expect.assertions(1);
+
+			const todayIso = '2025-04-10';
+			const stale = flow({
+				status: 'confirmed',
+				confidence: 'high',
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0,
+				lastDate: '2025-01-01' // ~99 days silent, well past staleAfterDays (35).
+			});
+
+			const forecast: CashFlowForecast = {
+				flows: [stale],
+				ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBe('all-stale');
+		});
+
+		it('is null when a live reliable-confirmed flow exists', () => {
+			expect.assertions(1);
+
+			const todayIso = '2025-04-10';
+			const live = flow({
+				status: 'confirmed',
+				confidence: 'high',
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0,
+				lastDate: '2025-03-28' // 13 days silent, well inside staleAfterDays (35).
+			});
+			const stale = flow({
+				status: 'confirmed',
+				confidence: 'high',
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0,
+				lastDate: '2025-01-01'
+			});
+
+			const forecast: CashFlowForecast = {
+				flows: [live, stale],
+				ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBeNull();
+		});
+	});
+
 	it('transmet todayIndex tel quel — la frontière réalisé/projeté ne doit jamais être redevinée côté vue', () => {
 		expect.assertions(1);
 

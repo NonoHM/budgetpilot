@@ -619,6 +619,13 @@
 									hasBalanceAnchor={data.cashFlowForecast.hasBalanceAnchor}
 								/>
 							</div>
+						{:else if data.cashFlowForecast.emptyState === 'all-stale'}
+							<EmptyState
+								class="mt-3"
+								card={false}
+								title={m.dashboard_forecast_stale_title()}
+								description={m.dashboard_forecast_stale_description()}
+							/>
 						{:else}
 							{#snippet forecastEmptyAction()}
 								<TapLink href="/reports#annexe-recurrences"

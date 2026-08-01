@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import './layout.css';
+import * as m from '$lib/paraglide/messages';
 import Page from './+page.svelte';
 import type { ActionData, PageData } from './$types';
 
@@ -50,7 +51,8 @@ const EMPTY_FORECAST: PageData['cashFlowForecast'] = {
 	hasBalanceAnchor: false,
 	days: [],
 	todayIndex: 0,
-	flows: []
+	flows: [],
+	emptyState: 'none-detected'
 };
 
 /**
@@ -64,13 +66,15 @@ function buildData(
 		budgets?: PageData['budgets'];
 		savingsGoals?: PageData['savingsGoals'];
 		upcomingBillsHasStreams?: boolean;
+		cashFlowForecast?: PageData['cashFlowForecast'];
 	} = {}
 ): PageData {
 	const {
 		transactions = [],
 		budgets = [],
 		savingsGoals = [],
-		upcomingBillsHasStreams = false
+		upcomingBillsHasStreams = false,
+		cashFlowForecast = EMPTY_FORECAST
 	} = overrides;
 
 	return {
@@ -99,7 +103,7 @@ function buildData(
 		insights: EMPTY_INSIGHTS,
 		savingsGoals,
 		savingsGoalsOverflowCount: 0,
-		cashFlowForecast: EMPTY_FORECAST,
+		cashFlowForecast,
 		upcomingBills: {
 			rows: [],
 			overdueCount: 0,
@@ -170,5 +174,39 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 
 		await expect.element(screen.getByText('Échéances à venir')).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain('Importez votre premier relevé');
+	});
+});
+
+/**
+ * Task 2 of the detection-window-upper-bound chantier: `emptyState` distinguishes "nothing
+ * detected yet" from "detected streams have all gone stale", so the forecast card must render a
+ * different EmptyState for each rather than collapsing both into one sentence. Asserted against
+ * the Paraglide message, never a hardcoded French literal (CLAUDE.md).
+ */
+describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => {
+	it("renders the 'nothing detected yet' copy when emptyState is 'none-detected'", async () => {
+		const screen = render(Page, {
+			data: buildData({
+				upcomingBillsHasStreams: true,
+				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'none-detected' }
+			}),
+			form: null as ActionData
+		});
+
+		await expect.element(screen.getByText(m.dashboard_forecast_empty_title())).toBeInTheDocument();
+		expect(screen.container.textContent).not.toContain(m.dashboard_forecast_stale_title());
+	});
+
+	it("renders the 'gone stale' copy when emptyState is 'all-stale'", async () => {
+		const screen = render(Page, {
+			data: buildData({
+				upcomingBillsHasStreams: true,
+				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'all-stale' }
+			}),
+			form: null as ActionData
+		});
+
+		await expect.element(screen.getByText(m.dashboard_forecast_stale_title())).toBeInTheDocument();
+		expect(screen.container.textContent).not.toContain(m.dashboard_forecast_empty_title());
 	});
 });

@@ -854,6 +854,12 @@
 							{/each}
 						</div>
 					</div>
+				{:else if cashFlowForecast.emptyState === 'all-stale'}
+					<EmptyState
+						class="mt-3"
+						title={m.reports_forecast_stale_title()}
+						description={m.reports_forecast_stale_description()}
+					/>
 				{:else}
 					{#snippet forecastEmptyAction()}
 						<TapLink href="#annexe-recurrences">{m.reports_forecast_empty_cta()}</TapLink>

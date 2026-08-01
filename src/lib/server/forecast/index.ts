@@ -4,6 +4,7 @@ import {
 	computeResidualDailyCents,
 	detectionEndExclusive,
 	detectRecurringFlows,
+	hasReliableConfirmedFlow,
 	isReliableConfirmedFlow,
 	isStreamStale,
 	projectCashFlow,
@@ -215,15 +216,53 @@ export interface CashFlowLedgerDayView {
 	events: CashFlowLedgerEventView[];
 }
 
+/**
+ * Distinguishes the two reasons `flows.every(f => !f.feedsProjection)` can hold, so a route can
+ * render the right empty-state copy instead of one sentence that only describes one of them:
+ *  - 'none-detected': no flow ever reached reliable-confirmed (the pre-existing "not enough
+ *    recurring flows yet" copy still applies).
+ *  - 'all-stale': at least one flow IS reliable-confirmed, but every one of them has gone stale
+ *    (`isStreamStale`) — the count condition is satisfied, staleness is the actual reason, and
+ *    the pre-existing copy's remedy ("wait for more occurrences") cannot help.
+ * `null` when a live reliable-confirmed flow exists (`feedsProjection` true on at least one
+ * flow) — the empty state isn't rendered at all in that case, so callers only need to switch on
+ * this value inside the `!hasConfirmedForecastFlows` branch.
+ * Computed here, from the exact same inputs `feedsProjection` uses per flow, so the two can never
+ * drift apart the way the single collapsed boolean did.
+ */
+export type CashFlowForecastEmptyState = 'none-detected' | 'all-stale';
+
 export interface CashFlowForecastView {
 	hasBalanceAnchor: boolean;
 	days: CashFlowLedgerDayView[];
 	/** Index within `days` of "today" — see CashFlowLedger.todayIndex. */
 	todayIndex: number;
 	flows: CashFlowForecastFlowView[];
+	/** See `CashFlowForecastEmptyState`. `null` when at least one flow currently feeds the
+	 *  projection (`flows.some(f => f.feedsProjection)` is true). */
+	emptyState: CashFlowForecastEmptyState | null;
 }
 
 export function toDisplayCashFlowForecast(forecast: CashFlowForecast): CashFlowForecastView {
+	const flows = forecast.flows.map((flow) => ({
+		category: flow.category,
+		direction: flow.direction,
+		cadence: flow.cadence,
+		status: flow.status,
+		confidence: flow.confidence,
+		label: anonymizeLabel(flow.label, flow.category),
+		averageAmountCents: flow.averageAmountCents,
+		lastDate: flow.lastDate,
+		feedsProjection: isReliableConfirmedFlow(flow) && !isStreamStale(flow, forecast.todayIso)
+	}));
+
+	const hasLiveConfirmedFlow = flows.some((flow) => flow.feedsProjection);
+	const emptyState: CashFlowForecastEmptyState | null = hasLiveConfirmedFlow
+		? null
+		: hasReliableConfirmedFlow(forecast.flows)
+			? 'all-stale'
+			: 'none-detected';
+
 	return {
 		hasBalanceAnchor: forecast.hasBalanceAnchor,
 		todayIndex: forecast.ledger.todayIndex,
@@ -236,16 +275,7 @@ export function toDisplayCashFlowForecast(forecast: CashFlowForecast): CashFlowF
 				cadence: event.cadence
 			}))
 		})),
-		flows: forecast.flows.map((flow) => ({
-			category: flow.category,
-			direction: flow.direction,
-			cadence: flow.cadence,
-			status: flow.status,
-			confidence: flow.confidence,
-			label: anonymizeLabel(flow.label, flow.category),
-			averageAmountCents: flow.averageAmountCents,
-			lastDate: flow.lastDate,
-			feedsProjection: isReliableConfirmedFlow(flow) && !isStreamStale(flow, forecast.todayIso)
-		}))
+		flows,
+		emptyState
 	};
 }
