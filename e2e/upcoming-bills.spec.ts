@@ -1,10 +1,13 @@
 import { expect, test } from './fixtures';
 import { E2E_BASE_URL } from './config';
 import {
+	BILLS_MONTH_KEY,
 	CURRENT_MONTH_KEY,
 	OVERDUE_GYM,
 	OVERDUE_WATER,
-	PREVIOUS_MONTH_KEY,
+	RETIRED_ABSENT_MONTH_KEY,
+	RETIRED_REALIZED_MONTH_KEY,
+	RETIRED_STREAM,
 	SETTLED_STREAMS,
 	UNCERTAIN_STREAM,
 	seedBillStreams,
@@ -20,22 +23,26 @@ import type { Locator, Page } from '@playwright/test';
 // stylesheet, runs SvelteKit's client router, or issues a request as a second user. Each test below
 // exists because one of those three is exactly what decides whether the claim holds.
 //
-// Period under test: the PREVIOUS calendar month. It is the only period guaranteed to be entirely
-// in the past, so an "En retard" row exists there on the 1st of a month just as on the 28th — the
-// current month has no past day at all on its first day.
+// Period under test: `BILLS_MONTH_KEY`, the month the seed's anchor date falls in — the current
+// month on most days, the previous one during its first days. It used to be "always the previous
+// month", and task B1's staleness guard made that impossible: a projected row only exists for a few
+// days after its estimated date, so every unsettled row this suite asserts sits within a week of
+// today. The arithmetic is in e2e/bills-seed.ts's header; the anchor is derived, never hardcoded.
 //
 // Ordering matters and is declaration order (workers: 1, playwright.config.ts). The read-only
 // assertions run before anything mutates, and every mutating test undoes its own actions so a
 // Playwright retry re-runs against the state it expected.
 
-const PREVIOUS_MONTH_URL = `/upcoming-bills?month=${PREVIOUS_MONTH_KEY}`;
+const BILLS_MONTH_URL = `/upcoming-bills?month=${BILLS_MONTH_KEY}`;
 const IGNORED_BANNER = m.bills_banner_ignored({
-	month: formatMonthLabel(PREVIOUS_MONTH_KEY, 'fr')
+	month: formatMonthLabel(BILLS_MONTH_KEY, 'fr')
 });
 
-/** The one exception to "everything lives in the previous month", used by the remaining-total test
+/** The one exception to "everything lives in the anchor's month", used by the remaining-total test
  *  below: a period that is OVER carries no "reste à sortir" figure on either header surface, so the
- *  claim that test makes has no rendering surface there. See its own comment. */
+ *  claim that test makes has no rendering surface there. Identical to `BILLS_MONTH_URL` on every day
+ *  but the first few of a month, and the test holds either way — `OVERDUE_GYM` is monthly, so the
+ *  current month carries one of its unsettled occurrences whichever month the anchor landed in. */
 const CURRENT_MONTH_URL = `/upcoming-bills?month=${CURRENT_MONTH_KEY}`;
 const IGNORED_BANNER_CURRENT = m.bills_banner_ignored({
 	month: formatMonthLabel(CURRENT_MONTH_KEY, 'fr')
@@ -51,7 +58,7 @@ function billRow(page: Page, display: string): Locator {
 	return page.locator('#bills-list [role="listitem"]').filter({ hasText: display });
 }
 
-/** Mirrors `+page.svelte`'s `shiftMonth`, to compute the expected label after a previous-arrow click. */
+/** Mirrors `+page.svelte`'s `shiftMonth`, to compute the expected label after an arrow click. */
 function shiftMonthKey(month: string, delta: number): string {
 	const shifted = new Date(
 		Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 + delta, 1)
@@ -164,7 +171,7 @@ function parseCents(text: string): number {
  *
  *  Only meaningful on a CURRENT or FUTURE period: on a month that is over both header surfaces drop
  *  the figure, because "reste \u00e0 sortir" is not a claim a finished period can make. Calling this on
- *  `PREVIOUS_MONTH_URL` throws out of `parseCents` rather than reading a stale number. */
+ *  a month that is over throws out of `parseCents` rather than reading a stale number. */
 async function remainingExpenseCents(page: Page): Promise<number> {
 	const text = await page.locator('header p.lg\\:hidden').first().textContent();
 	return parseCents(text ?? '');
@@ -311,7 +318,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('locked tier gate: an "Incertain" row whose estimated date is long past still reads "À venir", never "En retard"', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const row = billRow(page, UNCERTAIN_STREAM.display);
 		await expect(row).toHaveCount(1);
@@ -337,7 +344,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('the "!" important modifier on the uncertain tier badge actually wins over Badge\'s own colour', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const badge = billRow(page, UNCERTAIN_STREAM.display)
 			.getByText(m.bills_tier_uncertain(), { exact: true })
@@ -359,10 +366,40 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 		expect((await paintedColors(plainBadge)).color).not.toEqual(colors.color);
 	});
 
+	test('a stream silent past the staleness threshold disappears from the list: no row, no badge, no message', async ({
+		page
+	}) => {
+		// The design's SECOND exit for a stream (design spec section D: "le rythme ne se confirme pas
+		// et le flux disparaît silencieusement de la liste, sans alerte ni message"). Task B1 made it
+		// real via `isStreamStale`, and nothing covered it end to end — the tier-gate test above only
+		// pins the other side of the same guard. Asserted on the month `RETIRED_STREAM`'s next
+		// occurrence WOULD have fallen in, one cadence after its last real one.
+		const response = await page.goto(`/upcoming-bills?month=${RETIRED_ABSENT_MONTH_KEY}`);
+		expect(response?.status()).toBe(200);
+
+		// The month is a populated one — every live stream has a real occurrence here — so "no row"
+		// below is a statement about this stream and not about an empty page. The settled group is
+		// collapsed on load, hence the expand.
+		await expandSettledGroup(page);
+		await expect(billRow(page, OVERDUE_GYM.display)).toHaveCount(1);
+
+		// Silently: not a row, not a badge, not a sentence anywhere on the page.
+		await expect(billRow(page, RETIRED_STREAM.display)).toHaveCount(0);
+		await expect(page.getByText(RETIRED_STREAM.display)).toHaveCount(0);
+
+		// ...and the absence is the staleness guard rather than "never detected": the stream's own
+		// last REAL occurrence is a fact and still renders, in the month it happened in.
+		await page.goto(`/upcoming-bills?month=${RETIRED_REALIZED_MONTH_KEY}`);
+		await expandSettledGroup(page);
+		const realized = billRow(page, RETIRED_STREAM.display);
+		await expect(realized).toHaveCount(1);
+		await expect(realized.getByText(m.bills_status_paid(), { exact: true }).first()).toBeVisible();
+	});
+
 	test('list semantics: every status group is a role="list" named by its own visible heading', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const lists = page.locator('#bills-list [role="list"]');
 		const listCount = await lists.count();
@@ -398,7 +435,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	});
 
 	test('the "…" row menu trigger meets the 44x44 tap target (minimum 24x24)', async ({ page }) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const trigger = rowMenuTrigger(billRow(page, OVERDUE_GYM.display), OVERDUE_GYM.display);
 		const box = await trigger.boundingBox();
@@ -412,15 +449,15 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('"Période suivante" changes the aria-live month label without moving focus off the control', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const label = page.locator('span[aria-live="polite"]');
-		await expect(label).toHaveText(formatMonthLabel(PREVIOUS_MONTH_KEY, 'fr'));
+		await expect(label).toHaveText(formatMonthLabel(BILLS_MONTH_KEY, 'fr'));
 
 		const next = page.getByRole('link', { name: m.bills_period_next_aria() });
 		await next.click();
 
-		await expect(label).toHaveText(formatMonthLabel(CURRENT_MONTH_KEY, 'fr'));
+		await expect(label).toHaveText(formatMonthLabel(shiftMonthKey(BILLS_MONTH_KEY, 1), 'fr'));
 
 		const active = await activeElementInfo(page);
 		expect(active.tag).toBe('A');
@@ -430,16 +467,15 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('"Période précédente" changes the aria-live month label without moving focus off the control', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const label = page.locator('span[aria-live="polite"]');
-		await expect(label).toHaveText(formatMonthLabel(PREVIOUS_MONTH_KEY, 'fr'));
+		await expect(label).toHaveText(formatMonthLabel(BILLS_MONTH_KEY, 'fr'));
 
 		const prev = page.getByRole('link', { name: m.bills_period_prev_aria() });
 		await prev.click();
 
-		const twoMonthsBack = shiftMonthKey(PREVIOUS_MONTH_KEY, -1);
-		await expect(label).toHaveText(formatMonthLabel(twoMonthsBack, 'fr'));
+		await expect(label).toHaveText(formatMonthLabel(shiftMonthKey(BILLS_MONTH_KEY, -1), 'fr'));
 
 		const active = await activeElementInfo(page);
 		expect(active.tag).toBe('A');
@@ -449,7 +485,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('the desktop row is a 5-column grid and the mobile row is not rendered', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const row = billRow(page, OVERDUE_GYM.display);
 		const desktop = row.locator(':scope > div').first();
@@ -465,7 +501,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('the locked amber pairs render as specified (row 4.85:1, tier badge 6.1:1)', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const row = billRow(page, OVERDUE_WATER.display);
 		expect(await groupOf(row)).toBe('bills-group-overdue');
@@ -513,7 +549,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 
 		try {
 			await page.emulateMedia({ reducedMotion: 'reduce' });
-			await page.goto(PREVIOUS_MONTH_URL);
+			await page.goto(BILLS_MONTH_URL);
 			await page.getByRole('link', { name: m.bills_period_next_aria() }).click();
 
 			const pulse = page.locator('[role="status"] .skeleton-pulse').first();
@@ -525,7 +561,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 			// Same element, motion allowed: the check above is only a check if it can come out
 			// differently.
 			await page.emulateMedia({ reducedMotion: 'no-preference' });
-			await page.goto(PREVIOUS_MONTH_URL);
+			await page.goto(BILLS_MONTH_URL);
 			await page.getByRole('link', { name: m.bills_period_next_aria() }).click();
 
 			const pulsing = page.locator('[role="status"] .skeleton-pulse').first();
@@ -542,7 +578,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('dismissing the ignore confirmation with Escape returns focus to the "…" trigger', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		await selectRowMenuItem(page, OVERDUE_GYM.display, m.bills_action_ignore());
 		const dialog = page.getByRole('dialog');
@@ -559,7 +595,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('confirming an ignore moves focus to that row\'s "Rétablir" link, past the settled group\'s 3-row cut', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		// Precondition of the regression this covers: the settled group already holds more than the
 		// three rows it renders collapsed, so the newly ignored row lands past the cut.
@@ -595,7 +631,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('the undo banner is a role="status" carrying an "Annuler" that restores the row', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		await selectRowMenuItem(page, OVERDUE_GYM.display, m.bills_action_ignore());
 		await page
@@ -664,7 +700,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('marking an overdue occurrence paid clears the amber treatment and moves it to the settled group', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const row = billRow(page, OVERDUE_WATER.display);
 		expect(await groupOf(row)).toBe('bills-group-overdue');
@@ -693,7 +729,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test('two consecutive settling actions each land focus on their target, never on <body>', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		// 1) Mark paid — focus goes to the row itself, which has just moved into the collapsed
 		//    settled group.
@@ -741,7 +777,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 	test("another user cannot undo this user's action: 404, and the row is untouched", async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		await selectRowMenuItem(page, OVERDUE_GYM.display, m.bills_action_ignore());
 		await page
@@ -767,7 +803,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 			// The `userId` conjunct of the deleteMany is what this proves: a query that lost it would
 			// have deleted the row above and this reload would show an un-ignored occurrence. The
 			// group has to be expanded first — a fresh load renders only its first three rows.
-			await page.goto(PREVIOUS_MONTH_URL);
+			await page.goto(BILLS_MONTH_URL);
 			await expandSettledGroup(page);
 			const row = billRow(page, OVERDUE_GYM.display);
 			await expect(row.getByText(m.bills_restore())).toBeVisible();
@@ -788,7 +824,7 @@ test.describe('/upcoming-bills — mobile 390x844', () => {
 	test('the row stacks: the desktop grid is not rendered and the whole row is one control', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(BILLS_MONTH_URL);
 
 		const row = billRow(page, OVERDUE_GYM.display);
 		await expect(row.locator(':scope > div').first()).toBeHidden();
