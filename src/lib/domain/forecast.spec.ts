@@ -813,7 +813,7 @@ describe('isReliableConfirmedFlow / hasReliableConfirmedFlow', () => {
 			);
 		});
 
-		it('draws min/max amounts from the flow\'s own amount cluster, not the whole label group', () => {
+		it("draws min/max amounts from the flow's own amount cluster, not the whole label group", () => {
 			const flows = detectRecurringFlows([
 				tx({ date: '2026-01-05', label: 'Amazon', amountCents: -999, category: 'Shopping' }),
 				tx({ date: '2026-02-05', label: 'Amazon', amountCents: -1010, category: 'Shopping' }),
