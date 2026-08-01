@@ -1,12 +1,24 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RecurringFlow, ProjectedOccurrence } from '$lib/domain/forecast';
 import {
+	computeStaleAfterDays,
+	isReliableConfirmedFlow,
+	projectFlowOccurrences
+} from '$lib/domain/forecast';
+import { buildBillOccurrences } from '$lib/domain/upcomingBills';
+import {
 	FORECAST_REPORTS_HORIZON_DAYS,
 	FORECAST_REPORTS_HORIZON_MONTHS,
 	toDisplayCashFlowForecast,
 	type CashFlowForecast,
 	type CashFlowLedger
 } from './index';
+
+function addDaysIso(iso: string, days: number): string {
+	return new Date(new Date(`${iso}T00:00:00.000Z`).getTime() + days * 86_400_000)
+		.toISOString()
+		.slice(0, 10);
+}
 
 describe('FORECAST_REPORTS_HORIZON_MONTHS', () => {
 	it('is derived from FORECAST_REPORTS_HORIZON_DAYS, never hardcoded independently', () => {
@@ -417,6 +429,304 @@ describe('loadCashFlowForecast', () => {
 		const todayIndex = forecast.ledger.todayIndex;
 		expect(forecast.ledger.days[todayIndex].date).toBe('2025-04-10');
 		expect(forecast.ledger.days[todayIndex - 1].balanceCents).toBe(100_000 - -500);
+
+		vi.useRealTimers();
+	});
+});
+
+// Task 2 of the detection-window-upper-bound chantier: `isStreamStale` (B1's staleness guard for
+// the upcoming-bills surfaces) now also applies to the cash-flow forecast, so a cancelled
+// subscription cannot still move the projected balance line after the bills surfaces have already
+// stopped showing it. Uses the REAL `detectRecurringFlows` (the default `domainForecastModule`
+// wiring above), not a hand-built RecurringFlow, so a test can assert the flow was genuinely
+// DETECTED as reliable-confirmed and not merely constructed to look that way.
+describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecast)', () => {
+	const TODAY_ISO = '2025-04-10';
+
+	// Perfectly regular (CV 0) monthly stream -> staleAfterDays = 30 + 5 + 0 = 35. Derived from the
+	// production formula, not hardcoded, per the brief.
+	const STALE_AFTER_DAYS = computeStaleAfterDays({
+		cadence: 'monthly',
+		medianIntervalDays: 30,
+		intervalCoefficientOfVariation: 0
+	});
+
+	function monthlyExpenseTransactions(lastDateIso: string) {
+		return [-150, -120, -90, -60, -30, 0].map((offset, index) => ({
+			id: `tx-netflix-${index}`,
+			date: addDaysIso(lastDateIso, offset),
+			label: 'NETFLIX',
+			amountCents: -1_399,
+			category: 'Abonnements',
+			type: 'expense' as const
+		}));
+	}
+
+	it('drops a cancelled stream from the projected ledger and moves the end-of-horizon balance up by the expense no longer projected', async () => {
+		expect.assertions(6);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Well past the tolerated cycle: silent for STALE_AFTER_DAYS + 2 days.
+		const staleLastDate = addDaysIso(TODAY_ISO, -(STALE_AFTER_DAYS + 2));
+		const transactions = monthlyExpenseTransactions(staleLastDate);
+
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions });
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 60);
+
+		// The flow really is detected, and really does qualify as reliable-confirmed — otherwise a
+		// "no events" assertion below would also pass if the fixture silently produced no flow, or a
+		// tentative/low-confidence one, at all.
+		const detected = forecast.flows.find((candidate) => candidate.label === 'NETFLIX');
+		expect(detected).toBeDefined();
+		expect(detected && isReliableConfirmedFlow(detected)).toBe(true);
+
+		// Sanity: the RAW stepping function (unaffected by this task) would still have produced an
+		// occurrence inside the horizon, proving the guard — not an absence of anything to project —
+		// is what removes the event below.
+		expect(detected ? projectFlowOccurrences(detected, TODAY_ISO, 60).length : 0).toBeGreaterThan(
+			0
+		);
+
+		const netflixEvents = forecast.ledger.days.flatMap((day) =>
+			day.events.filter((event) => event.flowLabel === 'NETFLIX')
+		);
+		expect(netflixEvents).toHaveLength(0);
+
+		// No projection and no residual (the flow's own transactions are excluded from the residual
+		// pool too, see the dedicated residual test below) -> the balance stays exactly at the anchor.
+		const lastDay = forecast.ledger.days[forecast.ledger.days.length - 1];
+		expect(lastDay.balanceCents).toBe(100_000);
+		// Direction check: had the stream still been projected (its pre-fix behaviour), the expense
+		// would have been subtracted once from the final balance.
+		expect(lastDay.balanceCents).not.toBe(100_000 - 1_399);
+
+		vi.useRealTimers();
+	});
+
+	it('leaves a live stream (recently active) untouched — same projected event count as the raw stepping function', async () => {
+		expect.assertions(3);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Comfortably inside the tolerated cycle: silent for only 10 days.
+		const liveLastDate = addDaysIso(TODAY_ISO, -10);
+		const transactions = monthlyExpenseTransactions(liveLastDate);
+
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions });
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 60);
+
+		const detected = forecast.flows.find((candidate) => candidate.label === 'NETFLIX');
+		expect(detected).toBeDefined();
+
+		const expectedEventCount = detected
+			? projectFlowOccurrences(detected, TODAY_ISO, 60).length
+			: 0;
+		expect(expectedEventCount).toBeGreaterThan(0);
+
+		const netflixEvents = forecast.ledger.days.flatMap((day) =>
+			day.events.filter((event) => event.flowLabel === 'NETFLIX')
+		);
+		expect(netflixEvents).toHaveLength(expectedEventCount);
+
+		vi.useRealTimers();
+	});
+
+	it('agrees with the upcoming-bills surface: the same stale stream disappears from both', async () => {
+		expect.assertions(3);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		const staleLastDate = addDaysIso(TODAY_ISO, -(STALE_AFTER_DAYS + 2));
+		const transactions = monthlyExpenseTransactions(staleLastDate);
+
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions });
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 60);
+		const detected = forecast.flows.find((candidate) => candidate.label === 'NETFLIX');
+		expect(detected).toBeDefined();
+
+		// The bills surface: already drops a stale stream from projection (pre-existing B1 guard).
+		const billOccurrences = detected
+			? buildBillOccurrences({
+					flows: [detected],
+					transactions,
+					actions: [],
+					fromIso: TODAY_ISO,
+					toIsoExclusive: addDaysIso(TODAY_ISO, 60),
+					todayIso: TODAY_ISO
+				})
+			: [];
+		expect(billOccurrences).toEqual([]);
+
+		// The forecast: this task's new guard.
+		const netflixEvents = forecast.ledger.days.flatMap((day) =>
+			day.events.filter((event) => event.flowLabel === 'NETFLIX')
+		);
+		expect(netflixEvents).toHaveLength(0);
+
+		vi.useRealTimers();
+	});
+
+	it("excludes a stale stream's transactions from the residual pool too — the projected slope is identical to a user who never had the stream", async () => {
+		expect.assertions(1);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Dense weekly activity (3 transactions every 7-day block, -200c each) but stopping 65 days
+		// before "today" — well past staleAfterDays for a weekly stream (7 + 2 + 0 = 9) — attributed
+		// to a mocked 'confirmed'/'high' (reliable) flow. A SPARSE fixture (like the monthly one used
+		// above) would not expose a residual leak: with only ~6 transactions spread across 12 months,
+		// most weekly sums in computeResidualDailyCents' dense series are already zero, so the median
+		// stays 0 whether or not the leak exists — that gap is exactly why this test uses a dense
+		// fixture instead of reusing monthlyExpenseTransactions.
+		const lookbackStartEpochDays = Date.UTC(2024, 3, 10) / 86_400_000;
+		const denseStaleTransactions: {
+			id: string;
+			date: string;
+			amountCents: number;
+			label: string;
+			category: string;
+			type: 'income' | 'expense';
+		}[] = [];
+		for (let offset = 0; offset < 300; offset++) {
+			if (offset % 7 === 0 || offset % 7 === 2 || offset % 7 === 4) {
+				denseStaleTransactions.push({
+					id: `tx-stale-dense-${offset}`,
+					date: new Date((lookbackStartEpochDays + offset) * 86_400_000).toISOString().slice(0, 10),
+					amountCents: -200,
+					label: 'ABONNEMENT ANNULE',
+					category: 'Abonnements',
+					type: 'expense'
+				});
+			}
+		}
+		const staleReliableFlow: RecurringFlow = {
+			key: 'expense:abonnement annule:Abonnements',
+			label: 'ABONNEMENT ANNULE',
+			category: 'Abonnements',
+			direction: 'expense',
+			cadence: 'weekly',
+			status: 'confirmed',
+			confidence: 'high',
+			occurrenceCount: denseStaleTransactions.length,
+			averageAmountCents: 200,
+			minAmountCents: 200,
+			maxAmountCents: 200,
+			medianIntervalDays: 7,
+			intervalCoefficientOfVariation: 0,
+			amountCoefficientOfVariation: 0,
+			dayOfMonthConcentration: 1,
+			// 300 days after the lookback start, i.e. 65 days before TODAY_ISO (12-month lookback):
+			// isStreamStale is true (65 > 9).
+			lastDate: denseStaleTransactions[denseStaleTransactions.length - 1].date,
+			anchorDayOfMonth: 1,
+			occurrenceIds: denseStaleTransactions.map((transaction) => transaction.id)
+		};
+
+		domainForecastModule.detectRecurringFlows.mockReturnValueOnce([staleReliableFlow]);
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({
+			transactions: denseStaleTransactions
+		});
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+		const { loadCashFlowForecast } = await import('./index');
+		const forecastWithStaleStream = await loadCashFlowForecast('user-1', 14);
+
+		domainForecastModule.detectRecurringFlows.mockReturnValueOnce([]);
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions: [] });
+		const forecastWithNoActivity = await loadCashFlowForecast('user-1', 14);
+
+		const lastWithStream =
+			forecastWithStaleStream.ledger.days[forecastWithStaleStream.ledger.days.length - 1];
+		const lastWithNoActivity =
+			forecastWithNoActivity.ledger.days[forecastWithNoActivity.ledger.days.length - 1];
+		// If the stale flow's transactions leaked back into the residual pool, this would differ —
+		// the residual daily average would be pulled negative by the flow's own past payments.
+		expect(lastWithStream.balanceCents).toBe(lastWithNoActivity.balanceCents);
+
+		vi.useRealTimers();
+	});
+
+	it("still feeds the residual pool from a tentative flow's transactions — the existing invariant this task must not break", async () => {
+		expect.assertions(1);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Dense weekly activity (3 transactions every 7-day block, -200c each) over the full 12-month
+		// lookback, attributed to a mocked 'tentative' flow — isReliableConfirmedFlow rejects a
+		// tentative flow regardless of staleness, so this must land in the residual pool exactly as
+		// it did before this task.
+		const lookbackStartEpochDays = Date.UTC(2024, 3, 10) / 86_400_000;
+		const denseTentativeTransactions: {
+			id: string;
+			date: string;
+			amountCents: number;
+			label: string;
+			category: string;
+			type: 'income' | 'expense';
+		}[] = [];
+		for (let offset = 0; offset < 365; offset++) {
+			if (offset % 7 === 0 || offset % 7 === 2 || offset % 7 === 4) {
+				denseTentativeTransactions.push({
+					id: `tx-tentative-${offset}`,
+					date: new Date((lookbackStartEpochDays + offset) * 86_400_000).toISOString().slice(0, 10),
+					amountCents: -200,
+					label: 'DEPENSE COURANTE TENTATIVE',
+					category: 'Alimentation',
+					type: 'expense'
+				});
+			}
+		}
+
+		const tentativeFlow: RecurringFlow = {
+			key: 'expense:depense courante tentative:Alimentation',
+			label: 'DEPENSE COURANTE TENTATIVE',
+			category: 'Alimentation',
+			direction: 'expense',
+			cadence: 'weekly',
+			status: 'tentative',
+			confidence: 'high',
+			occurrenceCount: 2,
+			averageAmountCents: 200,
+			minAmountCents: 200,
+			maxAmountCents: 200,
+			medianIntervalDays: 7,
+			intervalCoefficientOfVariation: 0,
+			amountCoefficientOfVariation: 0,
+			dayOfMonthConcentration: 1,
+			lastDate: denseTentativeTransactions[denseTentativeTransactions.length - 1].date,
+			anchorDayOfMonth: 1,
+			occurrenceIds: denseTentativeTransactions.map((transaction) => transaction.id)
+		};
+
+		domainForecastModule.detectRecurringFlows.mockReturnValueOnce([tentativeFlow]);
+
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({
+			transactions: denseTentativeTransactions
+		});
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 14);
+
+		// Hand computation, identical to the pre-existing residual test's fixture shape: weekly sum
+		// = 3 * -200 = -600 (constant) -> median = -600 -> residualDailyCents = round(-600/7) = -86.
+		const expectedResidualDailyCents = -86;
+		const lastDay = forecast.ledger.days[forecast.ledger.days.length - 1];
+		expect(lastDay.balanceCents).toBe(100_000 + 14 * expectedResidualDailyCents);
 
 		vi.useRealTimers();
 	});

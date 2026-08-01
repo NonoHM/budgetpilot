@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ForecastInputTransaction, RecurringFlow } from './forecast';
-import { detectRecurringFlows, getCadenceToleranceDays, projectCashFlow } from './forecast';
+import { projectCashFlow } from './forecast';
 import {
 	normalizeRecurringLabel,
 	normalizeStoredRecurringLabel,
@@ -12,10 +12,8 @@ import {
 	applyStreamExclusions,
 	buildBillOccurrences,
 	computeOccurrenceStatus,
-	computeStaleAfterDays,
 	computeTotals,
 	formatAmountRangeBounds,
-	isStreamStale,
 	listObservationCandidates,
 	occurrenceActionWindowDays,
 	type BillOccurrence,
@@ -34,12 +32,6 @@ function tx(
 		type: overrides.amountCents >= 0 ? 'income' : 'expense',
 		...overrides
 	};
-}
-
-function addDaysIso(iso: string, days: number): string {
-	return new Date(new Date(`${iso}T00:00:00.000Z`).getTime() + days * 86_400_000)
-		.toISOString()
-		.slice(0, 10);
 }
 
 function flow(
@@ -119,116 +111,6 @@ describe('occurrenceActionWindowDays', () => {
 		expect(occurrenceActionWindowDays({ medianIntervalDays: 30 })).toBe(15);
 		expect(occurrenceActionWindowDays({ medianIntervalDays: 365 })).toBe(15);
 		expect(occurrenceActionWindowDays({ medianIntervalDays: 1 })).toBe(1);
-	});
-});
-
-describe('computeStaleAfterDays', () => {
-	// The three worked examples the formula was fixed against: one cycle + the cadence's own
-	// tolerance + one sigma of the stream's observed intervals, SUMMED (never maxed).
-	it('sums the cadence, the cadence tolerance and one interval standard deviation', () => {
-		expect.assertions(3);
-
-		expect(
-			computeStaleAfterDays({
-				cadence: 'monthly',
-				medianIntervalDays: 30,
-				intervalCoefficientOfVariation: 0.1
-			})
-		).toBe(38);
-		expect(
-			computeStaleAfterDays({
-				cadence: 'weekly',
-				medianIntervalDays: 7,
-				intervalCoefficientOfVariation: 0.1
-			})
-		).toBe(10);
-		expect(
-			computeStaleAfterDays({
-				cadence: 'yearly',
-				medianIntervalDays: 365,
-				intervalCoefficientOfVariation: 0.05
-			})
-		).toBe(399);
-	});
-
-	// A plain change-detector on the five values, and nothing more: these literals ARE a copy of
-	// CADENCE_WINDOWS, so re-hardcoding the table inside computeStaleAfterDays would leave this
-	// green. It pins the numbers a reader of the formula expects; the test that actually binds the
-	// tolerance to the detector's own behaviour is the one below it.
-	it("reuses each cadence's tolerance without redeclaring it", () => {
-		expect.assertions(5);
-
-		const at = (cadence: RecurringFlow['cadence'], medianIntervalDays: number) =>
-			computeStaleAfterDays({
-				cadence,
-				medianIntervalDays,
-				intervalCoefficientOfVariation: 0
-			}) - medianIntervalDays;
-
-		expect(at('weekly', 7)).toBe(2);
-		expect(at('biweekly', 14)).toBe(3);
-		expect(at('monthly', 30)).toBe(5);
-		expect(at('quarterly', 91)).toBe(10);
-		expect(at('yearly', 365)).toBe(15);
-	});
-
-	/**
-	 * The binding one: for every cadence, a stream whose interval is exactly
-	 * `canonical period + getCadenceToleranceDays(cadence)` is still classified as that cadence by
-	 * the detector, and one more day is classified as nothing at all. That is the detector's real
-	 * acceptance boundary, observed rather than restated.
-	 *
-	 * This is what reddens if the tolerance is ever duplicated instead of read: widen
-	 * `CADENCE_WINDOWS` while `getCadenceToleranceDays` keeps the old value and the `+ 1` case starts
-	 * being detected; narrow it and the boundary case stops being detected. Only the canonical
-	 * PERIODS are literals here, and those are the cadences' definition rather than the quantity
-	 * under test.
-	 */
-	it('stays pinned to the window the detector actually accepts', () => {
-		expect.assertions(10);
-
-		const canonicalPeriodDays = [
-			['weekly', 7],
-			['biweekly', 14],
-			['monthly', 30],
-			['quarterly', 91],
-			['yearly', 365]
-		] as const;
-
-		const detectAtInterval = (intervalDays: number) =>
-			detectRecurringFlows(
-				[0, 1, 2].map((step) =>
-					tx({
-						date: addDaysIso('2024-01-08', intervalDays * step),
-						label: 'ABONNEMENT TEST',
-						amountCents: -1_000,
-						category: 'Divers'
-					})
-				)
-			).map((detected) => detected.cadence);
-
-		for (const [cadence, periodDays] of canonicalPeriodDays) {
-			const tolerance = getCadenceToleranceDays(cadence);
-			expect(detectAtInterval(periodDays + tolerance)).toEqual([cadence]);
-			expect(detectAtInterval(periodDays + tolerance + 1)).toEqual([]);
-		}
-	});
-});
-
-describe('isStreamStale', () => {
-	const monthly = {
-		cadence: 'monthly',
-		medianIntervalDays: 30,
-		intervalCoefficientOfVariation: 0.1
-	} as const;
-
-	it('flips past the threshold, never right at it', () => {
-		expect.assertions(3);
-
-		// staleAfterDays = 38: a bill 8 days late must still read "En retard".
-		expect(isStreamStale({ ...monthly, lastDate: '2026-06-27' }, '2026-07-31')).toBe(false);
-		expect(isStreamStale({ ...monthly, lastDate: '2026-06-23' }, '2026-07-31')).toBe(false);
-		expect(isStreamStale({ ...monthly, lastDate: '2026-06-22' }, '2026-07-31')).toBe(true);
 	});
 });
 

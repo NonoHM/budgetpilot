@@ -5,10 +5,11 @@ import type {
 	RecurringFlow
 } from './forecast';
 import {
-	getCadenceToleranceDays,
 	getFlowDisplayTier,
 	groupTransactionsForRecurrence,
-	projectFlowOccurrences
+	isStreamStale,
+	projectFlowOccurrences,
+	wholeDaysBetween
 } from './forecast';
 import { getSimilarAmountGroups, normalizeStoredRecurringLabel } from './recurrence';
 
@@ -81,11 +82,6 @@ function toEpochMs(iso: string): number {
 	return Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
 }
 
-/** Whole days elapsed from `dateIso` to `todayIso`; positive when `dateIso` is in the past. */
-function wholeDaysBetween(dateIso: string, todayIso: string): number {
-	return Math.floor((toEpochMs(todayIso) - toEpochMs(dateIso)) / MS_PER_DAY);
-}
-
 /**
  * Stream identity for a persisted action. Anchor transaction ids come first and are authoritative:
  * they survive a label the detector later re-reads from a more recent occurrence. The normalized
@@ -151,57 +147,6 @@ export function computeOccurrenceStatus(
 
 	const daysLate = wholeDaysBetween(dateIso, todayIso);
 	return daysLate > 0 ? { status: 'overdue', daysLate } : { status: 'upcoming', daysLate: null };
-}
-
-/**
- * How long after its last observed occurrence a stream is still worth projecting:
- *
- *     medianIntervalDays + cadenceToleranceDays + ceil(medianIntervalDays * intervalCV)
- *
- * One full cycle, plus the cadence's own slip tolerance (the detector's own, read from `forecast.ts`
- * rather than restated here), plus roughly one standard deviation of THIS stream's observed
- * intervals — so an irregular stream is given proportionally more rope than a metronomic one.
- *
- * The two margins are SUMMED, not maxed, and that is deliberate: the two failure directions are
- * asymmetric. A cancelled stream lingering one extra cycle is mildly annoying; a genuinely late
- * real bill vanishing from the schedule is a loss of function — the user stops being told about a
- * payment they still owe. The bias is toward keeping streams. Do NOT "optimise" this into a
- * `Math.max` of the two terms.
- *
- * Worked examples: monthly with CV 0.1 -> 38 days (a bill 8 days late still reads "En retard",
- * which is exactly the signal that must not be lost); weekly with CV 0.1 -> 10; yearly with
- * CV 0.05 -> 399.
- */
-export function computeStaleAfterDays(
-	flow: Pick<RecurringFlow, 'cadence' | 'medianIntervalDays' | 'intervalCoefficientOfVariation'>
-): number {
-	return (
-		flow.medianIntervalDays +
-		getCadenceToleranceDays(flow.cadence) +
-		Math.ceil(flow.medianIntervalDays * flow.intervalCoefficientOfVariation)
-	);
-}
-
-/**
- * True when a stream has been silent for longer than one tolerated cycle — a subscription cancelled
- * in March, say, still inside the detector's 12-month lookback and therefore still detected, but
- * which will never produce another payment.
- *
- * Such a stream is dropped from PROJECTION only, and silently: same treatment as a stream the user
- * excluded — no status, no badge, no message, the user simply stops seeing it. Its realized
- * transactions inside the displayed period are facts and stay.
- *
- * This is not a second lateness path: an uncertain-tier stream that is also stale merely stops
- * being projected, which leaves `computeOccurrenceStatus`'s tier gate untouched.
- */
-export function isStreamStale(
-	flow: Pick<
-		RecurringFlow,
-		'cadence' | 'medianIntervalDays' | 'intervalCoefficientOfVariation' | 'lastDate'
-	>,
-	todayIso: string
-): boolean {
-	return wholeDaysBetween(flow.lastDate, todayIso) > computeStaleAfterDays(flow);
 }
 
 export interface BuildBillOccurrencesInput {
@@ -309,8 +254,14 @@ export function buildBillOccurrences(input: BuildBillOccurrencesInput): BillOccu
 		// Projected: everything still to come inside the period — unless the stream has gone quiet
 		// for longer than one tolerated cycle, in which case it projects nothing at all (see
 		// `isStreamStale`). The guard lives HERE and not inside `projectFlowOccurrences` because that
-		// function is shared with the cash-flow forecast, which projects from `todayIso` rather than
-		// from `flow.lastDate` and is already correct; changing it would alter a correct caller.
+		// function is shared with the cash-flow forecast, and it steps from `flow.lastDate` regardless
+		// of caller — `fromDate` only filters which of those stepped dates get emitted, it does not
+		// stop the stepping. A stale stream's dates are therefore still generated, just all before
+		// `fromDate` most of the time; nothing here or in `projectFlowOccurrences` used to stop that.
+		// The cash-flow forecast now applies the SAME `isStreamStale` guard itself, at the flow-list
+		// level in `server/forecast/index.ts` (`loadCashFlowForecast`), rather than inside the shared
+		// stepping function — so both surfaces refuse to project a stale stream, without either one
+		// silently affecting the other's caller.
 		if (isStreamStale(flow, input.todayIso)) continue;
 
 		const projectedDates = projectFlowOccurrences(flow, input.fromIso, horizonDays)

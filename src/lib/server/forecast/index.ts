@@ -5,6 +5,7 @@ import {
 	detectionEndExclusive,
 	detectRecurringFlows,
 	isReliableConfirmedFlow,
+	isStreamStale,
 	projectCashFlow,
 	type CashFlowLedgerDay,
 	type FlowCadence,
@@ -78,14 +79,28 @@ export async function loadCashFlowForecast(
 	const flows = detectRecurringFlows(transactions);
 	// Only reliable confirmed flows (>=3 occurrences AND confidence high/medium) ever feed the
 	// projection math — a shaky confirmed flow shouldn't move the projected balance any more than
-	// it should appear in a table claiming to list what was "included in the calculation".
-	const confirmedFlows = flows.filter(isReliableConfirmedFlow);
+	// it should appear in a table claiming to list what was "included in the calculation". A
+	// reliable flow that has gone quiet for longer than one tolerated cycle (`isStreamStale`, the
+	// same B1 guard the upcoming-bills surfaces apply) is excluded here too: it is detected and
+	// reliable, but it will never produce another payment, so projecting it would keep a cancelled
+	// stream on the balance line after the bills surfaces have already stopped showing it.
+	const reliableFlows = flows.filter(isReliableConfirmedFlow);
+	const confirmedFlows = reliableFlows.filter((flow) => !isStreamStale(flow, todayIso));
 
-	// Only the transactions of flows that ACTUALLY feed the projection leave the residual pool. A
-	// tentative or low-confidence flow is never projected as discrete occurrences, so its activity
-	// must stay in the residual daily term — removing it as well would make that money vanish from
-	// the forecast entirely (closing-audit finding: systematically optimistic for expenses).
-	const recurringTransactionIds = new Set(confirmedFlows.flatMap((flow) => flow.occurrenceIds));
+	// Three cases for a flow's transactions, not two:
+	//  - Reliable AND not stale: feeds the projection (`confirmedFlows` above) — its transactions
+	//    leave the residual pool, or the projected event would double-count the same money.
+	//  - Tentative or low-confidence (never reliable): never projected as discrete occurrences, so
+	//    its activity must stay in the residual daily term — removing it too would make that money
+	//    vanish from the forecast entirely (closing-audit finding: systematically optimistic for
+	//    expenses).
+	//  - Reliable AND stale: neither. Its whole defining property is that the activity has STOPPED,
+	//    so leaving its past payments in the residual daily average would keep the forecast
+	//    spending money the user no longer spends — the cancelled stream would still "include"
+	//    itself through the back door, exactly what the stale-guard above must eliminate. Excluded
+	//    from the residual pool via `reliableFlows` (not `confirmedFlows`, which already dropped the
+	//    stale ones) so this exclusion happens regardless of staleness.
+	const recurringTransactionIds = new Set(reliableFlows.flatMap((flow) => flow.occurrenceIds));
 	const residualTransactions = transactions.filter(
 		(transaction) => !recurringTransactionIds.has(transaction.id)
 	);
