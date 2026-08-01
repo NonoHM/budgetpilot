@@ -474,10 +474,32 @@ export function isReliableConfirmedFlow(
 	return flow.status === 'confirmed' && flow.confidence !== 'low';
 }
 
-export function hasReliableConfirmedFlow(
-	flows: readonly Pick<RecurringFlow, 'status' | 'confidence'>[]
+/**
+ * The single predicate for "does this flow currently feed the cash-flow projection" —
+ * `isReliableConfirmedFlow` (status/confidence) AND not `isStreamStale` (silent longer than one
+ * tolerated cycle). Unlike `isReliableConfirmedFlow`, this needs `todayIso`, since staleness is
+ * relative to "now".
+ *
+ * BOTH the server projection filter (`confirmedFlows` in `server/forecast/index.ts`) and the
+ * view's per-flow `feedsProjection` flag (`toDisplayCashFlowForecast`) must go through this one
+ * function — the two used to spell out the same two-term expression independently, which is
+ * exactly the shape that let them silently diverge once before (see that module's history). A
+ * third term added to one and not the other is caught by `server/forecast/index.spec.ts`'s
+ * anti-drift test only if both call sites still route through here.
+ */
+export function feedsCashFlowProjection(
+	flow: Pick<
+		RecurringFlow,
+		| 'status'
+		| 'confidence'
+		| 'cadence'
+		| 'medianIntervalDays'
+		| 'intervalCoefficientOfVariation'
+		| 'lastDate'
+	>,
+	todayIso: string
 ): boolean {
-	return flows.some(isReliableConfirmedFlow);
+	return isReliableConfirmedFlow(flow) && !isStreamStale(flow, todayIso);
 }
 
 export type FlowDisplayTier = 'confirmed' | 'likely' | 'uncertain';

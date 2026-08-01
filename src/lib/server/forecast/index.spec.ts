@@ -920,3 +920,112 @@ describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecas
 		vi.useRealTimers();
 	});
 });
+
+// Task 3 of the detection-window-upper-bound chantier. `confirmedFlows` (the projection filter,
+// above in `loadCashFlowForecast`) and `feedsProjection` (the view flag, in
+// `toDisplayCashFlowForecast`) used to each spell out
+// `isReliableConfirmedFlow(flow) && !isStreamStale(flow, todayIso)` independently — the exact
+// shape that already diverged silently once between /reports and the forecast. Both now go
+// through the single `feedsCashFlowProjection` helper in `$lib/domain/forecast`; this is the
+// real equivalence check that would have caught the divergence, run over live data rather than
+// restating the predicate.
+describe('feedsProjection matches the projected ledger — anti-drift', () => {
+	it('marks a view flow feedsProjection true exactly when it produced a ledger event in the projected segment', async () => {
+		expect.assertions(8);
+		const TODAY_ISO = '2025-04-10';
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Live reliable: last seen 13 days ago, well inside staleAfterDays for monthly/CV0 (35 days),
+		// anchored on the 28th — its next calendar-month occurrence is 2025-04-28, 18 days out, safely
+		// inside the 30-day horizon below, so it is guaranteed to emit an event, not merely be
+		// eligible for one (the trap the brief calls out: reliable-and-live is not sufficient if the
+		// next occurrence falls outside the horizon).
+		const liveReliable = flow({
+			key: 'expense:live reliable flow:Abonnements',
+			label: 'LIVE RELIABLE FLOW',
+			category: 'Abonnements',
+			status: 'confirmed',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-03-28',
+			anchorDayOfMonth: 28,
+			occurrenceIds: ['tx-live-1', 'tx-live-2', 'tx-live-3']
+		});
+		// Stale reliable: same shape, but silent since 2025-01-01 — 99 days, well past the 35-day
+		// staleAfterDays threshold, so it is excluded from the projection despite being reliable.
+		const staleReliable = flow({
+			key: 'expense:stale reliable flow:Abonnements',
+			label: 'STALE RELIABLE FLOW',
+			category: 'Abonnements',
+			status: 'confirmed',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-01-01',
+			anchorDayOfMonth: 1,
+			occurrenceIds: ['tx-stale-1', 'tx-stale-2', 'tx-stale-3']
+		});
+		// Tentative: only 2 occurrences, so isReliableConfirmedFlow rejects it regardless of
+		// staleness — never projected, even though it is recently active.
+		const tentative = flow({
+			key: 'expense:tentative flow:Loisirs',
+			label: 'TENTATIVE FLOW',
+			category: 'Loisirs',
+			status: 'tentative',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-03-28',
+			anchorDayOfMonth: 28,
+			occurrenceIds: ['tx-tent-1', 'tx-tent-2']
+		});
+
+		domainForecastModule.detectRecurringFlows.mockReturnValueOnce([
+			liveReliable,
+			staleReliable,
+			tentative
+		]);
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions: [] });
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([{ type: 'checking', balanceCents: 0 }]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 30);
+		const view = toDisplayCashFlowForecast(forecast);
+
+		// Side A: which flows actually produced a ledger event in the projected segment. Realized
+		// days always carry `events: []` (buildRealizedLedgerDays never populates them), so this set
+		// is unaffected by including the whole `days` array rather than just the projected tail.
+		const flowKeysWithLedgerEvents = new Set(
+			forecast.ledger.days.flatMap((day) => day.events.map((event) => event.flowKey))
+		);
+
+		// Each of the three classes is non-empty before comparing, per the brief — an equivalence
+		// over a fixture missing a class would prove nothing.
+		expect(flowKeysWithLedgerEvents.has(liveReliable.key)).toBe(true);
+		expect(flowKeysWithLedgerEvents.has(staleReliable.key)).toBe(false);
+		expect(flowKeysWithLedgerEvents.has(tentative.key)).toBe(false);
+
+		// Side B: which view flows have feedsProjection === true. `view.flows` is
+		// `forecast.flows.map(...)` — same order and count, no filtering — so zipping by index is
+		// exact; the view intentionally never carries the flow's internal `key` (see
+		// CashFlowForecastFlowView's own doc comment).
+		const feedingFlowKeysFromView = new Set(
+			forecast.flows.filter((_, index) => view.flows[index].feedsProjection).map((f) => f.key)
+		);
+
+		expect(feedingFlowKeysFromView.has(liveReliable.key)).toBe(true);
+		expect(feedingFlowKeysFromView.has(staleReliable.key)).toBe(false);
+		expect(feedingFlowKeysFromView.has(tentative.key)).toBe(false);
+
+		// The real equivalence: the two sets, derived independently from the returned data, must be
+		// identical.
+		expect(feedingFlowKeysFromView).toEqual(flowKeysWithLedgerEvents);
+		expect(feedingFlowKeysFromView.size).toBeGreaterThan(0);
+
+		vi.useRealTimers();
+	});
+});

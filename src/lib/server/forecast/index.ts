@@ -4,9 +4,8 @@ import {
 	computeResidualDailyCents,
 	detectionEndExclusive,
 	detectRecurringFlows,
-	hasReliableConfirmedFlow,
+	feedsCashFlowProjection,
 	isReliableConfirmedFlow,
-	isStreamStale,
 	projectCashFlow,
 	type CashFlowLedgerDay,
 	type FlowCadence,
@@ -90,8 +89,10 @@ export async function loadCashFlowForecast(
 	// same B1 guard the upcoming-bills surfaces apply) is excluded here too: it is detected and
 	// reliable, but it will never produce another payment, so projecting it would keep a cancelled
 	// stream on the balance line after the bills surfaces have already stopped showing it.
+	// `confirmedFlows` and the view's `feedsProjection` flag below both go through the single
+	// `feedsCashFlowProjection` predicate, so the two can never independently drift apart.
 	const reliableFlows = flows.filter(isReliableConfirmedFlow);
-	const confirmedFlows = reliableFlows.filter((flow) => !isStreamStale(flow, todayIso));
+	const confirmedFlows = flows.filter((flow) => feedsCashFlowProjection(flow, todayIso));
 
 	// Three cases for a flow's transactions, not two:
 	//  - Reliable AND not stale: feeds the projection (`confirmedFlows` above) — its transactions
@@ -195,12 +196,12 @@ export interface CashFlowForecastFlowView {
 	averageAmountCents: number;
 	lastDate: string;
 	/** Whether THIS flow actually feeds the projection ledger's math right now — the server's own
-	 *  `isReliableConfirmedFlow(flow) && !isStreamStale(flow, todayIso)` predicate, computed once
-	 *  here rather than re-implemented client-side. A route's "included in the calculation" table
-	 *  must filter on this field, never re-run `isReliableConfirmedFlow` alone: a reliable flow that
-	 *  has gone stale is excluded from the ledger but would still pass that narrower check, which is
-	 *  exactly the divergence this field exists to close (a client can't recompute staleness itself
-	 *  — this view intentionally does not carry `medianIntervalDays`/`intervalCoefficientOfVariation`). */
+	 *  `feedsCashFlowProjection` predicate, computed once here rather than re-implemented
+	 *  client-side. A route's "included in the calculation" table must filter on this field, never
+	 *  re-run `isReliableConfirmedFlow` alone: a reliable flow that has gone stale is excluded from
+	 *  the ledger but would still pass that narrower check, which is exactly the divergence this
+	 *  field exists to close (a client can't recompute staleness itself — this view intentionally
+	 *  does not carry `medianIntervalDays`/`intervalCoefficientOfVariation`). */
 	feedsProjection: boolean;
 }
 
@@ -253,13 +254,13 @@ export function toDisplayCashFlowForecast(forecast: CashFlowForecast): CashFlowF
 		label: anonymizeLabel(flow.label, flow.category),
 		averageAmountCents: flow.averageAmountCents,
 		lastDate: flow.lastDate,
-		feedsProjection: isReliableConfirmedFlow(flow) && !isStreamStale(flow, forecast.todayIso)
+		feedsProjection: feedsCashFlowProjection(flow, forecast.todayIso)
 	}));
 
 	const hasLiveConfirmedFlow = flows.some((flow) => flow.feedsProjection);
 	const emptyState: CashFlowForecastEmptyState | null = hasLiveConfirmedFlow
 		? null
-		: hasReliableConfirmedFlow(forecast.flows)
+		: forecast.flows.some(isReliableConfirmedFlow)
 			? 'all-stale'
 			: 'none-detected';
 

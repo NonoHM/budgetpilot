@@ -11,7 +11,6 @@ import {
 	getFlowAmountVariability,
 	getFlowDisplayTier,
 	getRemainingDaysInMonthUtc,
-	hasReliableConfirmedFlow,
 	isReliableConfirmedFlow,
 	isStreamStale,
 	projectCashFlow,
@@ -846,14 +845,13 @@ describe('detectionEndExclusive', () => {
 	});
 });
 
-describe('isReliableConfirmedFlow / hasReliableConfirmedFlow', () => {
+describe('isReliableConfirmedFlow', () => {
 	it('rejette un flux confirmé mais de confiance faible — pas assez fiable pour entrer dans le calcul', () => {
-		expect.assertions(2);
+		expect.assertions(1);
 
 		const lowConfidenceConfirmed = { status: 'confirmed' as const, confidence: 'low' as const };
 
 		expect(isReliableConfirmedFlow(lowConfidenceConfirmed)).toBe(false);
-		expect(hasReliableConfirmedFlow([lowConfidenceConfirmed])).toBe(false);
 	});
 
 	it('rejette un flux à confiance élevée mais seulement tentative (pas encore confirmé)', () => {
@@ -867,18 +865,6 @@ describe('isReliableConfirmedFlow / hasReliableConfirmedFlow', () => {
 
 		expect(isReliableConfirmedFlow({ status: 'confirmed', confidence: 'high' })).toBe(true);
 		expect(isReliableConfirmedFlow({ status: 'confirmed', confidence: 'medium' })).toBe(true);
-	});
-
-	it('hasReliableConfirmedFlow renvoie true dès qu’un seul flux de la liste est fiable', () => {
-		expect.assertions(1);
-
-		expect(
-			hasReliableConfirmedFlow([
-				{ status: 'tentative', confidence: 'high' },
-				{ status: 'confirmed', confidence: 'low' },
-				{ status: 'confirmed', confidence: 'medium' }
-			])
-		).toBe(true);
 	});
 
 	describe('flow display tier and amount bounds', () => {
