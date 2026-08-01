@@ -21,7 +21,6 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import CashFlowForecastChart from '$lib/components/ui/CashFlowForecastChart.svelte';
-	import { hasReliableConfirmedFlow, isReliableConfirmedFlow } from '$lib/domain/forecast';
 	import type { FlowCadence, FlowConfidenceTier } from '$lib/domain/forecast';
 	import * as m from '$lib/paraglide/messages';
 
@@ -30,11 +29,19 @@
 	const period = $derived(data.period);
 	const cashFlowForecast = $derived(data.cashFlowForecast);
 	const forecastHorizonMonths = $derived(data.forecastHorizonMonths);
-	const hasConfirmedForecastFlows = $derived(hasReliableConfirmedFlow(cashFlowForecast.flows));
-	// "Included in the calculation" table: only the same reliable-confirmed flows that actually
-	// feed the projection ledger (see isReliableConfirmedFlow / loadCashFlowForecast) — a low-
-	// confidence or merely-tentative flow only ever appears in the Annexes' exhaustive table.
-	const includedForecastFlows = $derived(cashFlowForecast.flows.filter(isReliableConfirmedFlow));
+	// Same predicate the server already applied to build the ledger (`feedsProjection`, see
+	// toDisplayCashFlowForecast) — never re-derived client-side, so this can't diverge from what
+	// actually backs the projected balance (a reliable flow gone stale must not count here either).
+	const hasConfirmedForecastFlows = $derived(
+		cashFlowForecast.flows.some((flow) => flow.feedsProjection)
+	);
+	// "Included in the calculation" table: only the flows that actually feed the projection ledger
+	// right now (`feedsProjection`, computed server-side from `isReliableConfirmedFlow(flow) &&
+	// !isStreamStale(flow, todayIso)`) — a low-confidence, merely-tentative, or gone-stale flow only
+	// ever appears in the Annexes' exhaustive table.
+	const includedForecastFlows = $derived(
+		cashFlowForecast.flows.filter((flow) => flow.feedsProjection)
+	);
 
 	const hasData = $derived(report.transactionCount > 0);
 

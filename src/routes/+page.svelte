@@ -26,7 +26,6 @@
 	import UpcomingBillsCard from '$lib/components/UpcomingBillsCard.svelte';
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { formatShortDate } from '$lib/domain/dateFormat';
-	import { hasReliableConfirmedFlow } from '$lib/domain/forecast';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -52,7 +51,12 @@
 	// `hasDashboardData`: they are the only import entry point left once the onboarding EmptyState
 	// stops rendering, so keying them on the narrower flag stranded that state with no CTA at all.
 	const showDashboardBody = $derived(hasDashboardData || data.upcomingBills.hasStreams);
-	const hasConfirmedForecastFlows = $derived(hasReliableConfirmedFlow(data.cashFlowForecast.flows));
+	// Same predicate the server already applied to build the ledger (`feedsProjection`, see
+	// toDisplayCashFlowForecast) — never re-derived client-side, so this can't diverge from what
+	// actually backs the projected balance (a reliable flow gone stale must not count here either).
+	const hasConfirmedForecastFlows = $derived(
+		data.cashFlowForecast.flows.some((flow) => flow.feedsProjection)
+	);
 	// Delta = projected balance at the end of the horizon minus today's known balance (the ledger's
 	// realized/projected boundary, see CashFlowLedger.todayIndex) — colored per the app's standard
 	// monetary convention (emerald positive / rose negative), unlike the chart's own monochrome

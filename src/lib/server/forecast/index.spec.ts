@@ -74,7 +74,8 @@ describe('toDisplayCashFlowForecast', () => {
 		const forecast: CashFlowForecast = {
 			flows: [flow()],
 			ledger: ledger([{ date: '2025-04-01', balanceCents: 0, events: [] }]),
-			hasBalanceAnchor: true
+			hasBalanceAnchor: true,
+			todayIso: '2025-04-01'
 		};
 
 		const view = toDisplayCashFlowForecast(forecast);
@@ -93,7 +94,8 @@ describe('toDisplayCashFlowForecast', () => {
 				{ date: '2025-04-01', balanceCents: 0, events: [] },
 				{ date: '2025-04-28', balanceCents: 200_000, events: [occurrence()] }
 			]),
-			hasBalanceAnchor: true
+			hasBalanceAnchor: true,
+			todayIso: '2025-04-01'
 		};
 
 		const view = toDisplayCashFlowForecast(forecast);
@@ -111,7 +113,8 @@ describe('toDisplayCashFlowForecast', () => {
 			ledger: ledger([
 				{ date: '2025-04-01', balanceCents: 42_000, events: [occurrence({ amountCents: -5_000 })] }
 			]),
-			hasBalanceAnchor: false
+			hasBalanceAnchor: false,
+			todayIso: '2025-04-01'
 		};
 
 		const view = toDisplayCashFlowForecast(forecast);
@@ -120,6 +123,53 @@ describe('toDisplayCashFlowForecast', () => {
 		expect(view.flows[0].status).toBe('tentative');
 		expect(view.days[0].balanceCents).toBe(42_000);
 		expect(view.days[0].events[0].amountCents).toBe(-5_000);
+	});
+
+	// Fix round 2 (branch review, IMPORTANT #1): `/reports` and the dashboard used to re-implement
+	// the server's inclusion predicate client-side as `flows.filter(isReliableConfirmedFlow)`, which
+	// silently diverged once loadCashFlowForecast started excluding stale reliable flows too. This
+	// field is the fix: computed once, server-side, from the SAME predicate the ledger itself used.
+	it('feedsProjection is true only for a reliable, non-stale flow — false for a stale one and for a merely-tentative one', () => {
+		expect.assertions(3);
+
+		const todayIso = '2025-04-10';
+		const notStale = flow({
+			label: 'RELIABLE LIVE',
+			status: 'confirmed',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-03-28' // 13 days silent, well inside staleAfterDays (35).
+		});
+		const stale = flow({
+			label: 'RELIABLE STALE',
+			status: 'confirmed',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-01-01' // ~99 days silent, well past staleAfterDays (35).
+		});
+		const tentative = flow({
+			label: 'TENTATIVE LIVE',
+			status: 'tentative',
+			confidence: 'high',
+			lastDate: '2025-03-28'
+		});
+
+		const forecast: CashFlowForecast = {
+			flows: [notStale, stale, tentative],
+			ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+			hasBalanceAnchor: true,
+			todayIso
+		};
+
+		const view = toDisplayCashFlowForecast(forecast);
+
+		expect(view.flows.find((f) => f.label.includes('Reliable Live'))?.feedsProjection).toBe(true);
+		expect(view.flows.find((f) => f.label.includes('Reliable Stale'))?.feedsProjection).toBe(false);
+		expect(view.flows.find((f) => f.label.includes('Tentative Live'))?.feedsProjection).toBe(false);
 	});
 
 	it('transmet todayIndex tel quel — la frontière réalisé/projeté ne doit jamais être redevinée côté vue', () => {
@@ -135,7 +185,8 @@ describe('toDisplayCashFlowForecast', () => {
 				],
 				2
 			),
-			hasBalanceAnchor: true
+			hasBalanceAnchor: true,
+			todayIso: '2025-04-01'
 		};
 
 		expect(toDisplayCashFlowForecast(forecast).todayIndex).toBe(2);
@@ -583,7 +634,7 @@ describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecas
 	});
 
 	it("excludes a stale stream's transactions from the residual pool too — the projected slope is identical to a user who never had the stream", async () => {
-		expect.assertions(1);
+		expect.assertions(2);
 		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
 
 		// Dense weekly activity (3 transactions every 7-day block, -200c each) but stopping 67 days
@@ -655,6 +706,11 @@ describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecas
 			forecastWithStaleStream.ledger.days[forecastWithStaleStream.ledger.days.length - 1];
 		const lastWithNoActivity =
 			forecastWithNoActivity.ledger.days[forecastWithNoActivity.ledger.days.length - 1];
+		// The no-activity leg pinned to its own literal (fix round 1, cheap fix): comparing only
+		// `lastWithStream` to `lastWithNoActivity` would also pass if `loadCashFlowForecast` returned
+		// a constant balance regardless of input — no events, no residual, starting balance
+		// 100_000 -> the anchor exactly.
+		expect(lastWithNoActivity.balanceCents).toBe(100_000);
 		// If the stale flow's transactions leaked back into the residual pool, this would differ —
 		// the residual daily average would be pulled negative by the flow's own past payments.
 		expect(lastWithStream.balanceCents).toBe(lastWithNoActivity.balanceCents);

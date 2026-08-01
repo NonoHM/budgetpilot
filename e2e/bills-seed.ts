@@ -36,12 +36,13 @@ import {
 	loginE2eUser,
 	submitForm
 } from './seed';
-import { detectRecurringFlows, type ForecastInputTransaction } from '../src/lib/domain/forecast';
 import {
-	buildBillOccurrences,
 	computeStaleAfterDays,
-	isStreamStale
-} from '../src/lib/domain/upcomingBills';
+	detectRecurringFlows,
+	isStreamStale,
+	type ForecastInputTransaction
+} from '../src/lib/domain/forecast';
+import { buildBillOccurrences } from '../src/lib/domain/upcomingBills';
 
 export interface BillStreamSeed {
 	/** Raw label posted to the app. Letters only: `normalizeRecurringLabel` drops digits, and

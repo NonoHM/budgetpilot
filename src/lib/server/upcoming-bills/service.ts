@@ -310,15 +310,20 @@ export async function loadUpcomingBillsMonth(
 	const monthStart = new Date(Date.UTC(year, monthNumber - 1, 1));
 	const monthEndExclusive = new Date(Date.UTC(year, monthNumber, 1));
 
-	// The fetch must cover the displayed period as well as the detector's 12-month lookback (same
-	// derivation as loadCashFlowForecast), hence min/max rather than a single fixed range.
+	// The fetch's LOWER bound is the earlier of the displayed month's start and the detector's
+	// 12-month lookback start — NOT the displayed period itself: after task 1, the upper bound below
+	// is pinned to `detectionEndExclusive(todayIso)` regardless of which month is displayed, so the
+	// fetch deliberately does NOT extend to cover the current month in full (it stops mid-month) or
+	// reach into a future one at all. `min()` on the lower bound is what's left, not a `max()` pair.
 	//
-	// The `min()` half is now nearly vestigial: since detection is pinned below, a transaction older
+	// The `min()` half is now fully vestigial: since detection is pinned below, a transaction older
 	// than `lookbackStart` reaches no consumer — `buildBillOccurrences` only ever looks a transaction
 	// up by an id that is already in some `flow.occurrenceIds`, and every such id comes from the
-	// pinned set. It is kept because narrowing the range is a separate decision (this call site is
-	// not the only shape `readDashboardDataForRange` serves) and because widening back is exactly the
-	// regression B2 removed. Do NOT write it back into `detectRecurringFlows`.
+	// pinned set (verified: `flows`, and `toObservationCandidateViews`'s own input, are both built
+	// from `detectionTransactions`, never straight from this fetch's result). It is kept because
+	// narrowing the range is a separate decision (this call site is not the only shape
+	// `readDashboardDataForRange` serves) and because widening back is exactly the regression B2
+	// removed. Do NOT write it back into `detectRecurringFlows`.
 	const lookbackStart = computeDetectionLookbackStart(now);
 	const from = lookbackStart < monthStart ? lookbackStart : monthStart;
 	// Exclusive upper bound pinned to `detectionEndExclusive(todayIso)` — the SAME value the widget

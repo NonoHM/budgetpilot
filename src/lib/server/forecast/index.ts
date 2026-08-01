@@ -48,6 +48,11 @@ export interface CashFlowForecast {
 	ledger: CashFlowLedger;
 	/** False when no checking NetWorthAccount exists — the ledger then starts at a relative 0 (net projected flow), never a fabricated balance. */
 	hasBalanceAnchor: boolean;
+	/** The "today" this forecast was computed against — carried alongside the flows so
+	 *  `toDisplayCashFlowForecast` can re-derive `isStreamStale` per flow without a second
+	 *  `new Date()` read (a second clock read is exactly the kind of drift this codebase avoids
+	 *  elsewhere, see `detectionEndExclusive`'s own reasoning). */
+	todayIso: string;
 }
 
 export async function loadCashFlowForecast(
@@ -145,7 +150,12 @@ export async function loadCashFlowForecast(
 	const days = [...realizedDays.slice(0, -1), ...projected.days];
 	const todayIndex = realizedDays.length - 1;
 
-	return { flows, ledger: { days, todayIndex }, hasBalanceAnchor: startingBalance.hasAnchor };
+	return {
+		flows,
+		ledger: { days, todayIndex },
+		hasBalanceAnchor: startingBalance.hasAnchor,
+		todayIso
+	};
 }
 
 /**
@@ -183,6 +193,14 @@ export interface CashFlowForecastFlowView {
 	label: string;
 	averageAmountCents: number;
 	lastDate: string;
+	/** Whether THIS flow actually feeds the projection ledger's math right now — the server's own
+	 *  `isReliableConfirmedFlow(flow) && !isStreamStale(flow, todayIso)` predicate, computed once
+	 *  here rather than re-implemented client-side. A route's "included in the calculation" table
+	 *  must filter on this field, never re-run `isReliableConfirmedFlow` alone: a reliable flow that
+	 *  has gone stale is excluded from the ledger but would still pass that narrower check, which is
+	 *  exactly the divergence this field exists to close (a client can't recompute staleness itself
+	 *  — this view intentionally does not carry `medianIntervalDays`/`intervalCoefficientOfVariation`). */
+	feedsProjection: boolean;
 }
 
 export interface CashFlowLedgerEventView {
@@ -226,7 +244,8 @@ export function toDisplayCashFlowForecast(forecast: CashFlowForecast): CashFlowF
 			confidence: flow.confidence,
 			label: anonymizeLabel(flow.label, flow.category),
 			averageAmountCents: flow.averageAmountCents,
-			lastDate: flow.lastDate
+			lastDate: flow.lastDate,
+			feedsProjection: isReliableConfirmedFlow(flow) && !isStreamStale(flow, forecast.todayIso)
 		}))
 	};
 }
