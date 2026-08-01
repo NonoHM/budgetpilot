@@ -15,6 +15,7 @@ const service = vi.hoisted(() => ({
 		streamCount: 0,
 		remainingExpenseCents: 0,
 		expectedIncomeCents: 0,
+		oldestNavigableMonth: '2025-07',
 		rows: [],
 		observationCandidates: []
 	})),
@@ -26,7 +27,11 @@ const service = vi.hoisted(() => ({
 	undoStreamAction: vi.fn(async (_userId: string, _actionId: string) => undefined),
 	// A month no wall clock can produce, so the default-month test below fails if the load falls
 	// back to `parseMonth`'s own `getCurrentMonth()` (the server's LOCAL month) instead.
-	getCurrentBillsMonth: vi.fn(() => '1999-01')
+	getCurrentBillsMonth: vi.fn(() => '1999-01'),
+	// The boundary the load clamps to. Mocked, like the rest of the service, so this file tests the
+	// ROUTE's decision; that this value really is the view's `oldestNavigableMonth` is asserted in
+	// `service.spec.ts`, against the real derivation.
+	getOldestNavigableBillsMonth: vi.fn(() => '2025-07')
 }));
 
 vi.mock('$lib/server/upcoming-bills/service', () => service);
@@ -84,6 +89,33 @@ describe('/upcoming-bills load', () => {
 			} as Parameters<typeof load>[0])
 		).rejects.toMatchObject({ status: 303, location: '/login' });
 		expect(service.loadUpcomingBillsMonth).not.toHaveBeenCalled();
+	});
+
+	// B2/G1. The navigator stops at the detection window, but a typed or bookmarked URL did not: it
+	// still rendered "Aucune échéance en juin 2024 · Changez de mois pour les retrouver" — false for a
+	// user who did pay bills that month, and pointing at the one remedy that cannot work, since
+	// nothing older than the window can ever render.
+	//
+	// A redirect rather than a 400: the boundary slides forward every month, so a URL that was legal
+	// when bookmarked becomes out of range through no action of the user's — a different class from
+	// `2026-13`, which is never legal and still 400s (test below). And rather than a silent clamp,
+	// which would leave the URL naming one period while the page shows another, on a page whose whole
+	// navigator contract is that the URL names the period.
+	it('redirige un mois anterieur a la fenetre de detection vers la borne', async () => {
+		expect.assertions(4);
+
+		await expect(loadWith('?month=2024-06')).rejects.toMatchObject({
+			status: 302,
+			location: '/upcoming-bills?month=2025-07'
+		});
+		// The clamp happens BEFORE the read: an unreachable month must not cost a query.
+		expect(service.loadUpcomingBillsMonth).not.toHaveBeenCalled();
+
+		// The boundary month itself is inside the window — its second half renders real rows — so it
+		// must load, not bounce. A `<=` here would make the redirect target redirect to itself.
+		const data = await loadWith('?month=2025-07');
+		expect(data.bills.month).toBe('2025-07');
+		expect(service.loadUpcomingBillsMonth).toHaveBeenCalledWith(testUser.id, '2025-07');
 	});
 
 	it('rejette un mois malforme en 400 plutot qu en 500', async () => {

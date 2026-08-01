@@ -275,6 +275,21 @@ export function computeDetectionLookbackStart(now: Date): Date {
 	);
 }
 
+/**
+ * YYYY-MM of the oldest month any surface can render: the month `computeDetectionLookbackStart`
+ * lands IN, not the one after it — that month is half inside the window and its second half still
+ * carries real rows.
+ *
+ * Exported so the route can clamp a typed or bookmarked `?month=` to it (a month older than this
+ * renders nothing while `streamCount` stays non-zero, i.e. the page's "rien de prévu ici, changez
+ * de mois" copy would be a false claim). Derived from the SAME helper the detection filter uses —
+ * never a second `Date.UTC(…)` expression, which is how a boundary and the window it names drift
+ * apart.
+ */
+export function getOldestNavigableBillsMonth(now: Date = new Date()): string {
+	return toIsoDate(computeDetectionLookbackStart(now)).slice(0, 7);
+}
+
 export async function loadUpcomingBillsMonth(
 	userId: string,
 	month: string
@@ -356,10 +371,10 @@ export async function loadUpcomingBillsMonth(
 		// its own occurrences disagree is worse than one that is an hour off at a month boundary.
 		isCurrentMonth: month === todayIso.slice(0, 7),
 		isFutureMonth: month > todayIso.slice(0, 7),
-		// The month the detection window starts IN, not the one after it: `lookbackStart` lands
-		// mid-month (same day-of-month as today), so that month is half inside the window and its
-		// second half still renders real rows.
-		oldestNavigableMonth: detectionFromIso.slice(0, 7),
+		// Through the exported helper, not `detectionFromIso.slice(0, 7)`: the route clamps `?month=`
+		// to that function's value, and a view disagreeing with the clamp by even one month is a
+		// redirect loop or an unreachable month.
+		oldestNavigableMonth: getOldestNavigableBillsMonth(now),
 		streamCount: applyStreamExclusions(flows, actions).length,
 		remainingExpenseCents: totals.remainingExpenseCents,
 		expectedIncomeCents: totals.expectedIncomeCents,

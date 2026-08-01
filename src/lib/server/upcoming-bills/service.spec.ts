@@ -33,6 +33,7 @@ const {
 	undoStreamAction,
 	computeInertActionCutoff,
 	computeDetectionLookbackStart,
+	getOldestNavigableBillsMonth,
 	MAX_ANCHOR_ID_CHARS
 } = await import('./service');
 const { MAX_ANCHOR_CELL_CHARS, MAX_ANCHOR_IDS, MAX_PORTABLE_STRING, MAX_RECURRING_STREAM_ACTIONS } =
@@ -726,8 +727,25 @@ describe('fenêtre de détection figée à 12 mois', () => {
 
 		expect(view.rows).toEqual([]);
 		expect(view.streamCount).toBeGreaterThan(0);
-		// The boundary the page navigator stops at, so the state above cannot be navigated to.
+		// The boundary the page navigator stops at and the route redirects to, so the state above is
+		// reachable by neither.
 		expect(view.oldestNavigableMonth).toBe('2025-07');
+	});
+
+	// The view's field and the route's clamp must name the SAME month — they are read by different
+	// callers and a one-month disagreement is either a redirect loop or a month nothing can open.
+	// Also the only exercise of `lookbackStart`'s day-of-month arithmetic at a month boundary: on the
+	// 1st, 12 months back is the 1st of a month, and the boundary is that month, not the next one.
+	it('expose la même borne que le helper, y compris le 1er du mois', async () => {
+		mockRangedRead(INSURANCE);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+		expect(view.oldestNavigableMonth).toBe(getOldestNavigableBillsMonth(new Date(TODAY)));
+
+		vi.setSystemTime(new Date('2026-08-01T09:00:00.000Z'));
+		expect(getOldestNavigableBillsMonth()).toBe('2025-08');
+		const firstOfMonth = await loadUpcomingBillsMonth(userId, '2026-08');
+		expect(firstOfMonth.oldestNavigableMonth).toBe('2025-08');
 	});
 });
 

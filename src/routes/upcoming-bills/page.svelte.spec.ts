@@ -224,6 +224,26 @@ describe('/upcoming-bills page', () => {
 		expect(livePrevious.className).not.toContain('pointer-events-none');
 	});
 
+	// The STRICTLY older case, which the boundary test above cannot reach: the route redirects such a
+	// month, so this state is only produced by a stale client-side navigation — but the predicate is
+	// `<=`, and without this a regression to `===` would go green here and silently re-open the path
+	// the redirect closes.
+	it('garde la flèche précédente inerte sur un mois strictement plus ancien que la borne', async () => {
+		const { container } = render(Page, {
+			data: buildData({
+				month: '2024-06',
+				oldestNavigableMonth: '2025-07',
+				isCurrentMonth: false,
+				streamCount: 4,
+				rows: []
+			})
+		});
+
+		const [previous] = container.querySelectorAll('a[aria-label]');
+		expect(previous.hasAttribute('href')).toBe(false);
+		expect(previous.getAttribute('aria-disabled')).toBe('true');
+	});
+
 	// I2. The whole point of the last assertion: a rowKey is built from `normalizeRecurringLabel`,
 	// which collapses every non-letter run to a SPACE. HTML forbids whitespace in an `id`, and
 	// aria-labelledby / aria-controls / aria-describedby are space-separated ID LISTS — so an id

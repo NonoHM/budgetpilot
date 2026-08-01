@@ -1,10 +1,11 @@
-import { fail, isHttpError } from '@sveltejs/kit';
+import { fail, isHttpError, redirect } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import type { StreamActionKind } from '$lib/domain/upcomingBills';
 import { requireUser } from '$lib/server/auth';
 import { parseMonth } from '$lib/server/budget/dashboard';
 import {
 	getCurrentBillsMonth,
+	getOldestNavigableBillsMonth,
 	loadUpcomingBillsMonth,
 	recordStreamAction,
 	undoStreamAction
@@ -27,6 +28,25 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 	const monthParam = url.searchParams.get('month');
 	const month = monthParam ? parseMonth(monthParam) : getCurrentBillsMonth();
+
+	// Detection is pinned to the 12 months before today, so a month older than that window renders
+	// nothing at all while `streamCount` stays non-zero — which puts the page on its "rien de prévu
+	// ici, changez de mois" copy: false for a user who really did pay bills then, and the one remedy
+	// that cannot work. The period navigator already refuses to walk there; this closes the typed and
+	// bookmarked URL, which is the only other way in.
+	//
+	// A redirect, not a 400: the boundary slides forward every month, so a URL that was legal when it
+	// was bookmarked falls out of range through no action of the user's. `parseMonth` above still
+	// 400s a malformed month, which is never legal. And not a silent clamp, which would leave the URL
+	// naming one period while the page shows another, on a page whose navigator contract is that the
+	// URL names the period.
+	//
+	// Explicit param only: the default comes from `getCurrentBillsMonth()`, which reads the same UTC
+	// clock the boundary is derived from, so it can never precede it.
+	if (monthParam) {
+		const oldestMonth = getOldestNavigableBillsMonth();
+		if (month < oldestMonth) redirect(302, `/upcoming-bills?month=${oldestMonth}`);
+	}
 
 	// `user.id` comes from the session, never from the query string.
 	return { bills: await loadUpcomingBillsMonth(user.id, month) };
