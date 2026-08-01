@@ -1,8 +1,8 @@
 import { page, userEvent } from 'vitest/browser';
-import { createRawSnippet } from 'svelte';
-import { describe, expect, it } from 'vitest';
+import { createRawSnippet, tick } from 'svelte';
+import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import Tooltip from './Tooltip.svelte';
+import Tooltip, { HOVER_INTENT_DELAY_MS } from './Tooltip.svelte';
 
 function buttonSnippet(text: string) {
 	return createRawSnippet(() => ({
@@ -22,11 +22,40 @@ describe('Tooltip.svelte', () => {
 	});
 
 	it('does not show the tooltip before the hover intent delay elapses', async () => {
-		render(Tooltip, { label: 'Explication', children: buttonSnippet('Hover me') });
+		// Timers are driven, not raced. The previous version hovered for real and asserted
+		// absence immediately after: on a loaded CI runner `userEvent.hover` alone took 747ms,
+		// the 400ms intent timer had already fired, and the assertion failed on a component
+		// that was behaving correctly. Only setTimeout/clearTimeout are faked — the fade
+		// transitions run on requestAnimationFrame and must keep using real time.
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			const { container } = render(Tooltip, {
+				label: 'Explication',
+				children: buttonSnippet('Hover me')
+			});
 
-		await userEvent.hover(page.getByRole('button', { name: 'Hover me' }));
+			// Dispatched rather than driven through userEvent: the point of this test is the
+			// timer, and the browser's own hover emulation is what made it flaky. The real
+			// hover path stays covered by the next test, which awaits the tooltip instead.
+			const wrapper = container.querySelector('[role="presentation"]');
+			expect(wrapper).not.toBeNull();
+			wrapper?.dispatchEvent(new MouseEvent('mouseenter'));
+			await tick();
 
-		expect(page.getByRole('tooltip').elements().length).toBe(0);
+			expect(page.getByRole('tooltip').elements().length).toBe(0);
+
+			vi.advanceTimersByTime(HOVER_INTENT_DELAY_MS - 1);
+			await tick();
+			expect(page.getByRole('tooltip').elements().length).toBe(0);
+
+			// The other half, in the same test on purpose: an assertion that only ever checks
+			// absence would still pass if the tooltip never opened at all.
+			vi.advanceTimersByTime(1);
+			await tick();
+			expect(page.getByRole('tooltip').elements().length).toBe(1);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('shows the tooltip on hover after the intent delay', async () => {
