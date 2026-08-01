@@ -31,12 +31,14 @@ const {
 	loadUpcomingBillsWidget,
 	recordStreamAction,
 	undoStreamAction,
+	computeInertActionCutoff,
 	MAX_ANCHOR_ID_CHARS
 } = await import('./service');
 const { MAX_ANCHOR_CELL_CHARS, MAX_ANCHOR_IDS, MAX_PORTABLE_STRING, MAX_RECURRING_STREAM_ACTIONS } =
 	await import('$lib/server/backup/schema');
 const { STORED_LABEL_MAX_CHARS } = await import('$lib/domain/recurrence');
 const { detectRecurringFlows, getFlowDisplayTier } = await import('$lib/domain/forecast');
+const { occurrenceActionWindowDays } = await import('$lib/domain/upcomingBills');
 
 const userId = 'user-00000001';
 const actionId = 'action-00000001';
@@ -206,10 +208,46 @@ function storedAction(overrides: Record<string, unknown> = {}) {
 		kind: 'IGNORE',
 		direction: 'expense',
 		normalizedLabel: 'cb abonnement netflix',
+		// The RAW stored label, as the column holds it: the excluded-streams section reads it and has
+		// to anonymize it, so a fixture carrying an already-clean label could not prove that.
+		label: SUBSCRIPTION_LABEL,
 		anchorTransactionIds: JSON.stringify(['sub-0', 'sub-1', 'sub-2']),
 		dueDate: new Date('2026-07-10T00:00:00.000Z'),
 		...overrides
 	};
+}
+
+/** The shape of the prune's `where`, as `recordStreamAction` builds it. */
+interface PruneWhere {
+	userId: string;
+	kind: { in: string[] };
+	dueDate: { lt: Date };
+}
+
+interface PrunableRow {
+	userId: string;
+	kind: string;
+	dueDate: Date | null;
+}
+
+/**
+ * Runs the prune's own `where` against rows, with the engine's semantics — in particular that a
+ * NULL `dueDate` satisfies no comparison, which is the second of the two things keeping an EXCLUDE
+ * out of the delete.
+ *
+ * Deliberately not a shape assertion on the clause. A predicate that reaches an EXCLUDE is exactly
+ * what this half of the task must forbid, and "the object equals this object" cannot fail for the
+ * reason that matters — it fails for every reason at once. This EXECUTES the clause and reports
+ * which rows it would take.
+ */
+function applyPruneWhere(rows: readonly PrunableRow[], where: PruneWhere): PrunableRow[] {
+	return rows.filter(
+		(row) =>
+			row.userId === where.userId &&
+			where.kind.in.includes(row.kind) &&
+			row.dueDate !== null &&
+			row.dueDate.getTime() < where.dueDate.lt.getTime()
+	);
 }
 
 async function expectHttpError(promise: Promise<unknown>, status: number) {
@@ -370,6 +408,39 @@ describe('loadUpcomingBillsMonth', () => {
 
 		expect(view.rows).toEqual([]);
 		expect(view.observationCandidates).toEqual([{ label: 'Edf Facture', occurrenceCount: 2 }]);
+	});
+
+	/**
+	 * B3-b. An exclusion removes the stream from every list, so without this the user has no way to
+	 * see (let alone undo) a decision the app treats as permanent.
+	 */
+	it('expose les flux exclus, anonymisés, avec l’id de l’action à annuler', async () => {
+		mockRead(SUBSCRIPTION, [
+			storedAction({ kind: 'EXCLUDE', dueDate: null }),
+			// Not an exclusion: it must not appear in the escape hatch.
+			storedAction({ id: 'action-2', kind: 'IGNORE' })
+		]);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+
+		// One-word label -> one initial, the same rule `getInitials` applies to every avatar in the app.
+		expect(view.excludedStreams).toEqual([{ actionId, label: 'Netflix', initials: 'N' }]);
+		// The raw bank label never leaves the module, here as everywhere else.
+		expect(JSON.stringify(view.excludedStreams)).not.toContain(SUBSCRIPTION_LABEL);
+		// And the exclusion still does its job: the stream is gone from the rows.
+		expect(view.rows).toEqual([]);
+		expect(view.streamCount).toBe(0);
+	});
+
+	it('liste un flux exclu dont la direction stockée est illisible', async () => {
+		// `toStreamActionInputs` drops such a row rather than applying it to the wrong side of the
+		// budget. It must still be LISTED, or the user holds a decision they can neither use nor
+		// delete.
+		mockRead(SUBSCRIPTION, [storedAction({ kind: 'EXCLUDE', direction: 'both', dueDate: null })]);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+
+		expect(view.excludedStreams.map((stream) => stream.actionId)).toEqual([actionId]);
 	});
 
 	it('rend une occurrence marquée payée comme réglée manuellement', async () => {
@@ -670,6 +741,12 @@ describe('recordStreamAction', () => {
 		db.prisma.recurringStreamAction.create.mockResolvedValue({ id: 'created-1' });
 	});
 
+	/** The `where` of the single prune the write path issues. */
+	function pruneWhere(): PruneWhere {
+		expect(db.prisma.recurringStreamAction.deleteMany).toHaveBeenCalledTimes(1);
+		return db.prisma.recurringStreamAction.deleteMany.mock.calls[0][0].where;
+	}
+
 	// T5-b: the anchor list must never reach SQL without a userId conjunct.
 	it('filtre les ancres sur userId et ne persiste que celles que l’utilisateur possède', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0', 'sub-2']));
@@ -943,7 +1020,7 @@ describe('recordStreamAction', () => {
 	});
 
 	// T5-f: the write path enforces the same cap the backup validator does.
-	it('refuse (400) au-delà de MAX_RECURRING_STREAM_ACTIONS sans supprimer de décision', async () => {
+	it('refuse (400) au-delà de MAX_RECURRING_STREAM_ACTIONS sans évincer de décision vivante', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 		db.prisma.recurringStreamAction.count.mockResolvedValue(MAX_RECURRING_STREAM_ACTIONS);
 
@@ -951,7 +1028,15 @@ describe('recordStreamAction', () => {
 
 		expect(db.prisma.recurringStreamAction.count).toHaveBeenCalledWith({ where: { userId } });
 		expect(db.prisma.recurringStreamAction.create).not.toHaveBeenCalled();
-		expect(db.prisma.recurringStreamAction.deleteMany).not.toHaveBeenCalled();
+		// The ONE delete this path may issue is the inert prune, whose predicate does not depend on
+		// the count. Nothing evicts a live decision to make room — that would silently undo something
+		// the user asked for.
+		expect(db.prisma.recurringStreamAction.deleteMany).toHaveBeenCalledTimes(1);
+		expect(pruneWhere()).toEqual({
+			userId,
+			kind: { in: ['IGNORE', 'PAID'] },
+			dueDate: { lt: computeInertActionCutoff(new Date(TODAY)) }
+		});
 	});
 
 	it('accepte encore la dernière place sous le plafond', async () => {
@@ -979,6 +1064,94 @@ describe('recordStreamAction', () => {
 			400
 		);
 		expect(db.prisma.recurringStreamAction.create).not.toHaveBeenCalled();
+	});
+
+	/**
+	 * B3-a. The prune runs on WRITE, inside the same transaction as the cap check, so a decision the
+	 * user can no longer act on stops counting against them without a sweep, a boot job, or a DELETE
+	 * on the page-load path.
+	 */
+	describe('purge des décisions inertes', () => {
+		const cutoff = () => computeInertActionCutoff(new Date(TODAY));
+		const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+		/** One day either side of the cutoff, so the bound itself is exercised, not just its sign. */
+		const justBefore = () => new Date(cutoff().getTime() - 86_400_000);
+		const justAfter = () => new Date(cutoff().getTime());
+
+		beforeEach(() => {
+			db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
+		});
+
+		it('purge avant de compter, en scopant sur userId', async () => {
+			await recordStreamAction(userId, input());
+
+			expect(pruneWhere().userId).toBe(userId);
+			// Order matters: a prune after the count would leave the cap describing rows that no longer
+			// exist. `invocationCallOrder` is what proves it, not the source reading that way.
+			expect(db.prisma.recurringStreamAction.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+				db.prisma.recurringStreamAction.count.mock.invocationCallOrder[0]
+			);
+		});
+
+		it('supprime un IGNORE dont la période est passée depuis la fenêtre de détection', async () => {
+			await recordStreamAction(userId, input());
+
+			const row = { userId, kind: 'IGNORE', dueDate: justBefore() };
+			expect(applyPruneWhere([row], pruneWhere())).toEqual([row]);
+		});
+
+		it('supprime un PAID dont l’occurrence a été absorbée puis sortie de la fenêtre', async () => {
+			await recordStreamAction(userId, input());
+
+			const row = { userId, kind: 'PAID', dueDate: justBefore() };
+			expect(applyPruneWhere([row], pruneWhere())).toEqual([row]);
+		});
+
+		it('ne supprime JAMAIS un EXCLUDE, quel que soit son âge', async () => {
+			await recordStreamAction(userId, input());
+
+			// Both shapes an EXCLUDE can take on disk: the one the write path produces (dueDate NULL),
+			// and the one only a hand-edited restore could — a due date older than any cutoff. Neither
+			// may be touched: an exclusion is permanent and user-initiated.
+			const excludes = [
+				{ userId, kind: 'EXCLUDE', dueDate: null },
+				{ userId, kind: 'EXCLUDE', dueDate: day('2000-01-01') }
+			];
+			expect(applyPruneWhere(excludes, pruneWhere())).toEqual([]);
+		});
+
+		it('ne supprime ni une décision encore vivante ni celle d’un autre utilisateur', async () => {
+			await recordStreamAction(userId, input());
+
+			const kept = [
+				{ userId, kind: 'IGNORE', dueDate: justAfter() },
+				{ userId, kind: 'PAID', dueDate: day('2026-07-10') },
+				// dueDate NULL on an ignore/paid: unreachable through the app, and inert — left alone
+				// rather than swept, because the prune only removes what it can prove is unreachable.
+				{ userId, kind: 'IGNORE', dueDate: null },
+				{ userId: 'user-00000002', kind: 'IGNORE', dueDate: justBefore() }
+			];
+			expect(applyPruneWhere(kept, pruneWhere())).toEqual([]);
+		});
+
+		/**
+		 * The coexistence check. `computeInertActionCutoff` and `oldestNavigableMonth` are computed in
+		 * two different functions from the same window, and the prune is only safe because the cutoff
+		 * sits BEFORE the oldest day the month view can render. Asserting each alone proves nothing
+		 * about the pair.
+		 */
+		it('reste en deçà du plus ancien jour affichable par la vue mensuelle', async () => {
+			mockRead([...RENT]);
+			const view = await loadUpcomingBillsMonth(userId, '2026-07');
+			const oldestRenderableDay = day(`${view.oldestNavigableMonth}-01`);
+
+			expect(cutoff().getTime()).toBeLessThan(oldestRenderableDay.getTime());
+			// And by at least the widest tolerance `assignActionsToOccurrences` grants, so no action on
+			// the far side of the cutoff can still be assigned to that first renderable occurrence.
+			expect(oldestRenderableDay.getTime() - cutoff().getTime()).toBeGreaterThanOrEqual(
+				occurrenceActionWindowDays({ medianIntervalDays: 365 }) * 86_400_000
+			);
+		});
 	});
 
 	it('stocke une exclusion sans date d’échéance', async () => {

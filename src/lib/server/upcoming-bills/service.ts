@@ -94,6 +94,16 @@ export const MAX_ANCHOR_ID_CHARS = Math.floor((MAX_ANCHOR_CELL_CHARS - 2) / MAX_
  */
 const FALLBACK_IDEMPOTENCE_WINDOW_DAYS = occurrenceActionWindowDays({ medianIntervalDays: 365 });
 
+/**
+ * The widest tolerance the domain ever grants between a stored `dueDate` and a projected
+ * occurrence date (`occurrenceActionWindowDays` clamps at 15). Expressed through that function on a
+ * cadence far past the clamp rather than as a literal, so it cannot drift from it.
+ *
+ * Used by the prune cutoff below, where it is the whole safety margin: an action further than this
+ * from every renderable occurrence date can be assigned to none of them.
+ */
+const MAX_OCCURRENCE_ACTION_WINDOW_DAYS = occurrenceActionWindowDays({ medianIntervalDays: 365 });
+
 type DbActionKind = 'IGNORE' | 'PAID' | 'EXCLUDE';
 
 const DB_KIND_BY_ACTION_KIND: Record<StreamActionKind, DbActionKind> = {
@@ -154,6 +164,20 @@ export interface UpcomingBillRowView {
 	};
 }
 
+/**
+ * One stream the user asked the app to stop detecting, for the page's collapsed escape hatch.
+ *
+ * `actionId` is the id of the EXCLUDE row itself, so the restore control posts it to the SAME
+ * `?/undoAction` the banner and the ignored-row "Rétablir" already use — there is no second delete
+ * path, and therefore no second place for the ownership check to be forgotten.
+ */
+export interface ExcludedStreamView {
+	actionId: string;
+	/** Anonymized, like every other label leaving this module. Never the raw stored one. */
+	label: string;
+	initials: string;
+}
+
 export interface UpcomingBillsMonthView {
 	/** YYYY-MM. */
 	month: string;
@@ -179,6 +203,12 @@ export interface UpcomingBillsMonthView {
 	rows: UpcomingBillRowView[];
 	/** Only meaningful when `rows` is empty — computed only then. */
 	observationCandidates: { label: string; occurrenceCount: number }[];
+	/**
+	 * Every EXCLUDE the user holds, oldest first. NOT period-scoped: an exclusion has no date, so
+	 * showing a different set on each month would make the escape hatch depend on where the user
+	 * happens to be standing.
+	 */
+	excludedStreams: ExcludedStreamView[];
 }
 
 export interface UpcomingBillsWidgetView {
@@ -306,7 +336,8 @@ export async function loadUpcomingBillsMonth(
 		// filter inside compares against the flows' occurrence ids, so a wider transaction list would
 		// suggest, as "en cours d'observation", groups the detector was never shown.
 		observationCandidates:
-			rows.length === 0 ? toObservationCandidateViews(detectionTransactions, flows) : []
+			rows.length === 0 ? toObservationCandidateViews(detectionTransactions, flows) : [],
+		excludedStreams: toExcludedStreamViews(actionRows)
 	};
 }
 
@@ -480,18 +511,41 @@ export async function recordStreamAction(
 	});
 	if (duplicate) return { actionId: duplicate.id };
 
-	// Refuse rather than prune. The backup validator bounds a payload, so an unbounded write path
-	// lets a user build a set their OWN export is then refused on — but pruning to make room would
-	// silently delete a decision the user made (an excluded stream would reappear with no trace).
-	// Refusing is visible, recoverable with one undo, and reachable only far past what detection can
-	// produce.
+	// Refuse rather than EVICT. The backup validator bounds a payload, so an unbounded write path
+	// lets a user build a set their OWN export is then refused on — but dropping a live decision to
+	// make room would silently undo something the user asked for (an excluded stream would reappear
+	// with no trace). Refusing is visible and recoverable with one undo.
 	//
+	// The prune inside the transaction below is NOT an eviction and must not become one: its
+	// predicate does not depend on the count, so it deletes the same rows whether the cap is near or
+	// not, and it can only ever remove decisions that no surface can still act on.
+	//
+	// Read once, outside the transaction: every date the prune derives has to come from ONE instant,
+	// or a write straddling midnight could compute two different cutoffs.
+	const now = new Date();
+
 	// Count and insert share one transaction so the check cannot be read stale by the time the row
 	// lands. That bounds normal growth; it is NOT exact under READ COMMITTED, which is why the
 	// import validator is given headroom above this cap rather than the same number — see
 	// MAX_IMPORTED_RECURRING_STREAM_ACTIONS. No `withConcurrentWriteRetry`: there is no unique
 	// constraint here to race on, so there would be nothing to retry.
 	const created = await prisma.$transaction(async (tx) => {
+		// Prune the inert ignore/paid decisions BEFORE counting, so the cap is a statement about the
+		// decisions that can still do something rather than about everything ever recorded. See
+		// `computeInertActionCutoff` for the predicate and for why the trigger is here and not on the
+		// read path. Same transaction as the count and the insert: if the cap still refuses the write,
+		// the whole thing rolls back and nothing was deleted.
+		await tx.recurringStreamAction.deleteMany({
+			where: {
+				userId,
+				// EXCLUDE is permanent and user-initiated. It is kept out of the prune TWICE — by this
+				// enum filter, and by the `dueDate` bound below, which no NULL can satisfy in SQL and
+				// every EXCLUDE carries a NULL there (`parseDueDate` refuses one that does not).
+				kind: { in: ['IGNORE', 'PAID'] },
+				dueDate: { lt: computeInertActionCutoff(now) }
+			}
+		});
+
 		const total = await tx.recurringStreamAction.count({ where: { userId } });
 		if (total >= MAX_RECURRING_STREAM_ACTIONS) {
 			throw error(400, m.upcoming_bills_error_action_limit());
@@ -522,6 +576,46 @@ export async function undoStreamAction(userId: string, actionId: string): Promis
 	if (result.count === 0) throw error(404, m.upcoming_bills_error_not_found());
 }
 
+/**
+ * Oldest `dueDate` an IGNORE or PAID decision can still change anything about. Everything strictly
+ * before it is inert on every surface, forever, and `recordStreamAction` deletes it.
+ *
+ * WHY THE BOUND IS WHERE IT IS. An action only ever reaches a render through
+ * `assignActionsToOccurrences`, which needs a PROJECTED occurrence date within
+ * `occurrenceActionWindowDays` (at most `MAX_OCCURRENCE_ACTION_WINDOW_DAYS`) of its `dueDate`. The
+ * oldest date any surface can project is the 1st of `oldestNavigableMonth` — the month the pinned
+ * 12-month detection window starts in, past which the month view renders nothing at all and the
+ * period navigator refuses to go. So an action further back than that day minus one full window can
+ * be assigned to no occurrence on any month the user can reach, and on no widget window either
+ * (the widget only looks 30 days back).
+ *
+ * WHY IT IS DELIBERATELY LOOSE. It does not catch the decisions that went inert EARLY — a PAID
+ * whose real transaction landed the next day, absorbing the occurrence, is inert from that moment
+ * but survives here for a year. That is on purpose: such a row is harmless while it lives
+ * (assigning to no date, it renders nothing and counts for nothing), the only cost is a row, and
+ * the alternative predicate would have to re-run detection to decide — the same computation whose
+ * output the user is about to see, run to justify a DELETE. Given the choice between a prune that
+ * misses inert rows and one that could remove a live decision, this takes the first.
+ *
+ * Derived from `FORECAST_LOOKBACK_MONTHS` and `occurrenceActionWindowDays` rather than written as a
+ * duration, so widening the detection window or the assignment tolerance moves the cutoff with it.
+ * Exported for the spec that ties it back to `oldestNavigableMonth`: the two are computed in
+ * different functions and only a test asserting them together proves they still line up.
+ */
+export function computeInertActionCutoff(now: Date): Date {
+	// Same expression as the detection window's start in `loadUpcomingBillsMonth`.
+	const lookbackStart = new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - FORECAST_LOOKBACK_MONTHS, now.getUTCDate())
+	);
+	// `oldestNavigableMonth` is that date's MONTH, so the oldest renderable day is its 1st.
+	const oldestRenderableDayMs = Date.UTC(
+		lookbackStart.getUTCFullYear(),
+		lookbackStart.getUTCMonth(),
+		1
+	);
+	return new Date(oldestRenderableDayMs - MAX_OCCURRENCE_ACTION_WINDOW_DAYS * MS_PER_DAY);
+}
+
 // ─── Internals ──────────────────────────────────────────────────────────────
 
 type StreamActionRow = {
@@ -529,6 +623,9 @@ type StreamActionRow = {
 	kind: DbActionKind;
 	direction: string;
 	normalizedLabel: string;
+	/** RAW capped label, as stored. Only `toExcludedStreamViews` reads it, and only through the
+	 *  anonymizer. */
+	label: string;
 	anchorTransactionIds: string;
 	dueDate: Date | null;
 };
@@ -545,10 +642,31 @@ async function findStreamActions(userId: string): Promise<StreamActionRow[]> {
 			kind: true,
 			direction: true,
 			normalizedLabel: true,
+			label: true,
 			anchorTransactionIds: true,
 			dueDate: true
 		}
 	});
+}
+
+/**
+ * The EXCLUDE rows, as the page's collapsed section renders them.
+ *
+ * Built from the SAME `findStreamActions` result the occurrence build uses, so the section cannot
+ * disagree with what the page hides — and so no second query has to repeat the `userId` scope.
+ *
+ * Unlike `toStreamActionInputs`, a row with an unreadable `direction` is KEPT: that function drops
+ * it because applying a decision to the wrong side of the budget is worse than ignoring it, but
+ * here the row is only being listed so the user can delete it, and a decision the app refuses to
+ * apply AND refuses to show is one the user can never get rid of.
+ */
+function toExcludedStreamViews(rows: readonly StreamActionRow[]): ExcludedStreamView[] {
+	return rows
+		.filter((row) => row.kind === 'EXCLUDE')
+		.map((row) => {
+			const label = anonymizeMerchant(row.label);
+			return { actionId: row.id, label, initials: getInitials(label) };
+		});
 }
 
 function toStreamActionInputs(rows: readonly StreamActionRow[]): StreamActionInput[] {

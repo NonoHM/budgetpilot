@@ -95,6 +95,7 @@ function buildData(overrides: Partial<PageData['bills']> = {}): PageData {
 			expectedIncomeCents: 0,
 			rows: [buildRow()],
 			observationCandidates: [],
+			excludedStreams: [],
 			...overrides
 		}
 	} as PageData;
@@ -755,6 +756,92 @@ describe('/upcoming-bills page', () => {
 
 		// The message belonged to the mark-paid that failed, not to this confirmation.
 		expect(container.textContent).not.toContain('Échéance introuvable');
+	});
+
+	// ─── The excluded-streams escape hatch (B3-b) ─────────────────────────────
+	//
+	// "Ne plus détecter ce flux" removes the stream from every list, so before this section the
+	// decision was invisible and therefore permanent in practice.
+
+	const EXCLUDED = [
+		{ actionId: 'action-x', label: 'Netflix', initials: 'NF' },
+		{ actionId: 'action-y', label: 'Spotify', initials: 'SP' }
+	];
+
+	it('lists excluded streams in a section collapsed by default, restorable through ?/undoAction', async () => {
+		const { container } = render(Page, { data: buildData({ excludedStreams: EXCLUDED }) });
+
+		const toggle = container.querySelector<HTMLButtonElement>('#bills-excluded-toggle');
+		expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+		expect(toggle?.textContent).toContain('Détection désactivée · 2');
+
+		const list = container.querySelector<HTMLElement>('#bills-excluded-list');
+		// Collapsed but PRESENT: `aria-controls` must resolve to a real element in both states, and a
+		// removed node resolves to nothing.
+		expect(toggle?.getAttribute('aria-controls')).toBe('bills-excluded-list');
+		expect(list?.hidden).toBe(true);
+		// Same read structure as the bill groups above: a named list of listitems.
+		expect(list?.getAttribute('role')).toBe('list');
+		expect(list?.getAttribute('aria-labelledby')).toBe('bills-excluded-heading');
+		expect(container.querySelector('#bills-excluded-heading')).not.toBeNull();
+
+		await userEvent.click(page.getByRole('button', { name: /Détection désactivée/ }));
+		expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+		expect(list?.hidden).toBe(false);
+
+		// The restore reuses the EXISTING undo action; no second endpoint was added for it.
+		const forms = [...(list?.querySelectorAll('form') ?? [])];
+		expect(forms.map((form) => form.getAttribute('action'))).toEqual([
+			'?/undoAction',
+			'?/undoAction'
+		]);
+		expect(forms[0].querySelector('input[name="actionId"]')?.getAttribute('value')).toBe(
+			'action-x'
+		);
+		// "Rétablir" alone would name both rows identically.
+		expect(forms[0].textContent).toContain('Rétablir la détection de Netflix');
+		expect(forms[1].textContent).toContain('Rétablir la détection de Spotify');
+	});
+
+	it('renders no excluded section at all when the user holds no exclusion', () => {
+		const { container } = render(Page, { data: buildData() });
+
+		expect(container.querySelector('#bills-excluded-toggle')).toBeNull();
+		expect(container.textContent).not.toContain('Détection désactivée');
+	});
+
+	it('moves focus to the list when the last exclusion is restored', async () => {
+		const before = buildData({ excludedStreams: [EXCLUDED[0]] });
+		const after = buildData();
+		const { rerender } = render(Page, { data: before });
+
+		// The section disappears with its last row, so the focus target chosen at render is the list —
+		// not the toggle, which is exactly the node that has just been removed.
+		await runSubmit('?/undoAction', async () => {
+			await rerender({ data: after });
+		});
+
+		expect(document.activeElement?.id).toBe('bills-list');
+		expect(document.activeElement?.tagName).not.toBe('BODY');
+	});
+
+	it('keeps focus on the toggle when an exclusion remains', async () => {
+		const before = buildData({ excludedStreams: EXCLUDED });
+		const after = buildData({ excludedStreams: [EXCLUDED[1]] });
+		const { rerender } = render(Page, { data: before });
+
+		const first = submitted.filter((entry) => entry.node.getAttribute('action') === '?/undoAction');
+		expect(first).toHaveLength(2);
+		const callback = first[0].submit({} as Parameters<SubmitFunction>[0]);
+		if (typeof callback !== 'function') throw new Error('submit function returned no callback');
+		await callback({
+			result: { type: 'success', status: 200 },
+			update: async () => {
+				await rerender({ data: after });
+			}
+		} as unknown as Parameters<Exclude<Awaited<ReturnType<SubmitFunction>>, void>>[0]);
+
+		expect(document.activeElement?.id).toBe('bills-excluded-toggle');
 	});
 
 	it('surfaces an action failure as an error banner rather than a success one', async () => {

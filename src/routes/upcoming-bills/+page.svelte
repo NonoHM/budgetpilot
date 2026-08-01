@@ -129,6 +129,12 @@
 	const nothingDueThisPeriod = $derived(!noStreamsAtAll && bills.rows.length === 0);
 
 	let settledExpanded = $state(false);
+	/**
+	 * The excluded-streams section. Collapsed by default and deliberately NOT reset by the period
+	 * effect below: restoring one stream re-runs `update()`, and collapsing the section the user is
+	 * working in would hide the rest of the list under them.
+	 */
+	let excludedOpen = $state(false);
 	// Reset whenever `bills` changes identity — a period change, but also any `update()` after a row
 	// mutation. The flag is about ONE render of the settled group, and leaving it set would land the
 	// next data swap pre-expanded with no visible control that says so. `focusAfterAction` below
@@ -1046,6 +1052,76 @@
 				{/each}
 			{/if}
 		</div>
+
+		<!-- The escape hatch for "Ne plus détecter ce flux": without it an exclusion is invisible and
+		     therefore permanent in practice. Collapsed, last, and rendered only when there is one —
+		     a rarely needed list, not a "manage stored decisions" screen. The restore control posts to
+		     the SAME `?/undoAction` the banner and the ignored-row link use; there is no second
+		     endpoint and no second place the ownership check could be forgotten. -->
+		{#if bills.excludedStreams.length > 0}
+			<section class="border-t border-zinc-200 pt-4">
+				<button
+					id="bills-excluded-toggle"
+					type="button"
+					class="flex min-h-11 w-full items-center gap-2 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+					onclick={() => (excludedOpen = !excludedOpen)}
+					aria-expanded={excludedOpen}
+					aria-controls="bills-excluded-list"
+				>
+					<span id="bills-excluded-heading" class="text-sm font-semibold text-zinc-500">
+						{m.bills_group_count({
+							heading: m.bills_excluded_heading(),
+							count: bills.excludedStreams.length
+						})}
+					</span>
+					<span
+						class="ml-auto shrink-0 text-zinc-400 transition-transform duration-150"
+						class:rotate-180={excludedOpen}
+					>
+						{@render chevronIcon('M5 9.5 12 16l7-6.5')}
+					</span>
+				</button>
+				<!-- `hidden` rather than an `{#if}`: `aria-controls` above must resolve to a real element
+				     in both states, and a removed node resolves to nothing. -->
+				<div
+					id="bills-excluded-list"
+					role="list"
+					aria-labelledby="bills-excluded-heading"
+					class="mt-2 space-y-2"
+					hidden={!excludedOpen}
+				>
+					{#each bills.excludedStreams as stream (stream.actionId)}
+						<div role="listitem" class="{cardBase} flex items-center gap-3 px-4 py-2">
+							<Avatar initials={stream.initials} size={32} />
+							<span class="min-w-0 flex-1 truncate text-sm font-medium text-zinc-700">
+								{stream.label}
+							</span>
+							<!-- Focus target chosen at render, before the row is gone: the toggle survives as
+							     long as one exclusion is left, and the section itself disappears with the last
+							     one — so that case hands focus back to the list instead of to a removed node. -->
+							<form
+								method="POST"
+								action="?/undoAction"
+								use:enhance={rowSubmit(
+									`excluded:${stream.actionId}`,
+									bills.excludedStreams.length > 1 ? 'bills-excluded-toggle' : 'bills-list'
+								)}
+							>
+								<input type="hidden" name="actionId" value={stream.actionId} />
+								<TapLink type="submit" disabled={submittingKeys.has(`excluded:${stream.actionId}`)}>
+									<!-- "Rétablir" alone names every row in the list identically. The visible word
+									     stays, the accessible name carries the stream. -->
+									<span aria-hidden="true">{m.bills_restore()}</span>
+									<span class="sr-only"
+										>{m.bills_excluded_restore_aria({ label: stream.label })}</span
+									>
+								</TapLink>
+							</form>
+						</div>
+					{/each}
+				</div>
+			</section>
+		{/if}
 	</section>
 </main>
 
