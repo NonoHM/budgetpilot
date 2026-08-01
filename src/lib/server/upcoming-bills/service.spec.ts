@@ -36,6 +36,7 @@ const {
 const { MAX_ANCHOR_CELL_CHARS, MAX_ANCHOR_IDS, MAX_PORTABLE_STRING, MAX_RECURRING_STREAM_ACTIONS } =
 	await import('$lib/server/backup/schema');
 const { STORED_LABEL_MAX_CHARS } = await import('$lib/domain/recurrence');
+const { detectRecurringFlows, getFlowDisplayTier } = await import('$lib/domain/forecast');
 
 const userId = 'user-00000001';
 const actionId = 'action-00000001';
@@ -140,6 +141,21 @@ const STOPPED_SUBSCRIPTION = monthlySeries(
 	['2026-02', '2026-03', '2026-04'],
 	'10'
 );
+const INSURANCE_LABEL = 'PRELEVEMENT ASSURANCE HABITATION MAIF';
+/**
+ * Quarterly, day 20, entirely inside the pinned detection window (which starts 2025-07-14, i.e.
+ * 12 months before TODAY): intervals 92/92/90 -> high confidence -> tier 'confirmed'.
+ */
+const INSURANCE = ['2025-07-20', '2025-10-20', '2026-01-20', '2026-04-20'].map((date, index) =>
+	tx(`ins-${index}`, date, INSURANCE_LABEL, -12_000, 'Assurance')
+);
+/**
+ * The same stream, 15 days before its first in-window occurrence: inside the VIEWED month 2025-07,
+ * outside the 12-month detection window. It is the whole point of the fixture — including it turns
+ * the interval series into 15/92/92/90, which drops the confidence a tier.
+ */
+const INSURANCE_PRE_WINDOW = tx('ins-pre', '2025-07-05', INSURANCE_LABEL, -12_000, 'Assurance');
+
 /** Exactly two occurrences -> 'tentative' -> uncertain tier. */
 const UTILITY = monthlySeries(
 	'edf',
@@ -152,6 +168,33 @@ const UTILITY = monthlySeries(
 
 function mockRead(transactions: readonly RawTransaction[], actions: readonly unknown[] = []) {
 	db.prisma.transaction.findMany.mockResolvedValue([...transactions]);
+	db.prisma.monthlyBudget.findMany.mockResolvedValue([]);
+	db.prisma.categoryNatureMapping.findMany.mockResolvedValue([]);
+	db.prisma.recurringStreamAction.findMany.mockResolvedValue([...actions]);
+}
+
+type TransactionQuery = { where?: { date?: { gte?: Date; lt?: Date } } };
+
+/**
+ * Range-aware read mock: applies the query's OWN date bounds, unlike `mockRead`, which hands back
+ * every fixture whatever range was asked for.
+ *
+ * That distinction is what makes the detection-window test below non-vacuous. Under a range-blind
+ * mock, every surface sees every fixture transaction, so the old widening code would report the same
+ * tier everywhere and the test would pass on the bug it exists to catch.
+ */
+function mockRangedRead(transactions: readonly RawTransaction[], actions: readonly unknown[] = []) {
+	db.prisma.transaction.findMany.mockImplementation(async (query: TransactionQuery) => {
+		const range = query?.where?.date;
+		// Fail loudly rather than return everything: an unbounded read would silently restore the
+		// range-blind behaviour this helper exists to avoid.
+		if (!(range?.gte instanceof Date) || !(range?.lt instanceof Date)) {
+			throw new Error('la lecture des transactions doit porter des bornes de dates');
+		}
+		const gte = range.gte;
+		const lt = range.lt;
+		return transactions.filter((transaction) => transaction.date >= gte && transaction.date < lt);
+	});
 	db.prisma.monthlyBudget.findMany.mockResolvedValue([]);
 	db.prisma.categoryNatureMapping.findMany.mockResolvedValue([]);
 	db.prisma.recurringStreamAction.findMany.mockResolvedValue([...actions]);
@@ -488,6 +531,66 @@ describe('loadUpcomingBillsWidget', () => {
 		expect(view.hasStreams).toBe(false);
 		expect(view.rows).toEqual([]);
 		expect(view.remainingExpenseCents).toBe(0);
+	});
+});
+
+/**
+ * B2: the detector's input is the 12 months before TODAY on every surface. `loadUpcomingBillsMonth`
+ * used to widen it to `min(lookbackStart, monthStart)`, so viewing a month older than the lookback
+ * fed the detector history the widget never sees — and detection is not monotonic in its input, so
+ * the same stream could read "Confirmé" on one screen and "Probable" on another.
+ */
+describe('fenêtre de détection figée à 12 mois', () => {
+	/**
+	 * Anti-vacuity guard, asserted on the domain rather than on the views: it pins the property the
+	 * test below depends on — that the pre-window transaction really would change the tier. A fixture
+	 * edit that makes both sets score the same tier fails HERE, instead of turning the consistency
+	 * test into an assertion about nothing.
+	 */
+	it('le relevé hors fenêtre changerait bien le tier (garde anti-vacuité)', () => {
+		const toForecastInput = (transaction: RawTransaction) => ({
+			id: transaction.id,
+			date: transaction.date.toISOString().slice(0, 10),
+			label: transaction.label,
+			amountCents: transaction.amountCents,
+			category: transaction.category.name,
+			type: 'expense' as const
+		});
+
+		const [pinned] = detectRecurringFlows(INSURANCE.map(toForecastInput));
+		const [widened] = detectRecurringFlows(
+			[...INSURANCE, INSURANCE_PRE_WINDOW].map(toForecastInput)
+		);
+
+		expect(getFlowDisplayTier(pinned)).toBe('confirmed');
+		expect(getFlowDisplayTier(widened)).toBe('likely');
+	});
+
+	it('rend le même tier pour le mois courant, un mois ancien et le widget', async () => {
+		mockRangedRead([...INSURANCE, INSURANCE_PRE_WINDOW]);
+
+		const current = await loadUpcomingBillsMonth(userId, '2026-07');
+		// 2025-07 is the first month that reaches BEHIND the lookback start (2025-07-14), which is
+		// exactly where the old widening began.
+		const past = await loadUpcomingBillsMonth(userId, '2025-07');
+		const widget = await loadUpcomingBillsWidget(userId);
+
+		// The old month's FETCH still reaches the pre-window transaction — the row source is untouched
+		// and it is the detection input that is pinned. Without this, a narrowed fetch would produce
+		// the same tiers for the wrong reason.
+		const pastQuery = db.prisma.transaction.findMany.mock.calls[1][0] as TransactionQuery;
+		expect(pastQuery.where?.date?.gte?.toISOString().slice(0, 10)).toBe('2025-07-01');
+
+		expect(current.rows.map((row) => [row.dateIso, row.status, row.tier])).toEqual([
+			['2026-07-20', 'upcoming', 'confirmed']
+		]);
+		// The past month still renders its settled row, and reads the same tier as everywhere else.
+		expect(past.rows.map((row) => [row.dateIso, row.status, row.tier])).toEqual([
+			['2025-07-20', 'settled', 'confirmed']
+		]);
+		expect(widget.rows.map((row) => [row.dateIso, row.status, row.tier])).toEqual([
+			['2026-07-20', 'upcoming', 'confirmed']
+		]);
 	});
 });
 

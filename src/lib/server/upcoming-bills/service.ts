@@ -227,7 +227,28 @@ export async function loadUpcomingBillsMonth(
 	]);
 
 	const actions = toStreamActionInputs(actionRows);
-	const flows = detectRecurringFlows(transactions);
+	// The DETECTION INPUT is pinned to the 12 months before today, always — never widened to reach
+	// the viewed month, even though the FETCH above still does. Navigating to a month older than
+	// `lookbackStart` used to hand the detector more history than the widget's fixed 12 months, and
+	// detection is not monotonic in its input: a 2-occurrence tentative flow becomes confirmed, the
+	// amount-grouping (`getSimilarAmountGroups`, order-dependent) re-splits, `streamCount` moves. The
+	// same stream therefore read "Probable" on one month and "Confirmé" on another, and disagreed
+	// with the dashboard widget.
+	//
+	// Accepted consequence, deliberately: an old month may show FEWER streams than it "could" — a
+	// realized row is looked up through `flow.occurrenceIds`, so a transaction outside this window is
+	// no longer part of any flow and renders nothing. Consistency of a stream's tier across every
+	// surface wins over richer historical coverage: a stream showing two different confidence levels
+	// on two screens is actively confusing, while a slightly thinner past month is merely less
+	// complete. Months INSIDE the lookback are unaffected — their settled rows still render.
+	//
+	// Filtered rather than refetched: the fetch is one query and the widened part of it is what still
+	// feeds `buildBillOccurrences`'s row source below.
+	const detectionFromIso = toIsoDate(lookbackStart);
+	const detectionTransactions = transactions.filter(
+		(transaction) => transaction.date >= detectionFromIso
+	);
+	const flows = detectRecurringFlows(detectionTransactions);
 	const occurrences = buildBillOccurrences({
 		flows,
 		transactions,
@@ -255,7 +276,12 @@ export async function loadUpcomingBillsMonth(
 		// because the `claimedIds` filter inside is what keeps a detected stream out of the
 		// suggestions. Passing the post-exclusion list would resurface, as "en cours d'observation",
 		// exactly the streams the user asked the app to stop detecting.
-		observationCandidates: rows.length === 0 ? toObservationCandidateViews(transactions, flows) : []
+		//
+		// Built from the same pinned set as `flows`, never from the wider fetch: the `claimedIds`
+		// filter inside compares against the flows' occurrence ids, so a wider transaction list would
+		// suggest, as "en cours d'observation", groups the detector was never shown.
+		observationCandidates:
+			rows.length === 0 ? toObservationCandidateViews(detectionTransactions, flows) : []
 	};
 }
 
