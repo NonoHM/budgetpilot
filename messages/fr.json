@@ -967,7 +967,7 @@
 	"upcoming_bills_error_invalid_action": "Action invalide.",
 	"upcoming_bills_error_invalid_stream": "Échéance introuvable ou déjà obsolète. Rechargez la page.",
 	"upcoming_bills_error_invalid_date": "Date d'échéance invalide.",
-	"upcoming_bills_error_action_limit": "Vous avez atteint la limite de décisions enregistrées sur vos échéances. Les plus anciennes sont supprimées automatiquement ; pour un flux exclu, utilisez « Détection désactivée », en bas de cette page.",
+	"upcoming_bills_error_action_limit": "Vous avez atteint la limite de décisions enregistrées sur vos échéances. Celles qui portent sur des échéances de plus d'un an sont supprimées automatiquement ; pour libérer de la place, annulez des décisions dont vous n'avez plus besoin.",
 	"upcoming_bills_error_not_found": "Décision introuvable.",
 	"dashboard_upcoming_title": "Échéances à venir",
 	"dashboard_upcoming_overdue_badge": "{count} en retard",

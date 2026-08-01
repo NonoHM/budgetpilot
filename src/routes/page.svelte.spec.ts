@@ -133,6 +133,23 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 		await expect.element(screen.getByText('Importez votre premier relevé')).toBeInTheDocument();
 	});
 
+	/**
+	 * The gate above widened the BODY, which also removed the onboarding `EmptyState` — and that
+	 * panel carried the dashboard's only "/import" call to action. The header's Import button was
+	 * left on `hasDashboardData`, so this exact state (streams, no current-period activity) had the
+	 * widget, the full two-column body, and no way to import from the dashboard at all. The top nav
+	 * goes to `/imports`, the history page, not `/import`.
+	 */
+	it('keeps an import entry point reachable when only a detected stream opens the body', async () => {
+		const screen = render(Page, {
+			data: buildData({ upcomingBillsHasStreams: true }),
+			form: null as ActionData
+		});
+
+		const importLink = screen.container.querySelector('a[href="/import"]');
+		expect(importLink).not.toBeNull();
+	});
+
 	it('still renders the widget in the ordinary populated case', async () => {
 		const screen = render(Page, {
 			data: buildData({

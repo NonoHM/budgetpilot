@@ -328,13 +328,22 @@ export async function loadUpcomingBillsMonth(
 	]);
 
 	const actions = toStreamActionInputs(actionRows);
-	// The DETECTION INPUT is pinned to the 12 months before today, always — never widened to reach
-	// the viewed month, even though the FETCH above still does. Navigating to a month older than
-	// `lookbackStart` used to hand the detector more history than the widget's fixed 12 months, and
-	// detection is not monotonic in its input: a 2-occurrence tentative flow becomes confirmed, the
-	// amount-grouping (`getSimilarAmountGroups`, order-dependent) re-splits, `streamCount` moves. The
-	// same stream therefore read "Probable" on one month and "Confirmé" on another, and disagreed
-	// with the dashboard widget.
+	// The DETECTION INPUT is pinned at its LOWER bound to `lookbackStart` — the widget's own
+	// 12-month start — and never widened to reach the viewed month, even though the FETCH above
+	// still does. Navigating to a month older than `lookbackStart` used to hand the detector more
+	// history than the widget's fixed 12 months, and detection is not monotonic in its input: a
+	// 2-occurrence tentative flow becomes confirmed, the amount-grouping (`getSimilarAmountGroups`,
+	// order-dependent) re-splits, `streamCount` moves. The same stream therefore read "Probable" on
+	// one month and "Confirmé" on another, and disagreed with the dashboard widget.
+	//
+	// The UPPER bound is NOT pinned, so this is a lower-bound pin and not full parity with the
+	// widget. The filter below has no upper comparison, and the fetch ends at
+	// `max(monthEndExclusive, now)` here versus `today + 30` for the widget. Nothing rejects a
+	// future-dated transaction on import, so one such row can reach one surface's detector and not
+	// the other's and re-open exactly the tier disagreement this pin closes for past-dated rows.
+	// Deliberately left: pinning it means touching both surfaces, and on the widget it moves
+	// `flow.lastDate`, hence which dates `projectFlowOccurrences` emits and what the widget counts
+	// as an already-realized occurrence. That is a behaviour change, not a tightened filter.
 	//
 	// Accepted consequence, stated at full strength because the comment outlives the report: a month
 	// entirely older than `lookbackStart` renders NOTHING AT ALL. Not "fewer streams" — nothing. A

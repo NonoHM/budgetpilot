@@ -421,6 +421,11 @@
 	 * for something else — a mark-paid that 400s, then an "Ignorer" from the same menu, would put
 	 * that unrelated message above the ignore confirmation. Set when a dialog opens, cleared the
 	 * moment a new submission starts so the dialog's own failure is shown normally.
+	 *
+	 * Deliberately NOT cleared when a dialog is CANCELLED: an error the user has already read once
+	 * and then walked away from should not reappear on the page behind the dialog they just
+	 * dismissed. It stays hidden until the next submission, which sets it from that submission's own
+	 * result. Reviewed as a decision twice; leave it unless a concrete report contradicts it.
 	 */
 	let errorSuppressed = $state(false);
 	const billError = $derived(

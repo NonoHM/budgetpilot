@@ -555,11 +555,16 @@ model SavingsGoal {
 /// `@@index([userId, kind])` has a reader: the idempotence check on the write path loads this
 /// user's existing actions of the SAME kind before inserting. Not dead — do not drop it.
 ///
-/// No `@@unique` and nothing prunes these rows, and that is a decision rather than an omission.
-/// Growth is bounded by the write path instead: repeating an action returns the existing row
-/// rather than inserting a second one, and undo DELETEs the row, so toggling a decision on and
-/// off cannot accumulate. A uniqueness constraint would have to be expressed over the anchor
-/// list, which is JSON and matched in JS.
+/// No `@@unique`, and that is a decision rather than an omission: a uniqueness constraint would
+/// have to be expressed over the anchor list, which is JSON and matched in JS. Growth is bounded
+/// by the write path instead: repeating an action returns the existing row rather than inserting
+/// a second one, and undo DELETEs the row, so toggling a decision on and off cannot accumulate.
+///
+/// Rows ARE deleted here, by one path only: `recordStreamAction` (upcoming-bills/service.ts)
+/// prunes inert decisions inside its write transaction. That delete is narrowed to IGNORE/PAID by
+/// a `kind: { in: PRUNABLE_KINDS }` conjunct, and that conjunct is the ONLY thing keeping EXCLUDE
+/// out of it — a restored EXCLUDE can carry an old `dueDate` (see the field below), so the date
+/// bound alone would irreversibly delete a live exclusion. Load-bearing, not belt-and-braces.
 model RecurringStreamAction {
   id                   String              @id @default(cuid())
   userId               String

@@ -897,10 +897,13 @@ describe('/upcoming-bills page', () => {
 
 		expect(container.querySelector('#bills-excluded-toggle')).toBeNull();
 		const banner = container.querySelector('[role="alert"]');
-		// The unconditional half: always true, whether or not the user holds an exclusion.
-		expect(banner?.textContent).toContain('Les plus anciennes sont supprimées automatiquement');
-		// The section is offered only for the case where it exists, never as the required action.
-		expect(banner?.textContent).toContain('pour un flux exclu');
+		// The prune only ever reaches decisions past the 12-month cutoff, so the copy says that
+		// rather than "the oldest", which is false of the oldest live ones.
+		expect(banner?.textContent).toContain("échéances de plus d'un an");
+		// The remedy must be available in every reachable state: undoing a decision always is, the
+		// "Détection désactivée" section is not (it renders only with at least one exclusion).
+		expect(banner?.textContent).toContain('annulez des décisions');
+		expect(banner?.textContent).not.toContain('Détection désactivée');
 		expect(banner?.textContent).not.toContain("Annulez-en une avant d'en ajouter une nouvelle");
 	});
 

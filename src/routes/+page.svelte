@@ -47,9 +47,10 @@
 	// recurring streams but no activity this period would otherwise land in the onboarding empty
 	// state below and never see the upcoming-bills widget — precisely when it matters most
 	// (Task 3, B5a). `hasStreams` is period-independent (computed over the detector's own 12-month
-	// window, see service.ts), so it widens the "state with data" branch on its own, without
-	// touching the header text or the Import/Saisie manuelle buttons above, which stay keyed on
-	// `hasDashboardData` alone — those are genuinely about the selected period.
+	// window, see service.ts), so it widens the "state with data" branch on its own. The header's
+	// Import / Saisie manuelle buttons are gated on this same flag rather than on
+	// `hasDashboardData`: they are the only import entry point left once the onboarding EmptyState
+	// stops rendering, so keying them on the narrower flag stranded that state with no CTA at all.
 	const showDashboardBody = $derived(hasDashboardData || data.upcomingBills.hasStreams);
 	const hasConfirmedForecastFlows = $derived(hasReliableConfirmedFlow(data.cashFlowForecast.flows));
 	// Delta = projected balance at the end of the horizon minus today's known balance (the ledger's
@@ -198,7 +199,12 @@
 					/>
 				</div>
 
-				{#if hasDashboardData}
+				<!-- Same gate as the body, not `hasDashboardData`: the onboarding EmptyState below is the
+				     only other "/import" call to action on this page, and it renders only when the body
+				     does not. Keyed on `hasDashboardData` alone, a user with detected streams but no
+				     activity this period got the body, no empty state, and no way to import from the
+				     dashboard at all (the top nav goes to /imports, the history page). -->
+				{#if showDashboardBody}
 					<div class="flex gap-2 lg:contents">
 						<Button
 							variant="secondary"
