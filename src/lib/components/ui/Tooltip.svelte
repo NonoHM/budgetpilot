@@ -3,6 +3,10 @@
 	// ids across every Tooltip rendered on a page, without pulling in a UUID
 	// dependency for something this small.
 	let idCounter = 0;
+
+	// Exported so the spec asserts the real boundary rather than a copy of it: a
+	// hardcoded 400 in the test would keep passing if this value changed.
+	export const HOVER_INTENT_DELAY_MS = 400;
 </script>
 
 <script lang="ts">
@@ -27,8 +31,6 @@
 	// read by the NEXT Tooltip instance.
 	// eslint-disable-next-line no-useless-assignment
 	const tooltipId = `tooltip-${idCounter++}`;
-
-	const HOVER_INTENT_DELAY_MS = 400;
 
 	function scheduleOpen(): void {
 		clearTimeout(openTimer);
