@@ -992,6 +992,7 @@
 	"bills_header_meta_past": "{count} flux récurrents · échéances en {month}",
 	"bills_header_meta_short": "Reste à sortir {amount}",
 	"bills_header_meta_short_past": "Échéances en {month}",
+	"bills_header_meta_short_future": "Prévu en {month} {amount}",
 	"bills_back_to_current": "Revenir à ce mois",
 	"bills_period_prev_aria": "Période précédente",
 	"bills_period_next_aria": "Période suivante",

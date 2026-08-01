@@ -171,7 +171,7 @@ const db = vi.hoisted(() => {
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
 const { buildBackupExport } = await import('./export');
-const { restoreBackup, BackupImportError, parseAnchorTransactionIds } = await import('./import');
+const { restoreBackup, BackupImportError } = await import('./import');
 const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS } = await import('./schema');
 const { UNCLASSIFIED_CATEGORY } = await import('$lib/domain/categories');
 const { LONG_TRANSACTION_OPTIONS } = await import('$lib/server/dbTransaction');
@@ -1422,27 +1422,5 @@ describe('restoreBackup', () => {
 		const written = db.store.recurringStreamActions[0].anchorTransactionIds as string;
 		expect(JSON.parse(written)).toHaveLength(MAX_ANCHOR_IDS);
 		expect(written.length).toBeLessThanOrEqual(MAX_ANCHOR_CELL_CHARS);
-	});
-});
-
-describe('parseAnchorTransactionIds', () => {
-	it('lit un tableau JSON de chaînes non vides', () => {
-		expect.assertions(1);
-
-		expect(parseAnchorTransactionIds(JSON.stringify(['a', 'b']))).toEqual(['a', 'b']);
-	});
-
-	it('rend une liste vide sur du JSON illisible ou non-tableau', () => {
-		expect.assertions(3);
-
-		expect(parseAnchorTransactionIds('not json')).toEqual([]);
-		expect(parseAnchorTransactionIds('{"a":1}')).toEqual([]);
-		expect(parseAnchorTransactionIds('"a"')).toEqual([]);
-	});
-
-	it('filtre les éléments qui ne sont pas des chaînes non vides', () => {
-		expect.assertions(1);
-
-		expect(parseAnchorTransactionIds('["ok", 42, "", null, "aussi"]')).toEqual(['ok', 'aussi']);
 	});
 });

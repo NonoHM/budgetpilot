@@ -4,7 +4,8 @@ import {
 	MAX_ANCHOR_IDS,
 	MAX_ANCHOR_CELL_CHARS,
 	MAX_IMPORTED_RECURRING_STREAM_ACTIONS,
-	MAX_RECURRING_STREAM_ACTIONS
+	MAX_RECURRING_STREAM_ACTIONS,
+	parseAnchorTransactionIds
 } from './schema';
 
 function buildValidPayload() {
@@ -642,5 +643,27 @@ describe('backupExportSchema', () => {
 		expect(backupExportSchema.safeParse(absent).success).toBe(true);
 		expect(backupExportSchema.safeParse(withNull).success).toBe(true);
 		expect(backupExportSchema.safeParse(withValue).success).toBe(true);
+	});
+});
+
+describe('parseAnchorTransactionIds', () => {
+	it('lit un tableau JSON de chaînes non vides', () => {
+		expect.assertions(1);
+
+		expect(parseAnchorTransactionIds(JSON.stringify(['a', 'b']))).toEqual(['a', 'b']);
+	});
+
+	it('rend une liste vide sur du JSON illisible ou non-tableau', () => {
+		expect.assertions(3);
+
+		expect(parseAnchorTransactionIds('not json')).toEqual([]);
+		expect(parseAnchorTransactionIds('{"a":1}')).toEqual([]);
+		expect(parseAnchorTransactionIds('"a"')).toEqual([]);
+	});
+
+	it('filtre les éléments qui ne sont pas des chaînes non vides', () => {
+		expect.assertions(1);
+
+		expect(parseAnchorTransactionIds('["ok", 42, "", null, "aussi"]')).toEqual(['ok', 'aussi']);
 	});
 });

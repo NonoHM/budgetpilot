@@ -6,7 +6,7 @@ import { DEFAULT_CATEGORIES } from '$lib/server/categories/defaults';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
-import { MAX_ANCHOR_IDS, type BackupExport } from './schema';
+import { MAX_ANCHOR_IDS, parseAnchorTransactionIds, type BackupExport } from './schema';
 
 export class BackupImportError extends Error {}
 
@@ -39,28 +39,6 @@ function normalizeCategoryDefaultKey(
 	const canonicalKey = DEFAULT_KEY_BY_NAME.get(name) ?? null;
 	if (defaultKey == null) return canonicalKey;
 	return defaultKey === canonicalKey ? defaultKey : null;
-}
-
-/**
- * Parses a `RecurringStreamAction.anchorTransactionIds` cell into a list of ids.
- *
- * Defensive on purpose: the backup schema only bounds the cell's length, so a hand-edited file
- * can put anything in it. Anything that is not a JSON array of non-empty strings yields an empty
- * anchor list, which costs the action nothing it cannot recover — matching falls back to the
- * direction + normalized label pair.
- *
- * Exported because every reader of this column must go through it. A bare `JSON.parse` on a
- * malformed cell throws, and this one is read on a page load.
- */
-export function parseAnchorTransactionIds(serialized: string): string[] {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(serialized);
-	} catch {
-		return [];
-	}
-	if (!Array.isArray(parsed)) return [];
-	return parsed.filter((id): id is string => typeof id === 'string' && id.length > 0);
 }
 
 /**

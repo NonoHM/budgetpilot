@@ -707,13 +707,20 @@
 					{/if}
 				</p>
 				<!-- Mobile keeps only the figure the user acts on — but it is the same claim as the
-				     desktop line, so it takes the same past-month branch. `lg:hidden` is CSS: this node
-				     is in the DOM (and in `textContent`) at every width. -->
+				     desktop line, so it takes the same three branches (past month has no figure;
+				     current and future differ only in phrasing, since "reste à sortir" only reads as
+				     "remaining" on a month already under way). `lg:hidden` is CSS: this node is in the
+				     DOM (and in `textContent`) at every width. -->
 				<p class="mt-1 text-sm text-zinc-500 lg:hidden">
 					{#if isPastMonth}
 						{m.bills_header_meta_short_past({ month: monthName })}
-					{:else}
+					{:else if bills.isCurrentMonth}
 						{m.bills_header_meta_short({ amount: formatCents(bills.remainingExpenseCents) })}
+					{:else}
+						{m.bills_header_meta_short_future({
+							month: monthName,
+							amount: formatCents(bills.remainingExpenseCents)
+						})}
 					{/if}
 				</p>
 			</div>

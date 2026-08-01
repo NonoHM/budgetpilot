@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { resolveDatabaseProvider } from '$lib/server/database/provider';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -122,6 +122,16 @@ describe(`upcoming-bills inert-decision prune (${provider})`, () => {
 	}
 
 	beforeEach(async () => {
+		// Freezes only `Date`, not `setTimeout`/`setInterval` — this suite makes real network calls to
+		// the database and those still need real timers. `recordStreamAction` computes its own `now`
+		// internally (no way to inject one) and this file computes `cutoff` from a separate `new
+		// Date()` call; on the handful of days a year where the lookback subtraction crosses a UTC
+		// month boundary between the two calls, `computeInertActionCutoff` returns a cutoff a month
+		// apart for each, which fails the exact-boundary assertion below. Pinning `now` here makes both
+		// calls read the same instant.
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(new Date());
+
 		userId = await freshUser();
 		otherUserId = await freshUser();
 		cutoff = computeInertActionCutoff(new Date());
@@ -154,6 +164,10 @@ describe(`upcoming-bills inert-decision prune (${provider})`, () => {
 			select: { id: true }
 		});
 		anchorId = transaction.id;
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
 	});
 
 	it('deletes exactly the inert ignore/paid rows and nothing else', async () => {

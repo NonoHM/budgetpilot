@@ -572,7 +572,10 @@ model RecurringStreamAction {
   label                String
   /// JSON array of transaction ids (the flow's occurrenceIds at action time). No index, JS-matched.
   anchorTransactionIds String @db.Text
-  /// The projected occurrence date an IGNORE/PAID targets. Null for EXCLUDE.
+  /// The projected occurrence date an IGNORE/PAID targets. Null for a freshly-written EXCLUDE,
+  /// but not a guarantee: `backup/import.ts` writes this column verbatim for every kind and the
+  /// backup element schema has no cross-field refine, so a RESTORED EXCLUDE can carry a non-null
+  /// date. See the prune's delete filter in `upcoming-bills/service.ts` for why that matters.
   dueDate              DateTime?
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt

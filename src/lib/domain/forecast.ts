@@ -79,7 +79,13 @@ function toEpochDay(iso: string): number {
 	return Math.floor(new Date(`${iso}T00:00:00.000Z`).getTime() / 86_400_000);
 }
 
-function median(values: readonly number[]): number {
+/**
+ * Exported so every caller with a list of numbers to summarize goes through the one
+ * implementation, rather than each re-deriving the same sort-and-middle logic. See
+ * `resolveIdempotenceWindowDays` in `server/upcoming-bills/service.ts` for the call that used to
+ * duplicate this byte-for-byte.
+ */
+export function median(values: readonly number[]): number {
 	const sorted = [...values].sort((a, b) => a - b);
 	const mid = Math.floor(sorted.length / 2);
 	return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];

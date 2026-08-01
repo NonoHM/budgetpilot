@@ -3,6 +3,7 @@ import * as m from '$lib/paraglide/messages';
 import {
 	detectRecurringFlows,
 	getFlowAmountVariability,
+	median,
 	type FlowAmountVariability,
 	type FlowCadence,
 	type FlowDirection,
@@ -27,14 +28,16 @@ import type { Transaction } from '$lib/domain/transaction';
 import { readDashboardDataForRange } from '$lib/server/budget/dashboard';
 import { FORECAST_LOOKBACK_MONTHS } from '$lib/server/forecast';
 import { anonymizeMerchant } from '$lib/server/reports/monthly';
-// The single reader of the anchor column, exported from the restore path for exactly this reuse:
-// a bare JSON.parse on a hand-edited (or restore-mangled) cell throws, and this column is read on
-// every page load of the widget and the month view. Never duplicate it, never inline a parse.
-import { parseAnchorTransactionIds } from '$lib/server/backup/import';
+// The single reader of the anchor column: a bare JSON.parse on a hand-edited (or restore-mangled)
+// cell throws, and this column is read on every page load of the widget and the month view. Never
+// duplicate it, never inline a parse. Lives in `backup/schema.ts`, not `backup/import.ts`: the
+// latter pulls in the whole restore write path (prisma writes, category defaults, dedupe), and
+// this module already owns the anchor-cell size constants below.
 import {
 	MAX_ANCHOR_CELL_CHARS,
 	MAX_ANCHOR_IDS,
-	MAX_RECURRING_STREAM_ACTIONS
+	MAX_RECURRING_STREAM_ACTIONS,
+	parseAnchorTransactionIds
 } from '$lib/server/backup/schema';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
@@ -849,15 +852,8 @@ function resolveIdempotenceWindowDays(anchorDates: readonly Date[]): number {
 	if (anchorDates.length < 2) return FALLBACK_IDEMPOTENCE_WINDOW_DAYS;
 
 	const sorted = [...anchorDates].map(toIsoDate).sort((left, right) => left.localeCompare(right));
-	const intervals = sorted
-		.slice(1)
-		.map((date, index) => daysBetween(sorted[index], date))
-		.sort((left, right) => left - right);
-	const middle = Math.floor(intervals.length / 2);
-	const medianIntervalDays =
-		intervals.length % 2 === 0
-			? (intervals[middle - 1] + intervals[middle]) / 2
-			: intervals[middle];
+	const intervals = sorted.slice(1).map((date, index) => daysBetween(sorted[index], date));
+	const medianIntervalDays = median(intervals);
 
 	// Two anchors on the same day (a split payment, say) give a median of 0, which is not a cadence.
 	if (medianIntervalDays <= 0) return FALLBACK_IDEMPOTENCE_WINDOW_DAYS;

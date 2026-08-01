@@ -68,6 +68,32 @@ export const MAX_ANCHOR_IDS = 250;
 export const MAX_ANCHOR_CELL_CHARS = 7_500;
 
 /**
+ * Parses a `RecurringStreamAction.anchorTransactionIds` cell into a list of ids.
+ *
+ * Defensive on purpose: this schema only bounds the cell's length, so a hand-edited file can put
+ * anything in it. Anything that is not a JSON array of non-empty strings yields an empty anchor
+ * list, which costs the action nothing it cannot recover — matching falls back to the direction +
+ * normalized label pair.
+ *
+ * Exported because every reader of this column must go through it. A bare `JSON.parse` on a
+ * malformed cell throws, and this column is read on every dashboard page load, not just on a
+ * restore. Lives here rather than in `import.ts` for exactly that reason: `import.ts` pulls in the
+ * whole restore write path (prisma writes, category defaults, dedupe), and this schema module is
+ * the one both the restore and the read path already import for the anchor-cell size constants
+ * above.
+ */
+export function parseAnchorTransactionIds(serialized: string): string[] {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(serialized);
+	} catch {
+		return [];
+	}
+	if (!Array.isArray(parsed)) return [];
+	return parsed.filter((id): id is string => typeof id === 'string' && id.length > 0);
+}
+
+/**
  * The two bounds on how many `RecurringStreamAction` rows exist, and the gap between them.
  *
  * `MAX_RECURRING_STREAM_ACTIONS` is what the WRITE path (`recordStreamAction`) refuses to exceed.
