@@ -700,10 +700,20 @@
 		     navigation (`?month=`), so it must survive a middle-click and work without JS. They carry
 		     the explicit aria-labels the design asks of them, and go inert the same way TapLink does
 		     (no href, aria-disabled, out of the tab order) when NO stream has ever been detected —
-		     see `noStreamsAtAll` for why that, and not an empty month, is the condition. -->
+		     see `noStreamsAtAll` for why that, and not an empty month, is the condition.
+
+		     `data-sveltekit-keepfocus` is what makes the aria-live label below mean anything. Without
+		     it SvelteKit's client router blurs the active element and then calls its own
+		     `reset_focus()` after every client-side navigation, which lands focus on <body> — so the
+		     design's "annoncé sans voler le focus" was false in the browser even though the markup
+		     read right. Verified by attempting it: e2e/upcoming-bills.spec.ts reports
+		     `document.activeElement` as BODY without this attribute and as the anchor with it. Both
+		     arrows keep the same element mounted across the navigation, which is the precondition
+		     keepfocus needs. -->
 		<div class="flex items-center gap-2">
 			<a
 				href={noStreamsAtAll ? undefined : resolve(monthHref(shiftMonth(bills.month, -1)))}
+				data-sveltekit-keepfocus
 				aria-label={m.bills_period_prev_aria()}
 				aria-disabled={noStreamsAtAll ? 'true' : undefined}
 				tabindex={noStreamsAtAll ? -1 : undefined}
@@ -723,6 +733,7 @@
 			{/if}
 			<a
 				href={noStreamsAtAll ? undefined : resolve(monthHref(shiftMonth(bills.month, 1)))}
+				data-sveltekit-keepfocus
 				aria-label={m.bills_period_next_aria()}
 				aria-disabled={noStreamsAtAll ? 'true' : undefined}
 				tabindex={noStreamsAtAll ? -1 : undefined}
