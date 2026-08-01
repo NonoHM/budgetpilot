@@ -5,6 +5,7 @@ import type {
 	RecurringFlow
 } from './forecast';
 import {
+	getCadenceToleranceDays,
 	getFlowDisplayTier,
 	groupTransactionsForRecurrence,
 	projectFlowOccurrences
@@ -152,6 +153,57 @@ export function computeOccurrenceStatus(
 	return daysLate > 0 ? { status: 'overdue', daysLate } : { status: 'upcoming', daysLate: null };
 }
 
+/**
+ * How long after its last observed occurrence a stream is still worth projecting:
+ *
+ *     medianIntervalDays + cadenceToleranceDays + ceil(medianIntervalDays * intervalCV)
+ *
+ * One full cycle, plus the cadence's own slip tolerance (the detector's own, read from `forecast.ts`
+ * rather than restated here), plus roughly one standard deviation of THIS stream's observed
+ * intervals — so an irregular stream is given proportionally more rope than a metronomic one.
+ *
+ * The two margins are SUMMED, not maxed, and that is deliberate: the two failure directions are
+ * asymmetric. A cancelled stream lingering one extra cycle is mildly annoying; a genuinely late
+ * real bill vanishing from the schedule is a loss of function — the user stops being told about a
+ * payment they still owe. The bias is toward keeping streams. Do NOT "optimise" this into a
+ * `Math.max` of the two terms.
+ *
+ * Worked examples: monthly with CV 0.1 -> 38 days (a bill 8 days late still reads "En retard",
+ * which is exactly the signal that must not be lost); weekly with CV 0.1 -> 10; yearly with
+ * CV 0.05 -> 399.
+ */
+export function computeStaleAfterDays(
+	flow: Pick<RecurringFlow, 'cadence' | 'medianIntervalDays' | 'intervalCoefficientOfVariation'>
+): number {
+	return (
+		flow.medianIntervalDays +
+		getCadenceToleranceDays(flow.cadence) +
+		Math.ceil(flow.medianIntervalDays * flow.intervalCoefficientOfVariation)
+	);
+}
+
+/**
+ * True when a stream has been silent for longer than one tolerated cycle — a subscription cancelled
+ * in March, say, still inside the detector's 12-month lookback and therefore still detected, but
+ * which will never produce another payment.
+ *
+ * Such a stream is dropped from PROJECTION only, and silently: same treatment as a stream the user
+ * excluded — no status, no badge, no message, the user simply stops seeing it. Its realized
+ * transactions inside the displayed period are facts and stay.
+ *
+ * This is not a second lateness path: an uncertain-tier stream that is also stale merely stops
+ * being projected, which leaves `computeOccurrenceStatus`'s tier gate untouched.
+ */
+export function isStreamStale(
+	flow: Pick<
+		RecurringFlow,
+		'cadence' | 'medianIntervalDays' | 'intervalCoefficientOfVariation' | 'lastDate'
+	>,
+	todayIso: string
+): boolean {
+	return wholeDaysBetween(flow.lastDate, todayIso) > computeStaleAfterDays(flow);
+}
+
 export interface BuildBillOccurrencesInput {
 	/** Pre-exclusion — the function applies `applyStreamExclusions` itself. */
 	flows: readonly RecurringFlow[];
@@ -254,7 +306,13 @@ export function buildBillOccurrences(input: BuildBillOccurrencesInput): BillOccu
 			});
 		}
 
-		// Projected: everything still to come inside the period.
+		// Projected: everything still to come inside the period — unless the stream has gone quiet
+		// for longer than one tolerated cycle, in which case it projects nothing at all (see
+		// `isStreamStale`). The guard lives HERE and not inside `projectFlowOccurrences` because that
+		// function is shared with the cash-flow forecast, which projects from `todayIso` rather than
+		// from `flow.lastDate` and is already correct; changing it would alter a correct caller.
+		if (isStreamStale(flow, input.todayIso)) continue;
+
 		const projectedDates = projectFlowOccurrences(flow, input.fromIso, horizonDays)
 			.map((projected) => projected.date)
 			.filter((date) => date < input.toIsoExclusive);

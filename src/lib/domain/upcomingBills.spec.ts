@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ForecastInputTransaction, RecurringFlow } from './forecast';
+import { projectCashFlow } from './forecast';
 import {
 	normalizeRecurringLabel,
 	normalizeStoredRecurringLabel,
@@ -11,8 +12,10 @@ import {
 	applyStreamExclusions,
 	buildBillOccurrences,
 	computeOccurrenceStatus,
+	computeStaleAfterDays,
 	computeTotals,
 	formatAmountRangeBounds,
+	isStreamStale,
 	listObservationCandidates,
 	occurrenceActionWindowDays,
 	type BillOccurrence,
@@ -110,6 +113,72 @@ describe('occurrenceActionWindowDays', () => {
 		expect(occurrenceActionWindowDays({ medianIntervalDays: 30 })).toBe(15);
 		expect(occurrenceActionWindowDays({ medianIntervalDays: 365 })).toBe(15);
 		expect(occurrenceActionWindowDays({ medianIntervalDays: 1 })).toBe(1);
+	});
+});
+
+describe('computeStaleAfterDays', () => {
+	// The three worked examples the formula was fixed against: one cycle + the cadence's own
+	// tolerance + one sigma of the stream's observed intervals, SUMMED (never maxed).
+	it('somme la cadence, la tolérance de cadence et un écart-type d’intervalle', () => {
+		expect.assertions(3);
+
+		expect(
+			computeStaleAfterDays({
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0.1
+			})
+		).toBe(38);
+		expect(
+			computeStaleAfterDays({
+				cadence: 'weekly',
+				medianIntervalDays: 7,
+				intervalCoefficientOfVariation: 0.1
+			})
+		).toBe(10);
+		expect(
+			computeStaleAfterDays({
+				cadence: 'yearly',
+				medianIntervalDays: 365,
+				intervalCoefficientOfVariation: 0.05
+			})
+		).toBe(399);
+	});
+
+	// The tolerance comes from the detector's own CADENCE_WINDOWS. A copy of that table here would
+	// pass while the real one drifted, so the assertion is on the five values the detector uses.
+	it('reprend la tolérance de chaque cadence sans la redéclarer', () => {
+		expect.assertions(5);
+
+		const at = (cadence: RecurringFlow['cadence'], medianIntervalDays: number) =>
+			computeStaleAfterDays({
+				cadence,
+				medianIntervalDays,
+				intervalCoefficientOfVariation: 0
+			}) - medianIntervalDays;
+
+		expect(at('weekly', 7)).toBe(2);
+		expect(at('biweekly', 14)).toBe(3);
+		expect(at('monthly', 30)).toBe(5);
+		expect(at('quarterly', 91)).toBe(10);
+		expect(at('yearly', 365)).toBe(15);
+	});
+});
+
+describe('isStreamStale', () => {
+	const monthly = {
+		cadence: 'monthly',
+		medianIntervalDays: 30,
+		intervalCoefficientOfVariation: 0.1
+	} as const;
+
+	it('bascule au-delà du seuil, jamais dessus', () => {
+		expect.assertions(3);
+
+		// staleAfterDays = 38: a bill 8 days late must still read "En retard".
+		expect(isStreamStale({ ...monthly, lastDate: '2026-06-27' }, '2026-07-31')).toBe(false);
+		expect(isStreamStale({ ...monthly, lastDate: '2026-06-23' }, '2026-07-31')).toBe(false);
+		expect(isStreamStale({ ...monthly, lastDate: '2026-06-22' }, '2026-07-31')).toBe(true);
 	});
 });
 
@@ -251,15 +320,18 @@ describe('buildBillOccurrences', () => {
 					label: 'GYM CLUB',
 					direction: 'expense',
 					averageAmountCents: 1799,
-					lastDate: '2026-05-01',
+					// Dated so the stream is not stale (see `isStreamStale`): its estimated date is past,
+					// which is what this test is about, but the stream itself is still live and therefore
+					// still projected.
+					lastDate: '2026-06-28',
 					status: 'tentative',
 					occurrenceCount: 2
 				})
 			],
 			transactions: [],
 			actions: [],
-			fromIso: '2026-06-01',
-			toIsoExclusive: '2026-07-01',
+			fromIso: '2026-07-01',
+			toIsoExclusive: '2026-08-01',
 			todayIso: '2026-07-31'
 		});
 
@@ -899,6 +971,209 @@ describe('computeTotals', () => {
 		});
 
 		expect(computeTotals(occurrences).expectedIncomeCents).toBe(0);
+	});
+});
+
+describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
+	const JULY = { fromIso: '2026-07-01', toIsoExclusive: '2026-08-01', todayIso: '2026-07-31' };
+
+	/** Monthly, one sigma of interval spread at 10% -> staleAfterDays = 30 + 5 + 3 = 38. */
+	function monthlyFlow(lastDate: string): RecurringFlow {
+		return flow({
+			label: 'NETFLIX',
+			direction: 'expense',
+			averageAmountCents: 1_399,
+			lastDate,
+			intervalCoefficientOfVariation: 0.1
+		});
+	}
+
+	it('projette encore, et en retard, une mensualité muette depuis 34 jours', () => {
+		expect.assertions(4);
+
+		const occurrences = buildBillOccurrences({
+			flows: [monthlyFlow('2026-06-27')],
+			transactions: [],
+			actions: [],
+			...JULY
+		});
+
+		expect(occurrences).toHaveLength(1);
+		expect(occurrences[0].dateIso).toBe('2026-07-27');
+		expect(occurrences[0].status).toBe('overdue');
+		expect(occurrences[0].daysLate).toBe(4);
+	});
+
+	it('cesse de projeter une mensualité muette depuis 39 jours, sans rien afficher', () => {
+		expect.assertions(3);
+
+		const occurrences = buildBillOccurrences({
+			flows: [monthlyFlow('2026-06-22')],
+			transactions: [],
+			actions: [],
+			...JULY
+		});
+
+		// Silent dropout: no row at all, so no status, no badge and no message key to carry.
+		expect(occurrences).toEqual([]);
+		expect(computeTotals(occurrences).remainingExpenseCents).toBe(0);
+		expect(computeTotals(occurrences).expectedIncomeCents).toBe(0);
+	});
+
+	// The CV term is a real term, not decoration: at 36 days the same stream is kept or dropped
+	// depending on its OWN observed regularity (35 vs 38 days of tolerance).
+	it('accorde plus de marge à un flux irrégulier qu’à un flux métronomique', () => {
+		expect.assertions(2);
+
+		const regular = buildBillOccurrences({
+			flows: [flow({ ...monthlyFlow('2026-06-25'), intervalCoefficientOfVariation: 0 })],
+			transactions: [],
+			actions: [],
+			...JULY
+		});
+		const irregular = buildBillOccurrences({
+			flows: [monthlyFlow('2026-06-25')],
+			transactions: [],
+			actions: [],
+			...JULY
+		});
+
+		expect(regular).toEqual([]);
+		expect(irregular).toHaveLength(1);
+	});
+
+	it('abandonne un hebdomadaire à 11 jours et garde celui de 10 jours', () => {
+		expect.assertions(2);
+
+		// Weekly, CV 0.1 -> 7 + 2 + 1 = 10 days.
+		const weekly = (lastDate: string) =>
+			flow({
+				label: 'CAFE',
+				direction: 'expense',
+				averageAmountCents: 350,
+				lastDate,
+				cadence: 'weekly',
+				medianIntervalDays: 7,
+				intervalCoefficientOfVariation: 0.1
+			});
+
+		expect(
+			buildBillOccurrences({
+				flows: [weekly('2026-07-21')],
+				transactions: [],
+				actions: [],
+				...JULY
+			})
+		).toHaveLength(1);
+		expect(
+			buildBillOccurrences({
+				flows: [weekly('2026-07-20')],
+				transactions: [],
+				actions: [],
+				...JULY
+			})
+		).toEqual([]);
+	});
+
+	it('garde un annuel muet depuis 380 jours', () => {
+		expect.assertions(2);
+
+		// Yearly, CV 0.05 -> 365 + 15 + 19 = 399 days: a yearly bill is not written off after a year.
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'ASSURANCE HABITATION',
+					direction: 'expense',
+					averageAmountCents: 18_000,
+					lastDate: '2025-07-16',
+					cadence: 'yearly',
+					medianIntervalDays: 365,
+					intervalCoefficientOfVariation: 0.05
+				})
+			],
+			transactions: [],
+			actions: [],
+			...JULY
+		});
+
+		expect(occurrences).toHaveLength(1);
+		expect(occurrences[0].dateIso).toBe('2026-07-16');
+	});
+
+	it('conserve les occurrences réalisées d’un flux périmé, seule la projection tombe', () => {
+		expect.assertions(4);
+
+		// Weekly stream whose last transaction is 29 days old: stale (threshold 9), yet that
+		// transaction really happened inside the period and stays.
+		const realized = tx({
+			date: '2026-07-02',
+			label: 'CAFE',
+			amountCents: -350,
+			category: 'Divers'
+		});
+
+		const occurrences = buildBillOccurrences({
+			flows: [
+				flow({
+					label: 'CAFE',
+					direction: 'expense',
+					averageAmountCents: 350,
+					lastDate: '2026-07-02',
+					cadence: 'weekly',
+					medianIntervalDays: 7,
+					occurrenceIds: ['older-1', 'older-2', realized.id]
+				})
+			],
+			transactions: [realized],
+			actions: [],
+			...JULY
+		});
+
+		expect(occurrences).toHaveLength(1);
+		expect(occurrences[0].dateIso).toBe('2026-07-02');
+		expect(occurrences[0].status).toBe('settled');
+		expect(computeTotals(occurrences).remainingExpenseCents).toBe(0);
+	});
+
+	/**
+	 * The guard lives in this module, NOT in `projectFlowOccurrences`, because the cash-flow forecast
+	 * shares that function and is already correct: it projects a horizon from `todayIso`, so a stream
+	 * that stopped months ago contributes nothing to it anyway. This asserts the forecast's output for
+	 * a stream the upcoming-bills view now drops — same fixture, unchanged numbers.
+	 */
+	it('laisse la prévision de trésorerie strictement inchangée sur un flux périmé', () => {
+		expect.assertions(4);
+
+		const stale = flow({
+			label: 'CAFE',
+			direction: 'expense',
+			averageAmountCents: 5_000,
+			lastDate: '2026-07-02',
+			cadence: 'weekly',
+			medianIntervalDays: 7
+		});
+
+		const forecastResult = projectCashFlow({
+			confirmedFlows: [stale],
+			residualDailyCents: 0,
+			startingBalanceCents: 100_000,
+			fromDate: '2026-07-31',
+			horizonDays: 30
+		});
+		const eventDates = forecastResult.days
+			.filter((day) => day.events.length > 0)
+			.map((day) => day.date);
+
+		// Exactly the values the forecast produced before the guard existed.
+		expect(eventDates).toStrictEqual(['2026-08-06', '2026-08-13', '2026-08-20', '2026-08-27']);
+		expect(forecastResult.days[forecastResult.days.length - 1].balanceCents).toBe(
+			100_000 - 4 * 5_000
+		);
+		expect(forecastResult.days).toHaveLength(31);
+		// ...while the same flow is gone from the bills schedule.
+		expect(
+			buildBillOccurrences({ flows: [stale], transactions: [], actions: [], ...JULY })
+		).toEqual([]);
 	});
 });
 

@@ -39,7 +39,13 @@ const { STORED_LABEL_MAX_CHARS } = await import('$lib/domain/recurrence');
 
 const userId = 'user-00000001';
 const actionId = 'action-00000001';
-const TODAY = '2026-07-20T09:00:00.000Z';
+/**
+ * Kept close enough to the fixtures' last occurrences that none of the streams below is stale (see
+ * `isStreamStale`): the recency guard drops a stream that has been silent for longer than one
+ * tolerated cycle, and SUBSCRIPTION — last paid 2026-06-10, tolerance 36.5 days — is the tightest.
+ * Moving this date forward by more than two days silently empties most of the views asserted here.
+ */
+const TODAY = '2026-07-14T09:00:00.000Z';
 
 // Raw bank labels, exactly the shape anonymizeLabel exists to strip. Asserting these never appear
 // in a view object is what proves the anonymization boundary is not bypassed.
@@ -196,7 +202,7 @@ describe('loadUpcomingBillsMonth', () => {
 		const view = await loadUpcomingBillsMonth(userId, '2026-07');
 
 		expect(view.month).toBe('2026-07');
-		expect(view.todayIso).toBe('2026-07-20');
+		expect(view.todayIso).toBe('2026-07-14');
 		expect(view.isCurrentMonth).toBe(true);
 		expect(view.isFutureMonth).toBe(false);
 		expect(view.streamCount).toBe(3);
@@ -211,7 +217,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(rent.settledKind).toBe('auto');
 		expect(rent.amountCents).toBe(-80_000);
 		expect(rent.countsInRemainingTotal).toBe(false);
-		expect(subscription.daysLate).toBe(10);
+		expect(subscription.daysLate).toBe(4);
 		expect(subscription.tier).toBe('confirmed');
 		expect(salary.direction).toBe('income');
 
@@ -353,6 +359,30 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.remainingExpenseCents).toBeGreaterThan(0);
 	});
 
+	// B1: a stream that stopped months ago is still detected from the 12-month lookback, and used to
+	// project one "En retard" occurrence per month forever — inflating a total the user reads as a
+	// balance. It now drops out silently: no row, nothing in the totals, and no new user-facing
+	// concept. `streamCount` deliberately still counts it, since it is what tells the page a stream
+	// has ever been detected (the alternative walls the period navigator off entirely).
+	it('cesse de projeter un abonnement résilié, sans rien signaler à l’utilisateur', async () => {
+		const stopped = monthlySeries(
+			'stopped',
+			SUBSCRIPTION_LABEL,
+			-1_399,
+			'Loisirs',
+			['2026-02', '2026-03', '2026-04'],
+			'10'
+		);
+		mockRead(stopped);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+
+		expect(view.rows).toEqual([]);
+		expect(view.remainingExpenseCents).toBe(0);
+		expect(view.expectedIncomeCents).toBe(0);
+		expect(view.streamCount).toBe(1);
+	});
+
 	it('refuse un mois malformé avant toute requête', async () => {
 		await expectHttpError(loadUpcomingBillsMonth(userId, '2026-13'), 400);
 		await expectHttpError(loadUpcomingBillsMonth(userId, 'juillet'), 400);
@@ -366,7 +396,7 @@ describe('loadUpcomingBillsWidget', () => {
 
 		const view = await loadUpcomingBillsWidget(userId);
 
-		expect(view.todayIso).toBe('2026-07-20');
+		expect(view.todayIso).toBe('2026-07-14');
 		expect(view.hasStreams).toBe(true);
 		expect(view.rows.map((row) => [row.dateIso, row.status])).toEqual([
 			['2026-07-10', 'overdue'],
@@ -398,25 +428,28 @@ describe('loadUpcomingBillsWidget', () => {
 	});
 
 	it('plafonne à 5 lignes mais compte les retards et le total sur tout l’ensemble retenu', async () => {
-		const weekly = ['2026-06-04', '2026-06-11', '2026-06-18', '2026-06-25'].map((date, index) =>
+		// A weekly stream tolerates only 9 days of silence, so it can carry at most one late
+		// occurrence on its own: the surplus beyond the 5 displayed rows comes from stacking it with
+		// the two monthly streams, not from letting one stream rot for a month.
+		const weekly = ['2026-06-15', '2026-06-22', '2026-06-29', '2026-07-06'].map((date, index) =>
 			tx(`groc-${index}`, date, GROCERY_LABEL, -5_000, 'Alimentation')
 		);
-		mockRead(weekly);
+		mockRead([...weekly, ...RENT, ...SUBSCRIPTION]);
 
 		const view = await loadUpcomingBillsWidget(userId);
 
 		expect(view.rows).toHaveLength(5);
 		expect(view.rows.map((row) => row.dateIso)).toEqual([
-			'2026-07-02',
-			'2026-07-09',
-			'2026-07-16',
-			'2026-07-23',
-			'2026-07-30'
+			'2026-07-10',
+			'2026-07-13',
+			'2026-07-20',
+			'2026-07-27',
+			'2026-08-03'
 		]);
-		// 7 occurrences survive the filter; 3 of them are late and all 7 are in the total.
-		expect(view.overdueCount).toBe(3);
-		expect(view.remainingExpenseCents).toBe(7 * 5_000);
-		// rowKey stays unique even when one stream fills the whole list.
+		// 8 occurrences survive the filter; 2 of them are late and all 8 are in the total.
+		expect(view.overdueCount).toBe(2);
+		expect(view.remainingExpenseCents).toBe(5 * 5_000 + 80_000 + 2 * 1_399);
+		// rowKey stays unique even when one stream fills most of the list.
 		expect(new Set(view.rows.map((row) => row.rowKey)).size).toBe(5);
 	});
 

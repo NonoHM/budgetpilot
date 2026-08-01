@@ -106,12 +106,12 @@
 	 *
 	 * The reason is the TENSE, not the value: on a period that is over, "reste à sortir" / "prévu"
 	 * is not a meaningful claim whatever the number happens to be. Do NOT restate this as "the
-	 * totals are structurally zero on a past month" — they are not. `projectFlowOccurrences`
-	 * projects forward from `flow.lastDate` regardless of today, and `detectRecurringFlows` has no
-	 * recency guard, so a stream that stopped in March is still detected from the 12-month lookback
-	 * and projects into June; viewing June in August gives those rows `status: 'overdue'`
-	 * (`computeOccurrenceStatus` compares against `todayIso`, not against the period) and
-	 * `countsInRemainingTotal: true`, so `remainingExpenseCents` can be non-zero here.
+	 * totals are structurally zero on a past month" — they are not. `projectFlowOccurrences` projects
+	 * forward from `flow.lastDate` regardless of today, so a stream whose last payment sits just
+	 * inside the recency guard's tolerance (`isStreamStale`: about one cycle plus slack) still
+	 * projects an occurrence into the period being viewed; viewing July in early August gives such a
+	 * row `status: 'overdue'` (`computeOccurrenceStatus` compares against `todayIso`, not against the
+	 * period) and `countsInRemainingTotal: true`, so `remainingExpenseCents` can be non-zero here.
 	 */
 	const isPastMonth = $derived(!bills.isCurrentMonth && !bills.isFutureMonth);
 	/** Streams exist, this particular period just holds none of them. */

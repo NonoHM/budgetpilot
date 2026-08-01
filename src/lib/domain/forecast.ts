@@ -55,6 +55,19 @@ const CADENCE_WINDOWS: readonly CadenceWindow[] = [
 	{ cadence: 'yearly', days: 365, toleranceDays: 15 }
 ];
 
+/**
+ * The slip, in days, the detector already tolerates around a cadence's canonical period — exposed
+ * for callers that need to reason about "how late may this stream legitimately be" (see
+ * `computeStaleAfterDays` in upcomingBills.ts). Read off `CADENCE_WINDOWS` rather than restated at
+ * the call site, so the detector's tolerance and any consumer's can never drift apart.
+ */
+export function getCadenceToleranceDays(cadence: FlowCadence): number {
+	const window = CADENCE_WINDOWS.find((entry) => entry.cadence === cadence);
+	// The fallback is unreachable — CADENCE_WINDOWS covers every FlowCadence member — and exists
+	// only because `Array.find` is not total in the type system.
+	return window?.toleranceDays ?? 0;
+}
+
 function classifyCadence(medianIntervalDays: number): FlowCadence | null {
 	const match = CADENCE_WINDOWS.find(
 		(window) => Math.abs(medianIntervalDays - window.days) <= window.toleranceDays
