@@ -310,6 +310,10 @@
 		if (data.filters.from) params.set('from', data.filters.from);
 		if (data.filters.to) params.set('to', data.filters.to);
 		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
+		// Paging and row selection stay INSIDE the id-filtered view, so they carry `ids` forward;
+		// buildFilterHref/buildExportHref deliberately drop it, because changing tab, editing the
+		// search form or exporting is leaving "the transactions linked to this bill" behind.
+		if (data.filters.ids) params.set('ids', data.filters.ids);
 		params.set('page', String(page));
 		return `/transactions?${params.toString()}` as `/transactions?${string}`;
 	}
@@ -325,6 +329,8 @@
 		if (data.filters.from) params.set('from', data.filters.from);
 		if (data.filters.to) params.set('to', data.filters.to);
 		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
+		// See buildPageHref: navigation within the id-filtered view keeps it.
+		if (data.filters.ids) params.set('ids', data.filters.ids);
 		params.set('page', String(data.pagination.page));
 		params.set('selected', id);
 		return `/transactions?${params.toString()}` as `/transactions?${string}`;

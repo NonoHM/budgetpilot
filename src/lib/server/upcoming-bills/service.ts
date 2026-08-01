@@ -168,11 +168,11 @@ export interface UpcomingBillRowView {
 	 * `label` column, whose documented purpose is display and debugging of the stored decision. It
 	 * is the one raw value this module lets out.
 	 *
-	 * It used to be true that it "never reaches a rendered string". It no longer is: the month
-	 * view's "Voir les transactions liées" builds `/transactions?q=<this label>`, because `?q=` is a
-	 * substring test over the raw `Transaction.label` and the anonymized form matches nothing. So
-	 * the value now reaches a URL — browser history, and any reverse-proxy access log that does not
-	 * strip `q` (`Caddyfile.example` does). Still never rendered as page text.
+	 * It never reaches a rendered string, and — since "Voir les transactions liées" switched to
+	 * `/transactions?ids=<anchorTransactionIds>` — never reaches a URL either. It briefly did:
+	 * that action used to build `?q=<this label>`, putting a merchant name in browser history and
+	 * in reverse-proxy access logs. Any new consumer of this field has to answer the same question
+	 * before using it.
 	 */
 	actionPayload: {
 		direction: string;

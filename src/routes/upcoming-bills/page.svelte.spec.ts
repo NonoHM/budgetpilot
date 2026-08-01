@@ -76,7 +76,7 @@ function buildRow(overrides: Partial<UpcomingBillRowView> = {}): UpcomingBillRow
 			normalizedLabel: 'netflix',
 			label: 'NETFLIX.COM',
 			dueDate: TODAY_ISO,
-			anchorTransactionIds: '[]'
+			anchorTransactionIds: '["transaction-1","transaction-2"]'
 		},
 		...overrides
 	};
@@ -511,11 +511,33 @@ describe('/upcoming-bills page', () => {
 		expect(items.filter(isRose).length).toBe(1);
 		expect(isRose(items[3])).toBe(true);
 
-		// The third is a real link to the transactions page, filtered by the label that actually
-		// matches the stored transactions (the raw one), never the anonymized display form.
-		expect(items[2].getAttribute('href')).toBe(
-			`/transactions?q=${encodeURIComponent('NETFLIX.COM')}`
-		);
+		// The third is a real link to the transactions page, filtered by the stream's recorded
+		// anchor IDS. The raw bank label must not appear in the URL at all — that is the whole
+		// point of the id-based link (browser history, reverse-proxy access logs).
+		const href = items[2].getAttribute('href');
+		expect(href).toBe(`/transactions?ids=${encodeURIComponent('transaction-1,transaction-2')}`);
+		expect(href).not.toContain('NETFLIX');
+	});
+
+	it('links to no transaction at all when the stream has no recorded anchor, never to every transaction', async () => {
+		// A malformed or empty anchor cell must produce `?ids=` (which the server reads as "match
+		// nothing"), never a bare `/transactions` showing the user's whole history under a label
+		// that promises the bill's own occurrences.
+		const base = buildRow();
+		render(Page, {
+			data: buildData({
+				rows: [
+					buildRow({ actionPayload: { ...base.actionPayload, anchorTransactionIds: 'not json' } })
+				]
+			})
+		});
+
+		const trigger = page.getByRole('button', { name: 'Actions pour Netflix' });
+		await userEvent.click(trigger);
+
+		const items = [...document.querySelectorAll('[role="menu"] [role="menuitem"]')];
+
+		expect(items[2].getAttribute('href')).toBe('/transactions?ids=');
 	});
 
 	it('opens the mobile action sheet from the row, with the same four actions in the same order', async () => {

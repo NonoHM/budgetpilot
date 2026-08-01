@@ -34,7 +34,17 @@ export function buildTransactionWhere(input: {
 	 * (the sentinel category should always exist, but this keeps the where well-defined).
 	 */
 	uncategorizedCategoryId?: string | null;
+	/**
+	 * Explicit id whitelist, from `?ids=` (see normalizeIdList). `undefined`/`null` means "no id
+	 * filter"; an EMPTY array means "match nothing" and must never be allowed to collapse back into
+	 * "no filter" — a list whose every element was malformed would otherwise silently widen from a
+	 * handful of rows to the user's whole history.
+	 */
+	ids?: readonly string[] | null;
 }): Prisma.TransactionWhereInput {
+	// The one conjunct every other filter here relies on. `?ids=` in particular is raw client input
+	// naming rows directly, so this equality is the whole thing standing between it and a
+	// cross-user read: `id: { in: [...] }` alone would happily return another account's rows.
 	const where: Prisma.TransactionWhereInput = { userId: input.userId };
 	// Effective-category equality (manualCategory ?? category.name) can produce two OR-shaped
 	// conditions (classify pile, category text filter) that must be ANDed together, not
@@ -75,6 +85,9 @@ export function buildTransactionWhere(input: {
 		});
 	}
 	if (input.importBatchId) where.importBatchId = input.importBatchId;
+	// `input.ids` is spread into a mutable array because Prisma's generated `in` takes `string[]`;
+	// the `!= null` test (not truthiness) is what keeps an empty list meaning "match nothing".
+	if (input.ids != null) where.id = { in: [...input.ids] };
 	if (input.from && input.to) {
 		where.date = { gte: input.from, lt: input.to };
 	}
@@ -97,6 +110,46 @@ export function normalizeSearch(value: string | null): string {
 export function normalizeId(value: string | null): string {
 	const normalized = (value ?? '').trim();
 	return /^[a-z0-9_-]{8,}$/i.test(normalized) ? normalized : '';
+}
+
+/**
+ * Hard cap on how many ids `?ids=` may put inside an `IN (...)` clause.
+ *
+ * 250 is `MAX_ANCHOR_IDS` (backup/schema.ts), the domain's own cap on the anchor ids a recurring
+ * stream stores, and the only producer of this parameter — "Voir les transactions liées" on
+ * /upcoming-bills — emits exactly those anchors. So no legitimate link can reach the cap, and any
+ * list that does is hand-written. It is not imported from the backup schema on purpose: this layer
+ * owes the query planner a bounded `IN`, which is a property of this layer, not a fact about
+ * anchors. `where.spec.ts` asserts the two stay compatible so the link cannot start being
+ * truncated by a change over there.
+ */
+export const MAX_TRANSACTION_ID_FILTER = 250;
+
+/**
+ * Parses the `?ids=` whitelist: a comma-separated list of transaction ids.
+ *
+ * Three properties this is built for, in the order they matter:
+ *  - BOUNDED IN COUNT BEFORE ANYTHING ELSE. `split`'s limit argument stops at
+ *    `MAX_TRANSACTION_ID_FILTER` segments, so a URL carrying thousands of them never materializes
+ *    thousands of strings and never reaches Prisma. Over-long lists are truncated, not rejected:
+ *    truncating degrades to "fewer rows shown", which is the same direction every other cap in
+ *    this feature degrades in, and it needs no new user-facing string.
+ *  - Each element is shape-checked by `normalizeId`, the same validator the `selected`/`importBatch`
+ *    params already go through. Anything else is dropped silently — malformed input yields a clean
+ *    empty result, never a 500.
+ *  - Absent (`null`) and present-but-empty are DIFFERENT. Absent returns `null` ("no filter");
+ *    `?ids=` or `?ids=%20,,` returns `[]`, which `buildTransactionWhere` turns into "match nothing".
+ *
+ * De-duplicated so a repeated id cannot inflate the `IN` list past the cap's intent.
+ */
+export function normalizeIdList(value: string | null): string[] | null {
+	if (value === null) return null;
+	const ids = new Set<string>();
+	for (const segment of value.split(',', MAX_TRANSACTION_ID_FILTER)) {
+		const id = normalizeId(segment);
+		if (id) ids.add(id);
+	}
+	return [...ids];
 }
 
 export function parseTransactionFilter(value: string | null): TransactionFilter {

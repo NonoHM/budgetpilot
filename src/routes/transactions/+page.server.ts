@@ -24,6 +24,7 @@ import {
 import {
 	buildTransactionWhere,
 	normalizeId,
+	normalizeIdList,
 	normalizeSearch,
 	parseTransactionDateRange,
 	parseTransactionFilter,
@@ -65,6 +66,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const toDisplay = (toParam ?? '').trim();
 	const importBatchId = normalizeId(url.searchParams.get('importBatch'));
 	const selectedId = normalizeId(url.searchParams.get('selected'));
+	// Explicit id whitelist. Deliberately NOT applied to `uncategorizedPileWhere` below: the
+	// "à classer" pile is global by design (see its comment), not a view of the current filters.
+	const ids = normalizeIdList(url.searchParams.get('ids'));
 
 	const [categories, mappings, selectedTransaction, rules, uncategorizedCategoryId] =
 		await Promise.all([
@@ -190,7 +194,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		from: dateRange?.from,
 		to: dateRange?.to,
 		importBatchId,
-		uncategorizedCategoryId
+		uncategorizedCategoryId,
+		ids
 	});
 
 	const transactionSelect = {
@@ -264,7 +269,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			category,
 			from: fromDisplay,
 			to: toDisplay,
-			importBatchId
+			importBatchId,
+			// Re-serialized from the PARSED list, never echoed from the raw param: what the page
+			// carries forward through pagination is exactly what the query ran on.
+			ids: ids ? ids.join(',') : ''
 		},
 		queryError,
 		dateRangeError,

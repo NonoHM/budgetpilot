@@ -352,22 +352,39 @@
 	}
 
 	/**
-	 * `?q=` on the transactions page is a plain accent-insensitive substring test over the RAW
-	 * `Transaction.label` (see `matchesQuery`). `row.label` is the anonymized form — digits and bank
-	 * keywords stripped, title-cased — so searching it finds nothing ("Netflix Com" is not a
-	 * substring of "NETFLIX.COM"). The action therefore uses the same raw, capped label the row's
-	 * hidden fields already carry.
+	 * Links by transaction ID, not by label — the link carries no merchant string at all.
 	 *
-	 * This is NOT free, and the earlier "no new exposure" note here was wrong. The string was
-	 * already in this page's DOM, but a query parameter also reaches browser history and — the part
-	 * that matters — a reverse proxy's access log, a plaintext file that gets tailed, rotated and
-	 * shipped off the host. `Caddyfile.example` drops `q` for exactly this reason, next to the
-	 * `code`/`state` filter it now sits beside; an operator running a different proxy has to do the
-	 * same. `encodeURIComponent` is also load-bearing: it stops a label containing `&qMode=regex`
-	 * from smuggling a second parameter into the link.
+	 * This used to be `?q=<raw bank label>`, because `?q=` is an accent-insensitive substring test
+	 * over the RAW `Transaction.label` and `row.label` is the anonymized form ("Netflix Com" is not
+	 * a substring of "NETFLIX.COM"), so only the raw label matched. That put a merchant name in the
+	 * URL bar, in browser history and in every reverse-proxy access log — a plaintext file that
+	 * gets tailed, rotated and shipped off the host. `?ids=` removes the string rather than
+	 * mitigating its exposure; opaque cuids are all that is left to log. `Caddyfile.example` still
+	 * drops `q`, and must keep doing so: it now covers the user's own typed searches instead of
+	 * this link.
+	 *
+	 * The tradeoff, stated because it is real: `?q=` matched the stream's FULL history, including
+	 * occurrences no anchor was ever recorded for; `?ids=` shows only the recorded anchors, capped
+	 * at `MAX_ANCHOR_IDS` and newest-kept. For a long-lived stream that is a strictly smaller set.
+	 *
+	 * `anchorTransactionIds` arrives as the JSON array the action forms post back, so it is parsed
+	 * here rather than re-derived; a malformed cell degrades to an empty list, which the server
+	 * reads as "match nothing" — never as "no filter". The server re-validates every element
+	 * anyway (`normalizeIdList`) and scopes the query by `userId`; nothing here is a trust boundary.
 	 */
 	function transactionsHref(row: UpcomingBillRowView) {
-		return `/transactions?q=${encodeURIComponent(row.actionPayload.label)}` as const;
+		return `/transactions?ids=${encodeURIComponent(parseAnchorIds(row).join(','))}` as const;
+	}
+
+	function parseAnchorIds(row: UpcomingBillRowView): string[] {
+		try {
+			const parsed: unknown = JSON.parse(row.actionPayload.anchorTransactionIds);
+			return Array.isArray(parsed)
+				? parsed.filter((id): id is string => typeof id === 'string')
+				: [];
+		} catch {
+			return [];
+		}
 	}
 
 	/** Header line of the action sheet: date · amount · lateness (design C2). */
