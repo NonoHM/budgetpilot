@@ -26,6 +26,7 @@ const db = vi.hoisted(() => ({
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
 const {
+	getCurrentBillsMonth,
 	loadUpcomingBillsMonth,
 	loadUpcomingBillsWidget,
 	recordStreamAction,
@@ -159,6 +160,33 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.useRealTimers();
+});
+
+describe('getCurrentBillsMonth', () => {
+	// Pinned against a REVERT to the local-clock `getCurrentMonth()`, which nothing else would catch:
+	// `isCurrentMonth` / `isFutureMonth` are derived from a UTC `todayIso`, so a local-month default
+	// makes the load resolve one month while the view labels it another — the page loses "Ce mois"
+	// and renders "Revenir à ce mois" as a link to the page it is already on.
+	//
+	// The timezone has to be moved for the assertion to mean anything: on a UTC host both
+	// implementations agree at every instant, and this test would pass on the broken one. Node
+	// re-reads `process.env.TZ` on assignment (tzset), so the swap takes effect in-process.
+	const originalTz = process.env.TZ;
+
+	afterEach(() => {
+		if (originalTz === undefined) delete process.env.TZ;
+		else process.env.TZ = originalTz;
+	});
+
+	it('rend le mois UTC, pas le mois local, à la bascule de minuit sur un hôte à décalage positif', () => {
+		process.env.TZ = 'Europe/Paris';
+		vi.setSystemTime(new Date('2026-07-31T23:30:00.000Z'));
+
+		// The host clock really is on the next month locally — otherwise the assertion below is
+		// vacuous, which is the exact failure mode this test exists to avoid.
+		expect(new Date().getMonth() + 1).toBe(8);
+		expect(getCurrentBillsMonth()).toBe('2026-07');
+	});
 });
 
 describe('loadUpcomingBillsMonth', () => {

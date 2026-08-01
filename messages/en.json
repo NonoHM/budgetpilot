@@ -990,6 +990,7 @@
 	"bills_header_meta_future": "{count} recurring flows · expected in {month} {expense} for {income}",
 	"bills_header_meta_past": "{count} recurring flows · {month} bills",
 	"bills_header_meta_short": "Still to pay {amount}",
+	"bills_header_meta_short_past": "{month} bills",
 	"bills_back_to_current": "Back to this month",
 	"bills_period_prev_aria": "Previous period",
 	"bills_period_next_aria": "Next period",

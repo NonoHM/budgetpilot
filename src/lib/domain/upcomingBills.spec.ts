@@ -12,6 +12,7 @@ import {
 	buildBillOccurrences,
 	computeOccurrenceStatus,
 	computeTotals,
+	formatAmountRangeBounds,
 	listObservationCandidates,
 	occurrenceActionWindowDays,
 	type BillOccurrence,
@@ -987,6 +988,49 @@ describe('listObservationCandidates', () => {
 			'GARAGE',
 			'PISCINE'
 		]);
+	});
+});
+
+// Both surfaces call this helper and neither had a direct test of it. The PREFIX locale is the half
+// that was never exercised at all: `fr` puts the symbol last, so the `symbolLast` branch is the only
+// one two component specs could reach.
+describe('formatAmountRangeBounds', () => {
+	it('garde le symbole une seule fois — sur le max en locale suffixe (fr)', () => {
+		expect.assertions(4);
+
+		const { min, max } = formatAmountRangeBounds(7_400, 9_600, '−', 'fr');
+
+		expect(min).not.toContain('€');
+		expect(max).toContain('€');
+		// The sign stays on BOTH bounds: it is the only thing distinguishing a variable income from a
+		// variable expense in text, and colour is not allowed to carry that alone.
+		expect(min.startsWith('−')).toBe(true);
+		expect(max.startsWith('−')).toBe(true);
+	});
+
+	it('garde le symbole une seule fois — sur le MIN en locale préfixe (en), le signe restant sur les deux', () => {
+		expect.assertions(5);
+
+		const { min, max } = formatAmountRangeBounds(7_400, 9_600, '−', 'en');
+
+		// `en` prints "€74", so the symbol moves to the bound it sits next to — the lower one.
+		expect(min).toContain('€');
+		expect(max).not.toContain('€');
+		expect(min.startsWith('−')).toBe(true);
+		expect(max.startsWith('−')).toBe(true);
+		// One occurrence across the pair, never two.
+		expect(`${min}${max}`.split('€').length - 1).toBe(1);
+	});
+
+	it("applique le signe positif tel quel et arrondit à l'euro", () => {
+		expect.assertions(2);
+
+		const { min, max } = formatAmountRangeBounds(7_449, 9_649, '+', 'fr');
+
+		expect(min.startsWith('+')).toBe(true);
+		// Rounded to the euro on both bounds: a ",00 €" on an observed bound would assert a precision
+		// that does not exist. `,` / `.` is left to Intl, so only the absence of decimals is pinned.
+		expect(`${min}${max}`).not.toMatch(/[.,]\d/);
 	});
 });
 

@@ -101,9 +101,17 @@
 	const noStreamsAtAll = $derived(bills.streamCount === 0);
 	/**
 	 * The service computes BOTH `isCurrentMonth` and `isFutureMonth`, so "not current" is two states,
-	 * not one. A past month is where the future wording was wrong: `projectFlowOccurrences` cannot
-	 * emit an occurrence at or before `flow.lastDate`, so a month that is over holds realized rows
-	 * only and both period totals are structurally zero — "prévu en juin 0,00 € pour +0,00 €".
+	 * not one. A past month is where the future wording was wrong — "prévu en juin 0,00 € pour
+	 * +0,00 €" — and both header surfaces drop the period figures there.
+	 *
+	 * The reason is the TENSE, not the value: on a period that is over, "reste à sortir" / "prévu"
+	 * is not a meaningful claim whatever the number happens to be. Do NOT restate this as "the
+	 * totals are structurally zero on a past month" — they are not. `projectFlowOccurrences`
+	 * projects forward from `flow.lastDate` regardless of today, and `detectRecurringFlows` has no
+	 * recency guard, so a stream that stopped in March is still detected from the 12-month lookback
+	 * and projects into June; viewing June in August gives those rows `status: 'overdue'`
+	 * (`computeOccurrenceStatus` compares against `todayIso`, not against the period) and
+	 * `countsInRemainingTotal: true`, so `remainingExpenseCents` can be non-zero here.
 	 */
 	const isPastMonth = $derived(!bills.isCurrentMonth && !bills.isFutureMonth);
 	/** Streams exist, this particular period just holds none of them. */
@@ -636,8 +644,8 @@
 							amount: formatCents(bills.remainingExpenseCents)
 						})}
 					{:else if isPastMonth}
-						<!-- No figure: both totals are zero by construction on a month that is over (see
-						     `isPastMonth`), and a zero presented as a balance would read as a claim. -->
+						<!-- No figure: on a period that is over, "reste à sortir" is not a meaningful claim
+						     whatever its value — and the value is NOT always zero (see `isPastMonth`). -->
 						{m.bills_header_meta_past({ count: bills.streamCount, month: monthName })}
 					{:else}
 						{m.bills_header_meta_future({
@@ -648,8 +656,15 @@
 						})}
 					{/if}
 				</p>
+				<!-- Mobile keeps only the figure the user acts on — but it is the same claim as the
+				     desktop line, so it takes the same past-month branch. `lg:hidden` is CSS: this node
+				     is in the DOM (and in `textContent`) at every width. -->
 				<p class="mt-1 text-sm text-zinc-500 lg:hidden">
-					{m.bills_header_meta_short({ amount: formatCents(bills.remainingExpenseCents) })}
+					{#if isPastMonth}
+						{m.bills_header_meta_short_past({ month: monthName })}
+					{:else}
+						{m.bills_header_meta_short({ amount: formatCents(bills.remainingExpenseCents) })}
+					{/if}
 				</p>
 			</div>
 			{#if !bills.isCurrentMonth}

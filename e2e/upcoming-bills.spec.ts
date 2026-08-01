@@ -33,6 +33,14 @@ const IGNORED_BANNER = m.bills_banner_ignored({
 	month: formatMonthLabel(PREVIOUS_MONTH_KEY, 'fr')
 });
 
+/** The one exception to "everything lives in the previous month", used by the remaining-total test
+ *  below: a period that is OVER carries no "reste à sortir" figure on either header surface, so the
+ *  claim that test makes has no rendering surface there. See its own comment. */
+const CURRENT_MONTH_URL = `/upcoming-bills?month=${CURRENT_MONTH_KEY}`;
+const IGNORED_BANNER_CURRENT = m.bills_banner_ignored({
+	month: formatMonthLabel(CURRENT_MONTH_KEY, 'fr')
+});
+
 test.beforeAll(async () => {
 	await seedBillStreams();
 });
@@ -152,7 +160,11 @@ function parseCents(text: string): number {
 }
 
 /** The period's "reste \u00e0 sortir" total, read off the mobile header line \u2014 the one place it appears
- *  as a lone figure. `textContent` does not require visibility, so this works on both breakpoints. */
+ *  as a lone figure. `textContent` does not require visibility, so this works on both breakpoints.
+ *
+ *  Only meaningful on a CURRENT or FUTURE period: on a month that is over both header surfaces drop
+ *  the figure, because "reste \u00e0 sortir" is not a claim a finished period can make. Calling this on
+ *  `PREVIOUS_MONTH_URL` throws out of `parseCents` rather than reading a stale number. */
 async function remainingExpenseCents(page: Page): Promise<number> {
 	const text = await page.locator('header p.lg\\:hidden').first().textContent();
 	return parseCents(text ?? '');
@@ -613,10 +625,14 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 		}
 	});
 
+	// The one test on the CURRENT month, and deliberately so: its subject is the "reste à sortir"
+	// figure, which a period that is over does not print on either header surface. `OVERDUE_GYM`'s
+	// last real occurrence is two months back, so the monthly projection puts an unsettled — hence
+	// counted — occurrence in this month as well as in the previous one.
 	test('ignoring an expense lowers "reste à sortir" by its amount, and undoing restores it', async ({
 		page
 	}) => {
-		await page.goto(PREVIOUS_MONTH_URL);
+		await page.goto(CURRENT_MONTH_URL);
 
 		const before = await remainingExpenseCents(page);
 
@@ -626,7 +642,7 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 			.getByRole('button', { name: /Ignorer pour/ })
 			.click();
 		await expect(billRow(page, OVERDUE_GYM.display).getByText(m.bills_restore())).toBeVisible();
-		const banner = page.getByRole('status').filter({ hasText: IGNORED_BANNER });
+		const banner = page.getByRole('status').filter({ hasText: IGNORED_BANNER_CURRENT });
 		const actionId = await bannerActionId(page);
 		let undone = false;
 

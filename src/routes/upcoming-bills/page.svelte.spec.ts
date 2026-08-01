@@ -4,7 +4,8 @@ import { render } from 'vitest-browser-svelte';
 import type { SubmitFunction } from '@sveltejs/kit';
 import '../layout.css';
 import Page from './+page.svelte';
-import { toBillRowDomKey } from '$lib/domain/upcomingBills';
+import { formatAmountRangeBounds, toBillRowDomKey } from '$lib/domain/upcomingBills';
+import { formatCents } from '$lib/domain/budget';
 import type { UpcomingBillRowView } from '$lib/server/upcoming-bills/service';
 import type { PageData } from './$types';
 
@@ -263,12 +264,18 @@ describe('/upcoming-bills page', () => {
 		expect(container.querySelectorAll('[role="listitem"]').length).toBe(3);
 	});
 
-	// F1, written RED against the previous code: the header, the settled heading and the nothing-due
-	// title all branched on `isCurrentMonth` alone, so ONE click on "Période précédente" rendered
-	// future-tense copy over two structurally-zero figures ("prévu en juin 0,00 € pour +0,00 €") —
-	// `projectFlowOccurrences` cannot emit an occurrence at or before `flow.lastDate`, so a past
-	// month holds realized rows only.
-	it('renders past-tense copy on a past month, never the future wording or its zeroed totals', async () => {
+	// F1 + G1, both written RED against the code of their day: the header, the settled heading and
+	// the nothing-due title all branched on `isCurrentMonth` alone, so ONE click on "Période
+	// précédente" rendered future-tense copy over a zero ("prévu en juin 0,00 € pour +0,00 €"); the
+	// fix reached the desktop line only, and the `lg:hidden` mobile one kept saying "Reste à sortir
+	// 0,00 €". Both surfaces are asserted from ONE render because `lg:hidden` is CSS — the node is in
+	// the DOM, and in `textContent`, at every width.
+	//
+	// The zero is matched through `formatCents`, never typed out: `Intl` puts a NARROW NO-BREAK SPACE
+	// (U+202F) before "€", so the hand-written literal '0,00 €' with an ASCII U+0020 could not match
+	// anything and this assertion could never fail. Same fact, same workaround, as
+	// UpcomingBillsCard.svelte.spec.ts.
+	it('renders past-tense copy on a past month, never the future wording or a zeroed total, on EITHER surface', async () => {
 		const { container } = render(Page, {
 			data: buildData({
 				month: '2026-06',
@@ -291,11 +298,84 @@ describe('/upcoming-bills page', () => {
 
 		const text = container.textContent ?? '';
 		expect(text).not.toContain('prévu en');
-		expect(text).not.toContain('0,00 €');
-		expect(text).toContain('échéances de juin');
+		expect(text).not.toContain(formatCents(0));
+		// The mobile line's own present-tense claim, gone whatever figure follows it.
+		expect(text).not.toContain('Reste à sortir');
+		expect(text).toContain('échéances en juin');
+		expect(text).toContain('Échéances en juin');
 		// "Réglées ce mois" is false on a month that is over.
 		expect(text).not.toContain('Réglées ce mois');
 		expect(text).toContain('Réglées en juin');
+	});
+
+	// The other half of G1: the past-month branch must not depend on the total being zero, because it
+	// is not always zero. A stream that stopped months ago still projects into this period and its
+	// rows come back `overdue` / `countsInRemainingTotal: true`, so `remainingExpenseCents` is real —
+	// and the header still owes no "reste à sortir" claim for a period that is over.
+	it('drops the present-tense header on a past month even when its remaining total is NOT zero', async () => {
+		const { container } = render(Page, {
+			data: buildData({
+				month: '2026-06',
+				isCurrentMonth: false,
+				isFutureMonth: false,
+				streamCount: 9,
+				remainingExpenseCents: 41_230,
+				expectedIncomeCents: 320_000,
+				rows: [
+					buildRow({
+						rowKey: 'expense:netflix:2026-06-30:0',
+						dateIso: '2026-06-30',
+						status: 'overdue',
+						daysLate: 31
+					})
+				]
+			})
+		});
+
+		const text = container.textContent ?? '';
+		expect(text).not.toContain('Reste à sortir');
+		expect(text).not.toContain('reste à sortir');
+		expect(text).not.toContain('prévu en');
+		expect(text).toContain('Échéances en juin');
+	});
+
+	// The page half of `formatAmountRangeBounds`: only the widget's use of the shared helper is
+	// exercised today. Asserted on a PAST month, where the row still has to render its bounds.
+	it('prints a variable amount as a range with one currency symbol, on a past month too', async () => {
+		const { container } = render(Page, {
+			data: buildData({
+				month: '2026-06',
+				isCurrentMonth: false,
+				isFutureMonth: false,
+				streamCount: 2,
+				remainingExpenseCents: 0,
+				rows: [
+					buildRow({
+						rowKey: 'expense:edf:2026-06-15:0',
+						label: 'EDF',
+						dateIso: '2026-06-15',
+						status: 'settled',
+						settledKind: 'auto',
+						countsInRemainingTotal: false,
+						amountCents: -7_400,
+						averageAmountCents: 8_500,
+						minAmountCents: 7_400,
+						maxAmountCents: 9_600,
+						variability: 'variable'
+					})
+				]
+			})
+		});
+
+		const { min, max } = formatAmountRangeBounds(7_400, 9_600, '−', 'fr');
+		const text = container.textContent ?? '';
+		// Built through the helper, not typed: fr's grouping and currency spaces are non-ASCII.
+		expect(text).toContain(`${min} à ${max}`);
+		// The symbol appears once in the range; the sign is on both bounds.
+		expect(min).not.toContain('€');
+		expect(max).toContain('€');
+		expect(min.startsWith('−')).toBe(true);
+		expect(max.startsWith('−')).toBe(true);
 	});
 
 	it('titles an empty past month without claiming anything is still expected', async () => {
