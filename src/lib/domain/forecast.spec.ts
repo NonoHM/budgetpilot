@@ -7,6 +7,7 @@ import {
 	computeStaleAfterDays,
 	detectionEndExclusive,
 	detectRecurringFlows,
+	feedsCashFlowProjection,
 	getCadenceToleranceDays,
 	getFlowAmountVariability,
 	getFlowDisplayTier,
@@ -826,21 +827,29 @@ describe('buildRealizedLedgerDays', () => {
 
 describe('detectionEndExclusive', () => {
 	it('is midnight UTC of the day after todayIso', () => {
+		expect.assertions(1);
+
 		expect(detectionEndExclusive('2026-07-14').toISOString()).toBe('2026-07-15T00:00:00.000Z');
 	});
 
 	it('includes a transaction dated todayIso, at any time of day', () => {
+		expect.assertions(2);
+
 		const bound = detectionEndExclusive('2026-07-14').getTime();
 		expect(new Date('2026-07-14T00:00:00.000Z').getTime() < bound).toBe(true);
 		expect(new Date('2026-07-14T23:59:59.999Z').getTime() < bound).toBe(true);
 	});
 
 	it('excludes a transaction dated the day after todayIso', () => {
+		expect.assertions(1);
+
 		const bound = detectionEndExclusive('2026-07-14').getTime();
 		expect(new Date('2026-07-15T00:00:00.000Z').getTime() < bound).toBe(false);
 	});
 
 	it('rolls a month/year boundary the same way toEpochDay-based arithmetic elsewhere does', () => {
+		expect.assertions(1);
+
 		expect(detectionEndExclusive('2026-12-31').toISOString()).toBe('2027-01-01T00:00:00.000Z');
 	});
 });
@@ -963,5 +972,66 @@ describe('isReliableConfirmedFlow', () => {
 			expect(largeFlow?.minAmountCents).toBe(11900);
 			expect(largeFlow?.maxAmountCents).toBe(12100);
 		});
+	});
+});
+
+// This branch's central shared predicate (server/forecast/index.ts's projection filter and
+// toDisplayCashFlowForecast's feedsProjection flag both route through it, see that file) was
+// previously only exercised transitively, through toDisplayCashFlowForecast. A direct truth
+// table at the domain level over the two axes it combines (reliable/not, live/stale).
+describe('feedsCashFlowProjection', () => {
+	const TODAY_ISO = '2026-01-15';
+
+	// Monthly, CV 0 -> computeStaleAfterDays = 30 (median) + 5 (cadence tolerance) + 0 = 35.
+	const monthlyBase = {
+		cadence: 'monthly' as const,
+		medianIntervalDays: 30,
+		intervalCoefficientOfVariation: 0
+	};
+	const liveLastDate = '2026-01-01'; // 14 days silent, well inside 35.
+	const staleLastDate = '2025-11-01'; // 75 days silent, well past 35.
+
+	it('reliable and live: true', () => {
+		expect.assertions(1);
+
+		expect(
+			feedsCashFlowProjection(
+				{ ...monthlyBase, status: 'confirmed', confidence: 'high', lastDate: liveLastDate },
+				TODAY_ISO
+			)
+		).toBe(true);
+	});
+
+	it('reliable and stale: false', () => {
+		expect.assertions(1);
+
+		expect(
+			feedsCashFlowProjection(
+				{ ...monthlyBase, status: 'confirmed', confidence: 'high', lastDate: staleLastDate },
+				TODAY_ISO
+			)
+		).toBe(false);
+	});
+
+	it('tentative and live: false', () => {
+		expect.assertions(1);
+
+		expect(
+			feedsCashFlowProjection(
+				{ ...monthlyBase, status: 'tentative', confidence: 'high', lastDate: liveLastDate },
+				TODAY_ISO
+			)
+		).toBe(false);
+	});
+
+	it('tentative and stale: false', () => {
+		expect.assertions(1);
+
+		expect(
+			feedsCashFlowProjection(
+				{ ...monthlyBase, status: 'tentative', confidence: 'high', lastDate: staleLastDate },
+				TODAY_ISO
+			)
+		).toBe(false);
 	});
 });

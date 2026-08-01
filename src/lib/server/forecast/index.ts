@@ -227,7 +227,7 @@ export interface CashFlowLedgerDayView {
  *    the pre-existing copy's remedy ("wait for more occurrences") cannot help.
  * `null` when a live reliable-confirmed flow exists (`feedsProjection` true on at least one
  * flow) — the empty state isn't rendered at all in that case, so callers only need to switch on
- * this value inside the `!hasConfirmedForecastFlows` branch.
+ * this value inside their `emptyState !== null` branch.
  * Computed here, from the exact same inputs `feedsProjection` uses per flow, so the two can never
  * drift apart the way the single collapsed boolean did.
  */

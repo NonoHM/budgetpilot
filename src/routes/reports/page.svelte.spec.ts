@@ -72,26 +72,38 @@ function buildData(emptyState: PageData['cashFlowForecast']['emptyState']): Page
 
 describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("renders the 'nothing detected yet' copy when emptyState is 'none-detected'", async () => {
+		expect.assertions(3);
+
 		const screen = render(Page, { data: buildData('none-detected') });
 
 		await expect.element(screen.getByText(m.reports_forecast_empty_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_stale_title());
+		// The chart only renders on the populated branch (emptyState === null) — its own caption,
+		// carried both as the SVG's aria-label and the sr-only table's <caption>, must be absent here.
+		expect(screen.container.textContent).not.toContain(m.forecast_chart_caption());
 	});
 
 	it("renders the 'gone stale' copy when emptyState is 'all-stale'", async () => {
+		expect.assertions(3);
+
 		const screen = render(Page, { data: buildData('all-stale') });
 
 		await expect.element(screen.getByText(m.reports_forecast_stale_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_empty_title());
+		expect(screen.container.textContent).not.toContain(m.forecast_chart_caption());
 	});
 
 	/**
 	 * Fix round 1, IMPORTANT #1: the CTA (`reports_forecast_empty_cta`, linking to
 	 * `#annexe-recurrences`) is not a remedy — it's "here is what was detected" — so both empty
-	 * branches keep it. `all-stale` in particular means at least one flow WAS reliable-confirmed,
-	 * so the annexe table it links to certainly has rows.
+	 * branches keep it. It is NOT proven to have anything to scroll to: the annexe table is
+	 * `report.recurringPayments`, built from the selected period's expenses only, unrelated to the
+	 * 12-month detector `emptyState` is computed from — see the CTA's own comment in `+page.svelte`
+	 * for the full reasoning and the dead-anchor case this does not fix.
 	 */
 	it("renders the annexe-recurrences CTA in the 'none-detected' branch", async () => {
+		expect.assertions(2);
+
 		const screen = render(Page, { data: buildData('none-detected') });
 
 		const cta = screen.container.querySelector('a[href="#annexe-recurrences"]');
@@ -100,6 +112,8 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	});
 
 	it("renders the same annexe-recurrences CTA in the 'all-stale' branch", async () => {
+		expect.assertions(2);
+
 		const screen = render(Page, { data: buildData('all-stale') });
 
 		const cta = screen.container.querySelector('a[href="#annexe-recurrences"]');
@@ -114,6 +128,8 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	 * render path that coupling used to guard and is otherwise unexercised by the two tests above.
 	 */
 	it('renders the populated forecast (chart + flows table), not an empty state, when emptyState is null', async () => {
+		expect.assertions(4);
+
 		const data = buildData(null);
 		data.cashFlowForecast.flows = [
 			{
@@ -131,12 +147,15 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 
 		const screen = render(Page, { data });
 
-		// Both a desktop and a mobile copy of the flows table render simultaneously (CSS hides one
-		// per breakpoint) — `.first()` avoids the strict-mode duplicate-match failure that would
-		// otherwise come from the layout, not from this test's own logic.
+		// A desktop and a mobile copy of the flows table render simultaneously (CSS hides one per
+		// breakpoint, not the DOM). Asserting a length of 2 — not `.first()` — so a regression that
+		// stops one copy from rendering (e.g. a breakpoint class typo) fails this test instead of
+		// staying green on the surviving copy: the "filtered to the expected set before comparing"
+		// shape this project has been bitten by before.
 		await expect
 			.element(screen.getByText(m.reports_forecast_flows_title()).first())
 			.toBeInTheDocument();
+		expect(screen.getByText(m.reports_forecast_flows_title()).elements()).toHaveLength(2);
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_empty_title());
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_stale_title());
 	});

@@ -195,6 +195,9 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 
 		await expect.element(screen.getByText(m.dashboard_forecast_empty_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.dashboard_forecast_stale_title());
+		// The chart only renders on the populated branch (emptyState === null) — its own caption,
+		// carried both as the SVG's aria-label and the sr-only table's <caption>, must be absent here.
+		expect(screen.container.textContent).not.toContain(m.forecast_chart_caption());
 	});
 
 	it("renders the 'gone stale' copy when emptyState is 'all-stale'", async () => {
@@ -208,13 +211,16 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 
 		await expect.element(screen.getByText(m.dashboard_forecast_stale_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.dashboard_forecast_empty_title());
+		expect(screen.container.textContent).not.toContain(m.forecast_chart_caption());
 	});
 
 	/**
 	 * Fix round 1, IMPORTANT #1: the CTA (`dashboard_forecast_empty_cta`, linking to
 	 * `/reports#annexe-recurrences`) is not a remedy — it's "here is what was detected" — so both
-	 * empty branches keep it. `all-stale` in particular means at least one flow WAS
-	 * reliable-confirmed, so the annexe table it links to certainly has rows.
+	 * empty branches keep it. It is NOT proven to have anything to scroll to on /reports: that
+	 * page's annexe table is `report.recurringPayments`, built from the selected period's expenses
+	 * only, unrelated to the 12-month detector `emptyState` is computed from — see the CTA's own
+	 * comment in `/+page.svelte` for the full reasoning and the dead-anchor case this does not fix.
 	 */
 	it("renders the annexe-recurrences CTA in the 'none-detected' branch", async () => {
 		const screen = render(Page, {
