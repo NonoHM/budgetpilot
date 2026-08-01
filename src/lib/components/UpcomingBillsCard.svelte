@@ -121,7 +121,28 @@
 		</svg>
 	{/snippet}
 
-	{#if !widget.hasStreams}
+	{#if !widget.hasStreams && widget.emptyState === 'all-stale'}
+		<!-- Every stream survives exclusions but has gone quiet longer than one tolerated cycle
+		     (task 2026-08-02, follow-up to #97): the "no flow ever detected" copy below and its
+		     "Importer" CTA would both be false claims for a user who already has a cancelled
+		     subscription on file.
+
+		     DELIBERATELY its own copy, not `m.dashboard_forecast_stale_*` — the forecast card
+		     directly below this one (`+page.svelte`) reaches `emptyState === 'all-stale'` under the
+		     same condition whenever the stale stream is also reliable-confirmed, and the two cards
+		     are adjacent siblings on the SAME page. Reusing "Récurrences en veille" there would stack
+		     two empty cards with an identical title. This card names the consequence for upcoming
+		     bills specifically ("plus d'échéance"); the forecast card owns "Récurrences en veille"
+		     (see `page.svelte.spec.ts`, "renders two distinct all-stale empty cards, never the same
+		     title twice"). -->
+		<EmptyState
+			class="mt-3"
+			card={false}
+			icon={emptyIcon}
+			title={m.dashboard_upcoming_stale_title()}
+			description={m.dashboard_upcoming_stale_description()}
+		/>
+	{:else if !widget.hasStreams}
 		<!-- No recurring flow ever detected: EmptyState explains what the engine needs. -->
 		<EmptyState
 			class="mt-3"

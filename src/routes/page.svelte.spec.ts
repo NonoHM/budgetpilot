@@ -66,6 +66,9 @@ function buildData(
 		budgets?: PageData['budgets'];
 		savingsGoals?: PageData['savingsGoals'];
 		upcomingBillsHasStreams?: boolean;
+		/** See `PageData['upcomingBills']['emptyState']`. Only 'all-stale' widens `showDashboardBody`
+		 *  on its own; left `null` by default like the ordinary populated case. */
+		upcomingBillsEmptyState?: PageData['upcomingBills']['emptyState'];
 		cashFlowForecast?: PageData['cashFlowForecast'];
 	} = {}
 ): PageData {
@@ -74,6 +77,7 @@ function buildData(
 		budgets = [],
 		savingsGoals = [],
 		upcomingBillsHasStreams = false,
+		upcomingBillsEmptyState = null,
 		cashFlowForecast = EMPTY_FORECAST
 	} = overrides;
 
@@ -109,6 +113,7 @@ function buildData(
 			overdueCount: 0,
 			remainingExpenseCents: 0,
 			hasStreams: upcomingBillsHasStreams,
+			emptyState: upcomingBillsEmptyState,
 			todayIso: TODAY_ISO
 		}
 	} as PageData;
@@ -152,6 +157,49 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 
 		const importLink = screen.container.querySelector('a[href="/import"]');
 		expect(importLink).not.toBeNull();
+	});
+
+	/**
+	 * Task 2026-08-02, follow-up to #97: `hasStreams` now excludes stale streams (so the widget can
+	 * tell "no flow ever detected" apart from "en veille"), which on its own would have narrowed
+	 * this gate for a user whose only detected stream went stale — reopening the exact regression
+	 * the comment above this gate documents. `emptyState === 'all-stale'` restores the original
+	 * "any stream ever detected, live or stale" reach.
+	 */
+	it('still widens the body for a period with no activity when the only detected stream is stale', async () => {
+		expect.assertions(2);
+		const screen = render(Page, {
+			data: buildData({ upcomingBillsHasStreams: false, upcomingBillsEmptyState: 'all-stale' }),
+			form: null as ActionData
+		});
+
+		await expect.element(screen.getByText(m.dashboard_upcoming_title())).toBeInTheDocument();
+		expect(screen.container.textContent).not.toContain(m.dashboard_empty_heading());
+	});
+
+	/**
+	 * Fix round 1, IMPORTANT #1: the widget's own all-stale copy is deliberately distinct from the
+	 * forecast card's (`m.dashboard_forecast_stale_title()`), because a user whose only stream is a
+	 * cancelled but reliable-confirmed subscription reaches `emptyState: 'all-stale'` on BOTH
+	 * surfaces at once, and the two cards are adjacent siblings on this same page — reusing one
+	 * title would stack two empty cards reading the same thing. Pinned here rather than left to two
+	 * separate specs staying accidentally in sync, since neither surface's own test can see the
+	 * other's copy.
+	 */
+	it('renders two distinct all-stale empty cards, never the same title twice', async () => {
+		expect.assertions(3);
+		const screen = render(Page, {
+			data: buildData({
+				upcomingBillsHasStreams: false,
+				upcomingBillsEmptyState: 'all-stale',
+				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'all-stale' }
+			}),
+			form: null as ActionData
+		});
+
+		await expect.element(screen.getByText(m.dashboard_upcoming_stale_title())).toBeInTheDocument();
+		await expect.element(screen.getByText(m.dashboard_forecast_stale_title())).toBeInTheDocument();
+		expect(m.dashboard_upcoming_stale_title()).not.toBe(m.dashboard_forecast_stale_title());
 	});
 
 	it('still renders the widget in the ordinary populated case', async () => {

@@ -5,6 +5,7 @@ import '../../routes/layout.css';
 import UpcomingBillsCard from './UpcomingBillsCard.svelte';
 import { formatCents } from '$lib/domain/budget';
 import { formatShortDate } from '$lib/domain/dateFormat';
+import * as m from '$lib/paraglide/messages';
 import type {
 	UpcomingBillRowView,
 	UpcomingBillsWidgetView
@@ -52,6 +53,7 @@ function buildWidget(overrides: Partial<UpcomingBillsWidgetView> = {}): Upcoming
 		overdueCount: 0,
 		remainingExpenseCents: 4500,
 		hasStreams: true,
+		emptyState: null,
 		todayIso: TODAY_ISO,
 		...overrides
 	};
@@ -181,6 +183,11 @@ describe('UpcomingBillsCard.svelte', () => {
 				rows: [],
 				overdueCount: 0,
 				hasStreams: false,
+				// `emptyState` pinned rather than left at the default `null`: the service can never
+				// produce `hasStreams: false` together with `emptyState: null` (`hasStreams ===
+				// (emptyState === null)` by construction), and this fixture is specifically testing
+				// the "no flow ever detected" branch, not the all-stale one.
+				emptyState: 'none-detected',
 				remainingExpenseCents: 0
 			})
 		});
@@ -205,6 +212,30 @@ describe('UpcomingBillsCard.svelte', () => {
 		// Must NOT reuse the "nothing detected" copy — streams WERE detected, just none are due.
 		expect(page.getByText('Aucun flux détecté').elements().length).toBe(0);
 		expect(page.getByText('Reste à sortir · 30 prochains jours').elements().length).toBe(0);
+	});
+
+	// Task 2026-08-02, follow-up to #97: an all-stale user is a THIRD state, distinct from both
+	// "no flow ever detected" (wrong CTA: "Importer" cannot help a stream that already stopped) and
+	// "streams exist, none due right now" (that copy is not false for an all-stale user, but the
+	// dormant-flow copy is the more accurate one — mirrors the dashboard forecast card's own
+	// `emptyState === 'all-stale'` branch).
+	it('renders the dormant-flow copy, in the empty branch, for the all-stale state', async () => {
+		expect.assertions(4);
+		const { container } = render(UpcomingBillsCard, {
+			widget: buildWidget({
+				rows: [],
+				overdueCount: 0,
+				hasStreams: false,
+				emptyState: 'all-stale',
+				remainingExpenseCents: 0
+			})
+		});
+
+		await expect.element(page.getByText(m.dashboard_upcoming_stale_title())).toBeInTheDocument();
+		expect(container.textContent).toContain(m.dashboard_upcoming_stale_description());
+		// Neither of the other two empty copies leaks in.
+		expect(page.getByText(m.dashboard_upcoming_empty_title()).elements().length).toBe(0);
+		expect(page.getByText(m.dashboard_upcoming_none_due_title()).elements().length).toBe(0);
 	});
 
 	it('hides rows past index 2 below lg and keeps the first 3 visible on both breakpoints', async () => {
@@ -378,6 +409,8 @@ describe('UpcomingBillsCard.svelte', () => {
 				rows: [],
 				overdueCount: 0,
 				hasStreams: false,
+				// See the "no stream was ever detected" test above for why this is pinned.
+				emptyState: 'none-detected',
 				remainingExpenseCents: 0
 			})
 		});

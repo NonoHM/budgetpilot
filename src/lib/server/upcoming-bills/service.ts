@@ -4,6 +4,7 @@ import {
 	detectionEndExclusive,
 	detectRecurringFlows,
 	getFlowAmountVariability,
+	isStreamStale,
 	median,
 	type FlowAmountVariability,
 	type FlowCadence,
@@ -201,6 +202,37 @@ export interface ExcludedStreamView {
 	initials: string;
 }
 
+/**
+ * Distinguishes the two reasons a surface can have nothing LIVE to show, mirroring
+ * `CashFlowForecastEmptyState` (`server/forecast/index.ts`) so all three surfaces read the same
+ * way:
+ *  - 'none-detected': no flow survives the user's exclusions at all (`streamCount === 0`).
+ *  - 'all-stale': at least one flow survives exclusions, but every one of them is stale
+ *    (`isStreamStale`) — a subscription cancelled months ago, still inside the 12-month lookback
+ *    and therefore still counted in `streamCount`, but never projected again.
+ *
+ * `null` when at least one LIVE (non-stale) stream survives exclusions.
+ *
+ * Deliberately NOT the same predicate as `streamCount`/`hasStreams`: those two still count a
+ * stale stream (see the trap documented at `streamCount` and at `hasStreams` below — the period
+ * navigator, and a past month's already-realized rows, both need it). This field is the one
+ * copy should switch on.
+ */
+export type UpcomingBillsEmptyState = 'none-detected' | 'all-stale';
+
+/**
+ * Shared by `loadUpcomingBillsMonth` and `loadUpcomingBillsWidget`: `survivingFlows` is this
+ * surface's own `applyStreamExclusions(...)` result, so the two counts it derives (all tiers,
+ * live only) can never drift from what `streamCount`/`hasStreams` on that surface actually counts.
+ */
+function computeEmptyState(
+	survivingFlows: readonly RecurringFlow[],
+	todayIso: string
+): UpcomingBillsEmptyState | null {
+	if (survivingFlows.length === 0) return 'none-detected';
+	return survivingFlows.every((flow) => isStreamStale(flow, todayIso)) ? 'all-stale' : null;
+}
+
 export interface UpcomingBillsMonthView {
 	/** YYYY-MM. */
 	month: string;
@@ -218,8 +250,16 @@ export interface UpcomingBillsMonthView {
 	 * already has for the no-stream-at-all case.
 	 */
 	oldestNavigableMonth: string;
-	/** Flows surviving the user's exclusions, all tiers. */
+	/**
+	 * Flows surviving the user's exclusions, all tiers, INCLUDING stale ones. Deliberately not
+	 * narrowed to live streams: `noStreamsAtAll` on the page keys off this count to decide whether
+	 * the whole period navigator is disabled, and a stale stream's already-realized occurrences
+	 * still render in whatever past month they landed in — so an all-stale user must keep being
+	 * able to navigate there. See `emptyState` for the live/stale distinction copy needs instead.
+	 */
 	streamCount: number;
+	/** See `UpcomingBillsEmptyState`. `null` when at least one live stream survives exclusions. */
+	emptyState: UpcomingBillsEmptyState | null;
 	remainingExpenseCents: number;
 	expectedIncomeCents: number;
 	/** Date ascending; the page groups them. */
@@ -240,7 +280,16 @@ export interface UpcomingBillsWidgetView {
 	overdueCount: number;
 	/** Rolling 30-day window, not the calendar month (locked decisions 4 & 5). */
 	remainingExpenseCents: number;
+	/**
+	 * True when at least one LIVE (non-stale) stream survives the user's exclusions — unlike
+	 * `UpcomingBillsMonthView.streamCount`, this one DOES exclude stale streams: it drives the
+	 * card's "you have streams" rendering path, and a subscription cancelled months ago is not a
+	 * reason to keep that path open. See `emptyState` for which of the two empty reasons applies
+	 * when this is false.
+	 */
 	hasStreams: boolean;
+	/** See `UpcomingBillsEmptyState`. `null` when `hasStreams` is true. */
+	emptyState: UpcomingBillsEmptyState | null;
 	/** The server's own UTC date, same convention as `UpcomingBillsMonthView.todayIso`: the client
 	 *  must render relative dates against THIS value, never `new Date()` — a browser in another
 	 *  timezone can already be "tomorrow" in UTC while the server-computed row statuses still read
@@ -380,6 +429,10 @@ export async function loadUpcomingBillsMonth(
 		(transaction) => transaction.date >= detectionFromIso
 	);
 	const flows = detectRecurringFlows(detectionTransactions);
+	// Computed ONCE and reused by `streamCount` and `emptyState` below, so the two can never read a
+	// different post-exclusion set — see `streamCount`'s own doc comment for why it stays
+	// all-tiers-including-stale while `emptyState` narrows to live streams only.
+	const survivingFlows = applyStreamExclusions(flows, actions);
 	const occurrences = buildBillOccurrences({
 		flows,
 		transactions,
@@ -403,7 +456,8 @@ export async function loadUpcomingBillsMonth(
 		// to that function's value, and a view disagreeing with the clamp by even one month is a
 		// redirect loop or an unreachable month.
 		oldestNavigableMonth: getOldestNavigableBillsMonth(now),
-		streamCount: applyStreamExclusions(flows, actions).length,
+		streamCount: survivingFlows.length,
+		emptyState: computeEmptyState(survivingFlows, todayIso),
 		remainingExpenseCents: totals.remainingExpenseCents,
 		expectedIncomeCents: totals.expectedIncomeCents,
 		rows,
@@ -463,11 +517,18 @@ export async function loadUpcomingBillsWidget(userId: string): Promise<UpcomingB
 			occurrence.tier !== 'uncertain'
 	);
 
+	// Reused by `hasStreams` and `emptyState`, unlike `UpcomingBillsMonthView`'s `streamCount`: this
+	// surface has no navigator to keep open and no past month to preserve access to, so nothing here
+	// needs the all-tiers-including-stale count — see both fields' own doc comments.
+	const survivingFlows = applyStreamExclusions(flows, actions);
+	const liveFlows = survivingFlows.filter((flow) => !isStreamStale(flow, todayIso));
+
 	return {
 		rows: kept.slice(0, WIDGET_ROW_LIMIT).map(toRowView),
 		overdueCount: kept.filter((occurrence) => occurrence.status === 'overdue').length,
 		remainingExpenseCents: computeTotals(kept).remainingExpenseCents,
-		hasStreams: applyStreamExclusions(flows, actions).length > 0,
+		hasStreams: liveFlows.length > 0,
+		emptyState: computeEmptyState(survivingFlows, todayIso),
 		todayIso
 	};
 }

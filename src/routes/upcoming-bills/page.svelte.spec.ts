@@ -92,6 +92,7 @@ function buildData(overrides: Partial<PageData['bills']> = {}): PageData {
 			// 12 months before TODAY_ISO, i.e. the month the detection window starts in.
 			oldestNavigableMonth: '2025-07',
 			streamCount: 1,
+			emptyState: null,
 			remainingExpenseCents: 1349,
 			expectedIncomeCents: 0,
 			rows: [buildRow()],
@@ -178,6 +179,91 @@ describe('/upcoming-bills page', () => {
 			expect(arrow.getAttribute('tabindex')).toBe('-1');
 		}
 		expect(container.textContent).toContain('Aucun flux récurrent détecté');
+	});
+
+	/**
+	 * Task 2026-08-02, follow-up to #97: an all-stale user (every detected stream silent longer
+	 * than one tolerated cycle) must see the "en veille" copy, never the "changez de mois" copy —
+	 * that remedy cannot work for a stream that will never project again. `streamCount` stays
+	 * non-zero (the trap), so the navigator must stay reachable at the same time.
+	 */
+	describe('the all-stale empty state, task 2026-08-02', () => {
+		it('renders the stale copy, never the "changez de mois" copy, when emptyState is all-stale', async () => {
+			expect.assertions(3);
+			const { container } = render(Page, {
+				data: buildData({
+					streamCount: 1,
+					emptyState: 'all-stale',
+					rows: [],
+					remainingExpenseCents: 0
+				})
+			});
+
+			await expect.element(page.getByText(m.bills_none_due_stale_title())).toBeInTheDocument();
+			expect(container.textContent).toContain(m.bills_none_due_stale_description());
+			expect(container.textContent).not.toContain(m.bills_none_due_description());
+		});
+
+		it('keeps the period navigator reachable in the all-stale state', async () => {
+			expect.assertions(1 + 2 * 4);
+			const { container } = render(Page, {
+				data: buildData({
+					streamCount: 1,
+					emptyState: 'all-stale',
+					rows: [],
+					remainingExpenseCents: 0
+				})
+			});
+
+			const arrows = container.querySelectorAll('a[aria-label]');
+			expect(arrows.length).toBe(2);
+			for (const arrow of arrows) {
+				expect(arrow.hasAttribute('href')).toBe(true);
+				expect(arrow.getAttribute('aria-disabled')).toBeNull();
+				expect(arrow.getAttribute('tabindex')).toBeNull();
+				expect(arrow.className).not.toContain('pointer-events-none');
+			}
+		});
+
+		it('still renders the ordinary "changez de mois" copy when a live stream exists elsewhere', async () => {
+			expect.assertions(1);
+			const { container } = render(Page, {
+				data: buildData({
+					streamCount: 1,
+					emptyState: null,
+					rows: [],
+					remainingExpenseCents: 0
+				})
+			});
+
+			expect(container.textContent).toContain(m.bills_none_due_description());
+		});
+
+		/**
+		 * Fix round 1, IMPORTANT #2: `emptyState` is computed over the whole 12-month lookback, not
+		 * the displayed period, so it stays `'all-stale'` on every month — including ones where
+		 * "changez de mois pour les retrouver" is actually TRUE (the stream's own realized rows
+		 * really do sit in a different month). On a PAST month the stale copy would replace accurate,
+		 * month-named advice with a generic non-explanation that drops the month name the user
+		 * navigated by. The stale branch must therefore not fire there.
+		 */
+		it('keeps the ordinary past-month copy, never the stale copy, on a past month even when emptyState is all-stale', async () => {
+			expect.assertions(2);
+			const { container } = render(Page, {
+				data: buildData({
+					month: '2025-11',
+					isCurrentMonth: false,
+					isFutureMonth: false,
+					streamCount: 1,
+					emptyState: 'all-stale',
+					rows: [],
+					remainingExpenseCents: 0
+				})
+			});
+
+			expect(container.textContent).toContain(m.bills_none_due_title_past({ month: 'novembre' }));
+			expect(container.textContent).not.toContain(m.bills_none_due_stale_title());
+		});
 	});
 
 	// B2. Detection is pinned to the 12 months before today, so a month older than
