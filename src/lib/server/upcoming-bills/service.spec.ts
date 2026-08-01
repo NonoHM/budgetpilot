@@ -592,6 +592,47 @@ describe('fenêtre de détection figée à 12 mois', () => {
 			['2026-07-20', 'upcoming', 'confirmed']
 		]);
 	});
+
+	// `listObservationCandidates` surfaces the pairs THE DETECTOR REJECTED, filtered by the ids the
+	// detected flows claim. Handing it the wide fetch while the detector only saw the pinned set
+	// breaks that contract from the other side: a pre-window pair the detector was never shown would
+	// be presented as "en cours d'observation", i.e. as a stream the engine is about to confirm.
+	it('ne propose pas en observation une paire que le détecteur n’a jamais vue', async () => {
+		// 45 days apart: no cadence window matches, so nothing claims them — exactly the shape the
+		// observation list is made of. Both sit before the lookback start (2025-07-14).
+		const preWindowPair = ['2025-04-10', '2025-05-25'].map((date, index) =>
+			tx(`obs-${index}`, date, 'CB VETERINAIRE DES LILAS', -8_400, 'Santé')
+		);
+		mockRangedRead([...INSURANCE, ...preWindowPair]);
+
+		const view = await loadUpcomingBillsMonth(userId, '2025-04');
+
+		// The pair really was fetched for this month — otherwise the assertion below holds for the
+		// wrong reason.
+		const query = db.prisma.transaction.findMany.mock.calls[0][0] as TransactionQuery;
+		expect(query.where?.date?.gte?.toISOString().slice(0, 10)).toBe('2025-04-01');
+		// The empty state is reached, so the list is genuinely computed and not skipped.
+		expect(view.rows).toEqual([]);
+		expect(view.observationCandidates).toEqual([]);
+	});
+
+	// The surprise itself, pinned: a month entirely older than the lookback renders nothing while the
+	// stream count stays non-zero. That pair of facts is what makes the page's `nothingDueThisPeriod`
+	// copy a false claim there, and what `oldestNavigableMonth` exists to keep unreachable — a change
+	// in EITHER direction (rows appearing, or the count collapsing to 0) would otherwise be silent.
+	it('rend un mois antérieur à la fenêtre entièrement vide, en gardant streamCount > 0', async () => {
+		const beforeWindow = ['2024-05-03', '2024-06-03', '2024-07-03'].map((date, index) =>
+			tx(`old-${index}`, date, RENT_LABEL, -80_000, 'Logement')
+		);
+		mockRangedRead([...INSURANCE, ...beforeWindow]);
+
+		const view = await loadUpcomingBillsMonth(userId, '2024-06');
+
+		expect(view.rows).toEqual([]);
+		expect(view.streamCount).toBeGreaterThan(0);
+		// The boundary the page navigator stops at, so the state above cannot be navigated to.
+		expect(view.oldestNavigableMonth).toBe('2025-07');
+	});
 });
 
 /** Monthly cadence: window = floor(30/2) = 15 days. */

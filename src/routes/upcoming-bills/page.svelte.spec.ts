@@ -88,6 +88,8 @@ function buildData(overrides: Partial<PageData['bills']> = {}): PageData {
 			todayIso: TODAY_ISO,
 			isCurrentMonth: true,
 			isFutureMonth: false,
+			// 12 months before TODAY_ISO, i.e. the month the detection window starts in.
+			oldestNavigableMonth: '2025-07',
 			streamCount: 1,
 			remainingExpenseCents: 1349,
 			expectedIncomeCents: 0,
@@ -174,6 +176,50 @@ describe('/upcoming-bills page', () => {
 			expect(arrow.getAttribute('tabindex')).toBe('-1');
 		}
 		expect(container.textContent).toContain('Aucun flux récurrent détecté');
+	});
+
+	// B2. Detection is pinned to the 12 months before today, so a month older than
+	// `oldestNavigableMonth` holds nothing AND keeps a non-zero `streamCount` — which lands on the
+	// "Rien de prévu en juin 2024 · Changez de mois pour les retrouver" state: a false claim about a
+	// month the user really did pay bills in, whose suggested remedy is the one action that cannot
+	// help. The navigator stops at the boundary instead, with the arrow treatment the page already
+	// owns; the "next" arrow is untouched, since walking forward is always meaningful.
+	it('rend la flèche précédente inerte au bord de la fenêtre de détection, vivante un mois plus tard', async () => {
+		const atBoundary = render(Page, {
+			data: buildData({
+				month: '2025-07',
+				oldestNavigableMonth: '2025-07',
+				isCurrentMonth: false,
+				streamCount: 4,
+				rows: []
+			})
+		});
+
+		const [previous, next] = atBoundary.container.querySelectorAll('a[aria-label]');
+		expect(previous.hasAttribute('href')).toBe(false);
+		expect(previous.getAttribute('aria-disabled')).toBe('true');
+		expect(previous.getAttribute('tabindex')).toBe('-1');
+		expect(previous.className).toContain('pointer-events-none');
+		// Only the backward arrow is bounded.
+		expect(next.hasAttribute('href')).toBe(true);
+		expect(next.getAttribute('aria-disabled')).toBeNull();
+
+		atBoundary.unmount();
+
+		const insideWindow = render(Page, {
+			data: buildData({
+				month: '2025-08',
+				oldestNavigableMonth: '2025-07',
+				isCurrentMonth: false,
+				streamCount: 4,
+				rows: []
+			})
+		});
+
+		const [livePrevious] = insideWindow.container.querySelectorAll('a[aria-label]');
+		expect(livePrevious.hasAttribute('href')).toBe(true);
+		expect(livePrevious.getAttribute('aria-disabled')).toBeNull();
+		expect(livePrevious.className).not.toContain('pointer-events-none');
 	});
 
 	// I2. The whole point of the last assertion: a rowKey is built from `normalizeRecurringLabel`,

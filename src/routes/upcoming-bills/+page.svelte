@@ -100,6 +100,17 @@
 	 */
 	const noStreamsAtAll = $derived(bills.streamCount === 0);
 	/**
+	 * Backward end of the navigator. Detection is pinned to the 12 months before today, so a month
+	 * older than `oldestNavigableMonth` can hold no row at all — while `streamCount` stays non-zero,
+	 * which would put the page on the "Rien de prévu en juin 2024 · Changez de mois pour les
+	 * retrouver" state: a false claim about a month the user did pay bills in, recommending the one
+	 * action that cannot help. The state is made UNREACHABLE rather than given a third empty-state
+	 * string. Only the backward arrow is bounded — walking forward is always meaningful.
+	 */
+	const atOldestMonth = $derived(bills.month <= bills.oldestNavigableMonth);
+	/** Same inert treatment as `noStreamsAtAll`, applied to the "previous" arrow alone. */
+	const previousDisabled = $derived(noStreamsAtAll || atOldestMonth);
+	/**
 	 * The service computes BOTH `isCurrentMonth` and `isFutureMonth`, so "not current" is two states,
 	 * not one. A past month is where the future wording was wrong — "prévu en juin 0,00 € pour
 	 * +0,00 €" — and both header surfaces drop the period figures there.
@@ -724,7 +735,9 @@
 		     navigation (`?month=`), so it must survive a middle-click and work without JS. They carry
 		     the explicit aria-labels the design asks of them, and go inert the same way TapLink does
 		     (no href, aria-disabled, out of the tab order) when NO stream has ever been detected —
-		     see `noStreamsAtAll` for why that, and not an empty month, is the condition.
+		     see `noStreamsAtAll` for why that, and not an empty month, is the condition. The BACKWARD
+		     arrow carries one further condition of its own, `atOldestMonth`: the detection window has
+		     a hard floor and nothing renders past it.
 
 		     `data-sveltekit-keepfocus` is what makes the aria-live label below mean anything. Without
 		     it SvelteKit's client router blurs the active element and then calls its own
@@ -736,12 +749,12 @@
 		     keepfocus needs. -->
 		<div class="flex items-center gap-2">
 			<a
-				href={noStreamsAtAll ? undefined : resolve(monthHref(shiftMonth(bills.month, -1)))}
+				href={previousDisabled ? undefined : resolve(monthHref(shiftMonth(bills.month, -1)))}
 				data-sveltekit-keepfocus
 				aria-label={m.bills_period_prev_aria()}
-				aria-disabled={noStreamsAtAll ? 'true' : undefined}
-				tabindex={noStreamsAtAll ? -1 : undefined}
-				class="inline-flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {noStreamsAtAll
+				aria-disabled={previousDisabled ? 'true' : undefined}
+				tabindex={previousDisabled ? -1 : undefined}
+				class="inline-flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {previousDisabled
 					? 'pointer-events-none opacity-40'
 					: ''}"
 			>

@@ -160,6 +160,17 @@ export interface UpcomingBillsMonthView {
 	todayIso: string;
 	isCurrentMonth: boolean;
 	isFutureMonth: boolean;
+	/**
+	 * YYYY-MM of the detection window's own start — the OLDEST month that can hold anything.
+	 *
+	 * Detection is pinned to the 12 months before today (see `loadUpcomingBillsMonth`), and a
+	 * realized row is resolved through `flow.occurrenceIds`, so a month entirely older than this one
+	 * renders NOTHING while `streamCount` stays non-zero — which the page would otherwise present as
+	 * "no bill due in June 2024, try another month", a false claim about a month the user really did
+	 * pay bills in. The period navigator stops here instead, reusing the inert-arrow treatment it
+	 * already has for the no-stream-at-all case.
+	 */
+	oldestNavigableMonth: string;
 	/** Flows surviving the user's exclusions, all tiers. */
 	streamCount: number;
 	remainingExpenseCents: number;
@@ -211,10 +222,15 @@ export async function loadUpcomingBillsMonth(
 	const monthStart = new Date(Date.UTC(year, monthNumber - 1, 1));
 	const monthEndExclusive = new Date(Date.UTC(year, monthNumber, 1));
 
-	// Detection needs its full 12-month lookback whatever period is being displayed (same
-	// derivation as loadCashFlowForecast), and the fetch must also cover the displayed period —
-	// which for a future month sits entirely after `now`, and for an old month entirely before
-	// `lookbackStart`. Hence min/max rather than a single fixed range.
+	// The fetch must cover the displayed period as well as the detector's 12-month lookback (same
+	// derivation as loadCashFlowForecast), hence min/max rather than a single fixed range.
+	//
+	// The `min()` half is now nearly vestigial: since detection is pinned below, a transaction older
+	// than `lookbackStart` reaches no consumer — `buildBillOccurrences` only ever looks a transaction
+	// up by an id that is already in some `flow.occurrenceIds`, and every such id comes from the
+	// pinned set. It is kept because narrowing the range is a separate decision (this call site is
+	// not the only shape `readDashboardDataForRange` serves) and because widening back is exactly the
+	// regression B2 removed. Do NOT write it back into `detectRecurringFlows`.
 	const lookbackStart = new Date(
 		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - FORECAST_LOOKBACK_MONTHS, now.getUTCDate())
 	);
@@ -235,15 +251,20 @@ export async function loadUpcomingBillsMonth(
 	// same stream therefore read "Probable" on one month and "Confirmé" on another, and disagreed
 	// with the dashboard widget.
 	//
-	// Accepted consequence, deliberately: an old month may show FEWER streams than it "could" — a
-	// realized row is looked up through `flow.occurrenceIds`, so a transaction outside this window is
-	// no longer part of any flow and renders nothing. Consistency of a stream's tier across every
-	// surface wins over richer historical coverage: a stream showing two different confidence levels
-	// on two screens is actively confusing, while a slightly thinner past month is merely less
-	// complete. Months INSIDE the lookback are unaffected — their settled rows still render.
+	// Accepted consequence, stated at full strength because the comment outlives the report: a month
+	// entirely older than `lookbackStart` renders NOTHING AT ALL. Not "fewer streams" — nothing. A
+	// realized row is resolved through `flow.occurrenceIds`, so a transaction outside this window
+	// belongs to no flow, and `projectFlowOccurrences` only emits dates after `flow.lastDate`, which
+	// is by construction recent. `streamCount` stays non-zero there, which is why the view exports
+	// `oldestNavigableMonth` and the page stops the period navigator at it (see that field).
 	//
-	// Filtered rather than refetched: the fetch is one query and the widened part of it is what still
-	// feeds `buildBillOccurrences`'s row source below.
+	// Consistency of a stream's tier across every surface is what this buys: a stream showing two
+	// different confidence levels on two screens is actively confusing, while an unreachable month is
+	// merely unreachable. Months INSIDE the lookback are unaffected — their settled rows still
+	// render, including the partial first one.
+	//
+	// Filtered rather than refetched: one query already ran, and re-issuing a narrower one would cost
+	// a round trip to discard rows already in memory.
 	const detectionFromIso = toIsoDate(lookbackStart);
 	const detectionTransactions = transactions.filter(
 		(transaction) => transaction.date >= detectionFromIso
@@ -268,6 +289,10 @@ export async function loadUpcomingBillsMonth(
 		// its own occurrences disagree is worse than one that is an hour off at a month boundary.
 		isCurrentMonth: month === todayIso.slice(0, 7),
 		isFutureMonth: month > todayIso.slice(0, 7),
+		// The month the detection window starts IN, not the one after it: `lookbackStart` lands
+		// mid-month (same day-of-month as today), so that month is half inside the window and its
+		// second half still renders real rows.
+		oldestNavigableMonth: detectionFromIso.slice(0, 7),
 		streamCount: applyStreamExclusions(flows, actions).length,
 		remainingExpenseCents: totals.remainingExpenseCents,
 		expectedIncomeCents: totals.expectedIncomeCents,
