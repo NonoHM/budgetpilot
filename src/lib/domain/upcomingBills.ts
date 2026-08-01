@@ -54,6 +54,28 @@ export interface BillOccurrence {
 
 const MS_PER_DAY = 86_400_000;
 
+/**
+ * The DOM-safe form of a row's `rowKey`, for `id="bill-row-…"` / `id="bill-restore-…"`.
+ *
+ * A `rowKey` is `direction:normalizedLabel:date:index` and is NOT usable as an id as it stands:
+ * `normalizeRecurringLabel` collapses every non-letter run to a SPACE, so "Salaire ACME" yields
+ * `income:salaire acme:2026-08-03:4`. HTML forbids ASCII whitespace in an `id`, and — the part
+ * that actually breaks something — `aria-labelledby`, `aria-controls` and `aria-describedby` are
+ * space-separated ID LISTS, so such an id silently references nothing. The colons are legal in an
+ * id but are not valid in an unescaped CSS selector.
+ *
+ * Uniqueness survives the collapse. Two different rows can normalize to the same prefix (`a b:…`
+ * and `a:b:…` both become `a-b-…`), but every rowKey ends in its own index within the period's
+ * occurrence list, so the suffixes differ and the ids cannot collide.
+ *
+ * Exported rather than inlined at the render site so the code that MOVES FOCUS to these ids uses
+ * the identical transformation: a second, slightly different regex somewhere else is a focus call
+ * that lands on nothing and reports no error.
+ */
+export function toBillRowDomKey(rowKey: string): string {
+	return rowKey.replace(/[^A-Za-z0-9_-]+/g, '-');
+}
+
 function toEpochMs(iso: string): number {
 	return Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
 }

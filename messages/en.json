@@ -1028,15 +1028,19 @@
 	"bills_date_in_days_full": "in {count} days",
 	"bills_date_estimate_passed": "estimated date passed",
 	"bills_date_passed_short": "{date} passed",
-	"bills_settled_show_more": "Show the {count} other settled bills",
+	"bills_settled_show_more_one": "Show the other settled bill",
+	"bills_settled_show_more_many": "Show the {count} other settled bills",
 	"bills_row_actions_aria": "Bill actions",
 	"bills_restore": "Restore",
 	"bills_empty_headline": "No recurring flow detected",
 	"bills_empty_title": "The engine is still observing",
 	"bills_empty_description": "BudgetPilot spots regular debits and income in your transactions. At least three occurrences of the same label are needed to establish a rhythm.",
 	"bills_empty_observing": "Being observed",
-	"bills_empty_progress": "{count} occurrences out of 3",
+	"bills_empty_progress_one": "{count} occurrence out of 3",
+	"bills_empty_progress_many": "{count} occurrences out of 3",
 	"bills_empty_progress_short": "{count} out of 3",
 	"bills_empty_cta": "Import a statement",
-	"bills_loading_aria": "Loading upcoming bills"
+	"bills_loading_aria": "Loading upcoming bills",
+	"bills_none_due_title": "Nothing expected in {month}",
+	"bills_none_due_description": "Your recurring flows fall in other periods. Change month to find them."
 }

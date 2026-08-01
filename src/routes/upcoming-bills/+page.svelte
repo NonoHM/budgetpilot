@@ -10,6 +10,7 @@
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import { formatCents } from '$lib/domain/budget';
 	import { formatMonthLabel, formatShortDate } from '$lib/domain/dateFormat';
+	import { toBillRowDomKey } from '$lib/domain/upcomingBills';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -66,10 +67,28 @@
 	// only truthy for that client-side navigation, and is scoped to this route so moving to another
 	// page of the app never shows the skeleton.
 	const isNavigatingBills = $derived(navigating.to?.url.pathname === '/upcoming-bills');
-	/** Design B4: on the empty state the period navigator keeps its shape but goes inert. */
-	const emptyPeriod = $derived(bills.rows.length === 0);
+
+	/**
+	 * Design B4's disabled navigator is the "recent account, insufficient history" state: NO stream
+	 * has ever been detected, so no other period could hold anything either.
+	 *
+	 * It is emphatically NOT "this month happens to be empty". A user whose only confirmed stream is
+	 * a yearly bill has zero rows in eleven months out of twelve, and on the current month there is
+	 * no "Revenir à ce mois" escape either (that link is gated on `!isCurrentMonth`) — so keying
+	 * this off `rows.length` walls the page off entirely, with no way back. `streamCount` is the
+	 * predicate that means what the design means.
+	 */
+	const noStreamsAtAll = $derived(bills.streamCount === 0);
+	/** Streams exist, this particular period just holds none of them. */
+	const nothingDueThisPeriod = $derived(!noStreamsAtAll && bills.rows.length === 0);
 
 	let settledExpanded = $state(false);
+	// Reset on every period change: the flag is about ONE month's settled group, and leaving it set
+	// would land the next month pre-expanded with no visible control that says so.
+	$effect(() => {
+		void bills.month;
+		settledExpanded = false;
+	});
 
 	function toEpochDay(iso: string): number {
 		return Date.UTC(Number(iso.slice(0, 4)), Number(iso.slice(5, 7)) - 1, Number(iso.slice(8, 10)));
@@ -208,6 +227,13 @@
 			});
 		}
 		return `${sign}${formatCents(Math.abs(row.amountCents))}`;
+	}
+
+	/** `remainingExpenseCents` is an unsigned sum of expense magnitudes, shown as an outflow. The
+	 *  zero case is guarded rather than negated: `-0` exists, and `Intl` renders it "-0,00 €" —
+	 *  reachable on any future month with no expense due. Same guard as the dashboard widget. */
+	function signedOutflow(magnitudeCents: number): string {
+		return magnitudeCents === 0 ? formatCents(0) : `−${formatCents(magnitudeCents)}`;
 	}
 
 	function variabilityLabel(row: UpcomingBillRowView): string {
@@ -365,7 +391,9 @@
 					<span class="truncate text-zinc-700">{candidate.label}</span>
 					<span class="shrink-0 text-zinc-400">
 						<span class="hidden lg:inline"
-							>{m.bills_empty_progress({ count: candidate.occurrenceCount })}</span
+							>{candidate.occurrenceCount === 1
+								? m.bills_empty_progress_one({ count: candidate.occurrenceCount })
+								: m.bills_empty_progress_many({ count: candidate.occurrenceCount })}</span
 						>
 						<span class="lg:hidden"
 							>{m.bills_empty_progress_short({ count: candidate.occurrenceCount })}</span
@@ -394,7 +422,7 @@
 						{m.bills_header_meta_future({
 							count: bills.streamCount,
 							month: monthName,
-							expense: `−${formatCents(bills.remainingExpenseCents)}`,
+							expense: signedOutflow(bills.remainingExpenseCents),
 							income: `+${formatCents(bills.expectedIncomeCents)}`
 						})}
 					{/if}
@@ -408,17 +436,23 @@
 			{/if}
 		</header>
 
+		{#if noStreamsAtAll}
+			<!-- Design B4 orders the page title, this headline, then the navigator, then the card. -->
+			<p class="text-sm font-semibold text-zinc-700">{m.bills_empty_headline()}</p>
+		{/if}
+
 		<!-- Period navigator. The two controls are anchors, not buttons: changing period is real
 		     navigation (`?month=`), so it must survive a middle-click and work without JS. They carry
 		     the explicit aria-labels the design asks of them, and go inert the same way TapLink does
-		     (no href, aria-disabled, out of the tab order) on the empty state. -->
+		     (no href, aria-disabled, out of the tab order) when NO stream has ever been detected —
+		     see `noStreamsAtAll` for why that, and not an empty month, is the condition. -->
 		<div class="flex items-center gap-2">
 			<a
-				href={emptyPeriod ? undefined : resolve(monthHref(shiftMonth(bills.month, -1)))}
+				href={noStreamsAtAll ? undefined : resolve(monthHref(shiftMonth(bills.month, -1)))}
 				aria-label={m.bills_period_prev_aria()}
-				aria-disabled={emptyPeriod ? 'true' : undefined}
-				tabindex={emptyPeriod ? -1 : undefined}
-				class="inline-flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {emptyPeriod
+				aria-disabled={noStreamsAtAll ? 'true' : undefined}
+				tabindex={noStreamsAtAll ? -1 : undefined}
+				class="inline-flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {noStreamsAtAll
 					? 'pointer-events-none opacity-40'
 					: ''}"
 			>
@@ -433,11 +467,11 @@
 				<Badge tone="neutral">{m.bills_period_current_badge()}</Badge>
 			{/if}
 			<a
-				href={emptyPeriod ? undefined : resolve(monthHref(shiftMonth(bills.month, 1)))}
+				href={noStreamsAtAll ? undefined : resolve(monthHref(shiftMonth(bills.month, 1)))}
 				aria-label={m.bills_period_next_aria()}
-				aria-disabled={emptyPeriod ? 'true' : undefined}
-				tabindex={emptyPeriod ? -1 : undefined}
-				class="inline-flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {emptyPeriod
+				aria-disabled={noStreamsAtAll ? 'true' : undefined}
+				tabindex={noStreamsAtAll ? -1 : undefined}
+				class="inline-flex h-11 w-11 items-center justify-center rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {noStreamsAtAll
 					? 'pointer-events-none opacity-40'
 					: ''}"
 			>
@@ -447,30 +481,11 @@
 
 		<!-- The list region Task 8 moves focus back to after a row mutation. -->
 		<div id="bills-list" tabindex="-1" class="space-y-6 outline-none">
-			{#if isNavigatingBills}
-				<!-- Title, column headers and the period arrows above are already real; only what comes
-				     from the engine pulses. Skeleton's own CSS freezes the pulse under
-				     prefers-reduced-motion. -->
-				<div class="space-y-3" role="status" aria-live="polite">
-					<span class="sr-only">{m.bills_loading_aria()}</span>
-					{#each { length: 3 } as _, index (index)}
-						<Skeleton />
-					{/each}
-				</div>
-			{:else if bills.rows.length === 0}
-				<div class="space-y-3">
-					<p class="text-sm font-semibold text-zinc-700">{m.bills_empty_headline()}</p>
-					<EmptyState
-						icon={emptyIcon}
-						title={m.bills_empty_title()}
-						description={m.bills_empty_description()}
-						detail={bills.observationCandidates.length > 0 ? observationDetail : undefined}
-						ctaLabel={m.bills_empty_cta()}
-						ctaHref={resolve('/imports')}
-					/>
-				</div>
-			{:else}
-				<!-- Desktop column headers, outside the groups so they are not read as a list item. -->
+			{#if isNavigatingBills || bills.rows.length > 0}
+				<!-- Desktop column headers, outside the groups so they are not read as a list item, and
+				     outside the loading branch because design B3 keeps them REAL while the rows pulse:
+				     they are static copy and do not depend on the data being fetched. Group headings do
+				     depend on it, which is why they are not scaffolded during a load. -->
 				<div
 					class="hidden px-4 text-[11px] font-semibold tracking-wide text-zinc-400 uppercase {DESKTOP_GRID}"
 					aria-hidden="true"
@@ -481,7 +496,41 @@
 					<span>{m.bills_col_status()}</span>
 					<span></span>
 				</div>
+			{/if}
 
+			{#if isNavigatingBills}
+				<!-- Title, column headers and the period arrows are already real; only what comes from
+				     the engine pulses. Skeleton's own CSS freezes the pulse under
+				     prefers-reduced-motion. -->
+				<div class="space-y-3" role="status" aria-live="polite">
+					<span class="sr-only">{m.bills_loading_aria()}</span>
+					{#each { length: 3 } as _, index (index)}
+						<Skeleton />
+					{/each}
+				</div>
+			{:else if noStreamsAtAll}
+				<!-- Nothing has ever been detected: the engine is still observing, and the counters show
+				     what it has already seen. -->
+				<EmptyState
+					icon={emptyIcon}
+					title={m.bills_empty_title()}
+					description={m.bills_empty_description()}
+					detail={bills.observationCandidates.length > 0 ? observationDetail : undefined}
+					ctaLabel={m.bills_empty_cta()}
+					ctaHref={resolve('/imports')}
+				/>
+			{:else if nothingDueThisPeriod}
+				<!-- Streams ARE detected, this period just holds none of them. A separate state on
+				     purpose (same fix as UpcomingBillsCard's): the observing copy would claim nothing
+				     had been found, and its detail block would be empty anyway — the server only fills
+				     `observationCandidates` when there are no rows AND no detected flow to attribute
+				     them to. -->
+				<EmptyState
+					icon={emptyIcon}
+					title={m.bills_none_due_title({ month: monthName })}
+					description={m.bills_none_due_description()}
+				/>
+			{:else}
 				{#each groups as group (group.id)}
 					<section class="space-y-2">
 						<h2 id="bills-group-{group.id}" class="text-sm font-semibold text-zinc-700">
@@ -493,10 +542,14 @@
 						<div role="list" aria-labelledby="bills-group-{group.id}" class="space-y-2">
 							{#each visibleRows(group) as row (row.rowKey)}
 								{@const relative = relativeDateLabel(row)}
+								<!-- A rowKey carries colons AND spaces (see toBillRowDomKey); neither is usable
+								     in an id that aria-* attributes have to resolve. Task 8 must build its
+								     focus target with the SAME helper. -->
+								{@const domKey = toBillRowDomKey(row.rowKey)}
 								{@const near = daysUntil(row.dateIso) <= NEAR_HORIZON_DAYS}
 								<div
 									role="listitem"
-									id="bill-row-{row.rowKey}"
+									id="bill-row-{domKey}"
 									tabindex="-1"
 									class="{cardBase} outline-none {row.status === 'overdue' ? OVERDUE_ROW_CLASS : ''}"
 								>
@@ -509,7 +562,9 @@
 													<span
 														class="truncate text-sm font-medium {row.status === 'ignored'
 															? 'text-zinc-400'
-															: 'text-zinc-900'}">{row.label}</span
+															: row.status === 'settled'
+																? 'text-zinc-500'
+																: 'text-zinc-900'}">{row.label}</span
 													>
 													{@render tierBadge(row)}
 												</div>
@@ -578,7 +633,9 @@
 												<span
 													class="truncate text-sm font-medium {row.status === 'ignored'
 														? 'text-zinc-400'
-														: 'text-zinc-900'}">{row.label}</span
+														: row.status === 'settled'
+															? 'text-zinc-500'
+															: 'text-zinc-900'}">{row.label}</span
 												>
 												<span
 													class="shrink-0 text-sm font-semibold tabular-nums {row.status === 'ignored'
@@ -608,7 +665,7 @@
 										<!-- Rendered once per row (not per breakpoint) so the id Task 8 focuses is
 										     unique. Disabled until Task 8 wires the restore action. -->
 										<div class="flex px-4 pb-2 lg:justify-end">
-											<TapLink id="bill-restore-{row.rowKey}" disabled>
+											<TapLink id="bill-restore-{domKey}" disabled>
 												{m.bills_restore()}
 											</TapLink>
 										</div>
@@ -619,7 +676,10 @@
 
 						{#if group.collapsible && !settledExpanded && group.rows.length > SETTLED_COLLAPSED_ROWS}
 							<TapLink onclick={() => (settledExpanded = true)}>
-								{m.bills_settled_show_more({ count: group.rows.length - SETTLED_COLLAPSED_ROWS })}
+								{@const hiddenCount = group.rows.length - SETTLED_COLLAPSED_ROWS}
+							{hiddenCount === 1
+								? m.bills_settled_show_more_one({ count: hiddenCount })
+								: m.bills_settled_show_more_many({ count: hiddenCount })}
 							</TapLink>
 						{/if}
 					</section>

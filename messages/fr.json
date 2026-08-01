@@ -1028,15 +1028,19 @@
 	"bills_date_in_days_full": "dans {count} jours",
 	"bills_date_estimate_passed": "date estimée dépassée",
 	"bills_date_passed_short": "{date} dépassé",
-	"bills_settled_show_more": "Afficher les {count} autres échéances réglées",
+	"bills_settled_show_more_one": "Afficher l'autre échéance réglée",
+	"bills_settled_show_more_many": "Afficher les {count} autres échéances réglées",
 	"bills_row_actions_aria": "Actions de l'échéance",
 	"bills_restore": "Rétablir",
 	"bills_empty_headline": "Aucun flux récurrent détecté",
 	"bills_empty_title": "Le moteur observe encore",
 	"bills_empty_description": "BudgetPilot repère les prélèvements et revenus réguliers dans vos transactions. Il faut au moins trois occurrences d'un même libellé pour établir un rythme.",
 	"bills_empty_observing": "En cours d'observation",
-	"bills_empty_progress": "{count} occurrences sur 3",
+	"bills_empty_progress_one": "{count} occurrence sur 3",
+	"bills_empty_progress_many": "{count} occurrences sur 3",
 	"bills_empty_progress_short": "{count} sur 3",
 	"bills_empty_cta": "Importer un relevé",
-	"bills_loading_aria": "Chargement des échéances"
+	"bills_loading_aria": "Chargement des échéances",
+	"bills_none_due_title": "Rien de prévu en {month}",
+	"bills_none_due_description": "Vos flux récurrents tombent sur d'autres périodes. Changez de mois pour les retrouver."
 }

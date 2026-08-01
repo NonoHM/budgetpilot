@@ -58,6 +58,20 @@ describe('/upcoming-bills load', () => {
 		expect(data.bills.month).toBe('2026-08');
 	});
 
+	it('redirige un visiteur non authentifie vers /login sans toucher au service', async () => {
+		expect.assertions(2);
+
+		// Routes are already guarded in hooks.server.ts; `requireUser` is the belt-and-braces layer,
+		// and this asserts it is actually the FIRST thing the load does — a 303 before any read.
+		await expect(
+			load({
+				locals: { user: null },
+				url: new URL('http://localhost/upcoming-bills')
+			} as Parameters<typeof load>[0])
+		).rejects.toMatchObject({ status: 303, location: '/login' });
+		expect(service.loadUpcomingBillsMonth).not.toHaveBeenCalled();
+	});
+
 	it('rejette un mois malforme en 400 plutot qu en 500', async () => {
 		expect.assertions(3);
 
