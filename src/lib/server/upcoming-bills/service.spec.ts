@@ -539,6 +539,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.remainingExpenseCents).toBe(0);
 		expect(view.expectedIncomeCents).toBe(0);
 		expect(view.streamCount).toBe(1);
+		expect(view.emptyState).toBe('all-stale');
 		// The guard makes `rows.length === 0` a common state, so it routinely reaches the branch that
 		// computes the "en observation" list. The stopped stream's own transactions are claimed by the
 		// detected flow, so it must not resurface there as a suggestion either.
@@ -549,6 +550,66 @@ describe('loadUpcomingBillsMonth', () => {
 		await expectHttpError(loadUpcomingBillsMonth(userId, '2026-13'), 400);
 		await expectHttpError(loadUpcomingBillsMonth(userId, 'juillet'), 400);
 		expect(db.prisma.transaction.findMany).not.toHaveBeenCalled();
+	});
+});
+
+/**
+ * Follow-up to #97: `streamCount`/`hasStreams` still count a stale stream (the navigator and
+ * realized-row invariant), but copy must switch on a separate live/stale predicate. English,
+ * written first against the pre-fix module — see the task report for the recorded red run.
+ */
+describe('emptyState: the live/stale distinction, task 2026-08-02', () => {
+	it('reports none-detected when no flow survives at all', async () => {
+		expect.assertions(1);
+		mockRead([]);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+
+		expect(view.emptyState).toBe('none-detected');
+	});
+
+	it('reports all-stale when every surviving flow has gone quiet longer than one tolerated cycle', async () => {
+		expect.assertions(1);
+		mockRead(STOPPED_SUBSCRIPTION);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+
+		expect(view.emptyState).toBe('all-stale');
+	});
+
+	it('reports neither when at least one surviving flow is still live', async () => {
+		expect.assertions(1);
+		mockRead(RENT);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+
+		expect(view.emptyState).toBeNull();
+	});
+
+	// Guards the trap: `streamCount` must keep counting the stale stream even once `emptyState`
+	// exists, so the period navigator stays open for an all-stale user. Must go red if a future
+	// change collapses the two predicates into one.
+	it('keeps streamCount counting the stale stream that emptyState reports as all-stale', async () => {
+		expect.assertions(2);
+		mockRead(STOPPED_SUBSCRIPTION);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+
+		expect(view.streamCount).toBe(1);
+		expect(view.emptyState).toBe('all-stale');
+	});
+
+	// Behavioural half of the trap: a stale stream's own already-realized transaction still renders
+	// as a settled row in the month it actually landed in, so the navigator has somewhere to go even
+	// though the stream itself is globally reported as all-stale.
+	it('still renders a stale stream own realized occurrence in the past month it landed in', async () => {
+		expect.assertions(2);
+		mockRead(STOPPED_SUBSCRIPTION);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-04');
+
+		expect(view.emptyState).toBe('all-stale');
+		expect(view.rows.map((row) => [row.dateIso, row.status])).toEqual([['2026-04-10', 'settled']]);
 	});
 });
 
@@ -616,14 +677,18 @@ describe('loadUpcomingBillsWidget', () => {
 	});
 
 	// The widget carries the "N en retard" badge, which is the surface the stale rows inflated.
-	// `hasStreams` stays true: the stream exists, it simply has nothing left to schedule, and the
-	// card's "aucun stream détecté" empty state would be a different (wrong) claim.
+	// `hasStreams` now reflects the LIVE set only (task 2026-08-02, follow-up to #97): a cancelled
+	// subscription has nothing left to schedule, ever, and the card's "en veille" treatment
+	// (`emptyState`) is the correct claim, not the "you have streams" one `hasStreams: true` used to
+	// pick. `rows`/`overdueCount`/`remainingExpenseCents` are unaffected — a stale stream already
+	// produced no projected row.
 	it('empties the card for a cancelled subscription without announcing lateness', async () => {
 		mockRead(STOPPED_SUBSCRIPTION);
 
 		const view = await loadUpcomingBillsWidget(userId);
 
-		expect(view.hasStreams).toBe(true);
+		expect(view.hasStreams).toBe(false);
+		expect(view.emptyState).toBe('all-stale');
 		expect(view.rows).toEqual([]);
 		expect(view.overdueCount).toBe(0);
 		expect(view.remainingExpenseCents).toBe(0);
@@ -637,8 +702,34 @@ describe('loadUpcomingBillsWidget', () => {
 		const view = await loadUpcomingBillsWidget(userId);
 
 		expect(view.hasStreams).toBe(false);
+		expect(view.emptyState).toBe('none-detected');
 		expect(view.rows).toEqual([]);
 		expect(view.remainingExpenseCents).toBe(0);
+	});
+});
+
+/**
+ * Follow-up to #97, widget half. English, written first against the pre-fix module.
+ */
+describe('widget hasStreams/emptyState: live vs stale, task 2026-08-02', () => {
+	it('is true, with a null emptyState, when at least one live stream survives', async () => {
+		expect.assertions(2);
+		mockRead(RENT);
+
+		const view = await loadUpcomingBillsWidget(userId);
+
+		expect(view.hasStreams).toBe(true);
+		expect(view.emptyState).toBeNull();
+	});
+
+	it('is false, with emptyState all-stale, when every surviving stream is stale', async () => {
+		expect.assertions(2);
+		mockRead(STOPPED_SUBSCRIPTION);
+
+		const view = await loadUpcomingBillsWidget(userId);
+
+		expect(view.hasStreams).toBe(false);
+		expect(view.emptyState).toBe('all-stale');
 	});
 });
 

@@ -68,6 +68,7 @@ const upcomingBills = vi.hoisted(() => ({
 		overdueCount: 0,
 		remainingExpenseCents: 0,
 		hasStreams: false,
+		emptyState: 'none-detected',
 		todayIso: '2026-06-15'
 	}))
 }));
@@ -196,6 +197,7 @@ describe('/ (dashboard) — gating IA à 3 états', () => {
 			overdueCount: 0,
 			remainingExpenseCents: 0,
 			hasStreams: false,
+			emptyState: 'none-detected',
 			todayIso: '2026-06-15'
 		};
 		// `Once`, not `mockResolvedValue`: the suite's `beforeEach` runs `vi.clearAllMocks()`, which

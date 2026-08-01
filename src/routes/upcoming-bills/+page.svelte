@@ -873,6 +873,19 @@
 					ctaLabel={m.bills_empty_cta()}
 					ctaHref={resolve('/imports')}
 				/>
+			{:else if nothingDueThisPeriod && bills.emptyState === 'all-stale'}
+				<!-- Every stream that survives exclusions has gone quiet longer than one tolerated
+				     cycle (task 2026-08-02, follow-up to #97): "changez de mois" is precisely the
+				     advice that cannot help here, since a stale stream is never projected again on
+				     ANY month — see `isStreamStale`/`buildBillOccurrences`. `emptyState` is computed
+				     over the whole 12-month lookback, not this period alone, so a month that DOES hold
+				     one of these streams' already-realized rows never reaches this branch (`rows` is
+				     non-empty there, `nothingDueThisPeriod` is false). -->
+				<EmptyState
+					icon={emptyIcon}
+					title={m.bills_none_due_stale_title()}
+					description={m.bills_none_due_stale_description()}
+				/>
 			{:else if nothingDueThisPeriod}
 				<!-- Streams ARE detected, this period just holds none of them. A separate state on
 				     purpose (same fix as UpcomingBillsCard's): the observing copy would claim nothing

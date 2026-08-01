@@ -121,7 +121,20 @@
 		</svg>
 	{/snippet}
 
-	{#if !widget.hasStreams}
+	{#if !widget.hasStreams && widget.emptyState === 'all-stale'}
+		<!-- Every stream survives exclusions but has gone quiet longer than one tolerated cycle
+		     (task 2026-08-02, follow-up to #97): the "no flow ever detected" copy below and its
+		     "Importer" CTA would both be false claims for a user who already has a cancelled
+		     subscription on file. Mirrors the dashboard forecast card's own `emptyState ===
+		     'all-stale'` branch. -->
+		<EmptyState
+			class="mt-3"
+			card={false}
+			icon={emptyIcon}
+			title={m.dashboard_upcoming_stale_title()}
+			description={m.dashboard_upcoming_stale_description()}
+		/>
+	{:else if !widget.hasStreams}
 		<!-- No recurring flow ever detected: EmptyState explains what the engine needs. -->
 		<EmptyState
 			class="mt-3"
