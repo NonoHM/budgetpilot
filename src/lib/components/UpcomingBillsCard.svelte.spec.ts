@@ -183,6 +183,11 @@ describe('UpcomingBillsCard.svelte', () => {
 				rows: [],
 				overdueCount: 0,
 				hasStreams: false,
+				// `emptyState` pinned rather than left at the default `null`: the service can never
+				// produce `hasStreams: false` together with `emptyState: null` (`hasStreams ===
+				// (emptyState === null)` by construction), and this fixture is specifically testing
+				// the "no flow ever detected" branch, not the all-stale one.
+				emptyState: 'none-detected',
 				remainingExpenseCents: 0
 			})
 		});
@@ -404,6 +409,8 @@ describe('UpcomingBillsCard.svelte', () => {
 				rows: [],
 				overdueCount: 0,
 				hasStreams: false,
+				// See the "no stream was ever detected" test above for why this is pinned.
+				emptyState: 'none-detected',
 				remainingExpenseCents: 0
 			})
 		});

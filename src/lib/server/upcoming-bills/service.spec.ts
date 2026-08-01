@@ -586,6 +586,22 @@ describe('emptyState: the live/stale distinction, task 2026-08-02', () => {
 		expect(view.emptyState).toBeNull();
 	});
 
+	// Fix round 1 finding #3: every fixture above is single-flow, so a mistaken
+	// `survivingFlows.some(isStreamStale)` would pass all of them (vacuously true over one flow that
+	// happens to be stale, vacuously false over one flow that happens to be live). Mirrors
+	// `server/forecast/index.spec.ts`'s own fix-round #ADD-2 fixture: a LIVE stream (RENT) mixed with
+	// a STALE one (STOPPED_SUBSCRIPTION) is the realistic shape the discriminator has to get right —
+	// 'every surviving flow is stale', not 'some surviving flow is stale'.
+	it('reports neither, and keeps both streams in streamCount, when a live stream and a stale one coexist', async () => {
+		expect.assertions(2);
+		mockRead([...RENT, ...STOPPED_SUBSCRIPTION]);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+
+		expect(view.emptyState).toBeNull();
+		expect(view.streamCount).toBe(2);
+	});
+
 	// Guards the trap: `streamCount` must keep counting the stale stream even once `emptyState`
 	// exists, so the period navigator stays open for an all-stale user. Must go red if a future
 	// change collapses the two predicates into one.
@@ -602,7 +618,7 @@ describe('emptyState: the live/stale distinction, task 2026-08-02', () => {
 	// Behavioural half of the trap: a stale stream's own already-realized transaction still renders
 	// as a settled row in the month it actually landed in, so the navigator has somewhere to go even
 	// though the stream itself is globally reported as all-stale.
-	it('still renders a stale stream own realized occurrence in the past month it landed in', async () => {
+	it("still renders a stale stream's own realized occurrence in the past month it landed in", async () => {
 		expect.assertions(2);
 		mockRead(STOPPED_SUBSCRIPTION);
 
@@ -730,6 +746,35 @@ describe('widget hasStreams/emptyState: live vs stale, task 2026-08-02', () => {
 
 		expect(view.hasStreams).toBe(false);
 		expect(view.emptyState).toBe('all-stale');
+	});
+
+	// Fix round 1 finding #3, widget half: same `every` vs `some` guard as the month-view fixture
+	// above, on the widget's own `liveFlows`/`hasStreams` computation.
+	it('is true, with a null emptyState, when a live stream and a stale one coexist', async () => {
+		expect.assertions(2);
+		mockRead([...RENT, ...STOPPED_SUBSCRIPTION]);
+
+		const view = await loadUpcomingBillsWidget(userId);
+
+		expect(view.hasStreams).toBe(true);
+		expect(view.emptyState).toBeNull();
+	});
+
+	// Invariant guard, requested in fix round 1: `hasStreams === (emptyState === null)` by
+	// construction (both are derived from the same `survivingFlows`/staleness check), but the type
+	// cannot express that, and `npm run check` will not catch a fixture that violates it — which is
+	// the honest cost of the component specs injecting `hasStreams`/`emptyState` as independent
+	// static props rather than going through the service. Asserted here, on the service's own
+	// output, across every shape above.
+	it('keeps hasStreams and emptyState in lockstep across every fixture', async () => {
+		expect.assertions(3);
+		const fixtures = [RENT, STOPPED_SUBSCRIPTION, [...RENT, ...STOPPED_SUBSCRIPTION]];
+
+		for (const fixture of fixtures) {
+			mockRead(fixture);
+			const view = await loadUpcomingBillsWidget(userId);
+			expect(view.hasStreams).toBe(view.emptyState === null);
+		}
 	});
 });
 

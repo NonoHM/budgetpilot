@@ -173,8 +173,33 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 			form: null as ActionData
 		});
 
-		await expect.element(screen.getByText('Échéances à venir')).toBeInTheDocument();
-		expect(screen.container.textContent).not.toContain('Importez votre premier relevé');
+		await expect.element(screen.getByText(m.dashboard_upcoming_title())).toBeInTheDocument();
+		expect(screen.container.textContent).not.toContain(m.dashboard_empty_heading());
+	});
+
+	/**
+	 * Fix round 1, IMPORTANT #1: the widget's own all-stale copy is deliberately distinct from the
+	 * forecast card's (`m.dashboard_forecast_stale_title()`), because a user whose only stream is a
+	 * cancelled but reliable-confirmed subscription reaches `emptyState: 'all-stale'` on BOTH
+	 * surfaces at once, and the two cards are adjacent siblings on this same page — reusing one
+	 * title would stack two empty cards reading the same thing. Pinned here rather than left to two
+	 * separate specs staying accidentally in sync, since neither surface's own test can see the
+	 * other's copy.
+	 */
+	it('renders two distinct all-stale empty cards, never the same title twice', async () => {
+		expect.assertions(3);
+		const screen = render(Page, {
+			data: buildData({
+				upcomingBillsHasStreams: false,
+				upcomingBillsEmptyState: 'all-stale',
+				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'all-stale' }
+			}),
+			form: null as ActionData
+		});
+
+		await expect.element(screen.getByText(m.dashboard_upcoming_stale_title())).toBeInTheDocument();
+		await expect.element(screen.getByText(m.dashboard_forecast_stale_title())).toBeInTheDocument();
+		expect(m.dashboard_upcoming_stale_title()).not.toBe(m.dashboard_forecast_stale_title());
 	});
 
 	it('still renders the widget in the ordinary populated case', async () => {
