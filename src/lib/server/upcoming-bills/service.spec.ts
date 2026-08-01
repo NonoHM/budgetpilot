@@ -282,7 +282,7 @@ describe('getCurrentBillsMonth', () => {
 		else process.env.TZ = originalTz;
 	});
 
-	it('rend le mois UTC, pas le mois local, à la bascule de minuit sur un hôte à décalage positif', () => {
+	it('renders the UTC month, not the local month, at the midnight rollover on a positive-offset host', () => {
 		process.env.TZ = 'Europe/Paris';
 		vi.setSystemTime(new Date('2026-07-31T23:30:00.000Z'));
 
@@ -294,7 +294,7 @@ describe('getCurrentBillsMonth', () => {
 });
 
 describe('loadUpcomingBillsMonth', () => {
-	it('projette le mois: réalisé auto-réglé, retard et à venir, avec les totaux', async () => {
+	it('projects the month: auto-settled realized, overdue and upcoming, with totals', async () => {
 		mockRead([...RENT, ...SUBSCRIPTION, ...SALARY]);
 
 		const view = await loadUpcomingBillsMonth(userId, '2026-07');
@@ -326,7 +326,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.observationCandidates).toEqual([]);
 	});
 
-	it('scope la lecture des transactions et des actions sur userId', async () => {
+	it('scopes the transaction and action reads on userId', async () => {
 		mockRead(RENT);
 
 		await loadUpcomingBillsMonth(userId, '2026-07');
@@ -339,7 +339,7 @@ describe('loadUpcomingBillsMonth', () => {
 		);
 	});
 
-	it('anonymise les libellés affichés et garde le libellé brut dans le seul payload d’action', async () => {
+	it('anonymizes displayed labels and keeps the raw label only in the action payload', async () => {
 		mockRead(SUBSCRIPTION);
 
 		const view = await loadUpcomingBillsMonth(userId, '2026-07');
@@ -360,7 +360,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(JSON.parse(row.actionPayload.anchorTransactionIds)).toEqual(['sub-0', 'sub-1', 'sub-2']);
 	});
 
-	it('applique une action ignore stockée à l’occurrence correspondante', async () => {
+	it('applies a stored ignore action to the matching occurrence', async () => {
 		mockRead([...SUBSCRIPTION], [storedAction()]);
 
 		const view = await loadUpcomingBillsMonth(userId, '2026-07');
@@ -371,7 +371,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.remainingExpenseCents).toBe(0);
 	});
 
-	it('retire du décompte de flux un stream exclu', async () => {
+	it('removes an excluded stream from the stream count', async () => {
 		mockRead(
 			[...RENT, ...SUBSCRIPTION],
 			[storedAction({ kind: 'EXCLUDE', dueDate: null, id: 'action-exclude' })]
@@ -384,7 +384,7 @@ describe('loadUpcomingBillsMonth', () => {
 	});
 
 	// T5-c: the anchor column is user-restorable data read on a page load.
-	it('tolère une cellule anchorTransactionIds malformée (jamais de throw)', async () => {
+	it('tolerates a malformed anchorTransactionIds cell (never throws)', async () => {
 		mockRead(SUBSCRIPTION, [
 			storedAction({ anchorTransactionIds: 'not json' }),
 			storedAction({ id: 'action-2', anchorTransactionIds: '{"a":1}' })
@@ -398,7 +398,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.rows[0].status).toBe('ignored');
 	});
 
-	it('ne propose des candidats en observation que quand aucune ligne n’existe, anonymisés', async () => {
+	it('only offers observation candidates, anonymized, when no row exists', async () => {
 		// Two same-amount transactions 45 days apart: no cadence window matches, so no flow claims
 		// them and they surface as an observation candidate instead.
 		mockRead([
@@ -416,7 +416,7 @@ describe('loadUpcomingBillsMonth', () => {
 	 * B3-b. An exclusion removes the stream from every list, so without this the user has no way to
 	 * see (let alone undo) a decision the app treats as permanent.
 	 */
-	it('expose les flux exclus, anonymisés, avec l’id de l’action à annuler', async () => {
+	it('exposes excluded streams, anonymized, with the undo action id', async () => {
 		mockRead(SUBSCRIPTION, [
 			storedAction({ kind: 'EXCLUDE', dueDate: null }),
 			// Not an exclusion: it must not appear in the escape hatch.
@@ -434,7 +434,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.streamCount).toBe(0);
 	});
 
-	it('liste les flux exclus du plus ancien au plus récent', async () => {
+	it('lists excluded streams oldest first', async () => {
 		// Documented as oldest-first, which is a claim about the QUERY's ordering as much as about the
 		// mapping: `findStreamActions` sorts by createdAt then id, and the section renders in that
 		// order. Both halves asserted, because the mock preserves whatever order it is handed and the
@@ -458,7 +458,7 @@ describe('loadUpcomingBillsMonth', () => {
 		);
 	});
 
-	it('liste un flux exclu dont la direction stockée est illisible', async () => {
+	it('lists an excluded stream whose stored direction is unreadable', async () => {
 		// `toStreamActionInputs` drops such a row rather than applying it to the wrong side of the
 		// budget. It must still be LISTED, or the user holds a decision they can neither use nor
 		// delete.
@@ -469,7 +469,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.excludedStreams.map((stream) => stream.actionId)).toEqual([actionId]);
 	});
 
-	it('rend une occurrence marquée payée comme réglée manuellement', async () => {
+	it('renders an occurrence marked paid as manually settled', async () => {
 		mockRead(SUBSCRIPTION, [
 			storedAction({ kind: 'PAID', dueDate: new Date('2026-07-10T00:00:00.000Z') })
 		]);
@@ -485,7 +485,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.remainingExpenseCents).toBe(0);
 	});
 
-	it('rend un mois passé: uniquement des lignes réglées, plus rien à payer', async () => {
+	it('renders a past month: only settled rows, nothing left to pay', async () => {
 		mockRead([...RENT, ...SUBSCRIPTION]);
 
 		const view = await loadUpcomingBillsMonth(userId, '2026-05');
@@ -501,7 +501,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.expectedIncomeCents).toBe(0);
 	});
 
-	it('rend un mois futur: uniquement des projections à venir', async () => {
+	it('renders a future month: only upcoming projections', async () => {
 		mockRead([...RENT, ...SUBSCRIPTION, ...SALARY]);
 
 		const view = await loadUpcomingBillsMonth(userId, '2026-09');
@@ -519,7 +519,7 @@ describe('loadUpcomingBillsMonth', () => {
 	// balance. It now drops out silently: no row, nothing in the totals, and no new user-facing
 	// concept. `streamCount` deliberately still counts it, since it is what tells the page a stream
 	// has ever been detected (the alternative walls the period navigator off entirely).
-	it('cesse de projeter un abonnement résilié, sans rien signaler à l’utilisateur', async () => {
+	it('stops projecting a cancelled subscription, without telling the user anything', async () => {
 		mockRead(STOPPED_SUBSCRIPTION);
 
 		const view = await loadUpcomingBillsMonth(userId, '2026-07');
@@ -534,7 +534,7 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.observationCandidates).toEqual([]);
 	});
 
-	it('refuse un mois malformé avant toute requête', async () => {
+	it('refuses a malformed month before any query', async () => {
 		await expectHttpError(loadUpcomingBillsMonth(userId, '2026-13'), 400);
 		await expectHttpError(loadUpcomingBillsMonth(userId, 'juillet'), 400);
 		expect(db.prisma.transaction.findMany).not.toHaveBeenCalled();
@@ -542,7 +542,7 @@ describe('loadUpcomingBillsMonth', () => {
 });
 
 describe('loadUpcomingBillsWidget', () => {
-	it('ne garde que les échéances ouvertes et fiables de la fenêtre glissante', async () => {
+	it('keeps only the open, reliable occurrences of the rolling window', async () => {
 		mockRead([...RENT, ...SUBSCRIPTION, ...SALARY, ...UTILITY]);
 
 		const view = await loadUpcomingBillsWidget(userId);
@@ -565,7 +565,7 @@ describe('loadUpcomingBillsWidget', () => {
 
 	// The widget's other tests assert outcomes only, so its isolation would rest on sharing a
 	// helper with the month describe. Asserted here on its own queries.
-	it('scope ses deux requêtes sur userId', async () => {
+	it('scopes both its queries on userId', async () => {
 		mockRead(SUBSCRIPTION);
 
 		await loadUpcomingBillsWidget(userId);
@@ -578,7 +578,7 @@ describe('loadUpcomingBillsWidget', () => {
 		);
 	});
 
-	it('plafonne à 5 lignes mais compte les retards et le total sur tout l’ensemble retenu', async () => {
+	it('caps at 5 rows but counts lateness and the total over the whole retained set', async () => {
 		// A weekly stream tolerates only 9 days of silence, so it can carry at most one late
 		// occurrence on its own: the surplus beyond the 5 displayed rows comes from stacking it with
 		// the two monthly streams, not from letting one stream rot for a month.
@@ -607,7 +607,7 @@ describe('loadUpcomingBillsWidget', () => {
 	// The widget carries the "N en retard" badge, which is the surface the stale rows inflated.
 	// `hasStreams` stays true: the stream exists, it simply has nothing left to schedule, and the
 	// card's "aucun stream détecté" empty state would be a different (wrong) claim.
-	it('vide la carte d’un abonnement résilié sans annoncer de retard', async () => {
+	it('empties the card for a cancelled subscription without announcing lateness', async () => {
 		mockRead(STOPPED_SUBSCRIPTION);
 
 		const view = await loadUpcomingBillsWidget(userId);
@@ -618,7 +618,7 @@ describe('loadUpcomingBillsWidget', () => {
 		expect(view.remainingExpenseCents).toBe(0);
 	});
 
-	it('signale l’absence de stream quand tout est exclu', async () => {
+	it('reports no stream when everything is excluded', async () => {
 		mockRead(SUBSCRIPTION, [
 			storedAction({ kind: 'EXCLUDE', dueDate: null, id: 'action-exclude' })
 		]);
@@ -637,14 +637,14 @@ describe('loadUpcomingBillsWidget', () => {
  * fed the detector history the widget never sees — and detection is not monotonic in its input, so
  * the same stream could read "Confirmé" on one screen and "Probable" on another.
  */
-describe('fenêtre de détection figée à 12 mois', () => {
+describe('detection window pinned to 12 months', () => {
 	/**
 	 * Anti-vacuity guard, asserted on the domain rather than on the views: it pins the property the
 	 * test below depends on — that the pre-window transaction really would change the tier. A fixture
 	 * edit that makes both sets score the same tier fails HERE, instead of turning the consistency
 	 * test into an assertion about nothing.
 	 */
-	it('le relevé hors fenêtre changerait bien le tier (garde anti-vacuité)', () => {
+	it('the out-of-window statement really would change the tier (anti-vacuity guard)', () => {
 		const toForecastInput = (transaction: RawTransaction) => ({
 			id: transaction.id,
 			date: transaction.date.toISOString().slice(0, 10),
@@ -663,7 +663,7 @@ describe('fenêtre de détection figée à 12 mois', () => {
 		expect(getFlowDisplayTier(widened)).toBe('likely');
 	});
 
-	it('rend le même tier pour le mois courant, un mois ancien et le widget', async () => {
+	it('renders the same tier for the current month, an old month and the widget', async () => {
 		mockRangedRead([...INSURANCE, INSURANCE_PRE_WINDOW]);
 
 		const current = await loadUpcomingBillsMonth(userId, '2026-07');
@@ -694,7 +694,7 @@ describe('fenêtre de détection figée à 12 mois', () => {
 	// detected flows claim. Handing it the wide fetch while the detector only saw the pinned set
 	// breaks that contract from the other side: a pre-window pair the detector was never shown would
 	// be presented as "en cours d'observation", i.e. as a stream the engine is about to confirm.
-	it('ne propose pas en observation une paire que le détecteur n’a jamais vue', async () => {
+	it('never offers as observation a pair the detector never saw', async () => {
 		// 45 days apart: no cadence window matches, so nothing claims them — exactly the shape the
 		// observation list is made of. Both sit before the lookback start (2025-07-14).
 		const preWindowPair = ['2025-04-10', '2025-05-25'].map((date, index) =>
@@ -717,7 +717,7 @@ describe('fenêtre de détection figée à 12 mois', () => {
 	// stream count stays non-zero. That pair of facts is what makes the page's `nothingDueThisPeriod`
 	// copy a false claim there, and what `oldestNavigableMonth` exists to keep unreachable — a change
 	// in EITHER direction (rows appearing, or the count collapsing to 0) would otherwise be silent.
-	it('rend un mois antérieur à la fenêtre entièrement vide, en gardant streamCount > 0', async () => {
+	it('renders a month before the window entirely empty, while keeping streamCount > 0', async () => {
 		const beforeWindow = ['2024-05-03', '2024-06-03', '2024-07-03'].map((date, index) =>
 			tx(`old-${index}`, date, RENT_LABEL, -80_000, 'Logement')
 		);
@@ -736,7 +736,7 @@ describe('fenêtre de détection figée à 12 mois', () => {
 	// callers and a one-month disagreement is either a redirect loop or a month nothing can open.
 	// Also the only exercise of `lookbackStart`'s day-of-month arithmetic at a month boundary: on the
 	// 1st, 12 months back is the 1st of a month, and the boundary is that month, not the next one.
-	it('expose la même borne que le helper, y compris le 1er du mois', async () => {
+	it('exposes the same boundary as the helper, including the 1st of the month', async () => {
 		mockRangedRead(INSURANCE);
 
 		const view = await loadUpcomingBillsMonth(userId, '2026-07');
@@ -791,7 +791,7 @@ describe('recordStreamAction', () => {
 	}
 
 	// T5-b: the anchor list must never reach SQL without a userId conjunct.
-	it('filtre les ancres sur userId et ne persiste que celles que l’utilisateur possède', async () => {
+	it('filters anchors on userId and persists only the ones the user owns', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0', 'sub-2']));
 
 		const result = await recordStreamAction(
@@ -808,7 +808,7 @@ describe('recordStreamAction', () => {
 		expect(JSON.parse(created.data.anchorTransactionIds)).toEqual(['sub-0', 'sub-2']);
 	});
 
-	it('refuse (400) une action dont aucune ancre n’appartient à l’utilisateur', async () => {
+	it('refuses (400) an action where no anchor belongs to the user', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue([]);
 
 		await expectHttpError(
@@ -818,13 +818,13 @@ describe('recordStreamAction', () => {
 		expect(db.prisma.recurringStreamAction.create).not.toHaveBeenCalled();
 	});
 
-	it('refuse (400) une action sans aucune ancre, sans interroger la base', async () => {
+	it('refuses (400) an action with no anchor at all, without querying the database', async () => {
 		await expectHttpError(recordStreamAction(userId, input({ anchorTransactionIds: [] })), 400);
 		expect(db.prisma.transaction.findMany).not.toHaveBeenCalled();
 	});
 
 	// T5-a: both columns are varchar(191) on MySQL.
-	it('accepte 191 caractères intacts et tronque 192 sans lever', async () => {
+	it('accepts 191 characters intact and truncates 192 without throwing', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 
 		await recordStreamAction(
@@ -847,7 +847,7 @@ describe('recordStreamAction', () => {
 
 	// P2: normalizedLabel is the fallback half of the stream identity, so a client-supplied value
 	// would be a way to aim an action at a stream the user never acted on.
-	it('dérive normalizedLabel du libellé stocké et ignore toute valeur fournie', async () => {
+	it('derives normalizedLabel from the stored label and ignores any supplied value', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 
 		await recordStreamAction(userId, {
@@ -863,7 +863,7 @@ describe('recordStreamAction', () => {
 	});
 
 	// T5-e: same truncation rule as the restore path, newest kept.
-	it('tronque les ancres aux MAX_ANCHOR_IDS plus récentes', async () => {
+	it('truncates anchors to the MAX_ANCHOR_IDS most recent', async () => {
 		const anchors = Array.from({ length: MAX_ANCHOR_IDS + 40 }, (_, index) => `anchor-${index}`);
 		db.prisma.transaction.findMany.mockImplementation(
 			async ({ where }: { where: { id: { in: string[] } } }) => owned(where.id.in)
@@ -882,7 +882,7 @@ describe('recordStreamAction', () => {
 	});
 
 	// A4: the window must follow the stream's own cadence, not a fixed 15 days.
-	it('dérive la fenêtre d’idempotence de la cadence réelle des ancres', async () => {
+	it("derives the idempotence window from the anchors' actual cadence", async () => {
 		// Weekly stream: two ignores 7 days apart are two DIFFERENT occurrences (window 3), where a
 		// fixed 15-day window swallowed the second one and wrote no row — the tap looked broken.
 		db.prisma.transaction.findMany.mockResolvedValue(
@@ -904,7 +904,7 @@ describe('recordStreamAction', () => {
 		expect(db.prisma.recurringStreamAction.create).toHaveBeenCalledTimes(1);
 	});
 
-	it('garde l’idempotence à l’intérieur de la fenêtre hebdomadaire', async () => {
+	it('keeps idempotence inside the weekly window', async () => {
 		// Same weekly stream, same occurrence re-tapped one day later (1 <= 3): still one row.
 		db.prisma.transaction.findMany.mockResolvedValue(
 			owned(['w-0', 'w-1', 'w-2'], WEEKLY_ANCHOR_DATES)
@@ -925,7 +925,7 @@ describe('recordStreamAction', () => {
 		expect(db.prisma.recurringStreamAction.create).not.toHaveBeenCalled();
 	});
 
-	it('retombe sur la fenêtre par défaut avec une seule ancre', async () => {
+	it('falls back to the default window with a single anchor', async () => {
 		// One anchor -> no interval to measure -> the 15-day ceiling, so 2026-07-20 still matches the
 		// stored 2026-07-10.
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
@@ -942,7 +942,7 @@ describe('recordStreamAction', () => {
 	});
 
 	// A5: bound what is WRITTEN, not only what is accepted.
-	it('écrit une cellule d’ancres que le validateur de sauvegarde accepte', async () => {
+	it('writes an anchor cell the backup validator accepts', async () => {
 		const anchors = Array.from({ length: MAX_ANCHOR_IDS }, (_, index) =>
 			`c${index}`.padEnd(MAX_ANCHOR_ID_CHARS, 'x')
 		);
@@ -960,7 +960,7 @@ describe('recordStreamAction', () => {
 		expect(JSON.parse(cell)).toHaveLength(MAX_ANCHOR_IDS);
 	});
 
-	it('écarte une ancre trop longue, et refuse si c’était la seule', async () => {
+	it('discards an anchor that is too long, and refuses if it was the only one', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 
 		await recordStreamAction(userId, input({ anchorTransactionIds: ['sub-0', 'z'.repeat(33)] }));
@@ -976,7 +976,7 @@ describe('recordStreamAction', () => {
 	});
 
 	// A7: a cut inside a surrogate pair leaves a malformed string.
-	it('ne coupe jamais au milieu d’une paire de surrogates', async () => {
+	it('never cuts in the middle of a surrogate pair', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 
 		// 190 BMP characters then an emoji: cutting at 191 code units would split it.
@@ -992,7 +992,7 @@ describe('recordStreamAction', () => {
 	});
 
 	// A3: a malformed body is a 400, never a TypeError surfacing as a 500.
-	it('refuse (400) un corps malformé au lieu de lever un TypeError', async () => {
+	it('refuses (400) a malformed body instead of throwing a TypeError', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 		const malformed = (overrides: Record<string, unknown>) =>
 			({ ...input({ anchorTransactionIds: ['sub-0'] }), ...overrides }) as Parameters<
@@ -1013,7 +1013,7 @@ describe('recordStreamAction', () => {
 		expect(db.prisma.recurringStreamAction.create).not.toHaveBeenCalled();
 	});
 
-	it('écrit une action paid avec sa date d’échéance', async () => {
+	it('writes a paid action with its due date', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 
 		await recordStreamAction(userId, input({ kind: 'paid', anchorTransactionIds: ['sub-0'] }));
@@ -1027,7 +1027,7 @@ describe('recordStreamAction', () => {
 	});
 
 	// A2: the cap check and the insert must not be separated by a window another write can use.
-	it('compte et insère dans une seule transaction', async () => {
+	it('counts and inserts in a single transaction', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 
 		await recordStreamAction(userId, input({ anchorTransactionIds: ['sub-0'] }));
@@ -1036,7 +1036,7 @@ describe('recordStreamAction', () => {
 	});
 
 	// T5-d: this is the reader the (userId, kind) index was kept for.
-	it('est idempotente: renvoie l’action existante au lieu d’en insérer une seconde', async () => {
+	it('is idempotent: returns the existing action instead of inserting a second one', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0', 'sub-1']));
 		db.prisma.recurringStreamAction.findMany.mockResolvedValue([storedAction()]);
 
@@ -1049,7 +1049,7 @@ describe('recordStreamAction', () => {
 		expect(db.prisma.recurringStreamAction.create).not.toHaveBeenCalled();
 	});
 
-	it('insère quand l’action existante vise une autre échéance du même stream', async () => {
+	it('inserts when the existing action targets a different occurrence of the same stream', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 		db.prisma.recurringStreamAction.findMany.mockResolvedValue([storedAction()]);
 
@@ -1063,7 +1063,7 @@ describe('recordStreamAction', () => {
 	});
 
 	// T5-f: the write path enforces the same cap the backup validator does.
-	it('refuse (400) au-delà de MAX_RECURRING_STREAM_ACTIONS sans évincer de décision vivante', async () => {
+	it('refuses (400) beyond MAX_RECURRING_STREAM_ACTIONS without evicting a live decision', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 		db.prisma.recurringStreamAction.count.mockResolvedValue(MAX_RECURRING_STREAM_ACTIONS);
 
@@ -1082,14 +1082,14 @@ describe('recordStreamAction', () => {
 		});
 	});
 
-	it('accepte encore la dernière place sous le plafond', async () => {
+	it('still accepts the last slot under the cap', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 		db.prisma.recurringStreamAction.count.mockResolvedValue(MAX_RECURRING_STREAM_ACTIONS - 1);
 
 		await expect(recordStreamAction(userId, input())).resolves.toEqual({ actionId: 'created-1' });
 	});
 
-	it('valide kind, direction et dueDate', async () => {
+	it('validates kind, direction and dueDate', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 
 		await expectHttpError(recordStreamAction(userId, input({ kind: 'delete' as never })), 400);
@@ -1114,7 +1114,7 @@ describe('recordStreamAction', () => {
 	 * user can no longer act on stops counting against them without a sweep, a boot job, or a DELETE
 	 * on the page-load path.
 	 */
-	describe('purge des décisions inertes', () => {
+	describe('pruning inert decisions', () => {
 		const cutoff = () => computeInertActionCutoff(new Date(TODAY));
 		const day = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
 		/** One day either side of the cutoff, so the bound itself is exercised, not just its sign. */
@@ -1125,7 +1125,7 @@ describe('recordStreamAction', () => {
 			db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 		});
 
-		it('purge avant de compter, en scopant sur userId', async () => {
+		it('prunes before counting, scoped on userId', async () => {
 			await recordStreamAction(userId, input());
 
 			expect(pruneWhere().userId).toBe(userId);
@@ -1136,21 +1136,21 @@ describe('recordStreamAction', () => {
 			);
 		});
 
-		it('supprime un IGNORE dont la période est passée depuis la fenêtre de détection', async () => {
+		it('deletes an IGNORE whose period has fallen out of the detection window', async () => {
 			await recordStreamAction(userId, input());
 
 			const row = { userId, kind: 'IGNORE', dueDate: justBefore() };
 			expect(applyPruneWhere([row], pruneWhere())).toEqual([row]);
 		});
 
-		it('supprime un PAID dont l’occurrence a été absorbée puis sortie de la fenêtre', async () => {
+		it('deletes a PAID whose occurrence was absorbed and has since left the window', async () => {
 			await recordStreamAction(userId, input());
 
 			const row = { userId, kind: 'PAID', dueDate: justBefore() };
 			expect(applyPruneWhere([row], pruneWhere())).toEqual([row]);
 		});
 
-		it('ne supprime JAMAIS un EXCLUDE, quel que soit son âge', async () => {
+		it('NEVER deletes an EXCLUDE, no matter its age', async () => {
 			await recordStreamAction(userId, input());
 
 			// Both shapes an EXCLUDE can take on disk: the one the write path produces (dueDate NULL),
@@ -1163,7 +1163,7 @@ describe('recordStreamAction', () => {
 			expect(applyPruneWhere(excludes, pruneWhere())).toEqual([]);
 		});
 
-		it('ne supprime ni une décision encore vivante ni celle d’un autre utilisateur', async () => {
+		it("deletes neither a still-live decision nor another user's", async () => {
 			await recordStreamAction(userId, input());
 
 			const kept = [
@@ -1177,7 +1177,7 @@ describe('recordStreamAction', () => {
 			expect(applyPruneWhere(kept, pruneWhere())).toEqual([]);
 		});
 
-		it('crée bien la ligne demandée dans la même transaction que la purge', async () => {
+		it('creates the requested row in the very same transaction as the prune', async () => {
 			// The prune must not swallow the write it rides along with: a user's tap still has to
 			// produce a row, and its id is what the result banner's "Annuler" posts back.
 			const result = await recordStreamAction(userId, input());
@@ -1206,26 +1206,23 @@ describe('recordStreamAction', () => {
 			'2026-03-31T12:00:00.000Z'
 		];
 
-		it.each(AWKWARD_NOW)(
-			'reste en deçà du plus ancien jour affichable (now = %s)',
-			async (nowIso) => {
-				vi.setSystemTime(new Date(nowIso));
-				mockRead([...RENT]);
+		it.each(AWKWARD_NOW)('stays before the oldest renderable day (now = %s)', async (nowIso) => {
+			vi.setSystemTime(new Date(nowIso));
+			mockRead([...RENT]);
 
-				const view = await loadUpcomingBillsMonth(userId, nowIso.slice(0, 7));
-				const oldestRenderableDay = day(`${view.oldestNavigableMonth}-01`);
-				const actual = computeInertActionCutoff(new Date(nowIso));
+			const view = await loadUpcomingBillsMonth(userId, nowIso.slice(0, 7));
+			const oldestRenderableDay = day(`${view.oldestNavigableMonth}-01`);
+			const actual = computeInertActionCutoff(new Date(nowIso));
 
-				expect(actual.getTime()).toBeLessThan(oldestRenderableDay.getTime());
-				// And by at least the widest tolerance `assignActionsToOccurrences` grants, so no action on
-				// the far side of the cutoff can still be assigned to that first renderable occurrence.
-				expect(oldestRenderableDay.getTime() - actual.getTime()).toBeGreaterThanOrEqual(
-					occurrenceActionWindowDays({ medianIntervalDays: 365 }) * 86_400_000
-				);
-			}
-		);
+			expect(actual.getTime()).toBeLessThan(oldestRenderableDay.getTime());
+			// And by at least the widest tolerance `assignActionsToOccurrences` grants, so no action on
+			// the far side of the cutoff can still be assigned to that first renderable occurrence.
+			expect(oldestRenderableDay.getTime() - actual.getTime()).toBeGreaterThanOrEqual(
+				occurrenceActionWindowDays({ medianIntervalDays: 365 }) * 86_400_000
+			);
+		});
 
-		it('fait déborder février 29 exactement comme la fenêtre de détection', () => {
+		it('overflows February 29 exactly like the detection window', () => {
 			// The overflow itself, pinned rather than merely tolerated: both sides must name 2027-03-01.
 			const leapDay = new Date('2028-02-29T09:00:00.000Z');
 
@@ -1235,7 +1232,7 @@ describe('recordStreamAction', () => {
 		});
 	});
 
-	it('stocke une exclusion sans date d’échéance', async () => {
+	it('stores an exclusion with no due date', async () => {
 		db.prisma.transaction.findMany.mockResolvedValue(owned(['sub-0']));
 
 		await recordStreamAction(userId, input({ kind: 'exclude', dueDate: null }));
@@ -1248,7 +1245,7 @@ describe('recordStreamAction', () => {
 });
 
 describe('undoStreamAction', () => {
-	it('supprime en scopant sur userId', async () => {
+	it('deletes scoped on userId', async () => {
 		db.prisma.recurringStreamAction.deleteMany.mockResolvedValue({ count: 1 });
 
 		await undoStreamAction(userId, actionId);
@@ -1258,29 +1255,29 @@ describe('undoStreamAction', () => {
 		});
 	});
 
-	it('renvoie 404 pour une action appartenant à quelqu’un d’autre', async () => {
+	it('returns 404 for an action belonging to someone else', async () => {
 		db.prisma.recurringStreamAction.deleteMany.mockResolvedValue({ count: 0 });
 
 		await expectHttpError(undoStreamAction(userId, 'action-someone-else'), 404);
 	});
 
-	it('renvoie 404 sans requête pour un id malformé', async () => {
+	it('returns 404 without a query for a malformed id', async () => {
 		await expectHttpError(undoStreamAction(userId, 'x'), 404);
 		expect(db.prisma.recurringStreamAction.deleteMany).not.toHaveBeenCalled();
 	});
 });
 
-describe('bornes partagées', () => {
+describe('shared bounds', () => {
 	/**
 	 * The domain owns STORED_LABEL_MAX_CHARS because `actionMatchesFlow` needs it and may not import
 	 * from `server/`; the backup validator owns MAX_PORTABLE_STRING because it is a statement about
 	 * MySQL's varchar default. They describe the same column and must not drift.
 	 */
-	it('STORED_LABEL_MAX_CHARS et MAX_PORTABLE_STRING décrivent la même colonne', () => {
+	it('STORED_LABEL_MAX_CHARS and MAX_PORTABLE_STRING describe the same column', () => {
 		expect(STORED_LABEL_MAX_CHARS).toBe(MAX_PORTABLE_STRING);
 	});
 
-	it('MAX_ANCHOR_ID_CHARS tient dans le budget de la cellule', () => {
+	it("MAX_ANCHOR_ID_CHARS fits within the cell's budget", () => {
 		expect(MAX_ANCHOR_IDS * (MAX_ANCHOR_ID_CHARS + 3) + 2).toBeLessThanOrEqual(
 			MAX_ANCHOR_CELL_CHARS
 		);

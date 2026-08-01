@@ -80,7 +80,7 @@ function action(
 }
 
 describe('computeOccurrenceStatus', () => {
-	it('ne calcule jamais de retard pour un flux incertain, même 60 jours dans le passé', () => {
+	it('never computes lateness for an uncertain stream, even 60 days in the past', () => {
 		expect.assertions(2);
 
 		const result = computeOccurrenceStatus('uncertain', '2026-06-01', '2026-07-31');
@@ -89,7 +89,7 @@ describe('computeOccurrenceStatus', () => {
 		expect(result.daysLate).toBeNull();
 	});
 
-	it('marque en retard un flux confirmé daté de 3 jours avant aujourd’hui', () => {
+	it('marks a confirmed stream dated 3 days before today as overdue', () => {
 		expect.assertions(2);
 
 		const result = computeOccurrenceStatus('confirmed', '2026-07-28', '2026-07-31');
@@ -98,7 +98,7 @@ describe('computeOccurrenceStatus', () => {
 		expect(result.daysLate).toBe(3);
 	});
 
-	it('reste à venir le jour même et dans le futur', () => {
+	it('stays upcoming on the same day and in the future', () => {
 		expect.assertions(4);
 
 		const sameDay = computeOccurrenceStatus('confirmed', '2026-07-31', '2026-07-31');
@@ -112,7 +112,7 @@ describe('computeOccurrenceStatus', () => {
 });
 
 describe('occurrenceActionWindowDays', () => {
-	it('borne la fenêtre entre 1 et 15 jours autour de la moitié de la cadence', () => {
+	it('bounds the window between 1 and 15 days around half the cadence', () => {
 		expect.assertions(4);
 
 		expect(occurrenceActionWindowDays({ medianIntervalDays: 7 })).toBe(3);
@@ -125,7 +125,7 @@ describe('occurrenceActionWindowDays', () => {
 describe('computeStaleAfterDays', () => {
 	// The three worked examples the formula was fixed against: one cycle + the cadence's own
 	// tolerance + one sigma of the stream's observed intervals, SUMMED (never maxed).
-	it('somme la cadence, la tolérance de cadence et un écart-type d’intervalle', () => {
+	it('sums the cadence, the cadence tolerance and one interval standard deviation', () => {
 		expect.assertions(3);
 
 		expect(
@@ -155,7 +155,7 @@ describe('computeStaleAfterDays', () => {
 	// CADENCE_WINDOWS, so re-hardcoding the table inside computeStaleAfterDays would leave this
 	// green. It pins the numbers a reader of the formula expects; the test that actually binds the
 	// tolerance to the detector's own behaviour is the one below it.
-	it('reprend la tolérance de chaque cadence sans la redéclarer', () => {
+	it("reuses each cadence's tolerance without redeclaring it", () => {
 		expect.assertions(5);
 
 		const at = (cadence: RecurringFlow['cadence'], medianIntervalDays: number) =>
@@ -184,7 +184,7 @@ describe('computeStaleAfterDays', () => {
 	 * PERIODS are literals here, and those are the cadences' definition rather than the quantity
 	 * under test.
 	 */
-	it('reste collée à la fenêtre que le détecteur accepte réellement', () => {
+	it('stays pinned to the window the detector actually accepts', () => {
 		expect.assertions(10);
 
 		const canonicalPeriodDays = [
@@ -222,7 +222,7 @@ describe('isStreamStale', () => {
 		intervalCoefficientOfVariation: 0.1
 	} as const;
 
-	it('bascule au-delà du seuil, jamais dessus', () => {
+	it('flips past the threshold, never right at it', () => {
 		expect.assertions(3);
 
 		// staleAfterDays = 38: a bill 8 days late must still read "En retard".
@@ -241,7 +241,7 @@ describe('actionMatchesFlow', () => {
 		occurrenceIds: ['t1', 't2', 't3']
 	});
 
-	it('associe par identifiant ancré même quand le libellé ne correspond pas', () => {
+	it('matches by anchored id even when the label does not match', () => {
 		expect.assertions(1);
 
 		expect(
@@ -265,7 +265,7 @@ describe('actionMatchesFlow', () => {
 	 * `Transaction.label` is `@db.Text` and bank connectors write provider labels through
 	 * unmodified, so a label this long is reachable, not hypothetical.
 	 */
-	it('associe un flux dont le libellé dépasse la borne de stockage', () => {
+	it('matches a stream whose label exceeds the storage bound', () => {
 		expect.assertions(3);
 
 		const longLabel = `Assurance habitation ${'x'.repeat(200)}`;
@@ -293,7 +293,7 @@ describe('actionMatchesFlow', () => {
 		).toBe(true);
 	});
 
-	it('retombe sur le libellé normalisé quand aucun identifiant ancré ne correspond', () => {
+	it('falls back to the normalized label when no anchored id matches', () => {
 		expect.assertions(1);
 
 		expect(
@@ -308,7 +308,7 @@ describe('actionMatchesFlow', () => {
 		).toBe(true);
 	});
 
-	it('refuse un libellé identique dans la mauvaise direction', () => {
+	it('refuses an identical label in the wrong direction', () => {
 		expect.assertions(2);
 
 		expect(
@@ -331,7 +331,7 @@ describe('actionMatchesFlow', () => {
 });
 
 describe('applyStreamExclusions', () => {
-	it('retire les flux visés par une action exclude et garde les autres', () => {
+	it('removes streams targeted by an exclude action and keeps the rest', () => {
 		expect.assertions(2);
 
 		const edf = flow({
@@ -361,7 +361,7 @@ describe('applyStreamExclusions', () => {
 });
 
 describe('buildBillOccurrences', () => {
-	it("laisse une échéance incertaine dépassée en 'à venir' tout en signalant la date estimée passée", () => {
+	it("leaves a past-due uncertain occurrence 'upcoming' while flagging the estimated date as passed", () => {
 		expect.assertions(5);
 
 		const occurrences = buildBillOccurrences({
@@ -392,7 +392,7 @@ describe('buildBillOccurrences', () => {
 		expect(occurrences[0].estimatePassed).toBe(true);
 	});
 
-	it('marque une échéance confirmée passée en retard avec son nombre de jours', () => {
+	it('marks a past confirmed occurrence overdue with its day count', () => {
 		expect.assertions(5);
 
 		const occurrences = buildBillOccurrences({
@@ -418,7 +418,7 @@ describe('buildBillOccurrences', () => {
 		expect(occurrences[0].estimatePassed).toBe(false);
 	});
 
-	it('marque une transaction réalisée comme réglée automatiquement, sans doublon projeté', () => {
+	it('marks a realized transaction as auto-settled, with no projected duplicate', () => {
 		expect.assertions(8);
 
 		const realized = tx({
@@ -459,7 +459,7 @@ describe('buildBillOccurrences', () => {
 		expect(occurrences.filter((occurrence) => occurrence.settledKind === 'auto')).toHaveLength(1);
 	});
 
-	it("applique une action 'paid' dans la fenêtre et ignore celle qui est hors fenêtre", () => {
+	it("applies a 'paid' action inside the window and ignores the one outside it", () => {
 		expect.assertions(8);
 
 		const input = {
@@ -511,7 +511,7 @@ describe('buildBillOccurrences', () => {
 		expect(outside[0].countsInRemainingTotal).toBe(true);
 	});
 
-	it("exclut du total une échéance visée par une action 'ignore'", () => {
+	it("excludes from the total an occurrence targeted by an 'ignore' action", () => {
 		expect.assertions(4);
 
 		const occurrences = buildBillOccurrences({
@@ -543,7 +543,7 @@ describe('buildBillOccurrences', () => {
 		expect(computeTotals(occurrences).remainingExpenseCents).toBe(0);
 	});
 
-	it("ne produit aucune échéance pour un flux visé par une action 'exclude'", () => {
+	it("produces no occurrence for a stream targeted by an 'exclude' action", () => {
 		expect.assertions(1);
 
 		const excluded = flow({
@@ -570,7 +570,7 @@ describe('buildBillOccurrences', () => {
 		expect(occurrences).toStrictEqual([]);
 	});
 
-	it('trie par date puis par libellé', () => {
+	it('sorts by date then by label', () => {
 		expect.assertions(1);
 
 		const occurrences = buildBillOccurrences({
@@ -606,7 +606,7 @@ describe('buildBillOccurrences', () => {
 		).toStrictEqual(['2026-07-05/MIDDLE', '2026-07-10/ALPHA', '2026-07-10/ZETA']);
 	});
 
-	it('n’estime jamais une échéance incertaine déjà réglée par une vraie transaction', () => {
+	it('never estimates an uncertain occurrence already settled by a real transaction', () => {
 		expect.assertions(2);
 
 		const realized = tx({
@@ -640,7 +640,7 @@ describe('buildBillOccurrences', () => {
 		expect(occurrences[0].estimatePassed).toBe(false);
 	});
 
-	it('inclut une transaction datée exactement sur la borne de début et exclut celle sur la borne de fin', () => {
+	it('includes a transaction dated exactly on the start bound and excludes one on the end bound', () => {
 		expect.assertions(2);
 
 		const onStart = tx({
@@ -680,7 +680,7 @@ describe('buildBillOccurrences', () => {
 		expect(settled[0].settledTransactionId).toBe(onStart.id);
 	});
 
-	it('exclut une occurrence projetée tombant exactement sur la borne de fin exclusive', () => {
+	it('excludes a projected occurrence landing exactly on the exclusive end bound', () => {
 		expect.assertions(1);
 
 		const occurrences = buildBillOccurrences({
@@ -704,7 +704,7 @@ describe('buildBillOccurrences', () => {
 		expect(occurrences).toStrictEqual([]);
 	});
 
-	it('ne produit aucune occurrence projetée pour une période dégénérée', () => {
+	it('produces no projected occurrence for a degenerate period', () => {
 		expect.assertions(1);
 
 		const occurrences = buildBillOccurrences({
@@ -726,7 +726,7 @@ describe('buildBillOccurrences', () => {
 		expect(occurrences).toStrictEqual([]);
 	});
 
-	it("règle une seule occurrence quand deux actions 'paid' visent la même date, la première l'emporte", () => {
+	it("settles only one occurrence when two 'paid' actions target the same date, the first wins", () => {
 		expect.assertions(2);
 
 		const occurrences = buildBillOccurrences({
@@ -762,7 +762,7 @@ describe('buildBillOccurrences', () => {
 		expect(occurrences[0].appliedActionId).toBe('paid-first');
 	});
 
-	it('associe une action par le libellé normalisé quand aucun identifiant ancré ne recoupe le flux', () => {
+	it('matches an action by normalized label when no anchored id overlaps the stream', () => {
 		expect.assertions(2);
 
 		const occurrences = buildBillOccurrences({
@@ -795,7 +795,7 @@ describe('buildBillOccurrences', () => {
 		expect(occurrences[0].appliedActionId).toBe('ignore-by-label');
 	});
 
-	it("règle une seule occurrence d'un flux bimensuel quand l'échéance tombe exactement à mi-chemin entre deux dates projetées", () => {
+	it('settles only one occurrence of a biweekly stream when the due date falls exactly halfway between two projected dates', () => {
 		expect.assertions(3);
 
 		const occurrences = buildBillOccurrences({
@@ -837,7 +837,7 @@ describe('buildBillOccurrences', () => {
 });
 
 describe('computeTotals', () => {
-	it("somme les dépenses fiables sans nettoyer les revenus ni compter l'incertain", () => {
+	it('sums reliable expenses without netting income or counting the uncertain', () => {
 		expect.assertions(2);
 
 		const occurrences = buildBillOccurrences({
@@ -888,7 +888,7 @@ describe('computeTotals', () => {
 		expect(totals.expectedIncomeCents).toBe(200_000);
 	});
 
-	it('utilise la moyenne du flux et non le montant réalisé pour un flux variable', () => {
+	it("uses the stream's average, not the realized amount, for a variable stream", () => {
 		expect.assertions(1);
 
 		const variable = flow({
@@ -914,7 +914,7 @@ describe('computeTotals', () => {
 		expect(totals.remainingExpenseCents).toBe(6000);
 	});
 
-	it('retourne des totaux nuls quand il n’y a aucune occurrence', () => {
+	it('returns zero totals when there is no occurrence', () => {
 		expect.assertions(2);
 
 		const totals = computeTotals([] as readonly BillOccurrence[]);
@@ -923,7 +923,7 @@ describe('computeTotals', () => {
 		expect(totals.expectedIncomeCents).toBe(0);
 	});
 
-	it('exclut les échéances réglées, ignorées ou incertaines des deux totaux', () => {
+	it('excludes settled, ignored or uncertain occurrences from both totals', () => {
 		expect.assertions(2);
 
 		const occurrences = buildBillOccurrences({
@@ -993,7 +993,7 @@ describe('computeTotals', () => {
 		expect(totals.expectedIncomeCents).toBe(0);
 	});
 
-	it("exclut du revenu attendu une échéance de revenu visée par une action 'ignore'", () => {
+	it("excludes from expected income an income occurrence targeted by an 'ignore' action", () => {
 		expect.assertions(1);
 
 		const occurrences = buildBillOccurrences({
@@ -1024,7 +1024,7 @@ describe('computeTotals', () => {
 	});
 });
 
-describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
+describe('buildBillOccurrences — staleness guard', () => {
 	const JULY = { fromIso: '2026-07-01', toIsoExclusive: '2026-08-01', todayIso: '2026-07-31' };
 
 	/** Monthly, one sigma of interval spread at 10% -> staleAfterDays = 30 + 5 + 3 = 38. */
@@ -1038,7 +1038,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 		});
 	}
 
-	it('projette encore, et en retard, une mensualité muette depuis 34 jours', () => {
+	it('still projects, and overdue, a monthly bill silent for 34 days', () => {
 		expect.assertions(4);
 
 		const occurrences = buildBillOccurrences({
@@ -1061,7 +1061,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 	 * instead of maxing them is what buys those last 3 days — a `Math.max` gives 35 and this row
 	 * disappears, taking a real unpaid bill off the user's schedule.
 	 */
-	it('garde et signale en retard une mensualité pile au seuil, 8 jours de retard', () => {
+	it('keeps and flags overdue a monthly bill right at the threshold, 8 days late', () => {
 		expect.assertions(4);
 
 		const occurrences = buildBillOccurrences({
@@ -1077,7 +1077,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 		expect(occurrences[0].daysLate).toBe(8);
 	});
 
-	it('cesse de projeter une mensualité muette depuis 39 jours, sans rien afficher', () => {
+	it('stops projecting a monthly bill silent for 39 days, showing nothing', () => {
 		expect.assertions(3);
 
 		const occurrences = buildBillOccurrences({
@@ -1095,7 +1095,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 
 	// The CV term is a real term, not decoration: at 36 days the same stream is kept or dropped
 	// depending on its OWN observed regularity (35 vs 38 days of tolerance).
-	it('accorde plus de marge à un flux irrégulier qu’à un flux métronomique', () => {
+	it('grants more slack to an irregular stream than to a metronomic one', () => {
 		expect.assertions(2);
 
 		const regular = buildBillOccurrences({
@@ -1115,7 +1115,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 		expect(irregular).toHaveLength(1);
 	});
 
-	it('abandonne un hebdomadaire à 11 jours et garde celui de 10 jours', () => {
+	it('drops a weekly stream at 11 days and keeps the one at 10 days', () => {
 		expect.assertions(2);
 
 		// Weekly, CV 0.1 -> 7 + 2 + 1 = 10 days.
@@ -1156,7 +1156,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 	 * The live uncertain stream in the same call is what keeps this non-vacuous — without it, "no
 	 * occurrence is overdue" would hold trivially over an empty list.
 	 */
-	it('fait disparaître un flux incertain périmé sans jamais lui inventer un retard', () => {
+	it('makes a stale uncertain stream disappear without ever inventing lateness for it', () => {
 		expect.assertions(5);
 
 		const uncertain = (label: string, lastDate: string) =>
@@ -1187,7 +1187,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 
 	// The two cadences the arithmetic covers but no schedule did: biweekly (14 + 3 = 17) and
 	// quarterly (91 + 10 = 101), each at its own boundary and one day past it.
-	it('applique le seuil propre au bimensuel et au trimestriel', () => {
+	it("applies the biweekly and quarterly cadences' own thresholds", () => {
 		expect.assertions(4);
 
 		const stream = (
@@ -1217,7 +1217,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 		expect(stream('quarterly', 91, '2026-04-20')).toEqual([]);
 	});
 
-	it('garde un annuel muet depuis 380 jours', () => {
+	it('keeps a yearly bill silent for 380 days', () => {
 		expect.assertions(2);
 
 		// Yearly, CV 0.05 -> 365 + 15 + 19 = 399 days: a yearly bill is not written off after a year.
@@ -1242,7 +1242,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 		expect(occurrences[0].dateIso).toBe('2026-07-16');
 	});
 
-	it('conserve les occurrences réalisées d’un flux périmé, seule la projection tombe', () => {
+	it('keeps the realized occurrences of a stale stream, only the projection drops', () => {
 		expect.assertions(4);
 
 		// Weekly stream whose last transaction is 29 days old: stale (threshold 9), yet that
@@ -1283,7 +1283,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 	 * that stopped months ago contributes nothing to it anyway. This asserts the forecast's output for
 	 * a stream the upcoming-bills view now drops — same fixture, unchanged numbers.
 	 */
-	it('laisse la prévision de trésorerie strictement inchangée sur un flux périmé', () => {
+	it('leaves the cash-flow forecast strictly unchanged for a stale stream', () => {
 		expect.assertions(4);
 
 		const stale = flow({
@@ -1320,7 +1320,7 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 });
 
 describe('listObservationCandidates', () => {
-	it('remonte un groupe de deux transactions non classées', () => {
+	it('surfaces a group of two unclassified transactions', () => {
 		expect.assertions(2);
 
 		const candidates = listObservationCandidates(
@@ -1335,7 +1335,7 @@ describe('listObservationCandidates', () => {
 		expect(candidates[0]).toStrictEqual({ label: 'Dentiste Dupont', occurrenceCount: 2 });
 	});
 
-	it('écarte les transactions déjà rattachées à un flux détecté', () => {
+	it('discards transactions already attached to a detected stream', () => {
 		expect.assertions(1);
 
 		const first = tx({
@@ -1367,7 +1367,7 @@ describe('listObservationCandidates', () => {
 		expect(candidates).toStrictEqual([]);
 	});
 
-	it('écarte les groupes de trois occurrences ou plus', () => {
+	it('discards groups of three occurrences or more', () => {
 		expect.assertions(1);
 
 		const candidates = listObservationCandidates(
@@ -1382,7 +1382,7 @@ describe('listObservationCandidates', () => {
 		expect(candidates).toStrictEqual([]);
 	});
 
-	it('classe par transaction la plus récente et plafonne à trois', () => {
+	it('ranks by most recent transaction and caps at three', () => {
 		expect.assertions(2);
 
 		const candidates = listObservationCandidates(
@@ -1412,7 +1412,7 @@ describe('listObservationCandidates', () => {
 // that was never exercised at all: `fr` puts the symbol last, so the `symbolLast` branch is the only
 // one two component specs could reach.
 describe('formatAmountRangeBounds', () => {
-	it('garde le symbole une seule fois — sur le max en locale suffixe (fr)', () => {
+	it('keeps the symbol once — on the max in a suffix locale (fr)', () => {
 		expect.assertions(4);
 
 		const { min, max } = formatAmountRangeBounds(7_400, 9_600, '−', 'fr');
@@ -1425,7 +1425,7 @@ describe('formatAmountRangeBounds', () => {
 		expect(max.startsWith('−')).toBe(true);
 	});
 
-	it('garde le symbole une seule fois — sur le MIN en locale préfixe (en), le signe restant sur les deux', () => {
+	it('keeps the symbol once — on the MIN in a prefix locale (en), the sign staying on both', () => {
 		expect.assertions(5);
 
 		const { min, max } = formatAmountRangeBounds(7_400, 9_600, '−', 'en');
@@ -1439,7 +1439,7 @@ describe('formatAmountRangeBounds', () => {
 		expect(`${min}${max}`.split('€').length - 1).toBe(1);
 	});
 
-	it("applique le signe positif tel quel et arrondit à l'euro", () => {
+	it('applies the positive sign as-is and rounds to the euro', () => {
 		expect.assertions(2);
 
 		const { min, max } = formatAmountRangeBounds(7_449, 9_649, '+', 'fr');
@@ -1452,14 +1452,14 @@ describe('formatAmountRangeBounds', () => {
 });
 
 describe('formatMonthLabel', () => {
-	it('rend un mois ISO en libellé long localisé', () => {
+	it('renders an ISO month as a localized long label', () => {
 		expect.assertions(2);
 
 		expect(formatMonthLabel('2026-07', 'fr')).toBe('juillet 2026');
 		expect(formatMonthLabel('2026-01', 'en')).toBe('January 2026');
 	});
 
-	it('rejette un mois malformé avec une erreur explicite plutôt que de laisser Intl planter', () => {
+	it('rejects a malformed month with an explicit error rather than letting Intl crash', () => {
 		expect.assertions(2);
 
 		expect(() => formatMonthLabel('2026-13', 'fr')).toThrow(RangeError);

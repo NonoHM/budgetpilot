@@ -186,7 +186,7 @@ describe('/upcoming-bills page', () => {
 	// month the user really did pay bills in, whose suggested remedy is the one action that cannot
 	// help. The navigator stops at the boundary instead, with the arrow treatment the page already
 	// owns; the "next" arrow is untouched, since walking forward is always meaningful.
-	it('rend la flèche précédente inerte au bord de la fenêtre de détection, vivante un mois plus tard', async () => {
+	it('makes the previous arrow inert at the edge of the detection window, alive one month later', async () => {
 		const atBoundary = render(Page, {
 			data: buildData({
 				month: '2025-07',
@@ -228,7 +228,7 @@ describe('/upcoming-bills page', () => {
 	// month, so this state is only produced by a stale client-side navigation — but the predicate is
 	// `<=`, and without this a regression to `===` would go green here and silently re-open the path
 	// the redirect closes.
-	it('garde la flèche précédente inerte sur un mois strictement plus ancien que la borne', async () => {
+	it('keeps the previous arrow inert on a month strictly older than the boundary', async () => {
 		const { container } = render(Page, {
 			data: buildData({
 				month: '2024-06',

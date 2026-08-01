@@ -58,7 +58,7 @@ describe('/upcoming-bills load', () => {
 	// is the server's local month. The two differ east of Greenwich in the first hours of the 1st,
 	// and the view then calls its own default month "future": no "Ce mois" badge, future copy, and
 	// "Revenir à ce mois" pointing at the page already open.
-	it('utilise le mois courant du service (UTC) quand aucun parametre month n est fourni', async () => {
+	it("uses the service's current UTC month when no month parameter is given", async () => {
 		expect.assertions(3);
 
 		const data = await loadWith('');
@@ -68,7 +68,7 @@ describe('/upcoming-bills load', () => {
 		expect(data.bills.month).toBe('1999-01');
 	});
 
-	it('honore un mois explicite passe en query', async () => {
+	it('honors an explicit month passed in the query', async () => {
 		expect.assertions(2);
 
 		const data = await loadWith('?month=2026-08');
@@ -77,7 +77,7 @@ describe('/upcoming-bills load', () => {
 		expect(data.bills.month).toBe('2026-08');
 	});
 
-	it('redirige un visiteur non authentifie vers /login sans toucher au service', async () => {
+	it('redirects an unauthenticated visitor to /login without touching the service', async () => {
 		expect.assertions(2);
 
 		// Routes are already guarded in hooks.server.ts; `requireUser` is the belt-and-braces layer,
@@ -101,7 +101,7 @@ describe('/upcoming-bills load', () => {
 	// `2026-13`, which is never legal and still 400s (test below). And rather than a silent clamp,
 	// which would leave the URL naming one period while the page shows another, on a page whose whole
 	// navigator contract is that the URL names the period.
-	it('redirige un mois anterieur a la fenetre de detection vers la borne', async () => {
+	it('redirects a month earlier than the detection window to the boundary', async () => {
 		expect.assertions(4);
 
 		await expect(loadWith('?month=2024-06')).rejects.toMatchObject({
@@ -118,7 +118,7 @@ describe('/upcoming-bills load', () => {
 		expect(service.loadUpcomingBillsMonth).toHaveBeenCalledWith(testUser.id, '2025-07');
 	});
 
-	it('rejette un mois malforme en 400 plutot qu en 500', async () => {
+	it('rejects a malformed month with 400 rather than 500', async () => {
 		expect.assertions(3);
 
 		// A malformed month must never reach `formatMonthLabel`, which throws a RangeError (a 500).
@@ -185,7 +185,7 @@ describe('/upcoming-bills actions', () => {
 		['markPaid', 'paid'],
 		['ignoreOccurrence', 'ignore']
 	] as const)(
-		'%s enregistre une action %s et renvoie de quoi peupler la banniere',
+		'%s records a %s action and returns enough to populate the banner',
 		async (name, kind) => {
 			expect.assertions(3);
 
@@ -207,7 +207,7 @@ describe('/upcoming-bills actions', () => {
 		}
 	);
 
-	it('excludeStream poste sans date d echeance et renvoie une banniere sans mois', async () => {
+	it('excludeStream posts without a due date and returns a banner with no month', async () => {
 		expect.assertions(2);
 
 		// An exclude targets the whole stream; the service refuses one carrying a due date, so the
@@ -224,7 +224,7 @@ describe('/upcoming-bills actions', () => {
 		});
 	});
 
-	it('undoAction supprime la decision et renvoie une banniere sans undo', async () => {
+	it('undoAction deletes the decision and returns a banner with no undo', async () => {
 		expect.assertions(2);
 
 		const result = await runAction('undoAction', { actionId: 'action-1' });
@@ -236,7 +236,7 @@ describe('/upcoming-bills actions', () => {
 		});
 	});
 
-	it("undo d'un id appartenant a un autre compte echoue en 404, pas en 500", async () => {
+	it('undoing an id belonging to another account fails with 404, not 500', async () => {
 		expect.assertions(2);
 
 		// The service deletes by (id, userId) and throws 404 on a zero count, so a foreign id is
@@ -252,7 +252,7 @@ describe('/upcoming-bills actions', () => {
 		);
 	});
 
-	it('une charge utile malformee echoue en 400 sans jamais atteindre le service', async () => {
+	it('a malformed payload fails with 400 without ever reaching the service', async () => {
 		expect.assertions(5);
 
 		// `anchorTransactionIds` is a JSON string in a hidden field. A hand-edited (or truncated) one
@@ -267,7 +267,7 @@ describe('/upcoming-bills actions', () => {
 		expect(service.recordStreamAction).not.toHaveBeenCalled();
 	});
 
-	it('remonte le statut et le message d une erreur du service', async () => {
+	it("surfaces a service error's status and message", async () => {
 		expect.assertions(2);
 
 		service.recordStreamAction.mockRejectedValueOnce(httpError(400, 'Action invalide.'));
@@ -278,7 +278,7 @@ describe('/upcoming-bills actions', () => {
 		expect((result as { data: { billError: string } }).data.billError).toBe('Action invalide.');
 	});
 
-	it('n echappe jamais le message d une erreur non-HTTP', async () => {
+	it('never leaks a non-HTTP error message', async () => {
 		expect.assertions(2);
 
 		// A Prisma failure can carry connection or query detail; it is reported through a generic
@@ -295,7 +295,7 @@ describe('/upcoming-bills actions', () => {
 		);
 	});
 
-	it('refuse un visiteur non authentifie avant toute ecriture', async () => {
+	it('refuses an unauthenticated visitor before any write', async () => {
 		expect.assertions(2);
 
 		const action = actions?.markPaid;

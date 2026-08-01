@@ -7,13 +7,13 @@ import {
 } from './recurrence';
 
 describe('truncateStoredLabel', () => {
-	it('laisse intact un libellé à la borne exacte', () => {
+	it('leaves a label intact at the exact bound', () => {
 		const label = 'a'.repeat(STORED_LABEL_MAX_CHARS);
 
 		expect(truncateStoredLabel(label)).toBe(label);
 	});
 
-	it('tronque un libellé d’un caractère de trop', () => {
+	it('truncates a label that is one character too long', () => {
 		expect(truncateStoredLabel('a'.repeat(STORED_LABEL_MAX_CHARS + 1))).toBe(
 			'a'.repeat(STORED_LABEL_MAX_CHARS)
 		);
@@ -26,7 +26,7 @@ describe('truncateStoredLabel', () => {
 	 * (`.length` 382) would be written happily and then refused on the way back in. The UTF-16
 	 * bound is the stricter of the two and satisfies both.
 	 */
-	it('borne en unités UTF-16, ce que le validateur de sauvegarde compte aussi', () => {
+	it('bounds in UTF-16 units, the same units the backup validator counts', () => {
 		const astral = '🙂'.repeat(STORED_LABEL_MAX_CHARS);
 		expect(astral.length).toBe(STORED_LABEL_MAX_CHARS * 2);
 
@@ -34,7 +34,7 @@ describe('truncateStoredLabel', () => {
 	});
 
 	/** A cut landing inside a surrogate pair would leave a lone high surrogate: a malformed string. */
-	it('ne coupe jamais au milieu d’une paire de surrogates', () => {
+	it('never cuts in the middle of a surrogate pair', () => {
 		// 190 BMP characters then an emoji, so a naive slice at 191 lands inside the pair.
 		const label = `${'a'.repeat(STORED_LABEL_MAX_CHARS - 1)}🙂`;
 		const truncated = truncateStoredLabel(label);
@@ -48,7 +48,7 @@ describe('truncateStoredLabel', () => {
 });
 
 describe('normalizeStoredRecurringLabel', () => {
-	it('normalise la forme TRONQUÉE, pas le libellé complet', () => {
+	it('normalizes the TRUNCATED form, not the full label', () => {
 		const label = `Assurance habitation ${'x'.repeat(200)}`;
 
 		expect(normalizeStoredRecurringLabel(label)).toBe(
@@ -59,7 +59,7 @@ describe('normalizeStoredRecurringLabel', () => {
 		expect(normalizeStoredRecurringLabel(label)).not.toBe(normalizeRecurringLabel(label));
 	});
 
-	it('coïncide avec normalizeRecurringLabel en deçà de la borne', () => {
+	it('matches normalizeRecurringLabel below the bound', () => {
 		expect(normalizeStoredRecurringLabel('CB ABONNEMENT NETFLIX 0712')).toBe(
 			normalizeRecurringLabel('CB ABONNEMENT NETFLIX 0712')
 		);
