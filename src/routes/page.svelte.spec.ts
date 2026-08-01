@@ -66,6 +66,9 @@ function buildData(
 		budgets?: PageData['budgets'];
 		savingsGoals?: PageData['savingsGoals'];
 		upcomingBillsHasStreams?: boolean;
+		/** See `PageData['upcomingBills']['emptyState']`. Only 'all-stale' widens `showDashboardBody`
+		 *  on its own; left `null` by default like the ordinary populated case. */
+		upcomingBillsEmptyState?: PageData['upcomingBills']['emptyState'];
 		cashFlowForecast?: PageData['cashFlowForecast'];
 	} = {}
 ): PageData {
@@ -74,6 +77,7 @@ function buildData(
 		budgets = [],
 		savingsGoals = [],
 		upcomingBillsHasStreams = false,
+		upcomingBillsEmptyState = null,
 		cashFlowForecast = EMPTY_FORECAST
 	} = overrides;
 
@@ -109,6 +113,7 @@ function buildData(
 			overdueCount: 0,
 			remainingExpenseCents: 0,
 			hasStreams: upcomingBillsHasStreams,
+			emptyState: upcomingBillsEmptyState,
 			todayIso: TODAY_ISO
 		}
 	} as PageData;
@@ -152,6 +157,24 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 
 		const importLink = screen.container.querySelector('a[href="/import"]');
 		expect(importLink).not.toBeNull();
+	});
+
+	/**
+	 * Task 2026-08-02, follow-up to #97: `hasStreams` now excludes stale streams (so the widget can
+	 * tell "no flow ever detected" apart from "en veille"), which on its own would have narrowed
+	 * this gate for a user whose only detected stream went stale — reopening the exact regression
+	 * the comment above this gate documents. `emptyState === 'all-stale'` restores the original
+	 * "any stream ever detected, live or stale" reach.
+	 */
+	it('still widens the body for a period with no activity when the only detected stream is stale', async () => {
+		expect.assertions(2);
+		const screen = render(Page, {
+			data: buildData({ upcomingBillsHasStreams: false, upcomingBillsEmptyState: 'all-stale' }),
+			form: null as ActionData
+		});
+
+		await expect.element(screen.getByText('Échéances à venir')).toBeInTheDocument();
+		expect(screen.container.textContent).not.toContain('Importez votre premier relevé');
 	});
 
 	it('still renders the widget in the ordinary populated case', async () => {

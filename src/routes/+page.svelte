@@ -50,7 +50,17 @@
 	// Import / Saisie manuelle buttons are gated on this same flag rather than on
 	// `hasDashboardData`: they are the only import entry point left once the onboarding EmptyState
 	// stops rendering, so keying them on the narrower flag stranded that state with no CTA at all.
-	const showDashboardBody = $derived(hasDashboardData || data.upcomingBills.hasStreams);
+	//
+	// `hasStreams` narrowed to LIVE streams only since task 2026-08-02 (follow-up to #97, so
+	// `UpcomingBillsCard` can tell "no flow ever detected" from "en veille" apart) — so a user whose
+	// only detected stream has gone stale would otherwise lose this widening and see the onboarding
+	// screen despite having real historical data on file. `emptyState === 'all-stale'` restores the
+	// original "any stream ever detected, live or stale" reach on its own.
+	const showDashboardBody = $derived(
+		hasDashboardData ||
+			data.upcomingBills.hasStreams ||
+			data.upcomingBills.emptyState === 'all-stale'
+	);
 	// Delta = projected balance at the end of the horizon minus today's known balance (the ledger's
 	// realized/projected boundary, see CashFlowLedger.todayIndex) — colored per the app's standard
 	// monetary convention (emerald positive / rose negative), unlike the chart's own monochrome
