@@ -52,8 +52,9 @@
 	const OVERDUE_ROW_CLASS = '!border-amber-200 !bg-amber-50';
 	const OVERDUE_TEXT_CLASS = 'text-amber-700';
 	// A DIFFERENT, deliberately darker pair: the confidence badge sitting ON an overdue row, where
-	// the row background is already #fffbeb. #92400e on #fef3c7 = 6.1:1 (design section D). Written
-	// with `!` because it overrides a colour Badge itself sets; see Badge's `class` prop.
+	// the row background is already #fffbeb. #92400e on #fef3c7 measures 6.363:1 in a real browser
+	// (design section D's plate says 6.1:1; Tailwind v4's oklch amber differs from the plate's hex).
+	// Written with `!` because it overrides a colour Badge itself sets; see Badge's `class` prop.
 	const OVERDUE_TIER_BADGE_CLASS = '!border-amber-200 !bg-amber-100 !text-amber-800';
 	/** Uncertain tier off an overdue row (design: "bordered en zinc-400"). */
 	const UNCERTAIN_TIER_BADGE_CLASS = '!border-zinc-400 !text-zinc-400';
@@ -102,8 +103,10 @@
 	const nothingDueThisPeriod = $derived(!noStreamsAtAll && bills.rows.length === 0);
 
 	let settledExpanded = $state(false);
-	// Reset on every period change: the flag is about ONE month's settled group, and leaving it set
-	// would land the next month pre-expanded with no visible control that says so.
+	// Reset whenever `bills` changes identity — a period change, but also any `update()` after a row
+	// mutation. The flag is about ONE render of the settled group, and leaving it set would land the
+	// next data swap pre-expanded with no visible control that says so. `focusAfterAction` below
+	// depends on this firing after a mutation too; see its own comment for why.
 	$effect(() => {
 		void bills.month;
 		settledExpanded = false;

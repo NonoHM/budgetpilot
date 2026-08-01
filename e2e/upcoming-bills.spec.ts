@@ -43,6 +43,14 @@ function billRow(page: Page, display: string): Locator {
 	return page.locator('#bills-list [role="listitem"]').filter({ hasText: display });
 }
 
+/** Mirrors `+page.svelte`'s `shiftMonth`, to compute the expected label after a previous-arrow click. */
+function shiftMonthKey(month: string, delta: number): string {
+	const shifted = new Date(
+		Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 + delta, 1)
+	);
+	return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
 function rowMenuTrigger(row: Locator, display: string): Locator {
 	return row.getByRole('button', { name: m.bills_row_menu_aria({ label: display }) });
 }
@@ -407,6 +415,25 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 		expect(active.ariaLabel).toBe(m.bills_period_next_aria());
 	});
 
+	test('"Période précédente" changes the aria-live month label without moving focus off the control', async ({
+		page
+	}) => {
+		await page.goto(PREVIOUS_MONTH_URL);
+
+		const label = page.locator('span[aria-live="polite"]');
+		await expect(label).toHaveText(formatMonthLabel(PREVIOUS_MONTH_KEY, 'fr'));
+
+		const prev = page.getByRole('link', { name: m.bills_period_prev_aria() });
+		await prev.click();
+
+		const twoMonthsBack = shiftMonthKey(PREVIOUS_MONTH_KEY, -1);
+		await expect(label).toHaveText(formatMonthLabel(twoMonthsBack, 'fr'));
+
+		const active = await activeElementInfo(page);
+		expect(active.tag).toBe('A');
+		expect(active.ariaLabel).toBe(m.bills_period_prev_aria());
+	});
+
 	test('the desktop row is a 5-column grid and the mobile row is not rendered', async ({
 		page
 	}) => {
@@ -566,14 +593,24 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 
 		const banner = page.getByRole('status').filter({ hasText: IGNORED_BANNER });
 		await expect(banner).toBeVisible();
+		const actionId = await bannerActionId(page);
+		let undone = false;
 
-		const undo = banner.getByRole('button', { name: m.bills_banner_undo() });
-		await expect(undo).toBeVisible();
-		await undo.click();
+		try {
+			const undo = banner.getByRole('button', { name: m.bills_banner_undo() });
+			await expect(undo).toBeVisible();
+			await undo.click();
+			undone = true;
 
-		const row = billRow(page, OVERDUE_GYM.display);
-		await expect(row.getByText(m.bills_restore())).toHaveCount(0);
-		expect(await groupOf(row)).toBe('bills-group-overdue');
+			const row = billRow(page, OVERDUE_GYM.display);
+			await expect(row.getByText(m.bills_restore())).toHaveCount(0);
+			expect(await groupOf(row)).toBe('bills-group-overdue');
+		} finally {
+			// Only if the in-page undo above never ran (or never completed): the row would otherwise
+			// still be ignored when the next test starts. A second undo of an already-undone action
+			// 404s, so this must not run unconditionally the way the other tests' cleanup does.
+			if (!undone) await undoViaApi(page, actionId);
+		}
 	});
 
 	test('ignoring an expense lowers "reste à sortir" by its amount, and undoing restores it', async ({
@@ -589,15 +626,23 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 			.getByRole('button', { name: /Ignorer pour/ })
 			.click();
 		await expect(billRow(page, OVERDUE_GYM.display).getByText(m.bills_restore())).toBeVisible();
-
-		const after = await remainingExpenseCents(page);
-		expect(before - after).toBe(Math.abs(OVERDUE_GYM.amountCents));
-
 		const banner = page.getByRole('status').filter({ hasText: IGNORED_BANNER });
-		await banner.getByRole('button', { name: m.bills_banner_undo() }).click();
-		await expect(billRow(page, OVERDUE_GYM.display).getByText(m.bills_restore())).toHaveCount(0);
+		const actionId = await bannerActionId(page);
+		let undone = false;
 
-		expect(await remainingExpenseCents(page)).toBe(before);
+		try {
+			const after = await remainingExpenseCents(page);
+			expect(before - after).toBe(Math.abs(OVERDUE_GYM.amountCents));
+
+			await banner.getByRole('button', { name: m.bills_banner_undo() }).click();
+			undone = true;
+			await expect(billRow(page, OVERDUE_GYM.display).getByText(m.bills_restore())).toHaveCount(0);
+
+			expect(await remainingExpenseCents(page)).toBe(before);
+		} finally {
+			// Same reasoning as the undo-banner test above: only clean up if the in-page undo never ran.
+			if (!undone) await undoViaApi(page, actionId);
+		}
 	});
 
 	test('marking an overdue occurrence paid clears the amber treatment and moves it to the settled group', async ({
@@ -650,9 +695,12 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 			expect(afterPaid.tag).not.toBe('BODY');
 			expect(afterPaid.rowText).toContain(OVERDUE_WATER.display);
 
-			// 2) Ignore, WITHOUT reloading. `settledExpanded` is already true here, so the page's
-			//    re-expansion is a no-op and only the ordering of `update()` against the period effect
-			//    decides whether the focus target is still mounted. A single action cannot see this.
+			// 2) Ignore, WITHOUT reloading. `bills` (`+page.svelte:74`) gets a new identity from this
+			//    `update()` too, so the `$effect` at `+page.svelte:107-110` resets `settledExpanded` to
+			//    false again and this action goes through the SAME reveal path as the first — it is not
+			//    exercising a branch the single-action test above cannot reach. What this test adds is a
+			//    regression net over two consecutive mutations: it catches an ordering bug between
+			//    `update()` and the period effect that only shows up on the second action.
 			await selectRowMenuItem(page, OVERDUE_GYM.display, m.bills_action_ignore());
 			await page
 				.getByRole('dialog')

@@ -158,8 +158,11 @@ changes: `APP_PORT` only affects host publishing and is unused here.
 carries an OAuth-style one-time `code` in its query string. Access logs tend
 to be world-readable, shipped to a log collector, or kept far longer than
 that code stays valid, so `code` and `state` are deleted from every logged
-URL. If you write your own Caddyfile rather than starting from the example,
-keep that filter.
+URL. `q` is deleted too: it's the `/transactions` search term, and "Voir les
+transactions liées" on `/upcoming-bills` fills it with a raw bank label taken
+straight from the user's own statement, not a word they chose to type and
+expose. If you write your own Caddyfile rather than starting from the
+example, keep that filter.
 
 ## If it doesn't work
 
@@ -199,4 +202,5 @@ Two things to carry over yourself:
   no longer reachable except through your proxy: while it's directly
   reachable, that header lets anyone claim any address.
 - Drop the `code` and `state` query parameters from the access log if you
-  plan to use bank sync.
+  plan to use bank sync, and `q` as well: it now carries a bank label from
+  `/upcoming-bills`, not just a `/transactions` search term the user typed.
