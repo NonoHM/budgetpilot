@@ -96,15 +96,34 @@ const FALLBACK_IDEMPOTENCE_WINDOW_DAYS = occurrenceActionWindowDays({ medianInte
 
 /**
  * The widest tolerance the domain ever grants between a stored `dueDate` and a projected
- * occurrence date (`occurrenceActionWindowDays` clamps at 15). Expressed through that function on a
- * cadence far past the clamp rather than as a literal, so it cannot drift from it.
+ * occurrence date, which is the whole safety margin of the prune cutoff below: an action further
+ * than this from every renderable occurrence date can be assigned to none of them.
  *
- * Used by the prune cutoff below, where it is the whole safety margin: an action further than this
- * from every renderable occurrence date can be assigned to none of them.
+ * An ALIAS of `FALLBACK_IDEMPOTENCE_WINDOW_DAYS` rather than a second identical initializer. The
+ * two names answer different questions — "how far apart may two taps be and still be one decision"
+ * versus "how far from a projected date can a stored decision still reach" — but both are the same
+ * quantity, the clamp ceiling of `occurrenceActionWindowDays`, and writing it twice would let one
+ * of them be tuned without the other. If they ever have to differ, they must stop being an alias
+ * deliberately, with a reason written here.
  */
-const MAX_OCCURRENCE_ACTION_WINDOW_DAYS = occurrenceActionWindowDays({ medianIntervalDays: 365 });
+const MAX_OCCURRENCE_ACTION_WINDOW_DAYS = FALLBACK_IDEMPOTENCE_WINDOW_DAYS;
 
 type DbActionKind = 'IGNORE' | 'PAID' | 'EXCLUDE';
+
+/**
+ * The kinds the prune may delete. EXCLUDE is permanent and user-initiated, and the element type
+ * makes adding it here a COMPILE error rather than a test failure — the mistake this guards against
+ * is a contributor generalising the prune to "everything inert", which would silently and
+ * irreversibly destroy exclusions.
+ *
+ * `readonly`, and therefore spread at the call site: Prisma's generated `in` takes a MUTABLE
+ * `RecurringActionKind[]`, so passing this directly is itself a type error ("The type 'readonly
+ * (\"IGNORE\" | \"PAID\")[]' is 'readonly' and cannot be assigned to the mutable type
+ * 'RecurringActionKind[]'"). Dropping `readonly` to satisfy it would hand every caller a mutable
+ * module-level array holding the safety list — a `PRUNABLE_KINDS.push('EXCLUDE')` that no type
+ * checks. The copy costs two elements once per write.
+ */
+const PRUNABLE_KINDS: readonly Exclude<DbActionKind, 'EXCLUDE'>[] = ['IGNORE', 'PAID'];
 
 const DB_KIND_BY_ACTION_KIND: Record<StreamActionKind, DbActionKind> = {
 	ignore: 'IGNORE',
@@ -236,6 +255,26 @@ export function getCurrentBillsMonth(): string {
 	return toIsoDate(new Date()).slice(0, 7);
 }
 
+/**
+ * Start of the detector's pinned lookback window: `FORECAST_LOOKBACK_MONTHS` before `now`, in UTC.
+ *
+ * ONE definition, called by all three places that need it — the month view's fetch range, the
+ * widget's, and `computeInertActionCutoff`. It used to be the same `Date.UTC(…)` expression written
+ * out three times, and that is a duplicate whose divergence DELETES USER DATA: the prune is safe
+ * only because its floor is derived from the same window the read paths render from. Nothing tied
+ * the widget's copy to the other two at all.
+ *
+ * `Date.UTC` month overflow is load-bearing, and is the reason this must not be reimplemented per
+ * call site: on 2028-02-29 `getUTCMonth() - 12` names month 1 of 2027, which has no 29th, so the
+ * value rolls forward into 2027-03-01. That is acceptable — but only because every caller rolls
+ * identically.
+ */
+export function computeDetectionLookbackStart(now: Date): Date {
+	return new Date(
+		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - FORECAST_LOOKBACK_MONTHS, now.getUTCDate())
+	);
+}
+
 export async function loadUpcomingBillsMonth(
 	userId: string,
 	month: string
@@ -261,9 +300,7 @@ export async function loadUpcomingBillsMonth(
 	// pinned set. It is kept because narrowing the range is a separate decision (this call site is
 	// not the only shape `readDashboardDataForRange` serves) and because widening back is exactly the
 	// regression B2 removed. Do NOT write it back into `detectRecurringFlows`.
-	const lookbackStart = new Date(
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - FORECAST_LOOKBACK_MONTHS, now.getUTCDate())
-	);
+	const lookbackStart = computeDetectionLookbackStart(now);
 	const from = lookbackStart < monthStart ? lookbackStart : monthStart;
 	const to = monthEndExclusive > now ? monthEndExclusive : now;
 
@@ -347,9 +384,7 @@ export async function loadUpcomingBillsWidget(userId: string): Promise<UpcomingB
 	const fromIso = addDaysIso(todayIso, -WIDGET_WINDOW_DAYS);
 	const toIsoExclusive = addDaysIso(todayIso, WIDGET_WINDOW_DAYS);
 
-	const lookbackStart = new Date(
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - FORECAST_LOOKBACK_MONTHS, now.getUTCDate())
-	);
+	const lookbackStart = computeDetectionLookbackStart(now);
 	// `today + 30 days` is unconditionally after `now`, so unlike the month view — which can be
 	// asked for a period entirely in the past — this range needs no max() against `now`.
 	const windowEnd = new Date(`${toIsoExclusive}T00:00:00.000Z`);
@@ -529,6 +564,12 @@ export async function recordStreamAction(
 	// import validator is given headroom above this cap rather than the same number — see
 	// MAX_IMPORTED_RECURRING_STREAM_ACTIONS. No `withConcurrentWriteRetry`: there is no unique
 	// constraint here to race on, so there would be nothing to retry.
+	//
+	// Two failure modes the prune added to this transaction, both availability-only and both
+	// accepted: a prune that errors now aborts a legitimate write the user just made (it did not
+	// exist to fail before), and on MySQL the range delete over `@@index([userId, kind])` takes
+	// next-key locks from the start of the transaction, where previously nothing was locked until
+	// the insert — so two concurrent writers for one user serialize slightly earlier.
 	const created = await prisma.$transaction(async (tx) => {
 		// Prune the inert ignore/paid decisions BEFORE counting, so the cap is a statement about the
 		// decisions that can still do something rather than about everything ever recorded. See
@@ -538,10 +579,18 @@ export async function recordStreamAction(
 		await tx.recurringStreamAction.deleteMany({
 			where: {
 				userId,
-				// EXCLUDE is permanent and user-initiated. It is kept out of the prune TWICE — by this
-				// enum filter, and by the `dueDate` bound below, which no NULL can satisfy in SQL and
-				// every EXCLUDE carries a NULL there (`parseDueDate` refuses one that does not).
-				kind: { in: ['IGNORE', 'PAID'] },
+				// THE ONLY THING KEEPING EXCLUDE OUT OF THIS DELETE. Do not remove this conjunct on the
+				// strength of the `dueDate` bound below.
+				//
+				// It is true that no NULL satisfies a SQL comparison, and true that `parseDueDate`
+				// refuses a due date on an exclude — but that guarantee belongs to the WRITE path only.
+				// `backup/import.ts` writes `dueDate` verbatim for every kind and `backup/schema.ts` has
+				// no cross-field refine, so a RESTORED exclude can carry a non-null, arbitrarily old
+				// date. Such a row is a fully live exclusion (`applyStreamExclusions` never looks at
+				// `dueDate`), and a prune reaching it would irreversibly delete a decision the user
+				// still relies on. The date bound therefore protects a subset of the rows that can
+				// exist; `PRUNABLE_KINDS` protects all of them.
+				kind: { in: [...PRUNABLE_KINDS] },
 				dueDate: { lt: computeInertActionCutoff(now) }
 			}
 		});
@@ -603,10 +652,7 @@ export async function undoStreamAction(userId: string, actionId: string): Promis
  * different functions and only a test asserting them together proves they still line up.
  */
 export function computeInertActionCutoff(now: Date): Date {
-	// Same expression as the detection window's start in `loadUpcomingBillsMonth`.
-	const lookbackStart = new Date(
-		Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - FORECAST_LOOKBACK_MONTHS, now.getUTCDate())
-	);
+	const lookbackStart = computeDetectionLookbackStart(now);
 	// `oldestNavigableMonth` is that date's MONTH, so the oldest renderable day is its 1st.
 	const oldestRenderableDayMs = Date.UTC(
 		lookbackStart.getUTCFullYear(),

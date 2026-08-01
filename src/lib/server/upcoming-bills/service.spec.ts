@@ -32,6 +32,7 @@ const {
 	recordStreamAction,
 	undoStreamAction,
 	computeInertActionCutoff,
+	computeDetectionLookbackStart,
 	MAX_ANCHOR_ID_CHARS
 } = await import('./service');
 const { MAX_ANCHOR_CELL_CHARS, MAX_ANCHOR_IDS, MAX_PORTABLE_STRING, MAX_RECURRING_STREAM_ACTIONS } =
@@ -430,6 +431,30 @@ describe('loadUpcomingBillsMonth', () => {
 		// And the exclusion still does its job: the stream is gone from the rows.
 		expect(view.rows).toEqual([]);
 		expect(view.streamCount).toBe(0);
+	});
+
+	it('liste les flux exclus du plus ancien au plus récent', async () => {
+		// Documented as oldest-first, which is a claim about the QUERY's ordering as much as about the
+		// mapping: `findStreamActions` sorts by createdAt then id, and the section renders in that
+		// order. Both halves asserted, because the mock preserves whatever order it is handed and the
+		// mapping alone would look correct under any sort.
+		mockRead(SUBSCRIPTION, [
+			storedAction({ id: 'action-old', kind: 'EXCLUDE', dueDate: null }),
+			storedAction({ id: 'action-new', kind: 'EXCLUDE', dueDate: null })
+		]);
+
+		const view = await loadUpcomingBillsMonth(userId, '2026-07');
+
+		expect(view.excludedStreams.map((stream) => stream.actionId)).toEqual([
+			'action-old',
+			'action-new'
+		]);
+		expect(db.prisma.recurringStreamAction.findMany).toHaveBeenCalledWith(
+			expect.objectContaining({
+				where: { userId },
+				orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+			})
+		);
 	});
 
 	it('liste un flux exclu dont la direction stockée est illisible', async () => {
@@ -1134,23 +1159,61 @@ describe('recordStreamAction', () => {
 			expect(applyPruneWhere(kept, pruneWhere())).toEqual([]);
 		});
 
+		it('crée bien la ligne demandée dans la même transaction que la purge', async () => {
+			// The prune must not swallow the write it rides along with: a user's tap still has to
+			// produce a row, and its id is what the result banner's "Annuler" posts back.
+			const result = await recordStreamAction(userId, input());
+
+			expect(result).toEqual({ actionId: 'created-1' });
+			expect(db.prisma.recurringStreamAction.deleteMany).toHaveBeenCalledTimes(1);
+			expect(db.prisma.recurringStreamAction.create).toHaveBeenCalledTimes(1);
+		});
+
 		/**
 		 * The coexistence check. `computeInertActionCutoff` and `oldestNavigableMonth` are computed in
-		 * two different functions from the same window, and the prune is only safe because the cutoff
-		 * sits BEFORE the oldest day the month view can render. Asserting each alone proves nothing
-		 * about the pair.
+		 * two different functions, and the prune is only safe because the cutoff sits BEFORE the oldest
+		 * day the month view can render. Asserting each alone proves nothing about the pair.
+		 *
+		 * Parameterized over the `now` values where the shared `Date.UTC` month arithmetic is not
+		 * boring. A leap 29 February is the one that matters: `getUTCMonth() - 12` names a February
+		 * with no 29th, so the value OVERFLOWS into 1 March — harmless, but only because both the
+		 * cutoff and the read path overflow identically, which is exactly what
+		 * `computeDetectionLookbackStart` now guarantees by being one function.
 		 */
-		it('reste en deçà du plus ancien jour affichable par la vue mensuelle', async () => {
-			mockRead([...RENT]);
-			const view = await loadUpcomingBillsMonth(userId, '2026-07');
-			const oldestRenderableDay = day(`${view.oldestNavigableMonth}-01`);
+		const AWKWARD_NOW = [
+			// 2028 is a leap year; 2027-02 has 28 days, so the lookback rolls to 2027-03-01.
+			'2028-02-29T09:00:00.000Z',
+			'2026-07-01T00:00:00.000Z',
+			'2026-07-31T23:59:59.000Z',
+			'2026-03-31T12:00:00.000Z'
+		];
 
-			expect(cutoff().getTime()).toBeLessThan(oldestRenderableDay.getTime());
-			// And by at least the widest tolerance `assignActionsToOccurrences` grants, so no action on
-			// the far side of the cutoff can still be assigned to that first renderable occurrence.
-			expect(oldestRenderableDay.getTime() - cutoff().getTime()).toBeGreaterThanOrEqual(
-				occurrenceActionWindowDays({ medianIntervalDays: 365 }) * 86_400_000
-			);
+		it.each(AWKWARD_NOW)(
+			'reste en deçà du plus ancien jour affichable (now = %s)',
+			async (nowIso) => {
+				vi.setSystemTime(new Date(nowIso));
+				mockRead([...RENT]);
+
+				const view = await loadUpcomingBillsMonth(userId, nowIso.slice(0, 7));
+				const oldestRenderableDay = day(`${view.oldestNavigableMonth}-01`);
+				const actual = computeInertActionCutoff(new Date(nowIso));
+
+				expect(actual.getTime()).toBeLessThan(oldestRenderableDay.getTime());
+				// And by at least the widest tolerance `assignActionsToOccurrences` grants, so no action on
+				// the far side of the cutoff can still be assigned to that first renderable occurrence.
+				expect(oldestRenderableDay.getTime() - actual.getTime()).toBeGreaterThanOrEqual(
+					occurrenceActionWindowDays({ medianIntervalDays: 365 }) * 86_400_000
+				);
+			}
+		);
+
+		it('fait déborder février 29 exactement comme la fenêtre de détection', () => {
+			// The overflow itself, pinned rather than merely tolerated: both sides must name 2027-03-01.
+			const leapDay = new Date('2028-02-29T09:00:00.000Z');
+
+			expect(computeDetectionLookbackStart(leapDay).toISOString().slice(0, 10)).toBe('2027-03-01');
+			// Cutoff = 1st of that month, minus one full assignment window.
+			expect(computeInertActionCutoff(leapDay).toISOString().slice(0, 10)).toBe('2027-02-14');
 		});
 	});
 

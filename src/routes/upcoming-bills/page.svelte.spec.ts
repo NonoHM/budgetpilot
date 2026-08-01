@@ -7,6 +7,7 @@ import Page from './+page.svelte';
 import { formatAmountRangeBounds, toBillRowDomKey } from '$lib/domain/upcomingBills';
 import { formatCents } from '$lib/domain/budget';
 import type { UpcomingBillRowView } from '$lib/server/upcoming-bills/service';
+import * as m from '$lib/paraglide/messages';
 import type { PageData } from './$types';
 
 /**
@@ -801,6 +802,64 @@ describe('/upcoming-bills page', () => {
 		// "Rétablir" alone would name both rows identically.
 		expect(forms[0].textContent).toContain('Rétablir la détection de Netflix');
 		expect(forms[1].textContent).toContain('Rétablir la détection de Spotify');
+	});
+
+	it('collapses again on a second toggle', async () => {
+		const { container } = render(Page, { data: buildData({ excludedStreams: EXCLUDED }) });
+		const toggle = container.querySelector<HTMLButtonElement>('#bills-excluded-toggle');
+		const list = container.querySelector<HTMLElement>('#bills-excluded-list');
+
+		await userEvent.click(page.getByRole('button', { name: /Détection désactivée/ }));
+		expect(toggle?.getAttribute('aria-expanded')).toBe('true');
+
+		// Only the opening direction was covered; a toggle that latches open is a real bug shape.
+		await userEvent.click(page.getByRole('button', { name: /Détection désactivée/ }));
+		expect(toggle?.getAttribute('aria-expanded')).toBe('false');
+		expect(list?.hidden).toBe(true);
+	});
+
+	it('is the section heading, so it appears in the page heading outline', () => {
+		const { container } = render(Page, { data: buildData({ excludedStreams: EXCLUDED }) });
+
+		// A bare <button> would leave the section out of the outline entirely, unlike every bill group.
+		const heading = container.querySelector('h2 > #bills-excluded-toggle');
+		expect(heading).not.toBeNull();
+	});
+
+	/**
+	 * The moment this escape hatch matters most: excluding the only detected stream drives
+	 * `streamCount` to 0, which puts the page in its "nothing has ever been detected" empty state.
+	 * The section is a sibling of `#bills-list` rather than a child, so it survives that branch — but
+	 * that is a claim about markup placement and nothing else covered it.
+	 */
+	it('still renders the excluded section in the no-stream-at-all empty state', () => {
+		const { container } = render(Page, {
+			data: buildData({ streamCount: 0, rows: [], excludedStreams: [EXCLUDED[0]] })
+		});
+
+		expect(container.textContent).toContain('Le moteur observe encore');
+		expect(container.querySelector('#bills-excluded-toggle')).not.toBeNull();
+		expect(container.textContent).toContain('Détection désactivée · 1');
+	});
+
+	/**
+	 * F1: the cap counts EVERY kind, so it is reachable with zero exclusions (40 streams × 12 months
+	 * of ignores is 480, all still live). The copy must therefore not rest on a section that is not
+	 * on the page in that exact case.
+	 */
+	it('states the cap error truthfully when no excluded section is rendered', () => {
+		const { container } = render(Page, {
+			data: buildData({ excludedStreams: [] }),
+			form: { billError: m.upcoming_bills_error_action_limit() }
+		});
+
+		expect(container.querySelector('#bills-excluded-toggle')).toBeNull();
+		const banner = container.querySelector('[role="alert"]');
+		// The unconditional half: always true, whether or not the user holds an exclusion.
+		expect(banner?.textContent).toContain('Les plus anciennes sont supprimées automatiquement');
+		// The section is offered only for the case where it exists, never as the required action.
+		expect(banner?.textContent).toContain('pour un flux exclu');
+		expect(banner?.textContent).not.toContain("Annulez-en une avant d'en ajouter une nouvelle");
 	});
 
 	it('renders no excluded section at all when the user holds no exclusion', () => {

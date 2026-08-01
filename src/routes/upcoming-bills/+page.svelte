@@ -1060,27 +1060,33 @@
 		     endpoint and no second place the ownership check could be forgotten. -->
 		{#if bills.excludedStreams.length > 0}
 			<section class="border-t border-zinc-200 pt-4">
-				<button
-					id="bills-excluded-toggle"
-					type="button"
-					class="flex min-h-11 w-full items-center gap-2 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
-					onclick={() => (excludedOpen = !excludedOpen)}
-					aria-expanded={excludedOpen}
-					aria-controls="bills-excluded-list"
-				>
-					<span id="bills-excluded-heading" class="text-sm font-semibold text-zinc-500">
-						{m.bills_group_count({
-							heading: m.bills_excluded_heading(),
-							count: bills.excludedStreams.length
-						})}
-					</span>
-					<span
-						class="ml-auto shrink-0 text-zinc-400 transition-transform duration-150"
-						class:rotate-180={excludedOpen}
+				<!-- An <h2>, like the bill groups: the toggle is the section's heading, and a bare <button>
+				     would leave this section out of the page's heading outline entirely. `m-0` so the
+				     element carries structure only, never the browser's heading margins — the same shape
+				     the transactions detail panels use. -->
+				<h2 class="m-0">
+					<button
+						id="bills-excluded-toggle"
+						type="button"
+						class="flex min-h-11 w-full items-center gap-2 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+						onclick={() => (excludedOpen = !excludedOpen)}
+						aria-expanded={excludedOpen}
+						aria-controls="bills-excluded-list"
 					>
-						{@render chevronIcon('M5 9.5 12 16l7-6.5')}
-					</span>
-				</button>
+						<span id="bills-excluded-heading" class="text-sm font-semibold text-zinc-500">
+							{m.bills_group_count({
+								heading: m.bills_excluded_heading(),
+								count: bills.excludedStreams.length
+							})}
+						</span>
+						<span
+							class="ml-auto shrink-0 text-zinc-400 transition-transform duration-150"
+							class:rotate-180={excludedOpen}
+						>
+							{@render chevronIcon('M5 9.5 12 16l7-6.5')}
+						</span>
+					</button>
+				</h2>
 				<!-- `hidden` rather than an `{#if}`: `aria-controls` above must resolve to a real element
 				     in both states, and a removed node resolves to nothing. -->
 				<div
