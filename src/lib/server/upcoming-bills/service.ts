@@ -137,7 +137,13 @@ export interface UpcomingBillRowView {
 	 * Hidden-field payload for the row's action forms. `label` here is the RAW flow label capped at
 	 * 191 — not the anonymized display label — because it is what `recordStreamAction` stores in the
 	 * `label` column, whose documented purpose is display and debugging of the stored decision. It
-	 * is the one raw value this module lets out, and it never reaches a rendered string.
+	 * is the one raw value this module lets out.
+	 *
+	 * It used to be true that it "never reaches a rendered string". It no longer is: the month
+	 * view's "Voir les transactions liées" builds `/transactions?q=<this label>`, because `?q=` is a
+	 * substring test over the raw `Transaction.label` and the anonymized form matches nothing. So
+	 * the value now reaches a URL — browser history, and any reverse-proxy access log that does not
+	 * strip `q` (`Caddyfile.example` does). Still never rendered as page text.
 	 */
 	actionPayload: {
 		direction: string;

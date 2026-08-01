@@ -1050,7 +1050,7 @@
 	"bills_action_exclude": "Stop detecting this flow",
 	"bills_sheet_meta": "Due on {date} · {amount}",
 	"bills_ignore_confirm_title": "Ignore this occurrence?",
-	"bills_ignore_confirm_description": "“{label}” will not be counted for {month} and will reappear in {nextMonth}. The detected rhythm is unchanged.",
+	"bills_ignore_confirm_description": "“{label}” will not be counted for {month}. The detected rhythm is unchanged.",
 	"bills_ignore_confirm_cta": "Ignore for {month}",
 	"bills_exclude_confirm_title": "Stop detecting this flow?",
 	"bills_exclude_confirm_description": "“{label}” will no longer be tracked in upcoming bills. Your existing transactions are unchanged.",

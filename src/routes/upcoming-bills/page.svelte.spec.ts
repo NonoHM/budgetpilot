@@ -1,11 +1,45 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { page, userEvent } from 'vitest/browser';
 import { render } from 'vitest-browser-svelte';
+import type { SubmitFunction } from '@sveltejs/kit';
 import '../layout.css';
 import Page from './+page.svelte';
 import { toBillRowDomKey } from '$lib/domain/upcomingBills';
 import type { UpcomingBillRowView } from '$lib/server/upcoming-bills/service';
 import type { PageData } from './$types';
+
+/**
+ * `use:enhance` is replaced by a recorder rather than stubbed out, so the page's own submit
+ * functions stay under test: the focus decisions live inside them, and they are exactly what a
+ * DOM-only assertion cannot reach. The test then drives one by hand with a synthetic success and an
+ * `update` that re-renders the post-mutation data — which is what makes the period `$effect` fire
+ * for real, the detail the collapsed-group bug hid behind.
+ */
+const submitted = vi.hoisted(() => [] as { node: HTMLFormElement; submit: SubmitFunction }[]);
+
+vi.mock('$app/forms', () => ({
+	enhance: (node: HTMLFormElement, submit: SubmitFunction) => {
+		submitted.push({ node, submit });
+		return {};
+	}
+}));
+
+/** The recorded submit function of the (single) form posting to `action`. */
+function submitFunctionFor(action: string): SubmitFunction {
+	const entries = submitted.filter((entry) => entry.node.getAttribute('action') === action);
+	expect(entries.length).toBe(1);
+	return entries[0].submit;
+}
+
+/** Runs a recorded submit function through one successful round trip. */
+async function runSubmit(action: string, applyUpdate: () => Promise<void>) {
+	const callback = submitFunctionFor(action)({} as Parameters<SubmitFunction>[0]);
+	if (typeof callback !== 'function') throw new Error('submit function returned no callback');
+	await callback({
+		result: { type: 'success', status: 200 },
+		update: applyUpdate
+	} as unknown as Parameters<Exclude<Awaited<ReturnType<SubmitFunction>>, void>>[0]);
+}
 
 const TODAY_ISO = '2026-07-31';
 
@@ -64,6 +98,13 @@ function buildData(overrides: Partial<PageData['bills']> = {}): PageData {
 }
 
 describe('/upcoming-bills page', () => {
+	beforeEach(async () => {
+		submitted.length = 0;
+		// The viewport is shared across a file, and two tests below change it. Reset to desktop so
+		// neither leaks into whatever runs next.
+		await page.viewport(1280, 900);
+	});
+
 	// Locked decision, asserted at the RENDER layer as well as in the domain: a stream at the
 	// uncertain tier can never carry "En retard", however long its estimated date has been past.
 	// The domain guarantees `status: 'upcoming'` / `daysLate: null` for it; this proves the page
@@ -237,10 +278,8 @@ describe('/upcoming-bills page', () => {
 	}
 
 	it('renders exactly the four locked actions, in order, in the desktop row menu, only the last in rose', async () => {
-		// The desktop cell is `hidden lg:grid`, so at a narrower viewport its trigger is display:none
-		// and no role-based query can reach it. Widened here rather than queried around it: the
-		// subject of this test IS the desktop surface.
-		await page.viewport(1280, 900);
+		// The desktop cell is `hidden lg:grid`; the suite's beforeEach already puts the viewport at
+		// 1280 so its trigger is not display:none and a role-based query can reach it.
 		render(Page, { data: buildData() });
 
 		// Named per row, not "Actions de l'échéance": a page of them would otherwise expose several
@@ -281,9 +320,12 @@ describe('/upcoming-bills page', () => {
 		// The sheet's own header line: date · amount · lateness.
 		expect(sheet?.textContent).toContain('Attendue le');
 
-		const items = [...(sheet?.querySelectorAll('button, a') ?? [])].filter((item) =>
-			LOCKED_ACTIONS.includes(item.textContent?.trim() ?? '')
-		);
+		// Enumerated structurally, NOT filtered down to the expected labels first: filtering would
+		// make a fifth action — including a rose one — invisible to this assertion and to the rose
+		// count computed from it. BottomSheet's only other interactive-looking chrome is its drag
+		// handle, which is a div, so every button/anchor inside the sheet is one of the row's own
+		// actions and a fifth would show up here.
+		const items = [...(sheet?.querySelectorAll('button, a') ?? [])];
 		expect(items.map((item) => item.textContent?.trim())).toEqual(LOCKED_ACTIONS);
 		expect(items.filter(isRose).length).toBe(1);
 		expect(isRose(items[3])).toBe(true);
@@ -330,7 +372,7 @@ describe('/upcoming-bills page', () => {
 		expect(restore?.closest('form')?.getAttribute('action')).toBe('?/undoAction');
 	});
 
-	it('posts the stored payload without normalizedLabel, and omits the due date on an exclude', async () => {
+	it('posts the stored payload without normalizedLabel', async () => {
 		const { container } = render(Page, { data: buildData() });
 
 		const form = container.querySelector<HTMLFormElement>('form[action="?/markPaid"]');
@@ -371,6 +413,153 @@ describe('/upcoming-bills page', () => {
 		expect(container.querySelector('#bill-undo-banner')?.getAttribute('action')).toBe(
 			'?/undoAction'
 		);
+	});
+
+	// ─── Focus after a mutation lands in the COLLAPSED settled group ──────────
+	//
+	// Written red first. Both "ignorer" and "marquer payée" move the row into the settled group,
+	// which renders only its first SETTLED_COLLAPSED_ROWS rows — design plate B1's own month is
+	// "Réglées ce mois · 5". Past that cut the focus target is never rendered, `getElementById`
+	// returns null and the optional call no-ops, so focus silently falls to <body>. The page now
+	// expands the group before moving focus; without that, both assertions below report BODY.
+
+	/** Four already-settled rows, so anything joining them lands past the collapse cut. */
+	function settledFillers(): UpcomingBillRowView[] {
+		return [0, 1, 2, 3].map((index) =>
+			buildRow({
+				rowKey: `expense:filler ${index}:2026-07-0${index + 1}:${index}`,
+				label: `Filler ${index}`,
+				dateIso: `2026-07-0${index + 1}`,
+				status: 'settled',
+				settledKind: 'auto',
+				countsInRemainingTotal: false
+			})
+		);
+	}
+
+	const NETFLIX_DOM_KEY = toBillRowDomKey(buildRow().rowKey);
+
+	it('moves focus to the restore link after an ignore, even when the row lands past the settled cut', async () => {
+		const before = buildData({ streamCount: 5, rows: [...settledFillers(), buildRow()] });
+		const after = buildData({
+			streamCount: 5,
+			rows: [
+				...settledFillers(),
+				buildRow({ status: 'ignored', countsInRemainingTotal: false, appliedActionId: 'action-1' })
+			]
+		});
+		const { rerender } = render(Page, { data: before });
+
+		// Through the real surface: the menu item is what opens the dialog whose form is enhanced.
+		await userEvent.click(page.getByRole('button', { name: 'Actions pour Netflix' }));
+		await userEvent.click(page.getByRole('menuitem', { name: 'Ignorer cette occurrence' }));
+
+		// `update()` is the server round trip: it swaps in the post-mutation data, which also makes
+		// the period effect fire for real — that effect resets the expansion flag, and the order it
+		// runs in relative to the focus move is precisely what this pins.
+		await runSubmit('?/ignoreOccurrence', async () => {
+			await rerender({ data: after });
+		});
+
+		expect(document.activeElement?.id).toBe(`bill-restore-${NETFLIX_DOM_KEY}`);
+		expect(document.activeElement?.tagName).not.toBe('BODY');
+	});
+
+	it('moves focus to the row container after a mark paid, even when the row lands past the settled cut', async () => {
+		const before = buildData({ streamCount: 5, rows: [...settledFillers(), buildRow()] });
+		const after = buildData({
+			streamCount: 5,
+			rows: [
+				...settledFillers(),
+				buildRow({ status: 'settled', settledKind: 'manual', countsInRemainingTotal: false })
+			]
+		});
+		const { rerender } = render(Page, { data: before });
+
+		await runSubmit('?/markPaid', async () => {
+			await rerender({ data: after });
+		});
+
+		expect(document.activeElement?.id).toBe(`bill-row-${NETFLIX_DOM_KEY}`);
+		expect(document.activeElement?.tagName).not.toBe('BODY');
+	});
+
+	// ─── The two confirmation dialogs ─────────────────────────────────────────
+
+	/** Opens a row menu item that leads to a ConfirmDialog. */
+	async function openDialogItem(name: string) {
+		await userEvent.click(page.getByRole('button', { name: 'Actions pour Netflix' }));
+		await userEvent.click(page.getByRole('menuitem', { name }));
+	}
+
+	function confirmButton(container: HTMLElement, label: string): HTMLButtonElement {
+		const button = [...container.querySelectorAll('button')].find(
+			(candidate) => candidate.textContent?.trim() === label
+		);
+		expect(button).toBeTruthy();
+		return button as HTMLButtonElement;
+	}
+
+	it('confirms an ignore with the design copy, a BLACK final button, and a form posting ?/ignoreOccurrence', async () => {
+		const { container } = render(Page, { data: buildData() });
+		await openDialogItem('Ignorer cette occurrence');
+
+		expect(container.textContent).toContain('Ignorer cette occurrence ?');
+		// The reappearance clause was dropped: the cadence can be quarterly or yearly, and naming a
+		// return month would be a claim the copy cannot keep for five cadences.
+		expect(container.textContent).toContain(
+			"« Netflix » ne sera pas comptée pour juillet 2026. Le rythme détecté n'est pas modifié."
+		);
+		expect(container.textContent).not.toContain('réapparaîtra');
+
+		const confirm = confirmButton(container, 'Ignorer pour juillet');
+		// Locked design point: ignoring is reversible and local to one period, so the final button is
+		// the default black — never the rose reserved for the destructive action.
+		expect(confirm.className).toContain('bg-zinc-950');
+		expect(confirm.className).not.toContain('bg-rose-600');
+
+		// `button.form` is the browser's own form-association resolution, so this fails the day the
+		// button stops being inside (or associated with) the wrapping form — the whole-feature-dead
+		// mode a Modal gaining a portal would introduce.
+		expect(confirm.type).toBe('submit');
+		expect(confirm.form?.getAttribute('action')).toBe('?/ignoreOccurrence');
+		expect(confirm.form?.querySelector('input[name="dueDate"]')?.getAttribute('value')).toBe(
+			TODAY_ISO
+		);
+	});
+
+	it('confirms an exclude in ROSE, with a form posting ?/excludeStream and carrying no due date', async () => {
+		const { container } = render(Page, { data: buildData() });
+		await openDialogItem('Ne plus détecter ce flux');
+
+		expect(container.textContent).toContain('Ne plus détecter ce flux ?');
+		expect(container.textContent).toContain(
+			'« Netflix » ne sera plus suivi dans les échéances. Vos transactions existantes ne sont pas modifiées.'
+		);
+
+		const confirm = confirmButton(container, 'Ne plus détecter');
+		// The one destructive action, and the only rose one.
+		expect(confirm.className).toContain('bg-rose-600');
+		expect(confirm.className).not.toContain('bg-zinc-950');
+
+		expect(confirm.type).toBe('submit');
+		expect(confirm.form?.getAttribute('action')).toBe('?/excludeStream');
+		// An exclude targets the whole stream; the service refuses one carrying a due date, so the
+		// field must be absent rather than empty.
+		expect(confirm.form?.querySelector('input[name="dueDate"]')).toBeNull();
+	});
+
+	it('does not show a previous action failure inside a freshly opened dialog', async () => {
+		const { container } = render(Page, {
+			data: buildData(),
+			form: { billError: 'Échéance introuvable ou déjà obsolète. Rechargez la page.' }
+		});
+		expect(container.textContent).toContain('Échéance introuvable');
+
+		await openDialogItem('Ignorer cette occurrence');
+
+		// The message belonged to the mark-paid that failed, not to this confirmation.
+		expect(container.textContent).not.toContain('Échéance introuvable');
 	});
 
 	it('surfaces an action failure as an error banner rather than a success one', async () => {

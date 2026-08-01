@@ -1050,7 +1050,7 @@
 	"bills_action_exclude": "Ne plus détecter ce flux",
 	"bills_sheet_meta": "Attendue le {date} · {amount}",
 	"bills_ignore_confirm_title": "Ignorer cette occurrence ?",
-	"bills_ignore_confirm_description": "« {label} » ne sera pas comptée pour {month} et réapparaîtra en {nextMonth}. Le rythme détecté n'est pas modifié.",
+	"bills_ignore_confirm_description": "« {label} » ne sera pas comptée pour {month}. Le rythme détecté n'est pas modifié.",
 	"bills_ignore_confirm_cta": "Ignorer pour {month}",
 	"bills_exclude_confirm_title": "Ne plus détecter ce flux ?",
 	"bills_exclude_confirm_description": "« {label} » ne sera plus suivi dans les échéances. Vos transactions existantes ne sont pas modifiées.",

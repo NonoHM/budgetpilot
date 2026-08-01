@@ -327,8 +327,15 @@
 	 * `Transaction.label` (see `matchesQuery`). `row.label` is the anonymized form — digits and bank
 	 * keywords stripped, title-cased — so searching it finds nothing ("Netflix Com" is not a
 	 * substring of "NETFLIX.COM"). The action therefore uses the same raw, capped label the row's
-	 * hidden fields already carry. No new exposure: that string is already in this page's DOM, on
-	 * its owner's own screen; it is simply not a value the page ever RENDERS.
+	 * hidden fields already carry.
+	 *
+	 * This is NOT free, and the earlier "no new exposure" note here was wrong. The string was
+	 * already in this page's DOM, but a query parameter also reaches browser history and — the part
+	 * that matters — a reverse proxy's access log, a plaintext file that gets tailed, rotated and
+	 * shipped off the host. `Caddyfile.example` drops `q` for exactly this reason, next to the
+	 * `code`/`state` filter it now sits beside; an operator running a different proxy has to do the
+	 * same. `encodeURIComponent` is also load-bearing: it stops a label containing `&qMode=regex`
+	 * from smuggling a second parameter into the link.
 	 */
 	function transactionsHref(row: UpcomingBillRowView) {
 		return `/transactions?q=${encodeURIComponent(row.actionPayload.label)}` as const;
@@ -344,17 +351,19 @@
 		return relative ? `${base} · ${relative}` : base;
 	}
 
-	/** Month name alone of the period AFTER the displayed one, for "réapparaîtra en {nextMonth}". */
-	const nextMonthName = $derived(
-		new Intl.DateTimeFormat(locale, { month: 'long', timeZone: 'UTC' }).format(
-			new Date(`${shiftMonth(bills.month, 1)}-01T00:00:00.000Z`)
-		)
-	);
-
 	// `ActionData` is the union of every action's return, so a bare `form.billAction` would not
 	// typecheck against the branch that only carries `billError`. Narrowed once here.
 	const billAction = $derived(form && 'billAction' in form ? form.billAction : null);
-	const billError = $derived(form && 'billError' in form ? form.billError : null);
+	/**
+	 * A failure from a PREVIOUS action must not be rendered inside a dialog the user has just opened
+	 * for something else — a mark-paid that 400s, then an "Ignorer" from the same menu, would put
+	 * that unrelated message above the ignore confirmation. Set when a dialog opens, cleared the
+	 * moment a new submission starts so the dialog's own failure is shown normally.
+	 */
+	let errorSuppressed = $state(false);
+	const billError = $derived(
+		errorSuppressed ? null : form && 'billError' in form ? form.billError : null
+	);
 
 	function bannerMessage(action: NonNullable<typeof billAction>): string {
 		if (action.kind === 'paid') return m.bills_banner_paid();
@@ -377,26 +386,45 @@
 	 * that still exists afterwards: the "…" trigger an ignore was invoked from is gone from an
 	 * ignored row, and an excluded stream takes its whole row with it. Deliberately never the
 	 * AlertBanner, which auto-dismisses and would strand focus on a removed node.
+	 *
+	 * `revealSettled` is not a nicety. Ignoring or marking paid moves the row INTO the settled
+	 * group, and that group renders only its first `SETTLED_COLLAPSED_ROWS` rows — on design plate
+	 * B1's own month ("Réglées ce mois · 5") the row lands past the cut and is never rendered, so
+	 * `getElementById` returns null, the optional call no-ops silently and focus falls to <body>.
+	 * Expanding the group first is what makes the target exist.
+	 *
+	 * Two ticks, in this order, for a reason: the period effect resets `settledExpanded` whenever
+	 * `bills` changes identity, which `update()` has just caused. Expanding before that flush would
+	 * be undone by it, so the first tick lets it run and the second renders the newly revealed rows.
 	 */
-	async function focusAfterAction(targetId: string) {
-		// `update()` has resolved but Svelte has not flushed the resulting DOM yet.
+	async function focusAfterAction(targetId: string, revealSettled: boolean) {
 		await tick();
+		if (revealSettled) {
+			settledExpanded = true;
+			await tick();
+		}
 		document.getElementById(targetId)?.focus();
 	}
 
-	function rowSubmit(rowKey: string, focusId: string): SubmitFunction {
+	function rowSubmit(rowKey: string, focusId: string, revealSettled = false): SubmitFunction {
 		return () => {
+			errorSuppressed = false;
 			submittingKeys = new Set([...submittingKeys, rowKey]);
 			return async ({ result, update }) => {
 				await update({ reset: false });
 				submittingKeys = new Set([...submittingKeys].filter((key) => key !== rowKey));
-				if (result.type === 'success') await focusAfterAction(focusId);
+				if (result.type === 'success') await focusAfterAction(focusId, revealSettled);
 			};
 		};
 	}
 
-	function confirmSubmit(focusId: string, close: () => void): SubmitFunction {
+	function confirmSubmit(
+		focusId: string,
+		close: () => void,
+		revealSettled = false
+	): SubmitFunction {
 		return () => {
+			errorSuppressed = false;
 			confirmSubmitting = true;
 			return async ({ result, update }) => {
 				await update({ reset: false });
@@ -404,18 +432,29 @@
 				// The dialog stays open on failure so its error banner is readable next to the action.
 				if (result.type === 'success') {
 					close();
-					await focusAfterAction(focusId);
+					await focusAfterAction(focusId, revealSettled);
 				}
 			};
 		};
 	}
 
+	function openIgnore(row: UpcomingBillRowView) {
+		errorSuppressed = true;
+		pendingIgnore = row;
+	}
+
+	function openExclude(row: UpcomingBillRowView) {
+		errorSuppressed = true;
+		pendingExclude = row;
+	}
+
 	/** The banner's own "Annuler". Its own submit function rather than `confirmSubmit`'s: sharing
 	 *  `confirmSubmitting` would spin a dialog button that has nothing to do with it. */
 	const bannerSubmit: SubmitFunction = () => {
+		errorSuppressed = false;
 		return async ({ result, update }) => {
 			await update({ reset: false });
-			if (result.type === 'success') await focusAfterAction('bills-list');
+			if (result.type === 'success') await focusAfterAction('bills-list', false);
 		};
 	};
 
@@ -827,12 +866,16 @@
 												     `requestSubmit()` it by id rather than each rendering their own copy of
 												     the hidden fields, so the three surfaces cannot post different payloads.
 												     Form association is a DOM relationship: this container is display:none
-												     below lg, which does not affect it. -->
+												     below lg, which does not affect it.
+												     The inline "Marquer payé" is rendered on EVERY actionable row, not on
+												     hover: the design forbids a desktop action reachable by pointer only,
+												     and a shortcut that appears under the cursor is exactly that. It is the
+												     reason this column is 180px rather than the 44px an icon alone needs. -->
 												<form
 													id="bill-paid-{domKey}"
 													method="POST"
 													action="?/markPaid"
-													use:enhance={rowSubmit(row.rowKey, `bill-row-${domKey}`)}
+													use:enhance={rowSubmit(row.rowKey, `bill-row-${domKey}`, true)}
 												>
 													{@render actionFields(row, true)}
 													<TapLink type="submit" disabled={submittingKeys.has(row.rowKey)}>
@@ -859,7 +902,7 @@
 																</button>
 															{/snippet}
 														</DropdownMenu.Item>
-														<DropdownMenu.Item onSelect={() => (pendingIgnore = row)}>
+														<DropdownMenu.Item onSelect={() => openIgnore(row)}>
 															{#snippet child({ props })}
 																<button
 																	{...props}
@@ -882,7 +925,7 @@
 															{/snippet}
 														</DropdownMenu.Item>
 														<!-- The one destructive action, and the only rose item. -->
-														<DropdownMenu.Item onSelect={() => (pendingExclude = row)}>
+														<DropdownMenu.Item onSelect={() => openExclude(row)}>
 															{#snippet child({ props })}
 																<button
 																	{...props}
@@ -1015,7 +1058,7 @@
 			<button
 				type="button"
 				class="{SHEET_ITEM_CLASS} text-zinc-700"
-				onclick={() => fromSheet(() => (pendingIgnore = row))}
+				onclick={() => fromSheet(() => openIgnore(row))}
 			>
 				{m.bills_action_ignore()}
 			</button>
@@ -1026,7 +1069,7 @@
 			<button
 				type="button"
 				class="{SHEET_ITEM_CLASS} text-rose-600"
-				onclick={() => fromSheet(() => (pendingExclude = row))}
+				onclick={() => fromSheet(() => openExclude(row))}
 			>
 				{m.bills_action_exclude()}
 			</button>
@@ -1043,18 +1086,15 @@
 		action="?/ignoreOccurrence"
 		use:enhance={confirmSubmit(
 			`bill-restore-${toBillRowDomKey(row.rowKey)}`,
-			() => (pendingIgnore = null)
+			() => (pendingIgnore = null),
+			true
 		)}
 	>
 		{@render actionFields(row, true)}
 		<ConfirmDialog
 			open
 			title={m.bills_ignore_confirm_title()}
-			description={m.bills_ignore_confirm_description({
-				label: row.label,
-				month: monthLabel,
-				nextMonth: nextMonthName
-			})}
+			description={m.bills_ignore_confirm_description({ label: row.label, month: monthLabel })}
 			confirmLabel={m.bills_ignore_confirm_cta({ month: monthName })}
 			confirmLoading={confirmSubmitting}
 			onClose={() => (pendingIgnore = null)}
