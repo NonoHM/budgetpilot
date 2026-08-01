@@ -53,6 +53,7 @@ function buildReport(): MonthlyReport {
 
 function buildData(emptyState: PageData['cashFlowForecast']['emptyState']): PageData {
 	return {
+		user: { email: 'user@example.com', role: 'USER' },
 		month: PERIOD.budgetMonth,
 		period: PERIOD,
 		periodQuery: 'period=this-month',
@@ -66,7 +67,7 @@ function buildData(emptyState: PageData['cashFlowForecast']['emptyState']): Page
 			emptyState
 		},
 		forecastHorizonMonths: 3
-	} as unknown as PageData;
+	} as PageData;
 }
 
 describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
@@ -82,5 +83,61 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 
 		await expect.element(screen.getByText(m.reports_forecast_stale_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_empty_title());
+	});
+
+	/**
+	 * Fix round 1, IMPORTANT #1: the CTA (`reports_forecast_empty_cta`, linking to
+	 * `#annexe-recurrences`) is not a remedy — it's "here is what was detected" — so both empty
+	 * branches keep it. `all-stale` in particular means at least one flow WAS reliable-confirmed,
+	 * so the annexe table it links to certainly has rows.
+	 */
+	it("renders the annexe-recurrences CTA in the 'none-detected' branch", async () => {
+		const screen = render(Page, { data: buildData('none-detected') });
+
+		const cta = screen.container.querySelector('a[href="#annexe-recurrences"]');
+		expect(cta).not.toBeNull();
+		expect(cta?.textContent).toBe(m.reports_forecast_empty_cta());
+	});
+
+	it("renders the same annexe-recurrences CTA in the 'all-stale' branch", async () => {
+		const screen = render(Page, { data: buildData('all-stale') });
+
+		const cta = screen.container.querySelector('a[href="#annexe-recurrences"]');
+		expect(cta).not.toBeNull();
+		expect(cta?.textContent).toBe(m.reports_forecast_empty_cta());
+	});
+
+	/**
+	 * Fix round 1, IMPORTANT #2: the populated branch now gates on `cashFlowForecast.emptyState
+	 * === null`, the total discriminator, rather than a separately re-derived
+	 * `flows.some(f => f.feedsProjection)` boolean that could silently diverge from it. This is the
+	 * render path that coupling used to guard and is otherwise unexercised by the two tests above.
+	 */
+	it('renders the populated forecast (chart + flows table), not an empty state, when emptyState is null', async () => {
+		const data = buildData(null);
+		data.cashFlowForecast.flows = [
+			{
+				category: 'Abonnements',
+				direction: 'expense',
+				cadence: 'monthly',
+				status: 'confirmed',
+				confidence: 'high',
+				label: 'Netflix',
+				averageAmountCents: -1_399,
+				lastDate: '2026-07-01',
+				feedsProjection: true
+			}
+		];
+
+		const screen = render(Page, { data });
+
+		// Both a desktop and a mobile copy of the flows table render simultaneously (CSS hides one
+		// per breakpoint) — `.first()` avoids the strict-mode duplicate-match failure that would
+		// otherwise come from the layout, not from this test's own logic.
+		await expect
+			.element(screen.getByText(m.reports_forecast_flows_title()).first())
+			.toBeInTheDocument();
+		expect(screen.container.textContent).not.toContain(m.reports_forecast_empty_title());
+		expect(screen.container.textContent).not.toContain(m.reports_forecast_stale_title());
 	});
 });

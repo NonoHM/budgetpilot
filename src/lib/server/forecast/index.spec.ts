@@ -198,6 +198,19 @@ describe('toDisplayCashFlowForecast', () => {
 			expect(toDisplayCashFlowForecast(forecast).emptyState).toBe('none-detected');
 		});
 
+		it("is 'none-detected' when there are no flows at all (empty array boundary)", () => {
+			expect.assertions(1);
+
+			const forecast: CashFlowForecast = {
+				flows: [],
+				ledger: ledger([{ date: '2025-04-10', balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso: '2025-04-10'
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBe('none-detected');
+		});
+
 		it("is 'all-stale' when every reliable-confirmed flow has gone stale", () => {
 			expect.assertions(1);
 
@@ -213,6 +226,42 @@ describe('toDisplayCashFlowForecast', () => {
 
 			const forecast: CashFlowForecast = {
 				flows: [stale],
+				ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBe('all-stale');
+		});
+
+		// Fix round 1 finding #ADD-2: the single-flow 'all-stale' fixture above would also pass a
+		// mistaken `flows.every(isStreamStale)` implementation (vacuously true over one flow that
+		// happens to be reliable-confirmed too). This fixture mixes a stale reliable-confirmed flow
+		// with a LIVE flow that never reaches reliable-confirmed (tentative, so `isStreamStale` is
+		// irrelevant to it) — the realistic shape the discriminator actually has to get right: 'every
+		// RELIABLE-CONFIRMED flow is stale', not 'every flow is stale'.
+		it("is 'all-stale' when the only reliable-confirmed flow is stale, even alongside a live tentative flow", () => {
+			expect.assertions(1);
+
+			const todayIso = '2025-04-10';
+			const staleReliable = flow({
+				label: 'STALE RELIABLE',
+				status: 'confirmed',
+				confidence: 'high',
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0,
+				lastDate: '2025-01-01' // ~99 days silent, well past staleAfterDays (35).
+			});
+			const liveTentative = flow({
+				label: 'LIVE TENTATIVE',
+				status: 'tentative',
+				confidence: 'high',
+				lastDate: '2025-04-05' // Recently active, but never reliable-confirmed regardless.
+			});
+
+			const forecast: CashFlowForecast = {
+				flows: [staleReliable, liveTentative],
 				ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
 				hasBalanceAnchor: true,
 				todayIso

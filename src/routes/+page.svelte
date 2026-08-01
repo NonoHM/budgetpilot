@@ -51,12 +51,6 @@
 	// `hasDashboardData`: they are the only import entry point left once the onboarding EmptyState
 	// stops rendering, so keying them on the narrower flag stranded that state with no CTA at all.
 	const showDashboardBody = $derived(hasDashboardData || data.upcomingBills.hasStreams);
-	// Same predicate the server already applied to build the ledger (`feedsProjection`, see
-	// toDisplayCashFlowForecast) — never re-derived client-side, so this can't diverge from what
-	// actually backs the projected balance (a reliable flow gone stale must not count here either).
-	const hasConfirmedForecastFlows = $derived(
-		data.cashFlowForecast.flows.some((flow) => flow.feedsProjection)
-	);
 	// Delta = projected balance at the end of the horizon minus today's known balance (the ledger's
 	// realized/projected boundary, see CashFlowLedger.todayIndex) — colored per the app's standard
 	// monetary convention (emerald positive / rose negative), unlike the chart's own monochrome
@@ -589,11 +583,11 @@
 							<h2 class="text-sm font-semibold tracking-tight text-zinc-900">
 								{m.dashboard_forecast_title()}
 							</h2>
-							{#if hasConfirmedForecastFlows}
+							{#if data.cashFlowForecast.emptyState === null}
 								<Badge tone="neutral">{m.dashboard_forecast_horizon_label()}</Badge>
 							{/if}
 						</div>
-						{#if hasConfirmedForecastFlows}
+						{#if data.cashFlowForecast.emptyState === null}
 							<div class="mt-2 flex flex-wrap items-baseline gap-2">
 								<span
 									class="text-2xl font-bold tabular-nums {forecastDeltaCents >= 0
@@ -619,26 +613,32 @@
 									hasBalanceAnchor={data.cashFlowForecast.hasBalanceAnchor}
 								/>
 							</div>
-						{:else if data.cashFlowForecast.emptyState === 'all-stale'}
-							<EmptyState
-								class="mt-3"
-								card={false}
-								title={m.dashboard_forecast_stale_title()}
-								description={m.dashboard_forecast_stale_description()}
-							/>
 						{:else}
+							<!-- Same CTA on both empty states: `all-stale` means at least one flow WAS
+							     reliable-confirmed, so the annexe table linked below certainly has rows —
+							     the link isn't a remedy, it answers "which recurrences went quiet?". -->
 							{#snippet forecastEmptyAction()}
 								<TapLink href="/reports#annexe-recurrences"
 									>{m.dashboard_forecast_empty_cta()}</TapLink
 								>
 							{/snippet}
-							<EmptyState
-								class="mt-3"
-								card={false}
-								title={m.dashboard_forecast_empty_title()}
-								description={m.dashboard_forecast_empty_description()}
-								action={forecastEmptyAction}
-							/>
+							{#if data.cashFlowForecast.emptyState === 'all-stale'}
+								<EmptyState
+									class="mt-3"
+									card={false}
+									title={m.dashboard_forecast_stale_title()}
+									description={m.dashboard_forecast_stale_description()}
+									action={forecastEmptyAction}
+								/>
+							{:else}
+								<EmptyState
+									class="mt-3"
+									card={false}
+									title={m.dashboard_forecast_empty_title()}
+									description={m.dashboard_forecast_empty_description()}
+									action={forecastEmptyAction}
+								/>
+							{/if}
 						{/if}
 					</div>
 				</div>

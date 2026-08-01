@@ -29,12 +29,6 @@
 	const period = $derived(data.period);
 	const cashFlowForecast = $derived(data.cashFlowForecast);
 	const forecastHorizonMonths = $derived(data.forecastHorizonMonths);
-	// Same predicate the server already applied to build the ledger (`feedsProjection`, see
-	// toDisplayCashFlowForecast) — never re-derived client-side, so this can't diverge from what
-	// actually backs the projected balance (a reliable flow gone stale must not count here either).
-	const hasConfirmedForecastFlows = $derived(
-		cashFlowForecast.flows.some((flow) => flow.feedsProjection)
-	);
 	// "Included in the calculation" table: only the flows that actually feed the projection ledger
 	// right now (`feedsProjection`, computed server-side from `isReliableConfirmedFlow(flow) &&
 	// !isStreamStale(flow, todayIso)`) — a low-confidence, merely-tentative, or gone-stale flow only
@@ -745,7 +739,7 @@
 					<div class="h-px flex-1 bg-zinc-200"></div>
 				</div>
 
-				{#if hasConfirmedForecastFlows}
+				{#if cashFlowForecast.emptyState === null}
 					<div class="mt-3 {cardBase} p-5">
 						<h3 class="text-sm font-medium text-zinc-600">
 							{m.reports_forecast_chart_title({ months: forecastHorizonMonths })}
@@ -854,22 +848,28 @@
 							{/each}
 						</div>
 					</div>
-				{:else if cashFlowForecast.emptyState === 'all-stale'}
-					<EmptyState
-						class="mt-3"
-						title={m.reports_forecast_stale_title()}
-						description={m.reports_forecast_stale_description()}
-					/>
 				{:else}
+					<!-- Same CTA on both empty states: `all-stale` means at least one flow WAS
+					     reliable-confirmed, so the annexe table linked below certainly has rows —
+					     the link isn't a remedy, it answers "which recurrences went quiet?". -->
 					{#snippet forecastEmptyAction()}
 						<TapLink href="#annexe-recurrences">{m.reports_forecast_empty_cta()}</TapLink>
 					{/snippet}
-					<EmptyState
-						class="mt-3"
-						title={m.reports_forecast_empty_title()}
-						description={m.reports_forecast_empty_description()}
-						action={forecastEmptyAction}
-					/>
+					{#if cashFlowForecast.emptyState === 'all-stale'}
+						<EmptyState
+							class="mt-3"
+							title={m.reports_forecast_stale_title()}
+							description={m.reports_forecast_stale_description()}
+							action={forecastEmptyAction}
+						/>
+					{:else}
+						<EmptyState
+							class="mt-3"
+							title={m.reports_forecast_empty_title()}
+							description={m.reports_forecast_empty_description()}
+							action={forecastEmptyAction}
+						/>
+					{/if}
 				{/if}
 			</div>
 

@@ -209,4 +209,81 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 		await expect.element(screen.getByText(m.dashboard_forecast_stale_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.dashboard_forecast_empty_title());
 	});
+
+	/**
+	 * Fix round 1, IMPORTANT #1: the CTA (`dashboard_forecast_empty_cta`, linking to
+	 * `/reports#annexe-recurrences`) is not a remedy — it's "here is what was detected" — so both
+	 * empty branches keep it. `all-stale` in particular means at least one flow WAS
+	 * reliable-confirmed, so the annexe table it links to certainly has rows.
+	 */
+	it("renders the annexe-recurrences CTA in the 'none-detected' branch", async () => {
+		const screen = render(Page, {
+			data: buildData({
+				upcomingBillsHasStreams: true,
+				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'none-detected' }
+			}),
+			form: null as ActionData
+		});
+
+		const cta = screen.container.querySelector('a[href="/reports#annexe-recurrences"]');
+		expect(cta).not.toBeNull();
+		expect(cta?.textContent).toBe(m.dashboard_forecast_empty_cta());
+	});
+
+	it("renders the same annexe-recurrences CTA in the 'all-stale' branch", async () => {
+		const screen = render(Page, {
+			data: buildData({
+				upcomingBillsHasStreams: true,
+				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'all-stale' }
+			}),
+			form: null as ActionData
+		});
+
+		const cta = screen.container.querySelector('a[href="/reports#annexe-recurrences"]');
+		expect(cta).not.toBeNull();
+		expect(cta?.textContent).toBe(m.dashboard_forecast_empty_cta());
+	});
+
+	/**
+	 * Fix round 1, IMPORTANT #2: the populated branch now gates on `cashFlowForecast.emptyState
+	 * === null`, the total discriminator, rather than a separately re-derived
+	 * `flows.some(f => f.feedsProjection)` boolean that could silently diverge from it. This is the
+	 * render path that coupling used to guard and is otherwise unexercised by the two tests above.
+	 */
+	it('renders the populated forecast (chart, not an empty state) when emptyState is null', async () => {
+		const screen = render(Page, {
+			data: buildData({
+				upcomingBillsHasStreams: true,
+				cashFlowForecast: {
+					hasBalanceAnchor: true,
+					todayIndex: 0,
+					days: [
+						{ date: '2026-07-31', balanceCents: 100_000, events: [] },
+						{ date: '2026-08-01', balanceCents: 98_601, events: [] }
+					],
+					flows: [
+						{
+							category: 'Abonnements',
+							direction: 'expense',
+							cadence: 'monthly',
+							status: 'confirmed',
+							confidence: 'high',
+							label: 'Netflix',
+							averageAmountCents: -1_399,
+							lastDate: '2026-07-01',
+							feedsProjection: true
+						}
+					],
+					emptyState: null
+				}
+			}),
+			form: null as ActionData
+		});
+
+		await expect
+			.element(screen.getByText(m.dashboard_forecast_kpi_delta_suffix()))
+			.toBeInTheDocument();
+		expect(screen.container.textContent).not.toContain(m.dashboard_forecast_empty_title());
+		expect(screen.container.textContent).not.toContain(m.dashboard_forecast_stale_title());
+	});
 });
