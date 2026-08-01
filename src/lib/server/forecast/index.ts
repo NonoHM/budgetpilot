@@ -100,6 +100,11 @@ export async function loadCashFlowForecast(
 	//    itself through the back door, exactly what the stale-guard above must eliminate. Excluded
 	//    from the residual pool via `reliableFlows` (not `confirmedFlows`, which already dropped the
 	//    stale ones) so this exclusion happens regardless of staleness.
+	//    Note that `computeResidualDailyCents` is a MEDIAN over ~52 weekly sums, not a mean: this
+	//    exclusion is always correct for the POOL (the stale flow's transactions never reach it),
+	//    but a stale stream whose payments occupied fewer than half the lookback's weeks may not
+	//    have moved the resulting figure either way, guard or no guard — the exclusion still matters
+	//    whenever it does move it, and for the residual pool's own correctness regardless.
 	const recurringTransactionIds = new Set(reliableFlows.flatMap((flow) => flow.occurrenceIds));
 	const residualTransactions = transactions.filter(
 		(transaction) => !recurringTransactionIds.has(transaction.id)

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RecurringFlow, ProjectedOccurrence } from '$lib/domain/forecast';
 import {
 	computeStaleAfterDays,
+	detectRecurringFlows,
 	isReliableConfirmedFlow,
 	projectFlowOccurrences
 } from '$lib/domain/forecast';
@@ -443,14 +444,6 @@ describe('loadCashFlowForecast', () => {
 describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecast)', () => {
 	const TODAY_ISO = '2025-04-10';
 
-	// Perfectly regular (CV 0) monthly stream -> staleAfterDays = 30 + 5 + 0 = 35. Derived from the
-	// production formula, not hardcoded, per the brief.
-	const STALE_AFTER_DAYS = computeStaleAfterDays({
-		cadence: 'monthly',
-		medianIntervalDays: 30,
-		intervalCoefficientOfVariation: 0
-	});
-
 	function monthlyExpenseTransactions(lastDateIso: string) {
 		return [-150, -120, -90, -60, -30, 0].map((offset, index) => ({
 			id: `tx-netflix-${index}`,
@@ -462,8 +455,17 @@ describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecas
 		}));
 	}
 
+	// Bound to the code under test rather than to a parallel assumption about its cadence/CV
+	// (MINOR #4, fix round 1): run the REAL detector on the fixture and derive the threshold from
+	// what it actually reports, rather than hand-asserting {monthly, 30, CV 0}. The interval/CV the
+	// detector computes from the transactions' spacing doesn't depend on `lastDate`, so an arbitrary
+	// probe date is fine here — this runs once, during collection, before any test overrides
+	// `detectRecurringFlows` via `mockReturnValueOnce`.
+	const probeFlow = detectRecurringFlows(monthlyExpenseTransactions('2025-01-01'))[0];
+	const STALE_AFTER_DAYS = computeStaleAfterDays(probeFlow);
+
 	it('drops a cancelled stream from the projected ledger and moves the end-of-horizon balance up by the expense no longer projected', async () => {
-		expect.assertions(6);
+		expect.assertions(5);
 		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
 
 		// Well past the tolerated cycle: silent for STALE_AFTER_DAYS + 2 days.
@@ -492,18 +494,19 @@ describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecas
 			0
 		);
 
+		// Direction check FIRST (fix round 1, MINOR #3): this is the assertion break 1 must be
+		// observed failing, and an earlier-throwing assertion below (`toHaveLength(0)`) would abort
+		// the test before it ever ran, making it unprovable. No projection and no residual (the
+		// flow's own transactions are excluded from the residual pool too, see the dedicated residual
+		// test below) -> the balance stays exactly at the anchor — one full cycle higher than the
+		// pre-fix behaviour, which would have debited the expense once.
+		const lastDay = forecast.ledger.days[forecast.ledger.days.length - 1];
+		expect(lastDay.balanceCents).toBe(100_000);
+
 		const netflixEvents = forecast.ledger.days.flatMap((day) =>
 			day.events.filter((event) => event.flowLabel === 'NETFLIX')
 		);
 		expect(netflixEvents).toHaveLength(0);
-
-		// No projection and no residual (the flow's own transactions are excluded from the residual
-		// pool too, see the dedicated residual test below) -> the balance stays exactly at the anchor.
-		const lastDay = forecast.ledger.days[forecast.ledger.days.length - 1];
-		expect(lastDay.balanceCents).toBe(100_000);
-		// Direction check: had the stream still been projected (its pre-fix behaviour), the expense
-		// would have been subtracted once from the final balance.
-		expect(lastDay.balanceCents).not.toBe(100_000 - 1_399);
 
 		vi.useRealTimers();
 	});
@@ -583,7 +586,7 @@ describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecas
 		expect.assertions(1);
 		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
 
-		// Dense weekly activity (3 transactions every 7-day block, -200c each) but stopping 65 days
+		// Dense weekly activity (3 transactions every 7-day block, -200c each) but stopping 67 days
 		// before "today" — well past staleAfterDays for a weekly stream (7 + 2 + 0 = 9) — attributed
 		// to a mocked 'confirmed'/'high' (reliable) flow. A SPARSE fixture (like the monthly one used
 		// above) would not expose a residual leak: with only ~6 transactions spread across 12 months,
@@ -627,8 +630,8 @@ describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecas
 			intervalCoefficientOfVariation: 0,
 			amountCoefficientOfVariation: 0,
 			dayOfMonthConcentration: 1,
-			// 300 days after the lookback start, i.e. 65 days before TODAY_ISO (12-month lookback):
-			// isStreamStale is true (65 > 9).
+			// The last matching offset below 300 is 298 (298 % 7 === 4), i.e. 2025-02-02 — 67 days
+			// before TODAY_ISO (2025-04-10): isStreamStale is true (67 > 9).
 			lastDate: denseStaleTransactions[denseStaleTransactions.length - 1].date,
 			anchorDayOfMonth: 1,
 			occurrenceIds: denseStaleTransactions.map((transaction) => transaction.id)

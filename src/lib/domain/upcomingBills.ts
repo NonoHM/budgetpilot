@@ -256,12 +256,13 @@ export function buildBillOccurrences(input: BuildBillOccurrencesInput): BillOccu
 		// `isStreamStale`). The guard lives HERE and not inside `projectFlowOccurrences` because that
 		// function is shared with the cash-flow forecast, and it steps from `flow.lastDate` regardless
 		// of caller — `fromDate` only filters which of those stepped dates get emitted, it does not
-		// stop the stepping. A stale stream's dates are therefore still generated, just all before
-		// `fromDate` most of the time; nothing here or in `projectFlowOccurrences` used to stop that.
-		// The cash-flow forecast now applies the SAME `isStreamStale` guard itself, at the flow-list
-		// level in `server/forecast/index.ts` (`loadCashFlowForecast`), rather than inside the shared
-		// stepping function — so both surfaces refuse to project a stale stream, without either one
-		// silently affecting the other's caller.
+		// stop the stepping. A stale stream's stepped dates routinely land AFTER `fromDate` too (a
+		// stream last seen 3 months ago still produces this month's and next month's stepped dates,
+		// both >= `fromDate`) — `projectFlowOccurrences` on its own has never stopped that, for either
+		// caller. The cash-flow forecast now applies the SAME `isStreamStale` guard itself, at the
+		// flow-list level in `server/forecast/index.ts` (`loadCashFlowForecast`), rather than inside
+		// the shared stepping function — so both surfaces refuse to project a stale stream, without
+		// either one silently affecting the other's caller.
 		if (isStreamStale(flow, input.todayIso)) continue;
 
 		const projectedDates = projectFlowOccurrences(flow, input.fromIso, horizonDays)
