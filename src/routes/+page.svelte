@@ -23,6 +23,7 @@
 	import MoneyInput from '$lib/components/ui/MoneyInput.svelte';
 	import DashboardSkeleton from '$lib/components/DashboardSkeleton.svelte';
 	import CashFlowForecastChart from '$lib/components/ui/CashFlowForecastChart.svelte';
+	import UpcomingBillsCard from '$lib/components/UpcomingBillsCard.svelte';
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { formatShortDate } from '$lib/domain/dateFormat';
 	import { hasReliableConfirmedFlow } from '$lib/domain/forecast';
@@ -42,6 +43,15 @@
 	const hasDashboardData = $derived(
 		data.transactions.length > 0 || data.budgets.length > 0 || data.savingsGoals.length > 0
 	);
+	// `hasDashboardData` keys on the CURRENT PERIOD's transactions, so a user with detected
+	// recurring streams but no activity this period would otherwise land in the onboarding empty
+	// state below and never see the upcoming-bills widget — precisely when it matters most
+	// (Task 3, B5a). `hasStreams` is period-independent (computed over the detector's own 12-month
+	// window, see service.ts), so it widens the "state with data" branch on its own. The header's
+	// Import / Saisie manuelle buttons are gated on this same flag rather than on
+	// `hasDashboardData`: they are the only import entry point left once the onboarding EmptyState
+	// stops rendering, so keying them on the narrower flag stranded that state with no CTA at all.
+	const showDashboardBody = $derived(hasDashboardData || data.upcomingBills.hasStreams);
 	const hasConfirmedForecastFlows = $derived(hasReliableConfirmedFlow(data.cashFlowForecast.flows));
 	// Delta = projected balance at the end of the horizon minus today's known balance (the ledger's
 	// realized/projected boundary, see CashFlowLedger.todayIndex) — colored per the app's standard
@@ -189,7 +199,12 @@
 					/>
 				</div>
 
-				{#if hasDashboardData}
+				<!-- Same gate as the body, not `hasDashboardData`: the onboarding EmptyState below is the
+				     only other "/import" call to action on this page, and it renders only when the body
+				     does not. Keyed on `hasDashboardData` alone, a user with detected streams but no
+				     activity this period got the body, no empty state, and no way to import from the
+				     dashboard at all (the top nav goes to /imports, the history page). -->
+				{#if showDashboardBody}
 					<div class="flex gap-2 lg:contents">
 						<Button
 							variant="secondary"
@@ -283,7 +298,7 @@
 			categories={data.categories}
 		/>
 
-		{#if !hasDashboardData}
+		{#if !showDashboardBody}
 			{#snippet emptyIcon()}
 				<svg
 					class="h-5 w-5 text-zinc-400"
@@ -559,6 +574,11 @@
 							/>
 						{/if}
 					</div>
+
+					<!-- Reachable here even when `hasDashboardData` is false — see `showDashboardBody`
+					     above (Task 3, B5a). The card itself already renders a dedicated empty state
+					     when `!hasStreams`, so no separate gate is needed at this call site. -->
+					<UpcomingBillsCard widget={data.upcomingBills} />
 
 					<div class="{cardBase} p-5">
 						<div class="flex items-baseline justify-between gap-2">

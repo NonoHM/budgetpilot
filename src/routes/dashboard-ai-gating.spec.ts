@@ -62,6 +62,16 @@ const savingsGoals = vi.hoisted(() => ({
 	readSavingsGoals: vi.fn(async () => [])
 }));
 
+const upcomingBills = vi.hoisted(() => ({
+	loadUpcomingBillsWidget: vi.fn(async () => ({
+		rows: [],
+		overdueCount: 0,
+		remainingExpenseCents: 0,
+		hasStreams: false,
+		todayIso: '2026-06-15'
+	}))
+}));
+
 const forecast = vi.hoisted(() => ({
 	loadCashFlowForecast: vi.fn(async () => ({
 		flows: [],
@@ -85,6 +95,7 @@ vi.mock('$lib/server/dashboard/insights', () => dashboardInsights);
 vi.mock('$lib/server/transactions/nature', () => nature);
 vi.mock('$lib/server/savings-goals/service', () => savingsGoals);
 vi.mock('$lib/server/forecast', () => forecast);
+vi.mock('$lib/server/upcoming-bills/service', () => upcomingBills);
 
 const { load } = await import('./+page.server');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
@@ -175,5 +186,30 @@ describe('/ (dashboard) — gating IA à 3 états', () => {
 		expect(insightsIndex.getBudgetInsights).toHaveBeenCalledWith(
 			expect.objectContaining({ includeLabels: true })
 		);
+	});
+
+	it('attend loadUpcomingBillsWidget (contrairement à aiAdvice, jamais un flux) et le scope à l’utilisateur', async () => {
+		expect.assertions(3);
+
+		const resolved = {
+			rows: [],
+			overdueCount: 0,
+			remainingExpenseCents: 0,
+			hasStreams: false,
+			todayIso: '2026-06-15'
+		};
+		// `Once`, not `mockResolvedValue`: the suite's `beforeEach` runs `vi.clearAllMocks()`, which
+		// clears calls but NOT implementations, so a permanent override here would leak into whatever
+		// test runs next. Harmless only while this one happens to be last — a property any reorder
+		// removes silently.
+		upcomingBills.loadUpcomingBillsWidget.mockResolvedValueOnce(resolved);
+
+		const data = (await load(buildLoadEvent())) as Awaited<ReturnType<typeof load>> & {
+			upcomingBills: unknown;
+		};
+
+		expect(upcomingBills.loadUpcomingBillsWidget).toHaveBeenCalledWith(testUser.id);
+		expect(data.upcomingBills).not.toBeInstanceOf(Promise);
+		expect(data.upcomingBills).toEqual(resolved);
 	});
 });

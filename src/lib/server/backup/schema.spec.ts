@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { backupExportSchema } from './schema';
+import {
+	backupExportSchema,
+	MAX_ANCHOR_IDS,
+	MAX_ANCHOR_CELL_CHARS,
+	MAX_IMPORTED_RECURRING_STREAM_ACTIONS,
+	MAX_RECURRING_STREAM_ACTIONS,
+	parseAnchorTransactionIds
+} from './schema';
 
 function buildValidPayload() {
 	return {
@@ -488,6 +495,128 @@ describe('backupExportSchema', () => {
 		expect(backupExportSchema.safeParse(withGoal('a'.repeat(192))).success).toBe(false);
 	});
 
+	// Same shape as the SavingsGoal case above rather than a row in `portableBounds`:
+	// `buildValidPayload()` carries no `recurringStreamActions` array (the field defaults to `[]`,
+	// which is what the back-compat test below asserts), so the fixture is built per case here.
+	const buildActionPayload = (overrides: Record<string, unknown> = {}) => ({
+		...buildValidPayload(),
+		recurringStreamActions: [
+			{
+				id: 'action-1',
+				kind: 'IGNORE' as const,
+				direction: 'expense' as const,
+				normalizedLabel: 'edf',
+				label: 'EDF',
+				anchorTransactionIds: JSON.stringify(['tx-1']),
+				dueDate: new Date('2026-08-05T00:00:00.000Z').toISOString(),
+				createdAt: new Date('2026-07-31T00:00:00.000Z').toISOString(),
+				updatedAt: new Date('2026-07-31T00:00:00.000Z').toISOString(),
+				...overrides
+			}
+		]
+	});
+
+	it.each([['normalizedLabel'], ['label']])(
+		'RecurringStreamAction.%s accepte 191 caractères et rejette 192',
+		(field) => {
+			expect.assertions(2);
+
+			const atLimit = buildActionPayload({ [field]: 'a'.repeat(191) });
+			const overLimit = buildActionPayload({ [field]: 'a'.repeat(192) });
+
+			expect(backupExportSchema.safeParse(atLimit).success).toBe(true);
+			expect(backupExportSchema.safeParse(overLimit).success).toBe(false);
+		}
+	);
+
+	/**
+	 * Bounded well above 191 on purpose: the column carries a `@db.Text` override, so the
+	 * narrowest provider stores it as `text` like the others. Asserted so that narrowing it to
+	 * MAX_PORTABLE_STRING — which would reject an ordinary weekly stream's anchor list — goes red.
+	 */
+	it('RecurringStreamAction.anchorTransactionIds est accepté au-delà de 191 caractères', () => {
+		expect.assertions(2);
+
+		const ids = Array.from({ length: 52 }, (_, index) => `tx-${index}`);
+		const serialized = JSON.stringify(ids);
+		expect(serialized.length).toBeGreaterThan(191);
+
+		expect(
+			backupExportSchema.safeParse(buildActionPayload({ anchorTransactionIds: serialized })).success
+		).toBe(true);
+	});
+
+	/**
+	 * Availability bound, not an integrity one. Every transaction an action anchors leaves the
+	 * bulk `createMany` for its own `create` inside the single interactive transaction, so an
+	 * unbounded list lets a small hand-edited file hold a pooled connection for the whole
+	 * LONG_TRANSACTION_OPTIONS ceiling.
+	 */
+	it('rejette un fichier au-delà de MAX_IMPORTED_RECURRING_STREAM_ACTIONS', () => {
+		expect.assertions(4);
+
+		const build = (count: number) => ({
+			...buildValidPayload(),
+			recurringStreamActions: Array.from({ length: count }, (_, index) => ({
+				...buildActionPayload().recurringStreamActions[0],
+				id: `action-${index}`
+			}))
+		});
+
+		expect(backupExportSchema.safeParse(build(MAX_IMPORTED_RECURRING_STREAM_ACTIONS)).success).toBe(
+			true
+		);
+		expect(
+			backupExportSchema.safeParse(build(MAX_IMPORTED_RECURRING_STREAM_ACTIONS + 1)).success
+		).toBe(false);
+
+		// The gap that keeps a user's own export restorable: the write path refuses past
+		// MAX_RECURRING_STREAM_ACTIONS, but a concurrent count-then-insert can overshoot it by a
+		// little, and an import bound equal to the write cap would turn that race into a permanent
+		// restore failure. Anything in the gap must still validate.
+		expect(MAX_IMPORTED_RECURRING_STREAM_ACTIONS).toBeGreaterThan(MAX_RECURRING_STREAM_ACTIONS);
+		expect(backupExportSchema.safeParse(build(MAX_RECURRING_STREAM_ACTIONS + 1)).success).toBe(
+			true
+		);
+	});
+
+	/**
+	 * The cell bound and the write-path cap are a pair: the restore rewrites this column with
+	 * freshly generated 25-char cuids, so a cell of MAX_ANCHOR_IDS of them must still be
+	 * something this schema accepts. Asserted here as well as against the real write path, so
+	 * narrowing the cell bound alone goes red.
+	 */
+	it('accepte une cellule pleine de MAX_ANCHOR_IDS cuids', () => {
+		expect.assertions(2);
+
+		expect(MAX_ANCHOR_IDS * 28 + 2).toBeLessThanOrEqual(MAX_ANCHOR_CELL_CHARS);
+
+		const full = JSON.stringify(Array.from({ length: MAX_ANCHOR_IDS }, () => 'c'.repeat(25)));
+
+		expect(
+			backupExportSchema.safeParse(buildActionPayload({ anchorTransactionIds: full })).success
+		).toBe(true);
+	});
+
+	it('rejette une action portant un champ non déclaré (strict)', () => {
+		expect.assertions(2);
+
+		const smuggled = buildActionPayload({ userId: 'other-user' });
+		const unknownKind = buildActionPayload({ kind: 'DELETE' });
+
+		expect(backupExportSchema.safeParse(smuggled).success).toBe(false);
+		expect(backupExportSchema.safeParse(unknownKind).success).toBe(false);
+	});
+
+	it('accepte un payload sans recurringStreamActions (export antérieur à la fonctionnalité)', () => {
+		expect.assertions(2);
+
+		const result = backupExportSchema.safeParse(buildValidPayload());
+
+		expect(result.success).toBe(true);
+		expect(result.success && result.data.recurringStreamActions).toStrictEqual([]);
+	});
+
 	/**
 	 * La seule borne laissée au-dessus de 191, délibérément : la banque fournit cet uid et la
 	 * synchro l'écrit sans le tronquer, donc le resserrer rejetterait l'export d'une install
@@ -514,5 +643,27 @@ describe('backupExportSchema', () => {
 		expect(backupExportSchema.safeParse(absent).success).toBe(true);
 		expect(backupExportSchema.safeParse(withNull).success).toBe(true);
 		expect(backupExportSchema.safeParse(withValue).success).toBe(true);
+	});
+});
+
+describe('parseAnchorTransactionIds', () => {
+	it('lit un tableau JSON de chaînes non vides', () => {
+		expect.assertions(1);
+
+		expect(parseAnchorTransactionIds(JSON.stringify(['a', 'b']))).toEqual(['a', 'b']);
+	});
+
+	it('rend une liste vide sur du JSON illisible ou non-tableau', () => {
+		expect.assertions(3);
+
+		expect(parseAnchorTransactionIds('not json')).toEqual([]);
+		expect(parseAnchorTransactionIds('{"a":1}')).toEqual([]);
+		expect(parseAnchorTransactionIds('"a"')).toEqual([]);
+	});
+
+	it('filtre les éléments qui ne sont pas des chaînes non vides', () => {
+		expect.assertions(1);
+
+		expect(parseAnchorTransactionIds('["ok", 42, "", null, "aussi"]')).toEqual(['ok', 'aussi']);
 	});
 });

@@ -21,6 +21,10 @@ export interface RecurringFlow {
 	occurrenceCount: number;
 	/** Magnitude (unsigned) — the caller applies the sign via `direction`. */
 	averageAmountCents: number;
+	/** Smallest observed occurrence amount (unsigned) — the low bound of the displayed range. */
+	minAmountCents: number;
+	/** Largest observed occurrence amount (unsigned) — the high bound of the displayed range. */
+	maxAmountCents: number;
 	medianIntervalDays: number;
 	intervalCoefficientOfVariation: number;
 	amountCoefficientOfVariation: number;
@@ -51,6 +55,19 @@ const CADENCE_WINDOWS: readonly CadenceWindow[] = [
 	{ cadence: 'yearly', days: 365, toleranceDays: 15 }
 ];
 
+/**
+ * The slip, in days, the detector already tolerates around a cadence's canonical period — exposed
+ * for callers that need to reason about "how late may this stream legitimately be" (see
+ * `computeStaleAfterDays` in upcomingBills.ts). Read off `CADENCE_WINDOWS` rather than restated at
+ * the call site, so the detector's tolerance and any consumer's can never drift apart.
+ */
+export function getCadenceToleranceDays(cadence: FlowCadence): number {
+	const window = CADENCE_WINDOWS.find((entry) => entry.cadence === cadence);
+	// The fallback is unreachable — CADENCE_WINDOWS covers every FlowCadence member — and exists
+	// only because `Array.find` is not total in the type system.
+	return window?.toleranceDays ?? 0;
+}
+
 function classifyCadence(medianIntervalDays: number): FlowCadence | null {
 	const match = CADENCE_WINDOWS.find(
 		(window) => Math.abs(medianIntervalDays - window.days) <= window.toleranceDays
@@ -62,7 +79,13 @@ function toEpochDay(iso: string): number {
 	return Math.floor(new Date(`${iso}T00:00:00.000Z`).getTime() / 86_400_000);
 }
 
-function median(values: readonly number[]): number {
+/**
+ * Exported so every caller with a list of numbers to summarize goes through the one
+ * implementation, rather than each re-deriving the same sort-and-middle logic. See
+ * `resolveIdempotenceWindowDays` in `server/upcoming-bills/service.ts` for the call that used to
+ * duplicate this byte-for-byte.
+ */
+export function median(values: readonly number[]): number {
 	const sorted = [...values].sort((a, b) => a - b);
 	const mid = Math.floor(sorted.length / 2);
 	return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
@@ -134,10 +157,35 @@ function computeConfidence(
 	return 'low';
 }
 
-type ForecastInputTransaction = Pick<
+export type ForecastInputTransaction = Pick<
 	Transaction,
 	'id' | 'date' | 'label' | 'amountCents' | 'category' | 'type'
 >;
+
+/**
+ * Groups transactions by direction + normalized merchant label + category — step 1 of the detector
+ * below, exported because the upcoming-bills "en observation" list has to rebuild exactly the same
+ * buckets. Sharing the code (rather than copying the four lines) is what makes it impossible for
+ * the two views to disagree about what counts as one stream. Keys are `direction:label:category`;
+ * transactions whose label normalizes to nothing are dropped.
+ */
+export function groupTransactionsForRecurrence(
+	transactions: readonly ForecastInputTransaction[]
+): Map<string, ForecastInputTransaction[]> {
+	const groups = new Map<string, ForecastInputTransaction[]>();
+
+	for (const transaction of transactions) {
+		const normalizedLabel = normalizeRecurringLabel(transaction.label);
+		if (!normalizedLabel) continue;
+
+		const direction: FlowDirection =
+			getTransactionKind(transaction) === 'income' ? 'income' : 'expense';
+		const key = `${direction}:${normalizedLabel}:${transaction.category}`;
+		groups.set(key, [...(groups.get(key) ?? []), transaction]);
+	}
+
+	return groups;
+}
 
 /**
  * Detects recurring income and expense flows from raw transactions — pure, deterministic,
@@ -155,18 +203,7 @@ type ForecastInputTransaction = Pick<
 export function detectRecurringFlows(
 	transactions: readonly ForecastInputTransaction[]
 ): RecurringFlow[] {
-	const groups = new Map<string, ForecastInputTransaction[]>();
-
-	for (const transaction of transactions) {
-		const normalizedLabel = normalizeRecurringLabel(transaction.label);
-		if (!normalizedLabel) continue;
-
-		const direction: FlowDirection =
-			getTransactionKind(transaction) === 'income' ? 'income' : 'expense';
-		const key = `${direction}:${normalizedLabel}:${transaction.category}`;
-		groups.set(key, [...(groups.get(key) ?? []), transaction]);
-	}
-
+	const groups = groupTransactionsForRecurrence(transactions);
 	const flows: RecurringFlow[] = [];
 
 	for (const [key, groupTransactions] of groups) {
@@ -188,6 +225,7 @@ export function detectRecurringFlows(
 			const intervalCV = coefficientOfVariation(intervals);
 			const amountCV = coefficientOfVariation(amounts);
 			const concentration = dayOfMonthConcentration(dates);
+			const magnitudes = group.map((t) => Math.abs(t.amountCents));
 
 			flows.push({
 				key,
@@ -201,6 +239,8 @@ export function detectRecurringFlows(
 				averageAmountCents: Math.round(
 					amounts.reduce((sum, amount) => sum + amount, 0) / amounts.length
 				),
+				minAmountCents: Math.min(...magnitudes),
+				maxAmountCents: Math.max(...magnitudes),
 				medianIntervalDays,
 				intervalCoefficientOfVariation: intervalCV,
 				amountCoefficientOfVariation: amountCV,
@@ -355,6 +395,30 @@ export function hasReliableConfirmedFlow(
 	flows: readonly Pick<RecurringFlow, 'status' | 'confidence'>[]
 ): boolean {
 	return flows.some(isReliableConfirmedFlow);
+}
+
+export type FlowDisplayTier = 'confirmed' | 'likely' | 'uncertain';
+
+/**
+ * The design's three confidence badges (Confirmé / Probable / Incertain) collapsed from the
+ * engine's two orthogonal fields. `tier !== 'uncertain'` is by construction equivalent to
+ * `isReliableConfirmedFlow` — the upcoming-bills view and the cash-flow forecast must never
+ * disagree about which streams are trustworthy.
+ */
+export function getFlowDisplayTier(
+	flow: Pick<RecurringFlow, 'status' | 'confidence'>
+): FlowDisplayTier {
+	if (flow.status === 'tentative' || flow.confidence === 'low') return 'uncertain';
+	return flow.confidence === 'high' ? 'confirmed' : 'likely';
+}
+
+export type FlowAmountVariability = 'fixed' | 'variable';
+
+/** Under one euro of observed spread the amount is displayed as fixed. */
+export function getFlowAmountVariability(
+	flow: Pick<RecurringFlow, 'minAmountCents' | 'maxAmountCents'>
+): FlowAmountVariability {
+	return flow.maxAmountCents - flow.minAmountCents >= 100 ? 'variable' : 'fixed';
 }
 
 export interface CashFlowForecastInput {

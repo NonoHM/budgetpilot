@@ -1,8 +1,12 @@
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { describe, expect, it } from 'vitest';
+import { MAX_ANCHOR_IDS } from '$lib/server/backup/schema';
+import { detectRecurringFlows } from '$lib/domain/forecast';
 import {
 	buildTransactionWhere,
+	MAX_TRANSACTION_ID_FILTER,
 	normalizeId,
+	normalizeIdList,
 	normalizeSearch,
 	parseTransactionDateRange,
 	parseTransactionFilter
@@ -226,6 +230,136 @@ describe('buildTransactionWhere', () => {
 			type: 'expense',
 			importBatchId: 'batch-1'
 		});
+	});
+
+	it('filtre par liste d’ids SANS jamais perdre le scope userId', () => {
+		expect.assertions(1);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'all',
+			category: '',
+			importBatchId: '',
+			ids: ['transaction-1', 'transaction-2']
+		});
+
+		// toEqual, not toMatchObject: the point of this assertion is that `userId` is STILL there
+		// next to the id whitelist. A partial match would pass with the conjunct removed.
+		expect(where).toEqual({
+			userId: 'user-a',
+			id: { in: ['transaction-1', 'transaction-2'] }
+		});
+	});
+
+	it('traite une liste d’ids vide comme « ne matche rien », jamais comme « pas de filtre »', () => {
+		expect.assertions(1);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'all',
+			category: '',
+			importBatchId: '',
+			ids: []
+		});
+
+		expect(where).toEqual({ userId: 'user-a', id: { in: [] } });
+	});
+
+	it('n’ajoute aucun filtre d’id quand ids est absent ou null', () => {
+		expect.assertions(2);
+
+		const base = { userId: 'user-a', type: 'all' as const, category: '', importBatchId: '' };
+
+		expect(buildTransactionWhere(base)).not.toHaveProperty('id');
+		expect(buildTransactionWhere({ ...base, ids: null })).not.toHaveProperty('id');
+	});
+});
+
+describe('normalizeIdList', () => {
+	it('distingue « absent » (pas de filtre) de « présent mais vide » (ne matche rien)', () => {
+		expect.assertions(3);
+
+		expect(normalizeIdList(null)).toBeNull();
+		expect(normalizeIdList('')).toEqual([]);
+		expect(normalizeIdList(' , , ')).toEqual([]);
+	});
+
+	it('parse une liste séparée par des virgules et déduplique', () => {
+		expect.assertions(1);
+
+		expect(normalizeIdList('transaction-1, transaction-2 ,transaction-1')).toEqual([
+			'transaction-1',
+			'transaction-2'
+		]);
+	});
+
+	it('écarte les éléments malformés sans lever, et sans laisser passer les valides', () => {
+		expect.assertions(1);
+
+		expect(normalizeIdList("short,transaction-1,'; DROP TABLE,bad id here")).toEqual([
+			'transaction-1'
+		]);
+	});
+
+	it('borne la liste à MAX_TRANSACTION_ID_FILTER avant tout accès à la base', () => {
+		expect.assertions(2);
+
+		const overLong = Array.from(
+			{ length: MAX_TRANSACTION_ID_FILTER + 500 },
+			(_, index) => `transaction-${index}`
+		).join(',');
+		const parsed = normalizeIdList(overLong);
+
+		expect(parsed).toHaveLength(MAX_TRANSACTION_ID_FILTER);
+		// The cap is applied to the SEGMENTS, so it is the first N that survive — the truncation
+		// happens before validation, not after, which is what keeps a pathological URL from
+		// materializing thousands of strings.
+		expect(parsed?.[MAX_TRANSACTION_ID_FILTER - 1]).toBe(
+			`transaction-${MAX_TRANSACTION_ID_FILTER - 1}`
+		);
+	});
+
+	it('accepte sans troncature le plus grand lot d’ancres que /upcoming-bills puisse émettre', () => {
+		expect.assertions(1);
+
+		// Cross-check against the producer's own cap (backup/schema.ts). Asserted here rather than
+		// imported into where.ts so a change to MAX_ANCHOR_IDS goes red instead of silently
+		// truncating "Voir les transactions liées".
+		expect(MAX_TRANSACTION_ID_FILTER).toBeGreaterThanOrEqual(MAX_ANCHOR_IDS);
+	});
+
+	// The assertion above is the EASY half — it compares two constants. The hard half is the
+	// arithmetic that justifies the constant, which until now lived only in a comment: the ceiling
+	// is not "~52 for a weekly stream", because classifyCadence tests the MEDIAN interval, so a
+	// group counts as weekly at a 5-day median (about 2 × 365 / 5 = 146 over a 12-month span).
+	// This runs the real detector on a real 5-day-median stream and reads the number off, so a
+	// change to the cadence windows that pushes it past 250 goes red here instead of silently
+	// truncating a user's link. detectRecurringFlows applies no lookback filter of its own — the
+	// 12-month window is the caller's FORECAST_LOOKBACK_MONTHS, and this fixture's 725-day span is
+	// not constructed to pin that boundary — so this test says nothing about the lookback.
+	it('encaisse le plus gros flux réellement détectable (médiane 5 jours) sans troncature', () => {
+		expect.assertions(4);
+
+		const start = Date.UTC(2025, 7, 1);
+		const transactions = Array.from({ length: 146 }, (_, index) => ({
+			id: `transaction-${String(index).padStart(4, '0')}`,
+			date: new Date(start + index * 5 * 86_400_000).toISOString().slice(0, 10),
+			label: 'BOULANGERIE DU COIN',
+			category: 'Alimentation',
+			amountCents: -1_200,
+			type: 'expense' as const
+		}));
+
+		const flows = detectRecurringFlows(transactions);
+		const weekly = flows.find((flow) => flow.cadence === 'weekly');
+
+		// The premise: a 5-day median really is classified weekly, and really is one flow.
+		expect(weekly).toBeDefined();
+		expect(weekly?.occurrenceCount).toBe(146);
+		// ~146, not ~52 — this is the number a future session raising MAX_ANCHOR_IDS reasons from.
+		expect(weekly!.occurrenceCount).toBeGreaterThan(52);
+		// And the whole thing still fits the filter's bound, untruncated.
+		expect(normalizeIdList(transactions.map((t) => t.id).join(','))).toHaveLength(146);
 	});
 });
 

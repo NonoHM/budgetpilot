@@ -11,6 +11,7 @@
 	const active = $derived.by(() => {
 		if (page.url.pathname.startsWith('/transactions')) return 'transactions';
 		if (page.url.pathname.startsWith('/budgets')) return 'budgets';
+		if (page.url.pathname.startsWith('/upcoming-bills')) return 'upcoming-bills';
 		if (page.url.pathname.startsWith('/reports')) return 'reports';
 		if (page.url.pathname.startsWith('/rules')) return 'rules';
 		if (page.url.pathname.startsWith('/import')) return 'imports';

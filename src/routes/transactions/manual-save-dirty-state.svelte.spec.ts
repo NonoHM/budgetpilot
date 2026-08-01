@@ -76,7 +76,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			category: '',
 			from: '',
 			to: '',
-			importBatchId: ''
+			importBatchId: '',
+			ids: ''
 		},
 		queryError: false,
 		dateRangeError: false,

@@ -47,6 +47,19 @@ budget.example.com {
 	# query string. Dropping `code` and `state` from the access log keeps that
 	# secret out of a file that tends to be world-readable, shipped to a log
 	# collector, or kept far longer than the code stays valid.
+	#
+	# `q` is dropped for the same reason with a different payload: it is the
+	# /transactions search term, so it holds whatever merchant, amount or note
+	# the user typed to find their own transactions. An access log is the one
+	# place in this stack that would keep that in plaintext outside the
+	# database — tailed, rotated, and often shipped to a collector.
+	#
+	# It used to carry more. "Voir les transactions liées" on /upcoming-bills
+	# built `?q=<raw bank label>`, putting a label straight off the user's
+	# statement in the log without them typing anything; that link now uses
+	# opaque transaction ids instead. This filter is no longer the only thing
+	# standing between that label and the log, but it is still the only thing
+	# covering everything the user types into the search box. Keep it.
 	log {
 		format filter {
 			wrap console
@@ -54,6 +67,7 @@ budget.example.com {
 				request>uri query {
 					delete code
 					delete state
+					delete q
 				}
 			}
 		}

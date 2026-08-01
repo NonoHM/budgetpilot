@@ -10,12 +10,19 @@
 		shape = 'pill',
 		bordered = false,
 		solid = false,
+		class: extraClass = '',
 		children
 	}: {
 		tone: 'neutral' | 'success' | 'warning' | 'danger' | 'count';
 		shape?: 'pill' | 'rounded';
 		bordered?: boolean;
 		solid?: boolean;
+		// Escape hatch for the two documented recolourings the upcoming-bills design mandates:
+		// the uncertain confidence tier (zinc-400) and any tier badge sitting on an overdue row
+		// (amber-800 on amber-100). Both override a colour this component already sets, so they
+		// must be written with Tailwind's `!` modifier — two utilities of the same property have
+		// equal specificity and stylesheet order, not attribute order, decides the winner.
+		class?: string;
 		children: Snippet;
 	} = $props();
 
@@ -62,7 +69,7 @@
 </script>
 
 <span
-	class="inline-flex items-center justify-center gap-1 {shapeClasses} {textClasses} {toneClasses}"
+	class="inline-flex items-center justify-center gap-1 {shapeClasses} {textClasses} {toneClasses} {extraClass}"
 >
 	{#if isSolidSuccess}
 		<svg viewBox="0 0 20 20" class="h-2.5 w-2.5 shrink-0" fill="none" aria-hidden="true">

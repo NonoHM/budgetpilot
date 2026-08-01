@@ -123,6 +123,55 @@ describe('Badge.svelte', () => {
 		expect(container.querySelector('svg')).toBeNull();
 	});
 
+	// `class` is an escape hatch through a component that otherwise REFUSES undocumented colour
+	// combinations (see the `solid` handling above). It exists for two design-mandated constants in
+	// /upcoming-bills — the uncertain confidence tier, and any tier badge sitting on an overdue row.
+	// These three cases pin what it may and may not do, so a future call site cannot quietly turn it
+	// into a general restyling prop.
+	it('leaves the class attribute unchanged when no class prop is passed', async () => {
+		render(Badge, { tone: 'neutral', children: textSnippet('Bare') });
+
+		const span = (await page.getByText('Bare').element()).parentElement!;
+		expect(span.className.trim()).toBe(
+			'inline-flex items-center justify-center gap-1 h-[22px] px-2.5 rounded-full text-[11px] font-bold uppercase bg-zinc-100 text-zinc-600'
+		);
+	});
+
+	it('APPENDS the extra classes without displacing the tone classes', async () => {
+		render(Badge, {
+			tone: 'neutral',
+			shape: 'rounded',
+			bordered: true,
+			class: '!border-zinc-400 !text-zinc-400',
+			children: textSnippet('Incertain')
+		});
+
+		const span = (await page.getByText('Incertain').element()).parentElement!;
+		// The component's own tone classes are all still there...
+		expect(span.className).toContain('border-zinc-200');
+		expect(span.className).toContain('text-zinc-600');
+		expect(span.className).toContain('bg-transparent');
+		// ...the shape and text classes too...
+		expect(span.className).toContain('rounded-[5px]');
+		// ...and the override comes LAST, which is what makes the `!` modifier necessary rather than
+		// optional: without it two same-property utilities would be resolved by stylesheet order.
+		expect(span.className).toContain('!border-zinc-400');
+		expect(span.className).toContain('!text-zinc-400');
+		expect(span.className.trim().endsWith('!border-zinc-400 !text-zinc-400')).toBe(true);
+	});
+
+	it('does not let the class prop reach a role, tabindex or any attribute other than class', async () => {
+		const { container } = render(Badge, {
+			tone: 'warning',
+			class: '!bg-amber-100 !text-amber-800',
+			children: textSnippet('Overdue tier')
+		});
+
+		const span = (await page.getByText('Overdue tier').element()).parentElement!;
+		expect(span.getAttributeNames().sort()).toEqual(['class']);
+		expect(container.querySelector('button, a')).toBeNull();
+	});
+
 	it('ignores solid for the danger tone as well', async () => {
 		const { container } = render(Badge, {
 			tone: 'danger',

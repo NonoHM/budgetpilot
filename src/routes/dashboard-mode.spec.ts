@@ -21,7 +21,7 @@ describe('mode dashboard', () => {
 
 		const page = readFileSync(resolve(root, 'src/routes/+page.svelte'), 'utf8');
 
-		expect(page).toContain('{#if !hasDashboardData}');
+		expect(page).toContain('{#if !showDashboardBody}');
 		expect(page).toContain('{m.dashboard_empty_footer()}');
 	});
 

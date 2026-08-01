@@ -11,6 +11,7 @@ import {
 import {
 	buildTransactionWhere,
 	normalizeId,
+	normalizeIdList,
 	normalizeSearch,
 	parseTransactionFilter,
 	resolveUncategorizedCategoryId
@@ -39,6 +40,11 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	const toParam = url.searchParams.get('to');
 	const dateRange = fromParam || toParam ? parseCustomDateRange(fromParam, toParam) : null;
 	const importBatchId = normalizeId(url.searchParams.get('importBatch'));
+	// The export MUST honour `ids` for the same reason it already honours `q` and the classify tab:
+	// this is "download what I'm looking at", with no page to compare the result against. Exporting
+	// from the id-filtered view without it silently ships the user's ENTIRE history in a file they
+	// are likely to mail on — the pre-`ids` behaviour, when this link used `?q=`, was filtered.
+	const ids = normalizeIdList(url.searchParams.get('ids'));
 
 	if (query && qMode === 'regex' && !isValidRegexQuery(query)) {
 		error(400, 'Expression régulière invalide.');
@@ -58,7 +64,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		from: dateRange?.from,
 		to: dateRange?.to,
 		importBatchId,
-		uncategorizedCategoryId
+		uncategorizedCategoryId,
+		ids
 	});
 
 	const exportSelect = {

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { Transaction } from '$lib/domain/transaction';
-import { buildMonthlyReport, buildPeriodReport, getRecurringPayments } from './monthly';
+import {
+	anonymizeLabel,
+	anonymizeMerchant,
+	buildMonthlyReport,
+	buildPeriodReport,
+	getRecurringPayments
+} from './monthly';
 
 const transactions: Transaction[] = [
 	{
@@ -241,5 +247,48 @@ describe('getRecurringPayments', () => {
 		expect(cardExpense?.label).not.toContain('Debit');
 		expect(report.largestExpenses[1].label).not.toContain('ABONNEMENT');
 		expect(report.topCategories[0].percentageOfExpenses).toBeCloseTo(0.927, 3);
+	});
+});
+
+describe('anonymizeMerchant / anonymizeLabel', () => {
+	/**
+	 * Recorded from the implementation BEFORE `anonymizeMerchant` was split out of
+	 * `anonymizeLabel`. The split has to be a pure refactor — every existing caller (the reports,
+	 * the cash-flow forecast view) keeps byte-identical output — so these literals are the
+	 * regression guard, not a restatement of the current code.
+	 */
+	const RECORDED: [string, string, string][] = [
+		['CB ABONNEMENT NETFLIX 0712', 'Abonnements', 'Netflix - Abonnements'],
+		['PRELEVEMENT SEPA LOYER SCI DUPONT REF9912345', 'Logement', 'Loyer Sci Dupont - Logement'],
+		['VIREMENT SALAIRE ACME SAS', 'Revenus', 'Salaire Acme Sas - Revenus'],
+		// Nothing survives sanitization -> the neutral fallback, still composed with the category.
+		['FR7630006000011234567890189', 'Divers', 'Dépense - Divers'],
+		['123456789', 'Divers', 'Dépense - Divers'],
+		['CB 12/03 CARTE', 'Divers', 'Dépense - Divers'],
+		['Café Crème & Co', 'Restaurants', 'Cafe Creme Co - Restaurants']
+	];
+
+	it('anonymizeLabel produit exactement la même sortie qu’avant l’extraction', () => {
+		for (const [label, category, expected] of RECORDED) {
+			expect(anonymizeLabel(label, category)).toBe(expected);
+		}
+	});
+
+	it('anonymizeLabel reste la composition de anonymizeMerchant et de la catégorie', () => {
+		for (const [label, category] of RECORDED) {
+			expect(anonymizeLabel(label, category)).toBe(`${anonymizeMerchant(label)} - ${category}`);
+		}
+	});
+
+	it('anonymizeMerchant ne contient jamais la catégorie ni le séparateur', () => {
+		for (const [label, category] of RECORDED) {
+			const merchant = anonymizeMerchant(label);
+			expect(merchant).not.toContain(' - ');
+			expect(merchant).not.toContain(category);
+		}
+	});
+
+	it('anonymizeMerchant retombe sur le libellé neutre quand rien ne survit', () => {
+		expect(anonymizeMerchant('FR7630006000011234567890189')).toBe('Dépense');
 	});
 });

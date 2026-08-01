@@ -17,6 +17,11 @@ import { E2E_BASE_URL, E2E_ENV } from './config';
 
 export const E2E_USER_EMAIL = 'e2e@budgetpilot.test';
 export const E2E_USER_PASSWORD = 'E2eBudgetPilot123!';
+// The disposable first account (see createE2eUserAsSecondAccount). Exported ONLY so a spec can
+// obtain a second, genuinely different `user.id` to prove a cross-user isolation claim against
+// real SQL — never to give a spec admin powers it does not need.
+export const E2E_BOOTSTRAP_ADMIN_EMAIL = 'e2e-bootstrap-admin@budgetpilot.test';
+export const E2E_BOOTSTRAP_ADMIN_PASSWORD = 'E2eBootstrapAdmin123!';
 
 // Known seeded data — reused by e2e specs (including the upcoming Modal/Dropdown chantier) to
 // target elements by their label instead of re-discovering state. Keep in sync with the
@@ -82,13 +87,13 @@ export async function seedE2eData(options: { storageStatePath: string }): Promis
 	}
 }
 
-interface ActionResult {
+export interface ActionResult {
 	type: 'success' | 'failure' | 'redirect' | 'error';
 	status: number;
 	location?: string;
 }
 
-async function submitForm(
+export async function submitForm(
 	context: APIRequestContext,
 	path: string,
 	fields: Record<string, string>
@@ -97,7 +102,7 @@ async function submitForm(
 	return (await res.json()) as ActionResult;
 }
 
-function assertOk(action: string, result: ActionResult): void {
+export function assertOk(action: string, result: ActionResult): void {
 	if (result.type !== 'success' && result.type !== 'redirect') {
 		throw new Error(`e2e seed: ${action} failed (${result.type}, status ${result.status})`);
 	}
@@ -114,8 +119,8 @@ async function createE2eUserAsSecondAccount(): Promise<void> {
 		assertOk(
 			'bootstrap admin placeholder',
 			await submitForm(bootstrapContext, '/register', {
-				email: 'e2e-bootstrap-admin@budgetpilot.test',
-				password: 'E2eBootstrapAdmin123!',
+				email: E2E_BOOTSTRAP_ADMIN_EMAIL,
+				password: E2E_BOOTSTRAP_ADMIN_PASSWORD,
 				bootstrapToken: E2E_ENV.BOOTSTRAP_TOKEN ?? ''
 			})
 		);
@@ -135,7 +140,7 @@ async function createE2eUserAsSecondAccount(): Promise<void> {
 	}
 }
 
-async function loginE2eUser(context: APIRequestContext): Promise<void> {
+export async function loginE2eUser(context: APIRequestContext): Promise<void> {
 	const loginResult = await submitForm(context, '/login', {
 		email: E2E_USER_EMAIL,
 		password: E2E_USER_PASSWORD
@@ -143,7 +148,7 @@ async function loginE2eUser(context: APIRequestContext): Promise<void> {
 	assertOk('login', loginResult);
 }
 
-async function createTransaction(
+export async function createTransaction(
 	context: APIRequestContext,
 	fields: { date: string; label: string; amount: string; category: string }
 ): Promise<void> {

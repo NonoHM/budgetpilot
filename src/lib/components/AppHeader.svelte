@@ -11,6 +11,7 @@
 		active:
 			| 'dashboard'
 			| 'transactions'
+			| 'upcoming-bills'
 			| 'reports'
 			| 'imports'
 			| 'rules'

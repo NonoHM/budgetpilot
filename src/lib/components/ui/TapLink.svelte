@@ -17,6 +17,7 @@
 	// Not for links embedded inline in a sentence: this is a flex (block-level)
 	// element and will break inline text flow.
 	let {
+		id,
 		href,
 		onclick,
 		type = 'button',
@@ -25,6 +26,9 @@
 		class: extraClass = '',
 		children
 	}: {
+		// Set only when something else has to reference this link (a focus target after a mutation,
+		// an aria-labelledby); left off everywhere else.
+		id?: string;
 		href?: string;
 		onclick?: () => void;
 		type?: 'button' | 'submit';
@@ -56,6 +60,7 @@
 	or external URL), not statically known here; the caller is responsible for resolving it -->
 	<!-- eslint-disable svelte/no-navigation-without-resolve -->
 	<a
+		{id}
 		href={disabled ? undefined : href}
 		class={classes}
 		aria-disabled={disabled ? 'true' : undefined}
@@ -65,7 +70,7 @@
 	</a>
 	<!-- eslint-enable svelte/no-navigation-without-resolve -->
 {:else}
-	<button {type} class={classes} {onclick} {disabled}>
+	<button {id} {type} class={classes} {onclick} {disabled}>
 		{@render children()}
 	</button>
 {/if}

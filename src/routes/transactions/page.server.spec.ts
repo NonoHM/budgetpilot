@@ -85,6 +85,20 @@ const db = vi.hoisted(() => {
 		}
 	}));
 
+	// One row belonging to ANOTHER user, so that a `where` which lost its `userId` conjunct has
+	// something to leak instead of quietly still passing. Invisible to every other test in this
+	// file: they all go through buildTransactionWhere, which filters by userId: 'user-a'.
+	transactions.push({
+		...transactions[0],
+		id: 'transaction-foreign',
+		userId: 'user-b',
+		label: 'FOREIGN MERCHANT',
+		manualCategory: null,
+		natureManual: null,
+		categoryId: CATEGORY_IDS.Autre,
+		category: { name: 'Autre' }
+	});
+
 	// Faithfully evaluates the subset of Prisma `where` shapes actually used by the app code:
 	// scalar equality (userId, type, manualCategory, categoryId, importBatchId...), `id: { in }`,
 	// `date: { gte, lt }`, nested `category: { is: { userId, name } } }`, and recursive `OR`/`AND`.
@@ -278,9 +292,11 @@ interface TestTransactionPageData {
 	pagination: {
 		pageSize: number;
 		hasNext: boolean;
+		totalTransactions: number;
 	};
 	queryError: boolean;
 	classifyStackIds: string[];
+	filters: { ids: string };
 }
 
 describe('/transactions load', () => {
@@ -317,6 +333,110 @@ describe('/transactions load', () => {
 
 		expect(data.transactions).toHaveLength(0);
 		expect(data.queryError).toBe(true);
+	});
+
+	// `?ids=` is the "Voir les transactions liées" link from /upcoming-bills: raw client input
+	// naming rows directly, so these cover the ownership scope, the shape validation and the bound.
+	describe('filtre ?ids=', () => {
+		it('ne retourne que les transactions demandées', async () => {
+			expect.assertions(2);
+
+			const data = await runLoad('/transactions?ids=transaction-3,transaction-7');
+
+			expect(data.transactions.map((t) => t.id)).toEqual(['transaction-3', 'transaction-7']);
+			expect(data.filters.ids).toBe('transaction-3,transaction-7');
+		});
+
+		it('ne retourne JAMAIS la transaction d’un autre utilisateur, même nommée explicitement', async () => {
+			expect.assertions(2);
+
+			const data = await runLoad('/transactions?ids=transaction-foreign,transaction-3');
+
+			expect(data.transactions.map((t) => t.id)).toEqual(['transaction-3']);
+			expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: expect.objectContaining({
+						userId: 'user-a',
+						id: { in: ['transaction-foreign', 'transaction-3'] }
+					})
+				})
+			);
+		});
+
+		it('ne retourne rien quand seule une transaction étrangère est demandée', async () => {
+			expect.assertions(1);
+
+			const data = await runLoad('/transactions?ids=transaction-foreign');
+
+			expect(data.transactions).toEqual([]);
+		});
+
+		it('ne matche rien (et n’élargit pas à tout l’historique) quand tous les ids sont malformés', async () => {
+			expect.assertions(2);
+
+			const data = await runLoad('/transactions?ids=short,%27%3B%20DROP%20TABLE');
+
+			expect(data.transactions).toEqual([]);
+			expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: expect.objectContaining({ userId: 'user-a', id: { in: [] } })
+				})
+			);
+		});
+
+		it('s’INTERSECTE avec les autres filtres au lieu de les remplacer', async () => {
+			expect.assertions(2);
+
+			// transaction-3 is an expense, transaction-4 an income (index parity, see the fixture).
+			const data = await runLoad('/transactions?type=income&ids=transaction-3,transaction-4');
+
+			expect(data.transactions.map((t) => t.id)).toEqual(['transaction-4']);
+			expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: expect.objectContaining({
+						userId: 'user-a',
+						type: 'income',
+						id: { in: ['transaction-3', 'transaction-4'] }
+					})
+				})
+			);
+		});
+
+		// The stated reason buildPageHref carries `ids`: 250 ids over 25 per page is 10 pages, so a
+		// filtered view that lost the param on page 2 would silently show the whole history instead.
+		//
+		// The id list is a STRICT SUBSET (26 of the fixture's 30 owned transactions), not the whole
+		// fixture: with all 30 ids, dropping the `ids` filter entirely produces identical totals and
+		// page contents, so the test could not fail. 26 ids over 25 per page still exercises two
+		// pages (25 then 1) while keeping the filtered totals genuinely different from the
+		// unfiltered 30.
+		it('reste paginé DANS la liste d’ids, page 2 comprise', async () => {
+			expect.assertions(3);
+
+			const twentySix = Array.from({ length: 26 }, (_, i) => `transaction-${i + 1}`).join(',');
+			const first = await runLoad(`/transactions?ids=${twentySix}`);
+			const second = await runLoad(`/transactions?ids=${twentySix}&page=2`);
+
+			expect(first.pagination.totalTransactions).toBe(26);
+			expect(first.transactions).toHaveLength(25);
+			// 26 owned ids, not the fixture's full 30-row history: the filter survived the second load.
+			expect(second.transactions).toHaveLength(1);
+		});
+
+		it('borne la liste avant de la passer à Prisma', async () => {
+			expect.assertions(1);
+
+			const overLong = Array.from({ length: 2_000 }, (_, index) => `transaction-${index}`).join(
+				','
+			);
+			await runLoad(`/transactions?ids=${overLong}`);
+
+			const call = db.prisma.transaction.findMany.mock.calls.at(-1)?.[0] as {
+				where: { id: { in: string[] } };
+			};
+
+			expect(call.where.id.in.length).toBeLessThanOrEqual(250);
+		});
 	});
 
 	it('applique le filtre income/expense', async () => {

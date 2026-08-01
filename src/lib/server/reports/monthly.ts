@@ -216,7 +216,20 @@ export function getRecurringPayments(expenses: Transaction[]): RecurringPayment[
 		.slice(0, 5);
 }
 
-export function anonymizeLabel(label: string, category: string): string {
+/**
+ * The merchant half of the anonymization, on its own: a raw bank label stripped of IBANs,
+ * references, dates, long digit runs and payment-instrument noise, title-cased, and replaced by a
+ * neutral fallback when nothing survives.
+ *
+ * Exported because a surface that already shows the category in its own field (the upcoming-bills
+ * rows, whose sub-line reads "Prélèvement · le 31 de chaque mois · Abonnements") must not print it
+ * a second time inside the label — and because `getInitials` over the composed
+ * "Netflix - Abonnements" reads the hyphen as a word and renders "N-" on the avatar.
+ *
+ * Takes no `category`: the merchant does not depend on it, and neither does the fallback.
+ * `anonymizeLabel` remains the composed form and the only thing every existing caller uses.
+ */
+export function anonymizeMerchant(label: string): string {
 	const merchant = label
 		.normalize('NFD')
 		.replace(/[\u0300-\u036f]/g, '')
@@ -233,9 +246,13 @@ export function anonymizeLabel(label: string, category: string): string {
 		.trim()
 		.slice(0, 28);
 
-	return merchant
-		? `${toTitleCase(merchant)} - ${category}`
-		: `${m.reports_expense_fallback_label()} - ${category}`;
+	return merchant ? toTitleCase(merchant) : m.reports_expense_fallback_label();
+}
+
+/** The merchant composed with its category — byte-identical to what this function returned before
+ *  `anonymizeMerchant` was split out of it, which a spec asserts against recorded literals. */
+export function anonymizeLabel(label: string, category: string): string {
+	return `${anonymizeMerchant(label)} - ${category}`;
 }
 
 function getCoveredDayCount(transactions: Transaction[]): number {

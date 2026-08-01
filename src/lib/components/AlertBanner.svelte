@@ -11,6 +11,7 @@
 		class: className = '',
 		autoDismissMs = 6000,
 		onDismiss,
+		action,
 		children
 	}: {
 		variant: 'success' | 'error' | 'warning';
@@ -28,6 +29,8 @@
 		// reappear on the next load. Purely additive: existing callers that don't pass
 		// it keep the same local-only dismiss behavior.
 		onDismiss?: () => void;
+		// Optional inline action, e.g. an undo button — rendered after the message, never replacing the close control.
+		action?: Snippet;
 		children: Snippet;
 	} = $props();
 
@@ -126,6 +129,9 @@
 			{/if}
 		</span>
 		<span class="min-w-0 flex-1">{@render children()}</span>
+		{#if action}
+			{@render action()}
+		{/if}
 		<!-- -my-2.5 keeps the 44px close button from inflating the banner and
 		     centers its glyph on the first text line (items-start container). -->
 		<IconButton

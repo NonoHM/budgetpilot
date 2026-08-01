@@ -75,6 +75,57 @@ describe('GET /transactions/export', () => {
 		expect(callArgs.where.OR[1].AND[1].category.is.userId).toBe('user-a');
 	});
 
+	// The export MUST honour ?ids=. It is a download of "what I'm looking at" with no visible
+	// result to compare against, and the file leaves the machine — an export that silently widened
+	// to the whole history would ship it to whoever the CSV is mailed to.
+	describe('filtre ?ids=', () => {
+		it('restreint l’export aux ids demandés, toujours sous le scope userId', async () => {
+			expect.assertions(1);
+
+			await GET(makeRequest('?ids=transaction-1,transaction-2') as never);
+
+			expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: expect.objectContaining({
+						userId: 'user-a',
+						id: { in: ['transaction-1', 'transaction-2'] }
+					})
+				})
+			);
+		});
+
+		it('n’exporte RIEN plutôt que tout l’historique quand les ids sont tous malformés', async () => {
+			expect.assertions(1);
+
+			await GET(makeRequest('?ids=short,%27%3B%20DROP%20TABLE') as never);
+
+			expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: expect.objectContaining({ userId: 'user-a', id: { in: [] } })
+				})
+			);
+		});
+
+		it('borne la liste avant de la passer à Prisma', async () => {
+			expect.assertions(1);
+
+			const overLong = Array.from({ length: 2_000 }, (_, i) => `transaction-${i}`).join(',');
+			await GET(makeRequest(`?ids=${overLong}`) as never);
+
+			const callArgs = db.prisma.transaction.findMany.mock.calls[0][0];
+
+			expect(callArgs.where.id.in.length).toBeLessThanOrEqual(250);
+		});
+
+		it('n’ajoute aucun filtre d’id quand le paramètre est absent', async () => {
+			expect.assertions(1);
+
+			await GET(makeRequest('?type=income') as never);
+
+			expect(db.prisma.transaction.findMany.mock.calls[0][0].where).not.toHaveProperty('id');
+		});
+	});
+
 	it('le Content-Type est du CSV et le Content-Disposition propose un fichier .csv en pièce jointe', async () => {
 		expect.assertions(3);
 

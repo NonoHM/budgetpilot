@@ -102,7 +102,7 @@ test.describe('AccountMenu logout (fresh throwaway session per test)', () => {
 test.describe('AppNav "More" menu (mobile)', () => {
 	test.use({ viewport: { width: 390, height: 844 } });
 
-	test('keyboard: opens with Enter, arrow keys navigate the 3 links, Escape closes without navigating', async ({
+	test('keyboard: opens with Enter, arrow keys navigate the 4 links, Escape closes without navigating', async ({
 		page
 	}) => {
 		await page.goto('/');
@@ -114,10 +114,13 @@ test.describe('AppNav "More" menu (mobile)', () => {
 		await page.keyboard.press('Enter');
 		await expect(trigger).toHaveAttribute('aria-expanded', 'true');
 
+		const upcomingBillsItem = page.getByRole('menuitem', { name: m.nav_upcoming_bills() });
 		const rulesItem = page.getByRole('menuitem', { name: m.nav_rules() });
 		const importsItem = page.getByRole('menuitem', { name: m.nav_imports() });
 		const netWorthItem = page.getByRole('menuitem', { name: m.nav_net_worth() });
 
+		await expect(upcomingBillsItem).toBeFocused();
+		await page.keyboard.press('ArrowDown');
 		await expect(rulesItem).toBeFocused();
 		await page.keyboard.press('ArrowDown');
 		await expect(importsItem).toBeFocused();

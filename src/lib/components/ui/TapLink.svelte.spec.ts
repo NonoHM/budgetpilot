@@ -61,6 +61,37 @@ describe('TapLink.svelte', () => {
 		expect(onclick).not.toHaveBeenCalled();
 	});
 
+	// `id` exists so something else can reference this link — /upcoming-bills moves focus to a
+	// restore link by id after a mutation. Asserted in BOTH render modes: the component picks its
+	// element from `href`, so forwarding the id on only one of the two branches is a silent
+	// focus-lands-on-nothing bug.
+	it('forwards id on the anchor variant', async () => {
+		render(TapLink, {
+			id: 'bill-restore-x',
+			href: '/upcoming-bills',
+			children: textSnippet('Rétablir')
+		});
+
+		const link = page.getByRole('link', { name: 'Rétablir' });
+		await expect.element(link).toHaveAttribute('id', 'bill-restore-x');
+	});
+
+	it('forwards id on the button variant, including while disabled', async () => {
+		render(TapLink, { id: 'bill-restore-y', disabled: true, children: textSnippet('Rétablir') });
+
+		const el = document.getElementById('bill-restore-y');
+		expect(el).not.toBeNull();
+		expect(el?.tagName).toBe('BUTTON');
+		expect((el as HTMLButtonElement).disabled).toBe(true);
+	});
+
+	it('sets no id attribute when the prop is omitted', async () => {
+		render(TapLink, { onclick: vi.fn(), children: textSnippet('Modifier') });
+
+		const button = await page.getByRole('button', { name: 'Modifier' }).element();
+		expect(button.hasAttribute('id')).toBe(false);
+	});
+
 	it('disabled anchor variant: href dropped, aria-disabled set, out of the tab order', async () => {
 		render(TapLink, { href: '/budgets', disabled: true, children: textSnippet('Voir tout') });
 

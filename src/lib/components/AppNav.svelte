@@ -10,6 +10,7 @@
 		active:
 			| 'dashboard'
 			| 'transactions'
+			| 'upcoming-bills'
 			| 'reports'
 			| 'imports'
 			| 'rules'
@@ -22,12 +23,14 @@
 		{ key: 'dashboard', label: m.nav_dashboard(), href: '/' },
 		{ key: 'transactions', label: m.nav_transactions(), href: '/transactions' },
 		{ key: 'budgets', label: m.nav_budgets(), href: '/budgets' },
+		{ key: 'upcoming-bills', label: m.nav_upcoming_bills(), href: '/upcoming-bills' },
 		{ key: 'reports', label: m.nav_reports(), href: '/reports' },
 		{ key: 'rules', label: m.nav_rules(), href: '/rules' },
 		{ key: 'imports', label: m.nav_imports(), href: '/imports' },
 		{ key: 'net-worth', label: m.nav_net_worth(), href: '/net-worth' }
 	] as const;
 
+	// Bottom bar stays at 5 items (4 tabs + "Plus"): "Échéances" lives under "Plus" on mobile.
 	const tabItems = [
 		{ key: 'dashboard', label: m.nav_dashboard(), href: '/' },
 		{ key: 'transactions', label: m.nav_transactions(), href: '/transactions' },
@@ -36,6 +39,7 @@
 	] as const;
 
 	const moreItems = [
+		{ key: 'upcoming-bills', label: m.nav_upcoming_bills(), href: '/upcoming-bills' },
 		{ key: 'rules', label: m.nav_rules(), href: '/rules' },
 		{ key: 'imports', label: m.nav_imports(), href: '/imports' },
 		{ key: 'net-worth', label: m.nav_net_worth(), href: '/net-worth' }
@@ -46,7 +50,10 @@
 	}
 
 	const isMoreActive = $derived(
-		active === 'rules' || active === 'imports' || active === 'net-worth'
+		active === 'upcoming-bills' ||
+			active === 'rules' ||
+			active === 'imports' ||
+			active === 'net-worth'
 	);
 
 	let moreOpen = $state(false);
