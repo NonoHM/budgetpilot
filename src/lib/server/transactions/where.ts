@@ -107,9 +107,21 @@ export function normalizeSearch(value: string | null): string {
 	return (value ?? '').trim().slice(0, 120);
 }
 
+/**
+ * Shape check for every id arriving as a query parameter (`selected`, `importBatch`, and each
+ * element of `ids`). Returns '' for anything that is not one, which every caller reads as "absent".
+ *
+ * The UPPER bound is 64 and is load-bearing, not decoration: without it a single segment could be
+ * arbitrarily long and the only limit was Node's `maxHeaderSize`. `?ids=` amplifies that by
+ * MAX_TRANSACTION_ID_FILTER, since 250 such segments can be sent in one URL. 64 clears a cuid (25)
+ * and a uuid v4/v7 (36) with room, so no id this app can generate is affected.
+ *
+ * The `i` flag stays. Dropping it would silently invalidate any existing link whose id contains an
+ * uppercase character, which is a behaviour change, not a tightening.
+ */
 export function normalizeId(value: string | null): string {
 	const normalized = (value ?? '').trim();
-	return /^[a-z0-9_-]{8,}$/i.test(normalized) ? normalized : '';
+	return /^[a-z0-9_-]{8,64}$/i.test(normalized) ? normalized : '';
 }
 
 /**

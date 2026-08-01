@@ -363,9 +363,25 @@
 	 * drops `q`, and must keep doing so: it now covers the user's own typed searches instead of
 	 * this link.
 	 *
-	 * The tradeoff, stated because it is real: `?q=` matched the stream's FULL history, including
-	 * occurrences no anchor was ever recorded for; `?ids=` shows only the recorded anchors, capped
-	 * at `MAX_ANCHOR_IDS` and newest-kept. For a long-lived stream that is a strictly smaller set.
+	 * The tradeoff, stated because it is real and because the obvious version of it is too kind:
+	 * `?q=` matched the stream's FULL history by substring; `?ids=` shows only the recorded anchors,
+	 * capped at `MAX_ANCHOR_IDS` (250) and newest-kept. That set is smaller for two reasons, and the
+	 * second is the one that bites:
+	 *  - history older than the 12-month detection window, which the row makes no claim about; and
+	 *  - a stream whose amount moves more than `getAmountTolerance` (max(1 €, 5 %)) INSIDE the
+	 *    window. `getSimilarAmountGroups` (recurrence.ts) splits it into two flows, so the row's
+	 *    anchors hold only the current-price occurrences: Netflix 13,49 € → 15,99 € becomes a
+	 *    five-row link where the user expects twelve, every missing row inside the window.
+	 * The link is still the right call — the split group genuinely IS a different detected stream,
+	 * and every other number on this row (cadence, average, min/max) is computed from exactly these
+	 * anchors, so `?ids=` is more CORRECT than a substring match that also pulls in unrelated
+	 * merchants sharing a prefix. But do not reach for "the sets are practically the same".
+	 *
+	 * Sizing, since the cap is the thing a future change would move: the ceiling is NOT "~52 for a
+	 * weekly stream". `classifyCadence` tests the MEDIAN interval, so a group counts as weekly at a
+	 * 5-day median, i.e. about 2 × 365 / 5 = 146 occurrences over the lookback — the derivation is
+	 * written out at `MAX_ANCHOR_IDS` in backup/schema.ts. Headroom against 250 is ~1.7×, not ~5×,
+	 * and the worst realistic URL is ~4 KB. Raising `MAX_ANCHOR_IDS` means re-checking URL length.
 	 *
 	 * `anchorTransactionIds` arrives as the JSON array the action forms post back, so it is parsed
 	 * here rather than re-derived; a malformed cell degrades to an empty list, which the server

@@ -618,6 +618,7 @@
 	"transactions_all_classified": "Toutes les transactions sont classées.",
 	"transactions_no_transactions_criteria": "Aucune transaction pour ces critères.",
 	"transactions_reset_filters_link": "Réinitialiser les filtres",
+	"transactions_filter_ids_active": "Affichage de {count} transaction(s) liées à une échéance.",
 	"transactions_detail_heading": "Détail transaction",
 	"transactions_proposal_heading": "Proposition",
 	"transactions_create_rule": "Créer une règle",

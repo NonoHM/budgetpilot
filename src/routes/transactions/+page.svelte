@@ -223,6 +223,12 @@
 		manualNatureValue !== (data.selectedTransaction?.manualNature ?? '')
 	);
 
+	// How many ids the id filter is actually running on (see the idsFilterNotice snippet). Zero
+	// when the param is absent — and also when it was present but empty, which is exactly the
+	// collapse `filters.ids` documents: an empty list yields no rows, so there is nothing to
+	// explain and no filter worth advertising.
+	const idsFilterCount = $derived(data.filters.ids ? data.filters.ids.split(',').length : 0);
+
 	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
 	function displayCategory(name: string): string {
 		return categoryLabelByName(name, defaultKeyByName);
@@ -310,9 +316,11 @@
 		if (data.filters.from) params.set('from', data.filters.from);
 		if (data.filters.to) params.set('to', data.filters.to);
 		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		// Paging and row selection stay INSIDE the id-filtered view, so they carry `ids` forward;
-		// buildFilterHref/buildExportHref deliberately drop it, because changing tab, editing the
-		// search form or exporting is leaving "the transactions linked to this bill" behind.
+		// Paging, row selection and the export carry `ids` forward — all three stay INSIDE the
+		// id-filtered view. `buildFilterHref`, `buildFocusHref` and the two search forms
+		// deliberately drop it: those are navigations that visibly change the list, so the user
+		// sees they left "the transactions linked to this bill" behind. An export shows nothing,
+		// which is why it is on the other side of the line (see buildExportHref).
 		if (data.filters.ids) params.set('ids', data.filters.ids);
 		params.set('page', String(page));
 		return `/transactions?${params.toString()}` as `/transactions?${string}`;
@@ -347,6 +355,11 @@
 		if (data.filters.from) params.set('from', data.filters.from);
 		if (data.filters.to) params.set('to', data.filters.to);
 		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
+		// Carried, unlike buildFilterHref: an export is a download of "what I'm looking at", with no
+		// visible result to notice the difference in, and the file leaves the machine. Dropping it
+		// would turn a five-row view into a whole-history CSV mailed to an accountant.
+		// `export/+server.ts` parses it; both halves are needed, and only the pair is the fix.
+		if (data.filters.ids) params.set('ids', data.filters.ids);
 		return `/transactions/export?${params.toString()}`;
 	}
 
@@ -495,6 +508,21 @@
 <svelte:head>
 	<title>{m.transactions_page_title()}</title>
 </svelte:head>
+
+<!--
+	`?ids=` is the one active filter with NO field of its own to echo it: `q`, `category`, the dates
+	and the tab all render their own value, so the user can see why the list is short and undo it.
+	Without this the bar looks empty while the list shows 5 rows out of 5000. Rendered in the same
+	slot as the query/date errors in both filter bars, and paired with the "Réinitialiser" control
+	already sitting next to it, so it needs no new escape hatch of its own.
+-->
+{#snippet idsFilterNotice()}
+	{#if idsFilterCount > 0}
+		<p class="mt-2 text-sm text-zinc-600">
+			{m.transactions_filter_ids_active({ count: idsFilterCount })}
+		</p>
+	{/if}
+{/snippet}
 
 <main class="min-h-screen bg-zinc-50 px-4 py-10 text-zinc-950 sm:px-6 lg:px-8">
 	<section class="mx-auto max-w-7xl space-y-5">
@@ -760,6 +788,7 @@
 			{#if data.dateRangeError}
 				<p class="mt-2 text-sm font-medium text-rose-600">{m.date_range_error_invalid_custom()}</p>
 			{/if}
+			{@render idsFilterNotice()}
 		</div>
 
 		<!-- ============ ONGLETS + FILTRES — MOBILE ============ -->
@@ -895,6 +924,7 @@
 						{m.date_range_error_invalid_custom()}
 					</p>
 				{/if}
+				{@render idsFilterNotice()}
 
 				<div class="flex gap-2 pt-1">
 					<Button href="/transactions" variant="secondary" class="h-11 flex-1">

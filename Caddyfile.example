@@ -49,11 +49,17 @@ budget.example.com {
 	# collector, or kept far longer than the code stays valid.
 	#
 	# `q` is dropped for the same reason with a different payload: it is the
-	# search term of /transactions, and "Voir les transactions liées" on
-	# /upcoming-bills fills it with a raw bank label taken straight from the
-	# user's statement. That is not a word the user typed and chose to expose —
-	# it is their own financial data, and an access log is the one place in this
-	# stack that would hold it in plaintext outside the database.
+	# /transactions search term, so it holds whatever merchant, amount or note
+	# the user typed to find their own transactions. An access log is the one
+	# place in this stack that would keep that in plaintext outside the
+	# database — tailed, rotated, and often shipped to a collector.
+	#
+	# It used to carry more. "Voir les transactions liées" on /upcoming-bills
+	# built `?q=<raw bank label>`, putting a label straight off the user's
+	# statement in the log without them typing anything; that link now uses
+	# opaque transaction ids instead. This filter is no longer the only thing
+	# standing between that label and the log, but it is still the only thing
+	# covering everything the user types into the search box. Keep it.
 	log {
 		format filter {
 			wrap console

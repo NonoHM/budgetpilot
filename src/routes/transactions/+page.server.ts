@@ -272,6 +272,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			importBatchId,
 			// Re-serialized from the PARSED list, never echoed from the raw param: what the page
 			// carries forward through pagination is exactly what the query ran on.
+			//
+			// This DELIBERATELY collapses the absent-vs-empty distinction the load itself preserves
+			// (`null` = no filter, `[]` = match nothing) into one `''`. Sound only because `[]`
+			// returns zero rows, and with zero rows there is no pagination control and no row link
+			// to carry anything forward — the two cases have no observable difference here. A
+			// future consumer of `filters.ids` that runs when the list is empty must not assume it.
 			ids: ids ? ids.join(',') : ''
 		},
 		queryError,

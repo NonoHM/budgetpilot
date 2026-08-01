@@ -618,6 +618,7 @@
 	"transactions_all_classified": "All transactions are classified.",
 	"transactions_no_transactions_criteria": "No transactions for these criteria.",
 	"transactions_reset_filters_link": "Reset filters",
+	"transactions_filter_ids_active": "Showing {count} transaction(s) linked to an upcoming bill.",
 	"transactions_detail_heading": "Transaction detail",
 	"transactions_proposal_heading": "Suggestion",
 	"transactions_create_rule": "Create a rule",

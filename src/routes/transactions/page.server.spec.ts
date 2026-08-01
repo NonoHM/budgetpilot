@@ -292,6 +292,7 @@ interface TestTransactionPageData {
 	pagination: {
 		pageSize: number;
 		hasNext: boolean;
+		totalTransactions: number;
 	};
 	queryError: boolean;
 	classifyStackIds: string[];
@@ -381,6 +382,39 @@ describe('/transactions load', () => {
 					where: expect.objectContaining({ userId: 'user-a', id: { in: [] } })
 				})
 			);
+		});
+
+		it('s’INTERSECTE avec les autres filtres au lieu de les remplacer', async () => {
+			expect.assertions(2);
+
+			// transaction-3 is an expense, transaction-4 an income (index parity, see the fixture).
+			const data = await runLoad('/transactions?type=income&ids=transaction-3,transaction-4');
+
+			expect(data.transactions.map((t) => t.id)).toEqual(['transaction-4']);
+			expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
+				expect.objectContaining({
+					where: expect.objectContaining({
+						userId: 'user-a',
+						type: 'income',
+						id: { in: ['transaction-3', 'transaction-4'] }
+					})
+				})
+			);
+		});
+
+		// The stated reason buildPageHref carries `ids`: 250 ids over 25 per page is 10 pages, so a
+		// filtered view that lost the param on page 2 would silently show the whole history instead.
+		it('reste paginé DANS la liste d’ids, page 2 comprise', async () => {
+			expect.assertions(3);
+
+			const thirty = Array.from({ length: 30 }, (_, i) => `transaction-${i + 1}`).join(',');
+			const first = await runLoad(`/transactions?ids=${thirty}`);
+			const second = await runLoad(`/transactions?ids=${thirty}&page=2`);
+
+			expect(first.pagination.totalTransactions).toBe(30);
+			expect(first.transactions).toHaveLength(25);
+			// 30 owned ids, not the fixture's full history: the filter survived the second load.
+			expect(second.transactions).toHaveLength(5);
 		});
 
 		it('borne la liste avant de la passer à Prisma', async () => {

@@ -1,6 +1,7 @@
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { describe, expect, it } from 'vitest';
 import { MAX_ANCHOR_IDS } from '$lib/server/backup/schema';
+import { detectRecurringFlows } from '$lib/domain/forecast';
 import {
 	buildTransactionWhere,
 	MAX_TRANSACTION_ID_FILTER,
@@ -325,6 +326,38 @@ describe('normalizeIdList', () => {
 		// imported into where.ts so a change to MAX_ANCHOR_IDS goes red instead of silently
 		// truncating "Voir les transactions liées".
 		expect(MAX_TRANSACTION_ID_FILTER).toBeGreaterThanOrEqual(MAX_ANCHOR_IDS);
+	});
+
+	// The assertion above is the EASY half — it compares two constants. The hard half is the
+	// arithmetic that justifies the constant, which until now lived only in a comment: the ceiling
+	// is not "~52 for a weekly stream", because classifyCadence tests the MEDIAN interval, so a
+	// group counts as weekly at a 5-day median (about 2 × 365 / 5 = 146 over the 12-month
+	// lookback). This runs the real detector on a real 5-day-median stream and reads the number
+	// off, so a change to the cadence windows or the lookback that pushes it past 250 goes red
+	// here instead of silently truncating a user's link.
+	it('encaisse le plus gros flux réellement détectable (médiane 5 jours) sans troncature', () => {
+		expect.assertions(4);
+
+		const start = Date.UTC(2025, 7, 1);
+		const transactions = Array.from({ length: 146 }, (_, index) => ({
+			id: `transaction-${String(index).padStart(4, '0')}`,
+			date: new Date(start + index * 5 * 86_400_000).toISOString().slice(0, 10),
+			label: 'BOULANGERIE DU COIN',
+			category: 'Alimentation',
+			amountCents: -1_200,
+			type: 'expense' as const
+		}));
+
+		const flows = detectRecurringFlows(transactions);
+		const weekly = flows.find((flow) => flow.cadence === 'weekly');
+
+		// The premise: a 5-day median really is classified weekly, and really is one flow.
+		expect(weekly).toBeDefined();
+		expect(weekly?.occurrenceCount).toBe(146);
+		// ~146, not ~52 — this is the number a future session raising MAX_ANCHOR_IDS reasons from.
+		expect(weekly!.occurrenceCount).toBeGreaterThan(52);
+		// And the whole thing still fits the filter's bound, untruncated.
+		expect(normalizeIdList(transactions.map((t) => t.id).join(','))).toHaveLength(146);
 	});
 });
 
