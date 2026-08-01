@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { RecurringFlow, ProjectedOccurrence } from '$lib/domain/forecast';
+import {
+	detectionEndExclusive,
+	type RecurringFlow,
+	type ProjectedOccurrence
+} from '$lib/domain/forecast';
 import {
 	FORECAST_REPORTS_HORIZON_DAYS,
 	FORECAST_REPORTS_HORIZON_MONTHS,
@@ -346,6 +350,33 @@ describe('loadCashFlowForecast', () => {
 		// residualTransactions is empty (all 3 excluded) -> residual = 0, and no event lands within the
 		// horizon -> the final balance must equal the anchor exactly.
 		expect(lastDay.balanceCents).toBe(50_000);
+
+		vi.useRealTimers();
+	});
+
+	// Detection-window upper bound (task 1). `to` used to be `today` — `new Date()`, WITH the
+	// time-of-day the request happened to run at — not `detectionEndExclusive(todayIso)`, midnight
+	// UTC of the day after. A transaction dated today but stored with a later clock time than the
+	// request (an evening purchase, a request that ran at 00:05) was silently excluded from the
+	// detector's input while the realized ledger (ISO-date based) already counted it.
+	it("fetches up to detectionEndExclusive(todayIso), not `now`: a same-day transaction later than the request's own clock time is not dropped", async () => {
+		expect.assertions(1);
+		// The fake "now" is 09:00 UTC; the transaction below is dated the same calendar day but
+		// stored at 21:00 UTC — later than "now", so `to: today` (a Date with today's time-of-day)
+		// would have excluded it while `to: detectionEndExclusive(todayIso)` does not.
+		vi.setSystemTime(new Date('2025-04-10T09:00:00.000Z'));
+
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions: [] });
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		await loadCashFlowForecast('user-1', 5);
+
+		// `.at(-1)`, not `[0]`: this file's mocks are never cleared between tests, so `mock.calls`
+		// accumulates every prior test's call — only the LAST one is this test's own.
+		const calls = dashboardModule.readDashboardDataForRange.mock.calls;
+		const call = calls[calls.length - 1][1] as { to: Date };
+		expect(call.to.toISOString()).toBe(detectionEndExclusive('2025-04-10').toISOString());
 
 		vi.useRealTimers();
 	});

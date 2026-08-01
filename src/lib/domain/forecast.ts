@@ -80,6 +80,23 @@ function toEpochDay(iso: string): number {
 }
 
 /**
+ * Exclusive upper bound for every recurrence-detector input: the start of the day AFTER
+ * `todayIso`, UTC. Transactions dated today are in; anything dated later is out.
+ *
+ * Inference from observed history must not include what has not happened yet. Nothing rejects a
+ * future-dated transaction on import (a pending bank debit, a mistyped CSV year), and one such
+ * row moves `occurrenceCount`, the interval set and `lastDate` — so a surface that fetches
+ * further ahead than another reports a different confidence tier for the same stream. All three
+ * detector call sites use THIS value so that cannot happen.
+ *
+ * Same reasoning as the net-worth future-date guard: the row stays fully visible everywhere it
+ * is a fact, it just stops feeding pattern inference until its date arrives.
+ */
+export function detectionEndExclusive(todayIso: string): Date {
+	return new Date(toEpochDay(todayIso) * 86_400_000 + 86_400_000);
+}
+
+/**
  * Exported so every caller with a list of numbers to summarize goes through the one
  * implementation, rather than each re-deriving the same sort-and-middle logic. See
  * `resolveIdempotenceWindowDays` in `server/upcoming-bills/service.ts` for the call that used to

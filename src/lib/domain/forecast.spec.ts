@@ -4,6 +4,7 @@ import {
 	buildDenseDailyNetSeries,
 	buildRealizedLedgerDays,
 	computeResidualDailyCents,
+	detectionEndExclusive,
 	detectRecurringFlows,
 	getFlowAmountVariability,
 	getFlowDisplayTier,
@@ -702,6 +703,27 @@ describe('buildRealizedLedgerDays', () => {
 		);
 
 		expect(days.every((day) => day.events.length === 0)).toBe(true);
+	});
+});
+
+describe('detectionEndExclusive', () => {
+	it('is midnight UTC of the day after todayIso', () => {
+		expect(detectionEndExclusive('2026-07-14').toISOString()).toBe('2026-07-15T00:00:00.000Z');
+	});
+
+	it('includes a transaction dated todayIso, at any time of day', () => {
+		const bound = detectionEndExclusive('2026-07-14').getTime();
+		expect(new Date('2026-07-14T00:00:00.000Z').getTime() < bound).toBe(true);
+		expect(new Date('2026-07-14T23:59:59.999Z').getTime() < bound).toBe(true);
+	});
+
+	it('excludes a transaction dated the day after todayIso', () => {
+		const bound = detectionEndExclusive('2026-07-14').getTime();
+		expect(new Date('2026-07-15T00:00:00.000Z').getTime() < bound).toBe(false);
+	});
+
+	it('rolls a month/year boundary the same way toEpochDay-based arithmetic elsewhere does', () => {
+		expect(detectionEndExclusive('2026-12-31').toISOString()).toBe('2027-01-01T00:00:00.000Z');
 	});
 });
 

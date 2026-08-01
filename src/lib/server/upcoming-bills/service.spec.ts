@@ -24,6 +24,15 @@ const db = vi.hoisted(() => ({
 }));
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+// No checking NetWorthAccount for this user in any fixture below: only used so
+// `loadCashFlowForecast` (imported purely to compare its detector's tier against the two
+// upcoming-bills surfaces — task 1, detection-window upper bound) can run against the SAME
+// mocked `prisma.transaction.findMany` as the rest of this file, through the real (unmocked)
+// `readDashboardDataForRange`. The relative-balance path (`hasBalanceAnchor: false`) is all these
+// tests need; none of them assert on `startingBalanceCents`.
+vi.mock('$lib/server/net-worth/service', () => ({
+	readNetWorthAccounts: vi.fn().mockResolvedValue([])
+}));
 
 const {
 	getCurrentBillsMonth,
@@ -41,6 +50,7 @@ const { MAX_ANCHOR_CELL_CHARS, MAX_ANCHOR_IDS, MAX_PORTABLE_STRING, MAX_RECURRIN
 const { STORED_LABEL_MAX_CHARS } = await import('$lib/domain/recurrence');
 const { detectRecurringFlows, getFlowDisplayTier } = await import('$lib/domain/forecast');
 const { occurrenceActionWindowDays } = await import('$lib/domain/upcomingBills');
+const { loadCashFlowForecast } = await import('$lib/server/forecast');
 
 const userId = 'user-00000001';
 const actionId = 'action-00000001';
@@ -746,6 +756,134 @@ describe('detection window pinned to 12 months', () => {
 		expect(getOldestNavigableBillsMonth()).toBe('2025-08');
 		const firstOfMonth = await loadUpcomingBillsMonth(userId, '2026-08');
 		expect(firstOfMonth.oldestNavigableMonth).toBe('2025-08');
+	});
+});
+
+/**
+ * Task 1: the detector's UPPER bound is now pinned too, at `detectionEndExclusive(todayIso)` on
+ * all three call sites (`loadCashFlowForecast`, `loadUpcomingBillsWidget`,
+ * `loadUpcomingBillsMonth`). Nothing rejects a future-dated transaction on import, and — unlike
+ * the lower-bound pin above — the three call sites used to fetch three DIFFERENT upper bounds
+ * (`now` with time-of-day for the forecast, `today + 30 days` for the widget, `max(monthEnd,
+ * now)` for the month), so the same stream could report a different confidence tier on each
+ * surface depending only on how far ahead each one happened to fetch.
+ *
+ * One fixture throughout: a monthly stream on the 29th, TWO occurrences before TODAY
+ * (2026-05-29, 2026-06-29) and a THIRD dated 2026-07-29 — 15 days after TODAY (2026-07-14) and
+ * exactly on-cadence (30 days after the second) — so an unclamped fetch would classify it as a
+ * 3-occurrence 'confirmed' stream while the clamped one stays a 2-occurrence 'tentative' one.
+ */
+describe('detection window upper bound pinned to today', () => {
+	const VET_LABEL = 'CB VETERINAIRE DES LILAS';
+	const VET_PAST = [
+		tx('vet-0', '2026-05-29', VET_LABEL, -8_400, 'Santé'),
+		tx('vet-1', '2026-06-29', VET_LABEL, -8_400, 'Santé')
+	];
+	const VET_FUTURE = tx('vet-2', '2026-07-29', VET_LABEL, -8_400, 'Santé');
+
+	// Anti-vacuity guard, asserted on the domain rather than on a surface: pins the property every
+	// test below depends on — that the future-dated occurrence really would change BOTH the status
+	// (tentative -> confirmed) and lastDate if it reached the detector. A fixture edit that makes
+	// both sets agree fails HERE, instead of turning the tests below into assertions about nothing.
+	it('the future-dated occurrence really would change the flow (anti-vacuity guard)', () => {
+		const toForecastInput = (row: RawTransaction) => ({
+			id: row.id,
+			date: row.date.toISOString().slice(0, 10),
+			label: row.label,
+			amountCents: row.amountCents,
+			category: row.category.name,
+			type: 'expense' as const
+		});
+
+		const [pinned] = detectRecurringFlows(VET_PAST.map(toForecastInput));
+		const [widened] = detectRecurringFlows([...VET_PAST, VET_FUTURE].map(toForecastInput));
+
+		expect(pinned.status).toBe('tentative');
+		expect(pinned.lastDate).toBe('2026-06-29');
+		expect(widened.status).toBe('confirmed');
+		expect(widened.lastDate).toBe('2026-07-29');
+	});
+
+	it('renders the same display tier — the concrete value, not just equality — on the forecast, the widget and the month view', async () => {
+		mockRangedRead([...VET_PAST, VET_FUTURE]);
+
+		const forecast = await loadCashFlowForecast(userId, 5);
+		// A past month the second occurrence actually lands in, so the row renders (month doesn't
+		// filter by tier the way the widget does) and its tier is directly readable.
+		const june = await loadUpcomingBillsMonth(userId, '2026-06');
+		await loadUpcomingBillsWidget(userId);
+
+		// The widget's own fetch is captured independently and re-run through the real detector: its
+		// `rows` cannot show an 'uncertain'-tier stream at all (the widget filters it out — see the
+		// forward-navigation test below for why that is still consistent, not a second disagreement),
+		// so this is the only way to read the tier IT computed, from the exact transactions IT fetched.
+		// The LAST call, not the first: `loadCashFlowForecast` and `loadUpcomingBillsMonth` above
+		// already issued their own `transaction.findMany` calls on this same mock.
+		const calls = db.prisma.transaction.findMany.mock.calls;
+		const widgetQuery = calls[calls.length - 1][0];
+		const widgetTransactions = (
+			await (
+				db.prisma.transaction.findMany as unknown as (q: unknown) => Promise<RawTransaction[]>
+			)(widgetQuery)
+		).map((row) => ({
+			id: row.id,
+			date: row.date.toISOString().slice(0, 10),
+			label: row.label,
+			amountCents: row.amountCents,
+			category: row.category.name,
+			type: 'expense' as const
+		}));
+		const [widgetFlow] = detectRecurringFlows(widgetTransactions);
+
+		const forecastFlow = forecast.flows.find((flow) => flow.category === 'Santé');
+		const juneRow = june.rows.find((row) => row.dateIso === '2026-06-29');
+
+		expect(forecastFlow).toBeDefined();
+		expect(getFlowDisplayTier(forecastFlow!)).toBe('uncertain');
+		expect(juneRow?.tier).toBe('uncertain');
+		expect(getFlowDisplayTier(widgetFlow)).toBe('uncertain');
+	});
+
+	// The month view's fetch is now unconditionally bounded at `detectionEndExclusive(todayIso)`,
+	// never `monthEndExclusive` — so navigating forward to a month that has not happened yet no
+	// longer widens what the detector is shown, and the same stream reads the same tier and the
+	// same streamCount wherever the user navigates.
+	it('does not move the tier or the stream count when navigating to a future month', async () => {
+		mockRangedRead([...VET_PAST, VET_FUTURE]);
+
+		const current = await loadUpcomingBillsMonth(userId, '2026-07');
+		const future = await loadUpcomingBillsMonth(userId, '2026-09');
+
+		expect(current.streamCount).toBe(1);
+		expect(future.streamCount).toBe(1);
+
+		// Each month renders its own PROJECTED occurrence (2026-07-29 for July, 2026-09-29 for
+		// September — projectFlowOccurrences steps monthly from the flow's lastDate, 2026-06-29),
+		// never the real 2026-07-29 transaction as a settled row: that transaction is outside the
+		// fetch entirely, which is the accepted, intended behaviour change (see the module doc).
+		expect(current.rows.map((row) => [row.dateIso, row.status, row.tier])).toEqual([
+			['2026-07-29', 'upcoming', 'uncertain']
+		]);
+		expect(future.rows.map((row) => [row.dateIso, row.status, row.tier])).toEqual([
+			['2026-09-29', 'upcoming', 'uncertain']
+		]);
+	});
+
+	// Named separately per the task brief: lastDate is the field whose corruption cascades into
+	// projection timing (`projectFlowOccurrences` steps FROM it) and the staleness guard. If the
+	// future transaction reached the detector, lastDate would become 2026-07-29 and the flow would
+	// project nothing for July at all (next step: 2026-08-29) — the July row below would not exist.
+	it('lastDate stays the last PAST occurrence — never the future-dated one — on every surface', async () => {
+		mockRangedRead([...VET_PAST, VET_FUTURE]);
+
+		const forecast = await loadCashFlowForecast(userId, 5);
+		const forecastFlow = forecast.flows.find((flow) => flow.category === 'Santé');
+		expect(forecastFlow?.lastDate).toBe('2026-06-29');
+
+		// Month: the projected row for July exists at all, dated 2026-07-29 (one calendar month
+		// after 2026-06-29) — the observable consequence of lastDate NOT having moved to 2026-07-29.
+		const july = await loadUpcomingBillsMonth(userId, '2026-07');
+		expect(july.rows.map((row) => [row.dateIso, row.status])).toEqual([['2026-07-29', 'upcoming']]);
 	});
 });
 

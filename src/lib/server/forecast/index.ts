@@ -2,6 +2,7 @@ import {
 	buildDenseDailyNetSeries,
 	buildRealizedLedgerDays,
 	computeResidualDailyCents,
+	detectionEndExclusive,
 	detectRecurringFlows,
 	isReliableConfirmedFlow,
 	projectCashFlow,
@@ -65,7 +66,10 @@ export async function loadCashFlowForecast(
 	const [{ transactions }, startingBalance] = await Promise.all([
 		readDashboardDataForRange(userId, {
 			from: lookbackStart,
-			to: today,
+			// Exclusive upper bound pinned to `detectionEndExclusive`, not `today` (a Date carrying
+			// the request's own time-of-day): every detector call site uses the same value, and a
+			// transaction dated today is now counted regardless of what time today's request runs at.
+			to: detectionEndExclusive(todayIso),
 			budgetMonth: getCurrentMonth()
 		}),
 		resolveStartingBalance(userId)
