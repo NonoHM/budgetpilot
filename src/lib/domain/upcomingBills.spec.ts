@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ForecastInputTransaction, RecurringFlow } from './forecast';
-import { projectCashFlow } from './forecast';
+import { detectRecurringFlows, getCadenceToleranceDays, projectCashFlow } from './forecast';
 import {
 	normalizeRecurringLabel,
 	normalizeStoredRecurringLabel,
@@ -34,6 +34,12 @@ function tx(
 		type: overrides.amountCents >= 0 ? 'income' : 'expense',
 		...overrides
 	};
+}
+
+function addDaysIso(iso: string, days: number): string {
+	return new Date(new Date(`${iso}T00:00:00.000Z`).getTime() + days * 86_400_000)
+		.toISOString()
+		.slice(0, 10);
 }
 
 function flow(
@@ -145,8 +151,10 @@ describe('computeStaleAfterDays', () => {
 		).toBe(399);
 	});
 
-	// The tolerance comes from the detector's own CADENCE_WINDOWS. A copy of that table here would
-	// pass while the real one drifted, so the assertion is on the five values the detector uses.
+	// A plain change-detector on the five values, and nothing more: these literals ARE a copy of
+	// CADENCE_WINDOWS, so re-hardcoding the table inside computeStaleAfterDays would leave this
+	// green. It pins the numbers a reader of the formula expects; the test that actually binds the
+	// tolerance to the detector's own behaviour is the one below it.
 	it('reprend la tolérance de chaque cadence sans la redéclarer', () => {
 		expect.assertions(5);
 
@@ -162,6 +170,48 @@ describe('computeStaleAfterDays', () => {
 		expect(at('monthly', 30)).toBe(5);
 		expect(at('quarterly', 91)).toBe(10);
 		expect(at('yearly', 365)).toBe(15);
+	});
+
+	/**
+	 * The binding one: for every cadence, a stream whose interval is exactly
+	 * `canonical period + getCadenceToleranceDays(cadence)` is still classified as that cadence by
+	 * the detector, and one more day is classified as nothing at all. That is the detector's real
+	 * acceptance boundary, observed rather than restated.
+	 *
+	 * This is what reddens if the tolerance is ever duplicated instead of read: widen
+	 * `CADENCE_WINDOWS` while `getCadenceToleranceDays` keeps the old value and the `+ 1` case starts
+	 * being detected; narrow it and the boundary case stops being detected. Only the canonical
+	 * PERIODS are literals here, and those are the cadences' definition rather than the quantity
+	 * under test.
+	 */
+	it('reste collée à la fenêtre que le détecteur accepte réellement', () => {
+		expect.assertions(10);
+
+		const canonicalPeriodDays = [
+			['weekly', 7],
+			['biweekly', 14],
+			['monthly', 30],
+			['quarterly', 91],
+			['yearly', 365]
+		] as const;
+
+		const detectAtInterval = (intervalDays: number) =>
+			detectRecurringFlows(
+				[0, 1, 2].map((step) =>
+					tx({
+						date: addDaysIso('2024-01-08', intervalDays * step),
+						label: 'ABONNEMENT TEST',
+						amountCents: -1_000,
+						category: 'Divers'
+					})
+				)
+			).map((detected) => detected.cadence);
+
+		for (const [cadence, periodDays] of canonicalPeriodDays) {
+			const tolerance = getCadenceToleranceDays(cadence);
+			expect(detectAtInterval(periodDays + tolerance)).toEqual([cadence]);
+			expect(detectAtInterval(periodDays + tolerance + 1)).toEqual([]);
+		}
 	});
 });
 
@@ -1004,6 +1054,29 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 		expect(occurrences[0].daysLate).toBe(4);
 	});
 
+	/**
+	 * The sentence the whole formula is shaped around, asserted end to end rather than on the
+	 * predicate: at exactly `staleAfterDays` (38 for a monthly stream with CV 0.1) the row is still
+	 * there and still reads "En retard", 8 days late. Summing the cadence tolerance and the CV term
+	 * instead of maxing them is what buys those last 3 days — a `Math.max` gives 35 and this row
+	 * disappears, taking a real unpaid bill off the user's schedule.
+	 */
+	it('garde et signale en retard une mensualité pile au seuil, 8 jours de retard', () => {
+		expect.assertions(4);
+
+		const occurrences = buildBillOccurrences({
+			flows: [monthlyFlow('2026-06-23')],
+			transactions: [],
+			actions: [],
+			...JULY
+		});
+
+		expect(occurrences).toHaveLength(1);
+		expect(occurrences[0].dateIso).toBe('2026-07-23');
+		expect(occurrences[0].status).toBe('overdue');
+		expect(occurrences[0].daysLate).toBe(8);
+	});
+
 	it('cesse de projeter une mensualité muette depuis 39 jours, sans rien afficher', () => {
 		expect.assertions(3);
 
@@ -1073,6 +1146,75 @@ describe('buildBillOccurrences — garde-fou de fraîcheur', () => {
 				...JULY
 			})
 		).toEqual([]);
+	});
+
+	/**
+	 * D2 (locked): an uncertain-tier stream can NEVER read "En retard" — `computeOccurrenceStatus`
+	 * gates on the tier before any date arithmetic. The recency guard must not become a second
+	 * lateness path: a stream that is both uncertain AND stale simply stops being projected.
+	 *
+	 * The live uncertain stream in the same call is what keeps this non-vacuous — without it, "no
+	 * occurrence is overdue" would hold trivially over an empty list.
+	 */
+	it('fait disparaître un flux incertain périmé sans jamais lui inventer un retard', () => {
+		expect.assertions(5);
+
+		const uncertain = (label: string, lastDate: string) =>
+			flow({
+				label,
+				direction: 'expense',
+				averageAmountCents: 1_799,
+				lastDate,
+				intervalCoefficientOfVariation: 0.1,
+				status: 'tentative',
+				occurrenceCount: 2
+			});
+
+		const occurrences = buildBillOccurrences({
+			// Stale (39 days) and live (33 days), both uncertain, both with a past estimated date.
+			flows: [uncertain('GYM PERIME', '2026-06-22'), uncertain('GYM ACTIF', '2026-06-28')],
+			transactions: [],
+			actions: [],
+			...JULY
+		});
+
+		expect(occurrences).toHaveLength(1);
+		expect(occurrences[0].flow.label).toBe('GYM ACTIF');
+		expect(occurrences[0].status).toBe('upcoming');
+		expect(occurrences[0].estimatePassed).toBe(true);
+		expect(occurrences.every((occurrence) => occurrence.status !== 'overdue')).toBe(true);
+	});
+
+	// The two cadences the arithmetic covers but no schedule did: biweekly (14 + 3 = 17) and
+	// quarterly (91 + 10 = 101), each at its own boundary and one day past it.
+	it('applique le seuil propre au bimensuel et au trimestriel', () => {
+		expect.assertions(4);
+
+		const stream = (
+			cadence: RecurringFlow['cadence'],
+			medianIntervalDays: number,
+			lastDate: string
+		) =>
+			buildBillOccurrences({
+				flows: [
+					flow({
+						label: 'ASSURANCE',
+						direction: 'expense',
+						averageAmountCents: 2_500,
+						lastDate,
+						cadence,
+						medianIntervalDays
+					})
+				],
+				transactions: [],
+				actions: [],
+				...JULY
+			});
+
+		expect(stream('biweekly', 14, '2026-07-14')).toHaveLength(1);
+		expect(stream('biweekly', 14, '2026-07-13')).toEqual([]);
+		expect(stream('quarterly', 91, '2026-04-21')).toHaveLength(1);
+		expect(stream('quarterly', 91, '2026-04-20')).toEqual([]);
 	});
 
 	it('garde un annuel muet depuis 380 jours', () => {

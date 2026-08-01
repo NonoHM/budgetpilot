@@ -42,8 +42,14 @@ const actionId = 'action-00000001';
 /**
  * Kept close enough to the fixtures' last occurrences that none of the streams below is stale (see
  * `isStreamStale`): the recency guard drops a stream that has been silent for longer than one
- * tolerated cycle, and SUBSCRIPTION — last paid 2026-06-10, tolerance 36.5 days — is the tightest.
- * Moving this date forward by more than two days silently empties most of the views asserted here.
+ * tolerated cycle, so moving this date FORWARD silently empties the views asserted here.
+ *
+ * The binding constraint is the weekly grocery stream of `plafonne à 5 lignes` (last transaction
+ * 2026-07-06, cadence weekly, interval CV 0 -> tolerated silence 7 + 2 + 0 = 9 days): at this
+ * `TODAY` it is 8 days silent, so there is exactly ONE day of headroom. A two-day move drops it and
+ * that test fails with 3 rows instead of 5. SUBSCRIPTION (last paid 2026-06-10, tolerated silence
+ * 36.5 days, 34 days silent here) is the second tightest at 2.5 days, and the uncertain-tier
+ * fixture in `upcomingBills.spec.ts` has 2 — this one is not the whole picture, only the smallest.
  */
 const TODAY = '2026-07-14T09:00:00.000Z';
 
@@ -124,6 +130,15 @@ const SALARY = monthlySeries(
 	'Revenus',
 	['2026-04', '2026-05', '2026-06'],
 	'28'
+);
+/** Stopped in April: still detected from the 12-month lookback, but stale (B1 recency guard). */
+const STOPPED_SUBSCRIPTION = monthlySeries(
+	'stopped',
+	SUBSCRIPTION_LABEL,
+	-1_399,
+	'Loisirs',
+	['2026-02', '2026-03', '2026-04'],
+	'10'
 );
 /** Exactly two occurrences -> 'tentative' -> uncertain tier. */
 const UTILITY = monthlySeries(
@@ -365,15 +380,7 @@ describe('loadUpcomingBillsMonth', () => {
 	// concept. `streamCount` deliberately still counts it, since it is what tells the page a stream
 	// has ever been detected (the alternative walls the period navigator off entirely).
 	it('cesse de projeter un abonnement résilié, sans rien signaler à l’utilisateur', async () => {
-		const stopped = monthlySeries(
-			'stopped',
-			SUBSCRIPTION_LABEL,
-			-1_399,
-			'Loisirs',
-			['2026-02', '2026-03', '2026-04'],
-			'10'
-		);
-		mockRead(stopped);
+		mockRead(STOPPED_SUBSCRIPTION);
 
 		const view = await loadUpcomingBillsMonth(userId, '2026-07');
 
@@ -381,6 +388,10 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.remainingExpenseCents).toBe(0);
 		expect(view.expectedIncomeCents).toBe(0);
 		expect(view.streamCount).toBe(1);
+		// The guard makes `rows.length === 0` a common state, so it routinely reaches the branch that
+		// computes the "en observation" list. The stopped stream's own transactions are claimed by the
+		// detected flow, so it must not resurface there as a suggestion either.
+		expect(view.observationCandidates).toEqual([]);
 	});
 
 	it('refuse un mois malformé avant toute requête', async () => {
@@ -451,6 +462,20 @@ describe('loadUpcomingBillsWidget', () => {
 		expect(view.remainingExpenseCents).toBe(5 * 5_000 + 80_000 + 2 * 1_399);
 		// rowKey stays unique even when one stream fills most of the list.
 		expect(new Set(view.rows.map((row) => row.rowKey)).size).toBe(5);
+	});
+
+	// The widget carries the "N en retard" badge, which is the surface the stale rows inflated.
+	// `hasStreams` stays true: the stream exists, it simply has nothing left to schedule, and the
+	// card's "aucun stream détecté" empty state would be a different (wrong) claim.
+	it('vide la carte d’un abonnement résilié sans annoncer de retard', async () => {
+		mockRead(STOPPED_SUBSCRIPTION);
+
+		const view = await loadUpcomingBillsWidget(userId);
+
+		expect(view.hasStreams).toBe(true);
+		expect(view.rows).toEqual([]);
+		expect(view.overdueCount).toBe(0);
+		expect(view.remainingExpenseCents).toBe(0);
 	});
 
 	it('signale l’absence de stream quand tout est exclu', async () => {
