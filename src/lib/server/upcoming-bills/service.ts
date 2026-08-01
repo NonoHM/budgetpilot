@@ -26,7 +26,7 @@ import {
 } from '$lib/domain/upcomingBills';
 import { getInitials } from '$lib/domain/initials';
 import { normalizeStoredRecurringLabel, truncateStoredLabel } from '$lib/domain/recurrence';
-import type { Transaction } from '$lib/domain/transaction';
+import type { Transaction, TransactionNature } from '$lib/domain/transaction';
 import { readDashboardDataForRange } from '$lib/server/budget/dashboard';
 import { FORECAST_LOOKBACK_MONTHS } from '$lib/server/forecast';
 import { anonymizeMerchant } from '$lib/server/reports/monthly';
@@ -149,6 +149,13 @@ export interface UpcomingBillRowView {
 	label: string;
 	initials: string;
 	category: string;
+	/**
+	 * The stream's analytical nature, for the row's Transfert/Investissement badge. Purely
+	 * informational: no total, tier or status reads it (see `RecurringFlow.nature`). The RENDERED
+	 * text is derived client-side through `getNatureTag`, the same call the dashboard transaction
+	 * list makes, so one transaction cannot be tagged differently on two surfaces.
+	 */
+	nature: TransactionNature | null;
 	direction: FlowDirection;
 	tier: FlowDisplayTier;
 	occurrenceCount: number;
@@ -864,6 +871,7 @@ function toRowView(occurrence: BillOccurrence, index: number): UpcomingBillRowVi
 		// one merchant two different badges side by side.
 		initials: getInitials(label),
 		category: flow.category,
+		nature: flow.nature ?? null,
 		direction: flow.direction,
 		tier: occurrence.tier,
 		occurrenceCount: flow.occurrenceCount,

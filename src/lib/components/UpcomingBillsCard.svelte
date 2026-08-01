@@ -5,6 +5,7 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import { formatCents } from '$lib/domain/budget';
 	import { formatShortDate } from '$lib/domain/dateFormat';
+	import { getNatureTag } from '$lib/domain/natureLabels';
 	import { formatAmountRangeBounds } from '$lib/domain/upcomingBills';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
@@ -174,6 +175,7 @@
 				     carrying its bottom padding. Computed explicitly from `index` instead. -->
 				{@const isLastMobileVisible = index === Math.min(MOBILE_ROW_LIMIT, widget.rows.length) - 1}
 				{@const isLastDesktopVisible = index === widget.rows.length - 1}
+				{@const natureTag = getNatureTag(row.nature)}
 				<div
 					class="{index >= MOBILE_ROW_LIMIT ? 'max-lg:hidden' : ''} flex items-center gap-3
 						rounded-xl py-3 {index === 0 ? 'pt-0' : ''} {isLastDesktopVisible ? 'pb-0' : ''}
@@ -183,7 +185,14 @@
 				>
 					<Avatar initials={row.initials} size={32} />
 					<div class="min-w-0 flex-1">
-						<div class="truncate text-sm font-medium text-zinc-900">{row.label}</div>
+						<div class="flex min-w-0 items-center gap-2">
+							<span class="truncate text-sm font-medium text-zinc-900">{row.label}</span>
+							{#if natureTag}
+								<span class="shrink-0">
+									<Badge tone="neutral" bordered shape="rounded">{natureTag}</Badge>
+								</span>
+							{/if}
+						</div>
 						{#if row.status === 'overdue'}
 							<div class="text-xs {OVERDUE_TEXT_CLASS}">
 								{m.bills_date_expected({ date: formatShortDate(row.dateIso, getLocale()) })} ·

@@ -19,6 +19,7 @@ function buildRow(overrides: Partial<UpcomingBillRowView> = {}): UpcomingBillRow
 		label: 'EDF',
 		initials: 'ED',
 		category: 'Logement',
+		nature: null,
 		direction: 'expense',
 		tier: 'confirmed',
 		occurrenceCount: 6,
@@ -421,6 +422,21 @@ describe('UpcomingBillsCard.svelte', () => {
 			widget: buildWidget({ rows: [], overdueCount: 0, hasStreams: true, remainingExpenseCents: 0 })
 		});
 		expect(noneDue.querySelector('svg')).not.toBeNull();
+	});
+
+	it('badges a transfer row and leaves an ordinary expense row untagged', async () => {
+		const { unmount } = render(UpcomingBillsCard, {
+			widget: buildWidget({ rows: [buildRow({ nature: 'transfer' })] })
+		});
+		await expect.element(page.getByText(m.nature_transfer())).toBeInTheDocument();
+		unmount();
+
+		const { container } = render(UpcomingBillsCard, {
+			widget: buildWidget({ rows: [buildRow({ nature: 'spending' })] })
+		});
+		// `spending` is the fallback an unmapped category resolves to, so badging it would tag
+		// nearly every row. Asserted against the whole card's text, not a queried badge.
+		expect(container.textContent).not.toContain(m.nature_spending());
 	});
 
 	it('gives the last mobile-visible row (index 2) max-lg:pb-0 and the last row overall (index 4) pb-0, with 5 rows', async () => {

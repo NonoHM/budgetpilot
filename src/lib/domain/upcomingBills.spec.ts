@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ForecastInputTransaction, RecurringFlow } from './forecast';
+import type { TransactionNature } from './transaction';
 import { projectCashFlow } from './forecast';
 import {
 	normalizeRecurringLabel,
@@ -768,6 +769,42 @@ describe('computeTotals', () => {
 
 		expect(totals.remainingExpenseCents).toBe(11_099);
 		expect(totals.expectedIncomeCents).toBe(200_000);
+	});
+
+	// Pins the item-C decision (option D): a transfer/investment stream stays IN "reste à sortir".
+	// The cash-flow forecast has to count it or its balance line is wrong, and filtering the bills
+	// total but not the forecast would reopen the cross-surface disagreement #97 closed. The nature
+	// is surfaced as a badge instead — display only, so this total must not move.
+	it('counts a transfer stream in the remaining total exactly as an untagged one', () => {
+		expect.assertions(3);
+
+		const buildTotals = (nature: TransactionNature | undefined) =>
+			computeTotals(
+				buildBillOccurrences({
+					flows: [
+						flow({
+							label: 'VIR SEPA LIVRET A',
+							direction: 'expense',
+							averageAmountCents: 20_000,
+							lastDate: '2026-06-05',
+							nature
+						})
+					],
+					transactions: [],
+					actions: [],
+					fromIso: '2026-07-01',
+					toIsoExclusive: '2026-08-01',
+					todayIso: '2026-07-01'
+				})
+			);
+
+		const untagged = buildTotals(undefined);
+		const transfer = buildTotals('transfer');
+		const investment = buildTotals('investment');
+
+		expect(transfer.remainingExpenseCents).toBe(untagged.remainingExpenseCents);
+		expect(investment.remainingExpenseCents).toBe(untagged.remainingExpenseCents);
+		expect(transfer.remainingExpenseCents).toBe(20_000);
 	});
 
 	it("uses the stream's average, not the realized amount, for a variable stream", () => {
