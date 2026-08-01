@@ -51,6 +51,7 @@ const { STORED_LABEL_MAX_CHARS } = await import('$lib/domain/recurrence');
 const { detectRecurringFlows, getFlowDisplayTier } = await import('$lib/domain/forecast');
 const { occurrenceActionWindowDays } = await import('$lib/domain/upcomingBills');
 const { loadCashFlowForecast } = await import('$lib/server/forecast');
+const { readDashboardDataForRange } = await import('$lib/server/budget/dashboard');
 
 const userId = 'user-00000001';
 const actionId = 'action-00000001';
@@ -808,39 +809,56 @@ describe('detection window upper bound pinned to today', () => {
 		mockRangedRead([...VET_PAST, VET_FUTURE]);
 
 		const forecast = await loadCashFlowForecast(userId, 5);
-		// A past month the second occurrence actually lands in, so the row renders (month doesn't
-		// filter by tier the way the widget does) and its tier is directly readable.
-		const june = await loadUpcomingBillsMonth(userId, '2026-06');
-		await loadUpcomingBillsWidget(userId);
+		// JULY (the CURRENT month), not a past one: fix round 1 review found the past month
+		// (2026-06) could never distinguish the fix from the old code — old bound
+		// `max(monthEndExclusive, now)` for a PAST month already resolves to `now`, same as the
+		// pinned bound, so a past-month leg is vacuous under a revert of call site 3 (confirmed
+		// below by re-running that break against this exact test). July's own old bound
+		// (`monthEndExclusive` = 2026-08-01) DID reach 2026-07-29, so this leg is load-bearing.
+		const july = await loadUpcomingBillsMonth(userId, '2026-07');
 
-		// The widget's own fetch is captured independently and re-run through the real detector: its
-		// `rows` cannot show an 'uncertain'-tier stream at all (the widget filters it out — see the
-		// forward-navigation test below for why that is still consistent, not a second disagreement),
-		// so this is the only way to read the tier IT computed, from the exact transactions IT fetched.
-		// The LAST call, not the first: `loadCashFlowForecast` and `loadUpcomingBillsMonth` above
-		// already issued their own `transaction.findMany` calls on this same mock.
-		const calls = db.prisma.transaction.findMany.mock.calls;
-		const widgetQuery = calls[calls.length - 1][0];
-		const widgetTransactions = (
-			await (
-				db.prisma.transaction.findMany as unknown as (q: unknown) => Promise<RawTransaction[]>
-			)(widgetQuery)
-		).map((row) => ({
-			id: row.id,
-			date: row.date.toISOString().slice(0, 10),
-			label: row.label,
-			amountCents: row.amountCents,
-			category: row.category.name,
-			type: 'expense' as const
-		}));
+		// Widget: isolate its OWN fetch rather than locating it positionally among the prior two
+		// calls above (fix round 1 review: `calls[calls.length - 1]` would silently mis-target a
+		// second `transaction.findMany` read added to the widget later). Clearing the mock
+		// immediately before, then asserting exactly one call afterward, fails LOUDLY instead of
+		// mis-targeting if that ever happens.
+		db.prisma.transaction.findMany.mockClear();
+		await loadUpcomingBillsWidget(userId);
+		const widgetCalls = db.prisma.transaction.findMany.mock.calls;
+		expect(widgetCalls).toHaveLength(1);
+		const widgetQuery = widgetCalls[0][0] as TransactionQuery;
+		// The concrete bound, not just "whatever the widget happened to use": the exclusive upper
+		// bound `detectionEndExclusive('2026-07-14')` resolves to.
+		expect(widgetQuery.where?.date?.lt?.toISOString()).toBe('2026-07-15T00:00:00.000Z');
+
+		// Re-fetched through the REAL, unmocked `readDashboardDataForRange` (this file only mocks
+		// `prisma`) using the widget's own captured bounds — not a hand-rolled row -> detector-input
+		// mapping here, which would duplicate `mapTransactionWithNature`'s effective-category rule
+		// (`manualCategory ?? category.name`) and could silently agree with production only because
+		// this fixture happens to carry `manualCategory: null`.
+		const { transactions: widgetTransactions } = await readDashboardDataForRange(userId, {
+			from: widgetQuery.where!.date!.gte!,
+			to: widgetQuery.where!.date!.lt!,
+			budgetMonth: '2026-07'
+		});
 		const [widgetFlow] = detectRecurringFlows(widgetTransactions);
 
 		const forecastFlow = forecast.flows.find((flow) => flow.category === 'Santé');
-		const juneRow = june.rows.find((row) => row.dateIso === '2026-06-29');
+		// The row rendered is the PROJECTED estimate at 2026-07-29 (status 'upcoming'), not a
+		// settled one — the real transaction on that date is outside the fetch entirely (see the
+		// forward-navigation test below) — but its tier is still directly readable here since the
+		// month view, unlike the widget, does not filter rows by tier.
+		const julyRow = july.rows.find((row) => row.dateIso === '2026-07-29');
 
 		expect(forecastFlow).toBeDefined();
+		// This leg is NOT sensitive to breaking call site 1 (the forecast's own bound): that call
+		// site's actual old/new divergence is same-day time-of-day only (see
+		// `server/forecast/index.spec.ts`), and 2026-07-29 is 15 days past "today" either way, so
+		// both the old `to: today` and the new pinned bound already exclude it here. Kept as a
+		// concrete-value consistency check across surfaces, not a regression guard for call site 1
+		// — confirmed by re-running that break against this test (see the task report).
 		expect(getFlowDisplayTier(forecastFlow!)).toBe('uncertain');
-		expect(juneRow?.tier).toBe('uncertain');
+		expect(julyRow?.tier).toBe('uncertain');
 		expect(getFlowDisplayTier(widgetFlow)).toBe('uncertain');
 	});
 

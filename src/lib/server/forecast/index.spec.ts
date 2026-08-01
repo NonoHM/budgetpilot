@@ -1,9 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-	detectionEndExclusive,
-	type RecurringFlow,
-	type ProjectedOccurrence
-} from '$lib/domain/forecast';
+import type { RecurringFlow, ProjectedOccurrence } from '$lib/domain/forecast';
 import {
 	FORECAST_REPORTS_HORIZON_DAYS,
 	FORECAST_REPORTS_HORIZON_MONTHS,
@@ -359,24 +355,68 @@ describe('loadCashFlowForecast', () => {
 	// UTC of the day after. A transaction dated today but stored with a later clock time than the
 	// request (an evening purchase, a request that ran at 00:05) was silently excluded from the
 	// detector's input while the realized ledger (ISO-date based) already counted it.
-	it("fetches up to detectionEndExclusive(todayIso), not `now`: a same-day transaction later than the request's own clock time is not dropped", async () => {
-		expect.assertions(1);
+	//
+	// Fix round 1: the previous version of this test only asserted the `to` ARGUMENT against
+	// `detectionEndExclusive('2025-04-10')` — the production helper compared to itself, which
+	// cannot fail on a wrong helper — and never exercised an actual transaction. This version
+	// makes the mocked `readDashboardDataForRange` apply the SAME `lt` semantics the real Prisma
+	// query does (filter by `< to`), so the assertion below is a genuine behavioural check: it
+	// fails if `to` regresses to `today` (09:00), because the mock's own gate would then exclude
+	// the 21:00 transaction.
+	it("reaches a same-day transaction stored later than the request's own clock time (fetch bound is detectionEndExclusive, not `now`)", async () => {
+		expect.assertions(3);
 		// The fake "now" is 09:00 UTC; the transaction below is dated the same calendar day but
 		// stored at 21:00 UTC — later than "now", so `to: today` (a Date with today's time-of-day)
-		// would have excluded it while `to: detectionEndExclusive(todayIso)` does not.
+		// would have excluded it while `to: detectionEndExclusive(todayIso)` (2025-04-11T00:00:00Z)
+		// does not.
 		vi.setSystemTime(new Date('2025-04-10T09:00:00.000Z'));
+		const lateSameDayInstant = new Date('2025-04-10T21:00:00.000Z');
 
-		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions: [] });
-		netWorthModule.readNetWorthAccounts.mockResolvedValue([]);
+		dashboardModule.readDashboardDataForRange.mockImplementation(
+			async (_userId: string, range: { to: Date }) => {
+				// Mirrors the real Prisma `date: { lt: range.to }` filter the mocked-away
+				// `readDashboardDataForRange` would otherwise apply, using the transaction's full
+				// timestamp — not just its calendar date — exactly the precision this bug turns on.
+				const reached = lateSameDayInstant < range.to;
+				return {
+					transactions: reached
+						? [
+								{
+									id: 'tx-late-same-day',
+									date: '2025-04-10',
+									label: 'ACHAT TARDIF',
+									amountCents: -500,
+									category: 'Shopping',
+									type: 'expense' as const
+								}
+							]
+						: []
+				};
+			}
+		);
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
 
 		const { loadCashFlowForecast } = await import('./index');
-		await loadCashFlowForecast('user-1', 5);
+		const forecast = await loadCashFlowForecast('user-1', 5);
 
-		// `.at(-1)`, not `[0]`: this file's mocks are never cleared between tests, so `mock.calls`
-		// accumulates every prior test's call — only the LAST one is this test's own.
+		// `to` itself, pinned to the LITERAL boundary — not `detectionEndExclusive('2025-04-10')`
+		// again, which would compare the production value to itself and could never catch a broken
+		// helper (round-1 review finding, MINOR #3).
 		const calls = dashboardModule.readDashboardDataForRange.mock.calls;
 		const call = calls[calls.length - 1][1] as { to: Date };
-		expect(call.to.toISOString()).toBe(detectionEndExclusive('2025-04-10').toISOString());
+		expect(call.to.toISOString()).toBe('2025-04-11T00:00:00.000Z');
+
+		// The transaction landed "today", so its effect is only visible on the day BEFORE today in
+		// the realized ledger's backward walk (buildRealizedLedgerDays anchors the LAST day exactly
+		// on the known ending balance, by construction — see that function's own doc comment — so
+		// `todayDay.balanceCents` is always 100_000 regardless of any transaction and asserting it
+		// would prove nothing). Under the old `to: today` (09:00) bound, the mock above would have
+		// excluded this row entirely and this balance would read 100_000, not 100_500.
+		const todayIndex = forecast.ledger.todayIndex;
+		expect(forecast.ledger.days[todayIndex].date).toBe('2025-04-10');
+		expect(forecast.ledger.days[todayIndex - 1].balanceCents).toBe(100_000 - -500);
 
 		vi.useRealTimers();
 	});
