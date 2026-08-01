@@ -1,8 +1,10 @@
 import { page } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import '../../routes/layout.css';
 import UpcomingBillsCard from './UpcomingBillsCard.svelte';
 import { formatCents } from '$lib/domain/budget';
+import { formatShortDate } from '$lib/domain/dateFormat';
 import type { UpcomingBillRowView, UpcomingBillsWidgetView } from '$lib/server/upcoming-bills/service';
 
 const TODAY_ISO = '2026-08-01';
@@ -67,19 +69,49 @@ function wholeEuros(magnitudeCents: number): string {
 	}).format(magnitudeCents / 100);
 }
 
+// Catches every Tailwind shape that hides an element, not just the `max-lg:hidden` one the
+// original regex happened to check for: a bare `hidden` (as in the mobile-first `hidden lg:flex`
+// idiom), any breakpoint/arbitrary variant of `hidden` (`lg:hidden`, `2xl:hidden`,
+// `max-[900px]:hidden`), and the two other hiding utilities (`invisible`, `sr-only`) in either
+// bare or variant form.
+function hasHidingToken(className: string | null | undefined): boolean {
+	if (!className) return false;
+	return className
+		.split(/\s+/)
+		.filter(Boolean)
+		.some((token) => {
+			const utility = token.includes(':') ? token.slice(token.lastIndexOf(':') + 1) : token;
+			return utility === 'hidden' || utility === 'invisible' || utility === 'sr-only';
+		});
+}
+
 describe('UpcomingBillsCard.svelte', () => {
-	it('always renders the footer label, visibly, on a populated view', async () => {
+	it('always renders the footer label, visibly, on a narrow (mobile) viewport', async () => {
+		await page.viewport(390, 844);
 		const { container } = render(UpcomingBillsCard, { widget: buildWidget() });
 
-		const footerLabel = page.getByText('Reste à sortir · 30 prochains jours');
-		await expect.element(footerLabel).toBeVisible();
+		// Real stylesheet is loaded (see the `layout.css` import above), so `toBeVisible()` reflects
+		// an actual computed style here, not an inert assertion against unstyled markup.
+		await expect
+			.element(page.getByText('Reste à sortir · 30 prochains jours'))
+			.toBeVisible();
 
-		// `toBeVisible()` alone doesn't pin the locked decision that the footer never gets a
-		// breakpoint-hiding variant — assert directly that no such class sits on its subtree.
 		const footer = container.querySelector('.border-t.border-zinc-100');
 		expect(footer).not.toBeNull();
-		expect(footer?.className).not.toMatch(/(^|\s)(max-)?(sm|md|lg|xl):hidden(\s|$)/);
-		expect(footer?.querySelector('[class*=":hidden"]')).toBeNull();
+		expect(hasHidingToken(footer?.className)).toBe(false);
+	});
+
+	it('always renders the footer label, visibly, on a wide (desktop) viewport', async () => {
+		await page.viewport(1280, 800);
+		const { container } = render(UpcomingBillsCard, { widget: buildWidget() });
+
+		await expect
+			.element(page.getByText('Reste à sortir · 30 prochains jours'))
+			.toBeVisible();
+
+		const footer = container.querySelector('.border-t.border-zinc-100');
+		expect(footer).not.toBeNull();
+		expect(hasHidingToken(footer?.className)).toBe(false);
 	});
 
 	it('renders the overdue badge only when overdueCount > 0', async () => {
@@ -231,5 +263,114 @@ describe('UpcomingBillsCard.svelte', () => {
 			.element(page.getByText(`−${wholeEuros(7412)} à −${wholeEuros(9587)}`))
 			.toBeInTheDocument();
 		await expect.element(page.getByText('variable')).toBeInTheDocument();
+	});
+
+	it('renders a variable income row as a signed positive range', async () => {
+		// Only the expense variable row was previously covered — signing is the entire reason
+		// `formatSignedRange` exists, so an income row is the case most likely to regress silently.
+		render(UpcomingBillsCard, {
+			widget: buildWidget({
+				rows: [
+					buildRow({
+						rowKey: 'variable-income',
+						direction: 'income',
+						amountCents: 8500,
+						variability: 'variable',
+						minAmountCents: 7400,
+						maxAmountCents: 9600
+					})
+				]
+			})
+		});
+
+		await expect
+			.element(page.getByText(`+${wholeEuros(7400)} à +${wholeEuros(9600)}`))
+			.toBeInTheDocument();
+	});
+
+	it('derives relative-date text from widget.todayIso, never from the browser clock', async () => {
+		// todayIso is deliberately years away from the real wall clock: a `new Date()`-based
+		// implementation could not produce "dans 3 j" for a row dated 2020-03-04 under this fixture.
+		render(UpcomingBillsCard, {
+			widget: buildWidget({
+				todayIso: '2020-03-01',
+				rows: [buildRow({ rowKey: 'row', dateIso: '2020-03-04' })]
+			})
+		});
+
+		await expect.element(page.getByText('dans 3 j')).toBeInTheDocument();
+	});
+
+	it('composes the sub-line as absolute date, then a separator, then the relative label, for a future row', async () => {
+		const { container } = render(UpcomingBillsCard, {
+			widget: buildWidget({
+				// TODAY_ISO is 2026-08-01, so this row is 3 days out — clear of the delta===1 "demain"
+				// special case, so the general "dans N j" composition is what's under test here.
+				rows: [buildRow({ rowKey: 'row', dateIso: '2026-08-04' })]
+			})
+		});
+
+		const subLine = container.querySelector('.min-w-0.flex-1 > div.text-xs');
+		expect(subLine?.textContent?.replace(/\s+/g, ' ').trim()).toBe(
+			`${formatShortDate('2026-08-04', 'fr')} · dans 3 j`
+		);
+	});
+
+	it('renders "aujourd\'hui" alone, with no date part, for a row due today', async () => {
+		const { container } = render(UpcomingBillsCard, {
+			widget: buildWidget({ rows: [buildRow({ rowKey: 'row', dateIso: TODAY_ISO })] })
+		});
+
+		const subLine = container.querySelector('.min-w-0.flex-1 > div.text-xs');
+		expect(subLine?.textContent?.trim()).toBe("aujourd'hui");
+	});
+
+	it('carries proximity as weight, not colour: near-horizon rows are dark and bold, far-horizon rows are neither', async () => {
+		const { container } = render(UpcomingBillsCard, {
+			widget: buildWidget({
+				rows: [
+					buildRow({ rowKey: 'near', dateIso: '2026-08-08' }), // delta 7: at the near threshold
+					buildRow({ rowKey: 'far', dateIso: '2026-08-09' }) // delta 8: just past it
+				]
+			})
+		});
+
+		const [nearRow, farRow] = container.querySelectorAll('.divide-y > div');
+		const nearDate = nearRow.querySelector('.text-xs span:first-child');
+		const nearRelative = nearRow.querySelector('.text-xs span:last-child');
+		expect(nearDate?.className).toContain('text-zinc-900');
+		expect(nearRelative?.className).toContain('font-bold');
+		expect(nearRelative?.className).toContain('text-zinc-700');
+
+		const farDate = farRow.querySelector('.text-xs span:first-child');
+		const farRelative = farRow.querySelector('.text-xs span:last-child');
+		expect(farDate?.className).toContain('text-zinc-500');
+		expect(farRelative?.className).not.toContain('font-bold');
+		expect(farRelative?.className).toContain('text-zinc-400');
+	});
+
+	it('renders an icon in both "no streams" and "streams but none due" empty states', async () => {
+		const { container: noStreams, unmount } = render(UpcomingBillsCard, {
+			widget: buildWidget({ rows: [], overdueCount: 0, hasStreams: false, remainingExpenseCents: 0 })
+		});
+		expect(noStreams.querySelector('svg')).not.toBeNull();
+		unmount();
+
+		const { container: noneDue } = render(UpcomingBillsCard, {
+			widget: buildWidget({ rows: [], overdueCount: 0, hasStreams: true, remainingExpenseCents: 0 })
+		});
+		expect(noneDue.querySelector('svg')).not.toBeNull();
+	});
+
+	it('gives the last mobile-visible row (index 2) max-lg:pb-0 and the last row overall (index 4) pb-0, with 5 rows', async () => {
+		const rows = Array.from({ length: 5 }, (_, index) =>
+			buildRow({ rowKey: `row-${index}`, label: `Flux ${index}`, dateIso: `2026-08-0${index + 2}` })
+		);
+		const { container } = render(UpcomingBillsCard, { widget: buildWidget({ rows }) });
+
+		const rowEls = container.querySelectorAll('.divide-y > div');
+		expect(rowEls[2].className).toMatch(/(^|\s)max-lg:pb-0(\s|$)/);
+		expect(rowEls[2].className).not.toMatch(/(^|\s)pb-0(\s|$)/);
+		expect(rowEls[4].className).toMatch(/(^|\s)pb-0(\s|$)/);
 	});
 });
