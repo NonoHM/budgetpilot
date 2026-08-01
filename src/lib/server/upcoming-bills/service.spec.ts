@@ -338,6 +338,7 @@ describe('loadUpcomingBillsWidget', () => {
 
 		const view = await loadUpcomingBillsWidget(userId);
 
+		expect(view.todayIso).toBe('2026-07-20');
 		expect(view.hasStreams).toBe(true);
 		expect(view.rows.map((row) => [row.dateIso, row.status])).toEqual([
 			['2026-07-10', 'overdue'],

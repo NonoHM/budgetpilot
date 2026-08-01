@@ -171,6 +171,11 @@ export interface UpcomingBillsWidgetView {
 	/** Rolling 30-day window, not the calendar month (locked decisions 4 & 5). */
 	remainingExpenseCents: number;
 	hasStreams: boolean;
+	/** The server's own UTC date, same convention as `UpcomingBillsMonthView.todayIso`: the client
+	 *  must render relative dates against THIS value, never `new Date()` — a browser in another
+	 *  timezone can already be "tomorrow" in UTC while the server-computed row statuses still read
+	 *  today's date. */
+	todayIso: string;
 }
 
 export async function loadUpcomingBillsMonth(
@@ -282,7 +287,8 @@ export async function loadUpcomingBillsWidget(userId: string): Promise<UpcomingB
 		rows: kept.slice(0, WIDGET_ROW_LIMIT).map(toRowView),
 		overdueCount: kept.filter((occurrence) => occurrence.status === 'overdue').length,
 		remainingExpenseCents: computeTotals(kept).remainingExpenseCents,
-		hasStreams: applyStreamExclusions(flows, actions).length > 0
+		hasStreams: applyStreamExclusions(flows, actions).length > 0,
+		todayIso
 	};
 }
 

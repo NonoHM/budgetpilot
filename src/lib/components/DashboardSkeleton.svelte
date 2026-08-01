@@ -59,9 +59,11 @@
 					{/each}
 				</div>
 			</div>
-			<!-- Upcoming bills (see UpcomingBillsCard) — 3 ghost rows, never 5: the real card can show
-			     up to 5, but the mobile viewport (and this skeleton, which never shows the desktop-only
-			     rows) only has room for 3. -->
+			<!-- Upcoming bills (see UpcomingBillsCard) — 3 ghost rows, never 5: we don't yet know the
+			     real count, and announcing a volume the engine hasn't confirmed would be inventing
+			     data (design A2), not just a mobile-space constraint. A footer ghost too: the real
+			     card's footer is always ~60px tall, and skipping it here would make the column jump
+			     once real data replaces the skeleton — exactly what this skeleton exists to prevent. -->
 			<div class="{cardBase} p-5">
 				<div class="{pulse} h-3.5 w-32"></div>
 				<div class="mt-3.5 flex flex-col gap-3.5">
@@ -75,6 +77,13 @@
 							<div class="{pulse} h-3 w-10 shrink-0"></div>
 						</div>
 					{/each}
+				</div>
+				<div class="mt-4 flex items-center justify-between gap-3 border-t border-zinc-100 pt-3">
+					<div class="min-w-0">
+						<div class="{pulse} h-2.5 w-28"></div>
+						<div class="{pulse} mt-1.5 h-3.5 w-16"></div>
+					</div>
+					<div class="{pulse} h-3.5 w-24"></div>
 				</div>
 			</div>
 

@@ -981,5 +981,6 @@
 	"bills_date_late_short": "{count} j de retard",
 	"bills_date_expected": "attendue le {date}",
 	"bills_amount_range": "{min} à {max}",
-	"bills_amount_variable_tag": "variable"
+	"bills_amount_variable_tag": "variable",
+	"dashboard_upcoming_none_due_title": "Rien de prévu dans les 30 prochains jours."
 }

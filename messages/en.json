@@ -981,5 +981,6 @@
 	"bills_date_late_short": "{count} d late",
 	"bills_date_expected": "expected {date}",
 	"bills_amount_range": "{min} to {max}",
-	"bills_amount_variable_tag": "variable"
+	"bills_amount_variable_tag": "variable",
+	"dashboard_upcoming_none_due_title": "Nothing due in the next 30 days."
 }

@@ -67,7 +67,8 @@ const upcomingBills = vi.hoisted(() => ({
 		rows: [],
 		overdueCount: 0,
 		remainingExpenseCents: 0,
-		hasStreams: false
+		hasStreams: false,
+		todayIso: '2026-06-15'
 	}))
 }));
 
@@ -185,5 +186,26 @@ describe('/ (dashboard) — gating IA à 3 états', () => {
 		expect(insightsIndex.getBudgetInsights).toHaveBeenCalledWith(
 			expect.objectContaining({ includeLabels: true })
 		);
+	});
+
+	it('attend loadUpcomingBillsWidget (contrairement à aiAdvice, jamais un flux) et le scope à l’utilisateur', async () => {
+		expect.assertions(3);
+
+		const resolved = {
+			rows: [],
+			overdueCount: 0,
+			remainingExpenseCents: 0,
+			hasStreams: false,
+			todayIso: '2026-06-15'
+		};
+		upcomingBills.loadUpcomingBillsWidget.mockResolvedValue(resolved);
+
+		const data = (await load(buildLoadEvent())) as Awaited<ReturnType<typeof load>> & {
+			upcomingBills: unknown;
+		};
+
+		expect(upcomingBills.loadUpcomingBillsWidget).toHaveBeenCalledWith(testUser.id);
+		expect(data.upcomingBills).not.toBeInstanceOf(Promise);
+		expect(data.upcomingBills).toEqual(resolved);
 	});
 });
