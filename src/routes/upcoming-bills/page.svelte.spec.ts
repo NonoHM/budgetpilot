@@ -54,6 +54,7 @@ function buildRow(overrides: Partial<UpcomingBillRowView> = {}): UpcomingBillRow
 		label: 'Netflix',
 		initials: 'NF',
 		category: 'Abonnements',
+		nature: null,
 		direction: 'expense',
 		tier: 'confirmed',
 		occurrenceCount: 6,
@@ -1032,6 +1033,32 @@ describe('/upcoming-bills page', () => {
 		} as unknown as Parameters<Exclude<Awaited<ReturnType<SubmitFunction>>, void>>[0]);
 
 		expect(document.activeElement?.id).toBe('bills-excluded-toggle');
+	});
+
+	// Both layouts render simultaneously (see the desktop/mobile duplication note in CLAUDE.md's
+	// backlog), so a transfer row is expected to carry the badge TWICE — asserted as a count, not
+	// with `.first()`, so a badge that only reached one of the two copies goes red.
+	it('badges a transfer row in both the desktop and the mobile layout', async () => {
+		const { container } = render(Page, {
+			data: buildData({ rows: [buildRow({ nature: 'transfer' })] })
+		});
+
+		// Innermost match only: the snippet wraps `Badge` in a `shrink-0` span and `Badge` renders a
+		// span of its own, so a plain text filter counts each badge twice and would still read "2"
+		// if only ONE layout carried it.
+		const badges = [...container.querySelectorAll('span')].filter(
+			(node) =>
+				node.textContent?.trim() === m.nature_transfer() && node.querySelector('span') === null
+		);
+		expect(badges).toHaveLength(2);
+	});
+
+	it('leaves an ordinary expense row untagged', async () => {
+		const { container } = render(Page, {
+			data: buildData({ rows: [buildRow({ nature: 'spending' })] })
+		});
+
+		expect(container.textContent).not.toContain(m.nature_spending());
 	});
 
 	it('surfaces an action failure as an error banner rather than a success one', async () => {

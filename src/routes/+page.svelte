@@ -26,7 +26,7 @@
 	import UpcomingBillsCard from '$lib/components/UpcomingBillsCard.svelte';
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { formatShortDate } from '$lib/domain/dateFormat';
-	import { natureLabel } from '$lib/domain/natureLabels';
+	import { getNatureTag } from '$lib/domain/natureLabels';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import type { ActionData, PageData } from './$types';
@@ -131,17 +131,6 @@
 	function onPeriodChange(newValue: string) {
 		userSelectedPeriodKey = newValue as PeriodKey;
 		if (newValue !== 'custom') goto(resolve(`/?period=${newValue}` as `/?${string}`));
-	}
-
-	const NATURE_TAGS: ReadonlySet<TransactionNature> = new Set([
-		'transfer',
-		'investment',
-		'refund',
-		'fee'
-	]);
-
-	function getNatureTag(nature: TransactionNature | undefined): string | null {
-		return nature && NATURE_TAGS.has(nature) ? natureLabel(nature) : null;
 	}
 
 	function isNeutralNature(nature: TransactionNature | undefined): boolean {

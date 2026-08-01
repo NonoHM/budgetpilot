@@ -17,6 +17,7 @@
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import { formatCents } from '$lib/domain/budget';
 	import { formatMonthLabel, formatShortDate } from '$lib/domain/dateFormat';
+	import { getNatureTag } from '$lib/domain/natureLabels';
 	import { formatAmountRangeBounds, toBillRowDomKey } from '$lib/domain/upcomingBills';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
@@ -563,6 +564,20 @@
 	</svg>
 {/snippet}
 
+<!-- Transfert / Investissement, in the SAME `neutral bordered rounded` Badge the dashboard
+     transaction list gives those exact transactions — one visual language for one fact, not a
+     variant of its own. Informational only: the row still counts in "reste à sortir" (see
+     `RecurringFlow.nature`), and a stream whose category carries no nature mapping gets no badge
+     at all, which is why the badge never claims the absence of one means anything. -->
+{#snippet natureBadge(row: UpcomingBillRowView)}
+	{@const tag = getNatureTag(row.nature)}
+	{#if tag}
+		<span class="shrink-0">
+			<Badge tone="neutral" bordered shape="rounded">{tag}</Badge>
+		</span>
+	{/if}
+{/snippet}
+
 {#snippet tierBadge(row: UpcomingBillRowView)}
 	{#if row.tier === 'uncertain'}
 		<Tooltip label={m.bills_tier_uncertain_tooltip({ count: row.occurrenceCount })}>
@@ -945,6 +960,7 @@
 																? 'text-zinc-500'
 																: 'text-zinc-900'}">{row.label}</span
 													>
+													{@render natureBadge(row)}
 													{@render tierBadge(row)}
 												</div>
 												<div
@@ -1229,6 +1245,7 @@
 	<div class="flex shrink-0 flex-col items-end gap-1">
 		{@render statusBadge(row, true)}
 		{@render tierBadge(row)}
+		{@render natureBadge(row)}
 	</div>
 {/snippet}
 

@@ -1,4 +1,4 @@
-import type { Transaction } from './transaction';
+import type { Transaction, TransactionNature } from './transaction';
 import { getTransactionKind } from './transaction';
 import { getSimilarAmountGroups, normalizeRecurringLabel } from './recurrence';
 
@@ -13,6 +13,29 @@ export interface RecurringFlow {
 	/** Raw (non-anonymized) label of the most recent occurrence — anonymization is the server/UI's job. */
 	label: string;
 	category: string;
+	/**
+	 * Analytical nature of the most recent occurrence — DISPLAY ONLY, and deliberately so.
+	 *
+	 * Nothing in detection, projection or the totals reads it: grouping is direction + normalized
+	 * label + category, `countsInRemainingTotal` gates on direction + tier, and a transfer to a
+	 * livret A really does leave the checking account, so the cash-flow forecast must keep counting
+	 * it or its balance line is wrong. Filtering the bills total but not the forecast would recreate
+	 * the cross-surface disagreement #97 closed. The nature is therefore surfaced as a badge and
+	 * changes no number (see `computeTotals`' transfer test).
+	 *
+	 * Taken from the most recent occurrence, the same rule `label` and `category` already use, so a
+	 * stream whose category was re-mapped mid-history reports what it is today.
+	 *
+	 * Known limitation, accepted: `nature` resolves through the user's own `CategoryNatureMapping`
+	 * rows and falls back to `spending`/`income` by kind for an unmapped category, so a user who
+	 * renamed or deleted the seeded `Épargne` category gets NO badge on that stream. The badge is
+	 * only ever as good as the mapping behind it. Not fixed here — fixing it means giving nature a
+	 * source independent of the category, which is a data-model decision.
+	 *
+	 * Optional because `ForecastInputTransaction.nature` is: a caller feeding the detector rows it
+	 * built itself (fixtures, `e2e/bills-seed.ts`) legitimately has none.
+	 */
+	nature?: TransactionNature;
 	direction: FlowDirection;
 	cadence: FlowCadence;
 	/** Plaid-style tiering: >=3 occurrences is confirmed, exactly 2 is tentative. */
@@ -240,9 +263,13 @@ function computeConfidence(
 	return 'low';
 }
 
+// `nature` is carried for DISPLAY only — see `RecurringFlow.nature`. It is deliberately not read
+// by `groupTransactionsForRecurrence` below: making it part of the grouping key would re-split
+// existing streams and therefore move `occurrenceIds`, which is the anchor set persisted
+// EXCLUDE/PAID actions match on.
 export type ForecastInputTransaction = Pick<
 	Transaction,
-	'id' | 'date' | 'label' | 'amountCents' | 'category' | 'type'
+	'id' | 'date' | 'label' | 'amountCents' | 'category' | 'type' | 'nature'
 >;
 
 /**
@@ -314,6 +341,7 @@ export function detectRecurringFlows(
 				key,
 				label: sorted[sorted.length - 1].label,
 				category: sorted[sorted.length - 1].category,
+				nature: sorted[sorted.length - 1].nature,
 				direction,
 				cadence,
 				status: group.length >= 3 ? 'confirmed' : 'tentative',

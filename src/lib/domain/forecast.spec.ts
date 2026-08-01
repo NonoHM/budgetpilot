@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Transaction } from './transaction';
+import type { Transaction, TransactionNature } from './transaction';
 import {
 	buildDenseDailyNetSeries,
 	buildRealizedLedgerDays,
@@ -293,6 +293,65 @@ describe('detectRecurringFlows', () => {
 		];
 
 		expect(detectRecurringFlows(transactions)).toHaveLength(0);
+	});
+
+	it("reporte la nature de l'occurrence la plus récente sur le flux", () => {
+		expect.assertions(2);
+
+		const transactions = [
+			tx({
+				date: '2025-01-05',
+				label: 'VIR SEPA LIVRET A',
+				amountCents: -20_000,
+				category: 'Épargne',
+				nature: 'transfer'
+			}),
+			tx({
+				date: '2025-02-05',
+				label: 'VIR SEPA LIVRET A',
+				amountCents: -20_000,
+				category: 'Épargne',
+				nature: 'transfer'
+			}),
+			tx({
+				date: '2025-03-05',
+				label: 'VIR SEPA LIVRET A',
+				amountCents: -20_000,
+				category: 'Épargne',
+				nature: 'transfer'
+			})
+		];
+
+		const flows = detectRecurringFlows(transactions);
+
+		expect(flows).toHaveLength(1);
+		expect(flows[0].nature).toBe('transfer');
+	});
+
+	it('ne change ni le groupement, ni la direction, ni les occurrenceIds selon la nature', () => {
+		expect.assertions(4);
+
+		const dates = ['2025-01-05', '2025-02-05', '2025-03-05'];
+		const build = (nature: TransactionNature | undefined) =>
+			dates.map((date) =>
+				tx({
+					date,
+					label: 'VIR SEPA LIVRET A',
+					amountCents: -20_000,
+					category: 'Épargne',
+					nature
+				})
+			);
+
+		const withoutNature = detectRecurringFlows(build(undefined));
+		const withNature = detectRecurringFlows(build('transfer'));
+
+		expect(withNature).toHaveLength(withoutNature.length);
+		expect(withNature[0].key).toBe(withoutNature[0].key);
+		expect(withNature[0].direction).toBe(withoutNature[0].direction);
+		// Different fixture instances, so the ids differ by construction — the COUNT and ordering
+		// are what a nature-driven regrouping would move.
+		expect(withNature[0].occurrenceIds).toHaveLength(withoutNature[0].occurrenceIds.length);
 	});
 });
 

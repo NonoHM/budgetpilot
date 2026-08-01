@@ -9,6 +9,7 @@ import {
 	RETIRED_REALIZED_MONTH_KEY,
 	RETIRED_STREAM,
 	SETTLED_STREAMS,
+	TRANSFER_STREAM,
 	UNCERTAIN_STREAM,
 	seedBillStreams,
 	withOtherUserContext
@@ -339,6 +340,36 @@ test.describe('/upcoming-bills — desktop 1280x800', () => {
 		// ...and the date really is past, so "À venir" above is the gate holding rather than a row
 		// that simply is not due yet.
 		await expect(row.getByText(m.bills_date_estimate_passed(), { exact: true })).toBeVisible();
+	});
+
+	/**
+	 * Item C, option D, end to end. The badge's chain is `CategoryNatureMapping` -> the effective
+	 * nature `readDashboardDataForRange` computes -> `ForecastInputTransaction.nature` ->
+	 * `RecurringFlow.nature` -> the row view -> `getNatureTag`. A unit test REPLACES the first two
+	 * links with a fixture, so only a real run proves the resolution happens at all — the same
+	 * reason `privileges.spec.ts` cannot see a wrong SQL predicate.
+	 *
+	 * Both halves of the decision are asserted together on purpose: the badge appears AND the row
+	 * keeps counting. Splitting them would let a future "let's just exclude transfers" change keep
+	 * one test green.
+	 */
+	test('a transfer stream carries the Transfert badge and still counts in "reste à sortir"', async ({
+		page
+	}) => {
+		await page.goto(BILLS_MONTH_URL);
+
+		const row = billRow(page, TRANSFER_STREAM.display);
+		await expect(row).toHaveCount(1);
+
+		await expect(row.getByText(m.nature_transfer(), { exact: true }).first()).toBeVisible();
+		// Counted: "hors total" is the ONLY copy marking a row out of the period figure, and it is
+		// absent here. The row is a confirmed overdue expense, so nothing else could exclude it.
+		await expect(row.getByText(m.bills_amount_excluded())).toHaveCount(0);
+		// And an ordinary expense stream in a category with no transfer/investment mapping carries
+		// no badge at all — otherwise the assertion above would pass on a badge printed everywhere.
+		await expect(
+			billRow(page, OVERDUE_GYM.display).getByText(m.nature_transfer(), { exact: true })
+		).toHaveCount(0);
 	});
 
 	test('the "!" important modifier on the uncertain tier badge actually wins over Badge\'s own colour', async ({

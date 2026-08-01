@@ -56,6 +56,9 @@ export interface BillStreamSeed {
 	amountCents: number;
 	/** Every occurrence as an absolute `yyyy-mm-dd`, oldest first. */
 	occurrences: string[];
+	/** Seeded category to post the occurrences under. Defaults to `BILL_CATEGORY`; the transfer
+	 *  stream overrides it so the app's real `CategoryNatureMapping` resolves it to `transfer`. */
+	category: string;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -102,6 +105,14 @@ function monthKey(monthsBack: number, now: Date = new Date()): string {
  *  direction + normalized label + category, and the labels already differ. */
 const BILL_CATEGORY = SEEDED_BUDGET_CATEGORY;
 
+/**
+ * The seeded default whose `CategoryNatureMapping` is `transfer` (`server/categories/defaults.ts`,
+ * key `savings`). Used by TRANSFER_SHAPE alone, so the suite can observe a nature that is RESOLVED
+ * by the app from real per-user mapping rows rather than asserted from a fixture — the one link in
+ * the badge's chain that no unit test can exercise, because the fixture is what it replaces.
+ */
+const TRANSFER_CATEGORY = 'Épargne';
+
 interface StreamShape {
 	label: string;
 	display: string;
@@ -111,6 +122,8 @@ interface StreamShape {
 	monthsBack: number[];
 	/** Days before the anchor's day-of-month, applied to every occurrence. */
 	dayOffset: number;
+	/** Defaults to `BILL_CATEGORY`. */
+	category?: string;
 }
 
 const SETTLED_SHAPES: StreamShape[] = [
@@ -183,6 +196,23 @@ const UNCERTAIN_SHAPE: StreamShape = {
 	dayOffset: 0
 };
 
+/**
+ * Same shape as the two overdue streams — three occurrences, last one a month before the anchor, so
+ * the anchor date is a projected overdue occurrence — but posted under `TRANSFER_CATEGORY`. Its
+ * subject is item C: a standing order to a livret A is a confirmed expense stream like any other,
+ * it STAYS in "reste à sortir" (the cash-flow forecast counts it, and filtering one surface and not
+ * the other is the disagreement #97 closed), and the only thing that distinguishes it is a badge.
+ */
+const TRANSFER_SHAPE: StreamShape = {
+	label: 'ZETA LIVRET CLUB',
+	display: 'Zeta Livret Club',
+	amount: '-200.00',
+	amountCents: -20_000,
+	monthsBack: [3, 2, 1],
+	dayOffset: 0,
+	category: TRANSFER_CATEGORY
+};
+
 const RETIRED_SHAPE: StreamShape = {
 	label: 'ZETA CANCEL CLUB',
 	display: 'Zeta Cancel Club',
@@ -201,7 +231,8 @@ function buildStream(shape: StreamShape, dueIso: string): BillStreamSeed {
 		amountCents: shape.amountCents,
 		occurrences: [...shape.monthsBack]
 			.sort((a, b) => b - a)
-			.map((monthsBack) => addMonthsIso(base, -monthsBack))
+			.map((monthsBack) => addMonthsIso(base, -monthsBack)),
+		category: shape.category ?? BILL_CATEGORY
 	};
 }
 
@@ -209,6 +240,7 @@ interface BillsFixture {
 	settled: BillStreamSeed[];
 	gym: BillStreamSeed;
 	water: BillStreamSeed;
+	transfer: BillStreamSeed;
 	uncertain: BillStreamSeed;
 	retired: BillStreamSeed;
 	all: BillStreamSeed[];
@@ -218,15 +250,17 @@ function buildFixture(dueIso: string): BillsFixture {
 	const settled = SETTLED_SHAPES.map((shape) => buildStream(shape, dueIso));
 	const gym = buildStream(OVERDUE_GYM_SHAPE, dueIso);
 	const water = buildStream(OVERDUE_WATER_SHAPE, dueIso);
+	const transfer = buildStream(TRANSFER_SHAPE, dueIso);
 	const uncertain = buildStream(UNCERTAIN_SHAPE, dueIso);
 	const retired = buildStream(RETIRED_SHAPE, dueIso);
 	return {
 		settled,
 		gym,
 		water,
+		transfer,
 		uncertain,
 		retired,
-		all: [...settled, gym, water, uncertain, retired]
+		all: [...settled, gym, water, transfer, uncertain, retired]
 	};
 }
 
@@ -237,7 +271,7 @@ function toSimulationTransactions(streams: BillStreamSeed[]): ForecastInputTrans
 			date,
 			label: stream.label,
 			amountCents: stream.amountCents,
-			category: BILL_CATEGORY,
+			category: stream.category,
 			type: 'expense' as const
 		}))
 	);
@@ -272,7 +306,7 @@ function scoreCandidate(dueIso: string, todayIso: string): number | null {
 	const rowsOf = (stream: BillStreamSeed) =>
 		occurrences.filter((occurrence) => occurrence.flow.label === stream.label);
 
-	for (const stream of [fixture.gym, fixture.water]) {
+	for (const stream of [fixture.gym, fixture.water, fixture.transfer]) {
 		const rows = rowsOf(stream);
 		if (rows.length !== 1) return null;
 		if (rows[0].dateIso !== dueIso || rows[0].status !== 'overdue') return null;
@@ -378,6 +412,9 @@ export const SETTLED_STREAMS: BillStreamSeed[] = FIXTURE.settled;
 export const OVERDUE_GYM: BillStreamSeed = FIXTURE.gym;
 export const OVERDUE_WATER: BillStreamSeed = FIXTURE.water;
 
+/** Same, in the `transfer`-mapped seeded category. See `TRANSFER_SHAPE`. */
+export const TRANSFER_STREAM: BillStreamSeed = FIXTURE.transfer;
+
 /**
  * EXACTLY two occurrences, so `status: 'tentative'`, which `getFlowDisplayTier` maps to the
  * "Incertain" tier whatever the regularity score — and the projected next date is the anchor,
@@ -442,7 +479,7 @@ export async function seedBillStreams(): Promise<void> {
 					date,
 					label: stream.label,
 					amount: stream.amount,
-					category: BILL_CATEGORY
+					category: stream.category
 				});
 			}
 		}
