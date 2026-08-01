@@ -223,11 +223,13 @@
 		manualNatureValue !== (data.selectedTransaction?.manualNature ?? '')
 	);
 
-	// How many ids the id filter is actually running on (see the idsFilterNotice snippet). Zero
-	// when the param is absent — and also when it was present but empty, which is exactly the
-	// collapse `filters.ids` documents: an empty list yields no rows, so there is nothing to
-	// explain and no filter worth advertising.
-	const idsFilterCount = $derived(data.filters.ids ? data.filters.ids.split(',').length : 0);
+	// Whether the id filter is actually active (see the idsFilterNotice snippet). False when the
+	// param is absent — and also when it was present but empty, which is exactly the collapse
+	// `filters.ids` documents: an empty list yields no rows, so there is nothing to explain and no
+	// filter worth advertising. The count shown alongside it is `pagination.totalTransactions`, not
+	// the id count: an anchor can point at a transaction since deleted, and the row count is the
+	// honest number of what is actually on screen.
+	const idsFilterActive = $derived(Boolean(data.filters.ids));
 
 	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
 	function displayCategory(name: string): string {
@@ -517,9 +519,9 @@
 	already sitting next to it, so it needs no new escape hatch of its own.
 -->
 {#snippet idsFilterNotice()}
-	{#if idsFilterCount > 0}
+	{#if idsFilterActive}
 		<p class="mt-2 text-sm text-zinc-600">
-			{m.transactions_filter_ids_active({ count: idsFilterCount })}
+			{m.transactions_filter_ids_active({ count: data.pagination.totalTransactions })}
 		</p>
 	{/if}
 {/snippet}

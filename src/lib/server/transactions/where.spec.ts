@@ -331,10 +331,12 @@ describe('normalizeIdList', () => {
 	// The assertion above is the EASY half — it compares two constants. The hard half is the
 	// arithmetic that justifies the constant, which until now lived only in a comment: the ceiling
 	// is not "~52 for a weekly stream", because classifyCadence tests the MEDIAN interval, so a
-	// group counts as weekly at a 5-day median (about 2 × 365 / 5 = 146 over the 12-month
-	// lookback). This runs the real detector on a real 5-day-median stream and reads the number
-	// off, so a change to the cadence windows or the lookback that pushes it past 250 goes red
-	// here instead of silently truncating a user's link.
+	// group counts as weekly at a 5-day median (about 2 × 365 / 5 = 146 over a 12-month span).
+	// This runs the real detector on a real 5-day-median stream and reads the number off, so a
+	// change to the cadence windows that pushes it past 250 goes red here instead of silently
+	// truncating a user's link. detectRecurringFlows applies no lookback filter of its own — the
+	// 12-month window is the caller's FORECAST_LOOKBACK_MONTHS, and this fixture's 725-day span is
+	// not constructed to pin that boundary — so this test says nothing about the lookback.
 	it('encaisse le plus gros flux réellement détectable (médiane 5 jours) sans troncature', () => {
 		expect.assertions(4);
 

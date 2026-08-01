@@ -404,17 +404,23 @@ describe('/transactions load', () => {
 
 		// The stated reason buildPageHref carries `ids`: 250 ids over 25 per page is 10 pages, so a
 		// filtered view that lost the param on page 2 would silently show the whole history instead.
+		//
+		// The id list is a STRICT SUBSET (26 of the fixture's 30 owned transactions), not the whole
+		// fixture: with all 30 ids, dropping the `ids` filter entirely produces identical totals and
+		// page contents, so the test could not fail. 26 ids over 25 per page still exercises two
+		// pages (25 then 1) while keeping the filtered totals genuinely different from the
+		// unfiltered 30.
 		it('reste paginé DANS la liste d’ids, page 2 comprise', async () => {
 			expect.assertions(3);
 
-			const thirty = Array.from({ length: 30 }, (_, i) => `transaction-${i + 1}`).join(',');
-			const first = await runLoad(`/transactions?ids=${thirty}`);
-			const second = await runLoad(`/transactions?ids=${thirty}&page=2`);
+			const twentySix = Array.from({ length: 26 }, (_, i) => `transaction-${i + 1}`).join(',');
+			const first = await runLoad(`/transactions?ids=${twentySix}`);
+			const second = await runLoad(`/transactions?ids=${twentySix}&page=2`);
 
-			expect(first.pagination.totalTransactions).toBe(30);
+			expect(first.pagination.totalTransactions).toBe(26);
 			expect(first.transactions).toHaveLength(25);
-			// 30 owned ids, not the fixture's full history: the filter survived the second load.
-			expect(second.transactions).toHaveLength(5);
+			// 26 owned ids, not the fixture's full 30-row history: the filter survived the second load.
+			expect(second.transactions).toHaveLength(1);
 		});
 
 		it('borne la liste avant de la passer à Prisma', async () => {

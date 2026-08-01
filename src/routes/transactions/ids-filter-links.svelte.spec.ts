@@ -163,8 +163,31 @@ describe('?ids= propagation through the generated links', () => {
 
 		// The whole point of the notice: with `?q=` the search box showed the term, so a short list
 		// explained itself. `?ids=` has no field of its own and the bar would otherwise look empty.
-		expect(container.textContent).toContain('3');
-		expect(container.textContent).toContain('liées à une échéance');
+		// The count is `pagination.totalTransactions` (2, the rows actually rendered), not the 3
+		// ids in IDS: an anchor can point at a transaction since deleted, and the row count is the
+		// honest number of what is on screen.
+		expect(container.textContent).toContain('2');
+		expect(container.textContent).toContain('liée(s) à une échéance');
+	});
+
+	it('reads correctly in the singular, when exactly one result is on screen', async () => {
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: baseData({
+				transactions: [makeTransaction('tx-1')],
+				pagination: {
+					page: 1,
+					pageSize: 25,
+					totalTransactions: 1,
+					totalPages: 1,
+					hasPrevious: false,
+					hasNext: false
+				}
+			}),
+			form: null
+		});
+
+		expect(container.textContent).toContain('1 transaction(s) liée(s) à une échéance');
 	});
 
 	it('says nothing when no id filter is active', async () => {
