@@ -66,7 +66,11 @@ describe('TapLink.svelte', () => {
 	// element from `href`, so forwarding the id on only one of the two branches is a silent
 	// focus-lands-on-nothing bug.
 	it('forwards id on the anchor variant', async () => {
-		render(TapLink, { id: 'bill-restore-x', href: '/upcoming-bills', children: textSnippet('Rétablir') });
+		render(TapLink, {
+			id: 'bill-restore-x',
+			href: '/upcoming-bills',
+			children: textSnippet('Rétablir')
+		});
 
 		const link = page.getByRole('link', { name: 'Rétablir' });
 		await expect.element(link).toHaveAttribute('id', 'bill-restore-x');

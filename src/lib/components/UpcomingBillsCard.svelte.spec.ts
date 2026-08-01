@@ -5,7 +5,10 @@ import '../../routes/layout.css';
 import UpcomingBillsCard from './UpcomingBillsCard.svelte';
 import { formatCents } from '$lib/domain/budget';
 import { formatShortDate } from '$lib/domain/dateFormat';
-import type { UpcomingBillRowView, UpcomingBillsWidgetView } from '$lib/server/upcoming-bills/service';
+import type {
+	UpcomingBillRowView,
+	UpcomingBillsWidgetView
+} from '$lib/server/upcoming-bills/service';
 
 const TODAY_ISO = '2026-08-01';
 
@@ -92,9 +95,7 @@ describe('UpcomingBillsCard.svelte', () => {
 
 		// Real stylesheet is loaded (see the `layout.css` import above), so `toBeVisible()` reflects
 		// an actual computed style here, not an inert assertion against unstyled markup.
-		await expect
-			.element(page.getByText('Reste à sortir · 30 prochains jours'))
-			.toBeVisible();
+		await expect.element(page.getByText('Reste à sortir · 30 prochains jours')).toBeVisible();
 
 		const footer = container.querySelector('.border-t.border-zinc-100');
 		expect(footer).not.toBeNull();
@@ -105,9 +106,7 @@ describe('UpcomingBillsCard.svelte', () => {
 		await page.viewport(1280, 800);
 		const { container } = render(UpcomingBillsCard, { widget: buildWidget() });
 
-		await expect
-			.element(page.getByText('Reste à sortir · 30 prochains jours'))
-			.toBeVisible();
+		await expect.element(page.getByText('Reste à sortir · 30 prochains jours')).toBeVisible();
 
 		const footer = container.querySelector('.border-t.border-zinc-100');
 		expect(footer).not.toBeNull();
@@ -141,7 +140,9 @@ describe('UpcomingBillsCard.svelte', () => {
 			})
 		});
 
-		const amberRows = container.querySelectorAll('[class*="bg-amber-50"][class*="border-amber-200"]');
+		const amberRows = container.querySelectorAll(
+			'[class*="bg-amber-50"][class*="border-amber-200"]'
+		);
 		expect(amberRows.length).toBe(1);
 		expect(container.querySelector('.text-amber-700')).not.toBeNull();
 	});
@@ -150,7 +151,9 @@ describe('UpcomingBillsCard.svelte', () => {
 		render(UpcomingBillsCard, {
 			widget: buildWidget({
 				overdueCount: 1,
-				rows: [buildRow({ rowKey: 'overdue-row', status: 'overdue', daysLate: 3, dateIso: '2026-07-29' })]
+				rows: [
+					buildRow({ rowKey: 'overdue-row', status: 'overdue', daysLate: 3, dateIso: '2026-07-29' })
+				]
 			})
 		});
 
@@ -159,7 +162,12 @@ describe('UpcomingBillsCard.svelte', () => {
 
 	it('renders the EmptyState, keeps the card title and hides the footer when no stream was ever detected', async () => {
 		const { container } = render(UpcomingBillsCard, {
-			widget: buildWidget({ rows: [], overdueCount: 0, hasStreams: false, remainingExpenseCents: 0 })
+			widget: buildWidget({
+				rows: [],
+				overdueCount: 0,
+				hasStreams: false,
+				remainingExpenseCents: 0
+			})
 		});
 
 		await expect.element(page.getByText('Échéances à venir')).toBeInTheDocument();
@@ -351,7 +359,12 @@ describe('UpcomingBillsCard.svelte', () => {
 
 	it('renders an icon in both "no streams" and "streams but none due" empty states', async () => {
 		const { container: noStreams, unmount } = render(UpcomingBillsCard, {
-			widget: buildWidget({ rows: [], overdueCount: 0, hasStreams: false, remainingExpenseCents: 0 })
+			widget: buildWidget({
+				rows: [],
+				overdueCount: 0,
+				hasStreams: false,
+				remainingExpenseCents: 0
+			})
 		});
 		expect(noStreams.querySelector('svg')).not.toBeNull();
 		unmount();

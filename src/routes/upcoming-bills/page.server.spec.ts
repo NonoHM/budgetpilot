@@ -145,28 +145,28 @@ describe('/upcoming-bills actions', () => {
 	it.each([
 		['markPaid', 'paid'],
 		['ignoreOccurrence', 'ignore']
-	] as const)('%s enregistre une action %s et renvoie de quoi peupler la banniere', async (
-		name,
-		kind
-	) => {
-		expect.assertions(3);
+	] as const)(
+		'%s enregistre une action %s et renvoie de quoi peupler la banniere',
+		async (name, kind) => {
+			expect.assertions(3);
 
-		const result = await runAction(name, CREATOR_FIELDS);
+			const result = await runAction(name, CREATOR_FIELDS);
 
-		expect(service.recordStreamAction).toHaveBeenCalledWith('user-a', {
-			kind,
-			direction: 'expense',
-			label: 'NETFLIX.COM',
-			dueDate: '2026-07-31',
-			anchorTransactionIds: ['tx-a', 'tx-b']
-		});
-		expect(result).toEqual({
-			billAction: { kind, actionId: 'action-1', month: '2026-07', label: 'Netflix' }
-		});
-		// The field was removed from the service's input type; TypeScript's excess-property check
-		// only fires on a direct literal, so the absence is pinned here too.
-		expect(service.recordStreamAction.mock.calls[0][1]).not.toHaveProperty('normalizedLabel');
-	});
+			expect(service.recordStreamAction).toHaveBeenCalledWith('user-a', {
+				kind,
+				direction: 'expense',
+				label: 'NETFLIX.COM',
+				dueDate: '2026-07-31',
+				anchorTransactionIds: ['tx-a', 'tx-b']
+			});
+			expect(result).toEqual({
+				billAction: { kind, actionId: 'action-1', month: '2026-07', label: 'Netflix' }
+			});
+			// The field was removed from the service's input type; TypeScript's excess-property check
+			// only fires on a direct literal, so the absence is pinned here too.
+			expect(service.recordStreamAction.mock.calls[0][1]).not.toHaveProperty('normalizedLabel');
+		}
+	);
 
 	it('excludeStream poste sans date d echeance et renvoie une banniere sans mois', async () => {
 		expect.assertions(2);

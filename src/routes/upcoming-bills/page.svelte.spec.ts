@@ -368,9 +368,9 @@ describe('/upcoming-bills page', () => {
 		);
 		expect(undo?.getAttribute('form')).toBe('bill-undo-banner');
 		expect(banner?.querySelector('form')).toBeNull();
-		expect(
-			container.querySelector('#bill-undo-banner')?.getAttribute('action')
-		).toBe('?/undoAction');
+		expect(container.querySelector('#bill-undo-banner')?.getAttribute('action')).toBe(
+			'?/undoAction'
+		);
 	});
 
 	it('surfaces an action failure as an error banner rather than a success one', async () => {

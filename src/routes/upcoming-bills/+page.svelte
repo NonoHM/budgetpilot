@@ -120,7 +120,9 @@
 	}
 
 	function shiftMonth(month: string, delta: number): string {
-		const shifted = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 + delta, 1));
+		const shifted = new Date(
+			Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1 + delta, 1)
+		);
 		return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
 	}
 
@@ -215,7 +217,8 @@
 	function cadenceLabel(row: UpcomingBillRowView): string {
 		if (row.cadence === 'weekly') return m.bills_cadence_weekly();
 		if (row.cadence === 'biweekly') return m.bills_cadence_biweekly();
-		if (row.cadence === 'quarterly') return m.bills_cadence_quarterly({ day: row.anchorDayOfMonth });
+		if (row.cadence === 'quarterly')
+			return m.bills_cadence_quarterly({ day: row.anchorDayOfMonth });
 		if (row.cadence === 'yearly') return m.bills_cadence_yearly();
 		return m.bills_cadence_monthly({ day: row.anchorDayOfMonth });
 	}
@@ -764,7 +767,9 @@
 									role="listitem"
 									id="bill-row-{domKey}"
 									tabindex="-1"
-									class="{cardBase} outline-none {row.status === 'overdue' ? OVERDUE_ROW_CLASS : ''}"
+									class="{cardBase} outline-none {row.status === 'overdue'
+										? OVERDUE_ROW_CLASS
+										: ''}"
 								>
 									<!-- Desktop: the five fixed columns. -->
 									<div class="hidden items-center px-4 py-3 {DESKTOP_GRID}">
@@ -845,14 +850,22 @@
 													<div class="py-1.5">
 														<DropdownMenu.Item onSelect={() => submitMarkPaid(domKey)}>
 															{#snippet child({ props })}
-																<button {...props} type="button" class="{MENU_ITEM_CLASS} text-zinc-700">
+																<button
+																	{...props}
+																	type="button"
+																	class="{MENU_ITEM_CLASS} text-zinc-700"
+																>
 																	{m.bills_action_mark_paid()}
 																</button>
 															{/snippet}
 														</DropdownMenu.Item>
 														<DropdownMenu.Item onSelect={() => (pendingIgnore = row)}>
 															{#snippet child({ props })}
-																<button {...props} type="button" class="{MENU_ITEM_CLASS} text-zinc-700">
+																<button
+																	{...props}
+																	type="button"
+																	class="{MENU_ITEM_CLASS} text-zinc-700"
+																>
 																	{m.bills_action_ignore()}
 																</button>
 															{/snippet}
