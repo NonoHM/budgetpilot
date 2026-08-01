@@ -21,7 +21,7 @@ describe('mode dashboard', () => {
 
 		const page = readFileSync(resolve(root, 'src/routes/+page.svelte'), 'utf8');
 
-		expect(page).toContain('{#if !hasDashboardData}');
+		expect(page).toContain('{#if !showDashboardBody}');
 		expect(page).toContain('{m.dashboard_empty_footer()}');
 	});
 
@@ -37,6 +37,20 @@ describe('mode dashboard', () => {
 		expect(page).toContain(
 			'data.transactions.length > 0 || data.budgets.length > 0 || data.savingsGoals.length > 0'
 		);
+	});
+
+	it('affiche le widget échéances même sans transaction/budget/objectif quand des flux récurrents sont détectés', () => {
+		expect.assertions(1);
+
+		const page = readFileSync(resolve(root, 'src/routes/+page.svelte'), 'utf8');
+
+		// hasDashboardData keys on the CURRENT PERIOD's transactions (see the derived above), so a
+		// user with detected recurring streams but no activity this period would otherwise fall
+		// into the onboarding empty state and never see the upcoming-bills widget — precisely when
+		// it matters most. `hasStreams` (already computed by the widget's own service) widens the
+		// "state with data" branch independently of `hasDashboardData`, without touching the header
+		// text or the Import/Saisie manuelle buttons, which stay keyed on the period alone.
+		expect(page).toContain('data.upcomingBills.hasStreams');
 	});
 
 	it('affiche le suivi des budgets dans la colonne latérale', () => {

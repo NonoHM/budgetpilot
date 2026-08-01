@@ -43,6 +43,14 @@
 	const hasDashboardData = $derived(
 		data.transactions.length > 0 || data.budgets.length > 0 || data.savingsGoals.length > 0
 	);
+	// `hasDashboardData` keys on the CURRENT PERIOD's transactions, so a user with detected
+	// recurring streams but no activity this period would otherwise land in the onboarding empty
+	// state below and never see the upcoming-bills widget — precisely when it matters most
+	// (Task 3, B5a). `hasStreams` is period-independent (computed over the detector's own 12-month
+	// window, see service.ts), so it widens the "state with data" branch on its own, without
+	// touching the header text or the Import/Saisie manuelle buttons above, which stay keyed on
+	// `hasDashboardData` alone — those are genuinely about the selected period.
+	const showDashboardBody = $derived(hasDashboardData || data.upcomingBills.hasStreams);
 	const hasConfirmedForecastFlows = $derived(hasReliableConfirmedFlow(data.cashFlowForecast.flows));
 	// Delta = projected balance at the end of the horizon minus today's known balance (the ledger's
 	// realized/projected boundary, see CashFlowLedger.todayIndex) — colored per the app's standard
@@ -284,7 +292,7 @@
 			categories={data.categories}
 		/>
 
-		{#if !hasDashboardData}
+		{#if !showDashboardBody}
 			{#snippet emptyIcon()}
 				<svg
 					class="h-5 w-5 text-zinc-400"
@@ -561,6 +569,9 @@
 						{/if}
 					</div>
 
+					<!-- Reachable here even when `hasDashboardData` is false — see `showDashboardBody`
+					     above (Task 3, B5a). The card itself already renders a dedicated empty state
+					     when `!hasStreams`, so no separate gate is needed at this call site. -->
 					<UpcomingBillsCard widget={data.upcomingBills} />
 
 					<div class="{cardBase} p-5">
