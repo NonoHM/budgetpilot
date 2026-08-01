@@ -1,12 +1,25 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { RecurringFlow, ProjectedOccurrence } from '$lib/domain/forecast';
 import {
+	computeStaleAfterDays,
+	detectRecurringFlows,
+	isReliableConfirmedFlow,
+	projectFlowOccurrences
+} from '$lib/domain/forecast';
+import { buildBillOccurrences } from '$lib/domain/upcomingBills';
+import {
 	FORECAST_REPORTS_HORIZON_DAYS,
 	FORECAST_REPORTS_HORIZON_MONTHS,
 	toDisplayCashFlowForecast,
 	type CashFlowForecast,
 	type CashFlowLedger
 } from './index';
+
+function addDaysIso(iso: string, days: number): string {
+	return new Date(new Date(`${iso}T00:00:00.000Z`).getTime() + days * 86_400_000)
+		.toISOString()
+		.slice(0, 10);
+}
 
 describe('FORECAST_REPORTS_HORIZON_MONTHS', () => {
 	it('is derived from FORECAST_REPORTS_HORIZON_DAYS, never hardcoded independently', () => {
@@ -61,7 +74,8 @@ describe('toDisplayCashFlowForecast', () => {
 		const forecast: CashFlowForecast = {
 			flows: [flow()],
 			ledger: ledger([{ date: '2025-04-01', balanceCents: 0, events: [] }]),
-			hasBalanceAnchor: true
+			hasBalanceAnchor: true,
+			todayIso: '2025-04-01'
 		};
 
 		const view = toDisplayCashFlowForecast(forecast);
@@ -80,7 +94,8 @@ describe('toDisplayCashFlowForecast', () => {
 				{ date: '2025-04-01', balanceCents: 0, events: [] },
 				{ date: '2025-04-28', balanceCents: 200_000, events: [occurrence()] }
 			]),
-			hasBalanceAnchor: true
+			hasBalanceAnchor: true,
+			todayIso: '2025-04-01'
 		};
 
 		const view = toDisplayCashFlowForecast(forecast);
@@ -98,7 +113,8 @@ describe('toDisplayCashFlowForecast', () => {
 			ledger: ledger([
 				{ date: '2025-04-01', balanceCents: 42_000, events: [occurrence({ amountCents: -5_000 })] }
 			]),
-			hasBalanceAnchor: false
+			hasBalanceAnchor: false,
+			todayIso: '2025-04-01'
 		};
 
 		const view = toDisplayCashFlowForecast(forecast);
@@ -107,6 +123,183 @@ describe('toDisplayCashFlowForecast', () => {
 		expect(view.flows[0].status).toBe('tentative');
 		expect(view.days[0].balanceCents).toBe(42_000);
 		expect(view.days[0].events[0].amountCents).toBe(-5_000);
+	});
+
+	// Fix round 2 (branch review, IMPORTANT #1): `/reports` and the dashboard used to re-implement
+	// the server's inclusion predicate client-side as `flows.filter(isReliableConfirmedFlow)`, which
+	// silently diverged once loadCashFlowForecast started excluding stale reliable flows too. This
+	// field is the fix: computed once, server-side, from the SAME predicate the ledger itself used.
+	it('feedsProjection is true only for a reliable, non-stale flow — false for a stale one and for a merely-tentative one', () => {
+		expect.assertions(3);
+
+		const todayIso = '2025-04-10';
+		const notStale = flow({
+			label: 'RELIABLE LIVE',
+			status: 'confirmed',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-03-28' // 13 days silent, well inside staleAfterDays (35).
+		});
+		const stale = flow({
+			label: 'RELIABLE STALE',
+			status: 'confirmed',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-01-01' // ~99 days silent, well past staleAfterDays (35).
+		});
+		const tentative = flow({
+			label: 'TENTATIVE LIVE',
+			status: 'tentative',
+			confidence: 'high',
+			lastDate: '2025-03-28'
+		});
+
+		const forecast: CashFlowForecast = {
+			flows: [notStale, stale, tentative],
+			ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+			hasBalanceAnchor: true,
+			todayIso
+		};
+
+		const view = toDisplayCashFlowForecast(forecast);
+
+		expect(view.flows.find((f) => f.label.includes('Reliable Live'))?.feedsProjection).toBe(true);
+		expect(view.flows.find((f) => f.label.includes('Reliable Stale'))?.feedsProjection).toBe(false);
+		expect(view.flows.find((f) => f.label.includes('Tentative Live'))?.feedsProjection).toBe(false);
+	});
+
+	// Task 2 of the detection-window-upper-bound chantier: the empty state used to collapse two
+	// different situations (nothing ever detected vs. everything detected but now silent) into a
+	// single boolean, so the route could only ever render one message. `emptyState` distinguishes
+	// them, computed from the same per-flow `feedsProjection` predicate above.
+	describe('emptyState', () => {
+		it("is 'none-detected' when no flow ever reaches reliable-confirmed", () => {
+			expect.assertions(1);
+
+			const todayIso = '2025-04-10';
+			const tentative = flow({ status: 'tentative', confidence: 'high', lastDate: '2025-03-28' });
+			const lowConfidence = flow({
+				status: 'confirmed',
+				confidence: 'low',
+				lastDate: '2025-03-28'
+			});
+
+			const forecast: CashFlowForecast = {
+				flows: [tentative, lowConfidence],
+				ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBe('none-detected');
+		});
+
+		it("is 'none-detected' when there are no flows at all (empty array boundary)", () => {
+			expect.assertions(1);
+
+			const forecast: CashFlowForecast = {
+				flows: [],
+				ledger: ledger([{ date: '2025-04-10', balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso: '2025-04-10'
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBe('none-detected');
+		});
+
+		it("is 'all-stale' when every reliable-confirmed flow has gone stale", () => {
+			expect.assertions(1);
+
+			const todayIso = '2025-04-10';
+			const stale = flow({
+				status: 'confirmed',
+				confidence: 'high',
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0,
+				lastDate: '2025-01-01' // ~99 days silent, well past staleAfterDays (35).
+			});
+
+			const forecast: CashFlowForecast = {
+				flows: [stale],
+				ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBe('all-stale');
+		});
+
+		// Fix round 1 finding #ADD-2: the single-flow 'all-stale' fixture above would also pass a
+		// mistaken `flows.every(isStreamStale)` implementation (vacuously true over one flow that
+		// happens to be reliable-confirmed too). This fixture mixes a stale reliable-confirmed flow
+		// with a LIVE flow that never reaches reliable-confirmed (tentative, so `isStreamStale` is
+		// irrelevant to it) — the realistic shape the discriminator actually has to get right: 'every
+		// RELIABLE-CONFIRMED flow is stale', not 'every flow is stale'.
+		it("is 'all-stale' when the only reliable-confirmed flow is stale, even alongside a live tentative flow", () => {
+			expect.assertions(1);
+
+			const todayIso = '2025-04-10';
+			const staleReliable = flow({
+				label: 'STALE RELIABLE',
+				status: 'confirmed',
+				confidence: 'high',
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0,
+				lastDate: '2025-01-01' // ~99 days silent, well past staleAfterDays (35).
+			});
+			const liveTentative = flow({
+				label: 'LIVE TENTATIVE',
+				status: 'tentative',
+				confidence: 'high',
+				lastDate: '2025-04-05' // Recently active, but never reliable-confirmed regardless.
+			});
+
+			const forecast: CashFlowForecast = {
+				flows: [staleReliable, liveTentative],
+				ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBe('all-stale');
+		});
+
+		it('is null when a live reliable-confirmed flow exists', () => {
+			expect.assertions(1);
+
+			const todayIso = '2025-04-10';
+			const live = flow({
+				status: 'confirmed',
+				confidence: 'high',
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0,
+				lastDate: '2025-03-28' // 13 days silent, well inside staleAfterDays (35).
+			});
+			const stale = flow({
+				status: 'confirmed',
+				confidence: 'high',
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0,
+				lastDate: '2025-01-01'
+			});
+
+			const forecast: CashFlowForecast = {
+				flows: [live, stale],
+				ledger: ledger([{ date: todayIso, balanceCents: 0, events: [] }]),
+				hasBalanceAnchor: true,
+				todayIso
+			};
+
+			expect(toDisplayCashFlowForecast(forecast).emptyState).toBeNull();
+		});
 	});
 
 	it('transmet todayIndex tel quel — la frontière réalisé/projeté ne doit jamais être redevinée côté vue', () => {
@@ -122,7 +315,8 @@ describe('toDisplayCashFlowForecast', () => {
 				],
 				2
 			),
-			hasBalanceAnchor: true
+			hasBalanceAnchor: true,
+			todayIso: '2025-04-01'
 		};
 
 		expect(toDisplayCashFlowForecast(forecast).todayIndex).toBe(2);
@@ -346,6 +540,491 @@ describe('loadCashFlowForecast', () => {
 		// residualTransactions is empty (all 3 excluded) -> residual = 0, and no event lands within the
 		// horizon -> the final balance must equal the anchor exactly.
 		expect(lastDay.balanceCents).toBe(50_000);
+
+		vi.useRealTimers();
+	});
+
+	// Detection-window upper bound (task 1). `to` used to be `today` — `new Date()`, WITH the
+	// time-of-day the request happened to run at — not `detectionEndExclusive(todayIso)`, midnight
+	// UTC of the day after. A transaction dated today but stored with a later clock time than the
+	// request (an evening purchase, a request that ran at 00:05) was silently excluded from the
+	// detector's input while the realized ledger (ISO-date based) already counted it.
+	//
+	// Fix round 1: the previous version of this test only asserted the `to` ARGUMENT against
+	// `detectionEndExclusive('2025-04-10')` — the production helper compared to itself, which
+	// cannot fail on a wrong helper — and never exercised an actual transaction. This version
+	// makes the mocked `readDashboardDataForRange` apply the SAME `lt` semantics the real Prisma
+	// query does (filter by `< to`), so the assertion below is a genuine behavioural check: it
+	// fails if `to` regresses to `today` (09:00), because the mock's own gate would then exclude
+	// the 21:00 transaction.
+	it("reaches a same-day transaction stored later than the request's own clock time (fetch bound is detectionEndExclusive, not `now`)", async () => {
+		expect.assertions(3);
+		// The fake "now" is 09:00 UTC; the transaction below is dated the same calendar day but
+		// stored at 21:00 UTC — later than "now", so `to: today` (a Date with today's time-of-day)
+		// would have excluded it while `to: detectionEndExclusive(todayIso)` (2025-04-11T00:00:00Z)
+		// does not.
+		vi.setSystemTime(new Date('2025-04-10T09:00:00.000Z'));
+		const lateSameDayInstant = new Date('2025-04-10T21:00:00.000Z');
+
+		dashboardModule.readDashboardDataForRange.mockImplementation(
+			async (_userId: string, range: { to: Date }) => {
+				// Mirrors the real Prisma `date: { lt: range.to }` filter the mocked-away
+				// `readDashboardDataForRange` would otherwise apply, using the transaction's full
+				// timestamp — not just its calendar date — exactly the precision this bug turns on.
+				const reached = lateSameDayInstant < range.to;
+				return {
+					transactions: reached
+						? [
+								{
+									id: 'tx-late-same-day',
+									date: '2025-04-10',
+									label: 'ACHAT TARDIF',
+									amountCents: -500,
+									category: 'Shopping',
+									type: 'expense' as const
+								}
+							]
+						: []
+				};
+			}
+		);
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 5);
+
+		// `to` itself, pinned to the LITERAL boundary — not `detectionEndExclusive('2025-04-10')`
+		// again, which would compare the production value to itself and could never catch a broken
+		// helper (round-1 review finding, MINOR #3).
+		const calls = dashboardModule.readDashboardDataForRange.mock.calls;
+		const call = calls[calls.length - 1][1] as { to: Date };
+		expect(call.to.toISOString()).toBe('2025-04-11T00:00:00.000Z');
+
+		// The transaction landed "today", so its effect is only visible on the day BEFORE today in
+		// the realized ledger's backward walk (buildRealizedLedgerDays anchors the LAST day exactly
+		// on the known ending balance, by construction — see that function's own doc comment — so
+		// `todayDay.balanceCents` is always 100_000 regardless of any transaction and asserting it
+		// would prove nothing). Under the old `to: today` (09:00) bound, the mock above would have
+		// excluded this row entirely and this balance would read 100_000, not 100_500.
+		const todayIndex = forecast.ledger.todayIndex;
+		expect(forecast.ledger.days[todayIndex].date).toBe('2025-04-10');
+		expect(forecast.ledger.days[todayIndex - 1].balanceCents).toBe(100_000 - -500);
+
+		vi.useRealTimers();
+	});
+});
+
+// Task 2 of the detection-window-upper-bound chantier: `isStreamStale` (B1's staleness guard for
+// the upcoming-bills surfaces) now also applies to the cash-flow forecast, so a cancelled
+// subscription cannot still move the projected balance line after the bills surfaces have already
+// stopped showing it. Uses the REAL `detectRecurringFlows` (the default `domainForecastModule`
+// wiring above), not a hand-built RecurringFlow, so a test can assert the flow was genuinely
+// DETECTED as reliable-confirmed and not merely constructed to look that way.
+describe('loadCashFlowForecast — stale stream guard (B1 applied to the forecast)', () => {
+	const TODAY_ISO = '2025-04-10';
+
+	function monthlyExpenseTransactions(lastDateIso: string) {
+		return [-150, -120, -90, -60, -30, 0].map((offset, index) => ({
+			id: `tx-netflix-${index}`,
+			date: addDaysIso(lastDateIso, offset),
+			label: 'NETFLIX',
+			amountCents: -1_399,
+			category: 'Abonnements',
+			type: 'expense' as const
+		}));
+	}
+
+	// Bound to the code under test rather than to a parallel assumption about its cadence/CV
+	// (MINOR #4, fix round 1): run the REAL detector on the fixture and derive the threshold from
+	// what it actually reports, rather than hand-asserting {monthly, 30, CV 0}. The interval/CV the
+	// detector computes from the transactions' spacing doesn't depend on `lastDate`, so an arbitrary
+	// probe date is fine here — this runs once, during collection, before any test overrides
+	// `detectRecurringFlows` via `mockReturnValueOnce`.
+	const probeFlow = detectRecurringFlows(monthlyExpenseTransactions('2025-01-01'))[0];
+	const STALE_AFTER_DAYS = computeStaleAfterDays(probeFlow);
+
+	it('drops a cancelled stream from the projected ledger and moves the end-of-horizon balance up by the expense no longer projected', async () => {
+		expect.assertions(5);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Well past the tolerated cycle: silent for STALE_AFTER_DAYS + 2 days.
+		const staleLastDate = addDaysIso(TODAY_ISO, -(STALE_AFTER_DAYS + 2));
+		const transactions = monthlyExpenseTransactions(staleLastDate);
+
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions });
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 60);
+
+		// The flow really is detected, and really does qualify as reliable-confirmed — otherwise a
+		// "no events" assertion below would also pass if the fixture silently produced no flow, or a
+		// tentative/low-confidence one, at all.
+		const detected = forecast.flows.find((candidate) => candidate.label === 'NETFLIX');
+		expect(detected).toBeDefined();
+		expect(detected && isReliableConfirmedFlow(detected)).toBe(true);
+
+		// Sanity: the RAW stepping function (unaffected by this task) would still have produced an
+		// occurrence inside the horizon, proving the guard — not an absence of anything to project —
+		// is what removes the event below.
+		expect(detected ? projectFlowOccurrences(detected, TODAY_ISO, 60).length : 0).toBeGreaterThan(
+			0
+		);
+
+		// Direction check FIRST (fix round 1, MINOR #3): this is the assertion break 1 must be
+		// observed failing, and an earlier-throwing assertion below (`toHaveLength(0)`) would abort
+		// the test before it ever ran, making it unprovable. No projection and no residual (the
+		// flow's own transactions are excluded from the residual pool too, see the dedicated residual
+		// test below) -> the balance stays exactly at the anchor — one full cycle higher than the
+		// pre-fix behaviour, which would have debited the expense once.
+		const lastDay = forecast.ledger.days[forecast.ledger.days.length - 1];
+		expect(lastDay.balanceCents).toBe(100_000);
+
+		const netflixEvents = forecast.ledger.days.flatMap((day) =>
+			day.events.filter((event) => event.flowLabel === 'NETFLIX')
+		);
+		expect(netflixEvents).toHaveLength(0);
+
+		vi.useRealTimers();
+	});
+
+	it('leaves a live stream (recently active) untouched — same projected event count as the raw stepping function', async () => {
+		expect.assertions(3);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Comfortably inside the tolerated cycle: silent for only 10 days.
+		const liveLastDate = addDaysIso(TODAY_ISO, -10);
+		const transactions = monthlyExpenseTransactions(liveLastDate);
+
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions });
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 60);
+
+		const detected = forecast.flows.find((candidate) => candidate.label === 'NETFLIX');
+		expect(detected).toBeDefined();
+
+		const expectedEventCount = detected
+			? projectFlowOccurrences(detected, TODAY_ISO, 60).length
+			: 0;
+		expect(expectedEventCount).toBeGreaterThan(0);
+
+		const netflixEvents = forecast.ledger.days.flatMap((day) =>
+			day.events.filter((event) => event.flowLabel === 'NETFLIX')
+		);
+		expect(netflixEvents).toHaveLength(expectedEventCount);
+
+		vi.useRealTimers();
+	});
+
+	it('agrees with the upcoming-bills surface: the same stale stream disappears from both', async () => {
+		expect.assertions(3);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		const staleLastDate = addDaysIso(TODAY_ISO, -(STALE_AFTER_DAYS + 2));
+		const transactions = monthlyExpenseTransactions(staleLastDate);
+
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions });
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 60);
+		const detected = forecast.flows.find((candidate) => candidate.label === 'NETFLIX');
+		expect(detected).toBeDefined();
+
+		// The bills surface: already drops a stale stream from projection (pre-existing B1 guard).
+		const billOccurrences = detected
+			? buildBillOccurrences({
+					flows: [detected],
+					transactions,
+					actions: [],
+					fromIso: TODAY_ISO,
+					toIsoExclusive: addDaysIso(TODAY_ISO, 60),
+					todayIso: TODAY_ISO
+				})
+			: [];
+		expect(billOccurrences).toEqual([]);
+
+		// The forecast: this task's new guard.
+		const netflixEvents = forecast.ledger.days.flatMap((day) =>
+			day.events.filter((event) => event.flowLabel === 'NETFLIX')
+		);
+		expect(netflixEvents).toHaveLength(0);
+
+		vi.useRealTimers();
+	});
+
+	it("excludes a stale stream's transactions from the residual pool too — the projected slope is identical to a user who never had the stream", async () => {
+		expect.assertions(2);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Dense weekly activity (3 transactions every 7-day block, -200c each) but stopping 67 days
+		// before "today" — well past staleAfterDays for a weekly stream (7 + 2 + 0 = 9) — attributed
+		// to a mocked 'confirmed'/'high' (reliable) flow. A SPARSE fixture (like the monthly one used
+		// above) would not expose a residual leak: with only ~6 transactions spread across 12 months,
+		// most weekly sums in computeResidualDailyCents' dense series are already zero, so the median
+		// stays 0 whether or not the leak exists — that gap is exactly why this test uses a dense
+		// fixture instead of reusing monthlyExpenseTransactions.
+		const lookbackStartEpochDays = Date.UTC(2024, 3, 10) / 86_400_000;
+		const denseStaleTransactions: {
+			id: string;
+			date: string;
+			amountCents: number;
+			label: string;
+			category: string;
+			type: 'income' | 'expense';
+		}[] = [];
+		for (let offset = 0; offset < 300; offset++) {
+			if (offset % 7 === 0 || offset % 7 === 2 || offset % 7 === 4) {
+				denseStaleTransactions.push({
+					id: `tx-stale-dense-${offset}`,
+					date: new Date((lookbackStartEpochDays + offset) * 86_400_000).toISOString().slice(0, 10),
+					amountCents: -200,
+					label: 'ABONNEMENT ANNULE',
+					category: 'Abonnements',
+					type: 'expense'
+				});
+			}
+		}
+		const staleReliableFlow: RecurringFlow = {
+			key: 'expense:abonnement annule:Abonnements',
+			label: 'ABONNEMENT ANNULE',
+			category: 'Abonnements',
+			direction: 'expense',
+			cadence: 'weekly',
+			status: 'confirmed',
+			confidence: 'high',
+			occurrenceCount: denseStaleTransactions.length,
+			averageAmountCents: 200,
+			minAmountCents: 200,
+			maxAmountCents: 200,
+			medianIntervalDays: 7,
+			intervalCoefficientOfVariation: 0,
+			amountCoefficientOfVariation: 0,
+			dayOfMonthConcentration: 1,
+			// The last matching offset below 300 is 298 (298 % 7 === 4), i.e. 2025-02-02 — 67 days
+			// before TODAY_ISO (2025-04-10): isStreamStale is true (67 > 9).
+			lastDate: denseStaleTransactions[denseStaleTransactions.length - 1].date,
+			anchorDayOfMonth: 1,
+			occurrenceIds: denseStaleTransactions.map((transaction) => transaction.id)
+		};
+
+		domainForecastModule.detectRecurringFlows.mockReturnValueOnce([staleReliableFlow]);
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({
+			transactions: denseStaleTransactions
+		});
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+		const { loadCashFlowForecast } = await import('./index');
+		const forecastWithStaleStream = await loadCashFlowForecast('user-1', 14);
+
+		domainForecastModule.detectRecurringFlows.mockReturnValueOnce([]);
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions: [] });
+		const forecastWithNoActivity = await loadCashFlowForecast('user-1', 14);
+
+		const lastWithStream =
+			forecastWithStaleStream.ledger.days[forecastWithStaleStream.ledger.days.length - 1];
+		const lastWithNoActivity =
+			forecastWithNoActivity.ledger.days[forecastWithNoActivity.ledger.days.length - 1];
+		// The no-activity leg pinned to its own literal (fix round 1, cheap fix): comparing only
+		// `lastWithStream` to `lastWithNoActivity` would also pass if `loadCashFlowForecast` returned
+		// a constant balance regardless of input — no events, no residual, starting balance
+		// 100_000 -> the anchor exactly.
+		expect(lastWithNoActivity.balanceCents).toBe(100_000);
+		// If the stale flow's transactions leaked back into the residual pool, this would differ —
+		// the residual daily average would be pulled negative by the flow's own past payments.
+		expect(lastWithStream.balanceCents).toBe(lastWithNoActivity.balanceCents);
+
+		vi.useRealTimers();
+	});
+
+	it("still feeds the residual pool from a tentative flow's transactions — the existing invariant this task must not break", async () => {
+		expect.assertions(1);
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Dense weekly activity (3 transactions every 7-day block, -200c each) over the full 12-month
+		// lookback, attributed to a mocked 'tentative' flow — isReliableConfirmedFlow rejects a
+		// tentative flow regardless of staleness, so this must land in the residual pool exactly as
+		// it did before this task.
+		const lookbackStartEpochDays = Date.UTC(2024, 3, 10) / 86_400_000;
+		const denseTentativeTransactions: {
+			id: string;
+			date: string;
+			amountCents: number;
+			label: string;
+			category: string;
+			type: 'income' | 'expense';
+		}[] = [];
+		for (let offset = 0; offset < 365; offset++) {
+			if (offset % 7 === 0 || offset % 7 === 2 || offset % 7 === 4) {
+				denseTentativeTransactions.push({
+					id: `tx-tentative-${offset}`,
+					date: new Date((lookbackStartEpochDays + offset) * 86_400_000).toISOString().slice(0, 10),
+					amountCents: -200,
+					label: 'DEPENSE COURANTE TENTATIVE',
+					category: 'Alimentation',
+					type: 'expense'
+				});
+			}
+		}
+
+		const tentativeFlow: RecurringFlow = {
+			key: 'expense:depense courante tentative:Alimentation',
+			label: 'DEPENSE COURANTE TENTATIVE',
+			category: 'Alimentation',
+			direction: 'expense',
+			cadence: 'weekly',
+			status: 'tentative',
+			confidence: 'high',
+			occurrenceCount: 2,
+			averageAmountCents: 200,
+			minAmountCents: 200,
+			maxAmountCents: 200,
+			medianIntervalDays: 7,
+			intervalCoefficientOfVariation: 0,
+			amountCoefficientOfVariation: 0,
+			dayOfMonthConcentration: 1,
+			lastDate: denseTentativeTransactions[denseTentativeTransactions.length - 1].date,
+			anchorDayOfMonth: 1,
+			occurrenceIds: denseTentativeTransactions.map((transaction) => transaction.id)
+		};
+
+		domainForecastModule.detectRecurringFlows.mockReturnValueOnce([tentativeFlow]);
+
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({
+			transactions: denseTentativeTransactions
+		});
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([
+			{ type: 'checking', balanceCents: 100_000 }
+		]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 14);
+
+		// Hand computation, identical to the pre-existing residual test's fixture shape: weekly sum
+		// = 3 * -200 = -600 (constant) -> median = -600 -> residualDailyCents = round(-600/7) = -86.
+		const expectedResidualDailyCents = -86;
+		const lastDay = forecast.ledger.days[forecast.ledger.days.length - 1];
+		expect(lastDay.balanceCents).toBe(100_000 + 14 * expectedResidualDailyCents);
+
+		vi.useRealTimers();
+	});
+});
+
+// Task 3 of the detection-window-upper-bound chantier. `confirmedFlows` (the projection filter,
+// above in `loadCashFlowForecast`) and `feedsProjection` (the view flag, in
+// `toDisplayCashFlowForecast`) used to each spell out
+// `isReliableConfirmedFlow(flow) && !isStreamStale(flow, todayIso)` independently — the exact
+// shape that already diverged silently once between /reports and the forecast. Both now go
+// through the single `feedsCashFlowProjection` helper in `$lib/domain/forecast`; this is the
+// real equivalence check that would have caught the divergence, run over live data rather than
+// restating the predicate.
+describe('feedsProjection matches the projected ledger — anti-drift', () => {
+	it('marks a view flow feedsProjection true exactly when it produced a ledger event in the projected segment', async () => {
+		expect.assertions(8);
+		const TODAY_ISO = '2025-04-10';
+		vi.setSystemTime(new Date(`${TODAY_ISO}T12:00:00.000Z`));
+
+		// Live reliable: last seen 13 days ago, well inside staleAfterDays for monthly/CV0 (35 days),
+		// anchored on the 28th — its next calendar-month occurrence is 2025-04-28, 18 days out, safely
+		// inside the 30-day horizon below, so it is guaranteed to emit an event, not merely be
+		// eligible for one (the trap the brief calls out: reliable-and-live is not sufficient if the
+		// next occurrence falls outside the horizon).
+		const liveReliable = flow({
+			key: 'expense:live reliable flow:Abonnements',
+			label: 'LIVE RELIABLE FLOW',
+			category: 'Abonnements',
+			status: 'confirmed',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-03-28',
+			anchorDayOfMonth: 28,
+			occurrenceIds: ['tx-live-1', 'tx-live-2', 'tx-live-3']
+		});
+		// Stale reliable: same shape, but silent since 2025-01-01 — 99 days, well past the 35-day
+		// staleAfterDays threshold, so it is excluded from the projection despite being reliable.
+		const staleReliable = flow({
+			key: 'expense:stale reliable flow:Abonnements',
+			label: 'STALE RELIABLE FLOW',
+			category: 'Abonnements',
+			status: 'confirmed',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-01-01',
+			anchorDayOfMonth: 1,
+			occurrenceIds: ['tx-stale-1', 'tx-stale-2', 'tx-stale-3']
+		});
+		// Tentative: only 2 occurrences, so isReliableConfirmedFlow rejects it regardless of
+		// staleness — never projected, even though it is recently active.
+		const tentative = flow({
+			key: 'expense:tentative flow:Loisirs',
+			label: 'TENTATIVE FLOW',
+			category: 'Loisirs',
+			status: 'tentative',
+			confidence: 'high',
+			cadence: 'monthly',
+			medianIntervalDays: 30,
+			intervalCoefficientOfVariation: 0,
+			lastDate: '2025-03-28',
+			anchorDayOfMonth: 28,
+			occurrenceIds: ['tx-tent-1', 'tx-tent-2']
+		});
+
+		domainForecastModule.detectRecurringFlows.mockReturnValueOnce([
+			liveReliable,
+			staleReliable,
+			tentative
+		]);
+		dashboardModule.readDashboardDataForRange.mockResolvedValue({ transactions: [] });
+		netWorthModule.readNetWorthAccounts.mockResolvedValue([{ type: 'checking', balanceCents: 0 }]);
+
+		const { loadCashFlowForecast } = await import('./index');
+		const forecast = await loadCashFlowForecast('user-1', 30);
+		const view = toDisplayCashFlowForecast(forecast);
+
+		// Side A: which flows actually produced a ledger event in the projected segment. Realized
+		// days always carry `events: []` (buildRealizedLedgerDays never populates them), so this set
+		// is unaffected by including the whole `days` array rather than just the projected tail.
+		const flowKeysWithLedgerEvents = new Set(
+			forecast.ledger.days.flatMap((day) => day.events.map((event) => event.flowKey))
+		);
+
+		// Each of the three classes is non-empty before comparing, per the brief — an equivalence
+		// over a fixture missing a class would prove nothing.
+		expect(flowKeysWithLedgerEvents.has(liveReliable.key)).toBe(true);
+		expect(flowKeysWithLedgerEvents.has(staleReliable.key)).toBe(false);
+		expect(flowKeysWithLedgerEvents.has(tentative.key)).toBe(false);
+
+		// Side B: which view flows have feedsProjection === true. `view.flows` is
+		// `forecast.flows.map(...)` — same order and count, no filtering — so zipping by index is
+		// exact; the view intentionally never carries the flow's internal `key` (see
+		// CashFlowForecastFlowView's own doc comment).
+		const feedingFlowKeysFromView = new Set(
+			forecast.flows.filter((_, index) => view.flows[index].feedsProjection).map((f) => f.key)
+		);
+
+		expect(feedingFlowKeysFromView.has(liveReliable.key)).toBe(true);
+		expect(feedingFlowKeysFromView.has(staleReliable.key)).toBe(false);
+		expect(feedingFlowKeysFromView.has(tentative.key)).toBe(false);
+
+		// The real equivalence: the two sets, derived independently from the returned data, must be
+		// identical.
+		expect(feedingFlowKeysFromView).toEqual(flowKeysWithLedgerEvents);
+		expect(feedingFlowKeysFromView.size).toBeGreaterThan(0);
 
 		vi.useRealTimers();
 	});

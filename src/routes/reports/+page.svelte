@@ -21,7 +21,6 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import CashFlowForecastChart from '$lib/components/ui/CashFlowForecastChart.svelte';
-	import { hasReliableConfirmedFlow, isReliableConfirmedFlow } from '$lib/domain/forecast';
 	import type { FlowCadence, FlowConfidenceTier } from '$lib/domain/forecast';
 	import * as m from '$lib/paraglide/messages';
 
@@ -30,11 +29,13 @@
 	const period = $derived(data.period);
 	const cashFlowForecast = $derived(data.cashFlowForecast);
 	const forecastHorizonMonths = $derived(data.forecastHorizonMonths);
-	const hasConfirmedForecastFlows = $derived(hasReliableConfirmedFlow(cashFlowForecast.flows));
-	// "Included in the calculation" table: only the same reliable-confirmed flows that actually
-	// feed the projection ledger (see isReliableConfirmedFlow / loadCashFlowForecast) — a low-
-	// confidence or merely-tentative flow only ever appears in the Annexes' exhaustive table.
-	const includedForecastFlows = $derived(cashFlowForecast.flows.filter(isReliableConfirmedFlow));
+	// "Included in the calculation" table: only the flows that actually feed the projection ledger
+	// right now (`feedsProjection`, computed server-side from `feedsCashFlowProjection`) — a
+	// low-confidence, merely-tentative, or gone-stale flow only ever appears in the Annexes'
+	// exhaustive table.
+	const includedForecastFlows = $derived(
+		cashFlowForecast.flows.filter((flow) => flow.feedsProjection)
+	);
 
 	const hasData = $derived(report.transactionCount > 0);
 
@@ -738,7 +739,7 @@
 					<div class="h-px flex-1 bg-zinc-200"></div>
 				</div>
 
-				{#if hasConfirmedForecastFlows}
+				{#if cashFlowForecast.emptyState === null}
 					<div class="mt-3 {cardBase} p-5">
 						<h3 class="text-sm font-medium text-zinc-600">
 							{m.reports_forecast_chart_title({ months: forecastHorizonMonths })}
@@ -848,15 +849,36 @@
 						</div>
 					</div>
 				{:else}
+					<!-- Same CTA on both empty states. Kept for what the copy asks, not for a row-count
+					     guarantee: it answers "which recurrences?", the question `all-stale`/`none-detected`
+					     naturally raises. It is NOT proven to have anything to scroll to — the annexe table
+					     is `report.recurringPayments` (getRecurringPayments, server/reports/monthly.ts),
+					     built from the SELECTED PERIOD's expenses only (>=2 occurrences within that period,
+					     income excluded, unrelated to the 12-month detector `cashFlowForecast` runs on). In
+					     `all-stale` the two are close to anti-correlated: a stale stream is by definition
+					     silent longer than one tolerated cycle, so within the current period it has 0 or 1
+					     occurrence and cannot reach recurringPayments' own >= 2 gate — a subscription
+					     cancelled last month can show `all-stale` here with an empty annexe table, so
+					     `#annexe-recurrences` doesn't exist and the link scrolls nowhere. Pre-existing, same
+					     dead anchor on `none-detected`; not fixed in this wave (tracked separately). -->
 					{#snippet forecastEmptyAction()}
 						<TapLink href="#annexe-recurrences">{m.reports_forecast_empty_cta()}</TapLink>
 					{/snippet}
-					<EmptyState
-						class="mt-3"
-						title={m.reports_forecast_empty_title()}
-						description={m.reports_forecast_empty_description()}
-						action={forecastEmptyAction}
-					/>
+					{#if cashFlowForecast.emptyState === 'all-stale'}
+						<EmptyState
+							class="mt-3"
+							title={m.reports_forecast_stale_title()}
+							description={m.reports_forecast_stale_description()}
+							action={forecastEmptyAction}
+						/>
+					{:else}
+						<EmptyState
+							class="mt-3"
+							title={m.reports_forecast_empty_title()}
+							description={m.reports_forecast_empty_description()}
+							action={forecastEmptyAction}
+						/>
+					{/if}
 				{/if}
 			</div>
 

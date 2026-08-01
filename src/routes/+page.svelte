@@ -26,7 +26,6 @@
 	import UpcomingBillsCard from '$lib/components/UpcomingBillsCard.svelte';
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { formatShortDate } from '$lib/domain/dateFormat';
-	import { hasReliableConfirmedFlow } from '$lib/domain/forecast';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
@@ -52,7 +51,6 @@
 	// `hasDashboardData`: they are the only import entry point left once the onboarding EmptyState
 	// stops rendering, so keying them on the narrower flag stranded that state with no CTA at all.
 	const showDashboardBody = $derived(hasDashboardData || data.upcomingBills.hasStreams);
-	const hasConfirmedForecastFlows = $derived(hasReliableConfirmedFlow(data.cashFlowForecast.flows));
 	// Delta = projected balance at the end of the horizon minus today's known balance (the ledger's
 	// realized/projected boundary, see CashFlowLedger.todayIndex) — colored per the app's standard
 	// monetary convention (emerald positive / rose negative), unlike the chart's own monochrome
@@ -585,11 +583,11 @@
 							<h2 class="text-sm font-semibold tracking-tight text-zinc-900">
 								{m.dashboard_forecast_title()}
 							</h2>
-							{#if hasConfirmedForecastFlows}
+							{#if data.cashFlowForecast.emptyState === null}
 								<Badge tone="neutral">{m.dashboard_forecast_horizon_label()}</Badge>
 							{/if}
 						</div>
-						{#if hasConfirmedForecastFlows}
+						{#if data.cashFlowForecast.emptyState === null}
 							<div class="mt-2 flex flex-wrap items-baseline gap-2">
 								<span
 									class="text-2xl font-bold tabular-nums {forecastDeltaCents >= 0
@@ -616,18 +614,42 @@
 								/>
 							</div>
 						{:else}
+							<!-- Same CTA on both empty states. Kept for what the copy asks, not for a row-count
+							     guarantee: it answers "which recurrences?", the question `all-stale`/
+							     `none-detected` naturally raises. It is NOT proven to have anything to scroll
+							     to on /reports — that page's annexe table is `report.recurringPayments`
+							     (getRecurringPayments, server/reports/monthly.ts), built from the SELECTED
+							     PERIOD's expenses only (>=2 occurrences within that period, income excluded,
+							     unrelated to the 12-month detector `cashFlowForecast` runs on). In `all-stale`
+							     the two are close to anti-correlated: a stale stream is by definition silent
+							     longer than one tolerated cycle, so within the current period it has 0 or 1
+							     occurrence and cannot reach recurringPayments' own >= 2 gate — a subscription
+							     cancelled last month can show `all-stale` here while /reports' annexe table is
+							     empty, so `#annexe-recurrences` doesn't exist there and the link scrolls
+							     nowhere. Pre-existing, same dead anchor on `none-detected`; not fixed in this
+							     wave (tracked separately). -->
 							{#snippet forecastEmptyAction()}
 								<TapLink href="/reports#annexe-recurrences"
 									>{m.dashboard_forecast_empty_cta()}</TapLink
 								>
 							{/snippet}
-							<EmptyState
-								class="mt-3"
-								card={false}
-								title={m.dashboard_forecast_empty_title()}
-								description={m.dashboard_forecast_empty_description()}
-								action={forecastEmptyAction}
-							/>
+							{#if data.cashFlowForecast.emptyState === 'all-stale'}
+								<EmptyState
+									class="mt-3"
+									card={false}
+									title={m.dashboard_forecast_stale_title()}
+									description={m.dashboard_forecast_stale_description()}
+									action={forecastEmptyAction}
+								/>
+							{:else}
+								<EmptyState
+									class="mt-3"
+									card={false}
+									title={m.dashboard_forecast_empty_title()}
+									description={m.dashboard_forecast_empty_description()}
+									action={forecastEmptyAction}
+								/>
+							{/if}
 						{/if}
 					</div>
 				</div>

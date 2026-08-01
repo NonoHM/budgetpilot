@@ -58,14 +58,75 @@ const CADENCE_WINDOWS: readonly CadenceWindow[] = [
 /**
  * The slip, in days, the detector already tolerates around a cadence's canonical period — exposed
  * for callers that need to reason about "how late may this stream legitimately be" (see
- * `computeStaleAfterDays` in upcomingBills.ts). Read off `CADENCE_WINDOWS` rather than restated at
- * the call site, so the detector's tolerance and any consumer's can never drift apart.
+ * `computeStaleAfterDays` below). Read off `CADENCE_WINDOWS` rather than restated at the call
+ * site, so the detector's tolerance and any consumer's can never drift apart.
  */
 export function getCadenceToleranceDays(cadence: FlowCadence): number {
 	const window = CADENCE_WINDOWS.find((entry) => entry.cadence === cadence);
 	// The fallback is unreachable — CADENCE_WINDOWS covers every FlowCadence member — and exists
 	// only because `Array.find` is not total in the type system.
 	return window?.toleranceDays ?? 0;
+}
+
+/**
+ * How long after its last observed occurrence a stream is still worth projecting:
+ *
+ *     medianIntervalDays + cadenceToleranceDays + ceil(medianIntervalDays * intervalCV)
+ *
+ * One full cycle, plus the cadence's own slip tolerance (the detector's own, read via
+ * `getCadenceToleranceDays` rather than restated here), plus roughly one standard deviation of
+ * THIS stream's observed intervals — so an irregular stream is given proportionally more rope
+ * than a metronomic one.
+ *
+ * The two margins are SUMMED, not maxed, and that is deliberate: the two failure directions are
+ * asymmetric. A cancelled stream lingering one extra cycle is mildly annoying; a genuinely late
+ * real bill vanishing from the schedule is a loss of function — the user stops being told about a
+ * payment they still owe. The bias is toward keeping streams. Do NOT "optimise" this into a
+ * `Math.max` of the two terms.
+ *
+ * Worked examples: monthly with CV 0.1 -> 38 days (a bill 8 days late still reads "En retard",
+ * which is exactly the signal that must not be lost); weekly with CV 0.1 -> 10; yearly with
+ * CV 0.05 -> 399.
+ *
+ * A property of the recurrence engine, not of the bills view alone — shared by the upcoming-bills
+ * schedule (`buildBillOccurrences`, which drops a stale stream from projection only) and the
+ * cash-flow forecast (`loadCashFlowForecast`, which excludes it from both projection and the
+ * residual pool — see that module's own comment for why the two differ).
+ */
+export function computeStaleAfterDays(
+	flow: Pick<RecurringFlow, 'cadence' | 'medianIntervalDays' | 'intervalCoefficientOfVariation'>
+): number {
+	return (
+		flow.medianIntervalDays +
+		getCadenceToleranceDays(flow.cadence) +
+		Math.ceil(flow.medianIntervalDays * flow.intervalCoefficientOfVariation)
+	);
+}
+
+/**
+ * True when a stream has been silent for longer than one tolerated cycle — a subscription
+ * cancelled in March, say, still inside the detector's 12-month lookback and therefore still
+ * detected, but which will never produce another payment.
+ *
+ * Such a stream is dropped from PROJECTION only: on the upcoming-bills surfaces, silently, same
+ * treatment as a stream the user excluded — no status, no badge, no message, the user simply
+ * stops seeing it. Its realized transactions inside the displayed period are facts and stay. The
+ * cash-flow forecast goes further and also drops its transactions from the residual pool (see
+ * `server/forecast/index.ts`), since a stopped stream's past payments should not keep inflating a
+ * daily average the user no longer spends.
+ *
+ * This is not a second lateness path: an uncertain-tier stream that is also stale merely stops
+ * being projected, which leaves `computeOccurrenceStatus` (upcomingBills.ts)'s tier gate
+ * untouched.
+ */
+export function isStreamStale(
+	flow: Pick<
+		RecurringFlow,
+		'cadence' | 'medianIntervalDays' | 'intervalCoefficientOfVariation' | 'lastDate'
+	>,
+	todayIso: string
+): boolean {
+	return wholeDaysBetween(flow.lastDate, todayIso) > computeStaleAfterDays(flow);
 }
 
 function classifyCadence(medianIntervalDays: number): FlowCadence | null {
@@ -77,6 +138,28 @@ function classifyCadence(medianIntervalDays: number): FlowCadence | null {
 
 function toEpochDay(iso: string): number {
 	return Math.floor(new Date(`${iso}T00:00:00.000Z`).getTime() / 86_400_000);
+}
+
+/** Whole days elapsed from `dateIso` to `todayIso`; positive when `dateIso` is in the past. */
+export function wholeDaysBetween(dateIso: string, todayIso: string): number {
+	return toEpochDay(todayIso) - toEpochDay(dateIso);
+}
+
+/**
+ * Exclusive upper bound for every recurrence-detector input: the start of the day AFTER
+ * `todayIso`, UTC. Transactions dated today are in; anything dated later is out.
+ *
+ * Inference from observed history must not include what has not happened yet. Nothing rejects a
+ * future-dated transaction on import (a pending bank debit, a mistyped CSV year), and one such
+ * row moves `occurrenceCount`, the interval set and `lastDate` — so a surface that fetches
+ * further ahead than another reports a different confidence tier for the same stream. All three
+ * detector call sites use THIS value so that cannot happen.
+ *
+ * Same reasoning as the net-worth future-date guard: the row stays fully visible everywhere it
+ * is a fact, it just stops feeding pattern inference until its date arrives.
+ */
+export function detectionEndExclusive(todayIso: string): Date {
+	return new Date(toEpochDay(todayIso) * 86_400_000 + 86_400_000);
 }
 
 /**
@@ -391,10 +474,32 @@ export function isReliableConfirmedFlow(
 	return flow.status === 'confirmed' && flow.confidence !== 'low';
 }
 
-export function hasReliableConfirmedFlow(
-	flows: readonly Pick<RecurringFlow, 'status' | 'confidence'>[]
+/**
+ * The single predicate for "does this flow currently feed the cash-flow projection" —
+ * `isReliableConfirmedFlow` (status/confidence) AND not `isStreamStale` (silent longer than one
+ * tolerated cycle). Unlike `isReliableConfirmedFlow`, this needs `todayIso`, since staleness is
+ * relative to "now".
+ *
+ * BOTH the server projection filter (`confirmedFlows` in `server/forecast/index.ts`) and the
+ * view's per-flow `feedsProjection` flag (`toDisplayCashFlowForecast`) must go through this one
+ * function — the two used to spell out the same two-term expression independently, which is
+ * exactly the shape that let them silently diverge once before (see that module's history). A
+ * third term added to one and not the other is caught by `server/forecast/index.spec.ts`'s
+ * anti-drift test only if both call sites still route through here.
+ */
+export function feedsCashFlowProjection(
+	flow: Pick<
+		RecurringFlow,
+		| 'status'
+		| 'confidence'
+		| 'cadence'
+		| 'medianIntervalDays'
+		| 'intervalCoefficientOfVariation'
+		| 'lastDate'
+	>,
+	todayIso: string
 ): boolean {
-	return flows.some(isReliableConfirmedFlow);
+	return isReliableConfirmedFlow(flow) && !isStreamStale(flow, todayIso);
 }
 
 export type FlowDisplayTier = 'confirmed' | 'likely' | 'uncertain';

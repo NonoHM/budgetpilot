@@ -10,6 +10,18 @@ const config = {
 	},
 	kit: {
 		adapter: adapter(),
+		typescript: {
+			config: (config) => {
+				// svelte-kit sync's generated include covers ../src, ../test, ../tests but not
+				// ../e2e — so an e2e file importing a symbol a refactor moved or removed is caught
+				// by nothing this repo runs (test:unit doesn't execute e2e, eslint doesn't
+				// validate named exports across modules). Add it here rather than restating the
+				// list in tsconfig.json: an extending tsconfig's `include` REPLACES the base's,
+				// it doesn't merge, so restating it would be one more place to keep in sync.
+				config.include = [...(config.include ?? []), '../e2e/**/*.ts', '../e2e/**/*.js'];
+				return config;
+			}
+		},
 		// CSP: SvelteKit augments script-src with a nonce for its own inline scripts
 		// (mode: 'auto' -> nonce for dynamically-rendered pages, this app has no
 		// prerendered page). style-src has no 'unsafe-inline': every previously

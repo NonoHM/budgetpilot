@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
+	detectionEndExclusive,
 	detectRecurringFlows,
 	getFlowAmountVariability,
 	median,
@@ -309,18 +310,30 @@ export async function loadUpcomingBillsMonth(
 	const monthStart = new Date(Date.UTC(year, monthNumber - 1, 1));
 	const monthEndExclusive = new Date(Date.UTC(year, monthNumber, 1));
 
-	// The fetch must cover the displayed period as well as the detector's 12-month lookback (same
-	// derivation as loadCashFlowForecast), hence min/max rather than a single fixed range.
+	// The fetch's LOWER bound is the earlier of the displayed month's start and the detector's
+	// 12-month lookback start — NOT the displayed period itself: after task 1, the upper bound below
+	// is pinned to `detectionEndExclusive(todayIso)` regardless of which month is displayed, so the
+	// fetch deliberately does NOT extend to cover the current month in full (it stops mid-month) or
+	// reach into a future one at all. `min()` on the lower bound is what's left, not a `max()` pair.
 	//
-	// The `min()` half is now nearly vestigial: since detection is pinned below, a transaction older
+	// The `min()` half is now fully vestigial: since detection is pinned below, a transaction older
 	// than `lookbackStart` reaches no consumer — `buildBillOccurrences` only ever looks a transaction
 	// up by an id that is already in some `flow.occurrenceIds`, and every such id comes from the
-	// pinned set. It is kept because narrowing the range is a separate decision (this call site is
-	// not the only shape `readDashboardDataForRange` serves) and because widening back is exactly the
-	// regression B2 removed. Do NOT write it back into `detectRecurringFlows`.
+	// pinned set (verified: `flows`, and `toObservationCandidateViews`'s own input, are both built
+	// from `detectionTransactions`, never straight from this fetch's result). It is kept because
+	// narrowing the range is a separate decision (this call site is not the only shape
+	// `readDashboardDataForRange` serves) and because widening back is exactly the regression B2
+	// removed. Do NOT write it back into `detectRecurringFlows`.
 	const lookbackStart = computeDetectionLookbackStart(now);
 	const from = lookbackStart < monthStart ? lookbackStart : monthStart;
-	const to = monthEndExclusive > now ? monthEndExclusive : now;
+	// Exclusive upper bound pinned to `detectionEndExclusive(todayIso)` — the SAME value the widget
+	// and the forecast use — never `monthEndExclusive` or `now`. Before this pin, viewing a month
+	// whose end lies after today (any current or future month) widened the fetch as far as that
+	// month's own end, so a future-dated transaction reachable from one month view but not another
+	// (or not the widget, or not the forecast) could report a different confidence tier depending
+	// only on which surface, or which month, happened to ask. See
+	// `detection window upper bound pinned to today` in this module's spec.
+	const to = detectionEndExclusive(todayIso);
 
 	const [{ transactions }, actionRows] = await Promise.all([
 		readDashboardDataForRange(userId, { from, to, budgetMonth: month }),
@@ -336,14 +349,17 @@ export async function loadUpcomingBillsMonth(
 	// order-dependent) re-splits, `streamCount` moves. The same stream therefore read "Probable" on
 	// one month and "Confirmé" on another, and disagreed with the dashboard widget.
 	//
-	// The UPPER bound is NOT pinned, so this is a lower-bound pin and not full parity with the
-	// widget. The filter below has no upper comparison, and the fetch ends at
-	// `max(monthEndExclusive, now)` here versus `today + 30` for the widget. Nothing rejects a
-	// future-dated transaction on import, so one such row can reach one surface's detector and not
-	// the other's and re-open exactly the tier disagreement this pin closes for past-dated rows.
-	// Deliberately left: pinning it means touching both surfaces, and on the widget it moves
-	// `flow.lastDate`, hence which dates `projectFlowOccurrences` emits and what the widget counts
-	// as an already-realized occurrence. That is a behaviour change, not a tightened filter.
+	// The UPPER bound is pinned too (see `to` above): `detectionEndExclusive(todayIso)`, the same
+	// value the widget and the forecast use. Before that pin this was a lower-bound pin only, not
+	// full parity with the widget — the fetch used to end at `max(monthEndExclusive, now)` here
+	// versus `today + 30` for the widget, and neither matched the forecast's `now`. Nothing rejects
+	// a future-dated transaction on import, so one such row could reach one surface's detector and
+	// not another's, disagreeing about a stream's tier for a reason that had nothing to do with the
+	// stream itself. Pinning it moves `flow.lastDate` for a stream carrying such a row — a real,
+	// intended behaviour change (see `detection window upper bound pinned to today` in the spec),
+	// not merely a tightened filter: a future-dated transaction inside the displayed month no
+	// longer renders as a settled occurrence, because it now belongs to no flow. It remains visible
+	// in the transaction list and in every balance; only pattern inference stops using it early.
 	//
 	// Accepted consequence, stated at full strength because the comment outlives the report: a month
 	// entirely older than `lookbackStart` renders NOTHING AT ALL. Not "fewer streams" — nothing. A
@@ -412,14 +428,17 @@ export async function loadUpcomingBillsWidget(userId: string): Promise<UpcomingB
 	const toIsoExclusive = addDaysIso(todayIso, WIDGET_WINDOW_DAYS);
 
 	const lookbackStart = computeDetectionLookbackStart(now);
-	// `today + 30 days` is unconditionally after `now`, so unlike the month view — which can be
-	// asked for a period entirely in the past — this range needs no max() against `now`.
-	const windowEnd = new Date(`${toIsoExclusive}T00:00:00.000Z`);
 
 	const [{ transactions }, actionRows] = await Promise.all([
 		readDashboardDataForRange(userId, {
 			from: lookbackStart,
-			to: windowEnd,
+			// Pinned to `detectionEndExclusive(todayIso)` — the SAME value the month view and the
+			// forecast use — never `today + 30 days` (the rolling window's own end). The window still
+			// PROJECTS 30 days ahead (`toIsoExclusive`, used below as `buildBillOccurrences`' own
+			// bound); only the detector's INPUT is pinned to today, so a transaction dated inside the
+			// rolling window but after today no longer confirms a stream early on this surface while
+			// the forecast and the month view still see it as tentative. See `detectionEndExclusive`.
+			to: detectionEndExclusive(todayIso),
 			budgetMonth: todayIso.slice(0, 7)
 		}),
 		findStreamActions(userId)

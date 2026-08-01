@@ -2,7 +2,9 @@ import {
 	buildDenseDailyNetSeries,
 	buildRealizedLedgerDays,
 	computeResidualDailyCents,
+	detectionEndExclusive,
 	detectRecurringFlows,
+	feedsCashFlowProjection,
 	isReliableConfirmedFlow,
 	projectCashFlow,
 	type CashFlowLedgerDay,
@@ -46,6 +48,11 @@ export interface CashFlowForecast {
 	ledger: CashFlowLedger;
 	/** False when no checking NetWorthAccount exists — the ledger then starts at a relative 0 (net projected flow), never a fabricated balance. */
 	hasBalanceAnchor: boolean;
+	/** The "today" this forecast was computed against — carried alongside the flows so
+	 *  `toDisplayCashFlowForecast` can re-derive `isStreamStale` per flow without a second
+	 *  `new Date()` read (a second clock read is exactly the kind of drift this codebase avoids
+	 *  elsewhere, see `detectionEndExclusive`'s own reasoning). */
+	todayIso: string;
 }
 
 export async function loadCashFlowForecast(
@@ -65,7 +72,10 @@ export async function loadCashFlowForecast(
 	const [{ transactions }, startingBalance] = await Promise.all([
 		readDashboardDataForRange(userId, {
 			from: lookbackStart,
-			to: today,
+			// Exclusive upper bound pinned to `detectionEndExclusive`, not `today` (a Date carrying
+			// the request's own time-of-day): every detector call site uses the same value, and a
+			// transaction dated today is now counted regardless of what time today's request runs at.
+			to: detectionEndExclusive(todayIso),
 			budgetMonth: getCurrentMonth()
 		}),
 		resolveStartingBalance(userId)
@@ -74,14 +84,35 @@ export async function loadCashFlowForecast(
 	const flows = detectRecurringFlows(transactions);
 	// Only reliable confirmed flows (>=3 occurrences AND confidence high/medium) ever feed the
 	// projection math — a shaky confirmed flow shouldn't move the projected balance any more than
-	// it should appear in a table claiming to list what was "included in the calculation".
-	const confirmedFlows = flows.filter(isReliableConfirmedFlow);
+	// it should appear in a table claiming to list what was "included in the calculation". A
+	// reliable flow that has gone quiet for longer than one tolerated cycle (`isStreamStale`, the
+	// same B1 guard the upcoming-bills surfaces apply) is excluded here too: it is detected and
+	// reliable, but it will never produce another payment, so projecting it would keep a cancelled
+	// stream on the balance line after the bills surfaces have already stopped showing it.
+	// `confirmedFlows` and the view's `feedsProjection` flag below both go through the single
+	// `feedsCashFlowProjection` predicate, so the two can never independently drift apart.
+	const reliableFlows = flows.filter(isReliableConfirmedFlow);
+	const confirmedFlows = flows.filter((flow) => feedsCashFlowProjection(flow, todayIso));
 
-	// Only the transactions of flows that ACTUALLY feed the projection leave the residual pool. A
-	// tentative or low-confidence flow is never projected as discrete occurrences, so its activity
-	// must stay in the residual daily term — removing it as well would make that money vanish from
-	// the forecast entirely (closing-audit finding: systematically optimistic for expenses).
-	const recurringTransactionIds = new Set(confirmedFlows.flatMap((flow) => flow.occurrenceIds));
+	// Three cases for a flow's transactions, not two:
+	//  - Reliable AND not stale: feeds the projection (`confirmedFlows` above) — its transactions
+	//    leave the residual pool, or the projected event would double-count the same money.
+	//  - Tentative or low-confidence (never reliable): never projected as discrete occurrences, so
+	//    its activity must stay in the residual daily term — removing it too would make that money
+	//    vanish from the forecast entirely (closing-audit finding: systematically optimistic for
+	//    expenses).
+	//  - Reliable AND stale: neither. Its whole defining property is that the activity has STOPPED,
+	//    so leaving its past payments in the residual daily average would keep the forecast
+	//    spending money the user no longer spends — the cancelled stream would still "include"
+	//    itself through the back door, exactly what the stale-guard above must eliminate. Excluded
+	//    from the residual pool via `reliableFlows` (not `confirmedFlows`, which already dropped the
+	//    stale ones) so this exclusion happens regardless of staleness.
+	//    Note that `computeResidualDailyCents` is a MEDIAN over ~52 weekly sums, not a mean: this
+	//    exclusion is always correct for the POOL (the stale flow's transactions never reach it),
+	//    but a stale stream whose payments occupied fewer than half the lookback's weeks may not
+	//    have moved the resulting figure either way, guard or no guard — the exclusion still matters
+	//    whenever it does move it, and for the residual pool's own correctness regardless.
+	const recurringTransactionIds = new Set(reliableFlows.flatMap((flow) => flow.occurrenceIds));
 	const residualTransactions = transactions.filter(
 		(transaction) => !recurringTransactionIds.has(transaction.id)
 	);
@@ -121,7 +152,12 @@ export async function loadCashFlowForecast(
 	const days = [...realizedDays.slice(0, -1), ...projected.days];
 	const todayIndex = realizedDays.length - 1;
 
-	return { flows, ledger: { days, todayIndex }, hasBalanceAnchor: startingBalance.hasAnchor };
+	return {
+		flows,
+		ledger: { days, todayIndex },
+		hasBalanceAnchor: startingBalance.hasAnchor,
+		todayIso
+	};
 }
 
 /**
@@ -159,6 +195,14 @@ export interface CashFlowForecastFlowView {
 	label: string;
 	averageAmountCents: number;
 	lastDate: string;
+	/** Whether THIS flow actually feeds the projection ledger's math right now — the server's own
+	 *  `feedsCashFlowProjection` predicate, computed once here rather than re-implemented
+	 *  client-side. A route's "included in the calculation" table must filter on this field, never
+	 *  re-run `isReliableConfirmedFlow` alone: a reliable flow that has gone stale is excluded from
+	 *  the ledger but would still pass that narrower check, which is exactly the divergence this
+	 *  field exists to close (a client can't recompute staleness itself — this view intentionally
+	 *  does not carry `medianIntervalDays`/`intervalCoefficientOfVariation`). */
+	feedsProjection: boolean;
 }
 
 export interface CashFlowLedgerEventView {
@@ -173,15 +217,53 @@ export interface CashFlowLedgerDayView {
 	events: CashFlowLedgerEventView[];
 }
 
+/**
+ * Distinguishes the two reasons `flows.every(f => !f.feedsProjection)` can hold, so a route can
+ * render the right empty-state copy instead of one sentence that only describes one of them:
+ *  - 'none-detected': no flow ever reached reliable-confirmed (the pre-existing "not enough
+ *    recurring flows yet" copy still applies).
+ *  - 'all-stale': at least one flow IS reliable-confirmed, but every one of them has gone stale
+ *    (`isStreamStale`) — the count condition is satisfied, staleness is the actual reason, and
+ *    the pre-existing copy's remedy ("wait for more occurrences") cannot help.
+ * `null` when a live reliable-confirmed flow exists (`feedsProjection` true on at least one
+ * flow) — the empty state isn't rendered at all in that case, so callers only need to switch on
+ * this value inside their `emptyState !== null` branch.
+ * Computed here, from the exact same inputs `feedsProjection` uses per flow, so the two can never
+ * drift apart the way the single collapsed boolean did.
+ */
+export type CashFlowForecastEmptyState = 'none-detected' | 'all-stale';
+
 export interface CashFlowForecastView {
 	hasBalanceAnchor: boolean;
 	days: CashFlowLedgerDayView[];
 	/** Index within `days` of "today" — see CashFlowLedger.todayIndex. */
 	todayIndex: number;
 	flows: CashFlowForecastFlowView[];
+	/** See `CashFlowForecastEmptyState`. `null` when at least one flow currently feeds the
+	 *  projection (`flows.some(f => f.feedsProjection)` is true). */
+	emptyState: CashFlowForecastEmptyState | null;
 }
 
 export function toDisplayCashFlowForecast(forecast: CashFlowForecast): CashFlowForecastView {
+	const flows = forecast.flows.map((flow) => ({
+		category: flow.category,
+		direction: flow.direction,
+		cadence: flow.cadence,
+		status: flow.status,
+		confidence: flow.confidence,
+		label: anonymizeLabel(flow.label, flow.category),
+		averageAmountCents: flow.averageAmountCents,
+		lastDate: flow.lastDate,
+		feedsProjection: feedsCashFlowProjection(flow, forecast.todayIso)
+	}));
+
+	const hasLiveConfirmedFlow = flows.some((flow) => flow.feedsProjection);
+	const emptyState: CashFlowForecastEmptyState | null = hasLiveConfirmedFlow
+		? null
+		: forecast.flows.some(isReliableConfirmedFlow)
+			? 'all-stale'
+			: 'none-detected';
+
 	return {
 		hasBalanceAnchor: forecast.hasBalanceAnchor,
 		todayIndex: forecast.ledger.todayIndex,
@@ -194,15 +276,7 @@ export function toDisplayCashFlowForecast(forecast: CashFlowForecast): CashFlowF
 				cadence: event.cadence
 			}))
 		})),
-		flows: forecast.flows.map((flow) => ({
-			category: flow.category,
-			direction: flow.direction,
-			cadence: flow.cadence,
-			status: flow.status,
-			confidence: flow.confidence,
-			label: anonymizeLabel(flow.label, flow.category),
-			averageAmountCents: flow.averageAmountCents,
-			lastDate: flow.lastDate
-		}))
+		flows,
+		emptyState
 	};
 }

@@ -4,12 +4,16 @@ import {
 	buildDenseDailyNetSeries,
 	buildRealizedLedgerDays,
 	computeResidualDailyCents,
+	computeStaleAfterDays,
+	detectionEndExclusive,
 	detectRecurringFlows,
+	feedsCashFlowProjection,
+	getCadenceToleranceDays,
 	getFlowAmountVariability,
 	getFlowDisplayTier,
 	getRemainingDaysInMonthUtc,
-	hasReliableConfirmedFlow,
 	isReliableConfirmedFlow,
+	isStreamStale,
 	projectCashFlow,
 	projectFlowOccurrences,
 	type RecurringFlow
@@ -27,6 +31,12 @@ function tx(
 		type: overrides.amountCents >= 0 ? 'income' : 'expense',
 		...overrides
 	};
+}
+
+function addDaysIso(iso: string, days: number): string {
+	return new Date(new Date(`${iso}T00:00:00.000Z`).getTime() + days * 86_400_000)
+		.toISOString()
+		.slice(0, 10);
 }
 
 describe('detectRecurringFlows', () => {
@@ -308,6 +318,116 @@ function flow(
 		...overrides
 	};
 }
+
+describe('computeStaleAfterDays', () => {
+	// The three worked examples the formula was fixed against: one cycle + the cadence's own
+	// tolerance + one sigma of the stream's observed intervals, SUMMED (never maxed).
+	it('sums the cadence, the cadence tolerance and one interval standard deviation', () => {
+		expect.assertions(3);
+
+		expect(
+			computeStaleAfterDays({
+				cadence: 'monthly',
+				medianIntervalDays: 30,
+				intervalCoefficientOfVariation: 0.1
+			})
+		).toBe(38);
+		expect(
+			computeStaleAfterDays({
+				cadence: 'weekly',
+				medianIntervalDays: 7,
+				intervalCoefficientOfVariation: 0.1
+			})
+		).toBe(10);
+		expect(
+			computeStaleAfterDays({
+				cadence: 'yearly',
+				medianIntervalDays: 365,
+				intervalCoefficientOfVariation: 0.05
+			})
+		).toBe(399);
+	});
+
+	// A plain change-detector on the five values, and nothing more: these literals ARE a copy of
+	// CADENCE_WINDOWS, so re-hardcoding the table inside computeStaleAfterDays would leave this
+	// green. It pins the numbers a reader of the formula expects; the test that actually binds the
+	// tolerance to the detector's own behaviour is the one below it.
+	it("reuses each cadence's tolerance without redeclaring it", () => {
+		expect.assertions(5);
+
+		const at = (cadence: RecurringFlow['cadence'], medianIntervalDays: number) =>
+			computeStaleAfterDays({
+				cadence,
+				medianIntervalDays,
+				intervalCoefficientOfVariation: 0
+			}) - medianIntervalDays;
+
+		expect(at('weekly', 7)).toBe(2);
+		expect(at('biweekly', 14)).toBe(3);
+		expect(at('monthly', 30)).toBe(5);
+		expect(at('quarterly', 91)).toBe(10);
+		expect(at('yearly', 365)).toBe(15);
+	});
+
+	/**
+	 * The binding one: for every cadence, a stream whose interval is exactly
+	 * `canonical period + getCadenceToleranceDays(cadence)` is still classified as that cadence by
+	 * the detector, and one more day is classified as nothing at all. That is the detector's real
+	 * acceptance boundary, observed rather than restated.
+	 *
+	 * This is what reddens if the tolerance is ever duplicated instead of read: widen
+	 * `CADENCE_WINDOWS` while `getCadenceToleranceDays` keeps the old value and the `+ 1` case starts
+	 * being detected; narrow it and the boundary case stops being detected. Only the canonical
+	 * PERIODS are literals here, and those are the cadences' definition rather than the quantity
+	 * under test.
+	 */
+	it('stays pinned to the window the detector actually accepts', () => {
+		expect.assertions(10);
+
+		const canonicalPeriodDays = [
+			['weekly', 7],
+			['biweekly', 14],
+			['monthly', 30],
+			['quarterly', 91],
+			['yearly', 365]
+		] as const;
+
+		const detectAtInterval = (intervalDays: number) =>
+			detectRecurringFlows(
+				[0, 1, 2].map((step) =>
+					tx({
+						date: addDaysIso('2024-01-08', intervalDays * step),
+						label: 'ABONNEMENT TEST',
+						amountCents: -1_000,
+						category: 'Divers'
+					})
+				)
+			).map((detected) => detected.cadence);
+
+		for (const [cadence, periodDays] of canonicalPeriodDays) {
+			const tolerance = getCadenceToleranceDays(cadence);
+			expect(detectAtInterval(periodDays + tolerance)).toEqual([cadence]);
+			expect(detectAtInterval(periodDays + tolerance + 1)).toEqual([]);
+		}
+	});
+});
+
+describe('isStreamStale', () => {
+	const monthly = {
+		cadence: 'monthly',
+		medianIntervalDays: 30,
+		intervalCoefficientOfVariation: 0.1
+	} as const;
+
+	it('flips past the threshold, never right at it', () => {
+		expect.assertions(3);
+
+		// staleAfterDays = 38: a bill 8 days late must still read "En retard".
+		expect(isStreamStale({ ...monthly, lastDate: '2026-06-27' }, '2026-07-31')).toBe(false);
+		expect(isStreamStale({ ...monthly, lastDate: '2026-06-23' }, '2026-07-31')).toBe(false);
+		expect(isStreamStale({ ...monthly, lastDate: '2026-06-22' }, '2026-07-31')).toBe(true);
+	});
+});
 
 describe('projectFlowOccurrences', () => {
 	it("projette un flux mensuel en clampant l'ancre de fin de mois (31 -> 28/29/30)", () => {
@@ -705,14 +825,42 @@ describe('buildRealizedLedgerDays', () => {
 	});
 });
 
-describe('isReliableConfirmedFlow / hasReliableConfirmedFlow', () => {
-	it('rejette un flux confirmé mais de confiance faible — pas assez fiable pour entrer dans le calcul', () => {
+describe('detectionEndExclusive', () => {
+	it('is midnight UTC of the day after todayIso', () => {
+		expect.assertions(1);
+
+		expect(detectionEndExclusive('2026-07-14').toISOString()).toBe('2026-07-15T00:00:00.000Z');
+	});
+
+	it('includes a transaction dated todayIso, at any time of day', () => {
 		expect.assertions(2);
+
+		const bound = detectionEndExclusive('2026-07-14').getTime();
+		expect(new Date('2026-07-14T00:00:00.000Z').getTime() < bound).toBe(true);
+		expect(new Date('2026-07-14T23:59:59.999Z').getTime() < bound).toBe(true);
+	});
+
+	it('excludes a transaction dated the day after todayIso', () => {
+		expect.assertions(1);
+
+		const bound = detectionEndExclusive('2026-07-14').getTime();
+		expect(new Date('2026-07-15T00:00:00.000Z').getTime() < bound).toBe(false);
+	});
+
+	it('rolls a month/year boundary the same way toEpochDay-based arithmetic elsewhere does', () => {
+		expect.assertions(1);
+
+		expect(detectionEndExclusive('2026-12-31').toISOString()).toBe('2027-01-01T00:00:00.000Z');
+	});
+});
+
+describe('isReliableConfirmedFlow', () => {
+	it('rejette un flux confirmé mais de confiance faible — pas assez fiable pour entrer dans le calcul', () => {
+		expect.assertions(1);
 
 		const lowConfidenceConfirmed = { status: 'confirmed' as const, confidence: 'low' as const };
 
 		expect(isReliableConfirmedFlow(lowConfidenceConfirmed)).toBe(false);
-		expect(hasReliableConfirmedFlow([lowConfidenceConfirmed])).toBe(false);
 	});
 
 	it('rejette un flux à confiance élevée mais seulement tentative (pas encore confirmé)', () => {
@@ -726,18 +874,6 @@ describe('isReliableConfirmedFlow / hasReliableConfirmedFlow', () => {
 
 		expect(isReliableConfirmedFlow({ status: 'confirmed', confidence: 'high' })).toBe(true);
 		expect(isReliableConfirmedFlow({ status: 'confirmed', confidence: 'medium' })).toBe(true);
-	});
-
-	it('hasReliableConfirmedFlow renvoie true dès qu’un seul flux de la liste est fiable', () => {
-		expect.assertions(1);
-
-		expect(
-			hasReliableConfirmedFlow([
-				{ status: 'tentative', confidence: 'high' },
-				{ status: 'confirmed', confidence: 'low' },
-				{ status: 'confirmed', confidence: 'medium' }
-			])
-		).toBe(true);
 	});
 
 	describe('flow display tier and amount bounds', () => {
@@ -836,5 +972,66 @@ describe('isReliableConfirmedFlow / hasReliableConfirmedFlow', () => {
 			expect(largeFlow?.minAmountCents).toBe(11900);
 			expect(largeFlow?.maxAmountCents).toBe(12100);
 		});
+	});
+});
+
+// This branch's central shared predicate (server/forecast/index.ts's projection filter and
+// toDisplayCashFlowForecast's feedsProjection flag both route through it, see that file) was
+// previously only exercised transitively, through toDisplayCashFlowForecast. A direct truth
+// table at the domain level over the two axes it combines (reliable/not, live/stale).
+describe('feedsCashFlowProjection', () => {
+	const TODAY_ISO = '2026-01-15';
+
+	// Monthly, CV 0 -> computeStaleAfterDays = 30 (median) + 5 (cadence tolerance) + 0 = 35.
+	const monthlyBase = {
+		cadence: 'monthly' as const,
+		medianIntervalDays: 30,
+		intervalCoefficientOfVariation: 0
+	};
+	const liveLastDate = '2026-01-01'; // 14 days silent, well inside 35.
+	const staleLastDate = '2025-11-01'; // 75 days silent, well past 35.
+
+	it('reliable and live: true', () => {
+		expect.assertions(1);
+
+		expect(
+			feedsCashFlowProjection(
+				{ ...monthlyBase, status: 'confirmed', confidence: 'high', lastDate: liveLastDate },
+				TODAY_ISO
+			)
+		).toBe(true);
+	});
+
+	it('reliable and stale: false', () => {
+		expect.assertions(1);
+
+		expect(
+			feedsCashFlowProjection(
+				{ ...monthlyBase, status: 'confirmed', confidence: 'high', lastDate: staleLastDate },
+				TODAY_ISO
+			)
+		).toBe(false);
+	});
+
+	it('tentative and live: false', () => {
+		expect.assertions(1);
+
+		expect(
+			feedsCashFlowProjection(
+				{ ...monthlyBase, status: 'tentative', confidence: 'high', lastDate: liveLastDate },
+				TODAY_ISO
+			)
+		).toBe(false);
+	});
+
+	it('tentative and stale: false', () => {
+		expect.assertions(1);
+
+		expect(
+			feedsCashFlowProjection(
+				{ ...monthlyBase, status: 'tentative', confidence: 'high', lastDate: staleLastDate },
+				TODAY_ISO
+			)
+		).toBe(false);
 	});
 });
