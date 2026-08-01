@@ -967,5 +967,19 @@
 	"upcoming_bills_error_invalid_stream": "Échéance introuvable ou déjà obsolète. Rechargez la page.",
 	"upcoming_bills_error_invalid_date": "Date d'échéance invalide.",
 	"upcoming_bills_error_action_limit": "Vous avez atteint la limite de décisions enregistrées sur vos échéances. Annulez-en une avant d'en ajouter une nouvelle.",
-	"upcoming_bills_error_not_found": "Décision introuvable."
+	"upcoming_bills_error_not_found": "Décision introuvable.",
+	"dashboard_upcoming_title": "Échéances à venir",
+	"dashboard_upcoming_overdue_badge": "{count} en retard",
+	"dashboard_upcoming_footer_label": "Reste à sortir · 30 prochains jours",
+	"dashboard_upcoming_view_all": "Voir toutes les échéances",
+	"dashboard_upcoming_empty_title": "Aucun flux détecté",
+	"dashboard_upcoming_empty_description": "Il faut trois occurrences d'un même libellé pour établir un rythme.",
+	"dashboard_upcoming_empty_cta": "Comment ça marche",
+	"bills_date_today": "aujourd'hui",
+	"bills_date_tomorrow": "demain",
+	"bills_date_in_days_short": "dans {count} j",
+	"bills_date_late_short": "{count} j de retard",
+	"bills_date_expected": "attendue le {date}",
+	"bills_amount_range": "{min} à {max}",
+	"bills_amount_variable_tag": "variable"
 }

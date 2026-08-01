@@ -62,6 +62,15 @@ const savingsGoals = vi.hoisted(() => ({
 	readSavingsGoals: vi.fn(async () => [])
 }));
 
+const upcomingBills = vi.hoisted(() => ({
+	loadUpcomingBillsWidget: vi.fn(async () => ({
+		rows: [],
+		overdueCount: 0,
+		remainingExpenseCents: 0,
+		hasStreams: false
+	}))
+}));
+
 const forecast = vi.hoisted(() => ({
 	loadCashFlowForecast: vi.fn(async () => ({
 		flows: [],
@@ -85,6 +94,7 @@ vi.mock('$lib/server/dashboard/insights', () => dashboardInsights);
 vi.mock('$lib/server/transactions/nature', () => nature);
 vi.mock('$lib/server/savings-goals/service', () => savingsGoals);
 vi.mock('$lib/server/forecast', () => forecast);
+vi.mock('$lib/server/upcoming-bills/service', () => upcomingBills);
 
 const { load } = await import('./+page.server');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };

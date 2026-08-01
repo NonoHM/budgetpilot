@@ -59,6 +59,25 @@
 					{/each}
 				</div>
 			</div>
+			<!-- Upcoming bills (see UpcomingBillsCard) — 3 ghost rows, never 5: the real card can show
+			     up to 5, but the mobile viewport (and this skeleton, which never shows the desktop-only
+			     rows) only has room for 3. -->
+			<div class="{cardBase} p-5">
+				<div class="{pulse} h-3.5 w-32"></div>
+				<div class="mt-3.5 flex flex-col gap-3.5">
+					{#each [0, 1, 2] as _ (_)}
+						<div class="flex items-center gap-3">
+							<div class="{pulse} h-8 w-8 shrink-0 rounded-full"></div>
+							<div class="min-w-0 flex-1">
+								<div class="{pulse} h-3 w-3/5"></div>
+								<div class="{pulse} mt-1.5 h-2.5 w-2/5"></div>
+							</div>
+							<div class="{pulse} h-3 w-10 shrink-0"></div>
+						</div>
+					{/each}
+				</div>
+			</div>
+
 			<div class="{cardBase} p-5">
 				<div class="{pulse} h-3.5 w-36"></div>
 				<div class="mt-4 rounded-xl border border-zinc-200 p-3.5">

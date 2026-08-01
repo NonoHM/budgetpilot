@@ -23,6 +23,7 @@
 	import MoneyInput from '$lib/components/ui/MoneyInput.svelte';
 	import DashboardSkeleton from '$lib/components/DashboardSkeleton.svelte';
 	import CashFlowForecastChart from '$lib/components/ui/CashFlowForecastChart.svelte';
+	import UpcomingBillsCard from '$lib/components/UpcomingBillsCard.svelte';
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { formatShortDate } from '$lib/domain/dateFormat';
 	import { hasReliableConfirmedFlow } from '$lib/domain/forecast';
@@ -559,6 +560,8 @@
 							/>
 						{/if}
 					</div>
+
+					<UpcomingBillsCard widget={data.upcomingBills} />
 
 					<div class="{cardBase} p-5">
 						<div class="flex items-baseline justify-between gap-2">

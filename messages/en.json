@@ -967,5 +967,19 @@
 	"upcoming_bills_error_invalid_stream": "This bill could not be found or is no longer up to date. Reload the page.",
 	"upcoming_bills_error_invalid_date": "Invalid due date.",
 	"upcoming_bills_error_action_limit": "You have reached the limit of saved decisions on your upcoming bills. Undo one before adding another.",
-	"upcoming_bills_error_not_found": "Decision not found."
+	"upcoming_bills_error_not_found": "Decision not found.",
+	"dashboard_upcoming_title": "Upcoming bills",
+	"dashboard_upcoming_overdue_badge": "{count} overdue",
+	"dashboard_upcoming_footer_label": "Still to pay · next 30 days",
+	"dashboard_upcoming_view_all": "See all upcoming bills",
+	"dashboard_upcoming_empty_title": "No recurring flow detected",
+	"dashboard_upcoming_empty_description": "Three occurrences of the same label are needed to establish a rhythm.",
+	"dashboard_upcoming_empty_cta": "How it works",
+	"bills_date_today": "today",
+	"bills_date_tomorrow": "tomorrow",
+	"bills_date_in_days_short": "in {count} d",
+	"bills_date_late_short": "{count} d late",
+	"bills_date_expected": "expected {date}",
+	"bills_amount_range": "{min} to {max}",
+	"bills_amount_variable_tag": "variable"
 }

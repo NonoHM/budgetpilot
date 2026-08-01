@@ -20,6 +20,7 @@ import { analyzeTransactionNatures } from '$lib/server/transactions/nature';
 import { readSavingsGoals } from '$lib/server/savings-goals/service';
 import { loadCashFlowForecast, toDisplayCashFlowForecast } from '$lib/server/forecast';
 import { getRemainingDaysInMonthUtc } from '$lib/domain/forecast';
+import { loadUpcomingBillsWidget } from '$lib/server/upcoming-bills/service';
 import type { PageServerLoad } from './$types';
 
 /** Mirrors MAX_ALERTS in server/dashboard/insights.ts — the dashboard widget stays terse. */
@@ -48,22 +49,24 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					previousPeriod?.label ?? m.dashboard_previous_period_fallback()
 				)
 			: undefined;
-	const [aiPreferences, insights, categories, savingsGoals, cashFlowForecast] = await Promise.all([
-		prisma.user.findUniqueOrThrow({
-			where: { id: user.id },
-			select: { aiInsightsEnabled: true, aiIncludeLabels: true }
-		}),
-		loadDashboardInsights(user.id),
-		prisma.category.findMany({
-			where: { userId: user.id },
-			orderBy: { name: 'asc' },
-			select: { name: true, defaultKey: true }
-		}),
-		readSavingsGoals(user.id),
-		loadCashFlowForecast(user.id, getRemainingDaysInMonthUtc(new Date())).then(
-			toDisplayCashFlowForecast
-		)
-	]);
+	const [aiPreferences, insights, categories, savingsGoals, cashFlowForecast, upcomingBills] =
+		await Promise.all([
+			prisma.user.findUniqueOrThrow({
+				where: { id: user.id },
+				select: { aiInsightsEnabled: true, aiIncludeLabels: true }
+			}),
+			loadDashboardInsights(user.id),
+			prisma.category.findMany({
+				where: { userId: user.id },
+				orderBy: { name: 'asc' },
+				select: { name: true, defaultKey: true }
+			}),
+			readSavingsGoals(user.id),
+			loadCashFlowForecast(user.id, getRemainingDaysInMonthUtc(new Date())).then(
+				toDisplayCashFlowForecast
+			),
+			loadUpcomingBillsWidget(user.id)
+		]);
 	const aiAllowed = isLocalLlmEnabled(process.env) && aiPreferences.aiInsightsEnabled;
 	// Deliberately NOT awaited: a local model generating a few hundred tokens takes seconds
 	// to tens of seconds, and awaiting it here held the whole dashboard hostage for exactly
@@ -104,7 +107,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		insights,
 		savingsGoals: savingsGoals.slice(0, MAX_DASHBOARD_GOALS),
 		savingsGoalsOverflowCount: Math.max(0, savingsGoals.length - MAX_DASHBOARD_GOALS),
-		cashFlowForecast
+		cashFlowForecast,
+		upcomingBills
 	};
 };
 
