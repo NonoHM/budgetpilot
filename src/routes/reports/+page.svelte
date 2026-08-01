@@ -30,9 +30,9 @@
 	const cashFlowForecast = $derived(data.cashFlowForecast);
 	const forecastHorizonMonths = $derived(data.forecastHorizonMonths);
 	// "Included in the calculation" table: only the flows that actually feed the projection ledger
-	// right now (`feedsProjection`, computed server-side from `isReliableConfirmedFlow(flow) &&
-	// !isStreamStale(flow, todayIso)`) — a low-confidence, merely-tentative, or gone-stale flow only
-	// ever appears in the Annexes' exhaustive table.
+	// right now (`feedsProjection`, computed server-side from `feedsCashFlowProjection`) — a
+	// low-confidence, merely-tentative, or gone-stale flow only ever appears in the Annexes'
+	// exhaustive table.
 	const includedForecastFlows = $derived(
 		cashFlowForecast.flows.filter((flow) => flow.feedsProjection)
 	);
