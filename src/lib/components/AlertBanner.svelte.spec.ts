@@ -89,4 +89,31 @@ describe('AlertBanner.svelte', () => {
 		await expect.element(page.getByText('OK')).toBeInTheDocument();
 		await expect.poll(() => page.getByText('OK').elements().length).toBe(0);
 	});
+
+	it('places the action between the message and the close control, never after it', async () => {
+		// The transverse-tags design calls for exactly this order (message -> action -> close) for
+		// its bulk-apply undo banner: right-aligned, but still before dismiss. Order is asserted
+		// via DOM position rather than just presence, so a future refactor that appends the action
+		// after "Fermer" is caught.
+		const actionSnippet = createRawSnippet(() => ({
+			render: () => '<button type="button">Annuler</button>'
+		}));
+		const { container } = render(AlertBanner, {
+			variant: 'warning',
+			children: textSnippet('Careful'),
+			action: actionSnippet
+		});
+
+		const buttons = Array.from(container.querySelectorAll('button')).map(
+			(b) => b.getAttribute('aria-label') ?? b.textContent?.trim()
+		);
+		expect(buttons).toEqual(['Annuler', 'Fermer']);
+	});
+
+	it('has no action at all when the caller passes none, so existing callers are unaffected', async () => {
+		render(AlertBanner, { variant: 'error', children: textSnippet('Oops') });
+
+		expect(page.getByRole('button').elements().length).toBe(1);
+		await expect.element(page.getByRole('button', { name: 'Fermer' })).toBeInTheDocument();
+	});
 });

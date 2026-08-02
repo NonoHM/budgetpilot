@@ -17,7 +17,7 @@ describe('TagPicker.svelte', () => {
 	it('lists existing tags with their colour dots when opened', async () => {
 		render(TagPicker, { options, selected: [] });
 
-		await fieldInput().element().focus();
+		await userEvent.click(fieldInput());
 
 		await expect.element(page.getByRole('option', { name: 'Portugal' })).toBeInTheDocument();
 		await expect.element(page.getByRole('option', { name: 'Travaux' })).toBeInTheDocument();
@@ -57,7 +57,7 @@ describe('TagPicker.svelte', () => {
 	it('adds a selection without closing, so several tags can be picked in one pass', async () => {
 		render(TagPicker, { options, selected: [] });
 
-		await fieldInput().element().focus();
+		await userEvent.click(fieldInput());
 		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
 		// Still open: the second option is still there to pick, and the field is still focused.
 		await expect.element(page.getByRole('option', { name: 'Travaux' })).toBeInTheDocument();
@@ -122,7 +122,11 @@ describe('TagPicker.svelte', () => {
 	it('is keyboard reachable: arrow keys move, Enter selects, Escape closes without changing selection', async () => {
 		render(TagPicker, { options, selected: [] });
 
-		await fieldInput().element().focus();
+		// A real click, not a bare .focus() call: under load, a programmatic focus() can resolve
+		// before the browser has actually moved document.activeElement, and the very next
+		// userEvent.keyboard() then targets <body> instead of the field — this test flaked exactly
+		// that way under the full suite's contention while passing every time in isolation.
+		await userEvent.click(fieldInput());
 		await userEvent.keyboard('{ArrowDown}');
 		await expect
 			.element(fieldInput())
