@@ -36,7 +36,9 @@ jobs:
       issues: write # the cve-alert issue below
       security-events: write # upload-sarif
     steps:
-      # Only for upload-sarif's source context; the scan targets the published image.
+      # Two things, not one: upload-sarif's source context, AND `.trivyignore` — Trivy
+      # auto-detects it in the working directory, which is this checkout. Drop the checkout
+      # and the suppressions silently stop applying while every scan still passes.
       - uses: actions/checkout@v7
 
       # The package is public today (verified by an anonymous pull), so this is not strictly
@@ -72,8 +74,18 @@ jobs:
       # divergence would otherwise be invisible between releases.
       #
       # No severity filter and no exit-code on the SARIF scans: the Security tab gets the
-      # complete inventory and filters natively. Policy (CRITICAL/HIGH) is applied by the
-      # gate steps below, not by what gets recorded.
+      # inventory and filters natively. Policy (CRITICAL/HIGH) is applied by the gate steps
+      # below, not by what gets recorded.
+      #
+      # One exception to "inventory", added 2026-08-02: `.trivyignore` at the repo root is
+      # auto-detected and applies to these SARIF steps, so its entries never reach the
+      # Security tab. It holds only findings upstream has declined as vulnerabilities and
+      # that therefore can never clear — see the admission test in that file. Anything Debian
+      # has merely postponed still shows up, which is the awareness this workflow exists for.
+      #
+      # The gate steps below deliberately opt out via `TRIVY_IGNOREFILE=/dev/null`: quieting
+      # the Security tab is a reading-comfort decision, and it must not be able to suppress
+      # the CRITICAL/HIGH alert this workflow's whole purpose is to raise.
       - name: Scan published amd64 image — full inventory as SARIF
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
@@ -135,6 +147,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PLATFORM: linux/amd64
+          TRIVY_IGNOREFILE: /dev/null # `.trivyignore` must not be able to silence this alert
         with:
           scan-type: image
           image-ref: ${{ steps.image.outputs.ref }}
@@ -153,6 +166,7 @@ jobs:
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PLATFORM: linux/arm64
+          TRIVY_IGNOREFILE: /dev/null # `.trivyignore` must not be able to silence this alert
         with:
           scan-type: image
           image-ref: ${{ steps.image.outputs.ref }}
