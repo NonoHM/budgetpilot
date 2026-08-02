@@ -101,7 +101,9 @@ describe('/register action', () => {
 		);
 
 		expect(result.status).toBe(403);
-		expect(result.data.error).toBe('Inscription indisponible.');
+		expect(result.data.error).toBe(
+			'Jeton bootstrap invalide. Vérifiez la valeur de BOOTSTRAP_TOKEN dans votre fichier .env, en copiant la ligne entière après le signe égal.'
+		);
 		expect(db.prisma.user.create).not.toHaveBeenCalled();
 	});
 
@@ -143,7 +145,9 @@ describe('/register action', () => {
 		);
 
 		expect(result.status).toBe(403);
-		expect(result.data.error).toBe('Inscription indisponible.');
+		expect(result.data.error).toBe(
+			'Jeton bootstrap invalide. Vérifiez la valeur de BOOTSTRAP_TOKEN dans votre fichier .env, en copiant la ligne entière après le signe égal.'
+		);
 		expect(db.prisma.user.create).not.toHaveBeenCalled();
 	});
 
@@ -163,8 +167,48 @@ describe('/register action', () => {
 		);
 
 		expect(result.status).toBe(403);
-		expect(result.data.error).toBe('Inscription indisponible.');
+		expect(result.data.error).toBe(
+			'Jeton bootstrap invalide. Vérifiez la valeur de BOOTSTRAP_TOKEN dans votre fichier .env, en copiant la ligne entière après le signe égal.'
+		);
 		expect(db.prisma.user.create).not.toHaveBeenCalled();
+	});
+
+	it('tells a wrong token apart from a closed instance, in one assertion so the two cannot recollapse', async () => {
+		expect.assertions(4);
+
+		// The two conditions used to share `register_error_unavailable`, which is false for the
+		// first one: registration IS available there, only the token is wrong. Asserting each
+		// message separately would not have caught that — both were "correct" in isolation. What
+		// makes the distinction load-bearing is comparing them in the SAME test, so re-pointing
+		// either branch at the other's message fails here.
+
+		// Registration open (first user, count 0), token wrong.
+		db.prisma.user.count.mockResolvedValue(0);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+		const badToken = await runRegister(
+			{ set: vi.fn() },
+			{
+				email: 'a@example.test',
+				password: 'mot-de-passe-long',
+				bootstrapToken: 'wrongtoken123456'
+			}
+		);
+
+		// Registration genuinely closed: admin_only with an account already present, so the request
+		// never reaches the token check at all.
+		db.prisma.user.count.mockResolvedValue(1);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+		const closed = await runRegister(
+			{ set: vi.fn() },
+			{ email: 'a@example.test', password: 'mot-de-passe-long' }
+		);
+
+		// Same status on purpose — 403 either way is correct, and is exactly why the status cannot
+		// carry the difference and the message has to.
+		expect(badToken.status).toBe(403);
+		expect(closed.status).toBe(403);
+		expect(badToken.data.error).not.toBe(closed.data.error);
+		expect(closed.data.error).toBe('Inscription indisponible.');
 	});
 
 	it('claim le backfill uniquement si le compte technique est encore intact', async () => {
