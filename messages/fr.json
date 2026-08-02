@@ -1074,5 +1074,10 @@
 	"bills_banner_ignored": "Échéance ignorée pour {month}.",
 	"bills_banner_excluded": "« {label} » ne sera plus détecté.",
 	"bills_banner_restored": "Échéance rétablie.",
-	"bills_banner_undo": "Annuler"
+	"bills_banner_undo": "Annuler",
+	"tags_chips_group_aria": "Étiquettes",
+	"tags_remove_aria": "Retirer l'étiquette {name}",
+	"tags_chips_overflow_label": "+{n}",
+	"tags_chips_overflow_aria_one": "{n} étiquette de plus : {names}",
+	"tags_chips_overflow_aria_many": "{n} étiquettes de plus : {names}"
 }

@@ -1074,5 +1074,10 @@
 	"bills_banner_ignored": "Bill ignored for {month}.",
 	"bills_banner_excluded": "“{label}” will no longer be detected.",
 	"bills_banner_restored": "Bill restored.",
-	"bills_banner_undo": "Undo"
+	"bills_banner_undo": "Undo",
+	"tags_chips_group_aria": "Tags",
+	"tags_remove_aria": "Remove tag {name}",
+	"tags_chips_overflow_label": "+{n}",
+	"tags_chips_overflow_aria_one": "{n} more tag: {names}",
+	"tags_chips_overflow_aria_many": "{n} more tags: {names}"
 }
