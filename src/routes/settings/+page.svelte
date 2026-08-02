@@ -11,6 +11,7 @@
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import TagChips from '$lib/components/ui/TagChips.svelte';
+	import ColorSwatchGroup from '$lib/components/ui/ColorSwatchGroup.svelte';
 	import { cardBase, inputBase } from '$lib/styles';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import { TAG_COLOR_TOKENS } from '$lib/domain/tags';
@@ -42,6 +43,14 @@
 	function capitalizeToken(token: string): string {
 		return token.charAt(0).toUpperCase() + token.slice(1);
 	}
+
+	// Built once, not per tag row: the palette is the same for every tag, and tagColorBgClass is a
+	// lookup into a closed literal table rather than a computed class (see domain/colors.ts).
+	const swatchOptions = TAG_COLOR_TOKENS.map((token) => ({
+		value: token,
+		label: capitalizeToken(token),
+		class: tagColorBgClass(token)
+	}));
 
 	function tagTxCount(n: number): string {
 		return n > 1 ? m.tags_tx_count_many({ count: n }) : m.tags_tx_count_one({ count: n });
@@ -904,28 +913,12 @@
 							     Selection is shown with a ring instead. -->
 							<form method="POST" action="?/recolorTag" class="mt-3" use:enhance>
 								<input type="hidden" name="id" value={tag.id} />
-								<div
-									class="flex flex-wrap gap-1.5"
-									role="radiogroup"
-									aria-label={m.tags_settings_color_group_aria({ name: tag.name })}
-								>
-									{#each TAG_COLOR_TOKENS as token (token)}
-										<button
-											type="submit"
-											name="colorToken"
-											value={token}
-											role="radio"
-											aria-checked={token === tag.colorToken}
-											aria-label={capitalizeToken(token)}
-											class="relative h-6 w-6 shrink-0 rounded-full {tagColorBgClass(
-												token
-											)} before:absolute before:-inset-[10px] before:content-[''] focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {token ===
-											tag.colorToken
-												? 'ring-2 ring-zinc-900 ring-offset-2'
-												: 'ring-1 ring-zinc-200 ring-offset-1'}"
-										></button>
-									{/each}
-								</div>
+								<ColorSwatchGroup
+									name="colorToken"
+									options={swatchOptions}
+									selected={tag.colorToken}
+									ariaLabel={m.tags_settings_color_group_aria({ name: tag.name })}
+								/>
 							</form>
 						</li>
 					{/each}

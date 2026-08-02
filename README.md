@@ -38,6 +38,7 @@ All screenshots use fake demo data, not a real user's finances.
 - **Savings goals**, with pace tracking and an optional link to a real account.
 - **Cash flow forecasting**: a deterministic projection of your upcoming balance, based on recurring income and expenses it actually detects from your history. No machine learning involved, nothing sent anywhere.
 - **Categorization rules** (text or regex), applied automatically on import, never overriding something you fixed by hand.
+- **Tags**: free labels that cut across categories, so "Portugal 2026" can hold a train, a restaurant and a hotel while each keeps its own category. Filter the list by one, tag a whole filtered set at once, and undo that in a click.
 - **Optional local AI advice** via Ollama. By default, only anonymized aggregates reach the model. An opt-in setting can add the labels of your largest expenses, never your full transaction history.
 - **Backup and restore**: a full export of your own data, nothing held hostage.
 - French and English, out of the box.
