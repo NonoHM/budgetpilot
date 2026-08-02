@@ -896,7 +896,12 @@
 
 							<!-- Colour change: one swatch per palette token, each a submit button carrying
 							     its own value — no client-side colour computation, the server is the only
-							     place that assigns or validates a colorToken. -->
+							     place that assigns or validates a colorToken.
+							     Deliberately no opacity/dimming on the unselected swatches: lagoon and azure
+							     are locked colours (see the comment on TAG_COLORS in domain/colors.ts) whose
+							     measured contrast ratio must never be reduced, and treating every token the
+							     same way here is simpler than carving out an exception for two of nine.
+							     Selection is shown with a ring instead. -->
 							<form method="POST" action="?/recolorTag" class="mt-3" use:enhance>
 								<input type="hidden" name="id" value={tag.id} />
 								<div
@@ -917,7 +922,7 @@
 											)} before:absolute before:-inset-[10px] before:content-[''] focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {token ===
 											tag.colorToken
 												? 'ring-2 ring-zinc-900 ring-offset-2'
-												: 'opacity-60 hover:opacity-100'}"
+												: 'ring-1 ring-zinc-200 ring-offset-1'}"
 										></button>
 									{/each}
 								</div>
