@@ -204,6 +204,25 @@ messages/           Paraglide translation source (fr.json / en.json)
 - **Default categories** are seeded once per user (on register/first
   login) and can be restored later without duplicating them.
 - **Budgets** are monthly, scoped per user and per category.
+- **Tags** are free labels that cut across categories. A transaction has one
+  category and any number of tags; the two never share a palette, because a
+  tag chip and a category pastille render on the same row. Three rules decide
+  most questions about them:
+  - **A tag has no identity beyond its name.** A tag with no transactions is
+    deleted immediately, silently and without confirmation. That is what makes
+    retyping the same name a clean insert instead of a collision with a
+    remnant. Untagging the last transaction must never announce a deletion.
+  - **`TransactionTag` has no `userId` column.** Its two foreign keys are
+    independent, so nothing in the schema stops a row linking one user's
+    transaction to another user's tag. Application code is the entire
+    protection: every write resolves the tag under the caller's `userId`
+    first. Prove any claim about this against a real engine, never from a
+    schema reading.
+  - **Colour tokens are hue names** (`clay`, `ochre`, `olive`, `lagoon`,
+    `azure`, `steel`, `indigo`, `plum`, `berry`), stored as strings and
+    validated against a closed set. `lagoon` and `azure` are locked: never
+    lighten them, never apply opacity. Three hue bands are deliberately absent
+    so a tag can never read as a status.
 - **Backup/restore**: export is a full JSON dump scoped to the requesting
   user; restore is a full, transactional replacement (never a merge) — IDs
   are regenerated on import.
@@ -222,7 +241,10 @@ messages/           Paraglide translation source (fr.json / en.json)
 - Buttons: primary is black/zinc, green means a positive action, red means
   destructive, secondary uses a zinc border. One primary action per screen.
 - Tables show only what you scan at a glance (date, amount, category);
-  everything else lives in a detail view.
+  everything else lives in a detail view. The transaction row's tag chips are
+  an approved exception, capped at two plus a `+N`: a filter result you cannot
+  visually verify is worse than no filter, and the cap is what preserves the
+  convention it deviates from.
 - Dates show the year only when it differs from the current year.
 - Progressive disclosure: secondary/dangerous actions stay collapsed by
   default. Empty states carry exactly one clear call to action.
