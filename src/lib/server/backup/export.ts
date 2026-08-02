@@ -174,8 +174,17 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		// Scoped through the transaction rather than a userId column, because TransactionTag has
 		// none by design: a link's owner is its transaction's owner (see the model comment). This
 		// is the only place the export reaches a row without a userId of its own.
+		//
+		// BOTH sides are scoped, not just the transaction, and that second conjunct is not
+		// redundant. "A link's tag and its transaction have the same owner" is an invariant the
+		// write path maintains and NO constraint enforces: the two foreign keys are independent,
+		// and there is no composite key tying Tag.userId to Transaction.userId. Scoping only the
+		// transaction would mean a single bad write anywhere ever emits a pair whose tagId is
+		// absent from the `tags` array above, and assertReferentialIntegrity refuses exactly that
+		// on the way back in. The user's own export would become permanently unrestorable. Both
+		// columns are indexed, so agreeing by construction costs nothing.
 		prisma.transactionTag.findMany({
-			where: { transaction: { userId } },
+			where: { transaction: { userId }, tag: { userId } },
 			select: { transactionId: true, tagId: true }
 		})
 	]);

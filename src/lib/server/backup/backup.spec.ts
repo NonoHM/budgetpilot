@@ -99,7 +99,11 @@ const db = vi.hoisted(() => {
 					where,
 					select
 				}: {
-					where: { transaction?: { userId: string }; transactionId?: string };
+					where: {
+						transaction?: { userId: string };
+						tag?: { userId: string };
+						transactionId?: string;
+					};
 					select?: Record<string, boolean>;
 				}) => {
 					if ('userId' in where) {
@@ -109,6 +113,7 @@ const db = vi.hoisted(() => {
 					}
 					return rows
 						.filter((row) => (where.transaction ? row.userId === where.transaction.userId : true))
+						.filter((row) => (where.tag ? row.userId === where.tag.userId : true))
 						.filter((row) =>
 							where.transactionId ? row.transactionId === where.transactionId : true
 						)
@@ -639,7 +644,8 @@ describe('buildBackupExport', () => {
 		// TransactionTag has no userId column. The fake throws on `where.userId`, so this asserts
 		// the shape the real engine would accept rather than trusting the query to be right.
 		expect(db.prisma.transactionTag.findMany.mock.calls[0][0].where).toEqual({
-			transaction: { userId: 'user-a' }
+			transaction: { userId: 'user-a' },
+			tag: { userId: 'user-a' }
 		});
 	});
 });
@@ -1690,6 +1696,42 @@ describe('restoreBackup with tags', () => {
 		// undeduplicated insert would violate the composite primary key.
 		expect(db.store.tags.filter((row) => row.userId === 'user-a')).toHaveLength(1);
 		expect(db.store.transactionTags).toHaveLength(1);
+	});
+
+	it('cannot collide with another user rows whose real ids match the ids in the file', async () => {
+		expect.assertions(4);
+
+		// The forbidden thing, attempted rather than argued. Tag.id and Transaction.id are GLOBAL
+		// primary keys, so a hand-edited export can name an id that really belongs to somebody
+		// else. Seed exactly that: user-b owns rows whose ids are the ones user-a's file uses.
+		//
+		// Reasoning that the code is safe is not evidence here. The previous version of this file
+		// asserted only that the restored id differs from the file's, which is true even if the
+		// collision were catastrophic.
+		db.store.tags.push({
+			id: 'file-tag-1',
+			userId: 'user-b',
+			name: 'Le tag de B',
+			colorToken: 'tag-2'
+		});
+		db.store.transactions.push({
+			id: 'file-tx-1',
+			userId: 'user-b',
+			label: 'La transaction de B',
+			amountCents: -999
+		});
+
+		await restoreBackup('user-a', payloadWithTag());
+
+		// User B's rows are untouched: not deleted by the purge, not overwritten by the restore.
+		expect(db.store.tags.find((row) => row.id === 'file-tag-1')?.userId).toBe('user-b');
+		expect(db.store.transactions.find((row) => row.id === 'file-tx-1')?.userId).toBe('user-b');
+		// And nothing user A restored points at either of them.
+		const restoredTagIds = db.store.tags
+			.filter((row) => row.userId === 'user-a')
+			.map((row) => row.id);
+		expect(restoredTagIds).not.toContain('file-tag-1');
+		expect(db.store.transactionTags.every((link) => link.userId === 'user-a')).toBe(true);
 	});
 
 	it('rejects a pair naming a tag absent from the payload, before any write', async () => {

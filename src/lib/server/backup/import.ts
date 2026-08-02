@@ -213,6 +213,10 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		const tagKeyMap = new Map<string, string>();
 		for (const tag of payload.tags) {
 			const name = normalizeTagName(tag.name);
+			// The one place a restore drops data the validator accepted: `z.string().min(1)` passes
+			// a whitespace-only name, which normalizes to ''. Skipped rather than stored, and every
+			// pair naming it is then dropped below, after assertReferentialIntegrity has already
+			// approved those pairs. Deliberate: a tag whose name is invisible is worse than no tag.
 			if (!name) continue;
 			const nameKey = computeNameKey(name);
 			const alreadyRestored = tagKeyMap.get(nameKey);
