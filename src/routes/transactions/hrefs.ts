@@ -22,6 +22,7 @@ export interface TransactionFilters {
 	to: string;
 	importBatchId: string;
 	ids: string;
+	tag: string;
 }
 
 function baseParams(filters: TransactionFilters, keepIds: boolean): URLSearchParams {
@@ -34,6 +35,10 @@ function baseParams(filters: TransactionFilters, keepIds: boolean): URLSearchPar
 	if (filters.from) params.set('from', filters.from);
 	if (filters.to) params.set('to', filters.to);
 	if (filters.importBatchId) params.set('importBatch', filters.importBatchId);
+	// Carried by paging, selection and the export, like every other filter here. It is NOT on the
+	// keepIds side of the split: a tag filter is an ordinary narrowing of the list, not a
+	// "these specific rows" view the user needs to be shown leaving.
+	if (filters.tag) params.set('tag', filters.tag);
 	if (keepIds && filters.ids) params.set('ids', filters.ids);
 	return params;
 }

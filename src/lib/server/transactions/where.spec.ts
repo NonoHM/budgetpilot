@@ -181,6 +181,56 @@ describe('buildTransactionWhere', () => {
 		expect(where.importBatchId).toBe('batch-123');
 	});
 
+	it('filters by tag through the join relation', () => {
+		expect.assertions(2);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'all',
+			category: '',
+			importBatchId: '',
+			tagId: 'tag1234a'
+		});
+
+		expect(where.tags).toEqual({ some: { tagId: 'tag1234a' } });
+		// The tenancy conjunct is what makes another user's tag id return nothing rather than their
+		// rows: the result is indistinguishable from an id that never existed, so this parameter
+		// cannot be used to probe whether a given tag id exists on some other account.
+		expect(where.userId).toBe('user-a');
+	});
+
+	it('leaves the tag filter out entirely when absent', () => {
+		expect.assertions(1);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'all',
+			category: '',
+			importBatchId: ''
+		});
+
+		expect(where.tags).toBeUndefined();
+	});
+
+	it('combines a tag filter with the category OR without either overwriting the other', () => {
+		expect.assertions(2);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'classify',
+			category: 'Voyage',
+			importBatchId: '',
+			uncategorizedCategoryId: 'cat-unc',
+			tagId: 'tag1234a'
+		});
+
+		// A plain conjunct, so it sits beside the two OR-shaped conditions rather than joining
+		// them. If it were pushed into `conditions`, the tag would widen the match instead of
+		// narrowing it the moment a second condition was active.
+		expect(where.tags).toEqual({ some: { tagId: 'tag1234a' } });
+		expect(where.AND).toHaveLength(2);
+	});
+
 	it('filtre par plage de dates [from, to)', () => {
 		expect.assertions(1);
 

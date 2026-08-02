@@ -41,6 +41,18 @@ export function buildTransactionWhere(input: {
 	 * handful of rows to the user's whole history.
 	 */
 	ids?: readonly string[] | null;
+	/**
+	 * Tag id from `?tag=`, already shape-checked by normalizeId.
+	 *
+	 * A plain conjunct, deliberately NOT one of the OR-shaped `conditions` below. Those exist only
+	 * for the effective-category fallback (manualCategory ?? category.name), where one concept has
+	 * two possible columns; a tag has no such split identity. Pushing it into `conditions` would
+	 * make the tag WIDEN the match rather than narrow it as soon as a second condition was active.
+	 *
+	 * No enumeration is possible through this. `where.userId` is always present, so a tag id
+	 * belonging to another account matches zero rows, byte-identical to an id that never existed.
+	 */
+	tagId?: string;
 }): Prisma.TransactionWhereInput {
 	// The one conjunct every other filter here relies on. `?ids=` in particular is raw client input
 	// naming rows directly, so this equality is the whole thing standing between it and a
@@ -85,6 +97,7 @@ export function buildTransactionWhere(input: {
 		});
 	}
 	if (input.importBatchId) where.importBatchId = input.importBatchId;
+	if (input.tagId) where.tags = { some: { tagId: input.tagId } };
 	// `input.ids` is spread into a mutable array because Prisma's generated `in` takes `string[]`;
 	// the `!= null` test (not truthiness) is what keeps an empty list meaning "match nothing".
 	if (input.ids != null) where.id = { in: [...input.ids] };

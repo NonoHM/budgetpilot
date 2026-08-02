@@ -69,6 +69,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const fromDisplay = (fromParam ?? '').trim();
 	const toDisplay = (toParam ?? '').trim();
 	const importBatchId = normalizeId(url.searchParams.get('importBatch'));
+	const tagId = normalizeId(url.searchParams.get('tag'));
 	const selectedId = normalizeId(url.searchParams.get('selected'));
 	// Explicit id whitelist. Deliberately NOT applied to `uncategorizedPileWhere` below: the
 	// "à classer" pile is global by design (see its comment), not a view of the current filters.
@@ -199,7 +200,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		to: dateRange?.to,
 		importBatchId,
 		uncategorizedCategoryId,
-		ids
+		ids,
+		tagId
 	});
 
 	const transactionSelect = {
@@ -290,7 +292,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// returns zero rows, and with zero rows there is no pagination control and no row link
 			// to carry anything forward — the two cases have no observable difference here. A
 			// future consumer of `filters.ids` that runs when the list is empty must not assume it.
-			ids: ids ? ids.join(',') : ''
+			ids: ids ? ids.join(',') : '',
+			tag: tagId
 		},
 		filteredTotals,
 		queryError,

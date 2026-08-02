@@ -45,6 +45,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	// from the id-filtered view without it silently ships the user's ENTIRE history in a file they
 	// are likely to mail on — the pre-`ids` behaviour, when this link used `?q=`, was filtered.
 	const ids = normalizeIdList(url.searchParams.get('ids'));
+	// Same reason as `ids` above, and the reason applies to every filter this route accepts: an
+	// export the user cannot inspect before it lands must match the view it was launched from.
+	const tagId = normalizeId(url.searchParams.get('tag'));
 
 	if (query && qMode === 'regex' && !isValidRegexQuery(query)) {
 		error(400, 'Expression régulière invalide.');
@@ -65,7 +68,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		to: dateRange?.to,
 		importBatchId,
 		uncategorizedCategoryId,
-		ids
+		ids,
+		tagId
 	});
 
 	const exportSelect = {

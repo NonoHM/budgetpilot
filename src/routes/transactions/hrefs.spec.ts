@@ -9,7 +9,8 @@ const filters = {
 	from: '2026-07-01',
 	to: '2026-07-31',
 	importBatchId: 'batch1234',
-	ids: 'tx1,tx2'
+	ids: 'tx1,tx2',
+	tag: 'tag1234a'
 };
 
 describe('buildTransactionsHref', () => {
@@ -23,6 +24,28 @@ describe('buildTransactionsHref', () => {
 		expect(params.get('from')).toBe('2026-07-01');
 		expect(params.get('to')).toBe('2026-07-31');
 		expect(params.get('importBatch')).toBe('batch1234');
+		expect(params.get('tag')).toBe('tag1234a');
+	});
+
+	it('carries the tag filter through paging and row selection', () => {
+		// Paging out of a tag-filtered view and landing on the unfiltered list is the same defect
+		// the "Toutes" tab had: a control that silently drops the filter it was navigating within.
+		const paged = new URLSearchParams(
+			buildTransactionsHref(filters, { page: '2' }, { keepIds: true }).split('?')[1]
+		);
+		expect(paged.get('tag')).toBe('tag1234a');
+
+		const selected = new URLSearchParams(
+			buildTransactionsHref(filters, { selected: 'tx9' }, { keepIds: true }).split('?')[1]
+		);
+		expect(selected.get('tag')).toBe('tag1234a');
+	});
+
+	it('keeps the tag filter when the type tab changes', () => {
+		// Unlike `ids`, a tag is an ordinary narrowing rather than a "these specific rows" view, so
+		// switching tabs stays inside it instead of dropping it.
+		const href = buildTransactionsHref(filters, { type: 'all' }, { keepIds: false });
+		expect(new URLSearchParams(href.split('?')[1]).get('tag')).toBe('tag1234a');
 	});
 
 	it('emits qMode only for a regex search', () => {
@@ -118,7 +141,8 @@ describe('buildTransactionsHref', () => {
 				from: '',
 				to: '',
 				importBatchId: '',
-				ids: ''
+				ids: '',
+				tag: ''
 			},
 			{},
 			{ keepIds: true }
@@ -133,6 +157,14 @@ describe('buildTransactionsExportHref', () => {
 		// a whole-history CSV. See the comment on the export branch.
 		expect(new URLSearchParams(buildTransactionsExportHref(filters).split('?')[1]).get('ids')).toBe(
 			'tx1,tx2'
+		);
+	});
+
+	it('exports the tag-filtered set, not the whole history', () => {
+		// Same reasoning as the ids case above: the user cannot inspect a download before it lands,
+		// so a dropped filter here is worse than a dropped filter on screen.
+		expect(new URLSearchParams(buildTransactionsExportHref(filters).split('?')[1]).get('tag')).toBe(
+			'tag1234a'
 		);
 	});
 
