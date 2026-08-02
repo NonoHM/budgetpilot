@@ -1,0 +1,296 @@
+- generic [ref=f18e1]:
+  - generic [ref=f18e3]:
+    - link "Aller au contenu principal" [ref=f18e4] [cursor=pointer]:
+      - /url: "#main-content"
+    - banner [ref=f18e5]:
+      - generic [ref=f18e6]:
+        - link "BudgetPilot" [ref=f18e8] [cursor=pointer]:
+          - /url: /
+        - generic [ref=f18e9]:
+          - navigation "Navigation principale" [ref=f18e10]:
+            - generic [ref=f18e11]:
+              - link "Tableau de bord" [ref=f18e12] [cursor=pointer]:
+                - /url: /
+              - link "Transactions" [ref=f18e13] [cursor=pointer]:
+                - /url: /transactions
+              - link "Budgets" [ref=f18e14] [cursor=pointer]:
+                - /url: /budgets
+              - link "Échéances" [ref=f18e15] [cursor=pointer]:
+                - /url: /upcoming-bills
+              - link "Rapports" [ref=f18e16] [cursor=pointer]:
+                - /url: /reports
+              - link "Règles" [ref=f18e17] [cursor=pointer]:
+                - /url: /rules
+              - link "Imports" [ref=f18e18] [cursor=pointer]:
+                - /url: /imports
+              - link "Patrimoine" [ref=f18e19] [cursor=pointer]:
+                - /url: /net-worth
+          - button "Menu du compte" [ref=f18e20]:
+            - generic [ref=f18e21]: "NO"
+    - main [ref=f18e23]:
+      - generic [ref=f18e24]:
+        - generic [ref=f18e25]:
+          - heading "Transactions" [level=1] [ref=f18e27]
+          - generic [ref=f18e28]:
+            - link "Exporter" [ref=f18e29] [cursor=pointer]:
+              - /url: /transactions/export?
+            - link "Importer" [ref=f18e30] [cursor=pointer]:
+              - /url: /import
+        - generic [ref=f18e31]:
+          - tablist [ref=f18e33]:
+            - tab "Toutes" [selected] [ref=f18e34] [cursor=pointer]
+            - tab "Dépenses" [ref=f18e35] [cursor=pointer]
+            - tab "Revenus" [ref=f18e36] [cursor=pointer]
+          - generic [ref=f18e37]:
+            - generic [ref=f18e38]:
+              - button "Basculer la recherche en mode expression régulière" [ref=f18e39]: r
+              - searchbox "Rechercher une transaction" [ref=f18e41]
+            - generic [ref=f18e42]:
+              - combobox "Filtrer par catégorie" [ref=f18e43]: Toutes
+              - button "Ouvrir la liste" [ref=f18e44]
+            - generic [ref=f18e47]:
+              - combobox "Filtrer par étiquette" [expanded] [active] [ref=f18e48]
+              - button "Ouvrir la liste" [ref=f18e49]
+            - generic [ref=f18e52]:
+              - generic [ref=f18e53]: Du
+              - textbox "Du" [ref=f18e54]
+            - generic [ref=f18e55]:
+              - generic [ref=f18e56]: Au
+              - textbox "Au" [ref=f18e57]
+            - button "Filtrer" [ref=f18e58]
+            - link "Réinitialiser" [ref=f18e59] [cursor=pointer]:
+              - /url: /transactions
+            - button "Appliquer une étiquette" [disabled] [ref=f18e60]
+          - paragraph [ref=f18e61]: Activez d'abord un filtre (période, catégorie, recherche ou étiquette) pour choisir les transactions concernées.
+        - generic [ref=f18e62]:
+          - generic [ref=f18e63]:
+            - generic [ref=f18e64]:
+              - generic [ref=f18e65]:
+                - paragraph [ref=f18e66]: 20 transactions, page 1
+                - paragraph [ref=f18e67]: 4 900,00 € encaissés · 2 877,59 € dépensés
+              - generic [ref=f18e68]:
+                - generic: Précédent
+                - generic: Suivant
+            - table [ref=f18e70]:
+              - rowgroup [ref=f18e71]:
+                - row [ref=f18e72]:
+                  - columnheader "Libellé" [ref=f18e73]
+                  - columnheader "Catégorie" [ref=f18e74]
+                  - columnheader "Étiquettes" [ref=f18e75]
+                  - columnheader "Montant" [ref=f18e76]
+              - rowgroup [ref=f18e77]:
+                - row [ref=f18e78]:
+                  - cell [ref=f18e79]:
+                    - link "CARREFOUR MARKET" [ref=f18e80] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc406w005q01lhtioxsasw
+                    - paragraph [ref=f18e81]: 3 août
+                  - cell "Alimentation Dépense réelle" [ref=f18e82]:
+                    - generic [ref=f18e83]: Alimentation
+                    - paragraph [ref=f18e86]: Dépense réelle
+                  - cell [ref=f18e87]
+                  - cell "72,15 €" [ref=f18e88]
+                - row [ref=f18e89]:
+                  - cell [ref=f18e90]:
+                    - link "SALAIRE AOUT" [ref=f18e91] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc406s005p01lhychz59xl
+                    - paragraph [ref=f18e92]: 1 août
+                  - cell "Revenus Revenu" [ref=f18e93]:
+                    - generic [ref=f18e94]: Revenus
+                    - paragraph [ref=f18e97]: Revenu
+                  - cell [ref=f18e98]
+                  - cell "2 450,00 €" [ref=f18e99]
+                - row [ref=f18e100]:
+                  - cell [ref=f18e101]:
+                    - link "ESSENCE TOTAL" [ref=f18e102] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc406n005o01lhh7yt9brd
+                    - paragraph [ref=f18e103]: 28 juillet
+                  - cell "Transport Dépense réelle" [ref=f18e104]:
+                    - generic [ref=f18e105]: Transport
+                    - paragraph [ref=f18e108]: Dépense réelle
+                  - cell [ref=f18e109]
+                  - cell "68,40 €" [ref=f18e110]
+                - row [ref=f18e111]:
+                  - cell [ref=f18e112]:
+                    - link "VIREMENT LIVRET A" [ref=f18e113] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc406j005n01lhy9fxkuis
+                    - paragraph [ref=f18e114]: 26 juillet
+                  - cell "Épargne Transfert" [ref=f18e115]:
+                    - generic [ref=f18e116]: Épargne
+                    - paragraph [ref=f18e119]: Transfert
+                  - cell [ref=f18e120]:
+                    - list "Étiquettes" [ref=f18e121]:
+                      - listitem [ref=f18e122]:
+                        - generic [ref=f18e123]: Portugal 2026
+                      - listitem [ref=f18e126]:
+                        - generic [ref=f18e127]: Travaux
+                  - cell "300,00 €" [ref=f18e130]
+                - row [ref=f18e131]:
+                  - cell [ref=f18e132]:
+                    - link "CINEMA UGC" [ref=f18e133] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc406g005m01lh82uj0m1q
+                    - paragraph [ref=f18e134]: 24 juillet
+                  - cell "Loisirs Dépense réelle" [ref=f18e135]:
+                    - generic [ref=f18e136]: Loisirs
+                    - paragraph [ref=f18e139]: Dépense réelle
+                  - cell [ref=f18e140]
+                  - cell "22,00 €" [ref=f18e141]
+                - row [ref=f18e142]:
+                  - cell [ref=f18e143]:
+                    - link "CARREFOUR MARKET" [ref=f18e144] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc406c005l01lh0fzk9m6u
+                    - paragraph [ref=f18e145]: 22 juillet
+                  - cell "Alimentation Dépense réelle" [ref=f18e146]:
+                    - generic [ref=f18e147]: Alimentation
+                    - paragraph [ref=f18e150]: Dépense réelle
+                  - cell [ref=f18e151]
+                  - cell "51,75 €" [ref=f18e152]
+                - row [ref=f18e153]:
+                  - cell [ref=f18e154]:
+                    - link "PLOMBIER DUPONT" [ref=f18e155] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc4068005k01lhj1jkdkuf
+                    - paragraph [ref=f18e156]: 20 juillet
+                  - cell "Autres Dépense réelle" [ref=f18e157]:
+                    - generic [ref=f18e158]: Autres
+                    - paragraph [ref=f18e161]: Dépense réelle
+                  - cell [ref=f18e162]
+                  - cell "450,00 €" [ref=f18e163]
+                - row [ref=f18e164]:
+                  - cell [ref=f18e165]:
+                    - link "LEROY MERLIN PEINTURE" [ref=f18e166] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc4064005j01lhtqoysaqm
+                    - paragraph [ref=f18e167]: 19 juillet
+                  - cell "Shopping Dépense réelle" [ref=f18e168]:
+                    - generic [ref=f18e169]: Shopping
+                    - paragraph [ref=f18e172]: Dépense réelle
+                  - cell [ref=f18e173]
+                  - cell "87,30 €" [ref=f18e174]
+                - row [ref=f18e175]:
+                  - cell [ref=f18e176]:
+                    - link "LEROY MERLIN CARRELAGE" [ref=f18e177] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc4060005i01lhooio2a27
+                    - paragraph [ref=f18e178]: 18 juillet
+                  - cell "Shopping Dépense réelle" [ref=f18e179]:
+                    - generic [ref=f18e180]: Shopping
+                    - paragraph [ref=f18e183]: Dépense réelle
+                  - cell [ref=f18e184]
+                  - cell "243,80 €" [ref=f18e185]
+                - row [ref=f18e186]:
+                  - cell [ref=f18e187]:
+                    - link "PHARMACIE DU CENTRE" [ref=f18e188] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc405w005h01lhpmnqkl5h
+                    - paragraph [ref=f18e189]: 16 juillet
+                  - cell "Santé Dépense réelle" [ref=f18e190]:
+                    - generic [ref=f18e191]: Santé
+                    - paragraph [ref=f18e194]: Dépense réelle
+                  - cell [ref=f18e195]
+                  - cell "24,10 €" [ref=f18e196]
+                - row [ref=f18e197]:
+                  - cell [ref=f18e198]:
+                    - link "NETFLIX" [ref=f18e199] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc405s005g01lhnoi720oo
+                    - paragraph [ref=f18e200]: 15 juillet
+                  - cell "Abonnements Dépense réelle" [ref=f18e201]:
+                    - generic [ref=f18e202]: Abonnements
+                    - paragraph [ref=f18e205]: Dépense réelle
+                  - cell [ref=f18e206]
+                  - cell "13,49 €" [ref=f18e207]
+                - row [ref=f18e208]:
+                  - cell [ref=f18e209]:
+                    - link "LOYER JUILLET" [ref=f18e210] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc405o005f01lhcsg5v04y
+                    - paragraph [ref=f18e211]: 14 juillet
+                  - cell "Logement Dépense réelle" [ref=f18e212]:
+                    - generic [ref=f18e213]: Logement
+                    - paragraph [ref=f18e216]: Dépense réelle
+                  - cell [ref=f18e217]
+                  - cell "820,00 €" [ref=f18e218]
+                - row [ref=f18e219]:
+                  - cell [ref=f18e220]:
+                    - link "EDF FACTURE" [ref=f18e221] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc405k005e01lhf47pprdd
+                    - paragraph [ref=f18e222]: 12 juillet
+                  - cell "Factures & énergie Dépense réelle" [ref=f18e223]:
+                    - generic [ref=f18e224]: Factures & énergie
+                    - paragraph [ref=f18e227]: Dépense réelle
+                  - cell [ref=f18e228]
+                  - cell "78,90 €" [ref=f18e229]
+                - row [ref=f18e230]:
+                  - cell [ref=f18e231]:
+                    - link "PASTEIS DE BELEM" [ref=f18e232] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc405f005d01lhhev6xg23
+                    - paragraph [ref=f18e233]: 9 juillet
+                  - cell "Restauration Dépense réelle" [ref=f18e234]:
+                    - generic [ref=f18e235]: Restauration
+                    - paragraph [ref=f18e238]: Dépense réelle
+                  - cell [ref=f18e239]
+                  - cell "9,60 €" [ref=f18e240]
+                - row [ref=f18e241]:
+                  - cell [ref=f18e242]:
+                    - link "TRAM 28 LISBOA" [ref=f18e243] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc405b005c01lhlxe2am55
+                    - paragraph [ref=f18e244]: 8 juillet
+                  - cell "Transport Dépense réelle" [ref=f18e245]:
+                    - generic [ref=f18e246]: Transport
+                    - paragraph [ref=f18e249]: Dépense réelle
+                  - cell [ref=f18e250]
+                  - cell "12,00 €" [ref=f18e251]
+                - row [ref=f18e252]:
+                  - cell [ref=f18e253]:
+                    - link "RESTAURANTE A CEVICHERIA" [ref=f18e254] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc4057005b01lh6b5skw3m
+                    - paragraph [ref=f18e255]: 7 juillet
+                  - cell "Restauration Dépense réelle" [ref=f18e256]:
+                    - generic [ref=f18e257]: Restauration
+                    - paragraph [ref=f18e260]: Dépense réelle
+                  - cell [ref=f18e261]
+                  - cell "58,40 €" [ref=f18e262]
+                - row [ref=f18e263]:
+                  - cell [ref=f18e264]:
+                    - link "HOTEL BAIXA LISBOA" [ref=f18e265] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc4054005a01lhok0rs6rd
+                    - paragraph [ref=f18e266]: 6 juillet
+                  - cell "Voyage Dépense réelle" [ref=f18e267]:
+                    - generic [ref=f18e268]: Voyage
+                    - paragraph [ref=f18e271]: Dépense réelle
+                  - cell [ref=f18e272]
+                  - cell "312,50 €" [ref=f18e273]
+                - row [ref=f18e274]:
+                  - cell [ref=f18e275]:
+                    - link "SNCF BILLET LISBONNE" [ref=f18e276] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc4050005901lhiwnrg3x2
+                    - paragraph [ref=f18e277]: 5 juillet
+                  - cell "Transport Dépense réelle" [ref=f18e278]:
+                    - generic [ref=f18e279]: Transport
+                    - paragraph [ref=f18e282]: Dépense réelle
+                  - cell [ref=f18e283]:
+                    - list "Étiquettes" [ref=f18e284]:
+                      - listitem [ref=f18e285]:
+                        - generic [ref=f18e286]: Portugal 2026
+                  - cell "189,00 €" [ref=f18e289]
+                - row [ref=f18e290]:
+                  - cell [ref=f18e291]:
+                    - link "CARREFOUR MARKET" [ref=f18e292] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc404v005801lhrx4dw4yv
+                    - paragraph [ref=f18e293]: 3 juillet
+                  - cell "Alimentation Dépense réelle" [ref=f18e294]:
+                    - generic [ref=f18e295]: Alimentation
+                    - paragraph [ref=f18e298]: Dépense réelle
+                  - cell [ref=f18e299]
+                  - cell "64,20 €" [ref=f18e300]
+                - row [ref=f18e301]:
+                  - cell [ref=f18e302]:
+                    - link "SALAIRE JUILLET" [ref=f18e303] [cursor=pointer]:
+                      - /url: /transactions?page=1&selected=cmscc404q005701lhpm2gth5k
+                    - paragraph [ref=f18e304]: 2 juillet
+                  - cell "Revenus Revenu" [ref=f18e305]:
+                    - generic [ref=f18e306]: Revenus
+                    - paragraph [ref=f18e309]: Revenu
+                  - cell [ref=f18e310]
+                  - cell "2 450,00 €" [ref=f18e311]
+          - complementary [ref=f18e312]:
+            - heading "Détail transaction" [level=2] [ref=f18e314]
+            - paragraph [ref=f18e315]: Sélectionnez une transaction dans la liste pour consulter ses détails.
+  - listbox [ref=f18e318]:
+    - option "Toutes" [selected] [ref=f18e319] [cursor=pointer]
+    - option "Portugal 2026" [ref=f18e322] [cursor=pointer]
+    - option "Travaux" [ref=f18e323] [cursor=pointer]
