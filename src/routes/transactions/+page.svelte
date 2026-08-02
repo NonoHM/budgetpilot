@@ -708,6 +708,19 @@
 					ariaLabel={m.transactions_category_filter_aria()}
 					class="w-48"
 				/>
+				{#if data.allTags.length > 0}
+					<Combobox
+						name="tag"
+						value={data.filters.tag}
+						options={[
+							{ value: '', label: m.tags_filter_all() },
+							...data.allTags.map((t) => ({ value: t.id, label: t.name }))
+						]}
+						placeholder={m.tags_filter_placeholder()}
+						ariaLabel={m.tags_filter_aria()}
+						class="w-48"
+					/>
+				{/if}
 				<div class="flex items-center gap-1.5">
 					<label for="tx-from" class="text-xs font-medium text-zinc-500"
 						>{m.reports_from_label()}</label
@@ -839,6 +852,20 @@
 					class="w-full"
 					triggerClass="!bg-zinc-50"
 				/>
+				{#if data.allTags.length > 0}
+					<Combobox
+						name="tag"
+						value={data.filters.tag}
+						options={[
+							{ value: '', label: m.tags_filter_all() },
+							...data.allTags.map((t) => ({ value: t.id, label: t.name }))
+						]}
+						placeholder={m.tags_filter_placeholder()}
+						ariaLabel={m.tags_filter_aria()}
+						class="w-full"
+						triggerClass="!bg-zinc-50"
+					/>
+				{/if}
 				<div class="flex gap-2">
 					<div class="flex-1">
 						<label for="tx-from-mobile" class="block px-0.5 text-xs font-medium text-zinc-500">
