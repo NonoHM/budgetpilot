@@ -141,6 +141,26 @@ const db = vi.hoisted(() => {
 				if (computeNullableNameKey(t.manualCategory) !== value) return false;
 				continue;
 			}
+			// Operator objects on a plain scalar field, e.g. `type: { notIn: [...] }` or
+			// `amountCents: { gte: 0 }` — the shapes transactionKindWhere emits (totals.ts).
+			if (value && typeof value === 'object' && !(value instanceof Date)) {
+				const actual = (t as unknown as Record<string, unknown>)[key];
+				const cond = value as {
+					in?: unknown[];
+					notIn?: unknown[];
+					gte?: number;
+					gt?: number;
+					lte?: number;
+					lt?: number;
+				};
+				if (cond.in && !cond.in.includes(actual)) return false;
+				if (cond.notIn && cond.notIn.includes(actual)) return false;
+				if (cond.gte !== undefined && !((actual as number) >= cond.gte)) return false;
+				if (cond.gt !== undefined && !((actual as number) > cond.gt)) return false;
+				if (cond.lte !== undefined && !((actual as number) <= cond.lte)) return false;
+				if (cond.lt !== undefined && !((actual as number) < cond.lt)) return false;
+				continue;
+			}
 			// Scalar fields: userId, type, importBatchId, manualCategory, natureManual, categoryId...
 			if ((t as unknown as Record<string, unknown>)[key] !== value) return false;
 		}
@@ -188,6 +208,11 @@ const db = vi.hoisted(() => {
 					async ({ where }: { where?: Record<string, unknown> } = {}) =>
 						filterTransactions(where).length
 				),
+				aggregate: vi.fn(async ({ where }: { where?: Record<string, unknown> } = {}) => {
+					const matched = filterTransactions(where);
+					const sum = matched.reduce((total, t) => total + t.amountCents, 0);
+					return { _sum: { amountCents: matched.length > 0 ? sum : null } };
+				}),
 				findFirst: vi.fn(
 					async ({ where }) => transactions.find((item) => item.id === where.id) ?? null
 				),
@@ -297,6 +322,7 @@ interface TestTransactionPageData {
 	queryError: boolean;
 	classifyStackIds: string[];
 	filters: { ids: string };
+	filteredTotals: { incomeCents: number; expenseCents: number };
 }
 
 describe('/transactions load', () => {
@@ -315,6 +341,24 @@ describe('/transactions load', () => {
 		expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
 			expect.objectContaining({ skip: 0, take: 25 })
 		);
+	});
+
+	it('totals the whole filtered set, not the current page', async () => {
+		expect.assertions(1);
+
+		// 30 rows, PAGE_SIZE is 25: a page-scoped total would report 13 expense rows' worth
+		// (indices 0-24 on page 1), not the full 15 expense rows' worth (45000).
+		const data = await runLoad('/transactions');
+
+		expect(data.filteredTotals.expenseCents).toBe(45_000);
+	});
+
+	it('reports zero totals when the filter is in error', async () => {
+		expect.assertions(1);
+
+		const data = await runLoad('/transactions?qMode=regex&q=%28unclosed');
+
+		expect(data.filteredTotals).toEqual({ incomeCents: 0, expenseCents: 0 });
 	});
 
 	it('applies the label search, case- and accent-insensitive', async () => {

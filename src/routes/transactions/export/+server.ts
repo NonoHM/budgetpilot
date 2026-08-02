@@ -2,8 +2,8 @@ import type { Prisma } from '$lib/server/database/types';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
-import { getTransactionKind, type TransactionKind } from '$lib/domain/transaction';
 import { parseCustomDateRange } from '$lib/server/date-range';
+import { resolveTransactionType } from '$lib/server/transactions/totals';
 import {
 	buildCategoryNatureMap,
 	getEffectiveTransactionNature
@@ -145,17 +145,6 @@ async function collectAllTransactions<Select extends Prisma.TransactionSelect>(
 		rows.push(...batch);
 	});
 	return rows;
-}
-
-function resolveTransactionType(transaction: {
-	amountCents: number;
-	type: string | null;
-}): TransactionKind {
-	return getTransactionKind({
-		amountCents: transaction.amountCents,
-		type:
-			transaction.type === 'income' || transaction.type === 'expense' ? transaction.type : undefined
-	});
 }
 
 function formatAmount(amountCents: number): string {

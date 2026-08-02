@@ -3,8 +3,6 @@ import * as m from '$lib/paraglide/messages';
 import {
 	TRANSACTION_NATURES,
 	type TransactionNature,
-	type TransactionKind,
-	getTransactionKind,
 	isTransactionNature
 } from '$lib/domain/transaction';
 import { requireUser } from '$lib/server/auth';
@@ -40,6 +38,12 @@ import {
 	anonymizeReference,
 	truncateText
 } from '$lib/server/transactions/anonymize';
+import {
+	computeFilteredTotals,
+	sumFilteredTotals,
+	resolveTransactionType,
+	type FilteredTotals
+} from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
 
 const PAGE_SIZE = 25;
@@ -228,12 +232,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	let safePage: number;
 	let totalPages: number;
 	let transactions: TransactionListRow[];
+	let filteredTotals: FilteredTotals;
 
 	if (queryError || dateRangeError) {
 		totalTransactions = 0;
 		totalPages = 1;
 		safePage = 1;
 		transactions = [];
+		filteredTotals = { incomeCents: 0, expenseCents: 0 };
 	} else if (!query) {
 		totalTransactions = await prisma.transaction.count({ where });
 		totalPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
@@ -245,12 +251,18 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			skip: (safePage - 1) * PAGE_SIZE,
 			take: PAGE_SIZE
 		});
+		// Alongside the count, over the same `where`: the total describes the filtered SET, which
+		// is why it is not derived from `transactions` (that is one page of it).
+		filteredTotals = await computeFilteredTotals(where);
 	} else {
 		const filtered = await collectTransactionsMatchingQuery(where, transactionSelect, query, qMode);
 		totalTransactions = filtered.length;
 		totalPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
 		safePage = Math.min(page, totalPages);
 		transactions = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+		// The q path matches in JS, so the SQL aggregate would not see the same set. Same numbers,
+		// different source; totals.spec.ts pins the two implementations against one fixture.
+		filteredTotals = sumFilteredTotals(filtered);
 	}
 
 	return {
@@ -280,6 +292,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// future consumer of `filters.ids` that runs when the list is empty must not assume it.
 			ids: ids ? ids.join(',') : ''
 		},
+		filteredTotals,
 		queryError,
 		dateRangeError,
 		pagination: {
@@ -666,17 +679,6 @@ function parseMetadata(value: string | null): {
 	} catch {
 		return { reference: '', subcategory: '', csvFields: {} };
 	}
-}
-
-function resolveTransactionType(transaction: {
-	amountCents: number;
-	type: string | null;
-}): TransactionKind {
-	return getTransactionKind({
-		amountCents: transaction.amountCents,
-		type:
-			transaction.type === 'income' || transaction.type === 'expense' ? transaction.type : undefined
-	});
 }
 
 function getFormValue(formData: FormData, key: string): string {

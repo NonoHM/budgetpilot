@@ -659,6 +659,7 @@
 	"transactions_nature_source_manual": "manuelle",
 	"transactions_nature_source_category": "catégorie",
 	"transactions_nature_source_default": "défaut",
+	"transactions_totals_summary": "{income} encaissés · {expense} dépensés",
 	"transactions_error_invalid_transaction": "Transaction invalide.",
 	"transactions_error_transaction_not_found": "Transaction introuvable.",
 	"transactions_error_category_required": "Catégorie requise.",
