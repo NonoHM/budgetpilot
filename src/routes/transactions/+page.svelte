@@ -879,17 +879,27 @@
 			<section class="rounded-lg border border-zinc-200 bg-white">
 				<!-- En-tête tableau : pagination -->
 				<div class="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3">
-					<p class="text-sm text-zinc-600">
-						{data.pagination.totalTransactions > 1
-							? m.transactions_count_many({
-									count: data.pagination.totalTransactions,
-									page: data.pagination.page
-								})
-							: m.transactions_count_one({
-									count: data.pagination.totalTransactions,
-									page: data.pagination.page
+					<div>
+						<p class="text-sm text-zinc-600">
+							{data.pagination.totalTransactions > 1
+								? m.transactions_count_many({
+										count: data.pagination.totalTransactions,
+										page: data.pagination.page
+									})
+								: m.transactions_count_one({
+										count: data.pagination.totalTransactions,
+										page: data.pagination.page
+									})}
+						</p>
+						{#if data.filteredTotals.incomeCents > 0 || data.filteredTotals.expenseCents > 0}
+							<p class="text-xs text-zinc-500 tabular-nums">
+								{m.transactions_totals_summary({
+									income: formatCents(data.filteredTotals.incomeCents),
+									expense: formatCents(data.filteredTotals.expenseCents)
 								})}
-					</p>
+							</p>
+						{/if}
+					</div>
 					<div class="flex gap-2">
 						<Button
 							variant="secondary"
@@ -1479,17 +1489,27 @@
 		<!-- ============ LISTE — MOBILE ============ -->
 		<div class="space-y-4 lg:hidden">
 			<div class="flex items-center justify-between gap-2">
-				<p class="text-sm text-zinc-500">
-					{data.pagination.totalTransactions > 1
-						? m.transactions_count_many({
-								count: data.pagination.totalTransactions,
-								page: data.pagination.page
-							})
-						: m.transactions_count_one({
-								count: data.pagination.totalTransactions,
-								page: data.pagination.page
+				<div>
+					<p class="text-sm text-zinc-500">
+						{data.pagination.totalTransactions > 1
+							? m.transactions_count_many({
+									count: data.pagination.totalTransactions,
+									page: data.pagination.page
+								})
+							: m.transactions_count_one({
+									count: data.pagination.totalTransactions,
+									page: data.pagination.page
+								})}
+					</p>
+					{#if data.filteredTotals.incomeCents > 0 || data.filteredTotals.expenseCents > 0}
+						<p class="text-xs text-zinc-500 tabular-nums">
+							{m.transactions_totals_summary({
+								income: formatCents(data.filteredTotals.incomeCents),
+								expense: formatCents(data.filteredTotals.expenseCents)
 							})}
-				</p>
+						</p>
+					{/if}
+				</div>
 				<div class="flex gap-2">
 					<Button
 						variant="secondary"

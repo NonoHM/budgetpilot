@@ -659,6 +659,7 @@
 	"transactions_nature_source_manual": "manual",
 	"transactions_nature_source_category": "category",
 	"transactions_nature_source_default": "default",
+	"transactions_totals_summary": "{income} in · {expense} out",
 	"transactions_error_invalid_transaction": "Invalid transaction.",
 	"transactions_error_transaction_not_found": "Transaction not found.",
 	"transactions_error_category_required": "Category required.",

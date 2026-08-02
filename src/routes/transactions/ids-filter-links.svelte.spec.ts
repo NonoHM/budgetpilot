@@ -70,6 +70,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			importBatchId: '',
 			ids: IDS
 		},
+		filteredTotals: { incomeCents: 0, expenseCents: 90_000 },
 		queryError: false,
 		dateRangeError: false,
 		// Two pages, so the pagination control actually renders and buildPageHref is exercised.

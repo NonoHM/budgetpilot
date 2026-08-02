@@ -79,6 +79,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			importBatchId: '',
 			ids: ''
 		},
+		filteredTotals: { incomeCents: 0, expenseCents: 5420 },
 		queryError: false,
 		dateRangeError: false,
 		pagination: {
