@@ -195,4 +195,51 @@ describe('TagChips.svelte', () => {
 		const chip = container.querySelector('li > span') as HTMLElement;
 		expect(getComputedStyle(chip).height).toBe(px);
 	});
+
+	it('renders the tinted variant with the token hue as text on its own tint', async () => {
+		const { container } = render(TagChips, {
+			tags: [{ key: 't1', name: 'Portugal', colorToken: 'lagoon' as const }],
+			variant: 'tinted',
+			max: Infinity
+		});
+
+		// The one pairing whose contrast is measured. Asserted as classes here; e2e/tags.spec.ts
+		// measures what the browser actually paints, because a correct class can still be bound to
+		// the wrong element.
+		const chip = container.querySelector('li > span') as HTMLElement;
+		expect(chip.className).toContain('bg-[#e3faf8]');
+		const name = chip.querySelector('span:not([aria-hidden])') as HTMLElement;
+		expect(name.className).toContain('text-[#007b76]');
+	});
+
+	it('falls back to neutral zinc in the tinted variant when the tag has no colour yet', async () => {
+		const { container } = render(TagChips, {
+			tags: [{ key: 'Portugal', name: 'Portugal', colorToken: null }],
+			variant: 'tinted',
+			max: Infinity
+		});
+
+		// An unsaved tag has no token: its colour comes from a server-side nameKey digest the client
+		// cannot compute. Guessing a hue that changes on save would be worse than a neutral chip.
+		const chip = container.querySelector('li > span') as HTMLElement;
+		expect(chip.className).toContain('bg-zinc-100');
+		expect(chip.className).not.toMatch(/bg-\[#/);
+	});
+
+	it('offers a remove control on a tinted chip, named after the tag', async () => {
+		const removed: string[] = [];
+		render(TagChips, {
+			tags: [{ key: 't1', name: 'Portugal', colorToken: 'lagoon' as const }],
+			variant: 'tinted',
+			max: Infinity,
+			onRemove: (key: string) => removed.push(key)
+		});
+
+		// The active filter's chip is how the filter is cleared, so the control has to exist and be
+		// named by the tag rather than by a bare "remove".
+		const button = page.getByRole('button', { name: /Portugal/ });
+		await expect.element(button).toBeInTheDocument();
+		await button.click();
+		expect(removed).toEqual(['t1']);
+	});
 });
