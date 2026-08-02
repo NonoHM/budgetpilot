@@ -10,6 +10,7 @@
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { isTransactionNature } from '$lib/domain/transaction';
+	import { isTagColorToken, type TagColorToken } from '$lib/domain/tags';
 	import { getInitials } from '$lib/domain/initials';
 	import { buildTransactionsHref, buildTransactionsExportHref } from './hrefs';
 	import type { ActionData, PageData } from './$types';
@@ -24,7 +25,9 @@
 	import Avatar from '$lib/components/Avatar.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import TransactionProposalCard from '$lib/components/TransactionProposalCard.svelte';
+	import TransactionTagsEditor from '$lib/components/TransactionTagsEditor.svelte';
 	import TransactionFocusOverlay from '$lib/components/TransactionFocusOverlay.svelte';
+	import TagChips from '$lib/components/ui/TagChips.svelte';
 	import {
 		getAdjacentFocusStackId,
 		getFocusOutcomeForAction,
@@ -224,6 +227,29 @@
 	function displayCategory(name: string): string {
 		return categoryLabelByName(name, defaultKeyByName);
 	}
+
+	// Maps the flat { id, name, colorToken: string } rows the load returns into TagChips'
+	// TagChipItem shape. `colorToken` arrives as a plain string from the database column, not the
+	// closed TagColorToken union; isTagColorToken re-validates it here rather than casting blindly,
+	// so a value that somehow fell outside the palette renders TagChips' honest neutral dot instead
+	// of a bogus Tailwind class.
+	function toTagChipItems(tags: Array<{ id: string; name: string; colorToken: string }>) {
+		return tags.map((tag) => ({
+			key: tag.id,
+			name: tag.name,
+			colorToken: isTagColorToken(tag.colorToken) ? (tag.colorToken as TagColorToken) : null
+		}));
+	}
+
+	// Same re-validation, for TagPicker's option list (TransactionTagsEditor -> TagPicker), whose
+	// TagPickerOption.colorToken is the closed union rather than the raw database string. A row
+	// that somehow failed the check is dropped rather than coerced: TagPicker has no "unknown
+	// colour" rendering path the way TagChips does, so there is nothing honest to show for it.
+	const allTagOptions = $derived(
+		data.allTags.flatMap((tag) =>
+			isTagColorToken(tag.colorToken) ? [{ ...tag, colorToken: tag.colorToken }] : []
+		)
+	);
 
 	$effect(() => {
 		const tx = data.selectedTransaction;
@@ -1058,6 +1084,11 @@
 														href={resolve(buildSelectedHref(tx.id))}>{tx.label}</a
 													>
 													<p class="mt-0.5 text-xs text-zinc-400">{formatDate(tx.date)}</p>
+													{#if tx.tags.length > 0}
+														<div class="mt-1">
+															<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
+														</div>
+													{/if}
 												</td>
 												<td class="px-4 py-3">
 													<div class="flex items-center gap-1.5">
@@ -1280,6 +1311,14 @@
 									</div>
 								</form>
 							</section>
+
+							<!-- Étiquettes -->
+							<TransactionTagsEditor
+								transactionId={data.selectedTransaction.id}
+								tags={data.selectedTransaction.tags}
+								allTags={allTagOptions}
+								error={form?.tagsError}
+							/>
 
 							<!-- Détails bancaires -->
 							<div class="rounded-xl border border-zinc-200">
@@ -1684,6 +1723,11 @@
 											{formatCents(tx.amountCents)}
 										</div>
 									</div>
+									{#if tx.tags.length > 0}
+										<div class="mt-1.5 pl-11">
+											<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
+										</div>
+									{/if}
 								</ListCard>
 							{/if}
 						{/if}
@@ -1966,6 +2010,14 @@
 					</Button>
 				</form>
 			</section>
+
+			<!-- Étiquettes -->
+			<TransactionTagsEditor
+				transactionId={data.selectedTransaction.id}
+				tags={data.selectedTransaction.tags}
+				allTags={allTagOptions}
+				error={form?.tagsError}
+			/>
 
 			<!-- Accordéons -->
 			<div class="flex flex-col divide-y divide-zinc-100 border-t border-zinc-100">

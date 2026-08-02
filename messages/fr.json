@@ -1088,6 +1088,7 @@
 	"tags_picker_create": "Créer « {name} »",
 	"tags_picker_max_reached": "Limite de {max} étiquettes atteinte.",
 	"tags_error_too_many": "Maximum {max} étiquettes par transaction.",
+	"tags_heading": "Étiquettes",
 	"tags_picker_empty_heading": "Tapez un nom pour créer votre première étiquette.",
 	"tags_picker_empty_body": "Une étiquette traverse les catégories : « Vacances Portugal 2026 » peut porter un train, un restaurant et un hôtel.",
 	"tags_picker_result_count_one": "{n} étiquette",

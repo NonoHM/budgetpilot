@@ -1088,6 +1088,7 @@
 	"tags_picker_create": "Create \"{name}\"",
 	"tags_picker_max_reached": "Limit of {max} tags reached.",
 	"tags_error_too_many": "Maximum {max} tags per transaction.",
+	"tags_heading": "Tags",
 	"tags_picker_empty_heading": "Type a name to create your first tag.",
 	"tags_picker_empty_body": "A tag crosses categories: \"Vacances Portugal 2026\" can carry a train, a restaurant and a hotel.",
 	"tags_picker_result_count_one": "{n} tag",
