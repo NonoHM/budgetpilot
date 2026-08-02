@@ -47,7 +47,8 @@ const {
 	deleteTag,
 	listTagsWithCounts,
 	setTransactionTags,
-	pruneOrphanTags
+	pruneOrphanTags,
+	TagVanishedError
 } = await import('./service');
 const { computeNameKey } = await import('$lib/server/naming/nameKey');
 const { MAX_TAGS_PER_TRANSACTION, TAG_COLOR_TOKENS } = await import('$lib/domain/tags');
@@ -105,6 +106,32 @@ describe('resolveTagByName', () => {
 		// An empty update is what keeps "PORTUGAL" typed later from rewriting the tag the user
 		// deliberately named "Portugal". Same rule as resolveCategoryByName.
 		expect(db.prisma.tag.upsert.mock.calls[0][0].update).toEqual({});
+	});
+
+	it('refuses to return a tag whose id the upsert did not produce', async () => {
+		expect.assertions(1);
+
+		// Exactly what CI observed on PostgreSQL. With `update: {}` Prisma compiles the upsert to
+		// SELECT-then-UPDATE rather than INSERT ... ON CONFLICT, and a concurrent prune deleting the
+		// row between those two statements makes the UPDATE match nothing, so RETURNING yields no
+		// row and Prisma hands back an object with no id instead of raising. Returning it would let
+		// `tagId: undefined` reach a createMany, which fails far from the cause.
+		db.prisma.tag.upsert.mockResolvedValue({});
+
+		await expect(resolveTagByName('user-a', 'Portugal')).rejects.toThrow(TagVanishedError);
+	});
+
+	it('recovers by re-resolving when the first upsert came back without an id', async () => {
+		expect.assertions(2);
+
+		// The throw above is only half the fix. Left uncaught it would turn a silent bad insert into
+		// a 500 on an ordinary edit, so the caller with the retry loop has to absorb it.
+		db.prisma.tag.upsert.mockResolvedValueOnce({}).mockResolvedValue({ id: 'tag-row-1' });
+
+		expect(await setTransactionTags('user-a', 'tx-1', ['Portugal'])).toBe('ok');
+		expect(db.prisma.transactionTag.createMany).toHaveBeenCalledWith({
+			data: [{ transactionId: 'tx-1', tagId: 'tag-row-1' }]
+		});
 	});
 
 	it('refuses a name that normalizes to empty', async () => {

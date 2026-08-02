@@ -33,7 +33,7 @@ export async function resolveTagByName(userId: string, rawName: string): Promise
 	if (!name) throw new Error('resolveTagByName requires a non-empty name');
 	const nameKey = computeNameKey(name);
 
-	return withConcurrentWriteRetry(() =>
+	const row = await withConcurrentWriteRetry(() =>
 		prisma.tag.upsert({
 			where: { userId_nameKey: { userId, nameKey } },
 			update: {},
@@ -41,6 +41,36 @@ export async function resolveTagByName(userId: string, rawName: string): Promise
 			select: { id: true }
 		})
 	);
+
+	// A THIRD variant of the auto-GC race, found by CI on PostgreSQL after the other two were
+	// already closed, and the most dangerous of them because it does not raise.
+	//
+	// `update: {}` is what makes Prisma compile this to SELECT-then-UPDATE instead of
+	// INSERT ... ON CONFLICT (see the comment on withConcurrentWriteRetry, which records the same
+	// cause for the P2002 case). A concurrent pruneOrphanTags deleting the row between those two
+	// statements leaves the UPDATE matching zero rows, so RETURNING yields nothing and Prisma hands
+	// back an object with NO id rather than throwing. The undefined then flows into a createMany as
+	// `tagId: undefined` and surfaces as a validation error far from its cause, which is exactly how
+	// CI reported it.
+	//
+	// Retryable rather than fatal: re-running the upsert re-creates the pruned row. Callers with a
+	// retry loop catch this; the throw is what stops a caller without one from writing undefined.
+	if (!row?.id) throw new TagVanishedError(name);
+
+	return row;
+}
+
+/**
+ * The tag resolved a moment ago was deleted by a concurrent prune before its id could be returned.
+ *
+ * Transient by construction: retrying the resolve recreates the row. Its own class rather than a
+ * code because no engine raised it, so there is no code to match on.
+ */
+export class TagVanishedError extends Error {
+	constructor(name: string) {
+		super(`Tag "${name}" was pruned between its upsert and its id being returned`);
+		this.name = 'TagVanishedError';
+	}
 }
 
 /**
@@ -215,7 +245,16 @@ async function replaceLinks(
 		// PostgreSQL aborts the enclosing transaction when a constraint fires, so the retry would
 		// fail on a different error and take every later statement with it. See
 		// server/database/upsert.ts.
-		const resolved = await Promise.all(names.map((name) => resolveTagByName(userId, name)));
+		let resolved: Array<{ id: string }>;
+		try {
+			resolved = await Promise.all(names.map((name) => resolveTagByName(userId, name)));
+		} catch (caught) {
+			// A prune deleted the row between the upsert's SELECT and its UPDATE. Recreating it is
+			// exactly what re-resolving does, so this is retryable on the same budget as the P2003
+			// case below rather than a failure the user should ever see.
+			if (!(caught instanceof TagVanishedError) || attempt >= MAX_LINK_ATTEMPTS) throw caught;
+			continue;
+		}
 		const nextTagIds = new Set(resolved.map((tag) => tag.id));
 
 		const existing = await prisma.transactionTag.findMany({

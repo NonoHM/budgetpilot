@@ -3,7 +3,7 @@ import type { Prisma } from '../database/types.ts';
 import { forEachTransactionBatch } from '$lib/server/transactions/batch';
 import { isForeignKeyViolation } from '$lib/server/database/upsert';
 import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
-import { pruneOrphanTags, resolveTagByName } from './service';
+import { pruneOrphanTags, resolveTagByName, TagVanishedError } from './service';
 
 /**
  * How many transactions one bulk action may tag.
@@ -87,7 +87,16 @@ export async function applyTagToFilteredSet(
 	// the insert alone would fail identically forever. withConcurrentWriteRetry does not help here
 	// either, since P2003 is deliberately absent from its transient allowlist.
 	for (let attempt = 1; ; attempt++) {
-		const tag = await resolveTagByName(userId, tagName);
+		let tag: { id: string };
+		try {
+			tag = await resolveTagByName(userId, tagName);
+		} catch (caught) {
+			// Same race, caught at the resolve rather than at the insert: on PostgreSQL the upsert
+			// can return without an id when a prune deletes the row mid-statement. Re-resolving
+			// recreates it. See resolveTagByName.
+			if (!(caught instanceof TagVanishedError) || attempt >= MAX_LINK_ATTEMPTS) throw caught;
+			continue;
+		}
 
 		// The diff is computed BEFORE the write, and that ordering is the whole point. Reading the
 		// existing links afterwards could not distinguish a link this action created from one that
