@@ -148,6 +148,12 @@ Copy the value after the `=` (the whole thing, including a trailing `=` if
 there is one) and paste it into the form. The first account created this way
 becomes the admin automatically.
 
+Registration attempts are limited to **5 per 15 minutes per IP address**, so
+that a short or hand-picked token can't be guessed by brute force. If you
+mistype the token five times you'll see "Trop de tentatives" and will need to
+wait out the 15 minutes — check the value with the `grep` above rather than
+retrying.
+
 You're done. Next: [put some data in it](#first-steps-in-the-app).
 
 ---
@@ -335,7 +341,11 @@ python3 -c "import secrets;print(secrets.token_hex(32))"                        
 
 `RATE_LIMIT_HASH_SECRET` and `TOTP_ENCRYPTION_KEY` must be 64 hex characters
 exactly. `BOOTSTRAP_TOKEN` has no format constraint, it just needs to be long
-and random. Use three different values, never the same one twice.
+and random — generate it with one of the commands above rather than picking
+one by hand. Registration is rate limited (5 attempts per 15 minutes per IP),
+but that bounds guessing rather than preventing it, and it is no substitute
+for a token with real entropy. Use three different values, never the same one
+twice.
 
 ---
 

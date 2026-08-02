@@ -63,14 +63,29 @@ export const actions: Actions = {
 			return fail(410, { error: m.register_error_invitation_invalid() });
 		}
 
-		if (isOpenRegistration && !invitation) {
+		// Two different attacks share one counter, which is why the condition is not simply
+		// `isOpenRegistration`:
+		//   - open mode: repeated SUCCESSFUL creation (mass account creation), so every processed
+		//     submission is counted, successes included, not just failures;
+		//   - admin_only mode, anonymous: guessing BOOTSTRAP_TOKEN, which is the sole gate on
+		//     creating the first account — and that account is ADMIN.
+		// The second case was unthrottled until this block stopped being gated on
+		// `isOpenRegistration`. Measured against a running instance, not read off the code: with
+		// the old condition, 60 wrong tokens from one IP ALL reached the token check and recorded
+		// zero attempts, and the 61st with the correct token created the ADMIN account; with this
+		// one, 5 of 60 reach it and the 61st is refused even though the token is right. /login,
+		// holding a hashed secret, tripped its limiter at attempt 6 throughout — the asymmetry
+		// that made this worth fixing was that the plaintext secret had the weaker protection.
+		//
+		// A logged-in admin is deliberately exempt: the limiter keys on IP alone, they are past
+		// the secret gate already, and otherwise adding a sixth user in one sitting would lock an
+		// operator out of their own instance for 15 minutes. An invitation is exempt too — it
+		// carries its own INVITE limiter above.
+		if (!invitation && (isOpenRegistration || !locals.user)) {
 			const ipRateLimited = await isRegisterRateLimited(ip);
 			if (ipRateLimited) {
 				return fail(429, { error: m.register_error_too_many_attempts() });
 			}
-			// In "open" mode, the attack is repeated successful creation
-			// (mass account creation): so we count every processed submission,
-			// successes included, not just failures.
 			await recordRegisterAttempt(ip);
 		}
 
@@ -119,14 +134,13 @@ export const actions: Actions = {
 			// holds the token, the form advertises a "Jeton bootstrap" field regardless, and neither
 			// message says anything about which accounts exist.
 			//
-			// What does NOT bound guessing here is any rate limiter. The block near the top of this
-			// action is gated on `isOpenRegistration && !invitation`, and this branch is by definition
-			// neither — so token attempts are entirely unthrottled. Measured, not read: 250 wrong
-			// tokens from one IP against a running instance, no throttling at any point, while the
-			// login path trips its own limiter immediately. The 251st attempt with the correct token
-			// created the account, which is what proves those 250 really did reach this check.
-			// Tracked in the backlog as its own PR; the secrecy of the message was never the
-			// protection and is not being asked to become it.
+			// What bounds guessing here is the REGISTER limiter at the top of this action, which
+			// covers anonymous admin_only submissions precisely so this branch is reachable only
+			// five times per 15 minutes per IP. That was NOT true until it was fixed: the block
+			// used to be gated on `isOpenRegistration && !invitation`, and this branch is by
+			// definition neither, so token attempts were entirely unthrottled. The secrecy of the
+			// message was never the protection and is not being asked to become it — the limiter
+			// is what makes naming the token in the failure a sound trade.
 			return fail(403, { error: m.register_error_invalid_token() });
 		}
 
