@@ -172,7 +172,9 @@ describe('TransactionTagsEditor mounted on the detail surfaces', () => {
 		render(Page, { data: baseData(), form: null });
 
 		const sheet = page.getByRole('dialog');
-		await expect.element(sheet.getByRole('heading', { name: 'Étiquettes' })).toBeInTheDocument();
+		// A group, not a heading: the editor is a <fieldset> whose <legend> names it, which is what
+		// ties the controls to that name for a screen reader. A heading sitting beside them does not.
+		await expect.element(sheet.getByRole('group', { name: 'Étiquettes' })).toBeInTheDocument();
 		await expect
 			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
 			.toBeInTheDocument();

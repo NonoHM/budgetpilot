@@ -58,10 +58,15 @@
 	const visible = $derived(onRemove ? tags : tags.slice(0, max));
 	const hidden = $derived(onRemove ? [] : tags.slice(max));
 
+	// `height` is PINNED, not left to the text's line-height. The design gives an exact figure per
+	// size (sm 18px, md 26px), and unpinned they rendered 16px and 19.5px — a chip whose height
+	// follows its font drifts the moment a locale, a weight or a browser default changes the line
+	// box, which is precisely the drift the row's fixed 190px column cannot absorb.
 	const sizeConfig = {
 		sm: {
 			dot: 'h-[7px] w-[7px]',
 			text: 'text-xs',
+			height: 'h-[18px]',
 			innerGap: 'gap-[5px]',
 			chipGap: 'gap-2.5',
 			maxWidth: 'max-w-[110px]'
@@ -69,6 +74,7 @@
 		md: {
 			dot: 'h-2 w-2',
 			text: 'text-[13px] font-medium',
+			height: 'h-[26px]',
 			innerGap: 'gap-1.5',
 			chipGap: 'gap-2',
 			maxWidth: 'max-w-[240px] sm:max-w-[190px]'
@@ -102,7 +108,7 @@
 			<li>
 				{#if variant === 'enclosed'}
 					<span
-						class="inline-flex items-center {config.innerGap} rounded-lg border px-2.5 py-1 {config.maxWidth} {tag.pending
+						class="inline-flex items-center {config.height} {config.innerGap} rounded-lg border px-2.5 {config.maxWidth} {tag.pending
 							? 'border-dashed border-zinc-300 bg-zinc-50'
 							: 'border-zinc-200 bg-zinc-50'}"
 					>
@@ -153,7 +159,9 @@
 						{/if}
 					</span>
 				{:else}
-					<span class="inline-flex items-center {config.innerGap} {config.maxWidth}">
+					<span
+						class="inline-flex items-center {config.height} {config.innerGap} {config.maxWidth}"
+					>
 						<span
 							class="{config.dot} shrink-0 rounded-full {tag.colorToken
 								? tagColorBgClass(tag.colorToken)

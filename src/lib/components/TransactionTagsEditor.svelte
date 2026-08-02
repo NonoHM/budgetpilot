@@ -30,6 +30,11 @@
 		error?: string;
 	} = $props();
 
+	// Unique per instance: this editor is mounted twice at once (desktop panel and mobile sheet),
+	// and a duplicated id would point both Save buttons at whichever hint the DOM resolved first.
+	const instanceId = $props.id();
+	const hintId = `tags-save-hint-${instanceId}`;
+
 	// Writable $derived, not $state + $effect: this stays live off `tags` (a different row
 	// selected, or a full-page POST reload of the SAME transaction after Save or after a bulk
 	// action elsewhere always hands down a fresh array reference) while TagPicker's `bind:selected`
@@ -48,16 +53,34 @@
 	});
 </script>
 
-<section class="rounded-xl border border-zinc-200 p-3">
-	<h3 class="text-sm font-semibold">{m.tags_heading()}</h3>
-	<form class="mt-3 grid gap-2" method="POST" action="?/saveTags">
+<form class="grid" method="POST" action="?/saveTags">
+	<!-- fieldset + legend rather than section + heading: this is a group of form controls, and the
+	     design names the structure explicitly. The legend is what ties the group to its name for a
+	     screen reader; a heading beside the controls does not. -->
+	<fieldset class="rounded-xl border border-zinc-200 p-3">
+		<legend class="px-1 text-sm font-semibold">{m.tags_heading()}</legend>
 		<input type="hidden" name="transactionId" value={transactionId} />
-		<TagPicker options={allTags} bind:selected name="tags" ariaLabel={m.tags_heading()} />
-		{#if error}
-			<p class="text-xs text-rose-600">{error}</p>
-		{/if}
-		<div class="flex flex-wrap gap-2">
-			<Button type="submit" size="sm" disabled={!isDirty}>{m.common_save()}</Button>
+		<div class="mt-1 grid gap-2">
+			<TagPicker options={allTags} bind:selected name="tags" ariaLabel={m.tags_heading()} />
+			{#if error}
+				<p class="text-xs text-rose-600">{error}</p>
+			{/if}
+			<div class="flex flex-wrap gap-2">
+				<!-- softDisabled, not disabled. The reason Save is inactive ("nothing has changed") is
+				     something the user has to read to act on, and a natively disabled button leaves the
+				     tab order and announces nothing. The label stays unchanged, per the design. -->
+				<Button
+					type="submit"
+					size="sm"
+					softDisabled={!isDirty}
+					aria-describedby={isDirty ? undefined : hintId}
+				>
+					{m.common_save()}
+				</Button>
+			</div>
+			{#if !isDirty}
+				<p id={hintId} class="text-xs text-zinc-500">{m.tags_editor_save_hint()}</p>
+			{/if}
 		</div>
-	</form>
-</section>
+	</fieldset>
+</form>

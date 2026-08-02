@@ -180,4 +180,19 @@ describe('TagChips.svelte', () => {
 		const empty = render(TagChips, { tags: [] });
 		expect(empty.container.querySelector('ul')).toBeNull();
 	});
+
+	it.each([
+		['sm', '18px'],
+		['md', '26px']
+	])('pins the %s chip height at %s rather than letting the text decide it', async (size, px) => {
+		const { container } = render(TagChips, {
+			tags: [{ key: 't1', name: 'Portugal', colorToken: 'lagoon' as const }],
+			size: size as 'sm' | 'md'
+		});
+
+		// The row's tag column is a fixed 190px, so a chip whose height follows its font drifts the
+		// moment a locale, a font weight or a browser default changes the line box.
+		const chip = container.querySelector('li > span') as HTMLElement;
+		expect(getComputedStyle(chip).height).toBe(px);
+	});
 });

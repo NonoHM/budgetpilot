@@ -1184,6 +1184,14 @@
 									<tr>
 										<th class="px-4 py-2.5">{m.transactions_table_label()}</th>
 										<th class="px-4 py-2.5">{m.transactions_table_category()}</th>
+										<!-- A dedicated column, not chips at the end of the label. The design grants the
+										     row-chips exception to "a table shows only what you scan at a glance" ONLY
+										     against this counterpart: "colonne dédiée de 190 px (pas de puce en fin de
+										     libellé, qui déchirerait la colonne de gauche)". Chips under the label tear
+										     the left column ragged, and the eye then hunts for them instead of running
+										     down one vertical band. Rendered even when the user has no tags, so rows do
+										     not change shape the moment a first tag appears. -->
+										<th class="w-[190px] px-4 py-2.5">{m.transactions_table_tags()}</th>
 										<th class="px-4 py-2.5 text-right">{m.transactions_table_amount()}</th>
 									</tr>
 								{/if}
@@ -1312,11 +1320,6 @@
 														href={resolve(buildSelectedHref(tx.id))}>{tx.label}</a
 													>
 													<p class="mt-0.5 text-xs text-zinc-400">{formatDate(tx.date)}</p>
-													{#if tx.tags.length > 0}
-														<div class="mt-1">
-															<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
-														</div>
-													{/if}
 												</td>
 												<td class="px-4 py-3">
 													<div class="flex items-center gap-1.5">
@@ -1328,6 +1331,11 @@
 													<p class="mt-0.5 ml-3.5 text-xs text-zinc-500">
 														{formatNatureLabel(tx.nature)}
 													</p>
+												</td>
+												<td class="w-[190px] px-4 py-3">
+													{#if tx.tags.length > 0}
+														<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
+													{/if}
 												</td>
 												<td
 													class="px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
@@ -1797,7 +1805,12 @@
 				<div class="space-y-3" role="status" aria-live="polite">
 					<span class="sr-only">{m.common_loading_page()}</span>
 					{#each { length: 5 } as _, i (i)}
-						<Skeleton />
+						<!-- `chips` is what this skeleton is standing in for: these placeholders replace the
+						     mobile ListCards that carry tag chips, so without the slot the row grows the moment
+						     real data lands. Always drawn, never gated on whether the user has tags: there is no
+						     count to know while the rows are still loading, and a slot that only appears
+						     afterwards shifts the layout exactly as much as no slot at all. -->
+						<Skeleton chips />
 					{/each}
 				</div>
 			{:else if visibleTransactions.length > 0}

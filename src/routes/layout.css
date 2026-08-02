@@ -33,3 +33,30 @@
 input[aria-hidden='true'][tabindex='-1'] {
 	display: none;
 }
+
+/*
+ * One global honouring of prefers-reduced-motion, rather than a per-component
+ * media query.
+ *
+ * Skeleton.svelte had a correct scoped rule for its own `.skeleton-pulse`, and
+ * that scoping is exactly why it did not help anyone else: TagPicker's loading
+ * state reaches for Tailwind's stock `animate-pulse`, which carries no
+ * reduced-motion guard of its own, so it kept pulsing for a user who had asked
+ * the operating system for less motion. A design-conformance pass found it; no
+ * gate could, because nothing about the class name is wrong.
+ *
+ * Global, so the next component to animate something is covered before anyone
+ * remembers to think about it. Durations are collapsed rather than set to zero
+ * so that transitionend/animationend listeners still fire and nothing waits
+ * forever on an event that never arrives.
+ */
+@media (prefers-reduced-motion: reduce) {
+	*,
+	*::before,
+	*::after {
+		animation-duration: 0.001ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.001ms !important;
+		scroll-behavior: auto !important;
+	}
+}
