@@ -7,7 +7,22 @@
 	// PageSpinner.
 	import { cardBase } from '$lib/styles';
 
-	let { class: extraClass = '' }: { class?: string } = $props();
+	let {
+		class: extraClass = '',
+		chips = false
+	}: {
+		class?: string;
+		/**
+		 * Optional phantom "two chips" slot (transverse-tags design, section 4D): 2 blocks of 54px
+		 * width, same height as a real sm-size TagChips chip, at the same gap (10px) real chips use.
+		 *
+		 * Always drawn as a whole when true, never conditioned on any count — there is no tag count
+		 * to know yet while the row is still loading, and a slot that only appears once the real
+		 * data arrives would shift the column. `false` (the default) keeps every existing caller's
+		 * layout unchanged.
+		 */
+		chips?: boolean;
+	} = $props();
 </script>
 
 <div class="flex items-center gap-3 {cardBase} p-4 {extraClass}" aria-hidden="true">
@@ -16,6 +31,12 @@
 		<div class="skeleton-pulse h-3 w-3/5 rounded bg-zinc-200"></div>
 		<div class="skeleton-pulse h-2.5 w-2/5 rounded bg-zinc-200"></div>
 	</div>
+	{#if chips}
+		<div class="flex shrink-0 items-center gap-2.5" data-testid="skeleton-chips">
+			<div class="skeleton-pulse h-[18px] w-[54px] rounded bg-zinc-200"></div>
+			<div class="skeleton-pulse h-[18px] w-[54px] rounded bg-zinc-200"></div>
+		</div>
+	{/if}
 	<div class="skeleton-pulse h-3 w-12 shrink-0 rounded bg-zinc-200"></div>
 </div>
 

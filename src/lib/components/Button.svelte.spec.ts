@@ -77,4 +77,74 @@ describe('Button.svelte', () => {
 		expect(el?.getAttribute('aria-disabled')).toBe('true');
 		expect(el?.getAttribute('tabindex')).toBe('-1');
 	});
+
+	it('softDisabled stays focusable and announces itself, unlike native disabled', async () => {
+		const { container } = render(Button, {
+			softDisabled: true,
+			children: textSnippet('Enregistrer')
+		});
+
+		const button = container.querySelector('button') as HTMLButtonElement;
+		// The whole point: the explanation that unblocks the control has to stay reachable by
+		// keyboard, which a natively disabled button makes impossible.
+		expect(button.disabled).toBe(false);
+		expect(button.getAttribute('aria-disabled')).toBe('true');
+		button.focus();
+		expect(document.activeElement).toBe(button);
+	});
+
+	it('softDisabled swallows activation so a submit never submits', async () => {
+		const { container } = render(Button, {
+			type: 'submit',
+			softDisabled: true,
+			children: textSnippet('Enregistrer')
+		});
+
+		const button = container.querySelector('button') as HTMLButtonElement;
+		const form = document.createElement('form');
+		let submits = 0;
+		form.addEventListener('submit', (event) => {
+			event.preventDefault();
+			submits += 1;
+		});
+		button.parentElement?.insertBefore(form, button);
+		form.appendChild(button);
+
+		button.click();
+
+		// A soft-disabled button is a real button: without the swallow it would submit normally,
+		// which is worse than the native disabled it replaces.
+		expect(submits).toBe(0);
+	});
+
+	it('softDisabled cannot be defeated by a caller passing its own onclick', async () => {
+		let called = 0;
+		const { container } = render(Button, {
+			softDisabled: true,
+			onclick: () => {
+				called += 1;
+			},
+			children: textSnippet('Enregistrer')
+		});
+
+		(container.querySelector('button') as HTMLButtonElement).click();
+
+		// The handler is composed and declared after the {...rest} spread precisely so a caller's
+		// own onclick cannot overwrite it.
+		expect(called).toBe(0);
+	});
+
+	it('still calls the caller onclick when it is not soft-disabled', async () => {
+		let called = 0;
+		const { container } = render(Button, {
+			onclick: () => {
+				called += 1;
+			},
+			children: textSnippet('Enregistrer')
+		});
+
+		(container.querySelector('button') as HTMLButtonElement).click();
+
+		expect(called).toBe(1);
+	});
 });

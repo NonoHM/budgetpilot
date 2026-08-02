@@ -10,9 +10,11 @@
 		size = 'md',
 		href,
 		disabled = false,
+		softDisabled = false,
 		loading = false,
 		loadingLabel,
 		class: extraClass = '',
+		onclick,
 		children,
 		...rest
 	}: {
@@ -28,6 +30,20 @@
 		// removed from the tab order (aria-disabled announced instead).
 		href?: string;
 		disabled?: boolean;
+		// Inert but still focusable: renders aria-disabled instead of the native
+		// attribute and swallows activation. Opt-in, so no existing caller
+		// changes behaviour.
+		//
+		// Use it whenever the reason a control is inactive is something the user
+		// has to READ to act on. A natively disabled button leaves the tab order
+		// and announces nothing, so a keyboard or screen-reader user meets a
+		// control they cannot reach and an explanation they never hear. Pair it
+		// with aria-describedby pointing at that explanation, rendered visibly
+		// once — `...rest` forwards the attribute.
+		//
+		// Keep native `disabled` for the ordinary case where inactivity is
+		// self-evident from the form's own state.
+		softDisabled?: boolean;
 		// Replaces the button's text with an inline spinner while a submission
 		// is in flight (button never shows an unlabeled icon: `loadingLabel`
 		// falls back to a generic sr-only announcement). Caller owns the
@@ -35,6 +51,7 @@
 		loading?: boolean;
 		loadingLabel?: string;
 		class?: string;
+		onclick?: (event: MouseEvent) => void;
 		children: Snippet;
 		[key: string]: unknown;
 	} = $props();
@@ -79,9 +96,23 @@
 	<button
 		{type}
 		disabled={disabled || loading}
+		aria-disabled={softDisabled ? 'true' : undefined}
 		aria-busy={loading}
-		class="{base} {sizes[size]} {variants[variant]} {extraClass}"
+		class="{base} {sizes[size]} {variants[variant]} {softDisabled
+			? 'cursor-default text-zinc-500'
+			: ''} {extraClass}"
 		{...rest}
+		onclick={(event) => {
+			// Composed rather than spread through `...rest`, and declared AFTER it, so a caller's own
+			// handler can never overwrite the swallow. A soft-disabled button is a real button: without
+			// this, a submit would still submit and a click handler would still fire.
+			if (softDisabled) {
+				event.preventDefault();
+				event.stopImmediatePropagation();
+				return;
+			}
+			onclick?.(event);
+		}}
 	>
 		{#if loading}
 			<span class="inline-flex items-center justify-center gap-2">

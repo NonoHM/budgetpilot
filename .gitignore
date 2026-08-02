@@ -82,3 +82,6 @@ docs/superpowers/
 
 # Subagent-driven-development scratch (ledger, briefs, review packages)
 .superpowers/
+
+# Playwright MCP browser session artifacts (page snapshots, downloads)
+.playwright-mcp/

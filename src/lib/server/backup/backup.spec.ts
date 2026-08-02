@@ -22,7 +22,9 @@ const db = vi.hoisted(() => {
 		netWorthSnapshots: [] as Row[],
 		savingsGoals: [] as Row[],
 		bankConnections: [] as Row[],
-		recurringStreamActions: [] as Row[]
+		recurringStreamActions: [] as Row[],
+		tags: [] as Row[],
+		transactionTags: [] as Row[]
 	};
 
 	let counter = 0;
@@ -79,6 +81,80 @@ const db = vi.hoisted(() => {
 		};
 	}
 
+	/**
+	 * TransactionTag has no `userId` column and no surrogate `id` (see the model comment in
+	 * schema.prisma), so the generic `table()` helper above cannot serve it: that one filters on
+	 * `where.userId`, and the real query reaches ownership through `where.transaction.userId`.
+	 *
+	 * The stored rows still carry a `userId` here, purely so a spec can express which user a link
+	 * belongs to. The fake deliberately REFUSES a `where.userId` filter rather than honouring it:
+	 * that column does not exist, the real engine would reject the query, and a fake that quietly
+	 * accepted it would let a wrong query pass every test and fail only in production.
+	 */
+	function transactionTagTable() {
+		const rows = store.transactionTags;
+		return {
+			findMany: vi.fn(
+				async ({
+					where,
+					select
+				}: {
+					where: {
+						transaction?: { userId: string };
+						tag?: { userId: string };
+						transactionId?: string;
+					};
+					select?: Record<string, boolean>;
+				}) => {
+					if ('userId' in where) {
+						throw new Error(
+							'TransactionTag has no userId column; scope through `transaction: { userId }`'
+						);
+					}
+					return rows
+						.filter((row) => (where.transaction ? row.userId === where.transaction.userId : true))
+						.filter((row) => (where.tag ? row.userId === where.tag.userId : true))
+						.filter((row) =>
+							where.transactionId ? row.transactionId === where.transactionId : true
+						)
+						.map((row) => pick(row, select));
+				}
+			),
+			createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => {
+				// No generated id: the primary key is (transactionId, tagId). The `userId` written
+				// here is the fake's own bookkeeping, derived from the link's transaction, exactly
+				// as the real query derives ownership through the relation.
+				const created = data.map((entry) => {
+					const owner = store.transactions.find((row) => row.id === entry.transactionId);
+					return { ...entry, userId: owner?.userId } as Row;
+				});
+				rows.push(...created);
+				return { count: created.length };
+			}),
+			deleteMany: vi.fn(
+				async ({ where }: { where: { transactionId?: string; tagId?: { in: string[] } } }) => {
+					const before = rows.length;
+					const remaining = rows.filter(
+						(row) =>
+							!(
+								(where.transactionId === undefined || row.transactionId === where.transactionId) &&
+								(where.tagId === undefined || where.tagId.in.includes(row.tagId as string))
+							)
+					);
+					rows.length = 0;
+					rows.push(...remaining);
+					return { count: before - rows.length };
+				}
+			),
+			count: vi.fn(
+				async ({ where }: { where?: { transaction?: { userId: string } } } = {}) =>
+					rows.filter((row) =>
+						where?.transaction ? row.userId === where.transaction.userId : true
+					).length
+			)
+		};
+	}
+
 	const categoryTable = table(store.categories, 'category');
 	const categoryUpsert = vi.fn(
 		async ({
@@ -125,6 +201,8 @@ const db = vi.hoisted(() => {
 			store.savingsGoals.length = 0;
 			store.bankConnections.length = 0;
 			store.recurringStreamActions.length = 0;
+			store.tags.length = 0;
+			store.transactionTags.length = 0;
 			counter = 0;
 		},
 		prisma: {
@@ -156,6 +234,8 @@ const db = vi.hoisted(() => {
 			savingsGoal: table(store.savingsGoals, 'savings-goal'),
 			bankConnection: table(store.bankConnections, 'bank-connection'),
 			recurringStreamAction: table(store.recurringStreamActions, 'recurring-action'),
+			tag: table(store.tags, 'tag'),
+			transactionTag: transactionTagTable(),
 			// Second parameter mirrors the real client's interactive-transaction options, so
 			// specs can assert what the caller asked for (see LONG_TRANSACTION_OPTIONS).
 			$transaction: vi.fn(
@@ -173,6 +253,8 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 const { buildBackupExport } = await import('./export');
 const { restoreBackup, BackupImportError } = await import('./import');
 const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS } = await import('./schema');
+const { computeNameKey } = await import('$lib/server/naming/nameKey');
+type TagColorToken = import('$lib/domain/tags').TagColorToken;
 const { UNCLASSIFIED_CATEGORY } = await import('$lib/domain/categories');
 const { LONG_TRANSACTION_OPTIONS } = await import('$lib/server/dbTransaction');
 
@@ -519,6 +601,53 @@ describe('buildBackupExport', () => {
 		expect(result.bankConnections).toHaveLength(1);
 		expect(JSON.stringify(result)).not.toContain('secret-provider-b');
 	});
+
+	it('exports tags scoped by userId, with no leak between users', async () => {
+		expect.assertions(2);
+
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+		db.store.tags.push(
+			{ id: 'tag-a', userId: 'user-a', name: 'Portugal', colorToken: 'clay' },
+			{ id: 'tag-b', userId: 'user-b', name: 'Autre', colorToken: 'ochre' }
+		);
+
+		const result = await buildBackupExport('user-a');
+
+		expect(result.tags).toEqual([{ id: 'tag-a', name: 'Portugal', colorToken: 'clay' }]);
+		// The other user's tag name is free text about their own life. Assert on the whole
+		// serialized payload, not just the tags array, so a leak through any other key is caught.
+		expect(JSON.stringify(result)).not.toContain('Autre');
+	});
+
+	it('exports transaction-tag pairs only for the requesting user', async () => {
+		expect.assertions(2);
+
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+		db.store.transactionTags.push(
+			{ id: 'link-a', userId: 'user-a', transactionId: 'tx-a', tagId: 'tag-a' },
+			{ id: 'link-b', userId: 'user-b', transactionId: 'tx-b', tagId: 'tag-b' }
+		);
+
+		const result = await buildBackupExport('user-a');
+
+		expect(result.transactionTags).toEqual([{ transactionId: 'tx-a', tagId: 'tag-a' }]);
+		expect(JSON.stringify(result)).not.toContain('tx-b');
+	});
+
+	it('reaches transaction-tag pairs through the relation, never a userId column', async () => {
+		expect.assertions(1);
+
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+
+		await buildBackupExport('user-a');
+
+		// TransactionTag has no userId column. The fake throws on `where.userId`, so this asserts
+		// the shape the real engine would accept rather than trusting the query to be right.
+		expect(db.prisma.transactionTag.findMany.mock.calls[0][0].where).toEqual({
+			transaction: { userId: 'user-a' },
+			tag: { userId: 'user-a' }
+		});
+	});
 });
 
 describe('restoreBackup', () => {
@@ -646,7 +775,9 @@ describe('restoreBackup', () => {
 				dueDate: string | null;
 				createdAt: string;
 				updatedAt: string;
-			}>
+			}>,
+			tags: [] as Array<{ id: string; name: string; colorToken: TagColorToken }>,
+			transactionTags: [] as Array<{ transactionId: string; tagId: string }>
 		};
 	}
 
@@ -1422,5 +1553,207 @@ describe('restoreBackup', () => {
 		const written = db.store.recurringStreamActions[0].anchorTransactionIds as string;
 		expect(JSON.parse(written)).toHaveLength(MAX_ANCHOR_IDS);
 		expect(written.length).toBeLessThanOrEqual(MAX_ANCHOR_CELL_CHARS);
+	});
+});
+
+/**
+ * Minimal restorable payload for the tag cases: one account, one category, one transaction, and
+ * empty everything else. Separate from the `buildValidPayload` inside the restoreBackup describe
+ * above, which carries net-worth and savings fixtures these cases do not need and whose noise
+ * would make a failure harder to read.
+ */
+function buildTagRestorePayload() {
+	return {
+		formatVersion: 1 as const,
+		exportedAt: new Date('2026-08-02T00:00:00.000Z').toISOString(),
+		userEmail: 'a@example.test',
+		accounts: [{ id: 'file-acc-1', name: 'Compte courant', currency: 'EUR', source: 'manual' }],
+		categories: [{ id: 'file-cat-1', name: 'Courses' }],
+		importBatches: [],
+		transactions: [
+			{
+				id: 'file-tx-1',
+				accountId: 'file-acc-1',
+				categoryId: 'file-cat-1',
+				importBatchId: null,
+				date: new Date('2026-06-15T00:00:00.000Z').toISOString(),
+				label: 'Carrefour',
+				amountCents: -4_200,
+				type: 'expense' as const,
+				source: 'manual',
+				notes: null,
+				bankOperationType: null,
+				manualCategory: null,
+				natureManual: null,
+				dedupeKey: null,
+				metadataJson: null
+			}
+		],
+		monthlyBudgets: [],
+		categoryRules: [],
+		categorizationRules: [],
+		categoryNatureMappings: [],
+		netWorthAccounts: [],
+		netWorthSnapshots: [],
+		savingsGoals: [],
+		bankConnections: [],
+		recurringStreamActions: [],
+		tags: [] as Array<{ id: string; name: string; colorToken: TagColorToken }>,
+		transactionTags: [] as Array<{ transactionId: string; tagId: string }>
+	};
+}
+
+describe('restoreBackup with tags', () => {
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+	});
+
+	function payloadWithTag() {
+		const payload = buildTagRestorePayload();
+		payload.tags = [{ id: 'file-clay', name: 'Portugal', colorToken: 'olive' }];
+		payload.transactionTags = [{ transactionId: payload.transactions[0].id, tagId: 'file-clay' }];
+		return payload;
+	}
+
+	it('recreates tags with regenerated ids and relinks them to the new transactions', async () => {
+		expect.assertions(6);
+
+		await restoreBackup('user-a', payloadWithTag());
+
+		const tag = db.store.tags.find((row) => row.userId === 'user-a');
+		expect(tag).toBeDefined();
+		// The file's id must never survive: Transaction.id and Tag.id are global primary keys, so
+		// a hand-edited export naming another user's id would otherwise turn a restore into a
+		// cross-account collision.
+		expect(tag!.id).not.toBe('file-clay');
+		expect(tag!.name).toBe('Portugal');
+		expect(tag!.colorToken).toBe('olive');
+		// nameKey is recomputed, never read from the file.
+		expect(tag!.nameKey).toBe(computeNameKey('Portugal'));
+
+		const transaction = db.store.transactions.find((row) => row.userId === 'user-a');
+		const link = db.store.transactionTags[0];
+		expect(link).toEqual(
+			expect.objectContaining({ transactionId: transaction!.id, tagId: tag!.id })
+		);
+	});
+
+	it('purges the previous user tags before restoring', async () => {
+		expect.assertions(2);
+
+		db.store.tags.push({ id: 'old-tag', userId: 'user-a', name: 'Ancien', colorToken: 'clay' });
+
+		await restoreBackup('user-a', payloadWithTag());
+
+		expect(db.store.tags.filter((row) => row.userId === 'user-a')).toHaveLength(1);
+		expect(db.store.tags.find((row) => row.id === 'old-tag')).toBeUndefined();
+	});
+
+	it('leaves another user tags untouched', async () => {
+		expect.assertions(1);
+
+		db.store.tags.push({ id: 'other-tag', userId: 'user-b', name: 'Autre', colorToken: 'ochre' });
+
+		await restoreBackup('user-a', buildTagRestorePayload());
+
+		expect(db.store.tags.find((row) => row.id === 'other-tag')).toBeDefined();
+	});
+
+	it('purges tags with a userId-scoped deleteMany, and never touches the join table directly', async () => {
+		expect.assertions(2);
+
+		await restoreBackup('user-a', payloadWithTag());
+
+		expect(db.prisma.tag.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
+		// TransactionTag is deliberately absent from the purge list: it has no userId to scope a
+		// deleteMany by, and it cascades from BOTH parents. This pins the ABSENCE, so a future
+		// edit adding a purge line here goes red and has to justify itself.
+		//
+		// That the cascade actually fires is a DATABASE claim, and this fake has no cascades, so
+		// it structurally cannot prove it. Asserting it here would only prove the fake. The real
+		// assertion runs against all three engines in backup/volume.db-smoke.ts.
+		expect(db.prisma.transactionTag.deleteMany).not.toHaveBeenCalled();
+	});
+
+	it('folds two file tags with the same normalized name onto one row, without a duplicate link', async () => {
+		expect.assertions(2);
+
+		const payload = buildTagRestorePayload();
+		payload.tags = [
+			{ id: 'file-clay', name: 'Portugal', colorToken: 'olive' },
+			{ id: 'file-ochre', name: 'PORTUGAL', colorToken: 'azure' }
+		];
+		payload.transactionTags = [
+			{ transactionId: payload.transactions[0].id, tagId: 'file-clay' },
+			{ transactionId: payload.transactions[0].id, tagId: 'file-ochre' }
+		];
+
+		await restoreBackup('user-a', payload);
+
+		// One tag, and crucially ONE link: both file tags remap to the same row, so an
+		// undeduplicated insert would violate the composite primary key.
+		expect(db.store.tags.filter((row) => row.userId === 'user-a')).toHaveLength(1);
+		expect(db.store.transactionTags).toHaveLength(1);
+	});
+
+	it('cannot collide with another user rows whose real ids match the ids in the file', async () => {
+		expect.assertions(4);
+
+		// The forbidden thing, attempted rather than argued. Tag.id and Transaction.id are GLOBAL
+		// primary keys, so a hand-edited export can name an id that really belongs to somebody
+		// else. Seed exactly that: user-b owns rows whose ids are the ones user-a's file uses.
+		//
+		// Reasoning that the code is safe is not evidence here. The previous version of this file
+		// asserted only that the restored id differs from the file's, which is true even if the
+		// collision were catastrophic.
+		db.store.tags.push({
+			id: 'file-clay',
+			userId: 'user-b',
+			name: 'Le tag de B',
+			colorToken: 'ochre'
+		});
+		db.store.transactions.push({
+			id: 'file-tx-1',
+			userId: 'user-b',
+			label: 'La transaction de B',
+			amountCents: -999
+		});
+
+		await restoreBackup('user-a', payloadWithTag());
+
+		// User B's rows are untouched: not deleted by the purge, not overwritten by the restore.
+		expect(db.store.tags.find((row) => row.id === 'file-clay')?.userId).toBe('user-b');
+		expect(db.store.transactions.find((row) => row.id === 'file-tx-1')?.userId).toBe('user-b');
+		// And nothing user A restored points at either of them.
+		const restoredTagIds = db.store.tags
+			.filter((row) => row.userId === 'user-a')
+			.map((row) => row.id);
+		expect(restoredTagIds).not.toContain('file-clay');
+		expect(db.store.transactionTags.every((link) => link.userId === 'user-a')).toBe(true);
+	});
+
+	it('rejects a pair naming a tag absent from the payload, before any write', async () => {
+		expect.assertions(2);
+
+		const payload = buildTagRestorePayload();
+		payload.transactionTags = [
+			{ transactionId: payload.transactions[0].id, tagId: 'file-tag-missing' }
+		];
+
+		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	it('rejects a pair naming a transaction absent from the payload, before any write', async () => {
+		expect.assertions(2);
+
+		const payload = buildTagRestorePayload();
+		payload.tags = [{ id: 'file-clay', name: 'Portugal', colorToken: 'olive' }];
+		payload.transactionTags = [{ transactionId: 'file-tx-missing', tagId: 'file-clay' }];
+
+		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
 	});
 });

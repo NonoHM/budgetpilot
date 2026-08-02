@@ -2,8 +2,8 @@ import type { Prisma } from '$lib/server/database/types';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
-import { getTransactionKind, type TransactionKind } from '$lib/domain/transaction';
 import { parseCustomDateRange } from '$lib/server/date-range';
+import { resolveTransactionType } from '$lib/server/transactions/totals';
 import {
 	buildCategoryNatureMap,
 	getEffectiveTransactionNature
@@ -45,6 +45,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	// from the id-filtered view without it silently ships the user's ENTIRE history in a file they
 	// are likely to mail on — the pre-`ids` behaviour, when this link used `?q=`, was filtered.
 	const ids = normalizeIdList(url.searchParams.get('ids'));
+	// Same reason as `ids` above, and the reason applies to every filter this route accepts: an
+	// export the user cannot inspect before it lands must match the view it was launched from.
+	const tagId = normalizeId(url.searchParams.get('tag'));
 
 	if (query && qMode === 'regex' && !isValidRegexQuery(query)) {
 		error(400, 'Expression régulière invalide.');
@@ -65,7 +68,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		to: dateRange?.to,
 		importBatchId,
 		uncategorizedCategoryId,
-		ids
+		ids,
+		tagId
 	});
 
 	const exportSelect = {
@@ -145,17 +149,6 @@ async function collectAllTransactions<Select extends Prisma.TransactionSelect>(
 		rows.push(...batch);
 	});
 	return rows;
-}
-
-function resolveTransactionType(transaction: {
-	amountCents: number;
-	type: string | null;
-}): TransactionKind {
-	return getTransactionKind({
-		amountCents: transaction.amountCents,
-		type:
-			transaction.type === 'income' || transaction.type === 'expense' ? transaction.type : undefined
-	});
 }
 
 function formatAmount(amountCents: number): string {

@@ -47,6 +47,7 @@ function makeTransaction(id: string) {
 		amountCents: 3_000,
 		type: 'expense' as const,
 		source: 'csv',
+		tags: [],
 		suggestion: null
 	};
 }
@@ -59,6 +60,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedSuggestion: null,
 		categoryOptions: ['Alimentation'],
 		categories: [{ name: 'Alimentation', defaultKey: null }],
+		allTags: [],
 		natureOptions: TRANSACTION_NATURES,
 		filters: {
 			q: '',
@@ -68,8 +70,10 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			from: '',
 			to: '',
 			importBatchId: '',
-			ids: IDS
+			ids: IDS,
+			tag: ''
 		},
+		filteredTotals: { incomeCents: 0, expenseCents: 90_000 },
 		queryError: false,
 		dateRangeError: false,
 		// Two pages, so the pagination control actually renders and buildPageHref is exercised.
@@ -127,6 +131,36 @@ describe('?ids= propagation through the generated links', () => {
 
 		expect(tabs.length).toBeGreaterThan(0);
 		for (const href of tabs) expect(href).not.toContain('ids=');
+	});
+
+	it('lets the all tab clear an active type filter rather than re-emitting it', async () => {
+		// The regression this pins is user-visible and no type error catches it: with a specific
+		// type filter active, the "Toutes" tab used to render an href byte-identical to the page
+		// it was already on, so the tab did nothing. The classify-mode "Terminer" button is the
+		// same call and was equally dead.
+		//
+		// Rendered rather than asserted on the builder alone, because the defect lived in what the
+		// CALL SITE passed, not in the builder. A unit test on buildTransactionsHref cannot see it.
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: baseData({ filters: { ...baseData().filters, type: 'expense' } }),
+			form: null
+		});
+
+		const tabs = [...container.querySelectorAll('a[role="tab"]')];
+		expect(tabs.length).toBeGreaterThan(0);
+
+		// The tab whose href carries no `type` is the "all" one, by construction.
+		const allTabHrefs = tabs
+			.map((tab) => tab.getAttribute('href') ?? '')
+			.filter((href) => !new URLSearchParams(href.split('?')[1]).has('type'));
+
+		// TWO, not one: this page renders a desktop and a mobile copy of the tab bar at the same
+		// time, the same duplication already recorded against /reports and /upcoming-bills. Both
+		// copies are asserted deliberately, so a fix that clears the filter on only one of them
+		// goes red rather than half-passing.
+		expect(allTabHrefs).toHaveLength(2);
+		for (const href of allTabHrefs) expect(href).toBe('/transactions?');
 	});
 
 	it('drops ids from the focus-mode navigation', async () => {

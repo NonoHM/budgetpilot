@@ -29,7 +29,14 @@
 		// reappear on the next load. Purely additive: existing callers that don't pass
 		// it keep the same local-only dismiss behavior.
 		onDismiss?: () => void;
-		// Optional inline action, e.g. an undo button — rendered after the message, never replacing the close control.
+		// Optional single action, e.g. a bulk-apply "Annuler" undo (transverse-tags design, section
+		// 6): rendered between the message and the close control, never after it and never
+		// replacing it. At most one — this is a single Snippet slot, not a list, by construction.
+		// The caller is expected to build it as a TapLink (ui/TapLink.svelte), styled to the
+		// banner's own tone rather than TapLink's default zinc/rose text colour, with an
+		// always-visible underline (`text-decoration:underline`) rather than TapLink's
+		// hover-only one — an action inside a banner has no adjacent "this row is clickable"
+		// context to lean on the way a list row does.
 		action?: Snippet;
 		children: Snippet;
 	} = $props();

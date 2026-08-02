@@ -116,7 +116,68 @@ describe('buildMonthlyReport', () => {
 	});
 });
 
+/** Every property name in a nested structure, so a key check cannot miss a nested one. */
+function collectKeys(value: unknown): string[] {
+	if (Array.isArray(value)) return value.flatMap(collectKeys);
+	if (value && typeof value === 'object') {
+		return Object.entries(value).flatMap(([key, nested]) => [key, ...collectKeys(nested)]);
+	}
+	return [];
+}
+
 describe('buildPeriodReport', () => {
+	it('carries no tag data, so tag names can never reach the AI prompt payload', () => {
+		expect.assertions(3);
+
+		// buildPeriodReport feeds server/insights/summary.ts, which builds the Ollama prompt. A tag
+		// name is free text a user wrote about their own life: "Vacances Portugal 2026" is a life
+		// event, where a category name is a taxonomy term. This asserts the ABSENCE structurally,
+		// so a future chantier that adds tags to /reports goes red here rather than silently
+		// widening what leaves the machine.
+		//
+		// The tag is attached to the INPUT deliberately. The point is not that the domain type has
+		// no `tags` field today, it is that the report drops the data even when handed it, so the
+		// guard survives a future widening of that type. The cast is what lets the test hand it
+		// over; without it this would only be asserting the current shape of the type.
+		const tagged = [
+			{
+				id: 'tagged-expense',
+				date: '2026-06-05',
+				label: 'Hotel Lisbonne',
+				amountCents: -42_000,
+				type: 'expense',
+				category: 'Voyage',
+				source: 'csv',
+				tags: ['Portugal']
+			}
+		] as unknown as Transaction[];
+
+		const report = buildPeriodReport(tagged, '2026-06');
+
+		// Two complementary checks, because either alone is a bad guard.
+		//
+		// The VALUE check is over the whole serialized payload, so a tag name reaching it nested
+		// inside any existing structure is caught, not only under a top-level `tags` key.
+		expect(JSON.stringify(report)).not.toContain('Portugal');
+
+		// The KEY check has to compare whole words, not substrings. A naive
+		// `not.toContain('tag')` over the lowercased payload was written first and failed
+		// immediately on `percentageOfExpenses`, which contains "percen-TAG-e". That version would
+		// have had to be deleted or loosened, and a loosened one guards nothing.
+		const tagLikeKeys = collectKeys(report).filter((key) =>
+			key
+				.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+				.toLowerCase()
+				.split(' ')
+				.some((word) => word === 'tag' || word === 'tags')
+		);
+		expect(tagLikeKeys).toEqual([]);
+
+		// Guards the guard: if the report came back empty the two checks above would pass for the
+		// wrong reason. This proves the transaction was actually processed.
+		expect(report.expenseCents).toBe(42_000);
+	});
+
 	it('compte une income du mois précédent dans une période glissante', () => {
 		expect.assertions(6);
 

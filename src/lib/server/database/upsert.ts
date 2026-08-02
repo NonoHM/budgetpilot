@@ -62,6 +62,35 @@ export function isUniqueConstraintViolation(caught: unknown): boolean {
 	return errorCodeOf(caught) === 'P2002';
 }
 
+/**
+ * Prisma's foreign-key violation.
+ *
+ * NOT a transient write conflict, and deliberately not in the retry set above: it means a row
+ * this write depends on does not exist, which is usually a bug rather than contention. It is
+ * exported because there is one place where it IS contention: a row resolved a moment ago can be
+ * deleted by a concurrent garbage-collector before the dependent insert lands. See
+ * server/tags/service.ts, where that race was observed on a real engine rather than predicted.
+ */
+export function isForeignKeyViolation(caught: unknown): boolean {
+	return errorCodeOf(caught) === 'P2003';
+}
+
+/**
+ * Prisma's "a record this operation depends on was not found" (P2025).
+ *
+ * Raised by an UPSERT when its fallback SELECT found a row and the following UPDATE then matched
+ * nothing, because someone deleted it in between: "No record was found for an upsert." Like P2003
+ * it is NOT in the transient allowlist above, since for most callers it means a genuine
+ * precondition failure rather than contention.
+ *
+ * Exported for the one place where it IS contention, and where it is the third distinct engine
+ * manifestation of a single race: see server/tags/service.ts, whose auto-GC can delete a tag
+ * mid-upsert. Found on PostgreSQL by CI, not by reasoning.
+ */
+export function isMissingRecord(caught: unknown): boolean {
+	return errorCodeOf(caught) === 'P2025';
+}
+
 function errorCodeOf(caught: unknown): string | undefined {
 	if (typeof caught !== 'object' || caught === null || !('code' in caught)) return undefined;
 	const code = (caught as { code?: unknown }).code;

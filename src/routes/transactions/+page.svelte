@@ -10,7 +10,10 @@
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { isTransactionNature } from '$lib/domain/transaction';
+	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
 	import { getInitials } from '$lib/domain/initials';
+	import { buildTransactionsHref, buildTransactionsExportHref } from './hrefs';
+	import { normalizeForMatch } from '$lib/domain/normalize';
 	import type { ActionData, PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
 	import Modal from '$lib/components/Modal.svelte';
@@ -23,7 +26,9 @@
 	import Avatar from '$lib/components/Avatar.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import TransactionProposalCard from '$lib/components/TransactionProposalCard.svelte';
+	import TransactionTagsEditor from '$lib/components/TransactionTagsEditor.svelte';
 	import TransactionFocusOverlay from '$lib/components/TransactionFocusOverlay.svelte';
+	import TagChips from '$lib/components/ui/TagChips.svelte';
 	import {
 		getAdjacentFocusStackId,
 		getFocusOutcomeForAction,
@@ -104,6 +109,13 @@
 	let acceptSubmittingIds = $state(new Set<string>());
 	let deleteSubmitting = $state(false);
 	let createRuleSubmitting = $state(false);
+	// Bulk-tag confirmation dialog (Task 6.2, steps 3-4). `bulkTagName` is the tag name being
+	// typed, reset every time the dialog opens so a previous, unrelated name never survives into
+	// a fresh confirmation.
+	let bulkTagOpen = $state(false);
+	let bulkTagName = $state('');
+	let bulkTagSubmitting = $state(false);
+	let bulkTagUndoSubmitting = $state(false);
 
 	$effect(() => {
 		searchIsRegex = data.filters.qMode === 'regex';
@@ -187,20 +199,8 @@
 		}
 	}
 
-	function buildFocusHref(id: string) {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		params.set('type', 'classify');
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		params.set('selected', id);
-		return `/transactions?${params.toString()}` as `/transactions?${string}`;
-	}
+	const buildFocusHref = (id: string) =>
+		buildTransactionsHref(data.filters, { type: 'classify', selected: id }, { keepIds: false });
 
 	function openFocusMode() {
 		const firstId = getRemainingFocusStackIds(data.classifyStackIds, focusHandledIds)[0];
@@ -235,6 +235,151 @@
 	function displayCategory(name: string): string {
 		return categoryLabelByName(name, defaultKeyByName);
 	}
+
+	// Maps the flat { id, name, colorToken: string } rows the load returns into TagChips'
+	// TagChipItem shape. `colorToken` arrives as a plain string from the database column, not the
+	// closed TagColorToken union; isTagColorToken re-validates it here rather than casting blindly,
+	// so a value that somehow fell outside the palette renders TagChips' honest neutral dot instead
+	// of a bogus Tailwind class.
+	/**
+	 * The active tag filter, as a chip. One of the only two surfaces the design lets a tag's colour
+	 * leave its 8px dot, and the one where that colour does real work: it says at a glance WHICH
+	 * filter is applied, without reading the control.
+	 */
+	const activeFilterTag = $derived(
+		data.filters.tag ? (data.allTags.find((t) => t.id === data.filters.tag) ?? null) : null
+	);
+
+	/** Clears the tag filter, keeping every other one. */
+	function clearTagFilter() {
+		goto(resolve(buildTransactionsHref({ ...data.filters, tag: '' }, {}, { keepIds: false })), {
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	/**
+	 * The existing tag a typed bulk name resolves to, matched the way the server matches it (folded,
+	 * accent-insensitive) rather than by raw string equality.
+	 *
+	 * The second allowed tinted surface. It answers the question the dialog otherwise leaves open:
+	 * whether this is about to add to a tag that already exists, and which one — shown in that
+	 * tag's own colour so it is the same object the user sees on their rows.
+	 */
+	const bulkTagMatch = $derived.by(() => {
+		const typed = normalizeForMatch(bulkTagName.trim());
+		if (!typed) return null;
+		return data.allTags.find((t) => normalizeForMatch(t.name) === typed) ?? null;
+	});
+
+	function toTagChipItems(tags: Array<{ id: string; name: string; colorToken: string }>) {
+		return tags.map((tag) => ({
+			key: tag.id,
+			name: tag.name,
+			colorToken: isTagColorToken(tag.colorToken) ? (tag.colorToken as TagColorToken) : null
+		}));
+	}
+
+	// Same re-validation, for TagPicker's option list (TransactionTagsEditor -> TagPicker), whose
+	// TagPickerOption.colorToken is the closed union rather than the raw database string. A row
+	// that somehow failed the check is dropped rather than coerced: TagPicker has no "unknown
+	// colour" rendering path the way TagChips does, so there is nothing honest to show for it.
+	const allTagOptions = $derived(
+		data.allTags.flatMap((tag) =>
+			isTagColorToken(tag.colorToken) ? [{ ...tag, colorToken: tag.colorToken }] : []
+		)
+	);
+
+	// Gates the bulk-tag trigger (design 6.5: "enabled only when a filter is active") and, by
+	// construction, the dialog's own filter description below — the same four fields decide both,
+	// so the trigger can never be enabled on a state the dialog would describe as empty. `type`
+	// (the Toutes/Dépenses/Revenus/À classer tabs) is deliberately NOT one of them: this codebase's
+	// vocabulary reserves "filter" for the narrowing controls the design lists by name (period,
+	// category, search term, tag), the tab is a view. An invalid range/search must not enable it
+	// either — a dialog naming an error as if it were a set of transactions is worse than a
+	// momentarily inert button.
+	const bulkTagFilterActive = $derived(
+		Boolean(
+			(data.filters.category ||
+				data.filters.tag ||
+				data.filters.from ||
+				data.filters.to ||
+				data.filters.q) &&
+			!data.dateRangeError &&
+			!data.queryError
+		)
+	);
+
+	/**
+	 * Human description of the active filter for the bulk-tag ConfirmDialog, built from the exact
+	 * same four fields as `bulkTagFilterActive`. A count alone is ambiguous — it lets a stale or
+	 * partially-applied filter pass unnoticed — so the dialog must say WHICH transactions, not just
+	 * how many (task 6.2 step 3). Joined with " · ", the same ad-hoc separator `sheetMeta` in
+	 * upcoming-bills/+page.svelte already uses for fragment lists: punctuation, not translated
+	 * content.
+	 */
+	function describeBulkTagFilter(): string[] {
+		const fragments: string[] = [];
+		if (data.filters.from && data.filters.to) {
+			fragments.push(
+				m.tags_bulk_filter_period_between({
+					from: formatDate(data.filters.from),
+					to: formatDate(data.filters.to)
+				})
+			);
+		} else if (data.filters.from) {
+			fragments.push(m.tags_bulk_filter_period_from({ from: formatDate(data.filters.from) }));
+		} else if (data.filters.to) {
+			fragments.push(m.tags_bulk_filter_period_until({ to: formatDate(data.filters.to) }));
+		}
+		if (data.filters.category) {
+			fragments.push(
+				m.tags_bulk_filter_category({ category: displayCategory(data.filters.category) })
+			);
+		}
+		if (data.filters.q) {
+			fragments.push(m.tags_bulk_filter_search({ query: data.filters.q }));
+		}
+		if (data.filters.tag) {
+			const tagName = data.allTags.find((t) => t.id === data.filters.tag)?.name ?? '';
+			if (tagName) fragments.push(m.tags_bulk_filter_tag({ tag: tagName }));
+		}
+		return fragments;
+	}
+
+	function openBulkTag(): void {
+		if (!bulkTagFilterActive) return;
+		bulkTagName = '';
+		bulkTagOpen = true;
+	}
+
+	function closeBulkTag(): void {
+		bulkTagOpen = false;
+	}
+
+	// The action URL is built from the SAME filters `?/bulkTag` reads server-side
+	// (+page.server.ts:parseListFilters, driven from `url.searchParams`), because the plain
+	// shorthand `action="?/bulkTag"` would resolve against the current URL and REPLACE its query
+	// string entirely — dropping every active filter and applying the tag to an unfiltered set.
+	// `buildTransactionsHref` already emits exactly the params `parseListFilters` consumes (q,
+	// qMode, category, from, to, importBatch, tag, type, ids), so appending the bare action marker
+	// to it keeps the two in lockstep with no separate list to maintain.
+	const bulkTagActionHref = $derived(
+		`${buildTransactionsHref(data.filters, {}, { keepIds: true })}&/bulkTag`
+	);
+
+	const bulkTagResult = $derived(form && 'bulkTagResult' in form ? form.bulkTagResult : null);
+	const bulkTagEmpty = $derived(form && 'bulkTagEmpty' in form ? form.bulkTagEmpty : false);
+	const undoBulkTagSuccess = $derived(
+		form && 'undoBulkTagSuccess' in form ? form.undoBulkTagSuccess : false
+	);
+
+	// Closes the dialog on any successful outcome (applied or empty); an error leaves it open so
+	// `form.bulkTagError` renders next to the field the user just submitted, same as the delete
+	// confirmation's own `form?.deleteError`.
+	$effect(() => {
+		if (bulkTagResult || bulkTagEmpty) bulkTagOpen = false;
+	});
 
 	$effect(() => {
 		const tx = data.selectedTransaction;
@@ -293,77 +438,20 @@
 		return m.transactions_nature_source_default();
 	}
 
-	function buildFilterHref(filterType: string) {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		if (filterType !== 'all') params.set('type', filterType);
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		return `/transactions?${params.toString()}` as `/transactions?${string}`;
-	}
-
-	function buildPageHref(page: number) {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		if (data.filters.type !== 'all') params.set('type', data.filters.type);
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		// Paging, row selection and the export carry `ids` forward — all three stay INSIDE the
-		// id-filtered view. `buildFilterHref`, `buildFocusHref` and the two search forms
-		// deliberately drop it: those are navigations that visibly change the list, so the user
-		// sees they left "the transactions linked to this bill" behind. An export shows nothing,
-		// which is why it is on the other side of the line (see buildExportHref).
-		if (data.filters.ids) params.set('ids', data.filters.ids);
-		params.set('page', String(page));
-		return `/transactions?${params.toString()}` as `/transactions?${string}`;
-	}
-
-	function buildSelectedHref(id: string) {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		if (data.filters.type !== 'all') params.set('type', data.filters.type);
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		// See buildPageHref: navigation within the id-filtered view keeps it.
-		if (data.filters.ids) params.set('ids', data.filters.ids);
-		params.set('page', String(data.pagination.page));
-		params.set('selected', id);
-		return `/transactions?${params.toString()}` as `/transactions?${string}`;
-	}
-
-	function buildExportHref() {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		if (data.filters.type !== 'all') params.set('type', data.filters.type);
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		// Carried, unlike buildFilterHref: an export is a download of "what I'm looking at", with no
-		// visible result to notice the difference in, and the file leaves the machine. Dropping it
-		// would turn a five-row view into a whole-history CSV mailed to an accountant.
-		// `export/+server.ts` parses it; both halves are needed, and only the pair is the fix.
-		if (data.filters.ids) params.set('ids', data.filters.ids);
-		return `/transactions/export?${params.toString()}`;
-	}
+	// Always passes the DESTINATION tab, never {}. An absent override means "keep the ambient
+	// filter", which is what paging needs and the exact opposite of what a filter tab needs:
+	// passing {} for 'all' made the "Toutes" tab re-emit the filter it exists to clear.
+	const buildFilterHref = (filterType: string) =>
+		buildTransactionsHref(data.filters, { type: filterType }, { keepIds: false });
+	const buildPageHref = (page: number) =>
+		buildTransactionsHref(data.filters, { page: String(page) }, { keepIds: true });
+	const buildSelectedHref = (id: string) =>
+		buildTransactionsHref(
+			data.filters,
+			{ page: String(data.pagination.page), selected: id },
+			{ keepIds: true }
+		);
+	const buildExportHref = () => buildTransactionsExportHref(data.filters);
 
 	function openRuleModal(
 		id: string,
@@ -546,6 +634,66 @@
 				</Button>
 			</div>
 		</div>
+
+		<!-- Result of the last bulk-tag action, following upcoming-bills/+page.svelte's undo banner
+		     shape exactly (see its comment at :752-786): the undo form sits OUTSIDE AlertBanner
+		     because the banner renders a <p>, and a <form> start tag would close that open <p> in the
+		     HTML parser. The button carries `form=` so it can still live visually inside the banner.
+		     Keyed on `bulkTagResult` so a second identical bulk-tag action (same tag, same count) is
+		     announced again instead of reusing an already-dismissed banner.
+		     Deliberately no `autoDismissMs` override on this one (defaults apply): the undo it carries
+		     is available for as long as the banner is, and the deviation only applies to the "applied"
+		     banner just below, which DOES override it. -->
+		{#if bulkTagResult}
+			<form
+				id="bulk-tag-undo-banner"
+				method="POST"
+				action="?/undoBulkTag"
+				class="hidden"
+				use:enhance={() => {
+					bulkTagUndoSubmitting = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						bulkTagUndoSubmitting = false;
+					};
+				}}
+			>
+				<input type="hidden" name="tagId" value={bulkTagResult.tagId} />
+				<input type="hidden" name="transactionIds" value={bulkTagResult.transactionIds.join(',')} />
+			</form>
+			{#key bulkTagResult}
+				<!-- Approved deviation from the 4s auto-dismiss every other success banner on this page
+				     uses: an undo the user cannot reach because it vanished is worse than a banner that
+				     lingers. `Infinity`, not a large finite value — setTimeout clamps/fires near-
+				     immediately past the 32-bit signed int delay limit (~24.8 days), so a large-but-
+				     finite number would silently misbehave instead of meaning "never" (see
+				     AlertBanner.svelte's own comment on autoDismissMs). -->
+				<AlertBanner variant="success" autoDismissMs={Infinity}>
+					{m.tags_bulk_banner_applied({
+						count: bulkTagResult.appliedCount,
+						tag: bulkTagResult.tagName
+					})}
+					{#snippet action()}
+						<button
+							type="submit"
+							form="bulk-tag-undo-banner"
+							disabled={bulkTagUndoSubmitting}
+							class="-my-2.5 inline-flex min-h-11 shrink-0 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							{m.tags_bulk_banner_undo()}
+						</button>
+					{/snippet}
+				</AlertBanner>
+			{/key}
+		{:else if bulkTagEmpty}
+			{#key form}
+				<AlertBanner variant="success">{m.tags_bulk_banner_empty()}</AlertBanner>
+			{/key}
+		{:else if undoBulkTagSuccess}
+			{#key form}
+				<AlertBanner variant="success">{m.tags_bulk_banner_undone()}</AlertBanner>
+			{/key}
+		{/if}
 
 		<!-- ============ BANDEAU "À CLASSER" — DESKTOP ============ -->
 		{#if data.uncategorizedCount > 0}
@@ -750,6 +898,32 @@
 					ariaLabel={m.transactions_category_filter_aria()}
 					class="w-48"
 				/>
+				{#if data.allTags.length > 0}
+					{#if activeFilterTag}
+						<!-- Active state: the tag's own tinted chip rather than a control showing its name as
+						     plain text. This is one of the two surfaces the design allows a tint on, and the
+						     one where the colour is genuinely useful: which filter is applied is readable at
+						     a glance. Removing it clears only the tag, keeping every other filter. -->
+						<TagChips
+							variant="tinted"
+							max={Infinity}
+							tags={toTagChipItems([activeFilterTag])}
+							onRemove={clearTagFilter}
+						/>
+					{:else}
+						<Combobox
+							name="tag"
+							value={data.filters.tag}
+							options={[
+								{ value: '', label: m.tags_filter_all() },
+								...data.allTags.map((t) => ({ value: t.id, label: t.name }))
+							]}
+							placeholder={m.tags_filter_placeholder()}
+							ariaLabel={m.tags_filter_aria()}
+							class="w-48"
+						/>
+					{/if}
+				{/if}
 				<div class="flex items-center gap-1.5">
 					<label for="tx-from" class="text-xs font-medium text-zinc-500"
 						>{m.reports_from_label()}</label
@@ -781,7 +955,32 @@
 				<Button href="/transactions" variant="secondary" size="field">
 					{m.transactions_reset()}
 				</Button>
+				<!-- Native `disabled` would drop this control from the tab order and announce nothing
+				     when a screen-reader user tabs onto it; `aria-disabled` keeps it focusable so the
+				     reason stays reachable at the keyboard. Not a Button/TapLink instance: both apply
+				     real `disabled` to their <button> branch.
+				     One channel for the reason, not two: no `title` (a second, redundant source), and
+				     the explanation is the SAME visible sentence `aria-describedby` points at below —
+				     never a duplicate in an `aria-label`. Its text stays `zinc-500` (not `zinc-400`,
+				     not dimmed further by an `opacity` class): measured at 4.6:1, an inactive control
+				     must stay readable, not fade toward invisible. -->
+				<button
+					type="button"
+					class="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border px-4 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none {bulkTagFilterActive
+						? 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50'
+						: 'cursor-not-allowed border-zinc-200 bg-white text-zinc-500'}"
+					aria-disabled={bulkTagFilterActive ? undefined : 'true'}
+					aria-describedby={bulkTagFilterActive ? undefined : 'bulk-tag-disabled-reason-desktop'}
+					onclick={openBulkTag}
+				>
+					{m.tags_bulk_cta()}
+				</button>
 			</form>
+			{#if !bulkTagFilterActive}
+				<p id="bulk-tag-disabled-reason-desktop" class="mt-2 text-sm text-zinc-500">
+					{m.tags_bulk_cta_disabled_hint()}
+				</p>
+			{/if}
 			{#if data.queryError}
 				<p class="mt-2 text-sm font-medium text-rose-600">
 					{m.transactions_error_invalid_regex_query()}
@@ -881,6 +1080,30 @@
 					class="w-full"
 					triggerClass="!bg-zinc-50"
 				/>
+				{#if data.allTags.length > 0}
+					{#if activeFilterTag}
+						<!-- Same active state as the desktop bar; see its comment there. -->
+						<TagChips
+							variant="tinted"
+							max={Infinity}
+							tags={toTagChipItems([activeFilterTag])}
+							onRemove={clearTagFilter}
+						/>
+					{:else}
+						<Combobox
+							name="tag"
+							value={data.filters.tag}
+							options={[
+								{ value: '', label: m.tags_filter_all() },
+								...data.allTags.map((t) => ({ value: t.id, label: t.name }))
+							]}
+							placeholder={m.tags_filter_placeholder()}
+							ariaLabel={m.tags_filter_aria()}
+							class="w-full"
+							triggerClass="!bg-zinc-50"
+						/>
+					{/if}
+				{/if}
 				<div class="flex gap-2">
 					<div class="flex-1">
 						<label for="tx-from-mobile" class="block px-0.5 text-xs font-medium text-zinc-500">
@@ -936,6 +1159,24 @@
 						{m.transactions_submit_filter()}
 					</Button>
 				</div>
+				<!-- Same aria-disabled trigger as the desktop bar (see the comment there: one channel
+				     for the reason, no title, zinc-500 not opacity-dimmed), mobile copy. -->
+				<button
+					type="button"
+					class="flex h-11 w-full items-center justify-center rounded-xl border text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none {bulkTagFilterActive
+						? 'border-zinc-300 bg-white text-zinc-700'
+						: 'cursor-not-allowed border-zinc-200 bg-white text-zinc-500'}"
+					aria-disabled={bulkTagFilterActive ? undefined : 'true'}
+					aria-describedby={bulkTagFilterActive ? undefined : 'bulk-tag-disabled-reason-mobile'}
+					onclick={openBulkTag}
+				>
+					{m.tags_bulk_cta()}
+				</button>
+				{#if !bulkTagFilterActive}
+					<p id="bulk-tag-disabled-reason-mobile" class="px-0.5 text-sm text-zinc-500">
+						{m.tags_bulk_cta_disabled_hint()}
+					</p>
+				{/if}
 			</form>
 		</div>
 
@@ -945,17 +1186,27 @@
 			<section class="rounded-lg border border-zinc-200 bg-white">
 				<!-- En-tête tableau : pagination -->
 				<div class="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3">
-					<p class="text-sm text-zinc-600">
-						{data.pagination.totalTransactions > 1
-							? m.transactions_count_many({
-									count: data.pagination.totalTransactions,
-									page: data.pagination.page
-								})
-							: m.transactions_count_one({
-									count: data.pagination.totalTransactions,
-									page: data.pagination.page
+					<div>
+						<p class="text-sm text-zinc-600">
+							{data.pagination.totalTransactions > 1
+								? m.transactions_count_many({
+										count: data.pagination.totalTransactions,
+										page: data.pagination.page
+									})
+								: m.transactions_count_one({
+										count: data.pagination.totalTransactions,
+										page: data.pagination.page
+									})}
+						</p>
+						{#if data.filteredTotals.incomeCents > 0 || data.filteredTotals.expenseCents > 0}
+							<p class="text-xs text-zinc-500 tabular-nums">
+								{m.transactions_totals_summary({
+									income: formatCents(data.filteredTotals.incomeCents),
+									expense: formatCents(data.filteredTotals.expenseCents)
 								})}
-					</p>
+							</p>
+						{/if}
+					</div>
 					<div class="flex gap-2">
 						<Button
 							variant="secondary"
@@ -988,6 +1239,14 @@
 									<tr>
 										<th class="px-4 py-2.5">{m.transactions_table_label()}</th>
 										<th class="px-4 py-2.5">{m.transactions_table_category()}</th>
+										<!-- A dedicated column, not chips at the end of the label. The design grants the
+										     row-chips exception to "a table shows only what you scan at a glance" ONLY
+										     against this counterpart: "colonne dédiée de 190 px (pas de puce en fin de
+										     libellé, qui déchirerait la colonne de gauche)". Chips under the label tear
+										     the left column ragged, and the eye then hunts for them instead of running
+										     down one vertical band. Rendered even when the user has no tags, so rows do
+										     not change shape the moment a first tag appears. -->
+										<th class="w-[190px] px-4 py-2.5">{m.transactions_table_tags()}</th>
 										<th class="px-4 py-2.5 text-right">{m.transactions_table_amount()}</th>
 									</tr>
 								{/if}
@@ -1127,6 +1386,11 @@
 													<p class="mt-0.5 ml-3.5 text-xs text-zinc-500">
 														{formatNatureLabel(tx.nature)}
 													</p>
+												</td>
+												<td class="w-[190px] px-4 py-3">
+													{#if tx.tags.length > 0}
+														<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
+													{/if}
 												</td>
 												<td
 													class="px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
@@ -1339,6 +1603,14 @@
 								</form>
 							</section>
 
+							<!-- Étiquettes -->
+							<TransactionTagsEditor
+								transactionId={data.selectedTransaction.id}
+								tags={data.selectedTransaction.tags}
+								allTags={allTagOptions}
+								error={form?.tagsError}
+							/>
+
 							<!-- Détails bancaires -->
 							<div class="rounded-xl border border-zinc-200">
 								<h3 class="m-0">
@@ -1545,17 +1817,27 @@
 		<!-- ============ LISTE — MOBILE ============ -->
 		<div class="space-y-4 lg:hidden">
 			<div class="flex items-center justify-between gap-2">
-				<p class="text-sm text-zinc-500">
-					{data.pagination.totalTransactions > 1
-						? m.transactions_count_many({
-								count: data.pagination.totalTransactions,
-								page: data.pagination.page
-							})
-						: m.transactions_count_one({
-								count: data.pagination.totalTransactions,
-								page: data.pagination.page
+				<div>
+					<p class="text-sm text-zinc-500">
+						{data.pagination.totalTransactions > 1
+							? m.transactions_count_many({
+									count: data.pagination.totalTransactions,
+									page: data.pagination.page
+								})
+							: m.transactions_count_one({
+									count: data.pagination.totalTransactions,
+									page: data.pagination.page
+								})}
+					</p>
+					{#if data.filteredTotals.incomeCents > 0 || data.filteredTotals.expenseCents > 0}
+						<p class="text-xs text-zinc-500 tabular-nums">
+							{m.transactions_totals_summary({
+								income: formatCents(data.filteredTotals.incomeCents),
+								expense: formatCents(data.filteredTotals.expenseCents)
 							})}
-				</p>
+						</p>
+					{/if}
+				</div>
 				<div class="flex gap-2">
 					<Button
 						variant="secondary"
@@ -1578,7 +1860,12 @@
 				<div class="space-y-3" role="status" aria-live="polite">
 					<span class="sr-only">{m.common_loading_page()}</span>
 					{#each { length: 5 } as _, i (i)}
-						<Skeleton />
+						<!-- `chips` is what this skeleton is standing in for: these placeholders replace the
+						     mobile ListCards that carry tag chips, so without the slot the row grows the moment
+						     real data lands. Always drawn, never gated on whether the user has tags: there is no
+						     count to know while the rows are still loading, and a slot that only appears
+						     afterwards shifts the layout exactly as much as no slot at all. -->
+						<Skeleton chips />
 					{/each}
 				</div>
 			{:else if visibleTransactions.length > 0}
@@ -1732,6 +2019,11 @@
 											{formatCents(tx.amountCents)}
 										</div>
 									</div>
+									{#if tx.tags.length > 0}
+										<div class="mt-1.5 pl-11">
+											<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
+										</div>
+									{/if}
 								</ListCard>
 							{/if}
 						{/if}
@@ -1810,6 +2102,61 @@
 				{#if form?.deleteError}
 					<AlertBanner variant="error" class="mt-2">{form.deleteError}</AlertBanner>
 				{/if}
+			</ConfirmDialog>
+		</form>
+	{/if}
+
+	{#if bulkTagOpen}
+		<!-- The action URL, not the ambient "?/bulkTag" shorthand every other form action on this
+		     page uses: see bulkTagActionHref's own comment. The GET filter form and this dialog's
+		     form are otherwise identical in shape to the delete confirmation just above. -->
+		<form
+			method="POST"
+			action={bulkTagActionHref}
+			use:enhance={() => {
+				bulkTagSubmitting = true;
+				return async ({ update }) => {
+					await update({ reset: false });
+					bulkTagSubmitting = false;
+				};
+			}}
+		>
+			<ConfirmDialog
+				open={bulkTagOpen}
+				title={m.tags_bulk_confirm_title({ count: data.pagination.totalTransactions })}
+				description={describeBulkTagFilter().join(' · ')}
+				confirmLabel={m.tags_bulk_confirm_cta()}
+				confirmLoading={bulkTagSubmitting}
+				onClose={closeBulkTag}
+			>
+				<div class="space-y-3">
+					<label for="bulk-tag-name" class="block text-left text-xs font-medium text-zinc-500">
+						{m.tags_bulk_name_label()}
+					</label>
+					<input
+						id="bulk-tag-name"
+						class={inputBase}
+						type="text"
+						name="tagName"
+						autocomplete="off"
+						bind:value={bulkTagName}
+						maxlength={MAX_TAG_NAME_LENGTH}
+						placeholder={m.tags_bulk_name_placeholder()}
+						required
+					/>
+					{#if bulkTagMatch}
+						<!-- The second and last allowed tinted surface. It answers what a free-text field
+						     alone cannot: that this name already exists, and which tag it is, in that tag's
+						     own colour so it reads as the same object the user sees on their rows. -->
+						<p class="flex flex-wrap items-center gap-2 text-left text-xs text-zinc-500">
+							{m.tags_bulk_existing_tag()}
+							<TagChips variant="tinted" max={Infinity} tags={toTagChipItems([bulkTagMatch])} />
+						</p>
+					{/if}
+					{#if form?.bulkTagError}
+						<AlertBanner variant="error">{form.bulkTagError}</AlertBanner>
+					{/if}
+				</div>
 			</ConfirmDialog>
 		</form>
 	{/if}
@@ -2014,6 +2361,14 @@
 					</Button>
 				</form>
 			</section>
+
+			<!-- Étiquettes -->
+			<TransactionTagsEditor
+				transactionId={data.selectedTransaction.id}
+				tags={data.selectedTransaction.tags}
+				allTags={allTagOptions}
+				error={form?.tagsError}
+			/>
 
 			<!-- Accordéons -->
 			<div class="flex flex-col divide-y divide-zinc-100 border-t border-zinc-100">

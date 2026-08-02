@@ -42,6 +42,58 @@ const transactions: Transaction[] = [
 	}
 ];
 
+/** Every property name in a nested structure, so a key check cannot miss a nested one. */
+function collectKeys(value: unknown): string[] {
+	if (Array.isArray(value)) return value.flatMap(collectKeys);
+	if (value && typeof value === 'object') {
+		return Object.entries(value).flatMap(([key, nested]) => [key, ...collectKeys(nested)]);
+	}
+	return [];
+}
+
+describe('buildTransactionSummary and tag data', () => {
+	it('carries no tag data into the AI payload, on either of its two paths', () => {
+		expect.assertions(3);
+
+		// This is the actual chokepoint: buildTransactionSummary's return value IS the prompt
+		// payload (see insights/prompt.ts). The sibling guard in reports/monthly.spec.ts covers
+		// buildPeriodReport, which is only ONE of the two paths from `transactions` to here. The
+		// other is getFlaggedCategoryLabels, and a future edit enriching it would keep that guard
+		// green while widening what leaves the machine. Assert at the boundary, not one level in.
+		//
+		// includeLabels: true deliberately, which is the worst case: it is the mode where real
+		// user-authored text is allowed through, so it is the mode a tag would ride out on.
+		const tagged = transactions.map((transaction) => ({
+			...transaction,
+			tags: ['Portugal']
+		})) as unknown as Transaction[];
+
+		const monthlySummary = summarizeBudgetTransactions(
+			tagged,
+			[{ category: 'Logement', limitCents: 100_000 }],
+			'2026-06'
+		);
+		const summary = buildTransactionSummary(tagged, monthlySummary, undefined, {
+			includeLabels: true
+		});
+
+		expect(JSON.stringify(summary)).not.toContain('Portugal');
+
+		// Whole words, not substrings: a naive contains('tag') matches "percenTAGe".
+		const tagLikeKeys = collectKeys(summary).filter((key) =>
+			key
+				.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+				.toLowerCase()
+				.split(' ')
+				.some((word) => word === 'tag' || word === 'tags')
+		);
+		expect(tagLikeKeys).toEqual([]);
+
+		// Guards the guard: the two checks above pass trivially on an empty payload.
+		expect(summary.flaggedCategoryLabels).toBeDefined();
+	});
+});
+
 describe('buildTransactionSummary - includeLabels', () => {
 	it('n’inclut aucun libellé de transaction quand includeLabels est omis', () => {
 		expect.assertions(2);

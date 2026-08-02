@@ -3,14 +3,19 @@ import * as m from '$lib/paraglide/messages';
 import {
 	TRANSACTION_NATURES,
 	type TransactionNature,
-	type TransactionKind,
-	getTransactionKind,
 	isTransactionNature
 } from '$lib/domain/transaction';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
+import { setTransactionTags } from '$lib/server/tags/service';
+import {
+	applyTagToFilteredSet,
+	undoBulkTag,
+	MAX_BULK_TAG_TRANSACTIONS
+} from '$lib/server/tags/bulk';
+import { MAX_TAGS_PER_TRANSACTION, normalizeTagName } from '$lib/domain/tags';
 import {
 	findMatchingCategoryRule,
 	applyCategoryRules,
@@ -40,7 +45,18 @@ import {
 	anonymizeReference,
 	truncateText
 } from '$lib/server/transactions/anonymize';
+import {
+	computeFilteredTotals,
+	sumFilteredTotals,
+	resolveTransactionType,
+	type FilteredTotals
+} from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
+
+/** The join row Prisma returns for the `tags` relation, before flattenTagLinks unwraps it. */
+interface TagLinkRow {
+	tag: { id: string; name: string; colorToken: string };
+}
 
 const PAGE_SIZE = 25;
 const MAX_MANUAL_CATEGORY_LENGTH = 60;
@@ -50,27 +66,61 @@ const MAX_MANUAL_NATURE_LENGTH = 32;
 // unbounded findMany on a pathological "everything uncategorized" history is still avoided.
 const FOCUS_STACK_CAP = 5000;
 
+/**
+ * Parses every list filter out of the URL.
+ *
+ * Extracted so `load` and the bulk actions read the SAME parameters through the SAME validators.
+ * That is not tidiness: the count a user confirms in the bulk dialog and the set the action then
+ * writes to must come from one source, or a forged payload could widen the second past the first.
+ * The bulk action deliberately accepts no id list of its own for that reason.
+ *
+ * Reading these params is NOT sufficient on its own, and a review caught this comment claiming it
+ * was. `query`/`qMode` never enter `buildTransactionWhere`: both `load` and `bulkTag` apply them in
+ * JS afterwards, so a caller that stops at the `where` silently targets a superset. Any future
+ * consumer of this function has to handle the search filter explicitly, the way `bulkTag` does.
+ */
+function parseListFilters(url: URL) {
+	const fromParam = url.searchParams.get('from');
+	const toParam = url.searchParams.get('to');
+	return {
+		query: normalizeSearch(url.searchParams.get('q')),
+		qMode: parseQueryMode(url.searchParams.get('qMode')),
+		type: parseTransactionFilter(url.searchParams.get('type')),
+		category: normalizeSearch(url.searchParams.get('category')),
+		fromParam,
+		toParam,
+		...parseTransactionDateRange(fromParam, toParam),
+		importBatchId: normalizeId(url.searchParams.get('importBatch')),
+		tagId: normalizeId(url.searchParams.get('tag')),
+		// Explicit id whitelist. Deliberately NOT applied to `uncategorizedPileWhere`: the
+		// "à classer" pile is global by design (see its comment), not a view of the current filters.
+		ids: normalizeIdList(url.searchParams.get('ids'))
+	};
+}
+
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 	const page = parsePositiveInteger(url.searchParams.get('page')) ?? 1;
-	const query = normalizeSearch(url.searchParams.get('q'));
-	const qMode = parseQueryMode(url.searchParams.get('qMode'));
-	const type = parseTransactionFilter(url.searchParams.get('type'));
-	const category = normalizeSearch(url.searchParams.get('category'));
-	const fromParam = url.searchParams.get('from');
-	const toParam = url.searchParams.get('to');
-	const { range: dateRange, error: dateRangeError } = parseTransactionDateRange(fromParam, toParam);
+	const {
+		query,
+		qMode,
+		type,
+		category,
+		fromParam,
+		toParam,
+		range: dateRange,
+		error: dateRangeError,
+		importBatchId,
+		tagId,
+		ids
+	} = parseListFilters(url);
 	// Raw values (not dateRange.fromDate/toDate) so the "Du"/"Au" inputs keep showing exactly
 	// what the user typed when the pair is incomplete/invalid, instead of clearing on error.
 	const fromDisplay = (fromParam ?? '').trim();
 	const toDisplay = (toParam ?? '').trim();
-	const importBatchId = normalizeId(url.searchParams.get('importBatch'));
 	const selectedId = normalizeId(url.searchParams.get('selected'));
-	// Explicit id whitelist. Deliberately NOT applied to `uncategorizedPileWhere` below: the
-	// "à classer" pile is global by design (see its comment), not a view of the current filters.
-	const ids = normalizeIdList(url.searchParams.get('ids'));
 
-	const [categories, mappings, selectedTransaction, rules, uncategorizedCategoryId] =
+	const [categories, mappings, selectedTransaction, rules, uncategorizedCategoryId, allTags] =
 		await Promise.all([
 			prisma.category.findMany({
 				where: { userId: user.id },
@@ -110,7 +160,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 							},
 							importBatch: {
 								select: { id: true, fileName: true, source: true, rowCount: true, createdAt: true }
-							}
+							},
+							tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
 						}
 					})
 				: Promise.resolve(null),
@@ -127,7 +178,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					enabled: true
 				}
 			}),
-			resolveUncategorizedCategoryId(user.id)
+			resolveUncategorizedCategoryId(user.id),
+			// The whole tag list, not a page of it: MAX_TAGS_PER_TRANSACTION bounds what one
+			// transaction carries, and a user's total tag count is small by construction because a
+			// tag with no transactions is pruned the moment it loses its last one.
+			prisma.tag.findMany({
+				where: { userId: user.id },
+				orderBy: { name: 'asc' },
+				select: { id: true, name: true, colorToken: true }
+			})
 		]);
 
 	const mappingMap = buildCategoryNatureMap(mappings);
@@ -195,7 +254,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		to: dateRange?.to,
 		importBatchId,
 		uncategorizedCategoryId,
-		ids
+		ids,
+		tagId
 	});
 
 	const transactionSelect = {
@@ -207,7 +267,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		source: true,
 		manualCategory: true,
 		natureManual: true,
-		category: { select: { name: true } }
+		category: { select: { name: true } },
+		tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
 	} as const;
 
 	interface TransactionListRow {
@@ -220,6 +281,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
 		category: { name: string };
+		tags: TagLinkRow[];
 	}
 
 	const queryError = Boolean(query) && qMode === 'regex' && !isValidRegexQuery(query);
@@ -228,12 +290,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	let safePage: number;
 	let totalPages: number;
 	let transactions: TransactionListRow[];
+	let filteredTotals: FilteredTotals;
 
 	if (queryError || dateRangeError) {
 		totalTransactions = 0;
 		totalPages = 1;
 		safePage = 1;
 		transactions = [];
+		filteredTotals = { incomeCents: 0, expenseCents: 0 };
 	} else if (!query) {
 		totalTransactions = await prisma.transaction.count({ where });
 		totalPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
@@ -245,12 +309,18 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			skip: (safePage - 1) * PAGE_SIZE,
 			take: PAGE_SIZE
 		});
+		// Alongside the count, over the same `where`: the total describes the filtered SET, which
+		// is why it is not derived from `transactions` (that is one page of it).
+		filteredTotals = await computeFilteredTotals(where);
 	} else {
 		const filtered = await collectTransactionsMatchingQuery(where, transactionSelect, query, qMode);
 		totalTransactions = filtered.length;
 		totalPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
 		safePage = Math.min(page, totalPages);
 		transactions = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+		// The q path matches in JS, so the SQL aggregate would not see the same set. Same numbers,
+		// different source; totals.spec.ts pins the two implementations against one fixture.
+		filteredTotals = sumFilteredTotals(filtered);
 	}
 
 	return {
@@ -261,6 +331,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		selectedSuggestion,
 		categoryOptions: buildCategoryOptions(categories),
 		categories,
+		allTags,
 		natureOptions: TRANSACTION_NATURES,
 		filters: {
 			q: query,
@@ -278,8 +349,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// returns zero rows, and with zero rows there is no pagination control and no row link
 			// to carry anything forward — the two cases have no observable difference here. A
 			// future consumer of `filters.ids` that runs when the list is empty must not assume it.
-			ids: ids ? ids.join(',') : ''
+			ids: ids ? ids.join(',') : '',
+			tag: tagId
 		},
+		filteredTotals,
 		queryError,
 		dateRangeError,
 		pagination: {
@@ -323,6 +396,151 @@ function buildCategoryOptions(categories: Array<{ name: string }>): string[] {
 }
 
 export const actions: Actions = {
+	/**
+	 * Applies one tag to every transaction the CURRENT FILTERS match.
+	 *
+	 * The set is rebuilt here from `url.searchParams`, through the same parseListFilters the load
+	 * uses, and the form's own fields are never consulted for it. A client-supplied id list would
+	 * make the count the user confirmed and the set actually written two different things, which is
+	 * exactly the gap a forged payload would widen.
+	 *
+	 * The SQL where is not the whole set, though, and the first version of this comment claimed it
+	 * was. See the `filters.query` branch below: the search filter lives in JS, so reproducing the
+	 * user's view means reproducing that step too.
+	 */
+	bulkTag: async ({ locals, request, url }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+
+		const tagName = normalizeTagName(getFormValue(formData, 'tagName'));
+		if (!tagName) return fail(400, { bulkTagError: m.tags_bulk_error_empty_name() });
+
+		const filters = parseListFilters(url);
+		if (filters.error) return fail(400, { bulkTagError: m.tags_bulk_error_invalid_range() });
+
+		const uncategorizedCategoryId =
+			filters.type === 'classify' ? await resolveUncategorizedCategoryId(user.id) : undefined;
+
+		let where = buildTransactionWhere({
+			userId: user.id,
+			type: filters.type,
+			category: filters.category,
+			from: filters.range?.from,
+			to: filters.range?.to,
+			importBatchId: filters.importBatchId,
+			uncategorizedCategoryId,
+			ids: filters.ids,
+			tagId: filters.tagId
+		});
+
+		// The search filter cannot live in the `where`, and that is the whole reason this branch
+		// exists. `q` is matched in JS AFTER the SQL query (accent folding and regex are not
+		// expressible in SQL), exactly as `load` does it below. An action that built only the SQL
+		// where would apply the tag to a STRICT SUPERSET of the rows the user was looking at and
+		// counted, which is the same disagreement a forged id list would create, reached through the
+		// app's own most-used filter instead of through an attack.
+		if (filters.query) {
+			if (filters.qMode === 'regex' && !isValidRegexQuery(filters.query))
+				return fail(400, { bulkTagError: m.transactions_error_invalid_regex_query() });
+
+			const matching = await collectTransactionsMatchingQuery(
+				where,
+				{ id: true, label: true },
+				filters.query,
+				filters.qMode
+			);
+			// Refused here rather than inside applyTagToFilteredSet, because that function counts in
+			// SQL and this set does not exist in SQL. Same limit, same refusal, one message.
+			if (matching.length > MAX_BULK_TAG_TRANSACTIONS)
+				return fail(400, {
+					bulkTagError: m.tags_bulk_error_too_many({
+						count: matching.length,
+						limit: MAX_BULK_TAG_TRANSACTIONS
+					})
+				});
+			// Narrowing, never widening: `matching` was collected THROUGH `where`, so it is already
+			// the intersection with every other active filter, `?ids=` included.
+			where = { ...where, id: { in: matching.map((row) => row.id) } };
+		}
+
+		const result = await applyTagToFilteredSet(user.id, where, tagName);
+		if (result.outcome === 'over-tag-cap')
+			return fail(400, {
+				bulkTagError: m.tags_bulk_error_over_tag_cap({
+					count: result.overCapCount,
+					max: MAX_TAGS_PER_TRANSACTION
+				})
+			});
+		if (result.outcome === 'too-many')
+			return fail(400, {
+				bulkTagError: m.tags_bulk_error_too_many({
+					count: result.matched,
+					limit: MAX_BULK_TAG_TRANSACTIONS
+				})
+			});
+
+		// No payload for an action that changed nothing. The empty case carries no tag id, so an undo
+		// control rendered from it would submit '' and come back as "cannot undo" for an action that
+		// did nothing wrong.
+		if (result.linkedTransactionIds.length === 0) return { bulkTagEmpty: true };
+
+		return {
+			bulkTagResult: {
+				tagId: result.tagId,
+				tagName: result.tagName,
+				// The count APPLIED, never the count the dialog predicted: the set can change between
+				// the confirm and the submit, and a banner that reports the stale number is a false
+				// claim about what just happened.
+				appliedCount: result.linkedTransactionIds.length,
+				transactionIds: result.linkedTransactionIds
+			}
+		};
+	},
+
+	undoBulkTag: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+
+		const tagId = normalizeId(getFormValue(formData, 'tagId'));
+		if (!tagId) return fail(400, { bulkTagError: m.tags_bulk_error_undo_failed() });
+
+		// Same parser `?ids=` goes through, so a malformed segment is dropped rather than rejecting
+		// the whole undo: a partial undo is better than none. Absent and empty both mean "nothing to
+		// undo" here, which undoBulkTag treats as a no-op rather than an empty-IN delete.
+		const transactionIds = normalizeIdList(getFormValue(formData, 'transactionIds')) ?? [];
+
+		await undoBulkTag(user.id, tagId, transactionIds);
+		return { undoBulkTagSuccess: true };
+	},
+
+	saveTags: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const transactionId = normalizeId(getFormValue(formData, 'transactionId'));
+		if (!transactionId) return fail(400, { tagsError: m.transactions_error_invalid_transaction() });
+
+		// Newline separated, not comma. A tag name may legitimately contain a comma ("Lisbonne,
+		// Porto"), while normalizeTagName collapses every whitespace run, so a newline cannot
+		// survive inside a stored name and is unambiguous as a separator.
+		//
+		// An empty field is a legal input meaning "remove every tag", not a validation failure. That
+		// is why this filters to a possibly-empty array rather than rejecting one.
+		const names = getFormValue(formData, 'tags')
+			.split('\n')
+			.map((entry) => entry.trim())
+			.filter(Boolean);
+
+		// Ownership is the service's job, not this action's: setTransactionTags reads the
+		// transaction under (id, userId) before writing anything, and returns 'not-found' for a
+		// forged id indistinguishably from one that never existed.
+		const outcome = await setTransactionTags(user.id, transactionId, names);
+		if (outcome === 'not-found')
+			return fail(404, { tagsError: m.transactions_error_transaction_not_found() });
+		if (outcome === 'too-many')
+			return fail(400, { tagsError: m.tags_error_too_many({ max: MAX_TAGS_PER_TRANSACTION }) });
+		return { tagsSuccess: true };
+	},
+
 	saveManualCategory: async ({ locals, request }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
@@ -510,6 +728,7 @@ function mapTransactionListItem(
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
 		category: { name: string };
+		tags: TagLinkRow[];
 	},
 	mappingMap: Map<string, TransactionNature>,
 	rules: Array<{
@@ -548,8 +767,24 @@ function mapTransactionListItem(
 		amountCents: transaction.amountCents,
 		type: resolveTransactionType(transaction),
 		source: transaction.source,
+		tags: flattenTagLinks(transaction.tags),
 		suggestion
 	};
+}
+
+/**
+ * Unwraps the join rows Prisma returns for the `tags` relation.
+ *
+ * The select yields `{ tag: {...} }` wrappers because TransactionTag is an explicit model. Handing
+ * that shape to the view would put the join table in the template, where a later `t.tag.name` is
+ * one refactor away from a runtime error the load/view boundary hides from the type checker.
+ */
+function flattenTagLinks(links: TagLinkRow[]): Array<{
+	id: string;
+	name: string;
+	colorToken: string;
+}> {
+	return links.map((link) => link.tag);
 }
 
 function mapTransactionDetail(
@@ -581,6 +816,7 @@ function mapTransactionDetail(
 			rowCount: number;
 			createdAt: Date;
 		} | null;
+		tags: TagLinkRow[];
 	},
 	mappingMap: Map<string, TransactionNature>
 ) {
@@ -633,7 +869,11 @@ function mapTransactionDetail(
 			: null,
 		bankFields: getAllowedBankFields(metadata.csvFields),
 		bankOperationType: transaction.bankOperationType,
-		subcategory: metadata.subcategory
+		subcategory: metadata.subcategory,
+		// Not run through anonymizeDetailText, unlike the label and the notes beside it. Those hold
+		// bank-supplied text this app never authored; a tag name is the user's own word, and folding
+		// it would make the editor round-trip a different string than the one they typed.
+		tags: flattenTagLinks(transaction.tags)
 	};
 }
 
@@ -666,17 +906,6 @@ function parseMetadata(value: string | null): {
 	} catch {
 		return { reference: '', subcategory: '', csvFields: {} };
 	}
-}
-
-function resolveTransactionType(transaction: {
-	amountCents: number;
-	type: string | null;
-}): TransactionKind {
-	return getTransactionKind({
-		amountCents: transaction.amountCents,
-		type:
-			transaction.type === 'income' || transaction.type === 'expense' ? transaction.type : undefined
-	});
 }
 
 function getFormValue(formData: FormData, key: string): string {
