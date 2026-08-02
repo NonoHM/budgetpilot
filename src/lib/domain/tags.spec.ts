@@ -32,9 +32,9 @@ describe('tag colour tokens', () => {
 	});
 
 	it('accepts only real tokens', () => {
-		expect(isTagColorToken('tag-1')).toBe(true);
-		expect(isTagColorToken('tag-9')).toBe(true);
-		expect(isTagColorToken('tag-10')).toBe(false);
+		expect(isTagColorToken('clay')).toBe(true);
+		expect(isTagColorToken('berry')).toBe(true);
+		expect(isTagColorToken('terre0')).toBe(false);
 		expect(isTagColorToken('#ff0000')).toBe(false);
 		expect(isTagColorToken(null)).toBe(false);
 		expect(isTagColorToken(3)).toBe(false);
@@ -128,15 +128,15 @@ const MEASURED_CONTRAST: Record<
 	string,
 	{ white: number; zinc50: number; zinc100: number; tint: number }
 > = {
-	'tag-1': { white: 5.96, zinc50: 5.71, zinc100: 5.42, tint: 5.34 },
-	'tag-2': { white: 5.89, zinc50: 5.65, zinc100: 5.36, tint: 5.29 },
-	'tag-3': { white: 5.58, zinc50: 5.34, zinc100: 5.07, tint: 5.1 },
-	'tag-4': { white: 5.13, zinc50: 4.91, zinc100: 4.67, tint: 4.71 },
-	'tag-5': { white: 5.23, zinc50: 5.01, zinc100: 4.76, tint: 4.81 },
-	'tag-6': { white: 5.62, zinc50: 5.39, zinc100: 5.11, tint: 5.1 },
-	'tag-7': { white: 5.83, zinc50: 5.59, zinc100: 5.31, tint: 5.29 },
-	'tag-8': { white: 5.95, zinc50: 5.7, zinc100: 5.42, tint: 5.4 },
-	'tag-9': { white: 6.0, zinc50: 5.75, zinc100: 5.46, tint: 5.38 }
+	clay: { white: 5.96, zinc50: 5.71, zinc100: 5.42, tint: 5.34 },
+	ochre: { white: 5.89, zinc50: 5.65, zinc100: 5.36, tint: 5.29 },
+	olive: { white: 5.58, zinc50: 5.34, zinc100: 5.07, tint: 5.1 },
+	lagoon: { white: 5.13, zinc50: 4.91, zinc100: 4.67, tint: 4.71 },
+	azure: { white: 5.23, zinc50: 5.01, zinc100: 4.76, tint: 4.81 },
+	steel: { white: 5.62, zinc50: 5.39, zinc100: 5.11, tint: 5.1 },
+	indigo: { white: 5.83, zinc50: 5.59, zinc100: 5.31, tint: 5.29 },
+	plum: { white: 5.95, zinc50: 5.7, zinc100: 5.42, tint: 5.4 },
+	berry: { white: 6.0, zinc50: 5.75, zinc100: 5.46, tint: 5.38 }
 };
 
 describe('tag palette accessibility', () => {

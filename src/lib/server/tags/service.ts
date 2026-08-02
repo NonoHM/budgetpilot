@@ -116,7 +116,7 @@ export async function listTagsWithCounts(
 		// The column is a plain String; the closed set lives in the domain. Anything outside it
 		// cannot have been written by this app, so falling back keeps the type honest without
 		// throwing on a row a future migration might touch.
-		colorToken: isTagColorToken(tag.colorToken) ? tag.colorToken : 'tag-1',
+		colorToken: isTagColorToken(tag.colorToken) ? tag.colorToken : 'clay',
 		transactionCount: tag._count.transactions
 	}));
 }

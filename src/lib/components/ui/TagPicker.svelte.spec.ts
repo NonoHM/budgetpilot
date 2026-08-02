@@ -5,8 +5,8 @@ import '../../../routes/layout.css';
 import TagPicker from './TagPicker.svelte';
 
 const options = [
-	{ id: 'o1', name: 'Portugal', colorToken: 'tag-1' as const },
-	{ id: 'o2', name: 'Travaux', colorToken: 'tag-2' as const }
+	{ id: 'o1', name: 'Portugal', colorToken: 'clay' as const },
+	{ id: 'o2', name: 'Travaux', colorToken: 'ochre' as const }
 ];
 
 function fieldInput() {
@@ -45,7 +45,7 @@ describe('TagPicker.svelte', () => {
 	it('does not offer to create a name that already exists, accent-insensitively', async () => {
 		// A plain case fold (toLowerCase) is not enough: "Café" and "cafe" only match through
 		// normalizeForMatch's NFD diacritic stripping, which this test exists specifically to pin.
-		const accented = [{ id: 'o3', name: 'Café clients', colorToken: 'tag-3' as const }];
+		const accented = [{ id: 'o3', name: 'Café clients', colorToken: 'olive' as const }];
 		render(TagPicker, { options: accented, selected: [] });
 
 		await userEvent.type(fieldInput(), 'cafe clients');

@@ -49,41 +49,41 @@ export const NET_WORTH_TYPE_COLORS: Record<
 //
 // THREE HUE BANDS ARE DELIBERATELY ABSENT so a tag can never read as a status: the danger band
 // around pure red, the warning band around amber, and the success band around green. The 82
-// degree gap between tag-3 (108) and tag-4 (190) is that success band. Do not "fill the gap" and
+// degree gap between olive (108) and lagoon (190) is that success band. Do not "fill the gap" and
 // do not add a tenth token. A tag names a trip or a project; it must never be mistaken for the
 // app telling the user something is wrong, late, or fine.
 //
-// TAG-4 AND TAG-5 ARE LOCKED, exactly like the amber pair recorded in UpcomingBillsCard. They
+// LAGOON AND AZURE ARE LOCKED, exactly like the amber pair recorded in UpcomingBillsCard. They
 // measure 4.71:1 and 4.81:1 for their name text on their own tint, which clears WCAG AA with the
 // least room of the nine. Never lighten the hue, never lighten the tint, never apply opacity to
 // either. Every ratio is asserted against the value the design measured in domain/tags.spec.ts,
 // and one is checked as actually rendered in e2e/tags.spec.ts, because the unit test alone passes
 // even if the Tailwind class binding is wrong.
 export const TAG_COLORS = {
-	'tag-1': '#9f4949', // Terre, hue 22
-	'tag-2': '#9c4f29', // Ocre, hue 45
-	'tag-3': '#6e6b00', // Olive, hue 108
-	'tag-4': '#007b76', // Lagune, hue 190 (locked, see above)
-	'tag-5': '#007693', // Azur, hue 218 (locked, see above)
-	'tag-6': '#266ba6', // Ardoise, hue 248
-	'tag-7': '#625ca6', // Indigo, hue 285
-	'tag-8': '#835092', // Prune, hue 318
-	'tag-9': '#934a7a' // Vigne, hue 342
+	clay: '#9f4949', // hue 22
+	ochre: '#9c4f29', // hue 45
+	olive: '#6e6b00', // hue 108
+	lagoon: '#007b76', // hue 190 (locked, see above)
+	azure: '#007693', // hue 218 (locked, see above)
+	steel: '#266ba6', // hue 248
+	indigo: '#625ca6', // hue 285
+	plum: '#835092', // hue 318
+	berry: '#934a7a' // hue 342
 } as const;
 
 // The tinted chip surface each dot sits on, same hue, oklch(0.968 0.024 H). Paired one-to-one with
 // TAG_COLORS above: changing a hue means changing both, and the measured-ratio test goes red until
 // they agree again.
 export const TAG_TINT_COLORS = {
-	'tag-1': '#ffefed',
-	'tag-2': '#fff0e7',
-	'tag-3': '#f6f6e4',
-	'tag-4': '#e3faf8',
-	'tag-5': '#e4f9ff',
-	'tag-6': '#e8f6ff',
-	'tag-7': '#f2f3ff',
-	'tag-8': '#fcf0ff',
-	'tag-9': '#ffeef9'
+	clay: '#ffefed',
+	ochre: '#fff0e7',
+	olive: '#f6f6e4',
+	lagoon: '#e3faf8',
+	azure: '#e4f9ff',
+	steel: '#e8f6ff',
+	indigo: '#f2f3ff',
+	plum: '#fcf0ff',
+	berry: '#ffeef9'
 } as const;
 
 /**

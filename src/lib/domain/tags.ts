@@ -8,20 +8,30 @@ import { TAG_COLORS } from './colors';
  * readable in the database. The hexes themselves live in domain/colors.ts with the other three
  * palettes, along with the reasoning for the hue spacing and the two locked tokens.
  *
- * Numbered rather than named after their hue on purpose: the design names them in French (Terre,
- * Ocre, Olive, Lagune, Azur, Ardoise, Indigo, Prune, Vigne) and identifiers in this codebase are
- * English. The hue name is recorded beside each hex in colors.ts, which is where it is useful.
+ * Named after their hue rather than numbered. The design requires the hue name in the accessible
+ * name of every swatch ("Lagoon", never "colour 4"), so a numbered token would need a second table
+ * mapping index to display name, which is the duplicated-source shape this project has already
+ * watched drift more than once. One name per token, used in the column, in the aria-label and in
+ * the docs. Capitalisation for display is derived at the render site, not stored, so this list
+ * stays the only place the set is written down.
+ *
+ * English, like every other palette key in domain/colors.ts (`income`, `checking`, `real_estate`).
+ * The design names them in French; three are not literal translations, and the reasons are worth
+ * keeping. `steel` renders the design's "Ardoise" because English "slate" is a grey in every
+ * convention a reader would bring to it, Tailwind's included, while this token is a mid blue.
+ * `berry` renders "Vigne" because "vine" reads green in English and this token is a magenta.
+ * `clay` renders "Terre" because "earth" reads brown rather than the muted brick red it is.
  */
 export const TAG_COLOR_TOKENS = [
-	'tag-1',
-	'tag-2',
-	'tag-3',
-	'tag-4',
-	'tag-5',
-	'tag-6',
-	'tag-7',
-	'tag-8',
-	'tag-9'
+	'clay',
+	'ochre',
+	'olive',
+	'lagoon',
+	'azure',
+	'steel',
+	'indigo',
+	'plum',
+	'berry'
 ] as const;
 
 export type TagColorToken = (typeof TAG_COLOR_TOKENS)[number];

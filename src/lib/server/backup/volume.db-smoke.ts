@@ -92,7 +92,7 @@ function buildVolumePayload(count: number): BackupExport {
 
 	const pairs = transactions.map((transaction) => ({
 		transactionId: transaction.id,
-		tagId: 'file-tag-1'
+		tagId: 'file-clay'
 	}));
 
 	// One pair per transaction, against a ceiling of count * MAX_TAGS_PER_TRANSACTION. Asserted
@@ -120,7 +120,7 @@ function buildVolumePayload(count: number): BackupExport {
 		savingsGoals: [],
 		bankConnections: [],
 		recurringStreamActions: [],
-		tags: [{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-1' }],
+		tags: [{ id: 'file-clay', name: 'Portugal', colorToken: 'clay' }],
 		transactionTags: pairs
 	} as BackupExport;
 }

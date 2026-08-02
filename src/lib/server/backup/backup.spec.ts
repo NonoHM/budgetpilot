@@ -607,13 +607,13 @@ describe('buildBackupExport', () => {
 
 		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
 		db.store.tags.push(
-			{ id: 'tag-a', userId: 'user-a', name: 'Portugal', colorToken: 'tag-1' },
-			{ id: 'tag-b', userId: 'user-b', name: 'Autre', colorToken: 'tag-2' }
+			{ id: 'tag-a', userId: 'user-a', name: 'Portugal', colorToken: 'clay' },
+			{ id: 'tag-b', userId: 'user-b', name: 'Autre', colorToken: 'ochre' }
 		);
 
 		const result = await buildBackupExport('user-a');
 
-		expect(result.tags).toEqual([{ id: 'tag-a', name: 'Portugal', colorToken: 'tag-1' }]);
+		expect(result.tags).toEqual([{ id: 'tag-a', name: 'Portugal', colorToken: 'clay' }]);
 		// The other user's tag name is free text about their own life. Assert on the whole
 		// serialized payload, not just the tags array, so a leak through any other key is caught.
 		expect(JSON.stringify(result)).not.toContain('Autre');
@@ -1612,8 +1612,8 @@ describe('restoreBackup with tags', () => {
 
 	function payloadWithTag() {
 		const payload = buildTagRestorePayload();
-		payload.tags = [{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-3' }];
-		payload.transactionTags = [{ transactionId: payload.transactions[0].id, tagId: 'file-tag-1' }];
+		payload.tags = [{ id: 'file-clay', name: 'Portugal', colorToken: 'olive' }];
+		payload.transactionTags = [{ transactionId: payload.transactions[0].id, tagId: 'file-clay' }];
 		return payload;
 	}
 
@@ -1627,9 +1627,9 @@ describe('restoreBackup with tags', () => {
 		// The file's id must never survive: Transaction.id and Tag.id are global primary keys, so
 		// a hand-edited export naming another user's id would otherwise turn a restore into a
 		// cross-account collision.
-		expect(tag!.id).not.toBe('file-tag-1');
+		expect(tag!.id).not.toBe('file-clay');
 		expect(tag!.name).toBe('Portugal');
-		expect(tag!.colorToken).toBe('tag-3');
+		expect(tag!.colorToken).toBe('olive');
 		// nameKey is recomputed, never read from the file.
 		expect(tag!.nameKey).toBe(computeNameKey('Portugal'));
 
@@ -1643,7 +1643,7 @@ describe('restoreBackup with tags', () => {
 	it('purges the previous user tags before restoring', async () => {
 		expect.assertions(2);
 
-		db.store.tags.push({ id: 'old-tag', userId: 'user-a', name: 'Ancien', colorToken: 'tag-1' });
+		db.store.tags.push({ id: 'old-tag', userId: 'user-a', name: 'Ancien', colorToken: 'clay' });
 
 		await restoreBackup('user-a', payloadWithTag());
 
@@ -1654,7 +1654,7 @@ describe('restoreBackup with tags', () => {
 	it('leaves another user tags untouched', async () => {
 		expect.assertions(1);
 
-		db.store.tags.push({ id: 'other-tag', userId: 'user-b', name: 'Autre', colorToken: 'tag-2' });
+		db.store.tags.push({ id: 'other-tag', userId: 'user-b', name: 'Autre', colorToken: 'ochre' });
 
 		await restoreBackup('user-a', buildTagRestorePayload());
 
@@ -1682,12 +1682,12 @@ describe('restoreBackup with tags', () => {
 
 		const payload = buildTagRestorePayload();
 		payload.tags = [
-			{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-3' },
-			{ id: 'file-tag-2', name: 'PORTUGAL', colorToken: 'tag-5' }
+			{ id: 'file-clay', name: 'Portugal', colorToken: 'olive' },
+			{ id: 'file-ochre', name: 'PORTUGAL', colorToken: 'azure' }
 		];
 		payload.transactionTags = [
-			{ transactionId: payload.transactions[0].id, tagId: 'file-tag-1' },
-			{ transactionId: payload.transactions[0].id, tagId: 'file-tag-2' }
+			{ transactionId: payload.transactions[0].id, tagId: 'file-clay' },
+			{ transactionId: payload.transactions[0].id, tagId: 'file-ochre' }
 		];
 
 		await restoreBackup('user-a', payload);
@@ -1709,10 +1709,10 @@ describe('restoreBackup with tags', () => {
 		// asserted only that the restored id differs from the file's, which is true even if the
 		// collision were catastrophic.
 		db.store.tags.push({
-			id: 'file-tag-1',
+			id: 'file-clay',
 			userId: 'user-b',
 			name: 'Le tag de B',
-			colorToken: 'tag-2'
+			colorToken: 'ochre'
 		});
 		db.store.transactions.push({
 			id: 'file-tx-1',
@@ -1724,13 +1724,13 @@ describe('restoreBackup with tags', () => {
 		await restoreBackup('user-a', payloadWithTag());
 
 		// User B's rows are untouched: not deleted by the purge, not overwritten by the restore.
-		expect(db.store.tags.find((row) => row.id === 'file-tag-1')?.userId).toBe('user-b');
+		expect(db.store.tags.find((row) => row.id === 'file-clay')?.userId).toBe('user-b');
 		expect(db.store.transactions.find((row) => row.id === 'file-tx-1')?.userId).toBe('user-b');
 		// And nothing user A restored points at either of them.
 		const restoredTagIds = db.store.tags
 			.filter((row) => row.userId === 'user-a')
 			.map((row) => row.id);
-		expect(restoredTagIds).not.toContain('file-tag-1');
+		expect(restoredTagIds).not.toContain('file-clay');
 		expect(db.store.transactionTags.every((link) => link.userId === 'user-a')).toBe(true);
 	});
 
@@ -1750,8 +1750,8 @@ describe('restoreBackup with tags', () => {
 		expect.assertions(2);
 
 		const payload = buildTagRestorePayload();
-		payload.tags = [{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-3' }];
-		payload.transactionTags = [{ transactionId: 'file-tx-missing', tagId: 'file-tag-1' }];
+		payload.tags = [{ id: 'file-clay', name: 'Portugal', colorToken: 'olive' }];
+		payload.transactionTags = [{ transactionId: 'file-tx-missing', tagId: 'file-clay' }];
 
 		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
 		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);

@@ -50,7 +50,7 @@ const {
 	pruneOrphanTags
 } = await import('./service');
 const { computeNameKey } = await import('$lib/server/naming/nameKey');
-const { MAX_TAGS_PER_TRANSACTION } = await import('$lib/domain/tags');
+const { MAX_TAGS_PER_TRANSACTION, TAG_COLOR_TOKENS } = await import('$lib/domain/tags');
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -90,7 +90,10 @@ describe('resolveTagByName', () => {
 		await resolveTagByName('user-a', 'Portugal');
 
 		const created = db.prisma.tag.upsert.mock.calls[0][0].create;
-		expect(created.colorToken).toMatch(/^tag-[1-9]$/);
+		// Membership in the closed set, not a shape regex. The regex this replaced encoded the
+		// token spelling, so it went red on a pure rename while still passing for any string that
+		// merely looked like a token. What the column actually guarantees is membership.
+		expect(TAG_COLOR_TOKENS).toContain(created.colorToken);
 		expect(created.nameKey).toBe(computeNameKey('Portugal'));
 	});
 
@@ -116,7 +119,7 @@ describe('renameTag', () => {
 	it('writes name and nameKey in one update so they cannot diverge', async () => {
 		expect.assertions(2);
 
-		await renameTag('user-a', 'tag-1', 'Portugal 2026');
+		await renameTag('user-a', 'clay', 'Portugal 2026');
 
 		const call = db.prisma.tag.updateMany.mock.calls[0][0];
 		expect(call.data.name).toBe('Portugal 2026');
@@ -126,10 +129,10 @@ describe('renameTag', () => {
 	it('scopes the update by id AND userId', async () => {
 		expect.assertions(1);
 
-		await renameTag('user-a', 'tag-1', 'Portugal');
+		await renameTag('user-a', 'clay', 'Portugal');
 
 		expect(db.prisma.tag.updateMany.mock.calls[0][0].where).toEqual({
-			id: 'tag-1',
+			id: 'clay',
 			userId: 'user-a'
 		});
 	});
@@ -149,7 +152,7 @@ describe('renameTag', () => {
 			Object.assign(new Error('unique'), { code: 'P2002' })
 		);
 
-		expect(await renameTag('user-a', 'tag-1', 'Existant')).toBe('duplicate');
+		expect(await renameTag('user-a', 'clay', 'Existant')).toBe('duplicate');
 	});
 
 	it('rethrows an error that is not a unique violation', async () => {
@@ -157,7 +160,7 @@ describe('renameTag', () => {
 
 		db.prisma.tag.updateMany.mockRejectedValue(new Error('connection lost'));
 
-		await expect(renameTag('user-a', 'tag-1', 'Portugal')).rejects.toThrow('connection lost');
+		await expect(renameTag('user-a', 'clay', 'Portugal')).rejects.toThrow('connection lost');
 	});
 });
 
@@ -165,16 +168,16 @@ describe('recolorTag', () => {
 	it('refuses a token outside the palette without touching the database', async () => {
 		expect.assertions(2);
 
-		expect(await recolorTag('user-a', 'tag-1', '#ff0000')).toBe('invalid-color');
+		expect(await recolorTag('user-a', 'clay', '#ff0000')).toBe('invalid-color');
 		expect(db.prisma.tag.updateMany).not.toHaveBeenCalled();
 	});
 
 	it('scopes the update by id AND userId', async () => {
 		expect.assertions(2);
 
-		expect(await recolorTag('user-a', 'tag-1', 'tag-5')).toBe('ok');
+		expect(await recolorTag('user-a', 'clay', 'azure')).toBe('ok');
 		expect(db.prisma.tag.updateMany.mock.calls[0][0].where).toEqual({
-			id: 'tag-1',
+			id: 'clay',
 			userId: 'user-a'
 		});
 	});
@@ -186,9 +189,9 @@ describe('deleteTag', () => {
 
 		db.prisma.tag.deleteMany.mockResolvedValue({ count: 0 });
 
-		expect(await deleteTag('user-a', 'tag-1')).toBe('not-found');
+		expect(await deleteTag('user-a', 'clay')).toBe('not-found');
 		expect(db.prisma.tag.deleteMany.mock.calls[0][0].where).toEqual({
-			id: 'tag-1',
+			id: 'clay',
 			userId: 'user-a'
 		});
 	});
@@ -199,14 +202,14 @@ describe('listTagsWithCounts', () => {
 		expect.assertions(2);
 
 		db.prisma.tag.findMany.mockResolvedValue([
-			{ id: 't1', name: 'Portugal', colorToken: 'tag-3', _count: { transactions: 4 } }
+			{ id: 't1', name: 'Portugal', colorToken: 'olive', _count: { transactions: 4 } }
 		]);
 
 		const result = await listTagsWithCounts('user-a');
 
 		expect(db.prisma.tag.findMany.mock.calls[0][0].where).toEqual({ userId: 'user-a' });
 		expect(result).toEqual([
-			{ id: 't1', name: 'Portugal', colorToken: 'tag-3', transactionCount: 4 }
+			{ id: 't1', name: 'Portugal', colorToken: 'olive', transactionCount: 4 }
 		]);
 	});
 
@@ -219,7 +222,7 @@ describe('listTagsWithCounts', () => {
 
 		const [tag] = await listTagsWithCounts('user-a');
 
-		expect(tag.colorToken).toBe('tag-1');
+		expect(tag.colorToken).toBe('clay');
 	});
 });
 
@@ -290,20 +293,20 @@ describe('setTransactionTags', () => {
 	it('deletes only the links the user removed, leaving the others alone', async () => {
 		expect.assertions(2);
 
-		db.prisma.transactionTag.findMany.mockResolvedValue([{ tagId: 'tag-1' }, { tagId: 'tag-2' }]);
+		db.prisma.transactionTag.findMany.mockResolvedValue([{ tagId: 'clay' }, { tagId: 'ochre' }]);
 		db.prisma.tag.upsert
-			.mockResolvedValueOnce({ id: 'tag-1' })
-			.mockResolvedValueOnce({ id: 'tag-3' });
+			.mockResolvedValueOnce({ id: 'clay' })
+			.mockResolvedValueOnce({ id: 'olive' });
 
 		await setTransactionTags('user-a', 'tx-1', ['Un', 'Trois']);
 
 		expect(db.prisma.transactionTag.deleteMany.mock.calls[0][0].where.tagId).toEqual({
-			in: ['tag-2']
+			in: ['ochre']
 		});
-		// tag-1 was already linked and must not be re-inserted: the composite primary key would
+		// clay was already linked and must not be re-inserted: the composite primary key would
 		// reject it and the whole edit would fail.
 		expect(db.prisma.transactionTag.createMany.mock.calls[0][0].data).toEqual([
-			{ transactionId: 'tx-1', tagId: 'tag-3' }
+			{ transactionId: 'tx-1', tagId: 'olive' }
 		]);
 	});
 
@@ -410,12 +413,12 @@ describe('setTransactionTags', () => {
 	it('prunes only the tags it just unlinked', async () => {
 		expect.assertions(1);
 
-		db.prisma.transactionTag.findMany.mockResolvedValue([{ tagId: 'tag-1' }, { tagId: 'tag-2' }]);
-		db.prisma.tag.upsert.mockResolvedValue({ id: 'tag-1' });
+		db.prisma.transactionTag.findMany.mockResolvedValue([{ tagId: 'clay' }, { tagId: 'ochre' }]);
+		db.prisma.tag.upsert.mockResolvedValue({ id: 'clay' });
 
 		await setTransactionTags('user-a', 'tx-1', ['Un']);
 
-		expect(db.prisma.tag.deleteMany.mock.calls[0][0].where.id).toEqual({ in: ['tag-2'] });
+		expect(db.prisma.tag.deleteMany.mock.calls[0][0].where.id).toEqual({ in: ['ochre'] });
 	});
 });
 
@@ -423,11 +426,11 @@ describe('pruneOrphanTags', () => {
 	it('deletes only tags with no remaining transactions, atomically', async () => {
 		expect.assertions(3);
 
-		await pruneOrphanTags('user-a', ['tag-2']);
+		await pruneOrphanTags('user-a', ['ochre']);
 
 		const where = db.prisma.tag.deleteMany.mock.calls[0][0].where;
 		expect(where.userId).toBe('user-a');
-		expect(where.id).toEqual({ in: ['tag-2'] });
+		expect(where.id).toEqual({ in: ['ochre'] });
 		// The emptiness condition is INSIDE the delete, not a read followed by a write. A request
 		// tagging one of these at the same moment must lose the delete, not orphan a link.
 		expect(where.transactions).toEqual({ none: {} });

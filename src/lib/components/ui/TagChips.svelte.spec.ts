@@ -5,9 +5,9 @@ import '../../../routes/layout.css';
 import TagChips from './TagChips.svelte';
 
 const three = [
-	{ key: 't1', name: 'Portugal', colorToken: 'tag-1' as const },
-	{ key: 't2', name: 'Remboursement Paul', colorToken: 'tag-2' as const },
-	{ key: 't3', name: 'Pro', colorToken: 'tag-3' as const }
+	{ key: 't1', name: 'Portugal', colorToken: 'clay' as const },
+	{ key: 't2', name: 'Remboursement Paul', colorToken: 'ochre' as const },
+	{ key: 't3', name: 'Pro', colorToken: 'olive' as const }
 ];
 
 describe('TagChips.svelte', () => {

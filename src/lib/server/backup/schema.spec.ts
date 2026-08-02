@@ -72,7 +72,7 @@ function buildValidPayload() {
 		categoryNatureMappings: [
 			{ id: 'mapping-1', categoryName: 'Courses', nature: 'spending' as const }
 		],
-		tags: [{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-1' as string }],
+		tags: [{ id: 'file-clay', name: 'Portugal', colorToken: 'clay' as string }],
 		transactionTags: [] as Array<{ transactionId: string; tagId: string }>
 	};
 }
@@ -693,7 +693,7 @@ describe('tags', () => {
 		expect.assertions(1);
 
 		const payload = buildValidPayload();
-		payload.tags = [{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-99' }];
+		payload.tags = [{ id: 'file-clay', name: 'Portugal', colorToken: 'vigne9' }];
 
 		expect(backupExportSchema.safeParse(payload).success).toBe(false);
 	});
@@ -702,7 +702,7 @@ describe('tags', () => {
 		expect.assertions(1);
 
 		const payload = buildValidPayload();
-		payload.tags = [{ id: 'file-tag-1', name: 'Portugal', colorToken: '#ff0000' }];
+		payload.tags = [{ id: 'file-clay', name: 'Portugal', colorToken: '#ff0000' }];
 
 		expect(backupExportSchema.safeParse(payload).success).toBe(false);
 	});
@@ -712,7 +712,7 @@ describe('tags', () => {
 
 		const payload = buildValidPayload();
 		payload.tags = [
-			{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-1', userId: 'someone-else' } as never
+			{ id: 'file-clay', name: 'Portugal', colorToken: 'clay', userId: 'someone-else' } as never
 		];
 
 		expect(backupExportSchema.safeParse(payload).success).toBe(false);

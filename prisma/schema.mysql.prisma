@@ -322,7 +322,7 @@ model Tag {
   /// backfill, and NULLs are distinct in a unique index on all three providers. Every write
   /// path fills it.
   nameKey      String?
-  /// Palette token name from domain/tags.ts (`tag-1` … `tag-9`), never a raw hex and never an
+  /// Palette token name from domain/tags.ts (`clay` … `berry`), never a raw hex and never an
   /// index. Validated against the closed set on every write and in the backup validator, so no
   /// off-palette or inaccessible colour can be stored. Assigned automatically from `nameKey` at
   /// creation so making a tag stays "type a name"; changeable afterwards from Settings.
