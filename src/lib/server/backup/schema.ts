@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { TRANSACTION_NATURES } from '$lib/domain/transaction';
 import { DEFAULT_CATEGORY_KEYS } from '$lib/domain/categories';
 import { NET_WORTH_ACCOUNT_TYPES } from '$lib/domain/netWorth';
+import { TAG_COLOR_TOKENS, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 
 const transactionKind = z.enum(['income', 'expense']);
 const categorizationRuleKind = z.enum(['income', 'expense', 'any']);
@@ -176,6 +177,28 @@ const backupCategorySchema = z
 	})
 	.strict();
 
+const tagColorToken = z.enum(TAG_COLOR_TOKENS);
+
+const backupTagSchema = z
+	.object({
+		id: z.string().min(1),
+		name: z.string().min(1).max(MAX_PORTABLE_STRING),
+		// A closed set, so a hand-edited file cannot store an off-palette or inaccessible colour
+		// any more than the write path can. The validator is the only thing standing between a
+		// crafted file and a colour the contrast gate never checked.
+		colorToken: tagColorToken
+	})
+	.strict();
+
+// No id of its own: TransactionTag has a composite primary key, so the payload is two foreign
+// keys and the restore remaps both. Nothing references a pair.
+const backupTransactionTagSchema = z
+	.object({
+		transactionId: z.string().min(1),
+		tagId: z.string().min(1)
+	})
+	.strict();
+
 const backupImportBatchSchema = z
 	.object({
 		id: z.string().min(1),
@@ -339,8 +362,35 @@ export const backupExportSchema = z
 		recurringStreamActions: z
 			.array(backupRecurringStreamActionSchema)
 			.max(MAX_IMPORTED_RECURRING_STREAM_ACTIONS)
-			.default([])
+			.default([]),
+		// Absent from exports predating tags: defaulted to empty.
+		tags: z.array(backupTagSchema).default([]),
+		// Absent from exports predating tags: defaulted to empty.
+		//
+		// Bounded RELATIVE to the transactions array, not by an absolute number, and for the same
+		// reason recurringStreamActions is bounded at all (see that comment): every tagged
+		// transaction leaves the bulk `createMany` and gets its own `create` inside the single
+		// interactive transaction, so an unbounded pair array lets a hand-edited file well under
+		// the upload limit hold a pooled connection for the whole LONG_TRANSACTION_OPTIONS
+		// ceiling. It rolls back cleanly, so this is availability, not corruption.
+		//
+		// Relative rather than absolute because, unlike recurring stream actions, tagging has no
+		// write-path cap to double: tagging every transaction you own is legitimate, so any
+		// absolute number would eventually refuse somebody's own export. The ceiling a legal
+		// export cannot exceed is transactions x MAX_TAGS_PER_TRANSACTION, which is exactly what
+		// is asserted, in a superRefine because the bound depends on a sibling key.
+		transactionTags: z.array(backupTransactionTagSchema).default([])
 	})
-	.strict();
+	.strict()
+	.superRefine((payload, ctx) => {
+		const ceiling = payload.transactions.length * MAX_TAGS_PER_TRANSACTION;
+		if (payload.transactionTags.length > ceiling) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['transactionTags'],
+				message: `transactionTags exceeds ${ceiling}, the most ${payload.transactions.length} transactions can legally carry`
+			});
+		}
+	});
 
 export type BackupExport = z.infer<typeof backupExportSchema>;

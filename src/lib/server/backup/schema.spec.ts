@@ -7,6 +7,7 @@ import {
 	MAX_RECURRING_STREAM_ACTIONS,
 	parseAnchorTransactionIds
 } from './schema';
+import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 
 function buildValidPayload() {
 	return {
@@ -70,7 +71,9 @@ function buildValidPayload() {
 		],
 		categoryNatureMappings: [
 			{ id: 'mapping-1', categoryName: 'Courses', nature: 'spending' as const }
-		]
+		],
+		tags: [{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-1' as string }],
+		transactionTags: [] as Array<{ transactionId: string; tagId: string }>
 	};
 }
 
@@ -419,7 +422,8 @@ describe('backupExportSchema', () => {
 		[
 			'CategoryNatureMapping.categoryName',
 			(p, v) => void (p.categoryNatureMappings[0].categoryName = v)
-		]
+		],
+		['Tag.name', (p, v) => void (p.tags[0].name = v)]
 	];
 
 	it.each(portableBounds)(
@@ -665,5 +669,98 @@ describe('parseAnchorTransactionIds', () => {
 		expect.assertions(1);
 
 		expect(parseAnchorTransactionIds('["ok", 42, "", null, "aussi"]')).toEqual(['ok', 'aussi']);
+	});
+});
+
+describe('tags', () => {
+	it('defaults both tag arrays to empty so an older export still restores', () => {
+		expect.assertions(3);
+
+		const payload = buildValidPayload() as Record<string, unknown>;
+		delete payload.tags;
+		delete payload.transactionTags;
+
+		const parsed = backupExportSchema.safeParse(payload);
+
+		expect(parsed.success).toBe(true);
+		if (parsed.success) {
+			expect(parsed.data.tags).toEqual([]);
+			expect(parsed.data.transactionTags).toEqual([]);
+		}
+	});
+
+	it('rejects a colorToken outside the closed palette set', () => {
+		expect.assertions(1);
+
+		const payload = buildValidPayload();
+		payload.tags = [{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-99' }];
+
+		expect(backupExportSchema.safeParse(payload).success).toBe(false);
+	});
+
+	it('rejects a raw hex smuggled in as a colorToken', () => {
+		expect.assertions(1);
+
+		const payload = buildValidPayload();
+		payload.tags = [{ id: 'file-tag-1', name: 'Portugal', colorToken: '#ff0000' }];
+
+		expect(backupExportSchema.safeParse(payload).success).toBe(false);
+	});
+
+	it('rejects an undeclared field on a tag', () => {
+		expect.assertions(1);
+
+		const payload = buildValidPayload();
+		payload.tags = [
+			{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-1', userId: 'someone-else' } as never
+		];
+
+		expect(backupExportSchema.safeParse(payload).success).toBe(false);
+	});
+
+	it('accepts a pair array within the relative bound', () => {
+		expect.assertions(1);
+
+		const payload = buildValidPayload();
+		// One transaction in the fixture, so the ceiling is MAX_TAGS_PER_TRANSACTION pairs.
+		payload.transactionTags = Array.from({ length: MAX_TAGS_PER_TRANSACTION }, (_, i) => ({
+			transactionId: payload.transactions[0].id,
+			tagId: `file-tag-${i}`
+		}));
+
+		expect(backupExportSchema.safeParse(payload).success).toBe(true);
+	});
+
+	it('rejects a pair array amplified beyond what the transactions could legally carry', () => {
+		expect.assertions(1);
+
+		const payload = buildValidPayload();
+		payload.transactionTags = Array.from({ length: MAX_TAGS_PER_TRANSACTION + 1 }, (_, i) => ({
+			transactionId: payload.transactions[0].id,
+			tagId: `file-tag-${i}`
+		}));
+
+		expect(backupExportSchema.safeParse(payload).success).toBe(false);
+	});
+
+	it('scales the relative bound with the number of transactions, refusing nothing legal', () => {
+		expect.assertions(2);
+
+		// Two transactions doubles the ceiling. An absolute bound could not do this without
+		// either refusing a legal export or leaving an amplification through.
+		const payload = buildValidPayload();
+		payload.transactions = [
+			payload.transactions[0],
+			{ ...payload.transactions[0], id: 'tx-2', dedupeKey: 'dedupe-2' }
+		];
+		payload.transactionTags = Array.from({ length: MAX_TAGS_PER_TRANSACTION * 2 }, (_, i) => ({
+			transactionId: 'tx-1',
+			tagId: `file-tag-${i}`
+		}));
+
+		expect(backupExportSchema.safeParse(payload).success).toBe(true);
+
+		payload.transactionTags.push({ transactionId: 'tx-1', tagId: 'file-tag-overflow' });
+		expect(backupExportSchema.safeParse(payload).success).toBe(false);
 	});
 });
