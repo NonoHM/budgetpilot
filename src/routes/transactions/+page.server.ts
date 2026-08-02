@@ -3,10 +3,9 @@ import * as m from '$lib/paraglide/messages';
 import {
 	TRANSACTION_NATURES,
 	type TransactionNature,
-	type TransactionKind,
-	getTransactionKind,
 	isTransactionNature
 } from '$lib/domain/transaction';
+import { resolveTransactionType } from '$lib/server/transactions/totals';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -666,17 +665,6 @@ function parseMetadata(value: string | null): {
 	} catch {
 		return { reference: '', subcategory: '', csvFields: {} };
 	}
-}
-
-function resolveTransactionType(transaction: {
-	amountCents: number;
-	type: string | null;
-}): TransactionKind {
-	return getTransactionKind({
-		amountCents: transaction.amountCents,
-		type:
-			transaction.type === 'income' || transaction.type === 'expense' ? transaction.type : undefined
-	});
 }
 
 function getFormValue(formData: FormData, key: string): string {
