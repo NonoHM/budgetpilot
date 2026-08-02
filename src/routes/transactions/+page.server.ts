@@ -9,6 +9,8 @@ import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
+import { setTransactionTags } from '$lib/server/tags/service';
+import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 import {
 	findMatchingCategoryRule,
 	applyCategoryRules,
@@ -46,6 +48,11 @@ import {
 } from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
 
+/** The join row Prisma returns for the `tags` relation, before flattenTagLinks unwraps it. */
+interface TagLinkRow {
+	tag: { id: string; name: string; colorToken: string };
+}
+
 const PAGE_SIZE = 25;
 const MAX_MANUAL_CATEGORY_LENGTH = 60;
 const MAX_MANUAL_NATURE_LENGTH = 32;
@@ -75,7 +82,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// "à classer" pile is global by design (see its comment), not a view of the current filters.
 	const ids = normalizeIdList(url.searchParams.get('ids'));
 
-	const [categories, mappings, selectedTransaction, rules, uncategorizedCategoryId] =
+	const [categories, mappings, selectedTransaction, rules, uncategorizedCategoryId, allTags] =
 		await Promise.all([
 			prisma.category.findMany({
 				where: { userId: user.id },
@@ -115,7 +122,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 							},
 							importBatch: {
 								select: { id: true, fileName: true, source: true, rowCount: true, createdAt: true }
-							}
+							},
+							tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
 						}
 					})
 				: Promise.resolve(null),
@@ -132,7 +140,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					enabled: true
 				}
 			}),
-			resolveUncategorizedCategoryId(user.id)
+			resolveUncategorizedCategoryId(user.id),
+			// The whole tag list, not a page of it: MAX_TAGS_PER_TRANSACTION bounds what one
+			// transaction carries, and a user's total tag count is small by construction because a
+			// tag with no transactions is pruned the moment it loses its last one.
+			prisma.tag.findMany({
+				where: { userId: user.id },
+				orderBy: { name: 'asc' },
+				select: { id: true, name: true, colorToken: true }
+			})
 		]);
 
 	const mappingMap = buildCategoryNatureMap(mappings);
@@ -213,7 +229,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		source: true,
 		manualCategory: true,
 		natureManual: true,
-		category: { select: { name: true } }
+		category: { select: { name: true } },
+		tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
 	} as const;
 
 	interface TransactionListRow {
@@ -226,6 +243,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
 		category: { name: string };
+		tags: TagLinkRow[];
 	}
 
 	const queryError = Boolean(query) && qMode === 'regex' && !isValidRegexQuery(query);
@@ -275,6 +293,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		selectedSuggestion,
 		categoryOptions: buildCategoryOptions(categories),
 		categories,
+		allTags,
 		natureOptions: TRANSACTION_NATURES,
 		filters: {
 			q: query,
@@ -339,6 +358,34 @@ function buildCategoryOptions(categories: Array<{ name: string }>): string[] {
 }
 
 export const actions: Actions = {
+	saveTags: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const transactionId = normalizeId(getFormValue(formData, 'transactionId'));
+		if (!transactionId) return fail(400, { tagsError: m.transactions_error_invalid_transaction() });
+
+		// Newline separated, not comma. A tag name may legitimately contain a comma ("Lisbonne,
+		// Porto"), while normalizeTagName collapses every whitespace run, so a newline cannot
+		// survive inside a stored name and is unambiguous as a separator.
+		//
+		// An empty field is a legal input meaning "remove every tag", not a validation failure. That
+		// is why this filters to a possibly-empty array rather than rejecting one.
+		const names = getFormValue(formData, 'tags')
+			.split('\n')
+			.map((entry) => entry.trim())
+			.filter(Boolean);
+
+		// Ownership is the service's job, not this action's: setTransactionTags reads the
+		// transaction under (id, userId) before writing anything, and returns 'not-found' for a
+		// forged id indistinguishably from one that never existed.
+		const outcome = await setTransactionTags(user.id, transactionId, names);
+		if (outcome === 'not-found')
+			return fail(404, { tagsError: m.transactions_error_transaction_not_found() });
+		if (outcome === 'too-many')
+			return fail(400, { tagsError: m.tags_error_too_many({ max: MAX_TAGS_PER_TRANSACTION }) });
+		return { tagsSuccess: true };
+	},
+
 	saveManualCategory: async ({ locals, request }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
@@ -526,6 +573,7 @@ function mapTransactionListItem(
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
 		category: { name: string };
+		tags: TagLinkRow[];
 	},
 	mappingMap: Map<string, TransactionNature>,
 	rules: Array<{
@@ -564,8 +612,24 @@ function mapTransactionListItem(
 		amountCents: transaction.amountCents,
 		type: resolveTransactionType(transaction),
 		source: transaction.source,
+		tags: flattenTagLinks(transaction.tags),
 		suggestion
 	};
+}
+
+/**
+ * Unwraps the join rows Prisma returns for the `tags` relation.
+ *
+ * The select yields `{ tag: {...} }` wrappers because TransactionTag is an explicit model. Handing
+ * that shape to the view would put the join table in the template, where a later `t.tag.name` is
+ * one refactor away from a runtime error the load/view boundary hides from the type checker.
+ */
+function flattenTagLinks(links: TagLinkRow[]): Array<{
+	id: string;
+	name: string;
+	colorToken: string;
+}> {
+	return links.map((link) => link.tag);
 }
 
 function mapTransactionDetail(
@@ -597,6 +661,7 @@ function mapTransactionDetail(
 			rowCount: number;
 			createdAt: Date;
 		} | null;
+		tags: TagLinkRow[];
 	},
 	mappingMap: Map<string, TransactionNature>
 ) {
@@ -649,7 +714,11 @@ function mapTransactionDetail(
 			: null,
 		bankFields: getAllowedBankFields(metadata.csvFields),
 		bankOperationType: transaction.bankOperationType,
-		subcategory: metadata.subcategory
+		subcategory: metadata.subcategory,
+		// Not run through anonymizeDetailText, unlike the label and the notes beside it. Those hold
+		// bank-supplied text this app never authored; a tag name is the user's own word, and folding
+		// it would make the editor round-trip a different string than the one they typed.
+		tags: flattenTagLinks(transaction.tags)
 	};
 }
 

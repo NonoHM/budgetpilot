@@ -32,6 +32,7 @@ const db = vi.hoisted(() => {
 			rowCount: number;
 			createdAt: Date;
 		} | null;
+		tags: Array<{ tag: { id: string; name: string; colorToken: string } }>;
 	}
 
 	// Category name -> id, mirrors the Prisma unique (userId, name) index used by
@@ -75,6 +76,10 @@ const db = vi.hoisted(() => {
 		updatedAt: new Date('2026-06-24T11:00:00.000Z'),
 		categoryId: index === 0 ? CATEGORY_IDS.Alimentation : CATEGORY_IDS.Autre,
 		category: { name: index === 0 ? 'Alimentation' : 'Autre' },
+		// The join-row shape Prisma returns for the relation, wrapper included, so the mapper's
+		// flattening is exercised rather than assumed. Only the first row carries one.
+		tags:
+			index === 0 ? [{ tag: { id: 'tag-portugal', name: 'Portugal', colorToken: 'lagoon' } }] : [],
 		account: { name: 'Compte import CSV', source: 'banque_populaire' },
 		importBatch: {
 			id: 'batch-123456',
@@ -134,6 +139,16 @@ const db = vi.hoisted(() => {
 				} else if (value && typeof value === 'object' && 'in' in value) {
 					if (!(value as { in: string[] }).in.includes(t.id)) return false;
 				}
+				continue;
+			}
+			if (key === 'tags') {
+				// The `some` relation filter `?tag=` produces. Handled explicitly because the generic
+				// operator branch below would find none of `in`/`notIn`/`gte`/... on it and fall
+				// through reporting a match, so every tag-filtered assertion would pass vacuously
+				// whether or not the filter worked.
+				const some = (value as { some?: { tagId?: string } }).some;
+				if (!some) return false;
+				if (!t.tags.some((link) => link.tag.id === some.tagId)) return false;
 				continue;
 			}
 			if (key === 'manualCategoryKey') {
@@ -244,6 +259,12 @@ const db = vi.hoisted(() => {
 			categoryNatureMapping: {
 				findMany: vi.fn(async () => [{ categoryName: 'Loisirs', nature: 'investment' }])
 			},
+			tag: {
+				findMany: vi.fn(async () => [
+					{ id: 'tag-portugal', name: 'Portugal', colorToken: 'lagoon' },
+					{ id: 'tag-pro', name: 'Pro', colorToken: 'ochre' }
+				])
+			},
 			category: {
 				findMany: vi.fn(async () => [
 					{ name: 'Alimentation' },
@@ -289,6 +310,13 @@ const categoryRules: Array<{
 }> = [];
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
+
+// The service is mocked rather than exercised: it has its own spec and its own real-engine suite.
+// What is under test here is the ACTION's contract with it — how the form field is split, and how
+// each outcome maps to a status. Running the real service against the fake prisma would test the
+// fake.
+const setTransactionTagsMock = vi.hoisted(() => vi.fn());
+vi.mock('$lib/server/tags/service', () => ({ setTransactionTags: setTransactionTagsMock }));
 
 const { actions, load } = await import('./+page.server');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
@@ -598,7 +626,8 @@ describe('/transactions load', () => {
 				source: 'csv',
 				netWorthAccount: { name: 'Compte courant Boursorama' }
 			},
-			importBatch: null
+			importBatch: null,
+			tags: []
 		});
 
 		const data = await runLoad('/transactions?selected=transaction-linked-account');
@@ -636,7 +665,8 @@ describe('/transactions load', () => {
 			category: { name: 'Alimentation' },
 			categoryId: db.CATEGORY_IDS.Alimentation,
 			account: { name: 'Compte courant', source: 'csv', netWorthAccount: null },
-			importBatch: null
+			importBatch: null,
+			tags: []
 		});
 
 		const data = await runLoad('/transactions?selected=transaction-unlinked-account');
@@ -672,7 +702,8 @@ describe('/transactions load', () => {
 			category: { name: 'Alimentation' },
 			categoryId: db.CATEGORY_IDS.Alimentation,
 			account: null,
-			importBatch: null
+			importBatch: null,
+			tags: []
 		});
 
 		const data = await runLoad('/transactions?selected=transaction-no-account');
@@ -889,7 +920,8 @@ describe('/transactions load — "to classify" pile', () => {
 			category: { name: UNCLASSIFIED_CATEGORY },
 			categoryId: db.CATEGORY_IDS[UNCLASSIFIED_CATEGORY],
 			account: { name: 'Compte import CSV', source: 'csv' },
-			importBatch: null
+			importBatch: null,
+			tags: []
 		});
 		db.prisma.categoryRule.findMany.mockResolvedValueOnce([
 			{
@@ -969,7 +1001,8 @@ describe('/transactions load — classifyStackIds (mode focus)', () => {
 			category: { name: UNCLASSIFIED_CATEGORY },
 			categoryId: db.CATEGORY_IDS[UNCLASSIFIED_CATEGORY],
 			account: { name: 'Compte import CSV', source: 'csv' },
-			importBatch: null
+			importBatch: null,
+			tags: []
 		});
 
 		const data = await runLoad('/transactions');
@@ -1158,6 +1191,125 @@ describe('acceptSuggestion', () => {
 	});
 });
 
+describe('/transactions load — tags', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('exposes the user own tags for the picker and the filter control', async () => {
+		expect.assertions(2);
+
+		const data = (await runLoad('/transactions')) as unknown as {
+			allTags: Array<{ id: string; name: string; colorToken: string }>;
+		};
+
+		expect(data.allTags).toHaveLength(2);
+		// The userId conjunct is the whole tenancy guarantee for this list: it feeds the picker and
+		// the filter control, so an unscoped read would surface another account's tag names.
+		const findMany = db.prisma.tag.findMany as unknown as {
+			mock: { calls: Array<[{ where: unknown }]> };
+		};
+		expect(findMany.mock.calls[0][0].where).toEqual({ userId: 'user-a' });
+	});
+
+	it('narrows the list to the tagged transactions when ?tag= is present', async () => {
+		expect.assertions(2);
+
+		const data = (await runLoad('/transactions?tag=tag-portugal')) as unknown as {
+			transactions: Array<{ id: string }>;
+		};
+
+		// Exactly one fixture row carries that tag, out of thirty.
+		expect(data.transactions.map((t) => t.id)).toEqual(['transaction-1']);
+		expect(data.transactions.length).toBeLessThan(db.transactions.length);
+	});
+
+	it('flattens the join rows so the view never reaches through the relation', async () => {
+		expect.assertions(1);
+
+		const data = (await runLoad('/transactions')) as unknown as {
+			transactions: Array<{ tags: Array<{ id: string; name: string; colorToken: string }> }>;
+		};
+
+		// The select returns `{ tag: {...} }` wrappers. Leaving that shape in the payload would put
+		// the join table in the view layer, where a later `t.tag.name` is one refactor away from a
+		// runtime error no type would catch across the boundary.
+		expect(data.transactions[0].tags).toEqual([
+			{ id: 'tag-portugal', name: 'Portugal', colorToken: 'lagoon' }
+		]);
+	});
+});
+
+describe('saveTags', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		setTransactionTagsMock.mockResolvedValue('ok');
+	});
+
+	it('rejects a transaction id that fails the shape check', async () => {
+		expect.assertions(2);
+
+		const result = await runSaveTags({ transactionId: '!!', tags: 'Portugal' });
+
+		expect(result.status).toBe(400);
+		// Rejected before the service is reached, so a malformed id never becomes a query.
+		expect(setTransactionTagsMock).not.toHaveBeenCalled();
+	});
+
+	it('reports not-found for a transaction belonging to another user', async () => {
+		expect.assertions(1);
+
+		setTransactionTagsMock.mockResolvedValue('not-found');
+
+		expect((await runSaveTags({ transactionId: 'someone-elses', tags: 'Portugal' })).status).toBe(
+			404
+		);
+	});
+
+	it('splits the field on newlines and drops empty entries', async () => {
+		expect.assertions(1);
+
+		await runSaveTags({ transactionId: 'transaction-5', tags: 'Portugal\n\n  Pro  ' });
+
+		expect(setTransactionTagsMock).toHaveBeenCalledWith('user-a', 'transaction-5', [
+			'Portugal',
+			'Pro'
+		]);
+	});
+
+	it('keeps a comma inside a name rather than treating it as a separator', async () => {
+		expect.assertions(1);
+
+		// The separator is a newline precisely so this stays ONE tag. A comma-separated field would
+		// silently split it into two, and normalizeTagName's whitespace collapse means a newline can
+		// never survive inside a name, so it is the unambiguous choice.
+		await runSaveTags({ transactionId: 'transaction-5', tags: 'Lisbonne, Porto' });
+
+		expect(setTransactionTagsMock).toHaveBeenCalledWith('user-a', 'transaction-5', [
+			'Lisbonne, Porto'
+		]);
+	});
+
+	it('accepts an empty field as remove every tag', async () => {
+		expect.assertions(1);
+
+		await runSaveTags({ transactionId: 'transaction-5', tags: '' });
+
+		expect(setTransactionTagsMock).toHaveBeenCalledWith('user-a', 'transaction-5', []);
+	});
+
+	it('reports the cap with a specific message rather than a generic failure', async () => {
+		expect.assertions(2);
+
+		setTransactionTagsMock.mockResolvedValue('too-many');
+
+		const result = await runSaveTags({ transactionId: 'transaction-5', tags: 'a\nb' });
+
+		expect(result.status).toBe(400);
+		expect(result.data?.tagsError).toBeTruthy();
+	});
+});
+
 async function runLoad(path: string) {
 	return (await load({
 		locals: { user: testUser },
@@ -1181,6 +1333,21 @@ async function runSaveManualCategory(input: Record<string, string>) {
 			body: formData
 		})
 	})) as { status?: number; manualCategorySuccess?: boolean };
+}
+
+async function runSaveTags(input: Record<string, string>) {
+	const formData = new FormData();
+	for (const [key, value] of Object.entries(input)) formData.set(key, value);
+
+	return (await (
+		actions.saveTags as (event: {
+			locals: { user: typeof testUser };
+			request: Request;
+		}) => Promise<unknown>
+	)({
+		locals: { user: testUser },
+		request: new Request('http://localhost/transactions', { method: 'POST', body: formData })
+	})) as { status?: number; data?: { tagsError?: string } };
 }
 
 async function runSaveManualNature(input: Record<string, string>) {

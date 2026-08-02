@@ -33,6 +33,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 				amountCents: -5420,
 				type: 'expense' as const,
 				source: 'Carrefour Market SA',
+				tags: [],
 				suggestion: null
 			}
 		],
@@ -59,8 +60,10 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			importBatch: null,
 			bankFields: [],
 			bankOperationType: null,
-			subcategory: ''
+			subcategory: '',
+			tags: []
 		},
+		allTags: [],
 		selectedSuggestion: null,
 		categoryOptions: ['Alimentation', 'Abonnements', 'Loisirs'],
 		categories: [
