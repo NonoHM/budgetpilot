@@ -11,6 +11,7 @@
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { isTransactionNature } from '$lib/domain/transaction';
 	import { getInitials } from '$lib/domain/initials';
+	import { buildTransactionsHref, buildTransactionsExportHref } from './hrefs';
 	import type { ActionData, PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
 	import Modal from '$lib/components/Modal.svelte';
@@ -187,20 +188,8 @@
 		}
 	}
 
-	function buildFocusHref(id: string) {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		params.set('type', 'classify');
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		params.set('selected', id);
-		return `/transactions?${params.toString()}` as `/transactions?${string}`;
-	}
+	const buildFocusHref = (id: string) =>
+		buildTransactionsHref(data.filters, { type: 'classify', selected: id }, { keepIds: false });
 
 	function openFocusMode() {
 		const firstId = getRemainingFocusStackIds(data.classifyStackIds, focusHandledIds)[0];
@@ -293,77 +282,22 @@
 		return m.transactions_nature_source_default();
 	}
 
-	function buildFilterHref(filterType: string) {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		if (filterType !== 'all') params.set('type', filterType);
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		return `/transactions?${params.toString()}` as `/transactions?${string}`;
-	}
-
-	function buildPageHref(page: number) {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		if (data.filters.type !== 'all') params.set('type', data.filters.type);
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		// Paging, row selection and the export carry `ids` forward — all three stay INSIDE the
-		// id-filtered view. `buildFilterHref`, `buildFocusHref` and the two search forms
-		// deliberately drop it: those are navigations that visibly change the list, so the user
-		// sees they left "the transactions linked to this bill" behind. An export shows nothing,
-		// which is why it is on the other side of the line (see buildExportHref).
-		if (data.filters.ids) params.set('ids', data.filters.ids);
-		params.set('page', String(page));
-		return `/transactions?${params.toString()}` as `/transactions?${string}`;
-	}
-
-	function buildSelectedHref(id: string) {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		if (data.filters.type !== 'all') params.set('type', data.filters.type);
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		// See buildPageHref: navigation within the id-filtered view keeps it.
-		if (data.filters.ids) params.set('ids', data.filters.ids);
-		params.set('page', String(data.pagination.page));
-		params.set('selected', id);
-		return `/transactions?${params.toString()}` as `/transactions?${string}`;
-	}
-
-	function buildExportHref() {
-		// Local scratch value, built and discarded within this function; never stored as reactive state.
-		// eslint-disable-next-line svelte/prefer-svelte-reactivity
-		const params = new URLSearchParams();
-		if (data.filters.q) params.set('q', data.filters.q);
-		if (data.filters.q && data.filters.qMode === 'regex') params.set('qMode', 'regex');
-		if (data.filters.type !== 'all') params.set('type', data.filters.type);
-		if (data.filters.category) params.set('category', data.filters.category);
-		if (data.filters.from) params.set('from', data.filters.from);
-		if (data.filters.to) params.set('to', data.filters.to);
-		if (data.filters.importBatchId) params.set('importBatch', data.filters.importBatchId);
-		// Carried, unlike buildFilterHref: an export is a download of "what I'm looking at", with no
-		// visible result to notice the difference in, and the file leaves the machine. Dropping it
-		// would turn a five-row view into a whole-history CSV mailed to an accountant.
-		// `export/+server.ts` parses it; both halves are needed, and only the pair is the fix.
-		if (data.filters.ids) params.set('ids', data.filters.ids);
-		return `/transactions/export?${params.toString()}`;
-	}
+	// The old buildFilterHref omitted `type` entirely when filterType === 'all'; an explicit
+	// override always emits its value, so 'all' is special-cased here to keep emitted URLs
+	// byte-identical to before.
+	const buildFilterHref = (filterType: string) =>
+		buildTransactionsHref(data.filters, filterType === 'all' ? {} : { type: filterType }, {
+			keepIds: false
+		});
+	const buildPageHref = (page: number) =>
+		buildTransactionsHref(data.filters, { page: String(page) }, { keepIds: true });
+	const buildSelectedHref = (id: string) =>
+		buildTransactionsHref(
+			data.filters,
+			{ page: String(data.pagination.page), selected: id },
+			{ keepIds: true }
+		);
+	const buildExportHref = () => buildTransactionsExportHref(data.filters);
 
 	function openRuleModal(
 		id: string,
