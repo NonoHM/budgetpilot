@@ -74,6 +74,18 @@ export const TAG_COLORS = {
 // The tinted chip surface each dot sits on, same hue, oklch(0.968 0.024 H). Paired one-to-one with
 // TAG_COLORS above: changing a hue means changing both, and the measured-ratio test goes red until
 // they agree again.
+//
+// USED IN EXACTLY TWO PLACES, and the design says "deux, et seulement deux": the active state of
+// the tag filter on /transactions, and the pill naming the tag in the bulk-apply ConfirmDialog.
+// Everywhere else the colour does not leave the 8px dot — a row, a card or a modal never takes a
+// tag's tint. Both call sites render the tag NAME in tagColorTextClass on this surface, which is
+// the pairing the measured ratios above describe; e2e/tags.spec.ts measures those two rendered
+// elements rather than the constants.
+//
+// These were briefly declared and never called, which made the ratios above describe a rendering
+// that existed nowhere and left this table looking like dead code. If a future change removes the
+// last caller, delete the surfaces deliberately or leave them called — do not let the table drift
+// back into being unreferenced.
 export const TAG_TINT_COLORS = {
 	clay: '#ffefed',
 	ochre: '#fff0e7',
@@ -101,6 +113,34 @@ export function tagColorBgClass(token: keyof typeof TAG_COLORS): string {
 
 export function tagTintBgClass(token: keyof typeof TAG_TINT_COLORS): string {
 	return hexToBgClass(TAG_TINT_COLORS[token]);
+}
+
+/**
+ * The token's own hue as TEXT, for the two surfaces that render a name on the matching tint.
+ *
+ * Its own literal table rather than a derivation of TAG_COLORS, for the same reason
+ * HEX_TO_BG_CLASS is one: Tailwind's scanner reads source text, so `text-[${hex}]` compiles to
+ * nothing. Changing a hue is now THREE edits (TAG_COLORS, HEX_TO_BG_CLASS, here) and
+ * colors.spec.ts asserts every token resolves in all three, so a half-landed change goes red
+ * instead of rendering invisible text on a coloured surface.
+ *
+ * This pairing is exactly what the measured contrast figures describe: the dot colour as text on
+ * its own tint, 4.71:1 for lagoon and 4.81:1 for azure. Nothing else in the app may use it.
+ */
+const TAG_TEXT_CLASSES = {
+	clay: 'text-[#9f4949]',
+	ochre: 'text-[#9c4f29]',
+	olive: 'text-[#6e6b00]',
+	lagoon: 'text-[#007b76]',
+	azure: 'text-[#007693]',
+	steel: 'text-[#266ba6]',
+	indigo: 'text-[#625ca6]',
+	plum: 'text-[#835092]',
+	berry: 'text-[#934a7a]'
+} as const;
+
+export function tagColorTextClass(token: keyof typeof TAG_COLORS): string {
+	return TAG_TEXT_CLASSES[token];
 }
 
 // Stable per-category color for swatches/badges, independent of sort order (used in

@@ -46,17 +46,24 @@ input[aria-hidden='true'][tabindex='-1'] {
  * gate could, because nothing about the class name is wrong.
  *
  * Global, so the next component to animate something is covered before anyone
- * remembers to think about it. Durations are collapsed rather than set to zero
- * so that transitionend/animationend listeners still fire and nothing waits
- * forever on an event that never arrives.
+ * remembers to think about it.
+ *
+ * EXACTLY 0s, not the near-zero 0.001ms the usual boilerplate recommends. That
+ * boilerplate exists so transitionend/animationend still fire, but this project
+ * had already decided otherwise before this rule existed: motionDuration() in
+ * lib/motion.ts returns a literal 0 ("instant state change, rather than merely
+ * slowing it down"), and e2e/motion-transitions.spec.ts asserts the computed
+ * value is '0s'. A near-zero global silently overrode both and turned that
+ * assertion red. One convention, pinned by a test — this rule conforms to it
+ * rather than competing with it.
  */
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,
 	*::after {
-		animation-duration: 0.001ms !important;
+		animation-duration: 0s !important;
 		animation-iteration-count: 1 !important;
-		transition-duration: 0.001ms !important;
+		transition-duration: 0s !important;
 		scroll-behavior: auto !important;
 	}
 }

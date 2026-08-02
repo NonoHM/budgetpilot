@@ -14,7 +14,7 @@ import {
 	withOtherUserPage
 } from './tags-seed';
 import { contrastRatio } from './color-contrast';
-import { TAG_COLORS, tagColorBgClass, tagTintBgClass } from '../src/lib/domain/colors';
+import { TAG_COLORS } from '../src/lib/domain/colors';
 import * as m from '../src/lib/paraglide/messages';
 import type { Locator, Page } from '@playwright/test';
 
@@ -297,47 +297,25 @@ test.describe('bulk apply and undo', () => {
 // ─── 5. Rendered contrast: lagoon and azure, the two locked tokens ─────────
 
 test.describe('rendered contrast — locked tokens', () => {
-	/** Resolves an element's OWN computed background to sRGB bytes by painting it — Tailwind v4
-	 *  emits oklch(), which getComputedStyle hands back unchanged in Chromium, so comparing that
-	 *  string to a hex literal would prove nothing about what the browser actually paints. Mirrors
-	 *  paintedColors/paintTailwind in e2e/upcoming-bills.spec.ts, kept local (not extracted) since
-	 *  only its RGB-tuple contrastRatio counterpart is shared per task 8.3. */
-	async function paintedBackground(locator: Locator): Promise<[number, number, number]> {
-		return locator.evaluate((element) => {
+	/** Resolves any computed colour property of a REAL element to sRGB bytes by painting it.
+	 *  Tailwind v4 emits oklch(), which getComputedStyle hands back unchanged in Chromium, so
+	 *  comparing that string to a hex literal would prove nothing about what the browser paints.
+	 *  Same technique as paintedColors/paintTailwind in e2e/upcoming-bills.spec.ts. */
+	async function paintedColor(
+		locator: Locator,
+		property: 'color' | 'backgroundColor'
+	): Promise<[number, number, number]> {
+		return locator.evaluate((element, prop) => {
 			const canvas = document.createElement('canvas');
 			canvas.width = 1;
 			canvas.height = 1;
 			const context = canvas.getContext('2d');
 			if (!context) throw new Error('no 2d context');
-			context.fillStyle = getComputedStyle(element).backgroundColor;
+			context.fillStyle = getComputedStyle(element)[prop as 'color' | 'backgroundColor'];
 			context.fillRect(0, 0, 1, 1);
 			const data = context.getImageData(0, 0, 1, 1).data;
-			return [data[0], data[1], data[2]];
-		});
-	}
-
-	/** Same technique, applied to a throwaway probe carrying an arbitrary Tailwind class rather
-	 *  than a real component — this is what makes it possible to measure the DOT class and the
-	 *  TINT class as a pair, see the comment on the second test below for why a real TagChips
-	 *  cannot supply that pair today. */
-	async function paintedClass(page: Page, className: string): Promise<[number, number, number]> {
-		return page.evaluate((cls) => {
-			const probe = document.createElement('div');
-			probe.className = cls;
-			probe.style.position = 'fixed';
-			probe.style.left = '-9999px';
-			document.body.appendChild(probe);
-			const canvas = document.createElement('canvas');
-			canvas.width = 1;
-			canvas.height = 1;
-			const context = canvas.getContext('2d');
-			if (!context) throw new Error('no 2d context');
-			context.fillStyle = getComputedStyle(probe).backgroundColor;
-			context.fillRect(0, 0, 1, 1);
-			const data = context.getImageData(0, 0, 1, 1).data;
-			probe.remove();
-			return [data[0], data[1], data[2]];
-		}, className);
+			return [data[0], data[1], data[2]] as [number, number, number];
+		}, property);
 	}
 
 	function hexToRgb(hex: string): [number, number, number] {
@@ -370,44 +348,55 @@ test.describe('rendered contrast — locked tokens', () => {
 		] as const) {
 			const dot = settingsTagRow(page, tagName).locator('span[aria-hidden="true"].rounded-full');
 			await expect(dot).toBeVisible();
-			expect(await paintedBackground(dot)).toEqual(hexToRgb(expectedHex));
+			expect(await paintedColor(dot, 'backgroundColor')).toEqual(hexToRgb(expectedHex));
 		}
 	});
 
 	/**
 	 * The measured figures from domain/tags.spec.ts (lagoon 4.71:1, azure 4.81:1) describe the dot
-	 * colour written as TEXT on the tag's own tinted background — the design's "name text on its
-	 * own tint" pairing (domain/colors.ts's comment on TAG_COLORS, and
-	 * docs/superpowers/specs/2026-08-02-transverse-tags-design.md section 6.3). That unit test
-	 * computes the ratio straight from the two hex constants, so it cannot tell a correct
-	 * TAG_COLORS/TAG_TINT_COLORS pairing from a Tailwind class that never made it into the
-	 * compiled build.
+	 * colour written as TEXT on the tag's own tinted surface. That unit test computes the ratio from
+	 * two hex constants, so it cannot tell a correct palette from a Tailwind class that never
+	 * reached the compiled build, nor from a component that binds the wrong one.
 	 *
-	 * ui/TagChips.svelte does not currently render that pairing anywhere: its enclosed chip
-	 * background is the fixed `bg-zinc-50`, never `tagTintBgClass(token)` — `tagTintBgClass` has
-	 * no caller in `src/` today. This test therefore cannot point a real rendered chip at both
-	 * halves of the pair (see the finding recorded in the PR body); what it CAN prove, and does,
-	 * is that `tagColorBgClass`/`tagTintBgClass` still resolve through this build's REAL compiled
-	 * CSS to the same hexes the unit test assumes — painting both classes independently and
-	 * computing the ratio from what the browser actually renders, the same guarantee
-	 * `paintTailwind` gives upcoming-bills.spec.ts against Tailwind v4's oklch conversion.
+	 * This measures the pairing where it actually renders: the active tag filter on /transactions,
+	 * one of the exactly two surfaces the design permits a tint on. Both halves come off the SAME
+	 * element pair the user sees, read back through a canvas because Tailwind v4 emits oklch() and
+	 * getComputedStyle hands that string back unchanged.
 	 */
-	test('lagoon (4.71:1) and azure (4.81:1) still clear the design-measured ratio when their dot and tint classes are painted by the real Tailwind build', async ({
+	test('lagoon (4.71:1) and azure (4.81:1) clear the design-measured ratio as the active filter chip actually paints them', async ({
 		page
 	}) => {
-		await page.goto('/settings');
-
 		const cases = [
-			{ token: 'lagoon', measured: 4.71 },
-			{ token: 'azure', measured: 4.81 }
+			{ tagName: FILTER_TAG_NAME, swatch: 'Lagoon', measured: 4.71 },
+			{ tagName: BULK_TAG_NAME, swatch: 'Azure', measured: 4.81 }
 		] as const;
 
-		for (const { token, measured } of cases) {
-			const dotRgb = await paintedClass(page, tagColorBgClass(token));
-			const tintRgb = await paintedClass(page, tagTintBgClass(token));
-			const ratio = contrastRatio(dotRgb, tintRgb);
+		for (const { tagName, swatch, measured } of cases) {
+			// Pin the tag to the locked token first: the fixture's colour is assigned by a hash of its
+			// name, so nothing guarantees it lands on the two tokens whose margin is thinnest.
+			await page.goto('/settings');
+			await settingsTagRow(page, tagName).getByRole('radio', { name: swatch }).click();
+			await expect(
+				settingsTagRow(page, tagName).getByRole('radio', { name: swatch })
+			).toHaveAttribute('aria-checked', 'true');
+
+			// The active filter renders the tinted chip: name in the token's hue, on its tint.
+			const tagId = await settingsTagRow(page, tagName)
+				.locator('input[name="id"]')
+				.getAttribute('value');
+			await page.goto(`/transactions?tag=${tagId}`);
+
+			const chip = desktopFilterBar(page).getByText(tagName, { exact: true });
+			await expect(chip).toBeVisible();
+
+			const nameRgb = await paintedColor(chip, 'color');
+			const surfaceRgb = await paintedColor(chip.locator('xpath=..'), 'backgroundColor');
+			const ratio = contrastRatio(nameRgb, surfaceRgb);
 
 			expect(ratio).toBeGreaterThanOrEqual(4.5);
+			// The MEASURED figure, not the 4.5 threshold. Lightening a locked tint RAISES the ratio, so
+			// a threshold alone passes the exact change the lock forbids; only the measured value
+			// catches drift in both directions.
 			expect(ratio).toBeCloseTo(measured, 1);
 		}
 	});

@@ -13,6 +13,7 @@
 	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
 	import { getInitials } from '$lib/domain/initials';
 	import { buildTransactionsHref, buildTransactionsExportHref } from './hrefs';
+	import { normalizeForMatch } from '$lib/domain/normalize';
 	import type { ActionData, PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
 	import Modal from '$lib/components/Modal.svelte';
@@ -240,6 +241,37 @@
 	// closed TagColorToken union; isTagColorToken re-validates it here rather than casting blindly,
 	// so a value that somehow fell outside the palette renders TagChips' honest neutral dot instead
 	// of a bogus Tailwind class.
+	/**
+	 * The active tag filter, as a chip. One of the only two surfaces the design lets a tag's colour
+	 * leave its 8px dot, and the one where that colour does real work: it says at a glance WHICH
+	 * filter is applied, without reading the control.
+	 */
+	const activeFilterTag = $derived(
+		data.filters.tag ? (data.allTags.find((t) => t.id === data.filters.tag) ?? null) : null
+	);
+
+	/** Clears the tag filter, keeping every other one. */
+	function clearTagFilter() {
+		goto(resolve(buildTransactionsHref({ ...data.filters, tag: '' }, {}, { keepIds: false })), {
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	/**
+	 * The existing tag a typed bulk name resolves to, matched the way the server matches it (folded,
+	 * accent-insensitive) rather than by raw string equality.
+	 *
+	 * The second allowed tinted surface. It answers the question the dialog otherwise leaves open:
+	 * whether this is about to add to a tag that already exists, and which one — shown in that
+	 * tag's own colour so it is the same object the user sees on their rows.
+	 */
+	const bulkTagMatch = $derived.by(() => {
+		const typed = normalizeForMatch(bulkTagName.trim());
+		if (!typed) return null;
+		return data.allTags.find((t) => normalizeForMatch(t.name) === typed) ?? null;
+	});
+
 	function toTagChipItems(tags: Array<{ id: string; name: string; colorToken: string }>) {
 		return tags.map((tag) => ({
 			key: tag.id,
@@ -867,17 +899,30 @@
 					class="w-48"
 				/>
 				{#if data.allTags.length > 0}
-					<Combobox
-						name="tag"
-						value={data.filters.tag}
-						options={[
-							{ value: '', label: m.tags_filter_all() },
-							...data.allTags.map((t) => ({ value: t.id, label: t.name }))
-						]}
-						placeholder={m.tags_filter_placeholder()}
-						ariaLabel={m.tags_filter_aria()}
-						class="w-48"
-					/>
+					{#if activeFilterTag}
+						<!-- Active state: the tag's own tinted chip rather than a control showing its name as
+						     plain text. This is one of the two surfaces the design allows a tint on, and the
+						     one where the colour is genuinely useful: which filter is applied is readable at
+						     a glance. Removing it clears only the tag, keeping every other filter. -->
+						<TagChips
+							variant="tinted"
+							max={Infinity}
+							tags={toTagChipItems([activeFilterTag])}
+							onRemove={clearTagFilter}
+						/>
+					{:else}
+						<Combobox
+							name="tag"
+							value={data.filters.tag}
+							options={[
+								{ value: '', label: m.tags_filter_all() },
+								...data.allTags.map((t) => ({ value: t.id, label: t.name }))
+							]}
+							placeholder={m.tags_filter_placeholder()}
+							ariaLabel={m.tags_filter_aria()}
+							class="w-48"
+						/>
+					{/if}
 				{/if}
 				<div class="flex items-center gap-1.5">
 					<label for="tx-from" class="text-xs font-medium text-zinc-500"
@@ -1036,18 +1081,28 @@
 					triggerClass="!bg-zinc-50"
 				/>
 				{#if data.allTags.length > 0}
-					<Combobox
-						name="tag"
-						value={data.filters.tag}
-						options={[
-							{ value: '', label: m.tags_filter_all() },
-							...data.allTags.map((t) => ({ value: t.id, label: t.name }))
-						]}
-						placeholder={m.tags_filter_placeholder()}
-						ariaLabel={m.tags_filter_aria()}
-						class="w-full"
-						triggerClass="!bg-zinc-50"
-					/>
+					{#if activeFilterTag}
+						<!-- Same active state as the desktop bar; see its comment there. -->
+						<TagChips
+							variant="tinted"
+							max={Infinity}
+							tags={toTagChipItems([activeFilterTag])}
+							onRemove={clearTagFilter}
+						/>
+					{:else}
+						<Combobox
+							name="tag"
+							value={data.filters.tag}
+							options={[
+								{ value: '', label: m.tags_filter_all() },
+								...data.allTags.map((t) => ({ value: t.id, label: t.name }))
+							]}
+							placeholder={m.tags_filter_placeholder()}
+							ariaLabel={m.tags_filter_aria()}
+							class="w-full"
+							triggerClass="!bg-zinc-50"
+						/>
+					{/if}
 				{/if}
 				<div class="flex gap-2">
 					<div class="flex-1">
@@ -2089,6 +2144,15 @@
 						placeholder={m.tags_bulk_name_placeholder()}
 						required
 					/>
+					{#if bulkTagMatch}
+						<!-- The second and last allowed tinted surface. It answers what a free-text field
+						     alone cannot: that this name already exists, and which tag it is, in that tag's
+						     own colour so it reads as the same object the user sees on their rows. -->
+						<p class="flex flex-wrap items-center gap-2 text-left text-xs text-zinc-500">
+							{m.tags_bulk_existing_tag()}
+							<TagChips variant="tinted" max={Infinity} tags={toTagChipItems([bulkTagMatch])} />
+						</p>
+					{/if}
 					{#if form?.bulkTagError}
 						<AlertBanner variant="error">{form.bulkTagError}</AlertBanner>
 					{/if}

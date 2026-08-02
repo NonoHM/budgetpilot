@@ -1089,6 +1089,7 @@
 	"tags_picker_create": "Create \"{name}\"",
 	"tags_picker_max_reached": "Limit of {max} tags reached.",
 	"tags_error_too_many": "Maximum {max} tags per transaction.",
+	"tags_bulk_existing_tag": "Existing tag:",
 	"tags_bulk_error_empty_name": "Enter a tag name.",
 	"tags_bulk_error_over_tag_cap": "{count} transactions already carry {max} tags. Remove one before adding another, or narrow the filter.",
 	"tags_bulk_error_invalid_range": "Invalid date range.",

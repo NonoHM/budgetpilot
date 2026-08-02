@@ -30,7 +30,7 @@
 </script>
 
 <script lang="ts">
-	import { tagColorBgClass } from '$lib/domain/colors';
+	import { tagColorBgClass, tagColorTextClass, tagTintBgClass } from '$lib/domain/colors';
 	import * as m from '$lib/paraglide/messages';
 
 	let {
@@ -43,8 +43,13 @@
 		tags: TagChipItem[];
 		/** plain: reading context (table row, dashboard widget) — no per-chip container, never
 		 *  clickable, never wraps. enclosed: editing context (detail panel, mobile sheet,
-		 *  TagPicker's own selected-chip row) — bordered pill, can carry a remove control, wraps. */
-		variant?: 'plain' | 'enclosed';
+		 *  TagPicker's own selected-chip row) — bordered pill, can carry a remove control, wraps.
+		 *  tinted: the tag's OWN surface, for the only two places the design lets a tag's colour
+		 *  leave its 8px dot ("deux, et seulement deux") — the active tag filter, and the pill
+		 *  naming the tag in the bulk-apply ConfirmDialog. The name renders in the token's hue on
+		 *  its matching tint, the exact pairing the measured contrast figures describe. A row, a
+		 *  card or a modal never takes a tag's tint; do not reach for this anywhere else. */
+		variant?: 'plain' | 'enclosed' | 'tinted';
 		size?: 'sm' | 'md';
 		/** Truncates RENDERING, not data: the full list is always received so the overflow button's
 		 *  aria-label can name every hidden tag. Pass Infinity to disable the cap entirely — that is
@@ -106,7 +111,43 @@
 	>
 		{#each visible as tag (tag.key)}
 			<li>
-				{#if variant === 'enclosed'}
+				{#if variant === 'tinted'}
+					<!-- Rounded-full, 24px, per the design's own markup for this state. The name takes the
+					     token's hue and the surface takes its tint: the one pairing whose contrast is
+					     measured, and the reason neither may be lightened. A tag with no colour yet (an
+					     unsaved name) falls back to neutral zinc rather than guessing a hue. -->
+					<span
+						class="inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 {config.maxWidth} {tag.colorToken
+							? tagTintBgClass(tag.colorToken)
+							: 'bg-zinc-100'}"
+					>
+						<span
+							class="{config.dot} shrink-0 rounded-full {tag.colorToken
+								? tagColorBgClass(tag.colorToken)
+								: 'bg-zinc-400'}"
+							aria-hidden="true"
+						></span>
+						<span
+							class="min-w-0 truncate text-[13px] font-medium {tag.colorToken
+								? tagColorTextClass(tag.colorToken)
+								: 'text-zinc-600'}"
+						>
+							{tag.name}
+						</span>
+						{#if onRemove}
+							<button
+								type="button"
+								class="relative -mr-1 inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-current opacity-70 before:absolute before:-inset-[11px] before:content-[''] hover:opacity-100 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none sm:before:-inset-[1px]"
+								aria-label={m.tags_remove_aria({ name: tag.name })}
+								onclick={() => onRemove(tag.key)}
+							>
+								<svg viewBox="0 0 12 12" class="h-2.5 w-2.5" aria-hidden="true">
+									<path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="2" fill="none" />
+								</svg>
+							</button>
+						{/if}
+					</span>
+				{:else if variant === 'enclosed'}
 					<span
 						class="inline-flex items-center {config.height} {config.innerGap} rounded-lg border px-2.5 {config.maxWidth} {tag.pending
 							? 'border-dashed border-zinc-300 bg-zinc-50'
