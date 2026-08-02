@@ -1089,6 +1089,7 @@
 	"tags_picker_max_reached": "Limite de {max} étiquettes atteinte.",
 	"tags_error_too_many": "Maximum {max} étiquettes par transaction.",
 	"tags_bulk_error_empty_name": "Entrez un nom d'étiquette.",
+	"tags_bulk_error_over_tag_cap": "{count} transactions portent déjà {max} étiquettes. Retirez-en une avant d'en ajouter, ou restreignez le filtre.",
 	"tags_bulk_error_invalid_range": "Période invalide.",
 	"tags_bulk_error_undo_failed": "Annulation impossible.",
 	"tags_bulk_error_too_many": "Ce filtre correspond à {count} transactions, au-delà de la limite de {limit}. Restreignez le filtre, par période par exemple, puis recommencez : appliquer une étiquette deux fois ne la duplique pas.",

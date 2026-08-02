@@ -379,6 +379,13 @@ export const backupExportSchema = z
 		// absolute number would eventually refuse somebody's own export. The ceiling a legal
 		// export cannot exceed is transactions x MAX_TAGS_PER_TRANSACTION, which is exactly what
 		// is asserted, in a superRefine because the bound depends on a sibling key.
+		//
+		// That ceiling is a claim about every write path, not just about setTransactionTags, and it
+		// only holds because each of them enforces the per-transaction cap. A security review found
+		// the bulk path had shipped without doing so, which would have produced an export this very
+		// validator refuses, on the user's own untampered file. Any new path that ADDS a link, as
+		// opposed to replacing a transaction's whole set, has to count first. See the cap check in
+		// server/tags/bulk.ts.
 		transactionTags: z.array(backupTransactionTagSchema).default([])
 	})
 	.strict()

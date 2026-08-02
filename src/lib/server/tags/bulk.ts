@@ -1,6 +1,8 @@
 import { prisma } from '$lib/server/db';
 import type { Prisma } from '../database/types.ts';
 import { forEachTransactionBatch } from '$lib/server/transactions/batch';
+import { isForeignKeyViolation } from '$lib/server/database/upsert';
+import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 import { pruneOrphanTags, resolveTagByName } from './service';
 
 /**
@@ -20,7 +22,11 @@ export const MAX_BULK_TAG_TRANSACTIONS = 250;
 
 export type BulkTagResult =
 	| { outcome: 'ok'; tagId: string; tagName: string; linkedTransactionIds: string[] }
-	| { outcome: 'too-many'; matched: number };
+	| { outcome: 'too-many'; matched: number }
+	| { outcome: 'over-tag-cap'; overCapCount: number };
+
+/** Attempts in total, not retries. Same bound and same reason as replaceLinks in service.ts. */
+const MAX_LINK_ATTEMPTS = 3;
 
 /**
  * Applies one tag to every transaction matching `where`.
@@ -51,9 +57,19 @@ export async function applyTagToFilteredSet(
 	// Batched rather than one findMany, and bounded by the cap above, so a pathological filter never
 	// materialises an unbounded id array. Same reasoning as the restore-timeout work.
 	const matchedIds: string[] = [];
+	let overflowed = false;
 	await forEachTransactionBatch(where, { id: true }, (rows) => {
 		for (const row of rows) matchedIds.push(row.id);
+		// The count above and this scan are two separate reads, so a concurrent import between them
+		// can push the real set past the cap. Stopping here matters because the undo payload travels
+		// back through normalizeIdList, whose split limit is MAX_TRANSACTION_ID_FILTER: one id over
+		// and the undo silently truncates, leaving a row tagged with no way to reverse it.
+		if (matchedIds.length > MAX_BULK_TAG_TRANSACTIONS) {
+			overflowed = true;
+			return false;
+		}
 	});
+	if (overflowed) return { outcome: 'too-many', matched: matchedIds.length };
 
 	// No tag for an empty set. Creating one would leave a row the auto-GC reclaims only on the next
 	// unlink, which for a tag that never had a link never comes.
@@ -61,28 +77,64 @@ export async function applyTagToFilteredSet(
 		return { outcome: 'ok', tagId: '', tagName, linkedTransactionIds: [] };
 	}
 
-	const tag = await resolveTagByName(userId, tagName);
+	// Retried on a foreign-key violation, for the race service.ts documents as MEASURED rather than
+	// predicted: resolveTagByName can create a tag with zero links, and a concurrent pruneOrphanTags
+	// then deletes it legitimately, because at that instant `transactions: { none: {} }` genuinely
+	// holds. The insert below is left referencing a row that no longer exists and fails with P2003.
+	//
+	// This file reimplemented that resolve-then-link sequence without the protection, and a review
+	// caught it. Recovery requires RE-RESOLVING, not re-inserting: the tag row is gone, so retrying
+	// the insert alone would fail identically forever. withConcurrentWriteRetry does not help here
+	// either, since P2003 is deliberately absent from its transient allowlist.
+	for (let attempt = 1; ; attempt++) {
+		const tag = await resolveTagByName(userId, tagName);
 
-	// The diff is computed BEFORE the write, and that ordering is the whole point. Reading the
-	// existing links afterwards could not distinguish a link this action created from one that was
-	// already there, so the undo payload would untag rows the user tagged some other day.
-	const existing = await prisma.transactionTag.findMany({
-		where: { tagId: tag.id, transactionId: { in: matchedIds } },
-		select: { transactionId: true }
-	});
-	const alreadyLinked = new Set(existing.map((link) => link.transactionId));
-	const linkedTransactionIds = matchedIds.filter((id) => !alreadyLinked.has(id));
-
-	if (linkedTransactionIds.length > 0) {
-		// Only the genuinely new pairs: re-inserting an existing one violates the composite primary
-		// key and would fail the whole action. This is also what makes the refusal message's promise
-		// true, that applying a tag twice does not duplicate it.
-		await prisma.transactionTag.createMany({
-			data: linkedTransactionIds.map((transactionId) => ({ transactionId, tagId: tag.id }))
+		// The diff is computed BEFORE the write, and that ordering is the whole point. Reading the
+		// existing links afterwards could not distinguish a link this action created from one that
+		// was already there, so the undo payload would untag rows the user tagged some other day.
+		const existing = await prisma.transactionTag.findMany({
+			where: { tagId: tag.id, transactionId: { in: matchedIds } },
+			select: { transactionId: true }
 		});
-	}
+		const alreadyLinked = new Set(existing.map((link) => link.transactionId));
+		const linkedTransactionIds = matchedIds.filter((id) => !alreadyLinked.has(id));
 
-	return { outcome: 'ok', tagId: tag.id, tagName, linkedTransactionIds };
+		if (linkedTransactionIds.length === 0) {
+			return { outcome: 'ok', tagId: tag.id, tagName, linkedTransactionIds };
+		}
+
+		// The per-transaction cap, counted rather than assumed. service.ts warns by name that any
+		// future "add one tag" path must COUNT the existing rows, because setTransactionTags only
+		// holds the cap by REPLACING; this path adds. Without it a transaction could pass
+		// MAX_TAGS_PER_TRANSACTION, which locks its editor (the picker refuses to save a set it
+		// considers over the limit) and produces an export the app's own restore validator rejects,
+		// since that validator's ceiling is transactions x MAX_TAGS_PER_TRANSACTION.
+		const counts = await prisma.transactionTag.groupBy({
+			by: ['transactionId'],
+			where: { transactionId: { in: linkedTransactionIds } },
+			_count: { tagId: true }
+		});
+		const overCapCount = counts.filter(
+			(row) => row._count.tagId >= MAX_TAGS_PER_TRANSACTION
+		).length;
+		// Refused whole rather than as a prefix, like every other refusal here: a partial bulk edit
+		// is invisible to the user and its undo payload would describe only part of what changed.
+		if (overCapCount > 0) return { outcome: 'over-tag-cap', overCapCount };
+
+		try {
+			// Only the genuinely new pairs: re-inserting an existing one violates the composite
+			// primary key and would fail the whole action. This is also what makes the refusal
+			// message's promise true, that applying a tag twice does not duplicate it.
+			await prisma.transactionTag.createMany({
+				data: linkedTransactionIds.map((transactionId) => ({ transactionId, tagId: tag.id }))
+			});
+		} catch (caught) {
+			if (!isForeignKeyViolation(caught) || attempt >= MAX_LINK_ATTEMPTS) throw caught;
+			continue;
+		}
+
+		return { outcome: 'ok', tagId: tag.id, tagName, linkedTransactionIds };
+	}
 }
 
 /**

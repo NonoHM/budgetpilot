@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { setTransactionTags, pruneOrphanTags, resolveTagByName } from './service';
+import { applyTagToFilteredSet, undoBulkTag } from './bulk';
 
 /**
  * The two tag claims a fake Prisma structurally cannot answer.
@@ -134,6 +135,50 @@ describe('tag tenancy', () => {
 		// B's tag has no transactions, so only the userId conjunct stands between A and deleting it.
 		expect(await pruneOrphanTags(a.userId, [tagB.id])).toBe(0);
 		expect(await prisma.tag.count({ where: { id: tagB.id } })).toBe(1);
+	});
+});
+
+describe('bulk tagging tenancy', () => {
+	it('refuses to undo a link belonging to another user', async () => {
+		expect.assertions(3);
+
+		const a = await seedUser();
+		const b = await seedUser();
+		const transactionB = await seedTransaction(b, 'Chez B');
+
+		// B tags their own transaction through the bulk path, then A attempts to undo it with the
+		// exact tagId and transactionId. TransactionTag carries no userId column, so nothing in the
+		// schema stops that delete: the `transaction: { userId }` conjunct in undoBulkTag is the
+		// whole protection, and a fake Prisma cannot demonstrate it because a fake has no relation
+		// to traverse.
+		const applied = await applyTagToFilteredSet(b.userId, { userId: b.userId }, 'Portugal');
+		expect(applied.outcome).toBe('ok');
+		if (applied.outcome !== 'ok') return;
+
+		expect(await undoBulkTag(a.userId, applied.tagId, [transactionB])).toBe(0);
+		// And the link is still there, so the refusal was a refusal rather than a silent success.
+		expect(
+			await prisma.transactionTag.count({
+				where: { tagId: applied.tagId, transactionId: transactionB }
+			})
+		).toBe(1);
+	});
+
+	it('leaves the other user tag intact when the forged undo is refused', async () => {
+		expect.assertions(1);
+
+		const a = await seedUser();
+		const b = await seedUser();
+		await seedTransaction(b, 'Chez B');
+
+		const applied = await applyTagToFilteredSet(b.userId, { userId: b.userId }, 'Cible');
+		if (applied.outcome !== 'ok') return;
+
+		await undoBulkTag(a.userId, applied.tagId, []);
+
+		// The prune runs after the delete. An empty id list must not reach it, or A would delete B's
+		// tag without ever touching a link. undoBulkTag returns early for exactly this reason.
+		expect(await prisma.tag.count({ where: { id: applied.tagId } })).toBe(1);
 	});
 });
 

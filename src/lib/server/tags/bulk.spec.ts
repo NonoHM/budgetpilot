@@ -14,6 +14,7 @@ const db = vi.hoisted(() => {
 		},
 		transactionTag: {
 			findMany: vi.fn(),
+			groupBy: vi.fn(),
 			createMany: vi.fn(),
 			deleteMany: vi.fn()
 		}
@@ -40,6 +41,7 @@ vi.mock('./service', () => ({
 
 const { applyTagToFilteredSet, undoBulkTag, MAX_BULK_TAG_TRANSACTIONS } = await import('./bulk');
 const { MAX_TRANSACTION_ID_FILTER } = await import('$lib/server/transactions/where');
+const { MAX_TAGS_PER_TRANSACTION } = await import('$lib/domain/tags');
 
 const where = { userId: 'user-a' };
 
@@ -61,6 +63,7 @@ beforeEach(() => {
 	mocks.resolveTagByName.mockResolvedValue({ id: 'tag-1' });
 	mocks.pruneOrphanTags.mockResolvedValue(0);
 	db.prisma.transactionTag.findMany.mockResolvedValue([]);
+	db.prisma.transactionTag.groupBy.mockResolvedValue([]);
 	db.prisma.transactionTag.createMany.mockResolvedValue({ count: 0 });
 	db.prisma.transactionTag.deleteMany.mockResolvedValue({ count: 0 });
 	feedBatch(['tx-1', 'tx-2', 'tx-3']);
@@ -127,6 +130,97 @@ describe('applyTagToFilteredSet', () => {
 				{ transactionId: 'tx-3', tagId: 'tag-1' }
 			]
 		});
+	});
+
+	it('retries when a concurrent prune deletes the tag between resolve and insert', async () => {
+		expect.assertions(3);
+
+		db.prisma.transaction.count.mockResolvedValue(3);
+		// The window service.ts documents as MEASURED, not theoretical: resolveTagByName can create a
+		// tag with zero links, and a concurrent pruneOrphanTags legitimately deletes it a moment
+		// later because `transactions: { none: {} }` genuinely holds. The insert then fails with
+		// P2003. This file reimplemented that sequence without carrying the protection over.
+		db.prisma.transactionTag.createMany
+			.mockRejectedValueOnce(Object.assign(new Error('fk'), { code: 'P2003' }))
+			.mockResolvedValue({ count: 3 });
+
+		const result = await applyTagToFilteredSet('user-a', where, 'Portugal');
+
+		expect(result.outcome).toBe('ok');
+		// Re-RESOLVED, not merely re-inserted: the tag row is gone, so retrying the insert alone
+		// would fail identically forever.
+		expect(mocks.resolveTagByName).toHaveBeenCalledTimes(2);
+		expect(db.prisma.transactionTag.createMany).toHaveBeenCalledTimes(2);
+	});
+
+	it('gives up rather than looping forever when the foreign key keeps failing', async () => {
+		expect.assertions(1);
+
+		db.prisma.transaction.count.mockResolvedValue(3);
+		db.prisma.transactionTag.createMany.mockRejectedValue(
+			Object.assign(new Error('fk'), { code: 'P2003' })
+		);
+
+		await expect(applyTagToFilteredSet('user-a', where, 'Portugal')).rejects.toThrow();
+	});
+
+	it('rethrows an error that is not a foreign key violation without retrying', async () => {
+		expect.assertions(2);
+
+		db.prisma.transaction.count.mockResolvedValue(3);
+		db.prisma.transactionTag.createMany.mockRejectedValue(new Error('connection lost'));
+
+		await expect(applyTagToFilteredSet('user-a', where, 'Portugal')).rejects.toThrow(
+			'connection lost'
+		);
+		// One attempt only: retrying a write that failed for an unrelated reason is how a transient
+		// handler turns one failure into four.
+		expect(db.prisma.transactionTag.createMany).toHaveBeenCalledTimes(1);
+	});
+
+	it('refuses to push a transaction past the per-transaction tag cap', async () => {
+		expect.assertions(2);
+
+		db.prisma.transaction.count.mockResolvedValue(3);
+		// tx-1 is already at the cap. service.ts warns by name that any "add one tag" path must
+		// COUNT the existing rows rather than assume the cap holds; this is that path.
+		db.prisma.transactionTag.groupBy.mockResolvedValue([
+			{ transactionId: 'tx-1', _count: { tagId: MAX_TAGS_PER_TRANSACTION } }
+		]);
+
+		const result = await applyTagToFilteredSet('user-a', where, 'Portugal');
+
+		// Refused whole, not as a prefix: the alternative is a backup whose own restorer rejects it,
+		// because the validator's ceiling is transactions x MAX_TAGS_PER_TRANSACTION.
+		expect(result).toEqual({ outcome: 'over-tag-cap', overCapCount: 1 });
+		expect(db.prisma.transactionTag.createMany).not.toHaveBeenCalled();
+	});
+
+	it('stops collecting once the batch scan passes the cap', async () => {
+		expect.assertions(1);
+
+		db.prisma.transaction.count.mockResolvedValue(3);
+
+		// A concurrent import between the count and the scan can push the real set past the cap. If
+		// collection kept going, the undo payload would exceed what normalizeIdList's split limit
+		// carries back, leaving rows tagged with no way to reverse them.
+		let stopped = false;
+		mocks.forEachTransactionBatch.mockImplementation(
+			async (
+				_where: unknown,
+				_select: unknown,
+				onBatch: (rows: Array<{ id: string }>) => void | false
+			) => {
+				const rows = Array.from({ length: MAX_BULK_TAG_TRANSACTIONS + 5 }, (_, i) => ({
+					id: `tx-${i}`
+				}));
+				stopped = onBatch(rows) === false;
+			}
+		);
+
+		await applyTagToFilteredSet('user-a', where, 'Portugal');
+
+		expect(stopped).toBe(true);
 	});
 
 	it('collects ids in batches rather than one unbounded findMany', async () => {

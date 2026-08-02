@@ -322,6 +322,15 @@ const { applyTagToFilteredSetMock, undoBulkTagMock } = vi.hoisted(() => ({
 	applyTagToFilteredSetMock: vi.fn(),
 	undoBulkTagMock: vi.fn()
 }));
+// Passed through by default so the other search assertions run the real JS matcher against the
+// fixture; only the over-the-cap case overrides it, because 251 matching rows cannot be seeded.
+const collectTransactionsMatchingQueryMock = vi.hoisted(() => vi.fn());
+vi.mock('$lib/server/transactions/search', async (importOriginal) => {
+	const actual = await importOriginal<typeof import('$lib/server/transactions/search')>();
+	collectTransactionsMatchingQueryMock.mockImplementation(actual.collectTransactionsMatchingQuery);
+	return { ...actual, collectTransactionsMatchingQuery: collectTransactionsMatchingQueryMock };
+});
+
 vi.mock('$lib/server/tags/bulk', async (importOriginal) => {
 	// The cap constant is passed through rather than stubbed: the error message asserts against the
 	// real number, so a stub would let the message and the enforcement drift apart.
@@ -1281,6 +1290,77 @@ describe('bulkTag', () => {
 		const passedWhere = applyTagToFilteredSetMock.mock.calls[0][1] as Record<string, unknown>;
 		expect(passedWhere).toMatchObject({ userId: 'user-a', type: 'expense' });
 		expect(JSON.stringify(passedWhere)).not.toContain('transaction-9');
+	});
+
+	it('narrows to the search matches when ?q= is active, never the whole SQL set', async () => {
+		expect.assertions(2);
+
+		// The search filter is applied in JS, AFTER the SQL where, because accent-insensitive and
+		// regex matching cannot be pushed into SQL. An action that builds only the SQL where
+		// therefore writes to a STRICT SUPERSET of what the user was looking at. Only one fixture
+		// row has the label AUCHAN COURSES.
+		await runBulkTag('/transactions?q=auchan', { tagName: 'Portugal' });
+
+		const passedWhere = applyTagToFilteredSetMock.mock.calls[0][1] as {
+			id?: { in: string[] };
+		};
+		expect(passedWhere.id?.in).toEqual(['transaction-1']);
+		expect(passedWhere.id?.in).not.toHaveLength(db.transactions.length);
+	});
+
+	it('refuses rather than tagging everything when the regex search is invalid', async () => {
+		expect.assertions(2);
+
+		// The list renders zero rows and a blocking error for this input. Tagging the whole
+		// unfiltered set instead would be the widest possible disagreement with what is on screen.
+		const result = await runBulkTag('/transactions?q=%5Bunclosed&qMode=regex', {
+			tagName: 'Portugal'
+		});
+
+		expect(result.status).toBe(400);
+		expect(applyTagToFilteredSetMock).not.toHaveBeenCalled();
+	});
+
+	it('refuses when the search matches more rows than one action may tag', async () => {
+		expect.assertions(3);
+
+		// The fixture holds 30 rows, far under the cap, so the match count is forced here rather
+		// than seeded. Without this the assertion would pass against code that never checks at all.
+		// Once, not permanently: vi.clearAllMocks() clears calls but NOT implementations, so a
+		// persistent override here would silently leak into every later test in this file.
+		collectTransactionsMatchingQueryMock.mockResolvedValueOnce(
+			Array.from({ length: MAX_BULK_TAG_TRANSACTIONS + 1 }, (_, i) => ({
+				id: `tx-${i}`,
+				label: 'AUCHAN'
+			}))
+		);
+
+		// Above the cap the search branch must refuse the same way the SQL branch does, rather than
+		// tagging a prefix or handing an oversized IN list to the query planner.
+		const result = await runBulkTag('/transactions?q=auchan', { tagName: 'Portugal' });
+
+		expect(result.status).toBe(400);
+		expect(result.data?.bulkTagError).toContain(String(MAX_BULK_TAG_TRANSACTIONS + 1));
+		expect(applyTagToFilteredSetMock).not.toHaveBeenCalled();
+	});
+
+	it('omits the undo payload entirely when nothing was applied', async () => {
+		expect.assertions(1);
+
+		applyTagToFilteredSetMock.mockResolvedValue({
+			outcome: 'ok',
+			tagId: '',
+			tagName: 'Portugal',
+			linkedTransactionIds: []
+		});
+
+		const result = (await runBulkTag('/transactions', { tagName: 'Portugal' })) as unknown as {
+			bulkTagResult?: unknown;
+		};
+
+		// An empty result carries no tag id, so an undo control rendered from it would submit '' and
+		// come back as "cannot undo" for an action that did nothing wrong.
+		expect(result.bulkTagResult).toBeUndefined();
 	});
 
 	it('carries the tag filter into the set it applies to', async () => {

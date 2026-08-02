@@ -73,6 +73,11 @@ const FOCUS_STACK_CAP = 5000;
  * That is not tidiness: the count a user confirms in the bulk dialog and the set the action then
  * writes to must come from one source, or a forged payload could widen the second past the first.
  * The bulk action deliberately accepts no id list of its own for that reason.
+ *
+ * Reading these params is NOT sufficient on its own, and a review caught this comment claiming it
+ * was. `query`/`qMode` never enter `buildTransactionWhere`: both `load` and `bulkTag` apply them in
+ * JS afterwards, so a caller that stops at the `where` silently targets a superset. Any future
+ * consumer of this function has to handle the search filter explicitly, the way `bulkTag` does.
  */
 function parseListFilters(url: URL) {
 	const fromParam = url.searchParams.get('from');
@@ -398,6 +403,10 @@ export const actions: Actions = {
 	 * uses, and the form's own fields are never consulted for it. A client-supplied id list would
 	 * make the count the user confirmed and the set actually written two different things, which is
 	 * exactly the gap a forged payload would widen.
+	 *
+	 * The SQL where is not the whole set, though, and the first version of this comment claimed it
+	 * was. See the `filters.query` branch below: the search filter lives in JS, so reproducing the
+	 * user's view means reproducing that step too.
 	 */
 	bulkTag: async ({ locals, request, url }) => {
 		const user = requireUser(locals.user);
@@ -412,7 +421,7 @@ export const actions: Actions = {
 		const uncategorizedCategoryId =
 			filters.type === 'classify' ? await resolveUncategorizedCategoryId(user.id) : undefined;
 
-		const where = buildTransactionWhere({
+		let where = buildTransactionWhere({
 			userId: user.id,
 			type: filters.type,
 			category: filters.category,
@@ -424,7 +433,44 @@ export const actions: Actions = {
 			tagId: filters.tagId
 		});
 
+		// The search filter cannot live in the `where`, and that is the whole reason this branch
+		// exists. `q` is matched in JS AFTER the SQL query (accent folding and regex are not
+		// expressible in SQL), exactly as `load` does it below. An action that built only the SQL
+		// where would apply the tag to a STRICT SUPERSET of the rows the user was looking at and
+		// counted, which is the same disagreement a forged id list would create, reached through the
+		// app's own most-used filter instead of through an attack.
+		if (filters.query) {
+			if (filters.qMode === 'regex' && !isValidRegexQuery(filters.query))
+				return fail(400, { bulkTagError: m.transactions_error_invalid_regex_query() });
+
+			const matching = await collectTransactionsMatchingQuery(
+				where,
+				{ id: true, label: true },
+				filters.query,
+				filters.qMode
+			);
+			// Refused here rather than inside applyTagToFilteredSet, because that function counts in
+			// SQL and this set does not exist in SQL. Same limit, same refusal, one message.
+			if (matching.length > MAX_BULK_TAG_TRANSACTIONS)
+				return fail(400, {
+					bulkTagError: m.tags_bulk_error_too_many({
+						count: matching.length,
+						limit: MAX_BULK_TAG_TRANSACTIONS
+					})
+				});
+			// Narrowing, never widening: `matching` was collected THROUGH `where`, so it is already
+			// the intersection with every other active filter, `?ids=` included.
+			where = { ...where, id: { in: matching.map((row) => row.id) } };
+		}
+
 		const result = await applyTagToFilteredSet(user.id, where, tagName);
+		if (result.outcome === 'over-tag-cap')
+			return fail(400, {
+				bulkTagError: m.tags_bulk_error_over_tag_cap({
+					count: result.overCapCount,
+					max: MAX_TAGS_PER_TRANSACTION
+				})
+			});
 		if (result.outcome === 'too-many')
 			return fail(400, {
 				bulkTagError: m.tags_bulk_error_too_many({
@@ -432,6 +478,11 @@ export const actions: Actions = {
 					limit: MAX_BULK_TAG_TRANSACTIONS
 				})
 			});
+
+		// No payload for an action that changed nothing. The empty case carries no tag id, so an undo
+		// control rendered from it would submit '' and come back as "cannot undo" for an action that
+		// did nothing wrong.
+		if (result.linkedTransactionIds.length === 0) return { bulkTagEmpty: true };
 
 		return {
 			bulkTagResult: {
