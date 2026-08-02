@@ -108,7 +108,7 @@ docker compose -f docker-compose.prebuilt.yml logs budgetpilot
 You want these two lines near the end:
 
 ```
-[budgetpilot] startup: PUBLIC_INSTANCE=unset (defaults to secure) cookies-secure=true
+[budgetpilot] startup: PUBLIC_INSTANCE=unset (defaults to secure) cookies-secure=true database-provider=sqlite
 Listening on http://0.0.0.0:3000
 ```
 
@@ -137,8 +137,8 @@ login page.
 "créer un compte", not "create an account". Click it. You can switch the
 whole app to English from **Settings** > **Language** once you're in.
 
-Registration is closed by default, so the form asks for a token
-("jeton d'inscription"). It's the `BOOTSTRAP_TOKEN` in your `.env`:
+Registration is closed by default, so the form asks for a token, on a field
+labelled "Jeton bootstrap". It's the `BOOTSTRAP_TOKEN` in your `.env`:
 
 ```bash
 grep BOOTSTRAP_TOKEN .env
@@ -296,6 +296,18 @@ double your transactions.
 
 **Or enter transactions by hand** from the Transactions page, if you just
 want to try it out.
+
+**Tag a few of them.** A category answers "what kind of spending is this",
+and every transaction has exactly one. A tag answers "what was this for",
+and a transaction can carry any number. That is what lets "Portugal 2026"
+hold a train, a hotel and a restaurant while each keeps its own category.
+
+Open a transaction from the Transactions list, type a name in
+**Étiquettes**, press Enter, then Save. Typing a name that doesn't exist
+yet creates it, so there is no list to set up first. Once a tag exists you
+can filter the list by it, and the filter bar can then tag everything
+currently matching in one action. A tag left on no transactions disappears
+on its own, with no confirmation and nothing to clean up.
 
 Once there's data in there: set a monthly budget per category (Budgets),
 declare your accounts (Net worth), and let the categorization rules (Rules)
