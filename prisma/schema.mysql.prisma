@@ -88,6 +88,7 @@ model User {
   bankConnections           BankConnection[]
   bankAuthorizationRequests BankAuthorizationRequest[]
   recurringStreamActions    RecurringStreamAction[]
+  tags                      Tag[]
 }
 
 model RecoveryCode {
@@ -301,6 +302,71 @@ model Category {
   @@index([userId])
 }
 
+/// A free-form label the user puts on transactions, orthogonal to Category.
+///
+/// Category is a taxonomy: one per transaction, budgeted against, stable. A tag is the opposite,
+/// several per transaction and never budgeted, and it exists to make a cross-cutting set visible
+/// (a trip, a project, a group reimbursement). Deliberately NOT a second taxonomy: no hierarchy,
+/// no nesting, and no entry in the main navigation.
+///
+/// Structurally this is `Category` with the name changed: same nullable nameKey, same
+/// @@unique([userId, nameKey]), same @@index([userId]), same onDelete: Cascade.
+model Tag {
+  id           String           @id @default(cuid())
+  userId       String
+  name         String
+  /// Collation-independent equality key for `name` (see server/naming/nameKey.ts).
+  /// Computed by the app, never supplied by a client. THE uniqueness key for a tag: the
+  /// constraint below is what makes "Portugal" and "portugal" one row on every provider.
+  /// Nullable for the same reason as Category.nameKey: `migrate deploy` runs before any
+  /// backfill, and NULLs are distinct in a unique index on all three providers. Every write
+  /// path fills it.
+  nameKey      String?
+  /// Palette token name from domain/tags.ts (`tag-1` … `tag-9`), never a raw hex and never an
+  /// index. Validated against the closed set on every write and in the backup validator, so no
+  /// off-palette or inaccessible colour can be stored. Assigned automatically from `nameKey` at
+  /// creation so making a tag stays "type a name"; changeable afterwards from Settings.
+  /// Persisted rather than derived: a rename must never change the colour the user has learned
+  /// to recognise, so the hash runs once, at creation, and the result is stored here.
+  colorToken   String
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions TransactionTag[]
+
+  @@unique([userId, nameKey])
+  @@index([userId])
+}
+
+/// Explicit join model, NOT Prisma's implicit many-to-many, and that is load-bearing.
+///
+/// An implicit relation table is synthesized downstream, so its A/B columns are unreachable by
+/// NATIVE_TYPE_OVERRIDES (whose keys are Model.field read from this file's text) and invisible to
+/// both index guards in schemaGenerator.spec.ts, which scan `^model` blocks only. It would be the
+/// one table in the schema that no gate looks at, which is the same structural shape as the
+/// `e2e/`-outside-the-typecheck-root defect found in #97.
+///
+/// Composite primary key rather than the usual cuid surrogate, breaking a convention that holds on
+/// 20 of 20 models: "a transaction cannot carry the same tag twice" becomes the key itself, nothing
+/// would ever reference a surrogate id, and the backup payload carries two foreign keys to remap
+/// instead of three. Sizing is 2 x 191 x 4 = 1528 bytes, inside InnoDB's 3072 limit, and
+/// indexedFields() in schemaGenerator.spec.ts reads @@id, so both columns stay covered.
+///
+/// No userId column on purpose. NetWorthSnapshot denormalises one, but there it buys purge scoping.
+/// Here a link's owner is unambiguously its transaction's owner, so queries scope through
+/// `transaction: { userId }` rather than copying a userId somewhere it can drift out of agreement
+/// with the row it describes.
+model TransactionTag {
+  transactionId String
+  tagId         String
+  createdAt     DateTime    @default(now())
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  tag           Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([transactionId, tagId])
+  @@index([tagId])
+}
+
 model Transaction {
   id                String             @id @default(cuid())
   userId            String
@@ -336,6 +402,7 @@ model Transaction {
   account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
   category          Category           @relation(fields: [categoryId], references: [id])
   importBatch       ImportBatch?       @relation(fields: [importBatchId], references: [id])
+  tags              TransactionTag[]
 
   @@unique([userId, dedupeKeyHash])
   @@index([userId])
