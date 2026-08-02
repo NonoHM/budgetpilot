@@ -128,6 +128,50 @@ describe('TagChips.svelte', () => {
 		expect(container.querySelector('[data-testid="tag-chip-spinner"]')).toBeTruthy();
 	});
 
+	it('gives the remove button a real 44x44 tap target on mobile via padding that overflows the chip, staying visually 22x22', async () => {
+		const onRemove = vi.fn();
+		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
+
+		const button = page
+			.getByRole('button', { name: "Retirer l'étiquette Portugal" })
+			.element() as HTMLElement;
+		const rect = button.getBoundingClientRect();
+		expect(rect.width).toBeCloseTo(22, 0);
+
+		// A point 10px beyond the visible button is still within a 44px real target
+		// (44/2 - 22/2 = 11px of overflow on each side) — elementFromPoint is real hit-testing,
+		// not a source-text check, so it proves the enlarged area is actually clickable.
+		const reachable = document.elementFromPoint(rect.right + 10, rect.top + rect.height / 2);
+		expect(reachable === button || button.contains(reachable)).toBe(true);
+		reachable?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+		expect(onRemove).toHaveBeenCalledExactlyOnceWith('t1');
+
+		// ...and it does not extend forever: a point clearly beyond the 44px target must miss.
+		const tooFar = document.elementFromPoint(rect.right + 30, rect.top + rect.height / 2);
+		expect(tooFar === button || button.contains(tooFar)).toBe(false);
+	});
+
+	it('widens the "+N" overflow button to a 44px min-width / 28px height real tap target on mobile', async () => {
+		render(TagChips, { tags: three });
+
+		const button = page
+			.getByRole('button', { name: /1 étiquette de plus/ })
+			.element() as HTMLElement;
+		const rect = button.getBoundingClientRect();
+		expect(rect.width).toBeGreaterThanOrEqual(44);
+		expect(rect.height).toBeCloseTo(28, 0);
+	});
+
+	it("spins the pending-chip spinner at the design's 0.8s cadence, not Tailwind's 1s default", async () => {
+		const { container } = render(TagChips, {
+			tags: [{ key: 'x', name: 'x', colorToken: null, pending: true }],
+			variant: 'enclosed'
+		});
+
+		const spinner = container.querySelector('[data-testid="tag-chip-spinner"]') as HTMLElement;
+		expect(getComputedStyle(spinner).animationDuration).toBe('0.8s');
+	});
+
 	it('groups the chips in a list with an accessible name, absent entirely when there are no tags', async () => {
 		const populated = render(TagChips, { tags: [three[0]] });
 		await expect.element(page.getByRole('list', { name: 'Étiquettes' })).toBeInTheDocument();

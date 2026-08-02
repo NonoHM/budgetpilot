@@ -5,7 +5,7 @@
 <script lang="ts">
 	import type { TagColorToken } from '$lib/domain/tags';
 	import { MAX_TAGS_PER_TRANSACTION, normalizeTagName } from '$lib/domain/tags';
-	import { normalizeForMatch } from '$lib/domain/normalize';
+	import { highlightMatchSegments, normalizeForMatch } from '$lib/domain/normalize';
 	import { tagColorBgClass } from '$lib/domain/colors';
 	import { inputBase } from '$lib/styles';
 	import TagChips from './TagChips.svelte';
@@ -70,6 +70,7 @@
 	let activeIndex = $state(-1);
 	let liveAnnouncement = $state('');
 	let inputEl: HTMLInputElement | undefined;
+	let containerEl: HTMLDivElement | undefined;
 
 	// Live filtering is debounced 250ms (per design brique 14 timing) rather than filtering on
 	// every keystroke.
@@ -110,6 +111,14 @@
 	]);
 
 	const atMax = $derived(selected.length >= MAX_TAGS_PER_TRANSACTION);
+
+	// Display-only: pre-highlights item 0 (state D's "Créer" row when it is the only item) before
+	// any explicit ArrowUp/ArrowDown/Enter, so the row Enter would act on is visible beforehand
+	// rather than only after Enter has already fired. Kept separate from `activeIndex` itself so
+	// the -1 "nothing chosen yet" state Enter/ArrowUp/ArrowDown already rely on is untouched.
+	const effectiveActiveIndex = $derived(
+		activeIndex === -1 && flatItems.length > 0 ? 0 : activeIndex
+	);
 
 	const chips = $derived(
 		selected.map((tagName) => ({
@@ -184,6 +193,10 @@
 			event.preventDefault();
 			activeIndex = Math.max(activeIndex - 1, 0);
 		} else if (event.key === 'Enter') {
+			// Gated on `open`: Escape leaves `typed`/`debounced` (and therefore `flatItems`) intact
+			// so it can close without discarding the in-progress search, but that means an Enter
+			// pressed after Escape must be inert rather than silently activating item 0.
+			if (!open) return;
 			event.preventDefault();
 			if (activeIndex === -1 && flatItems.length > 0) activeIndex = 0;
 			activate(activeIndex);
@@ -195,7 +208,9 @@
 		}
 	}
 
-	const activeId = $derived(activeIndex >= 0 ? `${pickerId}-option-${activeIndex}` : undefined);
+	const activeId = $derived(
+		effectiveActiveIndex >= 0 ? `${pickerId}-option-${effectiveActiveIndex}` : undefined
+	);
 
 	const resultCountLive = $derived.by(() => {
 		if (!open) return '';
@@ -204,12 +219,39 @@
 				? m.tags_picker_result_count_one({ n: filtered.length })
 				: m.tags_picker_result_count_many({ n: filtered.length });
 		}
-		if (trimmedTyped !== '') return m.tags_picker_no_match_live();
+		if (showCreateRow) return m.tags_picker_no_match_live();
+		// filtered.length === 0 && !showCreateRow: either nothing has been typed yet, or the typed
+		// name matches an already-selected tag exactly — Enter is a genuine no-op in the latter
+		// case, so this must not reuse the "Entrée pour créer" wording above.
+		if (trimmedTyped !== '') return m.tags_picker_already_selected_live({ name: trimmedTyped });
 		return '';
+	});
+
+	function closeIfOutside(target: EventTarget | null): void {
+		if (!open) return;
+		if (target instanceof Node && containerEl?.contains(target)) return;
+		open = false;
+		activeIndex = -1;
+	}
+
+	function onFocusOut(event: FocusEvent): void {
+		// relatedTarget is the element about to receive focus (null when focus leaves the document
+		// entirely, e.g. a browser chrome control) — options themselves call preventDefault() on
+		// their own mousedown, so a click on an option never reaches here in the first place.
+		closeIfOutside(event.relatedTarget);
+	}
+
+	$effect(() => {
+		if (!open) return;
+		function onPointerDown(event: PointerEvent): void {
+			closeIfOutside(event.target);
+		}
+		document.addEventListener('pointerdown', onPointerDown);
+		return () => document.removeEventListener('pointerdown', onPointerDown);
 	});
 </script>
 
-<div class="w-full">
+<div class="w-full" bind:this={containerEl} onfocusout={onFocusOut}>
 	<label class="sr-only" for={inputId}>{ariaLabel ?? m.tags_picker_aria()}</label>
 
 	{#if chips.length > 0}
@@ -254,6 +296,7 @@
 
 	{#if open}
 		<div
+			id={listboxId}
 			class="relative z-10 mt-1 max-h-[280px] overflow-y-auto rounded-xl border border-zinc-900 bg-white p-1.5 shadow-lg"
 		>
 			{#if loading}
@@ -270,10 +313,18 @@
 					<p class="text-sm text-zinc-700">{m.tags_picker_empty_heading()}</p>
 					<p class="text-[12.5px] text-zinc-500">{m.tags_picker_empty_body()}</p>
 				</div>
+			{:else if flatItems.length === 0}
+				<!-- filtered.length === 0 and no create row: the typed name exactly matches a tag
+				     that's already selected, so there is genuinely nothing left to show and Enter is
+				     a no-op — an EMPTY <ul role="listbox"> here would render as a blank floating panel
+				     instead of explaining that. -->
+				<p class="px-2 py-2 text-sm text-zinc-700">
+					{m.tags_picker_already_selected_live({ name: trimmedTyped })}
+				</p>
 			{:else}
-				<ul id={listboxId} role="listbox" aria-multiselectable="true">
+				<ul role="listbox" aria-multiselectable="true">
 					{#each flatItems as item, index (item.type === 'option' ? item.option.id : 'create')}
-						{@const isActive = index === activeIndex}
+						{@const isActive = index === effectiveActiveIndex}
 						{#if item.type === 'option'}
 							{@const isSelected = selected.includes(item.option.name)}
 							<!-- Keyboard interaction is fully handled at the input via aria-activedescendant
@@ -295,7 +346,11 @@
 									class="h-2 w-2 shrink-0 rounded-full {tagColorBgClass(item.option.colorToken)}"
 									aria-hidden="true"
 								></span>
-								<span class="min-w-0 flex-1 truncate">{item.option.name}</span>
+								<span class="min-w-0 flex-1 truncate"
+									>{#each highlightMatchSegments(item.option.name, trimmedTyped) as segment, segmentIndex (segmentIndex)}{#if segment.matched}<strong
+												class="font-semibold">{segment.text}</strong
+											>{:else}{segment.text}{/if}{/each}</span
+								>
 								{#if isSelected}
 									<svg
 										class="h-3.5 w-3.5 shrink-0 text-zinc-500"

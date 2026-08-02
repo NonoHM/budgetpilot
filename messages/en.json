@@ -1089,6 +1089,7 @@
 	"tags_picker_result_count_one": "{n} tag",
 	"tags_picker_result_count_many": "{n} tags",
 	"tags_picker_no_match_live": "no match, press Enter to create",
+	"tags_picker_already_selected_live": "{name} already selected",
 	"tags_picker_added_live": "{name} added",
 	"tags_picker_created_live": "{name} added",
 	"tags_picker_selected_live": "{name} selected",

@@ -124,7 +124,7 @@
 						{#if tag.pending}
 							<svg
 								data-testid="tag-chip-spinner"
-								class="h-[11px] w-[11px] shrink-0 animate-spin text-zinc-400"
+								class="h-[11px] w-[11px] shrink-0 animate-[spin_0.8s_linear_infinite] text-zinc-400"
 								viewBox="0 0 20 20"
 								fill="none"
 								aria-hidden="true"
@@ -142,7 +142,7 @@
 						{:else if onRemove}
 							<button
 								type="button"
-								class="-mr-0.5 inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-200 hover:text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+								class="relative -mr-0.5 inline-flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-md text-zinc-400 before:absolute before:-inset-[11px] before:content-[''] hover:bg-zinc-200 hover:text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none sm:before:-inset-[1px]"
 								aria-label={m.tags_remove_aria({ name: tag.name })}
 								onclick={() => onRemove(tag.key)}
 							>
@@ -169,7 +169,7 @@
 			<li class="relative">
 				<button
 					type="button"
-					class="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md border px-1.5 text-[11.5px] font-semibold tabular-nums focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {overflowOpen
+					class="inline-flex h-7 min-w-11 shrink-0 items-center justify-center rounded-md border px-1.5 text-[11.5px] font-semibold tabular-nums focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none sm:h-6 sm:min-w-6 {overflowOpen
 						? 'border-zinc-900 bg-zinc-900 text-white'
 						: 'border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900'}"
 					aria-label={overflowAria(hidden.map((tag) => tag.name))}
