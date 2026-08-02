@@ -32,6 +32,77 @@ export const NET_WORTH_TYPE_COLORS: Record<
 	other: '#a1a1aa' // zinc-400
 };
 
+// A FOURTH palette, deliberately distinct from the three above, for transverse tags.
+//
+// Do not "simplify" this back into CATEGORY_PALETTE. The comment on NET_WORTH_TYPE_COLORS above
+// records why two concepts never share a palette: the two donuts must not look like they encode
+// the same thing. That argument is STRONGER here, not weaker. A tag dot and a category pastille
+// render on the SAME transaction row, inches apart, so sharing a palette would make one colour
+// mean "category X" in one column and "tag Y" in the next. The two are separated by rendering as
+// well as by hue: a category pastille is a light saturated tone, a tag dot is a deep desaturated
+// one.
+//
+// Generated, not hand-picked. Every dot is oklch(0.515 0.115 H) and every tint is
+// oklch(0.968 0.024 H), so the nine tokens differ only in hue and therefore carry identical
+// weight. Picking hexes by eye is what produces a palette where one tag looks more important
+// than another.
+//
+// THREE HUE BANDS ARE DELIBERATELY ABSENT so a tag can never read as a status: the danger band
+// around pure red, the warning band around amber, and the success band around green. The 82
+// degree gap between tag-3 (108) and tag-4 (190) is that success band. Do not "fill the gap" and
+// do not add a tenth token. A tag names a trip or a project; it must never be mistaken for the
+// app telling the user something is wrong, late, or fine.
+//
+// TAG-4 AND TAG-5 ARE LOCKED, exactly like the amber pair recorded in UpcomingBillsCard. They
+// measure 4.71:1 and 4.81:1 for their name text on their own tint, which clears WCAG AA with the
+// least room of the nine. Never lighten the hue, never lighten the tint, never apply opacity to
+// either. Every ratio is asserted against the value the design measured in domain/tags.spec.ts,
+// and one is checked as actually rendered in e2e/tags.spec.ts, because the unit test alone passes
+// even if the Tailwind class binding is wrong.
+export const TAG_COLORS = {
+	'tag-1': '#9f4949', // Terre, hue 22
+	'tag-2': '#9c4f29', // Ocre, hue 45
+	'tag-3': '#6e6b00', // Olive, hue 108
+	'tag-4': '#007b76', // Lagune, hue 190 (locked, see above)
+	'tag-5': '#007693', // Azur, hue 218 (locked, see above)
+	'tag-6': '#266ba6', // Ardoise, hue 248
+	'tag-7': '#625ca6', // Indigo, hue 285
+	'tag-8': '#835092', // Prune, hue 318
+	'tag-9': '#934a7a' // Vigne, hue 342
+} as const;
+
+// The tinted chip surface each dot sits on, same hue, oklch(0.968 0.024 H). Paired one-to-one with
+// TAG_COLORS above: changing a hue means changing both, and the measured-ratio test goes red until
+// they agree again.
+export const TAG_TINT_COLORS = {
+	'tag-1': '#ffefed',
+	'tag-2': '#fff0e7',
+	'tag-3': '#f6f6e4',
+	'tag-4': '#e3faf8',
+	'tag-5': '#e4f9ff',
+	'tag-6': '#e8f6ff',
+	'tag-7': '#f2f3ff',
+	'tag-8': '#fcf0ff',
+	'tag-9': '#ffeef9'
+} as const;
+
+/**
+ * Class-based counterparts of TAG_COLORS and TAG_TINT_COLORS, for the same CSP reason as
+ * hexToBgClass above: the class strings are written out literally in HEX_TO_BG_CLASS so Tailwind's
+ * build-time scanner finds them.
+ *
+ * Changing a hex above is therefore TWO edits, here and in HEX_TO_BG_CLASS. A spec asserts every
+ * token resolves to a class, so a half-landed palette change goes red rather than rendering an
+ * uncoloured dot.
+ */
+export function tagColorBgClass(token: keyof typeof TAG_COLORS): string {
+	return hexToBgClass(TAG_COLORS[token]);
+}
+
+export function tagTintBgClass(token: keyof typeof TAG_TINT_COLORS): string {
+	return hexToBgClass(TAG_TINT_COLORS[token]);
+}
+
 // Stable per-category color for swatches/badges, independent of sort order (used in
 // /transactions and /categories) — unlike the index-based CATEGORY_PALETTE usage in
 // /reports, this hashes the category name so a given category always gets the same color.
@@ -61,7 +132,28 @@ const HEX_TO_BG_CLASS: Record<string, string> = {
 	'#71717a': 'bg-[#71717a]',
 	'#3b82f6': 'bg-[#3b82f6]',
 	'#14b8a6': 'bg-[#14b8a6]',
-	'#8b5cf6': 'bg-[#8b5cf6]'
+	'#8b5cf6': 'bg-[#8b5cf6]',
+	// Tag palette dots (TAG_COLORS). Written out literally, like every entry above: Tailwind's
+	// scanner cannot see a class name built by concatenation.
+	'#9f4949': 'bg-[#9f4949]',
+	'#9c4f29': 'bg-[#9c4f29]',
+	'#6e6b00': 'bg-[#6e6b00]',
+	'#007b76': 'bg-[#007b76]',
+	'#007693': 'bg-[#007693]',
+	'#266ba6': 'bg-[#266ba6]',
+	'#625ca6': 'bg-[#625ca6]',
+	'#835092': 'bg-[#835092]',
+	'#934a7a': 'bg-[#934a7a]',
+	// Tag palette tints (TAG_TINT_COLORS), the chip surface each dot above sits on.
+	'#ffefed': 'bg-[#ffefed]',
+	'#fff0e7': 'bg-[#fff0e7]',
+	'#f6f6e4': 'bg-[#f6f6e4]',
+	'#e3faf8': 'bg-[#e3faf8]',
+	'#e4f9ff': 'bg-[#e4f9ff]',
+	'#e8f6ff': 'bg-[#e8f6ff]',
+	'#f2f3ff': 'bg-[#f2f3ff]',
+	'#fcf0ff': 'bg-[#fcf0ff]',
+	'#ffeef9': 'bg-[#ffeef9]'
 };
 
 // Falls back to the neutral "others" swatch class if a hex value somehow isn't in the
