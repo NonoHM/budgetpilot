@@ -248,6 +248,7 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 const { buildBackupExport } = await import('./export');
 const { restoreBackup, BackupImportError } = await import('./import');
 const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS } = await import('./schema');
+const { computeNameKey } = await import('$lib/server/naming/nameKey');
 type TagColorToken = import('$lib/domain/tags').TagColorToken;
 const { UNCLASSIFIED_CATEGORY } = await import('$lib/domain/categories');
 const { LONG_TRANSACTION_OPTIONS } = await import('$lib/server/dbTransaction');
@@ -1546,5 +1547,171 @@ describe('restoreBackup', () => {
 		const written = db.store.recurringStreamActions[0].anchorTransactionIds as string;
 		expect(JSON.parse(written)).toHaveLength(MAX_ANCHOR_IDS);
 		expect(written.length).toBeLessThanOrEqual(MAX_ANCHOR_CELL_CHARS);
+	});
+});
+
+/**
+ * Minimal restorable payload for the tag cases: one account, one category, one transaction, and
+ * empty everything else. Separate from the `buildValidPayload` inside the restoreBackup describe
+ * above, which carries net-worth and savings fixtures these cases do not need and whose noise
+ * would make a failure harder to read.
+ */
+function buildTagRestorePayload() {
+	return {
+		formatVersion: 1 as const,
+		exportedAt: new Date('2026-08-02T00:00:00.000Z').toISOString(),
+		userEmail: 'a@example.test',
+		accounts: [{ id: 'file-acc-1', name: 'Compte courant', currency: 'EUR', source: 'manual' }],
+		categories: [{ id: 'file-cat-1', name: 'Courses' }],
+		importBatches: [],
+		transactions: [
+			{
+				id: 'file-tx-1',
+				accountId: 'file-acc-1',
+				categoryId: 'file-cat-1',
+				importBatchId: null,
+				date: new Date('2026-06-15T00:00:00.000Z').toISOString(),
+				label: 'Carrefour',
+				amountCents: -4_200,
+				type: 'expense' as const,
+				source: 'manual',
+				notes: null,
+				bankOperationType: null,
+				manualCategory: null,
+				natureManual: null,
+				dedupeKey: null,
+				metadataJson: null
+			}
+		],
+		monthlyBudgets: [],
+		categoryRules: [],
+		categorizationRules: [],
+		categoryNatureMappings: [],
+		netWorthAccounts: [],
+		netWorthSnapshots: [],
+		savingsGoals: [],
+		bankConnections: [],
+		recurringStreamActions: [],
+		tags: [] as Array<{ id: string; name: string; colorToken: TagColorToken }>,
+		transactionTags: [] as Array<{ transactionId: string; tagId: string }>
+	};
+}
+
+describe('restoreBackup with tags', () => {
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+	});
+
+	function payloadWithTag() {
+		const payload = buildTagRestorePayload();
+		payload.tags = [{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-3' }];
+		payload.transactionTags = [{ transactionId: payload.transactions[0].id, tagId: 'file-tag-1' }];
+		return payload;
+	}
+
+	it('recreates tags with regenerated ids and relinks them to the new transactions', async () => {
+		expect.assertions(6);
+
+		await restoreBackup('user-a', payloadWithTag());
+
+		const tag = db.store.tags.find((row) => row.userId === 'user-a');
+		expect(tag).toBeDefined();
+		// The file's id must never survive: Transaction.id and Tag.id are global primary keys, so
+		// a hand-edited export naming another user's id would otherwise turn a restore into a
+		// cross-account collision.
+		expect(tag!.id).not.toBe('file-tag-1');
+		expect(tag!.name).toBe('Portugal');
+		expect(tag!.colorToken).toBe('tag-3');
+		// nameKey is recomputed, never read from the file.
+		expect(tag!.nameKey).toBe(computeNameKey('Portugal'));
+
+		const transaction = db.store.transactions.find((row) => row.userId === 'user-a');
+		const link = db.store.transactionTags[0];
+		expect(link).toEqual(
+			expect.objectContaining({ transactionId: transaction!.id, tagId: tag!.id })
+		);
+	});
+
+	it('purges the previous user tags before restoring', async () => {
+		expect.assertions(2);
+
+		db.store.tags.push({ id: 'old-tag', userId: 'user-a', name: 'Ancien', colorToken: 'tag-1' });
+
+		await restoreBackup('user-a', payloadWithTag());
+
+		expect(db.store.tags.filter((row) => row.userId === 'user-a')).toHaveLength(1);
+		expect(db.store.tags.find((row) => row.id === 'old-tag')).toBeUndefined();
+	});
+
+	it('leaves another user tags untouched', async () => {
+		expect.assertions(1);
+
+		db.store.tags.push({ id: 'other-tag', userId: 'user-b', name: 'Autre', colorToken: 'tag-2' });
+
+		await restoreBackup('user-a', buildTagRestorePayload());
+
+		expect(db.store.tags.find((row) => row.id === 'other-tag')).toBeDefined();
+	});
+
+	it('purges tags with a userId-scoped deleteMany, and never touches the join table directly', async () => {
+		expect.assertions(2);
+
+		await restoreBackup('user-a', payloadWithTag());
+
+		expect(db.prisma.tag.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
+		// TransactionTag is deliberately absent from the purge list: it has no userId to scope a
+		// deleteMany by, and it cascades from BOTH parents. This pins the ABSENCE, so a future
+		// edit adding a purge line here goes red and has to justify itself.
+		//
+		// That the cascade actually fires is a DATABASE claim, and this fake has no cascades, so
+		// it structurally cannot prove it. Asserting it here would only prove the fake. The real
+		// assertion runs against all three engines in backup/volume.db-smoke.ts.
+		expect(db.prisma.transactionTag.deleteMany).not.toHaveBeenCalled();
+	});
+
+	it('folds two file tags with the same normalized name onto one row, without a duplicate link', async () => {
+		expect.assertions(2);
+
+		const payload = buildTagRestorePayload();
+		payload.tags = [
+			{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-3' },
+			{ id: 'file-tag-2', name: 'PORTUGAL', colorToken: 'tag-5' }
+		];
+		payload.transactionTags = [
+			{ transactionId: payload.transactions[0].id, tagId: 'file-tag-1' },
+			{ transactionId: payload.transactions[0].id, tagId: 'file-tag-2' }
+		];
+
+		await restoreBackup('user-a', payload);
+
+		// One tag, and crucially ONE link: both file tags remap to the same row, so an
+		// undeduplicated insert would violate the composite primary key.
+		expect(db.store.tags.filter((row) => row.userId === 'user-a')).toHaveLength(1);
+		expect(db.store.transactionTags).toHaveLength(1);
+	});
+
+	it('rejects a pair naming a tag absent from the payload, before any write', async () => {
+		expect.assertions(2);
+
+		const payload = buildTagRestorePayload();
+		payload.transactionTags = [
+			{ transactionId: payload.transactions[0].id, tagId: 'file-tag-missing' }
+		];
+
+		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	it('rejects a pair naming a transaction absent from the payload, before any write', async () => {
+		expect.assertions(2);
+
+		const payload = buildTagRestorePayload();
+		payload.tags = [{ id: 'file-tag-1', name: 'Portugal', colorToken: 'tag-3' }];
+		payload.transactionTags = [{ transactionId: 'file-tx-missing', tagId: 'file-tag-1' }];
+
+		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
 	});
 });

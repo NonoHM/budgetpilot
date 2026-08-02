@@ -781,6 +781,8 @@
 	"settings_backup_error_unknown_account": "La transaction « {id} » référence un compte inconnu du fichier.",
 	"settings_backup_error_unknown_category": "La transaction « {id} » référence une catégorie inconnue du fichier.",
 	"settings_backup_error_unknown_import": "La transaction « {id} » référence un import inconnu du fichier.",
+	"settings_backup_error_unknown_tag": "L'étiquette « {id} » est référencée mais absente du fichier.",
+	"settings_backup_error_unknown_tag_transaction": "La transaction « {id} » est référencée par une étiquette mais absente du fichier.",
 	"settings_backup_error_unknown_net_worth_account": "Le point de patrimoine « {id} » référence un compte inconnu du fichier.",
 	"settings_backup_error_unknown_net_worth_account_link": "Le compte « {id} » référence un compte de patrimoine inconnu du fichier.",
 	"settings_backup_error_unknown_savings_goal_account": "L'objectif d'épargne « {id} » référence un compte de patrimoine inconnu du fichier.",

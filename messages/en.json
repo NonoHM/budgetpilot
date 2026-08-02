@@ -781,6 +781,8 @@
 	"settings_backup_error_unknown_account": "Transaction \"{id}\" references an account unknown to the file.",
 	"settings_backup_error_unknown_category": "Transaction \"{id}\" references a category unknown to the file.",
 	"settings_backup_error_unknown_import": "Transaction \"{id}\" references an import unknown to the file.",
+	"settings_backup_error_unknown_tag": "Tag \"{id}\" is referenced but missing from the file.",
+	"settings_backup_error_unknown_tag_transaction": "Transaction \"{id}\" is referenced by a tag but missing from the file.",
 	"settings_backup_error_unknown_net_worth_account": "Net worth snapshot \"{id}\" references an account unknown to the file.",
 	"settings_backup_error_unknown_net_worth_account_link": "Account \"{id}\" references a net worth account unknown to the file.",
 	"settings_backup_error_unknown_savings_goal_account": "Savings goal \"{id}\" references a net worth account unknown to the file.",
