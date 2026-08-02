@@ -245,9 +245,25 @@ describe('/register action', () => {
 		expect(db.prisma.session.create.mock.calls[0][0].data.userId).toBe('local-backfill-user');
 	});
 
-	it('admin_only mode (variable absent): unchanged behavior, no register rate limiting triggered', async () => {
+	it('admin_only mode (variable absent): an anonymous attempt IS rate limited', async () => {
 		expect.assertions(4);
 
+		// This test used to assert the OPPOSITE — that admin_only triggers no register rate
+		// limiting at all. That was reasonable when it was written, under a condition that has
+		// since stopped holding: admin_only meant "closed instance, nobody can register anyway",
+		// so counting attempts would only have been noise.
+		//
+		// It stopped being reasonable once the same mode became the path where BOOTSTRAP_TOKEN is
+		// the only gate on creating the FIRST account, and that first account is ADMIN. The old
+		// assertion then stood guard over a real gap rather than over a deliberate absence:
+		// measured on a running instance, 250 wrong tokens from one IP met no throttling at any
+		// point, while /login tripped its limiter immediately, and the 251st attempt with the
+		// correct token created the account.
+		//
+		// The condition this assertion now depends on: anonymous requests in admin_only mode can
+		// reach a secret check (the bootstrap token). If registration ever stops being reachable
+		// anonymously in this mode, revisit — but do not "restore" the old assertion without
+		// establishing that first.
 		db.prisma.user.count.mockResolvedValue(1);
 		db.prisma.user.findUnique.mockResolvedValue(null);
 
@@ -258,8 +274,8 @@ describe('/register action', () => {
 
 		expect(result.status).toBe(403);
 		expect(result.data.error).toBe('Inscription indisponible.');
-		expect(rateLimit.isRegisterRateLimited).not.toHaveBeenCalled();
-		expect(rateLimit.recordRegisterAttempt).not.toHaveBeenCalled();
+		expect(rateLimit.isRegisterRateLimited).toHaveBeenCalledWith('127.0.0.1');
+		expect(rateLimit.recordRegisterAttempt).toHaveBeenCalledWith('127.0.0.1');
 	});
 
 	it("mode admin_only avec une valeur REGISTRATION_MODE inconnue (typo 'OPEN') : reste en fail-safe admin_only", async () => {
@@ -276,7 +292,79 @@ describe('/register action', () => {
 
 		expect(result.status).toBe(403);
 		expect(result.data.error).toBe('Inscription indisponible.');
+		// Same flip, same reason as the test above: the fail-safe lands in admin_only, which is
+		// the throttled path for an anonymous caller. A typo'd REGISTRATION_MODE must not be a
+		// way to reach the token check without a counter.
+		expect(rateLimit.isRegisterRateLimited).toHaveBeenCalledWith('127.0.0.1');
+	});
+
+	it('admin_only mode: a wrong bootstrap token counts as an attempt (guessing is bounded)', async () => {
+		expect.assertions(3);
+
+		db.prisma.user.count.mockResolvedValue(0);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+
+		const result = await runRegister(
+			{ set: vi.fn() },
+			{
+				email: 'a@example.test',
+				password: 'mot-de-passe-long',
+				bootstrapToken: 'wrongtoken123456'
+			}
+		);
+
+		expect(result.status).toBe(403);
+		expect(rateLimit.isRegisterRateLimited).toHaveBeenCalledWith('127.0.0.1');
+		expect(rateLimit.recordRegisterAttempt).toHaveBeenCalledWith('127.0.0.1');
+	});
+
+	it('admin_only mode: past the limit, even the CORRECT bootstrap token is refused', async () => {
+		expect.assertions(4);
+
+		// The conclusive assertion, and the unit-test mirror of the live probe that found the gap.
+		// "Wrong tokens return an error" proves nothing on its own — they returned an error before
+		// this fix too, and an unthrottled 403 is exactly what 250 successful guesses look like.
+		// What proves the limiter actually gates the token check is that a request which WOULD
+		// have created the ADMIN account does not, because it never reaches the check at all.
+		db.prisma.user.count.mockResolvedValue(0);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+		db.prisma.user.create.mockResolvedValue({ id: 'user-should-not-exist' });
+		rateLimit.isRegisterRateLimited.mockResolvedValueOnce(true);
+		const cookies = { set: vi.fn() };
+
+		const result = await runRegister(cookies, {
+			email: 'a@example.test',
+			password: 'mot-de-passe-long',
+			bootstrapToken: 'bootstrap-secret'
+		});
+
+		expect(result.status).toBe(429);
+		expect(result.data.error).toBe('Trop de tentatives. Réessayez plus tard.');
+		expect(db.prisma.user.create).not.toHaveBeenCalled();
+		expect(cookies.set).not.toHaveBeenCalled();
+	});
+
+	it('admin_only mode: a logged-in ADMIN creating accounts is NOT rate limited', async () => {
+		expect.assertions(3);
+
+		// The limiter is keyed by IP alone, and an admin legitimately adding a sixth user in one
+		// sitting would otherwise lock themselves out of their own instance for 15 minutes. The
+		// throttle exists to bound guessing of a secret; an authenticated admin is past that gate
+		// already and supplies no token. Deliberate exemption, not an oversight.
+		db.prisma.user.count.mockResolvedValue(2);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+		db.prisma.user.create.mockResolvedValue({ id: 'user-by-admin' });
+		db.prisma.user.updateMany.mockResolvedValue({ count: 0 });
+
+		const result = await runRegister(
+			{ set: vi.fn() },
+			{ email: 'nouveau@example.test', password: 'mot-de-passe-long' },
+			{ user: { role: 'ADMIN' } }
+		);
+
+		expect(result.success).toBe('Utilisateur créé.');
 		expect(rateLimit.isRegisterRateLimited).not.toHaveBeenCalled();
+		expect(rateLimit.recordRegisterAttempt).not.toHaveBeenCalled();
 	});
 
 	it('open mode: successful registration even without bootstrapToken (the token is ignored)', async () => {
