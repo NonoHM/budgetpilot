@@ -317,6 +317,45 @@ describe('setTransactionTags', () => {
 		expect(db.prisma.transactionTag.deleteMany).not.toHaveBeenCalled();
 	});
 
+	it('retries once when a concurrent prune deletes the tag between resolve and link', async () => {
+		expect.assertions(3);
+
+		// The race measured on a real engine (tags.db-smoke.ts): the tag is resolved, a concurrent
+		// prune legitimately deletes it because it has no transactions yet, and the link insert
+		// then hits P2003. Recovery requires RE-RESOLVING, not merely re-inserting, which is why
+		// the retry wraps both.
+		db.prisma.transactionTag.createMany
+			.mockRejectedValueOnce(Object.assign(new Error('fk'), { code: 'P2003' }))
+			.mockResolvedValue({ count: 1 });
+
+		expect(await setTransactionTags('user-a', 'tx-1', ['Portugal'])).toBe('ok');
+		expect(db.prisma.transactionTag.createMany).toHaveBeenCalledTimes(2);
+		// Re-resolved rather than reusing the id that just vanished.
+		expect(db.prisma.tag.upsert).toHaveBeenCalledTimes(2);
+	});
+
+	it('rethrows a foreign-key violation that keeps recurring rather than looping forever', async () => {
+		expect.assertions(2);
+
+		db.prisma.transactionTag.createMany.mockRejectedValue(
+			Object.assign(new Error('fk'), { code: 'P2003' })
+		);
+
+		await expect(setTransactionTags('user-a', 'tx-1', ['Portugal'])).rejects.toThrow('fk');
+		expect(db.prisma.transactionTag.createMany).toHaveBeenCalledTimes(3);
+	});
+
+	it('does not retry an error that is not a foreign-key violation', async () => {
+		expect.assertions(2);
+
+		db.prisma.transactionTag.createMany.mockRejectedValue(new Error('connection lost'));
+
+		await expect(setTransactionTags('user-a', 'tx-1', ['Portugal'])).rejects.toThrow(
+			'connection lost'
+		);
+		expect(db.prisma.transactionTag.createMany).toHaveBeenCalledTimes(1);
+	});
+
 	it('prunes only the tags it just unlinked', async () => {
 		expect.assertions(1);
 

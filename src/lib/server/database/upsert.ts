@@ -62,6 +62,19 @@ export function isUniqueConstraintViolation(caught: unknown): boolean {
 	return errorCodeOf(caught) === 'P2002';
 }
 
+/**
+ * Prisma's foreign-key violation.
+ *
+ * NOT a transient write conflict, and deliberately not in the retry set above: it means a row
+ * this write depends on does not exist, which is usually a bug rather than contention. It is
+ * exported because there is one place where it IS contention: a row resolved a moment ago can be
+ * deleted by a concurrent garbage-collector before the dependent insert lands. See
+ * server/tags/service.ts, where that race was observed on a real engine rather than predicted.
+ */
+export function isForeignKeyViolation(caught: unknown): boolean {
+	return errorCodeOf(caught) === 'P2003';
+}
+
 function errorCodeOf(caught: unknown): string | undefined {
 	if (typeof caught !== 'object' || caught === null || !('code' in caught)) return undefined;
 	const code = (caught as { code?: unknown }).code;

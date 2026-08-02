@@ -1,6 +1,10 @@
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
-import { withConcurrentWriteRetry, isUniqueConstraintViolation } from '$lib/server/database/upsert';
+import {
+	withConcurrentWriteRetry,
+	isUniqueConstraintViolation,
+	isForeignKeyViolation
+} from '$lib/server/database/upsert';
 import {
 	normalizeTagName,
 	pickTagColorToken,
@@ -160,36 +164,26 @@ export async function setTransactionTags(
 	});
 	if (!transaction) return 'not-found';
 
-	// Outside any $transaction on purpose: resolveTagByName wraps an upsert in
-	// withConcurrentWriteRetry, and that must never run inside an interactive transaction.
-	// PostgreSQL aborts the enclosing transaction when a constraint fires, so the retry would
-	// fail on a different error and take every later statement with it. See
-	// server/database/upsert.ts.
-	const resolved = await Promise.all(names.map((name) => resolveTagByName(userId, name)));
-	const nextTagIds = new Set(resolved.map((tag) => tag.id));
-
-	const existing = await prisma.transactionTag.findMany({
-		where: { transactionId },
-		select: { tagId: true }
-	});
-	const currentTagIds = new Set(existing.map((link) => link.tagId));
-
-	const removed = [...currentTagIds].filter((id) => !nextTagIds.has(id));
-	const added = [...nextTagIds].filter((id) => !currentTagIds.has(id));
-
-	if (removed.length > 0) {
-		await prisma.transactionTag.deleteMany({
-			where: { transactionId, tagId: { in: removed } }
-		});
-	}
-	// Only the genuinely new links: re-inserting one that already exists would violate the
-	// composite primary key and fail the whole edit.
-	if (added.length > 0) {
-		await prisma.transactionTag.createMany({
-			data: added.map((tagId) => ({ transactionId, tagId }))
-		});
-	}
-
+	// Retried on a foreign-key violation, and that is a MEASURED requirement rather than a
+	// precaution. The auto-GC race was run against a real engine (tags.db-smoke.ts) and the
+	// design's prediction turned out to be wrong in an instructive way.
+	//
+	// The claim was that putting the emptiness condition inside the DELETE means a concurrent
+	// tagging request "loses the delete rather than orphaning a link". The first half is true and
+	// the second does not follow. The window is between this request RESOLVING a tag and INSERTING
+	// its link: at that instant the tag genuinely has no transactions, so `transactions: { none: {} }`
+	// is satisfied and a concurrent prune deletes it legitimately. This request then inserts a link
+	// to a row that no longer exists and fails with P2003. No orphan is created, so the invariant
+	// the design cared about does hold; what it costs is a crash on a perfectly ordinary action.
+	//
+	// withConcurrentWriteRetry does NOT cover this: P2003 is not a transient write conflict and is
+	// deliberately absent from its allowlist. The retry belongs here, around resolve-and-link
+	// together, because recovery requires RE-RESOLVING (the upsert recreates the pruned tag) and
+	// not merely re-inserting. Idempotent by construction: the block re-reads the current links and
+	// recomputes the diff, so a second pass lands where one would have.
+	//
+	// Observed on SQLite, which serializes writers, so this is not an exotic multi-engine edge.
+	const removed = await replaceLinks(userId, transactionId, names);
 	// Silent and unconfirmed by design: untagging the last transaction must never surface a "your
 	// tag was deleted" message. A real delete, not a soft one. A tag with no transactions carries
 	// no information worth preserving, and a real delete is what makes retyping the same name a
@@ -197,6 +191,60 @@ export async function setTransactionTags(
 	await pruneOrphanTags(userId, removed);
 
 	return 'ok';
+}
+
+/** Attempts in total, not retries. See the race described at the call site. */
+const MAX_LINK_ATTEMPTS = 3;
+
+/**
+ * Resolves `names`, diffs them against the transaction's current links, writes the difference,
+ * and returns the tag ids that were unlinked.
+ *
+ * Separate from setTransactionTags only so the retry has something to re-run. Idempotent by
+ * construction: it re-reads the current links and recomputes the diff on every attempt, so a
+ * second pass lands exactly where one would have.
+ */
+async function replaceLinks(
+	userId: string,
+	transactionId: string,
+	names: string[]
+): Promise<string[]> {
+	for (let attempt = 1; ; attempt++) {
+		// Outside any $transaction on purpose: resolveTagByName wraps an upsert in
+		// withConcurrentWriteRetry, and that must never run inside an interactive transaction.
+		// PostgreSQL aborts the enclosing transaction when a constraint fires, so the retry would
+		// fail on a different error and take every later statement with it. See
+		// server/database/upsert.ts.
+		const resolved = await Promise.all(names.map((name) => resolveTagByName(userId, name)));
+		const nextTagIds = new Set(resolved.map((tag) => tag.id));
+
+		const existing = await prisma.transactionTag.findMany({
+			where: { transactionId },
+			select: { tagId: true }
+		});
+		const currentTagIds = new Set(existing.map((link) => link.tagId));
+
+		const removed = [...currentTagIds].filter((id) => !nextTagIds.has(id));
+		const added = [...nextTagIds].filter((id) => !currentTagIds.has(id));
+
+		if (removed.length > 0) {
+			await prisma.transactionTag.deleteMany({
+				where: { transactionId, tagId: { in: removed } }
+			});
+		}
+
+		if (added.length === 0) return removed;
+		try {
+			// Only the genuinely new links: re-inserting one that already exists would violate the
+			// composite primary key and fail the whole edit.
+			await prisma.transactionTag.createMany({
+				data: added.map((tagId) => ({ transactionId, tagId }))
+			});
+			return removed;
+		} catch (caught) {
+			if (!isForeignKeyViolation(caught) || attempt >= MAX_LINK_ATTEMPTS) throw caught;
+		}
+	}
 }
 
 /**
