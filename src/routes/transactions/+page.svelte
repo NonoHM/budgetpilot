@@ -10,7 +10,7 @@
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { isTransactionNature } from '$lib/domain/transaction';
-	import { isTagColorToken, type TagColorToken } from '$lib/domain/tags';
+	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
 	import { getInitials } from '$lib/domain/initials';
 	import { buildTransactionsHref, buildTransactionsExportHref } from './hrefs';
 	import type { ActionData, PageData } from './$types';
@@ -108,6 +108,13 @@
 	let acceptSubmittingIds = $state(new Set<string>());
 	let deleteSubmitting = $state(false);
 	let createRuleSubmitting = $state(false);
+	// Bulk-tag confirmation dialog (Task 6.2, steps 3-4). `bulkTagName` is the tag name being
+	// typed, reset every time the dialog opens so a previous, unrelated name never survives into
+	// a fresh confirmation.
+	let bulkTagOpen = $state(false);
+	let bulkTagName = $state('');
+	let bulkTagSubmitting = $state(false);
+	let bulkTagUndoSubmitting = $state(false);
 
 	$effect(() => {
 		searchIsRegex = data.filters.qMode === 'regex';
@@ -250,6 +257,97 @@
 			isTagColorToken(tag.colorToken) ? [{ ...tag, colorToken: tag.colorToken }] : []
 		)
 	);
+
+	// Gates the bulk-tag trigger (design 6.5: "enabled only when a filter is active") and, by
+	// construction, the dialog's own filter description below — the same four fields decide both,
+	// so the trigger can never be enabled on a state the dialog would describe as empty. `type`
+	// (the Toutes/Dépenses/Revenus/À classer tabs) is deliberately NOT one of them: this codebase's
+	// vocabulary reserves "filter" for the narrowing controls the design lists by name (period,
+	// category, search term, tag), the tab is a view. An invalid range/search must not enable it
+	// either — a dialog naming an error as if it were a set of transactions is worse than a
+	// momentarily inert button.
+	const bulkTagFilterActive = $derived(
+		Boolean(
+			(data.filters.category ||
+				data.filters.tag ||
+				data.filters.from ||
+				data.filters.to ||
+				data.filters.q) &&
+			!data.dateRangeError &&
+			!data.queryError
+		)
+	);
+
+	/**
+	 * Human description of the active filter for the bulk-tag ConfirmDialog, built from the exact
+	 * same four fields as `bulkTagFilterActive`. A count alone is ambiguous — it lets a stale or
+	 * partially-applied filter pass unnoticed — so the dialog must say WHICH transactions, not just
+	 * how many (task 6.2 step 3). Joined with " · ", the same ad-hoc separator `sheetMeta` in
+	 * upcoming-bills/+page.svelte already uses for fragment lists: punctuation, not translated
+	 * content.
+	 */
+	function describeBulkTagFilter(): string[] {
+		const fragments: string[] = [];
+		if (data.filters.from && data.filters.to) {
+			fragments.push(
+				m.tags_bulk_filter_period_between({
+					from: formatDate(data.filters.from),
+					to: formatDate(data.filters.to)
+				})
+			);
+		} else if (data.filters.from) {
+			fragments.push(m.tags_bulk_filter_period_from({ from: formatDate(data.filters.from) }));
+		} else if (data.filters.to) {
+			fragments.push(m.tags_bulk_filter_period_until({ to: formatDate(data.filters.to) }));
+		}
+		if (data.filters.category) {
+			fragments.push(
+				m.tags_bulk_filter_category({ category: displayCategory(data.filters.category) })
+			);
+		}
+		if (data.filters.q) {
+			fragments.push(m.tags_bulk_filter_search({ query: data.filters.q }));
+		}
+		if (data.filters.tag) {
+			const tagName = data.allTags.find((t) => t.id === data.filters.tag)?.name ?? '';
+			if (tagName) fragments.push(m.tags_bulk_filter_tag({ tag: tagName }));
+		}
+		return fragments;
+	}
+
+	function openBulkTag(): void {
+		if (!bulkTagFilterActive) return;
+		bulkTagName = '';
+		bulkTagOpen = true;
+	}
+
+	function closeBulkTag(): void {
+		bulkTagOpen = false;
+	}
+
+	// The action URL is built from the SAME filters `?/bulkTag` reads server-side
+	// (+page.server.ts:parseListFilters, driven from `url.searchParams`), because the plain
+	// shorthand `action="?/bulkTag"` would resolve against the current URL and REPLACE its query
+	// string entirely — dropping every active filter and applying the tag to an unfiltered set.
+	// `buildTransactionsHref` already emits exactly the params `parseListFilters` consumes (q,
+	// qMode, category, from, to, importBatch, tag, type, ids), so appending the bare action marker
+	// to it keeps the two in lockstep with no separate list to maintain.
+	const bulkTagActionHref = $derived(
+		`${buildTransactionsHref(data.filters, {}, { keepIds: true })}&/bulkTag`
+	);
+
+	const bulkTagResult = $derived(form && 'bulkTagResult' in form ? form.bulkTagResult : null);
+	const bulkTagEmpty = $derived(form && 'bulkTagEmpty' in form ? form.bulkTagEmpty : false);
+	const undoBulkTagSuccess = $derived(
+		form && 'undoBulkTagSuccess' in form ? form.undoBulkTagSuccess : false
+	);
+
+	// Closes the dialog on any successful outcome (applied or empty); an error leaves it open so
+	// `form.bulkTagError` renders next to the field the user just submitted, same as the delete
+	// confirmation's own `form?.deleteError`.
+	$effect(() => {
+		if (bulkTagResult || bulkTagEmpty) bulkTagOpen = false;
+	});
 
 	$effect(() => {
 		const tx = data.selectedTransaction;
@@ -505,6 +603,66 @@
 			</div>
 		</div>
 
+		<!-- Result of the last bulk-tag action, following upcoming-bills/+page.svelte's undo banner
+		     shape exactly (see its comment at :752-786): the undo form sits OUTSIDE AlertBanner
+		     because the banner renders a <p>, and a <form> start tag would close that open <p> in the
+		     HTML parser. The button carries `form=` so it can still live visually inside the banner.
+		     Keyed on `bulkTagResult` so a second identical bulk-tag action (same tag, same count) is
+		     announced again instead of reusing an already-dismissed banner.
+		     Deliberately no `autoDismissMs` override on this one (defaults apply): the undo it carries
+		     is available for as long as the banner is, and the deviation only applies to the "applied"
+		     banner just below, which DOES override it. -->
+		{#if bulkTagResult}
+			<form
+				id="bulk-tag-undo-banner"
+				method="POST"
+				action="?/undoBulkTag"
+				class="hidden"
+				use:enhance={() => {
+					bulkTagUndoSubmitting = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						bulkTagUndoSubmitting = false;
+					};
+				}}
+			>
+				<input type="hidden" name="tagId" value={bulkTagResult.tagId} />
+				<input type="hidden" name="transactionIds" value={bulkTagResult.transactionIds.join(',')} />
+			</form>
+			{#key bulkTagResult}
+				<!-- Approved deviation from the 4s auto-dismiss every other success banner on this page
+				     uses: an undo the user cannot reach because it vanished is worse than a banner that
+				     lingers. `Infinity`, not a large finite value — setTimeout clamps/fires near-
+				     immediately past the 32-bit signed int delay limit (~24.8 days), so a large-but-
+				     finite number would silently misbehave instead of meaning "never" (see
+				     AlertBanner.svelte's own comment on autoDismissMs). -->
+				<AlertBanner variant="success" autoDismissMs={Infinity}>
+					{m.tags_bulk_banner_applied({
+						count: bulkTagResult.appliedCount,
+						tag: bulkTagResult.tagName
+					})}
+					{#snippet action()}
+						<button
+							type="submit"
+							form="bulk-tag-undo-banner"
+							disabled={bulkTagUndoSubmitting}
+							class="-my-2.5 inline-flex min-h-11 shrink-0 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							{m.tags_bulk_banner_undo()}
+						</button>
+					{/snippet}
+				</AlertBanner>
+			{/key}
+		{:else if bulkTagEmpty}
+			{#key form}
+				<AlertBanner variant="success">{m.tags_bulk_banner_empty()}</AlertBanner>
+			{/key}
+		{:else if undoBulkTagSuccess}
+			{#key form}
+				<AlertBanner variant="success">{m.tags_bulk_banner_undone()}</AlertBanner>
+			{/key}
+		{/if}
+
 		<!-- ============ BANDEAU "À CLASSER" — DESKTOP ============ -->
 		{#if data.uncategorizedCount > 0}
 			<div
@@ -752,7 +910,32 @@
 				<Button href="/transactions" variant="secondary" size="field">
 					{m.transactions_reset()}
 				</Button>
+				<!-- Native `disabled` would drop this control from the tab order and announce nothing
+				     when a screen-reader user tabs onto it; `aria-disabled` keeps it focusable so the
+				     reason stays reachable at the keyboard. Not a Button/TapLink instance: both apply
+				     real `disabled` to their <button> branch.
+				     One channel for the reason, not two: no `title` (a second, redundant source), and
+				     the explanation is the SAME visible sentence `aria-describedby` points at below —
+				     never a duplicate in an `aria-label`. Its text stays `zinc-500` (not `zinc-400`,
+				     not dimmed further by an `opacity` class): measured at 4.6:1, an inactive control
+				     must stay readable, not fade toward invisible. -->
+				<button
+					type="button"
+					class="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border px-4 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none {bulkTagFilterActive
+						? 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50'
+						: 'cursor-not-allowed border-zinc-200 bg-white text-zinc-500'}"
+					aria-disabled={bulkTagFilterActive ? undefined : 'true'}
+					aria-describedby={bulkTagFilterActive ? undefined : 'bulk-tag-disabled-reason-desktop'}
+					onclick={openBulkTag}
+				>
+					{m.tags_bulk_cta()}
+				</button>
 			</form>
+			{#if !bulkTagFilterActive}
+				<p id="bulk-tag-disabled-reason-desktop" class="mt-2 text-sm text-zinc-500">
+					{m.tags_bulk_cta_disabled_hint()}
+				</p>
+			{/if}
 			{#if data.queryError}
 				<p class="mt-2 text-sm font-medium text-rose-600">
 					{m.transactions_error_invalid_regex_query()}
@@ -921,6 +1104,24 @@
 						{m.transactions_submit_filter()}
 					</Button>
 				</div>
+				<!-- Same aria-disabled trigger as the desktop bar (see the comment there: one channel
+				     for the reason, no title, zinc-500 not opacity-dimmed), mobile copy. -->
+				<button
+					type="button"
+					class="flex h-11 w-full items-center justify-center rounded-xl border text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none {bulkTagFilterActive
+						? 'border-zinc-300 bg-white text-zinc-700'
+						: 'cursor-not-allowed border-zinc-200 bg-white text-zinc-500'}"
+					aria-disabled={bulkTagFilterActive ? undefined : 'true'}
+					aria-describedby={bulkTagFilterActive ? undefined : 'bulk-tag-disabled-reason-mobile'}
+					onclick={openBulkTag}
+				>
+					{m.tags_bulk_cta()}
+				</button>
+				{#if !bulkTagFilterActive}
+					<p id="bulk-tag-disabled-reason-mobile" class="px-0.5 text-sm text-zinc-500">
+						{m.tags_bulk_cta_disabled_hint()}
+					</p>
+				{/if}
 			</form>
 		</div>
 
@@ -1833,6 +2034,52 @@
 				{#if form?.deleteError}
 					<AlertBanner variant="error" class="mt-2">{form.deleteError}</AlertBanner>
 				{/if}
+			</ConfirmDialog>
+		</form>
+	{/if}
+
+	{#if bulkTagOpen}
+		<!-- The action URL, not the ambient "?/bulkTag" shorthand every other form action on this
+		     page uses: see bulkTagActionHref's own comment. The GET filter form and this dialog's
+		     form are otherwise identical in shape to the delete confirmation just above. -->
+		<form
+			method="POST"
+			action={bulkTagActionHref}
+			use:enhance={() => {
+				bulkTagSubmitting = true;
+				return async ({ update }) => {
+					await update({ reset: false });
+					bulkTagSubmitting = false;
+				};
+			}}
+		>
+			<ConfirmDialog
+				open={bulkTagOpen}
+				title={m.tags_bulk_confirm_title({ count: data.pagination.totalTransactions })}
+				description={describeBulkTagFilter().join(' · ')}
+				confirmLabel={m.tags_bulk_confirm_cta()}
+				confirmLoading={bulkTagSubmitting}
+				onClose={closeBulkTag}
+			>
+				<div class="space-y-3">
+					<label for="bulk-tag-name" class="block text-left text-xs font-medium text-zinc-500">
+						{m.tags_bulk_name_label()}
+					</label>
+					<input
+						id="bulk-tag-name"
+						class={inputBase}
+						type="text"
+						name="tagName"
+						autocomplete="off"
+						bind:value={bulkTagName}
+						maxlength={MAX_TAG_NAME_LENGTH}
+						placeholder={m.tags_bulk_name_placeholder()}
+						required
+					/>
+					{#if form?.bulkTagError}
+						<AlertBanner variant="error">{form.bulkTagError}</AlertBanner>
+					{/if}
+				</div>
 			</ConfirmDialog>
 		</form>
 	{/if}
