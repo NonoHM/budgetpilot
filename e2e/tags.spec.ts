@@ -9,6 +9,8 @@ import {
 	FILTER_TAGGED_LABELS,
 	FILTER_UNTAGGED_LABELS,
 	GC_LABEL,
+	REFLOW_EXISTING_TAG,
+	REFLOW_LABEL,
 	ROUNDTRIP_LABEL,
 	seedTagFixture,
 	withOtherUserPage
@@ -93,13 +95,15 @@ function escapeRegExp(value: string): string {
  *  that already exists elsewhere on the account (TagPicker resolves either through the same
  *  create-or-select row; see ui/TagPicker.svelte's own comment).
  *
- * Closes the picker's own dropdown afterward by clicking OUTSIDE its container (the section
- * heading), never Escape: nothing in `createOrSelect`/`toggleOption` sets `open = false`, so the
- * listbox stays mounted and keeps occupying layout space, and clicking Save next would land the
- * mouse-up on whatever the dropdown's closing reflow shifted underneath it. Escape is not a safe
- * substitute either — BottomSheet's window-level keydown handler is mounted unconditionally (only
- * CSS-hidden at desktop) and treats Escape as "close the detail panel", clearing the whole
- * selection instead of just the dropdown. */
+ * Ends where a user ends, with nothing clicked to tidy up afterwards. That last part is what this
+ * helper used to hide: it clicked the section <legend> to dismiss the panel first, with a comment
+ * explaining that otherwise "clicking Save next would land the mouse-up on whatever the dropdown's
+ * closing reflow shifted underneath it". The defect was real, was understood, and was worked around
+ * here instead of being fixed, so the suite stayed green while the first click on Save silently did
+ * nothing for every real user. TagPicker now closes on click rather than pointer-down, so no
+ * dismissal step is needed and a regression fails here instead of being absorbed. Do not add one
+ * back. Note this path always CREATES the tag, which closes the panel as a side effect; the guard
+ * test above covers the case where the panel is still open when Save is clicked. */
 async function pickOrCreateTag(page: Page, section: Locator, tagName: string): Promise<void> {
 	const input = section.getByRole('combobox', { name: m.tags_heading() });
 	await input.click();
@@ -107,13 +111,6 @@ async function pickOrCreateTag(page: Page, section: Locator, tagName: string): P
 	const option = page.getByRole('option', { name: new RegExp(escapeRegExp(tagName)) });
 	await expect(option).toBeVisible();
 	await option.click();
-
-	// The group's own <legend>, which is the inert text this section is named by. It used to be an
-	// <h3>; the editor became a fieldset/legend pair to match the design, and this second reference
-	// to the old structure survived the first pass over the file. A legend has no ARIA role of its
-	// own (it names the group), so it is located by element rather than by role.
-	await section.locator('legend').click();
-	await expect(page.locator('[role="listbox"]')).toHaveCount(0);
 }
 
 /** Opens a transaction's detail panel by filtering the list down to its (unique) label first, so
@@ -145,6 +142,86 @@ test.describe('assignment round trip', () => {
 
 		await page.reload();
 		await expect(transactionRow(page, ROUNDTRIP_LABEL).getByText(tagName)).toBeVisible();
+	});
+
+	test('the open picker panel moves nothing below it, and one click on Save is enough', async ({
+		page
+	}) => {
+		await openTransactionByLabel(page, REFLOW_LABEL);
+		const section = tagsSectionOf(desktopPanel(page));
+		const save = section.getByRole('button', { name: m.common_save() });
+		const input = section.getByRole('combobox', { name: m.tags_heading() });
+
+		// Both halves in ONE test: the geometry is the cause, the single-click save is the
+		// consequence, and separated they can go green one at a time while the user-visible bug is
+		// back. An in-flow panel pushed Save down; closing it — which happens on focusout, i.e. on
+		// the mouse-down of the very click being made on Save — pulled it back up (measured: 114px,
+		// against a button 32px tall), the mouse-up landed on whatever had slid underneath, and the
+		// first click on Save did nothing at all.
+		// Document coordinates, not boundingBox(): clicking the field scrolls it into view, and a
+		// viewport-relative measurement would report that scroll as a layout shift (it read 1122 then
+		// 390 on the first attempt, with the panel entirely innocent).
+		const documentY = (target: Locator) =>
+			target.evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+
+		const before = await documentY(save);
+		await input.click();
+		await expect(page.locator('[role="listbox"]')).toHaveCount(1);
+		// Exact, not a tolerance: a detached panel takes no layout space, so the only correct shift
+		// is zero.
+		expect(await documentY(save)).toBe(before);
+
+		// An EXISTING tag rather than a created one, so this also covers the select path (the create
+		// path is what every other test here exercises through pickOrCreateTag).
+		await input.pressSequentially(REFLOW_EXISTING_TAG, { delay: 20 });
+		await page.getByRole('option', { name: REFLOW_EXISTING_TAG, exact: true }).click();
+		// Asserted explicitly: without it, a failure at the end cannot be told apart from the
+		// selection never having happened, and an undirty Save legitimately swallows its own click.
+		await expect(
+			section.getByRole('button', { name: m.tags_remove_aria({ name: REFLOW_EXISTING_TAG }) })
+		).toBeVisible();
+
+		// ONE click. The persisted chip is what proves it landed — a `.click()` that hits nothing
+		// throws no error.
+		await save.click();
+
+		await page.goto(`/transactions?q=${encodeURIComponent(REFLOW_LABEL)}`);
+		await expect(transactionRow(page, REFLOW_LABEL).getByText(REFLOW_EXISTING_TAG)).toBeVisible();
+	});
+
+	test('picker option rows are 36px from sm up and 48px on mobile, as the design sizes them', async ({
+		page
+	}) => {
+		// Measured as rendered, at both breakpoints, because the figures are only reachable that way:
+		// the rows carry no explicit height in the markup a reader could check, and left to padding
+		// plus line-height they came out 32px at BOTH widths — below the 44px minimum the design sets
+		// for every mobile target. A unit test cannot see this at all, since it loads no stylesheet.
+		const optionHeight = async (): Promise<number> => {
+			const first = page.getByRole('option').first();
+			await expect(first).toBeVisible();
+			return first.evaluate((el) => el.getBoundingClientRect().height);
+		};
+
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await openTransactionByLabel(page, ROUNDTRIP_LABEL);
+		await tagsSectionOf(desktopPanel(page))
+			.getByRole('combobox', { name: m.tags_heading() })
+			.click();
+		expect(await optionHeight()).toBe(36);
+
+		// The selection lives in the URL, which is the only way to reach this row at 390px: the
+		// <table> openTransactionByLabel clicks through is desktop-only markup and is not rendered
+		// there at all. Reloading the same URL narrow opens the mobile sheet on the same transaction.
+		const selectedUrl = page.url();
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(selectedUrl);
+
+		// The mobile sheet (BottomSheet's role="dialog") mounts its own picker; scoping to the desktop
+		// <aside> would keep measuring the copy `lg:` has hidden, and report 36 forever.
+		await tagsSectionOf(page.getByRole('dialog'))
+			.getByRole('combobox', { name: m.tags_heading() })
+			.click();
+		expect(await optionHeight()).toBe(48);
 	});
 });
 

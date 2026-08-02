@@ -128,10 +128,33 @@
 		}))
 	);
 
-	function resetTyped(): void {
+	/**
+	 * Called when a tag has just been ADDED — never when one is deselected, which leaves the panel
+	 * open so a mis-click is undone on the spot.
+	 *
+	 * Closing here is half of the fix for a defect that silently ate a first-time user's first save,
+	 * and it only makes sense together with the panel being detached (see its own comment below).
+	 * The two are a pair:
+	 *
+	 *  - In the layout flow, the panel pushed Save down. Pressing the mouse on Save moved focus out
+	 *    of the field, `onFocusOut` closed the panel, everything below it jumped up (measured: 114px,
+	 *    against a button 32px tall) and the mouse came back up on whatever had slid underneath. No
+	 *    `click` was emitted, the form never submitted, and the tag the user had just typed stayed
+	 *    unsaved. A second click worked, which is what makes it read as a mis-click, not a bug.
+	 *  - Detached but left open, the panel stops moving anything, but it now sits ON TOP of Save, and
+	 *    a click on the panel does not dismiss it (closeIfOutside rightly ignores its own subtree),
+	 *    so Save is unreachable until the user happens to click some third place.
+	 *
+	 * Detached AND closed on commit, neither happens: by the time the user reaches for Save the panel
+	 * is gone, and nothing has moved. Reopening costs one keystroke or one click on the field, so
+	 * picking several tags in a row still never sends the user outside it, and the design's "le focus
+	 * reste dans le champ pour enchaîner" holds — focus does not leave the input here.
+	 */
+	function commitSelection(): void {
 		typed = '';
 		debounced = '';
 		activeIndex = -1;
+		open = false;
 	}
 
 	function addName(tagName: string): void {
@@ -147,7 +170,7 @@
 		if (atMax) return;
 		addName(option.name);
 		liveAnnouncement = m.tags_picker_added_live({ name: option.name });
-		resetTyped();
+		commitSelection();
 	}
 
 	function createOrSelect(rawName: string): void {
@@ -164,7 +187,7 @@
 			addName(finalName);
 			liveAnnouncement = m.tags_picker_created_live({ name: finalName });
 		}
-		resetTyped();
+		commitSelection();
 	}
 
 	function removeChip(tagName: string): void {
@@ -229,6 +252,13 @@
 
 	function closeIfOutside(target: EventTarget | null): void {
 		if (!open) return;
+		// A click on the "Créer" row lands here rather than in the branch above, and closes the panel:
+		// creating the tag re-renders the panel without that row, so the node the click fired on is
+		// already detached by the time this runs and cannot be tested for containment. That is left
+		// as it is — closing after creating a tag is reasonable on its own terms, and the alternative
+		// (treating any detached target as inside) means guessing about nodes this component may not
+		// own. Selecting an option that already exists keeps the panel open, since that row stays
+		// mounted.
 		if (target instanceof Node && containerEl?.contains(target)) return;
 		open = false;
 		activeIndex = -1;
@@ -241,17 +271,36 @@
 		closeIfOutside(event.relatedTarget);
 	}
 
+	/**
+	 * `click`, NOT `pointerdown`, and that difference is the whole bug this used to have.
+	 *
+	 * The panel sits in the layout flow, so closing it moves everything below it upward. On
+	 * `pointerdown` that happened BETWEEN the user's mouse-down and mouse-up: pressing on the Save
+	 * button below the picker closed the panel, the button jumped up (measured: 99px, against a
+	 * button 32px tall), the mouse-up landed on whatever had slid underneath, and no `click` event
+	 * was ever emitted. The first click on Save did nothing at all — silently, with the tag the user
+	 * had just typed still unsaved. The second click worked, which is what makes it read as a
+	 * mis-click rather than a bug. It was found by using the app, not by a test: the e2e suite had
+	 * been taught to dismiss the panel first, so it never clicked Save the way a user does.
+	 *
+	 * A `click` listener fires only once the press and the release have landed on the same element,
+	 * so the target's own handlers have already run by the time anything reflows. Everything else is
+	 * unchanged: closeIfOutside still ignores clicks inside the picker, and focusout still closes
+	 * the panel when focus moves to a focusable element elsewhere.
+	 */
 	$effect(() => {
 		if (!open) return;
-		function onPointerDown(event: PointerEvent): void {
+		function onDocumentClick(event: MouseEvent): void {
 			closeIfOutside(event.target);
 		}
-		document.addEventListener('pointerdown', onPointerDown);
-		return () => document.removeEventListener('pointerdown', onPointerDown);
+		document.addEventListener('click', onDocumentClick);
+		return () => document.removeEventListener('click', onDocumentClick);
 	});
 </script>
 
-<div class="w-full" bind:this={containerEl} onfocusout={onFocusOut}>
+<!-- `relative` is the containing block the detached panel below positions against; without it the
+     panel would attach to some ancestor and stop tracking the field. -->
+<div class="relative w-full" bind:this={containerEl} onfocusout={onFocusOut}>
 	<label class="sr-only" for={inputId}>{ariaLabel ?? m.tags_picker_aria()}</label>
 
 	{#if chips.length > 0}
@@ -267,6 +316,10 @@
 		>
 			+
 		</span>
+		<!-- onfocus AND onclick, neither redundant: `focus` does not fire on a field that already has
+		     it, which is exactly where the user stands right after committing a tag — panel closed,
+		     caret still in the field. Without the click handler, clicking the field to see the list
+		     again would do nothing at all and the only way back would be to type. -->
 		<input
 			bind:this={inputEl}
 			id={inputId}
@@ -283,6 +336,7 @@
 			aria-activedescendant={activeId}
 			oninput={onInput}
 			onfocus={() => (open = true)}
+			onclick={() => (open = true)}
 			onkeydown={onKeydown}
 		/>
 	</div>
@@ -295,9 +349,19 @@
 	<div class="sr-only" role="status" aria-live="polite">{liveAnnouncement}</div>
 
 	{#if open}
+		<!-- Option rows are 48px on mobile and 36px from `sm` up, the design's own figures ("items
+		     36 px desktop / 48 px mobile"). Pinned rather than left to padding + line-height, which
+		     gave 32px at BOTH breakpoints — under the 44px minimum the design sets for every mobile
+		     target, and measured in a browser rather than read off the class list.
+		     DETACHED, and this is load-bearing rather than styling: an in-flow panel moves every
+		     control below it each time it opens or closes, and closing happens on focusout — which
+		     fires on the mouse-down of the very click the user is making on Save. See
+		     commitSelection() above for the full account and the measurement. Positioned against the
+		     container's bottom edge, which is the input's: chips sit above it, and the hidden input
+		     and the two sr-only live regions take no layout space. -->
 		<div
 			id={listboxId}
-			class="relative z-10 mt-1 max-h-[280px] overflow-y-auto rounded-xl border border-zinc-900 bg-white p-1.5 shadow-lg"
+			class="absolute top-full right-0 left-0 z-20 mt-1 max-h-[280px] overflow-y-auto rounded-xl border border-zinc-900 bg-white p-1.5 shadow-lg"
 		>
 			{#if loading}
 				<ul class="space-y-1" role="status" aria-label={m.tags_picker_loading_aria()}>
@@ -335,7 +399,7 @@
 								id="{pickerId}-option-{index}"
 								role="option"
 								aria-selected={isSelected}
-								class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-700 {isActive
+								class="flex h-12 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-zinc-700 sm:h-9 {isActive
 									? 'bg-zinc-100'
 									: ''}"
 								onmousedown={(event) => event.preventDefault()}
@@ -374,7 +438,7 @@
 								id="{pickerId}-option-{index}"
 								role="option"
 								aria-selected="false"
-								class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-zinc-700 {isActive
+								class="flex h-12 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-zinc-700 sm:h-9 {isActive
 									? 'bg-zinc-100'
 									: ''}"
 								onmousedown={(event) => event.preventDefault()}

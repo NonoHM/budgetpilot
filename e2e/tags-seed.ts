@@ -28,6 +28,16 @@ import * as m from '../src/lib/paraglide/messages';
 
 export const ROUNDTRIP_LABEL = 'TAG SEED ROUNDTRIP';
 export const GC_LABEL = 'TAG SEED AUTO GC';
+/** The reflow guard's own untagged row, kept separate from ROUNDTRIP_LABEL so the two tests cannot
+ *  leave each other a row whose chips have already changed the panel's height. */
+export const REFLOW_LABEL = 'TAG SEED REFLOW GUARD';
+/** Carries REFLOW_EXISTING_TAG so that tag exists on the account without being on REFLOW_LABEL.
+ *  The guard needs to pick an EXISTING option: that row stays mounted through the selection, so the
+ *  panel stays open and Save is clicked with it open, which is the exact situation that used to
+ *  swallow the click. Clicking the "Créer" row instead would close the panel and settle the layout
+ *  before Save is ever reached, and the test would pass against the defect. */
+export const REFLOW_SEED_LABEL = 'TAG SEED REFLOW SOURCE';
+export const REFLOW_EXISTING_TAG = 'Reflow Existing E2E';
 
 export const FILTER_TAG_NAME = 'Voyage E2E';
 export const FILTER_TAGGED_LABELS = [
@@ -50,6 +60,8 @@ export const BULK_UNTAGGED_LABELS = ['TAG SEED BULK BRAVO', 'TAG SEED BULK CHARL
 const ALL_LABELS = [
 	ROUNDTRIP_LABEL,
 	GC_LABEL,
+	REFLOW_LABEL,
+	REFLOW_SEED_LABEL,
 	...FILTER_TAGGED_LABELS,
 	...FILTER_UNTAGGED_LABELS,
 	BULK_PRETAGGED_LABEL,
@@ -132,6 +144,11 @@ export async function seedTagFixture(): Promise<void> {
 
 		const bulkPretaggedId = await resolveTransactionIdByLabel(context, BULK_PRETAGGED_LABEL);
 		await saveTagsViaApi(context, bulkPretaggedId, [BULK_TAG_NAME]);
+
+		// Deliberately on REFLOW_SEED_LABEL and not on REFLOW_LABEL: the guard picks this tag from
+		// the panel, which only offers it as a selectable option while REFLOW_LABEL does not have it.
+		const reflowSeedId = await resolveTransactionIdByLabel(context, REFLOW_SEED_LABEL);
+		await saveTagsViaApi(context, reflowSeedId, [REFLOW_EXISTING_TAG]);
 	} finally {
 		await context.dispose();
 	}

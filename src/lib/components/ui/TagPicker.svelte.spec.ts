@@ -54,12 +54,18 @@ describe('TagPicker.svelte', () => {
 		expect(page.getByText(/^Créer/).elements().length).toBe(0);
 	});
 
-	it('adds a selection without closing, so several tags can be picked in one pass', async () => {
+	it('lets several tags be picked in one pass, without the focus ever leaving the field', async () => {
 		render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
-		// Still open: the second option is still there to pick, and the field is still focused.
+
+		// Committing closes the panel — it is detached and would otherwise sit on top of whatever the
+		// caller puts below the field (in the transaction editor, the Save button). Chaining is
+		// preserved by the field keeping focus, so one keystroke reopens the panel; that is the
+		// property this test protects, not the panel's mounted state.
+		await expect.element(fieldInput()).toHaveFocus();
+		await userEvent.type(fieldInput(), 'Trav');
 		await expect.element(page.getByRole('option', { name: 'Travaux' })).toBeInTheDocument();
 
 		await userEvent.click(page.getByRole('option', { name: 'Travaux' }));
@@ -186,23 +192,35 @@ describe('TagPicker.svelte', () => {
 		outside.remove();
 	});
 
-	it('closes the panel on an outside pointer-down even when focus does not move', async () => {
+	it('closes the panel on an outside click even when focus does not move', async () => {
 		render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 		await expect.element(page.getByRole('listbox')).toBeInTheDocument();
 
-		document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+		// A full click, not a pointer-down. The component deliberately waits for the click so that
+		// the panel — which is in the layout flow — cannot close between a button's mouse-down and
+		// mouse-up and move that button out from under the cursor. See the listener's own comment;
+		// dispatching `pointerdown` here would pass against the version that had that bug.
+		document.body.dispatchEvent(new MouseEvent('click', { bubbles: true }));
 
 		await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
 	});
 
-	it('does not close the panel when clicking an option (mousedown is prevented, so focus never leaves the field)', async () => {
+	it('closes the panel once a tag is committed, but keeps it open when one is deselected', async () => {
 		render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
 
+		// Closed on commit: detached, an open panel covers whatever sits below the field, and a click
+		// on the panel does not dismiss it — so leaving it open strands the caller's own controls.
+		await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
+
+		// Deselecting is the opposite case and deliberately keeps the panel: the user is working
+		// inside the list, and closing it under them would cost a keystroke to undo a mis-click.
+		await userEvent.click(fieldInput());
+		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
 		await expect.element(page.getByRole('listbox')).toBeInTheDocument();
 	});
 
