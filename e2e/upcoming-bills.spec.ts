@@ -16,6 +16,7 @@ import {
 } from './bills-seed';
 import { formatMonthLabel } from '../src/lib/domain/dateFormat';
 import * as m from '../src/lib/paraglide/messages';
+import { contrastRatio } from './color-contrast';
 import type { Locator, Page } from '@playwright/test';
 
 // End-to-end verification of the "upcoming bills" feature: the dashboard widget and
@@ -143,19 +144,6 @@ async function paintedColors(locator: Locator) {
 			}
 		};
 	});
-}
-
-function relativeLuminance([r, g, b]: [number, number, number]): number {
-	const channel = (value: number) => {
-		const c = value / 255;
-		return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-	};
-	return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-}
-
-function contrastRatio(a: [number, number, number], b: [number, number, number]): number {
-	const [light, dark] = [relativeLuminance(a), relativeLuminance(b)].sort((x, y) => y - x);
-	return (light + 0.05) / (dark + 0.05);
 }
 
 /** Cents parsed out of a rendered French currency string ("Reste \u00e0 sortir 1\u202f234,56\u202f\u20ac"). The
