@@ -1079,5 +1079,18 @@
 	"tags_remove_aria": "Retirer l'étiquette {name}",
 	"tags_chips_overflow_label": "+{n}",
 	"tags_chips_overflow_aria_one": "{n} étiquette de plus : {names}",
-	"tags_chips_overflow_aria_many": "{n} étiquettes de plus : {names}"
+	"tags_chips_overflow_aria_many": "{n} étiquettes de plus : {names}",
+	"tags_picker_placeholder": "Ajouter une étiquette",
+	"tags_picker_aria": "Étiquettes",
+	"tags_picker_create": "Créer « {name} »",
+	"tags_picker_max_reached": "Limite de {max} étiquettes atteinte.",
+	"tags_picker_empty_heading": "Tapez un nom pour créer votre première étiquette.",
+	"tags_picker_empty_body": "Une étiquette traverse les catégories : « Vacances Portugal 2026 » peut porter un train, un restaurant et un hôtel.",
+	"tags_picker_result_count_one": "{n} étiquette",
+	"tags_picker_result_count_many": "{n} étiquettes",
+	"tags_picker_no_match_live": "aucune correspondance, Entrée pour créer",
+	"tags_picker_added_live": "{name} ajoutée",
+	"tags_picker_created_live": "{name} ajoutée",
+	"tags_picker_selected_live": "{name} sélectionnée",
+	"tags_picker_loading_aria": "Chargement des étiquettes"
 }

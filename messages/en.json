@@ -1079,5 +1079,18 @@
 	"tags_remove_aria": "Remove tag {name}",
 	"tags_chips_overflow_label": "+{n}",
 	"tags_chips_overflow_aria_one": "{n} more tag: {names}",
-	"tags_chips_overflow_aria_many": "{n} more tags: {names}"
+	"tags_chips_overflow_aria_many": "{n} more tags: {names}",
+	"tags_picker_placeholder": "Add a tag",
+	"tags_picker_aria": "Tags",
+	"tags_picker_create": "Create \"{name}\"",
+	"tags_picker_max_reached": "Limit of {max} tags reached.",
+	"tags_picker_empty_heading": "Type a name to create your first tag.",
+	"tags_picker_empty_body": "A tag crosses categories: \"Vacances Portugal 2026\" can carry a train, a restaurant and a hotel.",
+	"tags_picker_result_count_one": "{n} tag",
+	"tags_picker_result_count_many": "{n} tags",
+	"tags_picker_no_match_live": "no match, press Enter to create",
+	"tags_picker_added_live": "{name} added",
+	"tags_picker_created_live": "{name} added",
+	"tags_picker_selected_live": "{name} selected",
+	"tags_picker_loading_aria": "Loading tags"
 }
