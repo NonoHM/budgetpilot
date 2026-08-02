@@ -282,13 +282,11 @@
 		return m.transactions_nature_source_default();
 	}
 
-	// The old buildFilterHref omitted `type` entirely when filterType === 'all'; an explicit
-	// override always emits its value, so 'all' is special-cased here to keep emitted URLs
-	// byte-identical to before.
+	// Always passes the DESTINATION tab, never {}. An absent override means "keep the ambient
+	// filter", which is what paging needs and the exact opposite of what a filter tab needs:
+	// passing {} for 'all' made the "Toutes" tab re-emit the filter it exists to clear.
 	const buildFilterHref = (filterType: string) =>
-		buildTransactionsHref(data.filters, filterType === 'all' ? {} : { type: filterType }, {
-			keepIds: false
-		});
+		buildTransactionsHref(data.filters, { type: filterType }, { keepIds: false });
 	const buildPageHref = (page: number) =>
 		buildTransactionsHref(data.filters, { page: String(page) }, { keepIds: true });
 	const buildSelectedHref = (id: string) =>

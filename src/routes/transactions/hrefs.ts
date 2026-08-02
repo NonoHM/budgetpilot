@@ -45,10 +45,18 @@ export function buildTransactionsHref(
 ): `/transactions?${string}` {
 	const params = baseParams(filters, options.keepIds);
 
-	// An explicit override is emitted as given, including 'all'; only the ambient filter value is
-	// suppressed when it is the default. Focus mode relies on this to force type=classify.
-	if (overrides.type !== undefined) params.set('type', overrides.type);
-	else if (filters.type !== 'all') params.set('type', filters.type);
+	// An override replaces the ambient filter; 'all' is the default and is never emitted, whichever
+	// of the two supplied it. That single rule reproduces all five original builders exactly:
+	// buildFocusHref forced 'classify', buildFilterHref keyed off the DESTINATION tab, and
+	// buildPageHref / buildSelectedHref / buildExportHref carried the ambient value forward. Each
+	// emitted `type` only when the value it was working with was not 'all'.
+	//
+	// Do not "simplify" this back to `overrides.type !== undefined ? set(override) : ...`. That
+	// shape makes an absent override mean "keep ambient", so the "Toutes" tab, which asks for
+	// 'all', silently re-emits the filter it is meant to clear and becomes a dead link on exactly
+	// the pages where it matters. A test pins both halves.
+	const effectiveType = overrides.type ?? filters.type;
+	if (effectiveType !== 'all') params.set('type', effectiveType);
 
 	if (overrides.page !== undefined) params.set('page', overrides.page);
 	if (overrides.selected !== undefined) params.set('selected', overrides.selected);

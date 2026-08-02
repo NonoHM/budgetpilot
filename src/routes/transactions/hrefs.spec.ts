@@ -65,10 +65,37 @@ describe('buildTransactionsHref', () => {
 		expect(new URLSearchParams(href.split('?')[1]).get('type')).toBeNull();
 	});
 
-	it('applies a type override, including all which must still be emitted', () => {
-		// buildFocusHref set type=classify unconditionally; an override is explicit, not filtered.
+	it('applies a type override', () => {
+		// buildFocusHref set type=classify unconditionally; an override wins over the ambient value.
 		const href = buildTransactionsHref(filters, { type: 'classify' }, { keepIds: false });
 		expect(new URLSearchParams(href.split('?')[1]).get('type')).toBe('classify');
+	});
+
+	it('clears type when the override is all, even though the ambient filter is not', () => {
+		// The regression this pins: the "Toutes" tab passes an `all` override while the ambient
+		// filter is still `expense`. If the builder falls back to the ambient value whenever the
+		// override is absent-or-all, that tab emits `type=expense` and is a dead link on exactly
+		// the pages where it matters. The previous five builders keyed off the value they were
+		// GIVEN, never the ambient one, so `all` has to suppress the parameter here too.
+		const href = buildTransactionsHref(
+			{ ...filters, type: 'expense' },
+			{ type: 'all' },
+			{ keepIds: false }
+		);
+		expect(new URLSearchParams(href.split('?')[1]).get('type')).toBeNull();
+	});
+
+	it('keeps a non-default ambient type when no override is given, for paging and selection', () => {
+		// The other half of the contract, and the reason `all` cannot simply be dropped from the
+		// override type: buildPageHref and buildSelectedHref must preserve the active filter.
+		const href = buildTransactionsHref(
+			{ ...filters, type: 'expense' },
+			{ page: '2' },
+			{
+				keepIds: true
+			}
+		);
+		expect(new URLSearchParams(href.split('?')[1]).get('type')).toBe('expense');
 	});
 
 	it('applies page and selected overrides', () => {
