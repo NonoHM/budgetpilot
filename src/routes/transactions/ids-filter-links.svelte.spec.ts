@@ -47,6 +47,7 @@ function makeTransaction(id: string) {
 		amountCents: 3_000,
 		type: 'expense' as const,
 		source: 'csv',
+		tags: [],
 		suggestion: null
 	};
 }
@@ -59,6 +60,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedSuggestion: null,
 		categoryOptions: ['Alimentation'],
 		categories: [{ name: 'Alimentation', defaultKey: null }],
+		allTags: [],
 		natureOptions: TRANSACTION_NATURES,
 		filters: {
 			q: '',
@@ -68,7 +70,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			from: '',
 			to: '',
 			importBatchId: '',
-			ids: IDS
+			ids: IDS,
+			tag: ''
 		},
 		filteredTotals: { incomeCents: 0, expenseCents: 90_000 },
 		queryError: false,
