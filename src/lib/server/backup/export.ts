@@ -10,6 +10,7 @@ type BankConnectionStatusExport = BackupExport['bankConnections'][number]['statu
 // the export narrows it to the two values the backup schema accepts. `kind` needs no such cast:
 // it is a Prisma enum and already has the exact literal type.
 type RecurringActionDirectionExport = BackupExport['recurringStreamActions'][number]['direction'];
+type TagColorTokenExport = BackupExport['tags'][number]['colorToken'];
 
 /**
  * Builds the full export of a user's data, strictly scoped by `userId`.
@@ -31,7 +32,9 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		netWorthSnapshots,
 		savingsGoals,
 		bankConnections,
-		recurringStreamActions
+		recurringStreamActions,
+		tags,
+		transactionTags
 	] = await Promise.all([
 		prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } }),
 		prisma.account.findMany({
@@ -163,6 +166,17 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				createdAt: true,
 				updatedAt: true
 			}
+		}),
+		prisma.tag.findMany({
+			where: { userId },
+			select: { id: true, name: true, colorToken: true }
+		}),
+		// Scoped through the transaction rather than a userId column, because TransactionTag has
+		// none by design: a link's owner is its transaction's owner (see the model comment). This
+		// is the only place the export reaches a row without a userId of its own.
+		prisma.transactionTag.findMany({
+			where: { transaction: { userId } },
+			select: { transactionId: true, tagId: true }
 		})
 	]);
 
@@ -224,6 +238,13 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 			dueDate: action.dueDate ? action.dueDate.toISOString() : null,
 			createdAt: action.createdAt.toISOString(),
 			updatedAt: action.updatedAt.toISOString()
-		}))
+		})),
+		tags: tags.map((tag) => ({
+			...tag,
+			// `colorToken` is a plain String column; the backup schema accepts only the closed
+			// palette set. A row holding anything else cannot have been written by this app.
+			colorToken: tag.colorToken as TagColorTokenExport
+		})),
+		transactionTags
 	};
 }

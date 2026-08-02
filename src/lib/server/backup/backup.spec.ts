@@ -22,7 +22,9 @@ const db = vi.hoisted(() => {
 		netWorthSnapshots: [] as Row[],
 		savingsGoals: [] as Row[],
 		bankConnections: [] as Row[],
-		recurringStreamActions: [] as Row[]
+		recurringStreamActions: [] as Row[],
+		tags: [] as Row[],
+		transactionTags: [] as Row[]
 	};
 
 	let counter = 0;
@@ -79,6 +81,75 @@ const db = vi.hoisted(() => {
 		};
 	}
 
+	/**
+	 * TransactionTag has no `userId` column and no surrogate `id` (see the model comment in
+	 * schema.prisma), so the generic `table()` helper above cannot serve it: that one filters on
+	 * `where.userId`, and the real query reaches ownership through `where.transaction.userId`.
+	 *
+	 * The stored rows still carry a `userId` here, purely so a spec can express which user a link
+	 * belongs to. The fake deliberately REFUSES a `where.userId` filter rather than honouring it:
+	 * that column does not exist, the real engine would reject the query, and a fake that quietly
+	 * accepted it would let a wrong query pass every test and fail only in production.
+	 */
+	function transactionTagTable() {
+		const rows = store.transactionTags;
+		return {
+			findMany: vi.fn(
+				async ({
+					where,
+					select
+				}: {
+					where: { transaction?: { userId: string }; transactionId?: string };
+					select?: Record<string, boolean>;
+				}) => {
+					if ('userId' in where) {
+						throw new Error(
+							'TransactionTag has no userId column; scope through `transaction: { userId }`'
+						);
+					}
+					return rows
+						.filter((row) => (where.transaction ? row.userId === where.transaction.userId : true))
+						.filter((row) =>
+							where.transactionId ? row.transactionId === where.transactionId : true
+						)
+						.map((row) => pick(row, select));
+				}
+			),
+			createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => {
+				// No generated id: the primary key is (transactionId, tagId). The `userId` written
+				// here is the fake's own bookkeeping, derived from the link's transaction, exactly
+				// as the real query derives ownership through the relation.
+				const created = data.map((entry) => {
+					const owner = store.transactions.find((row) => row.id === entry.transactionId);
+					return { ...entry, userId: owner?.userId } as Row;
+				});
+				rows.push(...created);
+				return { count: created.length };
+			}),
+			deleteMany: vi.fn(
+				async ({ where }: { where: { transactionId?: string; tagId?: { in: string[] } } }) => {
+					const before = rows.length;
+					const remaining = rows.filter(
+						(row) =>
+							!(
+								(where.transactionId === undefined || row.transactionId === where.transactionId) &&
+								(where.tagId === undefined || where.tagId.in.includes(row.tagId as string))
+							)
+					);
+					rows.length = 0;
+					rows.push(...remaining);
+					return { count: before - rows.length };
+				}
+			),
+			count: vi.fn(
+				async ({ where }: { where?: { transaction?: { userId: string } } } = {}) =>
+					rows.filter((row) =>
+						where?.transaction ? row.userId === where.transaction.userId : true
+					).length
+			)
+		};
+	}
+
 	const categoryTable = table(store.categories, 'category');
 	const categoryUpsert = vi.fn(
 		async ({
@@ -125,6 +196,8 @@ const db = vi.hoisted(() => {
 			store.savingsGoals.length = 0;
 			store.bankConnections.length = 0;
 			store.recurringStreamActions.length = 0;
+			store.tags.length = 0;
+			store.transactionTags.length = 0;
 			counter = 0;
 		},
 		prisma: {
@@ -156,6 +229,8 @@ const db = vi.hoisted(() => {
 			savingsGoal: table(store.savingsGoals, 'savings-goal'),
 			bankConnection: table(store.bankConnections, 'bank-connection'),
 			recurringStreamAction: table(store.recurringStreamActions, 'recurring-action'),
+			tag: table(store.tags, 'tag'),
+			transactionTag: transactionTagTable(),
 			// Second parameter mirrors the real client's interactive-transaction options, so
 			// specs can assert what the caller asked for (see LONG_TRANSACTION_OPTIONS).
 			$transaction: vi.fn(
@@ -173,6 +248,7 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 const { buildBackupExport } = await import('./export');
 const { restoreBackup, BackupImportError } = await import('./import');
 const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS } = await import('./schema');
+type TagColorToken = import('$lib/domain/tags').TagColorToken;
 const { UNCLASSIFIED_CATEGORY } = await import('$lib/domain/categories');
 const { LONG_TRANSACTION_OPTIONS } = await import('$lib/server/dbTransaction');
 
@@ -519,6 +595,52 @@ describe('buildBackupExport', () => {
 		expect(result.bankConnections).toHaveLength(1);
 		expect(JSON.stringify(result)).not.toContain('secret-provider-b');
 	});
+
+	it('exports tags scoped by userId, with no leak between users', async () => {
+		expect.assertions(2);
+
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+		db.store.tags.push(
+			{ id: 'tag-a', userId: 'user-a', name: 'Portugal', colorToken: 'tag-1' },
+			{ id: 'tag-b', userId: 'user-b', name: 'Autre', colorToken: 'tag-2' }
+		);
+
+		const result = await buildBackupExport('user-a');
+
+		expect(result.tags).toEqual([{ id: 'tag-a', name: 'Portugal', colorToken: 'tag-1' }]);
+		// The other user's tag name is free text about their own life. Assert on the whole
+		// serialized payload, not just the tags array, so a leak through any other key is caught.
+		expect(JSON.stringify(result)).not.toContain('Autre');
+	});
+
+	it('exports transaction-tag pairs only for the requesting user', async () => {
+		expect.assertions(2);
+
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+		db.store.transactionTags.push(
+			{ id: 'link-a', userId: 'user-a', transactionId: 'tx-a', tagId: 'tag-a' },
+			{ id: 'link-b', userId: 'user-b', transactionId: 'tx-b', tagId: 'tag-b' }
+		);
+
+		const result = await buildBackupExport('user-a');
+
+		expect(result.transactionTags).toEqual([{ transactionId: 'tx-a', tagId: 'tag-a' }]);
+		expect(JSON.stringify(result)).not.toContain('tx-b');
+	});
+
+	it('reaches transaction-tag pairs through the relation, never a userId column', async () => {
+		expect.assertions(1);
+
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+
+		await buildBackupExport('user-a');
+
+		// TransactionTag has no userId column. The fake throws on `where.userId`, so this asserts
+		// the shape the real engine would accept rather than trusting the query to be right.
+		expect(db.prisma.transactionTag.findMany.mock.calls[0][0].where).toEqual({
+			transaction: { userId: 'user-a' }
+		});
+	});
 });
 
 describe('restoreBackup', () => {
@@ -646,7 +768,9 @@ describe('restoreBackup', () => {
 				dueDate: string | null;
 				createdAt: string;
 				updatedAt: string;
-			}>
+			}>,
+			tags: [] as Array<{ id: string; name: string; colorToken: TagColorToken }>,
+			transactionTags: [] as Array<{ transactionId: string; tagId: string }>
 		};
 	}
 
