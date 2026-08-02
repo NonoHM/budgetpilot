@@ -64,4 +64,30 @@ describe('Skeleton.svelte', () => {
 		expect(declarations).toMatch(/skeleton-pulse[^}]*animation:[^;]*\bnone\s*running\s*none/);
 		expect(declarations).toMatch(/skeleton-pulse[^}]*opacity:\s*1/);
 	});
+
+	it('renders no phantom chip slot by default', async () => {
+		const { container } = render(Skeleton, {});
+
+		expect(container.querySelectorAll('.skeleton-pulse').length).toBe(4);
+		expect(container.querySelector('[data-testid="skeleton-chips"]')).toBeNull();
+	});
+
+	it('renders a two-block phantom chip slot when chips is true, always drawn regardless of the eventual row', async () => {
+		// "Always drawn" per the design: the real row's tag count is unknown while loading, and a
+		// slot that only appears once the data arrives would shift the column — so this renders
+		// unconditionally on `chips`, never based on any tag count (there is none to know yet).
+		const { container } = render(Skeleton, { chips: true });
+
+		const slot = container.querySelector('[data-testid="skeleton-chips"]');
+		expect(slot).not.toBeNull();
+
+		const blocks = slot!.querySelectorAll('.skeleton-pulse');
+		expect(blocks.length).toBe(2);
+		for (const block of Array.from(blocks)) {
+			expect(block.className).toContain('w-[54px]');
+		}
+
+		// The two chip blocks join the pastille + 2 lines + value, for 6 pulsing blocks total.
+		expect(container.querySelectorAll('.skeleton-pulse').length).toBe(6);
+	});
 });
