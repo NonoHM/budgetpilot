@@ -1,0 +1,43 @@
+# Trivy suppressions. Read by every trivy-action step in docker-publish.yml and
+# trivy-scheduled.yml — Trivy auto-detects `.trivyignore` in the working directory, which is
+# the repo root after each workflow's `actions/checkout`. That means these entries drop out of
+# the SARIF inventory too, not just the gates, which is a deliberate narrowing of the
+# "Security tab gets the complete inventory" rule those workflows otherwise follow. The comment
+# at each SARIF step records the amendment.
+#
+# ONLY for findings that can never clear, because upstream declines them as vulnerabilities.
+# Nothing merely unfixed-for-now belongs here: a CVE Debian has postponed is exactly the
+# awareness the scheduled scan exists to produce, and hiding it would defeat the
+# distroless-vs-Chainguard trade-off this alerting was budgeted for.
+#
+# Admission test — all three, verified on the Debian security tracker, not assumed:
+#   1. tagged <unimportant> for trixie (NOT <no-dsa> and NOT <postponed>), and
+#   2. "vulnerable" in sid/forky too, i.e. no fix is in flight anywhere, and
+#   3. an upstream statement declining it as a security issue.
+# A <no-dsa> or <postponed> tag fails the test even when the severity looks trivial.
+#
+# Everything below is glibc, all LOW, all triaged 2026-08-02 against
+# https://security-tracker.debian.org/tracker/source-package/glibc with installed
+# libc6 2.41-12+deb13u3 (identical to trixie's current version — nothing to pull).
+# Re-verify before adding a line; do not extend this file by pattern-matching on severity.
+
+# "That's standard POSIX behaviour implemented by (e)glibc. Applications using glob need to
+# impose limits for themselves." — Debian. glob() resource consumption; not a glibc defect.
+CVE-2010-4756
+
+# Rejected under glibc's published Security Exceptions policy
+# (https://sourceware.org/glibc/wiki/Security%20Exceptions). Stack exhaustion in a
+# non-security context. sourceware bug 34141 / gnulib thread.
+CVE-2018-20796
+
+# The four 2019-1010xxx "mitigation bypass" reports, each marked "Not treated as a security
+# issue by upstream" by Debian, each with a sourceware bug closed on that basis. They describe
+# defeating hardening from a position that already implies compromise.
+CVE-2019-1010022 # sourceware 22850
+CVE-2019-1010023 # sourceware 22851
+CVE-2019-1010024 # sourceware 22852
+CVE-2019-1010025 # sourceware 22853
+
+# check_dst_limits_calc_pos_1 stack exhaustion in the regex engine; sourceware bug 24269,
+# unimportant for Debian, still "vulnerable" in sid seven years on.
+CVE-2019-9192

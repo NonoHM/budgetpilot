@@ -168,9 +168,17 @@ jobs:
   # the same Debian snapshot, but "same packages" is a claim to verify per release, not assume.
   #
   # The SARIF step scans with no severity filter and no ignore-unfixed on purpose — the
-  # Security tab gets the complete inventory (it filters natively); only the gate applies
-  # policy. Alerts uploaded here land under the release tag's ref; the daily default-branch
-  # view comes from trivy-scheduled.yml.
+  # Security tab gets the inventory (it filters natively); only the gate applies policy.
+  # Alerts uploaded here land under the release tag's ref; the daily default-branch view
+  # comes from trivy-scheduled.yml.
+  #
+  # The one carve-out, added 2026-08-02: `.trivyignore` at the repo root is auto-detected by
+  # Trivy from the working directory, so it filters the SARIF inventory. The two gates below
+  # opt back out with `TRIVY_IGNOREFILE=/dev/null` — suppression is a Security-tab noise
+  # decision and must never be able to unblock a release. Without that, a CRITICAL/HIGH line
+  # added to `.trivyignore` would silently pass this gate; with it, the gate cannot be
+  # weakened by editing that file at all. Verified by scanning with the file present and the
+  # override set: all 12 findings reappear.
   scan:
     needs: [prepare, build]
     runs-on: ubuntu-latest
@@ -180,7 +188,9 @@ jobs:
       packages: read
       security-events: write # upload-sarif
     steps:
-      # Only for upload-sarif's source context; the scan itself targets the pushed digests.
+      # Two things, not one: upload-sarif's source context, AND `.trivyignore` — Trivy
+      # auto-detects it in the working directory, which is this checkout. Drop the checkout
+      # and the suppressions silently stop applying while every scan still passes.
       - uses: actions/checkout@v7
 
       - uses: docker/login-action@v4.5.2
@@ -279,6 +289,8 @@ jobs:
 
       - name: Gate amd64 on fixable CRITICAL/HIGH
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IGNOREFILE: /dev/null # `.trivyignore` must not be able to unblock a release
         with:
           scan-type: image
           image-ref: ${{ steps.refs.outputs.amd64 }}
@@ -290,6 +302,8 @@ jobs:
 
       - name: Gate arm64 on fixable CRITICAL/HIGH
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IGNOREFILE: /dev/null # `.trivyignore` must not be able to unblock a release
         with:
           scan-type: image
           image-ref: ${{ steps.refs.outputs.arm64 }}
