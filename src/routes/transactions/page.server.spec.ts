@@ -318,7 +318,23 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 const setTransactionTagsMock = vi.hoisted(() => vi.fn());
 vi.mock('$lib/server/tags/service', () => ({ setTransactionTags: setTransactionTagsMock }));
 
+const { applyTagToFilteredSetMock, undoBulkTagMock } = vi.hoisted(() => ({
+	applyTagToFilteredSetMock: vi.fn(),
+	undoBulkTagMock: vi.fn()
+}));
+vi.mock('$lib/server/tags/bulk', async (importOriginal) => {
+	// The cap constant is passed through rather than stubbed: the error message asserts against the
+	// real number, so a stub would let the message and the enforcement drift apart.
+	const actual = await importOriginal<typeof import('$lib/server/tags/bulk')>();
+	return {
+		...actual,
+		applyTagToFilteredSet: applyTagToFilteredSetMock,
+		undoBulkTag: undoBulkTagMock
+	};
+});
+
 const { actions, load } = await import('./+page.server');
+const { MAX_BULK_TAG_TRANSACTIONS } = await import('$lib/server/tags/bulk');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
 interface TestTransactionPageData {
@@ -1240,6 +1256,109 @@ describe('/transactions load — tags', () => {
 	});
 });
 
+describe('bulkTag', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		applyTagToFilteredSetMock.mockResolvedValue({
+			outcome: 'ok',
+			tagId: 'tag-portugal',
+			tagName: 'Portugal',
+			linkedTransactionIds: ['transaction-1', 'transaction-2']
+		});
+		undoBulkTagMock.mockResolvedValue(2);
+	});
+
+	it('rebuilds the set from the URL filters and never from a client id list', async () => {
+		expect.assertions(2);
+
+		// The forged field is the attack this guards: a client that could name its own rows would
+		// make the count the user confirmed and the set actually written two different things.
+		await runBulkTag('/transactions?type=expense', {
+			tagName: 'Portugal',
+			transactionIds: 'transaction-9,transaction-10'
+		});
+
+		const passedWhere = applyTagToFilteredSetMock.mock.calls[0][1] as Record<string, unknown>;
+		expect(passedWhere).toMatchObject({ userId: 'user-a', type: 'expense' });
+		expect(JSON.stringify(passedWhere)).not.toContain('transaction-9');
+	});
+
+	it('carries the tag filter into the set it applies to', async () => {
+		expect.assertions(1);
+
+		// Bulk-tagging within a tag-filtered view is a real workflow, so the conjunct has to survive
+		// into the action's own where rather than only the load's.
+		await runBulkTag('/transactions?tag=tag-portugal', { tagName: 'Pro' });
+
+		expect(applyTagToFilteredSetMock.mock.calls[0][1]).toMatchObject({
+			tags: { some: { tagId: 'tag-portugal' } }
+		});
+	});
+
+	it('rejects an empty tag name before touching the database', async () => {
+		expect.assertions(2);
+
+		const result = await runBulkTag('/transactions', { tagName: '   ' });
+
+		expect(result.status).toBe(400);
+		expect(applyTagToFilteredSetMock).not.toHaveBeenCalled();
+	});
+
+	it('names the count, the limit and the way forward when the set is too large', async () => {
+		expect.assertions(4);
+
+		applyTagToFilteredSetMock.mockResolvedValue({ outcome: 'too-many', matched: 412 });
+
+		const result = await runBulkTag('/transactions', { tagName: 'Portugal' });
+
+		expect(result.status).toBe(400);
+		// A refusal that only says "too many" is a wall. Naming the count, the limit and the fact
+		// that re-applying is a no-op is what makes it a path the user can act on.
+		expect(result.data?.bulkTagError).toContain('412');
+		expect(result.data?.bulkTagError).toContain(String(MAX_BULK_TAG_TRANSACTIONS));
+		expect(result.data?.bulkTagError?.length).toBeGreaterThan(40);
+	});
+
+	it('reports the count actually applied, not the count the dialog showed', async () => {
+		expect.assertions(2);
+
+		const result = (await runBulkTag('/transactions', { tagName: 'Portugal' })) as unknown as {
+			bulkTagResult: { appliedCount: number; transactionIds: string[]; tagName: string };
+		};
+
+		// The set can change between the confirm and the submit, so the banner must report what the
+		// service did rather than echo what the dialog predicted.
+		expect(result.bulkTagResult.appliedCount).toBe(2);
+		expect(result.bulkTagResult.transactionIds).toEqual(['transaction-1', 'transaction-2']);
+	});
+
+	it('parses the undo id list through the shared validator', async () => {
+		expect.assertions(2);
+
+		await runUndoBulkTag({
+			tagId: 'tag-portugal',
+			transactionIds: 'transaction-1,!!,transaction-2'
+		});
+
+		// The malformed segment is dropped rather than rejecting the whole undo: a partial undo is
+		// better than none, and normalizeIdList is the same parser `?ids=` already goes through.
+		expect(undoBulkTagMock).toHaveBeenCalledWith('user-a', 'tag-portugal', [
+			'transaction-1',
+			'transaction-2'
+		]);
+		expect(undoBulkTagMock.mock.calls[0][2]).not.toContain('!!');
+	});
+
+	it('rejects an undo whose tag id fails the shape check', async () => {
+		expect.assertions(2);
+
+		const result = await runUndoBulkTag({ tagId: '!!', transactionIds: 'transaction-1' });
+
+		expect(result.status).toBe(400);
+		expect(undoBulkTagMock).not.toHaveBeenCalled();
+	});
+});
+
 describe('saveTags', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
@@ -1333,6 +1452,38 @@ async function runSaveManualCategory(input: Record<string, string>) {
 			body: formData
 		})
 	})) as { status?: number; manualCategorySuccess?: boolean };
+}
+
+async function runBulkTag(path: string, input: Record<string, string>) {
+	const formData = new FormData();
+	for (const [key, value] of Object.entries(input)) formData.set(key, value);
+
+	return (await (
+		actions.bulkTag as (event: {
+			locals: { user: typeof testUser };
+			request: Request;
+			url: URL;
+		}) => Promise<unknown>
+	)({
+		locals: { user: testUser },
+		url: new URL(path, 'http://localhost'),
+		request: new Request('http://localhost/transactions', { method: 'POST', body: formData })
+	})) as { status?: number; data?: { bulkTagError?: string } };
+}
+
+async function runUndoBulkTag(input: Record<string, string>) {
+	const formData = new FormData();
+	for (const [key, value] of Object.entries(input)) formData.set(key, value);
+
+	return (await (
+		actions.undoBulkTag as (event: {
+			locals: { user: typeof testUser };
+			request: Request;
+		}) => Promise<unknown>
+	)({
+		locals: { user: testUser },
+		request: new Request('http://localhost/transactions', { method: 'POST', body: formData })
+	})) as { status?: number; data?: { bulkTagError?: string } };
 }
 
 async function runSaveTags(input: Record<string, string>) {

@@ -10,7 +10,12 @@ import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { setTransactionTags } from '$lib/server/tags/service';
-import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
+import {
+	applyTagToFilteredSet,
+	undoBulkTag,
+	MAX_BULK_TAG_TRANSACTIONS
+} from '$lib/server/tags/bulk';
+import { MAX_TAGS_PER_TRANSACTION, normalizeTagName } from '$lib/domain/tags';
 import {
 	findMatchingCategoryRule,
 	applyCategoryRules,
@@ -61,26 +66,54 @@ const MAX_MANUAL_NATURE_LENGTH = 32;
 // unbounded findMany on a pathological "everything uncategorized" history is still avoided.
 const FOCUS_STACK_CAP = 5000;
 
+/**
+ * Parses every list filter out of the URL.
+ *
+ * Extracted so `load` and the bulk actions read the SAME parameters through the SAME validators.
+ * That is not tidiness: the count a user confirms in the bulk dialog and the set the action then
+ * writes to must come from one source, or a forged payload could widen the second past the first.
+ * The bulk action deliberately accepts no id list of its own for that reason.
+ */
+function parseListFilters(url: URL) {
+	const fromParam = url.searchParams.get('from');
+	const toParam = url.searchParams.get('to');
+	return {
+		query: normalizeSearch(url.searchParams.get('q')),
+		qMode: parseQueryMode(url.searchParams.get('qMode')),
+		type: parseTransactionFilter(url.searchParams.get('type')),
+		category: normalizeSearch(url.searchParams.get('category')),
+		fromParam,
+		toParam,
+		...parseTransactionDateRange(fromParam, toParam),
+		importBatchId: normalizeId(url.searchParams.get('importBatch')),
+		tagId: normalizeId(url.searchParams.get('tag')),
+		// Explicit id whitelist. Deliberately NOT applied to `uncategorizedPileWhere`: the
+		// "à classer" pile is global by design (see its comment), not a view of the current filters.
+		ids: normalizeIdList(url.searchParams.get('ids'))
+	};
+}
+
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 	const page = parsePositiveInteger(url.searchParams.get('page')) ?? 1;
-	const query = normalizeSearch(url.searchParams.get('q'));
-	const qMode = parseQueryMode(url.searchParams.get('qMode'));
-	const type = parseTransactionFilter(url.searchParams.get('type'));
-	const category = normalizeSearch(url.searchParams.get('category'));
-	const fromParam = url.searchParams.get('from');
-	const toParam = url.searchParams.get('to');
-	const { range: dateRange, error: dateRangeError } = parseTransactionDateRange(fromParam, toParam);
+	const {
+		query,
+		qMode,
+		type,
+		category,
+		fromParam,
+		toParam,
+		range: dateRange,
+		error: dateRangeError,
+		importBatchId,
+		tagId,
+		ids
+	} = parseListFilters(url);
 	// Raw values (not dateRange.fromDate/toDate) so the "Du"/"Au" inputs keep showing exactly
 	// what the user typed when the pair is incomplete/invalid, instead of clearing on error.
 	const fromDisplay = (fromParam ?? '').trim();
 	const toDisplay = (toParam ?? '').trim();
-	const importBatchId = normalizeId(url.searchParams.get('importBatch'));
-	const tagId = normalizeId(url.searchParams.get('tag'));
 	const selectedId = normalizeId(url.searchParams.get('selected'));
-	// Explicit id whitelist. Deliberately NOT applied to `uncategorizedPileWhere` below: the
-	// "à classer" pile is global by design (see its comment), not a view of the current filters.
-	const ids = normalizeIdList(url.searchParams.get('ids'));
 
 	const [categories, mappings, selectedTransaction, rules, uncategorizedCategoryId, allTags] =
 		await Promise.all([
@@ -358,6 +391,77 @@ function buildCategoryOptions(categories: Array<{ name: string }>): string[] {
 }
 
 export const actions: Actions = {
+	/**
+	 * Applies one tag to every transaction the CURRENT FILTERS match.
+	 *
+	 * The set is rebuilt here from `url.searchParams`, through the same parseListFilters the load
+	 * uses, and the form's own fields are never consulted for it. A client-supplied id list would
+	 * make the count the user confirmed and the set actually written two different things, which is
+	 * exactly the gap a forged payload would widen.
+	 */
+	bulkTag: async ({ locals, request, url }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+
+		const tagName = normalizeTagName(getFormValue(formData, 'tagName'));
+		if (!tagName) return fail(400, { bulkTagError: m.tags_bulk_error_empty_name() });
+
+		const filters = parseListFilters(url);
+		if (filters.error) return fail(400, { bulkTagError: m.tags_bulk_error_invalid_range() });
+
+		const uncategorizedCategoryId =
+			filters.type === 'classify' ? await resolveUncategorizedCategoryId(user.id) : undefined;
+
+		const where = buildTransactionWhere({
+			userId: user.id,
+			type: filters.type,
+			category: filters.category,
+			from: filters.range?.from,
+			to: filters.range?.to,
+			importBatchId: filters.importBatchId,
+			uncategorizedCategoryId,
+			ids: filters.ids,
+			tagId: filters.tagId
+		});
+
+		const result = await applyTagToFilteredSet(user.id, where, tagName);
+		if (result.outcome === 'too-many')
+			return fail(400, {
+				bulkTagError: m.tags_bulk_error_too_many({
+					count: result.matched,
+					limit: MAX_BULK_TAG_TRANSACTIONS
+				})
+			});
+
+		return {
+			bulkTagResult: {
+				tagId: result.tagId,
+				tagName: result.tagName,
+				// The count APPLIED, never the count the dialog predicted: the set can change between
+				// the confirm and the submit, and a banner that reports the stale number is a false
+				// claim about what just happened.
+				appliedCount: result.linkedTransactionIds.length,
+				transactionIds: result.linkedTransactionIds
+			}
+		};
+	},
+
+	undoBulkTag: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+
+		const tagId = normalizeId(getFormValue(formData, 'tagId'));
+		if (!tagId) return fail(400, { bulkTagError: m.tags_bulk_error_undo_failed() });
+
+		// Same parser `?ids=` goes through, so a malformed segment is dropped rather than rejecting
+		// the whole undo: a partial undo is better than none. Absent and empty both mean "nothing to
+		// undo" here, which undoBulkTag treats as a no-op rather than an empty-IN delete.
+		const transactionIds = normalizeIdList(getFormValue(formData, 'transactionIds')) ?? [];
+
+		await undoBulkTag(user.id, tagId, transactionIds);
+		return { undoBulkTagSuccess: true };
+	},
+
 	saveTags: async ({ locals, request }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
