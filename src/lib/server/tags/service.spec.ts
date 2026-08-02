@@ -121,6 +121,42 @@ describe('resolveTagByName', () => {
 		await expect(resolveTagByName('user-a', 'Portugal')).rejects.toThrow(TagVanishedError);
 	});
 
+	it('treats a P2025 from the upsert as the same vanished tag', async () => {
+		expect.assertions(1);
+
+		// The other outcome of the SAME window, and the one CI hit on the second run: the fallback's
+		// SELECT found the row and the UPDATE that followed matched nothing. Identical code produced
+		// the id-less object above on one run and this error on the next, so both normalise to one
+		// type rather than making every caller know which it got.
+		db.prisma.tag.upsert.mockRejectedValue(
+			Object.assign(new Error('No record was found for an upsert.'), { code: 'P2025' })
+		);
+
+		await expect(resolveTagByName('user-a', 'Portugal')).rejects.toThrow(TagVanishedError);
+	});
+
+	it('recovers by re-resolving after a P2025, not only after an id-less row', async () => {
+		expect.assertions(1);
+
+		db.prisma.tag.upsert
+			.mockRejectedValueOnce(
+				Object.assign(new Error('No record was found for an upsert.'), { code: 'P2025' })
+			)
+			.mockResolvedValue({ id: 'tag-row-1' });
+
+		expect(await setTransactionTags('user-a', 'tx-1', ['Portugal'])).toBe('ok');
+	});
+
+	it('rethrows an upsert error that is not the prune race', async () => {
+		expect.assertions(1);
+
+		// P2025 is normalised, everything else is not. Swallowing an unrelated failure into a retry
+		// would turn one error into three and hide its cause.
+		db.prisma.tag.upsert.mockRejectedValue(new Error('connection lost'));
+
+		await expect(resolveTagByName('user-a', 'Portugal')).rejects.toThrow('connection lost');
+	});
+
 	it('recovers by re-resolving when the first upsert came back without an id', async () => {
 		expect.assertions(2);
 

@@ -3,7 +3,8 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import {
 	withConcurrentWriteRetry,
 	isUniqueConstraintViolation,
-	isForeignKeyViolation
+	isForeignKeyViolation,
+	isMissingRecord
 } from '$lib/server/database/upsert';
 import {
 	normalizeTagName,
@@ -33,17 +34,28 @@ export async function resolveTagByName(userId: string, rawName: string): Promise
 	if (!name) throw new Error('resolveTagByName requires a non-empty name');
 	const nameKey = computeNameKey(name);
 
-	const row = await withConcurrentWriteRetry(() =>
-		prisma.tag.upsert({
-			where: { userId_nameKey: { userId, nameKey } },
-			update: {},
-			create: { userId, name, nameKey, colorToken: pickTagColorToken(nameKey) },
-			select: { id: true }
-		})
-	);
+	let row: { id: string } | undefined;
+	try {
+		row = await withConcurrentWriteRetry(() =>
+			prisma.tag.upsert({
+				where: { userId_nameKey: { userId, nameKey } },
+				update: {},
+				create: { userId, name, nameKey, colorToken: pickTagColorToken(nameKey) },
+				select: { id: true }
+			})
+		);
+	} catch (caught) {
+		// P2025, "No record was found for an upsert": the fallback's SELECT found the row and the
+		// UPDATE that followed matched nothing, because the prune deleted it in between. Same window
+		// and same recovery as the id-less return below, so it is normalised to the same error
+		// rather than given its own branch at every call site.
+		if (isMissingRecord(caught)) throw new TagVanishedError(name);
+		throw caught;
+	}
 
-	// A THIRD variant of the auto-GC race, found by CI on PostgreSQL after the other two were
-	// already closed, and the most dangerous of them because it does not raise.
+	// The auto-GC race again, in its third and fourth engine manifestations. Both were found by CI
+	// on PostgreSQL, on a suite that had passed on every engine locally, and the id-less return is
+	// the more dangerous of the pair because it does not raise at all.
 	//
 	// `update: {}` is what makes Prisma compile this to SELECT-then-UPDATE instead of
 	// INSERT ... ON CONFLICT (see the comment on withConcurrentWriteRetry, which records the same
@@ -63,8 +75,13 @@ export async function resolveTagByName(userId: string, rawName: string): Promise
 /**
  * The tag resolved a moment ago was deleted by a concurrent prune before its id could be returned.
  *
- * Transient by construction: retrying the resolve recreates the row. Its own class rather than a
- * code because no engine raised it, so there is no code to match on.
+ * Transient by construction: retrying the resolve recreates the row, so every caller with a retry
+ * loop absorbs it and no user ever sees it.
+ *
+ * Its own class rather than an error code because the SAME window produces two different outcomes
+ * depending on timing, and callers should not have to know which they got: PostgreSQL raised P2025
+ * on one CI run and returned an id-less object on another, from identical code. One type, one
+ * recovery.
  */
 export class TagVanishedError extends Error {
 	constructor(name: string) {
