@@ -108,7 +108,26 @@ export const actions: Actions = {
 			!locals.user &&
 			!isBootstrapTokenValid(bootstrapToken)
 		) {
-			return fail(403, { error: m.register_error_unavailable() });
+			// Which rule was broken, not just that one was — the same reasoning as the email branch
+			// above, applied to the token. "Inscription indisponible" was the message here, and it is
+			// FALSE at this point: registration IS available, the token is simply wrong. It sends the
+			// one person most likely to see it (a new operator, on the first screen, having pasted a
+			// base64 value the docs warn is easy to truncate at the trailing `=`) looking for a
+			// closed instance instead of at their own clipboard.
+			//
+			// It reveals nothing: reaching this line already means registration is open to whoever
+			// holds the token, the form advertises a "Jeton bootstrap" field regardless, and neither
+			// message says anything about which accounts exist.
+			//
+			// What does NOT bound guessing here is any rate limiter. The block near the top of this
+			// action is gated on `isOpenRegistration && !invitation`, and this branch is by definition
+			// neither — so token attempts are entirely unthrottled. Measured, not read: 250 wrong
+			// tokens from one IP against a running instance, no throttling at any point, while the
+			// login path trips its own limiter immediately. The 251st attempt with the correct token
+			// created the account, which is what proves those 250 really did reach this check.
+			// Tracked in the backlog as its own PR; the secrecy of the message was never the
+			// protection and is not being asked to become it.
+			return fail(403, { error: m.register_error_invalid_token() });
 		}
 
 		const passwordHash = await hashPassword(password);

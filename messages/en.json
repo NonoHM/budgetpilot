@@ -65,6 +65,7 @@
 	"register_error_invalid_email": "Invalid email.",
 	"register_error_email_non_ascii": "This address contains non-ASCII characters (accents, a non-Latin alphabet). Account addresses have to be ASCII. If you were invited at that address, ask your administrator to reissue the invitation to an ASCII address.",
 	"register_error_invalid_password": "Invalid password.",
+	"register_error_invalid_token": "Invalid bootstrap token. Check the BOOTSTRAP_TOKEN value in your .env file, copying the whole line after the equals sign.",
 	"register_error_failed": "Registration failed.",
 	"register_success_user_created": "User created.",
 	"register_error_invitation_invalid": "This invitation is invalid, expired, or already used.",
