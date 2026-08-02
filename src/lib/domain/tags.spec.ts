@@ -65,6 +65,21 @@ describe('normalizeTagName', () => {
 		expect(normalizeTagName('a'.repeat(200))).toHaveLength(MAX_TAG_NAME_LENGTH);
 	});
 
+	it('strips zero-width and control characters, which whitespace collapsing cannot see', () => {
+		// A zero-width space is not matched by \s, so "Portu<ZWSP>gal" and "Portugal" would be two
+		// tags whose difference nobody can see. That is precisely the failure the whitespace
+		// collapse above exists to prevent, so the same rule has to cover this class too.
+		expect(normalizeTagName('Portu\u200Bgal')).toBe('Portugal');
+		expect(normalizeTagName('Portugal\u0007')).toBe('Portugal');
+	});
+
+	it('strips bidi overrides, which can spoof a name in a destructive confirmation', () => {
+		// U+202E reverses rendering, so a tag can be made to display as a different name than the
+		// one stored. The delete confirmation names the tag being destroyed, so a spoofable label
+		// there is a real hazard rather than a cosmetic one.
+		expect(normalizeTagName('Portugal\u202E')).toBe('Portugal');
+	});
+
 	it('returns an empty string for whitespace-only input', () => {
 		expect(normalizeTagName('   ')).toBe('');
 	});

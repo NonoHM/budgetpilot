@@ -76,9 +76,26 @@ export const MAX_TAGS_PER_TRANSACTION = 10;
  * difference nobody can see. Truncation rather than rejection above the cap, matching how every
  * other cap in this codebase degrades. Returns '' for whitespace-only input; callers treat '' as
  * "no tag" and must not create a row for it.
+ *
+ * Control and format characters are removed FIRST, and that step is not decoration. `\s` does not
+ * match U+200B, so without it "Portu<ZWSP>gal" and "Portugal" get different nameKeys and become
+ * two tags whose difference nobody can see, which is the exact failure the collapse above exists
+ * to prevent. The same class covers bidi overrides such as U+202E, which let a stored name render
+ * as a different one: the delete confirmation names the tag it is about to destroy, so a
+ * spoofable label there is a hazard rather than a cosmetic problem.
+ *
+ * Deliberately does NOT reject `<` and `>`, unlike parseManualCategory in
+ * routes/transactions/+page.server.ts, which validates the same class of user-authored free text.
+ * The difference is intentional: a category name is a taxonomy term, while a tag is a label a user
+ * writes for themselves and may legitimately contain "Q1<->Q2" or "R&D". Every render path escapes,
+ * so the angle brackets buy nothing. Anything unescaped is a new sink and needs its own decision.
  */
 export function normalizeTagName(raw: string): string {
-	return raw.trim().replace(/\s+/g, ' ').slice(0, MAX_TAG_NAME_LENGTH);
+	return raw
+		.replace(/[\p{Cc}\p{Cf}]/gu, '')
+		.trim()
+		.replace(/\s+/g, ' ')
+		.slice(0, MAX_TAG_NAME_LENGTH);
 }
 
 export type TagColorHex = (typeof TAG_COLORS)[TagColorToken];

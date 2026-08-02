@@ -227,23 +227,48 @@ async function replaceLinks(
 		const removed = [...currentTagIds].filter((id) => !nextTagIds.has(id));
 		const added = [...nextTagIds].filter((id) => !currentTagIds.has(id));
 
+		// INSERT BEFORE DELETE, and the order is load-bearing in two ways that only appear once
+		// the retry above can fire.
+		//
+		// Deleting first means a retried attempt re-reads the links, finds the removed ones
+		// already gone, computes an EMPTY removal set, and hands pruneOrphanTags nothing. The tag
+		// the user just unlinked then survives with zero transactions, which is exactly the state
+		// the auto-GC exists to prevent.
+		//
+		// Deleting first also makes a hard failure destructive: three failed attempts would leave
+		// the old links deleted and the new ones never written, so a failed edit would lose data
+		// rather than being a no-op.
+		//
+		// The transient state between the insert and the delete can briefly exceed
+		// MAX_TAGS_PER_TRANSACTION. That is invisible and harmless: the cap is not a database
+		// constraint and nothing reads this transaction's links mid-request.
+		if (added.length > 0) {
+			try {
+				// Only the genuinely new links: re-inserting one that already exists would violate
+				// the composite primary key and fail the whole edit.
+				await prisma.transactionTag.createMany({
+					data: added.map((tagId) => ({ transactionId, tagId }))
+				});
+			} catch (caught) {
+				if (!isForeignKeyViolation(caught) || attempt >= MAX_LINK_ATTEMPTS) throw caught;
+				// Only the TAG side of the pair is a race. A transaction that vanished mid-edit is a
+				// real outcome the caller already knows how to report, not contention, so retrying
+				// it would turn a `not-found` into three wasted rounds and a 500.
+				const stillThere = await prisma.transaction.findFirst({
+					where: { id: transactionId, userId },
+					select: { id: true }
+				});
+				if (!stillThere) throw caught;
+				continue;
+			}
+		}
+
 		if (removed.length > 0) {
 			await prisma.transactionTag.deleteMany({
 				where: { transactionId, tagId: { in: removed } }
 			});
 		}
-
-		if (added.length === 0) return removed;
-		try {
-			// Only the genuinely new links: re-inserting one that already exists would violate the
-			// composite primary key and fail the whole edit.
-			await prisma.transactionTag.createMany({
-				data: added.map((tagId) => ({ transactionId, tagId }))
-			});
-			return removed;
-		} catch (caught) {
-			if (!isForeignKeyViolation(caught) || attempt >= MAX_LINK_ATTEMPTS) throw caught;
-		}
+		return removed;
 	}
 }
 

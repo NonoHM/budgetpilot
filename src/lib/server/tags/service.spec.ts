@@ -334,6 +334,57 @@ describe('setTransactionTags', () => {
 		expect(db.prisma.tag.upsert).toHaveBeenCalledTimes(2);
 	});
 
+	it('still prunes the tag it unlinked when the link insert had to be retried', async () => {
+		expect.assertions(2);
+
+		// The interaction the retry test and the prune test could not see between them: a retry
+		// that ALSO removes a tag. If the removal is written before the insert, the second attempt
+		// re-reads the links, finds the removed one already gone, computes an empty removal set,
+		// and the orphaned tag is never pruned. Tested together because per-leg testing is exactly
+		// what misses this.
+		// A STATEFUL fake, not a scripted sequence, and that distinction is the point. A constant
+		// findMany keeps reporting the removed link, so the second attempt recomputes the same
+		// removal set and the bug is invisible; a scripted `once([old]).then([])` encodes the
+		// buggy delete-before-insert order and so goes red against the CORRECT code. Only a fake
+		// that reflects the writes the code actually issued is right under both orders.
+		const links: Array<{ tagId: string }> = [{ tagId: 'tag-old' }];
+		db.prisma.transactionTag.findMany.mockImplementation(async () => [...links]);
+		db.prisma.transactionTag.deleteMany.mockImplementation(
+			async ({ where }: { where: { tagId: { in: string[] } } }) => {
+				const before = links.length;
+				const kept = links.filter((link) => !where.tagId.in.includes(link.tagId));
+				links.length = 0;
+				links.push(...kept);
+				return { count: before - links.length };
+			}
+		);
+		db.prisma.tag.upsert.mockResolvedValue({ id: 'tag-new' });
+		db.prisma.transactionTag.createMany
+			.mockRejectedValueOnce(Object.assign(new Error('fk'), { code: 'P2003' }))
+			.mockImplementation(async ({ data }: { data: Array<{ tagId: string }> }) => {
+				links.push(...data.map((row) => ({ tagId: row.tagId })));
+				return { count: data.length };
+			});
+
+		expect(await setTransactionTags('user-a', 'tx-1', ['Nouveau'])).toBe('ok');
+		expect(db.prisma.tag.deleteMany.mock.calls[0][0].where.id).toEqual({ in: ['tag-old'] });
+	});
+
+	it('leaves the existing links intact when every link attempt fails', async () => {
+		expect.assertions(2);
+
+		// A failed edit must be a no-op, not a destructive one. Deleting the old links before the
+		// new ones land means three failed attempts leave the user with neither set.
+		db.prisma.transactionTag.findMany.mockResolvedValue([{ tagId: 'tag-old' }]);
+		db.prisma.tag.upsert.mockResolvedValue({ id: 'tag-new' });
+		db.prisma.transactionTag.createMany.mockRejectedValue(
+			Object.assign(new Error('fk'), { code: 'P2003' })
+		);
+
+		await expect(setTransactionTags('user-a', 'tx-1', ['Nouveau'])).rejects.toThrow('fk');
+		expect(db.prisma.transactionTag.deleteMany).not.toHaveBeenCalled();
+	});
+
 	it('rethrows a foreign-key violation that keeps recurring rather than looping forever', async () => {
 		expect.assertions(2);
 
