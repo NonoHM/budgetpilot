@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
 	import Modal from '$lib/components/Modal.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -8,8 +9,12 @@
 	import PasswordInput from '$lib/components/ui/PasswordInput.svelte';
 	import Switch from '$lib/components/Switch.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
+	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+	import TagChips from '$lib/components/ui/TagChips.svelte';
 	import { cardBase, inputBase } from '$lib/styles';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import { TAG_COLOR_TOKENS } from '$lib/domain/tags';
+	import { tagColorBgClass } from '$lib/domain/colors';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale, setLocale, locales, type Locale } from '$lib/paraglide/runtime';
 	import type { PageProps } from './$types';
@@ -20,6 +25,27 @@
 	};
 
 	let { data, form }: PageProps = $props();
+
+	type TagRow = PageProps['data']['tags'][number];
+
+	// Modal/dialog state for the tag management section, same shape as /categories'
+	// renamingCategory/deletingCategory: the row itself, not just its id, so the modal has the
+	// current name/count to render without a second lookup.
+	let renamingTag: TagRow | null = $state(null);
+	let deletingTag: TagRow | null = $state(null);
+	let renameTagSubmitting = $state(false);
+	let deleteTagSubmitting = $state(false);
+
+	// The accessible name of a colour swatch is the hue token capitalised, derived here rather
+	// than stored: TAG_COLOR_TOKENS in domain/tags.ts is deliberately the only place the token
+	// names are written down.
+	function capitalizeToken(token: string): string {
+		return token.charAt(0).toUpperCase() + token.slice(1);
+	}
+
+	function tagTxCount(n: number): string {
+		return n > 1 ? m.tags_tx_count_many({ count: n }) : m.tags_tx_count_one({ count: n });
+	}
 
 	const dateTimeFormatter = new Intl.DateTimeFormat(getLocale(), {
 		dateStyle: 'medium',
@@ -815,6 +841,98 @@
 			</div>
 		</div>
 
+		<!-- ÉTIQUETTES -->
+		<!-- Deliberately no "New tag" affordance anywhere in this section: the design forbids
+		     creation from Settings. A tag is created only by typing a name on a transaction. -->
+		<div class={card}>
+			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+				{m.tags_settings_heading()}
+			</h2>
+			<p class="mt-1 text-sm text-zinc-500">{m.tags_settings_subtitle()}</p>
+
+			{#if form?.tagsError}
+				<AlertBanner variant="error" class="mt-3">{form.tagsError}</AlertBanner>
+			{/if}
+			{#if form?.tagsSuccess}
+				<AlertBanner variant="success" class="mt-3">{form.tagsSuccess}</AlertBanner>
+			{/if}
+
+			{#if data.tags.length === 0}
+				<EmptyState card={false} description={m.tags_settings_empty()} />
+			{:else}
+				<ul class="mt-3 space-y-2.5">
+					{#each data.tags as tag (tag.id)}
+						<li class="rounded-xl border border-zinc-200 p-3.5">
+							<div class="flex flex-wrap items-center justify-between gap-3">
+								<div class="flex min-w-0 items-center gap-3">
+									<TagChips
+										tags={[{ key: tag.id, name: tag.name, colorToken: tag.colorToken }]}
+										variant="enclosed"
+										max={Infinity}
+									/>
+									<span class="shrink-0 text-xs text-zinc-500"
+										>{tagTxCount(tag.transactionCount)}</span
+									>
+								</div>
+								<div class="flex shrink-0 gap-2">
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										onclick={() => (renamingTag = tag)}
+									>
+										{m.tags_rename()}
+									</Button>
+									<Button
+										type="button"
+										variant="ghost-danger"
+										size="sm"
+										onclick={() => (deletingTag = tag)}
+									>
+										{m.common_delete()}
+									</Button>
+								</div>
+							</div>
+
+							<!-- Colour change: one swatch per palette token, each a submit button carrying
+							     its own value — no client-side colour computation, the server is the only
+							     place that assigns or validates a colorToken.
+							     Deliberately no opacity/dimming on the unselected swatches: lagoon and azure
+							     are locked colours (see the comment on TAG_COLORS in domain/colors.ts) whose
+							     measured contrast ratio must never be reduced, and treating every token the
+							     same way here is simpler than carving out an exception for two of nine.
+							     Selection is shown with a ring instead. -->
+							<form method="POST" action="?/recolorTag" class="mt-3" use:enhance>
+								<input type="hidden" name="id" value={tag.id} />
+								<div
+									class="flex flex-wrap gap-1.5"
+									role="radiogroup"
+									aria-label={m.tags_settings_color_group_aria({ name: tag.name })}
+								>
+									{#each TAG_COLOR_TOKENS as token (token)}
+										<button
+											type="submit"
+											name="colorToken"
+											value={token}
+											role="radio"
+											aria-checked={token === tag.colorToken}
+											aria-label={capitalizeToken(token)}
+											class="relative h-6 w-6 shrink-0 rounded-full {tagColorBgClass(
+												token
+											)} before:absolute before:-inset-[10px] before:content-[''] focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {token ===
+											tag.colorToken
+												? 'ring-2 ring-zinc-900 ring-offset-2'
+												: 'ring-1 ring-zinc-200 ring-offset-1'}"
+										></button>
+									{/each}
+								</div>
+							</form>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+
 		<!-- ZONE DANGER -->
 		<div>
 			<div class="flex items-center gap-2">
@@ -1118,3 +1236,77 @@
 		</div>
 	</form>
 </Modal>
+
+<!-- Modale : renommer une étiquette -->
+<Modal
+	open={renamingTag !== null}
+	title={m.tags_rename_modal_title()}
+	description={m.tags_rename_modal_description()}
+	onClose={() => (renamingTag = null)}
+>
+	<form
+		method="POST"
+		action="?/renameTag"
+		class="space-y-4"
+		use:enhance={() => {
+			renameTagSubmitting = true;
+			return async ({ result, update }) => {
+				await update();
+				renameTagSubmitting = false;
+				if (result.type === 'success') renamingTag = null;
+			};
+		}}
+	>
+		<input type="hidden" name="id" value={renamingTag?.id ?? ''} />
+		<label class="grid gap-1 text-sm font-medium text-zinc-700">
+			{m.tags_rename_name_label()}
+			<input
+				name="newName"
+				maxlength="60"
+				required
+				value={renamingTag?.name ?? ''}
+				class={inputBase}
+			/>
+		</label>
+		<div class="flex justify-end gap-3 border-t border-zinc-100 pt-4">
+			<TapLink onclick={() => (renamingTag = null)} disabled={renameTagSubmitting}
+				>{m.common_cancel()}</TapLink
+			>
+			<Button type="submit" loading={renameTagSubmitting}>{m.common_save()}</Button>
+		</div>
+	</form>
+</Modal>
+
+<!-- ConfirmDialog : supprimer une étiquette -->
+<form
+	method="POST"
+	action="?/deleteTag"
+	use:enhance={() => {
+		deleteTagSubmitting = true;
+		return async ({ result, update }) => {
+			await update();
+			deleteTagSubmitting = false;
+			if (result.type === 'success') deletingTag = null;
+		};
+	}}
+>
+	<input type="hidden" name="id" value={deletingTag?.id ?? ''} />
+	<ConfirmDialog
+		open={deletingTag !== null}
+		title={m.tags_delete_confirm_title({ name: deletingTag?.name ?? '' })}
+		confirmLabel={m.common_delete()}
+		tone="danger"
+		confirmLoading={deleteTagSubmitting}
+		onClose={() => (deletingTag = null)}
+	>
+		{#if (deletingTag?.transactionCount ?? 0) > 0}
+			<p class="text-sm text-zinc-600">
+				{m.tags_delete_confirm_contains()}
+				<strong>{tagTxCount(deletingTag!.transactionCount)}</strong>.
+				{m.tags_delete_confirm_detach_suffix()}
+			</p>
+		{:else}
+			<p class="text-sm text-zinc-600">{m.tags_delete_confirm_irreversible()}</p>
+		{/if}
+	</ConfirmDialog>
+</form>

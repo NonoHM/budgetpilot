@@ -52,9 +52,22 @@ const backupImport = vi.hoisted(() => {
 	};
 });
 
+// Mocked at the service boundary, not at Prisma: renameTag/recolorTag/deleteTag/
+// listTagsWithCounts are already covered by server/tags/service.spec.ts, including the
+// userId-scoping and the not-found-vs-another-user's-tag equivalence. This file only needs to
+// prove the ACTION maps each service outcome to the right response, not re-derive the service's
+// own guarantees.
+const tagsService = vi.hoisted(() => ({
+	listTagsWithCounts: vi.fn(),
+	renameTag: vi.fn(),
+	recolorTag: vi.fn(),
+	deleteTag: vi.fn()
+}));
+
 vi.mock('node:fs', () => fs);
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 vi.mock('$lib/server/backup/import', () => backupImport);
+vi.mock('$lib/server/tags/service', () => tagsService);
 
 const { hashPassword, hashSessionToken, SESSION_COOKIE } = await import('$lib/server/auth');
 const { actions, load } = await import('./+page.server');
@@ -848,6 +861,214 @@ describe('/settings', () => {
 
 			expect(result.status).toBe(400);
 			expect(tx.user.update).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('tag management', () => {
+		it('loads the tag list scoped to the current user through listTagsWithCounts', async () => {
+			expect.assertions(2);
+
+			db.prisma.user.findUniqueOrThrow.mockResolvedValue({
+				email: 'user-a@example.test',
+				role: 'USER'
+			});
+			db.prisma.session.findMany.mockResolvedValue([]);
+			tagsService.listTagsWithCounts.mockResolvedValue([
+				{ id: 'tag-000001', name: 'Portugal', colorToken: 'lagoon', transactionCount: 3 }
+			]);
+
+			const result = (await load(buildLoadEvent({ token: 'session-courante' }) as never)) as {
+				tags: Array<{ id: string; name: string; colorToken: string; transactionCount: number }>;
+			};
+
+			expect(tagsService.listTagsWithCounts).toHaveBeenCalledWith('user-a');
+			expect(result.tags).toEqual([
+				{ id: 'tag-000001', name: 'Portugal', colorToken: 'lagoon', transactionCount: 3 }
+			]);
+		});
+
+		describe('renameTag', () => {
+			it('renames on ok', async () => {
+				expect.assertions(2);
+
+				tagsService.renameTag.mockResolvedValue('ok');
+
+				const result = await runAction('renameTag', {
+					token: 'session-courante',
+					input: { id: 'tag-000001', newName: 'Portugal 2026' }
+				});
+
+				expect(tagsService.renameTag).toHaveBeenCalledWith('user-a', 'tag-000001', 'Portugal 2026');
+				expect(result).toEqual({ tagsSuccess: 'Étiquette renommée.' });
+			});
+
+			it('rejects a malformed id without calling the service', async () => {
+				expect.assertions(2);
+
+				const result = (await runAction('renameTag', {
+					token: 'session-courante',
+					input: { id: '', newName: 'Portugal' }
+				})) as { status: number; data: { tagsError: string } };
+
+				expect(result.status).toBe(400);
+				expect(tagsService.renameTag).not.toHaveBeenCalled();
+			});
+
+			it('reports a duplicate name as 400', async () => {
+				expect.assertions(2);
+
+				tagsService.renameTag.mockResolvedValue('duplicate');
+
+				const result = (await runAction('renameTag', {
+					token: 'session-courante',
+					input: { id: 'tag-000001', newName: 'Portugal' }
+				})) as { status: number; data: { tagsError: string } };
+
+				expect(result.status).toBe(400);
+				expect(result.data.tagsError).toBe('Ce nom existe déjà.');
+			});
+
+			it('reports an empty normalized name as 400', async () => {
+				expect.assertions(2);
+
+				tagsService.renameTag.mockResolvedValue('empty-name');
+
+				const result = (await runAction('renameTag', {
+					token: 'session-courante',
+					input: { id: 'tag-000001', newName: '   ' }
+				})) as { status: number; data: { tagsError: string } };
+
+				expect(result.status).toBe(400);
+				expect(result.data.tagsError).toBe('Nom invalide (1–60 caractères).');
+			});
+
+			it('reports not-found as a generic 404, not distinguishing "gone" from "not yours"', async () => {
+				expect.assertions(4);
+
+				tagsService.renameTag.mockResolvedValue('not-found');
+
+				const neverExisted = (await runAction('renameTag', {
+					token: 'session-courante',
+					input: { id: 'tag-never-existed', newName: 'Portugal' }
+				})) as { status: number; data: { tagsError: string } };
+				const belongsToSomeoneElse = (await runAction('renameTag', {
+					token: 'session-courante',
+					input: { id: 'tag-owned-by-user-b', newName: 'Portugal' }
+				})) as { status: number; data: { tagsError: string } };
+
+				expect(neverExisted.status).toBe(404);
+				expect(belongsToSomeoneElse.status).toBe(404);
+				expect(neverExisted.data.tagsError).toBe('Étiquette introuvable.');
+				// Byte-identical to the "never existed" response: no id-dependent branching, no
+				// enumeration of which case it is.
+				expect(belongsToSomeoneElse).toEqual(neverExisted);
+			});
+		});
+
+		describe('recolorTag', () => {
+			it('recolors on ok', async () => {
+				expect.assertions(2);
+
+				tagsService.recolorTag.mockResolvedValue('ok');
+
+				const result = await runAction('recolorTag', {
+					token: 'session-courante',
+					input: { id: 'tag-000001', colorToken: 'azure' }
+				});
+
+				expect(tagsService.recolorTag).toHaveBeenCalledWith('user-a', 'tag-000001', 'azure');
+				expect(result).toEqual({ tagsSuccess: 'Couleur mise à jour.' });
+			});
+
+			it('rejects a malformed id without calling the service', async () => {
+				expect.assertions(2);
+
+				const result = (await runAction('recolorTag', {
+					token: 'session-courante',
+					input: { id: '', colorToken: 'azure' }
+				})) as { status: number; data: { tagsError: string } };
+
+				expect(result.status).toBe(400);
+				expect(tagsService.recolorTag).not.toHaveBeenCalled();
+			});
+
+			// Unreachable from the UI, which only ever submits one of the palette swatches. Tested
+			// anyway: the UI is not the enforcement, the service's closed-set check is.
+			it('rejects a colour outside the closed palette, even though the UI cannot send one', async () => {
+				expect.assertions(2);
+
+				tagsService.recolorTag.mockResolvedValue('invalid-color');
+
+				const result = (await runAction('recolorTag', {
+					token: 'session-courante',
+					input: { id: 'tag-000001', colorToken: '#ff0000' }
+				})) as { status: number; data: { tagsError: string } };
+
+				expect(result.status).toBe(400);
+				expect(result.data.tagsError).toBe('Couleur invalide.');
+			});
+
+			it('reports not-found as a generic 404, not distinguishing "gone" from "not yours"', async () => {
+				expect.assertions(1);
+
+				tagsService.recolorTag.mockResolvedValue('not-found');
+
+				const neverExisted = await runAction('recolorTag', {
+					token: 'session-courante',
+					input: { id: 'tag-never-existed', colorToken: 'azure' }
+				});
+				const belongsToSomeoneElse = await runAction('recolorTag', {
+					token: 'session-courante',
+					input: { id: 'tag-owned-by-user-b', colorToken: 'azure' }
+				});
+
+				expect(belongsToSomeoneElse).toEqual(neverExisted);
+			});
+		});
+
+		describe('deleteTag', () => {
+			it('deletes on ok', async () => {
+				expect.assertions(2);
+
+				tagsService.deleteTag.mockResolvedValue('ok');
+
+				const result = await runAction('deleteTag', {
+					token: 'session-courante',
+					input: { id: 'tag-000001' }
+				});
+
+				expect(tagsService.deleteTag).toHaveBeenCalledWith('user-a', 'tag-000001');
+				expect(result).toEqual({ tagsSuccess: 'Étiquette supprimée.' });
+			});
+
+			it('rejects a malformed id without calling the service', async () => {
+				expect.assertions(2);
+
+				const result = (await runAction('deleteTag', {
+					token: 'session-courante',
+					input: { id: '' }
+				})) as { status: number; data: { tagsError: string } };
+
+				expect(result.status).toBe(400);
+				expect(tagsService.deleteTag).not.toHaveBeenCalled();
+			});
+
+			it('reports not-found as a generic 404, not distinguishing "gone" from "not yours"', async () => {
+				expect.assertions(1);
+
+				tagsService.deleteTag.mockResolvedValue('not-found');
+
+				const neverExisted = await runAction('deleteTag', {
+					token: 'session-courante',
+					input: { id: 'tag-never-existed' }
+				});
+				const belongsToSomeoneElse = await runAction('deleteTag', {
+					token: 'session-courante',
+					input: { id: 'tag-owned-by-user-b' }
+				});
+
+				expect(belongsToSomeoneElse).toEqual(neverExisted);
+			});
 		});
 	});
 });

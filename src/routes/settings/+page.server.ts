@@ -22,6 +22,13 @@ import {
 import { prisma } from '$lib/server/db';
 import { BackupImportError, restoreBackup } from '$lib/server/backup/import';
 import { backupExportSchema } from '$lib/server/backup/schema';
+import {
+	listTagsWithCounts,
+	renameTag as renameTagService,
+	recolorTag as recolorTagService,
+	deleteTag as deleteTagService
+} from '$lib/server/tags/service';
+import { normalizeId } from '$lib/server/transactions/where';
 import type { PageServerLoad } from './$types';
 
 const TOTP_CODE_PATTERN = /^[0-9]{6}$/;
@@ -34,7 +41,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 	const currentToken = cookies.get(SESSION_COOKIE);
 	const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
-	const [account, sessions] = await Promise.all([
+	const [account, sessions, tags] = await Promise.all([
 		prisma.user.findUniqueOrThrow({
 			where: { id: user.id },
 			select: {
@@ -55,7 +62,8 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 				revokedAt: true
 			},
 			orderBy: { createdAt: 'desc' }
-		})
+		}),
+		listTagsWithCounts(user.id)
 	]);
 
 	const mappedSessions = sessions.map((session) => ({
@@ -85,6 +93,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 			latestSessionCreatedAt: latestSession?.createdAt ?? null
 		},
 		sessions: mappedSessions,
+		tags,
 		aiSettings: {
 			insightsEnabled: account.aiInsightsEnabled,
 			includeLabels: account.aiIncludeLabels,
@@ -408,6 +417,67 @@ export const actions: Actions = {
 		});
 
 		return { totpDisableSuccess: m.settings_mfa_success_disabled() };
+	},
+	// Tag creation deliberately has no action here: the design forbids it in Settings. A tag is
+	// created only by typing a name on a transaction (see domain/tags.ts, resolveTagByName).
+	renameTag: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+
+		if (!id) return fail(400, { tagsError: m.tags_error_invalid() });
+
+		const result = await renameTagService(user.id, id, getFormValue(formData, 'newName'));
+		switch (result) {
+			case 'ok':
+				return { tagsSuccess: m.tags_success_renamed() };
+			case 'duplicate':
+				return fail(400, { tagsError: m.tags_error_duplicate() });
+			case 'empty-name':
+				return fail(400, { tagsError: m.tags_error_invalid_name() });
+			case 'not-found':
+				// Deliberately the SAME message and status whether the id never existed or belongs
+				// to another user: the service's updateMany({ id, userId }) already collapses both
+				// into one zero-count outcome, and this branch must not reintroduce a distinction it
+				// refused to make. See the security section of the tags design spec.
+				return fail(404, { tagsError: m.tags_error_not_found() });
+		}
+	},
+	recolorTag: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+
+		if (!id) return fail(400, { tagsError: m.tags_error_invalid() });
+
+		// Unreachable from the UI, which only ever submits one of the eight palette swatches:
+		// tested anyway, because the UI is not the enforcement. recolorTagService validates
+		// against the closed token set before touching the database.
+		const result = await recolorTagService(user.id, id, getFormValue(formData, 'colorToken'));
+		switch (result) {
+			case 'ok':
+				return { tagsSuccess: m.tags_success_recolored() };
+			case 'invalid-color':
+				return fail(400, { tagsError: m.tags_error_invalid_color() });
+			case 'not-found':
+				// Same generic message as renameTag's not-found branch, for the same reason.
+				return fail(404, { tagsError: m.tags_error_not_found() });
+		}
+	},
+	deleteTag: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+
+		if (!id) return fail(400, { tagsError: m.tags_error_invalid() });
+
+		const result = await deleteTagService(user.id, id);
+		if (result === 'not-found') {
+			// Same generic message as renameTag's not-found branch, for the same reason.
+			return fail(404, { tagsError: m.tags_error_not_found() });
+		}
+
+		return { tagsSuccess: m.tags_success_deleted() };
 	}
 };
 
