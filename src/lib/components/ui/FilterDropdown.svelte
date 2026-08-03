@@ -117,6 +117,23 @@
 	const selectedOption = $derived(options.find((o) => o.value === value) ?? null);
 
 	/**
+	 * Active means BOTH: a value is set and it names an option we can actually display.
+	 *
+	 * The two halves used to be tested separately — the label on `value && selectedOption`, the
+	 * black border and the "×" on `value` alone — and a `value` naming an option that is not in
+	 * `options` then rendered a trigger that read as resting while painting itself active, with an
+	 * orphan "×" beside it. That is reachable in this app rather than theoretical: a tag on zero
+	 * transactions is deleted silently, so a bookmarked or back-buttoned `?tag=<id>` routinely
+	 * outlives its tag.
+	 *
+	 * Rendering it as resting is the honest answer — there is no value to name — and it does not
+	 * strand anyone: the stale conjunct still matches nothing server-side, so the summary row's
+	 * "Réinitialiser les filtres" is rendered and is the way out. The caller additionally scrubs an
+	 * unknown id before it reaches here; this is the second line of defence, not the first.
+	 */
+	const isActive = $derived(value !== '' && selectedOption !== null);
+
+	/**
 	 * The search field appears past 8 options and REPLACES the scope line, never sits beside it:
 	 * two header lines would push the first tag to the third row of the panel.
 	 */
@@ -168,12 +185,18 @@
 			// of a list they cannot see all of.
 			activeIndex = Math.min(activeIndex + 1, rows.length - 1);
 		} else if (event.key === 'ArrowUp') {
+			// Guarded on `open`, unlike ArrowDown which opens. Moving the cursor inside a closed
+			// panel is invisible, and the next ArrowDown then opens on the SECOND row rather than
+			// the first, with nothing having said why.
+			if (!open) return;
 			event.preventDefault();
 			activeIndex = Math.max(activeIndex - 1, 0);
 		} else if (event.key === 'Home') {
+			if (!open) return;
 			event.preventDefault();
 			activeIndex = 0;
 		} else if (event.key === 'End') {
+			if (!open) return;
 			event.preventDefault();
 			activeIndex = rows.length - 1;
 		} else if (event.key === 'Enter' || event.key === ' ') {
@@ -197,6 +220,27 @@
 		}
 	}
 
+	/**
+	 * Tabbing out of the panel closes it.
+	 *
+	 * Without this the panel is a keyboard trap in reverse: the <ul> is tabindex="-1", so it is
+	 * focusable programmatically but absent from the Tab sequence, and one Tab moves focus to the
+	 * footer link or past the component entirely while `open` stays true. The panel then floats
+	 * over the page with no way back — Escape is bound to the search field and the listbox, so it
+	 * no longer reaches anything, and only an unrelated mouse click elsewhere dismisses it.
+	 * TagPicker already carries this mechanism (onfocusout -> closeIfOutside); it was simply not
+	 * carried over with the rest of the pattern.
+	 */
+	function onFocusOut(event: FocusEvent): void {
+		if (!open) return;
+		const next = event.relatedTarget as Node | null;
+		// relatedTarget null means focus left the document entirely (another window, the browser
+		// chrome): the panel should stay as it is rather than close behind the user's back.
+		if (next === null) return;
+		if (panelEl?.contains(next) || openButtonEl?.contains(next)) return;
+		close({ restoreFocus: false });
+	}
+
 	function closeIfOutside(event: MouseEvent): void {
 		if (!open) return;
 		const target = event.target as Node | null;
@@ -214,12 +258,12 @@
 
 <svelte:window onclick={closeIfOutside} />
 
-<div class="relative inline-block">
+<div class="relative inline-block" onfocusout={onFocusOut}>
 	<!-- Active is a GROUP OF TWO ADJOINED BUTTONS, never one button nested in another (invalid
 	     HTML) and never a single control doing both jobs: the design requires two targets of at
 	     least 24px, so the filter can be re-chosen without clearing it first. -->
 	<div
-		class="inline-flex h-11 items-stretch overflow-hidden rounded-xl border {value
+		class="inline-flex h-11 items-stretch overflow-hidden rounded-xl border {isActive
 			? tinted
 				? `${tintBgClass} ${tintBorderClass}`
 				: 'border-zinc-900 bg-white'
@@ -231,7 +275,7 @@
 			aria-haspopup="listbox"
 			aria-expanded={open}
 			aria-controls={open ? listboxId : undefined}
-			aria-label={value && activeLabel ? activeLabel : undefined}
+			aria-label={isActive && activeLabel ? activeLabel : undefined}
 			class="inline-flex min-w-[24px] items-center gap-1.5 px-3 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
 			onclick={() => (open ? close({ restoreFocus: false }) : (open = true))}
 			onkeydown={onKeydown}
@@ -239,7 +283,7 @@
 			{#if selectedOption?.swatchClass}
 				<span class="h-2 w-2 shrink-0 rounded-full {selectedOption.swatchClass}"></span>
 			{/if}
-			{#if value && selectedOption}
+			{#if isActive && selectedOption}
 				<!-- The dimension name NEVER truncates; the value does, capped at 190px. -->
 				<span class="whitespace-nowrap">{dimensionLabel}</span>
 				<span aria-hidden="true">:</span>
@@ -262,7 +306,7 @@
 				/>
 			</svg>
 		</button>
-		{#if value}
+		{#if isActive}
 			<span class="w-px self-stretch bg-zinc-200" aria-hidden="true"></span>
 			<button
 				type="button"
@@ -299,6 +343,7 @@
 						placeholder={searchPlaceholder}
 						aria-label={searchPlaceholder}
 						bind:value={typed}
+						oninput={() => (activeIndex = -1)}
 						onkeydown={onKeydown}
 					/>
 				</div>

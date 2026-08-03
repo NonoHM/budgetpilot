@@ -103,13 +103,18 @@ describe('FilterDropdown — the trigger grammar', () => {
 		expect(beta.textContent).toContain('0');
 	});
 
-	it('an unavailable count renders a placeholder, never a digit that reads as a value', async () => {
-		expect.assertions(1);
+	it('an unavailable count renders the placeholder, not a digit and not nothing', async () => {
+		expect.assertions(2);
 		render(FilterDropdown, base({ options: [{ value: 'a', label: 'Alpha', count: null }] }));
 		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
 
+		const text = page.getByRole('option', { name: /Alpha/ }).element().textContent ?? '';
 		// Zero is a value; "unknown" is not. A greyed 0 would be read as a real count.
-		expect(page.getByRole('option', { name: /Alpha/ }).element().textContent).not.toMatch(/\d/);
+		expect(text).not.toMatch(/\d/);
+		// And the placeholder must actually be THERE. Asserting only the absence of a digit was the
+		// third vacuous assertion in this file: returning '' instead of the em dash silently drops
+		// the placeholder the design requires, and an empty string contains no digit either.
+		expect(text).toContain('—');
 	});
 
 	it('the internal search field appears only past 8 options, and replaces the scope line', async () => {
@@ -142,5 +147,136 @@ describe('FilterDropdown — the trigger grammar', () => {
 
 		await expect.element(page.getByText('Comptes dans le filtre courant.')).toBeInTheDocument();
 		expect(page.getByPlaceholder('Filtrer les étiquettes').elements().length).toBe(0);
+	});
+});
+
+describe('FilterDropdown — selection and keyboard', () => {
+	it('choosing a row reports its value, and the return row reports the empty string', async () => {
+		expect.assertions(2);
+		const onSelect = vi.fn();
+		render(FilterDropdown, base({ onSelect }));
+
+		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
+		await userEvent.click(page.getByRole('option', { name: /Alpha/ }));
+		expect(onSelect).toHaveBeenCalledWith('a');
+
+		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
+		await userEvent.click(page.getByRole('option', { name: 'Toutes' }));
+		// '' is how the return row says "back to no filter on this dimension".
+		expect(onSelect).toHaveBeenLastCalledWith('');
+	});
+
+	it('the clear button reports a clear, and never a selection', async () => {
+		expect.assertions(2);
+		const onClear = vi.fn();
+		const onSelect = vi.fn();
+		render(
+			FilterDropdown,
+			base({ value: 'a', activeLabel: 'Étiquette : Alpha', onClear, onSelect })
+		);
+
+		await userEvent.click(page.getByRole('button', { name: 'Retirer le filtre par Étiquette' }));
+		expect(onClear).toHaveBeenCalledTimes(1);
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it('a zero-count row is announced but inert: clicking it selects nothing', async () => {
+		expect.assertions(1);
+		const onSelect = vi.fn();
+		render(FilterDropdown, base({ onSelect }));
+
+		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
+		// A NATIVE click, deliberately, not userEvent.click: Playwright refuses to click an
+		// aria-disabled element ("element is not enabled") and would time out instead of exercising
+		// the guard. A real browser has no such scruple — aria-disabled is not the native disabled
+		// attribute, and a real pointer does dispatch a click here. The component's own guard is
+		// therefore the only thing standing between the user and a filter that returns nothing,
+		// which is exactly what this asserts.
+		(page.getByRole('option', { name: /Beta/ }).element() as HTMLElement).click();
+
+		expect(onSelect).not.toHaveBeenCalled();
+	});
+
+	it('arrows traverse the rows and Enter takes the highlighted one', async () => {
+		expect.assertions(1);
+		const onSelect = vi.fn();
+		render(FilterDropdown, base({ onSelect }));
+
+		const trigger = page.getByRole('button', { name: 'Étiquette' });
+		await userEvent.click(trigger);
+		// Row 0 is "Toutes", row 1 is Alpha.
+		await userEvent.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+
+		expect(onSelect).toHaveBeenCalledWith('a');
+	});
+
+	it('Escape closes the panel and hands focus back to the trigger, not to the clear button', async () => {
+		expect.assertions(2);
+		render(FilterDropdown, base({ value: 'a', activeLabel: 'Étiquette : Alpha' }));
+
+		const trigger = page.getByRole('button', { name: 'Étiquette : Alpha' });
+		await userEvent.click(trigger);
+		await userEvent.keyboard('{Escape}');
+
+		expect(page.getByRole('listbox').elements().length).toBe(0);
+		// Landing on "×" would put the user one keystroke from undoing the choice just made.
+		expect(document.activeElement).toBe(trigger.element());
+	});
+
+	it('moving focus out of the panel closes it, so it cannot float over the page unreachable', async () => {
+		expect.assertions(2);
+		render(FilterDropdown, base());
+
+		// Something outside the component to receive the focus. Pressing Tab is not enough on its
+		// own here: the test DOM has nothing after the component, so focus leaves the document and
+		// relatedTarget is null — the one case the handler deliberately ignores, because focus
+		// going to another window must not close the panel behind the user's back.
+		const outside = document.createElement('button');
+		outside.textContent = 'ailleurs';
+		document.body.append(outside);
+
+		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
+		expect(page.getByRole('listbox').elements().length).toBe(1);
+
+		outside.focus();
+
+		// The listbox is tabindex="-1" and so absent from the Tab sequence: one Tab used to move
+		// focus clean out of the component while `open` stayed true, leaving an absolutely
+		// positioned panel over the page that Escape could no longer reach.
+		await expect.poll(() => page.getByRole('listbox').elements().length).toBe(0);
+		outside.remove();
+	});
+
+	it('the tinted variant paints its own background instead of the neutral active border', async () => {
+		expect.assertions(2);
+		render(
+			FilterDropdown,
+			base({
+				value: 'a',
+				activeLabel: 'Étiquette : Alpha',
+				tinted: true,
+				tintBgClass: 'bg-[#fff0e7]',
+				tintBorderClass: 'border-[#e8cab8]'
+			})
+		);
+
+		// The one place in the bar where a tag's identity shows. Subordinated, not decorative:
+		// only the background and border colour differ from the neutral grammar.
+		const group = page.getByRole('button', { name: 'Étiquette : Alpha' }).element().parentElement;
+		expect(group?.className).toContain('bg-[#fff0e7]');
+		expect(group?.className).not.toContain('border-zinc-900');
+	});
+
+	it('a value naming no known option renders as resting rather than half-active', async () => {
+		expect.assertions(2);
+		// Reachable in this app: a tag on zero transactions is deleted silently, so a bookmarked
+		// ?tag=<id> outlives its tag. The trigger used to read as resting while painting an active
+		// border and an orphan "×".
+		render(FilterDropdown, base({ value: 'deleted-tag-id' }));
+
+		await expect.element(page.getByRole('button', { name: 'Étiquette' })).toBeInTheDocument();
+		expect(
+			page.getByRole('button', { name: 'Retirer le filtre par Étiquette' }).elements().length
+		).toBe(0);
 	});
 });
