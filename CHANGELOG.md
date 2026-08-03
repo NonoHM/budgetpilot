@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.6.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.5.0...budgetpilot-v0.6.0) (2026-08-03)
+
+
+### Features
+
+* **i18n:** fall back to English instead of French ([#107](https://github.com/NonoHM/budgetpilot/issues/107)) ([8af0c95](https://github.com/NonoHM/budgetpilot/commit/8af0c95d66d88e1a4a69199a089e82b1d9a57afb))
+* **tags:** transverse tags on transactions ([#103](https://github.com/NonoHM/budgetpilot/issues/103)) ([eba7e77](https://github.com/NonoHM/budgetpilot/commit/eba7e7769bcf919cfd5d17c900c88af292cb5f75))
+* **transactions:** Période, a filter dimension for a composite value ([#112](https://github.com/NonoHM/budgetpilot/issues/112)) ([0e724e9](https://github.com/NonoHM/budgetpilot/commit/0e724e9431bf561bf83284ec2c992d0b69040ed8))
+* **transactions:** tags discoverability and the filter bar ([#108](https://github.com/NonoHM/budgetpilot/issues/108)) ([f90943c](https://github.com/NonoHM/budgetpilot/commit/f90943cad21c26b2e023ca7b2d0adf3df0848e34))
+
+
+### Bug Fixes
+
+* **register:** say the token is wrong instead of claiming registration is closed ([#105](https://github.com/NonoHM/budgetpilot/issues/105)) ([bf2db59](https://github.com/NonoHM/budgetpilot/commit/bf2db5937561cb51d5162de49c9dd712e92383ce))
+* **register:** throttle BOOTSTRAP_TOKEN guessing ([#106](https://github.com/NonoHM/budgetpilot/issues/106)) ([49dffd8](https://github.com/NonoHM/budgetpilot/commit/49dffd82bb36ba3e9d9041106a1a171d20b64997))
+* **transactions:** column pinning, search field placement, and the summary band ([#109](https://github.com/NonoHM/budgetpilot/issues/109)) ([dafe765](https://github.com/NonoHM/budgetpilot/commit/dafe76571a3663295648014b7f80ed052f2cb6b3))
+* **transactions:** filter triggers at the referential 34px desktop height ([#111](https://github.com/NonoHM/budgetpilot/issues/111)) ([f04734a](https://github.com/NonoHM/budgetpilot/commit/f04734ac766f21f28208889edd8ed3594cf4c9aa))
+* **transactions:** one height for the filter bar, and a panel that stays in its box ([#114](https://github.com/NonoHM/budgetpilot/issues/114)) ([627eb8b](https://github.com/NonoHM/budgetpilot/commit/627eb8b15f29594b06d624d2739030faa5904ceb))
+
 ## [0.5.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.4.0...budgetpilot-v0.5.0) (2026-08-01)
 
 
