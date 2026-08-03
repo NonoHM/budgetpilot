@@ -49,6 +49,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		uncategorizedCount: 0,
 		classifiableCount: 0,
 		classifyStackIds: [],
+		tagCounts: null,
 		...overrides
 	};
 }

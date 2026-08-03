@@ -259,6 +259,26 @@ const db = vi.hoisted(() => {
 			categoryNatureMapping: {
 				findMany: vi.fn(async () => [{ categoryName: 'Loisirs', nature: 'investment' }])
 			},
+			// Tallies the fixture's own `tags` links over `filterTransactions(where.transaction)`, so
+			// it exercises the SAME `where` semantics as `transaction.findMany`/`count` above rather
+			// than a second, divergent notion of what matches. `where.tag` (the userId conjunct
+			// countTagsInScope always sends) is read but not enforced here: every linked tag in this
+			// fixture already belongs to user-a, and that conjunct's presence is asserted directly in
+			// counts.spec.ts against a fake built for exactly that purpose.
+			transactionTag: {
+				groupBy: vi.fn(async ({ where }: { where: { transaction?: Record<string, unknown> } }) => {
+					const tally = new Map<string, number>();
+					for (const t of filterTransactions(where.transaction)) {
+						for (const link of t.tags) {
+							tally.set(link.tag.id, (tally.get(link.tag.id) ?? 0) + 1);
+						}
+					}
+					return [...tally.entries()].map(([tagId, count]) => ({
+						tagId,
+						_count: { _all: count }
+					}));
+				})
+			},
 			tag: {
 				findMany: vi.fn(async () => [
 					{ id: 'tag-portugal', name: 'Portugal', colorToken: 'lagoon' },
@@ -1262,6 +1282,40 @@ describe('/transactions load — tags', () => {
 		expect(data.transactions[0].tags).toEqual([
 			{ id: 'tag-portugal', name: 'Portugal', colorToken: 'lagoon' }
 		]);
+	});
+
+	it('the tag counts ignore the selected tag, so the other tags stay comparable', async () => {
+		expect.assertions(2);
+
+		// Only transaction-1 carries tag-portugal. If the tag conjunct leaked into the count scope,
+		// selecting it would narrow the counted set to that single row and every count would read
+		// differently than it does with no tag filter at all — the "filter that returns nothing" the
+		// design exists to prevent. With the dimension correctly removed, the two loads must agree,
+		// and both must report the real, whole-set count rather than the tautological 1-of-1.
+		const withoutFilter = (await runLoad('/transactions')) as unknown as {
+			tagCounts: Array<{ tagId: string; count: number }> | null;
+		};
+		const withTagFilter = (await runLoad('/transactions?tag=tag-portugal')) as unknown as {
+			tagCounts: Array<{ tagId: string; count: number }> | null;
+		};
+
+		expect(withoutFilter.tagCounts).toEqual([{ tagId: 'tag-portugal', count: 1 }]);
+		expect(withTagFilter.tagCounts).toEqual(withoutFilter.tagCounts);
+	});
+
+	it('with ?q= active the counts describe the JS-matched rows, not the SQL superset', async () => {
+		expect.assertions(1);
+
+		// "transaction-2" as a label search matches only transaction-2's label. The SQL `where`
+		// (which never sees `q`) still admits transaction-1 — the row that actually carries
+		// tag-portugal — so a consumer that counted over the raw `where` would report tag-portugal: 1
+		// regardless of the search. Counting the JS-matched set instead must exclude it entirely: this
+		// is the exact shape bulkTag once shipped wrong.
+		const data = (await runLoad('/transactions?q=transaction-2')) as unknown as {
+			tagCounts: Array<{ tagId: string; count: number }> | null;
+		};
+
+		expect(data.tagCounts).toEqual([]);
 	});
 });
 

@@ -10,6 +10,7 @@ import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { setTransactionTags } from '$lib/server/tags/service';
+import { countTagsInScope, type TagScopeCount } from '$lib/server/tags/counts';
 import {
 	applyTagToFilteredSet,
 	undoBulkTag,
@@ -291,6 +292,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	let totalPages: number;
 	let transactions: TransactionListRow[];
 	let filteredTotals: FilteredTotals;
+	// Set only on the `q` branch below, to the ids the JS match actually admitted. Reused for the
+	// tag counts rather than re-running the match: see the comment at `tagCounts` for why.
+	let matchedIds: string[] | null = null;
 
 	if (queryError || dateRangeError) {
 		totalTransactions = 0;
@@ -321,6 +325,29 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		// The q path matches in JS, so the SQL aggregate would not see the same set. Same numbers,
 		// different source; totals.spec.ts pins the two implementations against one fixture.
 		filteredTotals = sumFilteredTotals(filtered);
+		matchedIds = filtered.map((row) => row.id);
+	}
+
+	// The tag dimension is removed on purpose: counting inside its own filter would report 1 for
+	// the selected tag and 0 for every other, which is not a comparison, it is a tautology.
+	const { tags: _tagConjunct, ...tagCountWhere } = where;
+
+	let tagCounts: TagScopeCount[] | null = null;
+	if (!queryError && !dateRangeError) {
+		try {
+			// `q` is matched in JS AFTER the SQL query (accent folding and regex are not expressible
+			// in SQL — see parseListFilters' own comment). Counting over the raw `where` while a
+			// search is active would count a STRICT SUPERSET of what the user is looking at, so when
+			// `matchedIds` was set above, the count is narrowed to exactly that id set instead.
+			tagCounts = await countTagsInScope(
+				user.id,
+				matchedIds ? { ...tagCountWhere, id: { in: matchedIds } } : tagCountWhere
+			);
+		} catch {
+			// Best-effort enrichment: a failure here must never fail the page. The filter panel
+			// renders its own "comptes indisponibles" state from a null tagCounts.
+			tagCounts = null;
+		}
 	}
 
 	return {
@@ -353,6 +380,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			tag: tagId
 		},
 		filteredTotals,
+		tagCounts,
 		queryError,
 		dateRangeError,
 		pagination: {
