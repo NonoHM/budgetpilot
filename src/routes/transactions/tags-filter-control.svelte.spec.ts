@@ -1,4 +1,4 @@
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import { describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../layout.css';
@@ -65,6 +65,19 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 
 const SPENDING_TAG_OPTIONS = [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }];
 
+/**
+ * The DESKTOP tag dimension's trigger. Located by its own text rather than by position: an index
+ * into the bar's buttons picked the category dropdown instead, which has no counts, so the panel
+ * that opened was the wrong one and the assertion below read a state it was never about.
+ */
+function tagTrigger(container: HTMLElement): HTMLElement {
+	const trigger = [...container.querySelectorAll<HTMLElement>('.lg\\:block button')].find((b) =>
+		b.textContent?.trim().startsWith(m.tags_filter_dimension())
+	);
+	if (!trigger) throw new Error('desktop tag filter trigger not found');
+	return trigger;
+}
+
 describe('tag filter control', () => {
 	it('desktop: is absent for a user with no tags', async () => {
 		await page.viewport(1280, 800);
@@ -96,5 +109,31 @@ describe('tag filter control', () => {
 		await expect
 			.element(page.getByRole('button', { name: m.tags_filter_dimension() }).first())
 			.toBeInTheDocument();
+	});
+
+	it('desktop: says the counts are unavailable rather than claiming a scope they do not have', async () => {
+		expect.assertions(4);
+		await page.viewport(1280, 800);
+
+		// `tagCounts: null` is a documented state: the load catches a failed count query and the UI
+		// is meant to say so. Desktop kept claiming "Comptes dans le filtre courant." while every row
+		// beside it rendered "—", so the header contradicted the numbers under it. Mobile already had
+		// the branch and desktop did not — the same one-surface-only shape this repo keeps finding.
+		const unavailable = render(Page, {
+			data: baseData({ allTags: SPENDING_TAG_OPTIONS, tagCounts: null }),
+			form: null
+		});
+		await userEvent.click(tagTrigger(unavailable.container));
+		expect(unavailable.container.textContent).toContain(m.tags_filter_counts_unavailable());
+		expect(unavailable.container.textContent).not.toContain(m.tags_filter_scope_note());
+		unavailable.unmount();
+
+		const scoped = render(Page, {
+			data: baseData({ allTags: SPENDING_TAG_OPTIONS, tagCounts: [{ tagId: 'tag-1', count: 2 }] }),
+			form: null
+		});
+		await userEvent.click(tagTrigger(scoped.container));
+		expect(scoped.container.textContent).toContain(m.tags_filter_scope_note());
+		expect(scoped.container.textContent).not.toContain(m.tags_filter_counts_unavailable());
 	});
 });

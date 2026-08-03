@@ -256,6 +256,12 @@
 
 	beforeNavigate((nav) => {
 		if (!hasUnsavedChanges || bypassUnsavedGuard) return;
+		// Nothing to replay means nothing to ask about. Cancelling here would swallow the gesture
+		// with no dialog and no way forward while the editor stays dirty — the user would click and
+		// see nothing happen. `nav.to` is null today only for `type: 'leave'`, which is handled
+		// below on its own terms, so this is a guard against the API gaining a third case rather
+		// than against a reachable state.
+		if (!nav.willUnload && !nav.to) return;
 		// Cancel FIRST. `beforeNavigate` is synchronous, so there is no awaiting a dialog here: the
 		// navigation is stopped unconditionally and replayed later if the user says so.
 		nav.cancel();
@@ -754,6 +760,24 @@
 	// passing {} for 'all' made the "Toutes" tab re-emit the filter it exists to clear.
 	const buildFilterHref = (filterType: string) =>
 		buildTransactionsHref(data.filters, { type: filterType }, { keepIds: false });
+	/**
+	 * The over-cap banner's escape route, and NOT `buildFilterHref`.
+	 *
+	 * `buildFilterHref` drops `?ids=` on purpose — a tab switch visibly changes the list, so the user
+	 * should see they left "the transactions linked to this bill" behind. That rule is right for a
+	 * tab and wrong here: the count in the banner was MEASURED inside the id filter, so a link that
+	 * drops it lands the user somewhere the number does not describe. A banner that names a figure
+	 * has to carry every filter that figure was measured under.
+	 *
+	 * Unreachable today only by coincidence: `MAX_TRANSACTION_ID_FILTER` caps `?ids=` at 250 and
+	 * `MAX_BULK_TAG_TRANSACTIONS` is also 250, so the over-cap gate cannot open while an id filter is
+	 * active. Both constants document that they are free to diverge, and the day either moves this
+	 * becomes a false claim with a number the user can check — the /upcoming-bills defect from #99,
+	 * in the feature whose own comment cites #99 as the reason to compute the count at all.
+	 */
+	const buildBulkFallbackHref = (kind: string) =>
+		buildTransactionsHref(data.filters, { type: kind }, { keepIds: true });
+
 	const buildPageHref = (page: number) =>
 		buildTransactionsHref(data.filters, { page: String(page) }, { keepIds: true });
 	const buildSelectedHref = (id: string) =>
@@ -1025,7 +1049,7 @@
 			{#snippet action()}
 				{#if data.bulkFallback}
 					<a
-						href={resolve(buildFilterHref(data.bulkFallback.kind))}
+						href={resolve(buildBulkFallbackHref(data.bulkFallback.kind))}
 						class="shrink-0 self-center font-semibold text-amber-900 underline underline-offset-2"
 					>
 						{m.tags_bulk_over_limit_action()}
@@ -1441,7 +1465,9 @@
 						value={data.filters.tag}
 						allLabel={m.tags_filter_all()}
 						allCount={tagFilterAllCount}
-						scopeNote={m.tags_filter_scope_note()}
+						scopeNote={data.tagCounts === null
+							? m.tags_filter_counts_unavailable()
+							: m.tags_filter_scope_note()}
 						searchPlaceholder={m.tags_filter_search_placeholder()}
 						clearAriaLabel={m.transactions_filter_clear_aria({
 							dimension: m.tags_filter_dimension()
@@ -1644,9 +1670,15 @@
 							class="inline-flex min-h-11 items-center px-2.5 text-sm text-zinc-900"
 							onclick={() => (mobileFilterSubDimension = 'category')}
 						>
-							{data.filters.category
-								? activeCategoryLabel
-								: m.transactions_filter_dimension_category()}
+							<!-- Same trigger grammar as desktop, same cap: the dimension name never truncates,
+							     the VALUE is bounded at 190px. The rule is universal, not desktop-only, and
+							     the pill had no bound at all — a long tag or category name rendered as one
+							     unbreakable pill wider than the design allows. -->
+							<span class="max-w-[190px] truncate"
+								>{data.filters.category
+									? activeCategoryLabel
+									: m.transactions_filter_dimension_category()}</span
+							>
 						</button>
 						{#if data.filters.category}
 							<span class="w-px self-stretch bg-zinc-200" aria-hidden="true"></span>
@@ -1679,7 +1711,9 @@
 									: 'text-zinc-900'}"
 								onclick={() => (mobileFilterSubDimension = 'tag')}
 							>
-								{activeFilterTag ? activeTagLabel : m.tags_filter_dimension()}
+								<span class="max-w-[190px] truncate"
+									>{activeFilterTag ? activeTagLabel : m.tags_filter_dimension()}</span
+								>
 							</button>
 							{#if activeFilterTag}
 								<span class="w-px self-stretch bg-zinc-300" aria-hidden="true"></span>

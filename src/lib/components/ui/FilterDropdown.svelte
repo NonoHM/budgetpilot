@@ -364,7 +364,12 @@
 			{:else if scopeNote}
 				<!-- The scope is named in one line at the head of the panel. Without it a zero count
 				     is incomprehensible: the reader cannot tell "no such transaction" from "not in
-				     this filter". -->
+				     this filter".
+				     `else if`, not a second `if`: this REPLACES the search field rather than stacking
+				     with it, and a test pins that. Two header lines push the first tag to the third
+				     row. The consequence, deliberate and recorded in the backlog rather than fixed
+				     here: past SEARCH_THRESHOLD options the counts carry no explanation at all. That
+				     is a gap, not a false claim — there is no sentence left to be wrong. -->
 				<p class="border-b border-zinc-100 px-3 py-2 text-xs text-zinc-500">{scopeNote}</p>
 			{/if}
 

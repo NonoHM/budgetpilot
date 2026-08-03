@@ -1309,6 +1309,28 @@ describe('/transactions load — tags', () => {
 		expect(data.bulkFallback).toBeNull();
 	});
 
+	it('a search AND a tag filter narrow together, not just the counts', async () => {
+		expect.assertions(3);
+
+		// The `?q=` scan runs on the TAG-FREE scope now, and the tag filter is applied to its result
+		// in JS. Nothing else asserts that second step: `tagCounts` is derived from the tag-free set
+		// by design, so the neighbouring cases stay green with the JS filter deleted while
+		// `?q=a&tag=…` quietly lists every untagged transaction — and the bulk dialog then quotes
+		// that count back to the user. This asserts the LIST and the total, which is what regresses.
+		const data = (await runLoad('/transactions?q=a&tag=tag-portugal')) as unknown as {
+			transactions: Array<{ id: string }>;
+			pagination: { totalTransactions: number };
+		};
+
+		// `?q=a` alone matches all 29 of this user's rows; exactly one of them carries tag-portugal.
+		expect(data.transactions.map((t) => t.id)).toEqual(['transaction-1']);
+		expect(data.pagination.totalTransactions).toBe(1);
+		const withoutTag = (await runLoad('/transactions?q=a')) as unknown as {
+			pagination: { totalTransactions: number };
+		};
+		expect(withoutTag.pagination.totalTransactions).toBe(29);
+	});
+
 	it('the tag counts ignore the selected tag, so the other tags stay comparable', async () => {
 		expect.assertions(2);
 
