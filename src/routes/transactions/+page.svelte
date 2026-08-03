@@ -31,7 +31,7 @@
 	import TagChips from '$lib/components/ui/TagChips.svelte';
 	import FilterDropdown from '$lib/components/ui/FilterDropdown.svelte';
 	import ManageTagsFooter from '$lib/components/ui/ManageTagsFooter.svelte';
-	import { tagColorBgClass, tagTintBgClass } from '$lib/domain/colors';
+	import { tagColorBgClass, tagColorTextClass, tagTintBgClass } from '$lib/domain/colors';
 	import { MAX_BULK_TAG_TRANSACTIONS } from '$lib/domain/tags';
 	import {
 		getAdjacentFocusStackId,
@@ -431,6 +431,50 @@
 			: undefined
 	);
 
+	/**
+	 * Mobile-only: category and tag collapse behind one "Filtres" sheet instead of the desktop's
+	 * two side-by-side dropdowns plus the date range — four controls that fit a 1280px bar but not
+	 * a 390px card without pushing the submit button several swipes down. Search and the date
+	 * range stay directly visible, unchanged: neither carries the "Dimension : Valeur" / "Toutes"
+	 * grammar this sheet exists to collapse, and hiding a live search term behind a sheet would
+	 * move it out of sight of where it was typed.
+	 */
+	let mobileFiltersOpen = $state(false);
+	let mobileFilterSubDimension = $state<'category' | 'tag' | null>(null);
+
+	function closeMobileFiltersSheet() {
+		mobileFiltersOpen = false;
+	}
+
+	function closeMobileFilterSubSheet() {
+		mobileFilterSubDimension = null;
+	}
+
+	/** Category and tag are the only two dimensions behind the sheet — see the comment above. */
+	const activeMobileFilterDimensionCount = $derived(
+		(data.filters.category ? 1 : 0) + (activeFilterTag ? 1 : 0)
+	);
+
+	const mobileFiltersTriggerAriaLabel = $derived(
+		activeMobileFilterDimensionCount === 0
+			? m.transactions_filters_sheet_label()
+			: activeMobileFilterDimensionCount === 1
+				? m.transactions_filters_sheet_aria_one({ count: activeMobileFilterDimensionCount })
+				: m.transactions_filters_sheet_aria_many({ count: activeMobileFilterDimensionCount })
+	);
+
+	/**
+	 * The validation button says how many results the CURRENT filter set already returns, never
+	 * "Appliquer": a selection made in the sub-sheet has already navigated — applyFilterDimension
+	 * calls goto() immediately, same as the desktop dropdown — so `pagination.totalTransactions`
+	 * is already the answer by the time this button is visible. Nothing is pending behind it.
+	 */
+	const mobileFiltersApplyLabel = $derived(
+		data.pagination.totalTransactions === 1
+			? m.transactions_filters_sheet_apply_one({ count: data.pagination.totalTransactions })
+			: m.transactions_filters_sheet_apply_many({ count: data.pagination.totalTransactions })
+	);
+
 	// Same re-validation, for TagPicker's option list (TransactionTagsEditor -> TagPicker), whose
 	// TagPickerOption.colorToken is the closed union rather than the raw database string. A row
 	// that somehow failed the check is dropped rather than coerced: TagPicker has no "unknown
@@ -734,29 +778,40 @@
 		data.selectedTransaction?.id === id ? buildDeselectedHref() : buildSelectedHref(id);
 
 	/**
-	 * Closing returns focus to the row the user came from.
+	 * The ONE way the detail closes, whichever gesture asked for it: the header cross, Escape, a
+	 * second click on the selected row, and the mobile sheet's own backdrop and close control.
 	 *
-	 * `goto` runs SvelteKit's `reset_focus()`, which lands on `<body>` — so without this the next Tab
-	 * restarts at the top of the page, several dozen stops away from where the user was working. The
-	 * row is looked up AFTER the navigation because the panel that held focus no longer exists.
+	 * It was briefly two. Escape got a handler on the desktop `<aside>` while BottomSheet's
+	 * `svelte:window` keydown was already closing the same selection — the sheet is mounted at every
+	 * breakpoint and only hidden by CSS — so one keystroke fired two `goto`s at two slightly
+	 * different URLs and pushed two history entries. Both halves looked correct in isolation, which
+	 * is exactly why the duplicate was invisible: the panel did close.
+	 *
+	 * Escape therefore stays where it already was, on BottomSheet's window listener, and the layering
+	 * still holds for the reason it always did: TagPicker calls `stopPropagation()` on Escape while
+	 * its list is open, so the first keystroke never reaches window and closes only the picker.
+	 *
+	 * Focus goes back to the row the user came from. `goto` runs SvelteKit's `reset_focus()`, which
+	 * lands on `<body>`, so without this the next Tab restarts at the top of the page. Both surfaces
+	 * are tried because both are mounted: the desktop `<tr>`'s link, then the mobile ListCard's.
+	 * The delete flow is the one exception — it closes the sheet with ConfirmDialog open and holding
+	 * focus, and stealing it would break that modal's Tab trap. (Not detectable via
+	 * `document.activeElement`: the sheet's 220ms exit transition keeps it, and the focus inside it,
+	 * in the DOM past `goto`'s resolution.)
 	 */
 	async function closeDetail() {
 		const id = data.selectedTransaction?.id;
 		await goto(resolve(buildDeselectedHref()), { noScroll: true });
-		if (id) document.querySelector<HTMLElement>(`[data-testid="tx-row-${id}"] a`)?.focus();
-	}
-
-	/**
-	 * Escape closes the panel, wherever focus sits inside it.
-	 *
-	 * Bound to the `<aside>` rather than to `window` on purpose: a control inside the panel gets the
-	 * key first and may consume it. TagPicker calls `stopPropagation()` on Escape while its list is
-	 * open, and that is exactly what makes the layering work — the first Escape closes the picker,
-	 * the second reaches here and closes the panel. A window-level listener would close both at once.
-	 */
-	function onDetailKeydown(event: KeyboardEvent) {
-		if (event.key !== 'Escape' || event.defaultPrevented) return;
-		void closeDetail();
+		if (!id || deleteConfirmOpen) return;
+		// Both surfaces are MOUNTED at every breakpoint and only hidden by CSS, so "the desktop one
+		// first" is wrong: on a phone it exists, is `display: none`, and swallows the focus silently.
+		// `offsetParent === null` is the cheap test for "not rendered", and it is what decides which
+		// of the two the user is actually looking at.
+		const candidates = [
+			document.querySelector<HTMLElement>(`[data-testid="tx-row-${id}"] a`),
+			document.getElementById(`tx-row-${id}`)
+		];
+		candidates.find((el) => el !== null && el.offsetParent !== null)?.focus();
 	}
 
 	const buildExportHref = () => buildTransactionsExportHref(data.filters);
@@ -867,21 +922,10 @@
 		applyFocusOutcome('createRule', id);
 	}
 
-	async function closeMobileSheet() {
-		// Opening the sheet is a real navigation (?selected=<id>), so focus was
-		// already on <body> when it opened — BottomSheet's own focus restore has
-		// nothing useful to give back. Re-establish keyboard context explicitly by
-		// refocusing the opener row. Exception: the delete flow closes the sheet
-		// with ConfirmDialog open and holding focus — stealing it would break that
-		// modal's Tab trap. (Can't detect this via document.activeElement: the
-		// sheet's 220ms exit transition keeps it — and the focus inside it — in
-		// the DOM past goto's resolution.)
-		const txId = data.selectedTransaction?.id;
-		await goto(resolve(buildPageHref(data.pagination.page)), { keepFocus: true });
-		if (txId && !deleteConfirmOpen) {
-			document.getElementById(`tx-row-${txId}`)?.focus();
-		}
-	}
+	// The mobile sheet's close gestures (backdrop, cross, Escape) are the same event as the desktop
+	// panel's, so they run the same function. Kept as a named alias rather than passing closeDetail
+	// directly, because BottomSheet's prop is what documents WHO is asking.
+	const closeMobileSheet = closeDetail;
 
 	/**
 	 * Which of the design's three totals states applies (section 4C, "TROIS ÉTATS QUI NE SE
@@ -1407,6 +1451,9 @@
 							? tagTintBgClass(activeFilterTag.colorToken)
 							: ''}
 						tintBorderClass="border-zinc-300"
+						tintTextClass={activeFilterTag && isTagColorToken(activeFilterTag.colorToken)
+							? tagColorTextClass(activeFilterTag.colorToken)
+							: ''}
 						onSelect={(tag) => applyFilterDimension({ tag })}
 						onClear={clearTagFilter}
 					>
@@ -1541,47 +1588,325 @@
 					<p class="px-0.5 text-xs text-zinc-500">{m.transactions_regex_error_unchanged()}</p>
 				{/if}
 
-				<!-- Same grammar as the desktop bar, different pixels. What stays identical is what
-				     matters: "Dimension : Valeur", the × in the same place, the counts, and the
+				<!-- Category and tag collapse behind one "Filtres" sheet — see the comment on
+				     activeMobileFilterDimensionCount above. What stays identical to the desktop bar is
+				     what matters: "Dimension : Valeur", the × in the same place, the counts, and the
 				     "Gérer dans Paramètres" footer. One logic, two layouts. -->
-				<FilterDropdown
-					dimensionLabel={m.transactions_filter_dimension_category()}
-					activeLabel={activeCategoryLabel}
-					options={categoryFilterOptions}
-					value={data.filters.category}
-					allLabel={m.transactions_category_filter_all()}
-					searchPlaceholder={m.transactions_category_filter_placeholder()}
-					clearAriaLabel={m.transactions_filter_clear_aria({
-						dimension: m.transactions_filter_dimension_category()
-					})}
-					onSelect={(category) => applyFilterDimension({ category })}
-					onClear={() => applyFilterDimension({ category: '' })}
-				/>
-				{#if data.allTags.length > 0}
-					<FilterDropdown
-						dimensionLabel={m.tags_filter_dimension()}
-						activeLabel={activeTagLabel}
-						options={tagFilterOptions}
-						value={data.filters.tag}
-						allLabel={m.tags_filter_all()}
-						allCount={tagFilterAllCount}
-						scopeNote={m.tags_filter_scope_note()}
-						searchPlaceholder={m.tags_filter_search_placeholder()}
-						clearAriaLabel={m.transactions_filter_clear_aria({
-							dimension: m.tags_filter_dimension()
-						})}
-						tinted={true}
-						tintBgClass={activeFilterTag && isTagColorToken(activeFilterTag.colorToken)
-							? tagTintBgClass(activeFilterTag.colorToken)
-							: ''}
-						tintBorderClass="border-zinc-300"
-						onSelect={(tag) => applyFilterDimension({ tag })}
-						onClear={clearTagFilter}
+				{#snippet mobileFilterCheckMark()}
+					<svg
+						class="h-3.5 w-3.5 shrink-0 text-zinc-500"
+						viewBox="0 0 16 16"
+						fill="none"
+						aria-hidden="true"
 					>
-						{#snippet footer()}
+						<path
+							d="M2.5 8 6.5 12 13.5 4"
+							stroke="currentColor"
+							stroke-width="1.6"
+							stroke-linecap="round"
+							stroke-linejoin="round"
+						/>
+					</svg>
+				{/snippet}
+				<div class="flex flex-wrap items-center gap-2">
+					<button
+						type="button"
+						class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+						aria-label={mobileFiltersTriggerAriaLabel}
+						onclick={() => (mobileFiltersOpen = true)}
+					>
+						{m.transactions_filters_sheet_label()}
+						{#if activeMobileFilterDimensionCount > 0}
+							<span
+								aria-hidden="true"
+								class="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-zinc-900 px-1 text-[11px] font-bold text-white tabular-nums"
+							>
+								{activeMobileFilterDimensionCount}
+							</span>
+						{/if}
+					</button>
+
+					<!-- The dimension's own trigger, always present — same "Dimension : Valeur" grammar
+					     and the same two-adjoined-buttons shape as the desktop FilterDropdown trigger
+					     (a resting name, an active "Dimension : Valeur" plus its own clear control), so
+					     the two surfaces never disagree about what "active" reads like. Opens the
+					     dimension's sub-sheet directly rather than routing through the "Filtres"
+					     summary first — the summary sheet stays reachable too, for the count and the
+					     "Voir les N résultats" confirmation, but is never the only way in. -->
+					<span
+						class="inline-flex h-9 items-stretch overflow-hidden rounded-lg border bg-white {data
+							.filters.category
+							? 'border-zinc-900'
+							: 'border-zinc-200'}"
+					>
+						<button
+							type="button"
+							class="inline-flex items-center px-2.5 text-sm text-zinc-900"
+							onclick={() => (mobileFilterSubDimension = 'category')}
+						>
+							{data.filters.category
+								? activeCategoryLabel
+								: m.transactions_filter_dimension_category()}
+						</button>
+						{#if data.filters.category}
+							<span class="w-px self-stretch bg-zinc-200" aria-hidden="true"></span>
+							<button
+								type="button"
+								class="inline-flex items-center px-2 text-zinc-500"
+								aria-label={m.transactions_filter_clear_aria({
+									dimension: m.transactions_filter_dimension_category()
+								})}
+								onclick={() => applyFilterDimension({ category: '' })}
+							>
+								<span aria-hidden="true">×</span>
+							</button>
+						{/if}
+					</span>
+					{#if data.allTags.length > 0}
+						<span
+							class="inline-flex h-9 items-stretch overflow-hidden rounded-lg border bg-white {activeFilterTag
+								? `border-zinc-300 ${isTagColorToken(activeFilterTag.colorToken) ? tagTintBgClass(activeFilterTag.colorToken) : ''}`
+								: 'border-zinc-200'}"
+						>
+							<button
+								type="button"
+								class="inline-flex items-center px-2.5 text-sm text-zinc-900"
+								onclick={() => (mobileFilterSubDimension = 'tag')}
+							>
+								{activeFilterTag ? activeTagLabel : m.tags_filter_dimension()}
+							</button>
+							{#if activeFilterTag}
+								<span class="w-px self-stretch bg-zinc-300" aria-hidden="true"></span>
+								<button
+									type="button"
+									class="inline-flex items-center px-2 text-zinc-600"
+									aria-label={m.transactions_filter_clear_aria({
+										dimension: m.tags_filter_dimension()
+									})}
+									onclick={clearTagFilter}
+								>
+									<span aria-hidden="true">×</span>
+								</button>
+							{/if}
+						</span>
+					{/if}
+				</div>
+
+				<!-- The "Filtres" sheet: category and tag rows, each showing the vertical form of
+				     "Dimension : Valeur" — the dimension name in 12px above the value slot, "Toutes" in
+				     zinc-400 when the dimension rests. Selecting a value happens one level down, in a
+				     sub-sheet: this sheet only says what is set today and lets the user drill in. -->
+				<BottomSheet
+					open={mobileFiltersOpen}
+					ariaLabel={m.transactions_filters_sheet_label()}
+					onClose={closeMobileFiltersSheet}
+				>
+					<div class="space-y-1 pb-1">
+						<h2 class="mb-2 text-base font-semibold text-zinc-950">
+							{m.transactions_filters_sheet_label()}
+						</h2>
+						<button
+							type="button"
+							class="flex min-h-[52px] w-full items-center justify-between gap-2 border-b border-zinc-100 py-2 text-left"
+							onclick={() => (mobileFilterSubDimension = 'category')}
+						>
+							<span class="flex min-w-0 flex-col">
+								<span class="text-[11px] font-medium text-zinc-500">
+									{m.transactions_filter_dimension_category()}
+								</span>
+								<span
+									class="truncate text-sm {data.filters.category
+										? 'text-zinc-900'
+										: 'text-zinc-400'}"
+								>
+									{data.filters.category
+										? displayCategory(data.filters.category)
+										: m.transactions_category_filter_all()}
+								</span>
+							</span>
+							<svg
+								class="h-4 w-4 shrink-0 text-zinc-400"
+								viewBox="0 0 20 20"
+								fill="none"
+								aria-hidden="true"
+							>
+								<path
+									d="M7.5 5.5 12 10l-4.5 4.5"
+									stroke="currentColor"
+									stroke-width="1.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</button>
+						{#if data.allTags.length > 0}
+							<button
+								type="button"
+								class="flex min-h-[52px] w-full items-center justify-between gap-2 border-b border-zinc-100 py-2 text-left"
+								onclick={() => (mobileFilterSubDimension = 'tag')}
+							>
+								<span class="flex min-w-0 flex-col">
+									<span class="text-[11px] font-medium text-zinc-500"
+										>{m.tags_filter_dimension()}</span
+									>
+									<span
+										class="flex items-center gap-1.5 truncate text-sm {activeFilterTag
+											? 'text-zinc-900'
+											: 'text-zinc-400'}"
+									>
+										{#if activeFilterTag && isTagColorToken(activeFilterTag.colorToken)}
+											<span
+												class="h-2 w-2 shrink-0 rounded-full {tagColorBgClass(
+													activeFilterTag.colorToken
+												)}"
+											></span>
+										{/if}
+										{activeFilterTag ? activeFilterTag.name : m.tags_filter_all()}
+									</span>
+								</span>
+								<svg
+									class="h-4 w-4 shrink-0 text-zinc-400"
+									viewBox="0 0 20 20"
+									fill="none"
+									aria-hidden="true"
+								>
+									<path
+										d="M7.5 5.5 12 10l-4.5 4.5"
+										stroke="currentColor"
+										stroke-width="1.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							</button>
+						{/if}
+						<Button type="button" class="mt-3 h-11 w-full" onclick={closeMobileFiltersSheet}>
+							{mobileFiltersApplyLabel}
+						</Button>
+					</div>
+				</BottomSheet>
+
+				<!-- Category sub-sheet: the same option set FilterDropdown renders on desktop, as
+				     full-width 52px rows instead of a small anchored panel. -->
+				<BottomSheet
+					open={mobileFilterSubDimension === 'category'}
+					ariaLabel={m.transactions_filter_dimension_category()}
+					onClose={closeMobileFilterSubSheet}
+				>
+					<div class="pb-1">
+						<h2 class="mb-2 text-base font-semibold text-zinc-950">
+							{m.transactions_filter_dimension_category()}
+						</h2>
+						<ul class="divide-y divide-zinc-100">
+							<li>
+								<button
+									type="button"
+									class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm text-zinc-700"
+									onclick={() => {
+										applyFilterDimension({ category: '' });
+										closeMobileFilterSubSheet();
+									}}
+								>
+									<span>{m.transactions_category_filter_all()}</span>
+									{#if !data.filters.category}
+										{@render mobileFilterCheckMark()}
+									{/if}
+								</button>
+							</li>
+							{#each categoryFilterOptions as option (option.value)}
+								<li>
+									<button
+										type="button"
+										class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm text-zinc-700"
+										onclick={() => {
+											applyFilterDimension({ category: option.value });
+											closeMobileFilterSubSheet();
+										}}
+									>
+										<span class="truncate">{option.label}</span>
+										{#if option.value === data.filters.category}
+											{@render mobileFilterCheckMark()}
+										{/if}
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				</BottomSheet>
+
+				<!-- Tag sub-sheet: same option set as the desktop tag panel — counts, the scope note, a
+				     zero-count row dimmed but reachable, and the same "Gérer dans Paramètres" footer. -->
+				{#if data.allTags.length > 0}
+					<BottomSheet
+						open={mobileFilterSubDimension === 'tag'}
+						ariaLabel={m.tags_filter_dimension()}
+						onClose={closeMobileFilterSubSheet}
+					>
+						<div class="pb-1">
+							<h2 class="mb-1 text-base font-semibold text-zinc-950">
+								{m.tags_filter_dimension()}
+							</h2>
+							<p class="mb-2 text-xs text-zinc-500">
+								{data.tagCounts === null
+									? m.tags_filter_counts_unavailable()
+									: m.tags_filter_scope_note()}
+							</p>
+							<ul class="divide-y divide-zinc-100">
+								<li>
+									<button
+										type="button"
+										class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm text-zinc-700"
+										onclick={() => {
+											clearTagFilter();
+											closeMobileFilterSubSheet();
+										}}
+									>
+										<span>{m.tags_filter_all()}</span>
+										<span class="flex items-center gap-2">
+											<span class="text-xs text-zinc-500 tabular-nums">
+												{tagFilterAllCount === null ? '—' : tagFilterAllCount}
+											</span>
+											{#if !data.filters.tag}
+												{@render mobileFilterCheckMark()}
+											{/if}
+										</span>
+									</button>
+								</li>
+								{#each tagFilterOptions as option (option.value)}
+									<li>
+										<button
+											type="button"
+											aria-disabled={option.disabled ? 'true' : undefined}
+											class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm {option.disabled
+												? 'cursor-not-allowed text-zinc-400'
+												: 'text-zinc-700'}"
+											onclick={() => {
+												if (option.disabled) return;
+												applyFilterDimension({ tag: option.value });
+												closeMobileFilterSubSheet();
+											}}
+										>
+											<span class="flex min-w-0 items-center gap-2">
+												{#if option.swatchClass}
+													<span class="h-2 w-2 shrink-0 rounded-full {option.swatchClass}"></span>
+												{/if}
+												<span class="truncate">{option.label}</span>
+											</span>
+											<span class="flex items-center gap-2">
+												<span class="text-xs text-zinc-500 tabular-nums">
+													{option.count === null || option.count === undefined ? '—' : option.count}
+												</span>
+												{#if option.value === data.filters.tag}
+													{@render mobileFilterCheckMark()}
+												{/if}
+											</span>
+										</button>
+									</li>
+								{/each}
+							</ul>
 							<ManageTagsFooter />
-						{/snippet}
-					</FilterDropdown>
+						</div>
+					</BottomSheet>
 				{/if}
 				<div class="flex gap-2">
 					<div class="flex-1">
@@ -1915,7 +2240,11 @@
 								</p>
 							{:else}
 								<p class="text-sm text-zinc-500">{m.transactions_no_transactions_criteria()}</p>
-								<div class="mt-2">
+								<!-- The testid distinguishes this reset from the summary row's, which carries the
+								     same words and is on screen at the same time whenever a filter returns nothing.
+								     TapLink has no rest spread, so the attribute goes on a wrapper or it is
+								     silently dropped. -->
+								<div class="mt-2" data-testid="empty-reset-filters">
 									<TapLink href="/transactions">{m.transactions_reset_filters_link()}</TapLink>
 								</div>
 							{/if}
@@ -1940,19 +2269,10 @@
 					class="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto"
 					data-testid="detail-sticky"
 				>
-					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-					<!-- The rule guards against a non-interactive element BEING the control. This one is
-					     not: it listens for Escape as a container, on the keys its own focusable children
-					     produce, and adds no target a pointer user or a screen-reader user is expected to
-					     find. Every gesture that closes the panel has its own real control (the header
-					     cross, the row link); this handler only lets the keyboard user out from wherever
-					     they already are. A window-level listener would close the panel from anywhere on
-					     the page, including the filter bar, which is not what the design asks for. -->
 					<aside
 						class="rounded-lg border border-zinc-200 bg-white"
 						aria-label={m.transactions_detail_region_aria()}
 						data-testid="transaction-detail"
-						onkeydown={onDetailKeydown}
 					>
 						<div
 							class="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-zinc-200 bg-white px-4 py-3"
@@ -2622,7 +2942,9 @@
 					</svg>
 				{/snippet}
 				{#snippet noResultsAction()}
-					<TapLink href="/transactions">{m.transactions_reset_filters_link()}</TapLink>
+					<span data-testid="empty-reset-filters">
+						<TapLink href="/transactions">{m.transactions_reset_filters_link()}</TapLink>
+					</span>
 				{/snippet}
 				<!-- Mobile counterpart of the desktop empty state: "Aucun résultat / Aucune transaction
 				     ne correspond à ces filtres" describes an applied filter, which is exactly what did

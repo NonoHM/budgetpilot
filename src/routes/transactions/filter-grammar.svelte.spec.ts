@@ -1,11 +1,19 @@
-import { page } from 'vitest/browser';
-import { describe, it, expect } from 'vitest';
+import { page, userEvent } from 'vitest/browser';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../layout.css';
 import Page from './+page.svelte';
 import type { PageData } from './$types';
 import { TRANSACTION_NATURES } from '$lib/domain/transaction';
 import * as m from '$lib/paraglide/messages';
+
+const goto = vi.hoisted(() => vi.fn());
+// Spread the real module rather than replacing it: `$app/forms`' enhance imports `invalidateAll`
+// from here, so a bare `{ goto }` factory fails the whole file at import time.
+vi.mock('$app/navigation', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$app/navigation')>()),
+	goto
+}));
 
 /**
  * The filter-bar grammar (design section 4).
@@ -187,5 +195,170 @@ describe('filter bar — trigger grammar', () => {
 				})
 				.elements().length
 		).toBe(0);
+	});
+});
+
+/**
+ * Mobile — the filter sheet and the tag sub-sheet (design section 6).
+ *
+ * Category and tag collapse behind a "Filtres" trigger instead of the desktop's two side-by-side
+ * dropdowns; the SAME grammar and the SAME `applyFilterDimension`/`tagFilterOptions` deriveds
+ * drive both surfaces, only the pixels differ. `page.viewport(390, 844)` matters here beyond
+ * picking a screen size: `lg:hidden`/`hidden lg:block` are real CSS, evaluated in a real browser
+ * by vitest-browser-svelte, so ROLE queries (which respect `display: none` when computing the
+ * accessibility tree) already return only the surface the viewport shows — unlike the TEXT
+ * queries `bulk-tag.svelte.spec.ts` uses, which see both copies and need an explicit count of 2.
+ * That is verified directly in the first case below rather than assumed.
+ */
+describe('filter bar — mobile sheet', () => {
+	// Cleared per test, not once inside the one test that counts calls. The mock is module-level and
+	// every mount in this file shares it, so a navigation started by an earlier test can still be
+	// resolving when the next one begins — which is exactly how the count assertion below went red
+	// once in five runs and green the other four.
+	beforeEach(() => goto.mockClear());
+
+	it('at rest the trigger reads plainly "Filtres", and only the mobile copy is in the accessibility tree at this viewport', async () => {
+		expect.assertions(2);
+		await page.viewport(390, 844);
+		render(Page, { data: baseData(), form: null });
+
+		const trigger = page.getByRole('button', { name: m.transactions_filters_sheet_label() });
+		await expect.element(trigger.first()).toBeInTheDocument();
+		// Confirms the premise the rest of this describe block relies on: a ROLE query at the
+		// mobile viewport does not also pick up a desktop element under the same accessible name
+		// (there is none here, but this is the guard that the premise itself is true, not assumed).
+		expect(trigger.elements().length).toBe(1);
+	});
+
+	it('with one active dimension the trigger reads "Filtres, 1 actif" and an active token with its own clear control appears', async () => {
+		expect.assertions(2);
+		await page.viewport(390, 844);
+		render(Page, {
+			data: baseData({ filters: { ...baseData().filters, category: 'Voyages' } }),
+			form: null
+		});
+
+		await expect
+			.element(
+				page
+					.getByRole('button', {
+						name: m.transactions_filters_sheet_aria_one({ count: 1 })
+					})
+					.first()
+			)
+			.toBeInTheDocument();
+		await expect
+			.element(
+				page
+					.getByRole('button', {
+						name: m.transactions_filter_clear_aria({
+							dimension: m.transactions_filter_dimension_category()
+						})
+					})
+					.first()
+			)
+			.toBeInTheDocument();
+	});
+
+	it('with category AND tag active the trigger reads "Filtres, 2 actifs" — the design\'s own example', async () => {
+		expect.assertions(1);
+		await page.viewport(390, 844);
+		render(Page, {
+			data: baseData({
+				filters: { ...baseData().filters, category: 'Voyages', tag: 'tag-1' }
+			}),
+			form: null
+		});
+
+		await expect
+			.element(
+				page
+					.getByRole('button', {
+						name: m.transactions_filters_sheet_aria_many({ count: 2 })
+					})
+					.first()
+			)
+			.toBeInTheDocument();
+	});
+
+	it('opening the sheet shows both dimensions at rest as "Toutes", and the apply button names the current total', async () => {
+		expect.assertions(3);
+		await page.viewport(390, 844);
+		render(Page, {
+			data: baseData({
+				pagination: { ...baseData().pagination, totalTransactions: 6 }
+			}),
+			form: null
+		});
+
+		await userEvent.click(page.getByRole('button', { name: m.transactions_filters_sheet_label() }));
+
+		// The row's accessible name concatenates its 12px dimension label and its value ("Catégorie
+		// Toutes"), which is the vertical form of "Dimension : Valeur" minus the colon — so it is
+		// matched by the dimension name and its "Toutes" value is read off its own text content
+		// rather than by an exact accessible-name equality that the concatenation would fail.
+		// `.last()`, not `.first()`: the always-visible dimension pill above the sheet ALSO matches
+		// this regex (its resting name is the bare dimension name), and it renders before the
+		// sheet's own row in DOM order.
+		const categoryRow = page
+			.getByRole('button', { name: new RegExp(m.transactions_filter_dimension_category()) })
+			.last();
+		await expect.element(categoryRow).toBeInTheDocument();
+		expect(categoryRow.element().textContent).toContain(m.transactions_category_filter_all());
+		await expect
+			.element(
+				page.getByRole('button', { name: m.transactions_filters_sheet_apply_many({ count: 6 }) })
+			)
+			.toBeInTheDocument();
+	});
+
+	it('the category sub-sheet lists options with a check on the current selection, and picking one navigates', async () => {
+		expect.assertions(2);
+		await page.viewport(390, 844);
+		render(Page, {
+			data: baseData({ filters: { ...baseData().filters, category: 'Alimentation' } }),
+			form: null
+		});
+
+		await userEvent.click(page.getByRole('button', { name: m.transactions_filters_sheet_label() }));
+		// Exact match, not the dimension-name regex the previous test uses: with a category already
+		// active, the mobile block also renders "Catégorie : Alimentation" (the token) and "Retirer
+		// le filtre par Catégorie" (its clear button), both of which contain "Catégorie" too. The
+		// sheet ROW's full accessible name is its own two-line text, "Catégorie" + "Alimentation".
+		await userEvent.click(
+			page.getByRole('button', {
+				name: `${m.transactions_filter_dimension_category()} Alimentation`
+			})
+		);
+		await userEvent.click(page.getByRole('button', { name: 'Voyages' }));
+
+		// Filtered to the navigations this gesture is responsible for, so a stray call from anywhere
+		// else cannot decide the result. ONE of them: picking an option must not navigate twice.
+		const categoryNavigations = goto.mock.calls
+			.map((call) => String(call[0]))
+			.filter((href) => href.includes('category='));
+		expect(categoryNavigations).toHaveLength(1);
+		expect(categoryNavigations[0]).toContain('category=Voyages');
+	});
+
+	it('the tag sub-sheet renders a zero-count row dimmed but reachable, never hidden', async () => {
+		expect.assertions(2);
+		await page.viewport(390, 844);
+		render(Page, {
+			data: baseData({
+				tagCounts: [{ tagId: 'tag-1', count: 0 }],
+				tagScopeTotal: 0
+			}),
+			form: null
+		});
+
+		// Direct access, not via "Filtres": the always-visible tag pill opens its own sub-sheet on
+		// its own, and at rest (no tag active) its accessible name is the bare dimension name, so an
+		// exact match is unambiguous here.
+		await userEvent.click(page.getByRole('button', { name: m.tags_filter_dimension() }));
+
+		const row = page.getByRole('button', { name: /Portugal/ }).first();
+		await expect.element(row).toBeInTheDocument();
+		expect(row.element().getAttribute('aria-disabled')).toBe('true');
 	});
 });

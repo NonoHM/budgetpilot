@@ -62,6 +62,7 @@
 		tinted = false,
 		tintBgClass = '',
 		tintBorderClass = '',
+		tintTextClass = '',
 		onSelect,
 		onClear,
 		footer
@@ -86,6 +87,17 @@
 		tinted?: boolean;
 		tintBgClass?: string;
 		tintBorderClass?: string;
+		/**
+		 * The token's own hue for the selected VALUE's text, when tinted.
+		 *
+		 * It is half of a measured pairing, not decoration: the design locks the active tag filter's
+		 * name-on-tint contrast at 4.71:1 (lagoon) and 4.81:1 (azure), and e2e asserts those exact
+		 * values on the two elements that render them. Shipping the tint without the hue leaves a
+		 * surface with no measured foreground on it — which is what happened, and the e2e case read
+		 * 1.19:1 against a transparent button before this prop existed. The DIMENSION name stays
+		 * zinc-900: only the value belongs to the tag.
+		 */
+		tintTextClass?: string;
 		onSelect: (value: string) => void;
 		onClear: () => void;
 		footer?: Snippet;
@@ -287,7 +299,9 @@
 				<!-- The dimension name NEVER truncates; the value does, capped at 190px. -->
 				<span class="whitespace-nowrap">{dimensionLabel}</span>
 				<span aria-hidden="true">:</span>
-				<span class="max-w-[190px] truncate">{selectedOption.label}</span>
+				<span class="max-w-[190px] truncate {tinted ? tintTextClass : ''}"
+					>{selectedOption.label}</span
+				>
 			{:else}
 				<span class="whitespace-nowrap">{dimensionLabel}</span>
 			{/if}
