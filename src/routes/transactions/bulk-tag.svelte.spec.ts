@@ -55,6 +55,24 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 /** Matched on the label's stable stem rather than a full string, because the label now carries the
  *  filtered count and therefore differs per fixture — see the label tests below, which assert the
  *  exact wording. */
+
+/**
+ * The state in which the trigger is RENDERED AND INERT.
+ *
+ * It is no longer "no filter is active": the trigger moved into the summary row and is not
+ * rendered at all until a filter exists, because tagging the whole month in one gesture is out of
+ * scope by design — the trigger is born with the first filter. The remaining inert states are a
+ * filter matching rows while the user owns no tag (below), a filter matching nothing, and a filter
+ * that does not parse. This fixture uses the first, which is the one the design draws.
+ */
+function disabledFixture(overrides: Record<string, unknown> = {}) {
+	const base = baseData();
+	return baseData({
+		filters: { ...base.filters, category: 'Loyer' },
+		allTags: [],
+		...overrides
+	});
+}
 function bulkTagButtons(): HTMLButtonElement[] {
 	return [...document.querySelectorAll('button')].filter((button) =>
 		/^Étiqueter le/.test(button.textContent?.trim() ?? '')
@@ -62,9 +80,9 @@ function bulkTagButtons(): HTMLButtonElement[] {
 }
 
 describe('bulk-tag trigger', () => {
-	it('desktop: is aria-disabled, not disabled, when no filter is active', async () => {
+	it('desktop: is aria-disabled, not disabled, when it is rendered and cannot act', async () => {
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: null });
+		render(Page, { data: disabledFixture(), form: null });
 
 		const [trigger] = bulkTagButtons();
 		expect(trigger).toBeDefined();
@@ -85,9 +103,9 @@ describe('bulk-tag trigger', () => {
 		expect(trigger.getAttribute('aria-disabled')).toBeNull();
 	});
 
-	it('mobile: is aria-disabled, not disabled, when no filter is active', async () => {
+	it('mobile: is aria-disabled, not disabled, when it is rendered and cannot act', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: baseData(), form: null });
+		render(Page, { data: disabledFixture(), form: null });
 
 		const [trigger] = bulkTagButtons();
 		expect(trigger).toBeDefined();
@@ -111,7 +129,7 @@ describe('bulk-tag trigger', () => {
 		// aria-describedby unset) makes the `getElementById` lookup null and this fails — verified
 		// by hand, see the PR report.
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: null });
+		render(Page, { data: disabledFixture(), form: null });
 
 		const [trigger] = bulkTagButtons();
 		expect(trigger.getAttribute('title')).toBeNull();
@@ -161,8 +179,10 @@ describe('bulk-tag trigger', () => {
 			expect(bulkTagButtons()[0].textContent?.trim()).toBe('Étiqueter les 6 résultats');
 			filtered.unmount();
 
-			// No filter: no set to count, so the label states the action without inventing a number.
-			render(Page, { data: baseData(), form: null });
+			// Rendered but unable to act: the label drops the number, because there is no number to
+			// say. NOT the no-filter state any more — the trigger is not rendered at all then, its
+			// absence being the message.
+			render(Page, { data: disabledFixture(), form: null });
 			expect(bulkTagButtons()[0].textContent?.trim()).toBe('Étiqueter les résultats');
 		}
 	);
@@ -208,7 +228,7 @@ describe('bulk-tag trigger', () => {
 		// button leaves the `color` assertion green and turns the `opacity` assertion red —
 		// verified by hand, see the PR report for the exact value observed (0.4).
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: null });
+		render(Page, { data: disabledFixture(), form: null });
 
 		const [trigger] = bulkTagButtons();
 		// Tailwind v4 defines its palette in oklch; this is Tailwind's own zinc-500 value, not a
@@ -284,7 +304,13 @@ describe('bulk-tag undo banner', () => {
 			form: { bulkTagResult } as unknown as ActionData
 		});
 
-		const banner = document.querySelector('[role="status"]');
+		// Selected by the control it carries, not by being the first [role="status"] on the page:
+		// the filtered-totals live region is also role="status" and now precedes it, so a
+		// positional locator silently pointed at the wrong element.
+		const undoButtonForBanner = [...document.querySelectorAll('button')].find(
+			(button) => button.getAttribute('form') === 'bulk-tag-undo-banner'
+		);
+		const banner = undoButtonForBanner?.closest('[role="status"]') ?? null;
 		expect(banner).toBeTruthy();
 		const undoForm = document.getElementById('bulk-tag-undo-banner');
 		expect(undoForm).toBeTruthy();
@@ -351,9 +377,11 @@ describe('bulk-tag undo banner', () => {
 		await page.viewport(1280, 800);
 		render(Page, { data: baseData(), form: { bulkTagResult } as unknown as ActionData });
 
-		await expect
-			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.'))
-			.toBeInTheDocument();
+		// A COUNT, not .first(): both surfaces render, and asserting 2 is what catches the banner
+		// being lost from one of them — the most-repeated defect shape on this page.
+		expect(
+			page.getByText('Étiquette « Voyage » appliquée à 7 transactions.').elements()
+		).toHaveLength(2);
 	});
 
 	it('does NOT auto-dismiss, unlike the other success banners on this page', async () => {
@@ -370,13 +398,13 @@ describe('bulk-tag undo banner', () => {
 		render(Page, { data: baseData(), form: { bulkTagResult } as unknown as ActionData });
 
 		await expect
-			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.'))
+			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.').first())
 			.toBeInTheDocument();
 
 		await new Promise((resolve) => setTimeout(resolve, 300));
 
 		await expect
-			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.'))
+			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.').first())
 			.toBeInTheDocument();
 	});
 
@@ -388,7 +416,7 @@ describe('bulk-tag undo banner', () => {
 		});
 
 		await expect
-			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.'))
+			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.').first())
 			.toBeInTheDocument();
 
 		// A fresh result object with the SAME content, as SvelteKit hands back per submission.
@@ -398,7 +426,7 @@ describe('bulk-tag undo banner', () => {
 		});
 
 		await expect
-			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.'))
+			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.').first())
 			.toBeInTheDocument();
 	});
 });

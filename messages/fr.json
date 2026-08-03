@@ -1103,7 +1103,7 @@
 	"tags_bulk_cta_disabled": "Étiqueter les résultats",
 	"tags_bulk_cta_one": "Étiqueter le résultat",
 	"tags_bulk_cta_many": "Étiqueter les {count} résultats",
-	"tags_bulk_cta_disabled_hint": "Activez d'abord un filtre (période, catégorie, recherche ou étiquette) pour choisir les transactions concernées.",
+	"tags_bulk_cta_invalid_filter_hint": "Corrigez le filtre pour étiqueter les résultats.",
 	"tags_bulk_confirm_title": "Appliquer une étiquette à {count} transactions ?",
 	"tags_bulk_confirm_cta": "Appliquer",
 	"tags_bulk_name_label": "Nom de l'étiquette",

@@ -1103,7 +1103,7 @@
 	"tags_bulk_cta_disabled": "Tag the results",
 	"tags_bulk_cta_one": "Tag the 1 result",
 	"tags_bulk_cta_many": "Tag the {count} results",
-	"tags_bulk_cta_disabled_hint": "Turn on a filter first (period, category, search or tag) to choose which transactions are affected.",
+	"tags_bulk_cta_invalid_filter_hint": "Correct the filter to tag the results.",
 	"tags_bulk_confirm_title": "Apply a tag to {count} transactions?",
 	"tags_bulk_confirm_cta": "Apply",
 	"tags_bulk_name_label": "Tag name",
