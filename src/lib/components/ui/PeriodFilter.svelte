@@ -317,8 +317,21 @@
 			id={panelId}
 			role="dialog"
 			aria-label={dimensionLabel}
-			class="absolute top-full right-0 left-0 z-20 mt-1 min-w-[280px] rounded-xl border border-zinc-900 bg-white p-3"
+			class="absolute top-full right-0 left-0 z-20 mt-1 max-h-[70vh] min-w-[280px] overflow-y-auto rounded-xl border border-zinc-900 bg-white p-3"
 		>
+			<!-- `max-height` + `overflow-y: auto` so a panel taller than the space below its trigger
+			     scrolls inside itself rather than running off the bottom of the screen. Same pattern,
+			     and same legality argument, as the detail panel in transactions/+page.svelte: the
+			     element that scrolls is the element itself, and an overflow SELF does not break the
+			     absolute positioning the way an overflow ANCESTOR would break a sticky one.
+
+			     Note what this does to the horizontal axis, because it is the reason the width
+			     assertion in the spec is kept rather than retired: a scroll container clips BOTH axes
+			     (`overflow-x` computes to `auto` once `overflow-y` is not `visible`). Before this line
+			     existed, a child wider than the panel painted outside the border and was at least
+			     visible — the `Appliquer` button did exactly that, 58px past the right edge, on every
+			     desktop open. From here on the same mistake is silently hidden instead. -->
+
 			<!-- The return row: always at the head, never conditional, mirroring FilterDropdown's own
 			     "Toutes" row. Clears the whole dimension rather than applying a range. -->
 			<button
@@ -360,8 +373,16 @@
 				     above for why. The inputs must be genuinely, independently focusable text fields —
 				     the reason this whole component exists as a sibling of FilterDropdown rather than a
 				     mode on it, whose listbox options are deliberately never focusable. -->
-				<div class="flex items-end gap-2">
-					<div class="flex flex-col gap-0.5">
+				<!-- Wraps, and the two fields FLEX rather than carrying a fixed width. Both halves are
+				     the fix for the same defect: the row was `flex items-end gap-2` holding two `w-28`
+				     inputs plus `Appliquer`, needing 338px of a panel whose content box is 254px, so
+				     the button painted 58px outside the panel's right border on every open.
+				     Widening the panel instead was rejected — it would put the panel out of step with
+				     FilterDropdown's 268px sibling and push it toward the viewport edge at 390. Here
+				     the two fields share whatever row they are given and the action takes its own
+				     line, which holds at any panel width without a second number to keep in sync. -->
+				<div class="flex flex-wrap items-end gap-2">
+					<div class="flex min-w-[7rem] flex-1 flex-col gap-0.5">
 						<label for="{uid}-from" class="text-xs text-zinc-500">{m.reports_from_label()}</label>
 						<input
 							id="{uid}-from"
@@ -369,26 +390,26 @@
 							type="text"
 							inputmode="numeric"
 							placeholder={datePlaceholder}
-							class="h-9 w-28 rounded-lg border border-zinc-200 px-2 text-sm tabular-nums focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
+							class="h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm tabular-nums focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
 							bind:value={draftFromDisplay}
 							onkeydown={onKeydown}
 						/>
 					</div>
-					<div class="flex flex-col gap-0.5">
+					<div class="flex min-w-[7rem] flex-1 flex-col gap-0.5">
 						<label for="{uid}-to" class="text-xs text-zinc-500">{m.reports_to_label()}</label>
 						<input
 							id="{uid}-to"
 							type="text"
 							inputmode="numeric"
 							placeholder={datePlaceholder}
-							class="h-9 w-28 rounded-lg border border-zinc-200 px-2 text-sm tabular-nums focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
+							class="h-9 w-full rounded-lg border border-zinc-200 px-2 text-sm tabular-nums focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
 							bind:value={draftToDisplay}
 							onkeydown={onKeydown}
 						/>
 					</div>
 					<button
 						type="button"
-						class="h-9 rounded-lg border border-zinc-900 bg-zinc-900 px-3 text-sm text-white hover:bg-zinc-700"
+						class="h-9 w-full rounded-lg border border-zinc-900 bg-zinc-900 px-3 text-sm text-white hover:bg-zinc-700"
 						onclick={applyDraft}
 					>
 						{m.transactions_period_apply()}

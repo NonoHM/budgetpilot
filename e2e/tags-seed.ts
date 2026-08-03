@@ -56,6 +56,23 @@ export const BULK_TO = '2026-01-12';
 export const BULK_PRETAGGED_LABEL = 'TAG SEED BULK ALPHA';
 export const BULK_UNTAGGED_LABELS = ['TAG SEED BULK BRAVO', 'TAG SEED BULK CHARLIE'] as const;
 
+/**
+ * One transaction carrying MORE tags than a list row is allowed to draw, so the 2-chip cap and the
+ * "+N" overflow control have something to cap. Every other fixture here has one tag, which is why
+ * the cap went unverified until it was asked for directly: a row with one tag renders identically
+ * whether the cap exists or not.
+ */
+export const CAP_LABEL = 'TAG SEED CHIP CAP';
+export const CAP_TAG_NAMES = [
+	'Cap Alpha E2E',
+	'Cap Bravo E2E',
+	'Cap Charlie E2E',
+	'Cap Delta E2E',
+	'Cap Echo E2E'
+] as const;
+/** What a row must draw: the first two, then a control naming the other three. */
+export const CAP_VISIBLE_CHIPS = 2;
+
 /** Every label this file creates, in creation order — used by the idempotency probe. */
 const ALL_LABELS = [
 	ROUNDTRIP_LABEL,
@@ -65,7 +82,8 @@ const ALL_LABELS = [
 	...FILTER_TAGGED_LABELS,
 	...FILTER_UNTAGGED_LABELS,
 	BULK_PRETAGGED_LABEL,
-	...BULK_UNTAGGED_LABELS
+	...BULK_UNTAGGED_LABELS,
+	CAP_LABEL
 ];
 
 async function saveTagsViaApi(
@@ -149,6 +167,9 @@ export async function seedTagFixture(): Promise<void> {
 		// the panel, which only offers it as a selectable option while REFLOW_LABEL does not have it.
 		const reflowSeedId = await resolveTransactionIdByLabel(context, REFLOW_SEED_LABEL);
 		await saveTagsViaApi(context, reflowSeedId, [REFLOW_EXISTING_TAG]);
+
+		const capId = await resolveTransactionIdByLabel(context, CAP_LABEL);
+		await saveTagsViaApi(context, capId, [...CAP_TAG_NAMES]);
 	} finally {
 		await context.dispose();
 	}
@@ -158,6 +179,9 @@ function dateFor(label: string): string {
 	if (label === BULK_PRETAGGED_LABEL) return BULK_FROM;
 	if (label === BULK_UNTAGGED_LABELS[0]) return '2026-01-11';
 	if (label === BULK_UNTAGGED_LABELS[1]) return BULK_TO;
+	// Outside the bulk window, like the filter rows: the bulk test asserts an EXACT count over
+	// BULK_FROM..BULK_TO and a fifth row inside it would break that count rather than this one.
+	if (label === CAP_LABEL) return '2026-02-02';
 	// Round trip, GC and filter rows: any date outside the bulk window and outside e2e/seed.ts's
 	// June 2026 rows is fine, since nothing filters this suite's other tests by date.
 	return '2026-02-01';

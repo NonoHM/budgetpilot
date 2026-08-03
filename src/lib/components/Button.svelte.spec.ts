@@ -2,6 +2,7 @@ import { page } from 'vitest/browser';
 import { createRawSnippet } from 'svelte';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import '../../routes/layout.css';
 import Button from './Button.svelte';
 import * as m from '$lib/paraglide/messages';
 
@@ -146,5 +147,24 @@ describe('Button.svelte', () => {
 		(container.querySelector('button') as HTMLButtonElement).click();
 
 		expect(called).toBe(1);
+	});
+
+	// Both heights are measured rather than read off a class, because each exists only to agree
+	// with a number another component renders: `field` with the 44px input template, `bar` with
+	// the 34px filter-bar trigger. A class-name assertion cannot see a disagreement.
+	it('size="field" renders the 44px form-field height', async () => {
+		expect.assertions(1);
+		const { container } = render(Button, { size: 'field', children: textSnippet('Filtrer') });
+
+		const button = container.querySelector('button') as HTMLButtonElement;
+		expect(Math.round(button.getBoundingClientRect().height)).toBe(44);
+	});
+
+	it('size="bar" renders the 34px filter-bar height', async () => {
+		expect.assertions(1);
+		const { container } = render(Button, { size: 'bar', children: textSnippet('Filtrer') });
+
+		const button = container.querySelector('button') as HTMLButtonElement;
+		expect(Math.round(button.getBoundingClientRect().height)).toBe(34);
 	});
 });

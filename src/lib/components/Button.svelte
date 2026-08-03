@@ -20,10 +20,24 @@
 	}: {
 		variant?: 'primary' | 'positive' | 'danger' | 'secondary' | 'ghost' | 'ghost-danger';
 		type?: 'button' | 'submit' | 'reset';
-		// 'field' is the exact 44px (h-11) match for Select/Combobox/MoneyInput/
-		// SearchBar/inputBase — use it whenever a Button sits in the same row as
-		// one of those (filter bars, inline forms), never a one-off h-11 class.
-		size?: 'sm' | 'md' | 'lg' | 'field';
+		// Two sizes exist only to agree with a height something ELSE renders, and
+		// which one is right depends on what the button sits beside:
+		//
+		// 'field' — 44px (h-11), the primary-form-field template: Select,
+		//   Combobox, MoneyInput, SearchBar's default density, inputBase. Use it
+		//   for a button in an inline form, beside a real data-entry field.
+		//
+		// 'bar'  — 34px, the filter-bar control template: FilterDropdown's and
+		//   PeriodFilter's trigger groups. A filter bar is chrome, not a form to
+		//   fill in, and its controls carry their own smaller height; a 44px
+		//   button beside three 34px triggers reads as a defect before it reads
+		//   as hierarchy. Desktop only — the mobile filter rows keep 44px,
+		//   which is the design's touch floor and is not what this is about.
+		//
+		// Both are measured in Button.svelte.spec.ts rather than asserted from
+		// class names, because a class list cannot show two components disagreeing
+		// about a number.
+		size?: 'sm' | 'md' | 'lg' | 'field' | 'bar';
 		// Renders an <a> with the exact same appearance — link semantics for real
 		// navigation (pagination, CTA to another page). `type`/`loading` don't
 		// apply to the anchor variant; a disabled anchor drops its href and is
@@ -62,7 +76,8 @@
 		sm: 'px-3 py-1.5 text-sm',
 		md: 'px-4 py-2 text-sm',
 		lg: 'px-5 py-2.5 text-sm',
-		field: 'h-11 px-4 text-sm'
+		field: 'h-11 px-4 text-sm',
+		bar: 'h-[34px] px-3.5 text-sm'
 	};
 
 	const variants: Record<string, string> = {

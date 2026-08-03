@@ -85,3 +85,8 @@ docs/superpowers/
 
 # Playwright MCP browser session artifacts (page snapshots, downloads)
 .playwright-mcp/
+
+# Throwaway viewport-audit screenshots. Same rule as .playwright-mcp/ above: a harness that
+# writes into the repo will be swept in by `git add -A` on the next commit, and 312K of them
+# already merged once that way (#112).
+e2e/.audit390/
