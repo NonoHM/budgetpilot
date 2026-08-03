@@ -47,6 +47,33 @@ describe('ListCard.svelte', () => {
 		await expect.element(toggle).toHaveTextContent('···');
 	});
 
+	it('announces the active card, not only tints it', async () => {
+		expect.assertions(2);
+		const { container } = render(ListCard, {
+			children: rawSnippet('<span>Row content</span>'),
+			href: '/transactions?selected=tx-1',
+			active: true
+		});
+
+		// The tint alone shipped first, so the desktop table announced its selected row while the
+		// mobile list said nothing at all. Both halves are asserted here, on one component, so a
+		// future change cannot keep the visual and drop the semantic.
+		expect(container.querySelector('a')?.getAttribute('aria-current')).toBe('true');
+		expect(container.querySelector('div')?.className).toContain('bg-zinc-50');
+	});
+
+	it('leaves an inactive card unannounced', async () => {
+		expect.assertions(1);
+		const { container } = render(ListCard, {
+			children: rawSnippet('<span>Row content</span>'),
+			href: '/transactions?selected=tx-2'
+		});
+
+		// Absent, not `aria-current="false"`: the attribute would then be on every row in the list,
+		// and a screen reader reading a list of thirty "not current" rows is worse than silence.
+		expect(container.querySelector('a')?.getAttribute('aria-current')).toBeNull();
+	});
+
 	it('prefers expandAriaLabel over expandLabel for the accessible name when both are passed', async () => {
 		render(ListCard, {
 			children: rawSnippet('<span>Row content</span>'),

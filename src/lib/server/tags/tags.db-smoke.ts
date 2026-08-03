@@ -146,8 +146,14 @@ describe('tag tenancy', () => {
 
 		// Neither assertion substitutes for the other. The first goes red if the `tag: { userId }`
 		// conjunct is dropped; the second if the transaction-side one is.
-		expect(await countTagsInScope(a.userId, { userId: a.userId })).toEqual([]);
-		expect(await countTagsInScope(b.userId, { userId: b.userId })).toEqual([]);
+		//
+		// The `where` is EMPTY, and that is the whole point of the case. Passing `{ userId }` in —
+		// which is what this test did at first — makes the transaction side scoped whether or not
+		// `countTagsInScope` adds its own `userId`, so the load-bearing spread could be deleted and
+		// both assertions would still pass. The caller supplying nothing is what forces the engine
+		// to prove the function's own scoping rather than the fixture's.
+		expect(await countTagsInScope(a.userId, {})).toEqual([]);
+		expect(await countTagsInScope(b.userId, {})).toEqual([]);
 	});
 
 	it('refuses to prune a tag owned by another user', async () => {

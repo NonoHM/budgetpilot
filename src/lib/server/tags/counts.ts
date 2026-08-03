@@ -60,12 +60,27 @@ export async function countTagsInScope(
 
 	if (!restrictToIds) return groupByTag(scopedWhere, userId);
 
-	if (restrictToIds.length === 0) return [];
+	// De-duplicated HERE rather than trusted from the caller, for the same reason `normalizeIdList`
+	// does it for `?ids=`. Within one chunk a repeated id is harmless (`IN` is a set); across two
+	// chunks it is counted twice, and the result is an inflated number with nothing to notice it by.
+	// The caller's list comes from a cursor-paged scan with no snapshot, so a row whose `date`
+	// changes between two batches really can come back in both.
+	const ids = [...new Set(restrictToIds)];
+	if (ids.length === 0) return [];
 
 	const totals = new Map<string, number>();
-	for (let i = 0; i < restrictToIds.length; i += ID_CHUNK_SIZE) {
-		const chunk = restrictToIds.slice(i, i + ID_CHUNK_SIZE);
-		for (const row of await groupByTag({ ...scopedWhere, id: { in: chunk } }, userId)) {
+	for (let i = 0; i < ids.length; i += ID_CHUNK_SIZE) {
+		const chunk = ids.slice(i, i + ID_CHUNK_SIZE);
+		// `AND`, not `{ ...scopedWhere, id: { in: chunk } }`. A top-level spread REPLACES any `id`
+		// the caller's `where` already carried (`?ids=` puts one there), so the chunk would WIDEN
+		// the scope instead of narrowing it — the exact opposite of what the `userId` spread above
+		// guarantees, and invisible because the two lines look alike. Conjoining is narrowing by
+		// construction, so the property no longer depends on the caller.
+		const chunkWhere: Prisma.TransactionWhereInput = {
+			...scopedWhere,
+			AND: [...(scopedWhere.AND ? [scopedWhere.AND].flat() : []), { id: { in: chunk } }]
+		};
+		for (const row of await groupByTag(chunkWhere, userId)) {
 			totals.set(row.tagId, (totals.get(row.tagId) ?? 0) + row.count);
 		}
 	}
