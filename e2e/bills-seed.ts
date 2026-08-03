@@ -26,7 +26,7 @@
 // days of TODAY, never "somewhere in the previous month". `BILLS_MONTH_KEY` is the month that
 // window falls in: the current month on most days, the previous one during its first days.
 import { request, type APIRequestContext } from '@playwright/test';
-import { E2E_BASE_URL } from './config';
+import { E2E_API_HEADERS, E2E_BASE_URL } from './config';
 import {
 	E2E_BOOTSTRAP_ADMIN_EMAIL,
 	E2E_BOOTSTRAP_ADMIN_PASSWORD,
@@ -462,9 +462,7 @@ export const ALL_BILL_STREAMS: BillStreamSeed[] = FIXTURE.all;
 export async function seedBillStreams(): Promise<void> {
 	const context = await request.newContext({
 		baseURL: E2E_BASE_URL,
-		// Same reason as e2e/seed.ts: SvelteKit's CSRF check compares Origin against the request's
-		// own origin, and APIRequestContext does not send one by default.
-		extraHTTPHeaders: { Origin: E2E_BASE_URL }
+		extraHTTPHeaders: E2E_API_HEADERS
 	});
 
 	try {
@@ -498,7 +496,7 @@ export async function withOtherUserContext<T>(
 ): Promise<T> {
 	const context = await request.newContext({
 		baseURL: E2E_BASE_URL,
-		extraHTTPHeaders: { Origin: E2E_BASE_URL }
+		extraHTTPHeaders: E2E_API_HEADERS
 	});
 
 	try {

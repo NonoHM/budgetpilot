@@ -13,7 +13,7 @@
 // `status` field, not the HTTP status code) — never a plain HTML re-render. Checking `type` is
 // therefore the only reliable way to detect success here.
 import { request, type APIRequestContext } from '@playwright/test';
-import { E2E_BASE_URL, E2E_ENV } from './config';
+import { E2E_API_HEADERS, E2E_BASE_URL, E2E_ENV } from './config';
 
 export const E2E_USER_EMAIL = 'e2e@budgetpilot.test';
 export const E2E_USER_PASSWORD = 'E2eBudgetPilot123!';
@@ -47,11 +47,7 @@ export async function seedE2eData(options: { storageStatePath: string }): Promis
 
 	const context = await request.newContext({
 		baseURL: E2E_BASE_URL,
-		// SvelteKit's built-in CSRF check compares the Origin header against the request's own
-		// origin — undici's fetch (used by APIRequestContext) doesn't add it automatically for
-		// same-origin requests the way a browser would, so it must be set explicitly (same reason
-		// scripts/seed-dev.mjs sets it).
-		extraHTTPHeaders: { Origin: E2E_BASE_URL }
+		extraHTTPHeaders: E2E_API_HEADERS
 	});
 
 	try {
@@ -111,7 +107,7 @@ export function assertOk(action: string, result: ActionResult): void {
 async function createE2eUserAsSecondAccount(): Promise<void> {
 	const bootstrapContext = await request.newContext({
 		baseURL: E2E_BASE_URL,
-		extraHTTPHeaders: { Origin: E2E_BASE_URL }
+		extraHTTPHeaders: E2E_API_HEADERS
 	});
 	try {
 		// First user on the fresh DB → becomes ADMIN. This session is never persisted to

@@ -57,12 +57,52 @@ if (!secureCookies) {
 // Per-request locale via AsyncLocalStorage: essential so that server-side
 // getLocale() never leaks from one concurrent request to another.
 const handleParaglide: Handle = ({ event, resolve }) =>
-	paraglideMiddleware(event.request, ({ request, locale }) => {
+	paraglideMiddleware(event.request, async ({ request, locale }) => {
 		event.request = request;
-		return resolve(event, {
+		const response = await resolve(event, {
 			transformPageChunk: ({ html }) => html.replace('%paraglide.lang%', locale)
 		});
+
+		// The rendered body genuinely depends on Accept-Language: with no PARAGLIDE_LOCALE
+		// cookie, Paraglide's 'preferredLanguage' strategy negotiates the locale from that
+		// header, so the same URL returns French or English to two different visitors.
+		// Nothing was telling caches so — Paraglide's own middleware only emits Vary on its
+		// redirect branch, which requires the 'url' strategy this app does not use. Inert in
+		// the documented Caddy deployment (it does not cache), but this is self-hosted
+		// software: an operator putting a CDN or a shared proxy in front of it would otherwise
+		// serve the first visitor's language to everyone behind that cache.
+		//
+		// Measured limit, so nobody reads the absence as a bug: the 303s handleAuth throws for
+		// an unauthenticated request never reach here. SvelteKit converts a thrown redirect into
+		// a Response above every `handle`, so no hook can decorate it. That is harmless — those
+		// responses carry no body and their Location does not depend on the language — but it
+		// does mean "every response has Vary" is false, and a check written on that premise
+		// would fail for a reason that is not this one.
+		appendVary(response.headers, 'Accept-Language');
+		// Content-Language describes the language of a document, so it goes on documents only.
+		// The negotiated locale is exactly what `<html lang>` was just set to above.
+		if (response.headers.get('Content-Type')?.startsWith('text/html')) {
+			response.headers.set('Content-Language', locale);
+		}
+		return response;
 	});
+
+// `set` would drop a Vary SvelteKit itself added; a duplicate entry is legal but noisy and
+// invites a future reader to "fix" the wrong half. Case-insensitive because the field values
+// are tokens, not text. `*` means "unpredictable, never reuse this response" and already
+// subsumes any field, so adding to it would only weaken it into a list.
+// Exported for hooks.server.spec.ts — the header it writes is verified against a running
+// server, but the merge rules are logic and deserve their own cases.
+export function appendVary(headers: Headers, field: string) {
+	const existing = headers.get('Vary');
+	if (!existing) {
+		headers.set('Vary', field);
+		return;
+	}
+	if (existing === '*') return;
+	const already = existing.split(',').some((f) => f.trim().toLowerCase() === field.toLowerCase());
+	if (!already) headers.set('Vary', `${existing}, ${field}`);
+}
 
 // Exported for tests (hooks.server.spec.ts): the auth logic is tested outside
 // the sequence() pipeline, which requires SvelteKit's internal request store.
