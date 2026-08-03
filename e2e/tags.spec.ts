@@ -354,11 +354,13 @@ test.describe('bulk apply and undo', () => {
 		// 3 fixture rows asserted just above. Matching the exact string rather than a stem is the
 		// point: it proves the count on the button is the count of the set, against real server data
 		// rather than a fixture's `pagination.totalTransactions`.
-		// The trigger descended into the SUMMARY ROW, against the wall of the number defining its
-		// scope; it is no longer inside the filter card. Scoped to the desktop grid, since the mobile
-		// summary row renders the identical control at the same time.
+		// The trigger lives in the SUMMARY BAND, against the wall of the number defining its scope.
+		// The band is its own row now — outside the table's card AND outside the two-column grid —
+		// so it is located by its own testid rather than by whichever container happened to hold it
+		// last. The mobile summary renders the identical control at the same time, which is why this
+		// is scoped at all.
 		await page
-			.locator('div.hidden.lg\\:grid')
+			.locator('[data-testid="summary-band"]')
 			.getByRole('button', { name: m.tags_bulk_cta_many({ count: 3 }) })
 			.click();
 		const dialog = page.getByRole('dialog');

@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import { inputSearchPill } from '$lib/styles';
 	import IconButton from './IconButton.svelte';
 
@@ -35,7 +36,8 @@
 		error = false,
 		clearLabel,
 		wrapperClass = '',
-		inputClass = ''
+		inputClass = '',
+		trailing
 	}: {
 		value?: string;
 		name?: string;
@@ -46,7 +48,25 @@
 		clearLabel: string;
 		wrapperClass?: string;
 		inputClass?: string;
+		/**
+		 * A control rendered INSIDE the field, at its right edge, beside the clear button.
+		 *
+		 * The transactions regex toggle is the caller for this. It used to sit outside the field, to
+		 * its left, and that placement is the whole of the design's point: "un caractère dans une
+		 * boîte bordée est un bouton, un caractère à côté d'un champ est une coquille". A glyph
+		 * floating beside an input reads as a typo in the bar; the same glyph inside the field's
+		 * border reads as something the field does.
+		 *
+		 * The caller still owns the control (its shape and its hidden `qMode` companion differ by
+		 * breakpoint); this component only owns where it sits and how much room the text is given.
+		 */
+		trailing?: Snippet;
 	} = $props();
+
+	// Right padding is the text's clearance, and it has to count what is actually rendered: a
+	// trailing control and a clear button can both be there at once, and text sliding under either
+	// of them is the failure this replaces a static `pr-11` for.
+	const padRight = $derived(value && trailing ? 'pr-20' : value || trailing ? 'pr-11' : '');
 
 	let inputEl = $state<HTMLInputElement | null>(null);
 
@@ -67,11 +87,16 @@
 		aria-label={ariaLabel}
 		class="{inputSearchPill} !h-full w-full [&::-webkit-search-cancel-button]:appearance-none {error
 			? '!border-rose-300 !bg-rose-50'
-			: ''} {value ? 'pr-11' : ''} {inputClass}"
+			: ''} {padRight} {inputClass}"
 	/>
-	{#if value}
-		<span class="absolute inset-y-0 right-0 flex items-center">
-			<IconButton label={clearLabel} onclick={clear}>✕</IconButton>
+	{#if value || trailing}
+		<span class="absolute inset-y-0 right-0 flex items-center gap-1 pr-1.5">
+			{#if value}
+				<IconButton label={clearLabel} onclick={clear}>✕</IconButton>
+			{/if}
+			{#if trailing}
+				{@render trailing()}
+			{/if}
 		</span>
 	{/if}
 </div>

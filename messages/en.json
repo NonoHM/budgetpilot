@@ -662,6 +662,8 @@
 	"transactions_nature_source_category": "category",
 	"transactions_nature_source_default": "default",
 	"transactions_totals_summary": "{income} in · {expense} out",
+	"transactions_totals_expense_label": "Expenses",
+	"transactions_totals_income_label": "Income",
 	"transactions_totals_zero_label": "No transaction for this filter",
 	"transactions_totals_unavailable_label": "Totals unavailable",
 	"transactions_empty_query_error_title": "Filter not applied",
