@@ -484,6 +484,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		bulkFallback,
 		queryError,
 		dateRangeError,
+		// Consumed by PeriodFilter's presets ("Ce mois-ci", "12 derniers mois"...): the component must
+		// never read the wall clock itself, or its boundaries stop being testable at a pinned date.
+		todayIso: new Date().toISOString().slice(0, 10),
 		pagination: {
 			page: safePage,
 			pageSize: PAGE_SIZE,

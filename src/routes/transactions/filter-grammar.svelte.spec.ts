@@ -70,6 +70,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		tagCounts: null,
 		tagScopeTotal: 0,
 		bulkFallback: null,
+		todayIso: '2026-06-17',
 		...overrides
 	};
 }
@@ -397,6 +398,66 @@ describe('filter bar — mobile sheet', () => {
 			mobileButtons(resting.container).length
 		);
 		expect(shortest(active.container)).toBeGreaterThanOrEqual(44);
+	});
+});
+
+/**
+ * Période (design section 5): the composite dimension that replaces the two native
+ * `type="date"` inputs. Full ladder/preset coverage lives in `periodLabel.spec.ts` and
+ * `PeriodFilter.svelte.spec.ts`; these cases are only about wiring the component into the page.
+ */
+describe('filter bar — Période dimension', () => {
+	it('renders no native date input anywhere on the page', async () => {
+		expect.assertions(1);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, { data: baseData(), form: null });
+
+		// The defect this dimension closes: type="date" renders jj/mm/aaaa or mm/dd/yyyy depending
+		// on the BROWSER's own locale and ignores every lang attribute the app can set, so the same
+		// build showed two different formats on two machines.
+		expect(container.querySelectorAll('input[type="date"]')).toHaveLength(0);
+	});
+
+	it('places Période in the bar with the same grammar as the other dimensions', async () => {
+		expect.assertions(1);
+		await page.viewport(1280, 800);
+		render(Page, { data: baseData(), form: null });
+
+		await expect
+			.element(page.getByRole('button', { name: m.transactions_filter_dimension_period() }).first())
+			.toBeInTheDocument();
+	});
+
+	it('renders the invalid range neutrally, with no destructive or overdue tone', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: baseData({
+				dateRangeError: true,
+				filters: { ...baseData().filters, from: 'nonsense', to: '2026-06-12' }
+			}),
+			form: null
+		});
+
+		const group = container.querySelector('[data-testid="period-trigger-group"]');
+		expect(group?.className).not.toMatch(/rose|amber/);
+		expect(container.textContent).toContain('invalide');
+	});
+
+	it('stops the mobile ladder at the numeric rung: no "période personnalisée" at 390', async () => {
+		expect.assertions(1);
+		await page.viewport(390, 844);
+		const { container } = render(Page, {
+			data: baseData({
+				filters: { ...baseData().filters, from: '2026-09-30', to: '2027-02-28' }
+			}),
+			form: null
+		});
+
+		// The mobile caller passes `allowCustomRung={false}`: touch has no hover, so a Tooltip-backed
+		// rung is not recoverable and this rung must never be reachable at 390.
+		const mobile = container.querySelector('.lg\\:hidden');
+		expect(mobile?.textContent).not.toContain(m.transactions_period_custom());
 	});
 });
 
