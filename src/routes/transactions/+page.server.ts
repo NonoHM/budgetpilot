@@ -2,6 +2,7 @@ import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
 	TRANSACTION_NATURES,
+	type TransactionKind,
 	type TransactionNature,
 	isTransactionNature
 } from '$lib/domain/transaction';
@@ -50,6 +51,7 @@ import {
 	computeFilteredTotals,
 	sumFilteredTotals,
 	resolveTransactionType,
+	transactionKindWhere,
 	type FilteredTotals
 } from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
@@ -307,6 +309,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// have "Toutes" claim the same figure as "Portugal", i.e. that clearing the filter changes
 	// nothing. Equal to it, and computed without a second query, whenever no tag filter is active.
 	let tagScopeTotal = 0;
+	// The whole filtered set, in memory, on the `?q=` branch only — the branch that already has it.
+	// Used for the bulk fallback below, so that branch needs no extra query at all.
+	let matchedRows: Array<{ amountCents: number; type: string | null }> | null = null;
 
 	// The tag dimension is removed on purpose: counting inside its own filter would report 1 for
 	// the selected tag and 0 for every other, which is not a comparison, it is a tautology.
@@ -366,6 +371,52 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		// different source; totals.spec.ts pins the two implementations against one fixture.
 		filteredTotals = sumFilteredTotals(filtered);
 		matchedIds = filteredAll.map((row) => row.id);
+		matchedRows = filtered;
+	}
+
+	/**
+	 * A narrowing the user could apply that WOULD fit under the bulk cap, with its real count.
+	 *
+	 * Offered only when the bulk action would refuse — over `MAX_BULK_TAG_TRANSACTIONS` — and only
+	 * when the nature tab is still "Toutes", since that is the dimension being proposed. If neither
+	 * half lands under the cap the answer is `null` and the banner offers NOTHING: proposing a route
+	 * that cannot help is the /upcoming-bills defect closed in #99, and re-creating it here would be
+	 * worse, because this one names a number the user can check.
+	 *
+	 * The dimension is income-vs-expense rather than the category, because that one is exact in SQL:
+	 * `transactionKindWhere` is the proven twin of `resolveTransactionType` (totals.db-smoke.ts
+	 * asserts they agree over the whole type x sign matrix, on all three engines). The effective
+	 * CATEGORY is computed in JS from manual overrides and rules, so a SQL groupBy on `categoryId`
+	 * would count something the user is not looking at.
+	 *
+	 * The larger of the two viable halves is chosen: it is the most inclusive narrowing that still
+	 * passes, so the user is asked to give up as little as possible.
+	 */
+	let bulkFallback: { kind: TransactionKind; count: number } | null = null;
+	if (
+		!queryError &&
+		!dateRangeError &&
+		totalTransactions > MAX_BULK_TAG_TRANSACTIONS &&
+		type === 'all'
+	) {
+		const kinds: TransactionKind[] = ['expense', 'income'];
+		const candidates = matchedRows
+			? kinds.map((kind) => ({
+					kind,
+					count: matchedRows.filter((row) => resolveTransactionType(row) === kind).length
+				}))
+			: await Promise.all(
+					kinds.map(async (kind) => ({
+						kind,
+						count: await prisma.transaction.count({
+							where: { AND: [where, transactionKindWhere(kind)] }
+						})
+					}))
+				);
+		bulkFallback =
+			candidates
+				.filter((c) => c.count > 0 && c.count <= MAX_BULK_TAG_TRANSACTIONS)
+				.sort((a, b) => b.count - a.count)[0] ?? null;
 	}
 
 	let tagCounts: TagScopeCount[] | null = null;
@@ -430,6 +481,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		// figure the "Toutes" row of the tag dropdown reports. Deliberately outside `pagination`,
 		// which describes the list actually being paged and must keep describing exactly that.
 		tagScopeTotal,
+		bulkFallback,
 		queryError,
 		dateRangeError,
 		pagination: {

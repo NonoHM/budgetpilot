@@ -1297,6 +1297,18 @@ describe('/transactions load — tags', () => {
 		]);
 	});
 
+	it('offers no bulk fallback while the whole filtered set already fits under the cap', async () => {
+		expect.assertions(1);
+
+		// 29 rows, cap 250. Computing and offering a narrowing here would ask the user to give
+		// something up for no reason at all.
+		const data = (await runLoad('/transactions')) as unknown as {
+			bulkFallback: { kind: string; count: number } | null;
+		};
+
+		expect(data.bulkFallback).toBeNull();
+	});
+
 	it('the tag counts ignore the selected tag, so the other tags stay comparable', async () => {
 		expect.assertions(2);
 

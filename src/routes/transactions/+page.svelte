@@ -32,6 +32,7 @@
 	import FilterDropdown from '$lib/components/ui/FilterDropdown.svelte';
 	import ManageTagsFooter from '$lib/components/ui/ManageTagsFooter.svelte';
 	import { tagColorBgClass, tagTintBgClass } from '$lib/domain/colors';
+	import { MAX_BULK_TAG_TRANSACTIONS } from '$lib/domain/tags';
 	import {
 		getAdjacentFocusStackId,
 		getFocusOutcomeForAction,
@@ -955,6 +956,42 @@
 	that cannot help" defect closed in #99, and offering it here would re-create it. What is
 	actionable already sits next to the field that caused it ("Expression régulière invalide.").
 -->
+{#snippet bulkOverLimitBanner()}
+	<!-- The refusal, BEFORE the user opens the dialog, beside the filter it asks them to narrow.
+	     It shipped as a rose/danger inline error inside the dialog: honest prose in a `role="alert"`
+	     region, so no claim was false — but the tone said "you broke something" for a cap the user
+	     had no way of knowing about, and it was only reachable by opening a dialog that then refused.
+	     Amber, and up front.
+	     The fallback is COMPUTED, with its real count, so the user sees which narrowing passes before
+	     clicking anything. When neither half of the nature split lands under the cap there is no
+	     fallback and no action at all — a proposal that cannot help is the /upcoming-bills defect
+	     closed in #99, and here it would be worse, because it would name a number. -->
+	{#if bulkTagFilterActive && data.pagination.totalTransactions > MAX_BULK_TAG_TRANSACTIONS}
+		<AlertBanner variant="warning" class="mt-3">
+			{m.tags_bulk_over_limit_title({
+				count: data.pagination.totalTransactions,
+				limit: MAX_BULK_TAG_TRANSACTIONS
+			})}
+			{m.tags_bulk_over_limit_body()}
+			{#if data.bulkFallback}
+				{data.bulkFallback.kind === 'expense'
+					? m.tags_bulk_over_limit_fallback_expense({ count: data.bulkFallback.count })
+					: m.tags_bulk_over_limit_fallback_income({ count: data.bulkFallback.count })}
+			{/if}
+			{#snippet action()}
+				{#if data.bulkFallback}
+					<a
+						href={resolve(buildFilterHref(data.bulkFallback.kind))}
+						class="shrink-0 self-center font-semibold text-amber-900 underline underline-offset-2"
+					>
+						{m.tags_bulk_over_limit_action()}
+					</a>
+				{/if}
+			{/snippet}
+		</AlertBanner>
+	{/if}
+{/snippet}
+
 {#snippet bulkTagBanner()}
 	<!-- Placement is load-bearing, not cosmetic. The design declines to move focus after a bulk
 	     apply, and justifies that with where this banner sits: "« Annuler » est le tout premier
@@ -1664,6 +1701,7 @@
 						</div>
 					</div>
 					{@render summaryDisabledReason('desktop')}
+					{@render bulkOverLimitBanner()}
 					{@render bulkTagBanner()}
 				</div>
 
@@ -2377,6 +2415,7 @@
 					{@render summaryActions('mobile')}
 				</div>
 				{@render summaryDisabledReason('mobile')}
+				{@render bulkOverLimitBanner()}
 				{@render bulkTagBanner()}
 			</div>
 

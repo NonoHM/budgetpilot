@@ -109,3 +109,18 @@ export function normalizeTagName(raw: string): string {
 }
 
 export type TagColorHex = (typeof TAG_COLORS)[TagColorToken];
+
+/**
+ * How many transactions one bulk action may tag.
+ *
+ * A SEPARATE constant from MAX_TRANSACTION_ID_FILTER, not an import of it, following the precedent
+ * that constant's own comment sets: how many rows one action may tag is a domain fact about what a
+ * user can reasonably confirm in a dialog, while how many ids an `IN (...)` may carry is a property
+ * of the query layer. Two facts that happen to share a number today.
+ *
+ * They are not independent, though, and bulk.spec.ts asserts the relation rather than the equality:
+ * the undo payload is the list of ids this action linked, and it travels back through the same
+ * id-list parser. If this cap ever exceeded that one, an undo would silently truncate and leave
+ * rows tagged with no way back. That is the failure worth preventing.
+ */
+export const MAX_BULK_TAG_TRANSACTIONS = 250;

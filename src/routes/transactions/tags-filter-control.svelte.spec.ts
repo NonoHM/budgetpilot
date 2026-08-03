@@ -58,6 +58,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		classifyStackIds: [],
 		tagCounts: null,
 		tagScopeTotal: 0,
+		bulkFallback: null,
 		...overrides
 	};
 }

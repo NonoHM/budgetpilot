@@ -6,6 +6,7 @@ import Page from './+page.svelte';
 import type { PageData } from './$types';
 import { TRANSACTION_NATURES } from '$lib/domain/transaction';
 import * as m from '$lib/paraglide/messages';
+import { MAX_BULK_TAG_TRANSACTIONS } from '$lib/domain/tags';
 
 /**
  * The summary row (design sections 5 and 8).
@@ -57,6 +58,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		classifyStackIds: [],
 		tagCounts: null,
 		tagScopeTotal: 0,
+		bulkFallback: null,
 		...overrides
 	};
 }
@@ -187,5 +189,88 @@ describe('summary row', () => {
 		expect(trigger).toBeTruthy();
 		expect(trigger.getAttribute('aria-disabled')).toBe('true');
 		expect(container.textContent).toContain(m.tags_bulk_cta_no_tags_hint());
+	});
+
+	it('over the cap: the refusal is a warning up front, naming a fallback with its real count', async () => {
+		expect.assertions(4);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: filtered({
+				pagination: {
+					page: 1,
+					pageSize: 25,
+					totalTransactions: 312,
+					totalPages: 13,
+					hasPrevious: false,
+					hasNext: true
+				},
+				bulkFallback: { kind: 'expense', count: 186 }
+			}),
+			form: null
+		});
+
+		// Amber, not rose, and OUTSIDE the dialog: the cap is not something the user broke, and a
+		// refusal only reachable by opening a dialog is a refusal the user meets too late.
+		const banners = [...container.querySelectorAll('[role="alert"]')].filter((el) =>
+			el.textContent?.includes(m.tags_bulk_over_limit_body())
+		);
+		expect(banners).toHaveLength(2);
+		expect(banners[0].className).toContain('amber');
+		// The REAL count, so the user sees which narrowing passes before clicking anything.
+		expect(banners[0].textContent).toContain(
+			m.tags_bulk_over_limit_fallback_expense({ count: 186 })
+		);
+		expect(banners[0].querySelector(`a`)?.textContent?.trim()).toBe(
+			m.tags_bulk_over_limit_action()
+		);
+	});
+
+	it('over the cap with nothing that would fit: the banner offers no route at all', async () => {
+		expect.assertions(3);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: filtered({
+				pagination: {
+					page: 1,
+					pageSize: 25,
+					totalTransactions: 312,
+					totalPages: 13,
+					hasPrevious: false,
+					hasNext: true
+				},
+				bulkFallback: null
+			}),
+			form: null
+		});
+
+		const banners = [...container.querySelectorAll('[role="alert"]')].filter((el) =>
+			el.textContent?.includes(m.tags_bulk_over_limit_body())
+		);
+		expect(banners).toHaveLength(2);
+		// Present, and silent about routes. Proposing one that cannot help is the /upcoming-bills
+		// defect closed in #99 — worse here, because it would name a number the user can check.
+		expect(banners[0].textContent).not.toContain(m.tags_bulk_over_limit_action());
+		expect(banners[0].querySelector('a')).toBeNull();
+	});
+
+	it('under the cap: no refusal at all', async () => {
+		expect.assertions(1);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: filtered({
+				pagination: {
+					page: 1,
+					pageSize: 25,
+					totalTransactions: MAX_BULK_TAG_TRANSACTIONS,
+					totalPages: 10,
+					hasPrevious: false,
+					hasNext: false
+				}
+			}),
+			form: null
+		});
+
+		// Exactly AT the cap, not comfortably under it: the boundary is where an off-by-one lives.
+		expect(container.textContent).not.toContain(m.tags_bulk_over_limit_body());
 	});
 });
