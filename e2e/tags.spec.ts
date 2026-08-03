@@ -335,11 +335,15 @@ test.describe('bulk apply and undo', () => {
 	test('applying a tag to a filtered set tags exactly the matched rows, the banner reports the applied count, it never auto-dismisses, and undo removes exactly what it added', async ({
 		page
 	}) => {
-		await page.goto('/transactions');
-		const bar = desktopFilterBar(page);
-		await page.locator('#tx-from').fill(BULK_FROM);
-		await page.locator('#tx-to').fill(BULK_TO);
-		await bar.getByRole('button', { name: m.transactions_submit_filter() }).click();
+		// The date scope is a PRECONDITION of this test, not its subject: what is under test is the
+		// bulk apply and its undo. It used to be established by filling `#tx-from`/`#tx-to`, the two
+		// native date inputs the Période dimension replaced — `type="date"` renders jj/mm/aaaa or
+		// mm/dd/yyyy depending on the browser's own locale, which is the defect that dimension
+		// closes. Set through the URL rather than through the new panel, deliberately: from/to is
+		// the filter's real contract (presets serialise into exactly these two params, and there is
+		// no third one), so this states the precondition directly instead of pantomiming a gesture
+		// whose own coverage lives in e2e/transactions-period.spec.ts.
+		await page.goto(`/transactions?from=${BULK_FROM}&to=${BULK_TO}`);
 
 		// Precondition: exactly the 3 fixture rows are in view, one already carrying the tag.
 		for (const label of [BULK_PRETAGGED_LABEL, ...BULK_UNTAGGED_LABELS]) {
