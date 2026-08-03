@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { afterNavigate } from '$app/navigation';
+	import { onMount } from 'svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -172,6 +174,31 @@
 	// Common card chrome (pattern already used by /rules, /categories):
 	// see cardBase in $lib/styles.
 	const card = `${cardBase} p-5`;
+
+	// Arrival state for the /settings#tags deep link (ManageTagsFooter's "Gérer dans Paramètres"
+	// row on the transaction-side tag panels): bring the section into view and move focus to its
+	// heading, so eye and ear land in the same place and a screen reader announces it. Checked on
+	// both a cold load (onMount) and a client-side navigation (afterNavigate) — the footer link is
+	// reached from /transactions without a full page reload, so onMount alone would miss it.
+	// tabindex="-1" makes the heading a valid focus target without adding it to Tab order, and the
+	// ring is not timed: it stays until the next Tab or click, never a coloured flash.
+	//
+	// The ring is `focus:`, NOT `focus-visible:`, and that is the whole point rather than a slip.
+	// :focus-visible does not match when focus is moved programmatically while the last input was a
+	// MOUSE — so a user arriving by clicking the footer row would have landed on the heading with no
+	// visible ring at all, which is exactly the arrival state this exists to provide. Because the
+	// heading is tabindex="-1" it can never be reached by Tab, so `focus:` fires here and nowhere
+	// else; there is no over-application to trade against.
+	let tagsHeadingEl = $state<HTMLHeadingElement | undefined>(undefined);
+
+	function focusTagsHeadingIfHashed() {
+		if (typeof window !== 'undefined' && window.location.hash === '#tags') {
+			tagsHeadingEl?.focus();
+		}
+	}
+
+	onMount(focusTagsHeadingIfHashed);
+	afterNavigate(focusTagsHeadingIfHashed);
 </script>
 
 <svelte:head>
@@ -853,11 +880,16 @@
 		<!-- ÉTIQUETTES -->
 		<!-- Deliberately no "New tag" affordance anywhere in this section: the design forbids
 		     creation from Settings. A tag is created only by typing a name on a transaction. -->
-		<div class={card}>
-			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+		<div id="tags" class={card}>
+			<h2
+				bind:this={tagsHeadingEl}
+				tabindex="-1"
+				class="rounded text-[11px] font-semibold tracking-wide text-zinc-500 uppercase focus:ring-2 focus:ring-zinc-400 focus:outline-none"
+			>
 				{m.tags_settings_heading()}
 			</h2>
 			<p class="mt-1 text-sm text-zinc-500">{m.tags_settings_subtitle()}</p>
+			<p class="mt-1 text-xs text-zinc-500">{m.tags_settings_auto_delete_note()}</p>
 
 			{#if form?.tagsError}
 				<AlertBanner variant="error" class="mt-3">{form.tagsError}</AlertBanner>
@@ -867,7 +899,13 @@
 			{/if}
 
 			{#if data.tags.length === 0}
-				<EmptyState card={false} description={m.tags_settings_empty()} />
+				<EmptyState card={false} description={m.tags_settings_empty()}>
+					{#snippet detail()}
+						<p class="text-[13px] leading-relaxed text-zinc-500">
+							{m.tags_settings_auto_delete_note()}
+						</p>
+					{/snippet}
+				</EmptyState>
 			{:else}
 				<ul class="mt-3 space-y-2.5">
 					{#each data.tags as tag (tag.id)}
