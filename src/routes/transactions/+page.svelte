@@ -1176,29 +1176,54 @@
 {/snippet}
 
 {#snippet filteredTotalsRegion()}
+	<!-- The design's band reads "Dépenses −3 418,90 €   Revenus +4 260,00 €": each figure LABELLED
+	     and SIGNED, on the same line as the count. It shipped as "42,50 € encaissés · 1 402,66 €
+	     dépensés" — value first, label after, magnitudes with no sign, stacked on a second line
+	     under the count. Both halves mattered: a reader scanning a column of figures finds the label
+	     first, and the sign is what says which direction the money went without reading the word.
+	     The three states are unchanged (error keeps the em dashes, zero keeps its own label), because
+	     amendment 1 is explicit that the error state must not be weakened. -->
 	<p
 		data-testid="filtered-totals"
 		role="status"
 		aria-live="polite"
-		class="text-xs tabular-nums {filteredTotalsState === 'error'
+		class="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-xs tabular-nums {filteredTotalsState ===
+		'error'
 			? 'text-amber-700'
 			: 'text-zinc-500'}"
 	>
 		{#if filteredTotalsState === 'error'}
-			{m.transactions_totals_unavailable_label()} · {m.transactions_totals_summary({
-				income: TOTALS_UNKNOWN,
-				expense: TOTALS_UNKNOWN
-			})}
+			<span>{m.transactions_totals_unavailable_label()}</span>
+			<span>{m.transactions_totals_expense_label()} {TOTALS_UNKNOWN}</span>
+			<span>{m.transactions_totals_income_label()} {TOTALS_UNKNOWN}</span>
 		{:else if filteredTotalsState === 'zero'}
-			{m.transactions_totals_zero_label()} · {m.transactions_totals_summary({
-				income: formatCents(0),
-				expense: formatCents(0)
-			})}
+			<span>{m.transactions_totals_zero_label()}</span>
+			<span>{m.transactions_totals_expense_label()} {formatCents(0)}</span>
+			<span>{m.transactions_totals_income_label()} {formatCents(0)}</span>
 		{:else}
-			{m.transactions_totals_summary({
-				income: formatCents(data.filteredTotals.incomeCents),
-				expense: formatCents(data.filteredTotals.expenseCents)
-			})}
+			<!-- Both are stored as MAGNITUDES, so the sign is applied here — and through `formatCents`
+			     with `signDisplay`, never by concatenation: Intl decides both the glyph and which side
+			     of the number it goes on. `exceptZero` so a zero stays unsigned.
+			     The value colours are the table's own: expenses zinc-900, income emerald-700, the
+			     same pairing every amount in the list already uses. The LABELS stay zinc-500, so the
+			     colour marks the figure rather than the whole phrase. -->
+			<span
+				>{m.transactions_totals_expense_label()}
+				<span class="font-medium text-zinc-900"
+					>{formatCents(
+						-data.filteredTotals.expenseCents,
+						undefined,
+						undefined,
+						'exceptZero'
+					)}</span
+				></span
+			>
+			<span
+				>{m.transactions_totals_income_label()}
+				<span class="font-medium text-emerald-700"
+					>{formatCents(data.filteredTotals.incomeCents, undefined, undefined, 'exceptZero')}</span
+				></span
+			>
 		{/if}
 	</p>
 {/snippet}
@@ -1405,34 +1430,6 @@
 				{#if data.filters.importBatchId}
 					<input type="hidden" name="importBatch" value={data.filters.importBatchId} />
 				{/if}
-				<div class="flex items-center gap-1">
-					<!-- ".*" at BOTH sizes. Desktop used to render a bare lowercase "r", which reads as a
-					     stray character in the bar rather than as a control; mobile already rendered
-					     ".*", so the glyph that exists is unified upward instead of a third rendering
-					     being invented. Carrying visible text is a deviation from "IconButton never has
-					     visible text", accepted because there is no legible convention for a regex glyph
-					     and the word "Regex" costs 46px in a 300px field. The word is still said twice:
-					     in the accessible name and in the tooltip, which opens on keyboard focus as well
-					     as on hover. -->
-					<IconButton
-						shape="box"
-						pressed={searchIsRegex}
-						label={m.transactions_regex_toggle_aria()}
-						title={m.transactions_regex_toggle_aria()}
-						onclick={() => (searchIsRegex = !searchIsRegex)}
-					>
-						<span class="font-mono text-[13px] leading-none">.*</span>
-					</IconButton>
-					<input type="hidden" name="qMode" value={searchIsRegex ? 'regex' : 'contains'} />
-					<SearchBar
-						name="q"
-						value={data.filters.q}
-						placeholder={m.transactions_search_placeholder()}
-						ariaLabel={m.transactions_search_label()}
-						error={Boolean(data.queryError)}
-						clearLabel={m.common_search_clear_aria()}
-					/>
-				</div>
 				<!-- At rest each trigger carries the NAME OF ITS DIMENSION and nothing else. "Toutes" is
 				     the resting value of a filter, and two triggers each showing their resting value is
 				     what put two adjacent "Toutes" in this bar. The word now lives only on the nature
@@ -1514,6 +1511,42 @@
 						type="date"
 						value={data.filters.to}
 					/>
+				</div>
+				<!-- The search field sits at the RIGHT END of the bar, at 300px, with the regex toggle
+				     INSIDE it. Both halves are section 7's point, and only the first half shipped at
+				     first: the toggle got its bordered box and stayed outside the field, to its left,
+				     which is exactly the arrangement the design names as the defect — a character in a
+				     bordered box is a button, a character beside a field is a typo.
+				     `ml-auto` rather than a fixed position, so the dimensions keep packing from the left
+				     and the field keeps the right edge however many of them there are.
+				     28x32 rather than IconButton's 44x44 floor: inside a 44px field a 44px control fills
+				     it edge to edge and stops reading as something within the field. Desktop only — the
+				     design's 44px floor is the MOBILE one, and this box clears both SC 2.5.8's 24x24 and
+				     the design's own 26x24 for a desktop control. -->
+				<div class="ml-auto w-[300px]">
+					<input type="hidden" name="qMode" value={searchIsRegex ? 'regex' : 'contains'} />
+					<SearchBar
+						name="q"
+						value={data.filters.q}
+						placeholder={m.transactions_search_placeholder()}
+						ariaLabel={m.transactions_search_label()}
+						error={Boolean(data.queryError)}
+						clearLabel={m.common_search_clear_aria()}
+						wrapperClass="w-full"
+					>
+						{#snippet trailing()}
+							<IconButton
+								shape="box"
+								class="h-7 !min-h-0 w-8 !min-w-0"
+								pressed={searchIsRegex}
+								label={m.transactions_regex_toggle_aria()}
+								title={m.transactions_regex_toggle_aria()}
+								onclick={() => (searchIsRegex = !searchIsRegex)}
+							>
+								<span class="font-mono text-[13px] leading-none">.*</span>
+							</IconButton>
+						{/snippet}
+					</SearchBar>
 				</div>
 				<Button type="submit" size="field">{m.transactions_submit_filter()}</Button>
 				{#if data.queryError}
@@ -2035,6 +2068,36 @@
 		     table's label column drops under 300px and stops being readable, and today's `lg`-stacks-
 		     under behaviour already avoids that. The design flags a modal side sheet for that range and
 		     does not draw it; it is in the backlog, not here. -->
+		<!-- The summary BAND, its own row between the filter bar and the table. Two rows, one function
+		     each: you filter above, you read what the filter gave and act on it below. It shipped
+		     inside the table card's pagination header instead, with the count on one line and the
+		     totals stacked under it — the contents were right and the container was not, so the band
+		     the design specifies ("142 transactions   Dépenses −3 418,90 €   Revenus +4 260,00 €" on
+		     ONE line) did not exist.
+		     Always rendered: it carries the totals, which a user has today with no filter at all and
+		     must not lose. Only "Réinitialiser les filtres" and the bulk trigger are conditional. -->
+		<div
+			class="hidden flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-zinc-200 bg-white px-4 py-3 lg:flex"
+			data-testid="summary-band"
+		>
+			<div class="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+				{@render summaryCount()}
+				{@render filteredTotalsRegion()}
+			</div>
+			<div class="flex items-center gap-2">
+				{@render summaryActions('desktop')}
+			</div>
+		</div>
+		<!-- Gated with the band, not left at page level: these three are the DESKTOP copies, and the
+		     mobile block renders its own further down. Ungated they rendered on both breakpoints at
+		     once, which put a second undo banner in the tab order ahead of the trigger it undoes —
+		     the exact ordering the guard in bulk-tag.svelte.spec.ts exists to hold. -->
+		<div class="hidden lg:block">
+			{@render summaryDisabledReason('desktop')}
+			{@render bulkOverLimitBanner()}
+			{@render bulkTagBanner()}
+		</div>
+
 		<div
 			class="hidden items-start gap-6 lg:grid {data.selectedTransaction
 				? 'xl:grid-cols-[1fr_400px]'
@@ -2042,15 +2105,12 @@
 		>
 			<!-- Section tableau -->
 			<section class="rounded-lg border border-zinc-200 bg-white">
-				<!-- En-tête tableau : pagination -->
+				<!-- En-tête tableau : pagination only. The summary moved out into its own band above;
+				     what stays here is the control that belongs to the TABLE rather than to the
+				     filter's result. -->
 				<div class="border-b border-zinc-200 px-4 py-3">
-					<div class="flex flex-wrap items-center justify-between gap-2">
-						<div>
-							{@render summaryCount()}
-							{@render filteredTotalsRegion()}
-						</div>
+					<div class="flex flex-wrap items-center justify-end gap-2">
 						<div class="flex items-center gap-2">
-							{@render summaryActions('desktop')}
 							<Button
 								variant="secondary"
 								size="sm"
@@ -2065,9 +2125,6 @@
 							>
 						</div>
 					</div>
-					{@render summaryDisabledReason('desktop')}
-					{@render bulkOverLimitBanner()}
-					{@render bulkTagBanner()}
 				</div>
 
 				<!-- Table -->
@@ -2225,16 +2282,31 @@
 													>
 													<p class="mt-0.5 text-xs text-zinc-400">{formatDate(tx.date)}</p>
 												</td>
-												<td class="px-4 py-3">
-													<div class="flex items-center gap-1.5">
-														<span
-															class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(tx.category)}"
-														></span>
-														<span class="text-zinc-700">{displayCategory(tx.category)}</span>
+												<!-- Same shape as Étiquettes below, for the same reason and after the same measurement:
+												     `w-[160px]` on the <td> alone is a suggestion under `table-layout: auto`, and an
+												     unbreakable category name widened this column to 335px, taking 175px off Libellé.
+												     The fixed-width child gives the column a max-content of exactly the figure, and the
+												     padding moves onto it so the width stays the whole column box.
+												     `truncate` + `min-w-0` are the second half: without them a WORDY name does not widen
+												     the column, it wraps and grows the row from 63px to 103px — the invariant the
+												     Étiquettes column exists to protect ("la hauteur de ligne ne bouge pas d'une ligne à
+												     l'autre, c'est ce qui garde le tableau scannable"). -->
+												<td class="{colCategory} p-0">
+													<div class="{colCategory} px-4 py-3">
+														<div class="flex items-center gap-1.5">
+															<span
+																class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(
+																	tx.category
+																)}"
+															></span>
+															<span class="min-w-0 truncate text-zinc-700"
+																>{displayCategory(tx.category)}</span
+															>
+														</div>
+														<p class="mt-0.5 ml-3.5 truncate text-xs text-zinc-500">
+															{formatNatureLabel(tx.nature)}
+														</p>
 													</div>
-													<p class="mt-0.5 ml-3.5 text-xs text-zinc-500">
-														{formatNatureLabel(tx.nature)}
-													</p>
 												</td>
 												<!-- The 190px lives on an inner block, and the cell's own padding moved onto it.
 												     `w-[190px]` on the <td> alone is only a suggestion: this table is
@@ -2252,13 +2324,19 @@
 														{/if}
 													</div>
 												</td>
-												<td
-													class="{colAmount} px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
-													'income'
-														? 'text-emerald-700'
-														: 'text-rose-600'}"
-												>
-													{formatCents(tx.amountCents)}
+												<!-- Same fix again, third site of the same pattern: an amount past any real one widened
+												     this column from 130px to 148px. `truncate` is a backstop rather than an expected
+												     state — a realistic amount fits the column — but it decides what happens when one
+												     does not, and silently stealing width from Libellé is not it. -->
+												<td class="{colAmount} p-0">
+													<div
+														class="{colAmount} truncate px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
+														'income'
+															? 'text-emerald-700'
+															: 'text-rose-600'}"
+													>
+														{formatCents(tx.amountCents)}
+													</div>
 												</td>
 											</tr>
 										{/if}

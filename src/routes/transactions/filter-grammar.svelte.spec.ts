@@ -399,3 +399,34 @@ describe('filter bar — mobile sheet', () => {
 		expect(shortest(active.container)).toBeGreaterThanOrEqual(44);
 	});
 });
+
+describe('filter bar — the search field', () => {
+	it('desktop: the regex toggle is inside the search field, and the field holds the right edge', async () => {
+		expect.assertions(4);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, { data: baseData(), form: null });
+
+		const bar = container.querySelector<HTMLElement>('div.hidden.lg\\:block')!;
+		const field = bar.querySelector<HTMLInputElement>('input[name="q"]')!;
+		const toggle = [...bar.querySelectorAll<HTMLElement>('button')].find((b) =>
+			(b.getAttribute('aria-label') ?? '').includes(m.transactions_regex_toggle_aria())
+		)!;
+
+		// Section 7's actual point, and the half that shipped wrong first: a character in a bordered
+		// box is a button, a character BESIDE a field is a typo. Containment, not proximity —
+		// measured as DOM ancestry, since "close to the field" is what the defect already looked like.
+		expect(field.parentElement!.contains(toggle)).toBe(true);
+		// And inside its right edge, not overlapping the text.
+		const f = field.getBoundingClientRect();
+		const t = toggle.getBoundingClientRect();
+		expect(Math.round(t.right)).toBeLessThanOrEqual(Math.round(f.right));
+		expect(Math.round(t.left)).toBeGreaterThan(Math.round(f.left));
+
+		// The field takes the RIGHT END of the bar, and this is measured against the bar's own edge
+		// rather than against the triggers. "Every trigger is to its left" is satisfied by DOM order
+		// alone — swapping `ml-auto` for `mr-auto` leaves it green while the field sits mid-row —
+		// so the assertion has to be about where the field actually lands.
+		const row = field.closest('form')!.getBoundingClientRect();
+		expect(Math.round(row.right - f.right)).toBeLessThanOrEqual(96);
+	});
+});

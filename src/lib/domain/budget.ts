@@ -129,9 +129,26 @@ export function formatSpentOfLimit(spentCents: number, limitCents: number): stri
 	return `${formatCents(spentCents)} / ${formatCents(limitCents)}`;
 }
 
-export function formatCents(amountCents: number, locale = getLocale(), currency = 'EUR'): string {
+export function formatCents(
+	amountCents: number,
+	locale = getLocale(),
+	currency = 'EUR',
+	/**
+	 * Passed straight to `Intl.NumberFormat`. Default `'auto'` is the existing behaviour: a minus on
+	 * negatives, nothing on positives.
+	 *
+	 * `'exceptZero'` exists for the transactions summary band, where the design shows both figures
+	 * signed ("Dépenses -3 418,90 €   Revenus +4 260,00 €"). Concatenating a "+" instead would put
+	 * one sign in the app's hands and the other in Intl's, and Intl decides both the glyph and which
+	 * side of the number it goes on per locale. (Measured, because it is easy to assume otherwise:
+	 * `fr` emits U+002D here, not the typographic U+2212 — so "which glyph" is not a thing to guess
+	 * at in either direction.)
+	 */
+	signDisplay: Intl.NumberFormatOptions['signDisplay'] = 'auto'
+): string {
 	return new Intl.NumberFormat(locale, {
 		style: 'currency',
-		currency
+		currency,
+		signDisplay
 	}).format(amountCents / 100);
 }

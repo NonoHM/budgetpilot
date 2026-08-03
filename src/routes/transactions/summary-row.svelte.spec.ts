@@ -6,6 +6,7 @@ import Page from './+page.svelte';
 import type { PageData } from './$types';
 import { TRANSACTION_NATURES } from '$lib/domain/transaction';
 import * as m from '$lib/paraglide/messages';
+import { formatCents } from '$lib/domain/budget';
 import { MAX_BULK_TAG_TRANSACTIONS } from '$lib/domain/tags';
 
 /**
@@ -272,5 +273,85 @@ describe('summary row', () => {
 
 		// Exactly AT the cap, not comfortably under it: the boundary is where an off-by-one lives.
 		expect(container.textContent).not.toContain(m.tags_bulk_over_limit_body());
+	});
+
+	/** One row, so the table exists to measure the band against. */
+	const ONE_ROW = [
+		{
+			id: 'tx-1',
+			date: '2026-06-22',
+			label: 'Restaurante Adega',
+			amountCents: -5210,
+			type: 'expense' as const,
+			category: 'Voyages',
+			importedCategory: 'Voyages',
+			manualCategory: null,
+			isManualCategory: false,
+			nature: 'spending' as const,
+			manualNature: null,
+			natureSource: 'category' as const,
+			source: 'manual' as const,
+			suggestion: null,
+			tags: []
+		}
+	];
+
+	it('desktop: the band is its own row above the table, and reads on one line', async () => {
+		expect.assertions(6);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, { data: baseData({ transactions: ONE_ROW }), form: null });
+
+		const band = container.querySelector<HTMLElement>('[data-testid="summary-band"]')!;
+		const table = container.querySelector<HTMLElement>('table')!;
+		expect(band).toBeTruthy();
+		// OUTSIDE the table's card, not inside its header: "two rows, one function each". It shipped
+		// inside the pagination header, which is why the band the design specifies did not exist.
+		expect(band.contains(table)).toBe(false);
+		expect(table.closest('section')!.contains(band)).toBe(false);
+		expect(Math.round(band.getBoundingClientRect().bottom)).toBeLessThanOrEqual(
+			Math.round(table.getBoundingClientRect().top)
+		);
+
+		// ONE line: side by side, vertically overlapping. NOT equal `top` — the two carry different
+		// font sizes and are baseline-aligned, so their boxes legitimately start 3px apart, and an
+		// equality would be asserting the font sizes rather than the layout. What the stacked version
+		// actually violated is that the totals sat BELOW the count at the same left edge.
+		const count = band
+			.querySelector<HTMLElement>('[data-testid="summary-count"]')!
+			.getBoundingClientRect();
+		const totals = band
+			.querySelector<HTMLElement>('[data-testid="filtered-totals"]')!
+			.getBoundingClientRect();
+		expect(totals.left).toBeGreaterThan(count.right);
+		expect(Math.min(count.bottom, totals.bottom) - Math.max(count.top, totals.top)).toBeGreaterThan(
+			0
+		);
+	});
+
+	it('labels each figure and signs it, expenses first', async () => {
+		expect.assertions(5);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, { data: baseData(), form: null });
+
+		const totals = container.querySelector<HTMLElement>('[data-testid="filtered-totals"]')!;
+		// Whitespace normalised on BOTH sides, never on one: Intl separates thousands with U+202F
+		// (narrow no-break space), so an expectation built from a plain space silently never matches
+		// — the trap CLAUDE.md already records for a `0,00 €` assertion.
+		const norm = (v: string) => v.replace(/\s+/g, ' ').trim();
+		const text = norm(totals.textContent!);
+
+		// "Dépenses −3 418,90 €   Revenus +4 260,00 €": label first so a reader scanning a column of
+		// figures finds the word before the number, and SIGNED so the direction is readable without
+		// the word. It shipped as "42,50 € encaissés · 1 402,66 € dépensés" — value first, unsigned.
+		expect(text).toContain(m.transactions_totals_expense_label());
+		expect(text).toContain(m.transactions_totals_income_label());
+		expect(text.indexOf(m.transactions_totals_expense_label())).toBeLessThan(
+			text.indexOf(m.transactions_totals_income_label())
+		);
+		// BOTH signed, and by Intl rather than by concatenation — Intl owns the glyph and the side.
+		// Asserted as the exact rendered strings, so a hand-pasted "+" in front of an unsigned value
+		// cannot satisfy it.
+		expect(text).toContain(norm(formatCents(-341890, undefined, undefined, 'exceptZero')));
+		expect(text).toContain(norm(formatCents(426000, undefined, undefined, 'exceptZero')));
 	});
 });
