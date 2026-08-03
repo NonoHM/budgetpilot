@@ -151,6 +151,23 @@ describe('filtered-set totals: three states that do not resemble each other', ()
 		expect(container.textContent).toContain(m.transactions_empty_query_error_title());
 	});
 
+	it('renders the same regex glyph at both sizes, and never a bare letter', async () => {
+		// A character on a background is a typo; a character in a bordered box is a button. Desktop
+		// rendered a lowercase "r" while mobile already rendered ".*" — the glyph that exists is
+		// unified upward rather than a third one invented.
+		expect.assertions(2);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, { data: baseData(), form: null });
+
+		const toggles = [...container.querySelectorAll('button')].filter(
+			(b) => b.getAttribute('aria-label') === m.transactions_regex_toggle_aria()
+		);
+		// Both surfaces render at once, a known duplication: asserting a count of 2 is what stops
+		// this passing while one of the two has been left behind.
+		expect(toggles).toHaveLength(2);
+		expect(toggles.map((b) => (b.textContent ?? '').trim())).toEqual(['.*', '.*']);
+	});
+
 	it('keeps ONE live region whose role never changes across the three states', async () => {
 		// The design is explicit that the role must not be swapped mid-flight: "un élément qui
 		// bascule status → alert n'est pas détecté de façon fiable par tous les lecteurs d'écran".
@@ -172,6 +189,37 @@ describe('filtered-set totals: three states that do not resemble each other', ()
 		}
 
 		expect([...seen]).toEqual(['status|polite']);
+	});
+
+	it('names what did NOT change, while the totals stay unknown', async () => {
+		// The design (7A) wanted the invalid-regex state to keep showing the previous valid
+		// expression's figures. The shipped behaviour is the opposite and is deliberately kept: the
+		// server never evaluated this filter, so printing figures beside the current input would
+		// claim they describe it. The useful half of the design is the SENTENCE — saying which
+		// results are on screen — and that is what is added.
+		//
+		// Both halves are asserted in ONE test on purpose. Split across two, a later change could
+		// keep the sentence and quietly restore the figures, leaving a page that says "these are the
+		// last valid expression's results" directly above totals that match neither.
+		expect.assertions(3);
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: baseData({ queryError: true, filteredTotals: { incomeCents: 0, expenseCents: 0 } }),
+			form: null
+		});
+
+		// A COUNT of 2, not a substring search of the whole page. Both filter surfaces render
+		// simultaneously at every viewport, so `container.textContent).toContain(...)` is satisfied
+		// by either one of them: deleting the sentence from the desktop bar alone left this test
+		// green when it was written that way.
+		expect(
+			[...container.querySelectorAll('p')].filter(
+				(p) => p.textContent?.trim() === m.transactions_regex_error_unchanged()
+			)
+		).toHaveLength(2);
+		expect(container.textContent).toContain(m.transactions_totals_unavailable_label());
+		// The placeholder, not a figure: a dash says "we do not know", which is the truth here.
+		expect(totalsRegions(container)[0]?.textContent).toContain('—');
 	});
 
 	it('gives the error state the warning tone, never danger: nothing is broken for the user', async () => {

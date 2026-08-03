@@ -985,13 +985,22 @@
 					<input type="hidden" name="importBatch" value={data.filters.importBatchId} />
 				{/if}
 				<div class="flex items-center gap-1">
+					<!-- ".*" at BOTH sizes. Desktop used to render a bare lowercase "r", which reads as a
+					     stray character in the bar rather than as a control; mobile already rendered
+					     ".*", so the glyph that exists is unified upward instead of a third rendering
+					     being invented. Carrying visible text is a deviation from "IconButton never has
+					     visible text", accepted because there is no legible convention for a regex glyph
+					     and the word "Regex" costs 46px in a 300px field. The word is still said twice:
+					     in the accessible name and in the tooltip, which opens on keyboard focus as well
+					     as on hover. -->
 					<IconButton
+						shape="box"
 						pressed={searchIsRegex}
 						label={m.transactions_regex_toggle_aria()}
 						title={m.transactions_regex_toggle_aria()}
 						onclick={() => (searchIsRegex = !searchIsRegex)}
 					>
-						r
+						<span class="font-mono text-[13px] leading-none">.*</span>
 					</IconButton>
 					<input type="hidden" name="qMode" value={searchIsRegex ? 'regex' : 'contains'} />
 					<SearchBar
@@ -1114,6 +1123,12 @@
 				<p class="mt-2 text-sm font-medium text-rose-600">
 					{m.transactions_error_invalid_regex_query()}
 				</p>
+				<!-- Says which results are on screen. The design asked for the totals to keep showing
+				     the last valid expression's figures too; they deliberately do not, because the
+				     server never evaluated this filter and figures printed beside the current input
+				     would claim to describe it. The sentence is the honest half of that idea: the
+				     ROWS are the last valid expression's, the TOTALS are unknown and say so. -->
+				<p class="mt-1 text-sm text-zinc-500">{m.transactions_regex_error_unchanged()}</p>
 			{/if}
 			{#if data.dateRangeError}
 				<p class="mt-2 text-sm font-medium text-rose-600">{m.date_range_error_invalid_custom()}</p>
@@ -1195,6 +1210,8 @@
 						</svg>
 						{m.transactions_error_invalid_regex_query()}
 					</p>
+					<!-- Same sentence as the desktop bar; see its comment there. -->
+					<p class="px-0.5 text-xs text-zinc-500">{m.transactions_regex_error_unchanged()}</p>
 				{/if}
 
 				<!-- Same grammar as the desktop bar, different pixels. What stays identical is what
