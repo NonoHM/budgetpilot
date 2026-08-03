@@ -106,6 +106,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		classifiableCount: 0,
 		classifyStackIds: [],
 		tagCounts: null,
+		tagScopeTotal: 0,
 		...overrides
 	};
 }

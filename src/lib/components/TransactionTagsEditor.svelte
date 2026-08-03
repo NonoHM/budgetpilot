@@ -22,12 +22,22 @@
 		transactionId,
 		tags,
 		allTags,
-		error
+		error,
+		dirty = $bindable()
 	}: {
 		transactionId: string;
 		tags: Array<{ id: string; name: string; colorToken: string }>;
 		allTags: Array<{ id: string; name: string; colorToken: TagColorToken }>;
 		error?: string;
+		/**
+		 * Whether this editor holds an unsaved change, mirrored out for the page's navigation guard.
+		 *
+		 * Exposed rather than recomputed on the page: the dirty check below is deliberately written
+		 * ONCE so the desktop panel and the mobile sheet cannot drift, which is the same reason this
+		 * component exists at all. A second copy on the page would be a second chance to disagree
+		 * about what "unsaved" means — and the guard would then let real work be discarded silently.
+		 */
+		dirty?: boolean;
 	} = $props();
 
 	// Unique per instance: this editor is mounted twice at once (desktop panel and mobile sheet),
@@ -50,6 +60,14 @@
 		const initial = tags.map((t) => t.name).sort();
 		const current = [...selected].sort();
 		return initial.some((name, i) => name !== current[i]);
+	});
+
+	// The one write to the bindable. `$effect` rather than assigning inside the `$derived`, because
+	// a derived must stay pure — writing a prop from inside one is how a state_unsafe_mutation
+	// crash is earned. Guarded on inequality so a re-render that changes nothing does not push a
+	// write up into the parent's state and back down again.
+	$effect(() => {
+		if (dirty !== isDirty) dirty = isDirty;
 	});
 </script>
 

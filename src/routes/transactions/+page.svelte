@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { navigating } from '$app/state';
 	import { tick } from 'svelte';
@@ -226,6 +226,71 @@
 		manualNatureValue !== (data.selectedTransaction?.manualNature ?? '')
 	);
 
+	/**
+	 * The unsaved-changes guard.
+	 *
+	 * Dirtiness has three sources — manual category, manual nature, and tags. The first two are the
+	 * two deriveds above; the third is owned by `TransactionTagsEditor` and mirrored out through its
+	 * `dirty` prop rather than recomputed here, so the two surfaces cannot disagree about what
+	 * "unsaved" means. Both mounts are bound and the two flags are OR-ed: the desktop panel and the
+	 * mobile sheet render simultaneously (a documented duplication on this page), the user edits in
+	 * exactly one of them, and "some editor holds unsaved work" is the question the guard asks.
+	 *
+	 * ONE mechanism covers all six paths, because every one of them is a navigation: selection is
+	 * `?selected=`, closing drops the param, and a nav link or the browser's Back button is a
+	 * navigation by definition. Before this, switching rows silently discarded pending edits — the
+	 * `$effect` further down resets `manualCategoryValue`/`manualNatureValue` on every selection
+	 * change with nothing asked.
+	 */
+	let tagsDirtyDesktop = $state(false);
+	let tagsDirtyMobile = $state(false);
+	const hasUnsavedChanges = $derived(
+		categoryIsDirty || natureIsDirty || tagsDirtyDesktop || tagsDirtyMobile
+	);
+
+	// Set for exactly one hop, by "Abandonner". Without it, replaying the navigation would be
+	// caught by the very guard that asked the question and the dialog would reopen forever.
+	let bypassUnsavedGuard = $state(false);
+	let pendingNavigation = $state<URL | null>(null);
+
+	beforeNavigate((nav) => {
+		if (!hasUnsavedChanges || bypassUnsavedGuard) return;
+		// Cancel FIRST. `beforeNavigate` is synchronous, so there is no awaiting a dialog here: the
+		// navigation is stopped unconditionally and replayed later if the user says so.
+		nav.cancel();
+		// Two facts about this API, verified against SvelteKit's client runtime rather than assumed:
+		//   - a cancelled `popstate` is counteracted with `history.go(-delta)`, so the Back button
+		//     correctly stays put instead of leaving the address bar one entry ahead of the page;
+		//   - for `type: 'leave'` (tab close, external link) the cancel becomes `preventDefault()` on
+		//     `beforeunload`, i.e. THE BROWSER'S OWN dialog, not ours. We cannot render over it and
+		//     must not try. So "the confirmation always looks the same" is false, and a test written
+		//     on that premise would go red for the wrong reason.
+		if (nav.willUnload) return;
+		pendingNavigation = nav.to?.url ?? null;
+	});
+
+	function keepEditing() {
+		pendingNavigation = null;
+	}
+
+	async function discardAndNavigate() {
+		const target = pendingNavigation;
+		pendingNavigation = null;
+		if (!target) return;
+		bypassUnsavedGuard = true;
+		try {
+			// `target` is the URL SvelteKit itself produced for the navigation it just handed us, so
+			// it is already resolved; `resolve()` takes a route id and would not even type-check here.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(target, { noScroll: true });
+		} finally {
+			// In a `finally`, so a rejected navigation (an offline load, a server error) cannot leave
+			// the guard permanently switched off — which would silently disarm it for the rest of the
+			// session, and a disarmed guard looks exactly like a working one until work is lost.
+			bypassUnsavedGuard = false;
+		}
+	}
+
 	// Whether the id filter is actually active (see the idsFilterNotice snippet). False when the
 	// param is absent — and also when it was present but empty, which is exactly the collapse
 	// `filters.ids` documents: an empty list yields no rows, so there is nothing to explain and no
@@ -337,10 +402,15 @@
 		})
 	);
 
-	/** The total for the "Toutes" return row: the filtered set with the tag dimension removed. */
-	const tagFilterAllCount = $derived(
-		data.tagCounts === null ? null : data.pagination.totalTransactions
-	);
+	/**
+	 * The total for the "Toutes" return row: the filtered set with the tag dimension removed.
+	 *
+	 * `tagScopeTotal`, NOT `pagination.totalTransactions`. The latter is the tag-FILTERED total, so
+	 * with `?tag=Portugal` active it rendered "Toutes 1" beside "Portugal 1" — telling the user that
+	 * clearing the filter would change nothing, on the one row whose entire job is to say how much
+	 * is waiting outside the current tag.
+	 */
+	const tagFilterAllCount = $derived(data.tagCounts === null ? null : data.tagScopeTotal);
 
 	const activeCategoryLabel = $derived(
 		data.filters.category
@@ -2062,6 +2132,7 @@
 									tags={data.selectedTransaction.tags}
 									allTags={allTagOptions}
 									error={form?.tagsError}
+									bind:dirty={tagsDirtyDesktop}
 								/>
 
 								<!-- Détails bancaires -->
@@ -2532,6 +2603,32 @@
 		</div>
 	</section>
 
+	<!-- Tone NEUTRAL, not danger. Abandoning an entry that was never saved is not destructive in the
+	     referential's sense: nothing recorded is lost, only something typed. Rose here would spend
+	     the alarm colour on the most ordinary interruption there is and leave nothing louder for
+	     deleting a transaction, two dialogs away. -->
+	{#if pendingNavigation}
+		<form
+			onsubmit={(event) => {
+				// No server action: the confirm button is ConfirmDialog's own `type="submit"`, which
+				// exists so the delete and bulk-tag dialogs can post. Here the "submission" is a
+				// client-side navigation, so the default is prevented and the replay runs instead.
+				event.preventDefault();
+				void discardAndNavigate();
+			}}
+		>
+			<ConfirmDialog
+				open={pendingNavigation !== null}
+				title={m.transactions_unsaved_title()}
+				confirmLabel={m.transactions_unsaved_discard()}
+				cancelLabel={m.transactions_unsaved_stay()}
+				onClose={keepEditing}
+			>
+				<p class="text-sm text-zinc-600">{m.transactions_unsaved_body()}</p>
+			</ConfirmDialog>
+		</form>
+	{/if}
+
 	{#if pendingDelete}
 		<form
 			method="POST"
@@ -2829,6 +2926,7 @@
 				tags={data.selectedTransaction.tags}
 				allTags={allTagOptions}
 				error={form?.tagsError}
+				bind:dirty={tagsDirtyMobile}
 			/>
 
 			<!-- Accordéons -->
