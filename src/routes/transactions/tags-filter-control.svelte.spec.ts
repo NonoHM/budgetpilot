@@ -59,6 +59,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		tagCounts: null,
 		tagScopeTotal: 0,
 		bulkFallback: null,
+		todayIso: '2026-06-17',
 		...overrides
 	};
 }

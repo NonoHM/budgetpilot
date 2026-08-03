@@ -30,6 +30,7 @@
 	import TransactionFocusOverlay from '$lib/components/TransactionFocusOverlay.svelte';
 	import TagChips from '$lib/components/ui/TagChips.svelte';
 	import FilterDropdown from '$lib/components/ui/FilterDropdown.svelte';
+	import PeriodFilter from '$lib/components/ui/PeriodFilter.svelte';
 	import ManageTagsFooter from '$lib/components/ui/ManageTagsFooter.svelte';
 	import { tagColorBgClass, tagColorTextClass, tagTintBgClass } from '$lib/domain/colors';
 	import { MAX_BULK_TAG_TRANSACTIONS } from '$lib/domain/tags';
@@ -38,7 +39,7 @@
 		getFocusOutcomeForAction,
 		getRemainingFocusStackIds
 	} from '$lib/domain/transactionFocus';
-	import { cardBase, inputBase, inputFilter } from '$lib/styles';
+	import { cardBase, inputBase } from '$lib/styles';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import SearchBar from '$lib/components/ui/SearchBar.svelte';
@@ -368,7 +369,12 @@
 	 * after a selection and undo the focus-return the dropdown just performed. The same flag is why
 	 * the period arrows on /upcoming-bills stopped stealing focus.
 	 */
-	function applyFilterDimension(patch: { category?: string; tag?: string }) {
+	function applyFilterDimension(patch: {
+		category?: string;
+		tag?: string;
+		from?: string;
+		to?: string;
+	}) {
 		goto(resolve(buildTransactionsHref({ ...data.filters, ...patch }, {}, { keepIds: false })), {
 			keepFocus: true,
 			noScroll: true
@@ -1485,33 +1491,25 @@
 						{/snippet}
 					</FilterDropdown>
 				{/if}
-				<div class="flex items-center gap-1.5">
-					<label for="tx-from" class="text-xs font-medium text-zinc-500"
-						>{m.reports_from_label()}</label
-					>
-					<input
-						id="tx-from"
-						class="{inputFilter} tabular-nums {data.dateRangeError
-							? '!border-rose-300 !bg-rose-50'
-							: ''}"
-						name="from"
-						type="date"
-						value={data.filters.from}
-					/>
-				</div>
-				<div class="flex items-center gap-1.5">
-					<label for="tx-to" class="text-xs font-medium text-zinc-500">{m.reports_to_label()}</label
-					>
-					<input
-						id="tx-to"
-						class="{inputFilter} tabular-nums {data.dateRangeError
-							? '!border-rose-300 !bg-rose-50'
-							: ''}"
-						name="to"
-						type="date"
-						value={data.filters.to}
-					/>
-				</div>
+				<!-- Replaces the two native type="date" inputs. type="date" renders jj/mm/aaaa or
+				     mm/dd/yyyy depending on the BROWSER's own locale and ignores every lang attribute
+				     this app sets, so the same build showed two different formats on two machines —
+				     the defect this dimension exists to close. Presets and free-text dates alike
+				     serialise into the existing from/to params via onApply; no third param is added. -->
+				<PeriodFilter
+					dimensionLabel={m.transactions_filter_dimension_period()}
+					from={data.filters.from}
+					to={data.filters.to}
+					invalid={data.dateRangeError}
+					locale={getLocale()}
+					todayIso={data.todayIso}
+					allowCustomRung={true}
+					clearAriaLabel={m.transactions_filter_clear_aria({
+						dimension: m.transactions_filter_dimension_period()
+					})}
+					onApply={(range) => applyFilterDimension(range)}
+					onClear={() => applyFilterDimension({ from: '', to: '' })}
+				/>
 				<!-- The search field sits at the RIGHT END of the bar, at 300px, with the regex toggle
 				     INSIDE it. Both halves are section 7's point, and only the first half shipped at
 				     first: the toggle got its bordered box and stayed outside the field, to its left,
@@ -1559,11 +1557,6 @@
 				     would claim to describe it. The sentence is the honest half of that idea: the
 				     ROWS are the last valid expression's, the TOTALS are unknown and say so. -->
 					<p class="mt-1 text-sm text-zinc-500">{m.transactions_regex_error_unchanged()}</p>
-				{/if}
-				{#if data.dateRangeError}
-					<p class="mt-2 text-sm font-medium text-rose-600">
-						{m.date_range_error_invalid_custom()}
-					</p>
 				{/if}
 				{@render idsFilterNotice()}
 			</form>
@@ -1763,6 +1756,24 @@
 							{/if}
 						</span>
 					{/if}
+					<!-- Same component as desktop, `surface="mobile"` and `allowCustomRung={false}`: the
+					     "période personnalisée" rung relies on a Tooltip, and touch has no hover to open
+					     one, so the mobile ladder stops at the numeric rung instead. -->
+					<PeriodFilter
+						dimensionLabel={m.transactions_filter_dimension_period()}
+						from={data.filters.from}
+						to={data.filters.to}
+						invalid={data.dateRangeError}
+						locale={getLocale()}
+						todayIso={data.todayIso}
+						allowCustomRung={false}
+						surface="mobile"
+						clearAriaLabel={m.transactions_filter_clear_aria({
+							dimension: m.transactions_filter_dimension_period()
+						})}
+						onApply={(range) => applyFilterDimension(range)}
+						onClear={() => applyFilterDimension({ from: '', to: '' })}
+					/>
 				</div>
 
 				<!-- The "Filtres" sheet: category and tag rows, each showing the vertical form of
@@ -1980,51 +1991,6 @@
 							<ManageTagsFooter />
 						</div>
 					</BottomSheet>
-				{/if}
-				<div class="flex gap-2">
-					<div class="flex-1">
-						<label for="tx-from-mobile" class="block px-0.5 text-xs font-medium text-zinc-500">
-							{m.reports_from_label()}
-						</label>
-						<input
-							id="tx-from-mobile"
-							class="{inputFilter} mt-1 w-full !bg-zinc-50 tabular-nums {data.dateRangeError
-								? '!border-rose-300 !bg-rose-50'
-								: ''}"
-							name="from"
-							type="date"
-							value={data.filters.from}
-						/>
-					</div>
-					<div class="flex-1">
-						<label for="tx-to-mobile" class="block px-0.5 text-xs font-medium text-zinc-500">
-							{m.reports_to_label()}
-						</label>
-						<input
-							id="tx-to-mobile"
-							class="{inputFilter} mt-1 w-full !bg-zinc-50 tabular-nums {data.dateRangeError
-								? '!border-rose-300 !bg-rose-50'
-								: ''}"
-							name="to"
-							type="date"
-							value={data.filters.to}
-						/>
-					</div>
-				</div>
-				{#if data.dateRangeError}
-					<p class="flex items-center gap-1.5 px-0.5 text-xs text-rose-600">
-						<svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 20 20" fill="none" aria-hidden="true">
-							<circle cx="10" cy="10" r="7.5" stroke="currentColor" stroke-width="1.6" />
-							<path
-								d="M10 6.5v4.2"
-								stroke="currentColor"
-								stroke-width="1.6"
-								stroke-linecap="round"
-							/>
-							<circle cx="10" cy="13.4" r="0.9" fill="currentColor" />
-						</svg>
-						{m.date_range_error_invalid_custom()}
-					</p>
 				{/if}
 				{@render idsFilterNotice()}
 
