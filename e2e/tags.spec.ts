@@ -329,7 +329,11 @@ test.describe('bulk apply and undo', () => {
 			await expect(transactionRow(page, label).getByText(BULK_TAG_NAME)).toHaveCount(0);
 		}
 
-		await bar.getByRole('button', { name: m.tags_bulk_cta() }).click();
+		// The trigger writes its own scope, so its accessible name carries the filtered count — the
+		// 3 fixture rows asserted just above. Matching the exact string rather than a stem is the
+		// point: it proves the count on the button is the count of the set, against real server data
+		// rather than a fixture's `pagination.totalTransactions`.
+		await bar.getByRole('button', { name: m.tags_bulk_cta_many({ count: 3 }) }).click();
 		const dialog = page.getByRole('dialog');
 		await expect(dialog).toBeVisible();
 		// The title text renders twice inside the dialog (Modal's own sr-only/aria-labelledby h2

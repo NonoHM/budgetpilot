@@ -155,6 +155,44 @@ describe('TagPicker.svelte', () => {
 		expect(page.getByText('Portugal').elements().length).toBe(0);
 	});
 
+	it('keeps an Escape that closed the panel to itself, and lets one through when the panel was already closed', async () => {
+		// The design gives Escape exactly one job here: "Échap ferme sans changer la sélection".
+		// It did close the panel — and kept bubbling, so the page-level handler behind it ran too.
+		// On /transactions that handler is BottomSheet's window keydown (mounted at every breakpoint,
+		// only CSS hides it), which closes the transaction detail panel: one Escape closed the picker
+		// AND deselected the transaction, silently discarding whatever tag edits were pending and
+		// unsaved. Measured on a live page with a removed tag and Save enabled — no confirmation, no
+		// banner, the edit simply gone.
+		//
+		// Both directions are asserted in ONE test on purpose. Swallowing every Escape would be its
+		// own regression: with the panel closed, Escape must still reach the page so the detail panel
+		// keeps closing the way it does from any other control. A test for the first half alone
+		// passes on an implementation that breaks the second.
+		//
+		// BREAK-THE-CHECK: dropping `event.stopPropagation()` from TagPicker's Escape branch makes
+		// the first expectation fail (the window handler sees the open-panel Escape) — verified by
+		// hand, see the PR report.
+		render(TagPicker, { options, selected: [] });
+
+		const seenByPage: string[] = [];
+		const listener = () => seenByPage.push('escape');
+		window.addEventListener('keydown', listener);
+		try {
+			await userEvent.click(fieldInput());
+			await expect.element(page.getByRole('listbox')).toBeInTheDocument();
+
+			await userEvent.keyboard('{Escape}');
+			await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
+			expect(seenByPage).toEqual([]);
+
+			// Panel already closed: this Escape is not the picker's to consume.
+			await userEvent.keyboard('{Escape}');
+			expect(seenByPage).toEqual(['escape']);
+		} finally {
+			window.removeEventListener('keydown', listener);
+		}
+	});
+
 	it('debounces live filtering by 250ms rather than filtering on every keystroke', async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		try {

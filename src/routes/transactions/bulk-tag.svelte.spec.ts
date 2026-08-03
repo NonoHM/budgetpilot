@@ -52,9 +52,12 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 	} as unknown as PageData;
 }
 
+/** Matched on the label's stable stem rather than a full string, because the label now carries the
+ *  filtered count and therefore differs per fixture — see the label tests below, which assert the
+ *  exact wording. */
 function bulkTagButtons(): HTMLButtonElement[] {
-	return [...document.querySelectorAll('button')].filter(
-		(button) => button.textContent?.trim() === 'Appliquer une étiquette'
+	return [...document.querySelectorAll('button')].filter((button) =>
+		/^Étiqueter le/.test(button.textContent?.trim() ?? '')
 	) as HTMLButtonElement[];
 }
 
@@ -131,6 +134,68 @@ describe('bulk-tag trigger', () => {
 		const [trigger] = bulkTagButtons();
 		expect(trigger.getAttribute('aria-describedby')).toBeNull();
 		expect(document.getElementById('bulk-tag-disabled-reason-desktop')).toBeNull();
+	});
+
+	it.each([
+		[1280, 800, 'desktop'],
+		[390, 844, 'mobile']
+	])(
+		'%s x %s (%s): writes the filtered count in the label, so the scope is known before the dialog opens',
+		async (width, height) => {
+			// The design's own wording ("Étiqueter les 6 résultats" / "Étiqueter les résultats"), and
+			// its stated reason: "on sait ce qu'on va toucher avant même d'ouvrir la modale". It
+			// shipped as "Appliquer une étiquette" in both states, so the count only ever appeared one
+			// click later.
+			//
+			// Both breakpoints, because the trigger is duplicated per breakpoint and a label fixed on
+			// one surface only is this repo's most-repeated defect shape.
+			await page.viewport(width, height);
+
+			const filtered = render(Page, {
+				data: baseData({
+					filters: { ...baseData().filters, category: 'Loyer' },
+					pagination: { ...baseData().pagination, totalTransactions: 6 }
+				}),
+				form: null
+			});
+			expect(bulkTagButtons()[0].textContent?.trim()).toBe('Étiqueter les 6 résultats');
+			filtered.unmount();
+
+			// No filter: no set to count, so the label states the action without inventing a number.
+			render(Page, { data: baseData(), form: null });
+			expect(bulkTagButtons()[0].textContent?.trim()).toBe('Étiqueter les résultats');
+		}
+	);
+
+	it('says "le résultat", not "les 1 résultats", when the filter matches a single row', async () => {
+		await page.viewport(1280, 800);
+		render(Page, {
+			data: baseData({
+				filters: { ...baseData().filters, category: 'Loyer' },
+				pagination: { ...baseData().pagination, totalTransactions: 1 }
+			}),
+			form: null
+		});
+
+		expect(bulkTagButtons()[0].textContent?.trim()).toBe('Étiqueter le résultat');
+	});
+
+	it('counts the whole filtered set, not the current page', async () => {
+		// BREAK-THE-CHECK: sourcing the count from `data.transactions.length` (the page) instead of
+		// `pagination.totalTransactions` (the set) makes this read "Étiqueter les 2 résultats" —
+		// verified by hand, see the PR report. That number would also contradict the dialog, which
+		// quotes the set.
+		await page.viewport(1280, 800);
+		render(Page, {
+			data: baseData({
+				filters: { ...baseData().filters, category: 'Loyer' },
+				transactions: [],
+				pagination: { ...baseData().pagination, totalTransactions: 301, pageSize: 25 }
+			}),
+			form: null
+		});
+
+		expect(bulkTagButtons()[0].textContent?.trim()).toBe('Étiqueter les 301 résultats');
 	});
 
 	it('desktop: keeps the inactive label at zinc-500 (measured 4.6:1), not dimmed further by opacity', async () => {
@@ -238,6 +303,49 @@ describe('bulk-tag undo banner', () => {
 		expect(tagIdInput.value).toBe('tag-1');
 		expect(idsInput.value).toBe('tx-1,tx-2,tx-3');
 	});
+
+	it.each([
+		[1280, 800, 'desktop'],
+		[390, 844, 'mobile']
+	])(
+		'%s x %s (%s): puts "Annuler" immediately after the trigger in tab order, which is what makes not moving focus acceptable',
+		async (width, height) => {
+			// The design declines to move focus after a bulk apply, and its justification is a DOM
+			// fact, not a preference: "Le bandeau étant inséré juste sous la barre de filtres,
+			// « Annuler » est le tout premier arrêt de tabulation après le déclencheur… C'est ce
+			// placement dans le DOM qui rend le non-déplacement acceptable — s'il était rendu ailleurs
+			// dans la page, la décision inverse s'imposerait."
+			//
+			// It was rendered above the filter bar, so Annuler came 16 focusable stops BEFORE the
+			// trigger (measured on a live page after tagging 100 rows), on the only path back from a
+			// mis-scoped bulk apply. Focus stayed on the trigger, as designed, and the premise that
+			// made that safe was false.
+			//
+			// Asserted over the real focus order rather than "the banner is below the bar" in the
+			// markup, because the tab stop is the thing the reasoning depends on.
+			//
+			// BREAK-THE-CHECK: moving the banner block back above the desktop filter bar makes this
+			// fail with the trigger at a HIGHER index than the undo — verified by hand, see the PR
+			// report.
+			await page.viewport(width, height);
+			const { container } = render(Page, {
+				data: baseData({ filters: { ...baseData().filters, category: 'Loyer' } }),
+				form: { bulkTagResult } as unknown as ActionData
+			});
+
+			const focusables = [...container.querySelectorAll<HTMLElement>('button, a[href], input')]
+				// Only the surface this viewport actually shows: the other breakpoint's copy is
+				// display:none and takes no tab stop, so counting it would measure nothing real.
+				.filter((el) => el.offsetParent !== null && !(el as HTMLButtonElement).disabled);
+
+			const trigger = focusables.find((el) => /^Étiqueter le/.test(el.textContent ?? ''));
+			const undo = focusables.find((el) => el.getAttribute('form') === 'bulk-tag-undo-banner');
+			expect(trigger).toBeTruthy();
+			expect(undo).toBeTruthy();
+
+			expect(focusables.indexOf(undo!)).toBe(focusables.indexOf(trigger!) + 1);
+		}
+	);
 
 	it('names the applied count and the tag', async () => {
 		await page.viewport(1280, 800);

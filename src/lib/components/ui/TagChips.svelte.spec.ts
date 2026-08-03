@@ -196,6 +196,48 @@ describe('TagChips.svelte', () => {
 		expect(getComputedStyle(chip).height).toBe(px);
 	});
 
+	it.each([
+		['plain', 'nowrap'],
+		['enclosed', 'wrap'],
+		['tinted', 'wrap']
+	])('computes flex-wrap: %s -> %s, which is the row-height guarantee', async (variant, wrap) => {
+		// COMPUTED, not the class list. The class list said `flex-nowrap` all along and the browser
+		// wrapped anyway: both `flex-wrap` and `flex-nowrap` were emitted on the same element, and
+		// attribute order does not decide a cascade — `flex-wrap` won, plain chips stacked, and the
+		// table row grew from 63px to 76px with a second tag. An assertion over `className` is
+		// exactly the kind that cannot fail here, because the intended class genuinely IS present.
+		//
+		// The design forbids wrapping in the reading context only ("Retour à la ligne : jamais en
+		// variante plain (ligne de tableau)"); the editing variants wrap on purpose, which is why
+		// all three are pinned together rather than plain alone.
+		const { container } = render(TagChips, {
+			tags: three,
+			variant: variant as 'plain' | 'enclosed' | 'tinted',
+			max: Infinity
+		});
+
+		const list = container.querySelector('ul') as HTMLElement;
+		expect(getComputedStyle(list).flexWrap).toBe(wrap);
+	});
+
+	it('lets a long name truncate instead of widening the chip past its cap', async () => {
+		// The other half of the no-wrap fix: with nowrap and nothing shrinkable, two chips simply
+		// overflowed their column instead of wrapping. The name must be the only thing that gives.
+		const { container } = render(TagChips, {
+			tags: [
+				{ key: 't1', name: 'Mariage Camille et Thomas juin 2026 Bretagne', colorToken: 'clay' }
+			],
+			size: 'sm'
+		});
+
+		const chip = container.querySelector('li > span') as HTMLElement;
+		const name = chip.querySelector('span:not([aria-hidden])') as HTMLElement;
+		expect(chip.getBoundingClientRect().width).toBeLessThanOrEqual(110);
+		// Genuinely clipped by CSS, with the full name still in the text node for a screen reader.
+		expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+		expect(name.textContent).toBe('Mariage Camille et Thomas juin 2026 Bretagne');
+	});
+
 	it('renders the tinted variant with the token hue as text on its own tint', async () => {
 		const { container } = render(TagChips, {
 			tags: [{ key: 't1', name: 'Portugal', colorToken: 'lagoon' as const }],

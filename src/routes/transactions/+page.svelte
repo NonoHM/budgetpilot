@@ -311,6 +311,32 @@
 	);
 
 	/**
+	 * The trigger writes its own scope: "Étiqueter les 6 résultats", never a bare verb.
+	 *
+	 * The design puts the count in the LABEL and says why: "on sait ce qu'on va toucher avant même
+	 * d'ouvrir la modale". Shipping it as "Appliquer une étiquette" moved that knowledge one click
+	 * later, into the ConfirmDialog — which names the count correctly, but only once the user has
+	 * already committed to opening it. Observed live against a filter matching 66 rows, and again
+	 * at 301: nothing on the button said so.
+	 *
+	 * It is also what answers "should a `.*` regex, matching every row, count as a filter?" — it
+	 * does, and it now announces itself as the whole set before anything opens, which is what the
+	 * question was really asking for. Comparing the filtered count against the unfiltered total
+	 * instead would disable the button on coincidence (one category that happens to match
+	 * everything) and make the disabled hint's "activate a filter first" a false statement.
+	 *
+	 * `pagination.totalTransactions` is the FILTERED set size, not the page's — the same number the
+	 * dialog quotes, so the two can never disagree.
+	 */
+	const bulkTagCtaLabel = $derived(
+		!bulkTagFilterActive
+			? m.tags_bulk_cta_disabled()
+			: data.pagination.totalTransactions === 1
+				? m.tags_bulk_cta_one()
+				: m.tags_bulk_cta_many({ count: data.pagination.totalTransactions })
+	);
+
+	/**
 	 * Human description of the active filter for the bulk-tag ConfirmDialog, built from the exact
 	 * same four fields as `bulkTagFilterActive`. A count alone is ambiguous — it lets a stale or
 	 * partially-applied filter pass unnoticed — so the dialog must say WHICH transactions, not just
@@ -575,6 +601,30 @@
 		}
 	}
 
+	/**
+	 * Which of the design's three totals states applies (section 4C, "TROIS ÉTATS QUI NE SE
+	 * RESSEMBLENT PAS").
+	 *
+	 * The error branch comes FIRST and is decided by the flags, never by the figures: when the query
+	 * is rejected the server zeroes `filteredTotals` AND `pagination.totalTransactions` because it
+	 * has no answer (+page.server.ts), so reading the numbers alone cannot tell "the filter matched
+	 * nothing" from "the filter never ran". Those two used to render identically — both as no totals
+	 * line at all — which is how a rejected regex came to be reported as "0 transaction".
+	 */
+	const filteredTotalsState = $derived(
+		data.queryError || data.dateRangeError
+			? 'error'
+			: data.filteredTotals.incomeCents === 0 && data.filteredTotals.expenseCents === 0
+				? 'zero'
+				: 'normal'
+	);
+
+	/** The design's placeholder for "we do not know", and the reason it is a dash and not a zero:
+	 *  "un tiret n'est pas un montant : il dit « on ne sait pas », ce qui est exactement la vérité".
+	 *  A literal, not a translated message — it is a symbol standing in for a figure, identical in
+	 *  every locale, and nothing about it is prose. */
+	const TOTALS_UNKNOWN = '—';
+
 	type Tab = { t: string; label: string; badge?: number };
 	const TABS: Tab[] = [
 		{ t: 'all', label: m.transactions_filter_all() },
@@ -606,6 +656,52 @@
 	slot as the query/date errors in both filter bars, and paired with the "Réinitialiser" control
 	already sitting next to it, so it needs no new escape hatch of its own.
 -->
+<!--
+	The filtered-set totals, one snippet rendered on both surfaces so the three states cannot be
+	fixed on the desktop header and forgotten on the mobile one.
+
+	ONE live region for all three states, and its `role` never changes: the design is explicit that
+	an element switching status → alert mid-flight "n'est pas détecté de façon fiable par tous les
+	lecteurs d'écran", so the failure is announced by its CONTENT — "Totaux indisponibles" is the
+	first thing read — rather than by escalating politeness. It is rendered unconditionally for the
+	same reason: a region that appears only when it has something to say has no stable identity to
+	announce into.
+
+	Deliberately NO retry control, against the design's own sketch of this state. The design imagines
+	"requête échouée", a transient failure worth re-running. Both error branches this page actually
+	has are rejected USER INPUT — an invalid regex, an invalid date range — so a "Réessayer" would
+	re-submit the same rejected filter and fail identically. That is the "recommends the one action
+	that cannot help" defect closed in #99, and offering it here would re-create it. What is
+	actionable already sits next to the field that caused it ("Expression régulière invalide.").
+-->
+{#snippet filteredTotalsRegion()}
+	<p
+		data-testid="filtered-totals"
+		role="status"
+		aria-live="polite"
+		class="text-xs tabular-nums {filteredTotalsState === 'error'
+			? 'text-amber-700'
+			: 'text-zinc-500'}"
+	>
+		{#if filteredTotalsState === 'error'}
+			{m.transactions_totals_unavailable_label()} · {m.transactions_totals_summary({
+				income: TOTALS_UNKNOWN,
+				expense: TOTALS_UNKNOWN
+			})}
+		{:else if filteredTotalsState === 'zero'}
+			{m.transactions_totals_zero_label()} · {m.transactions_totals_summary({
+				income: formatCents(0),
+				expense: formatCents(0)
+			})}
+		{:else}
+			{m.transactions_totals_summary({
+				income: formatCents(data.filteredTotals.incomeCents),
+				expense: formatCents(data.filteredTotals.expenseCents)
+			})}
+		{/if}
+	</p>
+{/snippet}
+
 {#snippet idsFilterNotice()}
 	{#if idsFilterActive}
 		<p class="mt-2 text-sm text-zinc-600">
@@ -634,66 +730,6 @@
 				</Button>
 			</div>
 		</div>
-
-		<!-- Result of the last bulk-tag action, following upcoming-bills/+page.svelte's undo banner
-		     shape exactly (see its comment at :752-786): the undo form sits OUTSIDE AlertBanner
-		     because the banner renders a <p>, and a <form> start tag would close that open <p> in the
-		     HTML parser. The button carries `form=` so it can still live visually inside the banner.
-		     Keyed on `bulkTagResult` so a second identical bulk-tag action (same tag, same count) is
-		     announced again instead of reusing an already-dismissed banner.
-		     Deliberately no `autoDismissMs` override on this one (defaults apply): the undo it carries
-		     is available for as long as the banner is, and the deviation only applies to the "applied"
-		     banner just below, which DOES override it. -->
-		{#if bulkTagResult}
-			<form
-				id="bulk-tag-undo-banner"
-				method="POST"
-				action="?/undoBulkTag"
-				class="hidden"
-				use:enhance={() => {
-					bulkTagUndoSubmitting = true;
-					return async ({ update }) => {
-						await update({ reset: false });
-						bulkTagUndoSubmitting = false;
-					};
-				}}
-			>
-				<input type="hidden" name="tagId" value={bulkTagResult.tagId} />
-				<input type="hidden" name="transactionIds" value={bulkTagResult.transactionIds.join(',')} />
-			</form>
-			{#key bulkTagResult}
-				<!-- Approved deviation from the 4s auto-dismiss every other success banner on this page
-				     uses: an undo the user cannot reach because it vanished is worse than a banner that
-				     lingers. `Infinity`, not a large finite value — setTimeout clamps/fires near-
-				     immediately past the 32-bit signed int delay limit (~24.8 days), so a large-but-
-				     finite number would silently misbehave instead of meaning "never" (see
-				     AlertBanner.svelte's own comment on autoDismissMs). -->
-				<AlertBanner variant="success" autoDismissMs={Infinity}>
-					{m.tags_bulk_banner_applied({
-						count: bulkTagResult.appliedCount,
-						tag: bulkTagResult.tagName
-					})}
-					{#snippet action()}
-						<button
-							type="submit"
-							form="bulk-tag-undo-banner"
-							disabled={bulkTagUndoSubmitting}
-							class="-my-2.5 inline-flex min-h-11 shrink-0 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-						>
-							{m.tags_bulk_banner_undo()}
-						</button>
-					{/snippet}
-				</AlertBanner>
-			{/key}
-		{:else if bulkTagEmpty}
-			{#key form}
-				<AlertBanner variant="success">{m.tags_bulk_banner_empty()}</AlertBanner>
-			{/key}
-		{:else if undoBulkTagSuccess}
-			{#key form}
-				<AlertBanner variant="success">{m.tags_bulk_banner_undone()}</AlertBanner>
-			{/key}
-		{/if}
 
 		<!-- ============ BANDEAU "À CLASSER" — DESKTOP ============ -->
 		{#if data.uncategorizedCount > 0}
@@ -973,7 +1009,7 @@
 					aria-describedby={bulkTagFilterActive ? undefined : 'bulk-tag-disabled-reason-desktop'}
 					onclick={openBulkTag}
 				>
-					{m.tags_bulk_cta()}
+					{bulkTagCtaLabel}
 				</button>
 			</form>
 			{#if !bulkTagFilterActive}
@@ -1170,7 +1206,7 @@
 					aria-describedby={bulkTagFilterActive ? undefined : 'bulk-tag-disabled-reason-mobile'}
 					onclick={openBulkTag}
 				>
-					{m.tags_bulk_cta()}
+					{bulkTagCtaLabel}
 				</button>
 				{#if !bulkTagFilterActive}
 					<p id="bulk-tag-disabled-reason-mobile" class="px-0.5 text-sm text-zinc-500">
@@ -1180,6 +1216,77 @@
 			</form>
 		</div>
 
+		<!-- Placement is load-bearing, not cosmetic. The design declines to move focus after a bulk
+		     apply, and justifies that with where this banner sits: "Le bandeau étant inséré juste sous
+		     la barre de filtres, « Annuler » est le tout premier arrêt de tabulation après le
+		     déclencheur… C'est ce placement dans le DOM qui rend le non-déplacement acceptable — s'il
+		     était rendu ailleurs dans la page, la décision inverse s'imposerait."
+		     It used to render above the filter bar, next to the page header, which put Annuler 16
+		     focusable stops BEFORE the trigger instead of one after it — so the premise was false and
+		     the undo, the only way back from a mis-scoped bulk apply, was the hardest control on the
+		     page to reach at the keyboard. Kept here, after BOTH filter bars: the hidden breakpoint
+		     contributes no tab stop, so one block serves both and the two cannot drift apart.
+		     Anything inserted between the filter bars and this block moves that tab stop again. -->
+		<!-- Result of the last bulk-tag action, following upcoming-bills/+page.svelte's undo banner
+		     shape exactly (see its comment at :752-786): the undo form sits OUTSIDE AlertBanner
+		     because the banner renders a <p>, and a <form> start tag would close that open <p> in the
+		     HTML parser. The button carries `form=` so it can still live visually inside the banner.
+		     Keyed on `bulkTagResult` so a second identical bulk-tag action (same tag, same count) is
+		     announced again instead of reusing an already-dismissed banner.
+		     Deliberately no `autoDismissMs` override on this one (defaults apply): the undo it carries
+		     is available for as long as the banner is, and the deviation only applies to the "applied"
+		     banner just below, which DOES override it. -->
+		{#if bulkTagResult}
+			<form
+				id="bulk-tag-undo-banner"
+				method="POST"
+				action="?/undoBulkTag"
+				class="hidden"
+				use:enhance={() => {
+					bulkTagUndoSubmitting = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						bulkTagUndoSubmitting = false;
+					};
+				}}
+			>
+				<input type="hidden" name="tagId" value={bulkTagResult.tagId} />
+				<input type="hidden" name="transactionIds" value={bulkTagResult.transactionIds.join(',')} />
+			</form>
+			{#key bulkTagResult}
+				<!-- Approved deviation from the 4s auto-dismiss every other success banner on this page
+				     uses: an undo the user cannot reach because it vanished is worse than a banner that
+				     lingers. `Infinity`, not a large finite value — setTimeout clamps/fires near-
+				     immediately past the 32-bit signed int delay limit (~24.8 days), so a large-but-
+				     finite number would silently misbehave instead of meaning "never" (see
+				     AlertBanner.svelte's own comment on autoDismissMs). -->
+				<AlertBanner variant="success" autoDismissMs={Infinity}>
+					{m.tags_bulk_banner_applied({
+						count: bulkTagResult.appliedCount,
+						tag: bulkTagResult.tagName
+					})}
+					{#snippet action()}
+						<button
+							type="submit"
+							form="bulk-tag-undo-banner"
+							disabled={bulkTagUndoSubmitting}
+							class="-my-2.5 inline-flex min-h-11 shrink-0 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							{m.tags_bulk_banner_undo()}
+						</button>
+					{/snippet}
+				</AlertBanner>
+			{/key}
+		{:else if bulkTagEmpty}
+			{#key form}
+				<AlertBanner variant="success">{m.tags_bulk_banner_empty()}</AlertBanner>
+			{/key}
+		{:else if undoBulkTagSuccess}
+			{#key form}
+				<AlertBanner variant="success">{m.tags_bulk_banner_undone()}</AlertBanner>
+			{/key}
+		{/if}
+
 		<!-- ============ TABLEAU + PANNEAU DÉTAIL — DESKTOP ============ -->
 		<div class="hidden gap-6 lg:grid xl:grid-cols-[1fr_400px]">
 			<!-- Section tableau -->
@@ -1187,25 +1294,24 @@
 				<!-- En-tête tableau : pagination -->
 				<div class="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3">
 					<div>
-						<p class="text-sm text-zinc-600">
-							{data.pagination.totalTransactions > 1
-								? m.transactions_count_many({
-										count: data.pagination.totalTransactions,
-										page: data.pagination.page
-									})
-								: m.transactions_count_one({
-										count: data.pagination.totalTransactions,
-										page: data.pagination.page
-									})}
-						</p>
-						{#if data.filteredTotals.incomeCents > 0 || data.filteredTotals.expenseCents > 0}
-							<p class="text-xs text-zinc-500 tabular-nums">
-								{m.transactions_totals_summary({
-									income: formatCents(data.filteredTotals.incomeCents),
-									expense: formatCents(data.filteredTotals.expenseCents)
-								})}
+						<!-- Suppressed in the error state, not rendered as zero: the server sets this count
+						     to 0 because it has no answer, so printing it asserts an evaluated, empty
+						     result set that never existed. The totals region below says what actually
+						     happened instead. -->
+						{#if filteredTotalsState !== 'error'}
+							<p class="text-sm text-zinc-600">
+								{data.pagination.totalTransactions > 1
+									? m.transactions_count_many({
+											count: data.pagination.totalTransactions,
+											page: data.pagination.page
+										})
+									: m.transactions_count_one({
+											count: data.pagination.totalTransactions,
+											page: data.pagination.page
+										})}
 							</p>
 						{/if}
+						{@render filteredTotalsRegion()}
 					</div>
 					<div class="flex gap-2">
 						<Button
@@ -1387,10 +1493,21 @@
 														{formatNatureLabel(tx.nature)}
 													</p>
 												</td>
-												<td class="w-[190px] px-4 py-3">
-													{#if tx.tags.length > 0}
-														<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
-													{/if}
+												<!-- The 190px lives on an inner block, and the cell's own padding moved onto it.
+												     `w-[190px]` on the <td> alone is only a suggestion: this table is
+												     `table-layout: auto`, so the column is sized from its content's intrinsic
+												     max-width, and two chips at their 110px cap widened it to 262px (299px with
+												     longer names) while the header still measured 190px on an empty row. A
+												     fixed-width child gives the column a max-content of exactly 190px, so the
+												     figure the design specifies is the figure the browser uses. Padding sits on
+												     the child rather than the cell so the 190 stays the whole column box (border-
+												     box), with no "190 minus 2rem" arithmetic to get wrong later. -->
+												<td class="w-[190px] p-0">
+													<div class="w-[190px] px-4 py-3">
+														{#if tx.tags.length > 0}
+															<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
+														{/if}
+													</div>
 												</td>
 												<td
 													class="px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
@@ -1410,6 +1527,14 @@
 						<div class="p-6">
 							{#if classificationMode}
 								<p class="text-sm text-zinc-500">{m.transactions_all_classified()}</p>
+							{:else if filteredTotalsState === 'error'}
+								<!-- "Aucune transaction pour ces critères" is a claim about the criteria having
+								     been applied. When the filter was rejected they never were, so the list is
+								     empty for a different reason and must say so. -->
+								<p class="text-sm text-zinc-500">{m.transactions_empty_query_error_title()}</p>
+								<p class="mt-1 text-sm text-zinc-500">
+									{m.transactions_empty_query_error_body()}
+								</p>
 							{:else}
 								<p class="text-sm text-zinc-500">{m.transactions_no_transactions_criteria()}</p>
 								<div class="mt-2">
@@ -1818,25 +1943,22 @@
 		<div class="space-y-4 lg:hidden">
 			<div class="flex items-center justify-between gap-2">
 				<div>
-					<p class="text-sm text-zinc-500">
-						{data.pagination.totalTransactions > 1
-							? m.transactions_count_many({
-									count: data.pagination.totalTransactions,
-									page: data.pagination.page
-								})
-							: m.transactions_count_one({
-									count: data.pagination.totalTransactions,
-									page: data.pagination.page
-								})}
-					</p>
-					{#if data.filteredTotals.incomeCents > 0 || data.filteredTotals.expenseCents > 0}
-						<p class="text-xs text-zinc-500 tabular-nums">
-							{m.transactions_totals_summary({
-								income: formatCents(data.filteredTotals.incomeCents),
-								expense: formatCents(data.filteredTotals.expenseCents)
-							})}
+					<!-- Same suppression as the desktop header above: no count is asserted when none was
+					     computed. -->
+					{#if filteredTotalsState !== 'error'}
+						<p class="text-sm text-zinc-500">
+							{data.pagination.totalTransactions > 1
+								? m.transactions_count_many({
+										count: data.pagination.totalTransactions,
+										page: data.pagination.page
+									})
+								: m.transactions_count_one({
+										count: data.pagination.totalTransactions,
+										page: data.pagination.page
+									})}
 						</p>
 					{/if}
+					{@render filteredTotalsRegion()}
 				</div>
 				<div class="flex gap-2">
 					<Button
@@ -2061,11 +2183,19 @@
 				{#snippet noResultsAction()}
 					<TapLink href="/transactions">{m.transactions_reset_filters_link()}</TapLink>
 				{/snippet}
+				<!-- Mobile counterpart of the desktop empty state: "Aucun résultat / Aucune transaction
+				     ne correspond à ces filtres" describes an applied filter, which is exactly what did
+				     NOT happen when the query was rejected. No reset action in that branch either — the
+				     filter is still there to be corrected, and clearing it is not the fix. -->
 				<EmptyState
 					icon={noResultsIcon}
-					title={m.transactions_empty_no_results_title()}
-					description={m.transactions_empty_no_results_body()}
-					action={noResultsAction}
+					title={filteredTotalsState === 'error'
+						? m.transactions_empty_query_error_title()
+						: m.transactions_empty_no_results_title()}
+					description={filteredTotalsState === 'error'
+						? m.transactions_empty_query_error_body()
+						: m.transactions_empty_no_results_body()}
+					action={filteredTotalsState === 'error' ? undefined : noResultsAction}
 				/>
 			{/if}
 		</div>

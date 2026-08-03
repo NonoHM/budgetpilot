@@ -224,8 +224,21 @@
 			if (activeIndex === -1 && flatItems.length > 0) activeIndex = 0;
 			activate(activeIndex);
 		} else if (event.key === 'Escape') {
-			open = false;
-			activeIndex = -1;
+			// Only when this Escape had something to close. Without the guard the keystroke kept
+			// bubbling to whatever page-level handler sits behind the picker — on /transactions that
+			// is BottomSheet's window keydown, mounted at every breakpoint and hidden only by CSS,
+			// which closes the transaction detail panel. One Escape therefore closed the picker AND
+			// deselected the transaction, discarding any unsaved tag edits with no confirmation.
+			// The design assigns Escape a single job here ("Échap ferme sans changer la sélection").
+			//
+			// Deliberately NOT unconditional: with the panel already closed this component has
+			// nothing to dismiss, and swallowing the key would break the detail panel's own Escape,
+			// which works from every other control in it and predates tags.
+			if (open) {
+				event.stopPropagation();
+				open = false;
+				activeIndex = -1;
+			}
 		} else if (event.key === 'Backspace' && typed === '' && selected.length > 0) {
 			selected = selected.slice(0, -1);
 		}

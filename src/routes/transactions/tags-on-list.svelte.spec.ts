@@ -141,6 +141,75 @@ describe('tag chips on the transactions list rows', () => {
 		expect(row.textContent).not.toContain('Remboursement Paul');
 	});
 
+	it('keeps the row height identical whatever the tag count, in a column that stays 190px', async () => {
+		// The design grants the row-chips exception to "a table shows only what you scan at a glance"
+		// against exactly two counterparts, and this is both of them: a dedicated 190px column, and
+		// a row height that does not move ("jamais de retour à la ligne", "la hauteur de ligne ne
+		// bouge pas d'une ligne à l'autre, c'est ce qui garde le tableau scannable").
+		//
+		// Measured on the rendered table, not read off classes, because both halves failed silently
+		// while the markup looked right: `w-[190px]` sat on the <th> only, `table-layout` is auto,
+		// and content that could not shrink widened the column to 262px while the chips wrapped and
+		// rows grew to 76px and 80px.
+		//
+		// BREAK-THE-CHECK: restoring `flex-wrap` on TagChips' <ul> (or dropping `min-w-0` from its
+		// <li>) reproduces the original numbers here — verified by hand, see the PR report.
+		// Names long enough to hit the 110px per-chip cap, deliberately. With short names two chips
+		// fit on one line even while wrapping is enabled, so this test passed against the defect
+		// when it was first written with THREE_TAGS ("Portugal", "Pro"). The real rows that exposed
+		// it carried "Vacances Portugal 2026" and "Remboursable Marc" — at the cap, which is the
+		// only width where wrap and nowrap differ.
+		const LONG_TAGS = [
+			{ id: 'tag-1', name: 'Vacances Portugal 2026', colorToken: 'clay' },
+			{ id: 'tag-2', name: 'Remboursable Marc', colorToken: 'ochre' },
+			{ id: 'tag-3', name: 'Travaux salle de bain', colorToken: 'olive' }
+		];
+
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: baseData({
+				transactions: [
+					makeTransaction({ id: 'tx-none', label: 'Sans étiquette', tags: [] }),
+					makeTransaction({ id: 'tx-one', label: 'Une étiquette', tags: [LONG_TAGS[0]] }),
+					makeTransaction({ id: 'tx-two', label: 'Deux étiquettes', tags: LONG_TAGS.slice(0, 2) }),
+					makeTransaction({ id: 'tx-three', label: 'Trois étiquettes', tags: LONG_TAGS })
+				],
+				selectedTransaction: null
+			}),
+			form: null
+		});
+
+		const rows = [...container.querySelectorAll('table tbody tr')] as HTMLElement[];
+		expect(rows).toHaveLength(4);
+
+		const heights = rows.map((row) => Math.round(row.getBoundingClientRect().height));
+		expect(new Set(heights).size).toBe(1);
+
+		for (const row of rows) {
+			const cell = row.querySelectorAll('td')[2] as HTMLElement;
+			expect(Math.round(cell.getBoundingClientRect().width)).toBe(190);
+
+			// One line, and inside the cell: nowrap on its own turns wrapping into overflow, so the
+			// column width assertion above would still pass while chips spilled over the amount.
+			const list = cell.querySelector('ul');
+			if (!list) continue;
+			// Centres, not tops: `items-center` aligns an 18px chip and the 24px "+N" button on the
+			// same line with deliberately different tops, so a top-equality check fails on a correct
+			// rendering.
+			const items = [...list.querySelectorAll(':scope > li')] as HTMLElement[];
+			const centres = new Set(
+				items.map((li) => {
+					const rect = li.getBoundingClientRect();
+					return Math.round(rect.top + rect.height / 2);
+				})
+			);
+			expect(centres.size).toBe(1);
+			expect(list.getBoundingClientRect().right).toBeLessThanOrEqual(
+				cell.getBoundingClientRect().right + 1
+			);
+		}
+	});
+
 	it('renders no chip at all for a transaction with no tags', async () => {
 		await page.viewport(1280, 800);
 		render(Page, {

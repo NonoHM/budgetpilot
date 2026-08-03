@@ -103,21 +103,36 @@
 </script>
 
 {#if tags.length > 0}
+	<!-- Exactly ONE of flex-wrap / flex-nowrap is emitted. Both used to be, with `flex-nowrap`
+	     appended conditionally after a hardcoded `flex-wrap`: attribute order does not decide a
+	     cascade, `flex-wrap` won, and plain chips wrapped in the table row even though the class
+	     the author intended was right there in the markup. Row height then followed tag count
+	     (measured 63px / 76px / 80px for 1 / 2 / 2+overflow), which is precisely what the design's
+	     row-chips exception trades against: "jamais de retour à la ligne… la hauteur de ligne ne
+	     bouge pas d'une ligne à l'autre, c'est ce qui garde le tableau scannable".
+	     Plain is also `w-full min-w-0` rather than intrinsically sized, because nowrap alone only
+	     converts wrapping into overflow: something has to bound the row so the NAME is what gives.
+	     Enclosed/tinted stay inline and wrapping on purpose — editing has no ceiling. -->
 	<ul
-		class="inline-flex flex-wrap items-center {config.chipGap} {variant === 'plain'
-			? 'flex-nowrap'
-			: ''}"
+		class="items-center {config.chipGap} {variant === 'plain'
+			? 'flex w-full min-w-0 flex-nowrap'
+			: 'inline-flex flex-wrap'}"
 		aria-label={m.tags_chips_group_aria()}
 	>
 		{#each visible as tag (tag.key)}
-			<li>
+			<!-- The design's per-chip width cap lives on the `li`, and the chip inside is bounded by
+			     `max-w-full`, so each element carries exactly one max-width. Putting both on the chip
+			     (the cap AND the container bound) is two competing `max-width` declarations whose
+			     winner depends on Tailwind's emission order. `min-w-0` is what actually lets a chip
+			     shrink under its cap when two share a 190px column; without it they overlap. -->
+			<li class="min-w-0 {config.maxWidth}">
 				{#if variant === 'tinted'}
 					<!-- Rounded-full, 24px, per the design's own markup for this state. The name takes the
 					     token's hue and the surface takes its tint: the one pairing whose contrast is
 					     measured, and the reason neither may be lightened. A tag with no colour yet (an
 					     unsaved name) falls back to neutral zinc rather than guessing a hue. -->
 					<span
-						class="inline-flex h-6 items-center gap-1.5 rounded-full px-2.5 {config.maxWidth} {tag.colorToken
+						class="inline-flex h-6 max-w-full min-w-0 items-center gap-1.5 rounded-full px-2.5 {tag.colorToken
 							? tagTintBgClass(tag.colorToken)
 							: 'bg-zinc-100'}"
 					>
@@ -149,7 +164,7 @@
 					</span>
 				{:else if variant === 'enclosed'}
 					<span
-						class="inline-flex items-center {config.height} {config.innerGap} rounded-lg border px-2.5 {config.maxWidth} {tag.pending
+						class="inline-flex max-w-full min-w-0 items-center {config.height} {config.innerGap} rounded-lg border px-2.5 {tag.pending
 							? 'border-dashed border-zinc-300 bg-zinc-50'
 							: 'border-zinc-200 bg-zinc-50'}"
 					>
@@ -201,7 +216,7 @@
 					</span>
 				{:else}
 					<span
-						class="inline-flex items-center {config.height} {config.innerGap} {config.maxWidth}"
+						class="inline-flex max-w-full min-w-0 items-center {config.height} {config.innerGap}"
 					>
 						<span
 							class="{config.dot} shrink-0 rounded-full {tag.colorToken
