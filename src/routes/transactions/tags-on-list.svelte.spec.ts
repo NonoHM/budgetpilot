@@ -5,6 +5,7 @@ import '../layout.css';
 import Page from './+page.svelte';
 import type { PageData } from './$types';
 import { TRANSACTION_NATURES, type TransactionNature } from '$lib/domain/transaction';
+import * as m from '$lib/paraglide/messages';
 
 const SPENDING: TransactionNature = 'spending';
 
@@ -233,7 +234,7 @@ describe('TransactionTagsEditor mounted on the detail surfaces', () => {
 		const aside = container.querySelector('aside') as HTMLElement;
 		expect(aside.textContent).toContain('Étiquettes');
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
 	});
 
@@ -246,7 +247,7 @@ describe('TransactionTagsEditor mounted on the detail surfaces', () => {
 		// ties the controls to that name for a screen reader. A heading sitting beside them does not.
 		await expect.element(sheet.getByRole('group', { name: 'Étiquettes' })).toBeInTheDocument();
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
 	});
 });

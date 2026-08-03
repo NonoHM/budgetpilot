@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import TagChips from './TagChips.svelte';
+import * as m from '$lib/paraglide/messages';
 
 const three = [
 	{ key: 't1', name: 'Portugal', colorToken: 'clay' as const },
@@ -80,7 +81,7 @@ describe('TagChips.svelte', () => {
 
 		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
 	});
 
@@ -88,7 +89,9 @@ describe('TagChips.svelte', () => {
 		const onRemove = vi.fn();
 		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
 
-		await userEvent.click(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }));
+		await userEvent.click(
+			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
+		);
 
 		expect(onRemove).toHaveBeenCalledExactlyOnceWith('t1');
 	});
@@ -133,7 +136,7 @@ describe('TagChips.svelte', () => {
 		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
 
 		const button = page
-			.getByRole('button', { name: "Retirer l'étiquette Portugal" })
+			.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
 			.element() as HTMLElement;
 		const rect = button.getBoundingClientRect();
 		expect(rect.width).toBeCloseTo(22, 0);

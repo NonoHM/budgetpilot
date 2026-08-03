@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../routes/layout.css';
 import TransactionTagsEditor from './TransactionTagsEditor.svelte';
+import * as m from '$lib/paraglide/messages';
 
 const allTags = [
 	{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const },
@@ -18,7 +19,7 @@ describe('TransactionTagsEditor.svelte', () => {
 		});
 
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
 	});
 
@@ -63,7 +64,9 @@ describe('TransactionTagsEditor.svelte', () => {
 		await userEvent.click(page.getByRole('option', { name: 'Travaux' }));
 		await expect.element(save).toBeEnabled();
 
-		await userEvent.click(page.getByRole('button', { name: "Retirer l'étiquette Travaux" }));
+		await userEvent.click(
+			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Travaux' }) })
+		);
 		await expect.element(save).toBeDisabled();
 	});
 

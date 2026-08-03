@@ -72,10 +72,10 @@ describe('TagPicker.svelte', () => {
 		await userEvent.click(page.getByRole('option', { name: 'Travaux' }));
 
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Travaux" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Travaux' }) }))
 			.toBeInTheDocument();
 	});
 
@@ -83,10 +83,12 @@ describe('TagPicker.svelte', () => {
 		render(TagPicker, { options, selected: ['Portugal'] });
 
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
 
-		await userEvent.click(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }));
+		await userEvent.click(
+			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
+		);
 
 		expect(page.getByText('Portugal').elements().length).toBe(0);
 	});
@@ -271,7 +273,11 @@ describe('TagPicker.svelte', () => {
 		await userEvent.keyboard('{Escape}');
 		await userEvent.keyboard('{Enter}');
 
-		expect(page.getByRole('button', { name: /Retirer l'étiquette/ }).elements().length).toBe(0);
+		expect(
+			page
+				.getByRole('button', { name: new RegExp(m.tags_remove_aria({ name: '' }).trim()) })
+				.elements().length
+		).toBe(0);
 		await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
 	});
 
