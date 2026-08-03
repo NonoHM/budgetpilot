@@ -2225,16 +2225,31 @@
 													>
 													<p class="mt-0.5 text-xs text-zinc-400">{formatDate(tx.date)}</p>
 												</td>
-												<td class="px-4 py-3">
-													<div class="flex items-center gap-1.5">
-														<span
-															class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(tx.category)}"
-														></span>
-														<span class="text-zinc-700">{displayCategory(tx.category)}</span>
+												<!-- Same shape as Étiquettes below, for the same reason and after the same measurement:
+												     `w-[160px]` on the <td> alone is a suggestion under `table-layout: auto`, and an
+												     unbreakable category name widened this column to 335px, taking 175px off Libellé.
+												     The fixed-width child gives the column a max-content of exactly the figure, and the
+												     padding moves onto it so the width stays the whole column box.
+												     `truncate` + `min-w-0` are the second half: without them a WORDY name does not widen
+												     the column, it wraps and grows the row from 63px to 103px — the invariant the
+												     Étiquettes column exists to protect ("la hauteur de ligne ne bouge pas d'une ligne à
+												     l'autre, c'est ce qui garde le tableau scannable"). -->
+												<td class="{colCategory} p-0">
+													<div class="{colCategory} px-4 py-3">
+														<div class="flex items-center gap-1.5">
+															<span
+																class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(
+																	tx.category
+																)}"
+															></span>
+															<span class="min-w-0 truncate text-zinc-700"
+																>{displayCategory(tx.category)}</span
+															>
+														</div>
+														<p class="mt-0.5 ml-3.5 truncate text-xs text-zinc-500">
+															{formatNatureLabel(tx.nature)}
+														</p>
 													</div>
-													<p class="mt-0.5 ml-3.5 text-xs text-zinc-500">
-														{formatNatureLabel(tx.nature)}
-													</p>
 												</td>
 												<!-- The 190px lives on an inner block, and the cell's own padding moved onto it.
 												     `w-[190px]` on the <td> alone is only a suggestion: this table is
@@ -2252,13 +2267,19 @@
 														{/if}
 													</div>
 												</td>
-												<td
-													class="{colAmount} px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
-													'income'
-														? 'text-emerald-700'
-														: 'text-rose-600'}"
-												>
-													{formatCents(tx.amountCents)}
+												<!-- Same fix again, third site of the same pattern: an amount past any real one widened
+												     this column from 130px to 148px. `truncate` is a backstop rather than an expected
+												     state — a realistic amount fits the column — but it decides what happens when one
+												     does not, and silently stealing width from Libellé is not it. -->
+												<td class="{colAmount} p-0">
+													<div
+														class="{colAmount} truncate px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
+														'income'
+															? 'text-emerald-700'
+															: 'text-rose-600'}"
+													>
+														{formatCents(tx.amountCents)}
+													</div>
 												</td>
 											</tr>
 										{/if}
