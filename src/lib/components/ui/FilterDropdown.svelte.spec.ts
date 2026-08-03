@@ -75,6 +75,26 @@ describe('FilterDropdown — the trigger grammar', () => {
 			.toBeInTheDocument();
 	});
 
+	it('the trigger group is 34px tall and neither half falls under the 24px target', async () => {
+		expect.assertions(3);
+		render(FilterDropdown, base({ value: 'a', activeLabel: 'Étiquette : Alpha' }));
+
+		const open = page.getByRole('button', { name: 'Étiquette : Alpha' }).element();
+		const clear = page.getByRole('button', { name: 'Retirer le filtre par Étiquette' }).element();
+		const group = open.parentElement as HTMLElement;
+
+		// MEASURED, not read off a class list. `h-[34px]` on the wrapper is a claim until the border
+		// box is read: CLAUDE.md records this exact family of mistake twice — a wrapper whose box
+		// includes its border, leaving the children (which carry the click handler) 2px short, and a
+		// `w-[Npx]` on a `<td>` that a 262px column ignored while the header measured 190px.
+		expect(Math.round(group.getBoundingClientRect().height)).toBe(34);
+		// Bringing the group down from 44px must not take either target under the minimum. These are
+		// the two gestures the design splits apart on purpose, so a 34px group with a 20px "×" would
+		// trade one conformance for another.
+		expect(open.getBoundingClientRect().width).toBeGreaterThanOrEqual(24);
+		expect(clear.getBoundingClientRect().width).toBeGreaterThanOrEqual(24);
+	});
+
 	it('the footer is a sibling of the listbox, not one of its options', async () => {
 		expect.assertions(3);
 		render(FilterDropdown, base({ footer: footerSnippet }));

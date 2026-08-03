@@ -274,8 +274,15 @@
 	<!-- Active is a GROUP OF TWO ADJOINED BUTTONS, never one button nested in another (invalid
 	     HTML) and never a single control doing both jobs: the design requires two targets of at
 	     least 24px, so the filter can be re-chosen without clearing it first. -->
+	<!-- 34px is the referential's DESKTOP control height, and this component is desktop-only: the
+	     390 surface renders its dimensions inside the filter sheet, with its own 44px rows. That is
+	     why there is no responsive pair here. If it is ever rendered below `lg`, this needs
+	     `h-11 lg:h-[34px]` and a fresh measurement, because 34px is under the design's 44px mobile
+	     floor — the height is only correct while the "desktop-only" premise holds. The two buttons
+	     keep their own `min-w-[24px]`: the group getting shorter must not take either target under
+	     the minimum, and a test measures both boxes rather than reading these classes back. -->
 	<div
-		class="inline-flex h-11 items-stretch overflow-hidden rounded-xl border {isActive
+		class="inline-flex h-[34px] items-stretch overflow-hidden rounded-xl border {isActive
 			? tinted
 				? `${tintBgClass} ${tintBorderClass}`
 				: 'border-zinc-900 bg-white'
