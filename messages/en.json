@@ -1135,6 +1135,7 @@
 	"tags_picker_loading_aria": "Loading tags",
 	"tags_settings_heading": "Tags",
 	"tags_settings_subtitle": "Rename or recolour your tags. A tag is created by typing it on a transaction.",
+	"tags_settings_auto_delete_note": "A tag removed from its last transaction disappears on its own.",
 	"tags_settings_empty": "No tags yet. Type a name on a transaction to create one.",
 	"tags_tx_count_one": "{count} transaction",
 	"tags_tx_count_many": "{count} transactions",
@@ -1156,5 +1157,8 @@
 	"tags_error_invalid_color": "Invalid colour.",
 	"tags_success_renamed": "Tag renamed.",
 	"tags_success_recolored": "Colour updated.",
-	"tags_success_deleted": "Tag deleted."
+	"tags_success_deleted": "Tag deleted.",
+	"tags_manage_footer_label": "Manage in Settings",
+	"tags_manage_footer_sub": "Rename, recolour, delete",
+	"tags_manage_footer_aria": "Manage tags in Settings: rename, recolour, delete"
 }

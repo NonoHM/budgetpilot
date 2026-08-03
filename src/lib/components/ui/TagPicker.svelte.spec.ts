@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import TagPicker from './TagPicker.svelte';
+import * as m from '$lib/paraglide/messages';
 
 const options = [
 	{ id: 'o1', name: 'Portugal', colorToken: 'clay' as const },
@@ -342,5 +343,21 @@ describe('TagPicker.svelte', () => {
 		const controls = fieldInput().element().getAttribute('aria-controls');
 		expect(controls).toBeTruthy();
 		expect(document.getElementById(controls!)).not.toBeNull();
+	});
+
+	it('carries the "Gérer dans Paramètres" footer even when the user owns no tag at all', async () => {
+		// The zero-tag state is the one most likely to lose the footer to a `length > 0` gate, and
+		// it is precisely where it matters most: this is where a first-time user learns that a
+		// management surface exists, before ever needing it. The design requires the row in all
+		// five panel states for that reason.
+		render(TagPicker, { options: [], selected: [] });
+
+		await userEvent.click(fieldInput());
+
+		const footer = page.getByRole('link', { name: m.tags_manage_footer_aria() });
+		await expect.element(footer).toBeInTheDocument();
+		// A sibling of the list, never one of its options: it must not be counted into the
+		// listbox's element count, and the arrow keys must never reach it.
+		expect(footer.element().closest('[role="listbox"]')).toBeNull();
 	});
 });
