@@ -339,13 +339,22 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// in SQL — see parseListFilters' own comment). Counting over the raw `where` while a
 			// search is active would count a STRICT SUPERSET of what the user is looking at, so when
 			// `matchedIds` was set above, the count is narrowed to exactly that id set instead.
-			tagCounts = await countTagsInScope(
-				user.id,
-				matchedIds ? { ...tagCountWhere, id: { in: matchedIds } } : tagCountWhere
-			);
-		} catch {
+			// The id list is passed separately rather than folded into the where: unbounded, it
+			// becomes one `IN (...)` as long as the whole matched set, and SQLite caps host
+			// parameters — so a user with enough transactions and a broad enough search silently
+			// and permanently got "comptes indisponibles" via the catch below, with no trace
+			// anywhere. countTagsInScope chunks it and sums.
+			tagCounts = await countTagsInScope(user.id, tagCountWhere, matchedIds);
+		} catch (error) {
 			// Best-effort enrichment: a failure here must never fail the page. The filter panel
 			// renders its own "comptes indisponibles" state from a null tagCounts.
+			//
+			// The error's NAME only, never the error. A Prisma error on a transaction query embeds
+			// parameter values, which here means labels and amounts — the banking data this project
+			// does not put in logs. Logged at all because the bare catch that preceded this made a
+			// systematic failure (an engine limit, a migration drift, a provider-specific groupBy
+			// incompatibility) indistinguishable from a transient one, and left no evidence.
+			console.warn('tagCounts unavailable:', error instanceof Error ? error.name : 'unknown error');
 			tagCounts = null;
 		}
 	}
