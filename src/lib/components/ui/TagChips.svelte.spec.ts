@@ -271,6 +271,26 @@ describe('TagChips.svelte', () => {
 		expect(chip.className).not.toMatch(/bg-\[#/);
 	});
 
+	it('pins the literal Retirer/Supprimer wording in both locales — the vocabulary guard', () => {
+		// Every other spec in this file derives its locator from m.tags_remove_aria() itself, so
+		// none of them fails if the message is rewritten to "Effacer l'étiquette" tomorrow. This is
+		// deliberately the ONE place copy is pinned literally: it exists to catch that rewrite, not
+		// to duplicate the behavioural assertions above.
+		expect.assertions(4);
+		expect(m.tags_remove_aria({ name: 'Portugal' }, { locale: 'fr' })).toBe(
+			'Retirer Portugal de cette transaction'
+		);
+		expect(m.tags_remove_aria({ name: 'Portugal' }, { locale: 'en' })).toBe(
+			'Remove Portugal from this transaction'
+		);
+		expect(m.tags_delete_aria({ name: 'Portugal' }, { locale: 'fr' })).toBe(
+			"Supprimer l'étiquette Portugal"
+		);
+		expect(m.tags_delete_aria({ name: 'Portugal' }, { locale: 'en' })).toBe(
+			'Delete the tag Portugal'
+		);
+	});
+
 	it('offers a remove control on a tinted chip, named after the tag', async () => {
 		const removed: string[] = [];
 		render(TagChips, {

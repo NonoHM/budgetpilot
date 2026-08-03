@@ -62,6 +62,13 @@
 		<input type="hidden" name="transactionId" value={transactionId} />
 		<div class="mt-1 grid gap-2">
 			<TagPicker options={allTags} bind:selected name="tags" ariaLabel={m.tags_heading()} />
+			{#if selected.length > 0}
+				<!-- Static help line, not aria-hidden, not focusable: read in document order right
+				     after the chip group it documents. Gated on there being at least one chip — with
+				     none there is nothing to explain, and the design is explicit that the group and
+				     this line disappear together, silently, when the last chip goes. -->
+				<p class="text-xs text-zinc-500">{m.tags_chips_help_remove()}</p>
+			{/if}
 			{#if error}
 				<p class="text-xs text-rose-600">{error}</p>
 			{/if}

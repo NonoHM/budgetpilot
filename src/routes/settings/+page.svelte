@@ -930,14 +930,27 @@
 									>
 										{m.tags_rename()}
 									</Button>
-									<Button
+									<!-- The only trash glyph in the app for a tag, deliberately: this is the
+									     account-wide Supprimer, distinct from the chip's × Retirer (never rose,
+									     never a glyph). zinc-700 at rest, rose-50/rose-700 only on hover — NOT
+									     Button's ghost-danger, which is rose at rest and would read as already
+									     dangerous before it is touched. -->
+									<button
 										type="button"
-										variant="ghost-danger"
-										size="sm"
+										class="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-zinc-700 hover:bg-rose-50 hover:text-rose-700 focus-visible:ring-2 focus-visible:ring-rose-500 focus-visible:outline-none sm:h-9 sm:w-9"
+										aria-label={m.tags_delete_aria({ name: tag.name })}
 										onclick={() => (deletingTag = tag)}
 									>
-										{m.common_delete()}
-									</Button>
+										<svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" aria-hidden="true">
+											<path
+												d="M4 6h12M8.5 6V4.5a1 1 0 0 1 1-1h1a1 1 0 0 1 1 1V6M6.5 6l.6 9.7a1 1 0 0 0 1 .95h3.8a1 1 0 0 0 1-.95L14 6"
+												stroke="currentColor"
+												stroke-width="1.4"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											/>
+										</svg>
+									</button>
 								</div>
 							</div>
 
