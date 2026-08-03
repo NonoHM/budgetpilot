@@ -1611,7 +1611,7 @@
 				<div class="flex flex-wrap items-center gap-2">
 					<button
 						type="button"
-						class="inline-flex h-9 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+						class="inline-flex h-11 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
 						aria-label={mobileFiltersTriggerAriaLabel}
 						onclick={() => (mobileFiltersOpen = true)}
 					>
@@ -1634,14 +1634,14 @@
 					     summary first — the summary sheet stays reachable too, for the count and the
 					     "Voir les N résultats" confirmation, but is never the only way in. -->
 					<span
-						class="inline-flex h-9 items-stretch overflow-hidden rounded-lg border bg-white {data
+						class="inline-flex min-h-11 items-stretch overflow-hidden rounded-lg border bg-white {data
 							.filters.category
 							? 'border-zinc-900'
 							: 'border-zinc-200'}"
 					>
 						<button
 							type="button"
-							class="inline-flex items-center px-2.5 text-sm text-zinc-900"
+							class="inline-flex min-h-11 items-center px-2.5 text-sm text-zinc-900"
 							onclick={() => (mobileFilterSubDimension = 'category')}
 						>
 							{data.filters.category
@@ -1652,7 +1652,7 @@
 							<span class="w-px self-stretch bg-zinc-200" aria-hidden="true"></span>
 							<button
 								type="button"
-								class="inline-flex items-center px-2 text-zinc-500"
+								class="inline-flex min-h-11 min-w-11 items-center justify-center text-zinc-500"
 								aria-label={m.transactions_filter_clear_aria({
 									dimension: m.transactions_filter_dimension_category()
 								})}
@@ -1664,13 +1664,19 @@
 					</span>
 					{#if data.allTags.length > 0}
 						<span
-							class="inline-flex h-9 items-stretch overflow-hidden rounded-lg border bg-white {activeFilterTag
+							class="inline-flex min-h-11 items-stretch overflow-hidden rounded-lg border bg-white {activeFilterTag
 								? `border-zinc-300 ${isTagColorToken(activeFilterTag.colorToken) ? tagTintBgClass(activeFilterTag.colorToken) : ''}`
 								: 'border-zinc-200'}"
 						>
+							<!-- The value takes the TOKEN's hue on the token's tint, the same measured pairing
+							     the desktop trigger carries (4.71:1 lagoon, 4.81:1 azure). Shipping the tint
+							     alone leaves a surface with no measured foreground on it. -->
 							<button
 								type="button"
-								class="inline-flex items-center px-2.5 text-sm text-zinc-900"
+								class="inline-flex min-h-11 items-center px-2.5 text-sm {activeFilterTag &&
+								isTagColorToken(activeFilterTag.colorToken)
+									? tagColorTextClass(activeFilterTag.colorToken)
+									: 'text-zinc-900'}"
 								onclick={() => (mobileFilterSubDimension = 'tag')}
 							>
 								{activeFilterTag ? activeTagLabel : m.tags_filter_dimension()}
@@ -1679,7 +1685,7 @@
 								<span class="w-px self-stretch bg-zinc-300" aria-hidden="true"></span>
 								<button
 									type="button"
-									class="inline-flex items-center px-2 text-zinc-600"
+									class="inline-flex min-h-11 min-w-11 items-center justify-center text-zinc-600"
 									aria-label={m.transactions_filter_clear_aria({
 										dimension: m.tags_filter_dimension()
 									})}

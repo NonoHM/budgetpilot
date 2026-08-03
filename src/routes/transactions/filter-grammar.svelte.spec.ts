@@ -361,4 +361,41 @@ describe('filter bar — mobile sheet', () => {
 		await expect.element(row).toBeInTheDocument();
 		expect(row.element().getAttribute('aria-disabled')).toBe('true');
 	});
+
+	it('every mobile filter control clears the 44px floor, in both the resting and the active state', async () => {
+		expect.assertions(3);
+		await page.viewport(390, 844);
+
+		// MEASURED on the rendered controls, in both states, because the active state is where the
+		// floor was breached: the pills adopt a second adjoined button ("×") whose height comes from
+		// the wrapper, so a wrapper sized for the resting label silently under-sizes two targets at
+		// once. First measured at 36px for "Filtres" and 34px for each pill and its clear control.
+		const mobileButtons = (c: HTMLElement) =>
+			[...c.querySelectorAll<HTMLElement>('.lg\\:hidden button')].filter(
+				(b) => b.offsetParent !== null
+			);
+		const shortest = (c: HTMLElement) =>
+			Math.min(...mobileButtons(c).map((b) => Math.round(b.getBoundingClientRect().height)));
+
+		const resting = render(Page, { data: baseData(), form: null });
+		expect(shortest(resting.container)).toBeGreaterThanOrEqual(44);
+
+		const active = render(Page, {
+			data: baseData({
+				filters: { ...baseData().filters, category: 'Alimentation', tag: 'tag-1' }
+			}),
+			form: null
+		});
+		// The active state renders strictly MORE controls than the resting one — each pill gains its
+		// adjoined "×". Asserting that count first is what stops the measurement below passing
+		// vacuously against a state where the clear buttons never rendered at all: shrinking one to
+		// 34px then goes red here, which it did not when only the minimum was checked. Note the
+		// adjoined "×" takes its height from `items-stretch` on the wrapper, so the LABEL button is
+		// what actually sets the row: breaking that one is what turns this red, and breaking the "×"
+		// alone cannot, because it stretches. Both were tried.
+		expect(mobileButtons(active.container).length).toBeGreaterThan(
+			mobileButtons(resting.container).length
+		);
+		expect(shortest(active.container)).toBeGreaterThanOrEqual(44);
+	});
 });
