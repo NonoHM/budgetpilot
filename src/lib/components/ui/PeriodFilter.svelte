@@ -212,88 +212,104 @@
 	     other (nested buttons are invalid HTML). Mobile additionally grows each button's TAP area to
 	     44px via `min-h-[44px] -my-1` — transparent overflow, so the 36px visual row never grows —
 	     the same pattern design section 7 uses for the regex toggle at 390. -->
-	<div
-		data-testid="period-trigger-group"
-		class="inline-flex items-stretch overflow-hidden rounded-xl border {surface === 'mobile'
-			? 'h-9'
-			: 'h-[34px]'} {isActive ? 'border-zinc-900 bg-white' : 'border-zinc-200 bg-white'}"
-	>
-		<button
-			bind:this={openButtonEl}
-			type="button"
-			aria-haspopup="dialog"
-			aria-expanded={open}
-			aria-controls={open ? panelId : undefined}
-			aria-label={isActive ? fullAriaLabel : undefined}
-			aria-describedby={invalid ? messageId : undefined}
-			{...invalid ? { 'aria-invalid': 'true' } : {}}
-			class="inline-flex min-w-[24px] items-center gap-1.5 px-3 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {surface ===
-			'mobile'
-				? '-my-1 min-h-[44px]'
-				: ''}"
-			onclick={toggleOpen}
-			onkeydown={onKeydown}
+	{#snippet triggerGroup()}
+		<div
+			data-testid="period-trigger-group"
+			class="inline-flex items-stretch overflow-hidden rounded-xl border {surface === 'mobile'
+				? 'h-9'
+				: 'h-[34px]'} {isActive ? 'border-zinc-900 bg-white' : 'border-zinc-200 bg-white'}"
 		>
-			{#if isActive}
-				<!-- The dimension name never truncates. -->
-				<span class="whitespace-nowrap">{dimensionLabel}</span>
-				<span aria-hidden="true">:</span>
-				{#if invalid}
-					<!-- NEUTRAL, never destructive/rose or overdue/amber: the group's border above stays
+			<button
+				bind:this={openButtonEl}
+				type="button"
+				aria-haspopup="dialog"
+				aria-expanded={open}
+				aria-controls={open ? panelId : undefined}
+				aria-label={isActive ? fullAriaLabel : undefined}
+				aria-describedby={invalid ? messageId : undefined}
+				{...invalid ? { 'aria-invalid': 'true' } : {}}
+				class="inline-flex min-w-[24px] items-center gap-1.5 px-3 text-sm text-zinc-900 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {surface ===
+				'mobile'
+					? '-my-1 min-h-[44px]'
+					: ''}"
+				onclick={toggleOpen}
+				onkeydown={onKeydown}
+			>
+				{#if isActive}
+					<!-- The dimension name never truncates. -->
+					<span class="whitespace-nowrap">{dimensionLabel}</span>
+					<span aria-hidden="true">:</span>
+					{#if invalid}
+						<!-- NEUTRAL, never destructive/rose or overdue/amber: the group's border above stays
 					     border-zinc-900 either way. The glyph alone must not carry the signal (colour
 					     alone is not sufficient), which is why the word itself is in `label.text` too. -->
-					<span class="text-zinc-600" aria-hidden="true">(!)</span>
-				{/if}
-				{#if label.shortened}
-					<!-- Tooltip, never `title`: `title` only fires on mouse hover and leaves the sighted
-					     keyboard user with no way to read the unabridged form. -->
-					<Tooltip label={label.full}>
+						<span class="text-zinc-600" aria-hidden="true">(!)</span>
+					{/if}
+					{#if label.shortened}
+						<!-- Tooltip, never `title`: `title` only fires on mouse hover and leaves the sighted
+					     keyboard user with no way to read the unabridged form. The dotted underline is the
+					     only visual cue left here — the Tooltip itself now wraps the trigger GROUP, not
+					     this span, so that focusing the button actually opens it (see the comment beside
+					     the wrapping below). -->
 						<span
 							data-testid="period-value"
 							class="max-w-[190px] tabular-nums underline decoration-zinc-400 decoration-dotted underline-offset-2"
 							>{label.text}</span
 						>
-					</Tooltip>
-				{:else}
-					<!-- No `truncate` here, deliberately, on either branch: Période is exempt from the
+					{:else}
+						<!-- No `truncate` here, deliberately, on either branch: Période is exempt from the
 					     bar's ellipsis convention because a truncated range is a DIFFERENT period, and
 					     nothing on screen says which one is real. The 190px cap is enforced upstream by
 					     the shortening ladder in periodLabel.ts, not by CSS overflow. -->
-					<span data-testid="period-value" class="max-w-[190px] tabular-nums">{label.text}</span>
+						<span data-testid="period-value" class="max-w-[190px] tabular-nums">{label.text}</span>
+					{/if}
+				{:else}
+					<span class="whitespace-nowrap">{dimensionLabel}</span>
 				{/if}
-			{:else}
-				<span class="whitespace-nowrap">{dimensionLabel}</span>
-			{/if}
-			<svg
-				class="h-4 w-4 shrink-0 text-zinc-400 {open ? 'rotate-180' : ''}"
-				viewBox="0 0 20 20"
-				fill="none"
-				aria-hidden="true"
-			>
-				<path
-					d="M5.5 7.5 10 12l4.5-4.5"
-					stroke="currentColor"
-					stroke-width="1.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-				/>
-			</svg>
-		</button>
-		{#if isActive}
-			<span class="w-px self-stretch bg-zinc-200" aria-hidden="true"></span>
-			<button
-				type="button"
-				class="inline-flex min-w-[24px] items-center justify-center px-2.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {surface ===
-				'mobile'
-					? '-my-1 min-h-[44px]'
-					: ''}"
-				aria-label={clearAriaLabel}
-				onclick={clearAll}
-			>
-				<span aria-hidden="true">×</span>
+				<svg
+					class="h-4 w-4 shrink-0 text-zinc-400 {open ? 'rotate-180' : ''}"
+					viewBox="0 0 20 20"
+					fill="none"
+					aria-hidden="true"
+				>
+					<path
+						d="M5.5 7.5 10 12l4.5-4.5"
+						stroke="currentColor"
+						stroke-width="1.5"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
 			</button>
-		{/if}
-	</div>
+			{#if isActive}
+				<span class="w-px self-stretch bg-zinc-200" aria-hidden="true"></span>
+				<button
+					type="button"
+					class="inline-flex min-w-[24px] items-center justify-center px-2.5 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none {surface ===
+					'mobile'
+						? '-my-1 min-h-[44px]'
+						: ''}"
+					aria-label={clearAriaLabel}
+					onclick={clearAll}
+				>
+					<span aria-hidden="true">×</span>
+				</button>
+			{/if}
+		</div>
+	{/snippet}
+
+	{#if label.shortened}
+		<!-- The Tooltip wraps the GROUP, not a span inside the button. Tooltip opens on its wrapper's
+		     `focusin`, and `focusin` bubbles UP: a Tooltip nested inside the button can never see the
+		     button being focused, so it degrades to hover-only — which is exactly the `title` behaviour
+		     the design rejects. An e2e test focuses the trigger and reads the tooltip, and it was
+		     watched fail against the nested arrangement. -->
+		<Tooltip label={label.full} wrapperClass="relative inline-flex">
+			{@render triggerGroup()}
+		</Tooltip>
+	{:else}
+		{@render triggerGroup()}
+	{/if}
 
 	{#if open}
 		<div

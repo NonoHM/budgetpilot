@@ -112,7 +112,7 @@ describe('PeriodFilter — the trigger grammar', () => {
 	});
 
 	it('marks a shortened value with a Tooltip and a dotted underline, never a title attribute', async () => {
-		expect.assertions(3);
+		expect.assertions(4);
 		// This range's `full` form ("30 septembre 2026 → 28 février 2027") does not fit the 190px cap
 		// under the measured character table, so the ladder shortens it and `shortened` is true.
 		render(PeriodFilter, base({ from: '2026-09-30', to: '2027-02-28' }));
@@ -124,6 +124,20 @@ describe('PeriodFilter — the trigger grammar', () => {
 		expect(value.getAttribute('title')).toBeNull();
 		const tooltipWrapper = value.closest('[aria-describedby]');
 		expect(tooltipWrapper).not.toBeNull();
+
+		// The previous version of this test stopped at "a describedby wrapper exists somewhere as an
+		// ancestor" and passed against a Tooltip nested INSIDE the trigger button — a wrapper that can
+		// never see the button being focused, since `focusin` only bubbles UP from the focused element
+		// to its ancestors. That arrangement degrades to hover-only, i.e. functionally a `title`
+		// attribute by another name, which is exactly what this test's own name forbids. The assertion
+		// that actually rules that out is this one: dispatch focus on the trigger BUTTON itself and
+		// check the tooltip becomes reachable.
+		const trigger = page
+			.getByRole('button', { name: /Période/ })
+			.first()
+			.element() as HTMLElement;
+		trigger.focus();
+		await expect.element(page.getByRole('tooltip')).toBeInTheDocument();
 	});
 });
 
