@@ -321,3 +321,64 @@ describe('PeriodFilter — Escape and focus-out', () => {
 		outside.remove();
 	});
 });
+
+/**
+ * The panel's own box against its own content.
+ *
+ * This is here because the panel shipped with its `Appliquer` button painted 58px outside its
+ * right border, on every desktop open, and nothing went red: no ancestor clips (every one is
+ * `overflow: visible`), so the button rendered perfectly legibly in the wrong place and read as
+ * a stray control floating over the table. A screenshot showed it; no assertion could.
+ *
+ * The vertical half of the same guard matters MORE once the panel scrolls, not less. `max-height`
+ * + `overflow-y: auto` turns the panel into a scroll container, and a scroll container clips the
+ * horizontal axis too — so from that point on a child wider than the panel is HIDDEN rather than
+ * visibly wrong. That is the "unnoticed" case, and it is why the width assertion is kept beside
+ * the height one instead of being considered settled by the fix that prompted it.
+ */
+describe('the panel cannot escape its own box', () => {
+	async function openPanel(triggerName: string, overrides: Props = {}) {
+		render(PeriodFilter, base(overrides));
+		// Named explicitly rather than matched on 'Période': once a value is set the group grows a
+		// second button ("Retirer le filtre par Période") that also matches the substring.
+		await userEvent.click(page.getByRole('button', { name: triggerName, exact: true }));
+		return page.getByRole('dialog').element() as HTMLElement;
+	}
+
+	it('no content overflows the panel horizontally', async () => {
+		expect.assertions(2);
+		const panel = await openPanel('Période');
+
+		expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth);
+
+		const right = panel.getBoundingClientRect().right;
+		const widest = Array.from(panel.querySelectorAll('*')).reduce((max, node) => {
+			const box = node.getBoundingClientRect();
+			return box.width > 0 && box.right > max ? box.right : max;
+		}, 0);
+		expect(widest).toBeLessThanOrEqual(right);
+	});
+
+	it('no content overflows the panel horizontally in the invalid state either', async () => {
+		expect.assertions(1);
+		// The invalid message is the panel's longest single string, and it is the one piece of
+		// content that is absent from the default render — so the assertion above is blind to it.
+		const panel = await openPanel('Période : saisie invalide', {
+			from: '2026-06-30',
+			to: '2026-06-01',
+			invalid: true
+		});
+
+		expect(panel.scrollWidth).toBeLessThanOrEqual(panel.clientWidth);
+	});
+
+	it('the panel scrolls rather than growing without bound', async () => {
+		expect.assertions(1);
+		const panel = await openPanel('Période');
+
+		// Not a pixel figure: the viewport under vitest-browser is not the app's. What is pinned is
+		// that a bound EXISTS and that it is expressed against the viewport, so a panel taller than
+		// the space it has scrolls inside itself instead of running off the bottom of the screen.
+		expect(getComputedStyle(panel).maxHeight).not.toBe('none');
+	});
+});

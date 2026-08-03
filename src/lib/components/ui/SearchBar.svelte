@@ -35,6 +35,7 @@
 		ariaLabel,
 		error = false,
 		clearLabel,
+		density = 'field',
 		wrapperClass = '',
 		inputClass = '',
 		trailing
@@ -46,6 +47,25 @@
 		ariaLabel?: string;
 		error?: boolean;
 		clearLabel: string;
+		/**
+		 * Which height template this field belongs to. Mirrors Button's `field`/`bar` sizes and
+		 * exists for the same reason: both values are a promise about a number some OTHER component
+		 * renders, so they have to be named once rather than spelled as a one-off `h-` class.
+		 *
+		 * `field` (44px) is the primary-form-field template — a field a user fills in as the point
+		 * of the screen. `bar` (34px) is the filter-bar control template, matching FilterDropdown's
+		 * and PeriodFilter's trigger groups.
+		 *
+		 * It is a prop rather than something a caller can express through `wrapperClass` because
+		 * the height is not only the wrapper's: the clear button lives INSIDE this component, out of
+		 * the caller's reach, and a 44px control in a 34px box is exactly what pushes content out of
+		 * the field. Passing `h-[34px]` through `wrapperClass` would shrink the box and leave the
+		 * button — the kind of half-applied change that renders plausibly and is wrong.
+		 *
+		 * Desktop only for `bar`: the mobile filter rows deliberately stay at 44px, the design's
+		 * touch floor.
+		 */
+		density?: 'field' | 'bar';
 		wrapperClass?: string;
 		inputClass?: string;
 		/**
@@ -68,6 +88,13 @@
 	// of them is the failure this replaces a static `pr-11` for.
 	const padRight = $derived(value && trailing ? 'pr-20' : value || trailing ? 'pr-11' : '');
 
+	const heightClass = $derived(density === 'bar' ? 'h-[34px]' : 'h-11');
+	// 26x26 rather than IconButton's 44x44 floor: inside a 34px field (32px of inner box once the
+	// border is counted) a 44px control cannot fit at all, and even at 34 it would fill the field
+	// edge to edge and stop reading as something within it. 26 clears SC 2.5.8's 24x24 with margin
+	// and matches the design's 26x24 figure for a desktop clear control. Measured in the spec.
+	const clearSizeClass = $derived(density === 'bar' ? 'h-[26px] w-[26px] !min-h-0 !min-w-0' : '');
+
 	let inputEl = $state<HTMLInputElement | null>(null);
 
 	function clear() {
@@ -76,7 +103,7 @@
 	}
 </script>
 
-<div class="relative inline-block h-11 {wrapperClass}">
+<div class="relative inline-block {heightClass} {wrapperClass}">
 	<input
 		bind:this={inputEl}
 		bind:value
@@ -92,7 +119,7 @@
 	{#if value || trailing}
 		<span class="absolute inset-y-0 right-0 flex items-center gap-1 pr-1.5">
 			{#if value}
-				<IconButton label={clearLabel} onclick={clear}>✕</IconButton>
+				<IconButton label={clearLabel} class={clearSizeClass} onclick={clear}>✕</IconButton>
 			{/if}
 			{#if trailing}
 				{@render trailing()}

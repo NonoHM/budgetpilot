@@ -5,6 +5,9 @@ import {
 	BULK_TAG_NAME,
 	BULK_TO,
 	BULK_UNTAGGED_LABELS,
+	CAP_LABEL,
+	CAP_TAG_NAMES,
+	CAP_VISIBLE_CHIPS,
 	FILTER_TAG_NAME,
 	FILTER_TAGGED_LABELS,
 	FILTER_UNTAGGED_LABELS,
@@ -623,5 +626,46 @@ test.describe('the detail panel on demand', () => {
 		await expect(desktopPanel(page)).toHaveCount(0);
 		const focusedText = await page.evaluate(() => document.activeElement?.textContent?.trim());
 		expect(focusedText).toBe(GC_LABEL);
+	});
+});
+
+test.describe('the chip cap in list rows', () => {
+	// Never verified before this test existed. The tags feature was reviewed and measured only at
+	// 1280, and every 390 pass reached untagged rows only — so the cap was untested rather than
+	// passing, and the row-height invariant it exists to protect had already been broken once at
+	// 1280 without anyone noticing at 390.
+	test('a row with five tags draws two chips and a control naming the rest, at 390', async ({
+		page
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(`/transactions?q=${encodeURIComponent(CAP_LABEL)}`);
+
+		const row = page.locator(`a[href*="selected="]:visible`, { hasText: CAP_LABEL }).first();
+		await expect(row).toBeVisible();
+
+		const measured = await row.evaluate(
+			(anchor, names: string[]) => {
+				const container = (anchor.closest('li') || anchor.parentElement) as HTMLElement;
+				const leaves = Array.from(container.querySelectorAll('*')).filter(
+					(node) => node.children.length === 0
+				);
+				const chips = leaves
+					.map((node) => (node.textContent || '').trim())
+					.filter((text) => names.includes(text));
+				const overflow = leaves
+					.map((node) => (node.textContent || '').trim())
+					.find((text) => /^\+\d+$/.test(text));
+				return { chips, overflow, right: Math.round(container.getBoundingClientRect().right) };
+			},
+			[...CAP_TAG_NAMES]
+		);
+
+		// Exactly two, and they are the first two — a cap that rendered zero chips would also satisfy
+		// "no more than two", which is the shape of an assertion that cannot fail.
+		expect(measured.chips).toEqual([...CAP_TAG_NAMES].slice(0, CAP_VISIBLE_CHIPS));
+		// The count names what is HIDDEN, so it must agree with the tags that exist rather than being
+		// any plus-something: five tags, two drawn, three unaccounted for.
+		expect(measured.overflow).toBe(`+${CAP_TAG_NAMES.length - CAP_VISIBLE_CHIPS}`);
+		expect(measured.right).toBeLessThanOrEqual(390);
 	});
 });

@@ -1146,7 +1146,21 @@
 	     Both sit OUTSIDE the role="status" region — inside it, every filter change would re-announce
 	     "Réinitialiser les filtres, bouton" along with the figures. -->
 	{#if anyFilterActive}
-		<div class="flex shrink-0 items-center gap-2">
+		<!-- Stacked on mobile, side by side on desktop. Flat, this row overflowed the 390 viewport by
+		     67px: the trigger label is a whole sentence ("Étiqueter les 5 résultats", 358px), the
+		     reset link sits beside it, and the caller made the trigger `w-full` — 100% of a container
+		     that still had to hold the link too. Nothing clipped it, so the DOCUMENT scrolled
+		     sideways; it was the only element on the page that overflowed at 390.
+		     Design 9A asks for the grouped trigger full-width on its own row in the summary card
+		     anyway, so the stack is the design's arrangement and not merely a way out of the overflow.
+		     `surface` rather than a Tailwind arbitrary variant reaching in from the call site: the
+		     snippet already knows which surface it is rendering, and a `[&>div]:` selector describing
+		     this layout from the outside is what produced the half-applied version. -->
+		<div
+			class="flex items-center gap-2 {surface === 'mobile'
+				? 'w-full flex-col items-stretch'
+				: 'shrink-0'}"
+		>
 			<!-- The testid sits on a wrapper because TapLink takes a fixed prop list with no rest
 			     spread, so an unknown attribute is silently dropped rather than forwarded. -->
 			<span data-testid="reset-filters">
@@ -1157,7 +1171,10 @@
 			<button
 				type="button"
 				data-testid="bulk-tag-trigger"
-				class="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border px-4 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none {bulkTagEnabled
+				class="inline-flex h-11 items-center justify-center rounded-xl border px-4 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none {surface ===
+				'mobile'
+					? 'w-full'
+					: 'shrink-0'} {bulkTagEnabled
 					? 'border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50'
 					: 'cursor-not-allowed border-zinc-200 bg-white text-zinc-500'}"
 				aria-disabled={bulkTagEnabled ? undefined : 'true'}
@@ -1517,10 +1534,16 @@
 				     bordered box is a button, a character beside a field is a typo.
 				     `ml-auto` rather than a fixed position, so the dimensions keep packing from the left
 				     and the field keeps the right edge however many of them there are.
-				     28x32 rather than IconButton's 44x44 floor: inside a 44px field a 44px control fills
-				     it edge to edge and stops reading as something within the field. Desktop only — the
+				     28x32 rather than IconButton's 44x44 floor: inside the field a 44px control fills it
+				     edge to edge and stops reading as something within the field. Desktop only — the
 				     design's 44px floor is the MOBILE one, and this box clears both SC 2.5.8's 24x24 and
-				     the design's own 26x24 for a desktop control. -->
+				     the design's own 26x24 for a desktop control.
+				     `density="bar"` because this is a filter-bar control, not a form field: four
+				     controls on one line at two different heights (three 34px triggers against a 44px
+				     field and a 44px button) reads as a defect before it reads as hierarchy. The 44px
+				     template belongs to fields a user fills in as the point of the screen. The mobile
+				     search field below deliberately keeps the default 44px density — that floor is a
+				     touch-target rule and is a different question from this one. -->
 				<div class="ml-auto w-[300px]">
 					<input type="hidden" name="qMode" value={searchIsRegex ? 'regex' : 'contains'} />
 					<SearchBar
@@ -1530,6 +1553,7 @@
 						ariaLabel={m.transactions_search_label()}
 						error={Boolean(data.queryError)}
 						clearLabel={m.common_search_clear_aria()}
+						density="bar"
 						wrapperClass="w-full"
 					>
 						{#snippet trailing()}
@@ -1546,7 +1570,7 @@
 						{/snippet}
 					</SearchBar>
 				</div>
-				<Button type="submit" size="field">{m.transactions_submit_filter()}</Button>
+				<Button type="submit" size="bar">{m.transactions_submit_filter()}</Button>
 				{#if data.queryError}
 					<p class="mt-2 text-sm font-medium text-rose-600">
 						{m.transactions_error_invalid_regex_query()}
@@ -2814,10 +2838,7 @@
 						>
 					</div>
 				</div>
-				<!-- Full width in the summary card, never in the filter rows. -->
-				<div class="[&_[data-testid=bulk-tag-trigger]]:w-full [&>div]:w-full">
-					{@render summaryActions('mobile')}
-				</div>
+				{@render summaryActions('mobile')}
 				{@render summaryDisabledReason('mobile')}
 				{@render bulkOverLimitBanner()}
 				{@render bulkTagBanner()}

@@ -1,6 +1,7 @@
 import { page, userEvent } from 'vitest/browser';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import '../../../routes/layout.css';
 import SearchBar from './SearchBar.svelte';
 
 describe('SearchBar.svelte', () => {
@@ -208,6 +209,41 @@ describe('SearchBar.svelte', () => {
 			// any extra named field (e.g. a duplicate hidden input) alongside the visible one.
 			const formData = new FormData(form);
 			expect(Array.from(formData.keys())).toEqual(['qMode', 'q']);
+		});
+	});
+
+	describe('density', () => {
+		// Measured, not asserted from class names: the whole point of the `bar` density is a
+		// RENDERED height that matches FilterDropdown/PeriodFilter's triggers on the same row, and
+		// a class list cannot prove two components agree about a number.
+		it('the field density is the 44px primary-form-field template', async () => {
+			expect.assertions(1);
+			render(SearchBar, { value: '', clearLabel: 'Effacer', wrapperClass: 'w-[300px]' });
+
+			const wrapper = page.getByRole('searchbox').element().parentElement as HTMLElement;
+			expect(Math.round(wrapper.getBoundingClientRect().height)).toBe(44);
+		});
+
+		it('the bar density is 34px and its clear button still clears the 24px target', async () => {
+			expect.assertions(4);
+			render(SearchBar, {
+				value: 'carrefour',
+				density: 'bar',
+				clearLabel: 'Effacer',
+				wrapperClass: 'w-[300px]'
+			});
+
+			const wrapper = page.getByRole('searchbox').element().parentElement as HTMLElement;
+			expect(Math.round(wrapper.getBoundingClientRect().height)).toBe(34);
+
+			// The clear button is the control the caller cannot reach: the regex toggle is passed in
+			// through `trailing` and sized at the call site, but this one is owned here. Shrinking
+			// the field without shrinking it is what would push a 44px control out of a 34px box.
+			const clear = page.getByRole('button', { name: 'Effacer' }).element();
+			const box = clear.getBoundingClientRect();
+			expect(box.width).toBeGreaterThanOrEqual(24);
+			expect(box.height).toBeGreaterThanOrEqual(24);
+			expect(box.height).toBeLessThanOrEqual(34);
 		});
 	});
 });
