@@ -5,6 +5,7 @@ import '../layout.css';
 import Page from './+page.svelte';
 import type { PageData } from './$types';
 import { TRANSACTION_NATURES } from '$lib/domain/transaction';
+import * as m from '$lib/paraglide/messages';
 
 /**
  * The tag filter control (transactions/+page.svelte, both filter forms): progressive disclosure
@@ -12,6 +13,12 @@ import { TRANSACTION_NATURES } from '$lib/domain/transaction';
  * who never uses tags never sees the concept. Asserted on both the desktop and mobile filter
  * forms, since each renders its own independent markup (same shape as the ids-filter-links and
  * manual-save-dirty-state specs beside this one).
+ *
+ * The locator is the TRIGGER BUTTON named after its dimension, not a combobox. These four cases
+ * previously queried `getByRole('combobox', { name: 'Filtrer par étiquette' })`, and when the
+ * control became a listbox trigger the two "is absent" cases kept passing for the wrong reason —
+ * there is no combobox in EITHER state now, so they asserted nothing. The role has to be the one
+ * the control actually has, or half this file is decoration.
  */
 
 function baseData(overrides: Record<string, unknown> = {}): PageData {
@@ -61,7 +68,7 @@ describe('tag filter control', () => {
 		await page.viewport(1280, 800);
 		render(Page, { data: baseData(), form: null });
 
-		expect(page.getByRole('combobox', { name: 'Filtrer par étiquette' }).elements().length).toBe(0);
+		expect(page.getByRole('button', { name: m.tags_filter_dimension() }).elements().length).toBe(0);
 	});
 
 	it('desktop: renders once the user has at least one tag', async () => {
@@ -69,7 +76,7 @@ describe('tag filter control', () => {
 		render(Page, { data: baseData({ allTags: SPENDING_TAG_OPTIONS }), form: null });
 
 		await expect
-			.element(page.getByRole('combobox', { name: 'Filtrer par étiquette' }))
+			.element(page.getByRole('button', { name: m.tags_filter_dimension() }).first())
 			.toBeInTheDocument();
 	});
 
@@ -77,7 +84,7 @@ describe('tag filter control', () => {
 		await page.viewport(390, 844);
 		render(Page, { data: baseData(), form: null });
 
-		expect(page.getByRole('combobox', { name: 'Filtrer par étiquette' }).elements().length).toBe(0);
+		expect(page.getByRole('button', { name: m.tags_filter_dimension() }).elements().length).toBe(0);
 	});
 
 	it('mobile: renders once the user has at least one tag', async () => {
@@ -85,7 +92,7 @@ describe('tag filter control', () => {
 		render(Page, { data: baseData({ allTags: SPENDING_TAG_OPTIONS }), form: null });
 
 		await expect
-			.element(page.getByRole('combobox', { name: 'Filtrer par étiquette' }))
+			.element(page.getByRole('button', { name: m.tags_filter_dimension() }).first())
 			.toBeInTheDocument();
 	});
 });

@@ -29,6 +29,9 @@
 	import TransactionTagsEditor from '$lib/components/TransactionTagsEditor.svelte';
 	import TransactionFocusOverlay from '$lib/components/TransactionFocusOverlay.svelte';
 	import TagChips from '$lib/components/ui/TagChips.svelte';
+	import FilterDropdown from '$lib/components/ui/FilterDropdown.svelte';
+	import ManageTagsFooter from '$lib/components/ui/ManageTagsFooter.svelte';
+	import { tagColorBgClass, tagTintBgClass } from '$lib/domain/colors';
 	import {
 		getAdjacentFocusStackId,
 		getFocusOutcomeForAction,
@@ -279,6 +282,83 @@
 			colorToken: isTagColorToken(tag.colorToken) ? (tag.colorToken as TagColorToken) : null
 		}));
 	}
+
+	/**
+	 * Applies one dimension of the filter, from a FilterDropdown selection.
+	 *
+	 * It navigates rather than submitting the surrounding GET form, and rather than letting the
+	 * browser serialise a <select>: the trigger is a button opening a listbox, so there is no form
+	 * control holding the value. `data.filters` is the server's own view of the filter, so this
+	 * cannot drift from what produced the current page.
+	 *
+	 * `keepFocus` matters and is not decoration. SvelteKit's router blurs the active element and
+	 * calls reset_focus() after a client-side navigation, which would throw focus to the body right
+	 * after a selection and undo the focus-return the dropdown just performed. The same flag is why
+	 * the period arrows on /upcoming-bills stopped stealing focus.
+	 */
+	function applyFilterDimension(patch: { category?: string; tag?: string }) {
+		goto(resolve(buildTransactionsHref({ ...data.filters, ...patch }, {}, { keepIds: false })), {
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	/**
+	 * The category dimension's rows. No counts: the design puts a count on the tag menu only, and
+	 * a per-category count is a separate load-shaped decision that has not been taken.
+	 */
+	const categoryFilterOptions = $derived(
+		data.categoryOptions.map((name) => ({ value: name, label: displayCategory(name) }))
+	);
+
+	/**
+	 * The tag dimension's rows, alphabetical, always — one arrives with a name in mind, not with a
+	 * volume, and a count-descending order would move rows on every filter change so a tag's
+	 * position could never be memorised. Zero counts keep their alphabetical place, dimmed.
+	 *
+	 * A missing `tagCounts` (the server could not answer) is NOT zero: it yields `null`, which the
+	 * dropdown renders as a placeholder rather than a digit, and leaves every row selectable —
+	 * waiting on a count before choosing a name you already know would be absurd.
+	 */
+	const tagFilterOptions = $derived(
+		data.allTags.map((tag) => {
+			const count = data.tagCounts?.find((c) => c.tagId === tag.id)?.count ?? null;
+			return {
+				value: tag.id,
+				label: tag.name,
+				count: data.tagCounts === null ? null : (count ?? 0),
+				// Reachable by the arrows so its state is announced, never activable: selecting it
+				// would apply a filter the menu has just said returns nothing. Hiding it instead
+				// would be indistinguishable from a deletion — and since a tag on zero transactions
+				// really does disappear on its own, that confusion has a concrete cost.
+				disabled: data.tagCounts !== null && (count ?? 0) === 0,
+				swatchClass: isTagColorToken(tag.colorToken) ? tagColorBgClass(tag.colorToken) : undefined
+			};
+		})
+	);
+
+	/** The total for the "Toutes" return row: the filtered set with the tag dimension removed. */
+	const tagFilterAllCount = $derived(
+		data.tagCounts === null ? null : data.pagination.totalTransactions
+	);
+
+	const activeCategoryLabel = $derived(
+		data.filters.category
+			? m.transactions_filter_active_trigger({
+					dimension: m.transactions_filter_dimension_category(),
+					value: displayCategory(data.filters.category)
+				})
+			: undefined
+	);
+
+	const activeTagLabel = $derived(
+		activeFilterTag
+			? m.transactions_filter_active_trigger({
+					dimension: m.tags_filter_dimension(),
+					value: activeFilterTag.name
+				})
+			: undefined
+	);
 
 	// Same re-validation, for TagPicker's option list (TransactionTagsEditor -> TagPicker), whose
 	// TagPickerOption.colorToken is the closed union rather than the raw database string. A row
@@ -923,42 +1003,55 @@
 						clearLabel={m.common_search_clear_aria()}
 					/>
 				</div>
-				<Combobox
-					name="category"
+				<!-- At rest each trigger carries the NAME OF ITS DIMENSION and nothing else. "Toutes" is
+				     the resting value of a filter, and two triggers each showing their resting value is
+				     what put two adjacent "Toutes" in this bar. The word now lives only on the nature
+				     group above — which shows all its options at once, so the set describes itself —
+				     and as the return row inside an open list. Two dimensions can no longer render the
+				     same text, by construction. -->
+				<FilterDropdown
+					dimensionLabel={m.transactions_filter_dimension_category()}
+					activeLabel={activeCategoryLabel}
+					options={categoryFilterOptions}
 					value={data.filters.category}
-					options={[
-						{ value: '', label: m.transactions_category_filter_all() },
-						...data.categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))
-					]}
-					placeholder={m.transactions_category_filter_placeholder()}
-					ariaLabel={m.transactions_category_filter_aria()}
-					class="w-48"
+					allLabel={m.transactions_category_filter_all()}
+					searchPlaceholder={m.transactions_category_filter_placeholder()}
+					clearAriaLabel={m.transactions_filter_clear_aria({
+						dimension: m.transactions_filter_dimension_category()
+					})}
+					onSelect={(category) => applyFilterDimension({ category })}
+					onClear={() => applyFilterDimension({ category: '' })}
 				/>
 				{#if data.allTags.length > 0}
-					{#if activeFilterTag}
-						<!-- Active state: the tag's own tinted chip rather than a control showing its name as
-						     plain text. This is one of the two surfaces the design allows a tint on, and the
-						     one where the colour is genuinely useful: which filter is applied is readable at
-						     a glance. Removing it clears only the tag, keeping every other filter. -->
-						<TagChips
-							variant="tinted"
-							max={Infinity}
-							tags={toTagChipItems([activeFilterTag])}
-							onRemove={clearTagFilter}
-						/>
-					{:else}
-						<Combobox
-							name="tag"
-							value={data.filters.tag}
-							options={[
-								{ value: '', label: m.tags_filter_all() },
-								...data.allTags.map((t) => ({ value: t.id, label: t.name }))
-							]}
-							placeholder={m.tags_filter_placeholder()}
-							ariaLabel={m.tags_filter_aria()}
-							class="w-48"
-						/>
-					{/if}
+					<!-- Absent entirely for a user with no tags: a filter with no possible value has
+					     nothing to offer. Deliberately unlike the bulk trigger below, which IS rendered
+					     and disabled in the equivalent case — an unavailable ACTION has to teach the
+					     condition under which it becomes available; an empty dimension has nothing to
+					     teach. -->
+					<FilterDropdown
+						dimensionLabel={m.tags_filter_dimension()}
+						activeLabel={activeTagLabel}
+						options={tagFilterOptions}
+						value={data.filters.tag}
+						allLabel={m.tags_filter_all()}
+						allCount={tagFilterAllCount}
+						scopeNote={m.tags_filter_scope_note()}
+						searchPlaceholder={m.tags_filter_search_placeholder()}
+						clearAriaLabel={m.transactions_filter_clear_aria({
+							dimension: m.tags_filter_dimension()
+						})}
+						tinted={true}
+						tintBgClass={activeFilterTag && isTagColorToken(activeFilterTag.colorToken)
+							? tagTintBgClass(activeFilterTag.colorToken)
+							: ''}
+						tintBorderClass="border-zinc-300"
+						onSelect={(tag) => applyFilterDimension({ tag })}
+						onClear={clearTagFilter}
+					>
+						{#snippet footer()}
+							<ManageTagsFooter />
+						{/snippet}
+					</FilterDropdown>
 				{/if}
 				<div class="flex items-center gap-1.5">
 					<label for="tx-from" class="text-xs font-medium text-zinc-500"
@@ -1104,41 +1197,47 @@
 					</p>
 				{/if}
 
-				<Combobox
-					name="category"
+				<!-- Same grammar as the desktop bar, different pixels. What stays identical is what
+				     matters: "Dimension : Valeur", the × in the same place, the counts, and the
+				     "Gérer dans Paramètres" footer. One logic, two layouts. -->
+				<FilterDropdown
+					dimensionLabel={m.transactions_filter_dimension_category()}
+					activeLabel={activeCategoryLabel}
+					options={categoryFilterOptions}
 					value={data.filters.category}
-					options={[
-						{ value: '', label: m.transactions_category_filter_all() },
-						...data.categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))
-					]}
-					placeholder={m.transactions_category_filter_placeholder()}
-					ariaLabel={m.transactions_category_filter_aria()}
-					class="w-full"
-					triggerClass="!bg-zinc-50"
+					allLabel={m.transactions_category_filter_all()}
+					searchPlaceholder={m.transactions_category_filter_placeholder()}
+					clearAriaLabel={m.transactions_filter_clear_aria({
+						dimension: m.transactions_filter_dimension_category()
+					})}
+					onSelect={(category) => applyFilterDimension({ category })}
+					onClear={() => applyFilterDimension({ category: '' })}
 				/>
 				{#if data.allTags.length > 0}
-					{#if activeFilterTag}
-						<!-- Same active state as the desktop bar; see its comment there. -->
-						<TagChips
-							variant="tinted"
-							max={Infinity}
-							tags={toTagChipItems([activeFilterTag])}
-							onRemove={clearTagFilter}
-						/>
-					{:else}
-						<Combobox
-							name="tag"
-							value={data.filters.tag}
-							options={[
-								{ value: '', label: m.tags_filter_all() },
-								...data.allTags.map((t) => ({ value: t.id, label: t.name }))
-							]}
-							placeholder={m.tags_filter_placeholder()}
-							ariaLabel={m.tags_filter_aria()}
-							class="w-full"
-							triggerClass="!bg-zinc-50"
-						/>
-					{/if}
+					<FilterDropdown
+						dimensionLabel={m.tags_filter_dimension()}
+						activeLabel={activeTagLabel}
+						options={tagFilterOptions}
+						value={data.filters.tag}
+						allLabel={m.tags_filter_all()}
+						allCount={tagFilterAllCount}
+						scopeNote={m.tags_filter_scope_note()}
+						searchPlaceholder={m.tags_filter_search_placeholder()}
+						clearAriaLabel={m.transactions_filter_clear_aria({
+							dimension: m.tags_filter_dimension()
+						})}
+						tinted={true}
+						tintBgClass={activeFilterTag && isTagColorToken(activeFilterTag.colorToken)
+							? tagTintBgClass(activeFilterTag.colorToken)
+							: ''}
+						tintBorderClass="border-zinc-300"
+						onSelect={(tag) => applyFilterDimension({ tag })}
+						onClear={clearTagFilter}
+					>
+						{#snippet footer()}
+							<ManageTagsFooter />
+						{/snippet}
+					</FilterDropdown>
 				{/if}
 				<div class="flex gap-2">
 					<div class="flex-1">
