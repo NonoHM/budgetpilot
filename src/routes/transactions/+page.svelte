@@ -414,6 +414,52 @@
 	 * (so the summary row must offer "Réinitialiser") while the bulk action must stay inert (a
 	 * dialog naming an error as if it were a set of transactions is worse than a dead button).
 	 */
+	/**
+	 * The two column sets, switched by the selection alone.
+	 *
+	 * Selected — `1fr / 140 / 190 / 110` — is TODAY'S set, byte for byte. The unselected set is the
+	 * one that gains air; nothing is taken away when the panel opens, so a user who has learnt where
+	 * a column sits does not find it moved. The chip cap (110px, in `TagChips`) is the same figure in
+	 * both: the column breathes, the chip does not grow.
+	 *
+	 * The narrowing is strictly HORIZONTAL and carries no transition on purpose. Animating it over
+	 * 160ms moves the targets during the exact window in which a user chains a second gesture, and
+	 * `prefers-reduced-motion` would have to remove it anyway — two behaviours specified for one
+	 * aesthetic gain. The row aimed at therefore stays on its own line at its exact ordinate.
+	 */
+	const detailOpen = $derived(data.selectedTransaction !== null);
+	const colCategory = $derived(detailOpen ? 'w-[140px]' : 'w-[160px]');
+	const colTags = $derived(detailOpen ? 'w-[190px]' : 'w-[240px]');
+	const colAmount = $derived(detailOpen ? 'w-[110px]' : 'w-[130px]');
+
+	/**
+	 * How a row says it is the selected one.
+	 *
+	 * NOT `aria-selected`. That attribute is only supported on `option`, `row` inside a
+	 * `grid`/`treegrid`, `tab`, `columnheader`, `rowheader` and `gridcell`. This is a plain
+	 * `<table>`: a `<tr>` does get the implicit `row` role, but outside a grid that role does not
+	 * support `aria-selected`, so setting it is invalid ARIA that assistive technology may ignore or
+	 * misreport. Adopting `role="grid"` to make it valid is not a one-attribute change — it obliges
+	 * the full grid keyboard model (arrows cell to cell, Home/End, one tab stop with roving
+	 * tabindex) for the entire transactions table, changing how every existing user navigates it.
+	 *
+	 * `aria-current="true"` is what is actually true here: selecting a row is a NAVIGATION (the label
+	 * is an `<a href="?selected=id">` and the server answers with `selectedTransaction`), and
+	 * `aria-current` means exactly "the current item within a set of related items". It is a global
+	 * attribute, valid on any element.
+	 *
+	 * The 3px black left edge is the non-chromatic half of the signal, and it is the half the design
+	 * actually protects: it doubles the zinc-50 fill so selection never rests on a shade of grey.
+	 * Unselected rows carry the same 3px in `transparent` — without it, selecting a row would shift
+	 * every cell 3px to the right, which is the horizontal twin of the vertical jump this whole
+	 * reflow exists to avoid.
+	 */
+	function rowStateClass(id: string): string {
+		return data.selectedTransaction?.id === id
+			? 'border-l-[3px] border-l-zinc-900 bg-zinc-50 ring-1 ring-zinc-900/10 ring-inset'
+			: 'border-l-[3px] border-l-transparent hover:bg-zinc-50/50';
+	}
+
 	const anyFilterActive = $derived(
 		Boolean(
 			data.filters.category ||
@@ -601,6 +647,47 @@
 			{ page: String(data.pagination.page), selected: id },
 			{ keepIds: true }
 		);
+	// Closing the panel is a navigation dropping `selected`, not a local flag: the selection lives in
+	// the URL, so a component-level `open = false` would be undone by the next reload or Back. The
+	// param is OMITTED rather than emitted empty — `{ selected: '' }` would put a bare `selected=` in
+	// the address bar, which reads as a broken link even though the server treats it as no selection.
+	const buildDeselectedHref = () =>
+		buildTransactionsHref(data.filters, { page: String(data.pagination.page) }, { keepIds: true });
+	/**
+	 * The row's own link toggles. A second click on the already-selected row closes the panel, which
+	 * is one of the four closing gestures; the other three are the header cross, Escape from inside
+	 * the panel, and — deliberately — NOT a click beside it. The panel is not modal, so it has no
+	 * outside; a click-away would close it every time the user reached for anything else on the page.
+	 */
+	const buildRowHref = (id: string) =>
+		data.selectedTransaction?.id === id ? buildDeselectedHref() : buildSelectedHref(id);
+
+	/**
+	 * Closing returns focus to the row the user came from.
+	 *
+	 * `goto` runs SvelteKit's `reset_focus()`, which lands on `<body>` — so without this the next Tab
+	 * restarts at the top of the page, several dozen stops away from where the user was working. The
+	 * row is looked up AFTER the navigation because the panel that held focus no longer exists.
+	 */
+	async function closeDetail() {
+		const id = data.selectedTransaction?.id;
+		await goto(resolve(buildDeselectedHref()), { noScroll: true });
+		if (id) document.querySelector<HTMLElement>(`[data-testid="tx-row-${id}"] a`)?.focus();
+	}
+
+	/**
+	 * Escape closes the panel, wherever focus sits inside it.
+	 *
+	 * Bound to the `<aside>` rather than to `window` on purpose: a control inside the panel gets the
+	 * key first and may consume it. TagPicker calls `stopPropagation()` on Escape while its list is
+	 * open, and that is exactly what makes the layering work — the first Escape closes the picker,
+	 * the second reaches here and closes the panel. A window-level listener would close both at once.
+	 */
+	function onDetailKeydown(event: KeyboardEvent) {
+		if (event.key !== 'Escape' || event.defaultPrevented) return;
+		void closeDetail();
+	}
+
 	const buildExportHref = () => buildTransactionsExportHref(data.filters);
 
 	function openRuleModal(
@@ -1467,7 +1554,20 @@
 		{/if}
 
 		<!-- ============ TABLEAU + PANNEAU DÉTAIL — DESKTOP ============ -->
-		<div class="hidden gap-6 lg:grid xl:grid-cols-[1fr_400px]">
+		<!-- Nothing occupies the place of nothing: with no selection there is no second column at all,
+		     and the table takes the width. `items-start` rather than the grid default `stretch`,
+		     because a panel taller than a six-row table must not stretch the table to match — a table
+		     claiming 520px of height for six rows is a layout lie, and the white space belongs to the
+		     left instead.
+		     The two-column state stays at `xl` (1280px) deliberately: below ~1120px the narrowed
+		     table's label column drops under 300px and stops being readable, and today's `lg`-stacks-
+		     under behaviour already avoids that. The design flags a modal side sheet for that range and
+		     does not draw it; it is in the backlog, not here. -->
+		<div
+			class="hidden items-start gap-6 lg:grid {data.selectedTransaction
+				? 'xl:grid-cols-[1fr_400px]'
+				: ''}"
+		>
 			<!-- Section tableau -->
 			<section class="rounded-lg border border-zinc-200 bg-white">
 				<!-- En-tête tableau : pagination -->
@@ -1512,7 +1612,7 @@
 								{:else}
 									<tr>
 										<th class="px-4 py-2.5">{m.transactions_table_label()}</th>
-										<th class="px-4 py-2.5">{m.transactions_table_category()}</th>
+										<th class="{colCategory} px-4 py-2.5">{m.transactions_table_category()}</th>
 										<!-- A dedicated column, not chips at the end of the label. The design grants the
 										     row-chips exception to "a table shows only what you scan at a glance" ONLY
 										     against this counterpart: "colonne dédiée de 190 px (pas de puce en fin de
@@ -1520,8 +1620,12 @@
 										     the left column ragged, and the eye then hunts for them instead of running
 										     down one vertical band. Rendered even when the user has no tags, so rows do
 										     not change shape the moment a first tag appears. -->
-										<th class="w-[190px] px-4 py-2.5">{m.transactions_table_tags()}</th>
-										<th class="px-4 py-2.5 text-right">{m.transactions_table_amount()}</th>
+										<th class="{colTags} px-4 py-2.5" data-testid="tags-header-cell"
+											>{m.transactions_table_tags()}</th
+										>
+										<th class="{colAmount} px-4 py-2.5 text-right"
+											>{m.transactions_table_amount()}</th
+										>
 									</tr>
 								{/if}
 							</thead>
@@ -1531,13 +1635,12 @@
 										{#if classificationMode}
 											<!-- Ligne mode classement -->
 											<tr
-												class="border-b border-zinc-100 last:border-0 {data.selectedTransaction
-													?.id === tx.id
-													? 'bg-zinc-50 ring-1 ring-zinc-900/10 ring-inset'
-													: 'hover:bg-zinc-50/50'}"
+												class="border-b border-zinc-100 last:border-0 {rowStateClass(tx.id)}"
+												data-testid="tx-row-{tx.id}"
+												aria-current={data.selectedTransaction?.id === tx.id ? 'true' : undefined}
 											>
 												<td class="px-4 py-3 align-top">
-													<a href={resolve(buildSelectedHref(tx.id))} class="block">
+													<a href={resolve(buildRowHref(tx.id))} class="block">
 														<span
 															class="line-clamp-2 font-medium text-zinc-900 underline-offset-2 hover:underline"
 															>{tx.label}</span
@@ -1638,15 +1741,14 @@
 										{:else}
 											<!-- Ligne mode normal -->
 											<tr
-												class="border-b border-zinc-100 last:border-0 {data.selectedTransaction
-													?.id === tx.id
-													? 'bg-zinc-50 ring-1 ring-zinc-900/10 ring-inset'
-													: 'hover:bg-zinc-50/50'}"
+												class="border-b border-zinc-100 last:border-0 {rowStateClass(tx.id)}"
+												data-testid="tx-row-{tx.id}"
+												aria-current={data.selectedTransaction?.id === tx.id ? 'true' : undefined}
 											>
 												<td class="max-w-[260px] px-4 py-3">
 													<a
 														class="line-clamp-2 font-medium text-zinc-900 underline-offset-2 hover:underline"
-														href={resolve(buildSelectedHref(tx.id))}>{tx.label}</a
+														href={resolve(buildRowHref(tx.id))}>{tx.label}</a
 													>
 													<p class="mt-0.5 text-xs text-zinc-400">{formatDate(tx.date)}</p>
 												</td>
@@ -1670,15 +1772,15 @@
 												     figure the design specifies is the figure the browser uses. Padding sits on
 												     the child rather than the cell so the 190 stays the whole column box (border-
 												     box), with no "190 minus 2rem" arithmetic to get wrong later. -->
-												<td class="w-[190px] p-0">
-													<div class="w-[190px] px-4 py-3">
+												<td class="{colTags} p-0">
+													<div class="{colTags} px-4 py-3" data-testid="tags-cell">
 														{#if tx.tags.length > 0}
 															<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
 														{/if}
 													</div>
 												</td>
 												<td
-													class="px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
+													class="{colAmount} px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
 													'income'
 														? 'text-emerald-700'
 														: 'text-rose-600'}"
@@ -1714,397 +1816,464 @@
 				</div>
 			</section>
 
-			<!-- Panneau détail -->
-			<aside class="rounded-lg border border-zinc-200 bg-white">
-				<div class="border-b border-zinc-200 px-4 py-3">
-					<h2 class="text-base font-semibold">{m.transactions_detail_heading()}</h2>
-				</div>
-				{#if data.selectedTransaction}
-					<div class="space-y-0">
-						<!-- En-tête détail -->
-						<div class="border-b border-zinc-100 px-4 py-3">
-							<div class="flex items-start justify-between gap-2">
-								<div>
-									<p class="text-sm text-zinc-400">{formatDate(data.selectedTransaction.date)}</p>
-									<p class="mt-0.5 text-sm font-semibold text-zinc-900">
-										{data.selectedTransaction.label}
-									</p>
-									<p
-										class="mt-1 text-xl font-semibold tabular-nums {data.selectedTransaction
-											.type === 'income'
-											? 'text-emerald-700'
-											: 'text-rose-600'}"
-									>
-										{formatCents(data.selectedTransaction.amountCents)}
-									</p>
-								</div>
-								<Button
-									variant="ghost-danger"
-									size="sm"
-									onclick={() => openDeleteConfirm(data.selectedTransaction!)}
+			<!-- Panneau détail — on demand only. There is no "select a transaction" placeholder and no
+			     empty column: a column announcing its own emptiness is still an occupied column.
+			     `position: sticky` keeps the panel in view while a long list scrolls, and it stays at
+			     the TOP of its column rather than following the selected row — a card moving vertically
+			     during scroll is unreadable.
+			     `max-height` + `overflow-y: auto` is amendment 3, and it is load-bearing rather than
+			     defensive: the panel holds six sections and exceeds 800px with them open. `sticky`
+			     alone pins the top edge, so everything past the fold would simply be unreachable —
+			     clipped, with no scroll of its own and no page scroll that can bring it back. The
+			     element that scrolls is the same element that sticks, which is legal: an overflow
+			     ANCESTOR would break stickiness, an overflow self does not. -->
+			{#if data.selectedTransaction}
+				<div
+					class="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto"
+					data-testid="detail-sticky"
+				>
+					<!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+					<!-- The rule guards against a non-interactive element BEING the control. This one is
+					     not: it listens for Escape as a container, on the keys its own focusable children
+					     produce, and adds no target a pointer user or a screen-reader user is expected to
+					     find. Every gesture that closes the panel has its own real control (the header
+					     cross, the row link); this handler only lets the keyboard user out from wherever
+					     they already are. A window-level listener would close the panel from anywhere on
+					     the page, including the filter bar, which is not what the design asks for. -->
+					<aside
+						class="rounded-lg border border-zinc-200 bg-white"
+						aria-label={m.transactions_detail_region_aria()}
+						data-testid="transaction-detail"
+						onkeydown={onDetailKeydown}
+					>
+						<div
+							class="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-zinc-200 bg-white px-4 py-3"
+						>
+							<h2 class="text-base font-semibold">{m.transactions_detail_heading()}</h2>
+							<!-- 28px of visible glyph inside a 44x44 target, per the design's own floor. It is a
+							     link rather than a button because closing IS a navigation: it drops `?selected=`,
+							     so Back returns to the open panel and the state survives a reload. -->
+							<a
+								href={resolve(buildDeselectedHref())}
+								aria-label={m.transactions_detail_close_aria()}
+								data-sveltekit-noscroll
+								onclick={(event) => {
+									// The href is what survives with JS off and what a middle-click uses; the handler
+									// exists only so focus can be put back on the row afterwards, which a plain link
+									// navigation cannot do.
+									if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0)
+										return;
+									event.preventDefault();
+									void closeDetail();
+								}}
+								class="-mr-2 inline-flex h-11 w-11 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
+							>
+								<svg
+									class="h-7 w-7"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.5"
+									aria-hidden="true"
 								>
-									{m.common_delete()}
-								</Button>
-							</div>
+									<path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
+								</svg>
+							</a>
 						</div>
-
-						<!-- Bloc proposition (mode classement uniquement) : toujours affiché, pré-rempli
-						     avec la suggestion de règle ou "Non catégorisé" par défaut sinon (jamais masqué). -->
-						{#if classificationMode}
-							<TransactionProposalCard
-								transactionId={data.selectedTransaction.id}
-								suggestion={data.selectedSuggestion}
-								categoryOptions={data.categoryOptions}
-								natureOptions={data.natureOptions}
-								variant="panel"
-								{getCategoryColor}
-								{displayCategory}
-								{formatNatureLabel}
-								acceptError={form?.acceptError}
-								onAccepted={handleAccepted}
-								onIgnore={handleIgnore}
-								onCreateRule={(category, nature) =>
-									openRuleModal(data.selectedTransaction!.id, data.selectedTransaction!.label, {
-										category,
-										nature
-									})}
-							/>
-						{/if}
-
-						<div class="space-y-4 px-4 py-4">
-							<!-- Résumé rapide -->
-							<dl class="grid gap-2 text-sm">
-								<div class="flex justify-between gap-3">
-									<dt class="text-zinc-500">{m.transactions_summary_source()}</dt>
-									<dd class="text-right font-medium">{data.selectedTransaction.source}</dd>
-								</div>
-								<div class="flex justify-between gap-3">
-									<dt class="text-zinc-500">{m.transactions_summary_type()}</dt>
-									<dd class="text-right">
-										<span
-											class="rounded px-1.5 py-0.5 text-xs font-semibold
-											{data.selectedTransaction.type === 'income'
-												? 'bg-emerald-50 text-emerald-700'
-												: 'bg-rose-50 text-rose-700'}"
+						<div class="space-y-0">
+							<!-- En-tête détail -->
+							<div class="border-b border-zinc-100 px-4 py-3">
+								<div class="flex items-start justify-between gap-2">
+									<div>
+										<p class="text-sm text-zinc-400">{formatDate(data.selectedTransaction.date)}</p>
+										<p class="mt-0.5 text-sm font-semibold text-zinc-900">
+											{data.selectedTransaction.label}
+										</p>
+										<p
+											class="mt-1 text-xl font-semibold tabular-nums {data.selectedTransaction
+												.type === 'income'
+												? 'text-emerald-700'
+												: 'text-rose-600'}"
 										>
-											{data.selectedTransaction.type === 'income'
-												? m.nature_income()
-												: m.transactions_type_expense()}
-										</span>
-									</dd>
-								</div>
-								<div class="flex justify-between gap-3">
-									<dt class="text-zinc-500">{m.transactions_summary_nature()}</dt>
-									<dd class="text-right">
-										<span class="text-xs text-zinc-600"
-											>{formatNatureLabel(data.selectedTransaction.nature)}</span
-										>
-										<span class="ml-1 text-[11px] text-zinc-400"
-											>({formatNatureSource(data.selectedTransaction.natureSource)})</span
-										>
-									</dd>
-								</div>
-							</dl>
-
-							<!-- Catégorie manuelle -->
-							<section class="rounded-xl border border-zinc-200 p-3">
-								<h3 class="text-sm font-semibold">{m.transactions_manual_category_heading()}</h3>
-								<form class="mt-3 grid gap-2" method="POST" action="?/saveManualCategory">
-									<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
-									<input type="hidden" name="manualCategory" value={manualCategoryValue} />
-									<label class="grid gap-1 text-sm font-medium text-zinc-600">
-										<span class="sr-only">{m.budgets_field_category()}</span>
-										<Combobox
-											value={manualCategoryValue}
-											options={[
-												{ value: '', label: m.transactions_automatic() },
-												...data.categoryOptions.map((c) => ({
-													value: c,
-													label: displayCategory(c)
-												}))
-											]}
-											placeholder={m.transactions_automatic()}
-											ariaLabel={m.transactions_manual_category_heading()}
-											onValueChange={(v) => {
-												manualCategoryValue = v;
-											}}
-										/>
-									</label>
-									{#if form?.manualCategoryError}
-										<p class="text-xs text-rose-600">{form.manualCategoryError}</p>
-									{/if}
-									<div class="flex flex-wrap gap-2">
-										<Button type="submit" size="sm" disabled={!categoryIsDirty}
-											>{m.common_save()}</Button
-										>
-										{#if data.selectedTransaction.manualCategory}
-											<Button
-												type="submit"
-												variant="secondary"
-												size="sm"
-												name="manualCategory"
-												value="">{m.transactions_reset()}</Button
-											>
-										{/if}
+											{formatCents(data.selectedTransaction.amountCents)}
+										</p>
 									</div>
-								</form>
-								<p class="mt-2">
-									<TapLink href="/categories">{m.transactions_manage_categories_link()}</TapLink>
-								</p>
-							</section>
-
-							<!-- Nature manuelle -->
-							<section class="rounded-xl border border-zinc-200 p-3">
-								<h3 class="text-sm font-semibold">{m.transactions_manual_nature_heading()}</h3>
-								<form class="mt-3 grid gap-2" method="POST" action="?/saveManualNature">
-									<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
-									<input type="hidden" name="manualNature" value={manualNatureValue} />
-									<label class="grid gap-1 text-sm font-medium text-zinc-600">
-										{m.categories_table_nature()}
-										<Select
-											value={manualNatureValue}
-											options={[
-												{ value: '', label: m.categories_nature_none() },
-												...data.natureOptions.map((n) => ({
-													value: n,
-													label: formatNatureLabel(n)
-												}))
-											]}
-											ariaLabel={m.transactions_manual_nature_heading()}
-											onValueChange={(v) => {
-												manualNatureValue = v;
-											}}
-										/>
-									</label>
-									{#if form?.manualNatureError}
-										<p class="text-xs text-rose-600">{form.manualNatureError}</p>
-									{/if}
-									<div class="flex flex-wrap gap-2">
-										<Button type="submit" size="sm" disabled={!natureIsDirty}
-											>{m.common_save()}</Button
-										>
-										{#if data.selectedTransaction.manualNature}
-											<Button
-												type="submit"
-												variant="secondary"
-												size="sm"
-												name="manualNature"
-												value="">{m.transactions_reset()}</Button
-											>
-										{/if}
-									</div>
-								</form>
-							</section>
-
-							<!-- Étiquettes -->
-							<TransactionTagsEditor
-								transactionId={data.selectedTransaction.id}
-								tags={data.selectedTransaction.tags}
-								allTags={allTagOptions}
-								error={form?.tagsError}
-							/>
-
-							<!-- Détails bancaires -->
-							<div class="rounded-xl border border-zinc-200">
-								<h3 class="m-0">
-									<button
-										type="button"
-										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
-										onclick={() => toggleSection('bankFields')}
-										aria-expanded={openSections.has('bankFields')}
+									<Button
+										variant="ghost-danger"
+										size="sm"
+										onclick={() => openDeleteConfirm(data.selectedTransaction!)}
 									>
-										<span class="text-sm font-semibold"
-											>{m.transactions_bank_details_heading()}</span
-										>
-										<svg
-											aria-hidden="true"
-											class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
-												'bankFields'
-											)
-												? 'rotate-180'
-												: ''}"
-											viewBox="0 0 20 20"
-											fill="none"
-										>
-											<path
-												d="M5.5 7.5 10 12l4.5-4.5"
-												stroke="currentColor"
-												stroke-width="1.5"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											/>
-										</svg>
-									</button>
-								</h3>
-								{#if openSections.has('bankFields')}
-									<div class="border-t border-zinc-100 px-4 py-4">
-										{#if data.selectedTransaction.bankFields.length > 0 || data.selectedTransaction.account || data.selectedTransaction.bankOperationType}
-											<dl class="grid gap-2 text-sm">
-												{#if data.selectedTransaction.account}
-													<div>
-														<dt class="font-medium text-zinc-700">
-															{m.transactions_account_label()}
-														</dt>
-														<dd class="mt-0.5 text-zinc-600">
-															{#if data.selectedTransaction.account.netWorthAccountName}
-																{data.selectedTransaction.account.netWorthAccountName}
-															{:else}
-																{data.selectedTransaction.account.name} · {data.selectedTransaction
-																	.account.source}
-															{/if}
-														</dd>
-													</div>
-												{/if}
-												{#if data.selectedTransaction.bankOperationType}
-													<div>
-														<dt class="font-medium text-zinc-700">
-															{m.transactions_operation_type_label()}
-														</dt>
-														<dd class="mt-0.5 text-zinc-600">
-															{data.selectedTransaction.bankOperationType}
-														</dd>
-													</div>
-												{/if}
-												{#each data.selectedTransaction.bankFields as field (field.label)}
-													<div>
-														<dt class="font-medium text-zinc-700">{field.label}</dt>
-														<dd class="mt-0.5 text-zinc-600">{field.value}</dd>
-													</div>
-												{/each}
-											</dl>
-										{:else}
-											<p class="text-sm text-zinc-500">{m.transactions_no_bank_details()}</p>
-										{/if}
-									</div>
-								{/if}
+										{m.common_delete()}
+									</Button>
+								</div>
 							</div>
 
-							<!-- Traçabilité -->
-							<div class="rounded-xl border border-zinc-200">
-								<h3 class="m-0">
-									<button
-										type="button"
-										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
-										onclick={() => toggleSection('traceability')}
-										aria-expanded={openSections.has('traceability')}
-									>
-										<span class="text-sm font-semibold"
-											>{m.transactions_traceability_heading()}</span
-										>
-										<svg
-											aria-hidden="true"
-											class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
-												'traceability'
-											)
-												? 'rotate-180'
-												: ''}"
-											viewBox="0 0 20 20"
-											fill="none"
-										>
-											<path
-												d="M5.5 7.5 10 12l4.5-4.5"
-												stroke="currentColor"
-												stroke-width="1.5"
-												stroke-linecap="round"
-												stroke-linejoin="round"
+							<!-- Bloc proposition (mode classement uniquement) : toujours affiché, pré-rempli
+						     avec la suggestion de règle ou "Non catégorisé" par défaut sinon (jamais masqué). -->
+							{#if classificationMode}
+								<TransactionProposalCard
+									transactionId={data.selectedTransaction.id}
+									suggestion={data.selectedSuggestion}
+									categoryOptions={data.categoryOptions}
+									natureOptions={data.natureOptions}
+									variant="panel"
+									{getCategoryColor}
+									{displayCategory}
+									{formatNatureLabel}
+									acceptError={form?.acceptError}
+									onAccepted={handleAccepted}
+									onIgnore={handleIgnore}
+									onCreateRule={(category, nature) =>
+										openRuleModal(data.selectedTransaction!.id, data.selectedTransaction!.label, {
+											category,
+											nature
+										})}
+								/>
+							{/if}
+
+							<div class="space-y-4 px-4 py-4">
+								<!-- Résumé rapide -->
+								<dl class="grid gap-2 text-sm">
+									<div class="flex justify-between gap-3">
+										<dt class="text-zinc-500">{m.transactions_summary_source()}</dt>
+										<dd class="text-right font-medium">{data.selectedTransaction.source}</dd>
+									</div>
+									<div class="flex justify-between gap-3">
+										<dt class="text-zinc-500">{m.transactions_summary_type()}</dt>
+										<dd class="text-right">
+											<span
+												class="rounded px-1.5 py-0.5 text-xs font-semibold
+											{data.selectedTransaction.type === 'income'
+													? 'bg-emerald-50 text-emerald-700'
+													: 'bg-rose-50 text-rose-700'}"
+											>
+												{data.selectedTransaction.type === 'income'
+													? m.nature_income()
+													: m.transactions_type_expense()}
+											</span>
+										</dd>
+									</div>
+									<div class="flex justify-between gap-3">
+										<dt class="text-zinc-500">{m.transactions_summary_nature()}</dt>
+										<dd class="text-right">
+											<span class="text-xs text-zinc-600"
+												>{formatNatureLabel(data.selectedTransaction.nature)}</span
+											>
+											<span class="ml-1 text-[11px] text-zinc-400"
+												>({formatNatureSource(data.selectedTransaction.natureSource)})</span
+											>
+										</dd>
+									</div>
+								</dl>
+
+								<!-- Catégorie manuelle -->
+								<section class="rounded-xl border border-zinc-200 p-3">
+									<h3 class="text-sm font-semibold">{m.transactions_manual_category_heading()}</h3>
+									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualCategory">
+										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
+										<input type="hidden" name="manualCategory" value={manualCategoryValue} />
+										<label class="grid gap-1 text-sm font-medium text-zinc-600">
+											<span class="sr-only">{m.budgets_field_category()}</span>
+											<Combobox
+												value={manualCategoryValue}
+												options={[
+													{ value: '', label: m.transactions_automatic() },
+													...data.categoryOptions.map((c) => ({
+														value: c,
+														label: displayCategory(c)
+													}))
+												]}
+												placeholder={m.transactions_automatic()}
+												ariaLabel={m.transactions_manual_category_heading()}
+												onValueChange={(v) => {
+													manualCategoryValue = v;
+												}}
 											/>
-										</svg>
-									</button>
-								</h3>
-								{#if openSections.has('traceability')}
-									<div class="border-t border-zinc-100 px-4 py-4">
-										<dl class="grid gap-2 text-sm">
-											{#if data.selectedTransaction.importBatch}
-												<div>
-													<dt class="font-medium text-zinc-700">{m.transactions_import_label()}</dt>
-													<dd class="mt-0.5 text-zinc-600">
-														<a
-															class="text-zinc-700 underline-offset-2 hover:underline"
-															href={resolve(
-																`/transactions?importBatch=${data.selectedTransaction.importBatch.id}` as `/transactions?${string}`
-															)}
-														>
-															{data.selectedTransaction.importBatch.fileName ??
-																m.imports_default_file_name()}
-														</a>
-													</dd>
-												</div>
+										</label>
+										{#if form?.manualCategoryError}
+											<p class="text-xs text-rose-600">{form.manualCategoryError}</p>
+										{/if}
+										<div class="flex flex-wrap gap-2">
+											<Button type="submit" size="sm" disabled={!categoryIsDirty}
+												>{m.common_save()}</Button
+											>
+											{#if data.selectedTransaction.manualCategory}
+												<Button
+													type="submit"
+													variant="secondary"
+													size="sm"
+													name="manualCategory"
+													value="">{m.transactions_reset()}</Button
+												>
 											{/if}
-											{#if data.selectedTransaction.reference}
+										</div>
+									</form>
+									<p class="mt-2">
+										<TapLink href="/categories">{m.transactions_manage_categories_link()}</TapLink>
+									</p>
+								</section>
+
+								<!-- Nature manuelle -->
+								<section class="rounded-xl border border-zinc-200 p-3">
+									<h3 class="text-sm font-semibold">{m.transactions_manual_nature_heading()}</h3>
+									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualNature">
+										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
+										<input type="hidden" name="manualNature" value={manualNatureValue} />
+										<label class="grid gap-1 text-sm font-medium text-zinc-600">
+											{m.categories_table_nature()}
+											<Select
+												value={manualNatureValue}
+												options={[
+													{ value: '', label: m.categories_nature_none() },
+													...data.natureOptions.map((n) => ({
+														value: n,
+														label: formatNatureLabel(n)
+													}))
+												]}
+												ariaLabel={m.transactions_manual_nature_heading()}
+												onValueChange={(v) => {
+													manualNatureValue = v;
+												}}
+											/>
+										</label>
+										{#if form?.manualNatureError}
+											<p class="text-xs text-rose-600">{form.manualNatureError}</p>
+										{/if}
+										<div class="flex flex-wrap gap-2">
+											<Button type="submit" size="sm" disabled={!natureIsDirty}
+												>{m.common_save()}</Button
+											>
+											{#if data.selectedTransaction.manualNature}
+												<Button
+													type="submit"
+													variant="secondary"
+													size="sm"
+													name="manualNature"
+													value="">{m.transactions_reset()}</Button
+												>
+											{/if}
+										</div>
+									</form>
+								</section>
+
+								<!-- Étiquettes -->
+								<TransactionTagsEditor
+									transactionId={data.selectedTransaction.id}
+									tags={data.selectedTransaction.tags}
+									allTags={allTagOptions}
+									error={form?.tagsError}
+								/>
+
+								<!-- Détails bancaires -->
+								<div class="rounded-xl border border-zinc-200">
+									<h3 class="m-0">
+										<button
+											type="button"
+											class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
+											onclick={() => toggleSection('bankFields')}
+											aria-expanded={openSections.has('bankFields')}
+										>
+											<span class="text-sm font-semibold"
+												>{m.transactions_bank_details_heading()}</span
+											>
+											<svg
+												aria-hidden="true"
+												class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
+													'bankFields'
+												)
+													? 'rotate-180'
+													: ''}"
+												viewBox="0 0 20 20"
+												fill="none"
+											>
+												<path
+													d="M5.5 7.5 10 12l4.5-4.5"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												/>
+											</svg>
+										</button>
+									</h3>
+									{#if openSections.has('bankFields')}
+										<div class="border-t border-zinc-100 px-4 py-4">
+											{#if data.selectedTransaction.bankFields.length > 0 || data.selectedTransaction.account || data.selectedTransaction.bankOperationType}
+												<dl class="grid gap-2 text-sm">
+													{#if data.selectedTransaction.account}
+														<div>
+															<dt class="font-medium text-zinc-700">
+																{m.transactions_account_label()}
+															</dt>
+															<dd class="mt-0.5 text-zinc-600">
+																{#if data.selectedTransaction.account.netWorthAccountName}
+																	{data.selectedTransaction.account.netWorthAccountName}
+																{:else}
+																	{data.selectedTransaction.account.name} · {data
+																		.selectedTransaction.account.source}
+																{/if}
+															</dd>
+														</div>
+													{/if}
+													{#if data.selectedTransaction.bankOperationType}
+														<div>
+															<dt class="font-medium text-zinc-700">
+																{m.transactions_operation_type_label()}
+															</dt>
+															<dd class="mt-0.5 text-zinc-600">
+																{data.selectedTransaction.bankOperationType}
+															</dd>
+														</div>
+													{/if}
+													{#each data.selectedTransaction.bankFields as field (field.label)}
+														<div>
+															<dt class="font-medium text-zinc-700">{field.label}</dt>
+															<dd class="mt-0.5 text-zinc-600">{field.value}</dd>
+														</div>
+													{/each}
+												</dl>
+											{:else}
+												<p class="text-sm text-zinc-500">{m.transactions_no_bank_details()}</p>
+											{/if}
+										</div>
+									{/if}
+								</div>
+
+								<!-- Traçabilité -->
+								<div class="rounded-xl border border-zinc-200">
+									<h3 class="m-0">
+										<button
+											type="button"
+											class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
+											onclick={() => toggleSection('traceability')}
+											aria-expanded={openSections.has('traceability')}
+										>
+											<span class="text-sm font-semibold"
+												>{m.transactions_traceability_heading()}</span
+											>
+											<svg
+												aria-hidden="true"
+												class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
+													'traceability'
+												)
+													? 'rotate-180'
+													: ''}"
+												viewBox="0 0 20 20"
+												fill="none"
+											>
+												<path
+													d="M5.5 7.5 10 12l4.5-4.5"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												/>
+											</svg>
+										</button>
+									</h3>
+									{#if openSections.has('traceability')}
+										<div class="border-t border-zinc-100 px-4 py-4">
+											<dl class="grid gap-2 text-sm">
+												{#if data.selectedTransaction.importBatch}
+													<div>
+														<dt class="font-medium text-zinc-700">
+															{m.transactions_import_label()}
+														</dt>
+														<dd class="mt-0.5 text-zinc-600">
+															<a
+																class="text-zinc-700 underline-offset-2 hover:underline"
+																href={resolve(
+																	`/transactions?importBatch=${data.selectedTransaction.importBatch.id}` as `/transactions?${string}`
+																)}
+															>
+																{data.selectedTransaction.importBatch.fileName ??
+																	m.imports_default_file_name()}
+															</a>
+														</dd>
+													</div>
+												{/if}
+												{#if data.selectedTransaction.reference}
+													<div>
+														<dt class="font-medium text-zinc-700">
+															{m.transactions_reference_label()}
+														</dt>
+														<dd class="mt-0.5 text-zinc-600">
+															{data.selectedTransaction.reference}
+														</dd>
+													</div>
+												{/if}
+												{#if data.selectedTransaction.dedupeKey}
+													<div>
+														<dt class="font-medium text-zinc-700">
+															{m.transactions_dedupe_label()}
+														</dt>
+														<dd class="mt-0.5 text-zinc-600">
+															{data.selectedTransaction.dedupeKey}
+														</dd>
+													</div>
+												{/if}
 												<div>
 													<dt class="font-medium text-zinc-700">
-														{m.transactions_reference_label()}
+														{m.transactions_created_label()}
 													</dt>
-													<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.reference}</dd>
+													<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.createdAt}</dd>
 												</div>
-											{/if}
-											{#if data.selectedTransaction.dedupeKey}
 												<div>
-													<dt class="font-medium text-zinc-700">{m.transactions_dedupe_label()}</dt>
-													<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.dedupeKey}</dd>
+													<dt class="font-medium text-zinc-700">
+														{m.transactions_updated_label()}
+													</dt>
+													<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.updatedAt}</dd>
 												</div>
-											{/if}
-											<div>
-												<dt class="font-medium text-zinc-700">{m.transactions_created_label()}</dt>
-												<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.createdAt}</dd>
-											</div>
-											<div>
-												<dt class="font-medium text-zinc-700">{m.transactions_updated_label()}</dt>
-												<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.updatedAt}</dd>
-											</div>
-										</dl>
-									</div>
-								{/if}
-							</div>
+											</dl>
+										</div>
+									{/if}
+								</div>
 
-							<!-- Notes -->
-							<div class="rounded-xl border border-zinc-200">
-								<h3 class="m-0">
-									<button
-										type="button"
-										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
-										onclick={() => toggleSection('notes')}
-										aria-expanded={openSections.has('notes')}
-									>
-										<span class="text-sm font-semibold">{m.transactions_notes_heading()}</span>
-										<svg
-											aria-hidden="true"
-											class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
-												'notes'
-											)
-												? 'rotate-180'
-												: ''}"
-											viewBox="0 0 20 20"
-											fill="none"
+								<!-- Notes -->
+								<div class="rounded-xl border border-zinc-200">
+									<h3 class="m-0">
+										<button
+											type="button"
+											class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
+											onclick={() => toggleSection('notes')}
+											aria-expanded={openSections.has('notes')}
 										>
-											<path
-												d="M5.5 7.5 10 12l4.5-4.5"
-												stroke="currentColor"
-												stroke-width="1.5"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											/>
-										</svg>
-									</button>
-								</h3>
-								{#if openSections.has('notes')}
-									<div class="border-t border-zinc-100 px-4 py-4">
-										{#if data.selectedTransaction.notes}
-											<p class="text-sm text-zinc-600">{data.selectedTransaction.notes}</p>
-										{:else}
-											<p class="text-sm text-zinc-400">{m.transactions_no_notes()}</p>
-										{/if}
-									</div>
-								{/if}
+											<span class="text-sm font-semibold">{m.transactions_notes_heading()}</span>
+											<svg
+												aria-hidden="true"
+												class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
+													'notes'
+												)
+													? 'rotate-180'
+													: ''}"
+												viewBox="0 0 20 20"
+												fill="none"
+											>
+												<path
+													d="M5.5 7.5 10 12l4.5-4.5"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												/>
+											</svg>
+										</button>
+									</h3>
+									{#if openSections.has('notes')}
+										<div class="border-t border-zinc-100 px-4 py-4">
+											{#if data.selectedTransaction.notes}
+												<p class="text-sm text-zinc-600">{data.selectedTransaction.notes}</p>
+											{:else}
+												<p class="text-sm text-zinc-400">{m.transactions_no_notes()}</p>
+											{/if}
+										</div>
+									{/if}
+								</div>
 							</div>
 						</div>
-					</div>
-				{:else}
-					<p class="px-4 py-6 text-sm text-zinc-500">
-						{m.transactions_select_prompt()}
-					</p>
-				{/if}
-			</aside>
+					</aside>
+				</div>
+			{/if}
 		</div>
 
 		<!-- ============ LISTE — MOBILE ============ -->

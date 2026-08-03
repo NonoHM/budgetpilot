@@ -175,8 +175,13 @@ describe('tag chips on the transactions list rows', () => {
 					makeTransaction({ id: 'tx-one', label: 'Une étiquette', tags: [LONG_TAGS[0]] }),
 					makeTransaction({ id: 'tx-two', label: 'Deux étiquettes', tags: LONG_TAGS.slice(0, 2) }),
 					makeTransaction({ id: 'tx-three', label: 'Trois étiquettes', tags: LONG_TAGS })
-				],
-				selectedTransaction: null
+				]
+				// The selection from `baseData` is KEPT here, deliberately: there are now two column
+				// sets (240px unselected, 190px selected), and 190 is the one this test is about.
+				// It is the narrower of the two and therefore the only one where wrap and nowrap can
+				// differ at the 110px chip cap — measuring the roomy set would let the defect this
+				// test was written for back in. Its id matches no row in this fixture, so no row is
+				// marked current and the heights being compared stay strictly comparable.
 			}),
 			form: null
 		});
