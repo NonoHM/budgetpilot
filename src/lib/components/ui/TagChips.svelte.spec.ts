@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import TagChips from './TagChips.svelte';
+import * as m from '$lib/paraglide/messages';
 
 const three = [
 	{ key: 't1', name: 'Portugal', colorToken: 'clay' as const },
@@ -80,7 +81,7 @@ describe('TagChips.svelte', () => {
 
 		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
 	});
 
@@ -88,7 +89,9 @@ describe('TagChips.svelte', () => {
 		const onRemove = vi.fn();
 		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
 
-		await userEvent.click(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }));
+		await userEvent.click(
+			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
+		);
 
 		expect(onRemove).toHaveBeenCalledExactlyOnceWith('t1');
 	});
@@ -133,7 +136,7 @@ describe('TagChips.svelte', () => {
 		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
 
 		const button = page
-			.getByRole('button', { name: "Retirer l'étiquette Portugal" })
+			.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
 			.element() as HTMLElement;
 		const rect = button.getBoundingClientRect();
 		expect(rect.width).toBeCloseTo(22, 0);
@@ -196,6 +199,48 @@ describe('TagChips.svelte', () => {
 		expect(getComputedStyle(chip).height).toBe(px);
 	});
 
+	it.each([
+		['plain', 'nowrap'],
+		['enclosed', 'wrap'],
+		['tinted', 'wrap']
+	])('computes flex-wrap: %s -> %s, which is the row-height guarantee', async (variant, wrap) => {
+		// COMPUTED, not the class list. The class list said `flex-nowrap` all along and the browser
+		// wrapped anyway: both `flex-wrap` and `flex-nowrap` were emitted on the same element, and
+		// attribute order does not decide a cascade — `flex-wrap` won, plain chips stacked, and the
+		// table row grew from 63px to 76px with a second tag. An assertion over `className` is
+		// exactly the kind that cannot fail here, because the intended class genuinely IS present.
+		//
+		// The design forbids wrapping in the reading context only ("Retour à la ligne : jamais en
+		// variante plain (ligne de tableau)"); the editing variants wrap on purpose, which is why
+		// all three are pinned together rather than plain alone.
+		const { container } = render(TagChips, {
+			tags: three,
+			variant: variant as 'plain' | 'enclosed' | 'tinted',
+			max: Infinity
+		});
+
+		const list = container.querySelector('ul') as HTMLElement;
+		expect(getComputedStyle(list).flexWrap).toBe(wrap);
+	});
+
+	it('lets a long name truncate instead of widening the chip past its cap', async () => {
+		// The other half of the no-wrap fix: with nowrap and nothing shrinkable, two chips simply
+		// overflowed their column instead of wrapping. The name must be the only thing that gives.
+		const { container } = render(TagChips, {
+			tags: [
+				{ key: 't1', name: 'Mariage Camille et Thomas juin 2026 Bretagne', colorToken: 'clay' }
+			],
+			size: 'sm'
+		});
+
+		const chip = container.querySelector('li > span') as HTMLElement;
+		const name = chip.querySelector('span:not([aria-hidden])') as HTMLElement;
+		expect(chip.getBoundingClientRect().width).toBeLessThanOrEqual(110);
+		// Genuinely clipped by CSS, with the full name still in the text node for a screen reader.
+		expect(name.scrollWidth).toBeGreaterThan(name.clientWidth);
+		expect(name.textContent).toBe('Mariage Camille et Thomas juin 2026 Bretagne');
+	});
+
 	it('renders the tinted variant with the token hue as text on its own tint', async () => {
 		const { container } = render(TagChips, {
 			tags: [{ key: 't1', name: 'Portugal', colorToken: 'lagoon' as const }],
@@ -224,6 +269,26 @@ describe('TagChips.svelte', () => {
 		const chip = container.querySelector('li > span') as HTMLElement;
 		expect(chip.className).toContain('bg-zinc-100');
 		expect(chip.className).not.toMatch(/bg-\[#/);
+	});
+
+	it('pins the literal Retirer/Supprimer wording in both locales — the vocabulary guard', () => {
+		// Every other spec in this file derives its locator from m.tags_remove_aria() itself, so
+		// none of them fails if the message is rewritten to "Effacer l'étiquette" tomorrow. This is
+		// deliberately the ONE place copy is pinned literally: it exists to catch that rewrite, not
+		// to duplicate the behavioural assertions above.
+		expect.assertions(4);
+		expect(m.tags_remove_aria({ name: 'Portugal' }, { locale: 'fr' })).toBe(
+			'Retirer Portugal de cette transaction'
+		);
+		expect(m.tags_remove_aria({ name: 'Portugal' }, { locale: 'en' })).toBe(
+			'Remove Portugal from this transaction'
+		);
+		expect(m.tags_delete_aria({ name: 'Portugal' }, { locale: 'fr' })).toBe(
+			"Supprimer l'étiquette Portugal"
+		);
+		expect(m.tags_delete_aria({ name: 'Portugal' }, { locale: 'en' })).toBe(
+			'Delete the tag Portugal'
+		);
 	});
 
 	it('offers a remove control on a tinted chip, named after the tag', async () => {

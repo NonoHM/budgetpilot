@@ -15,6 +15,19 @@
 		children,
 		details
 	}: {
+		/**
+		 * Marks this card as the currently open one.
+		 *
+		 * It carries BOTH halves of that state, and the pairing is the point: the tinted fill plus
+		 * inset ring for sighted users, and `aria-current="true"` on the link for everyone else. The
+		 * visual half shipped alone at first, so the desktop table announced its selected row and the
+		 * mobile list announced nothing — the "wired on one surface, silently missing on the other"
+		 * shape this repo has been caught by more than once. Anything added to this state belongs
+		 * here, on the one component, rather than at a call site.
+		 *
+		 * `aria-current` rather than `aria-selected` for the same reason as the desktop row: choosing
+		 * a card is a navigation, and `aria-selected` is only supported inside a grid/listbox/tablist.
+		 */
 		active?: boolean;
 		href?: string;
 		// DOM id forwarded to the <a> so a caller can programmatically refocus the
@@ -48,6 +61,7 @@
 		<a
 			{href}
 			id={linkId}
+			aria-current={active ? 'true' : undefined}
 			class="block p-4 hover:bg-zinc-50 active:bg-zinc-100 {transitionHover} focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none focus-visible:ring-inset"
 		>
 			{@render children()}

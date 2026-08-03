@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { setTransactionTags, pruneOrphanTags, resolveTagByName } from './service';
+import { countTagsInScope } from './counts';
 import { applyTagToFilteredSet, undoBulkTag } from './bulk';
 
 /**
@@ -123,6 +124,36 @@ describe('tag tenancy', () => {
 
 		expect(await setTransactionTags(a.userId, transactionB, ['Portugal'])).toBe('not-found');
 		expect(await prisma.transactionTag.count({ where: { transactionId: transactionB } })).toBe(0);
+	});
+
+	it('excludes a cross-user link from BOTH users tag counts', async () => {
+		expect.assertions(2);
+
+		const a = await seedUser();
+		const b = await seedUser();
+		const transactionA = await seedTransaction(a, 'Chez A');
+		const tagB = await resolveTagByName(b.userId, 'Chez B');
+
+		// Unlike every other case in this file, this one CREATES the forbidden row rather than
+		// attempting it through the app: no application path produces it, and the schema permits
+		// it (two independent foreign keys, no userId on TransactionTag). The claim under test is
+		// what the count query does when such a row exists, which is unanswerable any other way —
+		// counts.spec.ts mocks groupBy, so it proves the query is BUILT correctly and never that
+		// the engine ENFORCES it.
+		await prisma.transactionTag.create({
+			data: { transactionId: transactionA, tagId: tagB.id }
+		});
+
+		// Neither assertion substitutes for the other. The first goes red if the `tag: { userId }`
+		// conjunct is dropped; the second if the transaction-side one is.
+		//
+		// The `where` is EMPTY, and that is the whole point of the case. Passing `{ userId }` in —
+		// which is what this test did at first — makes the transaction side scoped whether or not
+		// `countTagsInScope` adds its own `userId`, so the load-bearing spread could be deleted and
+		// both assertions would still pass. The caller supplying nothing is what forces the engine
+		// to prove the function's own scoping rather than the fixture's.
+		expect(await countTagsInScope(a.userId, {})).toEqual([]);
+		expect(await countTagsInScope(b.userId, {})).toEqual([]);
 	});
 
 	it('refuses to prune a tag owned by another user', async () => {

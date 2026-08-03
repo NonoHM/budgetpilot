@@ -15,7 +15,12 @@ test.describe('TapLink (desktop)', () => {
 		await page.goto('/transactions?q=zzz-no-such-transaction-zzz');
 
 		const desktopPanel = page.locator('div.hidden.lg\\:grid');
-		const resetLink = desktopPanel.getByRole('link', { name: m.transactions_reset_filters_link() });
+		// Scoped to the EMPTY STATE's reset. The summary row carries a second link with the same
+		// words and is on screen at the same time whenever a filter returns nothing, so the bare
+		// role+name locator is ambiguous — and was, the moment the summary row gained that control.
+		const resetLink = desktopPanel
+			.locator('[data-testid="empty-reset-filters"]')
+			.getByRole('link', { name: m.transactions_reset_filters_link() });
 		await expect(resetLink).toBeVisible();
 
 		await resetLink.click();
@@ -85,7 +90,10 @@ test.describe('TapLink (mobile)', () => {
 		const mobileList = page
 			.locator('div.lg\\:hidden')
 			.filter({ hasText: m.transactions_previous() });
-		const resetLink = mobileList.getByRole('link', { name: m.transactions_reset_filters_link() });
+		// See the desktop case: the summary row's reset carries the same accessible name.
+		const resetLink = mobileList
+			.locator('[data-testid="empty-reset-filters"]')
+			.getByRole('link', { name: m.transactions_reset_filters_link() });
 		await expect(resetLink).toBeVisible();
 
 		await resetLink.click();

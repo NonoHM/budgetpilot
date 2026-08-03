@@ -2,23 +2,12 @@ import { prisma } from '$lib/server/db';
 import type { Prisma } from '../database/types.ts';
 import { forEachTransactionBatch } from '$lib/server/transactions/batch';
 import { isForeignKeyViolation } from '$lib/server/database/upsert';
-import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
+import { MAX_BULK_TAG_TRANSACTIONS, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 import { pruneOrphanTags, resolveTagByName, TagVanishedError } from './service';
 
-/**
- * How many transactions one bulk action may tag.
- *
- * A SEPARATE constant from MAX_TRANSACTION_ID_FILTER, not an import of it, following the precedent
- * that constant's own comment sets: how many rows one action may tag is a domain fact about what a
- * user can reasonably confirm in a dialog, while how many ids an `IN (...)` may carry is a property
- * of the query layer. Two facts that happen to share a number today.
- *
- * They are not independent, though, and bulk.spec.ts asserts the relation rather than the equality:
- * the undo payload is the list of ids this action linked, and it travels back through the same
- * id-list parser. If this cap ever exceeded that one, an undo would silently truncate and leave
- * rows tagged with no way back. That is the failure worth preventing.
- */
-export const MAX_BULK_TAG_TRANSACTIONS = 250;
+// Re-exported from its domain home so every existing server importer keeps working, and so the
+// client can import the same figure without pulling this module into the browser bundle.
+export { MAX_BULK_TAG_TRANSACTIONS };
 
 export type BulkTagResult =
 	| { outcome: 'ok'; tagId: string; tagName: string; linkedTransactionIds: string[] }

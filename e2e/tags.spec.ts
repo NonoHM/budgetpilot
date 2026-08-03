@@ -161,8 +161,16 @@ test.describe('assignment round trip', () => {
 		// Document coordinates, not boundingBox(): clicking the field scrolls it into view, and a
 		// viewport-relative measurement would report that scroll as a layout shift (it read 1122 then
 		// 390 on the first attempt, with the panel entirely innocent).
+		// Both scroll offsets, not just the window's. The panel is now a `position: sticky` box with
+		// its own `overflow-y: auto` (so six sections stay reachable past the fold), and clicking the
+		// field scrolls it into view INSIDE that box — which moves `rect.top` while `window.scrollY`
+		// stays at 0. Compensating for only one of the two reported a 341px layout shift against a
+		// panel that had not moved at all.
 		const documentY = (target: Locator) =>
-			target.evaluate((el) => el.getBoundingClientRect().top + window.scrollY);
+			target.evaluate((el) => {
+				const sticky = el.closest('[data-testid="detail-sticky"]');
+				return el.getBoundingClientRect().top + window.scrollY + (sticky?.scrollTop ?? 0);
+			});
 
 		const before = await documentY(save);
 		await input.click();
@@ -233,12 +241,12 @@ test.describe('tag filter', () => {
 	}) => {
 		await page.goto('/transactions');
 
+		// The tag dimension is a FilterDropdown now, not a Combobox inside the GET form: its trigger
+		// is named after the DIMENSION at rest ("Étiquette"), and picking an option navigates on the
+		// spot, so there is no "Filtrer" to submit afterwards.
 		const bar = desktopFilterBar(page);
-		const filterInput = bar.getByLabel(m.tags_filter_aria());
-		await filterInput.click();
-		await filterInput.pressSequentially(FILTER_TAG_NAME, { delay: 20 });
-		await page.getByRole('option', { name: FILTER_TAG_NAME, exact: true }).click();
-		await bar.getByRole('button', { name: m.transactions_submit_filter() }).click();
+		await bar.getByRole('button', { name: m.tags_filter_dimension(), exact: true }).click();
+		await page.getByRole('option', { name: new RegExp(escapeRegExp(FILTER_TAG_NAME)) }).click();
 
 		for (const label of FILTER_TAGGED_LABELS) {
 			await expect(transactionRow(page, label)).toHaveCount(1);
@@ -254,8 +262,21 @@ test.describe('tag filter', () => {
 		await withOtherUserPage(browser, async (otherPage) => {
 			await otherPage.goto('/transactions');
 
-			await expect(desktopFilterBar(otherPage).getByLabel(m.tags_filter_aria())).toHaveCount(0);
-			await expect(otherPage.getByText(m.tags_filter_placeholder())).toHaveCount(0);
+			// By the DIMENSION name, which is what the trigger is called at rest. Asserting the old
+			// Combobox's aria-label would now be a query for an element that exists nowhere on the
+			// page for any user, and would pass whether or not the control was correctly withheld.
+			await expect(
+				otherPage.getByRole('button', { name: m.tags_filter_dimension(), exact: true })
+			).toHaveCount(0);
+			// The CATEGORY dimension, in the same bar, IS there. Without this half the test passes on
+			// any page that failed to render a filter bar at all — including a 500 — and would call
+			// that "correctly withheld".
+			await expect(
+				desktopFilterBar(otherPage).getByRole('button', {
+					name: m.transactions_filter_dimension_category(),
+					exact: true
+				})
+			).toHaveCount(1);
 		});
 	});
 });
@@ -329,7 +350,17 @@ test.describe('bulk apply and undo', () => {
 			await expect(transactionRow(page, label).getByText(BULK_TAG_NAME)).toHaveCount(0);
 		}
 
-		await bar.getByRole('button', { name: m.tags_bulk_cta() }).click();
+		// The trigger writes its own scope, so its accessible name carries the filtered count — the
+		// 3 fixture rows asserted just above. Matching the exact string rather than a stem is the
+		// point: it proves the count on the button is the count of the set, against real server data
+		// rather than a fixture's `pagination.totalTransactions`.
+		// The trigger descended into the SUMMARY ROW, against the wall of the number defining its
+		// scope; it is no longer inside the filter card. Scoped to the desktop grid, since the mobile
+		// summary row renders the identical control at the same time.
+		await page
+			.locator('div.hidden.lg\\:grid')
+			.getByRole('button', { name: m.tags_bulk_cta_many({ count: 3 }) })
+			.click();
 		const dialog = page.getByRole('dialog');
 		await expect(dialog).toBeVisible();
 		// The title text renders twice inside the dialog (Modal's own sr-only/aria-labelledby h2
@@ -466,8 +497,16 @@ test.describe('rendered contrast — locked tokens', () => {
 			const chip = desktopFilterBar(page).getByText(tagName, { exact: true });
 			await expect(chip).toBeVisible();
 
+			// The TINTED WRAPPER, not the immediate parent. The trigger is now a <button> inside a
+			// tinted <div>, and the button itself paints nothing — measuring `xpath=..` read
+			// 1.19:1 against a transparent background while the rendering was fine. This is the same
+			// wrong-element trap #103 recorded (4.91 measured where 4.71 was expected): find the
+			// nearest ancestor that actually has a background, the way the eye does.
 			const nameRgb = await paintedColor(chip, 'color');
-			const surfaceRgb = await paintedColor(chip.locator('xpath=..'), 'backgroundColor');
+			const surface = chip.locator(
+				'xpath=ancestor::*[contains(@class,"rounded-xl") and contains(@class,"border")][1]'
+			);
+			const surfaceRgb = await paintedColor(surface, 'backgroundColor');
 			const ratio = contrastRatio(nameRgb, surfaceRgb);
 
 			expect(ratio).toBeGreaterThanOrEqual(4.5);
@@ -476,5 +515,107 @@ test.describe('rendered contrast — locked tokens', () => {
 			// catches drift in both directions.
 			expect(ratio).toBeCloseTo(measured, 1);
 		}
+	});
+});
+
+// ─── 6. Escape layering, and the panel on demand ────────────────────────────
+
+test.describe('the detail panel on demand', () => {
+	/**
+	 * Amendment 5. Two overlays are stacked when a TagPicker is open inside the detail panel, and
+	 * Escape has to unwind them one at a time. This is unprovable anywhere but here: the layering is
+	 * produced by real DOM event propagation (TagPicker calls stopPropagation while its list is
+	 * open, the panel's own handler sits on the <aside>), and a component test that dispatches a
+	 * synthetic key on one element observes neither half.
+	 */
+	test('the first Escape closes only the tag list, the second closes the panel', async ({
+		page
+	}) => {
+		await openTransactionByLabel(page, GC_LABEL);
+
+		const panel = desktopPanel(page);
+		await expect(panel).toBeVisible();
+
+		const input = tagsSectionOf(panel).getByRole('combobox', { name: m.tags_heading() });
+		await input.click();
+		await expect(page.getByRole('listbox')).toBeVisible();
+
+		await page.keyboard.press('Escape');
+		// The list is gone AND the panel is still here. Asserting only the first half would pass
+		// against a single Escape that closed both at once, which is the defect being guarded.
+		await expect(page.getByRole('listbox')).toHaveCount(0);
+		await expect(panel).toBeVisible();
+
+		await page.keyboard.press('Escape');
+		await expect(panel).toHaveCount(0);
+		// Closing is a navigation, so it survives a reload: a local `open = false` would not.
+		expect(new URL(page.url()).searchParams.has('selected')).toBe(false);
+	});
+
+	/**
+	 * Nothing occupies the place of nothing, and the table takes the width back. Measured, because
+	 * the whole claim of the reflow is a pair of figures: a component test can assert the class, a
+	 * browser is what says whether `table-layout: auto` honoured it.
+	 */
+	test('the table widens when no row is selected and narrows for the panel, with the row staying put', async ({
+		page
+	}) => {
+		await page.goto(`/transactions?q=${encodeURIComponent(GC_LABEL)}`);
+
+		const tagsCells = page.locator('[data-testid="tags-cell"]');
+		// On the unscoped locator, so this really says "one row matched". `.first()` always has a
+		// count of 1, whatever the page contains, which would make the assertion unfailable.
+		await expect(tagsCells).toHaveCount(1);
+		const tagsCell = tagsCells.first();
+		expect(Math.round((await tagsCell.boundingBox())!.width)).toBe(240);
+		expect(await desktopPanel(page).count()).toBe(0);
+
+		const row = transactionRow(page, GC_LABEL);
+		const yBefore = Math.round((await row.boundingBox())!.y);
+
+		await row.getByRole('link', { name: GC_LABEL, exact: true }).click();
+		await expect(desktopPanel(page)).toBeVisible();
+		expect(Math.round((await tagsCell.boundingBox())!.width)).toBe(190);
+		// The narrowing is strictly HORIZONTAL: the row the user aimed at stays on its own line, at
+		// its exact ordinate. This is the half no unit fixture can see, and the half a user notices.
+		expect(Math.round((await row.boundingBox())!.y)).toBe(yBefore);
+	});
+
+	/**
+	 * Amendment 3. The panel holds six sections and exceeds the viewport with them open;
+	 * `position: sticky` alone pins its top edge and leaves everything past the fold unreachable.
+	 */
+	test('a panel taller than the viewport scrolls within itself instead of being clipped', async ({
+		page
+	}) => {
+		await openTransactionByLabel(page, GC_LABEL);
+		const sticky = page.locator('[data-testid="detail-sticky"]');
+		await expect(sticky).toBeVisible();
+
+		const { clientHeight, scrollHeight } = await sticky.evaluate((el) => ({
+			clientHeight: el.clientHeight,
+			scrollHeight: el.scrollHeight
+		}));
+		// Bounded by the viewport, not by its content: the point of the max-height.
+		expect(clientHeight).toBeLessThanOrEqual(page.viewportSize()!.height);
+
+		if (scrollHeight > clientHeight) {
+			// And when it does overflow, the bottom is reachable. `scrollTop` moving at all is the
+			// proof; a clipped panel with `overflow: visible` cannot scroll and stays at 0.
+			await sticky.evaluate((el) => el.scrollTo(0, el.scrollHeight));
+			expect(await sticky.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+		}
+	});
+
+	/** Closing puts focus back where the user was, not on <body> at the top of the page. */
+	test('closing the panel returns focus to the row it was opened from', async ({ page }) => {
+		await openTransactionByLabel(page, GC_LABEL);
+		await desktopPanel(page)
+			.getByRole('link', { name: m.transactions_detail_close_aria() })
+			.click();
+
+		await expect(desktopPanel(page)).toHaveCount(0);
+		const focusedText = await page.evaluate(() => document.activeElement?.textContent?.trim());
+		expect(focusedText).toBe(GC_LABEL);
 	});
 });

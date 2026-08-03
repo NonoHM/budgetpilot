@@ -2,6 +2,7 @@ import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
 	TRANSACTION_NATURES,
+	type TransactionKind,
 	type TransactionNature,
 	isTransactionNature
 } from '$lib/domain/transaction';
@@ -10,6 +11,7 @@ import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { setTransactionTags } from '$lib/server/tags/service';
+import { countTagsInScope, type TagScopeCount } from '$lib/server/tags/counts';
 import {
 	applyTagToFilteredSet,
 	undoBulkTag,
@@ -49,6 +51,7 @@ import {
 	computeFilteredTotals,
 	sumFilteredTotals,
 	resolveTransactionType,
+	transactionKindWhere,
 	type FilteredTotals
 } from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
@@ -291,6 +294,33 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	let totalPages: number;
 	let transactions: TransactionListRow[];
 	let filteredTotals: FilteredTotals;
+	// Set only on the `q` branch below, to the ids the JS match admitted **on the tag-free scope**.
+	// Reused for the tag counts rather than re-running the match: see the comment at `tagCounts`.
+	//
+	// Tag-free is load-bearing and was wrong once. Taking the ids from the tag-FILTERED match put
+	// the tag conjunct back into the count as `id: { in: … }`, undoing the strip below through the
+	// most ordinary filter on the page: with `?tag=A&q=foo`, every other tag's count became
+	// |A ∩ B ∩ q| instead of |B ∩ q|, so any tag that does not co-occur with A read 0 — and the
+	// filter panel makes a zero-count option unselectable. The count added to prevent a filter that
+	// returns nothing was instead forbidding filters that return plenty.
+	let matchedIds: string[] | null = null;
+	// The size of that same tag-free scope, for the dropdown's "Toutes" row. It is NOT
+	// `totalTransactions`, which is the tag-FILTERED total: with `?tag=Portugal` active, that would
+	// have "Toutes" claim the same figure as "Portugal", i.e. that clearing the filter changes
+	// nothing. Equal to it, and computed without a second query, whenever no tag filter is active.
+	let tagScopeTotal = 0;
+	// The whole filtered set, in memory, on the `?q=` branch only — the branch that already has it.
+	// Used for the bulk fallback below, so that branch needs no extra query at all.
+	let matchedRows: Array<{ amountCents: number; type: string | null }> | null = null;
+
+	// The tag dimension is removed on purpose: counting inside its own filter would report 1 for
+	// the selected tag and 0 for every other, which is not a comparison, it is a tautology.
+	//
+	// This works only because `buildTransactionWhere` puts the tag filter at the TOP LEVEL as
+	// `where.tags`. If a future filter moves it into `AND`/`OR`, this rest-spread silently stops
+	// removing it. `page.server.spec.ts` pins it with a fixture where two different tags sit on two
+	// different transactions, which is the minimum shape in which the tautology is visible.
+	const { tags: tagConjunct, ...tagCountWhere } = where;
 
 	if (queryError || dateRangeError) {
 		totalTransactions = 0;
@@ -300,6 +330,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		filteredTotals = { incomeCents: 0, expenseCents: 0 };
 	} else if (!query) {
 		totalTransactions = await prisma.transaction.count({ where });
+		// One extra count, and only when a tag filter is actually on. Without one the two scopes are
+		// the same set by construction, so asking twice would buy nothing.
+		tagScopeTotal = tagConjunct
+			? await prisma.transaction.count({ where: tagCountWhere })
+			: totalTransactions;
 		totalPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
 		safePage = Math.min(page, totalPages);
 		transactions = await prisma.transaction.findMany({
@@ -313,7 +348,21 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		// is why it is not derived from `transactions` (that is one page of it).
 		filteredTotals = await computeFilteredTotals(where);
 	} else {
-		const filtered = await collectTransactionsMatchingQuery(where, transactionSelect, query, qMode);
+		// The scan runs ONCE, on the tag-free scope, and the tag filter is applied to its result in
+		// JS. Scanning the tag-filtered scope instead and reusing its ids for the counts is what
+		// produced the tautology described at `matchedIds`; scanning twice would be the same rows
+		// read twice. The predicate mirrors `tags: { some: { tagId } }` exactly — `transactionSelect`
+		// already carries each row's tag links, so nothing extra is fetched to evaluate it.
+		const filteredAll = await collectTransactionsMatchingQuery(
+			tagCountWhere,
+			transactionSelect,
+			query,
+			qMode
+		);
+		tagScopeTotal = filteredAll.length;
+		const filtered = tagId
+			? filteredAll.filter((row) => row.tags.some((link) => link.tag.id === tagId))
+			: filteredAll;
 		totalTransactions = filtered.length;
 		totalPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
 		safePage = Math.min(page, totalPages);
@@ -321,6 +370,80 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		// The q path matches in JS, so the SQL aggregate would not see the same set. Same numbers,
 		// different source; totals.spec.ts pins the two implementations against one fixture.
 		filteredTotals = sumFilteredTotals(filtered);
+		matchedIds = filteredAll.map((row) => row.id);
+		matchedRows = filtered;
+	}
+
+	/**
+	 * A narrowing the user could apply that WOULD fit under the bulk cap, with its real count.
+	 *
+	 * Offered only when the bulk action would refuse — over `MAX_BULK_TAG_TRANSACTIONS` — and only
+	 * when the nature tab is still "Toutes", since that is the dimension being proposed. If neither
+	 * half lands under the cap the answer is `null` and the banner offers NOTHING: proposing a route
+	 * that cannot help is the /upcoming-bills defect closed in #99, and re-creating it here would be
+	 * worse, because this one names a number the user can check.
+	 *
+	 * The dimension is income-vs-expense rather than the category, because that one is exact in SQL:
+	 * `transactionKindWhere` is the proven twin of `resolveTransactionType` (totals.db-smoke.ts
+	 * asserts they agree over the whole type x sign matrix, on all three engines). The effective
+	 * CATEGORY is computed in JS from manual overrides and rules, so a SQL groupBy on `categoryId`
+	 * would count something the user is not looking at.
+	 *
+	 * The larger of the two viable halves is chosen: it is the most inclusive narrowing that still
+	 * passes, so the user is asked to give up as little as possible.
+	 */
+	let bulkFallback: { kind: TransactionKind; count: number } | null = null;
+	if (
+		!queryError &&
+		!dateRangeError &&
+		totalTransactions > MAX_BULK_TAG_TRANSACTIONS &&
+		type === 'all'
+	) {
+		const kinds: TransactionKind[] = ['expense', 'income'];
+		const candidates = matchedRows
+			? kinds.map((kind) => ({
+					kind,
+					count: matchedRows.filter((row) => resolveTransactionType(row) === kind).length
+				}))
+			: await Promise.all(
+					kinds.map(async (kind) => ({
+						kind,
+						count: await prisma.transaction.count({
+							where: { AND: [where, transactionKindWhere(kind)] }
+						})
+					}))
+				);
+		bulkFallback =
+			candidates
+				.filter((c) => c.count > 0 && c.count <= MAX_BULK_TAG_TRANSACTIONS)
+				.sort((a, b) => b.count - a.count)[0] ?? null;
+	}
+
+	let tagCounts: TagScopeCount[] | null = null;
+	if (!queryError && !dateRangeError) {
+		try {
+			// `q` is matched in JS AFTER the SQL query (accent folding and regex are not expressible
+			// in SQL — see parseListFilters' own comment). Counting over the raw `where` while a
+			// search is active would count a STRICT SUPERSET of what the user is looking at, so when
+			// `matchedIds` was set above, the count is narrowed to exactly that id set instead.
+			// The id list is passed separately rather than folded into the where: unbounded, it
+			// becomes one `IN (...)` as long as the whole matched set, and SQLite caps host
+			// parameters — so a user with enough transactions and a broad enough search silently
+			// and permanently got "comptes indisponibles" via the catch below, with no trace
+			// anywhere. countTagsInScope chunks it and sums.
+			tagCounts = await countTagsInScope(user.id, tagCountWhere, matchedIds);
+		} catch (error) {
+			// Best-effort enrichment: a failure here must never fail the page. The filter panel
+			// renders its own "comptes indisponibles" state from a null tagCounts.
+			//
+			// The error's NAME only, never the error. A Prisma error on a transaction query embeds
+			// parameter values, which here means labels and amounts — the banking data this project
+			// does not put in logs. Logged at all because the bare catch that preceded this made a
+			// systematic failure (an engine limit, a migration drift, a provider-specific groupBy
+			// incompatibility) indistinguishable from a transient one, and left no evidence.
+			console.warn('tagCounts unavailable:', error instanceof Error ? error.name : 'unknown error');
+			tagCounts = null;
+		}
 	}
 
 	return {
@@ -353,6 +476,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			tag: tagId
 		},
 		filteredTotals,
+		tagCounts,
+		// How many transactions the current filter matches with the tag dimension REMOVED — the
+		// figure the "Toutes" row of the tag dropdown reports. Deliberately outside `pagination`,
+		// which describes the list actually being paged and must keep describing exactly that.
+		tagScopeTotal,
+		bulkFallback,
 		queryError,
 		dateRangeError,
 		pagination: {

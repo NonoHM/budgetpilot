@@ -9,6 +9,7 @@
 	import { tagColorBgClass } from '$lib/domain/colors';
 	import { inputBase } from '$lib/styles';
 	import TagChips from './TagChips.svelte';
+	import ManageTagsFooter from './ManageTagsFooter.svelte';
 	import * as m from '$lib/paraglide/messages';
 
 	/**
@@ -224,8 +225,21 @@
 			if (activeIndex === -1 && flatItems.length > 0) activeIndex = 0;
 			activate(activeIndex);
 		} else if (event.key === 'Escape') {
-			open = false;
-			activeIndex = -1;
+			// Only when this Escape had something to close. Without the guard the keystroke kept
+			// bubbling to whatever page-level handler sits behind the picker — on /transactions that
+			// is BottomSheet's window keydown, mounted at every breakpoint and hidden only by CSS,
+			// which closes the transaction detail panel. One Escape therefore closed the picker AND
+			// deselected the transaction, discarding any unsaved tag edits with no confirmation.
+			// The design assigns Escape a single job here ("Échap ferme sans changer la sélection").
+			//
+			// Deliberately NOT unconditional: with the panel already closed this component has
+			// nothing to dismiss, and swallowing the key would break the detail panel's own Escape,
+			// which works from every other control in it and predates tags.
+			if (open) {
+				event.stopPropagation();
+				open = false;
+				activeIndex = -1;
+			}
 		} else if (event.key === 'Backspace' && typed === '' && selected.length > 0) {
 			selected = selected.slice(0, -1);
 		}
@@ -361,104 +375,115 @@
 		     and the two sr-only live regions take no layout space. -->
 		<div
 			id={listboxId}
-			class="absolute top-full right-0 left-0 z-20 mt-1 max-h-[280px] overflow-y-auto rounded-xl border border-zinc-900 bg-white p-1.5 shadow-lg"
+			class="absolute top-full right-0 left-0 z-20 mt-1 overflow-hidden rounded-xl border border-zinc-900 bg-white shadow-lg"
 		>
-			{#if loading}
-				<ul class="space-y-1" role="status" aria-label={m.tags_picker_loading_aria()}>
-					{#each { length: 3 } as _, i (i)}
-						<li class="flex items-center gap-2 rounded-lg px-2 py-1.5">
-							<span class="h-2 w-2 shrink-0 animate-pulse rounded-full bg-zinc-200"></span>
-							<span class="h-2.5 w-24 animate-pulse rounded bg-zinc-200"></span>
-						</li>
-					{/each}
-				</ul>
-			{:else if options.length === 0 && trimmedTyped === ''}
-				<div class="space-y-1 px-2 py-2">
-					<p class="text-sm text-zinc-700">{m.tags_picker_empty_heading()}</p>
-					<p class="text-[12.5px] text-zinc-500">{m.tags_picker_empty_body()}</p>
-				</div>
-			{:else if flatItems.length === 0}
-				<!-- filtered.length === 0 and no create row: the typed name exactly matches a tag
+			<!-- The scroll lives on this inner wrapper rather than on the panel, so the footer below
+			     stays pinned to the bottom of the panel instead of scrolling away under a long list.
+			     Same reason the mobile sheet keeps its footer out of the scrolling list. -->
+			<div class="max-h-[280px] overflow-y-auto p-1.5">
+				{#if loading}
+					<ul class="space-y-1" role="status" aria-label={m.tags_picker_loading_aria()}>
+						{#each { length: 3 } as _, i (i)}
+							<li class="flex items-center gap-2 rounded-lg px-2 py-1.5">
+								<span class="h-2 w-2 shrink-0 animate-pulse rounded-full bg-zinc-200"></span>
+								<span class="h-2.5 w-24 animate-pulse rounded bg-zinc-200"></span>
+							</li>
+						{/each}
+					</ul>
+				{:else if options.length === 0 && trimmedTyped === ''}
+					<div class="space-y-1 px-2 py-2">
+						<p class="text-sm text-zinc-700">{m.tags_picker_empty_heading()}</p>
+						<p class="text-[12.5px] text-zinc-500">{m.tags_picker_empty_body()}</p>
+					</div>
+				{:else if flatItems.length === 0}
+					<!-- filtered.length === 0 and no create row: the typed name exactly matches a tag
 				     that's already selected, so there is genuinely nothing left to show and Enter is
 				     a no-op — an EMPTY <ul role="listbox"> here would render as a blank floating panel
 				     instead of explaining that. -->
-				<p class="px-2 py-2 text-sm text-zinc-700">
-					{m.tags_picker_already_selected_live({ name: trimmedTyped })}
-				</p>
-			{:else}
-				<ul role="listbox" aria-multiselectable="true">
-					{#each flatItems as item, index (item.type === 'option' ? item.option.id : 'create')}
-						{@const isActive = index === effectiveActiveIndex}
-						{#if item.type === 'option'}
-							{@const isSelected = selected.includes(item.option.name)}
-							<!-- Keyboard interaction is fully handled at the input via aria-activedescendant
+					<p class="px-2 py-2 text-sm text-zinc-700">
+						{m.tags_picker_already_selected_live({ name: trimmedTyped })}
+					</p>
+				{:else}
+					<ul role="listbox" aria-multiselectable="true">
+						{#each flatItems as item, index (item.type === 'option' ? item.option.id : 'create')}
+							{@const isActive = index === effectiveActiveIndex}
+							{#if item.type === 'option'}
+								{@const isSelected = selected.includes(item.option.name)}
+								<!-- Keyboard interaction is fully handled at the input via aria-activedescendant
 							     (a managed-focus listbox, WAI-ARIA APG "Collection with aria-activedescendant"):
 							     these items are never independently focusable, so no keydown handler applies here. -->
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<li
-								id="{pickerId}-option-{index}"
-								role="option"
-								aria-selected={isSelected}
-								class="flex h-12 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-zinc-700 sm:h-9 {isActive
-									? 'bg-zinc-100'
-									: ''}"
-								onmousedown={(event) => event.preventDefault()}
-								onclick={() => toggleOption(item.option)}
-								onmouseenter={() => (activeIndex = index)}
-							>
-								<span
-									class="h-2 w-2 shrink-0 rounded-full {tagColorBgClass(item.option.colorToken)}"
-									aria-hidden="true"
-								></span>
-								<span class="min-w-0 flex-1 truncate"
-									>{#each highlightMatchSegments(item.option.name, trimmedTyped) as segment, segmentIndex (segmentIndex)}{#if segment.matched}<strong
-												class="font-semibold">{segment.text}</strong
-											>{:else}{segment.text}{/if}{/each}</span
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<li
+									id="{pickerId}-option-{index}"
+									role="option"
+									aria-selected={isSelected}
+									class="flex h-12 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-zinc-700 sm:h-9 {isActive
+										? 'bg-zinc-100'
+										: ''}"
+									onmousedown={(event) => event.preventDefault()}
+									onclick={() => toggleOption(item.option)}
+									onmouseenter={() => (activeIndex = index)}
 								>
-								{#if isSelected}
-									<svg
-										class="h-3.5 w-3.5 shrink-0 text-zinc-500"
-										viewBox="0 0 16 16"
-										fill="none"
+									<span
+										class="h-2 w-2 shrink-0 rounded-full {tagColorBgClass(item.option.colorToken)}"
 										aria-hidden="true"
+									></span>
+									<span class="min-w-0 flex-1 truncate"
+										>{#each highlightMatchSegments(item.option.name, trimmedTyped) as segment, segmentIndex (segmentIndex)}{#if segment.matched}<strong
+													class="font-semibold">{segment.text}</strong
+												>{:else}{segment.text}{/if}{/each}</span
 									>
-										<path
-											d="M2.5 8 6.5 12 13.5 4"
-											stroke="currentColor"
-											stroke-width="1.6"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-										/>
-									</svg>
-								{/if}
-							</li>
-						{:else}
-							<!-- svelte-ignore a11y_click_events_have_key_events -->
-							<li
-								id="{pickerId}-option-{index}"
-								role="option"
-								aria-selected="false"
-								class="flex h-12 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-zinc-700 sm:h-9 {isActive
-									? 'bg-zinc-100'
-									: ''}"
-								onmousedown={(event) => event.preventDefault()}
-								onclick={() => createOrSelect(item.rawName)}
-								onmouseenter={() => (activeIndex = index)}
-							>
-								<span class="text-zinc-400" aria-hidden="true">+</span>
-								<span class="min-w-0 flex-1 truncate"
-									>{m.tags_picker_create({ name: item.rawName })}</span
+									{#if isSelected}
+										<svg
+											class="h-3.5 w-3.5 shrink-0 text-zinc-500"
+											viewBox="0 0 16 16"
+											fill="none"
+											aria-hidden="true"
+										>
+											<path
+												d="M2.5 8 6.5 12 13.5 4"
+												stroke="currentColor"
+												stroke-width="1.6"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+											/>
+										</svg>
+									{/if}
+								</li>
+							{:else}
+								<!-- svelte-ignore a11y_click_events_have_key_events -->
+								<li
+									id="{pickerId}-option-{index}"
+									role="option"
+									aria-selected="false"
+									class="flex h-12 cursor-pointer items-center gap-2 rounded-lg px-2 text-sm text-zinc-700 sm:h-9 {isActive
+										? 'bg-zinc-100'
+										: ''}"
+									onmousedown={(event) => event.preventDefault()}
+									onclick={() => createOrSelect(item.rawName)}
+									onmouseenter={() => (activeIndex = index)}
 								>
-							</li>
-						{/if}
-					{/each}
-				</ul>
-			{/if}
-			{#if atMax}
-				<p class="px-2 py-1.5 text-[12.5px] text-zinc-500">
-					{m.tags_picker_max_reached({ max: MAX_TAGS_PER_TRANSACTION })}
-				</p>
-			{/if}
+									<span class="text-zinc-400" aria-hidden="true">+</span>
+									<span class="min-w-0 flex-1 truncate"
+										>{m.tags_picker_create({ name: item.rawName })}</span
+									>
+								</li>
+							{/if}
+						{/each}
+					</ul>
+				{/if}
+				{#if atMax}
+					<p class="px-2 py-1.5 text-[12.5px] text-zinc-500">
+						{m.tags_picker_max_reached({ max: MAX_TAGS_PER_TRANSACTION })}
+					</p>
+				{/if}
+			</div>
+			<!-- Outside the scrolling wrapper AND outside every <ul role="listbox"> above: a sibling,
+			     not an option. It is rendered in all five panel states — loading, empty catalogue,
+			     already-selected, the list itself, at-max — because it depends on no data, and the
+			     zero-tag state is precisely where a first-time user learns the management surface
+			     exists before needing it. Never reached by the arrow keys; Tab reaches it. -->
+			<ManageTagsFooter />
 		</div>
 	{/if}
 </div>

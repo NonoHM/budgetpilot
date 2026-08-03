@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { goto } from '$app/navigation';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { navigating } from '$app/state';
 	import { tick } from 'svelte';
@@ -29,6 +29,10 @@
 	import TransactionTagsEditor from '$lib/components/TransactionTagsEditor.svelte';
 	import TransactionFocusOverlay from '$lib/components/TransactionFocusOverlay.svelte';
 	import TagChips from '$lib/components/ui/TagChips.svelte';
+	import FilterDropdown from '$lib/components/ui/FilterDropdown.svelte';
+	import ManageTagsFooter from '$lib/components/ui/ManageTagsFooter.svelte';
+	import { tagColorBgClass, tagColorTextClass, tagTintBgClass } from '$lib/domain/colors';
+	import { MAX_BULK_TAG_TRANSACTIONS } from '$lib/domain/tags';
 	import {
 		getAdjacentFocusStackId,
 		getFocusOutcomeForAction,
@@ -223,6 +227,77 @@
 		manualNatureValue !== (data.selectedTransaction?.manualNature ?? '')
 	);
 
+	/**
+	 * The unsaved-changes guard.
+	 *
+	 * Dirtiness has three sources — manual category, manual nature, and tags. The first two are the
+	 * two deriveds above; the third is owned by `TransactionTagsEditor` and mirrored out through its
+	 * `dirty` prop rather than recomputed here, so the two surfaces cannot disagree about what
+	 * "unsaved" means. Both mounts are bound and the two flags are OR-ed: the desktop panel and the
+	 * mobile sheet render simultaneously (a documented duplication on this page), the user edits in
+	 * exactly one of them, and "some editor holds unsaved work" is the question the guard asks.
+	 *
+	 * ONE mechanism covers all six paths, because every one of them is a navigation: selection is
+	 * `?selected=`, closing drops the param, and a nav link or the browser's Back button is a
+	 * navigation by definition. Before this, switching rows silently discarded pending edits — the
+	 * `$effect` further down resets `manualCategoryValue`/`manualNatureValue` on every selection
+	 * change with nothing asked.
+	 */
+	let tagsDirtyDesktop = $state(false);
+	let tagsDirtyMobile = $state(false);
+	const hasUnsavedChanges = $derived(
+		categoryIsDirty || natureIsDirty || tagsDirtyDesktop || tagsDirtyMobile
+	);
+
+	// Set for exactly one hop, by "Abandonner". Without it, replaying the navigation would be
+	// caught by the very guard that asked the question and the dialog would reopen forever.
+	let bypassUnsavedGuard = $state(false);
+	let pendingNavigation = $state<URL | null>(null);
+
+	beforeNavigate((nav) => {
+		if (!hasUnsavedChanges || bypassUnsavedGuard) return;
+		// Nothing to replay means nothing to ask about. Cancelling here would swallow the gesture
+		// with no dialog and no way forward while the editor stays dirty — the user would click and
+		// see nothing happen. `nav.to` is null today only for `type: 'leave'`, which is handled
+		// below on its own terms, so this is a guard against the API gaining a third case rather
+		// than against a reachable state.
+		if (!nav.willUnload && !nav.to) return;
+		// Cancel FIRST. `beforeNavigate` is synchronous, so there is no awaiting a dialog here: the
+		// navigation is stopped unconditionally and replayed later if the user says so.
+		nav.cancel();
+		// Two facts about this API, verified against SvelteKit's client runtime rather than assumed:
+		//   - a cancelled `popstate` is counteracted with `history.go(-delta)`, so the Back button
+		//     correctly stays put instead of leaving the address bar one entry ahead of the page;
+		//   - for `type: 'leave'` (tab close, external link) the cancel becomes `preventDefault()` on
+		//     `beforeunload`, i.e. THE BROWSER'S OWN dialog, not ours. We cannot render over it and
+		//     must not try. So "the confirmation always looks the same" is false, and a test written
+		//     on that premise would go red for the wrong reason.
+		if (nav.willUnload) return;
+		pendingNavigation = nav.to?.url ?? null;
+	});
+
+	function keepEditing() {
+		pendingNavigation = null;
+	}
+
+	async function discardAndNavigate() {
+		const target = pendingNavigation;
+		pendingNavigation = null;
+		if (!target) return;
+		bypassUnsavedGuard = true;
+		try {
+			// `target` is the URL SvelteKit itself produced for the navigation it just handed us, so
+			// it is already resolved; `resolve()` takes a route id and would not even type-check here.
+			// eslint-disable-next-line svelte/no-navigation-without-resolve
+			await goto(target, { noScroll: true });
+		} finally {
+			// In a `finally`, so a rejected navigation (an offline load, a server error) cannot leave
+			// the guard permanently switched off — which would silently disarm it for the rest of the
+			// session, and a disarmed guard looks exactly like a working one until work is lost.
+			bypassUnsavedGuard = false;
+		}
+	}
+
 	// Whether the id filter is actually active (see the idsFilterNotice snippet). False when the
 	// param is absent — and also when it was present but empty, which is exactly the collapse
 	// `filters.ids` documents: an empty list yields no rows, so there is nothing to explain and no
@@ -280,6 +355,132 @@
 		}));
 	}
 
+	/**
+	 * Applies one dimension of the filter, from a FilterDropdown selection.
+	 *
+	 * It navigates rather than submitting the surrounding GET form, and rather than letting the
+	 * browser serialise a <select>: the trigger is a button opening a listbox, so there is no form
+	 * control holding the value. `data.filters` is the server's own view of the filter, so this
+	 * cannot drift from what produced the current page.
+	 *
+	 * `keepFocus` matters and is not decoration. SvelteKit's router blurs the active element and
+	 * calls reset_focus() after a client-side navigation, which would throw focus to the body right
+	 * after a selection and undo the focus-return the dropdown just performed. The same flag is why
+	 * the period arrows on /upcoming-bills stopped stealing focus.
+	 */
+	function applyFilterDimension(patch: { category?: string; tag?: string }) {
+		goto(resolve(buildTransactionsHref({ ...data.filters, ...patch }, {}, { keepIds: false })), {
+			keepFocus: true,
+			noScroll: true
+		});
+	}
+
+	/**
+	 * The category dimension's rows. No counts: the design puts a count on the tag menu only, and
+	 * a per-category count is a separate load-shaped decision that has not been taken.
+	 */
+	const categoryFilterOptions = $derived(
+		data.categoryOptions.map((name) => ({ value: name, label: displayCategory(name) }))
+	);
+
+	/**
+	 * The tag dimension's rows, alphabetical, always — one arrives with a name in mind, not with a
+	 * volume, and a count-descending order would move rows on every filter change so a tag's
+	 * position could never be memorised. Zero counts keep their alphabetical place, dimmed.
+	 *
+	 * A missing `tagCounts` (the server could not answer) is NOT zero: it yields `null`, which the
+	 * dropdown renders as a placeholder rather than a digit, and leaves every row selectable —
+	 * waiting on a count before choosing a name you already know would be absurd.
+	 */
+	const tagFilterOptions = $derived(
+		data.allTags.map((tag) => {
+			const count = data.tagCounts?.find((c) => c.tagId === tag.id)?.count ?? null;
+			return {
+				value: tag.id,
+				label: tag.name,
+				count: data.tagCounts === null ? null : (count ?? 0),
+				// Reachable by the arrows so its state is announced, never activable: selecting it
+				// would apply a filter the menu has just said returns nothing. Hiding it instead
+				// would be indistinguishable from a deletion — and since a tag on zero transactions
+				// really does disappear on its own, that confusion has a concrete cost.
+				disabled: data.tagCounts !== null && (count ?? 0) === 0,
+				swatchClass: isTagColorToken(tag.colorToken) ? tagColorBgClass(tag.colorToken) : undefined
+			};
+		})
+	);
+
+	/**
+	 * The total for the "Toutes" return row: the filtered set with the tag dimension removed.
+	 *
+	 * `tagScopeTotal`, NOT `pagination.totalTransactions`. The latter is the tag-FILTERED total, so
+	 * with `?tag=Portugal` active it rendered "Toutes 1" beside "Portugal 1" — telling the user that
+	 * clearing the filter would change nothing, on the one row whose entire job is to say how much
+	 * is waiting outside the current tag.
+	 */
+	const tagFilterAllCount = $derived(data.tagCounts === null ? null : data.tagScopeTotal);
+
+	const activeCategoryLabel = $derived(
+		data.filters.category
+			? m.transactions_filter_active_trigger({
+					dimension: m.transactions_filter_dimension_category(),
+					value: displayCategory(data.filters.category)
+				})
+			: undefined
+	);
+
+	const activeTagLabel = $derived(
+		activeFilterTag
+			? m.transactions_filter_active_trigger({
+					dimension: m.tags_filter_dimension(),
+					value: activeFilterTag.name
+				})
+			: undefined
+	);
+
+	/**
+	 * Mobile-only: category and tag collapse behind one "Filtres" sheet instead of the desktop's
+	 * two side-by-side dropdowns plus the date range — four controls that fit a 1280px bar but not
+	 * a 390px card without pushing the submit button several swipes down. Search and the date
+	 * range stay directly visible, unchanged: neither carries the "Dimension : Valeur" / "Toutes"
+	 * grammar this sheet exists to collapse, and hiding a live search term behind a sheet would
+	 * move it out of sight of where it was typed.
+	 */
+	let mobileFiltersOpen = $state(false);
+	let mobileFilterSubDimension = $state<'category' | 'tag' | null>(null);
+
+	function closeMobileFiltersSheet() {
+		mobileFiltersOpen = false;
+	}
+
+	function closeMobileFilterSubSheet() {
+		mobileFilterSubDimension = null;
+	}
+
+	/** Category and tag are the only two dimensions behind the sheet — see the comment above. */
+	const activeMobileFilterDimensionCount = $derived(
+		(data.filters.category ? 1 : 0) + (activeFilterTag ? 1 : 0)
+	);
+
+	const mobileFiltersTriggerAriaLabel = $derived(
+		activeMobileFilterDimensionCount === 0
+			? m.transactions_filters_sheet_label()
+			: activeMobileFilterDimensionCount === 1
+				? m.transactions_filters_sheet_aria_one({ count: activeMobileFilterDimensionCount })
+				: m.transactions_filters_sheet_aria_many({ count: activeMobileFilterDimensionCount })
+	);
+
+	/**
+	 * The validation button says how many results the CURRENT filter set already returns, never
+	 * "Appliquer": a selection made in the sub-sheet has already navigated — applyFilterDimension
+	 * calls goto() immediately, same as the desktop dropdown — so `pagination.totalTransactions`
+	 * is already the answer by the time this button is visible. Nothing is pending behind it.
+	 */
+	const mobileFiltersApplyLabel = $derived(
+		data.pagination.totalTransactions === 1
+			? m.transactions_filters_sheet_apply_one({ count: data.pagination.totalTransactions })
+			: m.transactions_filters_sheet_apply_many({ count: data.pagination.totalTransactions })
+	);
+
 	// Same re-validation, for TagPicker's option list (TransactionTagsEditor -> TagPicker), whose
 	// TagPickerOption.colorToken is the closed union rather than the raw database string. A row
 	// that somehow failed the check is dropped rather than coerced: TagPicker has no "unknown
@@ -308,6 +509,122 @@
 			!data.dateRangeError &&
 			!data.queryError
 		)
+	);
+
+	/**
+	 * The trigger writes its own scope: "Étiqueter les 6 résultats", never a bare verb.
+	 *
+	 * The design puts the count in the LABEL and says why: "on sait ce qu'on va toucher avant même
+	 * d'ouvrir la modale". Shipping it as "Appliquer une étiquette" moved that knowledge one click
+	 * later, into the ConfirmDialog — which names the count correctly, but only once the user has
+	 * already committed to opening it. Observed live against a filter matching 66 rows, and again
+	 * at 301: nothing on the button said so.
+	 *
+	 * It is also what answers "should a `.*` regex, matching every row, count as a filter?" — it
+	 * does, and it now announces itself as the whole set before anything opens, which is what the
+	 * question was really asking for. Comparing the filtered count against the unfiltered total
+	 * instead would disable the button on coincidence (one category that happens to match
+	 * everything) and make the disabled hint's "activate a filter first" a false statement.
+	 *
+	 * `pagination.totalTransactions` is the FILTERED set size, not the page's — the same number the
+	 * dialog quotes, so the two can never disagree.
+	 */
+	/**
+	 * Whether ANY narrowing filter is on. Distinct from `bulkTagFilterActive`, which additionally
+	 * requires the filter to be valid: an invalid range or regex still means the user is filtering
+	 * (so the summary row must offer "Réinitialiser") while the bulk action must stay inert (a
+	 * dialog naming an error as if it were a set of transactions is worse than a dead button).
+	 */
+	/**
+	 * The two column sets, switched by the selection alone.
+	 *
+	 * Selected — `1fr / 140 / 190 / 110` — is TODAY'S set, byte for byte. The unselected set is the
+	 * one that gains air; nothing is taken away when the panel opens, so a user who has learnt where
+	 * a column sits does not find it moved. The chip cap (110px, in `TagChips`) is the same figure in
+	 * both: the column breathes, the chip does not grow.
+	 *
+	 * The narrowing is strictly HORIZONTAL and carries no transition on purpose. Animating it over
+	 * 160ms moves the targets during the exact window in which a user chains a second gesture, and
+	 * `prefers-reduced-motion` would have to remove it anyway — two behaviours specified for one
+	 * aesthetic gain. The row aimed at therefore stays on its own line at its exact ordinate.
+	 */
+	const detailOpen = $derived(data.selectedTransaction !== null);
+	const colCategory = $derived(detailOpen ? 'w-[140px]' : 'w-[160px]');
+	const colTags = $derived(detailOpen ? 'w-[190px]' : 'w-[240px]');
+	const colAmount = $derived(detailOpen ? 'w-[110px]' : 'w-[130px]');
+
+	/**
+	 * How a row says it is the selected one.
+	 *
+	 * NOT `aria-selected`. That attribute is only supported on `option`, `row` inside a
+	 * `grid`/`treegrid`, `tab`, `columnheader`, `rowheader` and `gridcell`. This is a plain
+	 * `<table>`: a `<tr>` does get the implicit `row` role, but outside a grid that role does not
+	 * support `aria-selected`, so setting it is invalid ARIA that assistive technology may ignore or
+	 * misreport. Adopting `role="grid"` to make it valid is not a one-attribute change — it obliges
+	 * the full grid keyboard model (arrows cell to cell, Home/End, one tab stop with roving
+	 * tabindex) for the entire transactions table, changing how every existing user navigates it.
+	 *
+	 * `aria-current="true"` is what is actually true here: selecting a row is a NAVIGATION (the label
+	 * is an `<a href="?selected=id">` and the server answers with `selectedTransaction`), and
+	 * `aria-current` means exactly "the current item within a set of related items". It is a global
+	 * attribute, valid on any element.
+	 *
+	 * The 3px black left edge is the non-chromatic half of the signal, and it is the half the design
+	 * actually protects: it doubles the zinc-50 fill so selection never rests on a shade of grey.
+	 * Unselected rows carry the same 3px in `transparent` — without it, selecting a row would shift
+	 * every cell 3px to the right, which is the horizontal twin of the vertical jump this whole
+	 * reflow exists to avoid.
+	 */
+	function rowStateClass(id: string): string {
+		return data.selectedTransaction?.id === id
+			? 'border-l-[3px] border-l-zinc-900 bg-zinc-50 ring-1 ring-zinc-900/10 ring-inset'
+			: 'border-l-[3px] border-l-transparent hover:bg-zinc-50/50';
+	}
+
+	const anyFilterActive = $derived(
+		Boolean(
+			data.filters.category ||
+			data.filters.tag ||
+			data.filters.from ||
+			data.filters.to ||
+			data.filters.q
+		)
+	);
+
+	/**
+	 * The trigger is RENDERED whenever a filter is active and merely inert when it cannot act —
+	 * including when the user owns no tag at all. Deliberately unlike the tag FILTER, which is not
+	 * rendered at all in that case: a filter with no possible value has nothing to offer, whereas an
+	 * unavailable action has to teach the condition under which it becomes available.
+	 */
+	const bulkTagEnabled = $derived(
+		bulkTagFilterActive && data.allTags.length > 0 && data.pagination.totalTransactions > 0
+	);
+
+	/**
+	 * Why the trigger is inert, in the three states where it is rendered and cannot act.
+	 *
+	 * There is deliberately no "activate a filter first" branch any more. The trigger is not
+	 * rendered at all without a filter — its absence IS that message, and tagging 142 transactions
+	 * in one gesture is out of scope by design: the trigger is born with the first filter, which is
+	 * what defines it. Keeping the old sentence would have made it fire in the one remaining case
+	 * that reaches it, an INVALID filter, where "activate a filter first" is simply false: one is
+	 * active, it just does not parse.
+	 */
+	const bulkTagDisabledReason = $derived(
+		!bulkTagFilterActive
+			? m.tags_bulk_cta_invalid_filter_hint()
+			: data.allTags.length === 0
+				? m.tags_bulk_cta_no_tags_hint()
+				: m.tags_bulk_cta_no_results_hint()
+	);
+
+	const bulkTagCtaLabel = $derived(
+		!bulkTagEnabled
+			? m.tags_bulk_cta_disabled()
+			: data.pagination.totalTransactions === 1
+				? m.tags_bulk_cta_one()
+				: m.tags_bulk_cta_many({ count: data.pagination.totalTransactions })
 	);
 
 	/**
@@ -443,6 +760,24 @@
 	// passing {} for 'all' made the "Toutes" tab re-emit the filter it exists to clear.
 	const buildFilterHref = (filterType: string) =>
 		buildTransactionsHref(data.filters, { type: filterType }, { keepIds: false });
+	/**
+	 * The over-cap banner's escape route, and NOT `buildFilterHref`.
+	 *
+	 * `buildFilterHref` drops `?ids=` on purpose — a tab switch visibly changes the list, so the user
+	 * should see they left "the transactions linked to this bill" behind. That rule is right for a
+	 * tab and wrong here: the count in the banner was MEASURED inside the id filter, so a link that
+	 * drops it lands the user somewhere the number does not describe. A banner that names a figure
+	 * has to carry every filter that figure was measured under.
+	 *
+	 * Unreachable today only by coincidence: `MAX_TRANSACTION_ID_FILTER` caps `?ids=` at 250 and
+	 * `MAX_BULK_TAG_TRANSACTIONS` is also 250, so the over-cap gate cannot open while an id filter is
+	 * active. Both constants document that they are free to diverge, and the day either moves this
+	 * becomes a false claim with a number the user can check — the /upcoming-bills defect from #99,
+	 * in the feature whose own comment cites #99 as the reason to compute the count at all.
+	 */
+	const buildBulkFallbackHref = (kind: string) =>
+		buildTransactionsHref(data.filters, { type: kind }, { keepIds: true });
+
 	const buildPageHref = (page: number) =>
 		buildTransactionsHref(data.filters, { page: String(page) }, { keepIds: true });
 	const buildSelectedHref = (id: string) =>
@@ -451,6 +786,58 @@
 			{ page: String(data.pagination.page), selected: id },
 			{ keepIds: true }
 		);
+	// Closing the panel is a navigation dropping `selected`, not a local flag: the selection lives in
+	// the URL, so a component-level `open = false` would be undone by the next reload or Back. The
+	// param is OMITTED rather than emitted empty — `{ selected: '' }` would put a bare `selected=` in
+	// the address bar, which reads as a broken link even though the server treats it as no selection.
+	const buildDeselectedHref = () =>
+		buildTransactionsHref(data.filters, { page: String(data.pagination.page) }, { keepIds: true });
+	/**
+	 * The row's own link toggles. A second click on the already-selected row closes the panel, which
+	 * is one of the four closing gestures; the other three are the header cross, Escape from inside
+	 * the panel, and — deliberately — NOT a click beside it. The panel is not modal, so it has no
+	 * outside; a click-away would close it every time the user reached for anything else on the page.
+	 */
+	const buildRowHref = (id: string) =>
+		data.selectedTransaction?.id === id ? buildDeselectedHref() : buildSelectedHref(id);
+
+	/**
+	 * The ONE way the detail closes, whichever gesture asked for it: the header cross, Escape, a
+	 * second click on the selected row, and the mobile sheet's own backdrop and close control.
+	 *
+	 * It was briefly two. Escape got a handler on the desktop `<aside>` while BottomSheet's
+	 * `svelte:window` keydown was already closing the same selection — the sheet is mounted at every
+	 * breakpoint and only hidden by CSS — so one keystroke fired two `goto`s at two slightly
+	 * different URLs and pushed two history entries. Both halves looked correct in isolation, which
+	 * is exactly why the duplicate was invisible: the panel did close.
+	 *
+	 * Escape therefore stays where it already was, on BottomSheet's window listener, and the layering
+	 * still holds for the reason it always did: TagPicker calls `stopPropagation()` on Escape while
+	 * its list is open, so the first keystroke never reaches window and closes only the picker.
+	 *
+	 * Focus goes back to the row the user came from. `goto` runs SvelteKit's `reset_focus()`, which
+	 * lands on `<body>`, so without this the next Tab restarts at the top of the page. Both surfaces
+	 * are tried because both are mounted: the desktop `<tr>`'s link, then the mobile ListCard's.
+	 * The delete flow is the one exception — it closes the sheet with ConfirmDialog open and holding
+	 * focus, and stealing it would break that modal's Tab trap. (Not detectable via
+	 * `document.activeElement`: the sheet's 220ms exit transition keeps it, and the focus inside it,
+	 * in the DOM past `goto`'s resolution.)
+	 */
+	async function closeDetail() {
+		const id = data.selectedTransaction?.id;
+		await goto(resolve(buildDeselectedHref()), { noScroll: true });
+		if (!id || deleteConfirmOpen) return;
+		// Both surfaces are MOUNTED at every breakpoint and only hidden by CSS, so "the desktop one
+		// first" is wrong: on a phone it exists, is `display: none`, and swallows the focus silently.
+		// `offsetParent === null` is the cheap test for "not rendered", and it is what decides which
+		// of the two the user is actually looking at.
+		const candidates = [
+			document.querySelector<HTMLElement>(`[data-testid="tx-row-${id}"] a`),
+			document.getElementById(`tx-row-${id}`)
+		];
+		candidates.find((el) => el !== null && el.offsetParent !== null)?.focus();
+	}
+
 	const buildExportHref = () => buildTransactionsExportHref(data.filters);
 
 	function openRuleModal(
@@ -559,21 +946,34 @@
 		applyFocusOutcome('createRule', id);
 	}
 
-	async function closeMobileSheet() {
-		// Opening the sheet is a real navigation (?selected=<id>), so focus was
-		// already on <body> when it opened — BottomSheet's own focus restore has
-		// nothing useful to give back. Re-establish keyboard context explicitly by
-		// refocusing the opener row. Exception: the delete flow closes the sheet
-		// with ConfirmDialog open and holding focus — stealing it would break that
-		// modal's Tab trap. (Can't detect this via document.activeElement: the
-		// sheet's 220ms exit transition keeps it — and the focus inside it — in
-		// the DOM past goto's resolution.)
-		const txId = data.selectedTransaction?.id;
-		await goto(resolve(buildPageHref(data.pagination.page)), { keepFocus: true });
-		if (txId && !deleteConfirmOpen) {
-			document.getElementById(`tx-row-${txId}`)?.focus();
-		}
-	}
+	// The mobile sheet's close gestures (backdrop, cross, Escape) are the same event as the desktop
+	// panel's, so they run the same function. Kept as a named alias rather than passing closeDetail
+	// directly, because BottomSheet's prop is what documents WHO is asking.
+	const closeMobileSheet = closeDetail;
+
+	/**
+	 * Which of the design's three totals states applies (section 4C, "TROIS ÉTATS QUI NE SE
+	 * RESSEMBLENT PAS").
+	 *
+	 * The error branch comes FIRST and is decided by the flags, never by the figures: when the query
+	 * is rejected the server zeroes `filteredTotals` AND `pagination.totalTransactions` because it
+	 * has no answer (+page.server.ts), so reading the numbers alone cannot tell "the filter matched
+	 * nothing" from "the filter never ran". Those two used to render identically — both as no totals
+	 * line at all — which is how a rejected regex came to be reported as "0 transaction".
+	 */
+	const filteredTotalsState = $derived(
+		data.queryError || data.dateRangeError
+			? 'error'
+			: data.filteredTotals.incomeCents === 0 && data.filteredTotals.expenseCents === 0
+				? 'zero'
+				: 'normal'
+	);
+
+	/** The design's placeholder for "we do not know", and the reason it is a dash and not a zero:
+	 *  "un tiret n'est pas un montant : il dit « on ne sait pas », ce qui est exactement la vérité".
+	 *  A literal, not a translated message — it is a symbol standing in for a figure, identical in
+	 *  every locale, and nothing about it is prose. */
+	const TOTALS_UNKNOWN = '—';
 
 	type Tab = { t: string; label: string; badge?: number };
 	const TABS: Tab[] = [
@@ -606,6 +1006,203 @@
 	slot as the query/date errors in both filter bars, and paired with the "Réinitialiser" control
 	already sitting next to it, so it needs no new escape hatch of its own.
 -->
+<!--
+	The filtered-set totals, one snippet rendered on both surfaces so the three states cannot be
+	fixed on the desktop header and forgotten on the mobile one.
+
+	ONE live region for all three states, and its `role` never changes: the design is explicit that
+	an element switching status → alert mid-flight "n'est pas détecté de façon fiable par tous les
+	lecteurs d'écran", so the failure is announced by its CONTENT — "Totaux indisponibles" is the
+	first thing read — rather than by escalating politeness. It is rendered unconditionally for the
+	same reason: a region that appears only when it has something to say has no stable identity to
+	announce into.
+
+	Deliberately NO retry control, against the design's own sketch of this state. The design imagines
+	"requête échouée", a transient failure worth re-running. Both error branches this page actually
+	has are rejected USER INPUT — an invalid regex, an invalid date range — so a "Réessayer" would
+	re-submit the same rejected filter and fail identically. That is the "recommends the one action
+	that cannot help" defect closed in #99, and offering it here would re-create it. What is
+	actionable already sits next to the field that caused it ("Expression régulière invalide.").
+-->
+{#snippet bulkOverLimitBanner()}
+	<!-- The refusal, BEFORE the user opens the dialog, beside the filter it asks them to narrow.
+	     It shipped as a rose/danger inline error inside the dialog: honest prose in a `role="alert"`
+	     region, so no claim was false — but the tone said "you broke something" for a cap the user
+	     had no way of knowing about, and it was only reachable by opening a dialog that then refused.
+	     Amber, and up front.
+	     The fallback is COMPUTED, with its real count, so the user sees which narrowing passes before
+	     clicking anything. When neither half of the nature split lands under the cap there is no
+	     fallback and no action at all — a proposal that cannot help is the /upcoming-bills defect
+	     closed in #99, and here it would be worse, because it would name a number. -->
+	{#if bulkTagFilterActive && data.pagination.totalTransactions > MAX_BULK_TAG_TRANSACTIONS}
+		<AlertBanner variant="warning" class="mt-3">
+			{m.tags_bulk_over_limit_title({
+				count: data.pagination.totalTransactions,
+				limit: MAX_BULK_TAG_TRANSACTIONS
+			})}
+			{m.tags_bulk_over_limit_body()}
+			{#if data.bulkFallback}
+				{data.bulkFallback.kind === 'expense'
+					? m.tags_bulk_over_limit_fallback_expense({ count: data.bulkFallback.count })
+					: m.tags_bulk_over_limit_fallback_income({ count: data.bulkFallback.count })}
+			{/if}
+			{#snippet action()}
+				{#if data.bulkFallback}
+					<a
+						href={resolve(buildBulkFallbackHref(data.bulkFallback.kind))}
+						class="shrink-0 self-center font-semibold text-amber-900 underline underline-offset-2"
+					>
+						{m.tags_bulk_over_limit_action()}
+					</a>
+				{/if}
+			{/snippet}
+		</AlertBanner>
+	{/if}
+{/snippet}
+
+{#snippet bulkTagBanner()}
+	<!-- Placement is load-bearing, not cosmetic. The design declines to move focus after a bulk
+	     apply, and justifies that with where this banner sits: "« Annuler » est le tout premier
+	     arrêt de tabulation après le déclencheur… C'est ce placement dans le DOM qui rend le
+	     non-déplacement acceptable — s'il était rendu ailleurs dans la page, la décision inverse
+	     s'imposerait."
+	     It first rendered above the filter bar, which put Annuler 16 focusable stops BEFORE the
+	     trigger. It then rendered under both filter bars, which was correct while the trigger lived
+	     in the bar — and became wrong again the moment the trigger descended into the summary row,
+	     putting the undo one stop EARLIER than the control it undoes. The invariant is "immediately
+	     after the trigger", not "under the filter bar", so the banner now follows the trigger into
+	     the summary row on both surfaces. The hidden breakpoint contributes no tab stop, so the two
+	     copies cannot drift apart. -->
+	{#if bulkTagResult}
+		{#key bulkTagResult}
+			<!-- Approved deviation from the 4s auto-dismiss every other success banner on this page
+				     uses: an undo the user cannot reach because it vanished is worse than a banner that
+				     lingers. `Infinity`, not a large finite value — setTimeout clamps/fires near-
+				     immediately past the 32-bit signed int delay limit (~24.8 days), so a large-but-
+				     finite number would silently misbehave instead of meaning "never" (see
+				     AlertBanner.svelte's own comment on autoDismissMs). -->
+			<AlertBanner variant="success" autoDismissMs={Infinity}>
+				{m.tags_bulk_banner_applied({
+					count: bulkTagResult.appliedCount,
+					tag: bulkTagResult.tagName
+				})}
+				{#snippet action()}
+					<button
+						type="submit"
+						form="bulk-tag-undo-banner"
+						disabled={bulkTagUndoSubmitting}
+						class="-my-2.5 inline-flex min-h-11 shrink-0 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{m.tags_bulk_banner_undo()}
+					</button>
+				{/snippet}
+			</AlertBanner>
+		{/key}
+	{:else if bulkTagEmpty}
+		{#key form}
+			<AlertBanner variant="success">{m.tags_bulk_banner_empty()}</AlertBanner>
+		{/key}
+	{:else if undoBulkTagSuccess}
+		{#key form}
+			<AlertBanner variant="success">{m.tags_bulk_banner_undone()}</AlertBanner>
+		{/key}
+	{/if}
+{/snippet}
+
+{#snippet summaryCount()}
+	<!-- "142 transactions" with no filter — the whole set, not a result — and "6 résultats" with
+	     one. ONE WORD PER CONCEPT: the bar previously said "6 transactions filtrées" here while the
+	     bulk trigger said "Étiqueter les 6 résultats", naming the same thing two ways. The locked
+	     trigger label is the one that wins, so this follows it.
+	     Suppressed entirely in the error state, not rendered as zero: the server sets the count to 0
+	     because it has no answer, so printing it asserts an evaluated, empty result set that never
+	     existed. The totals region beside it says what actually happened instead. -->
+	{#if filteredTotalsState !== 'error'}
+		<p data-testid="summary-count" class="text-sm text-zinc-600">
+			{#if anyFilterActive}
+				{data.pagination.totalTransactions === 1
+					? m.transactions_results_one({ count: data.pagination.totalTransactions })
+					: m.transactions_results_many({ count: data.pagination.totalTransactions })}
+			{:else}
+				{data.pagination.totalTransactions === 1
+					? m.transactions_total_one({ count: data.pagination.totalTransactions })
+					: m.transactions_total_many({ count: data.pagination.totalTransactions })}
+			{/if}
+		</p>
+	{/if}
+{/snippet}
+
+{#snippet summaryActions(surface: string)}
+	<!-- The two conditional controls. The ROW is always rendered because it carries the totals a
+	     user has today with no filter at all; only these two depend on a filter being active. The
+	     bulk trigger lives here rather than in the filter bar: posed between four filter controls it
+	     read as a fifth filter, and here it is against the wall of the number defining its scope.
+	     Both sit OUTSIDE the role="status" region — inside it, every filter change would re-announce
+	     "Réinitialiser les filtres, bouton" along with the figures. -->
+	{#if anyFilterActive}
+		<div class="flex shrink-0 items-center gap-2">
+			<!-- The testid sits on a wrapper because TapLink takes a fixed prop list with no rest
+			     spread, so an unknown attribute is silently dropped rather than forwarded. -->
+			<span data-testid="reset-filters">
+				<TapLink href="/transactions">{m.transactions_reset_filters_link()}</TapLink>
+			</span>
+			<!-- Not a filled button: it acts on many rows at once and must not draw the eye before
+			     the number to its left has been read. -->
+			<button
+				type="button"
+				data-testid="bulk-tag-trigger"
+				class="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border px-4 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none {bulkTagEnabled
+					? 'border-zinc-300 bg-white text-zinc-900 hover:bg-zinc-50'
+					: 'cursor-not-allowed border-zinc-200 bg-white text-zinc-500'}"
+				aria-disabled={bulkTagEnabled ? undefined : 'true'}
+				aria-describedby={bulkTagEnabled ? undefined : `bulk-tag-reason-${surface}`}
+				onclick={bulkTagEnabled ? openBulkTag : undefined}
+			>
+				{bulkTagSubmitting ? m.tags_bulk_applying() : bulkTagCtaLabel}
+			</button>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet summaryDisabledReason(surface: string)}
+	<!-- Native `disabled` would drop the trigger from the tab order and announce nothing; the
+	     explanation has to stay reachable at the keyboard, which is why aria-disabled is used and
+	     why this sentence is a real element aria-describedby can point at rather than a title. -->
+	{#if anyFilterActive && !bulkTagEnabled}
+		<p id="bulk-tag-reason-{surface}" class="mt-2 text-sm text-zinc-500">
+			{bulkTagDisabledReason}
+		</p>
+	{/if}
+{/snippet}
+
+{#snippet filteredTotalsRegion()}
+	<p
+		data-testid="filtered-totals"
+		role="status"
+		aria-live="polite"
+		class="text-xs tabular-nums {filteredTotalsState === 'error'
+			? 'text-amber-700'
+			: 'text-zinc-500'}"
+	>
+		{#if filteredTotalsState === 'error'}
+			{m.transactions_totals_unavailable_label()} · {m.transactions_totals_summary({
+				income: TOTALS_UNKNOWN,
+				expense: TOTALS_UNKNOWN
+			})}
+		{:else if filteredTotalsState === 'zero'}
+			{m.transactions_totals_zero_label()} · {m.transactions_totals_summary({
+				income: formatCents(0),
+				expense: formatCents(0)
+			})}
+		{:else}
+			{m.transactions_totals_summary({
+				income: formatCents(data.filteredTotals.incomeCents),
+				expense: formatCents(data.filteredTotals.expenseCents)
+			})}
+		{/if}
+	</p>
+{/snippet}
+
 {#snippet idsFilterNotice()}
 	{#if idsFilterActive}
 		<p class="mt-2 text-sm text-zinc-600">
@@ -634,66 +1231,6 @@
 				</Button>
 			</div>
 		</div>
-
-		<!-- Result of the last bulk-tag action, following upcoming-bills/+page.svelte's undo banner
-		     shape exactly (see its comment at :752-786): the undo form sits OUTSIDE AlertBanner
-		     because the banner renders a <p>, and a <form> start tag would close that open <p> in the
-		     HTML parser. The button carries `form=` so it can still live visually inside the banner.
-		     Keyed on `bulkTagResult` so a second identical bulk-tag action (same tag, same count) is
-		     announced again instead of reusing an already-dismissed banner.
-		     Deliberately no `autoDismissMs` override on this one (defaults apply): the undo it carries
-		     is available for as long as the banner is, and the deviation only applies to the "applied"
-		     banner just below, which DOES override it. -->
-		{#if bulkTagResult}
-			<form
-				id="bulk-tag-undo-banner"
-				method="POST"
-				action="?/undoBulkTag"
-				class="hidden"
-				use:enhance={() => {
-					bulkTagUndoSubmitting = true;
-					return async ({ update }) => {
-						await update({ reset: false });
-						bulkTagUndoSubmitting = false;
-					};
-				}}
-			>
-				<input type="hidden" name="tagId" value={bulkTagResult.tagId} />
-				<input type="hidden" name="transactionIds" value={bulkTagResult.transactionIds.join(',')} />
-			</form>
-			{#key bulkTagResult}
-				<!-- Approved deviation from the 4s auto-dismiss every other success banner on this page
-				     uses: an undo the user cannot reach because it vanished is worse than a banner that
-				     lingers. `Infinity`, not a large finite value — setTimeout clamps/fires near-
-				     immediately past the 32-bit signed int delay limit (~24.8 days), so a large-but-
-				     finite number would silently misbehave instead of meaning "never" (see
-				     AlertBanner.svelte's own comment on autoDismissMs). -->
-				<AlertBanner variant="success" autoDismissMs={Infinity}>
-					{m.tags_bulk_banner_applied({
-						count: bulkTagResult.appliedCount,
-						tag: bulkTagResult.tagName
-					})}
-					{#snippet action()}
-						<button
-							type="submit"
-							form="bulk-tag-undo-banner"
-							disabled={bulkTagUndoSubmitting}
-							class="-my-2.5 inline-flex min-h-11 shrink-0 items-center rounded font-semibold underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-emerald-600 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50"
-						>
-							{m.tags_bulk_banner_undo()}
-						</button>
-					{/snippet}
-				</AlertBanner>
-			{/key}
-		{:else if bulkTagEmpty}
-			{#key form}
-				<AlertBanner variant="success">{m.tags_bulk_banner_empty()}</AlertBanner>
-			{/key}
-		{:else if undoBulkTagSuccess}
-			{#key form}
-				<AlertBanner variant="success">{m.tags_bulk_banner_undone()}</AlertBanner>
-			{/key}
-		{/if}
 
 		<!-- ============ BANDEAU "À CLASSER" — DESKTOP ============ -->
 		{#if data.uncategorizedCount > 0}
@@ -869,13 +1406,22 @@
 					<input type="hidden" name="importBatch" value={data.filters.importBatchId} />
 				{/if}
 				<div class="flex items-center gap-1">
+					<!-- ".*" at BOTH sizes. Desktop used to render a bare lowercase "r", which reads as a
+					     stray character in the bar rather than as a control; mobile already rendered
+					     ".*", so the glyph that exists is unified upward instead of a third rendering
+					     being invented. Carrying visible text is a deviation from "IconButton never has
+					     visible text", accepted because there is no legible convention for a regex glyph
+					     and the word "Regex" costs 46px in a 300px field. The word is still said twice:
+					     in the accessible name and in the tooltip, which opens on keyboard focus as well
+					     as on hover. -->
 					<IconButton
+						shape="box"
 						pressed={searchIsRegex}
 						label={m.transactions_regex_toggle_aria()}
 						title={m.transactions_regex_toggle_aria()}
 						onclick={() => (searchIsRegex = !searchIsRegex)}
 					>
-						r
+						<span class="font-mono text-[13px] leading-none">.*</span>
 					</IconButton>
 					<input type="hidden" name="qMode" value={searchIsRegex ? 'regex' : 'contains'} />
 					<SearchBar
@@ -887,42 +1433,60 @@
 						clearLabel={m.common_search_clear_aria()}
 					/>
 				</div>
-				<Combobox
-					name="category"
+				<!-- At rest each trigger carries the NAME OF ITS DIMENSION and nothing else. "Toutes" is
+				     the resting value of a filter, and two triggers each showing their resting value is
+				     what put two adjacent "Toutes" in this bar. The word now lives only on the nature
+				     group above — which shows all its options at once, so the set describes itself —
+				     and as the return row inside an open list. Two dimensions can no longer render the
+				     same text, by construction. -->
+				<FilterDropdown
+					dimensionLabel={m.transactions_filter_dimension_category()}
+					activeLabel={activeCategoryLabel}
+					options={categoryFilterOptions}
 					value={data.filters.category}
-					options={[
-						{ value: '', label: m.transactions_category_filter_all() },
-						...data.categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))
-					]}
-					placeholder={m.transactions_category_filter_placeholder()}
-					ariaLabel={m.transactions_category_filter_aria()}
-					class="w-48"
+					allLabel={m.transactions_category_filter_all()}
+					searchPlaceholder={m.transactions_category_filter_placeholder()}
+					clearAriaLabel={m.transactions_filter_clear_aria({
+						dimension: m.transactions_filter_dimension_category()
+					})}
+					onSelect={(category) => applyFilterDimension({ category })}
+					onClear={() => applyFilterDimension({ category: '' })}
 				/>
 				{#if data.allTags.length > 0}
-					{#if activeFilterTag}
-						<!-- Active state: the tag's own tinted chip rather than a control showing its name as
-						     plain text. This is one of the two surfaces the design allows a tint on, and the
-						     one where the colour is genuinely useful: which filter is applied is readable at
-						     a glance. Removing it clears only the tag, keeping every other filter. -->
-						<TagChips
-							variant="tinted"
-							max={Infinity}
-							tags={toTagChipItems([activeFilterTag])}
-							onRemove={clearTagFilter}
-						/>
-					{:else}
-						<Combobox
-							name="tag"
-							value={data.filters.tag}
-							options={[
-								{ value: '', label: m.tags_filter_all() },
-								...data.allTags.map((t) => ({ value: t.id, label: t.name }))
-							]}
-							placeholder={m.tags_filter_placeholder()}
-							ariaLabel={m.tags_filter_aria()}
-							class="w-48"
-						/>
-					{/if}
+					<!-- Absent entirely for a user with no tags: a filter with no possible value has
+					     nothing to offer. Deliberately unlike the bulk trigger below, which IS rendered
+					     and disabled in the equivalent case — an unavailable ACTION has to teach the
+					     condition under which it becomes available; an empty dimension has nothing to
+					     teach. -->
+					<FilterDropdown
+						dimensionLabel={m.tags_filter_dimension()}
+						activeLabel={activeTagLabel}
+						options={tagFilterOptions}
+						value={data.filters.tag}
+						allLabel={m.tags_filter_all()}
+						allCount={tagFilterAllCount}
+						scopeNote={data.tagCounts === null
+							? m.tags_filter_counts_unavailable()
+							: m.tags_filter_scope_note()}
+						searchPlaceholder={m.tags_filter_search_placeholder()}
+						clearAriaLabel={m.transactions_filter_clear_aria({
+							dimension: m.tags_filter_dimension()
+						})}
+						tinted={true}
+						tintBgClass={activeFilterTag && isTagColorToken(activeFilterTag.colorToken)
+							? tagTintBgClass(activeFilterTag.colorToken)
+							: ''}
+						tintBorderClass="border-zinc-300"
+						tintTextClass={activeFilterTag && isTagColorToken(activeFilterTag.colorToken)
+							? tagColorTextClass(activeFilterTag.colorToken)
+							: ''}
+						onSelect={(tag) => applyFilterDimension({ tag })}
+						onClear={clearTagFilter}
+					>
+						{#snippet footer()}
+							<ManageTagsFooter />
+						{/snippet}
+					</FilterDropdown>
 				{/if}
 				<div class="flex items-center gap-1.5">
 					<label for="tx-from" class="text-xs font-medium text-zinc-500"
@@ -952,44 +1516,24 @@
 					/>
 				</div>
 				<Button type="submit" size="field">{m.transactions_submit_filter()}</Button>
-				<Button href="/transactions" variant="secondary" size="field">
-					{m.transactions_reset()}
-				</Button>
-				<!-- Native `disabled` would drop this control from the tab order and announce nothing
-				     when a screen-reader user tabs onto it; `aria-disabled` keeps it focusable so the
-				     reason stays reachable at the keyboard. Not a Button/TapLink instance: both apply
-				     real `disabled` to their <button> branch.
-				     One channel for the reason, not two: no `title` (a second, redundant source), and
-				     the explanation is the SAME visible sentence `aria-describedby` points at below —
-				     never a duplicate in an `aria-label`. Its text stays `zinc-500` (not `zinc-400`,
-				     not dimmed further by an `opacity` class): measured at 4.6:1, an inactive control
-				     must stay readable, not fade toward invisible. -->
-				<button
-					type="button"
-					class="inline-flex h-11 shrink-0 items-center justify-center rounded-xl border px-4 text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none {bulkTagFilterActive
-						? 'border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50'
-						: 'cursor-not-allowed border-zinc-200 bg-white text-zinc-500'}"
-					aria-disabled={bulkTagFilterActive ? undefined : 'true'}
-					aria-describedby={bulkTagFilterActive ? undefined : 'bulk-tag-disabled-reason-desktop'}
-					onclick={openBulkTag}
-				>
-					{m.tags_bulk_cta()}
-				</button>
+				{#if data.queryError}
+					<p class="mt-2 text-sm font-medium text-rose-600">
+						{m.transactions_error_invalid_regex_query()}
+					</p>
+					<!-- Says which results are on screen. The design asked for the totals to keep showing
+				     the last valid expression's figures too; they deliberately do not, because the
+				     server never evaluated this filter and figures printed beside the current input
+				     would claim to describe it. The sentence is the honest half of that idea: the
+				     ROWS are the last valid expression's, the TOTALS are unknown and say so. -->
+					<p class="mt-1 text-sm text-zinc-500">{m.transactions_regex_error_unchanged()}</p>
+				{/if}
+				{#if data.dateRangeError}
+					<p class="mt-2 text-sm font-medium text-rose-600">
+						{m.date_range_error_invalid_custom()}
+					</p>
+				{/if}
+				{@render idsFilterNotice()}
 			</form>
-			{#if !bulkTagFilterActive}
-				<p id="bulk-tag-disabled-reason-desktop" class="mt-2 text-sm text-zinc-500">
-					{m.tags_bulk_cta_disabled_hint()}
-				</p>
-			{/if}
-			{#if data.queryError}
-				<p class="mt-2 text-sm font-medium text-rose-600">
-					{m.transactions_error_invalid_regex_query()}
-				</p>
-			{/if}
-			{#if data.dateRangeError}
-				<p class="mt-2 text-sm font-medium text-rose-600">{m.date_range_error_invalid_custom()}</p>
-			{/if}
-			{@render idsFilterNotice()}
 		</div>
 
 		<!-- ============ ONGLETS + FILTRES — MOBILE ============ -->
@@ -1066,43 +1610,343 @@
 						</svg>
 						{m.transactions_error_invalid_regex_query()}
 					</p>
+					<!-- Same sentence as the desktop bar; see its comment there. -->
+					<p class="px-0.5 text-xs text-zinc-500">{m.transactions_regex_error_unchanged()}</p>
 				{/if}
 
-				<Combobox
-					name="category"
-					value={data.filters.category}
-					options={[
-						{ value: '', label: m.transactions_category_filter_all() },
-						...data.categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))
-					]}
-					placeholder={m.transactions_category_filter_placeholder()}
-					ariaLabel={m.transactions_category_filter_aria()}
-					class="w-full"
-					triggerClass="!bg-zinc-50"
-				/>
-				{#if data.allTags.length > 0}
-					{#if activeFilterTag}
-						<!-- Same active state as the desktop bar; see its comment there. -->
-						<TagChips
-							variant="tinted"
-							max={Infinity}
-							tags={toTagChipItems([activeFilterTag])}
-							onRemove={clearTagFilter}
+				<!-- Category and tag collapse behind one "Filtres" sheet — see the comment on
+				     activeMobileFilterDimensionCount above. What stays identical to the desktop bar is
+				     what matters: "Dimension : Valeur", the × in the same place, the counts, and the
+				     "Gérer dans Paramètres" footer. One logic, two layouts. -->
+				{#snippet mobileFilterCheckMark()}
+					<svg
+						class="h-3.5 w-3.5 shrink-0 text-zinc-500"
+						viewBox="0 0 16 16"
+						fill="none"
+						aria-hidden="true"
+					>
+						<path
+							d="M2.5 8 6.5 12 13.5 4"
+							stroke="currentColor"
+							stroke-width="1.6"
+							stroke-linecap="round"
+							stroke-linejoin="round"
 						/>
-					{:else}
-						<Combobox
-							name="tag"
-							value={data.filters.tag}
-							options={[
-								{ value: '', label: m.tags_filter_all() },
-								...data.allTags.map((t) => ({ value: t.id, label: t.name }))
-							]}
-							placeholder={m.tags_filter_placeholder()}
-							ariaLabel={m.tags_filter_aria()}
-							class="w-full"
-							triggerClass="!bg-zinc-50"
-						/>
+					</svg>
+				{/snippet}
+				<div class="flex flex-wrap items-center gap-2">
+					<button
+						type="button"
+						class="inline-flex h-11 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+						aria-label={mobileFiltersTriggerAriaLabel}
+						onclick={() => (mobileFiltersOpen = true)}
+					>
+						{m.transactions_filters_sheet_label()}
+						{#if activeMobileFilterDimensionCount > 0}
+							<span
+								aria-hidden="true"
+								class="flex h-5 min-w-[20px] items-center justify-center rounded-full bg-zinc-900 px-1 text-[11px] font-bold text-white tabular-nums"
+							>
+								{activeMobileFilterDimensionCount}
+							</span>
+						{/if}
+					</button>
+
+					<!-- The dimension's own trigger, always present — same "Dimension : Valeur" grammar
+					     and the same two-adjoined-buttons shape as the desktop FilterDropdown trigger
+					     (a resting name, an active "Dimension : Valeur" plus its own clear control), so
+					     the two surfaces never disagree about what "active" reads like. Opens the
+					     dimension's sub-sheet directly rather than routing through the "Filtres"
+					     summary first — the summary sheet stays reachable too, for the count and the
+					     "Voir les N résultats" confirmation, but is never the only way in. -->
+					<span
+						class="inline-flex min-h-11 items-stretch overflow-hidden rounded-lg border bg-white {data
+							.filters.category
+							? 'border-zinc-900'
+							: 'border-zinc-200'}"
+					>
+						<button
+							type="button"
+							class="inline-flex min-h-11 items-center px-2.5 text-sm text-zinc-900"
+							onclick={() => (mobileFilterSubDimension = 'category')}
+						>
+							<!-- Same trigger grammar as desktop, same cap: the dimension name never truncates,
+							     the VALUE is bounded at 190px. The rule is universal, not desktop-only, and
+							     the pill had no bound at all — a long tag or category name rendered as one
+							     unbreakable pill wider than the design allows. -->
+							<span class="max-w-[190px] truncate"
+								>{data.filters.category
+									? activeCategoryLabel
+									: m.transactions_filter_dimension_category()}</span
+							>
+						</button>
+						{#if data.filters.category}
+							<span class="w-px self-stretch bg-zinc-200" aria-hidden="true"></span>
+							<button
+								type="button"
+								class="inline-flex min-h-11 min-w-11 items-center justify-center text-zinc-500"
+								aria-label={m.transactions_filter_clear_aria({
+									dimension: m.transactions_filter_dimension_category()
+								})}
+								onclick={() => applyFilterDimension({ category: '' })}
+							>
+								<span aria-hidden="true">×</span>
+							</button>
+						{/if}
+					</span>
+					{#if data.allTags.length > 0}
+						<span
+							class="inline-flex min-h-11 items-stretch overflow-hidden rounded-lg border bg-white {activeFilterTag
+								? `border-zinc-300 ${isTagColorToken(activeFilterTag.colorToken) ? tagTintBgClass(activeFilterTag.colorToken) : ''}`
+								: 'border-zinc-200'}"
+						>
+							<!-- The value takes the TOKEN's hue on the token's tint, the same measured pairing
+							     the desktop trigger carries (4.71:1 lagoon, 4.81:1 azure). Shipping the tint
+							     alone leaves a surface with no measured foreground on it. -->
+							<button
+								type="button"
+								class="inline-flex min-h-11 items-center px-2.5 text-sm {activeFilterTag &&
+								isTagColorToken(activeFilterTag.colorToken)
+									? tagColorTextClass(activeFilterTag.colorToken)
+									: 'text-zinc-900'}"
+								onclick={() => (mobileFilterSubDimension = 'tag')}
+							>
+								<span class="max-w-[190px] truncate"
+									>{activeFilterTag ? activeTagLabel : m.tags_filter_dimension()}</span
+								>
+							</button>
+							{#if activeFilterTag}
+								<span class="w-px self-stretch bg-zinc-300" aria-hidden="true"></span>
+								<button
+									type="button"
+									class="inline-flex min-h-11 min-w-11 items-center justify-center text-zinc-600"
+									aria-label={m.transactions_filter_clear_aria({
+										dimension: m.tags_filter_dimension()
+									})}
+									onclick={clearTagFilter}
+								>
+									<span aria-hidden="true">×</span>
+								</button>
+							{/if}
+						</span>
 					{/if}
+				</div>
+
+				<!-- The "Filtres" sheet: category and tag rows, each showing the vertical form of
+				     "Dimension : Valeur" — the dimension name in 12px above the value slot, "Toutes" in
+				     zinc-400 when the dimension rests. Selecting a value happens one level down, in a
+				     sub-sheet: this sheet only says what is set today and lets the user drill in. -->
+				<BottomSheet
+					open={mobileFiltersOpen}
+					ariaLabel={m.transactions_filters_sheet_label()}
+					onClose={closeMobileFiltersSheet}
+				>
+					<div class="space-y-1 pb-1">
+						<h2 class="mb-2 text-base font-semibold text-zinc-950">
+							{m.transactions_filters_sheet_label()}
+						</h2>
+						<button
+							type="button"
+							class="flex min-h-[52px] w-full items-center justify-between gap-2 border-b border-zinc-100 py-2 text-left"
+							onclick={() => (mobileFilterSubDimension = 'category')}
+						>
+							<span class="flex min-w-0 flex-col">
+								<span class="text-[11px] font-medium text-zinc-500">
+									{m.transactions_filter_dimension_category()}
+								</span>
+								<span
+									class="truncate text-sm {data.filters.category
+										? 'text-zinc-900'
+										: 'text-zinc-400'}"
+								>
+									{data.filters.category
+										? displayCategory(data.filters.category)
+										: m.transactions_category_filter_all()}
+								</span>
+							</span>
+							<svg
+								class="h-4 w-4 shrink-0 text-zinc-400"
+								viewBox="0 0 20 20"
+								fill="none"
+								aria-hidden="true"
+							>
+								<path
+									d="M7.5 5.5 12 10l-4.5 4.5"
+									stroke="currentColor"
+									stroke-width="1.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</button>
+						{#if data.allTags.length > 0}
+							<button
+								type="button"
+								class="flex min-h-[52px] w-full items-center justify-between gap-2 border-b border-zinc-100 py-2 text-left"
+								onclick={() => (mobileFilterSubDimension = 'tag')}
+							>
+								<span class="flex min-w-0 flex-col">
+									<span class="text-[11px] font-medium text-zinc-500"
+										>{m.tags_filter_dimension()}</span
+									>
+									<span
+										class="flex items-center gap-1.5 truncate text-sm {activeFilterTag
+											? 'text-zinc-900'
+											: 'text-zinc-400'}"
+									>
+										{#if activeFilterTag && isTagColorToken(activeFilterTag.colorToken)}
+											<span
+												class="h-2 w-2 shrink-0 rounded-full {tagColorBgClass(
+													activeFilterTag.colorToken
+												)}"
+											></span>
+										{/if}
+										{activeFilterTag ? activeFilterTag.name : m.tags_filter_all()}
+									</span>
+								</span>
+								<svg
+									class="h-4 w-4 shrink-0 text-zinc-400"
+									viewBox="0 0 20 20"
+									fill="none"
+									aria-hidden="true"
+								>
+									<path
+										d="M7.5 5.5 12 10l-4.5 4.5"
+										stroke="currentColor"
+										stroke-width="1.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							</button>
+						{/if}
+						<Button type="button" class="mt-3 h-11 w-full" onclick={closeMobileFiltersSheet}>
+							{mobileFiltersApplyLabel}
+						</Button>
+					</div>
+				</BottomSheet>
+
+				<!-- Category sub-sheet: the same option set FilterDropdown renders on desktop, as
+				     full-width 52px rows instead of a small anchored panel. -->
+				<BottomSheet
+					open={mobileFilterSubDimension === 'category'}
+					ariaLabel={m.transactions_filter_dimension_category()}
+					onClose={closeMobileFilterSubSheet}
+				>
+					<div class="pb-1">
+						<h2 class="mb-2 text-base font-semibold text-zinc-950">
+							{m.transactions_filter_dimension_category()}
+						</h2>
+						<ul class="divide-y divide-zinc-100">
+							<li>
+								<button
+									type="button"
+									class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm text-zinc-700"
+									onclick={() => {
+										applyFilterDimension({ category: '' });
+										closeMobileFilterSubSheet();
+									}}
+								>
+									<span>{m.transactions_category_filter_all()}</span>
+									{#if !data.filters.category}
+										{@render mobileFilterCheckMark()}
+									{/if}
+								</button>
+							</li>
+							{#each categoryFilterOptions as option (option.value)}
+								<li>
+									<button
+										type="button"
+										class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm text-zinc-700"
+										onclick={() => {
+											applyFilterDimension({ category: option.value });
+											closeMobileFilterSubSheet();
+										}}
+									>
+										<span class="truncate">{option.label}</span>
+										{#if option.value === data.filters.category}
+											{@render mobileFilterCheckMark()}
+										{/if}
+									</button>
+								</li>
+							{/each}
+						</ul>
+					</div>
+				</BottomSheet>
+
+				<!-- Tag sub-sheet: same option set as the desktop tag panel — counts, the scope note, a
+				     zero-count row dimmed but reachable, and the same "Gérer dans Paramètres" footer. -->
+				{#if data.allTags.length > 0}
+					<BottomSheet
+						open={mobileFilterSubDimension === 'tag'}
+						ariaLabel={m.tags_filter_dimension()}
+						onClose={closeMobileFilterSubSheet}
+					>
+						<div class="pb-1">
+							<h2 class="mb-1 text-base font-semibold text-zinc-950">
+								{m.tags_filter_dimension()}
+							</h2>
+							<p class="mb-2 text-xs text-zinc-500">
+								{data.tagCounts === null
+									? m.tags_filter_counts_unavailable()
+									: m.tags_filter_scope_note()}
+							</p>
+							<ul class="divide-y divide-zinc-100">
+								<li>
+									<button
+										type="button"
+										class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm text-zinc-700"
+										onclick={() => {
+											clearTagFilter();
+											closeMobileFilterSubSheet();
+										}}
+									>
+										<span>{m.tags_filter_all()}</span>
+										<span class="flex items-center gap-2">
+											<span class="text-xs text-zinc-500 tabular-nums">
+												{tagFilterAllCount === null ? '—' : tagFilterAllCount}
+											</span>
+											{#if !data.filters.tag}
+												{@render mobileFilterCheckMark()}
+											{/if}
+										</span>
+									</button>
+								</li>
+								{#each tagFilterOptions as option (option.value)}
+									<li>
+										<button
+											type="button"
+											aria-disabled={option.disabled ? 'true' : undefined}
+											class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm {option.disabled
+												? 'cursor-not-allowed text-zinc-400'
+												: 'text-zinc-700'}"
+											onclick={() => {
+												if (option.disabled) return;
+												applyFilterDimension({ tag: option.value });
+												closeMobileFilterSubSheet();
+											}}
+										>
+											<span class="flex min-w-0 items-center gap-2">
+												{#if option.swatchClass}
+													<span class="h-2 w-2 shrink-0 rounded-full {option.swatchClass}"></span>
+												{/if}
+												<span class="truncate">{option.label}</span>
+											</span>
+											<span class="flex items-center gap-2">
+												<span class="text-xs text-zinc-500 tabular-nums">
+													{option.count === null || option.count === undefined ? '—' : option.count}
+												</span>
+												{#if option.value === data.filters.tag}
+													{@render mobileFilterCheckMark()}
+												{/if}
+											</span>
+										</button>
+									</li>
+								{/each}
+							</ul>
+							<ManageTagsFooter />
+						</div>
+					</BottomSheet>
 				{/if}
 				<div class="flex gap-2">
 					<div class="flex-1">
@@ -1152,75 +1996,78 @@
 				{@render idsFilterNotice()}
 
 				<div class="flex gap-2 pt-1">
-					<Button href="/transactions" variant="secondary" class="h-11 flex-1">
-						{m.transactions_reset()}
-					</Button>
 					<Button type="submit" class="!flex h-11 flex-1 !items-center !justify-center">
 						{m.transactions_submit_filter()}
 					</Button>
 				</div>
-				<!-- Same aria-disabled trigger as the desktop bar (see the comment there: one channel
-				     for the reason, no title, zinc-500 not opacity-dimmed), mobile copy. -->
-				<button
-					type="button"
-					class="flex h-11 w-full items-center justify-center rounded-xl border text-sm font-semibold focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2 focus-visible:outline-none {bulkTagFilterActive
-						? 'border-zinc-300 bg-white text-zinc-700'
-						: 'cursor-not-allowed border-zinc-200 bg-white text-zinc-500'}"
-					aria-disabled={bulkTagFilterActive ? undefined : 'true'}
-					aria-describedby={bulkTagFilterActive ? undefined : 'bulk-tag-disabled-reason-mobile'}
-					onclick={openBulkTag}
-				>
-					{m.tags_bulk_cta()}
-				</button>
-				{#if !bulkTagFilterActive}
-					<p id="bulk-tag-disabled-reason-mobile" class="px-0.5 text-sm text-zinc-500">
-						{m.tags_bulk_cta_disabled_hint()}
-					</p>
-				{/if}
 			</form>
 		</div>
 
+		<!-- The hidden undo form stays here, rendered ONCE: its id has to be unique, and the button
+		     that submits it carries `form=` so it can live anywhere on the page. Only the visible
+		     banner moved (see the bulkTagBanner snippet). -->
+		{#if bulkTagResult}
+			<form
+				id="bulk-tag-undo-banner"
+				method="POST"
+				action="?/undoBulkTag"
+				class="hidden"
+				use:enhance={() => {
+					bulkTagUndoSubmitting = true;
+					return async ({ update }) => {
+						await update({ reset: false });
+						bulkTagUndoSubmitting = false;
+					};
+				}}
+			>
+				<input type="hidden" name="tagId" value={bulkTagResult.tagId} />
+				<input type="hidden" name="transactionIds" value={bulkTagResult.transactionIds.join(',')} />
+			</form>
+		{/if}
+
 		<!-- ============ TABLEAU + PANNEAU DÉTAIL — DESKTOP ============ -->
-		<div class="hidden gap-6 lg:grid xl:grid-cols-[1fr_400px]">
+		<!-- Nothing occupies the place of nothing: with no selection there is no second column at all,
+		     and the table takes the width. `items-start` rather than the grid default `stretch`,
+		     because a panel taller than a six-row table must not stretch the table to match — a table
+		     claiming 520px of height for six rows is a layout lie, and the white space belongs to the
+		     left instead.
+		     The two-column state stays at `xl` (1280px) deliberately: below ~1120px the narrowed
+		     table's label column drops under 300px and stops being readable, and today's `lg`-stacks-
+		     under behaviour already avoids that. The design flags a modal side sheet for that range and
+		     does not draw it; it is in the backlog, not here. -->
+		<div
+			class="hidden items-start gap-6 lg:grid {data.selectedTransaction
+				? 'xl:grid-cols-[1fr_400px]'
+				: ''}"
+		>
 			<!-- Section tableau -->
 			<section class="rounded-lg border border-zinc-200 bg-white">
 				<!-- En-tête tableau : pagination -->
-				<div class="flex items-center justify-between gap-2 border-b border-zinc-200 px-4 py-3">
-					<div>
-						<p class="text-sm text-zinc-600">
-							{data.pagination.totalTransactions > 1
-								? m.transactions_count_many({
-										count: data.pagination.totalTransactions,
-										page: data.pagination.page
-									})
-								: m.transactions_count_one({
-										count: data.pagination.totalTransactions,
-										page: data.pagination.page
-									})}
-						</p>
-						{#if data.filteredTotals.incomeCents > 0 || data.filteredTotals.expenseCents > 0}
-							<p class="text-xs text-zinc-500 tabular-nums">
-								{m.transactions_totals_summary({
-									income: formatCents(data.filteredTotals.incomeCents),
-									expense: formatCents(data.filteredTotals.expenseCents)
-								})}
-							</p>
-						{/if}
+				<div class="border-b border-zinc-200 px-4 py-3">
+					<div class="flex flex-wrap items-center justify-between gap-2">
+						<div>
+							{@render summaryCount()}
+							{@render filteredTotalsRegion()}
+						</div>
+						<div class="flex items-center gap-2">
+							{@render summaryActions('desktop')}
+							<Button
+								variant="secondary"
+								size="sm"
+								href={buildPageHref(data.pagination.page - 1)}
+								disabled={!data.pagination.hasPrevious}>{m.transactions_previous()}</Button
+							>
+							<Button
+								variant="secondary"
+								size="sm"
+								href={buildPageHref(data.pagination.page + 1)}
+								disabled={!data.pagination.hasNext}>{m.transactions_next()}</Button
+							>
+						</div>
 					</div>
-					<div class="flex gap-2">
-						<Button
-							variant="secondary"
-							size="sm"
-							href={buildPageHref(data.pagination.page - 1)}
-							disabled={!data.pagination.hasPrevious}>{m.transactions_previous()}</Button
-						>
-						<Button
-							variant="secondary"
-							size="sm"
-							href={buildPageHref(data.pagination.page + 1)}
-							disabled={!data.pagination.hasNext}>{m.transactions_next()}</Button
-						>
-					</div>
+					{@render summaryDisabledReason('desktop')}
+					{@render bulkOverLimitBanner()}
+					{@render bulkTagBanner()}
 				</div>
 
 				<!-- Table -->
@@ -1238,7 +2085,7 @@
 								{:else}
 									<tr>
 										<th class="px-4 py-2.5">{m.transactions_table_label()}</th>
-										<th class="px-4 py-2.5">{m.transactions_table_category()}</th>
+										<th class="{colCategory} px-4 py-2.5">{m.transactions_table_category()}</th>
 										<!-- A dedicated column, not chips at the end of the label. The design grants the
 										     row-chips exception to "a table shows only what you scan at a glance" ONLY
 										     against this counterpart: "colonne dédiée de 190 px (pas de puce en fin de
@@ -1246,8 +2093,12 @@
 										     the left column ragged, and the eye then hunts for them instead of running
 										     down one vertical band. Rendered even when the user has no tags, so rows do
 										     not change shape the moment a first tag appears. -->
-										<th class="w-[190px] px-4 py-2.5">{m.transactions_table_tags()}</th>
-										<th class="px-4 py-2.5 text-right">{m.transactions_table_amount()}</th>
+										<th class="{colTags} px-4 py-2.5" data-testid="tags-header-cell"
+											>{m.transactions_table_tags()}</th
+										>
+										<th class="{colAmount} px-4 py-2.5 text-right"
+											>{m.transactions_table_amount()}</th
+										>
 									</tr>
 								{/if}
 							</thead>
@@ -1257,13 +2108,12 @@
 										{#if classificationMode}
 											<!-- Ligne mode classement -->
 											<tr
-												class="border-b border-zinc-100 last:border-0 {data.selectedTransaction
-													?.id === tx.id
-													? 'bg-zinc-50 ring-1 ring-zinc-900/10 ring-inset'
-													: 'hover:bg-zinc-50/50'}"
+												class="border-b border-zinc-100 last:border-0 {rowStateClass(tx.id)}"
+												data-testid="tx-row-{tx.id}"
+												aria-current={data.selectedTransaction?.id === tx.id ? 'true' : undefined}
 											>
 												<td class="px-4 py-3 align-top">
-													<a href={resolve(buildSelectedHref(tx.id))} class="block">
+													<a href={resolve(buildRowHref(tx.id))} class="block">
 														<span
 															class="line-clamp-2 font-medium text-zinc-900 underline-offset-2 hover:underline"
 															>{tx.label}</span
@@ -1364,15 +2214,14 @@
 										{:else}
 											<!-- Ligne mode normal -->
 											<tr
-												class="border-b border-zinc-100 last:border-0 {data.selectedTransaction
-													?.id === tx.id
-													? 'bg-zinc-50 ring-1 ring-zinc-900/10 ring-inset'
-													: 'hover:bg-zinc-50/50'}"
+												class="border-b border-zinc-100 last:border-0 {rowStateClass(tx.id)}"
+												data-testid="tx-row-{tx.id}"
+												aria-current={data.selectedTransaction?.id === tx.id ? 'true' : undefined}
 											>
 												<td class="max-w-[260px] px-4 py-3">
 													<a
 														class="line-clamp-2 font-medium text-zinc-900 underline-offset-2 hover:underline"
-														href={resolve(buildSelectedHref(tx.id))}>{tx.label}</a
+														href={resolve(buildRowHref(tx.id))}>{tx.label}</a
 													>
 													<p class="mt-0.5 text-xs text-zinc-400">{formatDate(tx.date)}</p>
 												</td>
@@ -1387,13 +2236,24 @@
 														{formatNatureLabel(tx.nature)}
 													</p>
 												</td>
-												<td class="w-[190px] px-4 py-3">
-													{#if tx.tags.length > 0}
-														<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
-													{/if}
+												<!-- The 190px lives on an inner block, and the cell's own padding moved onto it.
+												     `w-[190px]` on the <td> alone is only a suggestion: this table is
+												     `table-layout: auto`, so the column is sized from its content's intrinsic
+												     max-width, and two chips at their 110px cap widened it to 262px (299px with
+												     longer names) while the header still measured 190px on an empty row. A
+												     fixed-width child gives the column a max-content of exactly 190px, so the
+												     figure the design specifies is the figure the browser uses. Padding sits on
+												     the child rather than the cell so the 190 stays the whole column box (border-
+												     box), with no "190 minus 2rem" arithmetic to get wrong later. -->
+												<td class="{colTags} p-0">
+													<div class="{colTags} px-4 py-3" data-testid="tags-cell">
+														{#if tx.tags.length > 0}
+															<TagChips tags={toTagChipItems(tx.tags)} size="sm" />
+														{/if}
+													</div>
 												</td>
 												<td
-													class="px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
+													class="{colAmount} px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
 													'income'
 														? 'text-emerald-700'
 														: 'text-rose-600'}"
@@ -1410,9 +2270,21 @@
 						<div class="p-6">
 							{#if classificationMode}
 								<p class="text-sm text-zinc-500">{m.transactions_all_classified()}</p>
+							{:else if filteredTotalsState === 'error'}
+								<!-- "Aucune transaction pour ces critères" is a claim about the criteria having
+								     been applied. When the filter was rejected they never were, so the list is
+								     empty for a different reason and must say so. -->
+								<p class="text-sm text-zinc-500">{m.transactions_empty_query_error_title()}</p>
+								<p class="mt-1 text-sm text-zinc-500">
+									{m.transactions_empty_query_error_body()}
+								</p>
 							{:else}
 								<p class="text-sm text-zinc-500">{m.transactions_no_transactions_criteria()}</p>
-								<div class="mt-2">
+								<!-- The testid distinguishes this reset from the summary row's, which carries the
+								     same words and is on screen at the same time whenever a filter returns nothing.
+								     TapLink has no rest spread, so the attribute goes on a wrapper or it is
+								     silently dropped. -->
+								<div class="mt-2" data-testid="empty-reset-filters">
 									<TapLink href="/transactions">{m.transactions_reset_filters_link()}</TapLink>
 								</div>
 							{/if}
@@ -1421,439 +2293,490 @@
 				</div>
 			</section>
 
-			<!-- Panneau détail -->
-			<aside class="rounded-lg border border-zinc-200 bg-white">
-				<div class="border-b border-zinc-200 px-4 py-3">
-					<h2 class="text-base font-semibold">{m.transactions_detail_heading()}</h2>
-				</div>
-				{#if data.selectedTransaction}
-					<div class="space-y-0">
-						<!-- En-tête détail -->
-						<div class="border-b border-zinc-100 px-4 py-3">
-							<div class="flex items-start justify-between gap-2">
-								<div>
-									<p class="text-sm text-zinc-400">{formatDate(data.selectedTransaction.date)}</p>
-									<p class="mt-0.5 text-sm font-semibold text-zinc-900">
-										{data.selectedTransaction.label}
-									</p>
-									<p
-										class="mt-1 text-xl font-semibold tabular-nums {data.selectedTransaction
-											.type === 'income'
-											? 'text-emerald-700'
-											: 'text-rose-600'}"
-									>
-										{formatCents(data.selectedTransaction.amountCents)}
-									</p>
-								</div>
-								<Button
-									variant="ghost-danger"
-									size="sm"
-									onclick={() => openDeleteConfirm(data.selectedTransaction!)}
+			<!-- Panneau détail — on demand only. There is no "select a transaction" placeholder and no
+			     empty column: a column announcing its own emptiness is still an occupied column.
+			     `position: sticky` keeps the panel in view while a long list scrolls, and it stays at
+			     the TOP of its column rather than following the selected row — a card moving vertically
+			     during scroll is unreadable.
+			     `max-height` + `overflow-y: auto` is amendment 3, and it is load-bearing rather than
+			     defensive: the panel holds six sections and exceeds 800px with them open. `sticky`
+			     alone pins the top edge, so everything past the fold would simply be unreachable —
+			     clipped, with no scroll of its own and no page scroll that can bring it back. The
+			     element that scrolls is the same element that sticks, which is legal: an overflow
+			     ANCESTOR would break stickiness, an overflow self does not. -->
+			{#if data.selectedTransaction}
+				<div
+					class="sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto"
+					data-testid="detail-sticky"
+				>
+					<aside
+						class="rounded-lg border border-zinc-200 bg-white"
+						aria-label={m.transactions_detail_region_aria()}
+						data-testid="transaction-detail"
+					>
+						<div
+							class="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-zinc-200 bg-white px-4 py-3"
+						>
+							<h2 class="text-base font-semibold">{m.transactions_detail_heading()}</h2>
+							<!-- 28px of visible glyph inside a 44x44 target, per the design's own floor. It is a
+							     link rather than a button because closing IS a navigation: it drops `?selected=`,
+							     so Back returns to the open panel and the state survives a reload. -->
+							<a
+								href={resolve(buildDeselectedHref())}
+								aria-label={m.transactions_detail_close_aria()}
+								data-sveltekit-noscroll
+								onclick={(event) => {
+									// The href is what survives with JS off and what a middle-click uses; the handler
+									// exists only so focus can be put back on the row afterwards, which a plain link
+									// navigation cannot do.
+									if (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0)
+										return;
+									event.preventDefault();
+									void closeDetail();
+								}}
+								class="-mr-2 inline-flex h-11 w-11 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
+							>
+								<svg
+									class="h-7 w-7"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="1.5"
+									aria-hidden="true"
 								>
-									{m.common_delete()}
-								</Button>
-							</div>
+									<path d="M6 6l12 12M18 6L6 18" stroke-linecap="round" />
+								</svg>
+							</a>
 						</div>
-
-						<!-- Bloc proposition (mode classement uniquement) : toujours affiché, pré-rempli
-						     avec la suggestion de règle ou "Non catégorisé" par défaut sinon (jamais masqué). -->
-						{#if classificationMode}
-							<TransactionProposalCard
-								transactionId={data.selectedTransaction.id}
-								suggestion={data.selectedSuggestion}
-								categoryOptions={data.categoryOptions}
-								natureOptions={data.natureOptions}
-								variant="panel"
-								{getCategoryColor}
-								{displayCategory}
-								{formatNatureLabel}
-								acceptError={form?.acceptError}
-								onAccepted={handleAccepted}
-								onIgnore={handleIgnore}
-								onCreateRule={(category, nature) =>
-									openRuleModal(data.selectedTransaction!.id, data.selectedTransaction!.label, {
-										category,
-										nature
-									})}
-							/>
-						{/if}
-
-						<div class="space-y-4 px-4 py-4">
-							<!-- Résumé rapide -->
-							<dl class="grid gap-2 text-sm">
-								<div class="flex justify-between gap-3">
-									<dt class="text-zinc-500">{m.transactions_summary_source()}</dt>
-									<dd class="text-right font-medium">{data.selectedTransaction.source}</dd>
-								</div>
-								<div class="flex justify-between gap-3">
-									<dt class="text-zinc-500">{m.transactions_summary_type()}</dt>
-									<dd class="text-right">
-										<span
-											class="rounded px-1.5 py-0.5 text-xs font-semibold
-											{data.selectedTransaction.type === 'income'
-												? 'bg-emerald-50 text-emerald-700'
-												: 'bg-rose-50 text-rose-700'}"
+						<div class="space-y-0">
+							<!-- En-tête détail -->
+							<div class="border-b border-zinc-100 px-4 py-3">
+								<div class="flex items-start justify-between gap-2">
+									<div>
+										<p class="text-sm text-zinc-400">{formatDate(data.selectedTransaction.date)}</p>
+										<p class="mt-0.5 text-sm font-semibold text-zinc-900">
+											{data.selectedTransaction.label}
+										</p>
+										<p
+											class="mt-1 text-xl font-semibold tabular-nums {data.selectedTransaction
+												.type === 'income'
+												? 'text-emerald-700'
+												: 'text-rose-600'}"
 										>
-											{data.selectedTransaction.type === 'income'
-												? m.nature_income()
-												: m.transactions_type_expense()}
-										</span>
-									</dd>
-								</div>
-								<div class="flex justify-between gap-3">
-									<dt class="text-zinc-500">{m.transactions_summary_nature()}</dt>
-									<dd class="text-right">
-										<span class="text-xs text-zinc-600"
-											>{formatNatureLabel(data.selectedTransaction.nature)}</span
-										>
-										<span class="ml-1 text-[11px] text-zinc-400"
-											>({formatNatureSource(data.selectedTransaction.natureSource)})</span
-										>
-									</dd>
-								</div>
-							</dl>
-
-							<!-- Catégorie manuelle -->
-							<section class="rounded-xl border border-zinc-200 p-3">
-								<h3 class="text-sm font-semibold">{m.transactions_manual_category_heading()}</h3>
-								<form class="mt-3 grid gap-2" method="POST" action="?/saveManualCategory">
-									<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
-									<input type="hidden" name="manualCategory" value={manualCategoryValue} />
-									<label class="grid gap-1 text-sm font-medium text-zinc-600">
-										<span class="sr-only">{m.budgets_field_category()}</span>
-										<Combobox
-											value={manualCategoryValue}
-											options={[
-												{ value: '', label: m.transactions_automatic() },
-												...data.categoryOptions.map((c) => ({
-													value: c,
-													label: displayCategory(c)
-												}))
-											]}
-											placeholder={m.transactions_automatic()}
-											ariaLabel={m.transactions_manual_category_heading()}
-											onValueChange={(v) => {
-												manualCategoryValue = v;
-											}}
-										/>
-									</label>
-									{#if form?.manualCategoryError}
-										<p class="text-xs text-rose-600">{form.manualCategoryError}</p>
-									{/if}
-									<div class="flex flex-wrap gap-2">
-										<Button type="submit" size="sm" disabled={!categoryIsDirty}
-											>{m.common_save()}</Button
-										>
-										{#if data.selectedTransaction.manualCategory}
-											<Button
-												type="submit"
-												variant="secondary"
-												size="sm"
-												name="manualCategory"
-												value="">{m.transactions_reset()}</Button
-											>
-										{/if}
+											{formatCents(data.selectedTransaction.amountCents)}
+										</p>
 									</div>
-								</form>
-								<p class="mt-2">
-									<TapLink href="/categories">{m.transactions_manage_categories_link()}</TapLink>
-								</p>
-							</section>
-
-							<!-- Nature manuelle -->
-							<section class="rounded-xl border border-zinc-200 p-3">
-								<h3 class="text-sm font-semibold">{m.transactions_manual_nature_heading()}</h3>
-								<form class="mt-3 grid gap-2" method="POST" action="?/saveManualNature">
-									<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
-									<input type="hidden" name="manualNature" value={manualNatureValue} />
-									<label class="grid gap-1 text-sm font-medium text-zinc-600">
-										{m.categories_table_nature()}
-										<Select
-											value={manualNatureValue}
-											options={[
-												{ value: '', label: m.categories_nature_none() },
-												...data.natureOptions.map((n) => ({
-													value: n,
-													label: formatNatureLabel(n)
-												}))
-											]}
-											ariaLabel={m.transactions_manual_nature_heading()}
-											onValueChange={(v) => {
-												manualNatureValue = v;
-											}}
-										/>
-									</label>
-									{#if form?.manualNatureError}
-										<p class="text-xs text-rose-600">{form.manualNatureError}</p>
-									{/if}
-									<div class="flex flex-wrap gap-2">
-										<Button type="submit" size="sm" disabled={!natureIsDirty}
-											>{m.common_save()}</Button
-										>
-										{#if data.selectedTransaction.manualNature}
-											<Button
-												type="submit"
-												variant="secondary"
-												size="sm"
-												name="manualNature"
-												value="">{m.transactions_reset()}</Button
-											>
-										{/if}
-									</div>
-								</form>
-							</section>
-
-							<!-- Étiquettes -->
-							<TransactionTagsEditor
-								transactionId={data.selectedTransaction.id}
-								tags={data.selectedTransaction.tags}
-								allTags={allTagOptions}
-								error={form?.tagsError}
-							/>
-
-							<!-- Détails bancaires -->
-							<div class="rounded-xl border border-zinc-200">
-								<h3 class="m-0">
-									<button
-										type="button"
-										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
-										onclick={() => toggleSection('bankFields')}
-										aria-expanded={openSections.has('bankFields')}
+									<Button
+										variant="ghost-danger"
+										size="sm"
+										onclick={() => openDeleteConfirm(data.selectedTransaction!)}
 									>
-										<span class="text-sm font-semibold"
-											>{m.transactions_bank_details_heading()}</span
-										>
-										<svg
-											aria-hidden="true"
-											class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
-												'bankFields'
-											)
-												? 'rotate-180'
-												: ''}"
-											viewBox="0 0 20 20"
-											fill="none"
-										>
-											<path
-												d="M5.5 7.5 10 12l4.5-4.5"
-												stroke="currentColor"
-												stroke-width="1.5"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											/>
-										</svg>
-									</button>
-								</h3>
-								{#if openSections.has('bankFields')}
-									<div class="border-t border-zinc-100 px-4 py-4">
-										{#if data.selectedTransaction.bankFields.length > 0 || data.selectedTransaction.account || data.selectedTransaction.bankOperationType}
-											<dl class="grid gap-2 text-sm">
-												{#if data.selectedTransaction.account}
-													<div>
-														<dt class="font-medium text-zinc-700">
-															{m.transactions_account_label()}
-														</dt>
-														<dd class="mt-0.5 text-zinc-600">
-															{#if data.selectedTransaction.account.netWorthAccountName}
-																{data.selectedTransaction.account.netWorthAccountName}
-															{:else}
-																{data.selectedTransaction.account.name} · {data.selectedTransaction
-																	.account.source}
-															{/if}
-														</dd>
-													</div>
-												{/if}
-												{#if data.selectedTransaction.bankOperationType}
-													<div>
-														<dt class="font-medium text-zinc-700">
-															{m.transactions_operation_type_label()}
-														</dt>
-														<dd class="mt-0.5 text-zinc-600">
-															{data.selectedTransaction.bankOperationType}
-														</dd>
-													</div>
-												{/if}
-												{#each data.selectedTransaction.bankFields as field (field.label)}
-													<div>
-														<dt class="font-medium text-zinc-700">{field.label}</dt>
-														<dd class="mt-0.5 text-zinc-600">{field.value}</dd>
-													</div>
-												{/each}
-											</dl>
-										{:else}
-											<p class="text-sm text-zinc-500">{m.transactions_no_bank_details()}</p>
-										{/if}
-									</div>
-								{/if}
+										{m.common_delete()}
+									</Button>
+								</div>
 							</div>
 
-							<!-- Traçabilité -->
-							<div class="rounded-xl border border-zinc-200">
-								<h3 class="m-0">
-									<button
-										type="button"
-										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
-										onclick={() => toggleSection('traceability')}
-										aria-expanded={openSections.has('traceability')}
-									>
-										<span class="text-sm font-semibold"
-											>{m.transactions_traceability_heading()}</span
-										>
-										<svg
-											aria-hidden="true"
-											class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
-												'traceability'
-											)
-												? 'rotate-180'
-												: ''}"
-											viewBox="0 0 20 20"
-											fill="none"
-										>
-											<path
-												d="M5.5 7.5 10 12l4.5-4.5"
-												stroke="currentColor"
-												stroke-width="1.5"
-												stroke-linecap="round"
-												stroke-linejoin="round"
+							<!-- Bloc proposition (mode classement uniquement) : toujours affiché, pré-rempli
+						     avec la suggestion de règle ou "Non catégorisé" par défaut sinon (jamais masqué). -->
+							{#if classificationMode}
+								<TransactionProposalCard
+									transactionId={data.selectedTransaction.id}
+									suggestion={data.selectedSuggestion}
+									categoryOptions={data.categoryOptions}
+									natureOptions={data.natureOptions}
+									variant="panel"
+									{getCategoryColor}
+									{displayCategory}
+									{formatNatureLabel}
+									acceptError={form?.acceptError}
+									onAccepted={handleAccepted}
+									onIgnore={handleIgnore}
+									onCreateRule={(category, nature) =>
+										openRuleModal(data.selectedTransaction!.id, data.selectedTransaction!.label, {
+											category,
+											nature
+										})}
+								/>
+							{/if}
+
+							<div class="space-y-4 px-4 py-4">
+								<!-- Résumé rapide -->
+								<dl class="grid gap-2 text-sm">
+									<div class="flex justify-between gap-3">
+										<dt class="text-zinc-500">{m.transactions_summary_source()}</dt>
+										<dd class="text-right font-medium">{data.selectedTransaction.source}</dd>
+									</div>
+									<div class="flex justify-between gap-3">
+										<dt class="text-zinc-500">{m.transactions_summary_type()}</dt>
+										<dd class="text-right">
+											<span
+												class="rounded px-1.5 py-0.5 text-xs font-semibold
+											{data.selectedTransaction.type === 'income'
+													? 'bg-emerald-50 text-emerald-700'
+													: 'bg-rose-50 text-rose-700'}"
+											>
+												{data.selectedTransaction.type === 'income'
+													? m.nature_income()
+													: m.transactions_type_expense()}
+											</span>
+										</dd>
+									</div>
+									<div class="flex justify-between gap-3">
+										<dt class="text-zinc-500">{m.transactions_summary_nature()}</dt>
+										<dd class="text-right">
+											<span class="text-xs text-zinc-600"
+												>{formatNatureLabel(data.selectedTransaction.nature)}</span
+											>
+											<span class="ml-1 text-[11px] text-zinc-400"
+												>({formatNatureSource(data.selectedTransaction.natureSource)})</span
+											>
+										</dd>
+									</div>
+								</dl>
+
+								<!-- Catégorie manuelle -->
+								<section class="rounded-xl border border-zinc-200 p-3">
+									<h3 class="text-sm font-semibold">{m.transactions_manual_category_heading()}</h3>
+									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualCategory">
+										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
+										<input type="hidden" name="manualCategory" value={manualCategoryValue} />
+										<label class="grid gap-1 text-sm font-medium text-zinc-600">
+											<span class="sr-only">{m.budgets_field_category()}</span>
+											<Combobox
+												value={manualCategoryValue}
+												options={[
+													{ value: '', label: m.transactions_automatic() },
+													...data.categoryOptions.map((c) => ({
+														value: c,
+														label: displayCategory(c)
+													}))
+												]}
+												placeholder={m.transactions_automatic()}
+												ariaLabel={m.transactions_manual_category_heading()}
+												onValueChange={(v) => {
+													manualCategoryValue = v;
+												}}
 											/>
-										</svg>
-									</button>
-								</h3>
-								{#if openSections.has('traceability')}
-									<div class="border-t border-zinc-100 px-4 py-4">
-										<dl class="grid gap-2 text-sm">
-											{#if data.selectedTransaction.importBatch}
-												<div>
-													<dt class="font-medium text-zinc-700">{m.transactions_import_label()}</dt>
-													<dd class="mt-0.5 text-zinc-600">
-														<a
-															class="text-zinc-700 underline-offset-2 hover:underline"
-															href={resolve(
-																`/transactions?importBatch=${data.selectedTransaction.importBatch.id}` as `/transactions?${string}`
-															)}
-														>
-															{data.selectedTransaction.importBatch.fileName ??
-																m.imports_default_file_name()}
-														</a>
-													</dd>
-												</div>
+										</label>
+										{#if form?.manualCategoryError}
+											<p class="text-xs text-rose-600">{form.manualCategoryError}</p>
+										{/if}
+										<div class="flex flex-wrap gap-2">
+											<Button type="submit" size="sm" disabled={!categoryIsDirty}
+												>{m.common_save()}</Button
+											>
+											{#if data.selectedTransaction.manualCategory}
+												<Button
+													type="submit"
+													variant="secondary"
+													size="sm"
+													name="manualCategory"
+													value="">{m.transactions_reset()}</Button
+												>
 											{/if}
-											{#if data.selectedTransaction.reference}
+										</div>
+									</form>
+									<p class="mt-2">
+										<TapLink href="/categories">{m.transactions_manage_categories_link()}</TapLink>
+									</p>
+								</section>
+
+								<!-- Nature manuelle -->
+								<section class="rounded-xl border border-zinc-200 p-3">
+									<h3 class="text-sm font-semibold">{m.transactions_manual_nature_heading()}</h3>
+									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualNature">
+										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
+										<input type="hidden" name="manualNature" value={manualNatureValue} />
+										<label class="grid gap-1 text-sm font-medium text-zinc-600">
+											{m.categories_table_nature()}
+											<Select
+												value={manualNatureValue}
+												options={[
+													{ value: '', label: m.categories_nature_none() },
+													...data.natureOptions.map((n) => ({
+														value: n,
+														label: formatNatureLabel(n)
+													}))
+												]}
+												ariaLabel={m.transactions_manual_nature_heading()}
+												onValueChange={(v) => {
+													manualNatureValue = v;
+												}}
+											/>
+										</label>
+										{#if form?.manualNatureError}
+											<p class="text-xs text-rose-600">{form.manualNatureError}</p>
+										{/if}
+										<div class="flex flex-wrap gap-2">
+											<Button type="submit" size="sm" disabled={!natureIsDirty}
+												>{m.common_save()}</Button
+											>
+											{#if data.selectedTransaction.manualNature}
+												<Button
+													type="submit"
+													variant="secondary"
+													size="sm"
+													name="manualNature"
+													value="">{m.transactions_reset()}</Button
+												>
+											{/if}
+										</div>
+									</form>
+								</section>
+
+								<!-- Étiquettes -->
+								<TransactionTagsEditor
+									transactionId={data.selectedTransaction.id}
+									tags={data.selectedTransaction.tags}
+									allTags={allTagOptions}
+									error={form?.tagsError}
+									bind:dirty={tagsDirtyDesktop}
+								/>
+
+								<!-- Détails bancaires -->
+								<div class="rounded-xl border border-zinc-200">
+									<h3 class="m-0">
+										<button
+											type="button"
+											class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
+											onclick={() => toggleSection('bankFields')}
+											aria-expanded={openSections.has('bankFields')}
+										>
+											<span class="text-sm font-semibold"
+												>{m.transactions_bank_details_heading()}</span
+											>
+											<svg
+												aria-hidden="true"
+												class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
+													'bankFields'
+												)
+													? 'rotate-180'
+													: ''}"
+												viewBox="0 0 20 20"
+												fill="none"
+											>
+												<path
+													d="M5.5 7.5 10 12l4.5-4.5"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												/>
+											</svg>
+										</button>
+									</h3>
+									{#if openSections.has('bankFields')}
+										<div class="border-t border-zinc-100 px-4 py-4">
+											{#if data.selectedTransaction.bankFields.length > 0 || data.selectedTransaction.account || data.selectedTransaction.bankOperationType}
+												<dl class="grid gap-2 text-sm">
+													{#if data.selectedTransaction.account}
+														<div>
+															<dt class="font-medium text-zinc-700">
+																{m.transactions_account_label()}
+															</dt>
+															<dd class="mt-0.5 text-zinc-600">
+																{#if data.selectedTransaction.account.netWorthAccountName}
+																	{data.selectedTransaction.account.netWorthAccountName}
+																{:else}
+																	{data.selectedTransaction.account.name} · {data
+																		.selectedTransaction.account.source}
+																{/if}
+															</dd>
+														</div>
+													{/if}
+													{#if data.selectedTransaction.bankOperationType}
+														<div>
+															<dt class="font-medium text-zinc-700">
+																{m.transactions_operation_type_label()}
+															</dt>
+															<dd class="mt-0.5 text-zinc-600">
+																{data.selectedTransaction.bankOperationType}
+															</dd>
+														</div>
+													{/if}
+													{#each data.selectedTransaction.bankFields as field (field.label)}
+														<div>
+															<dt class="font-medium text-zinc-700">{field.label}</dt>
+															<dd class="mt-0.5 text-zinc-600">{field.value}</dd>
+														</div>
+													{/each}
+												</dl>
+											{:else}
+												<p class="text-sm text-zinc-500">{m.transactions_no_bank_details()}</p>
+											{/if}
+										</div>
+									{/if}
+								</div>
+
+								<!-- Traçabilité -->
+								<div class="rounded-xl border border-zinc-200">
+									<h3 class="m-0">
+										<button
+											type="button"
+											class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
+											onclick={() => toggleSection('traceability')}
+											aria-expanded={openSections.has('traceability')}
+										>
+											<span class="text-sm font-semibold"
+												>{m.transactions_traceability_heading()}</span
+											>
+											<svg
+												aria-hidden="true"
+												class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
+													'traceability'
+												)
+													? 'rotate-180'
+													: ''}"
+												viewBox="0 0 20 20"
+												fill="none"
+											>
+												<path
+													d="M5.5 7.5 10 12l4.5-4.5"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												/>
+											</svg>
+										</button>
+									</h3>
+									{#if openSections.has('traceability')}
+										<div class="border-t border-zinc-100 px-4 py-4">
+											<dl class="grid gap-2 text-sm">
+												{#if data.selectedTransaction.importBatch}
+													<div>
+														<dt class="font-medium text-zinc-700">
+															{m.transactions_import_label()}
+														</dt>
+														<dd class="mt-0.5 text-zinc-600">
+															<a
+																class="text-zinc-700 underline-offset-2 hover:underline"
+																href={resolve(
+																	`/transactions?importBatch=${data.selectedTransaction.importBatch.id}` as `/transactions?${string}`
+																)}
+															>
+																{data.selectedTransaction.importBatch.fileName ??
+																	m.imports_default_file_name()}
+															</a>
+														</dd>
+													</div>
+												{/if}
+												{#if data.selectedTransaction.reference}
+													<div>
+														<dt class="font-medium text-zinc-700">
+															{m.transactions_reference_label()}
+														</dt>
+														<dd class="mt-0.5 text-zinc-600">
+															{data.selectedTransaction.reference}
+														</dd>
+													</div>
+												{/if}
+												{#if data.selectedTransaction.dedupeKey}
+													<div>
+														<dt class="font-medium text-zinc-700">
+															{m.transactions_dedupe_label()}
+														</dt>
+														<dd class="mt-0.5 text-zinc-600">
+															{data.selectedTransaction.dedupeKey}
+														</dd>
+													</div>
+												{/if}
 												<div>
 													<dt class="font-medium text-zinc-700">
-														{m.transactions_reference_label()}
+														{m.transactions_created_label()}
 													</dt>
-													<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.reference}</dd>
+													<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.createdAt}</dd>
 												</div>
-											{/if}
-											{#if data.selectedTransaction.dedupeKey}
 												<div>
-													<dt class="font-medium text-zinc-700">{m.transactions_dedupe_label()}</dt>
-													<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.dedupeKey}</dd>
+													<dt class="font-medium text-zinc-700">
+														{m.transactions_updated_label()}
+													</dt>
+													<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.updatedAt}</dd>
 												</div>
-											{/if}
-											<div>
-												<dt class="font-medium text-zinc-700">{m.transactions_created_label()}</dt>
-												<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.createdAt}</dd>
-											</div>
-											<div>
-												<dt class="font-medium text-zinc-700">{m.transactions_updated_label()}</dt>
-												<dd class="mt-0.5 text-zinc-600">{data.selectedTransaction.updatedAt}</dd>
-											</div>
-										</dl>
-									</div>
-								{/if}
-							</div>
+											</dl>
+										</div>
+									{/if}
+								</div>
 
-							<!-- Notes -->
-							<div class="rounded-xl border border-zinc-200">
-								<h3 class="m-0">
-									<button
-										type="button"
-										class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
-										onclick={() => toggleSection('notes')}
-										aria-expanded={openSections.has('notes')}
-									>
-										<span class="text-sm font-semibold">{m.transactions_notes_heading()}</span>
-										<svg
-											aria-hidden="true"
-											class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
-												'notes'
-											)
-												? 'rotate-180'
-												: ''}"
-											viewBox="0 0 20 20"
-											fill="none"
+								<!-- Notes -->
+								<div class="rounded-xl border border-zinc-200">
+									<h3 class="m-0">
+										<button
+											type="button"
+											class="flex w-full items-center justify-between rounded-t-md px-4 py-3 text-left focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none focus-visible:ring-inset"
+											onclick={() => toggleSection('notes')}
+											aria-expanded={openSections.has('notes')}
 										>
-											<path
-												d="M5.5 7.5 10 12l4.5-4.5"
-												stroke="currentColor"
-												stroke-width="1.5"
-												stroke-linecap="round"
-												stroke-linejoin="round"
-											/>
-										</svg>
-									</button>
-								</h3>
-								{#if openSections.has('notes')}
-									<div class="border-t border-zinc-100 px-4 py-4">
-										{#if data.selectedTransaction.notes}
-											<p class="text-sm text-zinc-600">{data.selectedTransaction.notes}</p>
-										{:else}
-											<p class="text-sm text-zinc-400">{m.transactions_no_notes()}</p>
-										{/if}
-									</div>
-								{/if}
+											<span class="text-sm font-semibold">{m.transactions_notes_heading()}</span>
+											<svg
+												aria-hidden="true"
+												class="h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150 {openSections.has(
+													'notes'
+												)
+													? 'rotate-180'
+													: ''}"
+												viewBox="0 0 20 20"
+												fill="none"
+											>
+												<path
+													d="M5.5 7.5 10 12l4.5-4.5"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+												/>
+											</svg>
+										</button>
+									</h3>
+									{#if openSections.has('notes')}
+										<div class="border-t border-zinc-100 px-4 py-4">
+											{#if data.selectedTransaction.notes}
+												<p class="text-sm text-zinc-600">{data.selectedTransaction.notes}</p>
+											{:else}
+												<p class="text-sm text-zinc-400">{m.transactions_no_notes()}</p>
+											{/if}
+										</div>
+									{/if}
+								</div>
 							</div>
 						</div>
-					</div>
-				{:else}
-					<p class="px-4 py-6 text-sm text-zinc-500">
-						{m.transactions_select_prompt()}
-					</p>
-				{/if}
-			</aside>
+					</aside>
+				</div>
+			{/if}
 		</div>
 
 		<!-- ============ LISTE — MOBILE ============ -->
 		<div class="space-y-4 lg:hidden">
-			<div class="flex items-center justify-between gap-2">
-				<div>
-					<p class="text-sm text-zinc-500">
-						{data.pagination.totalTransactions > 1
-							? m.transactions_count_many({
-									count: data.pagination.totalTransactions,
-									page: data.pagination.page
-								})
-							: m.transactions_count_one({
-									count: data.pagination.totalTransactions,
-									page: data.pagination.page
-								})}
-					</p>
-					{#if data.filteredTotals.incomeCents > 0 || data.filteredTotals.expenseCents > 0}
-						<p class="text-xs text-zinc-500 tabular-nums">
-							{m.transactions_totals_summary({
-								income: formatCents(data.filteredTotals.incomeCents),
-								expense: formatCents(data.filteredTotals.expenseCents)
-							})}
-						</p>
-					{/if}
+			<div class="space-y-3">
+				<div class="flex items-center justify-between gap-2">
+					<div>
+						{@render summaryCount()}
+						{@render filteredTotalsRegion()}
+					</div>
+					<div class="flex gap-2">
+						<Button
+							variant="secondary"
+							size="sm"
+							class="h-9 !text-xs"
+							href={buildPageHref(data.pagination.page - 1)}
+							disabled={!data.pagination.hasPrevious}>{m.transactions_previous()}</Button
+						>
+						<Button
+							variant="secondary"
+							size="sm"
+							class="h-9 !text-xs"
+							href={buildPageHref(data.pagination.page + 1)}
+							disabled={!data.pagination.hasNext}>{m.transactions_next()}</Button
+						>
+					</div>
 				</div>
-				<div class="flex gap-2">
-					<Button
-						variant="secondary"
-						size="sm"
-						class="h-9 !text-xs"
-						href={buildPageHref(data.pagination.page - 1)}
-						disabled={!data.pagination.hasPrevious}>{m.transactions_previous()}</Button
-					>
-					<Button
-						variant="secondary"
-						size="sm"
-						class="h-9 !text-xs"
-						href={buildPageHref(data.pagination.page + 1)}
-						disabled={!data.pagination.hasNext}>{m.transactions_next()}</Button
-					>
+				<!-- Full width in the summary card, never in the filter rows. -->
+				<div class="[&_[data-testid=bulk-tag-trigger]]:w-full [&>div]:w-full">
+					{@render summaryActions('mobile')}
 				</div>
+				{@render summaryDisabledReason('mobile')}
+				{@render bulkOverLimitBanner()}
+				{@render bulkTagBanner()}
 			</div>
 
 			{#if isNavigatingTransactions}
@@ -2059,17 +2982,53 @@
 					</svg>
 				{/snippet}
 				{#snippet noResultsAction()}
-					<TapLink href="/transactions">{m.transactions_reset_filters_link()}</TapLink>
+					<span data-testid="empty-reset-filters">
+						<TapLink href="/transactions">{m.transactions_reset_filters_link()}</TapLink>
+					</span>
 				{/snippet}
+				<!-- Mobile counterpart of the desktop empty state: "Aucun résultat / Aucune transaction
+				     ne correspond à ces filtres" describes an applied filter, which is exactly what did
+				     NOT happen when the query was rejected. No reset action in that branch either — the
+				     filter is still there to be corrected, and clearing it is not the fix. -->
 				<EmptyState
 					icon={noResultsIcon}
-					title={m.transactions_empty_no_results_title()}
-					description={m.transactions_empty_no_results_body()}
-					action={noResultsAction}
+					title={filteredTotalsState === 'error'
+						? m.transactions_empty_query_error_title()
+						: m.transactions_empty_no_results_title()}
+					description={filteredTotalsState === 'error'
+						? m.transactions_empty_query_error_body()
+						: m.transactions_empty_no_results_body()}
+					action={filteredTotalsState === 'error' ? undefined : noResultsAction}
 				/>
 			{/if}
 		</div>
 	</section>
+
+	<!-- Tone NEUTRAL, not danger. Abandoning an entry that was never saved is not destructive in the
+	     referential's sense: nothing recorded is lost, only something typed. Rose here would spend
+	     the alarm colour on the most ordinary interruption there is and leave nothing louder for
+	     deleting a transaction, two dialogs away. -->
+	{#if pendingNavigation}
+		<form
+			onsubmit={(event) => {
+				// No server action: the confirm button is ConfirmDialog's own `type="submit"`, which
+				// exists so the delete and bulk-tag dialogs can post. Here the "submission" is a
+				// client-side navigation, so the default is prevented and the replay runs instead.
+				event.preventDefault();
+				void discardAndNavigate();
+			}}
+		>
+			<ConfirmDialog
+				open={pendingNavigation !== null}
+				title={m.transactions_unsaved_title()}
+				confirmLabel={m.transactions_unsaved_discard()}
+				cancelLabel={m.transactions_unsaved_stay()}
+				onClose={keepEditing}
+			>
+				<p class="text-sm text-zinc-600">{m.transactions_unsaved_body()}</p>
+			</ConfirmDialog>
+		</form>
+	{/if}
 
 	{#if pendingDelete}
 		<form
@@ -2368,6 +3327,7 @@
 				tags={data.selectedTransaction.tags}
 				allTags={allTagOptions}
 				error={form?.tagsError}
+				bind:dirty={tagsDirtyMobile}
 			/>
 
 			<!-- Accordéons -->

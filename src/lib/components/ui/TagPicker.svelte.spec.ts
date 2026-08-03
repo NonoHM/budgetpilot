@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import TagPicker from './TagPicker.svelte';
+import * as m from '$lib/paraglide/messages';
 
 const options = [
 	{ id: 'o1', name: 'Portugal', colorToken: 'clay' as const },
@@ -71,10 +72,10 @@ describe('TagPicker.svelte', () => {
 		await userEvent.click(page.getByRole('option', { name: 'Travaux' }));
 
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Travaux" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Travaux' }) }))
 			.toBeInTheDocument();
 	});
 
@@ -82,10 +83,12 @@ describe('TagPicker.svelte', () => {
 		render(TagPicker, { options, selected: ['Portugal'] });
 
 		await expect
-			.element(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }))
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
 
-		await userEvent.click(page.getByRole('button', { name: "Retirer l'étiquette Portugal" }));
+		await userEvent.click(
+			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
+		);
 
 		expect(page.getByText('Portugal').elements().length).toBe(0);
 	});
@@ -153,6 +156,44 @@ describe('TagPicker.svelte', () => {
 		await userEvent.keyboard('{Escape}');
 		await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
 		expect(page.getByText('Portugal').elements().length).toBe(0);
+	});
+
+	it('keeps an Escape that closed the panel to itself, and lets one through when the panel was already closed', async () => {
+		// The design gives Escape exactly one job here: "Échap ferme sans changer la sélection".
+		// It did close the panel — and kept bubbling, so the page-level handler behind it ran too.
+		// On /transactions that handler is BottomSheet's window keydown (mounted at every breakpoint,
+		// only CSS hides it), which closes the transaction detail panel: one Escape closed the picker
+		// AND deselected the transaction, silently discarding whatever tag edits were pending and
+		// unsaved. Measured on a live page with a removed tag and Save enabled — no confirmation, no
+		// banner, the edit simply gone.
+		//
+		// Both directions are asserted in ONE test on purpose. Swallowing every Escape would be its
+		// own regression: with the panel closed, Escape must still reach the page so the detail panel
+		// keeps closing the way it does from any other control. A test for the first half alone
+		// passes on an implementation that breaks the second.
+		//
+		// BREAK-THE-CHECK: dropping `event.stopPropagation()` from TagPicker's Escape branch makes
+		// the first expectation fail (the window handler sees the open-panel Escape) — verified by
+		// hand, see the PR report.
+		render(TagPicker, { options, selected: [] });
+
+		const seenByPage: string[] = [];
+		const listener = () => seenByPage.push('escape');
+		window.addEventListener('keydown', listener);
+		try {
+			await userEvent.click(fieldInput());
+			await expect.element(page.getByRole('listbox')).toBeInTheDocument();
+
+			await userEvent.keyboard('{Escape}');
+			await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
+			expect(seenByPage).toEqual([]);
+
+			// Panel already closed: this Escape is not the picker's to consume.
+			await userEvent.keyboard('{Escape}');
+			expect(seenByPage).toEqual(['escape']);
+		} finally {
+			window.removeEventListener('keydown', listener);
+		}
 	});
 
 	it('debounces live filtering by 250ms rather than filtering on every keystroke', async () => {
@@ -232,7 +273,11 @@ describe('TagPicker.svelte', () => {
 		await userEvent.keyboard('{Escape}');
 		await userEvent.keyboard('{Enter}');
 
-		expect(page.getByRole('button', { name: /Retirer l'étiquette/ }).elements().length).toBe(0);
+		expect(
+			page
+				.getByRole('button', { name: new RegExp(m.tags_remove_aria({ name: '' }).trim()) })
+				.elements().length
+		).toBe(0);
 		await expect.element(page.getByRole('listbox')).not.toBeInTheDocument();
 	});
 
@@ -304,5 +349,21 @@ describe('TagPicker.svelte', () => {
 		const controls = fieldInput().element().getAttribute('aria-controls');
 		expect(controls).toBeTruthy();
 		expect(document.getElementById(controls!)).not.toBeNull();
+	});
+
+	it('carries the "Gérer dans Paramètres" footer even when the user owns no tag at all', async () => {
+		// The zero-tag state is the one most likely to lose the footer to a `length > 0` gate, and
+		// it is precisely where it matters most: this is where a first-time user learns that a
+		// management surface exists, before ever needing it. The design requires the row in all
+		// five panel states for that reason.
+		render(TagPicker, { options: [], selected: [] });
+
+		await userEvent.click(fieldInput());
+
+		const footer = page.getByRole('link', { name: m.tags_manage_footer_aria() });
+		await expect.element(footer).toBeInTheDocument();
+		// A sibling of the list, never one of its options: it must not be counted into the
+		// listbox's element count, and the arrow keys must never reach it.
+		expect(footer.element().closest('[role="listbox"]')).toBeNull();
 	});
 });

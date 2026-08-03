@@ -22,12 +22,22 @@
 		transactionId,
 		tags,
 		allTags,
-		error
+		error,
+		dirty = $bindable()
 	}: {
 		transactionId: string;
 		tags: Array<{ id: string; name: string; colorToken: string }>;
 		allTags: Array<{ id: string; name: string; colorToken: TagColorToken }>;
 		error?: string;
+		/**
+		 * Whether this editor holds an unsaved change, mirrored out for the page's navigation guard.
+		 *
+		 * Exposed rather than recomputed on the page: the dirty check below is deliberately written
+		 * ONCE so the desktop panel and the mobile sheet cannot drift, which is the same reason this
+		 * component exists at all. A second copy on the page would be a second chance to disagree
+		 * about what "unsaved" means — and the guard would then let real work be discarded silently.
+		 */
+		dirty?: boolean;
 	} = $props();
 
 	// Unique per instance: this editor is mounted twice at once (desktop panel and mobile sheet),
@@ -51,6 +61,14 @@
 		const current = [...selected].sort();
 		return initial.some((name, i) => name !== current[i]);
 	});
+
+	// The one write to the bindable. `$effect` rather than assigning inside the `$derived`, because
+	// a derived must stay pure — writing a prop from inside one is how a state_unsafe_mutation
+	// crash is earned. Guarded on inequality so a re-render that changes nothing does not push a
+	// write up into the parent's state and back down again.
+	$effect(() => {
+		if (dirty !== isDirty) dirty = isDirty;
+	});
 </script>
 
 <form class="grid" method="POST" action="?/saveTags">
@@ -62,6 +80,13 @@
 		<input type="hidden" name="transactionId" value={transactionId} />
 		<div class="mt-1 grid gap-2">
 			<TagPicker options={allTags} bind:selected name="tags" ariaLabel={m.tags_heading()} />
+			{#if selected.length > 0}
+				<!-- Static help line, not aria-hidden, not focusable: read in document order right
+				     after the chip group it documents. Gated on there being at least one chip — with
+				     none there is nothing to explain, and the design is explicit that the group and
+				     this line disappear together, silently, when the last chip goes. -->
+				<p class="text-xs text-zinc-500">{m.tags_chips_help_remove()}</p>
+			{/if}
 			{#if error}
 				<p class="text-xs text-rose-600">{error}</p>
 			{/if}

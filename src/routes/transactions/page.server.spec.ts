@@ -77,9 +77,22 @@ const db = vi.hoisted(() => {
 		categoryId: index === 0 ? CATEGORY_IDS.Alimentation : CATEGORY_IDS.Autre,
 		category: { name: index === 0 ? 'Alimentation' : 'Autre' },
 		// The join-row shape Prisma returns for the relation, wrapper included, so the mapper's
-		// flattening is exercised rather than assumed. Only the first row carries one.
+		// flattening is exercised rather than assumed.
+		//
+		// TWO tags, on two DIFFERENT rows, and that is the minimum shape in which the tag-count
+		// strip is observable at all. With only transaction-1 tagged, a load filtered on
+		// `?tag=tag-portugal` and one with no filter both produce `[{tag-portugal, 1}]` whether the
+		// tag conjunct is stripped from the count scope or not — so the test guarding the strip
+		// passed with the strip deleted. tag-pro on a row that does NOT carry tag-portugal is what
+		// makes the tautology visible: unstripped, it disappears from the counts entirely.
+		// tag-pro deliberately sits on transaction-3, not transaction-2, so the `?q=transaction-2`
+		// case below keeps testing an empty count rather than an incidentally non-empty one.
 		tags:
-			index === 0 ? [{ tag: { id: 'tag-portugal', name: 'Portugal', colorToken: 'lagoon' } }] : [],
+			index === 0
+				? [{ tag: { id: 'tag-portugal', name: 'Portugal', colorToken: 'lagoon' } }]
+				: index === 2
+					? [{ tag: { id: 'tag-pro', name: 'Pro', colorToken: 'ochre' } }]
+					: [],
 		account: { name: 'Compte import CSV', source: 'banque_populaire' },
 		importBatch: {
 			id: 'batch-123456',
@@ -258,6 +271,26 @@ const db = vi.hoisted(() => {
 			},
 			categoryNatureMapping: {
 				findMany: vi.fn(async () => [{ categoryName: 'Loisirs', nature: 'investment' }])
+			},
+			// Tallies the fixture's own `tags` links over `filterTransactions(where.transaction)`, so
+			// it exercises the SAME `where` semantics as `transaction.findMany`/`count` above rather
+			// than a second, divergent notion of what matches. `where.tag` (the userId conjunct
+			// countTagsInScope always sends) is read but not enforced here: every linked tag in this
+			// fixture already belongs to user-a, and that conjunct's presence is asserted directly in
+			// counts.spec.ts against a fake built for exactly that purpose.
+			transactionTag: {
+				groupBy: vi.fn(async ({ where }: { where: { transaction?: Record<string, unknown> } }) => {
+					const tally = new Map<string, number>();
+					for (const t of filterTransactions(where.transaction)) {
+						for (const link of t.tags) {
+							tally.set(link.tag.id, (tally.get(link.tag.id) ?? 0) + 1);
+						}
+					}
+					return [...tally.entries()].map(([tagId, count]) => ({
+						tagId,
+						_count: { _all: count }
+					}));
+				})
 			},
 			tag: {
 				findMany: vi.fn(async () => [
@@ -1262,6 +1295,121 @@ describe('/transactions load — tags', () => {
 		expect(data.transactions[0].tags).toEqual([
 			{ id: 'tag-portugal', name: 'Portugal', colorToken: 'lagoon' }
 		]);
+	});
+
+	it('offers no bulk fallback while the whole filtered set already fits under the cap', async () => {
+		expect.assertions(1);
+
+		// 29 rows, cap 250. Computing and offering a narrowing here would ask the user to give
+		// something up for no reason at all.
+		const data = (await runLoad('/transactions')) as unknown as {
+			bulkFallback: { kind: string; count: number } | null;
+		};
+
+		expect(data.bulkFallback).toBeNull();
+	});
+
+	it('a search AND a tag filter narrow together, not just the counts', async () => {
+		expect.assertions(3);
+
+		// The `?q=` scan runs on the TAG-FREE scope now, and the tag filter is applied to its result
+		// in JS. Nothing else asserts that second step: `tagCounts` is derived from the tag-free set
+		// by design, so the neighbouring cases stay green with the JS filter deleted while
+		// `?q=a&tag=…` quietly lists every untagged transaction — and the bulk dialog then quotes
+		// that count back to the user. This asserts the LIST and the total, which is what regresses.
+		const data = (await runLoad('/transactions?q=a&tag=tag-portugal')) as unknown as {
+			transactions: Array<{ id: string }>;
+			pagination: { totalTransactions: number };
+		};
+
+		// `?q=a` alone matches all 29 of this user's rows; exactly one of them carries tag-portugal.
+		expect(data.transactions.map((t) => t.id)).toEqual(['transaction-1']);
+		expect(data.pagination.totalTransactions).toBe(1);
+		const withoutTag = (await runLoad('/transactions?q=a')) as unknown as {
+			pagination: { totalTransactions: number };
+		};
+		expect(withoutTag.pagination.totalTransactions).toBe(29);
+	});
+
+	it('the tag counts ignore the selected tag, so the other tags stay comparable', async () => {
+		expect.assertions(2);
+
+		// transaction-1 carries tag-portugal and transaction-3 carries tag-pro, on purpose: the two
+		// tags share no transaction. If the tag conjunct leaked into the count scope, selecting
+		// tag-portugal would narrow the counted set to that one row and tag-pro would vanish from
+		// the counts — and the filter panel makes a zero-count option unselectable, so the count
+		// added to prevent "a filter that returns nothing" would instead forbid a filter returning
+		// plenty. With the dimension correctly removed, the two loads agree exactly.
+		const withoutFilter = (await runLoad('/transactions')) as unknown as {
+			tagCounts: Array<{ tagId: string; count: number }> | null;
+		};
+		const withTagFilter = (await runLoad('/transactions?tag=tag-portugal')) as unknown as {
+			tagCounts: Array<{ tagId: string; count: number }> | null;
+		};
+
+		expect(withoutFilter.tagCounts).toEqual([
+			{ tagId: 'tag-portugal', count: 1 },
+			{ tagId: 'tag-pro', count: 1 }
+		]);
+		expect(withTagFilter.tagCounts).toEqual(withoutFilter.tagCounts);
+	});
+
+	it('a search does not put the tag dimension back through the id list', async () => {
+		expect.assertions(2);
+
+		// The strip is done on the SQL `where`, but `?q=` is matched in JS afterwards and the ids it
+		// admitted are handed to the count query as `id: { in: … }`. Taking those ids from the
+		// tag-FILTERED match re-imposed the conjunct the strip had just removed — the same
+		// tautology, reached through the most ordinary filter on the page rather than through a
+		// refactor. `?q=a` matches every fixture label — "AUCHAN COURSES" and every "Transaction N"
+		// alike — so both tags must survive both loads.
+		const withoutTag = (await runLoad('/transactions?q=a')) as unknown as {
+			tagCounts: Array<{ tagId: string; count: number }> | null;
+		};
+		const withTag = (await runLoad('/transactions?q=a&tag=tag-portugal')) as unknown as {
+			tagCounts: Array<{ tagId: string; count: number }> | null;
+		};
+
+		expect(withoutTag.tagCounts).toEqual([
+			{ tagId: 'tag-portugal', count: 1 },
+			{ tagId: 'tag-pro', count: 1 }
+		]);
+		expect(withTag.tagCounts).toEqual(withoutTag.tagCounts);
+	});
+
+	it('the "Toutes" total describes the scope without the tag, not the tag-filtered list', async () => {
+		expect.assertions(3);
+
+		// `tagScopeTotal` is what the dropdown's return row reports. It used to be
+		// `pagination.totalTransactions`, which is the tag-FILTERED total — so with a tag active the
+		// row read "Toutes 1" beside "Portugal 1", telling the user that clearing the filter would
+		// change nothing, on the one row whose whole job is to say how much waits outside the tag.
+		const withTag = (await runLoad('/transactions?tag=tag-portugal')) as unknown as {
+			tagScopeTotal: number;
+			pagination: { totalTransactions: number };
+		};
+		const withoutTag = (await runLoad('/transactions')) as unknown as { tagScopeTotal: number };
+
+		expect(withTag.pagination.totalTransactions).toBe(1);
+		expect(withTag.tagScopeTotal).toBe(withoutTag.tagScopeTotal);
+		// And it is the real whole-set figure, not merely "some other number".
+		// 29, not 30: one fixture row belongs to another user and never enters any scope here.
+		expect(withTag.tagScopeTotal).toBe(29);
+	});
+
+	it('with ?q= active the counts describe the JS-matched rows, not the SQL superset', async () => {
+		expect.assertions(1);
+
+		// "transaction-2" as a label search matches only transaction-2's label. The SQL `where`
+		// (which never sees `q`) still admits transaction-1 — the row that actually carries
+		// tag-portugal — so a consumer that counted over the raw `where` would report tag-portugal: 1
+		// regardless of the search. Counting the JS-matched set instead must exclude it entirely: this
+		// is the exact shape bulkTag once shipped wrong.
+		const data = (await runLoad('/transactions?q=transaction-2')) as unknown as {
+			tagCounts: Array<{ tagId: string; count: number }> | null;
+		};
+
+		expect(data.tagCounts).toEqual([]);
 	});
 });
 

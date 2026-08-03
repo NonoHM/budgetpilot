@@ -33,8 +33,14 @@ test.describe('transactions empty states (mobile layout)', () => {
 		await searchInput.press('Enter');
 
 		await expect(page.getByText(m.transactions_empty_no_results_title())).toBeVisible();
+		// The EMPTY STATE's own reset, not the summary row's — both render with the same accessible
+		// name whenever a filter returns nothing, and both surfaces render at once, so an unscoped
+		// role+name locator matches four elements.
 		await expect(
-			page.getByRole('link', { name: m.transactions_reset_filters_link() })
+			page
+				.locator('[data-testid="empty-reset-filters"]')
+				.getByRole('link', { name: m.transactions_reset_filters_link() })
+				.first()
 		).toBeVisible();
 	});
 });
