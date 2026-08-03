@@ -162,9 +162,10 @@ URL. `q` is deleted too: it's the `/transactions` search term, so it holds
 whatever merchant, amount or note the user typed to find their own
 transactions, and the access log is the one place in this stack that would
 keep that in plaintext outside the database. It used to matter for a second
-reason — "Voir les transactions liées" on `/upcoming-bills` filled `q` with a
-raw bank label off the user's statement, with them typing nothing — but that
-link now uses opaque transaction ids. The filter still covers everything
+reason — the link from a detected stream on `/upcoming-bills` to its
+transactions filled `q` with a raw bank label off the user's statement, with
+them typing nothing — but that link now uses opaque transaction ids. The
+filter still covers everything
 typed into the search box. If you write your own Caddyfile rather than
 starting from the example, keep it.
 

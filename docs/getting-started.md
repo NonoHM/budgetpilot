@@ -133,12 +133,16 @@ If instead you see the container restarting in a loop, jump to
 Open **http://localhost:3000** (or your custom port). You'll land on the
 login page.
 
-**The interface starts in French**, so the link you're looking for reads
-"créer un compte", not "create an account". Click it. You can switch the
-whole app to English from **Settings** > **Language** once you're in.
+**The interface picks its language from your browser**, so the exact wording
+on screen depends on that and this guide names controls by what they do
+rather than by their label. French and English are the two languages
+shipped; a browser asking for anything else gets English. Below the sign-in
+form, follow the link that offers to create an account. Once you're in you
+can pin the language explicitly from the interface-language setting in
+**Settings**, which is remembered per browser rather than per account.
 
-Registration is closed by default, so the form asks for a token, on a field
-labelled "Jeton bootstrap". It's the `BOOTSTRAP_TOKEN` in your `.env`:
+Registration is closed by default, so the form asks for a token, in the
+field for the bootstrap token. It's the `BOOTSTRAP_TOKEN` in your `.env`:
 
 ```bash
 grep BOOTSTRAP_TOKEN .env
@@ -150,9 +154,9 @@ becomes the admin automatically.
 
 Registration attempts are limited to **5 per 15 minutes per IP address**, so
 that a short or hand-picked token can't be guessed by brute force. If you
-mistype the token five times you'll see "Trop de tentatives" and will need to
-wait out the 15 minutes — check the value with the `grep` above rather than
-retrying.
+mistype the token five times the form stops accepting attempts and tells you
+to try again later, and you'll need to wait out the 15 minutes — check the
+value with the `grep` above rather than retrying.
 
 You're done. Next: [put some data in it](#first-steps-in-the-app).
 
@@ -291,6 +295,13 @@ date,label,amount,category
 
 - `date`, `label` and `amount` are required, `category` is optional and can
   be left empty.
+- `category` is matched against the category's **stored** name, and a name
+  that matches nothing creates a new category. The 14 defaults are stored
+  under canonical French names whatever language you read the app in — the
+  screen shows the translation, so the seeded groceries category displays as
+  `Groceries` in English and is stored as `Alimentation`, which is what the
+  sample above uses. Categories you create yourself are stored exactly as you
+  typed them and are never translated.
 - No other column is allowed, the import refuses the file rather than
   guessing.
 - Dates are `YYYY-MM-DD` or `DD/MM/YYYY`.
@@ -308,9 +319,9 @@ and every transaction has exactly one. A tag answers "what was this for",
 and a transaction can carry any number. That is what lets "Portugal 2026"
 hold a train, a hotel and a restaurant while each keeps its own category.
 
-Open a transaction from the Transactions list, type a name in
-**Étiquettes**, press Enter, then Save. Typing a name that doesn't exist
-yet creates it, so there is no list to set up first. Once a tag exists you
+Open a transaction from the Transactions list, type a name in the tags
+field, press Enter, then Save. Typing a name that doesn't exist yet creates
+it, so there is no list to set up first. Once a tag exists you
 can filter the list by it, and the filter bar can then tag everything
 currently matching in one action. A tag left on no transactions disappears
 on its own, with no confirmation and nothing to clean up.

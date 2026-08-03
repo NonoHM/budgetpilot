@@ -52,15 +52,18 @@ export default defineConfig(({ mode }) => {
 						},
 						include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
 						exclude: ['src/lib/server/**'],
-						// Component specs assert French copy (fr is the app's baseLocale). Paraglide resolves
-						// its display language via 'cookie' > 'preferredLanguage' > 'baseLocale' (see
-						// src/lib/paraglide/runtime.js), and the headless Chromium spun up by
-						// @vitest/browser-playwright has no PARAGLIDE_LOCALE cookie, so it falls through to
-						// 'preferredLanguage' — the browser's own default language. That happens to be
-						// French on a dev machine but is en-US on GitHub's runners, so every test asserting
-						// French text (buttons, aria-labels, menu items) failed there while passing locally.
-						// Same root cause the e2e suite hit and fixed the same way — see e2e/fixtures.ts's
-						// comment — rather than relying on the browser's own locale.
+						// Component specs assert French copy. Paraglide resolves its display language via
+						// 'cookie' > 'preferredLanguage' > 'baseLocale' (see src/lib/paraglide/runtime.js),
+						// and the headless Chromium spun up by @vitest/browser-playwright has no
+						// PARAGLIDE_LOCALE cookie, so it falls through to 'preferredLanguage' — the
+						// browser's own default language. That happens to be French on a dev machine but is
+						// en-US on GitHub's runners, so every test asserting French text (buttons,
+						// aria-labels, menu items) failed there while passing locally. vitest.client.setup.ts
+						// pins the cookie to 'fr' instead. Note the specs assert French even though the base
+						// locale is now 'en': the cookie is what decides, and that is the point — the pin is
+						// what makes these specs independent of both the runner's language and the fallback
+						// chain. Same root cause the e2e suite hit and fixed the same way — see
+						// e2e/fixtures.ts's comment.
 						setupFiles: ['./vitest.client.setup.ts']
 					}
 				},
@@ -71,7 +74,10 @@ export default defineConfig(({ mode }) => {
 						name: 'server',
 						environment: 'node',
 						include: ['src/**/*.{test,spec}.{js,ts}'],
-						exclude: ['src/**/*.svelte.{test,spec}.{js,ts}']
+						exclude: ['src/**/*.svelte.{test,spec}.{js,ts}'],
+						// Pins the locale these specs render in — see the file for why it has to be
+						// explicit now that 'en' is the base locale.
+						setupFiles: ['./vitest.server.setup.ts']
 					}
 				}
 			]

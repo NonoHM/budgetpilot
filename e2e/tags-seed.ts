@@ -14,7 +14,7 @@
 // suite (e2e/seed.ts's June 2026 rows, bills-seed's window around the run date) so the bulk
 // fixture's date-range filter can assert an EXACT count without another spec's data leaking in.
 import { request, type APIRequestContext, type Browser, type Page } from '@playwright/test';
-import { E2E_BASE_URL } from './config';
+import { E2E_API_HEADERS, E2E_BASE_URL, E2E_LOCALE } from './config';
 import {
 	E2E_BOOTSTRAP_ADMIN_EMAIL,
 	E2E_BOOTSTRAP_ADMIN_PASSWORD,
@@ -114,7 +114,7 @@ async function resolveTransactionIdByLabel(
 export async function seedTagFixture(): Promise<void> {
 	const context = await request.newContext({
 		baseURL: E2E_BASE_URL,
-		extraHTTPHeaders: { Origin: E2E_BASE_URL }
+		extraHTTPHeaders: E2E_API_HEADERS
 	});
 
 	try {
@@ -176,7 +176,7 @@ export async function withOtherUserPage<T>(
 ): Promise<T> {
 	const apiContext = await request.newContext({
 		baseURL: E2E_BASE_URL,
-		extraHTTPHeaders: { Origin: E2E_BASE_URL }
+		extraHTTPHeaders: E2E_API_HEADERS
 	});
 	try {
 		assertOk(
@@ -189,7 +189,9 @@ export async function withOtherUserPage<T>(
 		const storageState = await apiContext.storageState();
 
 		const browserContext = await browser.newContext({ storageState });
-		await browserContext.addCookies([{ name: 'PARAGLIDE_LOCALE', value: 'fr', url: E2E_BASE_URL }]);
+		await browserContext.addCookies([
+			{ name: 'PARAGLIDE_LOCALE', value: E2E_LOCALE, url: E2E_BASE_URL }
+		]);
 		try {
 			const page = await browserContext.newPage();
 			return await run(page);

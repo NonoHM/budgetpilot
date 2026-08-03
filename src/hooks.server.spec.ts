@@ -210,6 +210,51 @@ describe('hooks handleSecurityHeaders', () => {
 	});
 });
 
+// Que le header sorte bien sur une vraie réponse est vérifié contre un serveur qui tourne
+// (`Vary: Accept-Language` + `Content-Language` sur /login et /register, mesurés) ; ce qu'un
+// test unitaire apporte en plus, ce sont les règles de fusion, qui elles sont de la logique.
+describe('hooks appendVary', () => {
+	it('pose le champ quand aucun Vary n’existe', async () => {
+		expect.assertions(1);
+		const { appendVary } = await import('./hooks.server');
+
+		const headers = new Headers();
+		appendVary(headers, 'Accept-Language');
+
+		expect(headers.get('Vary')).toBe('Accept-Language');
+	});
+
+	it('conserve un Vary déjà posé au lieu de l’écraser', async () => {
+		expect.assertions(1);
+		const { appendVary } = await import('./hooks.server');
+
+		const headers = new Headers({ Vary: 'Cookie' });
+		appendVary(headers, 'Accept-Language');
+
+		expect(headers.get('Vary')).toBe('Cookie, Accept-Language');
+	});
+
+	it('ne duplique pas un champ déjà présent, quelle que soit la casse', async () => {
+		expect.assertions(1);
+		const { appendVary } = await import('./hooks.server');
+
+		const headers = new Headers({ Vary: 'Cookie, accept-language' });
+		appendVary(headers, 'Accept-Language');
+
+		expect(headers.get('Vary')).toBe('Cookie, accept-language');
+	});
+
+	it('laisse « * » intact : il est déjà plus fort que n’importe quelle liste', async () => {
+		expect.assertions(1);
+		const { appendVary } = await import('./hooks.server');
+
+		const headers = new Headers({ Vary: '*' });
+		appendVary(headers, 'Accept-Language');
+
+		expect(headers.get('Vary')).toBe('*');
+	});
+});
+
 function buildEvent(pathname: string, token: string | undefined) {
 	return {
 		cookies: {

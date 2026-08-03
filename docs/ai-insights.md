@@ -118,7 +118,7 @@ Ollama listens.
 ## The first load is the slow one
 
 The dashboard doesn't wait for the model. The page renders immediately and
-the AI card shows "Analyse en cours…" until the advice arrives, so a slow
+the AI card shows a pending state until the advice arrives, so a slow
 generation costs you a late card, never a late page.
 
 Expect the first one after starting the stack to take a while: Ollama has to
