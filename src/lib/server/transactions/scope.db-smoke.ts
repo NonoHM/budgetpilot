@@ -1,0 +1,686 @@
+import { describe, it, expect, beforeAll, afterEach } from 'vitest';
+import { writeFileSync } from 'node:fs';
+import * as m from '$lib/paraglide/messages';
+import { prisma } from '$lib/server/db';
+import { computeNameKey } from '$lib/server/naming/nameKey';
+import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
+import { MAX_BULK_TAG_TRANSACTIONS } from '$lib/domain/tags';
+import {
+	DIMENSIONS,
+	NAMED_ROWS,
+	PRODUCTIVE_DIMENSIONS,
+	pairwiseRows,
+	type FilterRow
+} from './scope-matrix';
+import { load, actions } from '../../../routes/transactions/+page.server';
+import { GET as exportGET } from '../../../routes/transactions/export/+server';
+
+/**
+ * The three sites that answer "which transactions match the current filter" must resolve the SAME
+ * transaction set. They have three different projections, three different error contracts and
+ * three different consumption shapes, so nothing but this stops them drifting.
+ *
+ * Modelled on the feedsCashFlowProjection anti-drift test and on totals.db-smoke.ts, and required
+ * against a REAL engine for the reason CLAUDE.md gives under "Unit tests cannot see a wrong SQL
+ * predicate": a fixture-injected unit test replaces the very SQL in question.
+ *
+ * WHAT MAKES THIS TEST TRUSTWORTHY, and the rule it is built to obey: it imports and calls the
+ * REAL `load`, `actions.bulkTag` and export `GET`. It re-implements no part of any of them. A probe
+ * that retypes the function under test tests the probe — that is not a hypothetical, it is how a
+ * `parseIsoDate` audit on this repo certified a validator as sound while the real one answered 500
+ * on `?from=2026-99-99`. Each site's set is DERIVED from what that site actually returns.
+ *
+ * WHAT THIS TEST CANNOT CATCH, measured rather than reasoned, and the reason it is written here:
+ *
+ * It compares the three sites AGAINST EACH OTHER. A defect in the predicate builder they SHARE
+ * moves all three identically, so they still agree and this suite stays green. Proven by breaking
+ * `buildTransactionWhere` on purpose so that an empty `?ids=` meant "no filter" instead of "match
+ * nothing" — the single highest-consequence defect available in this module, since it would make
+ * `bulkTag` act on every transaction the user owns. **All 3 tests here passed with that bug in
+ * place.** The plan for this chantier claimed this suite would catch it; that was wrong.
+ *
+ * The two guards that DID catch it, both of which must therefore be kept:
+ *   - `scope.spec.ts`'s "treats an empty ?ids= as match-nothing" — failed by name, immediately.
+ *   - the golden master (`SCOPE_GOLDEN_OUT`) — 28 of 72 rows changed their resolved set, widening
+ *     rather than narrowing (one row went from 0 ids to 11).
+ *
+ * So: this suite guards DRIFT BETWEEN the three sites. Correctness of the shared predicate is
+ * guarded by the unit spec and by the before/after golden diff. Do not delete either on the
+ * grounds that "the agreement test covers it".
+ *
+ * See vitest.db.config.ts for how to run it.
+ */
+
+// Same refusal as totals.db-smoke.ts and crossProvider.db-smoke.ts, duplicated per file on purpose:
+// this guard is what stops the suite writing to a developer's real dev.db, and a shared helper a
+// file forgets to call is a worse failure than the duplication.
+if (!process.env.DATABASE_URL) {
+	throw new Error(
+		'This suite writes to a real database. Set DATABASE_URL (and DATABASE_PROVIDER for a server ' +
+			'engine) to a throwaway database explicitly. It refuses to fall back to the default local ' +
+			'SQLite file.'
+	);
+}
+
+if (/(^|[/\\])dev\.db(\?|$)/.test(process.env.DATABASE_URL)) {
+	throw new Error(
+		'DATABASE_URL points at dev.db, the default local development database. Point it at a ' +
+			'throwaway database instead.'
+	);
+}
+
+/**
+ * 260 transactions, and the figure is chosen against MAX_BULK_TAG_TRANSACTIONS (250) rather than
+ * merely being "hundreds".
+ *
+ * The plan originally said 240, to keep the unfiltered case under the cap so bulkTag would answer
+ * with a SET. That makes the cap unreachable from every row in the matrix — including the row the
+ * plan itself requires, "one deliberately over-cap case" — because `?ids=` truncates at 250 and no
+ * other dimension can widen past the fixture size. 260 gives both boundaries for real:
+ *
+ *   - `ids: covering-all` sends 260 segments, normalizeIdList truncates to 250, and 250 is NOT
+ *     over the cap (`matched > 250` is false at exactly 250) — so that row exercises the last
+ *     value that still returns a set.
+ *   - the unfiltered row matches all 260 and bulkTag REFUSES, so that row exercises the refusal,
+ *     and its assertion is that the refusal's count equals the size the other two sites agree on.
+ *
+ * Every label is unique and carries the row index, because the CSV export has no id column: the
+ * label is how an exported row is mapped back to a transaction id. Two rows sharing a label would
+ * silently shrink the export's set and read as a real disagreement.
+ *
+ * Every DATE is distinct, and that is a controlled variable rather than a detail. `load`'s paged
+ * branch orders by `{ date: 'desc' }` with skip/take and NO id tiebreak, while
+ * forEachTransactionBatch (the scan path) orders by `[{ date: 'desc' }, { id: 'desc' }]`. Under
+ * tied dates the paged walk can repeat or omit a row across page boundaries, which would surface
+ * here as a spurious disagreement between `load` and the other two. Distinct dates remove that
+ * variable so this suite measures the refactor. THE TIEBREAK GAP IS A REAL PRE-EXISTING FINDING and
+ * is reported as one — it is deliberately NOT fixed here, because changing the list's ordering is
+ * an observable behaviour change and the acceptance criterion for this chantier is that the
+ * before/after sets are byte-identical.
+ */
+const FIXTURE_SIZE = 260;
+
+/** Label families. The index suffix makes every label unique; the prefix drives the `q` classes. */
+const LABEL_PREFIXES = [
+	'Café Crème', // accented — proves `contains` folds accents (normalizeForMatch)
+	'A+B (test)', // regex metacharacters IN THE DATA, not in the pattern
+	'VIREMENT SEPA',
+	'CARREFOUR MARKET',
+	'SNCF CONNECT'
+] as const;
+
+interface Fixture {
+	userId: string;
+	categoryRealName: string;
+	tagIds: string[];
+	batchIds: string[];
+	allIds: string[];
+	subsetIds: string[];
+	overCapIds: string[];
+	labelToId: Map<string, string>;
+	uncategorizedCategoryId: string;
+}
+
+let fixture: Fixture;
+
+const isoDay = (index: number): Date => new Date(Date.UTC(2025, 5, 1 + index)); // 2025-06-01 + index days, all distinct
+
+async function seedFixture(): Promise<Fixture> {
+	const user = await prisma.user.create({
+		data: {
+			email: `scope-smoke-${crypto.randomUUID()}@budgetpilot.invalid`,
+			// Not a hash of anything, and never used to authenticate: nothing here logs in.
+			passwordHash: 'db-smoke-not-a-real-hash'
+		},
+		select: { id: true }
+	});
+	const userId = user.id;
+
+	const account = await prisma.account.create({
+		data: { userId, name: 'Scope smoke account' },
+		select: { id: true }
+	});
+
+	const [realCategory, uncategorized] = await Promise.all([
+		prisma.category.create({
+			data: { userId, name: 'Alimentation', nameKey: computeNameKey('Alimentation') },
+			select: { id: true, name: true }
+		}),
+		prisma.category.create({
+			data: {
+				userId,
+				name: UNCLASSIFIED_CATEGORY,
+				nameKey: computeNameKey(UNCLASSIFIED_CATEGORY)
+			},
+			select: { id: true }
+		})
+	]);
+
+	const batches: Array<{ id: string }> = [];
+	for (const index of [0, 1, 2]) {
+		batches.push(
+			await prisma.importBatch.create({
+				data: { userId, source: 'csv', fileName: `scope-${index}.csv`, rowCount: 0 },
+				select: { id: true }
+			})
+		);
+	}
+
+	const tags: Array<{ id: string }> = [];
+	for (const name of ['Portugal', 'Pro', 'Vacances']) {
+		tags.push(
+			await prisma.tag.create({
+				data: { userId, name, nameKey: computeNameKey(name), colorToken: 'lagoon' },
+				select: { id: true }
+			})
+		);
+	}
+
+	const rows = Array.from({ length: FIXTURE_SIZE }, (_, index) => {
+		const prefix = LABEL_PREFIXES[index % LABEL_PREFIXES.length];
+		// The classify pile, through BOTH of its branches (see buildTransactionWhere): a
+		// manualCategoryKey equal to the sentinel, and manualCategory null with the sentinel
+		// categoryId. Exercising only one branch would leave the other's OR arm unproven.
+		// 13 is COPRIME with the import-batch modulus (5) below, so the classify dimension and the
+		// batch dimension stay independent. Sharing a modulus would make `type=classify` and
+		// `importBatch=real` select overlapping-by-construction sets, and a matrix row combining them
+		// would be testing an artefact of the fixture rather than the filter.
+		//
+		// Widening both piles to a quarter of the fixture was TRIED, on the plausible reasoning that
+		// a 40-row pile intersected with a narrow range and a tag would resolve nothing. Measured: the
+		// non-empty row count went DOWN, 22 to 21, because a larger pile leaves fewer rows for
+		// `category=real`. Reverted. Recorded so the same change is not retried blind.
+		const inPileByManual = index % 13 === 0;
+		const inPileByCategory = index % 13 === 1;
+		const manualCategory = inPileByManual
+			? UNCLASSIFIED_CATEGORY
+			: index % 7 === 0
+				? 'Alimentation'
+				: null;
+
+		return {
+			userId,
+			accountId: account.id,
+			categoryId: inPileByCategory ? uncategorized.id : realCategory.id,
+			importBatchId:
+				index % 5 === 0
+					? batches[0].id
+					: index % 5 === 1
+						? batches[1].id
+						: index % 5 === 2
+							? batches[2].id
+							: null,
+			date: isoDay(index),
+			label: `${prefix} ${index}`,
+			amountCents: index % 3 === 0 ? 4_500 : 12_000,
+			type: index % 3 === 0 ? 'income' : index % 3 === 1 ? 'expense' : null,
+			source: 'csv',
+			manualCategory,
+			manualCategoryKey: manualCategory ? computeNameKey(manualCategory) : null
+		};
+	});
+
+	await prisma.transaction.createMany({ data: rows });
+
+	const created = await prisma.transaction.findMany({
+		where: { userId },
+		select: { id: true, label: true },
+		orderBy: { date: 'asc' }
+	});
+
+	// Tag links: overlapping on purpose, and overlapping the `q` families, so `q` x `tag` is a
+	// non-empty intersection rather than a comparison over nothing.
+	const links: Array<{ transactionId: string; tagId: string }> = [];
+	created.forEach((row, index) => {
+		if (index % 4 === 0) links.push({ transactionId: row.id, tagId: tags[0].id });
+		if (index % 6 === 0) links.push({ transactionId: row.id, tagId: tags[1].id });
+		if (index % 9 === 0) links.push({ transactionId: row.id, tagId: tags[2].id });
+	});
+	await prisma.transactionTag.createMany({ data: links });
+
+	const allIds = created.map((row) => row.id);
+	return {
+		userId,
+		categoryRealName: realCategory.name,
+		tagIds: tags.map((tag) => tag.id),
+		batchIds: batches.map((batch) => batch.id),
+		allIds,
+		// Spread across the whole fixture rather than `slice(0, 5)`, so it intersects every other
+		// dimension — the tags, both classify-pile branches, each `q` label family and the narrow
+		// date range. A subset taken from the head intersects almost nothing, and every matrix row
+		// combining it with another filter then resolves to the empty set, which is a comparison
+		// that proves nothing.
+		subsetIds: allIds.filter((_, index) => index % 6 === 0),
+		// 260 real ids: normalizeIdList's split limit truncates to 250, which is the last value that
+		// still returns a set rather than a refusal.
+		overCapIds: allIds,
+		labelToId: new Map(created.map((row) => [row.label, row.id])),
+		uncategorizedCategoryId: uncategorized.id
+	};
+}
+
+beforeAll(async () => {
+	fixture = await seedFixture();
+}, 60_000);
+
+/**
+ * Every bulkTag row writes links, and they must be removed BETWEEN ROWS, not between tests.
+ *
+ * This was an `afterEach` at first, which looks right and is not: the whole matrix runs inside ONE
+ * `it`, so `afterEach` fired once at the very end while tags piled up on the same transactions
+ * throughout. After ten rows had tagged a given row it hit MAX_TAGS_PER_TRANSACTION and bulkTag
+ * answered `over-tag-cap` — the suite reporting a disagreement that was entirely its own doing.
+ *
+ * Called explicitly at the end of each iteration for that reason. Keeping each row's answer
+ * independent of its predecessors is what makes "newly linked IS the resolved set" true.
+ */
+async function removeSmokeTags(): Promise<void> {
+	await prisma.transactionTag.deleteMany({
+		where: { tag: { userId: fixture.userId, name: { startsWith: 'scope-smoke-' } } }
+	});
+	await prisma.tag.deleteMany({
+		where: { userId: fixture.userId, name: { startsWith: 'scope-smoke-' } }
+	});
+}
+
+afterEach(removeSmokeTags);
+
+/* ------------------------------------------------------------------ *
+ * Fixture coverage — asserted BEFORE any comparison runs.
+ * ------------------------------------------------------------------ */
+
+it('populates every dimension the matrix varies', async () => {
+	const { userId, batchIds, tagIds, uncategorizedCategoryId } = fixture;
+	const counts = {
+		income: await prisma.transaction.count({ where: { userId, type: 'income' } }),
+		expense: await prisma.transaction.count({ where: { userId, type: 'expense' } }),
+		untyped: await prisma.transaction.count({ where: { userId, type: null } }),
+		pileByManual: await prisma.transaction.count({
+			where: { userId, manualCategoryKey: computeNameKey(UNCLASSIFIED_CATEGORY) }
+		}),
+		pileByCategory: await prisma.transaction.count({
+			where: { userId, manualCategory: null, categoryId: uncategorizedCategoryId }
+		}),
+		manualCategoryReal: await prisma.transaction.count({
+			where: { userId, manualCategoryKey: computeNameKey('Alimentation') }
+		}),
+		tagged0: await prisma.transaction.count({
+			where: { userId, tags: { some: { tagId: tagIds[0] } } }
+		}),
+		tagged1: await prisma.transaction.count({
+			where: { userId, tags: { some: { tagId: tagIds[1] } } }
+		}),
+		tagged2: await prisma.transaction.count({
+			where: { userId, tags: { some: { tagId: tagIds[2] } } }
+		}),
+		untagged: await prisma.transaction.count({ where: { userId, tags: { none: {} } } }),
+		batch0: await prisma.transaction.count({ where: { userId, importBatchId: batchIds[0] } }),
+		batch1: await prisma.transaction.count({ where: { userId, importBatchId: batchIds[1] } }),
+		batch2: await prisma.transaction.count({ where: { userId, importBatchId: batchIds[2] } }),
+		noBatch: await prisma.transaction.count({ where: { userId, importBatchId: null } }),
+		accented: await prisma.transaction.count({ where: { userId, label: { startsWith: 'Café' } } }),
+		regexMeta: await prisma.transaction.count({ where: { userId, label: { startsWith: 'A+B' } } }),
+		inNarrowRange: await prisma.transaction.count({
+			where: {
+				userId,
+				date: {
+					gte: new Date('2025-09-01T00:00:00.000Z'),
+					lt: new Date('2025-12-01T00:00:00.000Z')
+				}
+			}
+		})
+	};
+
+	// A comparison over an empty equivalence class is green and proves nothing. This is the
+	// documented weakness of golden-master testing — it protects the paths the fixture happens to
+	// cover — so the coverage is asserted rather than assumed.
+	for (const [dimension, count] of Object.entries(counts)) {
+		expect(
+			count,
+			`class "${dimension}" is empty; every matrix row using it would prove nothing`
+		).toBeGreaterThan(0);
+	}
+
+	const total = await prisma.transaction.count({ where: { userId } });
+	expect(total).toBe(FIXTURE_SIZE);
+	// The two boundaries this fixture size exists to reach (see FIXTURE_SIZE).
+	expect(total).toBeGreaterThan(MAX_BULK_TAG_TRANSACTIONS);
+	expect(fixture.allIds.length).toBeGreaterThan(MAX_BULK_TAG_TRANSACTIONS);
+
+	// Distinct dates are load-bearing for the page walk, not incidental — see FIXTURE_SIZE.
+	const distinctDates = await prisma.transaction.findMany({
+		where: { userId },
+		select: { date: true },
+		distinct: ['date']
+	});
+	expect(distinctDates).toHaveLength(FIXTURE_SIZE);
+});
+
+/* ------------------------------------------------------------------ *
+ * CSV label parsing — calibrated against known values before it is trusted.
+ * ------------------------------------------------------------------ */
+
+/** Mirrors escapeCsvField's quoting (export/+server.ts): `"` doubles inside a quoted field. */
+export function parseCsvLabel(line: string): string {
+	// The label is the second `;`-separated field. Walk the line rather than split(';'), because a
+	// quoted label may contain the separator.
+	let index = 0;
+	let field = 0;
+	let value = '';
+	let quoted = false;
+	while (index < line.length) {
+		const char = line[index];
+		if (quoted) {
+			if (char === '"' && line[index + 1] === '"') {
+				value += '"';
+				index += 2;
+				continue;
+			}
+			if (char === '"') {
+				quoted = false;
+				index += 1;
+				continue;
+			}
+			value += char;
+			index += 1;
+			continue;
+		}
+		if (char === '"' && value === '') {
+			quoted = true;
+			index += 1;
+			continue;
+		}
+		if (char === ';') {
+			if (field === 1) return value;
+			field += 1;
+			value = '';
+			index += 1;
+			continue;
+		}
+		value += char;
+		index += 1;
+	}
+	return field === 1 ? value : '';
+}
+
+it('parses a CSV label whose value is already known', () => {
+	// Calibration, not coverage. A label parser that silently returns '' would make every export
+	// set look identically empty, and the three-way comparison would then be green on nothing.
+	// Calibrate the harness against a known value before trusting a single figure it produces.
+	expect(parseCsvLabel('2026-01-05;Café Crème 12;Alimentation;-12.00;expense;spending;csv')).toBe(
+		'Café Crème 12'
+	);
+	expect(parseCsvLabel('2026-01-05;"A+B (test); 4";Alimentation;-12.00;expense;spending;csv')).toBe(
+		'A+B (test); 4'
+	);
+	expect(
+		parseCsvLabel('2026-01-05;"He said ""hi"" 9";Alimentation;-12.00;expense;spending;csv')
+	).toBe('He said "hi" 9');
+	// The formula-injection guard prefixes a leading `=` with an apostrophe; the label round-trips
+	// with that prefix, so a fixture label must never start with one or the map lookup would miss.
+	expect(parseCsvLabel("2026-01-05;'=SUM(A1);Alimentation;-12.00;expense;spending;csv")).toBe(
+		"'=SUM(A1)"
+	);
+});
+
+/* ------------------------------------------------------------------ *
+ * Query-string construction from a matrix row.
+ * ------------------------------------------------------------------ */
+
+const NARROW_FROM = '2025-09-01';
+const NARROW_TO = '2025-11-30';
+
+export function buildQueryString(row: FilterRow, fx: Fixture): string {
+	const params = new URLSearchParams();
+
+	if (row.q === 'contains-some') params.set('q', 'creme'); // accent-folded match on "Café Crème"
+	if (row.q === 'contains-none') params.set('q', 'zzz-no-such-label');
+	if (row.q === 'regex-valid') {
+		params.set('q', '^SNCF');
+		params.set('qMode', 'regex');
+	}
+	if (row.q === 'regex-invalid') {
+		params.set('q', '[');
+		params.set('qMode', 'regex');
+	}
+
+	if (row.type !== 'all') params.set('type', row.type);
+
+	if (row.category === 'real') params.set('category', fx.categoryRealName);
+	if (row.category === 'nonexistent') params.set('category', 'Aucune catégorie de ce nom');
+
+	if (row.range === 'valid-narrow') {
+		params.set('from', NARROW_FROM);
+		params.set('to', NARROW_TO);
+	}
+	if (row.range === 'valid-covering-all') {
+		params.set('from', '2020-01-01');
+		params.set('to', '2030-01-01');
+	}
+	if (row.range === 'lone-from') params.set('from', NARROW_FROM);
+	if (row.range === 'malformed') {
+		params.set('from', '2026-99-99');
+		params.set('to', NARROW_TO);
+	}
+	if (row.range === 'reversed') {
+		params.set('from', NARROW_TO);
+		params.set('to', NARROW_FROM);
+	}
+
+	if (row.importBatch === 'real') params.set('importBatch', fx.batchIds[0]);
+	if (row.importBatch === 'nonexistent') params.set('importBatch', 'batch-that-does-not-exist');
+
+	if (row.tag === 'real') params.set('tag', fx.tagIds[0]);
+	if (row.tag === 'nonexistent') params.set('tag', 'tag-that-does-not-exist');
+
+	if (row.ids === 'subset') params.set('ids', fx.subsetIds.join(','));
+	if (row.ids === 'empty') params.set('ids', '');
+	if (row.ids === 'all-malformed') params.set('ids', 'a,b, ,,c');
+	if (row.ids === 'over-cap') params.set('ids', fx.overCapIds.join(','));
+	if (row.ids === 'covering-all') params.set('ids', fx.allIds.join(','));
+
+	return params.toString();
+}
+
+/** Rows every site must refuse outright. */
+function isFailClosed(row: FilterRow): boolean {
+	return (
+		row.q === 'regex-invalid' ||
+		row.range === 'lone-from' ||
+		row.range === 'malformed' ||
+		row.range === 'reversed'
+	);
+}
+
+/* ------------------------------------------------------------------ *
+ * The three site adapters. Each DERIVES its set from what the site returns.
+ * ------------------------------------------------------------------ */
+
+const authUser = () =>
+	({ id: fixture.userId, email: 'scope-smoke@budgetpilot.invalid', role: 'USER' }) as never;
+
+const listEvent = (qs: string) =>
+	({ locals: { user: authUser() }, url: new URL(`http://localhost/transactions?${qs}`) }) as never;
+
+/** `load`: walk EVERY page. One page is not the set. */
+async function idsFromLoad(qs: string): Promise<string[]> {
+	const first = (await load(listEvent(qs))) as {
+		transactions: Array<{ id: string }>;
+		pagination: { totalPages: number };
+	};
+	const ids = first.transactions.map((row) => row.id);
+	for (let page = 2; page <= first.pagination.totalPages; page++) {
+		const next = (await load(listEvent(`${qs}&page=${page}`))) as {
+			transactions: Array<{ id: string }>;
+		};
+		ids.push(...next.transactions.map((row) => row.id));
+	}
+	return ids.sort();
+}
+
+type BulkAnswer = { kind: 'set'; ids: string[] } | { kind: 'refused'; message: string };
+
+/**
+ * `bulkTag`: a FRESH tag name per row, so "newly linked" IS the resolved set. Re-using a name would
+ * make the next row's answer "the rows that did not already have it", which is a different question.
+ */
+async function answerFromBulkTag(qs: string, tagName: string): Promise<BulkAnswer> {
+	const body = new FormData();
+	body.set('tagName', tagName);
+	const result = (await actions.bulkTag({
+		locals: { user: authUser() },
+		request: new Request('http://localhost/transactions', { method: 'POST', body }),
+		url: new URL(`http://localhost/transactions?${qs}`)
+	} as never)) as
+		| { status: number; data: { bulkTagError: string } }
+		| { bulkTagEmpty: true }
+		| { bulkTagResult: { transactionIds: string[] } };
+
+	if ('status' in result) return { kind: 'refused', message: result.data.bulkTagError };
+	if ('bulkTagEmpty' in result) return { kind: 'set', ids: [] };
+	return { kind: 'set', ids: [...result.bulkTagResult.transactionIds].sort() };
+}
+
+type ExportAnswer = { kind: 'set'; ids: string[] } | { kind: 'status'; status: number };
+
+/** `export`: parse the CSV and map rows back through the unique labels. */
+async function answerFromExport(qs: string): Promise<ExportAnswer> {
+	let response: Response;
+	try {
+		response = (await exportGET({
+			locals: { user: authUser() },
+			url: new URL(`http://localhost/transactions/export?${qs}`)
+		} as never)) as Response;
+	} catch (caught) {
+		const status = (caught as { status?: number }).status;
+		if (typeof status !== 'number') throw caught;
+		return { kind: 'status', status };
+	}
+
+	const [, ...lines] = (await response.text()).split('\r\n').filter(Boolean);
+	const ids = lines.map((line) => {
+		const label = parseCsvLabel(line);
+		const id = fixture.labelToId.get(label);
+		// Never silently drop an unmapped row: that would shrink the export's set and read as a
+		// disagreement with the other two sites, pointing at the app instead of at this parser.
+		if (!id)
+			throw new Error(`export row did not map back to a fixture id: ${JSON.stringify(line)}`);
+		return id;
+	});
+	return { kind: 'set', ids: ids.sort() };
+}
+
+/* ------------------------------------------------------------------ *
+ * The matrix.
+ * ------------------------------------------------------------------ */
+
+/**
+ * Two pairwise sets, because they prove two different things.
+ *
+ * `DIMENSIONS` covers the whole parameter space including the barren classes, so it proves the
+ * three sites agree on EMPTINESS and on REFUSAL. `PRODUCTIVE_DIMENSIONS` covers only the classes
+ * that can return rows, so it proves they agree on ACTUAL SETS — which the first one barely does:
+ * measured, 7 of its 55 rows resolved anything at all.
+ *
+ * De-duplicated, because the productive space is a subset and its rows can coincide.
+ */
+const ROWS: FilterRow[] = [
+	...pairwiseRows(DIMENSIONS),
+	...pairwiseRows(PRODUCTIVE_DIMENSIONS),
+	...NAMED_ROWS
+].filter(
+	(row, index, all) =>
+		all.findIndex((other) => JSON.stringify(other) === JSON.stringify(row)) === index
+);
+
+describe('the three /transactions filter sites', () => {
+	it('resolve the same transaction set, for every matrix row', async () => {
+		const golden: Record<string, unknown> = {};
+
+		for (const [index, row] of ROWS.entries()) {
+			const qs = buildQueryString(row, fixture);
+			const label = `${index}: ${JSON.stringify(row)}`;
+
+			const fromLoad = await idsFromLoad(qs);
+			const fromBulk = await answerFromBulkTag(qs, `scope-smoke-${index}`);
+			const fromExport = await answerFromExport(qs);
+
+			if (isFailClosed(row)) {
+				// Every site refuses, and none returns rows. Asserted against a RICH background
+				// (the named rows cross each fail-closed class with several active filters), so
+				// "fails closed" is proven to dominate active filters rather than to hold alone.
+				expect(fromLoad, label).toEqual([]);
+				expect(fromBulk.kind, label).toBe('refused');
+				expect(fromExport, label).toEqual({ kind: 'status', status: 400 });
+			} else if (fromLoad.length > MAX_BULK_TAG_TRANSACTIONS) {
+				// Over the cap bulkTag cannot answer with a set, so its refusal is its answer — and
+				// the refusal NAMES a count, which must be the size the other two agree on. Compared
+				// as the whole rendered message rather than by parsing a number out of it: building
+				// the expected message from the expected count needs no parser, so there is no
+				// second harness here to calibrate.
+				expect(fromBulk, label).toEqual({
+					kind: 'refused',
+					message: m.tags_bulk_error_too_many({
+						count: fromLoad.length,
+						limit: MAX_BULK_TAG_TRANSACTIONS
+					})
+				});
+				expect(fromExport, label).toEqual({ kind: 'set', ids: fromLoad });
+			} else {
+				expect(fromBulk, label).toEqual({ kind: 'set', ids: fromLoad });
+				expect(fromExport, label).toEqual({ kind: 'set', ids: fromLoad });
+			}
+
+			golden[label] = { fromLoad, fromBulk, fromExport };
+			// Between ROWS, not between tests — see removeSmokeTags.
+			await removeSmokeTags();
+		}
+
+		if (process.env.SCOPE_GOLDEN_OUT) {
+			writeFileSync(process.env.SCOPE_GOLDEN_OUT, JSON.stringify(golden, null, 2));
+		}
+
+		// The matrix must actually be the matrix. A generator regression that emitted two rows would
+		// leave every assertion above green while proving almost nothing.
+		expect(ROWS.length).toBeGreaterThan(36);
+
+		/**
+		 * ROW-LEVEL coverage, and the assertion this suite most needs.
+		 *
+		 * "Every dimension is non-empty in the fixture" is a claim about the FIXTURE. It passed on
+		 * the first run of this suite while 48 of 55 matrix rows resolved the empty set at all three
+		 * sites — three sites agreeing that nothing matches nothing, 87% of the time, reported as a
+		 * green anti-drift suite. That is the golden-master coverage failure in its purest form:
+		 * green, plausible, and guarding almost nothing.
+		 *
+		 * So the ROWS themselves are measured. A row that resolves a non-empty set through the
+		 * set-agreement branch is the only kind that can catch a site quietly returning a superset.
+		 *
+		 * MEASURED, on SQLite, 2026-08-04: of 72 rows, 28 are fail-closed, 10 are empty by design
+		 * (`ids: empty` and `ids: all-malformed` mean match-nothing), 12 are incidental empty
+		 * intersections, and **22 resolve a non-empty set through the set-agreement branch**. The
+		 * floor is 20 rather than 22 so ordinary fixture drift does not fail the build, while a
+		 * collapse back toward the original 7 does.
+		 *
+		 * Do not lower this floor to make a run pass. It was already raised once by fixing the
+		 * fixture — `subsetIds` was `allIds.slice(0, 5)`, which intersected almost nothing, and
+		 * spreading it across the fixture took the count from 7 to 22.
+		 */
+		const rowsWithSets = Object.values(golden).filter(
+			(entry) => (entry as { fromLoad: string[] }).fromLoad.length > 0
+		);
+		expect(
+			rowsWithSets.length,
+			'too few matrix rows resolve a non-empty set; the suite would be green on nothing'
+		).toBeGreaterThanOrEqual(20);
+
+		// ...and they must not all be the SAME set. Rows that all return the whole fixture would
+		// satisfy the count above while never exercising a narrowing.
+		const distinctSets = new Set(
+			rowsWithSets.map((entry) => (entry as { fromLoad: string[] }).fromLoad.join(','))
+		);
+		expect(distinctSets.size, 'every non-empty row resolved the same set').toBeGreaterThanOrEqual(
+			8
+		);
+	}, 600_000);
+});

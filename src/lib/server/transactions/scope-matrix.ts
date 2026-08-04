@@ -29,6 +29,32 @@ export const DIMENSIONS = {
 export type Dimensions = typeof DIMENSIONS;
 export type FilterRow = { [K in keyof Dimensions]: Dimensions[K][number] };
 
+/**
+ * The classes that can actually RETURN ROWS, pairwise-covered separately. This exists because the
+ * first run of the agreement suite was green and nearly worthless, and the number is worth keeping:
+ * of 55 rows, **7** resolved a non-empty set. The other 48 compared empty against empty.
+ *
+ * Pairwise over DIMENSIONS is complete on the PARAMETER space and says almost nothing about the
+ * RESULT space, because half the classes are deliberately barren — `nonexistent`, `contains-none`,
+ * `empty`, `all-malformed` and every fail-closed range each zero the whole intersection on their
+ * own, and a greedy pairwise row usually contains at least one of them. Both properties matter and
+ * they are not the same property: DIMENSIONS proves the three sites agree on emptiness and on
+ * refusal, this proves they agree on ACTUAL SETS.
+ *
+ * Asserting "every dimension is non-empty in the fixture" does not catch this — that check passed
+ * while 87% of the matrix was proving nothing. The row-level assertion in scope.db-smoke.ts is what
+ * catches it, and it is the one to keep honest if these classes ever change.
+ */
+export const PRODUCTIVE_DIMENSIONS = {
+	q: ['absent', 'contains-some', 'regex-valid'],
+	type: ['all', 'income', 'expense', 'classify'],
+	category: ['absent', 'real'],
+	range: ['absent', 'valid-narrow', 'valid-covering-all'],
+	importBatch: ['absent', 'real'],
+	tag: ['absent', 'real'],
+	ids: ['absent', 'subset', 'over-cap', 'covering-all']
+} as const satisfies Record<keyof Dimensions, readonly string[]>;
+
 function pairKey(keys: string[], a: string, av: string, b: string, bv: string): string {
 	// Ordered by dimension index so the same pair always produces the same key regardless of which
 	// side the caller happens to hold.
