@@ -437,7 +437,13 @@
 								</svg>
 							{/if}
 						</span>
-						<span class="shrink-0 text-xs text-zinc-500 tabular-nums">
+						<!-- A disabled (zero-count) row carries its inactivity through aria-disabled and the
+						     written "0", never through opacity: opacity dims the count digit itself, which
+						     is the row's INFORMATION, not its decoration. zinc-400 measures 2.5:1, matching
+						     the label's own colour on this row — see design section 6J. -->
+						<span
+							class="shrink-0 text-xs tabular-nums {disabled ? 'text-zinc-400' : 'text-zinc-500'}"
+						>
 							{countText(row.kind === 'all' ? allCount : row.option.count)}
 						</span>
 					</li>

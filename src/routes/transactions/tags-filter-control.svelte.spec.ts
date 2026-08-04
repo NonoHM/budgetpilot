@@ -137,4 +137,30 @@ describe('tag filter control', () => {
 		expect(scoped.container.textContent).toContain(m.tags_filter_scope_note());
 		expect(scoped.container.textContent).not.toContain(m.tags_filter_counts_unavailable());
 	});
+
+	it('mobile: a zero-count row is dimmed by colour, never by opacity (design 6J)', async () => {
+		// Same rule as the desktop FilterDropdown, in the 52px full-width rows of the mobile sheet:
+		// opacity used to sit on the whole row and therefore on the written "0" itself. The fix is an
+		// explicit zinc-400 on the label and the count, aria-disabled for inactivity, and the tag's
+		// own hue left untouched on the identity dot.
+		expect.assertions(6);
+		await page.viewport(390, 844);
+		const zeroTag = { id: 'tag-1', name: 'Portugal', colorToken: 'lagoon' as const };
+		render(Page, {
+			data: baseData({ allTags: [zeroTag], tagCounts: [{ tagId: 'tag-1', count: 0 }] }),
+			form: null
+		});
+
+		await userEvent.click(page.getByRole('button', { name: m.tags_filter_dimension() }).first());
+		const row = page.getByText('Portugal').element().closest('button') as HTMLElement;
+
+		expect(row.getAttribute('aria-disabled')).toBe('true');
+		expect(row.className).not.toMatch(/\bopacity-/);
+
+		const countEl = row.querySelector('.tabular-nums') as HTMLElement;
+		expect(countEl).not.toBeNull();
+		expect(countEl.className).not.toMatch(/\bopacity-/);
+		expect(countEl.className).toContain('text-zinc-400');
+		expect(countEl.className).not.toContain('text-zinc-500');
+	});
 });
