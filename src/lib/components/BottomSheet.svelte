@@ -18,12 +18,25 @@
 		open = false,
 		ariaLabel,
 		onClose,
-		children
+		children,
+		header,
+		footer
 	}: {
 		open?: boolean;
 		ariaLabel: string;
 		onClose: () => void;
 		children: Snippet;
+		/**
+		 * Optional persistent header, rendered OUTSIDE the scrolling body — the mirror of `footer`,
+		 * and for the same reason. A title and a route back that scroll away with the content leave a
+		 * reader who has scrolled the grid with no visible way out of the sheet, which is exactly the
+		 * argument that makes the footer sticky. Design 6M budgets it at 73px including the handle.
+		 */
+		header?: Snippet;
+		// Optional sticky footer, rendered OUTSIDE the scrolling body — see the
+		// "pied de feuille" rule below. Every existing caller omits it and keeps
+		// rendering its primary action inside `children`, unchanged.
+		footer?: Snippet;
 	} = $props();
 
 	let sheetEl = $state<HTMLElement | null>(null);
@@ -32,6 +45,57 @@
 	let dragging = $state(false);
 	let dragY = $state(0);
 	let startY = 0;
+
+	// Pied de feuille (design 6M): the primary action never scrolls, including
+	// when the virtual keyboard shrinks the sheet. `visualViewport` is the only
+	// signal that reports the SHRUNK visible area on a phone — the layout
+	// viewport (what `100vh`/`vh` units and plain `fixed` positioning measure)
+	// stays the same size and simply gets pushed off-screen by the keyboard, so
+	// a `fixed inset-0` wrapper would carry the header off the top and the
+	// footer under the keyboard instead of resizing. `100dvh` doesn't help here
+	// either: it tracks browser-chrome changes, not the on-screen keyboard, on
+	// every engine this app targets.
+	//
+	// `viewportBox` is null in two cases that must both fall back to today's
+	// static behaviour: `visualViewport` doesn't exist (jsdom, older browsers),
+	// or the sheet is closed (no listeners attached, nothing to compute from).
+	let viewportBox = $state<{ top: number; height: number } | null>(null);
+
+	function readViewportBox(vv: VisualViewport): { top: number; height: number } {
+		return { top: vv.offsetTop, height: vv.height };
+	}
+
+	$effect(() => {
+		if (!open) {
+			viewportBox = null;
+			return;
+		}
+		const vv = typeof window !== 'undefined' ? window.visualViewport : null;
+		if (!vv) {
+			viewportBox = null;
+			return;
+		}
+		const update = () => {
+			viewportBox = readViewportBox(vv);
+		};
+		update();
+		vv.addEventListener('resize', update);
+		vv.addEventListener('scroll', update);
+		return () => {
+			vv.removeEventListener('resize', update);
+			vv.removeEventListener('scroll', update);
+		};
+	});
+
+	// Never leave a focused field under the keyboard: scroll it into the
+	// scrolling body's own visible area (never past the sticky footer, since
+	// the footer sits outside this element entirely).
+	function handleBodyFocusIn(event: FocusEvent) {
+		const target = event.target as HTMLElement | null;
+		if (!target) return;
+		if (!['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) return;
+		target.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+	}
 
 	// Entrance/exit timings. Deliberately BottomSheet's own values (not
 	// MOTION.overlay*): the fly distance is large (y: 300), so it needs a
@@ -55,6 +119,57 @@
 		return () => {
 			focusRestore.restore();
 		};
+	});
+
+	/**
+	 * A sheet keeps a sliver of backdrop above it, so it reads as a sheet over the page rather than
+	 * as a new full-screen page — 6M budgets 809 of 844, a 35px gap. That gap is dropped once the
+	 * visual viewport has shrunk, because then every pixel belongs to the keyboard case and the
+	 * design's own table has the sheet filling the reduced viewport exactly (544 of 544).
+	 */
+	/**
+	 * NEVER TESTED ON A REAL DEVICE. Stated because the whole keyboard behaviour below rests on it.
+	 *
+	 * `visualViewport` resize is emulated everywhere it is covered: headless Chromium never raises a
+	 * keyboard, so the specs stub the object and move it by hand, and the touch e2e runs a
+	 * touch-enabled Chromium rather than a phone. That models the EVENT faithfully and says nothing
+	 * about the two engines that matter:
+	 *
+	 *  - iOS Safari resizes `visualViewport` but does NOT resize the layout viewport, and additionally
+	 *    scrolls the page when a focused field would sit under the keyboard — so `offsetTop` moves and
+	 *    a position:fixed ancestor can end up translated in ways this code does not model.
+	 *  - Android Chrome's behaviour depends on the `interactive-widget` viewport setting; the default
+	 *    (`resizes-visual`) matches what is assumed here, but `resizes-content` does not.
+	 *
+	 * The blast radius is proven non-zero: this mechanism silently replaced the app-wide `max-h-[85vh]`
+	 * cap for every sheet and no test noticed until it was measured by hand. So treat a real-device
+	 * pass on both engines as outstanding work, not as a formality.
+	 */
+	const BACKDROP_GAP_PX = 35;
+	const sheetMaxHeight = $derived.by(() => {
+		if (!viewportBox) return undefined;
+
+		// The keyboard case: every remaining pixel belongs to it, and 6M's table has the sheet
+		// filling the reduced viewport exactly (544 of 544). Applies to every sheet — a shrunken
+		// viewport is a constraint, never a licence to grow.
+		const keyboardIsUp = viewportBox.height < window.innerHeight - 1;
+		if (keyboardIsUp) return '100%';
+
+		/**
+		 * Otherwise the near-full height is scoped to sheets that carry a STICKY FOOTER, and the
+		 * other four sheets in this app keep the `max-h-[85vh]` they have always had.
+		 *
+		 * This is not caution, it is the footer rule read in the other direction. 85vh exists so a
+		 * tall sheet cannot bury its primary action below the fold; a sticky footer removes that
+		 * risk by construction, which is what makes the extra height safe to hand out. Without one,
+		 * a taller sheet is simply more scrolling with the action buried deeper — exactly what the
+		 * cap was protecting against.
+		 *
+		 * It also matters because the `visualViewport` work silently replaced that cap for every
+		 * sheet (85vh → 100%, +127px at 844) and no test noticed. Only Période asked for the change.
+		 */
+		if (!footer) return undefined;
+		return `${Math.max(320, viewportBox.height - BACKDROP_GAP_PX)}px`;
 	});
 
 	function handleWindowKeydown(event: KeyboardEvent) {
@@ -102,7 +217,13 @@
 <svelte:window onkeydown={handleWindowKeydown} />
 
 {#if open}
-	<div class="fixed inset-0 z-40 lg:hidden" role="presentation">
+	<div
+		class="fixed inset-0 z-40 flex flex-col justify-end lg:hidden"
+		style:top={viewportBox ? `${viewportBox.top}px` : undefined}
+		style:height={viewportBox ? `${viewportBox.height}px` : undefined}
+		style:bottom={viewportBox ? 'auto' : undefined}
+		role="presentation"
+	>
 		<div
 			class="absolute inset-0 bg-zinc-950/45"
 			onclick={handleBackdropClick}
@@ -117,7 +238,8 @@
 			aria-label={ariaLabel}
 			tabindex="-1"
 			onkeydown={handleSheetKeydown}
-			class="absolute inset-x-0 bottom-0 flex max-h-[85vh] flex-col overflow-hidden rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(0,0,0,0.18)] transition-transform duration-200 ease-out"
+			class="relative flex max-h-[85vh] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-[0_-8px_30px_rgba(0,0,0,0.18)] transition-transform duration-200 ease-out"
+			style:max-height={viewportBox ? sheetMaxHeight : undefined}
 			style:transform={dragY !== 0 ? `translateY(${dragY}px)` : undefined}
 			style:transition={dragging ? 'none' : undefined}
 			transition:fly={{ y: 300, duration: motionDuration(SHEET_FLY_MS) }}
@@ -134,9 +256,28 @@
 				<span class="h-1 w-9 rounded-full bg-zinc-300"></span>
 			</div>
 
-			<div class="flex-1 overflow-y-auto overscroll-contain px-5 pb-6">
+			{#if header}
+				<div class="shrink-0 border-b border-zinc-100 bg-white px-5 pb-3">
+					{@render header()}
+				</div>
+			{/if}
+
+			<div
+				class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 {footer
+					? 'pb-4'
+					: 'pb-6'} {header ? 'pt-3' : ''}"
+				onfocusin={handleBodyFocusIn}
+			>
 				{@render children()}
 			</div>
+
+			{#if footer}
+				<div
+					class="shrink-0 border-t border-zinc-100 bg-white px-5 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]"
+				>
+					{@render footer()}
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}

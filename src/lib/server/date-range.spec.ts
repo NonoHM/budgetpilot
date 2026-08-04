@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseDateRange } from './date-range';
+import { parseCustomDateRange, parseDateRange } from './date-range';
 
 const now = new Date('2026-06-25T10:00:00.000Z');
 
@@ -88,5 +88,46 @@ describe('parseDateRange', () => {
 		expect(() =>
 			parseDateRange(new URLSearchParams('period=custom&from=2026-06-10&to=2026-06-01'), now)
 		).toThrow();
+	});
+});
+
+describe('parseCustomDateRange — hostile and shape-valid-but-impossible input', () => {
+	/**
+	 * These are all values that PASS the `^\d{4}-\d{2}-\d{2}$` shape check, because that pattern
+	 * counts digits and does not read a calendar. Each one used to reach `Date.prototype.toISOString`
+	 * on an `Invalid Date`, which THROWS `RangeError` rather than returning a sentinel — and that
+	 * throw escaped `parseTransactionDateRange`'s catch (it re-raises anything that is not an
+	 * HttpError), so /transactions answered 500 instead of rendering its "Période invalide" state.
+	 *
+	 * Reachable by TYPING, not only by editing the URL: the Période panel's "Du" field accepts
+	 * 99/99/2026 and navigates to ?from=2026-99-99.
+	 */
+	it.each(['2026-99-99', '2026-13-01', '2026-00-00', '2026-06-00'])(
+		'rejects %s with a 400 rather than throwing a RangeError',
+		(value) => {
+			// The assertion is about the CLASS of failure, not merely that it fails: a RangeError here
+			// would also make `toThrow()` pass, which is why the status is checked.
+			expect(() => parseCustomDateRange(value, '2026-12-31')).toThrowError(
+				expect.objectContaining({ status: 400 })
+			);
+			expect(() => parseCustomDateRange('2026-01-01', value)).toThrowError(
+				expect.objectContaining({ status: 400 })
+			);
+		}
+	);
+
+	it('still rejects a rolled-over date, which was never the broken case', () => {
+		// 2026-02-30 rolls over to March 2 — a VALID Date — so it always reached the round-trip and was
+		// correctly refused as non-canonical. Pinned so the NaN guard is not mistaken for what catches
+		// it, and so removing the round-trip check does not go unnoticed.
+		expect(() => parseCustomDateRange('2026-02-30', '2026-12-31')).toThrowError(
+			expect.objectContaining({ status: 400 })
+		);
+	});
+
+	it('accepts a real range', () => {
+		const range = parseCustomDateRange('2026-06-01', '2026-06-30');
+		expect(range.fromDate).toBe('2026-06-01');
+		expect(range.toDate).toBe('2026-06-30');
 	});
 });

@@ -399,6 +399,61 @@ describe('filter bar — mobile sheet', () => {
 		);
 		expect(shortest(active.container)).toBeGreaterThanOrEqual(44);
 	});
+
+	it('all four mobile filter-bar triggers draw at the 12px referential radius (design 6I)', async () => {
+		expect.assertions(4);
+		await page.viewport(390, 844);
+		const { container } = render(Page, {
+			data: baseData({
+				filters: { ...baseData().filters, category: 'Alimentation', tag: 'tag-1' }
+			}),
+			form: null
+		});
+
+		// MEASURED, not read off a class list: rounded-lg (8px) and rounded-xl (12px) both compile,
+		// and only getComputedStyle distinguishes which one actually reached the rendered node.
+		const radiusOf = (el: HTMLElement) => getComputedStyle(el).borderTopLeftRadius;
+
+		const filtresTrigger = page
+			.getByRole('button', { name: m.transactions_filters_sheet_aria_many({ count: 2 }) })
+			.element() as HTMLElement;
+		expect(radiusOf(filtresTrigger)).toBe('12px');
+
+		// Catégorie and Étiquette are groups of two adjoined buttons: the radius lives on the
+		// wrapping <span> (`overflow-hidden`), which is what actually clips the corner — not on
+		// either button. The button is the wrapper's direct child, same convention this file already
+		// uses at line ~164 for the desktop group (`.parentElement`, not a CSS `closest` search).
+		const categoryButton = page
+			.getByRole('button', {
+				name: m.transactions_filter_active_trigger({
+					dimension: m.transactions_filter_dimension_category(),
+					value: 'Alimentation'
+				})
+			})
+			.element() as HTMLElement;
+		expect(radiusOf(categoryButton.parentElement!)).toBe('12px');
+
+		const tagButton = page
+			.getByRole('button', {
+				name: m.transactions_filter_active_trigger({
+					dimension: m.tags_filter_dimension(),
+					value: 'Portugal'
+				})
+			})
+			.element() as HTMLElement;
+		expect(radiusOf(tagButton.parentElement!)).toBe('12px');
+
+		// Période — the referential the other three were brought up to. Already conformant before
+		// this change; asserted here too so a regression on any of the four is caught in one place.
+		// `getByTestId` ignores `display: none`, unlike a role query — both the hidden desktop copy
+		// and the mobile one carry `data-testid="period-trigger-group"`, so this scopes to the
+		// `.lg\:hidden` subtree the same way `mobileButtons()` above does, rather than the role-query
+		// exclusion this file otherwise relies on.
+		const periodGroup = container.querySelector(
+			'.lg\\:hidden [data-testid="period-trigger-group"]'
+		) as HTMLElement;
+		expect(radiusOf(periodGroup)).toBe('12px');
+	});
 });
 
 /**

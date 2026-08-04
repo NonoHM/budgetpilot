@@ -18,11 +18,64 @@ describe('periodPresetRange', () => {
 		});
 	});
 
-	it('last 3 months ends today and starts two whole months back', () => {
-		expect(periodPresetRange('last3Months', TODAY)).toEqual({
-			from: '2026-04-01',
+	it('last 30 days is inclusive of today, so it spans 30 days and not 31', () => {
+		// TODAY is 2026-06-17. Counting today as one of the thirty puts the start on 2026-05-19.
+		expect(periodPresetRange('last30Days', TODAY)).toEqual({
+			from: '2026-05-19',
 			to: '2026-06-17'
 		});
+	});
+
+	it('last 30 days crosses a DST boundary without shifting by one', () => {
+		// Europe's spring-forward is the last Sunday of March. A local-time implementation of
+		// "today minus 29 days" loses an hour here and lands on the wrong calendar day.
+		expect(periodPresetRange('last30Days', '2026-04-05')).toEqual({
+			from: '2026-03-07',
+			to: '2026-04-05'
+		});
+	});
+
+	it('this quarter is the whole calendar quarter, not a window ending today', () => {
+		// June is in Q2, so the range is April 1 to June 30 — it does NOT stop at TODAY, unlike the
+		// two rolling presets. Same rule as thisMonth and thisYear.
+		expect(periodPresetRange('thisQuarter', TODAY)).toEqual({
+			from: '2026-04-01',
+			to: '2026-06-30'
+		});
+	});
+
+	it('this quarter lands on the right quarter at every boundary', () => {
+		expect(periodPresetRange('thisQuarter', '2026-01-01')).toEqual({
+			from: '2026-01-01',
+			to: '2026-03-31'
+		});
+		expect(periodPresetRange('thisQuarter', '2026-03-31')).toEqual({
+			from: '2026-01-01',
+			to: '2026-03-31'
+		});
+		expect(periodPresetRange('thisQuarter', '2026-07-01')).toEqual({
+			from: '2026-07-01',
+			to: '2026-09-30'
+		});
+		expect(periodPresetRange('thisQuarter', '2026-12-31')).toEqual({
+			from: '2026-10-01',
+			to: '2026-12-31'
+		});
+	});
+
+	it('offers exactly the six presets the design preset block can hold', () => {
+		// Six is a layout constraint: 102px of preset budget is three 30px rows plus two 6px gaps,
+		// in two columns. A seventh moves the panel off its specified height, so this asserts the
+		// COUNT as well as the membership.
+		expect(PERIOD_PRESET_IDS).toHaveLength(6);
+		expect([...PERIOD_PRESET_IDS]).toEqual([
+			'thisMonth',
+			'lastMonth',
+			'last30Days',
+			'thisQuarter',
+			'thisYear',
+			'last12Months'
+		]);
 	});
 
 	it('last 12 months ends today and starts eleven whole months back', () => {

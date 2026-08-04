@@ -132,6 +132,23 @@ function parsePeriodKey(value: string | null): PeriodKey {
 function parseIsoDate(value: string | null): Date | null {
 	if (!value || !DATE_PATTERN.test(value)) return null;
 	const date = new Date(`${value}T00:00:00.000Z`);
+	/**
+	 * The NaN guard is load-bearing, and its absence was a 500 rather than a rejection.
+	 *
+	 * `DATE_PATTERN` counts digits, it does not read a calendar, so `2026-99-99`, `2026-13-01` and
+	 * `2026-00-00` all reach here shaped like dates. `new Date()` returns `Invalid Date` for them,
+	 * and `Date.prototype.toISOString()` THROWS `RangeError: Invalid time value` on an invalid date
+	 * rather than returning a sentinel — so the round-trip check below, which looks like it settles
+	 * validity, never got to run. The throw escaped `parseTransactionDateRange`'s catch (which
+	 * re-raises anything that is not an HttpError), so the page 500ed instead of rendering the
+	 * "Période invalide" state this whole mechanism exists to produce.
+	 *
+	 * Note `2026-02-30` was never affected: JS rolls it over to March 2, which is a VALID date, so
+	 * it reached the round-trip and was correctly rejected as non-canonical. That is why the bug
+	 * stayed hidden — the obvious hostile input works, and only the ones that make `Date` give up
+	 * entirely throw. Both classes now return null on the same line.
+	 */
+	if (Number.isNaN(date.getTime())) return null;
 	return date.toISOString().slice(0, 10) === value ? date : null;
 }
 

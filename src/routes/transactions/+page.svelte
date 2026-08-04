@@ -1687,7 +1687,7 @@
 				<div class="flex flex-wrap items-center gap-2">
 					<button
 						type="button"
-						class="inline-flex h-11 items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+						class="inline-flex h-11 items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 text-sm font-medium text-zinc-900 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
 						aria-label={mobileFiltersTriggerAriaLabel}
 						onclick={() => (mobileFiltersOpen = true)}
 					>
@@ -1710,7 +1710,7 @@
 					     summary first — the summary sheet stays reachable too, for the count and the
 					     "Voir les N résultats" confirmation, but is never the only way in. -->
 					<span
-						class="inline-flex min-h-11 items-stretch overflow-hidden rounded-lg border bg-white {data
+						class="inline-flex min-h-11 items-stretch overflow-hidden rounded-xl border bg-white {data
 							.filters.category
 							? 'border-zinc-900'
 							: 'border-zinc-200'}"
@@ -1746,7 +1746,7 @@
 					</span>
 					{#if data.allTags.length > 0}
 						<span
-							class="inline-flex min-h-11 items-stretch overflow-hidden rounded-lg border bg-white {activeFilterTag
+							class="inline-flex min-h-11 items-stretch overflow-hidden rounded-xl border bg-white {activeFilterTag
 								? `border-zinc-300 ${isTagColorToken(activeFilterTag.colorToken) ? tagTintBgClass(activeFilterTag.colorToken) : ''}`
 								: 'border-zinc-200'}"
 						>
@@ -2001,7 +2001,14 @@
 												<span class="truncate">{option.label}</span>
 											</span>
 											<span class="flex items-center gap-2">
-												<span class="text-xs text-zinc-500 tabular-nums">
+												<!-- Same rule as the desktop FilterDropdown: a disabled (zero-count) row
+												     is dimmed by colour, never by opacity, and the count matches the
+												     label's zinc-400 rather than staying at the active row's zinc-500. -->
+												<span
+													class="text-xs tabular-nums {option.disabled
+														? 'text-zinc-400'
+														: 'text-zinc-500'}"
+												>
 													{option.count === null || option.count === undefined ? '—' : option.count}
 												</span>
 												{#if option.value === data.filters.tag}

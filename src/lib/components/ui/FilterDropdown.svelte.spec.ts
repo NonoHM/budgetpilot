@@ -123,6 +123,38 @@ describe('FilterDropdown — the trigger grammar', () => {
 		expect(beta.textContent).toContain('0');
 	});
 
+	it('a zero-count row is dimmed by colour, never by opacity, and its identity dot keeps its hue', async () => {
+		// Design section 6J: opacity used to sit on the whole row and therefore on the written "0"
+		// itself — the row's INFORMATION, not its decoration. The fix is an explicit colour on the
+		// label and the count (zinc-400, ~2.5:1) and aria-disabled/the digit for inactivity, with the
+		// tag's own hue (its identity, not a state) left untouched.
+		expect.assertions(6);
+		render(
+			FilterDropdown,
+			base({
+				options: [
+					{ value: 'a', label: 'Alpha', count: 3, swatchClass: 'bg-clay-500' },
+					{ value: 'b', label: 'Beta', count: 0, disabled: true, swatchClass: 'bg-lagoon-500' }
+				]
+			})
+		);
+		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
+
+		const beta = page.getByRole('option', { name: /Beta/ }).element();
+		expect(beta.className).not.toMatch(/\bopacity-/);
+
+		const countEl = beta.querySelector('.tabular-nums') as HTMLElement;
+		expect(countEl).not.toBeNull();
+		expect(countEl.className).not.toMatch(/\bopacity-/);
+		expect(countEl.className).toContain('text-zinc-400');
+		expect(countEl.className).not.toContain('text-zinc-500');
+
+		// The dot is the tag's identity: it must render with the SAME swatch class whether the row is
+		// disabled or not, and it must carry no opacity utility of its own.
+		const dot = beta.querySelector('.rounded-full') as HTMLElement;
+		expect(dot.className).toContain('bg-lagoon-500');
+	});
+
 	it('an unavailable count renders the placeholder, not a digit and not nothing', async () => {
 		expect.assertions(2);
 		render(FilterDropdown, base({ options: [{ value: 'a', label: 'Alpha', count: null }] }));
