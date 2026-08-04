@@ -44,6 +44,12 @@ import { GET as exportGET } from '../../../routes/transactions/export/+server';
  *   - the golden master (`SCOPE_GOLDEN_OUT`) — 28 of 72 rows changed their resolved set, widening
  *     rather than narrowing (one row went from 0 ids to 11).
  *
+ * The general form, which is now a standing principle in CLAUDE.md: **an anti-drift test guards
+ * against future DIVERGENCE, not against a present COMMON error, so it can never be the sole guard
+ * for a correctness property.** Comparing N implementations against each other proves they AGREE;
+ * it says nothing about whether they are RIGHT, because a defect in anything they share moves all
+ * of them identically and they go on agreeing.
+ *
  * So: this suite guards DRIFT BETWEEN the three sites. Correctness of the shared predicate is
  * guarded by the unit spec and by the before/after golden diff. Do not delete either on the
  * grounds that "the agreement test covers it".
@@ -199,6 +205,21 @@ async function seedFixture(): Promise<Fixture> {
 				: null;
 
 		return {
+			/**
+			 * DETERMINISTIC ids, and this is what makes the golden master a real gate.
+			 *
+			 * With Prisma's `cuid()` default the fixture minted fresh random ids on every run, so the
+			 * captured golden could NEVER be byte-identical across two invocations — the acceptance
+			 * criterion for this whole chantier was unachievable by construction, and the only ways
+			 * out were to normalise ids away (a weaker comparison, silently) or to declare a
+			 * structural match (a judgement call, exactly what a golden master exists to remove).
+			 * Found by the Task 3 implementer flagging its diff instead of explaining it away.
+			 *
+			 * The shape satisfies `normalizeId`'s `/^[a-z0-9_-]{8,64}$/i`, so `?ids=` still receives
+			 * ids of the same kind a real URL carries. It also makes a failing row readable: an id
+			 * names its own fixture index.
+			 */
+			id: `scope-fixture-${String(index).padStart(4, '0')}`,
 			userId,
 			accountId: account.id,
 			categoryId: inPileByCategory ? uncategorized.id : realCategory.id,
@@ -220,6 +241,10 @@ async function seedFixture(): Promise<Fixture> {
 		};
 	});
 
+	// Deterministic ids mean a second run against the SAME database would collide on the primary
+	// key. The refusal guards above already demand a throwaway, but failing with a unique-constraint
+	// violation would read as an engine problem rather than "you reused the database".
+	await prisma.transaction.deleteMany({ where: { id: { startsWith: 'scope-fixture-' } } });
 	await prisma.transaction.createMany({ data: rows });
 
 	const created = await prisma.transaction.findMany({
