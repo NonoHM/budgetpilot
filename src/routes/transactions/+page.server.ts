@@ -270,7 +270,16 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		transactions = await prisma.transaction.findMany({
 			where: scope.where,
 			select: transactionSelect,
-			orderBy: { date: 'desc' },
+			// The `id` tiebreak is load-bearing, not decoration. `date` alone is not a total order —
+			// a bank import routinely lands a whole day's transactions on one date — and with
+			// `skip`/`take` the engine is free to order tied rows differently per query. Two adjacent
+			// pages are two queries, so a row could appear on both, or on neither: a user paginating
+			// could simply never see a transaction they own, with nothing anywhere reporting it.
+			//
+			// `forEachTransactionBatch` (the `?q=` scan path) and `classifyStackRows` already order by
+			// both columns; this was the one paged read that did not, so the list and the scan
+			// disagreed about what "the next page" means.
+			orderBy: [{ date: 'desc' }, { id: 'desc' }],
 			skip: (safePage - 1) * PAGE_SIZE,
 			take: PAGE_SIZE
 		});
