@@ -33,6 +33,28 @@ export interface ListFilters {
 }
 
 /**
+ * Why the two refusal reasons are INDEPENDENT BOOLEANS rather than one discriminant.
+ *
+ * A URL can be wrong in both ways at once (`?from=2026-99-99&q=[&qMode=regex`), and /transactions
+ * renders a different state for each: the SearchBar gets `error={Boolean(data.queryError)}` plus its
+ * own "expression régulière invalide" message, while the date range renders its own. The
+ * pre-refactor `load` computed the two flags independently, so both could be true together.
+ *
+ * The first version of this resolver returned a single `reason: 'range' | 'regex'`, checked the
+ * range first and returned immediately — so with both wrong the user silently lost the regex half of
+ * the feedback. That shipped past the golden master because the LIST is empty either way, so every
+ * id-based comparison stayed byte-identical; it was caught by a reviewer reading the diff. The
+ * golden now captures both flags for that reason.
+ *
+ * Callers that can only render ONE message (`bulkTag`, the CSV export) pick range first, which is
+ * what both did before this refactor.
+ */
+export interface InvalidReasons {
+	range: boolean;
+	regex: boolean;
+}
+
+/**
  * The resolved scope of "which transactions match the current filter", for /transactions.
  *
  * WHY THIS IS A UNION AND NOT `{ filters, where, error }`
@@ -67,7 +89,7 @@ export interface ListFilters {
  * predicate carries it; the branch that does not expose one carries nothing to query with.
  */
 export type TransactionScope =
-	| { kind: 'invalid'; reason: 'range' | 'regex'; filters: ListFilters }
+	| { kind: 'invalid'; reasons: InvalidReasons; filters: ListFilters }
 	| {
 			kind: 'sql';
 			filters: ListFilters;
@@ -124,9 +146,12 @@ export async function resolveTransactionScope(
 		ids: normalizeIdList(url.searchParams.get('ids'))
 	};
 
-	if (rangeError) return { kind: 'invalid', reason: 'range', filters };
-	if (filters.query && filters.qMode === 'regex' && !isValidRegexQuery(filters.query)) {
-		return { kind: 'invalid', reason: 'regex', filters };
+	// Both computed, never short-circuited: see InvalidReasons. Returning on the first failure is
+	// what dropped the regex feedback when a URL was wrong in both ways.
+	const regexError =
+		Boolean(filters.query) && filters.qMode === 'regex' && !isValidRegexQuery(filters.query);
+	if (rangeError || regexError) {
+		return { kind: 'invalid', reasons: { range: rangeError, regex: regexError }, filters };
 	}
 
 	const uncategorizedCategoryId =

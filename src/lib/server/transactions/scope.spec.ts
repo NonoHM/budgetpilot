@@ -29,7 +29,7 @@ describe('resolveTransactionScope', () => {
 		const scope = await resolveTransactionScope('user-a', u('q=%5B&qMode=regex'));
 		expect(scope.kind).toBe('invalid');
 		if (scope.kind !== 'invalid') throw new Error('unreachable');
-		expect(scope.reason).toBe('regex');
+		expect(scope.reasons).toEqual({ range: false, regex: true });
 		expect(scope).not.toHaveProperty('where');
 		expect(scope).not.toHaveProperty('whereBeforeQuery');
 		expect(scope).not.toHaveProperty('whereWithoutTag');
@@ -49,14 +49,26 @@ describe('resolveTransactionScope', () => {
 			const scope = await resolveTransactionScope('user-a', u(qs));
 			expect(scope.kind, qs).toBe('invalid');
 			if (scope.kind !== 'invalid') throw new Error('unreachable');
-			expect(scope.reason, qs).toBe('range');
+			expect(scope.reasons, qs).toEqual({ range: true, regex: false });
 		}
 	});
 
-	it('rejects the range BEFORE the regex, so one refusal reason is reported at a time', async () => {
-		const scope = await resolveTransactionScope('user-a', u('from=2026-01-01&q=%5B&qMode=regex'));
+	it('reports BOTH reasons when a URL is wrong in both ways', async () => {
+		// This test replaces one that asserted the opposite — "rejects the range BEFORE the regex, so
+		// one refusal reason is reported at a time" — which pinned a regression rather than a
+		// requirement. The pre-refactor `load` computed the two flags independently, and the page
+		// renders them independently: `error={Boolean(data.queryError)}` on the SearchBar plus its own
+		// "expression régulière invalide" message, separately from the date-range state. Collapsing
+		// them lost the regex half of the feedback for a URL that is wrong in both ways.
+		//
+		// Invisible to the golden master as it then was, because the LIST is empty either way — which
+		// is why the golden now captures both flags too.
+		const scope = await resolveTransactionScope(
+			'user-a',
+			u('from=2026-99-99&to=2025-01-01&q=%5B&qMode=regex')
+		);
 		if (scope.kind !== 'invalid') throw new Error('unreachable');
-		expect(scope.reason).toBe('range');
+		expect(scope.reasons).toEqual({ range: true, regex: true });
 	});
 
 	it('carries userId on every branch that exposes a predicate', async () => {

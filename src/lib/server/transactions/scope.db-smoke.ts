@@ -527,11 +527,33 @@ const authUser = () =>
 const listEvent = (qs: string) =>
 	({ locals: { user: authUser() }, url: new URL(`http://localhost/transactions?${qs}`) }) as never;
 
-/** `load`: walk EVERY page. One page is not the set. */
-async function idsFromLoad(qs: string): Promise<string[]> {
+interface LoadAnswer {
+	ids: string[];
+	/** The two refusal flags, captured because they are NOT derivable from the id set. */
+	queryError: boolean;
+	dateRangeError: boolean;
+}
+
+/**
+ * `load`: walk EVERY page. One page is not the set.
+ *
+ * The two error flags are captured alongside the ids because a golden master only guards what it
+ * INSPECTS, and this one used to inspect the id set alone. That blind spot hid a real regression:
+ * the resolver reported one refusal reason at a time, so a URL with BOTH an unusable range and an
+ * invalid regex lost the regex half — the list is empty either way, so every id-based comparison
+ * stayed byte-identical while the page dropped the "expression régulière invalide" state from the
+ * search field. Found by a reviewer reading the diff, not by this suite.
+ *
+ * The page renders the two flags independently (`+page.svelte`: `error={Boolean(data.queryError)}`
+ * on the SearchBar, and a separate `{#if data.queryError}` message), so they are part of the
+ * observable contract and belong in the golden.
+ */
+async function answerFromLoad(qs: string): Promise<LoadAnswer> {
 	const first = (await load(listEvent(qs))) as {
 		transactions: Array<{ id: string }>;
 		pagination: { totalPages: number };
+		queryError: boolean;
+		dateRangeError: boolean;
 	};
 	const ids = first.transactions.map((row) => row.id);
 	for (let page = 2; page <= first.pagination.totalPages; page++) {
@@ -540,7 +562,11 @@ async function idsFromLoad(qs: string): Promise<string[]> {
 		};
 		ids.push(...next.transactions.map((row) => row.id));
 	}
-	return ids.sort();
+	return {
+		ids: ids.sort(),
+		queryError: Boolean(first.queryError),
+		dateRangeError: Boolean(first.dateRangeError)
+	};
 }
 
 type BulkAnswer = { kind: 'set'; ids: string[] } | { kind: 'refused'; message: string };
@@ -626,7 +652,8 @@ describe('the three /transactions filter sites', () => {
 			const qs = buildQueryString(row, fixture);
 			const label = `${index}: ${JSON.stringify(row)}`;
 
-			const fromLoad = await idsFromLoad(qs);
+			const loadAnswer = await answerFromLoad(qs);
+			const fromLoad = loadAnswer.ids;
 			const fromBulk = await answerFromBulkTag(qs, `scope-smoke-${index}`);
 			const fromExport = await answerFromExport(qs);
 
@@ -637,6 +664,14 @@ describe('the three /transactions filter sites', () => {
 				expect(fromLoad, label).toEqual([]);
 				expect(fromBulk.kind, label).toBe('refused');
 				expect(fromExport, label).toEqual({ kind: 'status', status: 400 });
+
+				// The page renders a different state for each reason, and BOTH can be true at once.
+				// Asserted per-reason rather than as "some error happened", because the collapse of
+				// two independent flags into one is exactly the regression this suite failed to see.
+				expect(loadAnswer.dateRangeError, `${label} (dateRangeError)`).toBe(
+					row.range === 'lone-from' || row.range === 'malformed' || row.range === 'reversed'
+				);
+				expect(loadAnswer.queryError, `${label} (queryError)`).toBe(row.q === 'regex-invalid');
 			} else if (fromLoad.length > MAX_BULK_TAG_TRANSACTIONS) {
 				// Over the cap bulkTag cannot answer with a set, so its refusal is its answer — and
 				// the refusal NAMES a count, which must be the size the other two agree on. Compared
@@ -656,7 +691,7 @@ describe('the three /transactions filter sites', () => {
 				expect(fromExport, label).toEqual({ kind: 'set', ids: fromLoad });
 			}
 
-			golden[label] = { fromLoad, fromBulk, fromExport };
+			golden[label] = { fromLoad, fromBulk, fromExport, loadErrors: loadAnswer };
 			// Between ROWS, not between tests — see removeSmokeTags.
 			await removeSmokeTags();
 		}

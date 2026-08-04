@@ -226,8 +226,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		tags: TagLinkRow[];
 	}
 
-	const queryError = scope.kind === 'invalid' && scope.reason === 'regex';
-	const dateRangeError = scope.kind === 'invalid' && scope.reason === 'range';
+	const queryError = scope.kind === 'invalid' && scope.reasons.regex;
+	const dateRangeError = scope.kind === 'invalid' && scope.reasons.range;
 
 	let totalTransactions: number;
 	let safePage: number;
@@ -494,10 +494,9 @@ export const actions: Actions = {
 		const scope = await resolveTransactionScope(user.id, url);
 		if (scope.kind === 'invalid')
 			return fail(400, {
-				bulkTagError:
-					scope.reason === 'range'
-						? m.tags_bulk_error_invalid_range()
-						: m.transactions_error_invalid_regex_query()
+				bulkTagError: scope.reasons.range
+					? m.tags_bulk_error_invalid_range()
+					: m.transactions_error_invalid_regex_query()
 			});
 
 		let where: Prisma.TransactionWhereInput;
