@@ -89,6 +89,19 @@ async function assertFourSurviveAndIdsStaysDropped(
 	// product decision to make deliberately (see ids-filter-links.svelte.spec.ts), not a gap to
 	// close by re-adding `ids` to filterHiddenInputs.
 	expect(after.searchParams.get('ids')).toBeNull();
+
+	// EXACTLY ONE `q` and one `qMode`, which is the whole reason filterHiddenInputs deletes them:
+	// both are already real named controls inside these forms, so emitting them as hidden inputs
+	// too would submit two values for one key. That failure is invisible to every assertion above —
+	// the URL would be `…&q=a&qMode=contains&q=ab`, the `waitForURL(/[?&]q=ab/)` would still match,
+	// all five checks would still pass, and the server's `searchParams.get('q')` would read the
+	// STALE 'a', silently discarding what the user just typed.
+	expect(after.searchParams.getAll('q')).toHaveLength(1);
+	expect(after.searchParams.getAll('qMode')).toHaveLength(1);
+	// Every other dimension too: a duplicated hidden input is the same defect one filter over.
+	for (const name of ['category', 'from', 'to', 'tag', 'type', 'importBatch']) {
+		expect(after.searchParams.getAll(name).length, name).toBeLessThanOrEqual(1);
+	}
 }
 
 test.describe('/transactions — pressing Enter in the search field keeps every active filter', () => {

@@ -532,6 +532,17 @@ interface LoadAnswer {
 	/** The two refusal flags, captured because they are NOT derivable from the id set. */
 	queryError: boolean;
 	dateRangeError: boolean;
+	/**
+	 * The tag-free scope's size — the third field added here for the same reason as the other two,
+	 * and the reason is now a pattern rather than an incident.
+	 *
+	 * `load` scans the TAG-FREE scope and re-applies the tag in JS, so inverting `collect()`'s
+	 * `tagFree` flag produces the SAME id set: the golden would stay byte-identical, the three-way
+	 * agreement suite would stay green, and only `tagScopeTotal` and the per-tag counts would move.
+	 * That figure is what the tag dropdown's "Toutes" row reports, so getting it wrong tells the
+	 * user that clearing the tag filter changes nothing.
+	 */
+	tagScopeTotal: number;
 }
 
 /**
@@ -554,6 +565,7 @@ async function answerFromLoad(qs: string): Promise<LoadAnswer> {
 		pagination: { totalPages: number };
 		queryError: boolean;
 		dateRangeError: boolean;
+		tagScopeTotal: number;
 	};
 	const ids = first.transactions.map((row) => row.id);
 	for (let page = 2; page <= first.pagination.totalPages; page++) {
@@ -565,7 +577,8 @@ async function answerFromLoad(qs: string): Promise<LoadAnswer> {
 	return {
 		ids: ids.sort(),
 		queryError: Boolean(first.queryError),
-		dateRangeError: Boolean(first.dateRangeError)
+		dateRangeError: Boolean(first.dateRangeError),
+		tagScopeTotal: first.tagScopeTotal
 	};
 }
 

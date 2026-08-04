@@ -29,10 +29,15 @@ const ID_CHUNK_SIZE = 250;
  * for the currently-selected tag and 0 for every other one, which is not a comparison against the
  * rest of the filtered set, it is a tautology.
  *
- * Note that strip works only because `buildTransactionWhere` puts the tag filter at the TOP LEVEL
- * as `where.tags`, rather than inside the OR-shaped `conditions`. If a future filter ever moves it
- * into `AND`/`OR`, the caller's rest-spread silently stops removing it and these counts silently
- * become the tautology above — with nothing going red.
+ * That strip no longer depends on WHERE the tag conjunct sits. It used to: the caller did
+ * `const { tags, ...rest } = where`, so it only worked while `buildTransactionWhere` put the tag at
+ * the TOP LEVEL as `where.tags`, and a future filter moving it into `AND`/`OR` would have silently
+ * stopped removing it — the tautology above, with nothing going red.
+ *
+ * `resolveTransactionScope` now BUILDS the tag-free predicate by calling the builder without a
+ * `tagId` (see its docstring), so the placement constraint is gone and moving the conjunct is safe.
+ * This paragraph previously still described the rest-spread as the live mechanism, which sent a
+ * reader hunting for code that no longer exists and warned them off a change that is now harmless.
  *
  * `TransactionTag` carries no `userId` column of its own: its two foreign keys
  * (`transactionId`, `tagId`) are independent, so nothing in the schema stops a row linking one

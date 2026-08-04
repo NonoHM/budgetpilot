@@ -252,17 +252,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// The whole filtered set, in memory, on the `?q=` branch only — the branch that already has it.
 	// Used for the bulk fallback below, so that branch needs no extra query at all.
 	let matchedRows: Array<{ amountCents: number; type: string | null }> | null = null;
-	// The SQL predicate with the tag dimension removed, for the per-tag counts below. Read off the
-	// scope's own `sql`/`scan` branch (`whereWithoutTag`/`whereWithoutTagBeforeQuery`) rather than
-	// derived here: counting inside its own tag filter would report 1 for the selected tag and 0 for
-	// every other, which is not a comparison, it is a tautology, and `resolveTransactionScope` is the
-	// one place that builds this predicate now (see its own docstring for why it is BUILT rather than
-	// a rest-spread off `where`).
-	let tagCountWhere: Prisma.TransactionWhereInput | undefined;
-	// The full-scope `where`, kept ONLY for the bulk-fallback count on the `sql` branch below (the
-	// `scan` branch already has `matchedRows` in memory and never needs this).
-	let sqlWhere: Prisma.TransactionWhereInput | undefined;
-
 	if (scope.kind === 'invalid') {
 		totalTransactions = 0;
 		totalPages = 1;
@@ -270,13 +259,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		transactions = [];
 		filteredTotals = { incomeCents: 0, expenseCents: 0 };
 	} else if (scope.kind === 'sql') {
-		sqlWhere = scope.where;
-		tagCountWhere = scope.whereWithoutTag;
 		totalTransactions = await prisma.transaction.count({ where: scope.where });
 		// One extra count, and only when a tag filter is actually on. Without one the two scopes are
 		// the same set by construction, so asking twice would buy nothing.
 		tagScopeTotal = filters.tagId
-			? await prisma.transaction.count({ where: tagCountWhere })
+			? await prisma.transaction.count({ where: scope.whereWithoutTag })
 			: totalTransactions;
 		totalPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
 		safePage = Math.min(page, totalPages);
@@ -291,7 +278,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		// is why it is not derived from `transactions` (that is one page of it).
 		filteredTotals = await computeFilteredTotals(scope.where);
 	} else {
-		tagCountWhere = scope.whereWithoutTagBeforeQuery;
 		// The scan runs ONCE, on the tag-free scope, and the tag filter is applied to its result in
 		// JS. Scanning the tag-filtered scope instead and reusing its ids for the counts is what
 		// produced the tautology described at `matchedIds`; scanning twice would be the same rows
@@ -332,9 +318,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	 * passes, so the user is asked to give up as little as possible.
 	 */
 	let bulkFallback: { kind: TransactionKind; count: number } | null = null;
+	// Gated on the DISCRIMINANT, not on the two derived booleans. `queryError`/`dateRangeError` are
+	// a re-derivation of `scope.kind === 'invalid'`, and using them for control flow is what forced
+	// the `!` assertions this block used to carry — silencing the compiler on exactly the guarantee
+	// `scope.ts` promises it enforces. The equivalence held only while `invalid` meant precisely
+	// `range || regex`; a third refusal reason would have made both booleans false on an `invalid`
+	// scope, and this block would have queried with `undefined`.
 	if (
-		!queryError &&
-		!dateRangeError &&
+		scope.kind !== 'invalid' &&
 		totalTransactions > MAX_BULK_TAG_TRANSACTIONS &&
 		filters.type === 'all'
 	) {
@@ -344,13 +335,18 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					kind,
 					count: matchedRows.filter((row) => resolveTransactionType(row) === kind).length
 				}))
-			: // `matchedRows` is only set on the `scan` branch, so reaching here means `scope.kind`
-				// was `sql` and `sqlWhere` was assigned above.
+			: // `matchedRows` is only set on the `scan` branch, so this arm is the `sql` one — but the
+				// predicate is read off the narrowed scope rather than asserted, so it stays total.
 				await Promise.all(
 					kinds.map(async (kind) => ({
 						kind,
 						count: await prisma.transaction.count({
-							where: { AND: [sqlWhere!, transactionKindWhere(kind)] }
+							where: {
+								AND: [
+									scope.kind === 'sql' ? scope.where : scope.whereBeforeQuery,
+									transactionKindWhere(kind)
+								]
+							}
 						})
 					}))
 				);
@@ -361,7 +357,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	}
 
 	let tagCounts: TagScopeCount[] | null = null;
-	if (!queryError && !dateRangeError) {
+	// Same reason as the block above: narrowed on `scope.kind`, so the tag-free predicate is read
+	// off the scope instead of being asserted non-undefined.
+	if (scope.kind !== 'invalid') {
 		try {
 			// `q` is matched in JS AFTER the SQL query (accent folding and regex are not expressible
 			// in SQL — see `scope.ts`'s own docstring). Counting over the raw `where` while a
@@ -372,10 +370,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// parameters — so a user with enough transactions and a broad enough search silently
 			// and permanently got "comptes indisponibles" via the catch below, with no trace
 			// anywhere. countTagsInScope chunks it and sums.
-			//
-			// `tagCountWhere` is set on both non-`invalid` branches above, and this block only runs
-			// when `scope.kind` was not `invalid`.
-			tagCounts = await countTagsInScope(user.id, tagCountWhere!, matchedIds);
+			tagCounts = await countTagsInScope(
+				user.id,
+				scope.kind === 'sql' ? scope.whereWithoutTag : scope.whereWithoutTagBeforeQuery,
+				matchedIds
+			);
 		} catch (error) {
 			// Best-effort enrichment: a failure here must never fail the page. The filter panel
 			// renders its own "comptes indisponibles" state from a null tagCounts.
