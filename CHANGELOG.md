@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.6.0...budgetpilot-v0.7.0) (2026-08-04)
+
+
+### Features
+
+* **transactions:** a range calendar for Période, and the 390 conformance pass ([#117](https://github.com/NonoHM/budgetpilot/issues/117)) ([373dd99](https://github.com/NonoHM/budgetpilot/commit/373dd99dfb2b9d35d62b40709445a40d88904cf6))
+
 ## [0.6.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.5.0...budgetpilot-v0.6.0) (2026-08-03)
 
 
