@@ -206,6 +206,53 @@ describe('GET /transactions/export', () => {
 		expect(db.prisma.transaction.findMany).not.toHaveBeenCalled();
 	});
 
+	// Characterization of the error contract, pinned BEFORE the export is routed through
+	// resolveTransactionScope, so the refactor cannot silently change status/message/precedence.
+	describe('contrat d’erreur (caractérisation, avant migration vers resolveTransactionScope)', () => {
+		it('renvoie 400 pour une plage de dates inutilisable, sous toutes ses formes', async () => {
+			expect.assertions(3);
+
+			await expect(GET(makeRequest('?from=2026-01-01') as never)).rejects.toMatchObject({
+				status: 400
+			});
+			await expect(
+				GET(makeRequest('?from=2026-99-99&to=2026-12-31') as never)
+			).rejects.toMatchObject({ status: 400 });
+			await expect(
+				GET(makeRequest('?from=2026-12-31&to=2026-01-01') as never)
+			).rejects.toMatchObject({ status: 400 });
+		});
+
+		it('renvoie 400 avec le message de plage de dates (pas le message regex)', async () => {
+			expect.assertions(1);
+
+			await expect(GET(makeRequest('?from=2026-01-01') as never)).rejects.toMatchObject({
+				status: 400,
+				body: { message: 'Période personnalisée invalide' }
+			});
+		});
+
+		it('renvoie 400 avec le message de regex invalide quand seule la regex est fautive', async () => {
+			expect.assertions(1);
+
+			await expect(GET(makeRequest('?q=%5B&qMode=regex') as never)).rejects.toMatchObject({
+				status: 400,
+				body: { message: 'Expression régulière invalide.' }
+			});
+		});
+
+		it('quand la plage ET la regex sont invalides, le message de plage l’emporte', async () => {
+			expect.assertions(1);
+
+			await expect(
+				GET(makeRequest('?from=2026-99-99&to=2026-12-31&q=%5B&qMode=regex') as never)
+			).rejects.toMatchObject({
+				status: 400,
+				body: { message: 'Période personnalisée invalide' }
+			});
+		});
+	});
+
 	it('la nature effective priorise natureManual puis le mapping catégorie puis le défaut', async () => {
 		expect.assertions(3);
 

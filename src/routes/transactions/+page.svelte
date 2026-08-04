@@ -12,7 +12,7 @@
 	import { isTransactionNature } from '$lib/domain/transaction';
 	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
 	import { getInitials } from '$lib/domain/initials';
-	import { buildTransactionsHref, buildTransactionsExportHref } from './hrefs';
+	import { buildTransactionsHref, buildTransactionsExportHref, filterHiddenInputs } from './hrefs';
 	import { normalizeForMatch } from '$lib/domain/normalize';
 	import type { ActionData, PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
@@ -681,12 +681,13 @@
 	}
 
 	// The action URL is built from the SAME filters `?/bulkTag` reads server-side
-	// (+page.server.ts:parseListFilters, driven from `url.searchParams`), because the plain
-	// shorthand `action="?/bulkTag"` would resolve against the current URL and REPLACE its query
-	// string entirely — dropping every active filter and applying the tag to an unfiltered set.
-	// `buildTransactionsHref` already emits exactly the params `parseListFilters` consumes (q,
-	// qMode, category, from, to, importBatch, tag, type, ids), so appending the bare action marker
-	// to it keeps the two in lockstep with no separate list to maintain.
+	// (via `resolveTransactionScope` in $lib/server/transactions/scope.ts, driven from
+	// `url.searchParams`), because the plain shorthand `action="?/bulkTag"` would resolve against
+	// the current URL and REPLACE its query string entirely — dropping every active filter and
+	// applying the tag to an unfiltered set. `buildTransactionsHref` already emits exactly the
+	// params `resolveTransactionScope` consumes (q, qMode, category, from, to, importBatch, tag,
+	// type, ids), so appending the bare action marker to it keeps the two in lockstep with no
+	// separate list to maintain.
 	const bulkTagActionHref = $derived(
 		`${buildTransactionsHref(data.filters, {}, { keepIds: true })}&/bulkTag`
 	);
@@ -1447,12 +1448,9 @@
 
 			<!-- Filtres secondaires -->
 			<form method="GET" class="flex flex-wrap items-center gap-2">
-				{#if data.filters.type !== 'all'}
-					<input type="hidden" name="type" value={data.filters.type} />
-				{/if}
-				{#if data.filters.importBatchId}
-					<input type="hidden" name="importBatch" value={data.filters.importBatchId} />
-				{/if}
+				{#each filterHiddenInputs(data.filters) as field (field.name)}
+					<input type="hidden" name={field.name} value={field.value} />
+				{/each}
 				<!-- At rest each trigger carries the NAME OF ITS DIMENSION and nothing else. "Toutes" is
 				     the resting value of a filter, and two triggers each showing their resting value is
 				     what put two adjacent "Toutes" in this bar. The word now lives only on the nature
@@ -1618,12 +1616,9 @@
 			</div>
 
 			<form method="GET" class="space-y-3 {cardBase} p-4.5">
-				{#if data.filters.type !== 'all'}
-					<input type="hidden" name="type" value={data.filters.type} />
-				{/if}
-				{#if data.filters.importBatchId}
-					<input type="hidden" name="importBatch" value={data.filters.importBatchId} />
-				{/if}
+				{#each filterHiddenInputs(data.filters) as field (field.name)}
+					<input type="hidden" name={field.name} value={field.value} />
+				{/each}
 				<input type="hidden" name="qMode" value={searchIsRegex ? 'regex' : 'contains'} />
 
 				<div class="flex items-center gap-1">

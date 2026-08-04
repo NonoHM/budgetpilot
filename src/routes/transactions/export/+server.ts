@@ -2,27 +2,15 @@ import type { Prisma } from '$lib/server/database/types';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
-import { parseCustomDateRange } from '$lib/server/date-range';
 import { resolveTransactionType } from '$lib/server/transactions/totals';
 import {
 	buildCategoryNatureMap,
 	getEffectiveTransactionNature
 } from '$lib/server/transactions/nature';
-import {
-	buildTransactionWhere,
-	normalizeId,
-	normalizeIdList,
-	normalizeSearch,
-	parseTransactionFilter,
-	resolveUncategorizedCategoryId
-} from '$lib/server/transactions/where';
-import {
-	collectTransactionsMatchingQuery,
-	isValidRegexQuery,
-	parseQueryMode
-} from '$lib/server/transactions/search';
+import { resolveTransactionScope } from '$lib/server/transactions/scope';
 import { forEachTransactionBatch } from '$lib/server/transactions/batch';
 import { error } from '@sveltejs/kit';
+import * as m from '$lib/paraglide/messages';
 import type { RequestHandler } from './$types';
 
 const CSV_HEADER = 'date;libelle;categorie;montant;type;nature;source_bancaire';
@@ -32,45 +20,19 @@ const NEEDS_QUOTING_PATTERN = /[;"\n\r]/;
 export const GET: RequestHandler = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 
-	const query = normalizeSearch(url.searchParams.get('q'));
-	const qMode = parseQueryMode(url.searchParams.get('qMode'));
-	const type = parseTransactionFilter(url.searchParams.get('type'));
-	const category = normalizeSearch(url.searchParams.get('category'));
-	const fromParam = url.searchParams.get('from');
-	const toParam = url.searchParams.get('to');
-	const dateRange = fromParam || toParam ? parseCustomDateRange(fromParam, toParam) : null;
-	const importBatchId = normalizeId(url.searchParams.get('importBatch'));
-	// The export MUST honour `ids` for the same reason it already honours `q` and the classify tab:
-	// this is "download what I'm looking at", with no page to compare the result against. Exporting
-	// from the id-filtered view without it silently ships the user's ENTIRE history in a file they
-	// are likely to mail on — the pre-`ids` behaviour, when this link used `?q=`, was filtered.
-	const ids = normalizeIdList(url.searchParams.get('ids'));
-	// Same reason as `ids` above, and the reason applies to every filter this route accepts: an
-	// export the user cannot inspect before it lands must match the view it was launched from.
-	const tagId = normalizeId(url.searchParams.get('tag'));
-
-	if (query && qMode === 'regex' && !isValidRegexQuery(query)) {
-		error(400, 'Expression régulière invalide.');
+	// Same reason `load` and `bulkTag` route through the shared resolver: this is "download what
+	// I'm looking at", with no page to compare the result against, and `q` is matched in JS after
+	// the SQL predicate — see scope.ts's own docstring for why the union shape is not flattened.
+	const scope = await resolveTransactionScope(user.id, url);
+	// The export can only render ONE message, so range wins when both are invalid — same
+	// precedence `bulkTag` uses, and the one the pre-refactor code produced (the date range threw
+	// during parsing, before the regex check ever ran).
+	if (scope.kind === 'invalid') {
+		error(
+			400,
+			scope.reasons.range ? m.date_range_error_invalid_custom() : 'Expression régulière invalide.'
+		);
 	}
-
-	// Resolved only when needed: type === 'classify' is the only branch of buildTransactionWhere
-	// that consumes it (see where.ts) — matches the "à classer" filter exactly as shown on
-	// /transactions instead of the previous export behavior, which silently ignored that tab's
-	// filter and exported everything.
-	const uncategorizedCategoryId =
-		type === 'classify' ? await resolveUncategorizedCategoryId(user.id) : undefined;
-
-	const where = buildTransactionWhere({
-		userId: user.id,
-		type,
-		category,
-		from: dateRange?.from,
-		to: dateRange?.to,
-		importBatchId,
-		uncategorizedCategoryId,
-		ids,
-		tagId
-	});
 
 	const exportSelect = {
 		date: true,
@@ -88,9 +50,9 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 			where: { userId: user.id },
 			select: { categoryName: true, nature: true }
 		}),
-		query
-			? collectTransactionsMatchingQuery(where, exportSelect, query, qMode)
-			: collectAllTransactions(where, exportSelect)
+		scope.kind === 'scan'
+			? scope.collect(exportSelect)
+			: collectAllTransactions(scope.where, exportSelect)
 	]);
 
 	const mappingMap = buildCategoryNatureMap(mappings);
