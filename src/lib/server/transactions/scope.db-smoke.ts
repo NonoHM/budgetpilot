@@ -704,6 +704,32 @@ describe('the three /transactions filter sites', () => {
 				expect(fromExport, label).toEqual({ kind: 'set', ids: fromLoad });
 			}
 
+			/**
+			 * `tagScopeTotal` ASSERTED, not merely captured — and the difference is the whole point.
+			 *
+			 * Putting the field in the golden JSON protects nothing on its own: `SCOPE_GOLDEN_OUT` is
+			 * a manual capture this suite writes only when the env var is set, and nothing in
+			 * `package.json` or CI ever diffs it. The golden is disposable acceptance evidence for a
+			 * refactor; the permanent guard has to be an `expect()`. A field captured but never
+			 * asserted is the "check that has never been seen to fail" this repo keeps finding.
+			 *
+			 * The defect it targets: inverting `collect()`'s `tagFree` flag makes `load` scan the
+			 * tag-FILTERED scope, after which the JS re-filter is idempotent — so every id set stays
+			 * byte-identical and the three-way agreement above stays green. Only this figure moves,
+			 * and it is what the tag dropdown's "Toutes" row reports, so a wrong value tells the user
+			 * that clearing the tag filter would change nothing.
+			 *
+			 * Derived INDEPENDENTLY: the same URL with `tag` removed, resolved through `load` itself.
+			 * Not a second read of the same predicate — a different route to the same number, which
+			 * is what makes disagreement meaningful.
+			 */
+			if (!isFailClosed(row) && row.tag !== 'absent') {
+				const tagFreeParams = new URLSearchParams(qs);
+				tagFreeParams.delete('tag');
+				const tagFree = await answerFromLoad(tagFreeParams.toString());
+				expect(loadAnswer.tagScopeTotal, `${label} (tagScopeTotal)`).toBe(tagFree.ids.length);
+			}
+
 			golden[label] = { fromLoad, fromBulk, fromExport, loadErrors: loadAnswer };
 			// Between ROWS, not between tests — see removeSmokeTags.
 			await removeSmokeTags();
