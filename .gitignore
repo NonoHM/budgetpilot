@@ -90,3 +90,8 @@ docs/superpowers/
 # writes into the repo will be swept in by `git add -A` on the next commit, and 312K of them
 # already merged once that way (#112).
 e2e/.audit390/
+
+# Serena MCP local project state. project.yml is meant to be versioned with the project
+# (per Serena's own docs); cache, memories and project.local.yml are local-only.
+.serena/*
+!.serena/project.yml
