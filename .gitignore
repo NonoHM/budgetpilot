@@ -90,3 +90,6 @@ docs/superpowers/
 # writes into the repo will be swept in by `git add -A` on the next commit, and 312K of them
 # already merged once that way (#112).
 e2e/.audit390/
+
+# Serena MCP local project cache/state
+.serena/
