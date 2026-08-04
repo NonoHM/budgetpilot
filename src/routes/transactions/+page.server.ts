@@ -42,6 +42,8 @@ import {
 	isValidRegexQuery,
 	parseQueryMode
 } from '$lib/server/transactions/search';
+import { resolveTransactionScope } from '$lib/server/transactions/scope';
+import type { Prisma } from '$lib/server/database/types';
 import {
 	anonymizeDetailText,
 	anonymizeReference,
@@ -72,14 +74,15 @@ const FOCUS_STACK_CAP = 5000;
 /**
  * Parses every list filter out of the URL.
  *
- * Extracted so `load` and the bulk actions read the SAME parameters through the SAME validators.
- * That is not tidiness: the count a user confirms in the bulk dialog and the set the action then
- * writes to must come from one source, or a forged payload could widen the second past the first.
- * The bulk action deliberately accepts no id list of its own for that reason.
+ * `load` resolves its own filters through `resolveTransactionScope` now (see `scope.ts`), which is
+ * the shared resolver this parser is being migrated onto site by site. `bulkTag` below still calls
+ * this copy directly — it is the count a user confirms in the bulk dialog and the set the action
+ * then writes to, which must come from one source or a forged payload could widen the second past
+ * the first. Once `bulkTag` is migrated too, this function goes away.
  *
  * Reading these params is NOT sufficient on its own, and a review caught this comment claiming it
- * was. `query`/`qMode` never enter `buildTransactionWhere`: both `load` and `bulkTag` apply them in
- * JS afterwards, so a caller that stops at the `where` silently targets a superset. Any future
+ * was. `query`/`qMode` never enter `buildTransactionWhere`: `bulkTag` applies them in JS
+ * afterwards, so a caller that stops at the `where` silently targets a superset. Any future
  * consumer of this function has to handle the search filter explicitly, the way `bulkTag` does.
  */
 function parseListFilters(url: URL) {
@@ -104,23 +107,6 @@ function parseListFilters(url: URL) {
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 	const page = parsePositiveInteger(url.searchParams.get('page')) ?? 1;
-	const {
-		query,
-		qMode,
-		type,
-		category,
-		fromParam,
-		toParam,
-		range: dateRange,
-		error: dateRangeError,
-		importBatchId,
-		tagId,
-		ids
-	} = parseListFilters(url);
-	// Raw values (not dateRange.fromDate/toDate) so the "Du"/"Au" inputs keep showing exactly
-	// what the user typed when the pair is incomplete/invalid, instead of clearing on error.
-	const fromDisplay = (fromParam ?? '').trim();
-	const toDisplay = (toParam ?? '').trim();
 	const selectedId = normalizeId(url.searchParams.get('selected'));
 
 	const [categories, mappings, selectedTransaction, rules, uncategorizedCategoryId, allTags] =
@@ -194,6 +180,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	const mappingMap = buildCategoryNatureMap(mappings);
 
+	// Passes `uncategorizedCategoryId` in rather than letting the resolver look it up itself: it is
+	// already fetched above (the "à classer" pile needs the same value), so routing the load through
+	// the shared resolver costs no extra query.
+	const scope = await resolveTransactionScope(user.id, url, { uncategorizedCategoryId });
+	const { filters } = scope;
+
 	// "To classify" pile: independent of the current tab/filters (see classifyStackIds comment
 	// below) — always the global uncategorized-by-category set, computed in SQL instead of
 	// scanning every transaction into memory (see CLAUDE.md technical debt on rawForClassify).
@@ -229,7 +221,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		nature: TransactionNature | null;
 		source: 'rule';
 	} | null = null;
-	if (selectedTransaction && type === 'classify') {
+	if (selectedTransaction && filters.type === 'classify') {
 		const selCat = selectedTransaction.manualCategory ?? selectedTransaction.category.name;
 		const selNat = getEffectiveTransactionNature(
 			{
@@ -248,18 +240,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			);
 		}
 	}
-
-	const where = buildTransactionWhere({
-		userId: user.id,
-		type,
-		category,
-		from: dateRange?.from,
-		to: dateRange?.to,
-		importBatchId,
-		uncategorizedCategoryId,
-		ids,
-		tagId
-	});
 
 	const transactionSelect = {
 		id: true,
@@ -287,7 +267,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		tags: TagLinkRow[];
 	}
 
-	const queryError = Boolean(query) && qMode === 'regex' && !isValidRegexQuery(query);
+	const queryError = scope.kind === 'invalid' && scope.reason === 'regex';
+	const dateRangeError = scope.kind === 'invalid' && scope.reason === 'range';
 
 	let totalTransactions: number;
 	let safePage: number;
@@ -312,33 +293,36 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// The whole filtered set, in memory, on the `?q=` branch only — the branch that already has it.
 	// Used for the bulk fallback below, so that branch needs no extra query at all.
 	let matchedRows: Array<{ amountCents: number; type: string | null }> | null = null;
+	// The SQL predicate with the tag dimension removed, for the per-tag counts below. Read off the
+	// scope's own `sql`/`scan` branch (`whereWithoutTag`/`whereWithoutTagBeforeQuery`) rather than
+	// derived here: counting inside its own tag filter would report 1 for the selected tag and 0 for
+	// every other, which is not a comparison, it is a tautology, and `resolveTransactionScope` is the
+	// one place that builds this predicate now (see its own docstring for why it is BUILT rather than
+	// a rest-spread off `where`).
+	let tagCountWhere: Prisma.TransactionWhereInput | undefined;
+	// The full-scope `where`, kept ONLY for the bulk-fallback count on the `sql` branch below (the
+	// `scan` branch already has `matchedRows` in memory and never needs this).
+	let sqlWhere: Prisma.TransactionWhereInput | undefined;
 
-	// The tag dimension is removed on purpose: counting inside its own filter would report 1 for
-	// the selected tag and 0 for every other, which is not a comparison, it is a tautology.
-	//
-	// This works only because `buildTransactionWhere` puts the tag filter at the TOP LEVEL as
-	// `where.tags`. If a future filter moves it into `AND`/`OR`, this rest-spread silently stops
-	// removing it. `page.server.spec.ts` pins it with a fixture where two different tags sit on two
-	// different transactions, which is the minimum shape in which the tautology is visible.
-	const { tags: tagConjunct, ...tagCountWhere } = where;
-
-	if (queryError || dateRangeError) {
+	if (scope.kind === 'invalid') {
 		totalTransactions = 0;
 		totalPages = 1;
 		safePage = 1;
 		transactions = [];
 		filteredTotals = { incomeCents: 0, expenseCents: 0 };
-	} else if (!query) {
-		totalTransactions = await prisma.transaction.count({ where });
+	} else if (scope.kind === 'sql') {
+		sqlWhere = scope.where;
+		tagCountWhere = scope.whereWithoutTag;
+		totalTransactions = await prisma.transaction.count({ where: scope.where });
 		// One extra count, and only when a tag filter is actually on. Without one the two scopes are
 		// the same set by construction, so asking twice would buy nothing.
-		tagScopeTotal = tagConjunct
+		tagScopeTotal = filters.tagId
 			? await prisma.transaction.count({ where: tagCountWhere })
 			: totalTransactions;
 		totalPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
 		safePage = Math.min(page, totalPages);
 		transactions = await prisma.transaction.findMany({
-			where,
+			where: scope.where,
 			select: transactionSelect,
 			orderBy: { date: 'desc' },
 			skip: (safePage - 1) * PAGE_SIZE,
@@ -346,22 +330,18 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		});
 		// Alongside the count, over the same `where`: the total describes the filtered SET, which
 		// is why it is not derived from `transactions` (that is one page of it).
-		filteredTotals = await computeFilteredTotals(where);
+		filteredTotals = await computeFilteredTotals(scope.where);
 	} else {
+		tagCountWhere = scope.whereWithoutTagBeforeQuery;
 		// The scan runs ONCE, on the tag-free scope, and the tag filter is applied to its result in
 		// JS. Scanning the tag-filtered scope instead and reusing its ids for the counts is what
 		// produced the tautology described at `matchedIds`; scanning twice would be the same rows
 		// read twice. The predicate mirrors `tags: { some: { tagId } }` exactly — `transactionSelect`
 		// already carries each row's tag links, so nothing extra is fetched to evaluate it.
-		const filteredAll = await collectTransactionsMatchingQuery(
-			tagCountWhere,
-			transactionSelect,
-			query,
-			qMode
-		);
+		const filteredAll = await scope.collect(transactionSelect, { tagFree: true });
 		tagScopeTotal = filteredAll.length;
-		const filtered = tagId
-			? filteredAll.filter((row) => row.tags.some((link) => link.tag.id === tagId))
+		const filtered = filters.tagId
+			? filteredAll.filter((row) => row.tags.some((link) => link.tag.id === filters.tagId))
 			: filteredAll;
 		totalTransactions = filtered.length;
 		totalPages = Math.max(1, Math.ceil(totalTransactions / PAGE_SIZE));
@@ -397,7 +377,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		!queryError &&
 		!dateRangeError &&
 		totalTransactions > MAX_BULK_TAG_TRANSACTIONS &&
-		type === 'all'
+		filters.type === 'all'
 	) {
 		const kinds: TransactionKind[] = ['expense', 'income'];
 		const candidates = matchedRows
@@ -405,11 +385,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					kind,
 					count: matchedRows.filter((row) => resolveTransactionType(row) === kind).length
 				}))
-			: await Promise.all(
+			: // `matchedRows` is only set on the `scan` branch, so reaching here means `scope.kind`
+				// was `sql` and `sqlWhere` was assigned above.
+				await Promise.all(
 					kinds.map(async (kind) => ({
 						kind,
 						count: await prisma.transaction.count({
-							where: { AND: [where, transactionKindWhere(kind)] }
+							where: { AND: [sqlWhere!, transactionKindWhere(kind)] }
 						})
 					}))
 				);
@@ -423,7 +405,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	if (!queryError && !dateRangeError) {
 		try {
 			// `q` is matched in JS AFTER the SQL query (accent folding and regex are not expressible
-			// in SQL — see parseListFilters' own comment). Counting over the raw `where` while a
+			// in SQL — see `scope.ts`'s own docstring). Counting over the raw `where` while a
 			// search is active would count a STRICT SUPERSET of what the user is looking at, so when
 			// `matchedIds` was set above, the count is narrowed to exactly that id set instead.
 			// The id list is passed separately rather than folded into the where: unbounded, it
@@ -431,7 +413,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// parameters — so a user with enough transactions and a broad enough search silently
 			// and permanently got "comptes indisponibles" via the catch below, with no trace
 			// anywhere. countTagsInScope chunks it and sums.
-			tagCounts = await countTagsInScope(user.id, tagCountWhere, matchedIds);
+			//
+			// `tagCountWhere` is set on both non-`invalid` branches above, and this block only runs
+			// when `scope.kind` was not `invalid`.
+			tagCounts = await countTagsInScope(user.id, tagCountWhere!, matchedIds);
 		} catch (error) {
 			// Best-effort enrichment: a failure here must never fail the page. The filter panel
 			// renders its own "comptes indisponibles" state from a null tagCounts.
@@ -457,13 +442,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		allTags,
 		natureOptions: TRANSACTION_NATURES,
 		filters: {
-			q: query,
-			qMode,
-			type,
-			category,
-			from: fromDisplay,
-			to: toDisplay,
-			importBatchId,
+			q: filters.query,
+			qMode: filters.qMode,
+			type: filters.type,
+			category: filters.category,
+			from: filters.fromParam,
+			to: filters.toParam,
+			importBatchId: filters.importBatchId,
 			// Re-serialized from the PARSED list, never echoed from the raw param: what the page
 			// carries forward through pagination is exactly what the query ran on.
 			//
@@ -472,8 +457,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// returns zero rows, and with zero rows there is no pagination control and no row link
 			// to carry anything forward — the two cases have no observable difference here. A
 			// future consumer of `filters.ids` that runs when the list is empty must not assume it.
-			ids: ids ? ids.join(',') : '',
-			tag: tagId
+			ids: filters.ids ? filters.ids.join(',') : '',
+			tag: filters.tagId
 		},
 		filteredTotals,
 		tagCounts,
