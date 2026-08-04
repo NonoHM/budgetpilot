@@ -32,16 +32,8 @@ import {
 	buildTransactionWhere,
 	normalizeId,
 	normalizeIdList,
-	normalizeSearch,
-	parseTransactionDateRange,
-	parseTransactionFilter,
 	resolveUncategorizedCategoryId
 } from '$lib/server/transactions/where';
-import {
-	collectTransactionsMatchingQuery,
-	isValidRegexQuery,
-	parseQueryMode
-} from '$lib/server/transactions/search';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
 import type { Prisma } from '$lib/server/database/types';
 import {
@@ -70,39 +62,6 @@ const MAX_MANUAL_NATURE_LENGTH = 32;
 // CLAUDE.md technical debt): ids only, so memory cost is negligible even at the cap, but an
 // unbounded findMany on a pathological "everything uncategorized" history is still avoided.
 const FOCUS_STACK_CAP = 5000;
-
-/**
- * Parses every list filter out of the URL.
- *
- * `load` resolves its own filters through `resolveTransactionScope` now (see `scope.ts`), which is
- * the shared resolver this parser is being migrated onto site by site. `bulkTag` below still calls
- * this copy directly — it is the count a user confirms in the bulk dialog and the set the action
- * then writes to, which must come from one source or a forged payload could widen the second past
- * the first. Once `bulkTag` is migrated too, this function goes away.
- *
- * Reading these params is NOT sufficient on its own, and a review caught this comment claiming it
- * was. `query`/`qMode` never enter `buildTransactionWhere`: `bulkTag` applies them in JS
- * afterwards, so a caller that stops at the `where` silently targets a superset. Any future
- * consumer of this function has to handle the search filter explicitly, the way `bulkTag` does.
- */
-function parseListFilters(url: URL) {
-	const fromParam = url.searchParams.get('from');
-	const toParam = url.searchParams.get('to');
-	return {
-		query: normalizeSearch(url.searchParams.get('q')),
-		qMode: parseQueryMode(url.searchParams.get('qMode')),
-		type: parseTransactionFilter(url.searchParams.get('type')),
-		category: normalizeSearch(url.searchParams.get('category')),
-		fromParam,
-		toParam,
-		...parseTransactionDateRange(fromParam, toParam),
-		importBatchId: normalizeId(url.searchParams.get('importBatch')),
-		tagId: normalizeId(url.searchParams.get('tag')),
-		// Explicit id whitelist. Deliberately NOT applied to `uncategorizedPileWhere`: the
-		// "à classer" pile is global by design (see its comment), not a view of the current filters.
-		ids: normalizeIdList(url.searchParams.get('ids'))
-	};
-}
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -516,14 +475,14 @@ export const actions: Actions = {
 	/**
 	 * Applies one tag to every transaction the CURRENT FILTERS match.
 	 *
-	 * The set is rebuilt here from `url.searchParams`, through the same parseListFilters the load
-	 * uses, and the form's own fields are never consulted for it. A client-supplied id list would
-	 * make the count the user confirmed and the set actually written two different things, which is
-	 * exactly the gap a forged payload would widen.
+	 * The set is rebuilt here from `url.searchParams`, through the same `resolveTransactionScope`
+	 * the load uses, and the form's own fields are never consulted for it. A client-supplied id list
+	 * would make the count the user confirmed and the set actually written two different things,
+	 * which is exactly the gap a forged payload would widen.
 	 *
-	 * The SQL where is not the whole set, though, and the first version of this comment claimed it
-	 * was. See the `filters.query` branch below: the search filter lives in JS, so reproducing the
-	 * user's view means reproducing that step too.
+	 * The SQL where is not the whole set, though. See the `scan` branch below: the search filter
+	 * lives in JS, so reproducing the user's view means reproducing that step too — see `scope.ts`'s
+	 * own docstring for why the union shape is what prevents this from silently regressing again.
 	 */
 	bulkTag: async ({ locals, request, url }) => {
 		const user = requireUser(locals.user);
@@ -532,40 +491,20 @@ export const actions: Actions = {
 		const tagName = normalizeTagName(getFormValue(formData, 'tagName'));
 		if (!tagName) return fail(400, { bulkTagError: m.tags_bulk_error_empty_name() });
 
-		const filters = parseListFilters(url);
-		if (filters.error) return fail(400, { bulkTagError: m.tags_bulk_error_invalid_range() });
+		const scope = await resolveTransactionScope(user.id, url);
+		if (scope.kind === 'invalid')
+			return fail(400, {
+				bulkTagError:
+					scope.reason === 'range'
+						? m.tags_bulk_error_invalid_range()
+						: m.transactions_error_invalid_regex_query()
+			});
 
-		const uncategorizedCategoryId =
-			filters.type === 'classify' ? await resolveUncategorizedCategoryId(user.id) : undefined;
-
-		let where = buildTransactionWhere({
-			userId: user.id,
-			type: filters.type,
-			category: filters.category,
-			from: filters.range?.from,
-			to: filters.range?.to,
-			importBatchId: filters.importBatchId,
-			uncategorizedCategoryId,
-			ids: filters.ids,
-			tagId: filters.tagId
-		});
-
-		// The search filter cannot live in the `where`, and that is the whole reason this branch
-		// exists. `q` is matched in JS AFTER the SQL query (accent folding and regex are not
-		// expressible in SQL), exactly as `load` does it below. An action that built only the SQL
-		// where would apply the tag to a STRICT SUPERSET of the rows the user was looking at and
-		// counted, which is the same disagreement a forged id list would create, reached through the
-		// app's own most-used filter instead of through an attack.
-		if (filters.query) {
-			if (filters.qMode === 'regex' && !isValidRegexQuery(filters.query))
-				return fail(400, { bulkTagError: m.transactions_error_invalid_regex_query() });
-
-			const matching = await collectTransactionsMatchingQuery(
-				where,
-				{ id: true, label: true },
-				filters.query,
-				filters.qMode
-			);
+		let where: Prisma.TransactionWhereInput;
+		if (scope.kind === 'sql') {
+			where = scope.where;
+		} else {
+			const matching = await scope.collect({ id: true, label: true });
 			// Refused here rather than inside applyTagToFilteredSet, because that function counts in
 			// SQL and this set does not exist in SQL. Same limit, same refusal, one message.
 			if (matching.length > MAX_BULK_TAG_TRANSACTIONS)
@@ -575,9 +514,9 @@ export const actions: Actions = {
 						limit: MAX_BULK_TAG_TRANSACTIONS
 					})
 				});
-			// Narrowing, never widening: `matching` was collected THROUGH `where`, so it is already
-			// the intersection with every other active filter, `?ids=` included.
-			where = { ...where, id: { in: matching.map((row) => row.id) } };
+			// Narrowing, never widening: `matching` was collected THROUGH the scope's predicate, so it
+			// is already the intersection with every other active filter, `?ids=` included.
+			where = { ...scope.whereBeforeQuery, id: { in: matching.map((row) => row.id) } };
 		}
 
 		const result = await applyTagToFilteredSet(user.id, where, tagName);
