@@ -91,5 +91,7 @@ docs/superpowers/
 # already merged once that way (#112).
 e2e/.audit390/
 
-# Serena MCP local project cache/state
-.serena/
+# Serena MCP local project state. project.yml is meant to be versioned with the project
+# (per Serena's own docs); cache, memories and project.local.yml are local-only.
+.serena/*
+!.serena/project.yml
