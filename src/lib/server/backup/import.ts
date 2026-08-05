@@ -7,7 +7,11 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import { normalizeTagName } from '$lib/domain/tags';
-import { MIN_SPLITS_PER_TRANSACTION, MAX_SPLITS_PER_TRANSACTION } from '$lib/domain/allocation';
+import {
+	MIN_SPLITS_PER_TRANSACTION,
+	MAX_SPLITS_PER_TRANSACTION,
+	normalizeSplitNote
+} from '$lib/domain/allocation';
 import { MAX_ANCHOR_IDS, parseAnchorTransactionIds, type BackupExport } from './schema';
 
 export class BackupImportError extends Error {}
@@ -416,7 +420,11 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 				categoryId: categoryIdMap.get(split.categoryId),
 				amountCents: split.amountCents,
 				position: split.position,
-				note: split.note
+				// Normalized here too, not just in replaceSplits. A restore is a write path, and an
+				// uploaded payload is the one place a note arrives without ever having passed
+				// through the editor — so it is exactly where a bidi override would enter if this
+				// were left to the service that this path bypasses.
+				note: normalizeSplitNote(split.note) || null
 			}));
 			for (const [index, part] of parts.entries()) {
 				if (part.transactionId === undefined) {

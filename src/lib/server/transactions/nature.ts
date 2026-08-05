@@ -95,17 +95,30 @@ export function getEffectiveCategory(transaction: {
 }
 
 /**
- * The columns getEffectiveCategory needs, as a Prisma `select` fragment to spread.
+ * Everything the three per-category money reads need to resolve WHERE THE MONEY WENT, as a Prisma
+ * `select` fragment to spread.
  *
- * It exists so that the three reads which resolve money per category — readDashboardDataForRange,
- * readCurrentMonthSpending and readTransactionsForRange — name those columns ONCE. Each used to
- * spell them out, which was harmless while the answer was two columns and stops being harmless the
- * moment it is three: a read that forgets the third silently resolves a different category for the
- * same row than its siblings do, and nothing fails.
+ * It exists so that readDashboardDataForRange, readCurrentMonthSpending and readTransactionsForRange
+ * name these columns ONCE. Each used to spell them out, which was harmless while the answer was two
+ * columns and stopped being harmless the moment it became three: a read that forgets one silently
+ * resolves a different category for the same row than its siblings do, and nothing fails.
+ *
+ * `splits` is here rather than at each call site for exactly that reason. A boundary that selects
+ * the category columns but forgets the parts would emit allocations that ignore every répartition
+ * — every per-category figure it produced would be quietly attributed to the parent's category, on
+ * one screen and not the others. Dropping any key from this fragment makes all three call sites
+ * fail to typecheck, by name, which is the property that keeps them in agreement.
+ *
+ * Ordered by `position` because that order is user-visible: it decides which part carries the
+ * rounding cent, and the list indicator breaks a dominant-part tie on it.
  */
 export const EFFECTIVE_CATEGORY_SELECT = {
 	manualCategory: true,
-	category: { select: { name: true } }
+	category: { select: { name: true } },
+	splits: {
+		select: { amountCents: true, position: true, category: { select: { name: true } } },
+		orderBy: { position: 'asc' }
+	}
 } as const;
 
 // "To classify" pile: effective category === "Non catégorisé", NOT nature ===

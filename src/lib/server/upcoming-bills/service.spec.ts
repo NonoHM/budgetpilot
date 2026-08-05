@@ -87,6 +87,11 @@ interface RawTransaction {
 	manualCategory: string | null;
 	natureManual: null;
 	category: { name: string };
+	// The read boundary now selects the parts too (EFFECTIVE_CATEGORY_SELECT). Upcoming bills is an
+	// IDENTITY consumer and never reads them — it asks what happened and how often, not where the
+	// money went — but the fixture has to carry the column the boundary selects, or it is not a
+	// fixture for that boundary.
+	splits: [];
 }
 
 function tx(
@@ -105,7 +110,8 @@ function tx(
 		source: 'csv',
 		manualCategory: null,
 		natureManual: null,
-		category: { name: category }
+		category: { name: category },
+		splits: []
 	};
 }
 

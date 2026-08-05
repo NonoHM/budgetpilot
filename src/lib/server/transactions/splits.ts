@@ -4,7 +4,8 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import {
 	MAX_SPLIT_NOTE_LENGTH,
 	MAX_SPLITS_PER_TRANSACTION,
-	MIN_SPLITS_PER_TRANSACTION
+	MIN_SPLITS_PER_TRANSACTION,
+	normalizeSplitNote
 } from '$lib/domain/allocation';
 
 /** One part as it arrives from a client. Everything here is untrusted. */
@@ -90,7 +91,10 @@ export async function replaceSplits(
 		const notePositions: number[] = [];
 		const amountPositions: number[] = [];
 		const normalized = parts.map((part, position) => {
-			const note = (part.note ?? '').trim();
+			// Normalized BEFORE the length check, not after: stripping happens first, so a note made
+			// of 200 zero-width characters is empty rather than over-long, and a note whose visible
+			// length is legal is not refused for invisible ones.
+			const note = normalizeSplitNote(part.note);
 			if (note.length > MAX_SPLIT_NOTE_LENGTH) notePositions.push(position);
 
 			// A part must be a non-zero integer carrying the PARENT's sign. Zero says nothing, and

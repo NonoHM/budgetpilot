@@ -6,6 +6,7 @@ import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { Transaction, TransactionSource, TransactionNature } from '$lib/domain/transaction';
+import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
 import { validateTransaction } from '$lib/domain/transaction';
 import { parseManualAmountCents } from '$lib/domain/money';
 import type { DateRange } from '$lib/server/date-range';
@@ -30,7 +31,22 @@ const MAX_BUDGET_CATEGORY_LENGTH = 80;
 export { parseManualAmountCents } from '$lib/domain/money';
 
 export interface DashboardData {
+	/**
+	 * The IDENTITY view: one entry per bank line. Read this to ask what happened, how many times,
+	 * when, and under what label. Never to ask where the money went — a split transaction still
+	 * appears here once, carrying its whole amount under its parent category, and summing these
+	 * per category is the double-count this whole design exists to prevent.
+	 */
 	transactions: Transaction[];
+	/**
+	 * The MONEY view: one entry per (category, amount) pair. An unsplit transaction contributes
+	 * exactly one, so the two arrays have the same total and differ only in how it is attributed.
+	 *
+	 * CategoryAllocation is deliberately not assignable to Transaction, so passing this to
+	 * detectRecurringFlows or any other identity-side consumer is a compile error rather than a
+	 * review comment.
+	 */
+	allocations: CategoryAllocation[];
 	budgets: CategoryBudget[];
 	categoryNatureMappings: CategoryNatureMappingRecord[];
 }
@@ -119,6 +135,9 @@ export async function readDashboardDataForRange(
 		transactions: transactions.map((transaction) => ({
 			...mapTransactionWithNature(transaction, mappingMap)
 		})),
+		allocations: transactions.flatMap((transaction) =>
+			mapTransactionAllocations(transaction, mappingMap)
+		),
 		budgets: budgets.map((budget) => ({
 			category: budget.categoryName,
 			limitCents: budget.amountCents
@@ -378,7 +397,11 @@ function mapTransactionWithNature(
 		category: { name: string };
 	},
 	mappingMap: Map<string, TransactionNature>
-): Transaction {
+	// Narrower than `Transaction`, whose `nature` is optional: this mapper ALWAYS resolves one
+	// through getEffectiveTransactionNature. Saying so lets allocationsOf, which requires a
+	// resolved nature, take the result directly instead of being handed a `?? 'uncategorized'`
+	// fallback that would silently conflate "we do not know" with "the user chose that".
+): Transaction & { nature: TransactionNature } {
 	const category = getEffectiveCategory(transaction);
 	const type =
 		transaction.type === 'income' || transaction.type === 'expense'
@@ -407,6 +430,45 @@ function mapTransactionWithNature(
 		nature: effectiveNature.nature,
 		natureSource: effectiveNature.source
 	};
+}
+
+/** The row shape EFFECTIVE_CATEGORY_SELECT produces, for the two mappers below. */
+type SplitRow = { amountCents: number; position: number; category: { name: string } };
+
+/**
+ * Turns one transaction into its allocations — the ONLY supported way to read money out of it.
+ *
+ * An unsplit transaction yields exactly one allocation carrying its whole amount, so no consumer
+ * needs a special case and no consumer can tell the two apart. That is the point: a site written
+ * against allocations is correct for split and unsplit rows alike, and a site written against
+ * `Transaction.amountCents` is a double-count the moment parts exist.
+ *
+ * NATURE RESOLVES PER PART (OD-4). Each part's nature comes from its OWN category through the same
+ * getEffectiveTransactionNature every other read uses, so a purchase split into a spending part and
+ * a transfer part finally reports as both. The parent's `natureManual` still overrides every part:
+ * one manual override, no new UI, and it stays the single place a user can contradict the mapping.
+ */
+function mapTransactionAllocations(
+	transaction: Parameters<typeof mapTransactionWithNature>[0] & { splits: SplitRow[] },
+	mappingMap: Map<string, TransactionNature>
+): CategoryAllocation[] {
+	const parent = mapTransactionWithNature(transaction, mappingMap);
+
+	const parts = transaction.splits.map((split) => ({
+		category: split.category.name,
+		amountCents: split.amountCents,
+		nature: getEffectiveTransactionNature(
+			{
+				amountCents: split.amountCents,
+				type: parent.type,
+				category: split.category.name,
+				natureManual: transaction.natureManual ?? null
+			},
+			mappingMap
+		).nature
+	}));
+
+	return allocationsOf(parent, parts);
 }
 
 function getNextMonthStart(month: string): Date {

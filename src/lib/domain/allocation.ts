@@ -35,6 +35,28 @@ export const MAX_SPLITS_PER_TRANSACTION = 20;
 export const MAX_SPLIT_NOTE_LENGTH = 80;
 
 /**
+ * Normalizes a part's note, exactly as normalizeTagName does for a tag and for the same reason.
+ *
+ * A note is user-authored free text that is RENDERED — in the editor, in the list row's tooltip,
+ * and beside a part in a confirmation. So it inherits the hazard tags already reasoned through: a
+ * bidi override (U+202E) or a zero-width character makes a stored string display as something
+ * other than what is stored. Svelte escapes, so this is not an injection sink; it is a spoofing
+ * one, and the mitigation is to strip the class rather than to escape it.
+ *
+ * Deliberately does NOT reject `<` and `>`, matching the tag decision rather than the category
+ * one: a note is something a user writes for themselves and may legitimately contain "8<->12".
+ *
+ * Returns '' for a note that was only whitespace or only stripped characters, which every caller
+ * stores as NULL — so "has a note" stays one question rather than two.
+ */
+export function normalizeSplitNote(raw: string | null | undefined): string {
+	return (raw ?? '')
+		.replace(/[\p{Cc}\p{Cf}]/gu, '')
+		.trim()
+		.replace(/\s+/g, ' ');
+}
+
+/**
  * One (category, amount) pair resolved from a transaction. NOT a Transaction, and the distinction
  * is the entire protection: an allocation has no identity, cannot be counted as an occurrence,
  * cannot anchor a recurring stream, and must never be a grouping key for anything but its own

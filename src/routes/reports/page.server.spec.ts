@@ -20,7 +20,8 @@ const db = vi.hoisted(() => ({
 								type: 'income',
 								source: 'manual',
 								manualCategory: null,
-								category: { name: 'Revenus' }
+								category: { name: 'Revenus' },
+								splits: []
 							},
 							{
 								id: 'expense',
@@ -30,7 +31,8 @@ const db = vi.hoisted(() => ({
 								type: 'expense',
 								source: 'unknown_source',
 								manualCategory: 'Maison',
-								category: { name: 'Alimentation' }
+								category: { name: 'Alimentation' },
+								splits: []
 							}
 						]
 					: [
@@ -42,7 +44,8 @@ const db = vi.hoisted(() => ({
 								type: 'income',
 								source: 'csv',
 								manualCategory: null,
-								category: { name: 'Revenus' }
+								category: { name: 'Revenus' },
+								splits: []
 							},
 							{
 								id: 'previous-expense',
@@ -52,7 +55,8 @@ const db = vi.hoisted(() => ({
 								type: 'expense',
 								source: 'csv',
 								manualCategory: 'Maison',
-								category: { name: 'Alimentation' }
+								category: { name: 'Alimentation' },
+								splits: []
 							}
 						];
 			})
