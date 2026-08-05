@@ -387,36 +387,57 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		if (payload.transactionSplits.length > 0) {
 			// Bulk, like the tag pairs: a part's own id is regenerated and nothing references it.
 			//
-			// A part whose transaction or category did not survive the folded-name dedupe is
-			// DROPPED, and that is the one place this differs from tags in consequence rather than
-			// in shape. Dropping a tag link loses a label; dropping a part loses money from the
-			// répartition and would leave the remaining parts summing to less than their parent.
-			// It cannot happen: assertReferentialIntegrity has already refused any part naming a
-			// row absent from the file, and categories fold by name — two file categories folding
-			// into one row re-point both parts at the survivor rather than losing either. The
-			// filter is therefore a type narrowing, not a policy, and the invariant check below
-			// is what would catch it if that reasoning were ever wrong.
-			const parts = payload.transactionSplits
-				.map((split) => ({
-					transactionId: transactionIdMap.get(split.transactionId),
-					categoryId: categoryIdMap.get(split.categoryId),
-					amountCents: split.amountCents,
-					position: split.position,
-					note: split.note
-				}))
-				.filter(
-					(
-						part
-					): part is {
+			// A part whose transaction or category is missing from the id maps REFUSES the restore.
+			// It does not get filtered out, and that is the one place this deliberately differs
+			// from the tag pairs above.
+			//
+			// Dropping a tag link loses a label. Dropping a part loses MONEY: the surviving parts
+			// would no longer sum to their parent, and the sum check that ran before any write
+			// would already have certified a total that is no longer what got stored. Nothing
+			// downstream could tell — allocationsOf would emit the shortfall as a phantom
+			// remainder under the parent's category, indistinguishable from a legitimate one.
+			//
+			// Today this is unreachable: assertReferentialIntegrity has refused any part naming a
+			// row absent from the file, and every payload category gets a map entry (folding
+			// re-points both spellings at the survivor rather than losing either). But that is two
+			// modules independently maintaining one invariant with nothing shared enforcing it.
+			// Tags already show how it breaks — a whitespace-only name normalizes to '' and is
+			// skipped, leaving no map entry — so the day a category acquires a normalization step
+			// that can collapse the same way, this must fail loudly rather than quietly write a
+			// répartition that no longer adds up.
+			const parts = payload.transactionSplits.map((split) => ({
+				transactionId: transactionIdMap.get(split.transactionId),
+				categoryId: categoryIdMap.get(split.categoryId),
+				amountCents: split.amountCents,
+				position: split.position,
+				note: split.note
+			}));
+			for (const [index, part] of parts.entries()) {
+				if (part.transactionId === undefined) {
+					throw new BackupImportError(
+						m.settings_backup_error_unknown_split_transaction({
+							id: payload.transactionSplits[index].transactionId
+						})
+					);
+				}
+				if (part.categoryId === undefined) {
+					throw new BackupImportError(
+						m.settings_backup_error_unknown_split_category({
+							id: payload.transactionSplits[index].categoryId
+						})
+					);
+				}
+			}
+			if (parts.length > 0) {
+				await tx.transactionSplit.createMany({
+					data: parts as Array<{
 						transactionId: string;
 						categoryId: string;
 						amountCents: number;
 						position: number;
 						note: string | null;
-					} => part.transactionId !== undefined && part.categoryId !== undefined
-				);
-			if (parts.length > 0) {
-				await tx.transactionSplit.createMany({ data: parts });
+					}>
+				});
 			}
 		}
 

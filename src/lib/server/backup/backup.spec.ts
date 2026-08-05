@@ -2016,3 +2016,55 @@ describe('backup with transaction splits', () => {
 		expect(transactionPurge).toBeLessThan(categoryPurge);
 	});
 });
+
+describe('transaction splits — the upper bound, which inspection alone had covered', () => {
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+	});
+
+	// The lower bound (a single part) was tested; this one was not, and a check that has never
+	// been seen to fail is not yet a check. Twenty-one parts summing exactly to the parent, so
+	// nothing but the count can refuse it.
+	it('refuses more parts than any write path can produce, even when they sum exactly', async () => {
+		expect.assertions(2);
+
+		const payload = buildTagRestorePayload();
+		payload.categories = [{ id: 'file-cat-1', name: 'Alimentation' }];
+		payload.transactions[0].amountCents = -2100;
+		payload.transactionSplits = Array.from({ length: 21 }, (_, index) => ({
+			id: `file-split-${index}`,
+			transactionId: payload.transactions[0].id,
+			categoryId: 'file-cat-1',
+			amountCents: -100,
+			position: index,
+			note: null
+		}));
+
+		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	it('accepts exactly the ceiling, so the bound refuses nothing legal', async () => {
+		expect.assertions(2);
+
+		const payload = buildTagRestorePayload();
+		payload.categories = [{ id: 'file-cat-1', name: 'Alimentation' }];
+		payload.transactions[0].amountCents = -2000;
+		payload.transactionSplits = Array.from({ length: 20 }, (_, index) => ({
+			id: `file-split-${index}`,
+			transactionId: payload.transactions[0].id,
+			categoryId: 'file-cat-1',
+			amountCents: -100,
+			position: index,
+			note: null
+		}));
+
+		await restoreBackup('user-a', payload);
+
+		const restored = db.store.transactionSplits.filter((row) => row.userId === 'user-a');
+		expect(restored).toHaveLength(20);
+		expect(restored.reduce((sum, row) => sum + (row.amountCents as number), 0)).toBe(-2000);
+	});
+});

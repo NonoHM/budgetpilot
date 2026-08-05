@@ -18,6 +18,9 @@ const tx = vi.hoisted(() => ({
 		updateMany: vi.fn(),
 		deleteMany: vi.fn()
 	},
+	transaction: {
+		deleteMany: vi.fn()
+	},
 	recoveryCode: {
 		deleteMany: vi.fn(),
 		createMany: vi.fn()
@@ -438,9 +441,10 @@ describe('/settings', () => {
 	});
 
 	it('supprime uniquement le compte courant après confirmation explicite', async () => {
-		expect.assertions(6);
+		expect.assertions(8);
 
 		tx.session.deleteMany.mockResolvedValue({ count: 4 });
+		tx.transaction.deleteMany.mockResolvedValue({ count: 7 });
 		tx.user.delete.mockResolvedValue({ id: 'user-a' });
 		const cookies = buildCookies('session-courante');
 
@@ -458,6 +462,14 @@ describe('/settings', () => {
 
 		expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
 		expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-a' } });
+		// Transactions BEFORE the user — see the same assertion in admin/page.server.spec.ts. A
+		// bare user.delete relies on a cascade ORDER the engine chooses, and TransactionSplit is
+		// RESTRICT on Category, so on PostgreSQL a user who has ever split a transaction could
+		// not delete their own account at all.
+		expect(tx.transaction.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
+		expect(tx.transaction.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+			tx.user.delete.mock.invocationCallOrder[0]
+		);
 		expect(cookies.delete).toHaveBeenCalledWith(SESSION_COOKIE, { path: '/' });
 		expect(JSON.stringify(tx.session.deleteMany.mock.calls[0][0])).not.toContain('user-b');
 		expect(JSON.stringify(tx.user.delete.mock.calls[0][0])).not.toContain('user-b');
