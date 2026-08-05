@@ -2,7 +2,10 @@ import { describe, it, expect } from 'vitest';
 import { allocationsOf } from './allocation';
 import type { Transaction } from './transaction';
 
-const tx: Transaction = {
+// `satisfies` rather than a type annotation: allocationsOf requires a resolved `nature`, which the
+// domain Transaction leaves optional, so annotating as Transaction would widen it back to
+// `TransactionNature | undefined` and stop compiling. This still checks Transaction conformance.
+const tx = {
 	id: 't1',
 	date: '2026-06-24',
 	label: 'Carrefour Market',
@@ -10,7 +13,7 @@ const tx: Transaction = {
 	category: 'Alimentation',
 	source: 'csv',
 	nature: 'spending'
-};
+} satisfies Transaction;
 
 describe('allocationsOf', () => {
 	it('gives an unsplit transaction exactly one allocation carrying its whole amount', () => {
@@ -50,6 +53,16 @@ describe('allocationsOf', () => {
 		expect(allocations).toHaveLength(2);
 		expect(allocations[0].nature).toBe('spending');
 		expect(allocations[1].nature).toBe('investment');
+	});
+
+	// The edge the literal definition gets wrong: "drop the trailing element when its amount is 0"
+	// would return [] here, and allocation.db-smoke.ts asserts every transaction is covered exactly
+	// once — so a zero-amount transaction would fail that guard on entirely legitimate data.
+	it('still yields one allocation for an unsplit transaction whose amount is zero', () => {
+		expect.assertions(2);
+		const allocations = allocationsOf({ ...tx, amountCents: 0 });
+		expect(allocations).toHaveLength(1);
+		expect(allocations[0]).toMatchObject({ category: 'Alimentation', amountCents: 0 });
 	});
 
 	it('treats an empty parts array identically to undefined, as one whole-amount allocation', () => {

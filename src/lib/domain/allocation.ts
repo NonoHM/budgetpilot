@@ -34,13 +34,29 @@ export interface CategoryAllocation {
  *
  * A part's `nature` falls back to the transaction's nature when not supplied. The remainder
  * element always carries the transaction's own category and nature.
+ *
+ * TWO EDGE CASES THE ONE-LINE DEFINITION ABOVE DOES NOT COVER, both deliberate:
+ *
+ *  - An UNSPLIT transaction always yields exactly one allocation, even when its amount is 0.
+ *    Read literally, "drop the trailing element when its amount is 0" would return [] for a
+ *    zero-amount transaction and the anti-double-count guard's second assertion — every
+ *    transaction covered exactly once — would fail on legitimate data. The drop applies only
+ *    when there is something left to return.
+ *
+ *  - `nature` is REQUIRED on the input, not optional as it is on the domain Transaction. Both
+ *    read boundaries already resolve it through getEffectiveTransactionNature before building a
+ *    Transaction, so this costs nothing today and makes "a boundary forgot to resolve nature" a
+ *    compile error. Defaulting instead would have to pick a value, and every available value is
+ *    a lie: 'uncategorized' is a real nature the user can hold, so it would silently conflate
+ *    "we do not know" with "the user classified it that way" — in a function whose whole job is
+ *    to bucket money.
  */
 export function allocationsOf(
-	transaction: Transaction,
+	transaction: Transaction & { nature: TransactionNature },
 	parts?: ReadonlyArray<{ category: string; amountCents: number; nature?: TransactionNature }>
 ): CategoryAllocation[] {
 	const kind = getTransactionKind(transaction);
-	const transactionNature = transaction.nature ?? 'uncategorized';
+	const transactionNature = transaction.nature;
 
 	const resolvedParts = (parts ?? []).map((part) => ({
 		transactionId: transaction.id,
