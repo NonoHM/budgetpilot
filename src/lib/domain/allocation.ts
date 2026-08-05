@@ -113,3 +113,34 @@ export function allocationsOf(
 		}
 	];
 }
+
+/**
+ * Largest-remainder split of `totalCents` into `n` parts, extra cent(s) going to the FIRST parts.
+ *
+ * For total `T`, sign `s = sign(T)`, `A = |T|`, `q = ⌊A/n⌋`, `r = A − qn` with `0 ≤ r < n`: the
+ * first `r` parts get `s(q+1)`, the remaining `n − r` get `sq`.
+ * `Σ = s(r(q+1) + (n−r)q) = s(rq + r + nq − rq) = s(nq + r) = sA = T`. Exact by construction, for
+ * every `n ≥ 1` and either sign. ∎
+ *
+ * WHY "first parts" is load-bearing rather than an arbitrary tiebreak: `TransactionSplit.position`
+ * exists precisely so that WHICH part carries the rounding cent is stable and visible to the user
+ * — not an implementation detail free to move between reads. The editor's UI names it explicitly
+ * ("la première part reçoit le centime restant" or equivalent), so silently moving the remainder
+ * to the last parts, or splitting it evenly across all of them, would make that sentence a lie
+ * without ever touching the sentence itself.
+ *
+ * Deliberately produces zero-valued parts when `|totalCents| < n` — see the note on
+ * `replaceSplits` (domain/allocation.ts's own docstring above) for why that is the editor's
+ * problem to avoid, not this function's.
+ */
+export function distributeEvenly(totalCents: number, n: number): number[] {
+	const sign = totalCents < 0 ? -1 : 1;
+	const absolute = Math.abs(totalCents);
+	const quotient = Math.floor(absolute / n);
+	const remainder = absolute - quotient * n;
+
+	return Array.from(
+		{ length: n },
+		(_, index) => sign * (index < remainder ? quotient + 1 : quotient)
+	);
+}
