@@ -183,7 +183,7 @@ const db = vi.hoisted(() => {
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
-const { countUncategorizedTransactions } = await import('./nature');
+const { countUncategorizedTransactions, getEffectiveCategory } = await import('./nature');
 const { forEachTransactionBatch } = await import('./batch');
 const { collectTransactionsMatchingQuery } = await import('./search');
 const { buildTransactionWhere, resolveUncategorizedCategoryId } = await import('./where');
@@ -306,7 +306,7 @@ function naiveUncategorizedNatureCount(
 			if (row.natureManual === 'uncategorized') count += 1;
 			continue;
 		}
-		const effectiveCategory = row.manualCategory ?? row.category.name;
+		const effectiveCategory = getEffectiveCategory(row);
 		if (mapByName.get(effectiveCategory) === 'uncategorized') count += 1;
 	}
 	return count;
@@ -315,7 +315,11 @@ function naiveUncategorizedNatureCount(
 // Naive full-scan reference for the "to classify" pile (see CLAUDE.md: effective category ===
 // "Non catégorisé", independent of nature).
 function naiveClassifyPile(rows: Row[]): Row[] {
-	return rows.filter((row) => (row.manualCategory ?? row.category.name) === UNCLASSIFIED);
+	// getEffectiveCategory rather than a retyped `manualCategory ?? category.name`: this naive scan
+	// is the ORACLE for the SQL predicate, and an oracle that retypes the rule drifts by exactly the
+	// clause it forgets — this one forgot the sentinel fallback. It stays independent of the code
+	// under test, since the SQL path compares manualCategoryKey/categoryId and never calls this.
+	return rows.filter((row) => getEffectiveCategory(row) === UNCLASSIFIED);
 }
 
 describe('volume equivalence — countUncategorizedTransactions (SQL) vs naive full-scan', () => {

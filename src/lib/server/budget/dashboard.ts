@@ -13,6 +13,7 @@ import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
 import {
 	buildCategoryNatureMap,
+	getEffectiveCategory,
 	getEffectiveTransactionNature,
 	type CategoryNatureMappingRecord
 } from '$lib/server/transactions/nature';
@@ -378,7 +379,7 @@ function mapTransactionWithNature(
 	},
 	mappingMap: Map<string, TransactionNature>
 ): Transaction {
-	const category = transaction.manualCategory ?? transaction.category.name;
+	const category = getEffectiveCategory(transaction);
 	const type =
 		transaction.type === 'income' || transaction.type === 'expense'
 			? transaction.type
@@ -439,7 +440,7 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
 
 	const spending = new Map<string, number>();
 	for (const tx of transactions) {
-		const category = tx.manualCategory ?? tx.category.name;
+		const category = getEffectiveCategory(tx);
 		spending.set(category, (spending.get(category) ?? 0) + Math.abs(tx.amountCents));
 	}
 	return spending;

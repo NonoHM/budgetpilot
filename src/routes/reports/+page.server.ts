@@ -10,6 +10,7 @@ import { prisma } from '$lib/server/db';
 import { buildPeriodReport } from '$lib/server/reports/monthly';
 import {
 	buildCategoryNatureMap,
+	getEffectiveCategory,
 	getEffectiveTransactionNature
 } from '$lib/server/transactions/nature';
 import {
@@ -89,30 +90,35 @@ async function readTransactionsForRange(
 		orderBy: { date: 'asc' }
 	});
 
-	return transactions.map((transaction) => ({
-		id: transaction.id,
-		date: transaction.date.toISOString().slice(0, 10),
-		label: transaction.label,
-		amountCents: transaction.amountCents,
-		type:
+	return transactions.map((transaction) => {
+		// Resolved once and reused for the nature lookup below. It was spelled out twice here, and
+		// the two had to agree: a transaction whose displayed category and whose nature-lookup
+		// category disagreed would report a nature belonging to a category the user cannot see.
+		const category = getEffectiveCategory(transaction);
+		const type =
 			transaction.type === 'income' || transaction.type === 'expense'
 				? transaction.type
-				: undefined,
-		category: transaction.manualCategory ?? transaction.category.name,
-		source: transaction.source as TransactionSource,
-		nature: getEffectiveTransactionNature(
-			{
-				amountCents: transaction.amountCents,
-				type:
-					transaction.type === 'income' || transaction.type === 'expense'
-						? transaction.type
-						: undefined,
-				category: transaction.manualCategory ?? transaction.category.name,
-				natureManual: transaction.natureManual as TransactionNature | null
-			},
-			mappingMap
-		).nature
-	}));
+				: undefined;
+
+		return {
+			id: transaction.id,
+			date: transaction.date.toISOString().slice(0, 10),
+			label: transaction.label,
+			amountCents: transaction.amountCents,
+			type,
+			category,
+			source: transaction.source as TransactionSource,
+			nature: getEffectiveTransactionNature(
+				{
+					amountCents: transaction.amountCents,
+					type,
+					category,
+					natureManual: transaction.natureManual as TransactionNature | null
+				},
+				mappingMap
+			).nature
+		};
+	});
 }
 
 function getDayCount(from: Date, to: Date): number {

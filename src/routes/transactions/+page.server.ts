@@ -181,7 +181,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		source: 'rule';
 	} | null = null;
 	if (selectedTransaction && filters.type === 'classify') {
-		const selCat = selectedTransaction.manualCategory ?? selectedTransaction.category.name;
+		const selCat = getEffectiveCategory(selectedTransaction);
 		const selNat = getEffectiveTransactionNature(
 			{
 				amountCents: selectedTransaction.amountCents,

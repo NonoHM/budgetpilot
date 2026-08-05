@@ -1,10 +1,10 @@
 import type { Prisma } from '$lib/server/database/types';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
-import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { resolveTransactionType } from '$lib/server/transactions/totals';
 import {
 	buildCategoryNatureMap,
+	getEffectiveCategory,
 	getEffectiveTransactionNature
 } from '$lib/server/transactions/nature';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
@@ -58,8 +58,7 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	const mappingMap = buildCategoryNatureMap(mappings);
 
 	const rows = transactions.map((transaction) => {
-		const effectiveCategory =
-			transaction.manualCategory ?? transaction.category.name ?? UNCLASSIFIED_CATEGORY;
+		const effectiveCategory = getEffectiveCategory(transaction);
 		const transactionType = resolveTransactionType(transaction);
 		const nature = getEffectiveTransactionNature(
 			{
