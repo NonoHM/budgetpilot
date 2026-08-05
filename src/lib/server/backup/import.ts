@@ -405,6 +405,12 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			// skipped, leaving no map entry — so the day a category acquires a normalization step
 			// that can collapse the same way, this must fail loudly rather than quietly write a
 			// répartition that no longer adds up.
+			//
+			// DO NOT REMOVE THIS ON THE GROUNDS THAT "THE SUM IS ALREADY CHECKED". That sentence is
+			// true and is exactly the trap: the sum check runs over the PAYLOAD, before any write.
+			// If a part is dropped between that check and this insert, the check has certified a
+			// total that no longer matches what got stored — the guard passes while the write
+			// diverges from it. A refusal here is what keeps the two describing the same thing.
 			const parts = payload.transactionSplits.map((split) => ({
 				transactionId: transactionIdMap.get(split.transactionId),
 				categoryId: categoryIdMap.get(split.categoryId),
