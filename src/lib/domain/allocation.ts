@@ -6,6 +6,35 @@ import {
 } from './transaction';
 
 /**
+ * Floor on the number of parts in a répartition.
+ *
+ * A one-part split is a category wearing a costume: added complexity, no benefit. Removing the
+ * répartition entirely is a separate, explicit action, never the side effect of deleting parts
+ * until one is left.
+ */
+export const MIN_SPLITS_PER_TRANSACTION = 2;
+
+/**
+ * Ceiling on the number of parts, enforced server-side independently of any UI.
+ *
+ * Well past any real receipt, low enough to bound a forged request. It lives in domain/ rather
+ * than in the write path because the backup validator needs it too — the payload bound is
+ * `transactions.length * MAX_SPLITS_PER_TRANSACTION`, which is a claim about every write path
+ * rather than about one function. Same placement, and the same reasoning, as
+ * MAX_TAGS_PER_TRANSACTION in domain/tags.ts.
+ */
+export const MAX_SPLITS_PER_TRANSACTION = 20;
+
+/**
+ * Write-path cap on a part's free-text note.
+ *
+ * Deliberately tighter than the backup schema's MAX_PORTABLE_STRING (191): this bounds what THIS
+ * version produces, while the backup bound must still accept what an older version legally wrote.
+ * The same split the Account.providerAccountId note records.
+ */
+export const MAX_SPLIT_NOTE_LENGTH = 80;
+
+/**
  * One (category, amount) pair resolved from a transaction. NOT a Transaction, and the distinction
  * is the entire protection: an allocation has no identity, cannot be counted as an occurrence,
  * cannot anchor a recurring stream, and must never be a grouping key for anything but its own

@@ -271,7 +271,7 @@ model BankAuthorizationRequest {
 }
 
 model Category {
-  id           String        @id @default(cuid())
+  id           String             @id @default(cuid())
   userId       String
   name         String
   /// Stable key of a default category (e.g. "food"), resolved to a translated label
@@ -284,10 +284,13 @@ model Category {
   /// NULLs are distinct in a unique index on all three providers, so a not-yet-backfilled
   /// database satisfies it. Every write path fills it.
   nameKey      String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
+  /// Deliberately NOT a cascade (see TransactionSplit.category): a category delete must re-point
+  /// these rows, never destroy them, because each one carries money.
+  splits       TransactionSplit[]
 
   @@unique([userId, nameKey])
   @@index([userId])
@@ -358,6 +361,63 @@ model TransactionTag {
   @@index([tagId])
 }
 
+/// One line of a transaction's category allocation ("répartition").
+///
+/// Exists so a single bank line can feed several category budgets: 80 € at a supermarket is
+/// 60 € alimentation + 20 € maison. It splits the MONEY dimension and nothing else.
+///
+/// THE RULE, and every consumer is checked against it: when parts exist, the parts are the truth
+/// for money; the parent's category is never a money fact — it is the recurrence grouping key
+/// (domain/forecast.ts, groupTransactionsForRecurrence) and a display label. A site that adds a
+/// parent's amountCents to its parts' amountCents is a double-count defect. See
+/// domain/allocation.ts, which is the only supported way to read money out of a transaction.
+///
+/// No userId column, deliberately, and for the reason TransactionTag records: a part's owner is
+/// unambiguously its transaction's owner, so queries scope through `transaction: { userId }`
+/// rather than copying a userId somewhere it can drift out of agreement with the row it
+/// describes. `categoryId` is scoped independently on every read AND every write, because a
+/// foreign key alone does not stop a part pointing at another user's category — only the write
+/// path re-resolving it under the session does. Proven by attempting it, in splits.db-smoke.ts.
+///
+/// Surrogate id rather than TransactionTag's composite key: the same category may legitimately
+/// appear twice in one répartition (two lines the user wants to keep apart, distinguished by
+/// their notes), so (transactionId, categoryId) is not unique and cannot be the key.
+model TransactionSplit {
+  id            String      @id @default(cuid())
+  transactionId String
+  categoryId    String
+  /// Signed integer cents, same sign as the parent, never zero. The invariant
+  /// (sum of parts == parent.amountCents) is enforced in application code only — no database
+  /// expresses it portably across the three providers. server/transactions/splits.ts is the
+  /// single write path and validates it against the parent row re-read inside the same
+  /// transaction, never against a client-supplied total.
+  amountCents   Int
+  /// 0-based display order. Load-bearing rather than cosmetic: the even-split helper gives the
+  /// extra cent(s) to the FIRST r parts (domain/allocation.ts, distributeEvenly), so which part
+  /// carries them is user-visible and must be stable across reads. It is also the tiebreak for
+  /// the dominant-part rule the transaction list's indicator uses.
+  position      Int
+  /// Optional free text, display only. Capped at 80 by the write path and bounded at
+  /// MAX_PORTABLE_STRING (191) in the backup schema — the established split, for the reason
+  /// Account.providerAccountId records: the write path bounds what THIS version produces, the
+  /// backup bound must still accept what an older one legally wrote.
+  ///
+  /// Never indexed, never searched, never a grouping key, and never sent to the AI payload.
+  /// Nothing on a part may become a filter dimension or a search target; if something here needs
+  /// to be queryable, the model is wrong and that is the signal.
+  note          String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  /// No cascade, matching Transaction.category: deleting a category in use must never delete
+  /// money. /categories' delete path re-points Transaction.categoryId and must re-point this
+  /// column in the same breath, or the delete fails on this foreign key.
+  category      Category    @relation(fields: [categoryId], references: [id])
+
+  @@index([transactionId])
+  @@index([categoryId])
+}
+
 model Transaction {
   id                String             @id @default(cuid())
   userId            String
@@ -394,6 +454,7 @@ model Transaction {
   category          Category           @relation(fields: [categoryId], references: [id])
   importBatch       ImportBatch?       @relation(fields: [importBatchId], references: [id])
   tags              TransactionTag[]
+  splits            TransactionSplit[]
 
   @@unique([userId, dedupeKeyHash])
   @@index([userId])

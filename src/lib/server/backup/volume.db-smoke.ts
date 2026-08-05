@@ -121,7 +121,8 @@ function buildVolumePayload(count: number): BackupExport {
 		bankConnections: [],
 		recurringStreamActions: [],
 		tags: [{ id: 'file-clay', name: 'Portugal', colorToken: 'clay' }],
-		transactionTags: pairs
+		transactionTags: pairs,
+		transactionSplits: []
 	} as BackupExport;
 }
 

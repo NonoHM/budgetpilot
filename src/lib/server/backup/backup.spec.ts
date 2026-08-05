@@ -24,7 +24,8 @@ const db = vi.hoisted(() => {
 		bankConnections: [] as Row[],
 		recurringStreamActions: [] as Row[],
 		tags: [] as Row[],
-		transactionTags: [] as Row[]
+		transactionTags: [] as Row[],
+		transactionSplits: [] as Row[]
 	};
 
 	let counter = 0;
@@ -91,6 +92,68 @@ const db = vi.hoisted(() => {
 	 * that column does not exist, the real engine would reject the query, and a fake that quietly
 	 * accepted it would let a wrong query pass every test and fail only in production.
 	 */
+	// Mirrors transactionTagTable: TransactionSplit has no userId column either, so the fake
+	// refuses a `userId` in the where clause exactly as the real schema would make impossible.
+	// That refusal is the point — it is what makes the export spec able to prove the query scopes
+	// through BOTH relations rather than through a column that does not exist.
+	function transactionSplitTable() {
+		const rows = store.transactionSplits;
+		return {
+			findMany: vi.fn(
+				async ({
+					where,
+					select
+				}: {
+					where: {
+						transaction?: { userId: string };
+						category?: { userId: string };
+						transactionId?: string;
+					};
+					select?: Record<string, boolean>;
+					orderBy?: unknown;
+				}) => {
+					if ('userId' in where) {
+						throw new Error(
+							'TransactionSplit has no userId column; scope through `transaction: { userId }`'
+						);
+					}
+					return rows
+						.filter((row) => (where.transaction ? row.userId === where.transaction.userId : true))
+						.filter((row) =>
+							where.category ? row.categoryOwnerId === where.category.userId : true
+						)
+						.filter((row) =>
+							where.transactionId ? row.transactionId === where.transactionId : true
+						)
+						.map((row) => pick(row, select));
+				}
+			),
+			createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => {
+				const created = data.map((entry) => {
+					const owner = store.transactions.find((row) => row.id === entry.transactionId);
+					const category = store.categories.find((row) => row.id === entry.categoryId);
+					return {
+						...entry,
+						id: genId('split'),
+						userId: owner?.userId,
+						categoryOwnerId: category?.userId
+					} as Row;
+				});
+				rows.push(...created);
+				return { count: created.length };
+			}),
+			deleteMany: vi.fn(async ({ where }: { where: { transactionId?: string } }) => {
+				const before = rows.length;
+				const remaining = rows.filter(
+					(row) => !(where.transactionId === undefined || row.transactionId === where.transactionId)
+				);
+				rows.length = 0;
+				rows.push(...remaining);
+				return { count: before - rows.length };
+			})
+		};
+	}
+
 	function transactionTagTable() {
 		const rows = store.transactionTags;
 		return {
@@ -203,6 +266,7 @@ const db = vi.hoisted(() => {
 			store.recurringStreamActions.length = 0;
 			store.tags.length = 0;
 			store.transactionTags.length = 0;
+			store.transactionSplits.length = 0;
 			counter = 0;
 		},
 		prisma: {
@@ -236,6 +300,7 @@ const db = vi.hoisted(() => {
 			recurringStreamAction: table(store.recurringStreamActions, 'recurring-action'),
 			tag: table(store.tags, 'tag'),
 			transactionTag: transactionTagTable(),
+			transactionSplit: transactionSplitTable(),
 			// Second parameter mirrors the real client's interactive-transaction options, so
 			// specs can assert what the caller asked for (see LONG_TRANSACTION_OPTIONS).
 			$transaction: vi.fn(
@@ -777,7 +842,15 @@ describe('restoreBackup', () => {
 				updatedAt: string;
 			}>,
 			tags: [] as Array<{ id: string; name: string; colorToken: TagColorToken }>,
-			transactionTags: [] as Array<{ transactionId: string; tagId: string }>
+			transactionTags: [] as Array<{ transactionId: string; tagId: string }>,
+			transactionSplits: [] as Array<{
+				id: string;
+				transactionId: string;
+				categoryId: string;
+				amountCents: number;
+				position: number;
+				note: string | null;
+			}>
 		};
 	}
 
@@ -1599,7 +1672,15 @@ function buildTagRestorePayload() {
 		bankConnections: [],
 		recurringStreamActions: [],
 		tags: [] as Array<{ id: string; name: string; colorToken: TagColorToken }>,
-		transactionTags: [] as Array<{ transactionId: string; tagId: string }>
+		transactionTags: [] as Array<{ transactionId: string; tagId: string }>,
+		transactionSplits: [] as Array<{
+			id: string;
+			transactionId: string;
+			categoryId: string;
+			amountCents: number;
+			position: number;
+			note: string | null;
+		}>
 	};
 }
 
@@ -1755,5 +1836,183 @@ describe('restoreBackup with tags', () => {
 
 		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
 		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+});
+
+describe('backup with transaction splits', () => {
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+	});
+
+	it('exports parts only for the requesting user, scoping through BOTH relations', async () => {
+		expect.assertions(3);
+
+		db.store.transactionSplits.push(
+			{
+				id: 'split-a',
+				userId: 'user-a',
+				categoryOwnerId: 'user-a',
+				transactionId: 'tx-a',
+				categoryId: 'cat-a',
+				amountCents: -6000,
+				position: 0,
+				note: 'courses'
+			},
+			// Same owning transaction, but a category belonging to somebody else. Impossible
+			// through the write path and the whole reason the second conjunct exists: with only
+			// `transaction: { userId }` this row would be exported, naming a categoryId absent
+			// from the `categories` array, and the user's own export would never restore again.
+			{
+				id: 'split-cross',
+				userId: 'user-a',
+				categoryOwnerId: 'user-b',
+				transactionId: 'tx-a',
+				categoryId: 'cat-b',
+				amountCents: -2000,
+				position: 1,
+				note: null
+			},
+			{
+				id: 'split-b',
+				userId: 'user-b',
+				categoryOwnerId: 'user-b',
+				transactionId: 'tx-b',
+				categoryId: 'cat-b',
+				amountCents: -100,
+				position: 0,
+				note: 'autre'
+			}
+		);
+
+		const result = await buildBackupExport('user-a');
+
+		expect(result.transactionSplits).toEqual([
+			{
+				id: 'split-a',
+				transactionId: 'tx-a',
+				categoryId: 'cat-a',
+				amountCents: -6000,
+				position: 0,
+				note: 'courses'
+			}
+		]);
+		expect(JSON.stringify(result)).not.toContain('tx-b');
+		expect(JSON.stringify(result)).not.toContain('cat-b');
+	});
+
+	function buildSplitRestorePayload() {
+		const payload = buildTagRestorePayload();
+		payload.categories = [
+			{ id: 'file-cat-1', name: 'Alimentation' },
+			{ id: 'file-cat-2', name: 'Maison' }
+		];
+		payload.transactions[0].amountCents = -8000;
+		payload.transactionSplits = [
+			{
+				id: 'file-split-1',
+				transactionId: payload.transactions[0].id,
+				categoryId: 'file-cat-1',
+				amountCents: -6000,
+				position: 0,
+				note: 'courses'
+			},
+			{
+				id: 'file-split-2',
+				transactionId: payload.transactions[0].id,
+				categoryId: 'file-cat-2',
+				amountCents: -2000,
+				position: 1,
+				note: null
+			}
+		];
+		return payload;
+	}
+
+	// The COMBINATION, in the restored artifact, rather than each half alone. Per-leg checks pass
+	// while the whole is broken: the parts can survive and no longer sum, which is the one state
+	// the write path can never produce and the only one that makes every per-category total wrong.
+	it('restores parts intact AND still summing to their parent', async () => {
+		expect.assertions(4);
+
+		await restoreBackup('user-a', buildSplitRestorePayload());
+
+		const restored = db.store.transactionSplits.filter((row) => row.userId === 'user-a');
+		expect(restored).toHaveLength(2);
+
+		const parent = db.store.transactions.find((row) => row.userId === 'user-a');
+		expect(parent).toBeDefined();
+		// Both ids are the regenerated ones, never the file's.
+		expect(restored.every((row) => row.transactionId === parent!.id)).toBe(true);
+		expect(restored.reduce((sum, row) => sum + (row.amountCents as number), 0)).toBe(
+			parent!.amountCents
+		);
+	});
+
+	it('refuses a payload whose parts do not sum to their parent, before any write', async () => {
+		expect.assertions(2);
+
+		const payload = buildSplitRestorePayload();
+		payload.transactionSplits[1].amountCents = -1900;
+
+		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	it('refuses a single-part répartition, which no write path can produce', async () => {
+		expect.assertions(2);
+
+		const payload = buildSplitRestorePayload();
+		payload.transactionSplits = [payload.transactionSplits[0]];
+		payload.transactionSplits[0].amountCents = -8000;
+
+		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	it('refuses a part naming a transaction absent from the payload', async () => {
+		expect.assertions(2);
+
+		const payload = buildSplitRestorePayload();
+		payload.transactionSplits[0].transactionId = 'file-tx-missing';
+
+		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	it('refuses a part naming a category absent from the payload', async () => {
+		expect.assertions(2);
+
+		const payload = buildSplitRestorePayload();
+		payload.transactionSplits[0].categoryId = 'file-cat-missing';
+
+		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	// Pins the ABSENCE of a purge line, exactly as the transactionTags test above does, and for the
+	// same reason: TransactionSplit has no userId to scope a deleteMany by, so it must die with its
+	// transaction. A future edit adding a purge line here goes red and has to justify itself.
+	//
+	// It does NOT assert that the cascade fires. That is a DATABASE claim and this fake has no
+	// cascades, so asserting it here would only prove the fake — the trap the tag test already
+	// names. The real assertion runs against all three engines in the db-smoke suite.
+	//
+	// One thing this fake CAN prove, and it is the half that is not about cascades: the purge
+	// deletes transactions BEFORE categories. Category deliberately does not cascade to parts, so
+	// the reverse order would fail on the foreign key for every account that has ever used a
+	// répartition — on a real engine, during a restore, with the user's data already deleted.
+	it('never purges parts directly, and deletes transactions before categories', async () => {
+		expect.assertions(3);
+
+		await restoreBackup('user-a', buildSplitRestorePayload());
+
+		expect(db.prisma.transactionSplit.deleteMany).not.toHaveBeenCalled();
+
+		const transactionPurge = db.prisma.transaction.deleteMany.mock.invocationCallOrder[0];
+		const categoryPurge = db.prisma.category.deleteMany.mock.invocationCallOrder[0];
+		expect(transactionPurge).toBeDefined();
+		expect(transactionPurge).toBeLessThan(categoryPurge);
 	});
 });
