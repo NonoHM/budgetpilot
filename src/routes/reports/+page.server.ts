@@ -10,6 +10,7 @@ import { prisma } from '$lib/server/db';
 import { buildPeriodReport } from '$lib/server/reports/monthly';
 import {
 	buildCategoryNatureMap,
+	EFFECTIVE_CATEGORY_SELECT,
 	getEffectiveCategory,
 	getEffectiveTransactionNature
 } from '$lib/server/transactions/nature';
@@ -83,9 +84,8 @@ async function readTransactionsForRange(
 			amountCents: true,
 			type: true,
 			source: true,
-			manualCategory: true,
 			natureManual: true,
-			category: { select: { name: true } }
+			...EFFECTIVE_CATEGORY_SELECT
 		},
 		orderBy: { date: 'asc' }
 	});

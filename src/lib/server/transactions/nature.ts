@@ -94,6 +94,20 @@ export function getEffectiveCategory(transaction: {
 	return transaction.manualCategory ?? transaction.category?.name ?? UNCLASSIFIED_CATEGORY;
 }
 
+/**
+ * The columns getEffectiveCategory needs, as a Prisma `select` fragment to spread.
+ *
+ * It exists so that the three reads which resolve money per category — readDashboardDataForRange,
+ * readCurrentMonthSpending and readTransactionsForRange — name those columns ONCE. Each used to
+ * spell them out, which was harmless while the answer was two columns and stops being harmless the
+ * moment it is three: a read that forgets the third silently resolves a different category for the
+ * same row than its siblings do, and nothing fails.
+ */
+export const EFFECTIVE_CATEGORY_SELECT = {
+	manualCategory: true,
+	category: { select: { name: true } }
+} as const;
+
 // "To classify" pile: effective category === "Non catégorisé", NOT nature ===
 // "uncategorized" (a deliberately chosen category leaves the pile regardless of its
 // nature — see CLAUDE.md).

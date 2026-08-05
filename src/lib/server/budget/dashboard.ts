@@ -13,6 +13,7 @@ import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
 import {
 	buildCategoryNatureMap,
+	EFFECTIVE_CATEGORY_SELECT,
 	getEffectiveCategory,
 	getEffectiveTransactionNature,
 	type CategoryNatureMappingRecord
@@ -96,9 +97,8 @@ export async function readDashboardDataForRange(
 				amountCents: true,
 				type: true,
 				source: true,
-				manualCategory: true,
 				natureManual: true,
-				category: { select: { name: true } }
+				...EFFECTIVE_CATEGORY_SELECT
 			},
 			orderBy: {
 				date: 'desc'
@@ -420,6 +420,18 @@ function isValidMonth(value: string): boolean {
 	return month >= 1 && month <= 12;
 }
 
+/**
+ * Per-category spending for the CURRENT calendar month.
+ *
+ * Two things about it that are easy to miss, both pre-existing and both left as they are:
+ *
+ *  - It reads the WALL CLOCK, so it is the one aggregate here that cannot be pinned by passing a
+ *    range. Anything measuring this function (a golden master, a fixture) has to seed against the
+ *    real current month or accept that its output moves.
+ *  - It selects `type: 'expense'` in SQL, where every other money read resolves the kind through
+ *    getTransactionKind and falls back to the SIGN when `type` is null. So a negative transaction
+ *    with no stored type counts as an expense everywhere else and is invisible here.
+ */
 export async function readCurrentMonthSpending(userId: string): Promise<Map<string, number>> {
 	const now = new Date();
 	const firstOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -433,8 +445,7 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
 		},
 		select: {
 			amountCents: true,
-			manualCategory: true,
-			category: { select: { name: true } }
+			...EFFECTIVE_CATEGORY_SELECT
 		}
 	});
 
