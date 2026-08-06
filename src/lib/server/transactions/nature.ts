@@ -3,9 +3,11 @@ import {
 	type Transaction,
 	type TransactionKind,
 	type TransactionNature,
+	type TransactionSource,
 	getTransactionKind,
 	isTransactionNature
 } from '$lib/domain/transaction';
+import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { normalizeId } from '$lib/server/transactions/where';
 import { normalizeForMatch } from '$lib/domain/normalize';
@@ -111,6 +113,14 @@ export function getEffectiveCategory(transaction: {
  *
  * Ordered by `position` because that order is user-visible: it decides which part carries the
  * rounding cent, and the list indicator breaks a dominant-part tie on it.
+ *
+ * DO NOT make `splits` optional downstream — no `splits?:` on TransactionRowForMapping, no
+ * `?? []` in the mappers. That is the obvious suggestion when a new boundary or a test fixture
+ * fails to compile, and it is precisely the failure this fragment exists to prevent: the default
+ * is indistinguishable from a real unsplit row, so a boundary that forgot the parts would emit
+ * allocations attributing every figure to the parent's category, agreeing with nothing and
+ * failing nowhere. The compile error names the boundary; the fallback hides it. Adding the
+ * columns to the caller is the fix, however many fixtures it touches.
  */
 export const EFFECTIVE_CATEGORY_SELECT = {
 	manualCategory: true,
@@ -120,6 +130,106 @@ export const EFFECTIVE_CATEGORY_SELECT = {
 		orderBy: { position: 'asc' }
 	}
 } as const;
+
+/** The row shape EFFECTIVE_CATEGORY_SELECT's `splits` key produces. */
+export type SplitRow = { amountCents: number; position: number; category: { name: string } };
+
+/** The columns the two mappers below read. A boundary spreading EFFECTIVE_CATEGORY_SELECT and the
+ *  identity columns satisfies it; one that forgets a column does not compile. */
+export interface TransactionRowForMapping {
+	id: string;
+	date: Date;
+	label: string;
+	amountCents: number;
+	type: string | null;
+	source: string;
+	manualCategory: string | null;
+	natureManual?: TransactionNature | null;
+	category: { name: string } | null;
+	splits: SplitRow[];
+}
+
+/**
+ * One database row to one domain Transaction, with its nature resolved.
+ *
+ * The return type is NARROWER than `Transaction`, whose `nature` is optional: this mapper always
+ * resolves one. Saying so is what lets `allocationsOf` — which requires a resolved nature — take the
+ * result directly rather than being handed a `?? 'uncategorized'` fallback. That default is a real
+ * nature a user can hold, so it would silently conflate "we do not know" with "the user chose that",
+ * inside the one function whose whole job is bucketing money.
+ *
+ * `type` falls back to the SIGN when the column is null, matching getTransactionKind, which every
+ * downstream consumer uses anyway.
+ */
+export function mapTransactionWithNature(
+	transaction: Omit<TransactionRowForMapping, 'splits'>,
+	mappingMap: Map<string, TransactionNature>
+): Transaction & { nature: TransactionNature } {
+	const category = getEffectiveCategory(transaction);
+	const type =
+		transaction.type === 'income' || transaction.type === 'expense'
+			? transaction.type
+			: transaction.amountCents >= 0
+				? 'income'
+				: 'expense';
+	const effectiveNature = getEffectiveTransactionNature(
+		{
+			amountCents: transaction.amountCents,
+			type,
+			category,
+			natureManual: transaction.natureManual ?? null
+		},
+		mappingMap
+	);
+
+	return {
+		id: transaction.id,
+		date: transaction.date.toISOString().slice(0, 10),
+		label: transaction.label,
+		amountCents: transaction.amountCents,
+		type,
+		category,
+		source: transaction.source as TransactionSource,
+		nature: effectiveNature.nature,
+		natureSource: effectiveNature.source
+	};
+}
+
+/**
+ * One database row to its allocations — the ONLY supported way to read money out of a transaction.
+ *
+ * An unsplit row yields exactly one allocation carrying its whole amount, so no consumer needs a
+ * special case and none can tell the two apart. That is the point: a site written against
+ * allocations is correct for split and unsplit rows alike, and a site written against
+ * `Transaction.amountCents` is a double-count the moment parts exist.
+ *
+ * NATURE RESOLVES PER PART (OD-4). Each part's nature comes from its OWN category through the same
+ * getEffectiveTransactionNature every other read uses, so a purchase split into a spending part and
+ * a transfer part finally reports as both. The parent's `natureManual` still overrides every part:
+ * one manual override, no new UI, and it stays the single place a user can contradict the mapping.
+ */
+export function mapTransactionAllocations(
+	transaction: TransactionRowForMapping,
+	mappingMap: Map<string, TransactionNature>
+): CategoryAllocation[] {
+	const parent = mapTransactionWithNature(transaction, mappingMap);
+
+	const parts = transaction.splits.map((split) => ({
+		category: split.category.name,
+		amountCents: split.amountCents,
+		nature: getEffectiveTransactionNature(
+			{
+				amountCents: split.amountCents,
+				type: parent.type,
+				category: split.category.name,
+				natureManual: transaction.natureManual ?? null
+			},
+			mappingMap
+		).nature
+	}));
+
+	return allocationsOf(parent, parts);
+}
 
 // "To classify" pile: effective category === "Non catégorisé", NOT nature ===
 // "uncategorized" (a deliberately chosen category leaves the pile regardless of its
@@ -217,12 +327,24 @@ export async function deleteCategoryNatureMapping(
 	return result.count > 0;
 }
 
-export function analyzeTransactionNatures(transactions: Transaction[]): TransactionNatureAnalysis {
-	return transactions.reduce<TransactionNatureAnalysis>(
-		(summary, transaction) => {
-			const nature = transaction.nature ?? getDefaultTransactionNature(transaction);
-			const amount = Math.abs(transaction.amountCents);
-			const kind = getTransactionKind(transaction);
+/**
+ * The per-nature buckets, over ALLOCATIONS rather than transactions.
+ *
+ * This is where OD-4 is paid for: a transaction split into a spending part and a transfer part
+ * lands in two buckets, which is the whole point, and it is also the one aggregate whose figure a
+ * conservation guard can no longer pin per transaction. Σ over all buckets still equals Σ over the
+ * allocations, so the total is conserved; what moves is which bucket holds it.
+ *
+ * Takes CategoryAllocation, not Transaction, deliberately: an allocation carries a resolved `nature`
+ * and a resolved `kind`, so neither has to be re-derived here, and passing a Transaction[] is a
+ * compile error rather than a silent attribution of every part to the parent's nature.
+ */
+export function analyzeTransactionNatures(
+	allocations: CategoryAllocation[]
+): TransactionNatureAnalysis {
+	return allocations.reduce<TransactionNatureAnalysis>(
+		(summary, { nature, kind, amountCents }) => {
+			const amount = Math.abs(amountCents);
 			if (nature === 'income') summary.incomeCents += amount;
 			if (nature === 'spending' && kind === 'expense') summary.spendingCents += amount;
 			if (nature === 'investment' && kind === 'expense') summary.investmentCents += amount;

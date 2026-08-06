@@ -1,7 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { summarizeBudgetTransactions } from '$lib/domain/budget';
+import { summarizeBudgetAllocations } from '$lib/domain/budget';
 import type { Transaction } from '$lib/domain/transaction';
+import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
+import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
 import { buildTransactionSummary } from './summary';
+
+/**
+ * Derives the MONEY view from the fixture's IDENTITY view, by calling the canonical helpers rather
+ * than restating the remainder rule or the nature default (see CLAUDE.md). Every fixture in this
+ * file is unsplit, so this always yields exactly one allocation per transaction, carrying its
+ * whole amount.
+ */
+function toAllocations(transactions: Transaction[]): CategoryAllocation[] {
+	return transactions.flatMap((transaction) =>
+		allocationsOf({
+			...transaction,
+			nature: transaction.nature ?? getEffectiveTransactionNature(transaction, new Map()).nature
+		})
+	);
+}
 
 const transactions: Transaction[] = [
 	{
@@ -68,14 +85,20 @@ describe('buildTransactionSummary and tag data', () => {
 			tags: ['Portugal']
 		})) as unknown as Transaction[];
 
-		const monthlySummary = summarizeBudgetTransactions(
-			tagged,
+		const monthlySummary = summarizeBudgetAllocations(
+			toAllocations(tagged),
 			[{ category: 'Logement', limitCents: 100_000 }],
 			'2026-06'
 		);
-		const summary = buildTransactionSummary(tagged, monthlySummary, undefined, {
-			includeLabels: true
-		});
+		const summary = buildTransactionSummary(
+			tagged,
+			toAllocations(tagged),
+			monthlySummary,
+			undefined,
+			{
+				includeLabels: true
+			}
+		);
 
 		expect(JSON.stringify(summary)).not.toContain('Portugal');
 
@@ -98,12 +121,16 @@ describe('buildTransactionSummary - includeLabels', () => {
 	it('n’inclut aucun libellé de transaction quand includeLabels est omis', () => {
 		expect.assertions(2);
 
-		const monthlySummary = summarizeBudgetTransactions(
-			transactions,
+		const monthlySummary = summarizeBudgetAllocations(
+			toAllocations(transactions),
 			[{ category: 'Logement', limitCents: 100_000 }],
 			'2026-06'
 		);
-		const summary = buildTransactionSummary(transactions, monthlySummary);
+		const summary = buildTransactionSummary(
+			transactions,
+			toAllocations(transactions),
+			monthlySummary
+		);
 
 		expect(summary.flaggedCategoryLabels).toBeUndefined();
 		expect(JSON.stringify(summary)).not.toContain('Loyer juin');
@@ -112,8 +139,12 @@ describe('buildTransactionSummary - includeLabels', () => {
 	it('redige aussi les libellés (même anonymisés) des plus grosses dépenses et des paiements récurrents quand includeLabels est omis', () => {
 		expect.assertions(2);
 
-		const monthlySummary = summarizeBudgetTransactions(transactions, [], '2026-06');
-		const summary = buildTransactionSummary(transactions, monthlySummary);
+		const monthlySummary = summarizeBudgetAllocations(toAllocations(transactions), [], '2026-06');
+		const summary = buildTransactionSummary(
+			transactions,
+			toAllocations(transactions),
+			monthlySummary
+		);
 
 		expect(summary.largestExpenses.length).toBeGreaterThan(0);
 		expect(
@@ -125,14 +156,20 @@ describe('buildTransactionSummary - includeLabels', () => {
 	it('n’inclut aucun libellé quand includeLabels vaut false', () => {
 		expect.assertions(1);
 
-		const monthlySummary = summarizeBudgetTransactions(
-			transactions,
+		const monthlySummary = summarizeBudgetAllocations(
+			toAllocations(transactions),
 			[{ category: 'Logement', limitCents: 100_000 }],
 			'2026-06'
 		);
-		const summary = buildTransactionSummary(transactions, monthlySummary, undefined, {
-			includeLabels: false
-		});
+		const summary = buildTransactionSummary(
+			transactions,
+			toAllocations(transactions),
+			monthlySummary,
+			undefined,
+			{
+				includeLabels: false
+			}
+		);
 
 		expect(summary.flaggedCategoryLabels).toBeUndefined();
 	});
@@ -140,17 +177,23 @@ describe('buildTransactionSummary - includeLabels', () => {
 	it('inclut les libellés des dépenses des catégories signalées quand includeLabels vaut true', () => {
 		expect.assertions(4);
 
-		const monthlySummary = summarizeBudgetTransactions(
-			transactions,
+		const monthlySummary = summarizeBudgetAllocations(
+			toAllocations(transactions),
 			[
 				{ category: 'Logement', limitCents: 100_000 },
 				{ category: 'Alimentation', limitCents: 100_000 }
 			],
 			'2026-06'
 		);
-		const summary = buildTransactionSummary(transactions, monthlySummary, undefined, {
-			includeLabels: true
-		});
+		const summary = buildTransactionSummary(
+			transactions,
+			toAllocations(transactions),
+			monthlySummary,
+			undefined,
+			{
+				includeLabels: true
+			}
+		);
 
 		// Logement est over_budget (125 000 > 100 000), Alimentation reste ok (15 000 < 80 000).
 		expect(summary.flaggedCategoryLabels).toBeDefined();
@@ -212,14 +255,20 @@ describe('buildTransactionSummary - includeLabels', () => {
 				source: 'manual'
 			}
 		];
-		const monthlySummary = summarizeBudgetTransactions(
-			manyExpenses,
+		const monthlySummary = summarizeBudgetAllocations(
+			toAllocations(manyExpenses),
 			[{ category: 'Loisirs', limitCents: 50_000 }],
 			'2026-06'
 		);
-		const summary = buildTransactionSummary(manyExpenses, monthlySummary, undefined, {
-			includeLabels: true
-		});
+		const summary = buildTransactionSummary(
+			manyExpenses,
+			toAllocations(manyExpenses),
+			monthlySummary,
+			undefined,
+			{
+				includeLabels: true
+			}
+		);
 
 		expect(summary.flaggedCategoryLabels?.[0].labels).toEqual([
 			'Dépense B',
@@ -232,14 +281,20 @@ describe('buildTransactionSummary - includeLabels', () => {
 	it('n’inclut pas les catégories dont le budget est respecté (status ok)', () => {
 		expect.assertions(1);
 
-		const monthlySummary = summarizeBudgetTransactions(
-			transactions,
+		const monthlySummary = summarizeBudgetAllocations(
+			toAllocations(transactions),
 			[{ category: 'Alimentation', limitCents: 100_000 }],
 			'2026-06'
 		);
-		const summary = buildTransactionSummary(transactions, monthlySummary, undefined, {
-			includeLabels: true
-		});
+		const summary = buildTransactionSummary(
+			transactions,
+			toAllocations(transactions),
+			monthlySummary,
+			undefined,
+			{
+				includeLabels: true
+			}
+		);
 
 		expect(summary.flaggedCategoryLabels).toEqual([]);
 	});

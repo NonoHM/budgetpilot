@@ -2,6 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { takeawayDot, takeawayText } from './takeawayLabels';
 import { buildMonthlyReport } from '$lib/server/reports/monthly';
 import type { Transaction } from '$lib/domain/transaction';
+import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
+import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
+
+/**
+ * Derives the MONEY view from the fixture's IDENTITY view, by calling the canonical helpers rather
+ * than restating the remainder rule or the nature default (see CLAUDE.md). The fixture below is
+ * unsplit, so this always yields exactly one allocation per transaction, carrying its whole amount.
+ */
+function toAllocations(transactions: Transaction[]): CategoryAllocation[] {
+	return transactions.flatMap((transaction) =>
+		allocationsOf({
+			...transaction,
+			nature: transaction.nature ?? getEffectiveTransactionNature(transaction, new Map()).nature
+		})
+	);
+}
 
 describe('takeawayDot', () => {
 	it('ne prend jamais la couleur "investment" (indigo) pour un takeaway top_category', () => {
@@ -55,7 +71,7 @@ describe('takeawayDot — category name collision (end-to-end via buildMonthlyRe
 			}
 		];
 
-		const report = buildMonthlyReport(transactions, '2026-06');
+		const report = buildMonthlyReport(transactions, toAllocations(transactions), '2026-06');
 		const topCategoryTakeaway = report.takeaways.find((t) => t.code === 'top_category');
 
 		expect(topCategoryTakeaway).toBeDefined();

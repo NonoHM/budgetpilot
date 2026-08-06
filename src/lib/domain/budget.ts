@@ -1,5 +1,4 @@
-import type { Transaction } from './transaction';
-import { getTransactionKind } from './transaction';
+import type { CategoryAllocation } from './allocation';
 import { normalizeForMatch } from './normalize';
 import { getLocale } from '$lib/paraglide/runtime';
 import * as m from '$lib/paraglide/messages';
@@ -28,37 +27,48 @@ export interface MonthlyBudgetSummary {
 }
 
 export function summarizeMonthlyBudget(
-	transactions: Transaction[],
+	allocations: CategoryAllocation[],
 	budgets: CategoryBudget[],
 	month: string
 ): MonthlyBudgetSummary {
-	const monthlyTransactions = transactions.filter((transaction) =>
-		transaction.date.startsWith(`${month}-`)
+	return summarizeBudgetAllocations(
+		allocations.filter((allocation) => allocation.date.startsWith(`${month}-`)),
+		budgets,
+		month
 	);
-
-	return summarizeBudgetTransactions(monthlyTransactions, budgets, month);
 }
 
-export function summarizeBudgetTransactions(
-	transactions: Transaction[],
+/**
+ * The budget summary, over ALLOCATIONS only — it asks nothing an allocation cannot answer.
+ *
+ * Renamed from `summarizeBudgetTransactions` rather than merely retyped, so that every call site
+ * has to be looked at rather than silently keeping a name that now describes the wrong view. A
+ * budget is a claim about where money went; attributing a split purchase entirely to its parent
+ * category is the exact figure this function must not produce.
+ *
+ * `incomeCents` / `expenseCents` are unchanged in value: every allocation carries its transaction's
+ * kind, so summing them per kind equals summing the transactions per kind.
+ */
+export function summarizeBudgetAllocations(
+	allocations: CategoryAllocation[],
 	budgets: CategoryBudget[],
 	period: string
 ): MonthlyBudgetSummary {
-	const incomeCents = transactions
-		.filter((transaction) => getTransactionKind(transaction) === 'income')
-		.reduce((total, transaction) => total + Math.abs(transaction.amountCents), 0);
-	const expenseCents = transactions
-		.filter((transaction) => getTransactionKind(transaction) === 'expense')
-		.reduce((total, transaction) => total + Math.abs(transaction.amountCents), 0);
+	const incomeCents = allocations
+		.filter((allocation) => allocation.kind === 'income')
+		.reduce((total, allocation) => total + Math.abs(allocation.amountCents), 0);
+	const expenseCents = allocations
+		.filter((allocation) => allocation.kind === 'expense')
+		.reduce((total, allocation) => total + Math.abs(allocation.amountCents), 0);
 	// Spend is accumulated per folded category name, not per raw one: "Courses" and
 	// "courses" are one category everywhere else in the app, so they have to be one line in
 	// the budget too. See domain/normalize.ts.
 	const spentByCategory = new Map<string, number>();
 	const budgetCategories = new Set(budgets.map((budget) => normalizeForMatch(budget.category)));
-	for (const transaction of transactions) {
-		if (!shouldCountTransactionForBudget(transaction, budgetCategories)) continue;
-		const key = normalizeForMatch(transaction.category);
-		spentByCategory.set(key, (spentByCategory.get(key) ?? 0) + Math.abs(transaction.amountCents));
+	for (const allocation of allocations) {
+		if (!shouldCountAllocationForBudget(allocation, budgetCategories)) continue;
+		const key = normalizeForMatch(allocation.category);
+		spentByCategory.set(key, (spentByCategory.get(key) ?? 0) + Math.abs(allocation.amountCents));
 	}
 
 	const categorySummaries = budgets.map((budget) => {
@@ -92,15 +102,23 @@ export function summarizeBudgetTransactions(
 	};
 }
 
-/** `budgetCategories` holds folded names (see the call site), so the lookup folds too. */
-function shouldCountTransactionForBudget(
-	transaction: Transaction,
+/**
+ * `budgetCategories` holds folded names (see the call site), so the lookup folds too.
+ *
+ * The old transaction-shaped version ended `|| !transaction.nature`, treating an unresolved nature
+ * as spending. An allocation's `nature` is required, so that clause has no counterpart and none is
+ * needed: every boundary resolves a nature before building one, and an expense with no mapping
+ * resolves to 'spending' — the same answer the fallback gave, reached by the rule rather than by
+ * the absence of one.
+ */
+function shouldCountAllocationForBudget(
+	allocation: CategoryAllocation,
 	budgetCategories: Set<string>
 ): boolean {
-	if (getTransactionKind(transaction) !== 'expense') return false;
-	if (budgetCategories.has(normalizeForMatch(transaction.category))) return true;
+	if (allocation.kind !== 'expense') return false;
+	if (budgetCategories.has(normalizeForMatch(allocation.category))) return true;
 
-	return transaction.nature === 'spending' || transaction.nature === 'fee' || !transaction.nature;
+	return allocation.nature === 'spending' || allocation.nature === 'fee';
 }
 
 export type BudgetDeltaTone = 'positive' | 'warning' | 'danger';

@@ -1,6 +1,6 @@
 import { fail, isHttpError, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
-import { summarizeBudgetTransactions } from '$lib/domain/budget';
+import { summarizeBudgetAllocations } from '$lib/domain/budget';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import {
@@ -29,22 +29,22 @@ const MAX_DASHBOARD_GOALS = 2;
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 	const period = parseDateRange(url.searchParams);
-	const { transactions, budgets } = await readDashboardDataForRange(user.id, period);
+	const { transactions, allocations, budgets } = await readDashboardDataForRange(user.id, period);
 	const budgetSummaryAvailable = isWholeMonthPeriod(period.from, period.to);
 	const previousPeriod = getPreviousMonthRange(period);
 	const previousMonthData = previousPeriod
 		? await readDashboardData(user.id, previousPeriod.budgetMonth)
 		: undefined;
-	const summary = summarizeBudgetTransactions(
-		transactions,
+	const summary = summarizeBudgetAllocations(
+		allocations,
 		budgetSummaryAvailable ? budgets : [],
 		period.label
 	);
 	const previousSummary =
 		previousMonthData &&
 		(previousMonthData.transactions.length > 0 || previousMonthData.budgets.length > 0)
-			? summarizeBudgetTransactions(
-					previousMonthData.transactions,
+			? summarizeBudgetAllocations(
+					previousMonthData.allocations,
 					previousMonthData.budgets,
 					previousPeriod?.label ?? m.dashboard_previous_period_fallback()
 				)
@@ -83,6 +83,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const aiAdvice = aiAllowed
 		? getBudgetInsights({
 				transactions,
+				allocations,
 				monthlySummary: summary,
 				previousMonth: previousSummary,
 				env: process.env,
@@ -105,7 +106,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		transactions,
 		budgets,
 		summary,
-		natureAnalysis: analyzeTransactionNatures(transactions),
+		natureAnalysis: analyzeTransactionNatures(allocations),
 		aiAdvice,
 		aiAllowed,
 		recentTransactions: transactions.slice(0, 10),

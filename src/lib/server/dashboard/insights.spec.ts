@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CategoryBudgetSummary } from '$lib/domain/budget';
 import type { Transaction } from '$lib/domain/transaction';
+import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
+import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
 import {
 	computeBudgetAlerts,
 	computeUnusualSpendingInsight,
@@ -33,6 +35,23 @@ function transaction(overrides: Partial<Transaction>): Transaction {
 		source: 'manual',
 		...overrides
 	};
+}
+
+/**
+ * The one CategoryAllocation an unsplit transaction fixture yields, resolved the same way the
+ * production boundary does: `nature` defaults through the real getEffectiveTransactionNature rule
+ * (never hand-typed here) when the fixture does not pin one, then allocationsOf (the real
+ * remainder rule) turns the transaction into its allocation.
+ */
+function allocationOf(tx: Transaction): CategoryAllocation {
+	const nature =
+		tx.nature ??
+		getEffectiveTransactionNature(
+			{ amountCents: tx.amountCents, type: tx.type, category: tx.category },
+			new Map()
+		).nature;
+
+	return allocationsOf({ ...tx, nature })[0];
 }
 
 describe('rankAlertedBudgets', () => {
@@ -74,6 +93,7 @@ describe('computeBudgetAlerts', () => {
 				summary({ category: 'C', status: 'near_limit', usagePercentage: 90 })
 			],
 			[],
+			[],
 			10
 		);
 
@@ -84,6 +104,7 @@ describe('computeBudgetAlerts', () => {
 	it('computes "dépassé" remaining cents without a daily pace for over_budget', () => {
 		const { alerts } = computeBudgetAlerts(
 			[summary({ category: 'Restaurants', status: 'over_budget', remainingCents: -2300 })],
+			[],
 			[],
 			6
 		);
@@ -104,6 +125,7 @@ describe('computeBudgetAlerts', () => {
 				})
 			],
 			[],
+			[],
 			6
 		);
 
@@ -114,6 +136,7 @@ describe('computeBudgetAlerts', () => {
 		const { alerts } = computeBudgetAlerts(
 			[summary({ category: 'Loisirs', status: 'near_limit', remainingCents: 2000 })],
 			[],
+			[],
 			0
 		);
 
@@ -122,16 +145,19 @@ describe('computeBudgetAlerts', () => {
 	});
 
 	it('picks the top 3 biggest expenses for the alerted category, ignoring other categories', () => {
+		const transactionsThisMonth = [
+			transaction({ id: '1', category: 'Restaurants', amountCents: -1000 }),
+			transaction({ id: '2', category: 'Restaurants', amountCents: -5000 }),
+			transaction({ id: '3', category: 'Restaurants', amountCents: -2000 }),
+			transaction({ id: '4', category: 'Restaurants', amountCents: -500 }),
+			transaction({ id: '5', category: 'Autre', amountCents: -9000 }),
+			transaction({ id: '6', category: 'Restaurants', amountCents: 3000, type: 'income' })
+		];
+
 		const { alerts } = computeBudgetAlerts(
 			[summary({ category: 'Restaurants', status: 'over_budget', remainingCents: -100 })],
-			[
-				transaction({ id: '1', category: 'Restaurants', amountCents: -1000 }),
-				transaction({ id: '2', category: 'Restaurants', amountCents: -5000 }),
-				transaction({ id: '3', category: 'Restaurants', amountCents: -2000 }),
-				transaction({ id: '4', category: 'Restaurants', amountCents: -500 }),
-				transaction({ id: '5', category: 'Autre', amountCents: -9000 }),
-				transaction({ id: '6', category: 'Restaurants', amountCents: 3000, type: 'income' })
-			],
+			transactionsThisMonth.map(allocationOf),
+			transactionsThisMonth,
 			6
 		);
 
@@ -213,11 +239,13 @@ describe('computeUnusualSpendingInsight', () => {
 
 describe('spendByEffectiveCategory', () => {
 	it('excludes transfer and investment natures from spending totals', () => {
-		const spend = spendByEffectiveCategory([
-			transaction({ id: '1', category: 'Épargne', amountCents: -50000, nature: 'transfer' }),
-			transaction({ id: '2', category: 'Bourse', amountCents: -30000, nature: 'investment' }),
-			transaction({ id: '3', category: 'Alimentation', amountCents: -2000, nature: 'spending' })
-		]);
+		const spend = spendByEffectiveCategory(
+			[
+				transaction({ id: '1', category: 'Épargne', amountCents: -50000, nature: 'transfer' }),
+				transaction({ id: '2', category: 'Bourse', amountCents: -30000, nature: 'investment' }),
+				transaction({ id: '3', category: 'Alimentation', amountCents: -2000, nature: 'spending' })
+			].map(allocationOf)
+		);
 
 		expect(spend.get('Épargne')).toBeUndefined();
 		expect(spend.get('Bourse')).toBeUndefined();
@@ -225,23 +253,27 @@ describe('spendByEffectiveCategory', () => {
 	});
 
 	it('excludes income transactions', () => {
-		const spend = spendByEffectiveCategory([
-			transaction({ id: '1', category: 'Salaire', amountCents: 320000, type: 'income' })
-		]);
+		const spend = spendByEffectiveCategory(
+			[transaction({ id: '1', category: 'Salaire', amountCents: 320000, type: 'income' })].map(
+				allocationOf
+			)
+		);
 
 		expect(spend.size).toBe(0);
 	});
 
 	it("exclut une transaction income même quand sa nature est explicitement 'income'", () => {
-		const spend = spendByEffectiveCategory([
-			transaction({
-				id: '1',
-				category: 'Revenus',
-				amountCents: 320000,
-				type: 'income',
-				nature: 'income'
-			})
-		]);
+		const spend = spendByEffectiveCategory(
+			[
+				transaction({
+					id: '1',
+					category: 'Revenus',
+					amountCents: 320000,
+					type: 'income',
+					nature: 'income'
+				})
+			].map(allocationOf)
+		);
 
 		expect(spend.size).toBe(0);
 	});

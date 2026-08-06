@@ -5,8 +5,8 @@ import type { CategoryBudget } from '$lib/domain/budget';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
-import type { Transaction, TransactionSource, TransactionNature } from '$lib/domain/transaction';
-import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
+import type { Transaction } from '$lib/domain/transaction';
+import { allocateByCategory, type CategoryAllocation } from '$lib/domain/allocation';
 import { validateTransaction } from '$lib/domain/transaction';
 import { parseManualAmountCents } from '$lib/domain/money';
 import type { DateRange } from '$lib/server/date-range';
@@ -16,7 +16,8 @@ import {
 	buildCategoryNatureMap,
 	EFFECTIVE_CATEGORY_SELECT,
 	getEffectiveCategory,
-	getEffectiveTransactionNature,
+	mapTransactionAllocations,
+	mapTransactionWithNature,
 	type CategoryNatureMappingRecord
 } from '$lib/server/transactions/nature';
 
@@ -384,93 +385,6 @@ function normalizeBudgetCategoryName(value: string): string {
 	return normalized;
 }
 
-function mapTransactionWithNature(
-	transaction: {
-		id: string;
-		date: Date;
-		label: string;
-		amountCents: number;
-		type: string | null;
-		source: string;
-		manualCategory: string | null;
-		natureManual?: TransactionNature | null;
-		category: { name: string };
-	},
-	mappingMap: Map<string, TransactionNature>
-	// Narrower than `Transaction`, whose `nature` is optional: this mapper ALWAYS resolves one
-	// through getEffectiveTransactionNature. Saying so lets allocationsOf, which requires a
-	// resolved nature, take the result directly instead of being handed a `?? 'uncategorized'`
-	// fallback that would silently conflate "we do not know" with "the user chose that".
-): Transaction & { nature: TransactionNature } {
-	const category = getEffectiveCategory(transaction);
-	const type =
-		transaction.type === 'income' || transaction.type === 'expense'
-			? transaction.type
-			: transaction.amountCents >= 0
-				? 'income'
-				: 'expense';
-	const effectiveNature = getEffectiveTransactionNature(
-		{
-			amountCents: transaction.amountCents,
-			type,
-			category,
-			natureManual: transaction.natureManual ?? null
-		},
-		mappingMap
-	);
-
-	return {
-		id: transaction.id,
-		date: transaction.date.toISOString().slice(0, 10),
-		label: transaction.label,
-		amountCents: transaction.amountCents,
-		type,
-		category,
-		source: transaction.source as TransactionSource,
-		nature: effectiveNature.nature,
-		natureSource: effectiveNature.source
-	};
-}
-
-/** The row shape EFFECTIVE_CATEGORY_SELECT produces, for the two mappers below. */
-type SplitRow = { amountCents: number; position: number; category: { name: string } };
-
-/**
- * Turns one transaction into its allocations — the ONLY supported way to read money out of it.
- *
- * An unsplit transaction yields exactly one allocation carrying its whole amount, so no consumer
- * needs a special case and no consumer can tell the two apart. That is the point: a site written
- * against allocations is correct for split and unsplit rows alike, and a site written against
- * `Transaction.amountCents` is a double-count the moment parts exist.
- *
- * NATURE RESOLVES PER PART (OD-4). Each part's nature comes from its OWN category through the same
- * getEffectiveTransactionNature every other read uses, so a purchase split into a spending part and
- * a transfer part finally reports as both. The parent's `natureManual` still overrides every part:
- * one manual override, no new UI, and it stays the single place a user can contradict the mapping.
- */
-function mapTransactionAllocations(
-	transaction: Parameters<typeof mapTransactionWithNature>[0] & { splits: SplitRow[] },
-	mappingMap: Map<string, TransactionNature>
-): CategoryAllocation[] {
-	const parent = mapTransactionWithNature(transaction, mappingMap);
-
-	const parts = transaction.splits.map((split) => ({
-		category: split.category.name,
-		amountCents: split.amountCents,
-		nature: getEffectiveTransactionNature(
-			{
-				amountCents: split.amountCents,
-				type: parent.type,
-				category: split.category.name,
-				natureManual: transaction.natureManual ?? null
-			},
-			mappingMap
-		).nature
-	}));
-
-	return allocationsOf(parent, parts);
-}
-
 function getNextMonthStart(month: string): Date {
 	const [year, monthNumber] = month.split('-').map(Number);
 	return new Date(Date.UTC(year, monthNumber, 1));
@@ -493,6 +407,12 @@ function isValidMonth(value: string): boolean {
  *  - It selects `type: 'expense'` in SQL, where every other money read resolves the kind through
  *    getTransactionKind and falls back to the SIGN when `type` is null. So a negative transaction
  *    with no stored type counts as an expense everywhere else and is invisible here.
+ *
+ * It attributes through `allocateByCategory` rather than through `allocationsOf`, and that is the
+ * one place in the app where the two differ. It asks only WHERE THE MONEY WENT: it selects neither
+ * the identity columns a Transaction needs nor the nature mappings, and it uses no nature. Going
+ * through the full allocation would mean an extra query and inventing a Transaction to throw away.
+ * The remainder rule is the same function in both paths, which is the property that matters.
  */
 export async function readCurrentMonthSpending(userId: string): Promise<Map<string, number>> {
 	const now = new Date();
@@ -513,8 +433,19 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
 
 	const spending = new Map<string, number>();
 	for (const tx of transactions) {
-		const category = getEffectiveCategory(tx);
-		spending.set(category, (spending.get(category) ?? 0) + Math.abs(tx.amountCents));
+		const allocated = allocateByCategory(
+			{ category: getEffectiveCategory(tx), amountCents: tx.amountCents },
+			tx.splits.map((split) => ({
+				category: split.category.name,
+				amountCents: split.amountCents
+			}))
+		);
+		for (const entry of allocated) {
+			spending.set(
+				entry.category,
+				(spending.get(entry.category) ?? 0) + Math.abs(entry.amountCents)
+			);
+		}
 	}
 	return spending;
 }

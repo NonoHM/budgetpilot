@@ -1,4 +1,5 @@
-import type { Transaction, TransactionNature, TransactionSource } from '$lib/domain/transaction';
+import type { Transaction } from '$lib/domain/transaction';
+import type { CategoryAllocation } from '$lib/domain/allocation';
 import {
 	getPreviousMonthRange,
 	parseDateRange,
@@ -11,8 +12,8 @@ import { buildPeriodReport } from '$lib/server/reports/monthly';
 import {
 	buildCategoryNatureMap,
 	EFFECTIVE_CATEGORY_SELECT,
-	getEffectiveCategory,
-	getEffectiveTransactionNature
+	mapTransactionAllocations,
+	mapTransactionWithNature
 } from '$lib/server/transactions/nature';
 import {
 	FORECAST_REPORTS_HORIZON_DAYS,
@@ -26,28 +27,28 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 	const period = parseDateRange(url.searchParams);
 	const previousPeriod = getPreviousMonthRange(period);
-	const [dashboardData, previousTransactions, categories, cashFlowForecast] = await Promise.all([
+	const [dashboardData, previous, categories, cashFlowForecast] = await Promise.all([
 		readDashboardDataForRange(user.id, period),
 		previousPeriod
 			? readTransactionsForRange(user.id, previousPeriod.from, previousPeriod.to)
-			: Promise.resolve([]),
+			: Promise.resolve({ transactions: [], allocations: [] }),
 		prisma.category.findMany({
 			where: { userId: user.id },
 			select: { name: true, defaultKey: true }
 		}),
 		loadCashFlowForecast(user.id, FORECAST_REPORTS_HORIZON_DAYS).then(toDisplayCashFlowForecast)
 	]);
-	const transactions = dashboardData.transactions;
+	const { transactions, allocations } = dashboardData;
 	const previousReport =
-		previousPeriod && previousTransactions.length > 0
-			? buildPeriodReport(previousTransactions, previousPeriod.label)
+		previousPeriod && previous.transactions.length > 0
+			? buildPeriodReport(previous.transactions, previous.allocations, previousPeriod.label)
 			: undefined;
 
 	return {
 		month: period.budgetMonth,
 		period,
 		periodQuery: serializePeriodParams(period),
-		report: buildPeriodReport(transactions, period.label, previousReport, {
+		report: buildPeriodReport(transactions, allocations, period.label, previousReport, {
 			// All-time: the epoch lower bound would inflate the day count (~20k days) and crush
 			// the per-day average — fall back to the span actually covered by transactions.
 			dayCount: period.key === 'all-time' ? undefined : getDayCount(period.from, period.to)
@@ -58,11 +59,20 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	};
 };
 
+/**
+ * The comparison period's two views, read together.
+ *
+ * It maps through the SHARED mappers rather than its own copy. It used to have one, which resolved
+ * `type` to `undefined` where the dashboard's resolved it from the sign — behaviourally identical,
+ * since every consumer goes through getTransactionKind, and exactly the kind of near-copy that
+ * stops being identical the moment one of the two learns something the other does not. Adding
+ * per-part nature to only one of them was that moment.
+ */
 async function readTransactionsForRange(
 	userId: string,
 	from: Date,
 	to: Date
-): Promise<Transaction[]> {
+): Promise<{ transactions: Transaction[]; allocations: CategoryAllocation[] }> {
 	const mappings = await prisma.categoryNatureMapping.findMany({
 		where: { userId },
 		orderBy: { categoryName: 'asc' },
@@ -90,35 +100,14 @@ async function readTransactionsForRange(
 		orderBy: { date: 'asc' }
 	});
 
-	return transactions.map((transaction) => {
-		// Resolved once and reused for the nature lookup below. It was spelled out twice here, and
-		// the two had to agree: a transaction whose displayed category and whose nature-lookup
-		// category disagreed would report a nature belonging to a category the user cannot see.
-		const category = getEffectiveCategory(transaction);
-		const type =
-			transaction.type === 'income' || transaction.type === 'expense'
-				? transaction.type
-				: undefined;
-
-		return {
-			id: transaction.id,
-			date: transaction.date.toISOString().slice(0, 10),
-			label: transaction.label,
-			amountCents: transaction.amountCents,
-			type,
-			category,
-			source: transaction.source as TransactionSource,
-			nature: getEffectiveTransactionNature(
-				{
-					amountCents: transaction.amountCents,
-					type,
-					category,
-					natureManual: transaction.natureManual as TransactionNature | null
-				},
-				mappingMap
-			).nature
-		};
-	});
+	return {
+		transactions: transactions.map((transaction) =>
+			mapTransactionWithNature(transaction, mappingMap)
+		),
+		allocations: transactions.flatMap((transaction) =>
+			mapTransactionAllocations(transaction, mappingMap)
+		)
+	};
 }
 
 function getDayCount(from: Date, to: Date): number {

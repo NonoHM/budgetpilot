@@ -1,8 +1,31 @@
 import { describe, expect, it } from 'vitest';
+import { allocationsOf, type CategoryAllocation } from './allocation';
 import { summarizeMonthlyBudget } from './budget';
-import type { Transaction } from './transaction';
+import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
+import type { Transaction, TransactionNature } from './transaction';
 
-const transactions: Transaction[] = [
+/**
+ * Builds the one CategoryAllocation an unsplit transaction always yields, the same way the
+ * production boundary does: when the fixture pins no `nature`, it is resolved through the real
+ * getEffectiveTransactionNature default (never hand-typed here — that rule belongs to
+ * server/transactions/nature.ts), then allocationsOf (the real remainder rule) turns the whole
+ * transaction into its allocation. These fixtures test money aggregation, so the honest input for
+ * summarizeMonthlyBudget is the allocation, not the transaction it came from.
+ */
+function unsplitAllocation(
+	overrides: Omit<Transaction, 'nature'> & { nature?: TransactionNature }
+): CategoryAllocation {
+	const nature =
+		overrides.nature ??
+		getEffectiveTransactionNature(
+			{ amountCents: overrides.amountCents, type: overrides.type, category: overrides.category },
+			new Map()
+		).nature;
+
+	return allocationsOf({ ...overrides, nature })[0];
+}
+
+const baseFixtures: Array<Omit<Transaction, 'nature'> & { nature?: TransactionNature }> = [
 	{
 		id: 'income',
 		date: '2026-06-01',
@@ -37,6 +60,8 @@ const transactions: Transaction[] = [
 	}
 ];
 
+const allocations: CategoryAllocation[] = baseFixtures.map(unsplitAllocation);
+
 describe('summarizeMonthlyBudget', () => {
 	it('retourne un dashboard mensuel vide sans fixture', () => {
 		expect.assertions(4);
@@ -52,7 +77,7 @@ describe('summarizeMonthlyBudget', () => {
 	it('calcule revenus, dépenses et solde mensuel en centimes', () => {
 		expect.assertions(3);
 
-		const summary = summarizeMonthlyBudget(transactions, [], '2026-06');
+		const summary = summarizeMonthlyBudget(allocations, [], '2026-06');
 
 		expect(summary.incomeCents).toBe(250_000);
 		expect(summary.expenseCents).toBe(92_345);
@@ -64,8 +89,8 @@ describe('summarizeMonthlyBudget', () => {
 
 		const summary = summarizeMonthlyBudget(
 			[
-				...transactions,
-				{
+				...allocations,
+				unsplitAllocation({
 					id: 'internal',
 					date: '2026-06-04',
 					label: 'Virement interne',
@@ -73,7 +98,7 @@ describe('summarizeMonthlyBudget', () => {
 					type: 'income',
 					category: 'Virement interne',
 					source: 'banque_populaire'
-				}
+				})
 			],
 			[],
 			'2026-06'
@@ -88,7 +113,7 @@ describe('summarizeMonthlyBudget', () => {
 		expect.assertions(2);
 
 		const summary = summarizeMonthlyBudget(
-			transactions,
+			allocations,
 			[
 				{ category: 'Logement', limitCents: 75_000 },
 				{ category: 'Alimentation', limitCents: 20_000 }
@@ -118,7 +143,7 @@ describe('summarizeMonthlyBudget', () => {
 		expect.assertions(1);
 
 		const summary = summarizeMonthlyBudget(
-			transactions,
+			allocations,
 			[{ category: 'Alimentation', limitCents: 15_000 }],
 			'2026-06'
 		);
@@ -135,8 +160,8 @@ describe('summarizeMonthlyBudget', () => {
 
 		const summary = summarizeMonthlyBudget(
 			[
-				...transactions,
-				{
+				...allocations,
+				unsplitAllocation({
 					id: 'transfer',
 					date: '2026-06-05',
 					label: 'Virement interne',
@@ -145,7 +170,7 @@ describe('summarizeMonthlyBudget', () => {
 					category: 'Transfert',
 					source: 'csv',
 					nature: 'transfer'
-				}
+				})
 			],
 			[{ category: 'Logement', limitCents: 100_000 }],
 			'2026-06'

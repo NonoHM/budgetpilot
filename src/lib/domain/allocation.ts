@@ -71,6 +71,46 @@ export interface CategoryAllocation {
 	kind: TransactionKind;
 }
 
+/** The smallest thing the remainder rule needs to know about a whole or a part. */
+export interface CategoryAmount {
+	category: string;
+	amountCents: number;
+}
+
+/**
+ * THE REMAINDER RULE, expressed once, over nothing but (category, amount) pairs.
+ *
+ *   allocate(whole, parts) = parts ++ [ { whole.category, whole.amountCents − Σ parts } ]
+ *   with the trailing element dropped when its amount is 0 and there is something left to return.
+ *
+ * `allocationsOf` below is this function plus identity and nature. It is factored out because
+ * `readCurrentMonthSpending` asks only "where did the money go" — it selects neither the columns a
+ * Transaction needs nor the nature mappings — and the alternative was for it to spell the rule out
+ * a second time. A per-category read that re-derives the remainder is exactly the duplicated
+ * decision this whole design exists to remove, so the rule lives here and both callers descend
+ * from it.
+ *
+ * The returned `part` is the input element the entry came from, or `null` for the remainder. That
+ * is what lets `allocationsOf` carry each part's own nature through without this function knowing
+ * what a nature is.
+ */
+export function allocateByCategory<P extends CategoryAmount>(
+	whole: CategoryAmount,
+	parts: ReadonlyArray<P>
+): Array<{ category: string; amountCents: number; part: P | null }> {
+	const allocated = parts.map((part) => ({
+		category: part.category,
+		amountCents: part.amountCents,
+		part
+	}));
+
+	const partsSum = allocated.reduce((sum, entry) => sum + entry.amountCents, 0);
+	const remainderCents = whole.amountCents - partsSum;
+	if (remainderCents === 0 && allocated.length > 0) return allocated;
+
+	return [...allocated, { category: whole.category, amountCents: remainderCents, part: null }];
+}
+
 /**
  * allocations(t) = t.parts ++ [ { category: t.category, amountCents: t.amountCents − Σ parts } ]
  *                  with the trailing element dropped when its amount is 0.
@@ -109,31 +149,19 @@ export function allocationsOf(
 	const kind = getTransactionKind(transaction);
 	const transactionNature = transaction.nature;
 
-	const resolvedParts = (parts ?? []).map((part) => ({
+	return allocateByCategory(
+		{ category: transaction.category, amountCents: transaction.amountCents },
+		parts ?? []
+	).map((entry) => ({
 		transactionId: transaction.id,
 		date: transaction.date,
-		category: part.category,
-		amountCents: part.amountCents,
-		nature: part.nature ?? transactionNature,
+		category: entry.category,
+		amountCents: entry.amountCents,
+		// `entry.part` is null exactly for the remainder, which always carries the transaction's own
+		// nature. A part with no nature of its own falls back to the same value.
+		nature: entry.part?.nature ?? transactionNature,
 		kind
 	}));
-
-	const partsSum = resolvedParts.reduce((sum, part) => sum + part.amountCents, 0);
-	const remainderCents = transaction.amountCents - partsSum;
-
-	if (remainderCents === 0 && resolvedParts.length > 0) return resolvedParts;
-
-	return [
-		...resolvedParts,
-		{
-			transactionId: transaction.id,
-			date: transaction.date,
-			category: transaction.category,
-			amountCents: remainderCents,
-			nature: transactionNature,
-			kind
-		}
-	];
 }
 
 /**

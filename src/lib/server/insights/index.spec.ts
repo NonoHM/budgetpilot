@@ -1,10 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
 import { summarizeMonthlyBudget } from '$lib/domain/budget';
 import type { Transaction } from '$lib/domain/transaction';
+import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
+import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
 import { getBudgetInsights } from './index';
 import { buildBudgetInsightsPrompt } from './prompt';
 import { generateRuleInsights } from './rules';
 import { buildTransactionSummary } from './summary';
+
+/**
+ * Derives the MONEY view from the fixture's IDENTITY view, by calling the canonical helpers rather
+ * than restating the remainder rule or the nature default (see CLAUDE.md). Every fixture in this
+ * file is unsplit, so this always yields exactly one allocation per transaction, carrying its
+ * whole amount.
+ */
+function toAllocations(transactions: Transaction[]): CategoryAllocation[] {
+	return transactions.flatMap((transaction) =>
+		allocationsOf({
+			...transaction,
+			nature: transaction.nature ?? getEffectiveTransactionNature(transaction, new Map()).nature
+		})
+	);
+}
 
 const transactions: Transaction[] = [
 	{
@@ -49,9 +66,11 @@ describe('Budget Insights', () => {
 	it('fonctionne sans LLM avec les règles déterministes', async () => {
 		expect.assertions(3);
 
-		const monthlySummary = summarizeMonthlyBudget(transactions, [], '2026-06');
+		const allocations = toAllocations(transactions);
+		const monthlySummary = summarizeMonthlyBudget(allocations, [], '2026-06');
 		const result = await getBudgetInsights({
 			transactions,
+			allocations,
 			monthlySummary,
 			env: { LLM_ENABLED: 'false' }
 		});
@@ -65,9 +84,11 @@ describe('Budget Insights', () => {
 		expect.assertions(3);
 
 		const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('offline'));
-		const monthlySummary = summarizeMonthlyBudget(transactions, [], '2026-06');
+		const allocations = toAllocations(transactions);
+		const monthlySummary = summarizeMonthlyBudget(allocations, [], '2026-06');
 		const result = await getBudgetInsights({
 			transactions,
+			allocations,
 			monthlySummary,
 			env: {
 				LLM_ENABLED: 'true',
@@ -91,8 +112,9 @@ describe('Budget Insights', () => {
 	it('n’envoie pas de ligne CSV brute complète dans le résumé LLM', () => {
 		expect.assertions(2);
 
-		const monthlySummary = summarizeMonthlyBudget(transactions, [], '2026-06');
-		const compactSummary = buildTransactionSummary(transactions, monthlySummary);
+		const allocations = toAllocations(transactions);
+		const monthlySummary = summarizeMonthlyBudget(allocations, [], '2026-06');
+		const compactSummary = buildTransactionSummary(transactions, allocations, monthlySummary);
 		const serialized = JSON.stringify(compactSummary);
 
 		expect(serialized).not.toContain(
@@ -104,36 +126,21 @@ describe('Budget Insights', () => {
 	it('ne contient pas d’identifiant bancaire complet dans le prompt', () => {
 		expect.assertions(3);
 
-		const monthlySummary = summarizeMonthlyBudget(
-			[
-				{
-					id: 'iban',
-					date: '2026-06-02',
-					label: 'VIREMENT FR7612341234123412341234123',
-					amountCents: -50_000,
-					type: 'expense',
-					category: 'Autre',
-					source: 'csv'
-				}
-			],
-			[],
-			'2026-06'
-		);
+		const ibanTransactions: Transaction[] = [
+			{
+				id: 'iban',
+				date: '2026-06-02',
+				label: 'VIREMENT FR7612341234123412341234123',
+				amountCents: -50_000,
+				type: 'expense',
+				category: 'Autre',
+				source: 'csv'
+			}
+		];
+		const ibanAllocations = toAllocations(ibanTransactions);
+		const monthlySummary = summarizeMonthlyBudget(ibanAllocations, [], '2026-06');
 		const prompt = buildBudgetInsightsPrompt(
-			buildTransactionSummary(
-				[
-					{
-						id: 'iban',
-						date: '2026-06-02',
-						label: 'VIREMENT FR7612341234123412341234123',
-						amountCents: -50_000,
-						type: 'expense',
-						category: 'Autre',
-						source: 'csv'
-					}
-				],
-				monthlySummary
-			)
+			buildTransactionSummary(ibanTransactions, ibanAllocations, monthlySummary)
 		);
 
 		expect(prompt).not.toContain('FR7612341234123412341234123');
@@ -144,14 +151,15 @@ describe('Budget Insights', () => {
 	it('conserve les règles déterministes de dépassement de budget', () => {
 		expect.assertions(2);
 
+		const allocations = toAllocations(transactions);
 		const monthlySummary = summarizeMonthlyBudget(
-			transactions,
+			allocations,
 			[{ category: 'Logement', limitCents: 90_000 }],
 			'2026-06'
 		);
 		const insights = generateRuleInsights(
 			monthlySummary,
-			buildTransactionSummary(transactions, monthlySummary)
+			buildTransactionSummary(transactions, allocations, monthlySummary)
 		);
 
 		expect(insights.some((item) => item.id === 'negative-balance')).toBe(true);
@@ -173,9 +181,11 @@ describe('Budget Insights', () => {
 				source: 'banque_populaire' as const
 			}
 		];
-		const monthlySummary = summarizeMonthlyBudget(transactionsWithTransfer, [], '2026-06');
+		const allocationsWithTransfer = toAllocations(transactionsWithTransfer);
+		const monthlySummary = summarizeMonthlyBudget(allocationsWithTransfer, [], '2026-06');
 		const result = await getBudgetInsights({
 			transactions: transactionsWithTransfer,
+			allocations: allocationsWithTransfer,
 			monthlySummary,
 			env: { LLM_ENABLED: 'false' }
 		});
@@ -188,51 +198,31 @@ describe('Budget Insights', () => {
 	it('détecte les récurrences à montant similaire via le rapport mensuel', () => {
 		expect.assertions(4);
 
-		const monthlySummary = summarizeMonthlyBudget(
-			[
-				{
-					id: 'music-1',
-					date: '2026-06-02',
-					label: 'ABONNEMENT MUSIQUE 123456',
-					amountCents: -999,
-					type: 'expense',
-					category: 'Loisirs',
-					source: 'csv'
-				},
-				{
-					id: 'music-2',
-					date: '2026-06-20',
-					label: 'ABONNEMENT MUSIQUE 654321',
-					amountCents: -1_049,
-					type: 'expense',
-					category: 'Loisirs',
-					source: 'banque_populaire'
-				}
-			],
-			[],
-			'2026-06'
-		);
+		const musicTransactions: Transaction[] = [
+			{
+				id: 'music-1',
+				date: '2026-06-02',
+				label: 'ABONNEMENT MUSIQUE 123456',
+				amountCents: -999,
+				type: 'expense',
+				category: 'Loisirs',
+				source: 'csv'
+			},
+			{
+				id: 'music-2',
+				date: '2026-06-20',
+				label: 'ABONNEMENT MUSIQUE 654321',
+				amountCents: -1_049,
+				type: 'expense',
+				category: 'Loisirs',
+				source: 'banque_populaire'
+			}
+		];
+		const musicAllocations = toAllocations(musicTransactions);
+		const monthlySummary = summarizeMonthlyBudget(musicAllocations, [], '2026-06');
 		const summary = buildTransactionSummary(
-			[
-				{
-					id: 'music-1',
-					date: '2026-06-02',
-					label: 'ABONNEMENT MUSIQUE 123456',
-					amountCents: -999,
-					type: 'expense',
-					category: 'Loisirs',
-					source: 'csv'
-				},
-				{
-					id: 'music-2',
-					date: '2026-06-20',
-					label: 'ABONNEMENT MUSIQUE 654321',
-					amountCents: -1_049,
-					type: 'expense',
-					category: 'Loisirs',
-					source: 'banque_populaire'
-				}
-			],
+			musicTransactions,
+			musicAllocations,
 			monthlySummary,
 			undefined,
 			{ includeLabels: true }
@@ -247,7 +237,8 @@ describe('Budget Insights', () => {
 	it('signale les dépenses en hausse avec le fallback déterministe', () => {
 		expect.assertions(1);
 
-		const monthlySummary = summarizeMonthlyBudget(transactions, [], '2026-06');
+		const allocations = toAllocations(transactions);
+		const monthlySummary = summarizeMonthlyBudget(allocations, [], '2026-06');
 		const previousMonth = {
 			month: '2026-05',
 			incomeCents: 100_000,
@@ -257,7 +248,7 @@ describe('Budget Insights', () => {
 		};
 		const insights = generateRuleInsights(
 			monthlySummary,
-			buildTransactionSummary(transactions, monthlySummary, previousMonth)
+			buildTransactionSummary(transactions, allocations, monthlySummary, previousMonth)
 		);
 
 		expect(insights.some((item) => item.id === 'expenses-increased')).toBe(true);

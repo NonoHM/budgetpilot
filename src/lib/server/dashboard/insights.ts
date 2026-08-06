@@ -1,7 +1,8 @@
 import type { CategoryBudgetSummary } from '$lib/domain/budget';
-import { getTransactionKind, type Transaction } from '$lib/domain/transaction';
+import type { Transaction } from '$lib/domain/transaction';
+import type { CategoryAllocation } from '$lib/domain/allocation';
 import { readDashboardData, getCurrentMonth } from '$lib/server/budget/dashboard';
-import { summarizeBudgetTransactions } from '$lib/domain/budget';
+import { summarizeBudgetAllocations } from '$lib/domain/budget';
 import { countUncategorizedTransactions } from '$lib/server/transactions/nature';
 
 const MAX_ALERTS = 2;
@@ -54,27 +55,61 @@ export function rankAlertedBudgets(
 		});
 }
 
+/**
+ * Ranks the biggest contributors to a flagged budget: SELECTED BY ALLOCATION, DISPLAYED BY PARENT.
+ *
+ * The amount is what the category actually received; the label and date come from the transaction
+ * it came out of. Showing the parent's whole 80 € under "Maison" when only 20 € was Maison is a
+ * false figure on the very screen that exists to explain an overrun — but showing a bare amount
+ * with no label would be useless, so the two views are read together here, deliberately.
+ *
+ * Parts of ONE transaction landing in the same category are summed back into one row before
+ * ranking. Two parts in one category is legal, and listing the same purchase twice would read as
+ * two purchases: the double-count moved from the total into the list.
+ */
+function rankCategoryContributors(
+	allocations: CategoryAllocation[],
+	labelsByTransactionId: Map<string, string>,
+	category: string
+): BudgetAlertExpense[] {
+	const perTransaction = new Map<string, { date: string; amountCents: number }>();
+	for (const allocation of allocations) {
+		if (allocation.category !== category || allocation.kind !== 'expense') continue;
+		const current = perTransaction.get(allocation.transactionId);
+		perTransaction.set(allocation.transactionId, {
+			date: allocation.date,
+			amountCents: (current?.amountCents ?? 0) + allocation.amountCents
+		});
+	}
+
+	return [...perTransaction.entries()]
+		.map(([transactionId, entry]) => ({
+			label: labelsByTransactionId.get(transactionId) ?? '',
+			date: entry.date,
+			amountCents: entry.amountCents
+		}))
+		.sort((a, b) => Math.abs(b.amountCents) - Math.abs(a.amountCents))
+		.slice(0, MAX_ALERT_EXPENSES);
+}
+
 export function computeBudgetAlerts(
 	categorySummaries: CategoryBudgetSummary[],
+	allocationsThisMonth: CategoryAllocation[],
 	transactionsThisMonth: Transaction[],
 	remainingDays: number
 ): { alerts: BudgetAlert[]; overflowCount: number } {
 	const ranked = rankAlertedBudgets(categorySummaries);
 	const shown = ranked.slice(0, MAX_ALERTS);
+	const labelsByTransactionId = new Map(
+		transactionsThisMonth.map((transaction) => [transaction.id, transaction.label])
+	);
 
 	const alerts = shown.map((summary) => {
-		const topExpenses = transactionsThisMonth
-			.filter(
-				(transaction) =>
-					transaction.category === summary.category && getTransactionKind(transaction) === 'expense'
-			)
-			.sort((a, b) => Math.abs(b.amountCents) - Math.abs(a.amountCents))
-			.slice(0, MAX_ALERT_EXPENSES)
-			.map((transaction) => ({
-				label: transaction.label,
-				date: transaction.date,
-				amountCents: transaction.amountCents
-			}));
+		const topExpenses = rankCategoryContributors(
+			allocationsThisMonth,
+			labelsByTransactionId,
+			summary.category
+		);
 
 		const effectiveRemainingDays = remainingDays > 0 ? remainingDays : null;
 		const dailyPaceCents =
@@ -140,14 +175,18 @@ export function getRemainingDaysInMonth(month: string): number {
 
 // Excludes transfer/investment: these natures don't feed budgets/insights unless an
 // explicit budget targets them (see CLAUDE.md) — no explicit budget context here.
-export function spendByEffectiveCategory(transactions: Transaction[]): Map<string, number> {
+//
+// Over allocations, so a split purchase's grocery part counts under groceries. With OD-4 the
+// exclusion is now per part too: the transfer half of a mixed purchase drops out while its
+// spending half stays, which is the pair of answers a per-transaction read could not give.
+export function spendByEffectiveCategory(allocations: CategoryAllocation[]): Map<string, number> {
 	const spend = new Map<string, number>();
-	for (const transaction of transactions) {
-		if (getTransactionKind(transaction) !== 'expense') continue;
-		if (transaction.nature === 'transfer' || transaction.nature === 'investment') continue;
+	for (const allocation of allocations) {
+		if (allocation.kind !== 'expense') continue;
+		if (allocation.nature === 'transfer' || allocation.nature === 'investment') continue;
 		spend.set(
-			transaction.category,
-			(spend.get(transaction.category) ?? 0) + Math.abs(transaction.amountCents)
+			allocation.category,
+			(spend.get(allocation.category) ?? 0) + Math.abs(allocation.amountCents)
 		);
 	}
 	return spend;
@@ -171,21 +210,22 @@ export async function loadDashboardInsights(userId: string): Promise<DashboardIn
 		countUncategorizedTransactions(userId)
 	]);
 
-	const summary = summarizeBudgetTransactions(
-		currentMonthData.transactions,
+	const summary = summarizeBudgetAllocations(
+		currentMonthData.allocations,
 		currentMonthData.budgets,
 		currentMonth
 	);
 	const remainingDays = getRemainingDaysInMonth(currentMonth);
 	const { alerts, overflowCount } = computeBudgetAlerts(
 		summary.categorySummaries,
+		currentMonthData.allocations,
 		currentMonthData.transactions,
 		remainingDays
 	);
 
-	const currentSpendByCategory = spendByEffectiveCategory(currentMonthData.transactions);
+	const currentSpendByCategory = spendByEffectiveCategory(currentMonthData.allocations);
 	const historicalMonthSpends = historyData.map((data) =>
-		spendByEffectiveCategory(data.transactions)
+		spendByEffectiveCategory(data.allocations)
 	);
 	const unusualSpending = computeUnusualSpendingInsight(
 		currentSpendByCategory,
