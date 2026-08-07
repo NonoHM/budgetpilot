@@ -36,9 +36,10 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedTransaction: null,
 		selectedSuggestion: null,
 		categoryOptions: ['Alimentation', 'Voyages'],
+		splitCategoryOptions: [],
 		categories: [
-			{ name: 'Alimentation', defaultKey: null },
-			{ name: 'Voyages', defaultKey: null }
+			{ id: 'cat-alimentation', name: 'Alimentation', defaultKey: null },
+			{ id: 'cat-voyages', name: 'Voyages', defaultKey: null }
 		],
 		allTags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
 		natureOptions: TRANSACTION_NATURES,

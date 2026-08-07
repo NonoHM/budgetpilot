@@ -71,6 +71,12 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		user: { email: 'test@example.com', role: 'USER' as const },
 		transactions: [TX],
 		selectedTransaction: {
+			// The three fields the split editor reads. Spelled out rather than defaulted, for the reason
+			// EFFECTIVE_CATEGORY_SELECT's `splits` is required: an absent répartition and a forgotten
+			// one look identical the moment either is optional.
+			splits: [],
+			splitInheritCategoryId: null,
+			splitEntryAvailable: false,
 			...TX,
 			notes: null,
 			bankOperationType: null,
@@ -85,7 +91,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		},
 		selectedSuggestion: null,
 		categoryOptions: ['Restaurants'],
-		categories: [{ name: 'Restaurants', defaultKey: null }],
+		splitCategoryOptions: [],
+		categories: [{ id: 'cat-restaurants', name: 'Restaurants', defaultKey: null }],
 		allTags: [TAG],
 		natureOptions: TRANSACTION_NATURES,
 		splitFilterAvailable: false,

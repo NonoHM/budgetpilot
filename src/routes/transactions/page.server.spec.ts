@@ -38,8 +38,16 @@ const db = vi.hoisted(() => {
 		} | null;
 		tags: Array<{ tag: { id: string; name: string; colorToken: string } }>;
 		/** Parts of a répartition, in the shape the real select returns. See matchesWhere's `splits`
-		 *  branch for which predicates are modelled and which throw. */
-		splits: Array<{ amountCents: number; categoryId: string; category: { name: string } }>;
+		 *  branch for which predicates are modelled and which throw. `position` and `note` are
+		 *  optional here because only the DETAIL select reads them; the list select does not, and a
+		 *  fixture forced to carry them everywhere would claim a coverage the list does not have. */
+		splits: Array<{
+			amountCents: number;
+			categoryId: string;
+			category: { name: string };
+			position?: number;
+			note?: string | null;
+		}>;
 	}
 
 	// Category name -> id, mirrors the Prisma unique (userId, name) index used by
@@ -145,13 +153,25 @@ const db = vi.hoisted(() => {
 		categoryId: CATEGORY_IDS.uncategorized,
 		category: { name: 'uncategorized' },
 		tags: [],
+		// `position` and `note` are here because the DETAIL select reads them — the list select does
+		// not. Out of order on purpose: the editor must render part 1 first whatever order the rows
+		// arrive in, and a fixture already sorted by position cannot tell a working `orderBy` from a
+		// missing one.
 		splits: [
 			{
+				amountCents: 1_000,
+				position: 1,
+				note: 'Anniversaire Léa',
+				categoryId: CATEGORY_IDS.Autre,
+				category: { name: 'Autre' }
+			},
+			{
 				amountCents: 2_000,
+				position: 0,
+				note: null,
 				categoryId: CATEGORY_IDS.Alimentation,
 				category: { name: 'Alimentation' }
-			},
-			{ amountCents: 1_000, categoryId: CATEGORY_IDS.Autre, category: { name: 'Autre' } }
+			}
 		]
 	});
 
@@ -328,9 +348,32 @@ const db = vi.hoisted(() => {
 					const sum = matched.reduce((total, t) => total + t.amountCents, 0);
 					return { _sum: { amountCents: matched.length > 0 ? sum : null } };
 				}),
-				findFirst: vi.fn(
-					async ({ where }) => transactions.find((item) => item.id === where.id) ?? null
-				),
+				// Through `matchesWhere` like every other read, rather than matching on `id` alone: the
+				// detail select's `userId` conjunct is the only thing standing between a guessed id and
+				// another tenant's transaction, and a fake that ignored it would report a green suite
+				// for a load that had lost it.
+				//
+				// The nested `splits.orderBy` is MODELLED, and an unmodelled one THROWS. Position order
+				// is user-visible — it decides which part carries the rounding cent (1e) and numbers
+				// every field's accessible name — so a fake quietly handing back insertion order would
+				// let a select that forgot `orderBy` pass on a fixture that happened to be sorted.
+				findFirst: vi.fn(async ({ where, select }) => {
+					const found = transactions.find((item) => matchesWhere(item, where)) ?? null;
+					if (!found) return null;
+					const splitOrder = (
+						select as { splits?: { orderBy?: Record<string, string> } } | undefined
+					)?.splits?.orderBy;
+					if (!splitOrder) return found;
+					if (JSON.stringify(splitOrder) !== JSON.stringify({ position: 'asc' })) {
+						throw new Error(
+							`transaction.findFirst mock does not model splits orderBy ${JSON.stringify(splitOrder)}`
+						);
+					}
+					return {
+						...found,
+						splits: [...found.splits].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+					};
+				}),
 				// Delegates to matchesWhere rather than re-implementing a subset of it. The hand-rolled
 				// version it replaces honoured `userId`, `id` and `manualCategory` and IGNORED every
 				// other conjunct, so a guard added to a write path — `splits: { none: {} }` is the
@@ -442,10 +485,13 @@ const db = vi.hoisted(() => {
 				)
 			},
 			category: {
+				// `id` is part of this row now: the split editor files a part under a category ID, so a
+				// fixture returning names only would let `splitCategoryOptions` ship `value: undefined`
+				// and every option would still LOOK right, labels and all.
 				findMany: vi.fn(async () => [
-					{ name: 'Alimentation' },
-					{ name: 'Autre' },
-					{ name: 'uncategorized' }
+					{ id: CATEGORY_IDS.Alimentation, name: 'Alimentation' },
+					{ id: CATEGORY_IDS.Autre, name: 'Autre' },
+					{ id: CATEGORY_IDS.uncategorized, name: 'uncategorized' }
 				]),
 				findFirst: vi.fn(async ({ where }: { where: { userId: string; nameKey: string } }) => {
 					const found = Object.entries(CATEGORY_IDS).find(
@@ -1527,6 +1573,139 @@ describe('/transactions load — the Répartition dimension', () => {
 			expect(data.pagination.totalTransactions).toBeGreaterThan(0);
 		} finally {
 			parts.push(...saved);
+		}
+	});
+});
+
+/**
+ * What the EDITOR needs out of the load (design 1b, 1j-A, OD-5). Three things, and each one is a
+ * decision rather than a column: which categories a part may carry, which category part 1 inherits,
+ * and whether the entry point exists at all.
+ */
+describe('/transactions load — what the split editor is handed', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('hands the parts back ordered by position, with the note as a string', async () => {
+		expect.assertions(3);
+
+		const data = (await runLoad('/transactions?selected=transaction-split')) as unknown as {
+			selectedTransaction: {
+				splits: Array<{ categoryId: string; amountCents: number; note: string }>;
+			};
+		};
+
+		// The fixture stores them position 1 then position 0. Order is user-visible — it decides
+		// which part carries the rounding cent — so arriving order is never the answer.
+		expect(data.selectedTransaction.splits.map((part) => part.categoryId)).toEqual([
+			'cat-alimentation',
+			'cat-autre'
+		]);
+		expect(data.selectedTransaction.splits.map((part) => part.amountCents)).toEqual([2_000, 1_000]);
+		// `null` is the column's absence; the editor binds a string field to it. Converting here
+		// rather than in the component keeps `''` from meaning two different things downstream.
+		expect(data.selectedTransaction.splits.map((part) => part.note)).toEqual([
+			'',
+			'Anniversaire Léa'
+		]);
+	});
+
+	it('offers category IDS, and never the sentinel — OD-5, at the only place the UI can obey it', async () => {
+		expect.assertions(3);
+
+		const data = (await runLoad('/transactions?selected=transaction-1')) as unknown as {
+			splitCategoryOptions: Array<{ value: string; label: string }>;
+		};
+
+		// Ids, not names: a part references its category by id, and `replaceSplits` re-resolves that
+		// id under the session. Offering names would put a translation step between the two.
+		expect(data.splitCategoryOptions).toContainEqual({
+			value: 'cat-alimentation',
+			label: 'Alimentation'
+		});
+		expect(data.splitCategoryOptions.some((option) => option.value === 'cat-uncategorized')).toBe(
+			false
+		);
+		// And the list is not empty for the wrong reason — an empty list would satisfy the line above.
+		expect(data.splitCategoryOptions.length).toBeGreaterThan(1);
+	});
+
+	it('inherits the EFFECTIVE category for part 1, so a manual override wins over the stored one', async () => {
+		expect.assertions(2);
+
+		// transaction-4 rather than the more obvious transaction-2: an earlier test in this file
+		// deletes transaction-2 through the `delete` mock and does not put it back, so every fixture
+		// lookup after it is inherited state rather than the declared one.
+		const row = db.transactions.find((t) => t.id === 'transaction-4');
+		if (!row) throw new Error('fixture transaction-4 is missing');
+		const saved = row.manualCategory;
+		try {
+			const stored = (await runLoad('/transactions?selected=transaction-4')) as unknown as {
+				selectedTransaction: { splitInheritCategoryId: string | null };
+			};
+			expect(stored.selectedTransaction.splitInheritCategoryId).toBe('cat-autre');
+
+			// 1j-A: « la part 1 hérite de la catégorie du parent », and the parent's category is the
+			// one the user is looking at in the selector directly above — the manual one when it is
+			// set, never the imported column underneath it.
+			row.manualCategory = 'Alimentation';
+			const overridden = (await runLoad('/transactions?selected=transaction-4')) as unknown as {
+				selectedTransaction: { splitInheritCategoryId: string | null };
+			};
+			expect(overridden.selectedTransaction.splitInheritCategoryId).toBe('cat-alimentation');
+		} finally {
+			row.manualCategory = saved;
+		}
+	});
+
+	it('withholds the entry point on the sentinel, and once the transaction is already split', async () => {
+		expect.assertions(4);
+
+		// 1b: « Elle n'apparaît pas sur une transaction dont la catégorie est Non catégorisé : une
+		// part ne peut pas porter la sentinelle, une répartition partant de là n'aurait aucune part
+		// valide. »
+		const row = db.transactions.find((t) => t.id === 'transaction-4');
+		if (!row) throw new Error('fixture transaction-4 is missing');
+		const saved = row.manualCategory;
+		try {
+			const ordinary = (await runLoad('/transactions?selected=transaction-4')) as unknown as {
+				selectedTransaction: { splitEntryAvailable: boolean };
+			};
+			expect(ordinary.selectedTransaction.splitEntryAvailable).toBe(true);
+
+			row.manualCategory = UNCLASSIFIED_CATEGORY;
+			const sentinel = (await runLoad('/transactions?selected=transaction-4')) as unknown as {
+				selectedTransaction: { splitEntryAvailable: boolean };
+			};
+			expect(sentinel.selectedTransaction.splitEntryAvailable).toBe(false);
+		} finally {
+			row.manualCategory = saved;
+		}
+
+		// Already répartie: the editor is what shows, so an entry point beside it would be a second
+		// way in to the panel that is already open.
+		//
+		// The manual category is set for the length of this assertion, and it is what makes the
+		// assertion mean anything. `transaction-split`'s parent category is the SENTINEL, so as it
+		// stands the row is refused by the OD-5 clause and the "already split" clause is never
+		// reached — deleting that clause left this test green, which is how the substitution was
+		// found. Giving it a real effective category is what puts the clause under load, and it is
+		// also the ordinary shape of a répartie transaction: §2.3 keeps the parent's category.
+		const splitRow = db.transactions.find((t) => t.id === 'transaction-split');
+		if (!splitRow) throw new Error('fixture transaction-split is missing');
+		const savedSplitCategory = splitRow.manualCategory;
+		try {
+			splitRow.manualCategory = 'Alimentation';
+			const split = (await runLoad('/transactions?selected=transaction-split')) as unknown as {
+				selectedTransaction: { splitEntryAvailable: boolean; splitInheritCategoryId: string };
+			};
+			// Stated so the refusal cannot silently revert to the OD-5 one: this row's effective
+			// category is a real, non-sentinel category, and the entry point is still withheld.
+			expect(split.selectedTransaction.splitInheritCategoryId).toBe('cat-alimentation');
+			expect(split.selectedTransaction.splitEntryAvailable).toBe(false);
+		} finally {
+			splitRow.manualCategory = savedSplitCategory;
 		}
 	});
 });

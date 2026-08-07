@@ -79,7 +79,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			prisma.category.findMany({
 				where: { userId: user.id },
 				orderBy: { name: 'asc' },
-				select: { name: true, defaultKey: true }
+				// `id` is here for the split editor: a part references its category by id, and
+				// `replaceSplits` re-resolves that id under the session. The manual-category selector
+				// beside it works in NAMES because `Transaction.manualCategory` is a free-text column;
+				// the two are not interchangeable and the load hands out both rather than making the
+				// page convert between them.
+				select: { id: true, name: true, defaultKey: true }
 			}),
 			prisma.categoryNatureMapping.findMany({
 				where: { userId: user.id },
@@ -114,6 +119,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 							},
 							importBatch: {
 								select: { id: true, fileName: true, source: true, rowCount: true, createdAt: true }
+							},
+							// Blast-radius row 42. Ordered by `position` because that order is
+							// user-visible rather than incidental: it decides which part carries the
+							// rounding cent (1e), and the editor's accessible names — « Montant de la
+							// part 2 » — are built from the index it produces.
+							splits: {
+								select: { categoryId: true, amountCents: true, note: true, position: true },
+								orderBy: { position: 'asc' }
 							},
 							tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
 						}
@@ -455,10 +468,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		splitCounts,
 		transactions: transactions.map((t) => mapTransactionListItem(t, mappingMap, rules)),
 		selectedTransaction: selectedTransaction
-			? mapTransactionDetail(selectedTransaction, mappingMap)
+			? mapTransactionDetail(selectedTransaction, mappingMap, categories, uncategorizedCategoryId)
 			: null,
 		selectedSuggestion,
 		categoryOptions: buildCategoryOptions(categories),
+		splitCategoryOptions: buildSplitCategoryOptions(categories, uncategorizedCategoryId),
 		categories,
 		allTags,
 		natureOptions: TRANSACTION_NATURES,
@@ -532,6 +546,46 @@ function computeSuggestion(
 
 function buildCategoryOptions(categories: Array<{ name: string }>): string[] {
 	return categories.map((c) => c.name).sort((left, right) => left.localeCompare(right, 'fr'));
+}
+
+/**
+ * What a part may be filed under (OD-5). The sentinel is REMOVED FROM THE LIST rather than offered
+ * and refused: `replaceSplits` refuses it server-side, and design 1c asks the selector to « exclure
+ * la sentinelle de sa liste plutôt que de l'offrir pour la refuser ». Offering an option whose only
+ * outcome is a refusal is a control that cannot state its reason.
+ *
+ * Excluded by ID, not by name. `uncategorizedCategoryId` is resolved through `nameKey`, so a
+ * category the user renamed to a different spelling of "uncategorized" is still the sentinel and is
+ * still excluded — which a name comparison here would miss.
+ */
+function buildSplitCategoryOptions(
+	categories: Array<{ id: string; name: string }>,
+	uncategorizedCategoryId: string | null
+): Array<{ value: string; label: string }> {
+	return categories
+		.filter((category) => category.id !== uncategorizedCategoryId)
+		.map((category) => ({ value: category.id, label: category.name }))
+		.sort((left, right) => left.label.localeCompare(right.label, 'fr'));
+}
+
+/**
+ * The category part 1 inherits when a répartition is created (1j-A), resolved to an id.
+ *
+ * It is the EFFECTIVE category, not `Transaction.categoryId`, and that is the whole content of this
+ * function. The parent selector sitting directly above the entry row shows the manual override when
+ * one is set; inheriting the imported column underneath it would hand part 1 a category the user is
+ * not looking at, on the one gesture whose promise is « zéro risque, une frappe de moins ».
+ *
+ * Returns null when the effective name matches none of the user's categories — `manualCategory` is a
+ * free-text column, so that is reachable rather than theoretical. Part 1 then starts empty, Save is
+ * off, and the reason line says why: a legible state rather than a guess.
+ */
+function resolveInheritedCategoryId(
+	effectiveCategoryName: string,
+	categories: Array<{ id: string; name: string }>
+): string | null {
+	const key = computeNameKey(effectiveCategoryName);
+	return categories.find((category) => computeNameKey(category.name) === key)?.id ?? null;
 }
 
 export const actions: Actions = {
@@ -1051,11 +1105,22 @@ function mapTransactionDetail(
 			createdAt: Date;
 		} | null;
 		tags: TagLinkRow[];
+		splits: Array<{
+			categoryId: string;
+			amountCents: number;
+			note: string | null;
+			position: number;
+		}>;
 	},
-	mappingMap: Map<string, TransactionNature>
+	mappingMap: Map<string, TransactionNature>,
+	/** The user's categories, id and name, so the effective category can be resolved to an id and
+	 *  the sentinel recognised. See `resolveInheritedCategoryId` and `buildSplitCategoryOptions`. */
+	splitCategories: Array<{ id: string; name: string }>,
+	uncategorizedCategoryId: string | null
 ) {
 	const metadata = parseMetadata(transaction.metadataJson);
 	const category = getEffectiveCategory(transaction);
+	const splitInheritCategoryId = resolveInheritedCategoryId(category, splitCategories);
 	const nature = getEffectiveTransactionNature(
 		{
 			amountCents: transaction.amountCents,
@@ -1107,7 +1172,27 @@ function mapTransactionDetail(
 		// Not run through anonymizeDetailText, unlike the label and the notes beside it. Those hold
 		// bank-supplied text this app never authored; a tag name is the user's own word, and folding
 		// it would make the editor round-trip a different string than the one they typed.
-		tags: flattenTagLinks(transaction.tags)
+		tags: flattenTagLinks(transaction.tags),
+		// Same reasoning for the note, which is the user's own word too — and it is display-only by
+		// §3.2, so nothing downstream searches or groups on it.
+		splits: transaction.splits.map((part) => ({
+			categoryId: part.categoryId,
+			amountCents: part.amountCents,
+			note: part.note ?? ''
+		})),
+		splitInheritCategoryId,
+		/**
+		 * 1b: the entry row exists only where a répartition could actually begin.
+		 *
+		 * Two refusals, not one. On the sentinel, because no part may carry it (OD-5) so the first
+		 * part would have nowhere to go. And on a transaction that is already répartie, because the
+		 * editor itself is what renders there — an entry point beside an open editor is a second door
+		 * into a room you are standing in.
+		 */
+		splitEntryAvailable:
+			transaction.splits.length === 0 &&
+			splitInheritCategoryId !== null &&
+			splitInheritCategoryId !== uncategorizedCategoryId
 	};
 }
 
