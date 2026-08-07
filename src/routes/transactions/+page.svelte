@@ -27,6 +27,7 @@
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import TransactionProposalCard from '$lib/components/TransactionProposalCard.svelte';
 	import TransactionTagsEditor from '$lib/components/TransactionTagsEditor.svelte';
+	import SplitEditor from '$lib/components/splits/SplitEditor.svelte';
 	import TransactionFocusOverlay from '$lib/components/TransactionFocusOverlay.svelte';
 	import TagChips from '$lib/components/ui/TagChips.svelte';
 	import FilterDropdown from '$lib/components/ui/FilterDropdown.svelte';
@@ -246,8 +247,61 @@
 	 */
 	let tagsDirtyDesktop = $state(false);
 	let tagsDirtyMobile = $state(false);
+	// A fourth source, and it joins the guard for exactly the reason the third did: a répartition in
+	// progress is hand-typed work, and up to twenty rows of it. Losing that to a row click would be
+	// the most expensive silent discard on this page.
+	let splitsDirtyDesktop = $state(false);
+	let splitsDirtyMobile = $state(false);
 	const hasUnsavedChanges = $derived(
-		categoryIsDirty || natureIsDirty || tagsDirtyDesktop || tagsDirtyMobile
+		categoryIsDirty ||
+			natureIsDirty ||
+			tagsDirtyDesktop ||
+			tagsDirtyMobile ||
+			splitsDirtyDesktop ||
+			splitsDirtyMobile
+	);
+
+	/**
+	 * The split editor's presence, design 1b and 1j.
+	 *
+	 * ONE flag for both surfaces, not one each. The desktop panel and the mobile sheet are mounted
+	 * simultaneously — a documented duplication on this page — but only ever one is visible, so a
+	 * per-surface flag would let the mode be on in the hidden one and produce two Save buttons for a
+	 * répartition the user opened once. `dirty` is still mirrored per surface, because that answers a
+	 * different question: which editor is holding work.
+	 */
+	let splitDraftOpen = $state(false);
+	const splitParts = $derived(data.selectedTransaction?.splits ?? []);
+	/** 1j-B when parts exist, 1j-A once the entry row is pressed. Same editor, same mechanics. */
+	const splitEditorActive = $derived(splitParts.length > 0 || splitDraftOpen);
+
+	// Two ids rather than one, kept apart HERE rather than inside the editor: the sentence belongs to
+	// the editor and the control it explains belongs to this page, so the id has to be owned by
+	// whichever of the two renders twice — and that is this page. See SplitEditor's `parentLockId`.
+	const pageInstanceId = $props.id();
+	const desktopParentLockId = `split-parent-lock-desktop-${pageInstanceId}`;
+	const mobileParentLockId = `split-parent-lock-mobile-${pageInstanceId}`;
+
+	const splitsError = $derived(
+		form && 'splitsError' in form ? (form.splitsError as string) : undefined
+	);
+	/**
+	 * 1r, the save-response half. Only the `category` refusal reaches the panel as « choisissez une
+	 * catégorie pour la part N » — every other refusal carries positions too, so the discriminator is
+	 * what stops an over-long note being reported as a missing category.
+	 */
+	const splitsConflictPositions = $derived.by(() => {
+		// Read through one narrow cast rather than `'key' in form`: `ActionData` here is intersected
+		// with `Record<string, unknown>`, so the `in` operator is true for every member of the union
+		// and narrows nothing — the same reason the neighbouring deriveds read a single property each.
+		const result = form as { splitsCategoryConflict?: boolean; splitsPositions?: number[] } | null;
+		return result?.splitsCategoryConflict ? (result.splitsPositions ?? []) : [];
+	});
+	const splitsSavedCount = $derived(
+		form && 'splitsSaved' in form && form.splitsSaved ? (form.splitsCount as number) : null
+	);
+	const splitsRemoved = $derived(
+		form && 'splitsRemoved' in form ? Boolean(form.splitsRemoved) : false
 	);
 
 	// Set for exactly one hop, by "Abandonner". Without it, replaying the navigation would be
@@ -752,6 +806,10 @@
 		openSections = new Set();
 		manualCategoryValue = tx?.manualCategory ?? '';
 		manualNatureValue = tx?.manualNature ?? '';
+		// Same reset as the two above, and for the same reason: an editor opened on one transaction
+		// must not be found open on the next one. After a save the load re-runs and `splitParts` is
+		// what keeps the editor on screen, so this closes the DRAFT only — never a real répartition.
+		splitDraftOpen = false;
 		// Only dismiss a pending delete confirmation when the user actively switches to a
 		// *different* transaction (desktop: clicking another row). Deselecting to null — which
 		// is exactly what the mobile flow does to close the sheet behind the dialog — must not
@@ -2730,11 +2788,29 @@
 								<!-- Catégorie manuelle -->
 								<section class="rounded-xl border border-zinc-200 p-3">
 									<h3 class="text-sm font-semibold">{m.transactions_manual_category_heading()}</h3>
+									{#if splitsSavedCount !== null}
+										<AlertBanner variant="success" size="sm" class="mt-2">
+											{m.splits_success_saved({ count: splitsSavedCount })}
+										</AlertBanner>
+									{:else if splitsRemoved}
+										<!-- Names the recovered category, which is what makes the removal obviously
+										     lossless without a dialog having promised it in advance (1i). -->
+										<AlertBanner variant="success" size="sm" class="mt-2">
+											{m.splits_success_removed({
+												category: displayCategory(data.selectedTransaction.category)
+											})}
+										</AlertBanner>
+									{/if}
 									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualCategory">
 										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 										<input type="hidden" name="manualCategory" value={manualCategoryValue} />
 										<label class="grid gap-1 text-sm font-medium text-zinc-600">
 											<span class="sr-only">{m.budgets_field_category()}</span>
+											<!--
+												D1 / 1j: neutralised IN SITU, never hidden and never silently ignored.
+												`softDisabled` rather than `disabled` so it keeps its place in the tab
+												order and can point at the sentence the editor renders below.
+											-->
 											<Combobox
 												value={manualCategoryValue}
 												options={[
@@ -2746,6 +2822,8 @@
 												]}
 												placeholder={m.transactions_automatic()}
 												ariaLabel={m.transactions_manual_category_heading()}
+												softDisabled={splitEditorActive}
+												aria-describedby={splitEditorActive ? desktopParentLockId : undefined}
 												onValueChange={(v) => {
 													manualCategoryValue = v;
 												}}
@@ -2758,7 +2836,14 @@
 											<Button type="submit" size="sm" disabled={!categoryIsDirty}
 												>{m.common_save()}</Button
 											>
-											{#if data.selectedTransaction.manualCategory}
+											<!--
+												Withheld while the editor is open, and this is not cosmetic: this button
+												submits `manualCategory=""`, which is a WRITE to the parent's category —
+												the one thing D1 forbids while parts exist. The server refuses it anyway
+												(`saveManualCategory` carries `splits: { none: {} }`), so offering it
+												would be offering a button whose only outcome is a silent refusal.
+											-->
+											{#if data.selectedTransaction.manualCategory && !splitEditorActive}
 												<Button
 													type="submit"
 													variant="secondary"
@@ -2769,10 +2854,60 @@
 											{/if}
 										</div>
 									</form>
+
+									<!--
+										1b: ONE action, 44px, directly under the selector, in the card it modifies —
+										« on la trouve au moment exact où l'on constate qu'une catégorie ne suffit
+										pas ». Not an overflow menu and not a footer button: that would make it a
+										feature to discover instead of an answer to a difficulty. The label says what
+										will happen rather than naming the feature.
+									-->
+									{#if data.selectedTransaction.splitEntryAvailable}
+										<button
+											type="button"
+											class="mt-2 flex min-h-[44px] w-full items-center gap-2 rounded-xl px-1 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+											onclick={() => (splitDraftOpen = true)}
+										>
+											<svg
+												viewBox="0 0 20 20"
+												class="h-4 w-4 shrink-0"
+												fill="none"
+												aria-hidden="true"
+											>
+												<path
+													d="M4 6h12M4 10h7M4 14h9"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+												/>
+											</svg>
+											{m.splits_entry_action()}
+										</button>
+									{/if}
+
 									<p class="mt-2">
 										<TapLink href="/categories">{m.transactions_manage_categories_link()}</TapLink>
 									</p>
 								</section>
+
+								<!-- Répartition — spec §9.1's fourth sibling section -->
+								{#if splitEditorActive}
+									<section class="rounded-xl border border-zinc-200 p-3">
+										<form method="POST" action="?/saveSplits">
+											<SplitEditor
+												transactionId={data.selectedTransaction.id}
+												amountCents={data.selectedTransaction.amountCents}
+												parentCategoryId={data.selectedTransaction.splitInheritCategoryId ?? ''}
+												categoryOptions={data.splitCategoryOptions}
+												existingParts={splitParts.length > 0 ? splitParts : null}
+												conflictPositions={splitsConflictPositions}
+												error={splitsError}
+												parentLockId={desktopParentLockId}
+												bind:dirty={splitsDirtyDesktop}
+											/>
+										</form>
+									</section>
+								{/if}
 
 								<!-- Nature manuelle -->
 								<section class="rounded-xl border border-zinc-200 p-3">
@@ -3516,7 +3651,9 @@
 					<h3 class="text-[13px] font-bold text-zinc-900">
 						{m.transactions_manual_category_heading()}
 					</h3>
-					{#if data.selectedTransaction.manualCategory}
+					<!-- Withheld while the editor is open for the same reason as its desktop twin: it
+					     writes the parent's category, which is what D1 forbids while parts exist. -->
+					{#if data.selectedTransaction.manualCategory && !splitEditorActive}
 						<button
 							type="button"
 							class="flex min-h-[44px] items-center border-0 bg-transparent p-0 text-xs font-semibold text-zinc-500 underline"
@@ -3529,6 +3666,17 @@
 						</button>
 					{/if}
 				</div>
+				{#if splitsSavedCount !== null}
+					<AlertBanner variant="success" size="sm">
+						{m.splits_success_saved({ count: splitsSavedCount })}
+					</AlertBanner>
+				{:else if splitsRemoved}
+					<AlertBanner variant="success" size="sm">
+						{m.splits_success_removed({
+							category: displayCategory(data.selectedTransaction.category)
+						})}
+					</AlertBanner>
+				{/if}
 				<form
 					bind:this={mobileCategoryFormEl}
 					class="flex flex-col gap-2"
@@ -3545,6 +3693,8 @@
 						]}
 						placeholder={m.transactions_automatic()}
 						ariaLabel={m.transactions_manual_category_heading()}
+						softDisabled={splitEditorActive}
+						aria-describedby={splitEditorActive ? mobileParentLockId : undefined}
 						onValueChange={(v) => {
 							manualCategoryValue = v;
 						}}
@@ -3563,10 +3713,51 @@
 						{m.common_save()}
 					</Button>
 				</form>
+
+				<!-- 1b, the mobile twin: 48px here, since every control inside the sheet goes to 48 and
+				     « le plancher de 44 l'emporte sans exception d'écran ». -->
+				{#if data.selectedTransaction.splitEntryAvailable}
+					<button
+						type="button"
+						class="flex min-h-12 w-full items-center gap-2 rounded-xl bg-zinc-50 px-3 text-left text-sm font-medium text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+						onclick={() => (splitDraftOpen = true)}
+					>
+						<svg viewBox="0 0 20 20" class="h-4 w-4 shrink-0" fill="none" aria-hidden="true">
+							<path
+								d="M4 6h12M4 10h7M4 14h9"
+								stroke="currentColor"
+								stroke-width="1.5"
+								stroke-linecap="round"
+							/>
+						</svg>
+						{m.splits_entry_action()}
+					</button>
+				{/if}
+
 				<p>
 					<TapLink href="/categories">{m.transactions_manage_categories_link()}</TapLink>
 				</p>
 			</section>
+
+			<!-- Répartition -->
+			{#if splitEditorActive}
+				<section class="flex flex-col gap-2">
+					<form method="POST" action="?/saveSplits">
+						<SplitEditor
+							transactionId={data.selectedTransaction.id}
+							amountCents={data.selectedTransaction.amountCents}
+							parentCategoryId={data.selectedTransaction.splitInheritCategoryId ?? ''}
+							categoryOptions={data.splitCategoryOptions}
+							existingParts={splitParts.length > 0 ? splitParts : null}
+							conflictPositions={splitsConflictPositions}
+							error={splitsError}
+							parentLockId={mobileParentLockId}
+							size="lg"
+							bind:dirty={splitsDirtyMobile}
+						/>
+					</form>
+				</section>
+			{/if}
 
 			<!-- Nature -->
 			<section class="flex flex-col gap-2">

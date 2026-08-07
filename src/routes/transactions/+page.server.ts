@@ -796,7 +796,14 @@ export const actions: Actions = {
 					splitsPositions: outcome.positions
 				});
 			case 'category':
+				// `splitsCategoryConflict` is what tells the panel these positions mean « choose a
+				// category » rather than « fix this amount ». Every branch here carries positions, so
+				// without a discriminator the panel would have to guess the sentence from the count —
+				// and 1r's whole point is that the refusal names the part AND says what is wrong with
+				// it. A deleted, a foreign and a nonexistent category all land here identically, which
+				// is deliberate: the user's remedy is the same in all three.
 				return fail(400, {
+					splitsCategoryConflict: true,
 					splitsError: m.splits_error_category(),
 					splitsPositions: outcome.positions
 				});

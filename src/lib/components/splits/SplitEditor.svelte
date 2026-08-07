@@ -1,6 +1,7 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
 	import Button from '$lib/components/Button.svelte';
+	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import SplitPartRow from './SplitPartRow.svelte';
 	import SplitRemainderBand from './SplitRemainderBand.svelte';
 	import {
@@ -27,6 +28,7 @@
 		existingParts,
 		conflictPositions = [],
 		error,
+		parentLockId,
 		size = 'md',
 		dirty = $bindable()
 	}: {
@@ -40,6 +42,18 @@
 		/** 0-based positions the server refused, from `replaceSplits`'s discriminated union (1r). */
 		conflictPositions?: number[];
 		error?: string;
+		/**
+		 * Id of the sentence this component renders to explain the neutralised PARENT selector — which
+		 * the CALLER owns and points its own `aria-describedby` at.
+		 *
+		 * Passed in rather than generated here, and that is the whole reason it is a prop: 1j keeps the
+		 * parent selector « en haut, à sa place habituelle », i.e. outside this component entirely,
+		 * while the sentence explaining it belongs to the editor that caused the lock. A control and
+		 * its reason live in two components, so exactly one of them must own the id, and it has to be
+		 * the one that cannot see the other. The caller renders the selector twice — desktop aside and
+		 * mobile sheet — so it also has to be the caller that keeps the two ids apart.
+		 */
+		parentLockId: string;
 		size?: 'md' | 'lg';
 		dirty?: boolean;
 	} = $props();
@@ -52,7 +66,6 @@
 	const floorHintId = `split-floor-${instanceId}`;
 	const ceilingHintId = `split-ceiling-${instanceId}`;
 	const reasonId = `split-reason-${instanceId}`;
-	const parentLockId = `split-parent-lock-${instanceId}`;
 
 	interface DraftPart {
 		categoryId: string;
@@ -281,21 +294,56 @@
 				</p>
 			{/if}
 		</fieldset>
-
-		<SplitRemainderBand bind:this={band} {remainder} {announcementId} />
-	{/if}
-
-	{#if error}
-		<p class="text-xs text-rose-600" role="alert">{error}</p>
 	{/if}
 
 	<input type="hidden" name="transactionId" value={transactionId} />
 
-	<div class="flex flex-wrap items-center gap-2">
-		<Button type="submit" size="sm" softDisabled={!canSave} aria-describedby={saveDescribedBy}>
-			{m.common_save()}
-		</Button>
-		<!--
+	<!--
+		1d and 1k: the remainder band and the action row travel TOGETHER, pinned to the bottom of
+		whatever is scrolling, « c'est la règle du pied de feuille étendue d'un cran : ce qui commande
+		l'action primaire voyage avec elle ». That is what guarantees the reason and the neutralised
+		button are read in the same glance whatever the number of parts, and at 390 it is what keeps
+		the remainder visible while typing — « un reste placé en haut disparaîtrait au premier champ
+		ciblé, exactement au moment où il devient utile ».
+
+		DIVERGENCE FROM THE DRAWING, recorded rather than smuggled. 1k puts this group in the SHEET's
+		own sticky footer. This app's detail sheet is not the sheet 1k drew: it hosts four independent
+		forms — manual category, manual nature, étiquettes and this one — so a sheet-level footer
+		would pin ONE form's « Enregistrer » as the whole sheet's permanent chrome, and a screen
+		reader would meet a Save button with no fieldset to belong to. `position: sticky` scoped to
+		this editor's own box gives the identical property with the right owner: the group pins while
+		the editor is on screen and releases when it is not. The cost is that the sheet keeps its
+		`max-h-[85vh]` instead of the ~809 px the footer prop grants; that is a height, not a
+		reachability, and 1k's own note says the property that matters is unaffected.
+	-->
+	<div class="sticky bottom-0 z-10 grid gap-2 bg-white pt-2 pb-1">
+		{#if error}
+			<!--
+				1i: inside the panel, ABOVE the remainder band, never at the top of the page — « l'échec
+				appartient à ce formulaire ». `role="alert"` and no auto-dismiss, and the sentence
+				promises first what matters, that nothing is lost.
+			-->
+			<div role="alert">
+				<AlertBanner variant="error" size="sm" autoDismissMs={Infinity}>
+					{error}
+					{#snippet action()}
+						<button type="submit" class="font-semibold text-rose-700 underline underline-offset-2">
+							{m.splits_error_retry()}
+						</button>
+					{/snippet}
+				</AlertBanner>
+			</div>
+		{/if}
+
+		{#if !removalPending}
+			<SplitRemainderBand bind:this={band} {remainder} {announcementId} />
+		{/if}
+
+		<div class="flex flex-wrap items-center gap-2">
+			<Button type="submit" size="sm" softDisabled={!canSave} aria-describedby={saveDescribedBy}>
+				{m.common_save()}
+			</Button>
+			<!--
 			Rendered only ABOVE the floor, and that is a resolution the design leaves implicit rather
 			than a deviation from it. 1f puts an actionable « Retirer la répartition » inside the floor
 			sentence, and 1j-B puts one in the footer; at exactly 2 parts both apply and the panel grew
@@ -303,13 +351,14 @@
 			tell them apart. The floor sentence's copy is the one that must stay, because 1f's whole
 			argument is that the sentence itself has to contain the exit.
 		-->
-		{#if isEditingExisting && !removalPending && !atFloor}
-			<Button type="button" variant="ghost" size="sm" onclick={() => (removalPending = true)}>
-				{m.splits_remove_action()}
-			</Button>
+			{#if isEditingExisting && !removalPending && !atFloor}
+				<Button type="button" variant="ghost" size="sm" onclick={() => (removalPending = true)}>
+					{m.splits_remove_action()}
+				</Button>
+			{/if}
+		</div>
+		{#if reasonSentence}
+			<p id={reasonId} class="text-xs text-zinc-500">{reasonSentence}</p>
 		{/if}
 	</div>
-	{#if reasonSentence}
-		<p id={reasonId} class="text-xs text-zinc-500">{reasonSentence}</p>
-	{/if}
 </div>

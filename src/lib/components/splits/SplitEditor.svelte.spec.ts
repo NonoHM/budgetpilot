@@ -18,6 +18,9 @@ function base(overrides: Record<string, unknown> = {}) {
 		parentCategoryId: 'cat-alimentation',
 		categoryOptions: OPTIONS,
 		existingParts: null,
+		// Caller-owned: the parent selector it explains lives outside this component, and the page
+		// renders both together twice at once. See the prop's own comment.
+		parentLockId: 'parent-lock-1',
 		...overrides
 	};
 }
