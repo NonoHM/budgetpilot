@@ -37,8 +37,9 @@ const db = vi.hoisted(() => {
 			createdAt: Date;
 		} | null;
 		tags: Array<{ tag: { id: string; name: string; colorToken: string } }>;
-		/** Parts of a répartition. Only presence is modelled — see matchesWhere's `splits` branch. */
-		splits: Array<{ categoryId: string }>;
+		/** Parts of a répartition, in the shape the real select returns. See matchesWhere's `splits`
+		 *  branch for which predicates are modelled and which throw. */
+		splits: Array<{ amountCents: number; categoryId: string; category: { name: string } }>;
 	}
 
 	// Category name -> id, mirrors the Prisma unique (userId, name) index used by
@@ -144,7 +145,14 @@ const db = vi.hoisted(() => {
 		categoryId: CATEGORY_IDS.uncategorized,
 		category: { name: 'uncategorized' },
 		tags: [],
-		splits: [{ categoryId: CATEGORY_IDS.Alimentation }, { categoryId: CATEGORY_IDS.Autre }]
+		splits: [
+			{
+				amountCents: 2_000,
+				categoryId: CATEGORY_IDS.Alimentation,
+				category: { name: 'Alimentation' }
+			},
+			{ amountCents: 1_000, categoryId: CATEGORY_IDS.Autre, category: { name: 'Autre' } }
+		]
 	});
 
 	// Faithfully evaluates the subset of Prisma `where` shapes actually used by the app code:
@@ -198,24 +206,48 @@ const db = vi.hoisted(() => {
 				// Same reason the `tags` branch above is explicit: the generic operator branch would
 				// find none of `in`/`notIn`/`gte`/... on `{ none: {} }` and fall through reporting a
 				// match, so every assertion about répartie rows being excluded would pass whether or
-				// not the conjunct was there. Only the two EMPTY predicates the app issues are
-				// modelled; anything richer throws rather than being approximated.
+				// not the conjunct was there. Only the predicates the app actually issues are
+				// modelled; anything else THROWS rather than being approximated, because a fake that
+				// silently widens is one that certifies a broken guard.
 				const relation = value as Record<string, unknown>;
 				const [operator, ...rest] = Object.keys(relation);
-				const filter = relation[operator] as Record<string, unknown> | undefined;
-				if (rest.length > 0 || Object.keys(filter ?? {}).length > 0) {
+				const filter = (relation[operator] ?? {}) as Record<string, unknown>;
+				if (rest.length > 0) {
 					throw new Error(
 						`page.server.spec mock: unsupported splits filter ${JSON.stringify(value)}`
 					);
 				}
 				if (operator === 'none') {
+					if (Object.keys(filter).length > 0) {
+						throw new Error(
+							`page.server.spec mock: unsupported splits filter ${JSON.stringify(value)}`
+						);
+					}
 					if (t.splits.length > 0) return false;
-				} else if (operator === 'some') {
-					if (t.splits.length === 0) return false;
-				} else {
+					continue;
+				}
+				if (operator !== 'some') {
 					throw new Error(
 						`page.server.spec mock: unsupported splits filter ${JSON.stringify(value)}`
 					);
+				}
+				if (Object.keys(filter).length === 0) {
+					if (t.splits.length === 0) return false;
+					continue;
+				}
+				// The one filtered shape OD-1 issues: `some: { category: { is: { userId, nameKey } } }`.
+				// The userId conjunct is evaluated, not skipped — it is the whole reason a part cannot
+				// reach another account's category, so a mock that ignored it would report an unscoped
+				// predicate as correctly scoped.
+				const categoryIs = (filter.category as { is?: { userId?: string; nameKey?: string } })?.is;
+				if (!categoryIs || Object.keys(filter).length > 1) {
+					throw new Error(
+						`page.server.spec mock: unsupported splits filter ${JSON.stringify(value)}`
+					);
+				}
+				if (categoryIs.userId && t.userId !== categoryIs.userId) return false;
+				if (!t.splits.some((part) => computeNameKey(part.category.name) === categoryIs.nameKey)) {
+					return false;
 				}
 				continue;
 			}
@@ -368,6 +400,34 @@ const db = vi.hoisted(() => {
 						if (!parent) return 0;
 						if (where.transaction?.userId && parent.userId !== where.transaction.userId) return 0;
 						return parent.splits.length;
+					}
+				),
+				// The parts side of computeFilteredTotals' category branch. Reaches the parent through
+				// the SAME matchesWhere the transaction table uses, so the predicate the route builds is
+				// evaluated rather than approximated, and evaluates the part's own category scope for
+				// the reason the `splits` branch above spells out.
+				aggregate: vi.fn(
+					async ({
+						where
+					}: {
+						where: {
+							category?: { is?: { userId?: string; nameKey?: string } };
+							transaction?: Record<string, unknown>;
+						};
+					}) => {
+						let sum = 0;
+						let matched = 0;
+						for (const parent of transactions) {
+							if (!matchesWhere(parent, where.transaction)) continue;
+							for (const part of parent.splits) {
+								const is = where.category?.is;
+								if (is?.userId && parent.userId !== is.userId) continue;
+								if (is?.nameKey && computeNameKey(part.category.name) !== is.nameKey) continue;
+								sum += part.amountCents;
+								matched += 1;
+							}
+						}
+						return { _sum: { amountCents: matched > 0 ? sum : null } };
 					}
 				)
 			},
@@ -664,7 +724,7 @@ describe('/transactions load', () => {
 		expect(db.prisma.transaction.findMany).toHaveBeenCalledWith(
 			expect.objectContaining({
 				where: expect.objectContaining({
-					// Filtered on the folded key on both branches, so "alimentation" and
+					// Filtered on the folded key on every branch, so "alimentation" and
 					// "Alimentation" select the same rows on every database engine.
 					OR: [
 						{ manualCategoryKey: computeNameKey('Alimentation') },
@@ -677,6 +737,17 @@ describe('/transactions load', () => {
 									}
 								}
 							]
+						},
+						// OD-1. The parent branches above are kept, not replaced: a répartie row filed
+						// under Alimentation still matches on identity even when no part went there.
+						{
+							splits: {
+								some: {
+									category: {
+										is: { userId: testUser.id, nameKey: computeNameKey('Alimentation') }
+									}
+								}
+							}
 						}
 					]
 				})

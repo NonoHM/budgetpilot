@@ -10,10 +10,48 @@ const filters = {
 	to: '2026-07-31',
 	importBatchId: 'batch1234',
 	ids: 'tx1,tx2',
-	tag: 'tag1234a'
+	tag: 'tag1234a',
+	split: 'split'
 };
 
 describe('buildTransactionsHref', () => {
+	it('never emits a dimension sitting at its default word', () => {
+		// `type` and `split` are the two params whose "off" value is a WORD, not an empty string.
+		// The rule lived in three places until `split` arrived; this pins it for BOTH, so unifying it
+		// into baseParams cannot have quietly dropped one. `?type=all` on a "Toutes" link is the
+		// dead-link failure the comment there describes.
+		const href = buildTransactionsHref(
+			{ ...filters, type: 'all', split: 'all' },
+			{},
+			{ keepIds: true }
+		);
+		const params = new URLSearchParams(href.split('?')[1]);
+
+		expect(params.has('type')).toBe(false);
+		expect(params.has('split')).toBe(false);
+		// And the dimensions that are not at their default are still there, so this is not passing
+		// because the builder emitted nothing at all.
+		expect(params.get('category')).toBe('Voyage');
+	});
+
+	it('carries the répartition dimension through paging, selection and the export', () => {
+		// Three of the five original builders. A dimension that survives a filter change but is
+		// dropped by "next page" is the shape this module was written to make impossible.
+		expect(
+			new URLSearchParams(
+				buildTransactionsHref(filters, { page: '2' }, { keepIds: true }).split('?')[1]
+			).get('split')
+		).toBe('split');
+		expect(
+			new URLSearchParams(
+				buildTransactionsHref(filters, { selected: 'tx1' }, { keepIds: true }).split('?')[1]
+			).get('split')
+		).toBe('split');
+		expect(
+			new URLSearchParams(buildTransactionsExportHref(filters).split('?')[1]).get('split')
+		).toBe('split');
+	});
+
 	it('carries every active filter', () => {
 		const href = buildTransactionsHref(filters, {}, { keepIds: true });
 		const params = new URLSearchParams(href.split('?')[1]);
@@ -142,7 +180,8 @@ describe('buildTransactionsHref', () => {
 				to: '',
 				importBatchId: '',
 				ids: '',
-				tag: ''
+				tag: '',
+				split: 'all'
 			},
 			{},
 			{ keepIds: true }

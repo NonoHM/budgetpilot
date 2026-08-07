@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { prisma } from '$lib/server/db';
-import { transactionKindWhere, resolveTransactionType } from './totals';
+import {
+	transactionKindWhere,
+	resolveTransactionType,
+	computeFilteredTotals,
+	sumFilteredTotals
+} from './totals';
+import { buildTransactionWhere } from './where';
+import { replaceSplits } from './splits';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 
 /**
  * The SQL predicate and the TypeScript function must agree, on every engine, over every shape a
@@ -96,6 +104,140 @@ describe('transaction kind predicate', () => {
 		});
 		expect(incomeCount + expenseCount).toBe(rows.length);
 
+		await prisma.user.delete({ where: { id: userId } });
+	}, 60_000);
+});
+
+/**
+ * The category branch of computeFilteredTotals, which is SQL and therefore unprovable in a unit
+ * test: a fixture-injected mock replaces the very aggregate under test. The absolute figure is what
+ * matters here — 20,00 €, not "the same as the other implementation" — because the two
+ * implementations could agree on 80,00 € and both be wrong, which is the anti-drift trap CLAUDE.md
+ * records. The agreement assertion is a second, weaker check on top of it.
+ */
+describe('filtered totals with a category dimension', () => {
+	it('sums the matching PARTS, not the parents, and agrees with the in-memory twin', async () => {
+		const { userId, accountId } = await seedUser();
+		const [food, home] = await Promise.all([
+			prisma.category.create({
+				data: { userId, name: 'Alimentation', nameKey: computeNameKey('Alimentation') },
+				select: { id: true }
+			}),
+			prisma.category.create({
+				data: { userId, name: 'Maison', nameKey: computeNameKey('Maison') },
+				select: { id: true }
+			})
+		]);
+
+		// The canonical case, plus an UNSPLIT row in Maison. Without the second row the assertion
+		// could not distinguish "sums the parts" from "sums nothing at all for a répartie row".
+		const split = await prisma.transaction.create({
+			data: {
+				userId,
+				accountId,
+				categoryId: food.id,
+				date: new Date('2026-07-01T00:00:00.000Z'),
+				label: 'Carrefour Market',
+				amountCents: -8_000,
+				type: 'expense',
+				source: 'manual'
+			},
+			select: { id: true }
+		});
+		await prisma.transaction.create({
+			data: {
+				userId,
+				accountId,
+				categoryId: home.id,
+				date: new Date('2026-07-02T00:00:00.000Z'),
+				label: 'Quincaillerie',
+				amountCents: -1_500,
+				type: 'expense',
+				source: 'manual'
+			}
+		});
+		const replaced = await replaceSplits(userId, split.id, [
+			{ categoryId: food.id, amountCents: -6_000 },
+			{ categoryId: home.id, amountCents: -2_000 }
+		]);
+		expect(replaced).toEqual({ ok: true });
+
+		const whereMaison = buildTransactionWhere({
+			userId,
+			type: 'all',
+			category: 'Maison',
+			importBatchId: ''
+		});
+
+		// OD-1: the répartie row is MATCHED by ?category=Maison even though its parent is
+		// Alimentation. Asserted first, because the total below is only interesting if the row it
+		// must not over-count is actually in the set.
+		const matched = await prisma.transaction.findMany({
+			where: whereMaison,
+			select: { id: true, label: true }
+		});
+		expect(matched.map((row) => row.label).sort()).toEqual(['Carrefour Market', 'Quincaillerie']);
+
+		// 2000 from the part + 1500 from the unsplit row. A parent-based total reads 9500.
+		expect(await computeFilteredTotals(whereMaison, { userId, name: 'Maison' })).toEqual({
+			incomeCents: 0,
+			expenseCents: 3_500
+		});
+
+		// And the `?q=` path's twin, over the same rows, must return the same figure.
+		const rows = await prisma.transaction.findMany({
+			where: whereMaison,
+			select: {
+				amountCents: true,
+				type: true,
+				manualCategory: true,
+				category: { select: { name: true } },
+				splits: { select: { amountCents: true, category: { select: { name: true } } } }
+			}
+		});
+		expect(sumFilteredTotals(rows, 'Maison')).toEqual({ incomeCents: 0, expenseCents: 3_500 });
+
+		// With NO category dimension both paths report the parents, unchanged — the property that
+		// keeps every figure outside this feature still.
+		const whereAll = buildTransactionWhere({
+			userId,
+			type: 'all',
+			category: '',
+			importBatchId: ''
+		});
+		expect(await computeFilteredTotals(whereAll)).toEqual({
+			incomeCents: 0,
+			expenseCents: 9_500
+		});
+
+		// A category the parent carries and no part does: matched on identity, contributing nothing.
+		await prisma.transaction.create({
+			data: {
+				userId,
+				accountId,
+				categoryId: home.id,
+				date: new Date('2026-07-03T00:00:00.000Z'),
+				label: 'Meuble reparti',
+				amountCents: -4_000,
+				type: 'expense',
+				source: 'manual'
+			},
+			select: { id: true }
+		});
+		const parentOnly = await prisma.transaction.findFirst({
+			where: { userId, label: 'Meuble reparti' },
+			select: { id: true }
+		});
+		await replaceSplits(userId, parentOnly!.id, [
+			{ categoryId: food.id, amountCents: -3_000 },
+			{ categoryId: food.id, amountCents: -1_000 }
+		]);
+		expect(await computeFilteredTotals(whereMaison, { userId, name: 'Maison' })).toEqual({
+			incomeCents: 0,
+			expenseCents: 3_500
+		});
+
+		await prisma.transaction.deleteMany({ where: { userId } });
 		await prisma.user.delete({ where: { id: userId } });
 	}, 60_000);
 });

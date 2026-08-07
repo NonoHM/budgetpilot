@@ -3,6 +3,7 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 // Compared against the message FUNCTION, never a copied literal: a spec that retypes the sentence
 // keeps passing while the catalogue says something else.
 import * as m from '$lib/paraglide/messages';
+import { buildTransactionWhere } from '$lib/server/transactions/where';
 
 const db = vi.hoisted(() => {
 	// Must stay aligned with UNCLASSIFIED_CATEGORY ($lib/domain/categories) — literal
@@ -265,6 +266,34 @@ describe('deleteCategory — orphelins CategoryNatureMapping / MonthlyBudget', (
 		expect(db.prisma.transactionSplit.count).not.toHaveBeenCalled();
 	});
 
+	// The plan's own requirement: assert the DESTINATION, not that an href is a string. The claim is
+	// that the link resolves to the transactions the count is about, and what makes that true is
+	// OD-1 — so this test follows the link's own query string through the real predicate builder and
+	// finds the parent whose PART carries the category. Written this way so that reverting OD-1
+	// breaks it here, in the message that promises the link works.
+	it('offers a link that really resolves to the transactions the count is about', async () => {
+		expect.assertions(3);
+		db.prisma.transactionSplit.count.mockResolvedValueOnce(2);
+
+		const result = await runAction('deleteCategory', { id: 'cat-alimentation' });
+
+		expect(result.data?.errorLink?.href).toBe('/transactions?category=Alimentation');
+		expect(result.data?.errorLink?.label).toBe(m.categories_error_delete_used_by_splits_link());
+
+		const url = new URL(result.data?.errorLink?.href ?? '', 'http://localhost');
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'all',
+			category: url.searchParams.get('category') ?? '',
+			importBatchId: ''
+		});
+		expect(where.OR).toContainEqual({
+			splits: {
+				some: { category: { is: { userId: 'user-a', nameKey: computeNameKey('Alimentation') } } }
+			}
+		});
+	});
+
 	it('scopes the part count to the user own category row, never to the id alone', async () => {
 		expect.assertions(1);
 		db.prisma.transactionSplit.count.mockResolvedValueOnce(1);
@@ -338,5 +367,9 @@ async function runAction(name: keyof typeof actions, input: Record<string, strin
 	)({
 		locals: { user: testUser },
 		request: new Request('http://localhost/categories', { method: 'POST', body: formData })
-	})) as { status?: number; success?: string; data?: { error?: string } };
+	})) as {
+		status?: number;
+		success?: string;
+		data?: { error?: string; errorLink?: { href: string; label: string } };
+	};
 }

@@ -6,8 +6,10 @@ import {
 	normalizeSearch,
 	parseTransactionDateRange,
 	parseTransactionFilter,
+	parseTransactionSplitFilter,
 	resolveUncategorizedCategoryId,
-	type TransactionFilter
+	type TransactionFilter,
+	type TransactionSplitFilter
 } from './where';
 import {
 	collectTransactionsMatchingQuery,
@@ -30,6 +32,7 @@ export interface ListFilters {
 	tagId: string;
 	/** `null` = no id filter. `[]` = MATCH NOTHING. The two are not interchangeable — see below. */
 	ids: string[] | null;
+	split: TransactionSplitFilter;
 }
 
 /**
@@ -97,6 +100,9 @@ export type TransactionScope =
 			/** The same scope with the tag conjunct omitted, for the per-tag counts. BUILT, not
 			 * destructured off `where` — see the note at the call site. */
 			whereWithoutTag: Prisma.TransactionWhereInput;
+			/** The same scope with the split conjunct omitted. BUILT, same reason as whereWithoutTag
+			 * above — see the note at the call site. */
+			whereWithoutSplit: Prisma.TransactionWhereInput;
 	  }
 	| {
 			kind: 'scan';
@@ -106,6 +112,7 @@ export type TransactionScope =
 			/** NOT the answer. The JS search step has not been applied to it yet. */
 			whereBeforeQuery: Prisma.TransactionWhereInput;
 			whereWithoutTagBeforeQuery: Prisma.TransactionWhereInput;
+			whereWithoutSplitBeforeQuery: Prisma.TransactionWhereInput;
 			/** The only complete answer on this branch: the predicate AND the JS search, together. */
 			collect<S extends Prisma.TransactionSelect & { label: true }>(
 				select: S,
@@ -143,7 +150,8 @@ export async function resolveTransactionScope(
 		toParam: (toParam ?? '').trim(),
 		importBatchId: normalizeId(url.searchParams.get('importBatch')),
 		tagId: normalizeId(url.searchParams.get('tag')),
-		ids: normalizeIdList(url.searchParams.get('ids'))
+		ids: normalizeIdList(url.searchParams.get('ids')),
+		split: parseTransactionSplitFilter(url.searchParams.get('split'))
 	};
 
 	// Both computed, never short-circuited: see InvalidReasons. Returning on the first failure is
@@ -169,7 +177,8 @@ export async function resolveTransactionScope(
 		to: range?.to,
 		importBatchId: filters.importBatchId,
 		uncategorizedCategoryId,
-		ids: filters.ids
+		ids: filters.ids,
+		split: filters.split
 	};
 
 	const where = buildTransactionWhere({ ...common, tagId: filters.tagId });
@@ -180,8 +189,17 @@ export async function resolveTransactionScope(
 	// for every other — with nothing going red. Both `load` and counts.ts carried paragraph-long
 	// comments warning about exactly that. Building it cannot drift.
 	const whereWithoutTag = buildTransactionWhere(common);
+	// Same reasoning as whereWithoutTag above, applied to the split conjunct: BUILT with `split: 'all'`
+	// overriding `common`, never destructured off `where`, for the identical reason — `where.splits`
+	// does not sit at a fixed top-level shape once the classify pile is also active (see where.ts's
+	// splitsRequirements accumulator).
+	const whereWithoutSplit = buildTransactionWhere({
+		...common,
+		split: 'all',
+		tagId: filters.tagId
+	});
 
-	if (!filters.query) return { kind: 'sql', filters, where, whereWithoutTag };
+	if (!filters.query) return { kind: 'sql', filters, where, whereWithoutTag, whereWithoutSplit };
 
 	return {
 		kind: 'scan',
@@ -190,6 +208,7 @@ export async function resolveTransactionScope(
 		qMode: filters.qMode,
 		whereBeforeQuery: where,
 		whereWithoutTagBeforeQuery: whereWithoutTag,
+		whereWithoutSplitBeforeQuery: whereWithoutSplit,
 		collect<S extends Prisma.TransactionSelect & { label: true }>(
 			select: S,
 			collectOptions?: { tagFree?: boolean }

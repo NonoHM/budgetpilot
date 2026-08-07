@@ -26,7 +26,9 @@ import {
 import {
 	buildCategoryNatureMap,
 	getEffectiveCategory,
-	getEffectiveTransactionNature
+	getEffectiveTransactionNature,
+	EFFECTIVE_CATEGORY_SELECT,
+	type SplitRow
 } from '$lib/server/transactions/nature';
 import {
 	buildTransactionWhere,
@@ -201,6 +203,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		}
 	}
 
+	// Spreads EFFECTIVE_CATEGORY_SELECT rather than naming `manualCategory` and `category` by hand,
+	// which is what this list did before: `sumFilteredTotals` now answers a per-category question on
+	// the `?q=` path, so this read joined the family of money reads the fragment exists to keep in
+	// agreement. Naming the columns here again would have made a fourth copy, and forgetting `splits`
+	// would have silently reported a répartie row's whole total under the filtered category.
 	const transactionSelect = {
 		id: true,
 		date: true,
@@ -208,9 +215,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		amountCents: true,
 		type: true,
 		source: true,
-		manualCategory: true,
 		natureManual: true,
-		category: { select: { name: true } },
+		...EFFECTIVE_CATEGORY_SELECT,
 		tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
 	} as const;
 
@@ -224,6 +230,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
 		category: { name: string };
+		splits: SplitRow[];
 		tags: TagLinkRow[];
 	}
 
@@ -252,7 +259,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	let tagScopeTotal = 0;
 	// The whole filtered set, in memory, on the `?q=` branch only — the branch that already has it.
 	// Used for the bulk fallback below, so that branch needs no extra query at all.
-	let matchedRows: Array<{ amountCents: number; type: string | null }> | null = null;
+	let matchedRows: TransactionListRow[] | null = null;
+	// The one place the "does this filter carry a category dimension" question is asked, so the two
+	// totals paths cannot disagree about it. Empty string means no dimension, never "the category
+	// whose name is empty".
+	const categoryTotalsScope = filters.category
+		? { userId: user.id, name: filters.category }
+		: undefined;
 	if (scope.kind === 'invalid') {
 		totalTransactions = 0;
 		totalPages = 1;
@@ -286,7 +299,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		});
 		// Alongside the count, over the same `where`: the total describes the filtered SET, which
 		// is why it is not derived from `transactions` (that is one page of it).
-		filteredTotals = await computeFilteredTotals(scope.where);
+		filteredTotals = await computeFilteredTotals(scope.where, categoryTotalsScope);
 	} else {
 		// The scan runs ONCE, on the tag-free scope, and the tag filter is applied to its result in
 		// JS. Scanning the tag-filtered scope instead and reusing its ids for the counts is what
@@ -304,7 +317,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		transactions = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 		// The q path matches in JS, so the SQL aggregate would not see the same set. Same numbers,
 		// different source; totals.spec.ts pins the two implementations against one fixture.
-		filteredTotals = sumFilteredTotals(filtered);
+		filteredTotals = sumFilteredTotals(filtered, filters.category || undefined);
 		matchedIds = filteredAll.map((row) => row.id);
 		matchedRows = filtered;
 	}
@@ -426,7 +439,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// to carry anything forward — the two cases have no observable difference here. A
 			// future consumer of `filters.ids` that runs when the list is empty must not assume it.
 			ids: filters.ids ? filters.ids.join(',') : '',
-			tag: filters.tagId
+			tag: filters.tagId,
+			split: filters.split
 		},
 		filteredTotals,
 		tagCounts,

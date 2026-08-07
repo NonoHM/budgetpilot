@@ -23,9 +23,28 @@ export interface TransactionFilters {
 	importBatchId: string;
 	ids: string;
 	tag: string;
+	/** Répartition dimension. `'all'` is the default and is never emitted — see baseParams. */
+	split: string;
 }
 
-function baseParams(filters: TransactionFilters, keepIds: boolean): URLSearchParams {
+/**
+ * Every param, including the two whose "empty" value is a WORD rather than an empty string.
+ *
+ * `type` and `split` both default to `'all'` and must not be emitted at that value: a URL carrying
+ * `type=all` is not wrong, but the tab that clears the filter would then link to a URL that still
+ * names it, and it becomes a dead link on exactly the page where it matters.
+ *
+ * That rule used to be written out three times — here-ish, in filterHiddenInputs and in
+ * buildTransactionsExportHref — and CLAUDE.md's backlog recorded the duplication with the condition
+ * that would turn it into a defect: "it becomes a defect the moment a SECOND filter acquires a
+ * default value". `split` is that second filter, so the three copies are now one, and the override
+ * arrives as a parameter instead of being re-applied by the caller afterwards.
+ */
+function baseParams(
+	filters: TransactionFilters,
+	keepIds: boolean,
+	overrides: { type?: string } = {}
+): URLSearchParams {
 	// Local scratch value, built and discarded within this function; never stored as reactive state.
 	// (This is a plain .ts module, so svelte/prefer-svelte-reactivity does not fire here at all.)
 	const params = new URLSearchParams();
@@ -39,6 +58,20 @@ function baseParams(filters: TransactionFilters, keepIds: boolean): URLSearchPar
 	// keepIds side of the split: a tag filter is an ordinary narrowing of the list, not a
 	// "these specific rows" view the user needs to be shown leaving.
 	if (filters.tag) params.set('tag', filters.tag);
+	// An override replaces the ambient filter; 'all' is never emitted, whichever of the two supplied
+	// it. That single rule reproduces all five original builders exactly: buildFocusHref forced
+	// 'classify', buildFilterHref keyed off the DESTINATION tab, and buildPageHref /
+	// buildSelectedHref / buildExportHref carried the ambient value forward.
+	//
+	// Do not "simplify" this to `overrides.type !== undefined ? set(override) : ...`. That shape
+	// makes an absent override mean "keep ambient", so the "Toutes" tab, which asks for 'all',
+	// silently re-emits the filter it is meant to clear. A test pins both halves.
+	const effectiveType = overrides.type ?? filters.type;
+	if (effectiveType !== 'all') params.set('type', effectiveType);
+	// No override counterpart, deliberately: nothing forces a répartition value the way focus mode
+	// forces `type=classify`. If something ever does, it belongs in `overrides` beside `type`, not
+	// in a fourth copy of this line.
+	if (filters.split !== 'all') params.set('split', filters.split);
 	if (keepIds && filters.ids) params.set('ids', filters.ids);
 	return params;
 }
@@ -74,7 +107,6 @@ export function filterHiddenInputs(
 	const params = baseParams(filters, false);
 	params.delete('q');
 	params.delete('qMode');
-	if (filters.type !== 'all') params.set('type', filters.type);
 	return [...params].map(([name, value]) => ({ name, value }));
 }
 
@@ -83,20 +115,7 @@ export function buildTransactionsHref(
 	overrides: Partial<Record<'type' | 'page' | 'selected', string>>,
 	options: { keepIds: boolean }
 ): `/transactions?${string}` {
-	const params = baseParams(filters, options.keepIds);
-
-	// An override replaces the ambient filter; 'all' is the default and is never emitted, whichever
-	// of the two supplied it. That single rule reproduces all five original builders exactly:
-	// buildFocusHref forced 'classify', buildFilterHref keyed off the DESTINATION tab, and
-	// buildPageHref / buildSelectedHref / buildExportHref carried the ambient value forward. Each
-	// emitted `type` only when the value it was working with was not 'all'.
-	//
-	// Do not "simplify" this back to `overrides.type !== undefined ? set(override) : ...`. That
-	// shape makes an absent override mean "keep ambient", so the "Toutes" tab, which asks for
-	// 'all', silently re-emits the filter it is meant to clear and becomes a dead link on exactly
-	// the pages where it matters. A test pins both halves.
-	const effectiveType = overrides.type ?? filters.type;
-	if (effectiveType !== 'all') params.set('type', effectiveType);
+	const params = baseParams(filters, options.keepIds, { type: overrides.type });
 
 	if (overrides.page !== undefined) params.set('page', overrides.page);
 	if (overrides.selected !== undefined) params.set('selected', overrides.selected);
@@ -106,6 +125,5 @@ export function buildTransactionsHref(
 
 export function buildTransactionsExportHref(filters: TransactionFilters): string {
 	const params = baseParams(filters, true);
-	if (filters.type !== 'all') params.set('type', filters.type);
 	return `/transactions/export?${params.toString()}`;
 }

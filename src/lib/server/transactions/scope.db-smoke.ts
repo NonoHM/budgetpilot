@@ -118,6 +118,8 @@ const LABEL_PREFIXES = [
 interface Fixture {
 	userId: string;
 	categoryRealName: string;
+	/** Carried by PARTS only, never by a parent — the OD-1 proof at engine level. */
+	categoryPartOnlyName: string;
 	tagIds: string[];
 	batchIds: string[];
 	allIds: string[];
@@ -147,7 +149,7 @@ async function seedFixture(): Promise<Fixture> {
 		select: { id: true }
 	});
 
-	const [realCategory, uncategorized] = await Promise.all([
+	const [realCategory, uncategorized, partOnlyCategory] = await Promise.all([
 		prisma.category.create({
 			data: { userId, name: 'Alimentation', nameKey: computeNameKey('Alimentation') },
 			select: { id: true, name: true }
@@ -159,6 +161,14 @@ async function seedFixture(): Promise<Fixture> {
 				nameKey: computeNameKey(UNCLASSIFIED_CATEGORY)
 			},
 			select: { id: true }
+		}),
+		// Held by PARTS and by no parent, so a query that returns rows for it can only have gone
+		// through the splits branch of the category predicate. Without such a category, OD-1 could be
+		// deleted and every row of this matrix would still pass: `?category=Alimentation` matches the
+		// répartie rows through their parent anyway.
+		prisma.category.create({
+			data: { userId, name: 'Maison', nameKey: computeNameKey('Maison') },
+			select: { id: true, name: true }
 		})
 	]);
 
@@ -263,10 +273,56 @@ async function seedFixture(): Promise<Fixture> {
 	});
 	await prisma.transactionTag.createMany({ data: links });
 
+	// Répartitions, on a modulus COPRIME with every other one in this fixture (13 for the classify
+	// pile, 5 for the batches, 4/6/9 for the tags, 7 for the manual category, 3 for type/amount), so
+	// the split dimension stays independent of all of them. Sharing a modulus would make a matrix row
+	// combining two of them test an artefact of the fixture rather than the filters.
+	//
+	// Seeded at all because the alternative was measured and rejected: with no parts anywhere,
+	// `?split=split` resolves the empty set on every row, and the class would be declared in the
+	// matrix while proving nothing — the exact "declared exception that never moved" shape recorded
+	// in CLAUDE.md. Two parts per répartie row, summing EXACTLY to the parent (asserted below), so
+	// the fixture cannot drift into the remainder state the app treats as unreachable.
+	//
+	// One part carries a category NO PARENT holds. That is what makes OD-1 provable here rather than
+	// merely present: `?category=<part-only>` can only return rows through the splits branch.
+	const splitParents = created.filter((_, index) => index % 11 === 0);
+	const parentAmountById = new Map(rows.map((row) => [row.id, row.amountCents]));
+	const splitRows = splitParents.flatMap((row) => {
+		const total = parentAmountById.get(row.id) ?? 0;
+		const first = Math.trunc(total / 2);
+		return [
+			{ transactionId: row.id, categoryId: realCategory.id, amountCents: first, position: 0 },
+			{
+				transactionId: row.id,
+				categoryId: partOnlyCategory.id,
+				amountCents: total - first,
+				position: 1
+			}
+		];
+	});
+	await prisma.transactionSplit.createMany({ data: splitRows });
+
+	// The fixture is seeded with createMany rather than through replaceSplits — 260 rows, one
+	// transaction each would be absurd — so the invariant replaceSplits enforces is asserted here
+	// instead of assumed. A fixture that quietly violated it would make every figure downstream
+	// describe a state the app cannot produce.
+	for (const parent of splitParents) {
+		const total = parentAmountById.get(parent.id) ?? 0;
+		const parts = splitRows.filter((part) => part.transactionId === parent.id);
+		const sum = parts.reduce((running, part) => running + part.amountCents, 0);
+		if (parts.length < 2 || sum !== total) {
+			throw new Error(
+				`scope fixture: répartition of ${parent.id} is invalid (${parts.length} parts summing ${sum}, parent ${total})`
+			);
+		}
+	}
+
 	const allIds = created.map((row) => row.id);
 	return {
 		userId,
 		categoryRealName: realCategory.name,
+		categoryPartOnlyName: partOnlyCategory.name,
 		tagIds: tags.map((tag) => tag.id),
 		batchIds: batches.map((batch) => batch.id),
 		allIds,
@@ -472,6 +528,9 @@ export function buildQueryString(row: FilterRow, fx: Fixture): string {
 	if (row.type !== 'all') params.set('type', row.type);
 
 	if (row.category === 'real') params.set('category', fx.categoryRealName);
+	// Only parts carry this one, so any row it returns came through the splits branch of the
+	// category predicate — the whole point of the class.
+	if (row.category === 'part-only') params.set('category', fx.categoryPartOnlyName);
 	if (row.category === 'nonexistent') params.set('category', 'Aucune catégorie de ce nom');
 
 	if (row.range === 'valid-narrow') {
@@ -503,6 +562,10 @@ export function buildQueryString(row: FilterRow, fx: Fixture): string {
 	if (row.ids === 'all-malformed') params.set('ids', 'a,b, ,,c');
 	if (row.ids === 'over-cap') params.set('ids', fx.overCapIds.join(','));
 	if (row.ids === 'covering-all') params.set('ids', fx.allIds.join(','));
+
+	// Same shape as `type` above, not `tag`/`category`: TransactionSplitFilter has no id lookup, so
+	// its "off" class is the literal 'all' rather than an absent param.
+	if (row.split !== 'all') params.set('split', row.split);
 
 	return params.toString();
 }
@@ -760,6 +823,18 @@ describe('the three /transactions filter sites', () => {
 		 * intersections, and **22 resolve a non-empty set through the set-agreement branch**. The
 		 * floor is 20 rather than 22 so ordinary fixture drift does not fail the build, while a
 		 * collapse back toward the original 7 does.
+		 *
+		 * RE-MEASURED 2026-08-07, after the Répartition dimension and the `category: 'part-only'`
+		 * class were added: **21**, not 22. Read off a deliberately impossible floor (999) rather
+		 * than inferred, so the number is the suite's own and not an estimate. It went DOWN by one
+		 * even though the fixture gained répartitions and a genuinely productive category class,
+		 * because the greedy pairwise generator selects different rows once a dimension's cardinality
+		 * changes — the same counter-intuitive direction already recorded at the classify-pile
+		 * modulus, where widening the pile took the count from 22 to 21.
+		 *
+		 * The floor STAYS AT 20. The margin is now 1 rather than 2, and that is worth saying out
+		 * loud: one more reshuffle of this kind will fail the build, and the correct response then is
+		 * to give the fixture more to find, never to lower the floor.
 		 *
 		 * Do not lower this floor to make a run pass. It was already raised once by fixing the
 		 * fixture — `subsetIds` was `allIds.slice(0, 5)`, which intersected almost nothing, and

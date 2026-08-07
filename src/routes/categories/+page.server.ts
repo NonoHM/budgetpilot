@@ -182,7 +182,19 @@ export const actions: Actions = {
 				error:
 					splitCount > 1
 						? m.categories_error_delete_used_by_splits_many({ count: splitCount })
-						: m.categories_error_delete_used_by_splits_one({ count: splitCount })
+						: m.categories_error_delete_used_by_splits_one({ count: splitCount }),
+				// The refusal must be ACTIONABLE, not merely correct. A count alone tells the user
+				// they are blocked without telling them where to look — the /upcoming-bills empty
+				// state that recommended the one action which could not help. `?category=` now matches
+				// a PART's category (OD-1, same PR), so this link resolves to exactly the
+				// transactions the count is about. It ships with OD-1 rather than after it, because a
+				// link that resolves to an empty list is worse than no link at all.
+				// One field carrying both halves rather than two that can disagree — an href with no
+				// label renders an empty link, and a label with no href renders nothing at all.
+				errorLink: {
+					href: `/transactions?category=${encodeURIComponent(cat.name)}`,
+					label: m.categories_error_delete_used_by_splits_link()
+				}
 			});
 		}
 
