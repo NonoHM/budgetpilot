@@ -9,7 +9,7 @@
 	import { resolveCategoryColorClass } from '$lib/domain/colors';
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { natureLabel } from '$lib/domain/natureLabels';
-	import { isTransactionNature } from '$lib/domain/transaction';
+	import { isTransactionNature, type TransactionNature } from '$lib/domain/transaction';
 	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
 	import { getInitials } from '$lib/domain/initials';
 	import { buildTransactionsHref, buildTransactionsExportHref, filterHiddenInputs } from './hrefs';
@@ -23,6 +23,7 @@
 	import Select from '$lib/components/ui/Select.svelte';
 	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import ListCard from '$lib/components/ui/ListCard.svelte';
+	import SplitBadge from '$lib/components/ui/SplitBadge.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import TransactionProposalCard from '$lib/components/TransactionProposalCard.svelte';
@@ -406,6 +407,38 @@
 	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
 	function displayCategory(name: string): string {
 		return categoryLabelByName(name, defaultKeyByName);
+	}
+
+	/**
+	 * ON A RÉPARTIE ROW THE CATÉGORIE COLUMN SHOWS THE DOMINANT PART, NOT THE PARENT (design 1l).
+	 *
+	 * The parent keeps a category, but it is a restoration value rather than a display truth:
+	 * writing « Alimentation » on a transaction of which 20 € went to Maison is false, and false in
+	 * a way that cannot be seen — which is the worst kind. The dot follows the same value, because a
+	 * colour disagreeing with the name beside it is a second false statement rather than a decoration.
+	 */
+	function rowCategory(tx: (typeof data.transactions)[number]): string {
+		return tx.splitIndicator?.dominantCategory ?? tx.category;
+	}
+
+	/**
+	 * ONE RULE FOR BOTH LINES. Under OD-4 nature resolves per part, so printing the parent's nature
+	 * under the dominant part's name would be false in precisely the way `rowCategory` refuses for
+	 * the category — and self-inconsistent besides, since the two lines would then describe
+	 * different parts of the same transaction.
+	 */
+	function rowNature(tx: (typeof data.transactions)[number]): TransactionNature {
+		return tx.splitIndicator?.dominantNature ?? tx.nature;
+	}
+
+	/** The badge renders what it is given, so the sentinel is resolved here rather than inside it. */
+	function badgeParts(
+		indicator: NonNullable<(typeof data.transactions)[number]['splitIndicator']>
+	): Array<{ category: string; amountCents: number }> {
+		return indicator.parts.map((part) => ({
+			category: displayCategory(part.category),
+			amountCents: part.amountCents
+		}));
 	}
 
 	// Maps the flat { id, name, colorToken: string } rows the load returns into TagChips'
@@ -2636,15 +2669,29 @@
 														<div class="flex items-center gap-1.5">
 															<span
 																class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(
-																	tx.category
+																	rowCategory(tx)
 																)}"
 															></span>
 															<span class="min-w-0 truncate text-zinc-700"
-																>{displayCategory(tx.category)}</span
+																>{displayCategory(rowCategory(tx))}</span
 															>
+															<!-- The badge is `shrink-0` and the name is `min-w-0 truncate`, which is what
+															     guarantees the count survives any category name: at 140px « Alimentation »
+															     plus the badge occupy 126, and past that the ellipse does the work rather
+															     than the number being cut off. -->
+															{#if tx.splitIndicator}
+																<SplitBadge
+																	parts={badgeParts(tx.splitIndicator)}
+																	otherCategoryCount={tx.splitIndicator.otherCategoryCount}
+																	dominantCategory={displayCategory(
+																		tx.splitIndicator.dominantCategory
+																	)}
+																	interactive
+																/>
+															{/if}
 														</div>
 														<p class="mt-0.5 ml-3.5 truncate text-xs text-zinc-500">
-															{formatNatureLabel(tx.nature)}
+															{formatNatureLabel(rowNature(tx))}
 														</p>
 													</div>
 												</td>
@@ -3432,13 +3479,36 @@
 										<Avatar initials={getInitials(tx.label)} size={32} />
 										<div class="min-w-0 flex-1">
 											<p class="truncate text-[14.5px] font-semibold text-zinc-900">{tx.label}</p>
-											<div class="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-400">
+											<!-- PINNED TO 22px ON EVERY ROW, badge or no badge (design 1n/1o). An ordinary
+											     meta line is 15px and the badge is 22 including its borders, so a répartie row
+											     grew by 7 — the tags chantier's regression exactly: a component taller than the
+											     line hosting it. The height is RESERVED here rather than paid by the rows that
+											     carry one, which costs every 390 row 7px and about one row per screen at 844.
+											     That is the price of a table whose height does not depend on its content, and
+											     the alternative (a 15px badge) falls under the 24px target floor the moment it
+											     becomes interactive again. Reserve the height on the line; never let the
+											     content push it. -->
+											<div class="mt-0.5 flex h-[22px] items-center gap-1.5 text-xs text-zinc-400">
 												<span
-													class="h-1.5 w-1.5 shrink-0 rounded-full {getCategoryColor(tx.category)}"
+													class="h-1.5 w-1.5 shrink-0 rounded-full {getCategoryColor(
+														rowCategory(tx)
+													)}"
 												></span>
 												<span class="truncate"
-													>{displayCategory(tx.category)} · {formatNatureLabel(tx.nature)}</span
+													>{displayCategory(rowCategory(tx))} · {formatNatureLabel(
+														rowNature(tx)
+													)}</span
 												>
+												<!-- Inert at 390: a 22px target glued to a full-row target is two destinations
+												     under one thumb. The sentence that replaces « fois deux » travels inside the
+												     component, so nothing here can render a badge without its explanation. -->
+												{#if tx.splitIndicator}
+													<SplitBadge
+														parts={badgeParts(tx.splitIndicator)}
+														otherCategoryCount={tx.splitIndicator.otherCategoryCount}
+														dominantCategory={displayCategory(tx.splitIndicator.dominantCategory)}
+													/>
+												{/if}
 											</div>
 										</div>
 										<div
