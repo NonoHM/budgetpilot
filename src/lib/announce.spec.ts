@@ -159,4 +159,25 @@ describe('createPoliteAnnouncer', () => {
 		expect(onChange).toHaveBeenCalledTimes(1);
 		expect(onChange).toHaveBeenCalledWith('b');
 	});
+
+	it('treats an `initial` sentence as already announced, so opening a panel is silent', () => {
+		// The region renders holding this text, which is why it must not be announced: a status
+		// region created WITH content does not speak, one created empty and then filled does.
+		const a = createPoliteAnnouncer({
+			onChange,
+			initial: 'Reste à répartir, 80,00 euros.'
+		});
+		expect(onChange).not.toHaveBeenCalled();
+		expect(a.announced).toBe('Reste à répartir, 80,00 euros.');
+
+		// And the first state change re-scheduling that same sentence stays silent too — otherwise
+		// touching a field and undoing it would announce the opening state as though it were new.
+		a.schedule('Reste à répartir, 80,00 euros.');
+		vi.advanceTimersByTime(ANNOUNCE_PAUSE_MS);
+		expect(onChange).not.toHaveBeenCalled();
+
+		a.schedule('Tout est réparti. Enregistrer est disponible.');
+		vi.advanceTimersByTime(ANNOUNCE_PAUSE_MS);
+		expect(onChange).toHaveBeenCalledTimes(1);
+	});
 });

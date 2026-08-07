@@ -41,9 +41,19 @@ export interface PoliteAnnouncer {
 export function createPoliteAnnouncer(options: {
 	onChange: (sentence: string) => void;
 	pauseMs?: number;
+	/**
+	 * The sentence the region ALREADY shows at mount, recorded without announcing it.
+	 *
+	 * A `role="status"` region that is created holding text does not speak; one that is created
+	 * empty and then filled does. So the state a panel OPENS in has to be the region's initial
+	 * render — otherwise opening the editor speaks « Reste à répartir, 80,00 euros » on top of the
+	 * dialog's own announcement, for a state the user has not caused. Passing it here is what stops
+	 * the first `schedule()` of that same sentence from being treated as a change.
+	 */
+	initial?: string;
 }): PoliteAnnouncer {
 	const pauseMs = options.pauseMs ?? ANNOUNCE_PAUSE_MS;
-	let announced = '';
+	let announced = options.initial ?? '';
 	let pending: string | null = null;
 	let timer: ReturnType<typeof setTimeout> | null = null;
 
