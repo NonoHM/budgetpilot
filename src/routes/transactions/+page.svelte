@@ -933,6 +933,28 @@
 		data.selectedTransaction?.id === id ? buildDeselectedHref() : buildSelectedHref(id);
 
 	/**
+	 * The split form's action, carrying the CURRENT selection and filters through the POST.
+	 *
+	 * A bare `action="?/saveSplits"` posts to `/transactions?/saveSplits`, and that query string is
+	 * the WHOLE query string — `selected` goes with it, so the panel the form lives in is gone by the
+	 * time the response renders. Measured, not reasoned: the first e2e run of this flow saved the
+	 * répartition correctly (the Répartition filter appeared, which only happens once the user owns a
+	 * part) and then found no success banner, because there was no panel left to hold one. SvelteKit
+	 * reads the action from the search param whose key starts with `/`, so every other param riding
+	 * along is preserved rather than parsed.
+	 *
+	 * The three sibling forms in this panel — manual category, manual nature, étiquettes — have the
+	 * same shape and all close the panel on save. That is pre-existing and is left alone here; it
+	 * matters more for this one because 1j-B's edit state and 1i's success message are both things
+	 * the user is meant to SEE after saving.
+	 */
+	const splitFormAction = $derived(
+		data.selectedTransaction
+			? `${buildSelectedHref(data.selectedTransaction.id)}&/saveSplits`
+			: '?/saveSplits'
+	);
+
+	/**
 	 * The ONE way the detail closes, whichever gesture asked for it: the header cross, Escape, a
 	 * second click on the selected row, and the mobile sheet's own backdrop and close control.
 	 *
@@ -2920,7 +2942,7 @@
 								<!-- Répartition — spec §9.1's fourth sibling section -->
 								{#if splitEditorActive}
 									<section class="rounded-xl border border-zinc-200 p-3">
-										<form method="POST" action="?/saveSplits">
+										<form method="POST" action={splitFormAction}>
 											<SplitEditor
 												transactionId={data.selectedTransaction.id}
 												amountCents={data.selectedTransaction.amountCents}
@@ -3769,7 +3791,7 @@
 			<!-- Répartition -->
 			{#if splitEditorActive}
 				<section class="flex flex-col gap-2">
-					<form method="POST" action="?/saveSplits">
+					<form method="POST" action={splitFormAction}>
 						<SplitEditor
 							transactionId={data.selectedTransaction.id}
 							amountCents={data.selectedTransaction.amountCents}
