@@ -1,3 +1,4 @@
+import { normalizeForMatch } from './normalize';
 import {
 	getTransactionKind,
 	type Transaction,
@@ -193,4 +194,71 @@ export function distributeEvenly(totalCents: number, n: number): number[] {
 		{ length: n },
 		(_, index) => sign * (index < remainder ? quotient + 1 : quotient)
 	);
+}
+
+/**
+ * What the list row's indicator shows (design 1l): the dominant category, and a count.
+ *
+ * Derived from ALLOCATIONS rather than from the raw parts, deliberately. The rule the column has
+ * to obey is "where did the money go", and `allocationsOf` is the one place that answers it — a
+ * répartition whose parts no longer sum (a hand-edited backup is the only way in, and the
+ * validator refuses it, but nothing about this function needs that to be true) carries a phantom
+ * remainder under the parent's category, and the badge counts it because the money is really
+ * there. Restating the rule over `splits` instead would be the oracle mistake: a second copy of a
+ * decision, agreeing today and free to drift.
+ */
+export interface SplitIndicator {
+	/** The heaviest allocation's category — what the cell prints in place of the parent's. */
+	dominantCategory: string;
+	/** That same allocation's nature. One rule for both lines of the desktop cell. */
+	dominantNature: TransactionNature;
+	/** N in « +N »: DISTINCT other categories, not other parts. Zero is a legitimate answer. */
+	otherCategoryCount: number;
+	/** N in « ×N »: how many allocations there are, used only when otherCategoryCount is 0. */
+	partCount: number;
+	/** Every allocation, in position order, for the tooltip and the accessible name. */
+	parts: Array<{ category: string; amountCents: number }>;
+}
+
+/**
+ * `null` for an unsplit transaction — which `allocationsOf` renders as exactly one allocation, so
+ * the test is a length rather than a flag and no caller needs to know what a `TransactionSplit` is.
+ *
+ * DOMINANT IS THE LARGEST BY MAGNITUDE, and that is the whole reason this is not a `sort`. Amounts
+ * carry the parent's sign, so on an expense every part is negative and "the largest" by the natural
+ * comparison is the SMALLEST part — the one answer that is never right. Ties go to the earliest
+ * allocation, which is position order (`EFFECTIVE_CATEGORY_SELECT` orders the parts, and the
+ * remainder is appended last), so the display is stable and reproducible rather than dependent on
+ * a sort's stability.
+ *
+ * Categories are counted through `normalizeForMatch`, the same fold every other category
+ * comparison in the app uses. It matters for exactly one shape: the phantom remainder above
+ * carries the parent's EFFECTIVE category, which may be a free-text `manualCategory` differing
+ * from a part's `Category.name` only in case or accent. Counting those as two would report an
+ * extra category that does not exist.
+ */
+export function splitIndicatorOf(
+	allocations: ReadonlyArray<CategoryAllocation>
+): SplitIndicator | null {
+	if (allocations.length < 2) return null;
+
+	let dominant = allocations[0];
+	for (const allocation of allocations) {
+		if (Math.abs(allocation.amountCents) > Math.abs(dominant.amountCents)) dominant = allocation;
+	}
+
+	const distinctCategories = new Set(
+		allocations.map((allocation) => normalizeForMatch(allocation.category))
+	);
+
+	return {
+		dominantCategory: dominant.category,
+		dominantNature: dominant.nature,
+		otherCategoryCount: distinctCategories.size - 1,
+		partCount: allocations.length,
+		parts: allocations.map((allocation) => ({
+			category: allocation.category,
+			amountCents: allocation.amountCents
+		}))
+	};
 }
