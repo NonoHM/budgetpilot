@@ -72,6 +72,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			{ name: 'Loisirs', defaultKey: null }
 		],
 		natureOptions: TRANSACTION_NATURES,
+		splitFilterAvailable: false,
+		splitCounts: null,
 		filters: {
 			q: '',
 			qMode: 'contains' as const,

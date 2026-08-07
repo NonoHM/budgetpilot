@@ -374,6 +374,7 @@
 		tag?: string;
 		from?: string;
 		to?: string;
+		split?: string;
 	}) {
 		goto(resolve(buildTransactionsHref({ ...data.filters, ...patch }, {}, { keepIds: false })), {
 			keepFocus: true,
@@ -444,6 +445,47 @@
 	);
 
 	/**
+	 * The Répartition dimension. Exactly two rows plus the « Toutes » return row the component
+	 * renders itself — "trois rangées, jamais plus".
+	 *
+	 * The zero row is written « 0 » and aria-disabled, following the tag rows, and the design notes
+	 * that it can only ever be « Non répartie »: the control is not rendered at all until at least
+	 * one répartition exists, so the répartie count cannot be zero while this list is on screen.
+	 * The disabled flag is still computed from the count rather than hard-coded to the unsplit row —
+	 * a rule derived from data outlives the reasoning that made it true today.
+	 */
+	const splitFilterOptions = $derived([
+		{
+			value: 'split',
+			label: m.splits_filter_option_split(),
+			count: data.splitCounts?.splitCount ?? null,
+			disabled: data.splitCounts !== null && data.splitCounts.splitCount === 0
+		},
+		{
+			value: 'unsplit',
+			label: m.splits_filter_option_unsplit(),
+			count: data.splitCounts?.unsplitCount ?? null,
+			disabled: data.splitCounts !== null && data.splitCounts.unsplitCount === 0
+		}
+	]);
+
+	const splitFilterAllCount = $derived(
+		data.splitCounts === null ? null : data.splitCounts.splitCount + data.splitCounts.unsplitCount
+	);
+
+	const activeSplitLabel = $derived(
+		data.filters.split === 'all'
+			? undefined
+			: m.transactions_filter_active_trigger({
+					dimension: m.splits_filter_dimension(),
+					value:
+						data.filters.split === 'split'
+							? m.splits_filter_option_split()
+							: m.splits_filter_option_unsplit()
+				})
+	);
+
+	/**
 	 * Mobile-only: category and tag collapse behind one "Filtres" sheet instead of the desktop's
 	 * two side-by-side dropdowns plus the date range — four controls that fit a 1280px bar but not
 	 * a 390px card without pushing the submit button several swipes down. Search and the date
@@ -452,7 +494,7 @@
 	 * move it out of sight of where it was typed.
 	 */
 	let mobileFiltersOpen = $state(false);
-	let mobileFilterSubDimension = $state<'category' | 'tag' | null>(null);
+	let mobileFilterSubDimension = $state<'category' | 'tag' | 'split' | null>(null);
 
 	function closeMobileFiltersSheet() {
 		mobileFiltersOpen = false;
@@ -1525,6 +1567,34 @@
 					onApply={(range) => applyFilterDimension(range)}
 					onClear={() => applyFilterDimension({ from: '', to: '' })}
 				/>
+				{#if data.splitFilterAvailable}
+					<!-- LAST among the dimensions, and that placement is the reason it can exist at all:
+					     it is the only one that can be ABSENT, and an absence at the end of a row moves
+					     nobody. Inserted between Catégorie and Période, its appearance would shift two
+					     controls whose position the user had memorised.
+					     Rendered only once at least one répartition exists — ni grisé, ni "aucune
+					     répartition". A visible filter would teach the feature in a toolbar, to someone
+					     who came looking for something else. The condition is evaluated server-side at
+					     view load and nowhere else, so it cannot evaporate under a finger mid-use.
+					     A Dropdown rather than a segmented group like Nature, even though two values plus
+					     "Toutes" would fit one: Nature is ALWAYS rendered, while a segmented group
+					     appearing at once would add ~210px mid-bar and push everything after it. It is
+					     the conditional rendering that chooses the component, not the number of values. -->
+					<FilterDropdown
+						dimensionLabel={m.splits_filter_dimension()}
+						activeLabel={activeSplitLabel}
+						options={splitFilterOptions}
+						value={data.filters.split === 'all' ? '' : data.filters.split}
+						allLabel={m.transactions_filter_all()}
+						allCount={splitFilterAllCount}
+						searchPlaceholder={m.splits_filter_dimension()}
+						clearAriaLabel={m.transactions_filter_clear_aria({
+							dimension: m.splits_filter_dimension()
+						})}
+						onSelect={(split) => applyFilterDimension({ split })}
+						onClear={() => applyFilterDimension({ split: 'all' })}
+					/>
+				{/if}
 				<!-- The search field sits at the RIGHT END of the bar, at 300px, with the regex toggle
 				     INSIDE it. Both halves are section 7's point, and only the first half shipped at
 				     first: the toggle got its bordered box and stayed outside the field, to its left,
@@ -1793,6 +1863,42 @@
 						onApply={(range) => applyFilterDimension(range)}
 						onClear={() => applyFilterDimension({ from: '', to: '' })}
 					/>
+					{#if data.splitFilterAvailable}
+						<!-- Third surface, same grammar and the same conditional rendering as the other
+						     two. Last in the row for the reason 1s gives: it is the only dimension that
+						     can be absent, and an absence at the end moves nobody. -->
+						<span
+							class="inline-flex min-h-11 items-stretch overflow-hidden rounded-xl border bg-white {data
+								.filters.split !== 'all'
+								? 'border-zinc-900'
+								: 'border-zinc-200'}"
+						>
+							<button
+								type="button"
+								class="inline-flex min-h-11 items-center px-2.5 text-sm text-zinc-900"
+								onclick={() => (mobileFilterSubDimension = 'split')}
+							>
+								<span class="max-w-[190px] truncate"
+									>{data.filters.split !== 'all'
+										? activeSplitLabel
+										: m.splits_filter_dimension()}</span
+								>
+							</button>
+							{#if data.filters.split !== 'all'}
+								<span class="w-px self-stretch bg-zinc-200" aria-hidden="true"></span>
+								<button
+									type="button"
+									class="inline-flex min-h-11 min-w-11 items-center justify-center text-zinc-500"
+									aria-label={m.transactions_filter_clear_aria({
+										dimension: m.splits_filter_dimension()
+									})}
+									onclick={() => applyFilterDimension({ split: 'all' })}
+								>
+									<span aria-hidden="true">×</span>
+								</button>
+							{/if}
+						</span>
+					{/if}
 				</div>
 
 				<!-- The "Filtres" sheet: category and tag rows, each showing the vertical form of
@@ -1883,6 +1989,48 @@
 								</svg>
 							</button>
 						{/if}
+						{#if data.splitFilterAvailable}
+							<!-- Same conditional rendering as the desktop trigger, and last for the same
+							     reason. The value sits right, « Toutes » in zinc-400 while the dimension
+							     rests and the value in zinc-900 once set, so the sheet reads down one
+							     column. -->
+							<button
+								type="button"
+								class="flex min-h-[52px] w-full items-center justify-between gap-2 border-b border-zinc-100 py-2 text-left"
+								onclick={() => (mobileFilterSubDimension = 'split')}
+							>
+								<span class="flex min-w-0 flex-col">
+									<span class="text-[11px] font-medium text-zinc-500"
+										>{m.splits_filter_dimension()}</span
+									>
+									<span
+										class="truncate text-sm {data.filters.split !== 'all'
+											? 'font-semibold text-zinc-900'
+											: 'text-zinc-400'}"
+									>
+										{data.filters.split === 'split'
+											? m.splits_filter_option_split()
+											: data.filters.split === 'unsplit'
+												? m.splits_filter_option_unsplit()
+												: m.transactions_filter_all()}
+									</span>
+								</span>
+								<svg
+									class="h-4 w-4 shrink-0 text-zinc-400"
+									viewBox="0 0 20 20"
+									fill="none"
+									aria-hidden="true"
+								>
+									<path
+										d="M7.5 5.5 12 10l-4.5 4.5"
+										stroke="currentColor"
+										stroke-width="1.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							</button>
+						{/if}
 						<Button type="button" class="mt-3 h-11 w-full" onclick={closeMobileFiltersSheet}>
 							{mobileFiltersApplyLabel}
 						</Button>
@@ -1936,6 +2084,71 @@
 						</ul>
 					</div>
 				</BottomSheet>
+
+				<!-- Répartition sub-sheet: the same three rows the desktop panel renders, with the same
+				     counts and the same zero-count rule — « 0 » and aria-disabled, reachable by the
+				     arrows so the state is announced, never activable. -->
+				{#if data.splitFilterAvailable}
+					<BottomSheet
+						open={mobileFilterSubDimension === 'split'}
+						ariaLabel={m.splits_filter_dimension()}
+						onClose={closeMobileFilterSubSheet}
+					>
+						<div class="pb-1">
+							<h2 class="mb-2 text-base font-semibold text-zinc-950">
+								{m.splits_filter_dimension()}
+							</h2>
+							<ul class="divide-y divide-zinc-100">
+								<li>
+									<button
+										type="button"
+										class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm text-zinc-700"
+										onclick={() => {
+											applyFilterDimension({ split: 'all' });
+											closeMobileFilterSubSheet();
+										}}
+									>
+										<span>{m.transactions_filter_all()}</span>
+										<span class="flex items-center gap-2">
+											{#if splitFilterAllCount !== null}
+												<span class="text-xs text-zinc-500">{splitFilterAllCount}</span>
+											{/if}
+											{#if data.filters.split === 'all'}
+												{@render mobileFilterCheckMark()}
+											{/if}
+										</span>
+									</button>
+								</li>
+								{#each splitFilterOptions as option (option.value)}
+									<li>
+										<button
+											type="button"
+											class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm {option.disabled
+												? 'text-zinc-400'
+												: 'text-zinc-700'}"
+											aria-disabled={option.disabled ? 'true' : undefined}
+											onclick={() => {
+												if (option.disabled) return;
+												applyFilterDimension({ split: option.value });
+												closeMobileFilterSubSheet();
+											}}
+										>
+											<span class="truncate">{option.label}</span>
+											<span class="flex items-center gap-2">
+												{#if option.count !== null}
+													<span class="text-xs text-zinc-500">{option.count}</span>
+												{/if}
+												{#if option.value === data.filters.split}
+													{@render mobileFilterCheckMark()}
+												{/if}
+											</span>
+										</button>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					</BottomSheet>
+				{/if}
 
 				<!-- Tag sub-sheet: same option set as the desktop tag panel — counts, the scope note, a
 				     zero-count row dimmed but reachable, and the same "Gérer dans Paramètres" footer. -->

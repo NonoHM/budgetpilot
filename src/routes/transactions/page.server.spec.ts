@@ -402,6 +402,16 @@ const db = vi.hoisted(() => {
 						return parent.splits.length;
 					}
 				),
+				// Answers `userHasAnySplit`, off the parent fixtures' own arrays so it cannot disagree
+				// with matchesWhere. Honours the tenancy reach: TransactionSplit has no userId column,
+				// and `transaction: { userId }` is the entire scope.
+				findFirst: vi.fn(async ({ where }: { where: { transaction?: { userId?: string } } }) => {
+					const owner = where.transaction?.userId;
+					const parent = transactions.find(
+						(t) => t.splits.length > 0 && (!owner || t.userId === owner)
+					);
+					return parent ? { id: `${parent.id}-split-0` } : null;
+				}),
 				// The parts side of computeFilteredTotals' category branch. Reaches the parent through
 				// the SAME matchesWhere the transaction table uses, so the predicate the route builds is
 				// evaluated rather than approximated, and evaluates the part's own category scope for
@@ -1461,6 +1471,63 @@ describe('acceptSuggestion', () => {
 		});
 
 		expect(result).toEqual({ acceptSuccess: true });
+	});
+});
+
+describe('/transactions load — the Répartition dimension', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('reports the filter as available exactly when the user owns at least one part', async () => {
+		expect.assertions(2);
+
+		const data = (await runLoad('/transactions')) as unknown as { splitFilterAvailable: boolean };
+		expect(data.splitFilterAvailable).toBe(true);
+
+		// The question is USER-WIDE, not scope-wide: a filter narrowing to rows that carry no parts
+		// must not make the control disappear mid-use. `?q=` here matches nothing répartie.
+		const narrowed = (await runLoad('/transactions?q=Transaction%205')) as unknown as {
+			splitFilterAvailable: boolean;
+		};
+		expect(narrowed.splitFilterAvailable).toBe(true);
+	});
+
+	it('counts both options over the split-FREE scope, so neither row describes itself', async () => {
+		expect.assertions(2);
+
+		// With ?split=split active, counting inside the dimension's own filter would report the whole
+		// set under "Répartie" and 0 under "Non répartie" — the tautology countTagsInScope documents.
+		const data = (await runLoad('/transactions?split=split')) as unknown as {
+			splitCounts: { splitCount: number; unsplitCount: number } | null;
+		};
+
+		expect(data.splitCounts?.splitCount).toBe(1);
+		expect(data.splitCounts?.unsplitCount).toBeGreaterThan(1);
+	});
+
+	it('DROPS an active répartition filter when the last part is gone, rather than leaving it stuck', async () => {
+		expect.assertions(3);
+
+		const parts = db.transactions.find((t) => t.id === 'transaction-split')?.splits ?? [];
+		const saved = [...parts];
+		parts.length = 0;
+		try {
+			const data = (await runLoad('/transactions?split=split')) as unknown as {
+				splitFilterAvailable: boolean;
+				filters: { split: string };
+				pagination: { totalTransactions: number };
+			};
+
+			// The control is gone AND the filter is gone with it. Leaving the filter active would
+			// strand the user with an invisible narrowing they cannot clear except by editing the URL
+			// — and here it narrows to nothing, so the list would simply be empty with no explanation.
+			expect(data.splitFilterAvailable).toBe(false);
+			expect(data.filters.split).toBe('all');
+			expect(data.pagination.totalTransactions).toBeGreaterThan(0);
+		} finally {
+			parts.push(...saved);
+		}
 	});
 });
 

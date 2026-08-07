@@ -162,10 +162,12 @@ async function seedFixture(): Promise<Fixture> {
 			},
 			select: { id: true }
 		}),
-		// Held by PARTS and by no parent, so a query that returns rows for it can only have gone
-		// through the splits branch of the category predicate. Without such a category, OD-1 could be
-		// deleted and every row of this matrix would still pass: `?category=Alimentation` matches the
-		// répartie rows through their parent anyway.
+		// DO NOT REMOVE THIS CATEGORY AS REDUNDANT. It looks like a third decorative fixture category
+		// and it is the only thing making OD-1 provable: held by PARTS and by no parent, so a query
+		// returning rows for it can only have gone through the splits branch of the category
+		// predicate. Delete it and OD-1 itself could be deleted outright with every row of this
+		// matrix still green, because `?category=Alimentation` reaches the répartie rows through
+		// their PARENT regardless — the guard would be guarding nothing, silently.
 		prisma.category.create({
 			data: { userId, name: 'Maison', nameKey: computeNameKey('Maison') },
 			select: { id: true, name: true }

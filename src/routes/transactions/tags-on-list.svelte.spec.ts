@@ -80,6 +80,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		categoryOptions: ['Alimentation'],
 		categories: [{ name: 'Alimentation', defaultKey: null }],
 		natureOptions: TRANSACTION_NATURES,
+		splitFilterAvailable: false,
+		splitCounts: null,
 		filters: {
 			q: '',
 			qMode: 'contains' as const,

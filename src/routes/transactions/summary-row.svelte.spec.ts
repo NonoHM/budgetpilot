@@ -32,6 +32,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		categories: [{ name: 'Voyages', defaultKey: null }],
 		allTags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
 		natureOptions: TRANSACTION_NATURES,
+		splitFilterAvailable: false,
+		splitCounts: null,
 		filters: {
 			q: '',
 			qMode: 'contains' as const,

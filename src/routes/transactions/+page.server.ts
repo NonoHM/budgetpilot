@@ -38,6 +38,7 @@ import {
 } from '$lib/server/transactions/where';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
 import { isSplitTransaction } from '$lib/server/transactions/splits';
+import { countSplitsInScope, userHasAnySplit } from '$lib/server/transactions/splitCounts';
 import type { Prisma } from '$lib/server/database/types';
 import {
 	anonymizeDetailText,
@@ -142,10 +143,22 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	const mappingMap = buildCategoryNatureMap(mappings);
 
+	// Resolved BEFORE the scope, because it can change what the scope is.
+	//
+	// The Répartition control is not rendered until at least one répartition exists. The design's
+	// own answer for the moment the last one is removed: "s'il était actif il est d'abord retiré, la
+	// ligne de résumé revenant au total complet". Without this the user keeps an ACTIVE filter with
+	// no control to clear it — invisible, un-removable except by editing the URL, and narrowing the
+	// list to nothing. So the parameter is dropped from the URL the scope is built from, which also
+	// makes every href built from `filters` come back clean.
+	const splitFilterAvailable = await userHasAnySplit(user.id);
+	const scopeUrl = new URL(url);
+	if (!splitFilterAvailable) scopeUrl.searchParams.delete('split');
+
 	// Passes `uncategorizedCategoryId` in rather than letting the resolver look it up itself: it is
 	// already fetched above (the "à classer" pile needs the same value), so routing the load through
 	// the shared resolver costs no extra query.
-	const scope = await resolveTransactionScope(user.id, url, { uncategorizedCategoryId });
+	const scope = await resolveTransactionScope(user.id, scopeUrl, { uncategorizedCategoryId });
 	const { filters } = scope;
 
 	// "To classify" pile: independent of the current tab/filters (see classifyStackIds comment
@@ -412,7 +425,32 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		}
 	}
 
+	// The per-option counts, a question about the current SCOPE — distinct from
+	// `splitFilterAvailable` above, which is user-wide and decides whether the control exists at
+	// all. Inferring one from the other is what would make the control vanish the moment a filter
+	// narrowed to rows that happen to carry no parts: "un filtre qui s'évapore pendant qu'on
+	// l'utilise est pire que le filtre inutile qu'on cherchait à éviter".
+	const splitCounts =
+		scope.kind === 'invalid'
+			? null
+			: await countSplitsInScope(
+					user.id,
+					scope.kind === 'sql' ? scope.whereWithoutSplit : scope.whereWithoutSplitBeforeQuery,
+					matchedIds
+				).catch((error) => {
+					// Best-effort, exactly like tagCounts above, and the name only for the same reason:
+					// a Prisma error on a transaction query embeds parameter values, which here means
+					// labels and amounts.
+					console.warn(
+						'splitCounts unavailable:',
+						error instanceof Error ? error.name : 'unknown error'
+					);
+					return null;
+				});
+
 	return {
+		splitFilterAvailable,
+		splitCounts,
 		transactions: transactions.map((t) => mapTransactionListItem(t, mappingMap, rules)),
 		selectedTransaction: selectedTransaction
 			? mapTransactionDetail(selectedTransaction, mappingMap)
