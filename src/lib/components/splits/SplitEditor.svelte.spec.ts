@@ -2,6 +2,9 @@ import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import SplitEditor from './SplitEditor.svelte';
+// The message FUNCTION, never a retyped sentence: this spec runs in French through the client
+// setup's cookie while the catalogue is the authority on what it says.
+import * as m from '$lib/paraglide/messages';
 
 const OPTIONS = [
 	{ value: 'cat-alimentation', label: 'Alimentation' },
@@ -288,5 +291,103 @@ describe('SplitEditor — focus after add and remove (1p)', () => {
 		await expect
 			.poll(() => (document.activeElement as HTMLElement | null)?.getAttribute('aria-label'))
 			.toBe('Catégorie de la part 3');
+	});
+});
+
+/**
+ * 1r, the tab-return half: a category one of the draft's parts uses is deleted in another window.
+ *
+ * The editor detects it by COMPARING ITS DRAFT AGAINST THE OPTIONS IT IS CURRENTLY HANDED, so the
+ * same derivation covers both moments 1r names — the options change on tab return because the load
+ * re-runs, and they change on the save response for the same reason. No polling is introduced, and
+ * there is no second code path for the second moment.
+ */
+describe('SplitEditor — a category deleted in another window (1r)', () => {
+	const OPTIONS_WITH_GIFTS = [...OPTIONS, { value: 'cat-cadeaux', label: 'Cadeaux' }];
+	const SPLIT_WITH_GIFTS = [
+		{ categoryId: 'cat-alimentation', amountCents: -6_000, note: '' },
+		{ categoryId: 'cat-cadeaux', amountCents: -2_000, note: 'Anniversaire Léa' }
+	];
+
+	it('keeps the lost NAME written, keeps the work, and moves Save’s reason to the reason line', async () => {
+		// Appear-then-disappear: the row is rendered NORMAL first, with the category present and no
+		// warning anywhere, and only then is the option withdrawn. Asserting the warning's presence
+		// on a first render would pass on a component that always warns.
+		const { rerender } = render(
+			SplitEditor,
+			base({ categoryOptions: OPTIONS_WITH_GIFTS, existingParts: SPLIT_WITH_GIFTS })
+		);
+		await expect.element(page.getByText('Cadeaux, supprimée')).not.toBeInTheDocument();
+
+		await rerender(base({ categoryOptions: OPTIONS, existingParts: SPLIT_WITH_GIFTS }));
+
+		// « Le nom perdu reste écrit. Vider le champ effacerait la seule chose qui permet de
+		// retrouver quelle catégorie choisir à la place. »
+		await expect.element(page.getByText('Cadeaux, supprimée')).toBeInTheDocument();
+
+		// « Le montant et la note de la part sont conservés. C'est la catégorie qui a disparu, pas
+		// le travail. »
+		expect(amountOf(2).value).toBe('20,00');
+		expect((page.getByLabelText('Note de la part 2').element() as HTMLInputElement).value).toBe(
+			'Anniversaire Léa'
+		);
+
+		// « Le reste vaut toujours zéro, donc le bandeau ne peut pas porter cette raison. Elle va
+		// dans la ligne de raison sous le bouton. » One reason location, and it is not the band.
+		expect(save().getAttribute('aria-disabled')).toBe('true');
+		const describedBy = save().getAttribute('aria-describedby');
+		const reason = document.getElementById(describedBy ?? '');
+		expect(reason?.textContent?.trim()).toBe(m.splits_reason_conflict({ positions: '2' }));
+		expect(reason?.closest('[aria-hidden="true"]')).toBeNull();
+	});
+
+	it('names EVERY affected part, never only the first', async () => {
+		const twoLost = [
+			{ categoryId: 'cat-cadeaux', amountCents: -6_000, note: '' },
+			{ categoryId: 'cat-voyage', amountCents: -2_000, note: '' }
+		];
+		const withBoth = [
+			...OPTIONS,
+			{ value: 'cat-cadeaux', label: 'Cadeaux' },
+			{ value: 'cat-voyage', label: 'Voyage' }
+		];
+		const { rerender } = render(
+			SplitEditor,
+			base({ categoryOptions: withBoth, existingParts: twoLost })
+		);
+		await rerender(base({ categoryOptions: OPTIONS, existingParts: twoLost }));
+
+		const reason = document.getElementById(save().getAttribute('aria-describedby') ?? '');
+		expect(reason?.textContent?.trim()).toBe(m.splits_reason_conflict({ positions: '1, 2' }));
+	});
+
+	it('blocks Save even when the draft is otherwise complete AND dirty', async () => {
+		// FOUND BY BREAK-CHECK, and the test exists because the obvious one does not do this job:
+		// on an untouched répartition Save is already off for « rien n'a changé », so deleting the
+		// conflict clause from `canSave` left the whole suite green. The draft here is dirty (the
+		// note was edited), the remainder is zero, and every part carries a category id — so the
+		// ONLY thing that can still hold Save is the conflict.
+		const { rerender } = render(
+			SplitEditor,
+			base({ categoryOptions: OPTIONS_WITH_GIFTS, existingParts: SPLIT_WITH_GIFTS })
+		);
+		const note = page.getByLabelText('Note de la part 2');
+		await userEvent.fill(note, 'Anniversaire de Léa');
+		await expect.poll(() => save().getAttribute('aria-disabled')).toBeNull();
+
+		await rerender(base({ categoryOptions: OPTIONS, existingParts: SPLIT_WITH_GIFTS }));
+
+		await expect.poll(() => save().getAttribute('aria-disabled')).toBe('true');
+	});
+
+	it('says nothing about a part whose category was simply never chosen', async () => {
+		// An empty selector is « choisissez une catégorie pour chaque part », not « cette catégorie a
+		// été supprimée ». Conflating them would report a deletion that never happened on the most
+		// ordinary state there is: a freshly added row.
+		render(SplitEditor, base());
+
+		const reason = document.getElementById(save().getAttribute('aria-describedby') ?? '');
+		expect(reason?.textContent?.trim()).toBe(m.splits_reason_missing_category());
+		expect(document.body.textContent).not.toContain('supprimée');
 	});
 });

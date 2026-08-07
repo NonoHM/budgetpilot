@@ -1,5 +1,5 @@
 import { page, userEvent } from 'vitest/browser';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../layout.css';
 import Page from './+page.svelte';
@@ -10,6 +10,15 @@ import { TRANSACTION_NATURES, type TransactionNature } from '$lib/domain/transac
 // while the catalogue says something else. `splitsError` is a branded `LocalizedString`, so here
 // the type system enforces it rather than merely recommending it.
 import * as m from '$lib/paraglide/messages';
+
+// The page really calls `invalidateAll` on tab return (1r); the mock is what lets the call be
+// counted without a router. Spread from the original so `beforeNavigate` and `goto` keep working —
+// a bare factory would replace the module and the page would fail to mount for an unrelated reason.
+const invalidateAll = vi.fn();
+vi.mock('$app/navigation', async (importOriginal) => ({
+	...(await importOriginal<typeof import('$app/navigation')>()),
+	invalidateAll: () => invalidateAll()
+}));
 
 /**
  * The editor's two mount points and the door into them (design 1b, 1j).
@@ -389,5 +398,58 @@ describe('the mobile sheet mounts the same editor', () => {
 			.map((input) => input.getBoundingClientRect().height)
 			.sort((left, right) => left - right);
 		expect(heights).toEqual([0, 48]);
+	});
+});
+
+/**
+ * 1r's first moment, at the page level: « au retour sur l'onglet ». The conflict itself is the
+ * editor's derivation (proven in `SplitEditor.svelte.spec.ts`); what belongs here is WHEN the page
+ * asks for fresh options, and — more importantly — when it must not.
+ */
+describe('the tab-return refresh (1r)', () => {
+	it('refreshes when an editor is open, and not when there is no editor to refresh for', async () => {
+		await page.viewport(1280, 800);
+		invalidateAll.mockClear();
+
+		const open = render(Page, {
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			form: null
+		});
+		document.dispatchEvent(new Event('visibilitychange'));
+		await expect.poll(() => invalidateAll.mock.calls.length).toBe(1);
+
+		// The negative half, and it is only worth anything because the positive half above has
+		// already fired on the identical event: a page with no editor open must not reload, or every
+		// tab return on /transactions costs a round trip for a case that cannot arise.
+		open.unmount();
+		render(Page, { data: baseData(), form: null });
+		document.dispatchEvent(new Event('visibilitychange'));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(invalidateAll.mock.calls.length).toBe(1);
+	});
+
+	it('does NOT refresh while a sibling editor is holding unsaved work', async () => {
+		await page.viewport(1280, 800);
+		invalidateAll.mockClear();
+
+		render(Page, {
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			form: null
+		});
+		// Confirms the refresh is live in this exact fixture before anything is made dirty, so the
+		// assertion below cannot pass because the handler was never going to fire.
+		document.dispatchEvent(new Event('visibilitychange'));
+		await expect.poll(() => invalidateAll.mock.calls.length).toBe(1);
+
+		// A pending nature change. `invalidateAll` re-runs the load, and the page resets the manual
+		// selectors from it — so refreshing here would throw away work the user can see on screen,
+		// to detect a category deletion that happens units-of-times per year.
+		const natureTrigger = page.getByRole('button', { name: 'Nature manuelle' }).first();
+		await userEvent.click(natureTrigger);
+		await userEvent.click(page.getByRole('option', { name: 'Transfert' }).first());
+
+		document.dispatchEvent(new Event('visibilitychange'));
+		await new Promise((resolve) => setTimeout(resolve, 20));
+		expect(invalidateAll.mock.calls.length).toBe(1);
 	});
 });

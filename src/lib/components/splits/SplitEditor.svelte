@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { tick } from 'svelte';
+	import { tick, untrack } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
@@ -106,7 +106,54 @@
 	// a document-wide lookup would move focus inside the surface the user cannot see.
 	let rootEl = $state<HTMLElement | null>(null);
 
+	/**
+	 * Every category label this editor was handed WHEN IT OPENED, by id.
+	 *
+	 * Deliberately a snapshot rather than a live read, and that is the whole mechanism behind 1r's
+	 * « le nom perdu reste écrit ». A category deleted in another window disappears from
+	 * `categoryOptions` at the next load, taking its label with it — so the only place « Cadeaux »
+	 * still exists is a copy taken before the deletion. « Vider le champ effacerait la seule chose
+	 * qui permet de retrouver quelle catégorie choisir à la place. »
+	 */
+	// `untrack`, not an accident: Svelte is right that this captures only the initial value, and the
+	// initial value is precisely what is wanted. Saying so in code rather than suppressing the
+	// warning keeps the intent readable — a live read here would lose the label at the exact moment
+	// 1r needs it.
+	const labelsWhenOpened = untrack(
+		() => new Map(categoryOptions.map((option) => [option.value, option.label]))
+	);
+
 	const isEditingExisting = $derived(Boolean(existingParts && existingParts.length > 0));
+
+	/**
+	 * 1r, and it covers BOTH moments the design names with one derivation rather than two code
+	 * paths: a part pointing at a category the CURRENT options no longer offer. The options refresh
+	 * on tab return and on the save response — the two moments the app already reloads — so nothing
+	 * polls and nothing is scheduled.
+	 *
+	 * An EMPTY categoryId is excluded, and that exclusion is the point: a freshly added row has no
+	 * category yet, and reporting it as « supprimée » would announce a deletion that never happened
+	 * on the most ordinary state in the editor.
+	 */
+	const missingCategoryPositions = $derived(
+		parts
+			.map((part, index) => ({ part, index }))
+			.filter(
+				({ part }) =>
+					part.categoryId.length > 0 &&
+					!categoryOptions.some((option) => option.value === part.categoryId)
+			)
+			.map(({ index }) => index)
+	);
+
+	/**
+	 * The server's refusal and the client's own detection, merged. Both mean the same thing to the
+	 * user — this part's category is not usable — and 1r asks for one sentence naming every affected
+	 * part, so they cannot be two separate messages competing for the one reason line.
+	 */
+	const conflicts = $derived(
+		[...new Set([...conflictPositions, ...missingCategoryPositions])].sort((a, b) => a - b)
+	);
 	const remainder = $derived(
 		resolveRemainder(
 			parts.map((part) => part.amount),
@@ -141,9 +188,9 @@
 	 */
 	const reasonSentence = $derived.by(() => {
 		if (removalPending) return undefined;
-		if (conflictPositions.length > 0)
+		if (conflicts.length > 0)
 			return m.splits_reason_conflict({
-				positions: conflictPositions.map((p) => p + 1).join(', ')
+				positions: conflicts.map((position) => position + 1).join(', ')
 			});
 		if (!everyPartHasCategory) return m.splits_reason_missing_category();
 		if (remainder.complete && !isDirty) return m.splits_reason_unchanged();
@@ -151,7 +198,8 @@
 	});
 
 	const canSave = $derived(
-		removalPending || (remainder.complete && everyPartHasCategory && isDirty)
+		removalPending ||
+			(remainder.complete && everyPartHasCategory && isDirty && conflicts.length === 0)
 	);
 
 	/**
@@ -273,6 +321,9 @@
 						bind:note={parts[index].note}
 						{categoryOptions}
 						{size}
+						deletedCategoryName={missingCategoryPositions.includes(index)
+							? labelsWhenOpened.get(parts[index].categoryId)
+							: undefined}
 						removeSoftDisabled={atFloor}
 						removeHintId={floorHintId}
 						showRoundingCent={evenSplitAppliedAt === index}

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { beforeNavigate, goto } from '$app/navigation';
+	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { navigating } from '$app/state';
 	import { tick } from 'svelte';
@@ -300,6 +300,30 @@
 	const splitsSavedCount = $derived(
 		form && 'splitsSaved' in form && form.splitsSaved ? (form.splitsCount as number) : null
 	);
+	/**
+	 * 1r's FIRST moment: « aux deux moments où l'application rafraîchit déjà — au retour sur
+	 * l'onglet et à la réponse d'enregistrement. Aucun sondage périodique n'est introduit pour un
+	 * cas qui se compte en unités par an. »
+	 *
+	 * The refresh is the whole mechanism. `SplitEditor` decides the conflict by comparing its draft
+	 * against the options it is currently handed, so reloading is all this has to do, and the second
+	 * moment reuses the same derivation rather than a second code path.
+	 *
+	 * THE GUARDS ARE THE CAREFUL PART, and each is here for a specific reason rather than for
+	 * caution. `invalidateAll` re-runs the load and hands every editor on this page a fresh object.
+	 * The split draft survives that — it is `$state` initialised once, never a `$derived` — but
+	 * `TransactionTagsEditor`'s selection IS a writable `$derived` off `tags`, so it re-derives and
+	 * a pending tag edit would be discarded by a gesture as innocent as coming back to the tab. So:
+	 * only when there is an editor whose conflict this could reveal, and only when no sibling editor
+	 * is holding work the refresh would throw away.
+	 */
+	function handleTabReturn() {
+		if (document.visibilityState !== 'visible') return;
+		if (!splitEditorActive) return;
+		if (categoryIsDirty || natureIsDirty || tagsDirtyDesktop || tagsDirtyMobile) return;
+		invalidateAll();
+	}
+
 	const splitsRemoved = $derived(
 		form && 'splitsRemoved' in form ? Boolean(form.splitsRemoved) : false
 	);
@@ -1101,6 +1125,9 @@
 			: TABS
 	);
 </script>
+
+<!-- 1r's first moment. The handler itself explains why it is guarded. -->
+<svelte:document onvisibilitychange={handleTabReturn} />
 
 <svelte:head>
 	<title>{m.transactions_page_title()}</title>
