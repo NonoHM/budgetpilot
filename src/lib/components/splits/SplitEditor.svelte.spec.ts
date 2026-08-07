@@ -2,6 +2,10 @@ import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import SplitEditor from './SplitEditor.svelte';
+// The app's stylesheet, without which every geometry reading in this file is a UA default: a 44px
+// control measured 24. Imported for the band's non-movement assertion, and it makes every other
+// measurement here mean what it says too.
+import '../../../routes/layout.css';
 // The message FUNCTION, never a retyped sentence: this spec runs in French through the client
 // setup's cookie while the catalogue is the authority on what it says.
 import * as m from '$lib/paraglide/messages';
@@ -389,5 +393,72 @@ describe('SplitEditor — a category deleted in another window (1r)', () => {
 		const reason = document.getElementById(save().getAttribute('aria-describedby') ?? '');
 		expect(reason?.textContent?.trim()).toBe(m.splits_reason_missing_category());
 		expect(document.body.textContent).not.toContain('supprimée');
+	});
+});
+
+/**
+ * The saving state, design 1i: « les champs passent en aria-disabled et non disabled : le focus ne
+ * s'évapore pas sous les doigts si la requête traîne. Le bandeau de reste ne bouge pas, il vient
+ * d'être la condition du clic. »
+ */
+describe('SplitEditor — saving (1i)', () => {
+	it('neutralises every field without taking one out of the tab order', async () => {
+		const { rerender } = render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+
+		// Live first, with the same selectors: a locked-field assertion that never saw the fields
+		// live passes on a component that renders none.
+		expect(amountOf(1).readOnly).toBe(false);
+		await rerender(base({ existingParts: SPLIT_60_20, saving: true }));
+
+		for (const position of [1, 2]) {
+			const amount = amountOf(position);
+			expect(amount.readOnly).toBe(true);
+			expect(amount.getAttribute('aria-disabled')).toBe('true');
+			expect(amount.hasAttribute('disabled')).toBe(false);
+			// 1q: neutralised, never mute — and exactly one explanation each.
+			const describedBy = amount.getAttribute('aria-describedby');
+			expect(document.getElementById(describedBy ?? '')?.textContent?.trim()).toBe(
+				m.splits_saving_hint()
+			);
+
+			const category = page
+				.getByLabelText(m.splits_part_category_aria({ position }))
+				.element() as HTMLInputElement;
+			expect(category.getAttribute('aria-disabled')).toBe('true');
+			expect(category.hasAttribute('disabled')).toBe(false);
+
+			const cross = page
+				.getByRole('button', { name: m.splits_part_remove_aria({ position }) })
+				.element();
+			expect(cross.getAttribute('aria-disabled')).toBe('true');
+			expect(cross.hasAttribute('disabled')).toBe(false);
+		}
+	});
+
+	it('does not move the remainder band, which was the condition of the click', async () => {
+		// Relational and measured: the band's box before the save and during it, in the same render
+		// tree. « Le bandeau de reste ne bouge pas. » A band that shifted would move the button the
+		// user just pressed, mid-request.
+		const { rerender } = render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		const band = () =>
+			(
+				Array.from(document.querySelectorAll('[aria-hidden="true"]')).find((el) =>
+					el.textContent?.includes(m.splits_remainder_label_zero())
+				) as HTMLElement
+			).getBoundingClientRect();
+
+		const before = band();
+		await rerender(base({ existingParts: SPLIT_60_20, saving: true }));
+		const during = band();
+
+		expect(during.height).toBe(before.height);
+		expect(during.top).toBe(before.top);
+	});
+
+	it('says the save is in flight on the button itself', async () => {
+		render(SplitEditor, base({ existingParts: SPLIT_60_20, saving: true }));
+		await expect
+			.element(page.getByRole('button', { name: m.splits_saving_label() }))
+			.toBeInTheDocument();
 	});
 });

@@ -453,3 +453,83 @@ describe('the tab-return refresh (1r)', () => {
 		expect(invalidateAll.mock.calls.length).toBe(1);
 	});
 });
+
+/**
+ * The saving state's page half (1i), and the remount that has to come with it.
+ *
+ * `use:enhance` keeps the page instead of navigating, which is what makes an in-flight state
+ * observable at all — and it is also what breaks the editor's dirty baseline unless the component
+ * is remounted when the SAVED parts change. Both facts live here because both are the page's.
+ */
+describe('the saving state and the dirty baseline (1i)', () => {
+	const SAVED_50_30 = [
+		{ categoryId: 'cat-alimentation', amountCents: -5_000, note: '' },
+		{ categoryId: 'cat-maison', amountCents: -3_000, note: '' }
+	];
+
+	it('reads as clean again once the server returns the parts that were just saved', async () => {
+		await page.viewport(1280, 800);
+		const { container, rerender } = render(Page, {
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			form: null
+		});
+
+		// BOTH parts, because Save only lights when the remainder is exactly zero — editing one and
+		// expecting a live Save would be asserting against a draft the editor is right to refuse.
+		const amountOf = (position: number) =>
+			Array.from(container.querySelectorAll('input')).find((input) =>
+				input.closest('label')?.textContent?.includes(`Montant de la part ${position}`)
+			) as HTMLInputElement;
+		await userEvent.fill(amountOf(1), '50,00');
+		await userEvent.fill(amountOf(2), '30,00');
+
+		// Scoped to the SPLIT form. Scoping to the `<aside>` found the manual-category Save first —
+		// which is natively `disabled`, so `getAttribute('aria-disabled')` was null and the "Save is
+		// live" poll below passed without ever looking at the editor. Wrong subject, right value.
+		const save = () =>
+			Array.from(
+				container
+					.querySelector('aside')!
+					.querySelector('form[action*="/saveSplits"]')!
+					.querySelectorAll('button')
+			).find((b) => b.textContent?.trim() === 'Enregistrer') as HTMLButtonElement;
+		// Dirty, so Save is live — the state the assertion below has to move away from.
+		await expect.poll(() => save().getAttribute('aria-disabled')).toBeNull();
+
+		// The save response: the server now returns exactly what was typed.
+		await rerender({
+			data: baseData({ splits: SAVED_50_30, splitEntryAvailable: false }),
+			form: actionResult({ splitsSaved: true, splitsCount: 2 })
+		});
+
+		// Without the remount the editor would still be comparing against 60/20 and « Enregistrer »
+		// would stay lit on a répartition that was just written.
+		await expect.poll(() => save().getAttribute('aria-disabled')).toBe('true');
+		expect(container.textContent).toContain(m.splits_reason_unchanged());
+	});
+
+	it('keeps the draft when the save FAILS, because the saved parts did not move', async () => {
+		// The other half of keying on the parts rather than on "a save happened": 1i promises « vos
+		// parts sont conservées », and a remount on every response would discard exactly the work
+		// that promise is about.
+		await page.viewport(1280, 800);
+		const { container, rerender } = render(Page, {
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			form: null
+		});
+
+		const amountOf = () =>
+			Array.from(container.querySelectorAll('input')).find((input) =>
+				input.closest('label')?.textContent?.includes('Montant de la part 1')
+			) as HTMLInputElement;
+		await userEvent.fill(amountOf(), '50,00');
+
+		await rerender({
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			form: actionResult({ splitsError: m.splits_error_sum() })
+		});
+
+		expect(amountOf().value).toBe('50,00');
+		expect(container.querySelector('[role="alert"]')?.textContent).toContain(m.splits_error_sum());
+	});
+});

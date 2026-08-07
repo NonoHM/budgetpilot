@@ -271,7 +271,25 @@
 	 * different question: which editor is holding work.
 	 */
 	let splitDraftOpen = $state(false);
+	/** 1i: a répartition write is in flight. Set by `use:enhance`, read by both mounts. */
+	let splitSaving = $state(false);
 	const splitParts = $derived(data.selectedTransaction?.splits ?? []);
+	/**
+	 * Remounts `SplitEditor` when — and only when — the SAVED parts change.
+	 *
+	 * The editor takes a snapshot of its parts at initialisation, deliberately: that snapshot is the
+	 * BEFORE its dirty check compares against, and a reactive one would track the after so nothing
+	 * would ever read as dirty. Under a full-page POST that snapshot was refreshed by the navigation
+	 * remounting the component. `use:enhance` keeps the page, so without this the editor would still
+	 * be comparing against the parts as they were BEFORE the save — « Enregistrer » would stay lit
+	 * on a répartition that was just written, and the reason line would never say « rien n'a changé ».
+	 *
+	 * Keyed on the saved parts rather than on any save at all, which is what makes it safe: a FAILED
+	 * save leaves them untouched, so the editor is not remounted and the user's draft survives —
+	 * exactly what 1i promises with « vos parts sont conservées ». Same for the tab-return refresh
+	 * when nothing has changed.
+	 */
+	const splitPartsSignature = $derived(JSON.stringify(splitParts));
 	/** 1j-B when parts exist, 1j-A once the entry row is pressed. Same editor, same mechanics. */
 	const splitEditorActive = $derived(splitParts.length > 0 || splitDraftOpen);
 
@@ -2942,18 +2960,33 @@
 								<!-- Répartition — spec §9.1's fourth sibling section -->
 								{#if splitEditorActive}
 									<section class="rounded-xl border border-zinc-200 p-3">
-										<form method="POST" action={splitFormAction}>
-											<SplitEditor
-												transactionId={data.selectedTransaction.id}
-												amountCents={data.selectedTransaction.amountCents}
-												parentCategoryId={data.selectedTransaction.splitInheritCategoryId ?? ''}
-												categoryOptions={data.splitCategoryOptions}
-												existingParts={splitParts.length > 0 ? splitParts : null}
-												conflictPositions={splitsConflictPositions}
-												error={splitsError}
-												parentLockId={desktopParentLockId}
-												bind:dirty={splitsDirtyDesktop}
-											/>
+										<form
+											method="POST"
+											action={splitFormAction}
+											use:enhance={() => {
+												splitSaving = true;
+												return async ({ update }) => {
+													// `reset: false` because this editor is state-driven, not value-driven: resetting the
+													// form would clear the native fields under a component that is not reading them.
+													await update({ reset: false });
+													splitSaving = false;
+												};
+											}}
+										>
+											{#key splitPartsSignature}
+												<SplitEditor
+													transactionId={data.selectedTransaction.id}
+													amountCents={data.selectedTransaction.amountCents}
+													parentCategoryId={data.selectedTransaction.splitInheritCategoryId ?? ''}
+													categoryOptions={data.splitCategoryOptions}
+													existingParts={splitParts.length > 0 ? splitParts : null}
+													conflictPositions={splitsConflictPositions}
+													error={splitsError}
+													parentLockId={desktopParentLockId}
+													saving={splitSaving}
+													bind:dirty={splitsDirtyDesktop}
+												/>
+											{/key}
 										</form>
 									</section>
 								{/if}
@@ -3791,19 +3824,34 @@
 			<!-- Répartition -->
 			{#if splitEditorActive}
 				<section class="flex flex-col gap-2">
-					<form method="POST" action={splitFormAction}>
-						<SplitEditor
-							transactionId={data.selectedTransaction.id}
-							amountCents={data.selectedTransaction.amountCents}
-							parentCategoryId={data.selectedTransaction.splitInheritCategoryId ?? ''}
-							categoryOptions={data.splitCategoryOptions}
-							existingParts={splitParts.length > 0 ? splitParts : null}
-							conflictPositions={splitsConflictPositions}
-							error={splitsError}
-							parentLockId={mobileParentLockId}
-							size="lg"
-							bind:dirty={splitsDirtyMobile}
-						/>
+					<form
+						method="POST"
+						action={splitFormAction}
+						use:enhance={() => {
+							splitSaving = true;
+							return async ({ update }) => {
+								// `reset: false` because this editor is state-driven, not value-driven: resetting the
+								// form would clear the native fields under a component that is not reading them.
+								await update({ reset: false });
+								splitSaving = false;
+							};
+						}}
+					>
+						{#key splitPartsSignature}
+							<SplitEditor
+								transactionId={data.selectedTransaction.id}
+								amountCents={data.selectedTransaction.amountCents}
+								parentCategoryId={data.selectedTransaction.splitInheritCategoryId ?? ''}
+								categoryOptions={data.splitCategoryOptions}
+								existingParts={splitParts.length > 0 ? splitParts : null}
+								conflictPositions={splitsConflictPositions}
+								error={splitsError}
+								parentLockId={mobileParentLockId}
+								saving={splitSaving}
+								size="lg"
+								bind:dirty={splitsDirtyMobile}
+							/>
+						{/key}
 					</form>
 				</section>
 			{/if}

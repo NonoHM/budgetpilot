@@ -35,6 +35,8 @@
 		oninput,
 		placeholder = '0,00',
 		required = true,
+		softDisabled = false,
+		'aria-describedby': ariaDescribedby,
 		error,
 		allowZero = true,
 		allowNegative = false,
@@ -59,6 +61,30 @@
 		oninput?: (raw: string) => void;
 		placeholder?: string;
 		required?: boolean;
+		/**
+		 * Neutralised but still reachable — `readonly` plus `aria-disabled`, never the native
+		 * `disabled`. Design 1i's saving state asks for exactly this and says why: « les champs
+		 * passent en aria-disabled et non disabled : le focus ne s'évapore pas sous les doigts si la
+		 * requête traîne ». A natively disabled input leaves the tab order, so a slow request would
+		 * take the caret out of the field the user was typing in.
+		 *
+		 * `oninput` needs NO separate guard, and that was measured rather than assumed: a `readonly`
+		 * input fires no input event at all, for typing or for paste, so the live preview the callback
+		 * drives — the split editor's remainder — cannot move while the write is in flight. A
+		 * `if (softDisabled) return;` was written here first and then removed: break-checking it left
+		 * the whole spec green, because nothing could reach it.
+		 *
+		 * Mirrors `Button`, `IconButton` and `Combobox`'s prop of the same name. The corollary from
+		 * 1q applies here too: a control whose neutralisation cannot be explained is removed, not
+		 * neutralised, so `softDisabled` without an `aria-describedby` is a half-applied rule.
+		 */
+		softDisabled?: boolean;
+		/**
+		 * The ONE explanation this field points at. An `error` outranks it, deliberately: 1q allows
+		 * a neutralised control exactly one reason location, and between "this value is wrong" and
+		 * "this field is busy" the first is the one the user has to act on.
+		 */
+		'aria-describedby'?: string;
 		error?: string;
 		allowZero?: boolean;
 		allowNegative?: boolean;
@@ -87,7 +113,9 @@
 			{required}
 			inputmode="decimal"
 			aria-invalid={error ? 'true' : undefined}
-			aria-describedby={error ? errorId : undefined}
+			aria-describedby={error ? errorId : ariaDescribedby}
+			readonly={softDisabled}
+			aria-disabled={softDisabled ? 'true' : undefined}
 			data-allow-zero={allowZero}
 			data-allow-negative={allowNegative}
 			class="{baseInputClass} {inputClass}"

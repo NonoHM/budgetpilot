@@ -1202,6 +1202,8 @@
 	"splits_entry_action": "Répartir entre plusieurs catégories",
 	"splits_badge_split": "Répartie",
 	"splits_error_retry": "Réessayer",
+	"splits_saving_hint": "Enregistrement en cours. Les champs sont verrouillés le temps de la requête.",
+	"splits_saving_label": "Enregistrement…",
 	"splits_part_category_aria": "Catégorie de la part {position}",
 	"splits_part_amount_aria": "Montant de la part {position}",
 	"splits_part_note_aria": "Note de la part {position}",

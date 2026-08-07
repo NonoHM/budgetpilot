@@ -26,6 +26,8 @@
 		deletedCategoryName,
 		removeSoftDisabled = false,
 		removeHintId,
+		saving = false,
+		savingHintId,
 		showRoundingCent = false,
 		size = 'md',
 		onRemove,
@@ -49,6 +51,15 @@
 		deletedCategoryName?: string;
 		/** 1f: at the floor of 2 parts both crosses are neutralised, never removed, never mute. */
 		removeSoftDisabled?: boolean;
+		/**
+		 * 1i's saving state: every control in the row neutralises for the duration of the request,
+		 * `aria-disabled` and never `disabled` — « le focus ne s'évapore pas sous les doigts si la
+		 * requête traîne ». It OUTRANKS the floor on the cross: both are true at the floor while
+		 * saving, and 1q allows exactly one reason, so the row states the one that will change first.
+		 */
+		saving?: boolean;
+		/** Id of the sentence explaining the saving lock. Required whenever `saving` is true. */
+		savingHintId?: string;
 		/** Id of the sentence explaining the neutralisation. Required whenever the cross is off — 1q:
 		 *  a control that cannot be explained is not neutralised, it is removed. */
 		removeHintId?: string;
@@ -92,6 +103,8 @@
 				options={categoryOptions}
 				bind:value={categoryId}
 				{size}
+				softDisabled={saving}
+				aria-describedby={saving ? savingHintId : undefined}
 				ariaLabel={m.splits_part_category_aria({ position })}
 				triggerClass={deletedCategoryName ? 'border-dashed border-zinc-400' : ''}
 			/>
@@ -113,6 +126,8 @@
 				bind:value={amount}
 				oninput={() => onAmountInput?.()}
 				required={false}
+				softDisabled={saving}
+				aria-describedby={saving ? savingHintId : undefined}
 				inputClass={controlHeight}
 				wrapperClass="gap-0"
 			/>
@@ -127,8 +142,8 @@
 			<IconButton
 				label={m.splits_part_remove_aria({ position })}
 				tone="danger"
-				softDisabled={removeSoftDisabled}
-				aria-describedby={removeSoftDisabled ? removeHintId : undefined}
+				softDisabled={saving || removeSoftDisabled}
+				aria-describedby={saving ? savingHintId : removeSoftDisabled ? removeHintId : undefined}
 				onclick={onRemove}
 				class={size === 'lg' ? 'min-h-12 min-w-12' : ''}
 			>
@@ -155,6 +170,9 @@
 					type="text"
 					name="splitNote"
 					bind:value={note}
+					readonly={saving}
+					aria-disabled={saving ? 'true' : undefined}
+					aria-describedby={saving ? savingHintId : undefined}
 					maxlength={MAX_SPLIT_NOTE_LENGTH}
 					onblur={() => (noteOpen = false)}
 					onfocus={() => (noteOpen = true)}

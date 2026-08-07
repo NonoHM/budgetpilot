@@ -29,6 +29,7 @@
 		existingParts,
 		conflictPositions = [],
 		error,
+		saving = false,
 		parentLockId,
 		size = 'md',
 		dirty = $bindable()
@@ -43,6 +44,16 @@
 		/** 0-based positions the server refused, from `replaceSplits`'s discriminated union (1r). */
 		conflictPositions?: number[];
 		error?: string;
+		/**
+		 * 1i: a write is in flight. Every field neutralises for its duration — `aria-disabled` and
+		 * never `disabled`, so « le focus ne s'évapore pas sous les doigts si la requête traîne » —
+		 * and the remainder band does not move, because « il vient d'être la condition du clic ».
+		 *
+		 * Owned by the caller: only the caller knows a request is out. It also OUTRANKS the floor and
+		 * the ceiling on the controls that carry both, since 1q allows exactly one reason each and
+		 * the saving one is the one that will resolve first.
+		 */
+		saving?: boolean;
 		/**
 		 * Id of the sentence this component renders to explain the neutralised PARENT selector — which
 		 * the CALLER owns and points its own `aria-describedby` at.
@@ -67,6 +78,7 @@
 	const floorHintId = `split-floor-${instanceId}`;
 	const ceilingHintId = `split-ceiling-${instanceId}`;
 	const reasonId = `split-reason-${instanceId}`;
+	const savingHintId = `split-saving-${instanceId}`;
 
 	interface DraftPart {
 		categoryId: string;
@@ -321,6 +333,8 @@
 						bind:note={parts[index].note}
 						{categoryOptions}
 						{size}
+						{saving}
+						{savingHintId}
 						deletedCategoryName={missingCategoryPositions.includes(index)
 							? labelsWhenOpened.get(parts[index].categoryId)
 							: undefined}
@@ -359,8 +373,8 @@
 						type="button"
 						variant="secondary"
 						size="sm"
-						softDisabled={atCeiling}
-						aria-describedby={atCeiling ? ceilingHintId : undefined}
+						softDisabled={saving || atCeiling}
+						aria-describedby={saving ? savingHintId : atCeiling ? ceilingHintId : undefined}
 						onclick={addPart}
 					>
 						{m.splits_add_part()}
@@ -370,7 +384,8 @@
 					type="button"
 					variant="secondary"
 					size="sm"
-					softDisabled={!canDistributeEvenly(amountCents, parts.length)}
+					softDisabled={saving || !canDistributeEvenly(amountCents, parts.length)}
+					aria-describedby={saving ? savingHintId : undefined}
 					onclick={distribute}
 				>
 					{m.splits_distribute_evenly()}
@@ -386,6 +401,15 @@
 	{/if}
 
 	<input type="hidden" name="transactionId" value={transactionId} />
+
+	<!--
+		1q: the one explanation every field points at while the write is in flight. Visually hidden
+		because the VISIBLE signal is the spinner on the button — a second sentence on screen saying
+		the same thing would be the two-locations defect this design refuses everywhere else.
+	-->
+	{#if saving}
+		<p id={savingHintId} class="sr-only">{m.splits_saving_hint()}</p>
+	{/if}
 
 	<!--
 		1d and 1k: the remainder band and the action row travel TOGETHER, pinned to the bottom of
@@ -429,7 +453,14 @@
 		{/if}
 
 		<div class="flex flex-wrap items-center gap-2">
-			<Button type="submit" size="sm" softDisabled={!canSave} aria-describedby={saveDescribedBy}>
+			<Button
+				type="submit"
+				size="sm"
+				loading={saving}
+				loadingLabel={m.splits_saving_label()}
+				softDisabled={!canSave}
+				aria-describedby={saveDescribedBy}
+			>
 				{m.common_save()}
 			</Button>
 			<!--

@@ -134,3 +134,114 @@ describe('MoneyInput.svelte', () => {
 		expect((input.element() as HTMLInputElement).value).toBe('12,5');
 	});
 });
+
+/**
+ * `softDisabled`, added for design 1i's saving state: « les champs passent en aria-disabled et non
+ * disabled : le focus ne s'évapore pas sous les doigts si la requête traîne ».
+ *
+ * The sixth control in this app to take the prop, and it takes it for the reason 1q makes law
+ * rather than for symmetry. A natively `disabled` input leaves the tab order, so a request that
+ * drags would drop the caret out of the field the user was typing in — and CLAUDE.md records four
+ * existing sightings of native `disabled` where the rule asks for `aria-disabled`.
+ */
+describe('MoneyInput.svelte — softDisabled (1i, 1q)', () => {
+	it('refuses the keystroke while staying focusable and named', async () => {
+		// Typed for real, and the field is proven to ACCEPT typing first with the same gesture and
+		// the same selector. Asserting only that a locked field stayed empty passes on a field that
+		// was never reachable.
+		const { rerender } = render(MoneyInput, { name: 'amount', label: 'Montant', value: '10,00' });
+		const live = page.getByLabelText('Montant').element() as HTMLInputElement;
+		await userEvent.fill(live, '12,34');
+		expect(live.value).toBe('12,34');
+
+		await rerender({ name: 'amount', label: 'Montant', value: '12,34', softDisabled: true });
+		const locked = page.getByLabelText('Montant').element() as HTMLInputElement;
+		expect(locked.readOnly).toBe(true);
+		expect(locked.getAttribute('aria-disabled')).toBe('true');
+		expect(locked.hasAttribute('disabled')).toBe(false);
+
+		// Focusable, which is the entire difference from `disabled` and the reason the design names
+		// it: the caret does not evaporate mid-request.
+		locked.focus();
+		expect(document.activeElement).toBe(locked);
+		expect(locked.tabIndex).toBeGreaterThanOrEqual(0);
+	});
+
+	it('cannot move the live preview under the user, because the keystroke never arrives', async () => {
+		// The property, stated over the mechanism: `readonly` fires no input event, so the remainder
+		// the callback drives cannot change while the write it belongs to is in flight. Proven by
+		// the CONTRAST — the same gesture on the same component does fire when it is not locked —
+		// rather than by a lone absence, which would pass on a callback that was never wired.
+		const live = vi.fn();
+		const first = render(MoneyInput, {
+			name: 'amount',
+			label: 'Montant',
+			value: '10,00',
+			oninput: live
+		});
+		const liveInput = first.container.querySelector('input') as HTMLInputElement;
+		liveInput.focus();
+		await userEvent.type(liveInput, '9');
+		expect(live).toHaveBeenCalled();
+
+		const locked = vi.fn();
+		const second = render(MoneyInput, {
+			name: 'amount',
+			label: 'Montant',
+			value: '10,00',
+			softDisabled: true,
+			oninput: locked
+		});
+		const lockedInput = second.container.querySelector('input') as HTMLInputElement;
+		lockedInput.focus();
+		await userEvent.type(lockedInput, '9');
+		expect(locked).not.toHaveBeenCalled();
+		expect(lockedInput.value).toBe('10,00');
+	});
+
+	it('keeps its geometry when it locks, so nothing jumps mid-save', async () => {
+		// Relational: the figure that matters is not 44 on its own but that the locked field agrees
+		// with the live one. 1i is explicit that the remainder band must not move during the save —
+		// a field that changed height would move everything below it.
+		const { rerender } = render(MoneyInput, { name: 'amount', label: 'Montant', value: '10,00' });
+		await expect.element(page.getByLabelText('Montant')).toBeInTheDocument();
+		const live = (page.getByLabelText('Montant').element() as HTMLElement).getBoundingClientRect();
+
+		await rerender({ name: 'amount', label: 'Montant', value: '10,00', softDisabled: true });
+		const locked = (
+			page.getByLabelText('Montant').element() as HTMLElement
+		).getBoundingClientRect();
+
+		expect(locked.height).toBe(live.height);
+		expect(locked.width).toBe(live.width);
+	});
+
+	it('points a locked field at ONE explanation, and an error still wins it', async () => {
+		// 1q: one reason location per neutralised control, never two. A field that is both in error
+		// and locked has one describedby, and it is the error — the thing the user has to act on.
+		const { rerender } = render(MoneyInput, {
+			name: 'amount',
+			label: 'Montant',
+			value: '10,00',
+			softDisabled: true,
+			'aria-describedby': 'saving-hint'
+		});
+		expect(
+			(page.getByLabelText('Montant').element() as HTMLElement).getAttribute('aria-describedby')
+		).toBe('saving-hint');
+
+		await rerender({
+			name: 'amount',
+			label: 'Montant',
+			value: '10,00',
+			softDisabled: true,
+			'aria-describedby': 'saving-hint',
+			error: 'Montant invalide'
+		});
+		const described = (page.getByLabelText('Montant').element() as HTMLElement).getAttribute(
+			'aria-describedby'
+		);
+		expect(described).not.toBe('saving-hint');
+		expect(document.getElementById(described ?? '')?.textContent).toBe('Montant invalide');
+	});
+});

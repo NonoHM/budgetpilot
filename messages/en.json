@@ -1202,6 +1202,8 @@
 	"splits_entry_action": "Split across several categories",
 	"splits_badge_split": "Split",
 	"splits_error_retry": "Try again",
+	"splits_saving_hint": "Saving. The fields are locked for the duration of the request.",
+	"splits_saving_label": "Saving…",
 	"splits_part_category_aria": "Category of part {position}",
 	"splits_part_amount_aria": "Amount of part {position}",
 	"splits_part_note_aria": "Note of part {position}",
