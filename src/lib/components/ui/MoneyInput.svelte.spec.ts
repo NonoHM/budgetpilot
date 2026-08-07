@@ -1,6 +1,11 @@
 import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+// Load-bearing for the geometry test below, and NOT optional because that test is relational: with
+// no stylesheet both renders fall back to the same UA defaults, so the comparison passes for a
+// reason that has nothing to do with the component's own classes. Break-checked 2026-08-07 — giving
+// the locked branch a different height class is invisible without this import and named with it.
+import '../../../routes/layout.css';
 import MoneyInput from './MoneyInput.svelte';
 
 describe('MoneyInput.svelte', () => {
