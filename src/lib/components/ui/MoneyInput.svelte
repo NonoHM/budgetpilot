@@ -20,11 +20,18 @@
 	// own hinting/tests — not enforced here (the server remains the single source of truth), and
 	// deliberately not wired to the HTML `min` attribute: `min` has no effect on `type="text"`
 	// inputs, so setting it would be dead markup rather than a real constraint.
+	//
+	// `value` is bindable and `oninput` fires on every keystroke, added for the split editor's live
+	// remainder — and it does NOT weaken the paragraph above. OBSERVING what the user typed is not
+	// PARSING it: the raw string is handed back untouched, the field is never rewritten from it, and
+	// nothing here decides what "12,5" or "1 234,56" means. That is still the server's job, and a
+	// caller computing a preview does so with the same parser rather than a second opinion.
 	let {
 		name,
 		label,
 		labelClass = 'text-sm font-medium text-zinc-700',
-		value,
+		value = $bindable(),
+		oninput,
 		placeholder = '0,00',
 		required = true,
 		error,
@@ -37,7 +44,10 @@
 		name: string;
 		label: string;
 		labelClass?: string;
+		/** Bindable. Reflects the raw text the user typed, never a reformatted version of it. */
 		value?: string;
+		/** Fires on every keystroke, with the raw string. For a live preview; not for reformatting. */
+		oninput?: (raw: string) => void;
 		placeholder?: string;
 		required?: boolean;
 		error?: string;
@@ -63,8 +73,8 @@
 		<input
 			type="text"
 			{name}
-			{value}
 			{placeholder}
+			bind:value
 			{required}
 			inputmode="decimal"
 			aria-invalid={error ? 'true' : undefined}
@@ -72,6 +82,7 @@
 			data-allow-zero={allowZero}
 			data-allow-negative={allowNegative}
 			class="{baseInputClass} {inputClass}"
+			oninput={(event) => oninput?.((event.currentTarget as HTMLInputElement).value)}
 		/>
 		<span
 			class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-zinc-400"

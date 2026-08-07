@@ -12,6 +12,7 @@
 		ariaLabel,
 		disabled = false,
 		required = false,
+		size = 'md',
 		class: className = 'w-full',
 		triggerClass = '',
 		onValueChange
@@ -23,6 +24,19 @@
 		ariaLabel?: string;
 		disabled?: boolean;
 		required?: boolean;
+		/**
+		 * Field height. `'md'` is 44px, the app-wide touch-target floor and every existing caller's
+		 * behaviour. `'lg'` is 48px, which design 1k requires of every control inside the mobile
+		 * sheet — « tous les contrôles passent à 48 px, le plancher de 44 l'emporte sans exception
+		 * d'écran ».
+		 *
+		 * A prop rather than `triggerClass="h-12"`, deliberately: `triggerClass` is APPENDED to a
+		 * class string that already contains `h-11`, so which one wins is decided by Tailwind's
+		 * generated source order rather than by anything written here. That is precisely the kind of
+		 * silent, load-bearing coincidence this repo's notes say not to build on — it would break by
+		 * changing height rather than by failing.
+		 */
+		size?: 'md' | 'lg';
 		class?: string;
 		triggerClass?: string;
 		onValueChange?: (value: string) => void;
@@ -71,7 +85,9 @@
 >
 	<div class="relative {className}">
 		<Combobox.Input
-			class="h-11 w-full rounded-xl border border-zinc-200 bg-white pr-8 pl-3 text-sm text-zinc-900 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 {triggerClass}"
+			class="{size === 'lg'
+				? 'h-12'
+				: 'h-11'} w-full rounded-xl border border-zinc-200 bg-white pr-8 pl-3 text-sm text-zinc-900 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none disabled:cursor-not-allowed disabled:opacity-50 {triggerClass}"
 			aria-label={ariaLabel ?? placeholder}
 			placeholder={open ? m.common_combobox_search_placeholder() : placeholder}
 			oninput={(e) => {
