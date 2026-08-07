@@ -17,6 +17,15 @@ function footerSnippet() {
 	}));
 }
 
+// Deliberately holds NO focusable element. `header` is required, so every test below now passes
+// one, and a focusable header would silently move `focusFirst`'s landing spot and rewrite the
+// initial-focus assertions in the Tab-trap test into something they were not written to say.
+function headerSnippet(html = '<h2>Titre</h2>') {
+	return createRawSnippet(() => ({
+		render: () => `<div>${html}</div>`
+	}));
+}
+
 // A tall body — taller than any plausible sheet height — so the flex layout is
 // forced to shrink the scrolling zone rather than the sheet simply growing to
 // fit its content. Every "does X stay pinned while the body scrolls" assertion
@@ -78,6 +87,7 @@ describe('BottomSheet.svelte', () => {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: bodySnippet()
 		});
 
@@ -94,6 +104,7 @@ describe('BottomSheet.svelte', () => {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: bodySnippet(),
 			footer: footerSnippet()
 		});
@@ -113,6 +124,7 @@ describe('BottomSheet.svelte', () => {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: tallBodySnippet(),
 			footer: footerSnippet()
 		});
@@ -130,11 +142,90 @@ describe('BottomSheet.svelte', () => {
 		expect(afterRect.bottom).toBe(beforeRect.bottom);
 	});
 
+	/**
+	 * The header is the FOOTER'S MIRROR, and these are deliberately the footer's own assertions with
+	 * the subject swapped. In a sheet the primary action never scrolls; by the same reasoning the way
+	 * back never scrolls either, because a reader who has scrolled the body and can no longer see the
+	 * title or the route out is in exactly the situation the footer rule exists to prevent.
+	 *
+	 * `header` shipped with the Période sheet and had NO coverage at all until this suite — one
+	 * consumer, four footer tests, zero header tests. It is now required, so the compiler is what
+	 * enforces the law; these pin the geometry the law is about.
+	 */
+	it('renders the header outside the scrolling body', async () => {
+		render(BottomSheet, {
+			open: true,
+			ariaLabel: 'Titre',
+			onClose: vi.fn(),
+			header: headerSnippet(),
+			children: bodySnippet()
+		});
+
+		const heading = page.getByRole('heading', { name: 'Titre' }).element() as HTMLElement;
+		const body = document.querySelector('[role="dialog"] .overflow-y-auto') as HTMLElement;
+		expect(body).not.toBeNull();
+		expect(body.contains(heading)).toBe(false);
+		// A direct child of the dialog, like the footer band — not nested inside anything scrollable.
+		expect(heading.closest('[role="dialog"] > div')?.parentElement?.getAttribute('role')).toBe(
+			'dialog'
+		);
+	});
+
+	it('keeps the header visible while the body scrolls (pinned, not scrolled)', async () => {
+		render(BottomSheet, {
+			open: true,
+			ariaLabel: 'Titre',
+			onClose: vi.fn(),
+			header: headerSnippet(),
+			children: tallBodySnippet()
+		});
+
+		const heading = page.getByRole('heading', { name: 'Titre' }).element() as HTMLElement;
+		const body = document.querySelector('[role="dialog"] .overflow-y-auto') as HTMLElement;
+
+		const beforeRect = heading.getBoundingClientRect();
+		body.scrollTop = 500;
+		expect(body.scrollTop).toBeGreaterThan(0);
+		const afterRect = heading.getBoundingClientRect();
+
+		expect(afterRect.top).toBe(beforeRect.top);
+		expect(afterRect.bottom).toBe(beforeRect.bottom);
+	});
+
+	it('stacks handle, header, body and footer in that order, with no overlap', async () => {
+		// Relational, on purpose: each band's own height says nothing about whether the title ended
+		// up under the drag handle or over the scrolling area. The measurement that answers the
+		// question is the comparison, not the value.
+		render(BottomSheet, {
+			open: true,
+			ariaLabel: 'Titre',
+			onClose: vi.fn(),
+			header: headerSnippet(),
+			children: tallBodySnippet(),
+			footer: footerSnippet()
+		});
+
+		const dialog = page.getByRole('dialog').element() as HTMLElement;
+		const handle = dialog.querySelector('[role="separator"]') as HTMLElement;
+		const heading = page.getByRole('heading', { name: 'Titre' }).element() as HTMLElement;
+		const body = dialog.querySelector('.overflow-y-auto') as HTMLElement;
+		const footer = dialog.querySelector('div.border-t') as HTMLElement;
+
+		const top = (el: HTMLElement) => el.getBoundingClientRect().top;
+		const bottom = (el: HTMLElement) => el.getBoundingClientRect().bottom;
+
+		expect(bottom(handle)).toBeLessThanOrEqual(top(heading));
+		expect(bottom(heading)).toBeLessThanOrEqual(top(body));
+		expect(bottom(body)).toBeLessThanOrEqual(top(footer) + 1);
+		expect(bottom(footer)).toBeLessThanOrEqual(bottom(dialog) + 1);
+	});
+
 	it('scrolls a focused field inside the body into view', async () => {
 		render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: tallBodySnippet(),
 			footer: footerSnippet()
 		});
@@ -165,6 +256,7 @@ describe('BottomSheet.svelte', () => {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: bodySnippet()
 		});
 
@@ -185,6 +277,7 @@ describe('BottomSheet.svelte', () => {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: bodySnippet(),
 			footer: footerSnippet()
 		});
@@ -212,12 +305,19 @@ describe('BottomSheet.svelte', () => {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: bodySnippet()
 		});
 
 		await expect.element(page.getByRole('dialog')).toBeInTheDocument();
 
-		await rerender({ open: false, ariaLabel: 'Titre', onClose: vi.fn(), children: bodySnippet() });
+		await rerender({
+			open: false,
+			ariaLabel: 'Titre',
+			onClose: vi.fn(),
+			header: headerSnippet(),
+			children: bodySnippet()
+		});
 
 		// Dispatching after close must not throw and must not resurrect any
 		// removed listener — nothing to assert on the DOM (the dialog is gone),
@@ -231,6 +331,7 @@ describe('BottomSheet.svelte', () => {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose,
+			header: headerSnippet(),
 			children: bodySnippet(),
 			footer: footerSnippet()
 		});
@@ -272,6 +373,7 @@ describe('the visualViewport sizing must not repaint the sheets that never asked
 			open: true,
 			ariaLabel: 'Sans pied',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: tallBodySnippet()
 		});
 		await new Promise((r) => requestAnimationFrame(() => r(null)));
@@ -295,6 +397,7 @@ describe('the visualViewport sizing must not repaint the sheets that never asked
 			open: true,
 			ariaLabel: 'Sans pied',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: tallBodySnippet()
 		});
 		await new Promise((r) => requestAnimationFrame(() => r(null)));
@@ -315,6 +418,7 @@ describe('the visualViewport sizing must not repaint the sheets that never asked
 			open: true,
 			ariaLabel: 'Avec pied',
 			onClose: vi.fn(),
+			header: headerSnippet(),
 			children: tallBodySnippet(),
 			footer: footerSnippet()
 		});

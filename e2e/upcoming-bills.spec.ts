@@ -17,6 +17,7 @@ import {
 import { formatMonthLabel } from '../src/lib/domain/dateFormat';
 import * as m from '../src/lib/paraglide/messages';
 import { contrastRatio } from './color-contrast';
+import { expectFixedHeader } from './sheet-header';
 import type { Locator, Page } from '@playwright/test';
 
 // End-to-end verification of the "upcoming bills" feature: the dashboard widget and
@@ -854,6 +855,12 @@ test.describe('/upcoming-bills — mobile 390x844', () => {
 		await mobile.click();
 		const sheet = page.getByRole('dialog', { name: OVERDUE_GYM.display });
 		await expect(sheet).toBeVisible();
+
+		// The fixed-header law, asserted here because this is where the bills fixture is seeded —
+		// see e2e/sheet-header.ts. The row's label and its meta line are the sheet's identity and
+		// must sit outside the scrolling body, whatever the action list below grows to.
+		await expectFixedHeader(page, new RegExp(OVERDUE_GYM.display));
+
 		for (const item of [
 			m.bills_action_mark_paid(),
 			m.bills_action_ignore(),

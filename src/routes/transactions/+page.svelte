@@ -1910,10 +1910,12 @@
 					ariaLabel={m.transactions_filters_sheet_label()}
 					onClose={closeMobileFiltersSheet}
 				>
-					<div class="space-y-1 pb-1">
-						<h2 class="mb-2 text-base font-semibold text-zinc-950">
+					{#snippet header()}
+						<h2 class="text-base font-semibold text-zinc-950">
 							{m.transactions_filters_sheet_label()}
 						</h2>
+					{/snippet}
+					<div class="space-y-1 pb-1">
 						<button
 							type="button"
 							class="flex min-h-[52px] w-full items-center justify-between gap-2 border-b border-zinc-100 py-2 text-left"
@@ -2044,10 +2046,12 @@
 					ariaLabel={m.transactions_filter_dimension_category()}
 					onClose={closeMobileFilterSubSheet}
 				>
-					<div class="pb-1">
-						<h2 class="mb-2 text-base font-semibold text-zinc-950">
+					{#snippet header()}
+						<h2 class="text-base font-semibold text-zinc-950">
 							{m.transactions_filter_dimension_category()}
 						</h2>
+					{/snippet}
+					<div class="pb-1">
 						<ul class="divide-y divide-zinc-100">
 							<li>
 								<button
@@ -2094,10 +2098,12 @@
 						ariaLabel={m.splits_filter_dimension()}
 						onClose={closeMobileFilterSubSheet}
 					>
-						<div class="pb-1">
-							<h2 class="mb-2 text-base font-semibold text-zinc-950">
+						{#snippet header()}
+							<h2 class="text-base font-semibold text-zinc-950">
 								{m.splits_filter_dimension()}
 							</h2>
+						{/snippet}
+						<div class="pb-1">
 							<ul class="divide-y divide-zinc-100">
 								<li>
 									<button
@@ -2158,10 +2164,14 @@
 						ariaLabel={m.tags_filter_dimension()}
 						onClose={closeMobileFilterSubSheet}
 					>
-						<div class="pb-1">
-							<h2 class="mb-1 text-base font-semibold text-zinc-950">
+						{#snippet header()}
+							<h2 class="text-base font-semibold text-zinc-950">
 								{m.tags_filter_dimension()}
 							</h2>
+						{/snippet}
+						<div class="pb-1">
+							<!-- The scope note stays in the body: it explains the counts, it is not the way
+							     back, and only the way back is owed a fixed place. -->
 							<p class="mb-2 text-xs text-zinc-500">
 								{data.tagCounts === null
 									? m.tags_filter_counts_unavailable()
@@ -3409,9 +3419,12 @@
 		: m.transactions_detail_heading()}
 	onClose={closeMobileSheet}
 >
-	{#if data.selectedTransaction}
-		<div class="flex flex-col gap-4">
-			<!-- En-tête -->
+	<!-- The date row and the label are the sheet's identity, so they sit in the fixed header rather
+	     than at the top of the scrolling body: the body is 689px of panel against 936px of content,
+	     measured at 390x844, and the label used to travel 247px out of view on the way down. Only
+	     the identity is lifted — the amount and everything below it keep scrolling. -->
+	{#snippet header()}
+		{#if data.selectedTransaction}
 			<div class="flex flex-col gap-1.5">
 				<div class="flex items-center justify-between">
 					<span class="text-[12.5px] font-medium text-zinc-400"
@@ -3431,6 +3444,12 @@
 				<p class="text-[17px] font-bold tracking-tight text-zinc-900">
 					{data.selectedTransaction.label}
 				</p>
+			</div>
+		{/if}
+	{/snippet}
+	{#if data.selectedTransaction}
+		<div class="flex flex-col gap-4">
+			<div class="flex flex-col gap-1.5">
 				<p
 					class="text-[30px] font-extrabold tracking-tight tabular-nums {data.selectedTransaction
 						.type === 'income'

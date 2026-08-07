@@ -1255,10 +1255,12 @@
 	{@const row = sheetRow}
 	{@const domKey = toBillRowDomKey(row.rowKey)}
 	<BottomSheet open ariaLabel={row.label} onClose={() => (sheetRow = null)}>
-		<div class="pb-2">
-			<p class="text-base font-bold text-zinc-950">{row.label}</p>
-			<p class="mt-0.5 text-xs text-zinc-500">{sheetMeta(row)}</p>
-		</div>
+		{#snippet header()}
+			<div>
+				<p class="text-base font-bold text-zinc-950">{row.label}</p>
+				<p class="mt-0.5 text-xs text-zinc-500">{sheetMeta(row)}</p>
+			</div>
+		{/snippet}
 		<div class="flex flex-col">
 			<button
 				type="button"

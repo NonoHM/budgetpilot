@@ -27,15 +27,30 @@
 		onClose: () => void;
 		children: Snippet;
 		/**
-		 * Optional persistent header, rendered OUTSIDE the scrolling body — the mirror of `footer`,
+		 * REQUIRED persistent header, rendered OUTSIDE the scrolling body — the mirror of `footer`,
 		 * and for the same reason. A title and a route back that scroll away with the content leave a
 		 * reader who has scrolled the grid with no visible way out of the sheet, which is exactly the
-		 * argument that makes the footer sticky. Design 6M budgets it at 73px including the handle.
+		 * argument that makes the footer sticky: *in a sheet the primary action never scrolls, and by
+		 * the same reasoning the way back never scrolls either.*
+		 *
+		 * Required rather than conventional, deliberately. It shipped optional with the Période sheet
+		 * and stayed at one consumer: the four other sheets went on rendering their `<h2>` as the
+		 * first thing inside `children`, where it scrolls away. Measured 2026-08-07 at 390x844, both
+		 * on the live pages: the transaction detail title travelled **247 px** out of the sheet, the
+		 * category sub-sheet's **165 px**. The Filtres sheet's title held still only because its body
+		 * happened to be 174 px tall and did not scroll at all — not a guarantee, an accident of how
+		 * many filters exist today. A convention cannot see a call site that never adopted it; a
+		 * required prop is refused by `npm run check` by name.
+		 *
+		 * Height: 57 px measured on the Période sheet, which with the 28 px handle is the 85 px the
+		 * referential's V2 errata records. The design's 73 px is superseded and is not to be restored.
 		 */
-		header?: Snippet;
-		// Optional sticky footer, rendered OUTSIDE the scrolling body — see the
-		// "pied de feuille" rule below. Every existing caller omits it and keeps
-		// rendering its primary action inside `children`, unchanged.
+		header: Snippet;
+		/**
+		 * Optional sticky footer, rendered OUTSIDE the scrolling body — see the "pied de feuille" rule
+		 * below. Optional and not required, unlike `header`, because it is not universal: the sub-sheets
+		 * dismiss on selection and have no primary action to pin. A sheet that HAS one must use this.
+		 */
 		footer?: Snippet;
 	} = $props();
 
@@ -256,16 +271,14 @@
 				<span class="h-1 w-9 rounded-full bg-zinc-300"></span>
 			</div>
 
-			{#if header}
-				<div class="shrink-0 border-b border-zinc-100 bg-white px-5 pb-3">
-					{@render header()}
-				</div>
-			{/if}
+			<div class="shrink-0 border-b border-zinc-100 bg-white px-5 pb-3">
+				{@render header()}
+			</div>
 
 			<div
-				class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 {footer
+				class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-3 {footer
 					? 'pb-4'
-					: 'pb-6'} {header ? 'pt-3' : ''}"
+					: 'pb-6'}"
 				onfocusin={handleBodyFocusIn}
 			>
 				{@render children()}
