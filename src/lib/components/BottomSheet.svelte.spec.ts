@@ -220,6 +220,65 @@ describe('BottomSheet.svelte', () => {
 		expect(bottom(footer)).toBeLessThanOrEqual(bottom(dialog) + 1);
 	});
 
+	/**
+	 * Initial focus. The default is `focusFirst`, which is a coincidence rather than a decision — and
+	 * the coincidence was wrong on the transaction detail sheet, whose first focusable is
+	 * « Supprimer ». These pin both branches so neither can drift into the other.
+	 */
+	it('focuses the first focusable by default, which is what every sheet did before the prop', async () => {
+		render(BottomSheet, {
+			open: true,
+			ariaLabel: 'Titre',
+			onClose: vi.fn(),
+			header: headerSnippet(),
+			children: bodySnippet()
+		});
+
+		const insideButton = page.getByRole('button', { name: 'Inside' }).element() as HTMLElement;
+		expect(document.activeElement).toBe(insideButton);
+	});
+
+	it('focuses the panel itself when asked, so a destructive first control is not the landing spot', async () => {
+		// The body's first focusable is deliberately named like the real offender: if this ever
+		// regresses, the failure message says which button focus landed on.
+		render(BottomSheet, {
+			open: true,
+			ariaLabel: 'CARREFOUR MARKET',
+			onClose: vi.fn(),
+			header: headerSnippet('<button type="button">Supprimer</button>'),
+			children: bodySnippet(),
+			initialFocus: 'panel'
+		});
+
+		const dialog = page.getByRole('dialog').element() as HTMLElement;
+		const destructive = page.getByRole('button', { name: 'Supprimer' }).element() as HTMLElement;
+		expect(document.activeElement).toBe(dialog);
+		expect(document.activeElement).not.toBe(destructive);
+	});
+
+	it('keeps the Tab trap working from a panel-focused start', async () => {
+		// Focusing the container is only safe if Tab still enters the sheet and still cycles. A trap
+		// that lets focus escape from this starting point would break aria-modal's promise for the
+		// one sheet that needs the option.
+		render(BottomSheet, {
+			open: true,
+			ariaLabel: 'Titre',
+			onClose: vi.fn(),
+			header: headerSnippet(),
+			children: bodySnippet(),
+			initialFocus: 'panel'
+		});
+
+		const dialog = page.getByRole('dialog').element() as HTMLElement;
+		const insideButton = page.getByRole('button', { name: 'Inside' }).element() as HTMLElement;
+
+		await userEvent.tab();
+		expect(document.activeElement).toBe(insideButton);
+
+		await userEvent.tab();
+		expect(dialog.contains(document.activeElement)).toBe(true);
+	});
+
 	it('scrolls a focused field inside the body into view', async () => {
 		render(BottomSheet, {
 			open: true,

@@ -3418,6 +3418,7 @@
 		? data.selectedTransaction.label
 		: m.transactions_detail_heading()}
 	onClose={closeMobileSheet}
+	initialFocus="panel"
 >
 	<!-- The date row and the label are the sheet's identity, so they sit in the fixed header rather
 	     than at the top of the scrolling body: the body is 689px of panel against 936px of content,

@@ -20,12 +20,35 @@
 		onClose,
 		children,
 		header,
-		footer
+		footer,
+		initialFocus = 'first-focusable'
 	}: {
 		open?: boolean;
 		ariaLabel: string;
 		onClose: () => void;
 		children: Snippet;
+		/**
+		 * What receives focus when the sheet opens.
+		 *
+		 * `'first-focusable'` is the default and is what every sheet did before this prop existed:
+		 * whatever `focusFirst` finds first in DOM order. That is a COINCIDENCE, not a decision, and
+		 * it has now gone wrong twice in this app. The transaction detail sheet's first focusable is
+		 * its « Supprimer » button, so opening a transaction landed the user directly on the
+		 * destructive action — measured 2026-08-07 at 390x844, and true since long before the header
+		 * work moved it into permanent chrome. And `PeriodFilter` carries its own comment saying
+		 * `focusFirst` "would land on the 'Toutes' row", which it settles with a `queueMicrotask`
+		 * that races this effect on purpose.
+		 *
+		 * `'panel'` focuses the dialog itself — it already carries `tabindex="-1"` — which is the
+		 * other behaviour WAI-ARIA's dialog pattern sanctions, and the one it names for exactly this
+		 * case: a first focusable that is destructive. The sheet's `aria-label` is announced, and Tab
+		 * moves forward into the content deliberately.
+		 *
+		 * The default is left alone rather than inverted because flipping it would silently move
+		 * focus on four sheets nobody complained about. A sheet whose first focusable is destructive
+		 * must pass `'panel'`.
+		 */
+		initialFocus?: 'first-focusable' | 'panel';
 		/**
 		 * REQUIRED persistent header, rendered OUTSIDE the scrolling body — the mirror of `footer`,
 		 * and for the same reason. A title and a route back that scroll away with the content leave a
@@ -126,7 +149,8 @@
 			if (isOpen) {
 				focusRestore.save();
 				dragY = 0;
-				focusFirst(sheetEl);
+				if (initialFocus === 'panel') sheetEl?.focus();
+				else focusFirst(sheetEl);
 			} else {
 				focusRestore.restore();
 			}
