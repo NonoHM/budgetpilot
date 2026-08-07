@@ -79,7 +79,7 @@
 			{position}
 		</span>
 
-		<div class="min-w-0 flex-1">
+		<div class="min-w-0 flex-1" data-split-category={position}>
 			<!--
 				Explicit hidden inputs rather than Combobox's own `name`, and the note's too when the
 				field is collapsed. The action reads three PARALLEL lists and their alignment is what
@@ -121,23 +121,27 @@
 			{/if}
 		</div>
 
-		<IconButton
-			label={m.splits_part_remove_aria({ position })}
-			tone="danger"
-			softDisabled={removeSoftDisabled}
-			aria-describedby={removeSoftDisabled ? removeHintId : undefined}
-			onclick={onRemove}
-			class={size === 'lg' ? 'min-h-12 min-w-12' : ''}
-		>
-			<svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" aria-hidden="true">
-				<path
-					d="M6 6l8 8M14 6l-8 8"
-					stroke="currentColor"
-					stroke-width="1.6"
-					stroke-linecap="round"
-				/>
-			</svg>
-		</IconButton>
+		<!-- The wrapper carries the position so 1p's focus management can find this cross without
+		     building a selector out of a translated accessible name. -->
+		<div data-split-remove={position} class="shrink-0">
+			<IconButton
+				label={m.splits_part_remove_aria({ position })}
+				tone="danger"
+				softDisabled={removeSoftDisabled}
+				aria-describedby={removeSoftDisabled ? removeHintId : undefined}
+				onclick={onRemove}
+				class={size === 'lg' ? 'min-h-12 min-w-12' : ''}
+			>
+				<svg viewBox="0 0 20 20" class="h-4 w-4" fill="none" aria-hidden="true">
+					<path
+						d="M6 6l8 8M14 6l-8 8"
+						stroke="currentColor"
+						stroke-width="1.6"
+						stroke-linecap="round"
+					/>
+				</svg>
+			</IconButton>
+		</div>
 	</div>
 
 	<!-- Line 2, indented 20px under the number: a continuation, not another part. 1h's three states

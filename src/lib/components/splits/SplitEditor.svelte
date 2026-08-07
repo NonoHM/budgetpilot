@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { tick } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
@@ -101,6 +102,9 @@
 	let evenSplitAppliedAt = $state<number | null>(null);
 
 	let band = $state<ReturnType<typeof SplitRemainderBand> | null>(null);
+	// Scoped to THIS editor's own subtree, never `document`: both mounts are in the page at once, and
+	// a document-wide lookup would move focus inside the surface the user cannot see.
+	let rootEl = $state<HTMLElement | null>(null);
 
 	const isEditingExisting = $derived(Boolean(existingParts && existingParts.length > 0));
 	const remainder = $derived(
@@ -160,16 +164,48 @@
 		canSave ? undefined : reasonSentence ? reasonId : announcementId
 	);
 
-	function addPart() {
+	/**
+	 * Focus after add and remove, design 1p.
+	 *
+	 * Explicit, and the reason is that the correct behaviour currently happens BY ACCIDENT for one
+	 * of the three cases: `{#each ... (index)}` keys rows by position, so removing a middle row
+	 * reuses the same button elements and updates their labels, and focus never leaves. That is the
+	 * right outcome for the wrong reason — it is a property of the key, not a decision — and it
+	 * disappears the day the each block is keyed by anything else. Removing the LAST row destroys
+	 * the focused node outright and drops focus to `<body>`, which for a keyboard user means the
+	 * next Tab restarts from the top of the document.
+	 *
+	 * Selected by `data-` attribute rather than by accessible name: the name is a translated
+	 * sentence, and building a CSS selector out of user-facing copy makes focus a function of the
+	 * catalogue.
+	 */
+	function focusIn(selector: string) {
+		rootEl?.querySelector<HTMLElement>(selector)?.focus();
+	}
+
+	async function addPart() {
 		if (atCeiling) return;
 		parts = [...parts, { categoryId: '', amount: '0,00', note: '' }];
 		evenSplitAppliedAt = null;
+		// `tick`, not `queueMicrotask`: the row does not exist until Svelte has flushed, and focusing
+		// a node that is not there yet fails silently rather than loudly.
+		await tick();
+		// `:not([type="hidden"])` because the row renders its hidden `splitCategoryId` field FIRST
+		// inside that wrapper — a bare `input` selector finds that one, and focusing a hidden input
+		// silently does nothing, which is the failure mode that reads as "focus management is off".
+		focusIn(`[data-split-category="${parts.length}"] input:not([type="hidden"])`);
 	}
 
-	function removePart(index: number) {
+	async function removePart(index: number) {
 		if (atFloor) return;
+		const wasLast = index === parts.length - 1;
 		parts = parts.filter((_, i) => i !== index);
 		evenSplitAppliedAt = null;
+		await tick();
+		// The NEXT part's cross is the one that has taken the removed row's place, so it is at the
+		// same 1-based position the removed row had.
+		if (wasLast) focusIn('[data-split-add] button');
+		else focusIn(`[data-split-remove="${index + 1}"] button`);
 	}
 
 	function distribute() {
@@ -186,7 +222,7 @@
 	}
 </script>
 
-<div class="grid gap-3">
+<div class="grid gap-3" bind:this={rootEl}>
 	<!--
 		1j: the parent selector stays where it always was and neutralises IN SITU. It is the thing
 		being prevented, so the sentence reads next to it. This block is rendered by the caller; what
@@ -267,16 +303,18 @@
 			{/if}
 
 			<div class="mt-3 grid gap-2 sm:flex sm:flex-wrap">
-				<Button
-					type="button"
-					variant="secondary"
-					size="sm"
-					softDisabled={atCeiling}
-					aria-describedby={atCeiling ? ceilingHintId : undefined}
-					onclick={addPart}
-				>
-					{m.splits_add_part()}
-				</Button>
+				<div data-split-add>
+					<Button
+						type="button"
+						variant="secondary"
+						size="sm"
+						softDisabled={atCeiling}
+						aria-describedby={atCeiling ? ceilingHintId : undefined}
+						onclick={addPart}
+					>
+						{m.splits_add_part()}
+					</Button>
+				</div>
 				<Button
 					type="button"
 					variant="secondary"

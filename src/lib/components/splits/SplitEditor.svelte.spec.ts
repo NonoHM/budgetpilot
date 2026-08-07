@@ -229,3 +229,64 @@ describe('SplitEditor — the form the action reads', () => {
 		expect(document.querySelectorAll('input[name="splitNote"]').length).toBe(2);
 	});
 });
+
+/**
+ * Focus, design 1p: « Retirer une part rend le focus à la croix de la part suivante, ou à
+ * "Ajouter une part" s'il n'y en a plus après. Ajouter une part met le focus sur son sélecteur de
+ * catégorie. »
+ *
+ * Not a nicety. Removing a row destroys the element that had focus, and a browser left to itself
+ * sends focus to `<body>` — which for a keyboard user means the next Tab restarts from the top of
+ * the document, one row further from where they were working with every removal.
+ */
+describe('SplitEditor — focus after add and remove (1p)', () => {
+	const THREE_PARTS = [
+		{ categoryId: 'cat-alimentation', amountCents: -4_800, note: '' },
+		{ categoryId: 'cat-maison', amountCents: -2_000, note: '' },
+		{ categoryId: 'cat-transport', amountCents: -1_200, note: '' }
+	];
+
+	it('sends focus to the NEXT part’s cross, which is the one that takes the removed row’s place', async () => {
+		render(SplitEditor, base({ existingParts: THREE_PARTS }));
+
+		// Removing part 2 of 3: the row that was part 3 becomes part 2, and its cross is where the
+		// eye already is. Asserting on the LABEL rather than on an element captured beforehand is
+		// deliberate — a stale reference would compare against a detached element and pass for the
+		// wrong reason.
+		//
+		// WHAT THIS TEST CAN AND CANNOT SEE, measured by breaking the source rather than assumed.
+		// Deleting the focus call from `removePart` ENTIRELY leaves this test green: `{#each ...
+		// (index)}` keys rows by position, so the button node is reused and focus never left it.
+		// Swapping the two branches DOES turn it red. So this assertion distinguishes wrong focus
+		// management from right focus management, and cannot distinguish absent from right — the
+		// explicit call is what makes the behaviour a decision instead of a property of the key,
+		// and the day that each block is keyed by anything else, this is the test that reports it.
+		await userEvent.click(page.getByRole('button', { name: 'Retirer la part 2' }));
+
+		await expect
+			.poll(() => (document.activeElement as HTMLElement | null)?.getAttribute('aria-label'))
+			.toBe('Retirer la part 2');
+		// And it really is the transport row that survived, not the maison one.
+		expect(amountOf(2).value).toBe('12,00');
+	});
+
+	it('sends focus to « Ajouter une part » when the removed row was the last', async () => {
+		render(SplitEditor, base({ existingParts: THREE_PARTS }));
+
+		await userEvent.click(page.getByRole('button', { name: 'Retirer la part 3' }));
+
+		await expect
+			.poll(() => (document.activeElement as HTMLElement | null)?.textContent?.trim())
+			.toBe('Ajouter une part');
+	});
+
+	it('sends focus to the new part’s category selector when one is added', async () => {
+		render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+
+		await userEvent.click(page.getByRole('button', { name: 'Ajouter une part' }));
+
+		await expect
+			.poll(() => (document.activeElement as HTMLElement | null)?.getAttribute('aria-label'))
+			.toBe('Catégorie de la part 3');
+	});
+});
