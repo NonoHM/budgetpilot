@@ -22,8 +22,13 @@ import * as m from '../src/lib/paraglide/messages';
 
 const SPLIT_LABEL = 'CARREFOUR MARKET';
 /** The seeded amount of that transaction, in the form the field shows it. */
-const PART_ONE = '30,00';
-const PART_TWO = '12,90';
+/** Part 2 is the HEAVIER one, deliberately: it is the part that carries a category the parent does
+ *  not have, so the list row's dominant category becomes « Transport » rather than the inherited
+ *  one. That is what makes the indicator assertion below a statement about 1l's rule (« la cellule
+ *  Catégorie d'une transaction répartie montre la part dominante ») instead of a coincidence — with
+ *  the weights the other way round the cell would print the parent's category and still be right. */
+const PART_ONE = '12,90';
+const PART_TWO = '30,00';
 /** 1k's keyboard-open column: « viewport visuel 544 » against a layout viewport of 844. */
 const KEYBOARD_OPEN_VIEWPORT = 544;
 
@@ -131,6 +136,19 @@ test.describe('the split editor on /transactions', () => {
 
 		// ---- desktop: the whole gesture ------------------------------------------------------
 		await page.setViewportSize({ width: 1280, height: 800 });
+		await page.goto('/transactions');
+		// Captured BEFORE anything is split, so the assertion further down compares against what the
+		// column really said rather than against a name retyped from the seed.
+		const originalCategory = (
+			await page
+				.getByRole('row', { name: new RegExp(SPLIT_LABEL) })
+				.first()
+				.getByRole('cell')
+				.nth(1)
+				.innerText()
+		)
+			.split('\n')[0]
+			.trim();
 		await openDetail(page);
 
 		// IDEMPOTENT BY CONSTRUCTION, and it is not defensiveness. This suite retries twice on one
@@ -198,6 +216,34 @@ test.describe('the split editor on /transactions', () => {
 		await save.click();
 		await expect(
 			page.locator('aside').getByText(m.splits_success_saved({ count: 2 }))
+		).toBeVisible();
+
+		// ---- the row indicator, in the real artifact (design 1l–1o) ---------------------------
+		//
+		// Every leg of the indicator is proven on its own elsewhere — the rule in
+		// domain/allocation.spec.ts, the two badge forms in ui/SplitBadge.svelte.spec.ts, the DTO in
+		// page.server.spec.ts, the markup in split-indicator-on-list.svelte.spec.ts — and not one of
+		// them reads a real répartition out of a real database through the real load. Per-leg green
+		// is the failure mode this repo has recorded more than once, so the combination gets its own
+		// check in the artifact.
+		await page.goto('/transactions');
+		const listRow = page.getByRole('row', { name: new RegExp(SPLIT_LABEL) }).first();
+		const categoryCell = listRow.getByRole('cell').nth(1);
+
+		// The dominant part's category, which the parent does not carry.
+		await expect(categoryCell).toContainText('Transport');
+		// And the parent's own — a restoration value, never a display truth — is gone from the cell.
+		expect(
+			originalCategory,
+			'the seeded row already sat on Transport, so this proves nothing'
+		).not.toBe('Transport');
+		await expect(categoryCell).not.toContainText(originalCategory);
+		// « +1 »: ONE other category besides the dominant, not "two parts". The accessible name
+		// carries the parts because the visual bubble is aria-hidden.
+		await expect(
+			categoryCell.getByRole('button', {
+				name: new RegExp(m.splits_row_badge_others_short({ count: 2 }))
+			})
 		).toBeVisible();
 
 		// ---- mobile: the same répartition, now as an existing one (1j-B) -----------------------
