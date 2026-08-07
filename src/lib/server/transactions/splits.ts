@@ -160,6 +160,26 @@ export async function replaceSplits(
 }
 
 /**
+ * Answers "is this row répartie?" for the two actions that must REFUSE BY NAME rather than fail.
+ *
+ * The protection itself is never this function — it is the `splits: { none: {} }` conjunct on the
+ * write's own `where`, which is atomic and cannot be raced. This runs only after such a write has
+ * matched nothing, to decide which sentence the user reads: "transaction not found" (a row that is
+ * not theirs, or is gone) or "this transaction is répartie" (a row they are looking at right now).
+ * Getting that wrong is not cosmetic — the first sentence is simply false, and it sends a user
+ * looking for a row that is on their screen.
+ *
+ * Scoped by `userId` for the usual reason: the id comes from the client, so an unscoped read would
+ * let one account probe whether another's transaction is split.
+ */
+export async function isSplitTransaction(userId: string, transactionId: string): Promise<boolean> {
+	const count = await prisma.transactionSplit.count({
+		where: { transactionId, transaction: { id: transactionId, userId } }
+	});
+	return count > 0;
+}
+
+/**
  * Removes a transaction's répartition entirely, leaving the parent exactly as it was.
  *
  * Lossless by construction, and that is the whole reason the parent keeps its own category: nothing

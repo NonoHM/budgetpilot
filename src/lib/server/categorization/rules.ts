@@ -215,7 +215,12 @@ export async function previewCategoryRules(userId: string): Promise<CategoryRule
 	// the full "manualCategory: null" history. Batches are processed in date-desc order, so the
 	// first PREVIEW_LIMIT matches found are still the most recent ones — same result as before.
 	await forEachTransactionBatch(
-		{ userId, manualCategory: null },
+		// Same `splits: { none: {} }` as applyCategoryRules, and it has to be the same or the preview
+		// is a false promise: this number is shown as "N transactions will be recategorised", and
+		// applyCategoryRules refuses the répartie ones. The spec named only the two predicates in
+		// applyCategoryRules; this third one is the same decision and was reached by asking what else
+		// counts what that function does.
+		{ userId, manualCategory: null, splits: { none: {} } },
 		{ id: true, label: true, manualCategory: true, category: { select: { name: true } } },
 		(rows) => {
 			for (const transaction of rows) {
@@ -268,6 +273,11 @@ export async function applyCategoryRules(
 		{
 			userId,
 			manualCategory: null,
+			// A répartie transaction is out of scope for every rule. Its parts already say where the
+			// money went, and its parent category is an identity fact (D1) that a rule must not
+			// silently rewrite. Repeated on the updateMany below rather than trusted from here: the
+			// scan and the write are two queries, and only the one on the WRITE is a protection.
+			splits: { none: {} },
 			...(options.transactionIds ? { id: { in: options.transactionIds } } : {}),
 			...(options.categoryId ? { categoryId: options.categoryId } : {})
 		},
@@ -300,6 +310,7 @@ export async function applyCategoryRules(
 				id: { in: ids },
 				userId,
 				manualCategory: null,
+				splits: { none: {} },
 				...(targetNature ? { natureManual: null } : {})
 			},
 			data: {

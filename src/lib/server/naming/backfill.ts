@@ -228,6 +228,16 @@ async function processUser(
 				where: { userId, categoryId: { in: loserIds } },
 				data: { categoryId: merge.survivorId }
 			});
+			// Parts point at a category by id and `TransactionSplit` has no cascade from `Category`,
+			// so the deleteMany below fails on the foreign key if a répartition still carries a loser.
+			// Repointing to the survivor is the RIGHT answer here, unlike in /categories' delete path
+			// (which refuses): a merge folds two spellings of one category into one, so the part keeps
+			// meaning exactly what it meant. Two parts of one transaction can end up in the same
+			// category, which is legal and needs no reconciliation.
+			await tx.transactionSplit.updateMany({
+				where: { categoryId: { in: loserIds }, transaction: { userId } },
+				data: { categoryId: merge.survivorId }
+			});
 			await tx.category.deleteMany({ where: { userId, id: { in: loserIds } } });
 			await tx.category.updateMany({
 				where: { userId, id: merge.survivorId },

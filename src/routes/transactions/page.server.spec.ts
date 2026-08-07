@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
+// Compared against the message FUNCTION, never a copied literal: a spec that retypes the sentence
+// passes while the catalogue says something else, and this one runs in the base locale (English)
+// while the app it guards renders French.
+import * as m from '$lib/paraglide/messages';
 
 const db = vi.hoisted(() => {
 	interface MockTransaction {
@@ -33,6 +37,8 @@ const db = vi.hoisted(() => {
 			createdAt: Date;
 		} | null;
 		tags: Array<{ tag: { id: string; name: string; colorToken: string } }>;
+		/** Parts of a répartition. Only presence is modelled — see matchesWhere's `splits` branch. */
+		splits: Array<{ categoryId: string }>;
 	}
 
 	// Category name -> id, mirrors the Prisma unique (userId, name) index used by
@@ -93,6 +99,7 @@ const db = vi.hoisted(() => {
 				: index === 2
 					? [{ tag: { id: 'tag-pro', name: 'Pro', colorToken: 'ochre' } }]
 					: [],
+		splits: [],
 		account: { name: 'Compte import CSV', source: 'banque_populaire' },
 		importBatch: {
 			id: 'batch-123456',
@@ -114,7 +121,30 @@ const db = vi.hoisted(() => {
 		manualCategory: null,
 		natureManual: null,
 		categoryId: CATEGORY_IDS.Autre,
-		category: { name: 'Autre' }
+		category: { name: 'Autre' },
+		splits: []
+	});
+
+	// A RÉPARTIE row that is otherwise a perfect classify-pile candidate: user-a, no manual
+	// category, linked to the sentinel category. Everything about it says "classify me" except the
+	// parts, so it is invisible only if the `splits: { none: {} }` conjuncts are actually there —
+	// which is what makes every pile-size and classifiable-count assertion in this file a standing
+	// guard for them, rather than numbers that would move together and be adjusted.
+	//
+	// The label deliberately shares no token with any `?q=` or rule fixture in this file ("AUCHAN",
+	// "Transaction N", "Loyer", "Mystery"): this row exists to be counted, or not counted, by the
+	// pile predicates — not to change what the search tests match.
+	transactions.push({
+		...transactions[0],
+		id: 'transaction-split',
+		userId: 'user-a',
+		label: 'Achat meuble réparti',
+		manualCategory: null,
+		natureManual: null,
+		categoryId: CATEGORY_IDS.uncategorized,
+		category: { name: 'uncategorized' },
+		tags: [],
+		splits: [{ categoryId: CATEGORY_IDS.Alimentation }, { categoryId: CATEGORY_IDS.Autre }]
 	});
 
 	// Faithfully evaluates the subset of Prisma `where` shapes actually used by the app code:
@@ -162,6 +192,31 @@ const db = vi.hoisted(() => {
 				const some = (value as { some?: { tagId?: string } }).some;
 				if (!some) return false;
 				if (!t.tags.some((link) => link.tag.id === some.tagId)) return false;
+				continue;
+			}
+			if (key === 'splits') {
+				// Same reason the `tags` branch above is explicit: the generic operator branch would
+				// find none of `in`/`notIn`/`gte`/... on `{ none: {} }` and fall through reporting a
+				// match, so every assertion about répartie rows being excluded would pass whether or
+				// not the conjunct was there. Only the two EMPTY predicates the app issues are
+				// modelled; anything richer throws rather than being approximated.
+				const relation = value as Record<string, unknown>;
+				const [operator, ...rest] = Object.keys(relation);
+				const filter = relation[operator] as Record<string, unknown> | undefined;
+				if (rest.length > 0 || Object.keys(filter ?? {}).length > 0) {
+					throw new Error(
+						`page.server.spec mock: unsupported splits filter ${JSON.stringify(value)}`
+					);
+				}
+				if (operator === 'none') {
+					if (t.splits.length > 0) return false;
+				} else if (operator === 'some') {
+					if (t.splits.length === 0) return false;
+				} else {
+					throw new Error(
+						`page.server.spec mock: unsupported splits filter ${JSON.stringify(value)}`
+					);
+				}
 				continue;
 			}
 			if (key === 'manualCategoryKey') {
@@ -244,15 +299,15 @@ const db = vi.hoisted(() => {
 				findFirst: vi.fn(
 					async ({ where }) => transactions.find((item) => item.id === where.id) ?? null
 				),
+				// Delegates to matchesWhere rather than re-implementing a subset of it. The hand-rolled
+				// version it replaces honoured `userId`, `id` and `manualCategory` and IGNORED every
+				// other conjunct, so a guard added to a write path — `splits: { none: {} }` is the
+				// live example — was silently dropped by the very mock the guard's test asserts
+				// against, and the test passed with the product broken.
 				updateMany: vi.fn(async ({ where, data }) => {
-					if (where.userId !== 'user-a') return { count: 0 };
-					const ids: string[] = where.id?.in ?? (where.id ? [where.id] : []);
 					let count = 0;
-					for (const id of ids) {
-						const transaction = transactions.find((item) => item.id === id);
-						if (!transaction) continue;
-						if ('manualCategory' in where && transaction.manualCategory !== where.manualCategory)
-							continue;
+					for (const transaction of transactions) {
+						if (!matchesWhere(transaction, where)) continue;
 						if ('manualCategory' in data) transaction.manualCategory = data.manualCategory;
 						// manualCategoryKey rides along with manualCategory in the real write path.
 						if ('natureManual' in data) transaction.natureManual = data.natureManual;
@@ -297,6 +352,24 @@ const db = vi.hoisted(() => {
 					{ id: 'tag-portugal', name: 'Portugal', colorToken: 'lagoon' },
 					{ id: 'tag-pro', name: 'Pro', colorToken: 'ochre' }
 				])
+			},
+			transactionSplit: {
+				// Counted off the parent fixtures' own `splits` arrays rather than from a second list,
+				// so this can never disagree with what matchesWhere's `splits` branch sees. Honours the
+				// userId conjunct: isSplitTransaction is a read on a client-supplied id, and a mock that
+				// ignored the scope would let its test pass on an unscoped implementation.
+				count: vi.fn(
+					async ({
+						where
+					}: {
+						where: { transactionId: string; transaction?: { userId?: string } };
+					}) => {
+						const parent = transactions.find((t) => t.id === where.transactionId);
+						if (!parent) return 0;
+						if (where.transaction?.userId && parent.userId !== where.transaction.userId) return 0;
+						return parent.splits.length;
+					}
+				)
 			},
 			category: {
 				findMany: vi.fn(async () => [
@@ -432,11 +505,13 @@ describe('/transactions load', () => {
 	it('totals the whole filtered set, not the current page', async () => {
 		expect.assertions(1);
 
-		// 30 rows, PAGE_SIZE is 25: a page-scoped total would report 13 expense rows' worth
-		// (indices 0-24 on page 1), not the full 15 expense rows' worth (45000).
+		// 31 rows for user-a (30 base + transaction-split), PAGE_SIZE is 25: a page-scoped total
+		// would report only the expense rows on page 1, not all 16 expense rows' worth (48000).
+		// transaction-split is one of them and is COUNTED here on purpose — a répartie transaction
+		// is excluded from the classify pile, never from the money the list is summing.
 		const data = await runLoad('/transactions');
 
-		expect(data.filteredTotals.expenseCents).toBe(45_000);
+		expect(data.filteredTotals.expenseCents).toBe(48_000);
 	});
 
 	it('reports zero totals when the filter is in error', async () => {
@@ -685,7 +760,8 @@ describe('/transactions load', () => {
 				netWorthAccount: { name: 'Compte courant Boursorama' }
 			},
 			importBatch: null,
-			tags: []
+			tags: [],
+			splits: []
 		});
 
 		const data = await runLoad('/transactions?selected=transaction-linked-account');
@@ -724,7 +800,8 @@ describe('/transactions load', () => {
 			categoryId: db.CATEGORY_IDS.Alimentation,
 			account: { name: 'Compte courant', source: 'csv', netWorthAccount: null },
 			importBatch: null,
-			tags: []
+			tags: [],
+			splits: []
 		});
 
 		const data = await runLoad('/transactions?selected=transaction-unlinked-account');
@@ -761,7 +838,8 @@ describe('/transactions load', () => {
 			categoryId: db.CATEGORY_IDS.Alimentation,
 			account: null,
 			importBatch: null,
-			tags: []
+			tags: [],
+			splits: []
 		});
 
 		const data = await runLoad('/transactions?selected=transaction-no-account');
@@ -795,7 +873,7 @@ describe('/transactions load', () => {
 
 		expect(result).toEqual({ manualCategorySuccess: true });
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
-			where: { id: 'transaction-1', userId: testUser.id },
+			where: { id: 'transaction-1', userId: testUser.id, splits: { none: {} } },
 			data: {
 				manualCategory: 'Alimentation',
 				manualCategoryKey: computeNameKey('Alimentation')
@@ -814,7 +892,7 @@ describe('/transactions load', () => {
 
 		expect(result.status).toBe(404);
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
-			where: { id: 'other-user-transaction', userId: testUser.id },
+			where: { id: 'other-user-transaction', userId: testUser.id, splits: { none: {} } },
 			data: {
 				manualCategory: 'Alimentation',
 				manualCategoryKey: computeNameKey('Alimentation')
@@ -847,6 +925,44 @@ describe('/transactions load', () => {
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith(
 			expect.objectContaining({ data: { manualCategory: null, manualCategoryKey: null } })
 		);
+	});
+
+	// THE PARENT'S CATEGORY IS FROZEN WHILE THE TRANSACTION IS RÉPARTIE, and the protection has to
+	// live on the server. The editor's selector is aria-disabled, which is a statement about a DOM
+	// node: a second tab that split the row after this form was rendered, a replayed POST, or any
+	// scripted request reaches the action with the control's opinion nowhere in the payload.
+	//
+	// The refusal is a NAMED one rather than a silent no-op. A guard expressed only as a `where`
+	// conjunct produces `count === 0`, which this action already reports as "transaction not found"
+	// — a false sentence about a row the user is looking at.
+	it('refuses to change the manual category of a répartie transaction, by name', async () => {
+		expect.assertions(3);
+
+		const result = await runSaveManualCategory({
+			transactionId: 'transaction-split',
+			manualCategory: 'Alimentation'
+		});
+
+		expect(result.status).toBe(400);
+		expect((result as { data?: { manualCategoryError?: string } }).data?.manualCategoryError).toBe(
+			m.transactions_error_category_locked_by_split()
+		);
+		expect(db.transactions.find((t) => t.id === 'transaction-split')?.manualCategory).toBeNull();
+	});
+
+	it('refuses to accept a suggestion on a répartie transaction, by name', async () => {
+		expect.assertions(3);
+
+		const result = await runAcceptSuggestion({
+			transactionId: 'transaction-split',
+			category: 'alimentation'
+		});
+
+		expect(result.status).toBe(400);
+		expect((result as { data?: { acceptError?: string } }).data?.acceptError).toBe(
+			m.transactions_error_category_locked_by_split()
+		);
+		expect(db.transactions.find((t) => t.id === 'transaction-split')?.manualCategory).toBeNull();
 	});
 
 	it('rejects a manual category that is too long', async () => {
@@ -979,7 +1095,8 @@ describe('/transactions load — "to classify" pile', () => {
 			categoryId: db.CATEGORY_IDS[UNCLASSIFIED_CATEGORY],
 			account: { name: 'Compte import CSV', source: 'csv' },
 			importBatch: null,
-			tags: []
+			tags: [],
+			splits: []
 		});
 		db.prisma.categoryRule.findMany.mockResolvedValueOnce([
 			{
@@ -1060,15 +1177,24 @@ describe('/transactions load — classifyStackIds (mode focus)', () => {
 			categoryId: db.CATEGORY_IDS[UNCLASSIFIED_CATEGORY],
 			account: { name: 'Compte import CSV', source: 'csv' },
 			importBatch: null,
-			tags: []
+			tags: [],
+			splits: []
 		});
 
 		const data = await runLoad('/transactions');
 
 		// The findMany mock returns rows in insertion order (real sorting is delegated to
 		// SQLite): classifyStackIds must faithfully preserve this order, with no JS-side re-sort.
+		// `splits.length === 0` is part of the pile's definition, not a convenience: transaction-split
+		// satisfies every other clause here, so without it this oracle would expect a répartie row in
+		// the focus stack — which is exactly the state the guard exists to prevent.
 		const expectedOrder = db.transactions
-			.filter((t) => t.manualCategory === null && t.category.name === UNCLASSIFIED_CATEGORY)
+			.filter(
+				(t) =>
+					t.manualCategory === null &&
+					t.category.name === UNCLASSIFIED_CATEGORY &&
+					t.splits.length === 0
+			)
 			.map((t) => t.id);
 		expect(data.classifyStackIds).toEqual(expectedOrder);
 	});
@@ -1121,6 +1247,24 @@ describe('createRule — application automatique en mode focus (focusRemainingId
 		);
 
 		expect(db.transactions.find((t) => t.id === 'transaction-6')?.manualCategory).toBeNull();
+	});
+
+	// The focus stack is built from the pile, which now excludes répartie rows — so this id can only
+	// arrive from a stack frozen before the split existed. That is a real sequence, not a forged
+	// request: focus mode holds its stack for the whole session while a second tab can split a row
+	// in it. The rule must skip it silently here, unlike the two explicit actions above: the user
+	// asked to create a RULE, not to recategorise this particular transaction, so there is no claim
+	// to correct — only a row that must not be touched.
+	it('never auto-applies a freshly created rule to a répartie transaction still in the frozen stack', async () => {
+		expect.assertions(2);
+
+		const result = await runCreateRule(
+			{ name: 'Regle meuble', matchText: 'Achat meuble', targetCategory: 'Alimentation' },
+			['transaction-split']
+		);
+
+		expect(result.autoAppliedIds).toEqual([]);
+		expect(db.transactions.find((t) => t.id === 'transaction-split')?.manualCategory).toBeNull();
 	});
 
 	it('makes no extra transaction-side calls when focusRemainingIds is absent (existing modal flow unchanged)', async () => {
@@ -1226,7 +1370,7 @@ describe('acceptSuggestion', () => {
 
 		expect(result).toEqual({ acceptSuccess: true });
 		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
-			where: { id: 'transaction-5', userId: testUser.id },
+			where: { id: 'transaction-5', userId: testUser.id, splits: { none: {} } },
 			data: {
 				manualCategory: 'Alimentation',
 				manualCategoryKey: computeNameKey('Alimentation'),
@@ -1322,13 +1466,14 @@ describe('/transactions load — tags', () => {
 			pagination: { totalTransactions: number };
 		};
 
-		// `?q=a` alone matches all 29 of this user's rows; exactly one of them carries tag-portugal.
+		// `?q=a` alone matches 30 of this user's rows (29 base rows plus transaction-split, whose
+		// label contains an "a" like every other); exactly one of them carries tag-portugal.
 		expect(data.transactions.map((t) => t.id)).toEqual(['transaction-1']);
 		expect(data.pagination.totalTransactions).toBe(1);
 		const withoutTag = (await runLoad('/transactions?q=a')) as unknown as {
 			pagination: { totalTransactions: number };
 		};
-		expect(withoutTag.pagination.totalTransactions).toBe(29);
+		expect(withoutTag.pagination.totalTransactions).toBe(30);
 	});
 
 	it('the tag counts ignore the selected tag, so the other tags stay comparable', async () => {
@@ -1392,9 +1537,12 @@ describe('/transactions load — tags', () => {
 
 		expect(withTag.pagination.totalTransactions).toBe(1);
 		expect(withTag.tagScopeTotal).toBe(withoutTag.tagScopeTotal);
-		// And it is the real whole-set figure, not merely "some other number".
-		// 29, not 30: one fixture row belongs to another user and never enters any scope here.
-		expect(withTag.tagScopeTotal).toBe(29);
+		// And it is the real whole-set figure, not merely "some other number". The absolute value
+		// depends on the fixture: one row belongs to another user and never enters any scope, an
+		// earlier describe's deleteTransaction test removes one for real, and transaction-split is
+		// counted like any other row — a répartition changes which PILE a transaction is in, never
+		// whether the transaction exists.
+		expect(withTag.tagScopeTotal).toBe(30);
 	});
 
 	it('with ?q= active the counts describe the JS-matched rows, not the SQL superset', async () => {

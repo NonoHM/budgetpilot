@@ -35,6 +35,7 @@ import {
 	resolveUncategorizedCategoryId
 } from '$lib/server/transactions/where';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
+import { isSplitTransaction } from '$lib/server/transactions/splits';
 import type { Prisma } from '$lib/server/database/types';
 import {
 	anonymizeDetailText,
@@ -621,13 +622,20 @@ export const actions: Actions = {
 			if (!cat) return fail(400, { manualCategoryError: m.categories_error_invalid() });
 		}
 
+		// `splits: { none: {} }` is the protection, not the check below it: the parent's category is
+		// frozen while the transaction is répartie (D1), and an aria-disabled selector is a statement
+		// about a DOM node, not about a request. Atomic, so a split landing between the two queries
+		// cannot slip through.
 		const result = await prisma.transaction.updateMany({
-			where: { id: transactionId, userId: user.id },
+			where: { id: transactionId, userId: user.id, splits: { none: {} } },
 			data: manualCategoryUpdate(categoryResult.value)
 		});
 
-		if (result.count === 0)
+		if (result.count === 0) {
+			if (await isSplitTransaction(user.id, transactionId))
+				return fail(400, { manualCategoryError: m.transactions_error_category_locked_by_split() });
 			return fail(404, { manualCategoryError: m.transactions_error_transaction_not_found() });
+		}
 		return { manualCategorySuccess: true };
 	},
 
@@ -675,15 +683,21 @@ export const actions: Actions = {
 			: { ok: true as const, value: null };
 		if (!natureResult.ok) return fail(400, { acceptError: natureResult.error });
 
+		// Same guard, same reason as saveManualCategory. Reachable even though the suggestion is only
+		// offered inside the classify pile — which no longer contains répartie rows — because a focus
+		// session holds its stack for its whole lifetime while another tab can split a row inside it.
 		const result = await prisma.transaction.updateMany({
-			where: { id: transactionId, userId: user.id },
+			where: { id: transactionId, userId: user.id, splits: { none: {} } },
 			data: {
 				...manualCategoryUpdate(categoryResult.value),
 				natureManual: natureResult.value
 			}
 		});
-		if (result.count === 0)
+		if (result.count === 0) {
+			if (await isSplitTransaction(user.id, transactionId))
+				return fail(400, { acceptError: m.transactions_error_category_locked_by_split() });
 			return fail(404, { acceptError: m.transactions_error_transaction_not_found() });
+		}
 		return { acceptSuccess: true };
 	},
 
@@ -753,7 +767,15 @@ export const actions: Actions = {
 		if (focusRemainingIds.length === 0) return { createRuleSuccess: true };
 
 		const candidates = await prisma.transaction.findMany({
-			where: { userId: user.id, id: { in: focusRemainingIds }, manualCategory: null },
+			// `splits: { none: {} }` here and on the write below. The stack was frozen when focus mode
+			// opened, so a row in it may have been répartie since — and a rule silently overwriting the
+			// parent's category would contradict D1 on a transaction the user never named.
+			where: {
+				userId: user.id,
+				id: { in: focusRemainingIds },
+				manualCategory: null,
+				splits: { none: {} }
+			},
 			select: { id: true, label: true, manualCategory: true }
 		});
 		const candidateById = new Map(candidates.map((t) => [t.id, t]));
@@ -768,7 +790,12 @@ export const actions: Actions = {
 
 		if (autoAppliedIds.length > 0) {
 			await prisma.transaction.updateMany({
-				where: { id: { in: autoAppliedIds }, userId: user.id, manualCategory: null },
+				where: {
+					id: { in: autoAppliedIds },
+					userId: user.id,
+					manualCategory: null,
+					splits: { none: {} }
+				},
 				data: {
 					...manualCategoryUpdate(createdRule.targetCategory),
 					...(createdRule.targetNature ? { natureManual: createdRule.targetNature } : {})

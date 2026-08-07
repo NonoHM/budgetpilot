@@ -1,5 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+// Compared against the message FUNCTION, never a copied literal: a spec that retypes the sentence
+// keeps passing while the catalogue says something else.
+import * as m from '$lib/paraglide/messages';
 
 const db = vi.hoisted(() => {
 	// Must stay aligned with UNCLASSIFIED_CATEGORY ($lib/domain/categories) — literal
@@ -75,6 +78,11 @@ const db = vi.hoisted(() => {
 			transaction: {
 				count: vi.fn(async () => 0),
 				updateMany: vi.fn(async () => ({ count: 0 }))
+			},
+			transactionSplit: {
+				// Defaults to "no part uses this category", which is every pre-existing test in this
+				// file; the split cases override it per test.
+				count: vi.fn(async () => 0)
 			},
 			categoryNatureMapping: {
 				deleteMany: vi.fn(async ({ where }) => {
@@ -217,6 +225,60 @@ describe('deleteCategory — orphelins CategoryNatureMapping / MonthlyBudget', (
 		expect(db.budgets[0]).toMatchObject({ userId: 'user-b', categoryName: 'Alimentation' });
 	});
 
+	// A category carrying parts CANNOT be repointed the way transactions are. `TransactionSplit`
+	// deliberately does not cascade from `Category`, so the delete fails on the foreign key; and
+	// the obvious repair — send the parts to "Non catégorisé" like the parent rows — is worse than
+	// the crash. A part may never carry the sentinel (replaceSplits refuses it on input), and a
+	// répartie transaction is excluded from the classify pile, so those cents would become money
+	// that is uncategorised AND invisible on the one screen built to find uncategorised money.
+	//
+	// So the delete is refused, counted, and reversible by the user. See the divergence note in the
+	// plan: §3.1 of the design says "identical treatment", written before §3.2 forbade the sentinel
+	// on a part.
+	it('refuses to delete a category that parts still carry, and names how many', async () => {
+		expect.assertions(4);
+		db.prisma.transactionSplit.count.mockResolvedValueOnce(3);
+
+		const result = await runAction('deleteCategory', { id: 'cat-alimentation' });
+
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(m.categories_error_delete_used_by_splits_many({ count: 3 }));
+		// Nothing at all happened: not the category, not the mapping, not the budget.
+		expect(db.categories.some((cat) => cat.id === 'cat-alimentation')).toBe(true);
+		expect(db.mappings).toHaveLength(1);
+	});
+
+	// An assertion about an ABSENCE, so it carries the condition that justifies it: a part stores a
+	// categoryId and reads its name back through the relation, so a rename reaches every part for
+	// free. If parts ever gain a denormalised category NAME — the obvious optimisation the day a
+	// list render looks expensive — this test is what has to go red, because at that moment the
+	// rename does need a second updateMany and forgetting it leaves parts showing the old name.
+	it('needs no part write to rename a category, because parts reference it by id', async () => {
+		expect.assertions(2);
+
+		const result = await runAction('renameCategory', {
+			id: 'cat-alimentation',
+			newName: 'Courses'
+		});
+
+		expect(result.success).toBeTruthy();
+		expect(db.prisma.transactionSplit.count).not.toHaveBeenCalled();
+	});
+
+	it('scopes the part count to the user own category row, never to the id alone', async () => {
+		expect.assertions(1);
+		db.prisma.transactionSplit.count.mockResolvedValueOnce(1);
+
+		await runAction('deleteCategory', { id: 'cat-alimentation' });
+
+		// The id is client-supplied. Counting on `categoryId` alone would answer a question about
+		// another account's data — and here that answer decides whether an action is refused, so it
+		// is an oracle an attacker could query.
+		expect(db.prisma.transactionSplit.count).toHaveBeenCalledWith({
+			where: { categoryId: 'cat-alimentation', category: { userId: 'user-a' } }
+		});
+	});
+
 	it('réassigne les transactions à "Non catégorisé" en plus de nettoyer les orphelins', async () => {
 		expect.assertions(3);
 		db.prisma.transaction.count.mockResolvedValueOnce(3);
@@ -276,5 +338,5 @@ async function runAction(name: keyof typeof actions, input: Record<string, strin
 	)({
 		locals: { user: testUser },
 		request: new Request('http://localhost/categories', { method: 'POST', body: formData })
-	})) as { status?: number; success?: string };
+	})) as { status?: number; success?: string; data?: { error?: string } };
 }

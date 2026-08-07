@@ -4,6 +4,8 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { MAX_SPLITS_PER_TRANSACTION } from '$lib/domain/allocation';
 import { replaceSplits, clearSplits, type SplitInput } from './splits';
+import { buildTransactionWhere } from './where';
+import { countUncategorizedTransactions } from './nature';
 
 /**
  * The split claims a fake Prisma structurally cannot answer, run against a real engine.
@@ -528,5 +530,122 @@ describe('deleting a user who has a répartition', () => {
 		// an assertion pinning one engine's answer would fail on the others for the right reason
 		// and the wrong test. What matters is that the app never relies on it.
 		expect(['succeeded', 'rejected']).toContain(outcome);
+	});
+});
+
+describe('the identity-side guards, against a real engine', () => {
+	// CLAUDE.md: a unit test cannot see a wrong SQL predicate, because it replaces the query. These
+	// two conjuncts are pure SQL relation filters, so this is the only place they are actually run.
+	it('drops a répartie transaction out of the classify pile and out of the uncategorized-nature count', async () => {
+		expect.assertions(4);
+
+		const seed = await seedUser();
+		// Both rows are perfect pile candidates: sentinel category, no manual override. The only
+		// difference between them is the parts, which is what makes the comparison mean something.
+		const unsplitId = await prisma.transaction
+			.create({
+				data: {
+					userId: seed.userId,
+					accountId: seed.accountId,
+					categoryId: seed.sentinelCategoryId,
+					date: new Date('2026-06-24T00:00:00.000Z'),
+					label: 'A classer',
+					amountCents: -1_500,
+					source: 'manual'
+				},
+				select: { id: true }
+			})
+			.then((row) => row.id);
+		const splitId = await prisma.transaction
+			.create({
+				data: {
+					userId: seed.userId,
+					accountId: seed.accountId,
+					categoryId: seed.sentinelCategoryId,
+					date: new Date('2026-06-24T00:00:00.000Z'),
+					label: 'Achat meuble',
+					amountCents: PARENT_CENTS,
+					source: 'manual'
+				},
+				select: { id: true }
+			})
+			.then((row) => row.id);
+		await replaceSplits(seed.userId, splitId, [
+			{ categoryId: seed.foodCategoryId, amountCents: -6_000 },
+			{ categoryId: seed.homeCategoryId, amountCents: -2_000 }
+		]);
+
+		// The sentinel category maps to the 'uncategorized' nature, which is what puts the unsplit
+		// row into countUncategorizedTransactions' inferred branch.
+		await prisma.categoryNatureMapping.create({
+			data: {
+				userId: seed.userId,
+				categoryName: UNCLASSIFIED_CATEGORY,
+				categoryNameKey: computeNameKey(UNCLASSIFIED_CATEGORY),
+				nature: 'uncategorized'
+			}
+		});
+
+		const pile = await prisma.transaction.findMany({
+			where: buildTransactionWhere({
+				userId: seed.userId,
+				type: 'classify',
+				category: '',
+				importBatchId: '',
+				uncategorizedCategoryId: seed.sentinelCategoryId
+			}),
+			select: { id: true }
+		});
+
+		expect(pile.map((row) => row.id)).toEqual([unsplitId]);
+		expect(await countUncategorizedTransactions(seed.userId)).toBe(1);
+
+		// And the manual override still counts a répartie row, because it governs every part.
+		await prisma.transaction.update({
+			where: { id: splitId },
+			data: { natureManual: 'uncategorized' }
+		});
+		expect(await countUncategorizedTransactions(seed.userId)).toBe(2);
+
+		// Removing the répartition puts it back in the pile: the exclusion is about the parts, not
+		// about anything that outlives them.
+		await clearSplits(seed.userId, splitId);
+		const pileAfter = await prisma.transaction.findMany({
+			where: buildTransactionWhere({
+				userId: seed.userId,
+				type: 'classify',
+				category: '',
+				importBatchId: '',
+				uncategorizedCategoryId: seed.sentinelCategoryId
+			}),
+			select: { id: true }
+		});
+		expect(new Set(pileAfter.map((row) => row.id))).toEqual(new Set([unsplitId, splitId]));
+	});
+
+	// This is the claim that JUSTIFIES /categories refusing the delete rather than repointing.
+	// If the foreign key did not actually restrict, the refusal would be arbitrary caution; the
+	// only way to know is to attempt the forbidden thing, on each engine, and read what happens.
+	it('refuses to delete a category a part still carries, and allows it once the parts are gone', async () => {
+		expect.assertions(3);
+
+		const seed = await seedUser();
+		const transactionId = await seedTransaction(seed);
+		await replaceSplits(seed.userId, transactionId, [
+			{ categoryId: seed.foodCategoryId, amountCents: -6_000 },
+			{ categoryId: seed.homeCategoryId, amountCents: -2_000 }
+		]);
+
+		const blocked = await prisma.category.delete({ where: { id: seed.homeCategoryId } }).then(
+			() => 'succeeded' as const,
+			() => 'rejected' as const
+		);
+
+		expect(blocked).toBe('rejected');
+		expect(await prisma.category.count({ where: { id: seed.homeCategoryId } })).toBe(1);
+
+		await clearSplits(seed.userId, transactionId);
+		await prisma.category.delete({ where: { id: seed.homeCategoryId } });
+		expect(await prisma.category.count({ where: { id: seed.homeCategoryId } })).toBe(0);
 	});
 });

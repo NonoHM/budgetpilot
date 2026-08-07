@@ -75,6 +75,28 @@ export function buildTransactionWhere(input: {
 				}
 			]
 		});
+		// A répartie transaction is fully categorised by the sum invariant — every cent of it sits
+		// under a part's category, and a part can never carry the sentinel — so its PARENT category
+		// says nothing about whether the money needs classifying. Leaving it in the pile would ask
+		// the user to classify money that is already classified, and "classify all" would then
+		// overwrite the répartition to answer a question that was not open.
+		//
+		// A conjunct on `where`, never a third branch of `conditions`: those exist solely for the
+		// effective-category fallback, where one concept has two possible columns (see the tagId
+		// note above). Pushed in there it would WIDEN the pile to every unsplit transaction the
+		// moment a second condition became active.
+		//
+		// It is also why the remainder is not consulted: a drifted parent (amount moved out from
+		// under its parts) would leave real money under the sentinel, but that state is unreachable
+		// — `amountCents` is never rewritten on an existing row (amount-immutability.spec.ts) and
+		// the backup validator refuses a payload whose parts do not sum. If either of those two
+		// facts stops holding, this line is one of the places that has to be revisited.
+		//
+		// PR 5 ADDS `?split=`, WHICH CONSTRAINS THE SAME RELATION. It must not assign `where.splits`
+		// a second time — the later assignment would silently replace this one and put répartie rows
+		// back into the classify pile with nothing going red. Compose the two, or refuse the
+		// combination explicitly.
+		where.splits = { none: {} };
 	} else if (input.type === 'income' || input.type === 'expense') {
 		where.type = input.type;
 	}

@@ -84,6 +84,52 @@ describe('buildTransactionWhere', () => {
 		]);
 	});
 
+	it('excludes split transactions from the classify pile', () => {
+		expect.assertions(2);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'classify',
+			category: '',
+			importBatchId: '',
+			uncategorizedCategoryId: 'cat-uncat-id'
+		});
+
+		// A CONJUNCT, not a third OR branch. Pushed into the OR it would widen the pile to every
+		// unsplit transaction the user owns, which is the opposite of the intent and reads as more
+		// results rather than as an error.
+		expect(where.splits).toEqual({ none: {} });
+		expect(where.OR).toEqual([
+			{ manualCategoryKey: computeNameKey('uncategorized') },
+			{ AND: [{ manualCategory: null }, { categoryId: 'cat-uncat-id' }] }
+		]);
+	});
+
+	it('leaves the splits relation unconstrained for every filter other than classify', () => {
+		expect.assertions(4);
+
+		for (const type of ['all', 'income', 'expense'] as const) {
+			const where = buildTransactionWhere({
+				userId: 'user-a',
+				type,
+				category: '',
+				importBatchId: ''
+			});
+			expect(where).not.toHaveProperty('splits');
+		}
+
+		// The category filter is the one that shares the `conditions` list with the classify branch,
+		// so it is the one that could pick the conjunct up by accident.
+		expect(
+			buildTransactionWhere({
+				userId: 'user-a',
+				type: 'all',
+				category: 'Alimentation',
+				importBatchId: ''
+			})
+		).not.toHaveProperty('splits');
+	});
+
 	it('type "classify" sans uncategorizedCategoryId résolu ne matche aucune catégorie liée', () => {
 		expect.assertions(1);
 

@@ -400,6 +400,15 @@ export async function countUncategorizedTransactions(userId: string): Promise<nu
 				{ natureManual: 'uncategorized' },
 				{
 					natureManual: null,
+					// `splits: { none: {} }` sits on THIS branch and not on the manual one, and the
+					// asymmetry is the whole point. The manual branch is the user's own override, which
+					// still governs every part (see mapTransactionAllocations) — a répartie transaction
+					// marked 'uncategorized' by hand really does have all of its money uncategorized, so
+					// it stays counted. This branch instead INFERS the nature from the parent's category,
+					// and that inference stops meaning anything once the parts decide where the money
+					// went: each part resolves its own nature through its own category (OD-4), so the
+					// parent's mapping describes at most a remainder that is structurally zero.
+					splits: { none: {} },
 					OR: [
 						{ manualCategoryKey: { in: mappedKeys } },
 						{ manualCategory: null, categoryId: { in: mappedCategoryIds } }
