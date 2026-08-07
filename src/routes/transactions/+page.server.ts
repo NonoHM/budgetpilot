@@ -29,9 +29,11 @@ import {
 	buildCategoryNatureMap,
 	getEffectiveCategory,
 	getEffectiveTransactionNature,
+	mapTransactionAllocations,
 	EFFECTIVE_CATEGORY_SELECT,
 	type SplitRow
 } from '$lib/server/transactions/nature';
+import { splitIndicatorOf } from '$lib/domain/allocation';
 import {
 	buildTransactionWhere,
 	normalizeId,
@@ -1023,6 +1025,7 @@ function mapTransactionListItem(
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
 		category: { name: string };
+		splits: SplitRow[];
 		tags: TagLinkRow[];
 	},
 	mappingMap: Map<string, TransactionNature>,
@@ -1048,6 +1051,12 @@ function mapTransactionListItem(
 	const suggestion =
 		nature.nature === 'uncategorized' ? computeSuggestion(transaction, rules, mappingMap) : null;
 
+	// Through mapTransactionAllocations, which is the one supported way to read money out of a row —
+	// so the indicator resolves each part's nature exactly the way every per-category figure does
+	// (OD-4), and a répartition whose parts no longer sum shows its remainder rather than hiding it.
+	// Deriving the badge from `transaction.splits` here instead would be a second copy of the rule.
+	const splitIndicator = splitIndicatorOf(mapTransactionAllocations(transaction, mappingMap));
+
 	return {
 		id: transaction.id,
 		date: transaction.date.toISOString().slice(0, 10),
@@ -1063,6 +1072,10 @@ function mapTransactionListItem(
 		type: resolveTransactionType(transaction),
 		source: transaction.source,
 		tags: flattenTagLinks(transaction.tags),
+		// `null` on an unsplit row, and the view renders nothing at all for it. The three fields the
+		// desktop cell reads — dominant category, its nature, the count — travel together so the two
+		// lines of that cell cannot end up describing different parts.
+		splitIndicator,
 		suggestion
 	};
 }

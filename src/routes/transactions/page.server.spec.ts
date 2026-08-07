@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
+import type { SplitIndicator } from '$lib/domain/allocation';
 import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
 // Compared against the message FUNCTION, never a copied literal: a spec that retypes the sentence
 // passes while the catalogue says something else, and this one runs in the base locale (English)
@@ -306,6 +307,33 @@ const db = vi.hoisted(() => {
 		return transactions.filter((t) => matchesWhere(t, where));
 	}
 
+	/**
+	 * The nested `splits.orderBy` is MODELLED, and an unmodelled one THROWS.
+	 *
+	 * Position order is user-visible on BOTH reads, which is why this is one function rather than a
+	 * copy in each. The detail select numbers every field's accessible name from it and decides
+	 * which part carries the rounding cent (1e); the list select's indicator breaks a dominant-part
+	 * tie on it and lists the parts in it. A fake handing back insertion order would let a select
+	 * that forgot `orderBy` pass on any fixture that happened to be sorted — and the répartie
+	 * fixture in this file is deliberately NOT sorted, so the two halves only pay off together.
+	 */
+	function orderSplits(
+		row: MockTransaction,
+		select: { splits?: { orderBy?: Record<string, string> } } | undefined
+	): MockTransaction {
+		const splitOrder = select?.splits?.orderBy;
+		if (!splitOrder) return row;
+		if (JSON.stringify(splitOrder) !== JSON.stringify({ position: 'asc' })) {
+			throw new Error(
+				`transaction mock does not model splits orderBy ${JSON.stringify(splitOrder)}`
+			);
+		}
+		return {
+			...row,
+			splits: [...row.splits].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+		};
+	}
+
 	return {
 		transactions,
 		CATEGORY_IDS,
@@ -319,11 +347,13 @@ const db = vi.hoisted(() => {
 				findMany: vi.fn(
 					async ({
 						where,
+						select,
 						skip,
 						take,
 						cursor
 					}: {
 						where?: Record<string, unknown>;
+						select?: { splits?: { orderBy?: Record<string, string> } };
 						skip?: number;
 						take?: number;
 						cursor?: { id: string };
@@ -336,7 +366,7 @@ const db = vi.hoisted(() => {
 							result = result.slice(skip);
 						}
 						if (typeof take === 'number') result = result.slice(0, take);
-						return result;
+						return result.map((row) => orderSplits(row, select));
 					}
 				),
 				count: vi.fn(
@@ -359,20 +389,7 @@ const db = vi.hoisted(() => {
 				// let a select that forgot `orderBy` pass on a fixture that happened to be sorted.
 				findFirst: vi.fn(async ({ where, select }) => {
 					const found = transactions.find((item) => matchesWhere(item, where)) ?? null;
-					if (!found) return null;
-					const splitOrder = (
-						select as { splits?: { orderBy?: Record<string, string> } } | undefined
-					)?.splits?.orderBy;
-					if (!splitOrder) return found;
-					if (JSON.stringify(splitOrder) !== JSON.stringify({ position: 'asc' })) {
-						throw new Error(
-							`transaction.findFirst mock does not model splits orderBy ${JSON.stringify(splitOrder)}`
-						);
-					}
-					return {
-						...found,
-						splits: [...found.splits].sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-					};
+					return found === null ? null : orderSplits(found, select);
 				}),
 				// Delegates to matchesWhere rather than re-implementing a subset of it. The hand-rolled
 				// version it replaces honoured `userId`, `id` and `manualCategory` and IGNORED every
@@ -400,7 +417,15 @@ const db = vi.hoisted(() => {
 				})
 			},
 			categoryNatureMapping: {
-				findMany: vi.fn(async () => [{ categoryName: 'Loisirs', nature: 'investment' }])
+				// Alimentation is mapped so that the répartie fixture's dominant PART resolves to a
+				// nature its PARENT does not — without it both come out `spending` and the OD-4
+				// assertion below compares a value with itself. No list row's EFFECTIVE category is
+				// Alimentation (the one row on that category carries a manual « Loisirs »), so this
+				// moves nothing except the part.
+				findMany: vi.fn(async () => [
+					{ categoryName: 'Loisirs', nature: 'investment' },
+					{ categoryName: 'Alimentation', nature: 'transfer' }
+				])
 			},
 			// Tallies the fixture's own `tags` links over `filterTransactions(where.transaction)`, so
 			// it exercises the SAME `where` semantics as `transaction.findMany`/`count` above rather
@@ -1707,6 +1732,75 @@ describe('/transactions load — what the split editor is handed', () => {
 		} finally {
 			splitRow.manualCategory = savedSplitCategory;
 		}
+	});
+});
+
+/**
+ * What the LIST ROW gets (design 1l–1o). The load's whole job here is to hand over a decision it
+ * has already made — which category the row prints in place of the parent's, and how many others
+ * there are — so the view never re-derives it from parts. Choosing between « +N » and « ×N » is the
+ * badge's, and is proven there; the rule itself is proven in domain/allocation.spec.ts.
+ */
+describe('/transactions load — the row indicator', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('hands a répartie row its dominant category and the count of the OTHERS', async () => {
+		expect.assertions(3);
+		const data = await runLoad('/transactions?split=split');
+		const row = data.transactions.find((t) => t.id === 'transaction-split');
+		const indicator = (row as unknown as { splitIndicator: SplitIndicator | null }).splitIndicator;
+
+		// 20,00 € Alimentation against 10,00 € Autre: the cell prints the heavier one, not the
+		// parent's category, which on this row is the sentinel and would be false twice over.
+		expect(indicator?.dominantCategory).toBe('Alimentation');
+		expect(indicator?.otherCategoryCount).toBe(1);
+		expect(indicator?.partCount).toBe(2);
+	});
+
+	it('lists the parts in POSITION order, which is the order the select asks for', async () => {
+		expect.assertions(1);
+		const data = await runLoad('/transactions?split=split');
+		const row = data.transactions.find((t) => t.id === 'transaction-split');
+		const indicator = (row as unknown as { splitIndicator: SplitIndicator | null }).splitIndicator;
+
+		// The fixture stores these the other way round on purpose. A list select that dropped
+		// `orderBy: { position: 'asc' }` — or a mock that ignored it — reverses this array, and the
+		// tooltip would list the parts in whatever order the rows happened to arrive in.
+		expect(indicator?.parts).toEqual([
+			{ category: 'Alimentation', amountCents: 2_000 },
+			{ category: 'Autre', amountCents: 1_000 }
+		]);
+	});
+
+	it('leaves every unsplit row without an indicator, so no badge is rendered at all', async () => {
+		expect.assertions(2);
+		const data = await runLoad('/transactions');
+		const unsplit = data.transactions.filter((t) => t.id !== 'transaction-split');
+		// Asserted over the whole page rather than one named row: ids come and go in this file (an
+		// earlier describe deletes one and never restores it), and a `find` that returns undefined
+		// makes the assertion below pass on nothing at all.
+		expect(unsplit.length).toBeGreaterThan(0);
+		expect(
+			unsplit.every(
+				(t) => (t as unknown as { splitIndicator: SplitIndicator | null }).splitIndicator === null
+			)
+		).toBe(true);
+	});
+
+	it('takes the nature from the dominant part, not from the parent (OD-4)', async () => {
+		expect.assertions(2);
+		// This row's PARENT sits on the sentinel category with no mapping, so it falls back to the
+		// sign and resolves `spending`; its dominant part sits on Alimentation, which IS mapped, and
+		// resolves `transfer`. The two disagreeing is the whole of OD-4 — line 2 of the desktop cell
+		// describes the same part line 1 names, never the parent it was restored from.
+		const data = await runLoad('/transactions?split=split');
+		const row = data.transactions.find((t) => t.id === 'transaction-split');
+		const indicator = (row as unknown as { splitIndicator: SplitIndicator | null }).splitIndicator;
+
+		expect((row as unknown as { nature: string }).nature).toBe('spending');
+		expect(indicator?.dominantNature).toBe('transfer');
 	});
 });
 

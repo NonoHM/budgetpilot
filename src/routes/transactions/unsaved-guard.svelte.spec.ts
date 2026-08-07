@@ -62,6 +62,7 @@ const TX = {
 	manualNature: null,
 	natureSource: 'category' as const,
 	source: 'manual' as const,
+	splitIndicator: null,
 	suggestion: null,
 	tags: [TAG]
 };

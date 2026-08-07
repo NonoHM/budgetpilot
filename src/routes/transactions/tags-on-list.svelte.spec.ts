@@ -40,6 +40,7 @@ function makeTransaction(overrides: Record<string, unknown> = {}) {
 		type: 'expense' as const,
 		source: 'Carrefour Market SA',
 		tags: THREE_TAGS,
+		splitIndicator: null,
 		suggestion: null,
 		...overrides
 	};
