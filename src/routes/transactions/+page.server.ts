@@ -11,6 +11,8 @@ import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { setTransactionTags } from '$lib/server/tags/service';
+import { clearSplits, replaceSplits } from '$lib/server/transactions/splits';
+import { parseDraftAmountCents } from '$lib/domain/splitDraft';
 import { countTagsInScope, type TagScopeCount } from '$lib/server/tags/counts';
 import {
 	applyTagToFilteredSet,
@@ -655,6 +657,96 @@ export const actions: Actions = {
 		if (outcome === 'too-many')
 			return fail(400, { tagsError: m.tags_error_too_many({ max: MAX_TAGS_PER_TRANSACTION }) });
 		return { tagsSuccess: true };
+	},
+
+	/**
+	 * The editor's single write path (design 1j). Two intents on one action, because "remove the
+	 * split" and "replace the parts" are the same gesture from the user's side — both are decided by
+	 * pressing Enregistrer, and 1j-C's removal is an INTENTION until then.
+	 *
+	 * The client sends MAGNITUDES, never signed amounts: MoneyInput refuses a minus by default and
+	 * the user types « 60,00 » on an 80,00 € expense. The parent's sign is read here, server-side,
+	 * for the same reason the parsing is — the field is a free-text control and the server is the
+	 * authority. A stale read cannot produce a bad write: `replaceSplits` re-reads the parent inside
+	 * its own transaction and refuses on `sum` or `amount` if the sign it computed disagrees.
+	 */
+	saveSplits: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const transactionId = normalizeId(getFormValue(formData, 'transactionId'));
+		if (!transactionId)
+			return fail(400, { splitsError: m.transactions_error_invalid_transaction() });
+
+		if (getFormValue(formData, 'splitIntent') === 'clear') {
+			const cleared = await clearSplits(user.id, transactionId);
+			if (!cleared.ok)
+				return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
+			return { splitsRemoved: true };
+		}
+
+		const parent = await prisma.transaction.findFirst({
+			where: { id: transactionId, userId: user.id },
+			select: { amountCents: true }
+		});
+		if (!parent) return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
+
+		const categoryIds = formData.getAll('splitCategoryId').map(String);
+		const rawAmounts = formData.getAll('splitAmount').map(String);
+		const notes = formData.getAll('splitNote').map(String);
+		// Three parallel lists whose alignment IS the part identity. A mismatch means the form was
+		// hand-built or a row rendered without one of its three fields, and guessing which part a
+		// stray amount belongs to would silently file money under the wrong category.
+		if (categoryIds.length !== rawAmounts.length || categoryIds.length !== notes.length)
+			return fail(400, { splitsError: m.splits_error_generic() });
+
+		const sign = parent.amountCents < 0 ? -1 : 1;
+		const invalidAmountPositions: number[] = [];
+		const parts = categoryIds.map((categoryId, index) => {
+			const magnitude = parseDraftAmountCents(rawAmounts[index]);
+			if (magnitude === null || magnitude === 0) invalidAmountPositions.push(index);
+			return {
+				categoryId,
+				amountCents: sign * (magnitude ?? 0),
+				note: notes[index] ?? ''
+			};
+		});
+		if (invalidAmountPositions.length > 0)
+			return fail(400, {
+				splitsError: m.splits_error_invalid_amounts(),
+				splitsPositions: invalidAmountPositions
+			});
+
+		const outcome = await replaceSplits(user.id, transactionId, parts);
+		if (outcome.ok) return { splitsSaved: true, splitsCount: parts.length };
+
+		// Every refusal that names parts carries them through to the panel, 0-based, ALL of them.
+		// This is what settles design 1r's own open question — « le refus d'écriture sur catégorie
+		// disparue suppose une réponse de conflit identifiant la ou les parts fautives » — so the
+		// panel can say « Choisissez une catégorie pour la part 2 » rather than degrade to a generic
+		// message, which 1r calls a real degradation.
+		switch (outcome.reason) {
+			case 'not-found':
+				return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
+			case 'count':
+				return fail(400, { splitsError: m.splits_error_count() });
+			case 'sum':
+				return fail(400, { splitsError: m.splits_error_sum() });
+			case 'amount':
+				return fail(400, {
+					splitsError: m.splits_error_invalid_amounts(),
+					splitsPositions: outcome.positions
+				});
+			case 'note':
+				return fail(400, {
+					splitsError: m.splits_error_note(),
+					splitsPositions: outcome.positions
+				});
+			case 'category':
+				return fail(400, {
+					splitsError: m.splits_error_category(),
+					splitsPositions: outcome.positions
+				});
+		}
 	},
 
 	saveManualCategory: async ({ locals, request }) => {

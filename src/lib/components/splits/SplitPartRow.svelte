@@ -80,6 +80,14 @@
 		</span>
 
 		<div class="min-w-0 flex-1">
+			<!--
+				Explicit hidden inputs rather than Combobox's own `name`, and the note's too when the
+				field is collapsed. The action reads three PARALLEL lists and their alignment is what
+				identifies a part; a row that contributed a category and no note would shift every
+				later note by one and file a comment against the wrong money. Rendering all three
+				unconditionally makes the lists the same length by construction.
+			-->
+			<input type="hidden" name="splitCategoryId" value={categoryId} />
 			<Combobox
 				options={categoryOptions}
 				bind:value={categoryId}
@@ -141,6 +149,7 @@
 				<span class="sr-only">{m.splits_part_note_aria({ position })}</span>
 				<input
 					type="text"
+					name="splitNote"
 					bind:value={note}
 					maxlength={MAX_SPLIT_NOTE_LENGTH}
 					onblur={() => (noteOpen = false)}
@@ -155,6 +164,7 @@
 				{/if}
 			</label>
 		{:else}
+			<input type="hidden" name="splitNote" value={note} />
 			<button
 				type="button"
 				class="text-[12px] text-zinc-500 underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
