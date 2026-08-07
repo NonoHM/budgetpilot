@@ -30,6 +30,7 @@
 		name,
 		label,
 		labelClass = 'text-sm font-medium text-zinc-700',
+		labelHidden = false,
 		value = $bindable(),
 		oninput,
 		placeholder = '0,00',
@@ -44,6 +45,14 @@
 		name: string;
 		label: string;
 		labelClass?: string;
+		/**
+		 * Hide the label TEXT while keeping the label element, so the field still has an accessible
+		 * name. `labelClass="sr-only"` cannot do this: the input sits INSIDE the `<label>`, so hiding
+		 * the label hides the control with it. The split editor's rows show no label text — the part
+		 * number and the € suffix carry the meaning visually — while each field is still named
+		 * « Montant de la part 1 ».
+		 */
+		labelHidden?: boolean;
 		/** Bindable. Reflects the raw text the user typed, never a reformatted version of it. */
 		value?: string;
 		/** Fires on every keystroke, with the raw string. For a live preview; not for reformatting. */
@@ -68,7 +77,7 @@
 </script>
 
 <label class="grid gap-1.5 {labelClass} {wrapperClass}">
-	{label}
+	{#if labelHidden}<span class="sr-only">{label}</span>{:else}{label}{/if}
 	<div class="relative">
 		<input
 			type="text"
