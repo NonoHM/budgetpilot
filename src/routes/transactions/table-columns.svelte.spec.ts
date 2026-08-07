@@ -72,7 +72,44 @@ const ROWS = [
 			{ id: 'tag-2', name: 'Remboursable Marc', colorToken: 'ochre' }
 		]
 	}),
-	makeTransaction({ id: 'tx-amount', amountCents: -99999999999 })
+	makeTransaction({ id: 'tx-amount', amountCents: -99999999999 }),
+	// Two répartie shapes (design 1l–1o). The badge is `shrink-0` beside a `min-w-0 truncate` name,
+	// so the case that matters is a LONG UNBREAKABLE dominant category carrying a count: the column
+	// holds 160/140 only if the name yields and the number does not. A short category with a badge
+	// would pass whatever either of them did.
+	makeTransaction({
+		id: 'tx-split-many',
+		splitIndicator: {
+			dominantCategory: UNBREAKABLE,
+			dominantNature: 'spending' as const,
+			otherCategoryCount: 5,
+			partCount: 6,
+			parts: [
+				{ category: UNBREAKABLE, amountCents: -2000 },
+				{ category: 'Maison', amountCents: -1000 },
+				{ category: 'Transport', amountCents: -800 },
+				{ category: 'Énergie', amountCents: -600 },
+				{ category: 'Loisirs', amountCents: -500 },
+				{ category: 'Santé', amountCents: -310 }
+			]
+		}
+	}),
+	// The « ×2 » form, which renders at a different width — two characters against three — and is
+	// the one shape that exists at all only because a bare category name would be indistinguishable
+	// from an unsplit row.
+	makeTransaction({
+		id: 'tx-split-same',
+		splitIndicator: {
+			dominantCategory: 'Restaurants',
+			dominantNature: 'spending' as const,
+			otherCategoryCount: 0,
+			partCount: 2,
+			parts: [
+				{ category: 'Restaurants', amountCents: -2605 },
+				{ category: 'Restaurants', amountCents: -2605 }
+			]
+		}
+	})
 ];
 
 function baseData(overrides: Record<string, unknown> = {}): PageData {
@@ -166,8 +203,11 @@ describe('the table holds its column set whatever the content', () => {
 		const roomyCols = columnWidths(roomy.container);
 		// Libellé is `1fr` and is the ONLY column allowed to move: it absorbs the slack.
 		expect(roomyCols.slice(1)).toEqual([160, 240, 130]);
-		// One height for every row, including the two long-category rows. A wrapped category grows
-		// its row, and a table whose row height follows its content stops being scannable.
+		// One height for every row, including the two long-category rows and the two répartie ones.
+		// A wrapped category grows its row, and a table whose row height follows its content stops
+		// being scannable. The badge is free only as long as it stays under the height the Libellé
+		// cell's two lines already fix — which is a claim about MARGINS, not about the badge's own
+		// 24px, and it is the claim the tags chantier got wrong.
 		expect(new Set(rowHeights(roomy.container)).size).toBe(1);
 		roomy.unmount();
 

@@ -2666,7 +2666,21 @@
 												     l'autre, c'est ce qui garde le tableau scannable"). -->
 												<td class="{colCategory} p-0">
 													<div class="{colCategory} px-4 py-3">
-														<div class="flex items-center gap-1.5">
+														<!-- h-6 RESERVES the badge's height on line 1 of EVERY row, répartie or not — the same
+														     decision as the 22px meta line at 390, not a second one. Measured here: an ordinary row
+														     is 63px and a row whose line 1 carries a 24px badge is 66.5, because THIS cell has two
+														     lines (dot+name, then the nature) and is therefore exactly as tall as the Libellé cell,
+														     with no slack to absorb a badge in. The design's « le badge est gratuit » is true of the
+														     single-line cell it draws and false of the one shipped here. Reserving costs every
+														     desktop row 3.5px once, instead of letting the rows carrying a badge grow past those
+														     that do not. Reserve the height on the line; never let the content push it.
+
+											     min-h-6 rather than h-6, and that is not a detail. A fixed height CLAMPS the
+											     badge: a margin added to it then overflows this line silently instead of growing
+											     the row, and the row-height guard — the one that exists to catch exactly that —
+											     goes GREEN on the tags chantier's own regression. Found by break-checking with
+											     h-6 in place. A minimum reserves the same 24px and leaves the failure visible. -->
+														<div class="flex min-h-6 items-center gap-1.5">
 															<span
 																class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(
 																	rowCategory(tx)
