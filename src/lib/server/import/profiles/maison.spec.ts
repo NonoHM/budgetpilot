@@ -105,16 +105,23 @@ describe('profil maison', () => {
 		});
 	});
 
-	it('rejette la catégorie sentinel "uncategorized" saisie littéralement', () => {
+	/**
+	 * The sentinel used to be REFUSED here, and that refusal broke the one claim this profile
+	 * exists to keep: `docs/getting-started.md` says a BudgetPilot export re-imports cleanly, and
+	 * the export writes `getEffectiveCategory`, which is the literal sentinel for every row in the
+	 * « à classer » pile. So exporting an uncategorized transaction and re-importing it reported
+	 * « catégorie réservée refusée » and dropped the row — measured, not inferred, before the fix.
+	 *
+	 * Accepting it costs nothing that the refusal was buying: an EMPTY cell already resolves to the
+	 * same sentinel two lines below, so a third-party file could always reach this bucket anyway.
+	 */
+	it('accepte la sentinelle « uncategorized » telle que l’export l’écrit, plutôt que de la refuser', () => {
 		expect.assertions(2);
 
 		const result = parseMaisonLine('2026-06-01;X;uncategorized;-10;expense;;csv');
 
-		expect(result.transactions).toHaveLength(0);
-		expect(result.invalidRows[0]).toMatchObject({
-			reason: 'catégorie réservée refusée',
-			field: 'category'
-		});
+		expect(result.transactions).toHaveLength(1);
+		expect(result.transactions[0].category).toBe(UNCLASSIFIED_CATEGORY);
 	});
 
 	it('cellule catégorie vide résout silencieusement vers le sentinel « Non catégorisé »', () => {
