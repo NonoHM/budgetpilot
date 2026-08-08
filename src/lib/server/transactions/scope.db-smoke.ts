@@ -672,7 +672,21 @@ async function answerFromBulkTag(qs: string, tagName: string): Promise<BulkAnswe
 
 type ExportAnswer = { kind: 'set'; ids: string[] } | { kind: 'status'; status: number };
 
-/** `export`: parse the CSV and map rows back through the unique labels. */
+/**
+ * `export`: parse the CSV and map rows back through the unique labels.
+ *
+ * DISTINCT ids, and the de-duplication is not a weakening — it is what keeps the three sites
+ * comparable now that the export writes one line per ALLOCATION (OD-2). A répartie transaction
+ * contributes N lines carrying one label, while `load` and `bulkTag` answer in transactions; a raw
+ * line count would report that as a disagreement between the sites when the transaction SET is
+ * identical, which is the property this suite exists to pin.
+ *
+ * The multiplicity it can no longer see is pinned where it belongs, absolutely rather than by
+ * agreement: `exportCsv.spec.ts` asserts one line per allocation and `round-trip.spec.ts` asserts
+ * the lines regroup into one transaction. Per CLAUDE.md, an agreement test can never be the sole
+ * guard for a correctness property — so this comparison is deliberately about membership, and the
+ * count lives elsewhere.
+ */
 async function answerFromExport(qs: string): Promise<ExportAnswer> {
 	let response: Response;
 	try {
@@ -696,7 +710,7 @@ async function answerFromExport(qs: string): Promise<ExportAnswer> {
 			throw new Error(`export row did not map back to a fixture id: ${JSON.stringify(line)}`);
 		return id;
 	});
-	return { kind: 'set', ids: ids.sort() };
+	return { kind: 'set', ids: [...new Set(ids)].sort() };
 }
 
 /* ------------------------------------------------------------------ *
