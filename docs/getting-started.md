@@ -284,6 +284,24 @@ accepted, with these profiles:
 | Home             | BudgetPilot's own CSV export, so an export re-imports cleanly |
 | Generic          | Any CSV you can shape yourself, see below                     |
 
+**Home** recognises two shapes: the seven-column header older exports wrote,
+and the ten-column one exports write today. A file you exported months ago
+still imports, unchanged — the older shape is kept, not replaced.
+
+The extra columns exist so a **split transaction** survives the trip. The
+export writes one line per category the money went to, and `montant_total`,
+`part` (`1/2`, `2/2`, …) and `categorie_parent` are what put those lines back
+together as one transaction with its parts, rather than as several separate
+transactions. Two limits worth knowing:
+
+- Re-importing an export into the same instance adds nothing. Every line is
+  recognised as a transaction you already have, so it is reported as a
+  duplicate rather than imported twice.
+- A part's **note** is not exported. Everything else about a split — its
+  parts' categories, their amounts, their order, and the category the
+  transaction returns to if you remove the split — comes back exactly as it
+  went out.
+
 Your bank isn't listed? Use **Generic**. Reshape your export to exactly
 these columns:
 

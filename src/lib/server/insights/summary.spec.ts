@@ -117,6 +117,49 @@ describe('buildTransactionSummary and tag data', () => {
 	});
 });
 
+/**
+ * A part's `note` is free text of unknown content that the user writes for themselves. It is never
+ * logged, never a filter or search target, and it must never reach the model — the payload leaves
+ * the process, and nothing about "the parts are only categories and amounts" is guaranteed by the
+ * types once someone enriches an allocation.
+ *
+ * Structural on purpose, and aimed at the same chokepoint as the tag guard above rather than one
+ * level in: `buildTransactionSummary`'s return value IS the prompt payload. Break-checked by
+ * threading a note into the summary and watching this name it.
+ */
+describe('buildTransactionSummary and split notes', () => {
+	it('carries no note-shaped key into the AI payload', () => {
+		expect.assertions(2);
+
+		const monthlySummary = summarizeBudgetAllocations(
+			toAllocations(transactions),
+			[{ category: 'Logement', limitCents: 100_000 }],
+			'2026-06'
+		);
+		const summary = buildTransactionSummary(
+			transactions,
+			toAllocations(transactions),
+			monthlySummary,
+			undefined,
+			{ includeLabels: true }
+		);
+
+		// Whole words, so `noteworthy` or `denoted` cannot be read as a hit — and both singular and
+		// plural, because `Transaction.notes` is the older field of the same kind.
+		const noteLikeKeys = collectKeys(summary).filter((key) =>
+			key
+				.replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+				.toLowerCase()
+				.split(' ')
+				.some((word) => word === 'note' || word === 'notes')
+		);
+		expect(noteLikeKeys).toEqual([]);
+
+		// Guards the guard: the check above passes trivially on an empty payload.
+		expect(summary.transactionCount).toBeGreaterThan(0);
+	});
+});
+
 describe('buildTransactionSummary - includeLabels', () => {
 	it('n’inclut aucun libellé de transaction quand includeLabels est omis', () => {
 		expect.assertions(2);
