@@ -6,6 +6,7 @@ import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeDedupeKeyHash, dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import { isUniqueConstraintViolation, withConcurrentWriteRetry } from '$lib/server/database/upsert';
+import { replaceSplits } from '$lib/server/transactions/splits';
 import type { ImportedTransaction } from './types';
 
 /**
@@ -303,6 +304,7 @@ async function persistTransaction(
 
 	const category = await resolveCategoryByName(userId, transaction.category);
 
+	let createdId: string;
 	try {
 		const created = await prisma.transaction.create({
 			data: {
@@ -333,7 +335,7 @@ async function persistTransaction(
 				})
 			}
 		});
-		return created.id;
+		createdId = created.id;
 	} catch (caught) {
 		if (!isUniqueConstraintViolation(caught)) throw caught;
 
@@ -361,6 +363,54 @@ async function persistTransaction(
 		if (conflictingRow) return null;
 
 		throw caught;
+	}
+
+	// Deliberately OUTSIDE the try. Inside it, a failure while writing the parts would be handed to
+	// the duplicate branch above, which re-queries by dedupeKeyHash, finds the row THIS call just
+	// inserted, and returns `null` — reporting a successful import as a duplicate and swallowing the
+	// lost répartition. The parent is already committed by here, so nothing above can be confused
+	// with anything below.
+	await persistSplitParts(userId, createdId, transaction);
+	return createdId;
+}
+
+/**
+ * Writes an imported répartition through `replaceSplits`, the single write path — never a
+ * `createMany` against `TransactionSplit`.
+ *
+ * An import is one of the three usual bypass suspects (restore, import, migration) precisely
+ * because it builds rows before any service is in view, and the invariant it would bypass is the
+ * one that makes every per-category figure in the app add up.
+ *
+ * MAGNITUDES, not signed amounts. `persistTransaction` above stores `Math.abs(amountCents)` on the
+ * parent and puts the direction in `type`, and `replaceSplits` requires each part to carry the
+ * PARENT ROW's sign — so signed parts summing to a signed total would be refused on a stored
+ * positive parent. The profile has already checked that every part shares the total's sign, which
+ * is what makes Σ|part| = |total| the same statement as Σ part = total.
+ *
+ * A refusal here is not an expected state of an import: everything `replaceSplits` can refuse is
+ * already refused by the profile, with a line number, before a row is inserted. So it throws rather
+ * than returning quietly — the alternative is a transaction that imported "successfully" with its
+ * répartition silently missing, which is the shape no counter in the summary would report.
+ */
+async function persistSplitParts(
+	userId: string,
+	transactionId: string,
+	transaction: ImportedTransaction
+): Promise<void> {
+	const parts = transaction.splitParts;
+	if (!parts || parts.length === 0) return;
+
+	const resolved = await Promise.all(
+		parts.map(async (part) => ({
+			categoryId: (await resolveCategoryByName(userId, part.category)).id,
+			amountCents: Math.abs(part.amountCents)
+		}))
+	);
+
+	const result = await replaceSplits(userId, transactionId, resolved);
+	if (!result.ok) {
+		throw new Error(`imported répartition refused by replaceSplits: ${result.reason}`);
 	}
 }
 

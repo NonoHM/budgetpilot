@@ -35,8 +35,30 @@ export interface ImportedTransactionMetadata {
 	csvFields?: Record<string, string>;
 }
 
+/**
+ * One part of a répartition carried through an import, as (category NAME, signed amount).
+ *
+ * A name rather than a `categoryId` because a category id is meaningless in a file: an import is
+ * routinely a move to another instance, where the ids do not exist. `persistImportedTransactions`
+ * resolves each name through `resolveCategoryByName`, the same get-or-create the parent's own
+ * category goes through.
+ */
+export interface ImportedSplitPart {
+	category: string;
+	amountCents: number;
+}
+
 export interface ImportedTransaction extends Transaction {
 	metadata: ImportedTransactionMetadata;
+	/**
+	 * Present only when the source file describes a répartition (the « maison » v2 profile today).
+	 *
+	 * Deliberately NOT inside `metadata`: metadata is traceability the app never computes with,
+	 * whereas parts decide where the money went. It is written through `replaceSplits`, never with
+	 * a `createMany` against the table — an import builds rows before any service is in view, which
+	 * is exactly why it is one of the three write paths that habitually bypass an invariant.
+	 */
+	splitParts?: ImportedSplitPart[];
 }
 
 export interface CsvImportSummary {
