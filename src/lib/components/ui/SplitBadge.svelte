@@ -125,7 +125,15 @@
 	<!-- The sentence travels WITH the badge rather than being owed by the caller. An optional
 	     affordance stays at its first consumer — the header snippet took months and four wrong call
 	     sites to prove it — and a badge announcing itself as "times two" is the exact fragmented
-	     reading the design asks to replace. Nothing here can be used without its explanation. -->
+	     reading the design asks to replace. Nothing here can be used without its explanation.
+
+	     A HIDDEN SPAN, NOT AN aria-label, AND THAT IS NOT AN INCONSISTENCY WITH THE BRANCH ABOVE.
+	     `aria-label` is honoured on elements whose role takes a name; a bare `<span>` has no role,
+	     so the attribute is not reliably exposed on this form and the sentence would simply be
+	     missing. A sibling `sr-only` element is exposed everywhere. The interactive branch is a real
+	     `<button>`, which does take a name, so there `aria-label` is both correct and cheaper than a
+	     duplicated node. Two mechanisms for two kinds of element, not two answers to one question —
+	     ruled 2026-08-08 and written here so it is not "unified" into one later. -->
 	<span class="inline-flex shrink-0 items-center">
 		<span
 			aria-hidden="true"
