@@ -223,6 +223,38 @@ messages/           Paraglide translation source (fr.json / en.json)
     validated against a closed set. `lagoon` and `azure` are locked: never
     lighten them, never apply opacity. Three hue bands are deliberately absent
     so a tag can never read as a status.
+- **Split transactions (répartition)**: one transaction, several categories.
+  A handful of rules decide almost every question about them:
+  - **Parts are the truth for money; the parent is the truth for identity.**
+    `allocationsOf` in `domain/allocation.ts` is the ONLY supported way to read
+    money out of a transaction. It returns one allocation per part, plus the
+    remainder under the parent's own category, so an unsplit row yields exactly
+    one allocation and no consumer needs a special case. A site written against
+    `Transaction.amountCents` is a double-count the moment parts exist.
+  - **The parts sum to the parent, exactly.** The invariant is application-level
+    because no database expresses it portably across the three providers, so
+    **every write path must go through `replaceSplits`**. Restore and CSV import
+    do not, structurally, which is why `backup/import.ts` re-checks the sum
+    itself and `import/profiles/maison-v2.ts` refuses a bad group before a row is
+    inserted. Ask "which paths bypass the service" before adding an invariant.
+  - **The parent keeps its own category** and never shows it in the list: the
+    Catégorie column prints the dominant part. That category is the restoration
+    value the transaction returns to when the split is removed, which is why
+    removal is lossless and why the selector is locked while a split exists.
+  - **No part may carry the "Uncategorized" sentinel**, the parent may. A split
+    transaction leaves the "to classify" pile, so a sentinel part would be money
+    that is uncategorized and invisible on the one screen built to find it.
+  - **Nature resolves per part**, through each part's own category. The parent's
+    manual nature override still governs every part.
+  - **Bounds**: 2 to 20 parts, note at most 80 characters. The two constants
+    live in `domain/allocation.ts` because the backup validator needs them too.
+- **The CSV export format is a CONTRACT, not an output.** A file one version
+  wrote must stay importable by every later one. It carries one line per
+  ALLOCATION plus `montant_total`, `part` (`i/n`) and `categorie_parent`. When a
+  column is added, **version the import profile rather than editing it**: the
+  `maison` profile is two parsers sharing one name, and `maison.ts` (seven
+  columns) is never touched. Guarded by `import/round-trip.spec.ts` and
+  `e2e/transaction-splits-round-trip.spec.ts`.
 - **Backup/restore**: export is a full JSON dump scoped to the requesting
   user; restore is a full, transactional replacement (never a merge) — IDs
   are regenerated on import.
