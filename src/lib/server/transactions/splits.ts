@@ -2,6 +2,7 @@ import { prisma } from '$lib/server/db';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import {
+	isValidSplitPartAmount,
 	MAX_SPLIT_NOTE_LENGTH,
 	MAX_SPLITS_PER_TRANSACTION,
 	MIN_SPLITS_PER_TRANSACTION,
@@ -97,15 +98,11 @@ export async function replaceSplits(
 			const note = normalizeSplitNote(part.note);
 			if (note.length > MAX_SPLIT_NOTE_LENGTH) notePositions.push(position);
 
-			// A part must be a non-zero integer carrying the PARENT's sign. Zero says nothing, and
-			// an opposite sign is a refund or a transfer rather than an allocation — allowing one
-			// would let a répartition sum correctly while containing a part that no per-category
-			// total can interpret.
-			if (
-				!Number.isSafeInteger(part.amountCents) ||
-				part.amountCents === 0 ||
-				part.amountCents > 0 !== parent.amountCents >= 0
-			) {
+			// A part must be a non-zero integer carrying the PARENT's sign. The rule itself lives in
+			// domain/allocation.ts, with the write-path matrix beside it, because the restore
+			// bypasses this whole function and has to apply the identical test — and a rule
+			// restated in two places is one that agrees today and is free to drift.
+			if (!isValidSplitPartAmount(part.amountCents, parent.amountCents)) {
 				amountPositions.push(position);
 			}
 

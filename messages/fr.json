@@ -801,6 +801,7 @@
 	"settings_backup_error_unknown_split_category": "La catégorie « {id} » est référencée par une part mais absente du fichier.",
 	"settings_backup_error_split_sum_mismatch": "Les parts de la transaction « {id} » ne totalisent pas son montant.",
 	"settings_backup_error_split_count": "La transaction « {id} » a un nombre de parts invalide.",
+	"settings_backup_error_split_amount": "Les parts de la transaction « {id} » doivent être des montants non nuls, du même signe qu'elle.",
 	"settings_backup_error_unknown_net_worth_account": "Le point de patrimoine « {id} » référence un compte inconnu du fichier.",
 	"settings_backup_error_unknown_net_worth_account_link": "Le compte « {id} » référence un compte de patrimoine inconnu du fichier.",
 	"settings_backup_error_unknown_savings_goal_account": "L'objectif d'épargne « {id} » référence un compte de patrimoine inconnu du fichier.",

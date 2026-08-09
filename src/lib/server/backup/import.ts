@@ -8,6 +8,7 @@ import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import { normalizeTagName } from '$lib/domain/tags';
 import {
+	isValidSplitPartAmount,
 	MIN_SPLITS_PER_TRANSACTION,
 	MAX_SPLITS_PER_TRANSACTION,
 	normalizeSplitNote
@@ -629,6 +630,47 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 		partsByTransaction.set(split.transactionId, entry);
 	}
 	const transactionAmountById = new Map(payload.transactions.map((t) => [t.id, t.amountCents]));
+
+	// THE PER-PART RULE, checked here for the same reason the sum is: the restore does not go
+	// through replaceSplits, so nothing else applies it to an uploaded payload.
+	//
+	// The sum is not enough on its own, and that is the whole point of this loop. Parts of
+	// −130,00 € and +50,00 € under a −80,00 € parent SUM EXACTLY, count 2, both categories
+	// present — so every check above passes. Measured on a real instance: the restore was accepted
+	// and /reports expenseCents went 21450 → 31450, one hundred euros of expense invented by a
+	// transaction that still reads −80,00 €, because every per-category and per-nature reader takes
+	// Math.abs(allocation.amountCents) and Σ|parts| is 180,00 € where |parent| is 80,00 €.
+	//
+	// The predicate is CALLED, never restated: it is the same function replaceSplits refuses on,
+	// so the two paths cannot drift.
+	//
+	// A MISSING PARENT IS REFUSED HERE, not asserted away with `!`. The loop above has already
+	// refused any part naming a transaction absent from the file, so `get` cannot return undefined
+	// today — but `!` erases at runtime, and the predicate compares signs, so an undefined parent
+	// would make it answer TRUE for every negative part: `(-2000 > 0) === (undefined >= 0)` is
+	// `false === false`. Negative parts are most of this app's parts, so that failure is open and
+	// silent, in the common direction. The sum check below carries the same `!` and fails CLOSED
+	// (`sum !== undefined` always holds), which is exactly why the two read as equally safe from
+	// three lines away and are not.
+	//
+	// BREAK-CHECKED, and the result is worth carrying: removing this clause alone changes nothing,
+	// because the dangling-transaction loop refuses first. Removing BOTH still refuses — by the sum
+	// check, under « les parts ne totalisent pas son montant », which is a true refusal with a
+	// false explanation. So what this clause buys is not the refusal; it is that the predicate's
+	// contract is honoured where it is called, rather than resting on a neighbouring check whose
+	// fail-closed behaviour is an accident of comparing against `undefined` with `!==`.
+	for (const split of payload.transactionSplits) {
+		const parentAmountCents = transactionAmountById.get(split.transactionId);
+		if (
+			parentAmountCents === undefined ||
+			!isValidSplitPartAmount(split.amountCents, parentAmountCents)
+		) {
+			throw new BackupImportError(
+				m.settings_backup_error_split_amount({ id: split.transactionId })
+			);
+		}
+	}
+
 	for (const [transactionId, { sum, count }] of partsByTransaction) {
 		const parentAmountCents = transactionAmountById.get(transactionId)!;
 		if (sum !== parentAmountCents) {

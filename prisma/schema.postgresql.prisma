@@ -395,11 +395,15 @@ model TransactionSplit {
   id            String      @id @default(cuid())
   transactionId String
   categoryId    String
-  /// Signed integer cents, same sign as the parent, never zero. The invariant
-  /// (sum of parts == parent.amountCents) is enforced in application code only — no database
-  /// expresses it portably across the three providers. server/transactions/splits.ts is the
-  /// single write path and validates it against the parent row re-read inside the same
-  /// transaction, never against a client-supplied total.
+  /// Signed integer cents, same sign as the parent, never zero. Neither the sum invariant
+  /// (sum of parts == parent.amountCents) nor the per-part rule is expressible portably across
+  /// the three providers, so both live in application code — and this table has MORE THAN ONE
+  /// writer, which is what a reader auditing the next one has to know first.
+  /// domain/allocation.ts (isValidSplitPartAmount) holds the per-part rule and, beside it, the
+  /// WRITE-PATH MATRIX naming every writer and the invariants each enforces. Today:
+  /// server/transactions/splits.ts validates against the parent row re-read inside its own
+  /// transaction, never against a client-supplied total; server/backup/import.ts validates an
+  /// uploaded payload before restoring it, because a restore bypasses that service entirely.
   amountCents   Int
   /// 0-based display order. Load-bearing rather than cosmetic: the even-split helper gives the
   /// extra cent(s) to the FIRST r parts (domain/allocation.ts, distributeEvenly), so which part

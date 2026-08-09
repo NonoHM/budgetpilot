@@ -260,6 +260,30 @@ describe('replaceSplits — amount refusal', () => {
 		expect(db.tx.transactionSplit.createMany).not.toHaveBeenCalled();
 	});
 
+	// THE OTHER SIGN. Every fixture above is an expense, which is most of this app's transactions
+	// and therefore the sign a suite reaches for without deciding to. The rule under test compares
+	// a part's sign against its PARENT's, so an expense-only suite would pass unchanged if the
+	// comparison were replaced by "the part must be negative" — and every income répartition would
+	// be refused in production with nothing red.
+	it('accepts an all-positive répartition of an income, and refuses a negative part in it', async () => {
+		expect.assertions(3);
+
+		db.tx.transaction.findFirstOrThrow.mockResolvedValue({ amountCents: 8_000 });
+
+		const accepted = await replaceSplits(USER_ID, TRANSACTION_ID, [
+			{ categoryId: FOOD_CATEGORY_ID, amountCents: 6_000 },
+			{ categoryId: HOME_CATEGORY_ID, amountCents: 2_000 }
+		]);
+		expect(accepted).toEqual({ ok: true });
+		expect(db.tx.transactionSplit.createMany).toHaveBeenCalledTimes(1);
+
+		const refused = await replaceSplits(USER_ID, TRANSACTION_ID, [
+			{ categoryId: FOOD_CATEGORY_ID, amountCents: 13_000 },
+			{ categoryId: HOME_CATEGORY_ID, amountCents: -5_000 }
+		]);
+		expect(refused).toEqual({ ok: false, reason: 'amount', positions: [1] });
+	});
+
 	it('names BOTH bad positions when two parts are invalid at once', async () => {
 		expect.assertions(3);
 
