@@ -415,7 +415,28 @@ model TransactionSplit {
   category      Category    @relation(fields: [categoryId], references: [id])
 
   @@index([transactionId])
-  @@index([categoryId])
+  /// COMPOSITE, and the second column is the whole point: it makes this index COVERING for the
+  /// correlated subquery `?category=` produces, and it replaces the plain `@@index([categoryId])`
+  /// rather than sitting beside it (`categoryId` is leftmost, so every lookup the single-column
+  /// index served is still served, including the foreign key MySQL requires an index for).
+  ///
+  /// WHY, measured, because "add an index" is the suggestion that gets waved away here — the
+  /// single-column index DID exist and the query was still 321x slow, which reads as "not an index
+  /// problem" and is not.
+  ///
+  /// `?category=X` is an OR of three branches: the parent's manual key, the parent's category, and
+  /// "a PART carries X". Prisma compiles that third branch to a CORRELATED subquery, so it is
+  /// re-evaluated once per outer row rather than materialised once. With only `@@index([categoryId])`
+  /// the engine can seek on `categoryId` and must then scan every part in that category looking for
+  /// the outer row's id: at 10 000 transactions with 2 000 parts under one category that is ~8 750
+  /// outer rows x 2 000 index entries, and `/transactions?category=Loisirs` measured **8 366 ms**
+  /// against 36 ms unfiltered. With `transactionId` in the index the same subquery seeks straight to
+  /// `(categoryId, transactionId)` and touches one entry: the page measures **60 ms**.
+  ///
+  /// So this is not a tuning knob to drop when tidying. Removing the second column restores an
+  /// 8-second page at the transaction ceiling `docs/` promises, with every test still green —
+  /// no assertion in this repository can see it, which is why the reason is written here.
+  @@index([categoryId, transactionId])
 }
 
 model Transaction {
