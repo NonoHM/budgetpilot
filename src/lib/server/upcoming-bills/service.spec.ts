@@ -413,8 +413,10 @@ describe('loadUpcomingBillsMonth', () => {
 
 		// Proven settled first: an assertion about a row that does not exist, or that is projected,
 		// would pass for the wrong reason — the inherited branch is the one it must NOT be taking.
+		// `settledKind: 'auto'` is the row view's own way of saying a real transaction backs it;
+		// `settledTransactionId` is on the OCCURRENCE and is deliberately not projected onto the row.
 		expect(settledJune?.status).toBe('settled');
-		expect(settledJune?.settledTransactionId ?? RENT[2].id).toBe(RENT[2].id);
+		expect(settledJune?.settledKind).toBe('auto');
 		expect(settledJune?.splitIndicator).toBeNull();
 		expect(settledJune?.splitIndicatorIsInherited).toBe(false);
 	});
