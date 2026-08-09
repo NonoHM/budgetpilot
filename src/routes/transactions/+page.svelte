@@ -23,7 +23,7 @@
 	import Select from '$lib/components/ui/Select.svelte';
 	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import ListCard from '$lib/components/ui/ListCard.svelte';
-	import SplitBadge from '$lib/components/ui/SplitBadge.svelte';
+	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import TransactionProposalCard from '$lib/components/TransactionProposalCard.svelte';

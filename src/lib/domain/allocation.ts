@@ -262,3 +262,32 @@ export function splitIndicatorOf(
 		}))
 	};
 }
+
+/**
+ * `splitIndicatorOf`, grouped by `transactionId` and indexed for lookup — for a surface that has to
+ * answer "is THIS transaction split" for many transactions (the dashboard's recent list, the
+ * reports' largest expenses, an upcoming-bills occurrence) without re-deriving the grouping at
+ * every call site. That grouping is the one thing worth sharing here: nothing about "where did the
+ * money go" changes between callers, only which transaction they are asking about.
+ *
+ * Absent from the returned map for an unsplit transaction (or one with no allocation in the input
+ * at all) — the same "null means unsplit" contract `splitIndicatorOf` already has, just keyed
+ * instead of positional. `.get(id) ?? null` at every call site reads the same way.
+ */
+export function splitIndicatorsByTransactionId(
+	allocations: ReadonlyArray<CategoryAllocation>
+): Map<string, SplitIndicator> {
+	const grouped = new Map<string, CategoryAllocation[]>();
+	for (const allocation of allocations) {
+		const existing = grouped.get(allocation.transactionId);
+		if (existing) existing.push(allocation);
+		else grouped.set(allocation.transactionId, [allocation]);
+	}
+
+	const indicators = new Map<string, SplitIndicator>();
+	for (const [transactionId, group] of grouped) {
+		const indicator = splitIndicatorOf(group);
+		if (indicator) indicators.set(transactionId, indicator);
+	}
+	return indicators;
+}

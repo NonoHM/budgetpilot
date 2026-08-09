@@ -87,11 +87,12 @@ interface RawTransaction {
 	manualCategory: string | null;
 	natureManual: null;
 	category: { name: string };
-	// The read boundary now selects the parts too (EFFECTIVE_CATEGORY_SELECT). Upcoming bills is an
-	// IDENTITY consumer and never reads them — it asks what happened and how often, not where the
-	// money went — but the fixture has to carry the column the boundary selects, or it is not a
-	// fixture for that boundary.
-	splits: [];
+	// The read boundary selects the parts too (EFFECTIVE_CATEGORY_SELECT). Upcoming bills is
+	// primarily an IDENTITY consumer — `label`/`category`/`amountCents` above are the transaction's
+	// own, never a part's — but `splitIndicator`/`splitIndicatorIsInherited` (see toRowView) DO read
+	// `allocations`, which is why this is no longer typed `[]`: a fixture exercising that field
+	// needs to carry real parts. Every fixture but the split ones below still passes `[]`.
+	splits: Array<{ amountCents: number; position: number; category: { name: string } }>;
 }
 
 function tx(
@@ -341,6 +342,45 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.expectedIncomeCents).toBe(250_000);
 		// Rows exist, so the observation list is not even computed.
 		expect(view.observationCandidates).toEqual([]);
+	});
+
+	/**
+	 * PR6: a settled row is EXACT (its own transaction's parts), a projected one is INHERITED (the
+	 * flow's most recent occurrence's parts) — see `toRowView`'s own docstring for why a projection
+	 * cannot be exact. Same fixture (RENT's July occurrence carries the split), two months, so the
+	 * only thing that differs between the two assertions is which of those two the row is.
+	 */
+	it('EXACTE sur une occurrence réglée, HÉRITÉE sur une occurrence projetée, jamais sur une transaction non répartie', async () => {
+		expect.assertions(8);
+
+		const rentJulySplit: RawTransaction = {
+			...RENT[3],
+			splits: [{ amountCents: -20_000, position: 0, category: { name: 'Assurance' } }]
+		};
+		const fixture = [...RENT.slice(0, 3), rentJulySplit, ...SUBSCRIPTION];
+
+		mockRead(fixture);
+		const july = await loadUpcomingBillsMonth(userId, '2026-07');
+		const settledRent = july.rows.find((row) => row.dateIso === '2026-07-05');
+		const settledSubscription = july.rows.find((row) => row.category === 'Loisirs');
+
+		expect(settledRent?.status).toBe('settled');
+		expect(settledRent?.splitIndicatorIsInherited).toBe(false);
+		expect(settledRent?.splitIndicator?.dominantCategory).toBe('Logement');
+		expect(settledRent?.splitIndicator?.parts).toEqual([
+			{ category: 'Assurance', amountCents: -20_000 },
+			{ category: 'Logement', amountCents: -60_000 }
+		]);
+		// The unsplit control: no indicator at all, on either field.
+		expect(settledSubscription?.splitIndicator).toBeNull();
+		expect(settledSubscription?.splitIndicatorIsInherited).toBe(false);
+
+		mockRead(fixture);
+		const august = await loadUpcomingBillsMonth(userId, '2026-08');
+		const projectedRent = august.rows.find((row) => row.dateIso === '2026-08-05');
+
+		expect(projectedRent?.status).toBe('upcoming');
+		expect(projectedRent?.splitIndicatorIsInherited).toBe(true);
 	});
 
 	it('scopes the transaction and action reads on userId', async () => {

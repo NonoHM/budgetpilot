@@ -7,6 +7,7 @@ import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import SplitBadge from './SplitBadge.svelte';
 import * as m from '$lib/paraglide/messages';
+import { formatCents } from '$lib/domain/budget';
 
 const THREE_CATEGORIES = [
 	{ category: 'Alimentation', amountCents: -6000 },
@@ -18,6 +19,15 @@ const ONE_CATEGORY = [
 	{ category: 'Alimentation', amountCents: -4000 },
 	{ category: 'Alimentation', amountCents: -4000 }
 ];
+
+/** Same rule as SplitBadge's own `detail`, called rather than retyped — `formatCents` puts a
+ *  narrow no-break space before "€", which a hand-typed literal silently gets wrong (found
+ *  breaking this very test: it failed on that byte, not on the words around it). */
+function detailOf(parts: { category: string; amountCents: number }[]): string {
+	return parts
+		.map((part) => `${part.category} ${formatCents(Math.abs(part.amountCents))}`)
+		.join(', ');
+}
 
 describe('SplitBadge.svelte', () => {
 	it('counts other CATEGORIES with « + » and parts with « × », so one symbol never means two things', async () => {
@@ -180,5 +190,53 @@ describe('SplitBadge.svelte', () => {
 		const style = getComputedStyle(badge);
 		expect(style.marginTop).toBe('0px');
 		expect(style.marginBottom).toBe('0px');
+	});
+
+	/**
+	 * `inherited` is `/upcoming-bills`' escape hatch for a projected occurrence: there is no
+	 * transaction to join, only the flow's most recent one, so the claim has to be weaker than
+	 * "this transaction is split". Same visible « ×N »/« +N » glyph, a different sentence.
+	 */
+	describe('inherited', () => {
+		it('weakens the inert sentence instead of claiming this transaction is split', async () => {
+			expect.assertions(2);
+			render(SplitBadge, {
+				parts: ONE_CATEGORY,
+				otherCategoryCount: 0,
+				dominantCategory: 'Alimentation',
+				inherited: true
+			});
+
+			// The visible glyph is unchanged — it never named a specific transaction to begin with.
+			expect(document.querySelector('[aria-hidden="true"]')?.textContent?.trim()).toBe('×2');
+			await expect
+				.element(
+					page.getByText(m.splits_row_badge_inherited_short({ detail: detailOf(ONE_CATEGORY) }))
+				)
+				.toBeInTheDocument();
+		});
+
+		it('weakens the aria-label and the tooltip heading on the interactive branch too', async () => {
+			expect.assertions(2);
+			render(SplitBadge, {
+				parts: THREE_CATEGORIES,
+				otherCategoryCount: 2,
+				dominantCategory: 'Alimentation',
+				interactive: true,
+				inherited: true
+			});
+
+			const name = (page.getByRole('button').element() as HTMLElement).getAttribute(
+				'aria-label'
+			) as string;
+			expect(name).toBe(
+				m.splits_row_badge_inherited_detail({ detail: detailOf(THREE_CATEGORIES) })
+			);
+
+			await userEvent.hover(page.getByRole('button'));
+			await expect
+				.element(page.getByText(m.splits_row_tooltip_heading_inherited()))
+				.toBeInTheDocument();
+		});
 	});
 });

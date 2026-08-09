@@ -72,6 +72,8 @@ function buildRow(overrides: Partial<UpcomingBillRowView> = {}): UpcomingBillRow
 		variability: 'fixed',
 		countsInRemainingTotal: true,
 		appliedActionId: null,
+		splitIndicator: null,
+		splitIndicatorIsInherited: false,
 		actionPayload: {
 			direction: 'expense',
 			normalizedLabel: 'netflix',
@@ -103,6 +105,70 @@ function buildData(overrides: Partial<PageData['bills']> = {}): PageData {
 		}
 	} as PageData;
 }
+
+describe('/upcoming-bills — split indicator (PR6)', () => {
+	beforeEach(async () => {
+		await page.viewport(1280, 900);
+	});
+
+	/**
+	 * A settled row is EXACT (its own transaction's parts); a projected one is INHERITED (the
+	 * flow's most recent occurrence) — see `toRowView`'s own docstring for why a projection cannot
+	 * be exact. The two sentences must read differently, and an unsplit row must carry neither.
+	 */
+	it('is EXACT on a settled row and INHERITED on a projected one, never on an unsplit row', async () => {
+		expect.assertions(5);
+
+		const splitIndicator = {
+			dominantCategory: 'Loisirs',
+			dominantNature: 'spending' as const,
+			otherCategoryCount: 1,
+			partCount: 2,
+			parts: [
+				{ category: 'Loisirs', amountCents: -799 },
+				{ category: 'Abonnements', amountCents: -550 }
+			]
+		};
+		const exactRow = buildRow({
+			rowKey: 'expense:netflix:2026-07-31:0',
+			status: 'settled',
+			settledKind: 'auto',
+			splitIndicator,
+			splitIndicatorIsInherited: false
+		});
+		const inheritedRow = buildRow({
+			rowKey: 'expense:netflix:2026-08-31:1',
+			status: 'upcoming',
+			splitIndicator,
+			splitIndicatorIsInherited: true
+		});
+		const unsplitRow = buildRow({ rowKey: 'expense:edf:2026-07-15:2' });
+
+		render(Page, {
+			data: buildData({ rows: [exactRow, inheritedRow, unsplitRow], streamCount: 3 })
+		});
+
+		const exactName = m.splits_row_badge_others_short({ count: 2 });
+		const inheritedName = m.splits_row_badge_inherited_short({
+			detail: splitIndicator.parts
+				.map((part) => `${part.category} ${formatCents(Math.abs(part.amountCents))}`)
+				.join(', ')
+		});
+
+		// The desktop and mobile copy of every row render at once (see CLAUDE.md) — a floor, not
+		// `.first()`, so a badge reaching only one of the two copies would go unnoticed.
+		expect(page.getByText(exactName).elements().length).toBeGreaterThanOrEqual(2);
+		expect(page.getByText(inheritedName).elements().length).toBeGreaterThanOrEqual(2);
+		expect(exactName).not.toBe(inheritedName);
+		// Scoped to the unsplit row's OWN subtree (both breakpoints render inside the same
+		// `role="listitem"`): neither sentence, exact or inherited, may appear there.
+		const unsplitElement = document.getElementById(
+			`bill-row-${toBillRowDomKey(unsplitRow.rowKey)}`
+		);
+		expect(unsplitElement?.textContent).not.toContain(exactName);
+		expect(unsplitElement?.textContent).not.toContain(inheritedName);
+	});
+});
 
 describe('/upcoming-bills page', () => {
 	beforeEach(async () => {

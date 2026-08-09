@@ -27,6 +27,7 @@ import {
 import { getInitials } from '$lib/domain/initials';
 import { normalizeStoredRecurringLabel, truncateStoredLabel } from '$lib/domain/recurrence';
 import type { Transaction, TransactionNature } from '$lib/domain/transaction';
+import { splitIndicatorsByTransactionId, type SplitIndicator } from '$lib/domain/allocation';
 import { readDashboardDataForRange } from '$lib/server/budget/dashboard';
 import { FORECAST_LOOKBACK_MONTHS } from '$lib/server/forecast';
 import { anonymizeMerchant } from '$lib/server/reports/monthly';
@@ -174,6 +175,23 @@ export interface UpcomingBillRowView {
 	variability: FlowAmountVariability;
 	countsInRemainingTotal: boolean;
 	appliedActionId: string | null;
+	/**
+	 * `null` for an unsplit row. EXACT for a `settled` occurrence backed by a real
+	 * `settledTransactionId` — that transaction's own parts. For everything else (upcoming, overdue,
+	 * ignored, or a manually-marked-paid occurrence — none of which has a transaction to look up),
+	 * this is INHERITED from the flow's most recent occurrence (`flow.occurrenceIds`'s last id) —
+	 * the same "most recent occurrence" convention `RecurringFlow.label`/`category`/`nature` already
+	 * use, applied to a fourth display-only field. See `splitIndicatorIsInherited` for which case
+	 * applies, and `toRowView` for why a projection cannot be exact.
+	 */
+	splitIndicator: SplitIndicator | null;
+	/**
+	 * True when `splitIndicator` describes the flow's most recent occurrence rather than THIS row's
+	 * own transaction. Always false when `splitIndicator` is null. The page must render a weaker
+	 * claim in this case (`SplitBadge`'s `inherited` prop) — "the most recent occurrence of this
+	 * bill was split", never "this transaction is split", which would not be true of a projection.
+	 */
+	splitIndicatorIsInherited: boolean;
 	/**
 	 * Hidden-field payload for the row's action forms. `label` here is the RAW flow label capped at
 	 * 191 — not the anonymized display label — because it is what `recordStreamAction` stores in the
@@ -391,10 +409,11 @@ export async function loadUpcomingBillsMonth(
 	// `detection window upper bound pinned to today` in this module's spec.
 	const to = detectionEndExclusive(todayIso);
 
-	const [{ transactions }, actionRows] = await Promise.all([
+	const [{ transactions, allocations }, actionRows] = await Promise.all([
 		readDashboardDataForRange(userId, { from, to, budgetMonth: month }),
 		findStreamActions(userId)
 	]);
+	const splitIndicators = splitIndicatorsByTransactionId(allocations);
 
 	const actions = toStreamActionInputs(actionRows);
 	// The DETECTION INPUT is pinned at its LOWER bound to `lookbackStart` — the widget's own
@@ -449,7 +468,9 @@ export async function loadUpcomingBillsMonth(
 		todayIso
 	});
 	const totals = computeTotals(occurrences);
-	const rows = occurrences.map(toRowView);
+	const rows = occurrences.map((occurrence, index) =>
+		toRowView(occurrence, index, splitIndicators)
+	);
 
 	return {
 		month,
@@ -490,7 +511,7 @@ export async function loadUpcomingBillsWidget(userId: string): Promise<UpcomingB
 
 	const lookbackStart = computeDetectionLookbackStart(now);
 
-	const [{ transactions }, actionRows] = await Promise.all([
+	const [{ transactions, allocations }, actionRows] = await Promise.all([
 		readDashboardDataForRange(userId, {
 			from: lookbackStart,
 			// Pinned to `detectionEndExclusive(todayIso)` — the SAME value the month view and the
@@ -504,6 +525,7 @@ export async function loadUpcomingBillsWidget(userId: string): Promise<UpcomingB
 		}),
 		findStreamActions(userId)
 	]);
+	const splitIndicators = splitIndicatorsByTransactionId(allocations);
 
 	const actions = toStreamActionInputs(actionRows);
 	const flows = detectRecurringFlows(transactions);
@@ -531,7 +553,9 @@ export async function loadUpcomingBillsWidget(userId: string): Promise<UpcomingB
 	const liveFlows = survivingFlows.filter((flow) => !isStreamStale(flow, todayIso));
 
 	return {
-		rows: kept.slice(0, WIDGET_ROW_LIMIT).map(toRowView),
+		rows: kept
+			.slice(0, WIDGET_ROW_LIMIT)
+			.map((occurrence, index) => toRowView(occurrence, index, splitIndicators)),
 		overdueCount: kept.filter((occurrence) => occurrence.status === 'overdue').length,
 		remainingExpenseCents: computeTotals(kept).remainingExpenseCents,
 		hasStreams: liveFlows.length > 0,
@@ -851,7 +875,11 @@ function toStreamActionInputs(rows: readonly StreamActionRow[]): StreamActionInp
 	return actions;
 }
 
-function toRowView(occurrence: BillOccurrence, index: number): UpcomingBillRowView {
+function toRowView(
+	occurrence: BillOccurrence,
+	index: number,
+	splitIndicators: Map<string, SplitIndicator>
+): UpcomingBillRowView {
 	const flow = occurrence.flow;
 	// The merchant half only. The category travels as its own field and the design prints it in the
 	// row's sub-line, so the composed `anonymizeLabel` form would show it twice per row — and
@@ -862,6 +890,20 @@ function toRowView(occurrence: BillOccurrence, index: number): UpcomingBillRowVi
 	// already the value `recordStreamAction` derives — and so `rowKey` groups a row under the same
 	// identity the persisted action carries.
 	const normalizedLabel = normalizeStoredRecurringLabel(flow.label);
+
+	// EXACT: a settled occurrence backed by a real transaction. `occurrenceIds` is sorted date
+	// ascending (see `detectRecurringFlows`), so its last element is the SAME transaction
+	// `label`/`category`/`nature` above are already read from — this is that rule applied to a
+	// fourth field, not a new one. INHERITED for every other status: there is no transaction to
+	// join to a projected date, only the flow's history, and the honest claim is that the most
+	// recent occurrence was split — never that this one is.
+	const exactIndicator = occurrence.settledTransactionId
+		? (splitIndicators.get(occurrence.settledTransactionId) ?? null)
+		: null;
+	const lastOccurrenceId = flow.occurrenceIds[flow.occurrenceIds.length - 1];
+	const inheritedIndicator = exactIndicator
+		? null
+		: (splitIndicators.get(lastOccurrenceId) ?? null);
 
 	return {
 		rowKey: `${flow.direction}:${normalizedLabel}:${occurrence.dateIso}:${index}`,
@@ -889,6 +931,8 @@ function toRowView(occurrence: BillOccurrence, index: number): UpcomingBillRowVi
 		variability: getFlowAmountVariability(flow),
 		countsInRemainingTotal: occurrence.countsInRemainingTotal,
 		appliedActionId: occurrence.appliedActionId,
+		splitIndicator: exactIndicator ?? inheritedIndicator,
+		splitIndicatorIsInherited: !exactIndicator && inheritedIndicator !== null,
 		actionPayload: {
 			direction: flow.direction,
 			// Capped the same way recordStreamAction caps, so the value posted back is already the

@@ -1,6 +1,7 @@
 import { fail, isHttpError, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { summarizeBudgetAllocations } from '$lib/domain/budget';
+import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import {
@@ -95,6 +96,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				}))
 				.catch(() => ({ insights: [], unavailable: true }))
 		: null;
+	// Computed once over the period's allocations, not per row: `recentTransactions` only ever
+	// looks up the first 10, but the map itself is built from the whole set exactly once.
+	const recentSplitIndicators = splitIndicatorsByTransactionId(allocations);
 
 	return {
 		categoryOptions: categories.map((c) => c.name),
@@ -109,7 +113,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		natureAnalysis: analyzeTransactionNatures(allocations),
 		aiAdvice,
 		aiAllowed,
-		recentTransactions: transactions.slice(0, 10),
+		// Parent-shaped, like the identity view it's sliced from — never re-ranked or relabelled
+		// from a répartition's parts (same OD-3 posture as reports/monthly.ts's largestExpenses).
+		// `splitIndicator` only flags that a répartition exists; `null` for an unsplit row.
+		recentTransactions: transactions.slice(0, 10).map((transaction) => ({
+			...transaction,
+			splitIndicator: recentSplitIndicators.get(transaction.id) ?? null
+		})),
 		insights,
 		savingsGoals: savingsGoals.slice(0, MAX_DASHBOARD_GOALS),
 		savingsGoalsOverflowCount: Math.max(0, savingsGoals.length - MAX_DASHBOARD_GOALS),

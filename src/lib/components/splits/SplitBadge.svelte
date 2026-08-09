@@ -40,9 +40,27 @@
 		 * 24 px floor; a 24 px span would cost height in the one place height is scarce.
 		 */
 		interactive?: boolean;
+		/**
+		 * EXACT (default) versus INHERITED — a property of what `parts` describes, not a visual
+		 * variant. `/transactions` and the dashboard's recent list join a badge to the row's OWN
+		 * transaction, so "cette transaction est répartie" is simply true. `/upcoming-bills` cannot
+		 * do that for a projected occurrence: there is no transaction yet, only a recurring flow, and
+		 * the one honest thing it can say is that the flow's MOST RECENT occurrence was split — which
+		 * may or may not repeat next time. Saying "répartie" there would claim a precision the data
+		 * does not have (see `toRowView` in `server/upcoming-bills/service.ts`). `inherited` swaps the
+		 * accessible sentence to that weaker claim; the visible « +N »/« ×N » glyph is unchanged; it
+		 * never claimed anything about a specific transaction to begin with.
+		 */
+		inherited?: boolean;
 	}
 
-	let { parts, otherCategoryCount, dominantCategory, interactive = false }: Props = $props();
+	let {
+		parts,
+		otherCategoryCount,
+		dominantCategory,
+		interactive = false,
+		inherited = false
+	}: Props = $props();
 
 	const label = $derived(
 		otherCategoryCount >= 1
@@ -61,15 +79,24 @@
 		parts.map((part) => `${part.category} ${formatCents(Math.abs(part.amountCents))}`).join(', ')
 	);
 
-	/** The full sentence: the bubble is aria-hidden, so the name is the only route to the parts. */
+	/**
+	 * The full sentence: the bubble is aria-hidden, so the name is the only route to the parts.
+	 *
+	 * `inherited` collapses the same/others distinction on purpose: the ×N/+N nuance describes a
+	 * REAL transaction's parts precisely, which is exactly the precision an inherited claim cannot
+	 * offer for the occurrence being displayed. One weaker sentence, rather than two precisely wrong
+	 * ones.
+	 */
 	const detailedName = $derived(
-		otherCategoryCount >= 1
-			? m.splits_row_badge_others_detail({ count: otherCategoryCount + 1, detail })
-			: m.splits_row_badge_same_detail({
-					count: parts.length,
-					category: dominantCategory,
-					detail
-				})
+		inherited
+			? m.splits_row_badge_inherited_detail({ detail })
+			: otherCategoryCount >= 1
+				? m.splits_row_badge_others_detail({ count: otherCategoryCount + 1, detail })
+				: m.splits_row_badge_same_detail({
+						count: parts.length,
+						category: dominantCategory,
+						detail
+					})
 	);
 
 	/**
@@ -78,9 +105,17 @@
 	 * unusable by ear long before it became useful.
 	 */
 	const shortName = $derived(
-		otherCategoryCount >= 1
-			? m.splits_row_badge_others_short({ count: otherCategoryCount + 1 })
-			: m.splits_row_badge_same_short({ count: parts.length, category: dominantCategory })
+		inherited
+			? m.splits_row_badge_inherited_short({ detail })
+			: otherCategoryCount >= 1
+				? m.splits_row_badge_others_short({ count: otherCategoryCount + 1 })
+				: m.splits_row_badge_same_short({ count: parts.length, category: dominantCategory })
+	);
+
+	const tooltipHeading = $derived(
+		inherited
+			? m.splits_row_tooltip_heading_inherited()
+			: m.splits_row_tooltip_heading({ count: parts.length })
 	);
 
 	let open = $state(false);
@@ -109,9 +144,7 @@
 				aria-hidden="true"
 				class="pointer-events-none absolute bottom-full left-1/2 z-20 mb-1.5 -translate-x-1/2 rounded-lg bg-zinc-900 px-2.5 py-1.5 text-[11.5px] leading-relaxed whitespace-nowrap text-white"
 			>
-				<span class="block font-semibold"
-					>{m.splits_row_tooltip_heading({ count: parts.length })}</span
-				>
+				<span class="block font-semibold">{tooltipHeading}</span>
 				{#each parts as part, index (index)}
 					<span class="block"
 						>{part.category}

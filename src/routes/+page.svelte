@@ -12,6 +12,7 @@
 	import DashboardInsights from '$lib/components/DashboardInsights.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
 	import { getInitials } from '$lib/domain/initials';
 	import { cardBase, inputBase, inputFilter } from '$lib/styles';
 	import Select from '$lib/components/ui/Select.svelte';
@@ -86,6 +87,21 @@
 	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
 	function displayCategory(name: string): string {
 		return categoryLabelByName(name, defaultKeyByName);
+	}
+
+	/**
+	 * Recent transactions keep the parent's own category (never re-ranked or relabelled from a
+	 * répartition's parts, same OD-3 posture as `/reports`' largest expenses) and only gain the
+	 * badge. Interactive: this card carries no `overflow-hidden` ancestor (`cardBase` has none), so
+	 * the hover bubble is never clipped — unlike `/reports`' desktop table.
+	 */
+	function badgeParts(
+		indicator: NonNullable<(typeof recentTransactions)[number]['splitIndicator']>
+	): Array<{ category: string; amountCents: number }> {
+		return indicator.parts.map((part) => ({
+			category: displayCategory(part.category),
+			amountCents: part.amountCents
+		}));
 	}
 
 	// Number of natures with a non-zero amount — shown in the "Real analysis" badge
@@ -369,8 +385,24 @@
 													</span>
 												{/if}
 											</div>
-											<div class="text-xs text-zinc-400">
-												{formatDateShort(tx.date)} · {displayCategory(tx.category)}
+											<!-- min-h-[22px] RESERVES the badge's own height on this line for every row,
+											     split or not — a minimum, never a fixed height (see CLAUDE.md: a fixed
+											     one absorbs an overflow invisibly, a minimum lets it grow and stay
+											     visible). -->
+											<div
+												class="flex min-h-[22px] min-w-0 items-center gap-1.5 text-xs text-zinc-400"
+											>
+												<span class="min-w-0 truncate"
+													>{formatDateShort(tx.date)} · {displayCategory(tx.category)}</span
+												>
+												{#if tx.splitIndicator}
+													<SplitBadge
+														parts={badgeParts(tx.splitIndicator)}
+														otherCategoryCount={tx.splitIndicator.otherCategoryCount}
+														dominantCategory={displayCategory(tx.splitIndicator.dominantCategory)}
+														interactive
+													/>
+												{/if}
 											</div>
 										</div>
 										<div
