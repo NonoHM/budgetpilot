@@ -265,16 +265,25 @@ describe('/reports donut centre — formatCents, and whether it still fits', () 
 	/**
 	 * The boundary, recorded rather than left silent: a figure this large OVERFLOWS the disc.
 	 *
-	 * Measured at 390: the value box is 174,0 px against a 132 px disc — it spills over the ring
-	 * rather than clipping, so the figure stays readable and stays true. The pre-fix expression fit
-	 * only because it dropped the separators and the cents, which is to say it fit by being wrong.
+	 * Measured at 390: the value box spills over the 132 px ring rather than clipping, so the figure
+	 * stays readable and stays true. The pre-fix expression fit only because it dropped the
+	 * separators and the cents, which is to say it fit by being wrong.
 	 *
 	 * Asserted, not merely commented, so that a future change which clamps, truncates or ellipsises
 	 * this figure goes red and has to be a deliberate decision. Truncating a money figure would turn
 	 * a layout complaint into a false number, which is the trade this test exists to refuse.
+	 *
+	 * THE VALUE WIDTH IS RELATIONAL AND THE DISC WIDTH IS ABSOLUTE, and mixing the two is the whole
+	 * point. The first version pinned the value at the 174 px it measured on the machine it was
+	 * written on. That is a TEXT measurement, so it moves with whichever font the host has: CI
+	 * measured 168 for byte-identical markup and the assertion went red on the harness rather than
+	 * on the product. The disc stays absolute because it is the figure that proves `layout.css` is
+	 * in effect at all — it comes from `inset-[22px]` inside a 176 px ring, not from a glyph — and a
+	 * purely relational pair would hold in a world where no stylesheet was loaded and both boxes
+	 * fell back to UA defaults.
 	 */
 	it('overflows the disc at a billion euros, and says so rather than truncating', async () => {
-		expect.assertions(2);
+		expect.assertions(3);
 
 		await page.viewport(390, 844);
 		const screen = render(Page, { data: donutData(100_500_278_500) });
@@ -282,6 +291,12 @@ describe('/reports donut centre — formatCents, and whether it still fits', () 
 		const disc = value.parentElement as HTMLElement;
 
 		expect(Math.round(disc.getBoundingClientRect().width)).toBe(132);
-		expect(Math.round(value.getBoundingClientRect().width)).toBe(174);
+		expect(value.getBoundingClientRect().width).toBeGreaterThan(disc.getBoundingClientRect().width);
+		// Spilled, not clipped, and asserted on the TEXT rather than on a scroll width: what this
+		// test refuses is a truncated money figure, and the whole figure being present is that
+		// property stated directly.
+		expect(value.textContent?.replace(/[\u00a0\u202f\u2009]/g, ' ').trim()).toBe(
+			'1 005 002 785,00 €'
+		);
 	});
 });
