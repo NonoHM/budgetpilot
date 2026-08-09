@@ -4,6 +4,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import type { CategoryBudget } from '$lib/domain/budget';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { normalizeForMatch } from '$lib/domain/normalize';
 import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { Transaction } from '$lib/domain/transaction';
 import { allocateByCategory, type CategoryAllocation } from '$lib/domain/allocation';
@@ -74,10 +75,26 @@ export interface MonthlyBudgetRecord {
 	updatedAt: string;
 }
 
+/**
+ * The month the app means by "now" — UTC, because every clock read it is compared against is UTC.
+ *
+ * It used to read the server's LOCAL month, and it is the only one that did. `readDashboardData`
+ * builds its range with `Date.UTC`, `readCurrentMonthSpending` bounds its own with `getUTCMonth`,
+ * the forecast's `todayIso` is a `toISOString` slice, and `getCurrentBillsMonth` is UTC with its
+ * own docstring saying why. A local month therefore disagreed with the figures it labelled for up
+ * to two hours a month at CEST and up to fourteen at UTC+14.
+ *
+ * Measured before the fix, at 2026-08-31 23:30 UTC on a UTC+2 host: /budgets printed
+ * « septembre 2026 » above August's spend, and `loadDashboardInsights` read September — so the
+ * budget alerts silently vanished while the dashboard beside them still said August. Nothing was
+ * missing from the page; the wrong month was simply named over the right numbers.
+ *
+ * `getRemainingDaysInMonth` follows this basis deliberately (see its own comment): the pair has to
+ * agree about which month is current, or the pace insight reads zero days left in a month that has
+ * just begun.
+ */
 export function getCurrentMonth(): string {
-	const now = new Date();
-	const month = `${now.getMonth() + 1}`.padStart(2, '0');
-	return `${now.getFullYear()}-${month}`;
+	return new Date().toISOString().slice(0, 7);
 }
 
 export function parseMonth(value: string | null): string {
@@ -401,7 +418,25 @@ function isValidMonth(value: string): boolean {
 }
 
 /**
- * Per-category spending for the CURRENT calendar month.
+ * Per-category spending for the CURRENT calendar month, KEYED BY THE FOLDED CATEGORY NAME.
+ *
+ * The fold is not decoration. `manualCategory` is free text a user types, so "Transport" and
+ * "transport" reach this map as two effective categories while every other reader in the app —
+ * `buildCategoryNatureMap`, `shouldCountTransactionInBudget`, the `nameKey` columns — treats them
+ * as one name. Keyed raw, this map under-reported /budgets by exactly the parts spelled
+ * differently from the budget: 70,00 € shown against 74,50 € on the dashboard for the same budget
+ * in the same month, and 0,00 € against 27,00 € for Transport. Folding here merges them, and
+ * `spentCentsFor` below is the only supported way to read the result, and it is now a CONSTRAINT
+ * rather than a convention: the return type is `CategorySpending`, whose key type is a brand no
+ * caller can construct, so `spending.get(rawName)` does not compile.
+ *
+ * THAT WAS A COMMENT UNTIL IT WASN'T. Review flagged the plain `Map<string, number>` as "a
+ * convention, not a type-level constraint — nothing stops a future caller writing
+ * `spending.get(rawName)`". The very next new caller did exactly that: a db-smoke test written on a
+ * parallel branch asserted `spendingByCategory.get('ParamLimit')`, passed on its own branch where
+ * the key was still raw, and failed only once the two branches met — `expected undefined to be
+ * 1704450`, a runtime surprise in a file about something else entirely. With the brand it would
+ * have been a compile error naming that line.
  *
  * Two things about it that are easy to miss, both pre-existing and both left as they are:
  *
@@ -418,7 +453,7 @@ function isValidMonth(value: string): boolean {
  * through the full allocation would mean an extra query and inventing a Transaction to throw away.
  * The remainder rule is the same function in both paths, which is the property that matters.
  */
-export async function readCurrentMonthSpending(userId: string): Promise<Map<string, number>> {
+export async function readCurrentMonthSpending(userId: string): Promise<CategorySpending> {
 	const now = new Date();
 	const firstOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 	const firstOfNextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
@@ -438,7 +473,7 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
 		}
 	);
 
-	const spending = new Map<string, number>();
+	const spending = new Map<string, number>() as Map<FoldedCategoryKey, number>;
 	for (const tx of transactions) {
 		const allocated = allocateByCategory(
 			{ category: getEffectiveCategory(tx), amountCents: tx.amountCents },
@@ -448,11 +483,36 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
 			}))
 		);
 		for (const entry of allocated) {
-			spending.set(
-				entry.category,
-				(spending.get(entry.category) ?? 0) + Math.abs(entry.amountCents)
-			);
+			const key = normalizeForMatch(entry.category) as FoldedCategoryKey;
+			spending.set(key, (spending.get(key) ?? 0) + Math.abs(entry.amountCents));
 		}
 	}
 	return spending;
+}
+
+/**
+ * A category name that has been through `normalizeForMatch`.
+ *
+ * The `unique symbol` member is never present at runtime — it exists so that no caller can produce a
+ * value of this type by writing a string literal, which is what turns "read it through
+ * `spentCentsFor`" from a docstring into something the compiler enforces. `normalizeForMatch`'s
+ * output is asserted into it in exactly two places, both in this file, both on the same expression.
+ */
+declare const FOLDED_CATEGORY_KEY: unique symbol;
+export type FoldedCategoryKey = string & { readonly [FOLDED_CATEGORY_KEY]: true };
+
+/** `readCurrentMonthSpending`'s result: folded keys, read through `spentCentsFor` and nothing else. */
+export type CategorySpending = ReadonlyMap<FoldedCategoryKey, number>;
+
+/**
+ * The ONLY supported read of `readCurrentMonthSpending`'s result.
+ *
+ * It exists because the defect it closes was invisible at the call site: a `Map<string, number>`
+ * says nothing about its key convention, so `/budgets` looked up with a raw `budget.categoryName`
+ * and silently got 0 for every category whose spelling differed from the transactions' by a case
+ * or an accent. Folding here CALLS `normalizeForMatch` rather than restating it, so the lookup and
+ * the accumulation above can only ever fold the same way.
+ */
+export function spentCentsFor(spending: CategorySpending, categoryName: string): number {
+	return spending.get(normalizeForMatch(categoryName) as FoldedCategoryKey) ?? 0;
 }

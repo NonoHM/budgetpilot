@@ -5,6 +5,7 @@ import type { CategoryAllocation } from '$lib/domain/allocation';
 import type { CategoryBudget } from '$lib/domain/budget';
 import { summarizeBudgetAllocations } from '$lib/domain/budget';
 import { readCurrentMonthSpending, readDashboardDataForRange } from '$lib/server/budget/dashboard';
+import type { CategorySpending } from '$lib/server/budget/dashboard';
 import { spendByEffectiveCategory } from '$lib/server/dashboard/insights';
 import { analyzeTransactionNatures } from '$lib/server/transactions/nature';
 import { buildPeriodReport, getTopCategories } from '$lib/server/reports/monthly';
@@ -169,7 +170,7 @@ interface MoneyView {
 	allocations: CategoryAllocation[];
 	budgets: CategoryBudget[];
 	period: string;
-	currentMonthSpending: Map<string, number>;
+	currentMonthSpending: CategorySpending;
 }
 
 /**

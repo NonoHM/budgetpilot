@@ -60,6 +60,23 @@ describe('sumFilteredTotals', () => {
 		).toEqual({ incomeCents: 245000, expenseCents: 5230 });
 	});
 
+	it('does not cancel a positive-stored expense against a negative-stored one', () => {
+		// The composition `import/persist.ts` produces the moment a user imports a CSV and also adds
+		// a transaction by hand: one bucket, both stored signs. This side has always taken the
+		// magnitude PER ROW and is exact; the SQL twin used to `_sum` first and take the magnitude
+		// last, which cancelled. The figures are the measured ones — 399,47 € true, 99,47 € as the
+		// cancelling implementation reported it — and the pair is pinned against a real engine in
+		// totals.db-smoke.ts, which is the only place the SQL half can be proven.
+		expect(
+			sumFilteredTotals([
+				unsplitRow({ amountCents: -18_000 }),
+				unsplitRow({ amountCents: -6_947 }),
+				unsplitRow({ amountCents: 9_000, type: 'expense' }),
+				unsplitRow({ amountCents: 6_000, type: 'expense' })
+			])
+		).toEqual({ incomeCents: 0, expenseCents: 39_947 });
+	});
+
 	it('counts a zero amount as income, matching getTransactionKind', () => {
 		expect(sumFilteredTotals([unsplitRow({ amountCents: 0, type: null })])).toEqual({
 			incomeCents: 0,

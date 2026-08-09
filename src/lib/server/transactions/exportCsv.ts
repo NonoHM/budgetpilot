@@ -1,4 +1,4 @@
-import type { TransactionNature } from '$lib/domain/transaction';
+import { applyKindSign, type TransactionNature } from '$lib/domain/transaction';
 import { mapTransactionAllocations, getEffectiveCategory } from './nature';
 import type { TransactionRowForMapping } from './nature';
 import { resolveTransactionType } from './totals';
@@ -60,8 +60,11 @@ export function buildTransactionsCsv(
 		// Stored amounts carry no reliable sign (`type` wins over it, and imports store magnitudes),
 		// so the file's sign is derived from the resolved type exactly as it was before allocations
 		// existed. Applied to the parts too, which is what keeps Σ parts = total in the file itself.
-		const signed = (amountCents: number) =>
-			transactionType === 'expense' ? -Math.abs(amountCents) : Math.abs(amountCents);
+		//
+		// Through `applyKindSign` rather than a local expression: this rule used to be written out
+		// here and nowhere else, so the transactions list — which needs the identical answer — was
+		// free to disagree with the file this export produces, and did.
+		const signed = (amountCents: number) => applyKindSign(amountCents, transactionType);
 		const parentCategory = getEffectiveCategory(transaction);
 		const totalCents = signed(transaction.amountCents);
 

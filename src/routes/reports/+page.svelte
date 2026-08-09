@@ -104,6 +104,17 @@
 		}`
 	);
 
+	/**
+	 * The donut's centre figure, through `formatCents` like every other money figure in the app.
+	 *
+	 * It was the one exception, hand-rolled as `${Math.round(cents / 100)} €`, and both halves of
+	 * that expression were wrong on screen. The rounding printed « 215 € » in the centre while
+	 * `categoryDonutMeta` — the same `report.expenseCents`, 8 px above — read « 214,50 € ». And with
+	 * no `Intl` behind it there were no thousands separators, so a large total ran together as
+	 * « 1005002785 € ». Both were measured in a real browser before this line changed.
+	 */
+	const categoryDonutCenterValue = $derived(formatCents(report.expenseCents));
+
 	function formatPercent(value: number | null): string {
 		if (value === null) return m.reports_not_available();
 		return `${Math.round(value * 100)} %`;
@@ -524,7 +535,7 @@
 							title={m.reports_donut_title()}
 							meta={categoryDonutMeta}
 							centerCaption={m.reports_donut_total_label()}
-							centerValue={`${Math.round(report.expenseCents / 100)} €`}
+							centerValue={categoryDonutCenterValue}
 							emptyText={m.reports_empty_no_expense()}
 						/>
 					</div>

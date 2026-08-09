@@ -72,6 +72,62 @@ export interface CategoryTotalsScope {
 }
 
 /**
+ * Σ|amountCents| over a predicate — the SQL half of `sumFilteredTotals`'s per-row `Math.abs`.
+ *
+ * TWO AGGREGATES, NOT ONE, AND THE DIFFERENCE IS A FALSE FIGURE ON SCREEN. This used to be a single
+ * `_sum` with `Math.abs` applied to its RESULT, which is `|Σx|` and not `Σ|x|`. Those are the same
+ * number only while every row in the bucket shares a stored sign, and they do not: `persist.ts`
+ * stores `Math.abs(amountCents)` for every CSV import while a manually added transaction stores a
+ * signed one, so any user who has done both holds an expense bucket containing rows of both signs,
+ * and inside that bucket a positive-stored expense CANCELLED a negative-stored one.
+ *
+ * Measured on a seeded instance at `/transactions?type=expense`: the band read 99,47 € against a
+ * true 399,47 €, short by exactly twice the 150,00 € of positive-stored magnitudes. The `?q=` path
+ * beside it, which goes through `sumFilteredTotals`, was already exact — so two figures for one set
+ * disagreed depending on whether the user had typed anything in the search box.
+ *
+ * Splitting the predicate by sign and SUBTRACTING the negative half is exact and needs no `ABS()`:
+ * Σ|x| = Σ(x ≥ 0) − Σ(x < 0), and `Math.abs` never appears, so nothing here can be misread as the
+ * `|Σx|` this replaces. Raw SQL with `SUM(ABS(...))` would be one query instead of two, and is
+ * refused: it cannot compose with `buildTransactionWhere`'s predicate, which is the object every
+ * other reader of this filter shares.
+ *
+ * The two halves run concurrently, so the added cost is a query rather than a round trip.
+ */
+async function sumTransactionMagnitudes(where: Prisma.TransactionWhereInput): Promise<number> {
+	const [positive, negative] = await Promise.all([
+		prisma.transaction.aggregate({
+			where: { AND: [where, { amountCents: { gte: 0 } }] },
+			_sum: { amountCents: true }
+		}),
+		prisma.transaction.aggregate({
+			where: { AND: [where, { amountCents: { lt: 0 } }] },
+			_sum: { amountCents: true }
+		})
+	]);
+
+	return (positive._sum.amountCents ?? 0) - (negative._sum.amountCents ?? 0);
+}
+
+/** `sumTransactionMagnitudes` over the parts table. Parts carry the PARENT ROW's stored sign
+ *  (`replaceSplits` enforces it), so an imported répartition is stored entirely positive and the
+ *  part aggregate cancels exactly the way the parent one did. */
+async function sumSplitMagnitudes(where: Prisma.TransactionSplitWhereInput): Promise<number> {
+	const [positive, negative] = await Promise.all([
+		prisma.transactionSplit.aggregate({
+			where: { AND: [where, { amountCents: { gte: 0 } }] },
+			_sum: { amountCents: true }
+		}),
+		prisma.transactionSplit.aggregate({
+			where: { AND: [where, { amountCents: { lt: 0 } }] },
+			_sum: { amountCents: true }
+		})
+	]);
+
+	return (positive._sum.amountCents ?? 0) - (negative._sum.amountCents ?? 0);
+}
+
+/**
  * Income and expense magnitudes over the WHOLE filtered set, not the current page.
  *
  * A sum, not a policy: no nature is excluded. Every existing "spend by X" site in this codebase
@@ -95,21 +151,12 @@ export async function computeFilteredTotals(
 	categoryScope?: CategoryTotalsScope
 ): Promise<FilteredTotals> {
 	if (!categoryScope) {
-		const [income, expense] = await Promise.all([
-			prisma.transaction.aggregate({
-				where: { AND: [where, transactionKindWhere('income')] },
-				_sum: { amountCents: true }
-			}),
-			prisma.transaction.aggregate({
-				where: { AND: [where, transactionKindWhere('expense')] },
-				_sum: { amountCents: true }
-			})
+		const [incomeCents, expenseCents] = await Promise.all([
+			sumTransactionMagnitudes({ AND: [where, transactionKindWhere('income')] }),
+			sumTransactionMagnitudes({ AND: [where, transactionKindWhere('expense')] })
 		]);
 
-		return {
-			incomeCents: Math.abs(income._sum.amountCents ?? 0),
-			expenseCents: Math.abs(expense._sum.amountCents ?? 0)
-		};
+		return { incomeCents, expenseCents };
 	}
 
 	// Bound before the closure below, so the narrowing survives into it.
@@ -125,26 +172,20 @@ export async function computeFilteredTotals(
 			// `where` already carries the category disjunction, and for a row with no parts its
 			// `splits: { some: ... }` branch is false — so this reduces to exactly "the effective
 			// category matches", with no second copy of that expression here.
-			prisma.transaction.aggregate({
-				where: { AND: [matchedOfKind, { splits: { none: {} } }] },
-				_sum: { amountCents: true }
-			}),
+			sumTransactionMagnitudes({ AND: [matchedOfKind, { splits: { none: {} } }] }),
 			// BOTH sides scoped, the rule tags/counts.ts states at length: the parent through
 			// `where`'s own userId, and the part's category through its own userId conjunct. A foreign
 			// key does not stop a part pointing at another account's category — only a scoped read does.
 			//
 			// The KIND comes from the parent (`matchedOfKind`), never from the part's sign: a part has
 			// no type of its own, and `allocationsOf` gives every allocation its transaction's kind.
-			prisma.transactionSplit.aggregate({
-				where: {
-					category: { is: { userId: scope.userId, nameKey } },
-					transaction: matchedOfKind
-				},
-				_sum: { amountCents: true }
+			sumSplitMagnitudes({
+				category: { is: { userId: scope.userId, nameKey } },
+				transaction: matchedOfKind
 			})
 		]);
 
-		return Math.abs(unsplit._sum.amountCents ?? 0) + Math.abs(parts._sum.amountCents ?? 0);
+		return unsplit + parts;
 	}
 
 	const [incomeCents, expenseCents] = await Promise.all([

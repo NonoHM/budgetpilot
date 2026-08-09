@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { page } from 'vitest/browser';
 import '../layout.css';
 import type { MonthlyReport } from '$lib/server/reports/monthly';
 import * as m from '$lib/paraglide/messages';
@@ -227,5 +228,144 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 		expect(screen.getByText(m.reports_forecast_flows_title()).elements()).toHaveLength(2);
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_empty_title());
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_stale_title());
+	});
+});
+
+/**
+ * The donut centre was the only money figure in the app not going through `formatCents`.
+ *
+ * Measured in a real browser before the fix: the centre read « Total 215 € » while the header 8 px
+ * above it read « 214,50 € », for the same figure, because the centre was
+ * `${Math.round(cents / 100)} €`. The same expression emitted no thousands separator either, so a
+ * large total rendered as « 1005002785 € ».
+ *
+ * The fit is MEASURED, not assumed. Routing through `formatCents` makes the string longer (decimals
+ * and separators), and the centre is a fixed inset inside a fixed-diameter ring, so "it will
+ * probably still fit" is exactly the kind of claim this repo does not accept. The stylesheet import
+ * at the top of this file is what makes those numbers real rather than UA defaults.
+ */
+describe('/reports donut centre — formatCents, and whether it still fits', () => {
+	/** The audit instance's own figure, so the assertion is the one that was measured on screen. */
+	const EXPENSE_CENTS = 21_450;
+
+	function donutData(expenseCents: number): PageData {
+		const data = buildData(null);
+		return {
+			...data,
+			report: {
+				...data.report,
+				expenseCents,
+				topCategories: [
+					{
+						category: 'Loisirs',
+						amountCents: -Math.round(expenseCents * 0.6),
+						transactionCount: 3,
+						percentageOfExpenses: 0.6
+					},
+					{
+						category: 'Transport',
+						amountCents: -Math.round(expenseCents * 0.4),
+						transactionCount: 2,
+						percentageOfExpenses: 0.4
+					}
+				]
+			}
+		} as PageData;
+	}
+
+	/** The centre value is the second span of the absolutely-positioned inner disc. */
+	function centerValueElement(container: HTMLElement): HTMLElement {
+		const disc = container.querySelector<HTMLElement>('div.absolute.rounded-full');
+		if (!disc) throw new Error('donut centre disc not found — the chart did not render');
+		const spans = disc.querySelectorAll<HTMLElement>('span');
+		return spans[spans.length - 1];
+	}
+
+	it('prints 214,50 € where it used to print 215 €', async () => {
+		expect.assertions(2);
+
+		const screen = render(Page, { data: donutData(EXPENSE_CENTS) });
+		const value = centerValueElement(screen.container as HTMLElement);
+
+		// Non-breaking spaces in the French currency format, normalised so the assertion is about
+		// the figure rather than about Intl's separator choice.
+		const text = value.textContent?.replace(/[\u00A0\u202F\u2009]/g, ' ').trim();
+		expect(text).toBe('214,50 €');
+		// The rounded figure is gone: it is the same number the header states, to the cent.
+		expect(text).not.toBe('215 €');
+	});
+
+	it('separates thousands, where the old expression ran the digits together', async () => {
+		expect.assertions(1);
+
+		const screen = render(Page, { data: donutData(100_500_278_500) });
+		const value = centerValueElement(screen.container as HTMLElement);
+		const text = value.textContent?.replace(/[\u00A0\u202F\u2009]/g, ' ').trim();
+
+		expect(text).toBe('1 005 002 785,00 €');
+	});
+
+	it('fits the centre disc at the real figure, at 390 and at 1280', async () => {
+		expect.assertions(4);
+
+		await page.viewport(390, 844);
+		const mobile = render(Page, { data: donutData(EXPENSE_CENTS) });
+		const mobileValue = centerValueElement(mobile.container as HTMLElement);
+		const mobileDisc = mobileValue.parentElement as HTMLElement;
+
+		// ABSOLUTE, not relative. A value-against-disc comparison alone would hold in a world where
+		// no stylesheet was loaded at all and both boxes fell back to UA defaults, so the disc's own
+		// width is asserted first: `inset-[22px]` inside a 176 px ring is 132 px, and reading that
+		// number back is what proves layout.css is really in effect here.
+		expect(Math.round(mobileDisc.getBoundingClientRect().width)).toBe(132);
+		expect(mobileValue.getBoundingClientRect().width).toBeLessThanOrEqual(132);
+
+		await page.viewport(1280, 800);
+		const desktop = render(Page, { data: donutData(EXPENSE_CENTS) });
+		const desktopValue = centerValueElement(desktop.container as HTMLElement);
+		const desktopDisc = desktopValue.parentElement as HTMLElement;
+
+		// The tighter of the two: `lg:inset-[15px]` inside a 128 px ring. This is the box the fix
+		// had to be measured against, and « 214,50 € » at `lg:text-base` is 55,4 px inside it.
+		expect(Math.round(desktopDisc.getBoundingClientRect().width)).toBe(98);
+		expect(desktopValue.getBoundingClientRect().width).toBeLessThanOrEqual(98);
+	});
+
+	/**
+	 * The boundary, recorded rather than left silent: a figure this large OVERFLOWS the disc.
+	 *
+	 * Measured at 390: the value box spills over the 132 px ring rather than clipping, so the figure
+	 * stays readable and stays true. The pre-fix expression fit only because it dropped the
+	 * separators and the cents, which is to say it fit by being wrong.
+	 *
+	 * Asserted, not merely commented, so that a future change which clamps, truncates or ellipsises
+	 * this figure goes red and has to be a deliberate decision. Truncating a money figure would turn
+	 * a layout complaint into a false number, which is the trade this test exists to refuse.
+	 *
+	 * THE VALUE WIDTH IS RELATIONAL AND THE DISC WIDTH IS ABSOLUTE, and mixing the two is the whole
+	 * point. The first version pinned the value at the 174 px it measured on the machine it was
+	 * written on. That is a TEXT measurement, so it moves with whichever font the host has: CI
+	 * measured 168 for byte-identical markup and the assertion went red on the harness rather than
+	 * on the product. The disc stays absolute because it is the figure that proves `layout.css` is
+	 * in effect at all — it comes from `inset-[22px]` inside a 176 px ring, not from a glyph — and a
+	 * purely relational pair would hold in a world where no stylesheet was loaded and both boxes
+	 * fell back to UA defaults.
+	 */
+	it('overflows the disc at a billion euros, and says so rather than truncating', async () => {
+		expect.assertions(3);
+
+		await page.viewport(390, 844);
+		const screen = render(Page, { data: donutData(100_500_278_500) });
+		const value = centerValueElement(screen.container as HTMLElement);
+		const disc = value.parentElement as HTMLElement;
+
+		expect(Math.round(disc.getBoundingClientRect().width)).toBe(132);
+		expect(value.getBoundingClientRect().width).toBeGreaterThan(disc.getBoundingClientRect().width);
+		// Spilled, not clipped, and asserted on the TEXT rather than on a scroll width: what this
+		// test refuses is a truncated money figure, and the whole figure being present is that
+		// property stated directly.
+		expect(value.textContent?.replace(/[\u00a0\u202f\u2009]/g, ' ').trim()).toBe(
+			'1 005 002 785,00 €'
+		);
 	});
 });

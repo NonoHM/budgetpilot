@@ -3,7 +3,11 @@ import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { collectAllTransactions } from './batch';
 import { EFFECTIVE_CATEGORY_SELECT } from '$lib/server/transactions/nature';
-import { readCurrentMonthSpending, readDashboardDataForRange } from '$lib/server/budget/dashboard';
+import {
+	spentCentsFor,
+	readCurrentMonthSpending,
+	readDashboardDataForRange
+} from '$lib/server/budget/dashboard';
 import { load as transactionsLoad } from '../../../routes/transactions/+page.server';
 import { GET as exportGET } from '../../../routes/transactions/export/+server';
 import { load as dashboardLoad } from '../../../routes/+page.server';
@@ -233,7 +237,12 @@ describe('EFFECTIVE_CATEGORY_SELECT past the SQLite parameter-limit boundary', (
 
 		const spendingByCategory = await readCurrentMonthSpending(seed.userId);
 		const expectedSpendCents = ROWS_PER_MONTH * 1_000 + (ROWS_PER_MONTH * (ROWS_PER_MONTH - 1)) / 2;
-		expect(spendingByCategory.get('ParamLimit')).toBe(expectedSpendCents);
+		// Through `spentCentsFor`, never `.get()`. THIS LINE IS WHY THE KEY TYPE IS BRANDED. Written as
+		// a raw `.get('ParamLimit')` on the branch this test was born on, it passed there — that branch's
+		// map was still keyed raw — and failed the first time the two branches met, as
+		// « expected undefined to be 1704450 », in a file about SQLite host parameters. Two green PRs,
+		// red together: the first standing principle in CLAUDE.md. It is now a compile error instead.
+		expect(spentCentsFor(spendingByCategory, 'ParamLimit')).toBe(expectedSpendCents);
 
 		// --- /transactions, the `?q=` SCAN branch (scope.collect -> forEachTransactionBatch) -------
 		const listResult = (await transactionsLoad({

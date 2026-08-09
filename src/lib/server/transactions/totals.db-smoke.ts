@@ -241,3 +241,211 @@ describe('filtered totals with a category dimension', () => {
 		await prisma.user.delete({ where: { id: userId } });
 	}, 60_000);
 });
+
+/**
+ * MIXED STORED SIGNS INSIDE ONE BUCKET — the condition every other fixture in this file removes.
+ *
+ * `import/persist.ts:317` stores `Math.abs(amountCents)` and puts the direction in `type`, while a
+ * manually added transaction stores a signed amount. So any user who has both imported a CSV and
+ * added a transaction by hand holds an expense bucket containing positive AND negative rows, and
+ * that is the app's primary data-entry path, not an edge case.
+ *
+ * `computeFilteredTotals` used to `_sum` first and `Math.abs` last, so inside one bucket a
+ * positive-stored expense CANCELLED a negative-stored one. `sumFilteredTotals` takes the magnitude
+ * PER ROW and never cancels. The two are supposed to agree and did not — and the agreement suite
+ * could not see it, because every fixture above is uniformly negative. That is CLAUDE.md's own
+ * entry: a fixture that holds still is not a neutral fixture, it is a fixture that has removed the
+ * conditions under which the bug happens.
+ *
+ * Measured on a seeded instance before the fix, at `/transactions?type=expense`: the band read
+ * 99,47 € where the truth is 399,47 €, under-reporting by 300,00 € — exactly twice the 150,00 € of
+ * positive-stored magnitudes. The figures below reproduce that arithmetic.
+ */
+describe('filtered totals over mixed stored signs', () => {
+	it('sums magnitudes rather than cancelling, and agrees with the in-memory twin', async () => {
+		const { userId, accountId, categoryId } = await seedUser();
+
+		// -249,47 € of ordinary signed expenses, plus the two positive-stored imported ones
+		// (90,00 € and 60,00 €). Σ signed = -99,47 €; Σ magnitudes = 399,47 € — the measured pair.
+		const rows = [
+			{ label: 'Loyer', amountCents: -18_000, type: 'expense' },
+			{ label: 'Assurance', amountCents: -6_947, type: 'expense' },
+			{ label: 'EDF FACTURE', amountCents: 9_000, type: 'expense' },
+			{ label: 'COURSES DIVERSES', amountCents: 6_000, type: 'expense' },
+			{ label: 'Salaire', amountCents: 250_000, type: 'income' },
+			// An income stored as a NEGATIVE magnitude, the mirror case: the same cancellation in the
+			// other bucket, and the sign that a fixture built from expenses alone never exercises.
+			{ label: 'Remboursement', amountCents: -40_000, type: 'income' }
+		];
+		await prisma.transaction.createMany({
+			data: rows.map((row, index) => ({
+				userId,
+				accountId,
+				categoryId,
+				date: new Date(`2026-07-${String(index + 1).padStart(2, '0')}T00:00:00.000Z`),
+				label: row.label,
+				amountCents: row.amountCents,
+				type: row.type,
+				source: 'csv'
+			}))
+		});
+
+		const whereAll = buildTransactionWhere({
+			userId,
+			type: 'all',
+			category: '',
+			importBatchId: ''
+		});
+		// The URL the defect was measured on.
+		const whereExpense = buildTransactionWhere({
+			userId,
+			type: 'expense',
+			category: '',
+			importBatchId: ''
+		});
+
+		// THE MEASURED PAIR. Σ|expense| = 18000 + 6947 + 9000 + 6000 = 39947 — the band reads
+		// 399,47 €. The cancelling implementation answered |−24947 + 15000| = 9947, i.e. 99,47 €,
+		// short by exactly twice the 150,00 € of positive-stored magnitudes.
+		expect(await computeFilteredTotals(whereExpense)).toEqual({
+			incomeCents: 0,
+			expenseCents: 39_947
+		});
+
+		// ABSOLUTE first, over the unfiltered set. Σ|income| = 250000 + 40000 = 290000; the same
+		// cancellation in the other bucket answered 210000, so the mirror sign is covered too.
+		expect(await computeFilteredTotals(whereAll)).toEqual({
+			incomeCents: 290_000,
+			expenseCents: 39_947
+		});
+
+		// Then the agreement, which is the weaker of the two checks and is stated second on purpose.
+		const loaded = await prisma.transaction.findMany({
+			where: whereAll,
+			select: {
+				amountCents: true,
+				type: true,
+				manualCategory: true,
+				category: { select: { name: true } },
+				splits: { select: { amountCents: true, category: { select: { name: true } } } }
+			}
+		});
+		expect(sumFilteredTotals(loaded)).toEqual(await computeFilteredTotals(whereAll));
+
+		await prisma.transaction.deleteMany({ where: { userId } });
+		await prisma.user.delete({ where: { id: userId } });
+	}, 60_000);
+
+	it('does not cancel inside the CATEGORY branch either, on parents or on parts', async () => {
+		const { userId, accountId } = await seedUser();
+		const [food, home] = await Promise.all([
+			prisma.category.create({
+				data: { userId, name: 'Alimentation', nameKey: computeNameKey('Alimentation') },
+				select: { id: true }
+			}),
+			prisma.category.create({
+				data: { userId, name: 'Maison', nameKey: computeNameKey('Maison') },
+				select: { id: true }
+			})
+		]);
+
+		// Two répartitions of opposite STORED sign, both expenses. `replaceSplits` requires each part
+		// to carry the parent ROW's sign, so an imported répartition is stored entirely positive —
+		// which means the part aggregate cancels exactly as the parent one did.
+		const imported = await prisma.transaction.create({
+			data: {
+				userId,
+				accountId,
+				categoryId: food.id,
+				date: new Date('2026-07-01T00:00:00.000Z'),
+				label: 'Carrefour importe',
+				amountCents: 8_000,
+				type: 'expense',
+				source: 'csv'
+			},
+			select: { id: true }
+		});
+		const manual = await prisma.transaction.create({
+			data: {
+				userId,
+				accountId,
+				categoryId: food.id,
+				date: new Date('2026-07-02T00:00:00.000Z'),
+				label: 'Carrefour saisi',
+				amountCents: -5_000,
+				type: 'expense',
+				source: 'manual'
+			},
+			select: { id: true }
+		});
+		expect(
+			await replaceSplits(userId, imported.id, [
+				{ categoryId: food.id, amountCents: 6_000 },
+				{ categoryId: home.id, amountCents: 2_000 }
+			])
+		).toEqual({ ok: true });
+		expect(
+			await replaceSplits(userId, manual.id, [
+				{ categoryId: food.id, amountCents: -4_000 },
+				{ categoryId: home.id, amountCents: -1_000 }
+			])
+		).toEqual({ ok: true });
+
+		// Unsplit rows in Maison, one of each stored sign, so the parent aggregate mixes too.
+		await prisma.transaction.createMany({
+			data: [
+				{
+					userId,
+					accountId,
+					categoryId: home.id,
+					date: new Date('2026-07-03T00:00:00.000Z'),
+					label: 'Quincaillerie importee',
+					amountCents: 1_500,
+					type: 'expense',
+					source: 'csv'
+				},
+				{
+					userId,
+					accountId,
+					categoryId: home.id,
+					date: new Date('2026-07-04T00:00:00.000Z'),
+					label: 'Quincaillerie saisie',
+					amountCents: -700,
+					type: 'expense',
+					source: 'manual'
+				}
+			]
+		});
+
+		const whereMaison = buildTransactionWhere({
+			userId,
+			type: 'all',
+			category: 'Maison',
+			importBatchId: ''
+		});
+
+		// Parts: 2000 + 1000. Unsplit parents: 1500 + 700. Total 5200. Cancelling answers
+		// |2000 - 1000| + |1500 - 700| = 1800.
+		expect(await computeFilteredTotals(whereMaison, { userId, name: 'Maison' })).toEqual({
+			incomeCents: 0,
+			expenseCents: 5_200
+		});
+
+		const loaded = await prisma.transaction.findMany({
+			where: whereMaison,
+			select: {
+				amountCents: true,
+				type: true,
+				manualCategory: true,
+				category: { select: { name: true } },
+				splits: { select: { amountCents: true, category: { select: { name: true } } } }
+			}
+		});
+		expect(sumFilteredTotals(loaded, 'Maison')).toEqual(
+			await computeFilteredTotals(whereMaison, { userId, name: 'Maison' })
+		);
+
+		await prisma.transaction.deleteMany({ where: { userId } });
+		await prisma.user.delete({ where: { id: userId } });
+	}, 60_000);
+});

@@ -2,6 +2,7 @@ import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
 	TRANSACTION_NATURES,
+	applyKindSign,
 	type TransactionKind,
 	type TransactionNature,
 	isTransactionNature
@@ -1112,7 +1113,18 @@ function mapTransactionListItem(
 		nature: nature.nature,
 		natureSource: nature.source,
 		manualNature: transaction.natureManual,
-		amountCents: transaction.amountCents,
+		// SIGNED BY DIRECTION, not by whatever the column happens to hold. `import/persist.ts` stores
+		// `Math.abs(...)`, so a CSV-imported expense is a POSITIVE row: rendered raw, it read
+		// « 90,00 € » beside a seeded expense reading « -80,00 € », with only the rose text colour
+		// saying they were the same thing. Applied here rather than in the view so every surface
+		// reading this loader — the two list layouts, the delete confirmation, the detail header —
+		// gets one answer, and so the rule is not scattered through the template.
+		//
+		// Through the `kind` already bound above rather than by resolving the type a second time:
+		// the two expressions are the same call, and binding it once is what stops them drifting.
+		// This line is the merge point of two branches that both rewrote it — the filtered-row work
+		// and the signing fix — and neither survives alone.
+		amountCents: applyKindSign(transaction.amountCents, kind),
 		type: kind,
 		source: transaction.source,
 		tags: flattenTagLinks(transaction.tags),
@@ -1203,7 +1215,12 @@ function mapTransactionDetail(
 		id: transaction.id,
 		date: transaction.date.toISOString().slice(0, 10),
 		label: anonymizeDetailText(transaction.label),
-		amountCents: transaction.amountCents,
+		// Signed by direction, for the same reason as in `mapTransactionListItem` above. The split
+		// editor reads this too, and is unaffected: `resolveRemainder` normalises by the parent's
+		// direction and every other split helper takes `Math.abs`, so the sign changes what the
+		// header prints and nothing about what the parts are allowed to be. The server-side write
+		// path re-reads the parent row from the database and never trusts this value.
+		amountCents: applyKindSign(transaction.amountCents, resolveTransactionType(transaction)),
 		type: resolveTransactionType(transaction),
 		category,
 		importedCategory: transaction.category.name,

@@ -35,9 +35,28 @@ const SELF = join(
 // copy that reached for `.name ?? SENTINEL` or destructured differently is still caught.
 const HAND_ROLLED = /manualCategory\s*\?\?\s*\w+\.category/;
 
+/**
+ * FILES, not entries, and the distinction is not pedantry — it is what stopped this scan crashing
+ * for a reason that has nothing to do with its subject.
+ *
+ * `vitest-browser` writes a failing browser test's screenshot to
+ * `<spec dir>/__screenshots__/<spec file name>/…`, and that middle segment is the spec's FILE NAME,
+ * `.ts` included. So the moment any component spec under `src/` goes red, a DIRECTORY called
+ * `page.svelte.spec.ts` appears, this scan matches it on the extension, and `readFileSync` throws
+ * `EISDIR: illegal operation on a directory, read`.
+ *
+ * Measured: one font-dependent pixel assertion failed in CI, and this file — five directories away,
+ * about a completely different rule — went red beside it with an error naming no path at all. A
+ * guard that manufactures a second, unrelated-looking failure out of the first is worse than no
+ * guard, because the second one is what the next reader spends their time on.
+ *
+ * `withFileTypes` removes the whole class rather than excluding `__screenshots__` by name, which
+ * would only wait for the next tool to write a directory here.
+ */
 function typeScriptFilesUnder(root: string): string[] {
-	return readdirSync(root, { recursive: true, encoding: 'utf8' })
-		.map((entry) => join(root, entry))
+	return readdirSync(root, { recursive: true, withFileTypes: true })
+		.filter((entry) => entry.isFile())
+		.map((entry) => join(entry.parentPath, entry.name))
 		.filter((path) => path.endsWith('.ts'))
 		.filter((path) => !path.includes(`${join('database', 'generated')}`));
 }
