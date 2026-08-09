@@ -127,6 +127,49 @@ const secondaryFor = (amountCents: number) =>
 		)
 	});
 
+/**
+ * A row the filter matched by PARENT IDENTITY, with none of its money in the filtered category:
+ * filed under « Revenus », split entirely into Salaire and Épargne, so the remainder is zero and
+ * `allocateByCategory` drops it. `buildTransactionWhere` widens the filter to such rows on purpose
+ * (OD-1), so it IS on screen, and the only truthful amount for it is zero.
+ */
+const IDENTITY_ONLY = makeTransaction({
+	id: 'tx-identity',
+	label: 'VIREMENT EMPLOYEUR',
+	category: 'Revenus',
+	importedCategory: 'Revenus',
+	amountCents: 250_000,
+	type: 'income' as const,
+	splitIndicator: {
+		dominantCategory: 'Salaire',
+		dominantNature: SPENDING,
+		otherCategoryCount: 1,
+		partCount: 2,
+		parts: [
+			{ category: 'Salaire', amountCents: 200_000 },
+			{ category: 'Épargne', amountCents: 50_000 }
+		]
+	},
+	matchedCategoryAllocation: { category: 'Revenus', nature: SPENDING, amountCents: 0 }
+});
+
+describe('a row matched by parent identity, carrying none of the filtered money', () => {
+	it('shows zero and the category that matched, never the dominant part and the full total', async () => {
+		expect.assertions(3);
+		await page.viewport(1280, 800);
+		render(Page, { data: baseData({ transactions: [IDENTITY_ONLY] }), form: null });
+
+		const table = page.getByRole('table');
+		// The figure the band also reports for this row, so the two agree by construction.
+		await expect.element(table.getByText('0,00\u00a0\u20ac', { exact: true })).toBeInTheDocument();
+		// The category the filter matched…
+		await expect.element(table.getByText('Revenus', { exact: true })).toBeInTheDocument();
+		// …and NOT the dominant part, which is the pre-fix display and is false about this filter:
+		// no money in this transaction is Revenus, and « Salaire » is not what was asked for.
+		expect(table.getByText('Salaire', { exact: true }).elements()).toEqual([]);
+	});
+});
+
 describe('the secondary « sur {total} » line under a category filter', () => {
 	it('renders on a genuine fragment — so the absence asserted below is an absence of something possible', async () => {
 		expect.assertions(1);
