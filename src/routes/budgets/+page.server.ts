@@ -9,6 +9,7 @@ import {
 	readCurrentMonthSpending,
 	readMonthlyBudgets,
 	saveBudget,
+	spentCentsFor,
 	updateBudget
 } from '$lib/server/budget/dashboard';
 import type { PageServerLoad } from './$types';
@@ -29,7 +30,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 		budgets: budgets.map((budget) => ({
 			...budget,
 			amountEuros: formatBudgetInput(budget.amountCents),
-			spentCents: spending.get(budget.categoryName) ?? 0
+			// Through `spentCentsFor`, never `spending.get(...)`: the map is keyed on the FOLDED
+			// category name, and a raw lookup here is what made this page report 70,00 € against
+			// the dashboard's 74,50 € for the same budget in the same month.
+			spentCents: spentCentsFor(spending, budget.categoryName)
 		})),
 		categoryOptions,
 		categories,

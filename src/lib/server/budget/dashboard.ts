@@ -4,6 +4,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import type { CategoryBudget } from '$lib/domain/budget';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { normalizeForMatch } from '$lib/domain/normalize';
 import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { Transaction } from '$lib/domain/transaction';
 import { allocateByCategory, type CategoryAllocation } from '$lib/domain/allocation';
@@ -73,10 +74,26 @@ export interface MonthlyBudgetRecord {
 	updatedAt: string;
 }
 
+/**
+ * The month the app means by "now" — UTC, because every clock read it is compared against is UTC.
+ *
+ * It used to read the server's LOCAL month, and it is the only one that did. `readDashboardData`
+ * builds its range with `Date.UTC`, `readCurrentMonthSpending` bounds its own with `getUTCMonth`,
+ * the forecast's `todayIso` is a `toISOString` slice, and `getCurrentBillsMonth` is UTC with its
+ * own docstring saying why. A local month therefore disagreed with the figures it labelled for up
+ * to two hours a month at CEST and up to fourteen at UTC+14.
+ *
+ * Measured before the fix, at 2026-08-31 23:30 UTC on a UTC+2 host: /budgets printed
+ * « septembre 2026 » above August's spend, and `loadDashboardInsights` read September — so the
+ * budget alerts silently vanished while the dashboard beside them still said August. Nothing was
+ * missing from the page; the wrong month was simply named over the right numbers.
+ *
+ * `getRemainingDaysInMonth` follows this basis deliberately (see its own comment): the pair has to
+ * agree about which month is current, or the pace insight reads zero days left in a month that has
+ * just begun.
+ */
 export function getCurrentMonth(): string {
-	const now = new Date();
-	const month = `${now.getMonth() + 1}`.padStart(2, '0');
-	return `${now.getFullYear()}-${month}`;
+	return new Date().toISOString().slice(0, 7);
 }
 
 export function parseMonth(value: string | null): string {
@@ -397,7 +414,16 @@ function isValidMonth(value: string): boolean {
 }
 
 /**
- * Per-category spending for the CURRENT calendar month.
+ * Per-category spending for the CURRENT calendar month, KEYED BY THE FOLDED CATEGORY NAME.
+ *
+ * The fold is not decoration. `manualCategory` is free text a user types, so "Transport" and
+ * "transport" reach this map as two effective categories while every other reader in the app —
+ * `buildCategoryNatureMap`, `shouldCountTransactionInBudget`, the `nameKey` columns — treats them
+ * as one name. Keyed raw, this map under-reported /budgets by exactly the parts spelled
+ * differently from the budget: 70,00 € shown against 74,50 € on the dashboard for the same budget
+ * in the same month, and 0,00 € against 27,00 € for Transport. Folding here merges them, and
+ * `spentCentsFor` below is the only supported way to read the result, so a caller cannot
+ * reintroduce a raw lookup without deleting it.
  *
  * Two things about it that are easy to miss, both pre-existing and both left as they are:
  *
@@ -441,11 +467,22 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
 			}))
 		);
 		for (const entry of allocated) {
-			spending.set(
-				entry.category,
-				(spending.get(entry.category) ?? 0) + Math.abs(entry.amountCents)
-			);
+			const key = normalizeForMatch(entry.category);
+			spending.set(key, (spending.get(key) ?? 0) + Math.abs(entry.amountCents));
 		}
 	}
 	return spending;
+}
+
+/**
+ * The ONLY supported read of `readCurrentMonthSpending`'s result.
+ *
+ * It exists because the defect it closes was invisible at the call site: a `Map<string, number>`
+ * says nothing about its key convention, so `/budgets` looked up with a raw `budget.categoryName`
+ * and silently got 0 for every category whose spelling differed from the transactions' by a case
+ * or an accent. Folding here CALLS `normalizeForMatch` rather than restating it, so the lookup and
+ * the accumulation above can only ever fold the same way.
+ */
+export function spentCentsFor(spending: Map<string, number>, categoryName: string): number {
+	return spending.get(normalizeForMatch(categoryName)) ?? 0;
 }

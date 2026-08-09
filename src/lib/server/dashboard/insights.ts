@@ -161,16 +161,22 @@ export function computeUnusualSpendingInsight(
 }
 
 export function getRemainingDaysInMonth(month: string): number {
-	// Uses local time throughout (not UTC) to stay consistent with getCurrentMonth(),
-	// which is also local-time-based — mixing bases here would misdetect "current month"
-	// during the first hours of each month in UTC+ timezones.
+	// UTC throughout, to stay consistent with getCurrentMonth(), which is what the `month` argument
+	// comes from at the only call site. The two must share a basis or they disagree about which
+	// month is current: with getCurrentMonth() on UTC and this on local time, at 2026-08-31 23:30
+	// UTC on a UTC+2 host the caller asks for August while this function sees September, answers 0,
+	// and the pace insight disappears from a month that has thirty-one days left.
+	//
+	// Inclusive of today, unlike domain/forecast.ts's getRemainingDaysInMonthUtc, which counts the
+	// days STILL TO COME. The two answer different questions and are deliberately not merged: this
+	// one paces a budget across the days it can still be spent on, so the day in progress counts.
 	const [year, monthNumber] = month.split('-').map(Number);
 	const now = new Date();
-	const isCurrentMonth = now.getFullYear() === year && now.getMonth() + 1 === monthNumber;
+	const isCurrentMonth = now.getUTCFullYear() === year && now.getUTCMonth() + 1 === monthNumber;
 	if (!isCurrentMonth) return 0;
 
-	const daysInMonth = new Date(year, monthNumber, 0).getDate();
-	return daysInMonth - now.getDate() + 1;
+	const daysInMonth = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+	return daysInMonth - now.getUTCDate() + 1;
 }
 
 // Excludes transfer/investment: these natures don't feed budgets/insights unless an

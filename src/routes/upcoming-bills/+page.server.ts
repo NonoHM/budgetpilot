@@ -19,10 +19,12 @@ import type { Actions, PageServerLoad } from './$types';
  * malformed one, which is what keeps `formatMonthLabel` (a deliberate `RangeError` on a bad key)
  * from turning a hand-edited URL into a 500 in the component.
  *
- * Its DEFAULT is deliberately not used. `parseMonth(null)` returns `getCurrentMonth()`, the
- * server's LOCAL month, while the service derives `isCurrentMonth`/`isFutureMonth` from a UTC
+ * Its DEFAULT is deliberately not used. `parseMonth(null)` returns `getCurrentMonth()`, which was
+ * the server's LOCAL month while the service derives `isCurrentMonth`/`isFutureMonth` from a UTC
  * `todayIso` — so east of Greenwich, early on the 1st, the default load landed on a month the
- * service then called future. The route follows the service's UTC clock instead.
+ * service then called future. The route follows the service's own clock instead, and still does
+ * now that `getCurrentMonth()` is UTC too: `getCurrentBillsMonth` is the value this page's badges
+ * and navigation bounds are pinned against, so the default comes from there or from nowhere.
  */
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);

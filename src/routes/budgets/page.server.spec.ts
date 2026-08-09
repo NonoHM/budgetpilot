@@ -13,10 +13,15 @@ const db = vi.hoisted(() => ({
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
+const { spentCentsFor: realSpentCentsFor } = await vi.importActual<
+	typeof import('$lib/server/budget/dashboard')
+>('$lib/server/budget/dashboard');
+
 const budgetService = vi.hoisted(() => ({
 	readMonthlyBudgets: vi.fn(async () => [
 		{
 			id: 'budget-a',
+			// The spelling a budget is CREATED with, which `upsertBudgetByFoldedName` never rewrites.
 			categoryName: 'Alimentation',
 			amountCents: 25_000,
 			createdAt: '2026-06-01T00:00:00.000Z',
@@ -24,11 +29,25 @@ const budgetService = vi.hoisted(() => ({
 		}
 	]),
 	readBudgetCategoryOptions: vi.fn(async () => ['Alimentation', 'Maison']),
-	readCurrentMonthSpending: vi.fn(async () => new Map([['Alimentation', 12_000]])),
+	/**
+	 * FOLDED keys, because that is what the real `readCurrentMonthSpending` returns.
+	 *
+	 * This fixture used to read `new Map([['Alimentation', 12_000]])` — byte-identical to the
+	 * budget's own `categoryName` — which baked the raw-name assumption into the test and made the
+	 * defect structurally invisible: the `.get(budget.categoryName)` lookup could not miss. On the
+	 * real map it missed for every category a user had spelled differently anywhere, which is how
+	 * /budgets came to print 70,00 € against the dashboard's 74,50 € for the same budget.
+	 */
+	readCurrentMonthSpending: vi.fn(async () => new Map([['alimentation', 12_000]])),
 	getCurrentMonth: vi.fn(() => '2026-06'),
 	saveBudget: vi.fn(async () => undefined),
 	updateBudget: vi.fn(async () => undefined),
-	deleteBudget: vi.fn(async () => undefined)
+	deleteBudget: vi.fn(async () => undefined),
+	// The REAL folding helper, not a stand-in. A hand-written fake here would be a second copy of
+	// the fold, and the copy is what the whole defect was made of.
+	spentCentsFor: vi.fn((spending: Map<string, number>, categoryName: string) =>
+		realSpentCentsFor(spending, categoryName)
+	)
 }));
 
 vi.mock('$lib/server/budget/dashboard', () => budgetService);
@@ -57,6 +76,9 @@ describe('/budgets', () => {
 		expect(budgetService.readBudgetCategoryOptions).toHaveBeenCalledWith(testUser.id);
 		expect(budgetService.readCurrentMonthSpending).toHaveBeenCalledWith(testUser.id);
 		expect(data.budgets[0].amountEuros).toBe('250,00');
+		// The budget is spelled "Alimentation" and the spending map is keyed "alimentation". A raw
+		// `spending.get(budget.categoryName)` answers 0 here — the shape that printed 0,00 € on
+		// /budgets for a category the dashboard was reporting 27,00 € of spend for.
 		expect(data.budgets[0].spentCents).toBe(12_000);
 		expect(data.categoryOptions).toEqual(['Alimentation', 'Maison']);
 		expect(data.categories).toEqual([

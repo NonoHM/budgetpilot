@@ -91,3 +91,29 @@ describe('/budgets AlertBanner gating', () => {
 		expect(document.querySelectorAll('[role="status"]').length).toBe(0);
 	});
 });
+
+/**
+ * The other half of the wrong-month defect: this is what the month KEY becomes on screen.
+ *
+ * `getCurrentMonth()` produces the key and is asserted directly, under a pinned clock and a pinned
+ * timezone, in `src/lib/server/budget/dashboard.spec.ts`. This block pins the key to the French
+ * word the user actually reads, so the two together say: at 2026-08-31 23:30 UTC the header used
+ * to print « septembre 2026 » over August's figures, and now prints « août 2026 ».
+ *
+ * Deliberately not a second copy of `formatCurrentMonth` — it renders the real page and reads the
+ * real subtitle, so a change to that helper is visible here rather than agreed with by a twin.
+ */
+describe('/budgets header month', () => {
+	it('names août for the 2026-08 key that a UTC clock produces at the month boundary', async () => {
+		const screen = render(Page, { data: baseData({ currentMonth: '2026-08' }), form: null });
+
+		await expect.element(screen.getByText(/août 2026/)).toBeInTheDocument();
+		expect(document.body.textContent).not.toContain('septembre 2026');
+	});
+
+	it('names septembre for 2026-09, so the assertion above is about the key and not the word', async () => {
+		const screen = render(Page, { data: baseData({ currentMonth: '2026-09' }), form: null });
+
+		await expect.element(screen.getByText(/septembre 2026/)).toBeInTheDocument();
+	});
+});

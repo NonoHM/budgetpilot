@@ -284,10 +284,12 @@ afterEach(() => {
 });
 
 describe('getCurrentBillsMonth', () => {
-	// Pinned against a REVERT to the local-clock `getCurrentMonth()`, which nothing else would catch:
+	// Pinned against a REVERT to a LOCAL-clock month, which nothing else would catch:
 	// `isCurrentMonth` / `isFutureMonth` are derived from a UTC `todayIso`, so a local-month default
 	// makes the load resolve one month while the view labels it another — the page loses "Ce mois"
-	// and renders "Revenir à ce mois" as a link to the page it is already on.
+	// and renders "Revenir à ce mois" as a link to the page it is already on. `getCurrentMonth()` is
+	// UTC too since the false-figures fix, so this now guards a property both functions hold rather
+	// than a difference between them; it is still the only assertion that reads THIS one.
 	//
 	// The timezone has to be moved for the assertion to mean anything: on a UTC host both
 	// implementations agree at every instant, and this test would pass on the broken one. Node

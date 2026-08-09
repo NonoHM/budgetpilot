@@ -279,39 +279,59 @@ describe('spendByEffectiveCategory', () => {
 	});
 });
 
+/**
+ * Every instant here is written as a UTC literal, and the timezone is pinned rather than inherited.
+ *
+ * Both matter. `new Date(2026, 5, 24)` — the local-constructor form these tests used while the
+ * function read the local clock — means a different instant on every machine, so the figures below
+ * would move with the runner's timezone instead of with the code. And a UTC-only host cannot see
+ * the defect at all: the local and UTC readings agree at every instant there, so the last test
+ * would pass on the broken implementation. Node re-reads `process.env.TZ` on assignment (tzset).
+ */
 describe('getRemainingDaysInMonth', () => {
+	const originalTz = process.env.TZ;
+
 	beforeEach(() => {
+		process.env.TZ = 'Europe/Paris';
 		vi.useFakeTimers();
 	});
 
 	afterEach(() => {
 		vi.useRealTimers();
+		if (originalTz === undefined) delete process.env.TZ;
+		else process.env.TZ = originalTz;
 	});
 
-	it('returns 0 when the given month is not the current local month', () => {
-		vi.setSystemTime(new Date(2026, 5, 15));
+	it('returns 0 when the given month is not the current month', () => {
+		vi.setSystemTime(new Date('2026-06-15T12:00:00.000Z'));
 		expect(getRemainingDaysInMonth('2026-05')).toBe(0);
 	});
 
 	it('counts today as a remaining day (inclusive)', () => {
-		vi.setSystemTime(new Date(2026, 5, 24));
+		vi.setSystemTime(new Date('2026-06-24T12:00:00.000Z'));
 		expect(getRemainingDaysInMonth('2026-06')).toBe(7);
 	});
 
 	it('returns 1 on the last day of the month', () => {
-		vi.setSystemTime(new Date(2026, 5, 30));
+		vi.setSystemTime(new Date('2026-06-30T12:00:00.000Z'));
 		expect(getRemainingDaysInMonth('2026-06')).toBe(1);
 	});
 
 	it('handles February in a leap year', () => {
-		vi.setSystemTime(new Date(2028, 1, 1));
+		vi.setSystemTime(new Date('2028-02-01T12:00:00.000Z'));
 		expect(getRemainingDaysInMonth('2028-02')).toBe(29);
 	});
 
-	it('is based on local time, not UTC, matching getCurrentMonth()', () => {
-		// Regression for the UTC/local mismatch: just after local midnight on the 1st,
-		// UTC may still read the previous month depending on the server's timezone offset.
-		vi.setSystemTime(new Date(2026, 6, 1, 0, 30));
-		expect(getRemainingDaysInMonth('2026-07')).toBe(31);
+	it('is based on UTC, matching the getCurrentMonth() the caller passes it', () => {
+		// The pair has to share a basis. `loadDashboardInsights` calls getCurrentMonth() and hands
+		// the result straight here, so a disagreement about which month is current answers 0 — and
+		// the budget pace insight silently disappears from a month with thirty-one days left.
+		//
+		// Pinned at the far edge: 2026-08-31 23:30 UTC is already 2026-09-01 01:30 in Europe/Paris,
+		// which is the instant that made /budgets print « septembre 2026 » over August's figures.
+		vi.setSystemTime(new Date('2026-08-31T23:30:00.000Z'));
+		expect(new Date().getMonth() + 1).toBe(9);
+		expect(getRemainingDaysInMonth('2026-08')).toBe(1);
+		expect(getRemainingDaysInMonth('2026-09')).toBe(0);
 	});
 });
