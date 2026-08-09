@@ -76,9 +76,19 @@ export function getTransactionKind(
  * falls back to the sign only when it is absent, and every money read in the app already treats
  * `type` as the authority. Deriving here makes the LIST agree with the aggregates it sits next to;
  * writing a sign into the column would make the column agree with itself and change nothing else.
+ *
+ * ZERO IS RETURNED UNSIGNED, and the branch is load-bearing rather than defensive. `-Math.abs(0)`
+ * is NEGATIVE ZERO, and `Intl.NumberFormat` renders it « -0,00 € » — so without this line the
+ * fixture's own `REGULARISATION NULLE` row, an expense of 0 cents, reads as a negative amount of
+ * nothing. No numeric assertion can see it: `-0 === 0` is true, so `toBe(0)` and `toEqual(0)` both
+ * pass on the defect. A test on this branch has to use `Object.is` or assert the FORMATTED string.
+ * The CSV export is unaffected either way — `(-0).toFixed(2)` is `"0.00"` — which is exactly why
+ * the divergence could exist between the two surfaces this function was written to reconcile.
  */
 export function applyKindSign(amountCents: number, kind: TransactionKind): number {
-	return kind === 'expense' ? -Math.abs(amountCents) : Math.abs(amountCents);
+	const magnitude = Math.abs(amountCents);
+	if (magnitude === 0) return 0;
+	return kind === 'expense' ? -magnitude : magnitude;
 }
 
 export function isValidIsoDate(value: string): boolean {
