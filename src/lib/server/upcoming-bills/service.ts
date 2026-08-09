@@ -897,13 +897,24 @@ function toRowView(
 	// fourth field, not a new one. INHERITED for every other status: there is no transaction to
 	// join to a projected date, only the flow's history, and the honest claim is that the most
 	// recent occurrence was split — never that this one is.
-	const exactIndicator = occurrence.settledTransactionId
-		? (splitIndicators.get(occurrence.settledTransactionId) ?? null)
+	//
+	// THE BRANCH IS ON WHETHER A TRANSACTION EXISTS, NOT ON WHETHER IT TURNED OUT TO BE SPLIT, and
+	// that distinction is the whole correctness of this block. `splitIndicators.get(id) ?? null`
+	// collapses two different facts into one falsy value: "there is nothing to look up" and "we
+	// looked, and this transaction is not split". Branching on the resolved indicator made the
+	// second fall through to the inherited claim, so a settled occurrence KNOWN to be unsplit
+	// borrowed the flow's most recent occurrence's répartition and displayed a badge about it.
+	//
+	// Reachable in the ordinary shape of the feature, not at an edge: `occurrenceIds` spans the whole
+	// 12-month detection lookback, so any past month's unsplit occurrence of a flow whose LATEST
+	// occurrence was split would have shown one. "I split the insurance out of this month's rent but
+	// not out of the earlier ones" produces it directly.
+	const isExact = occurrence.settledTransactionId !== null;
+	const exactIndicator = isExact
+		? (splitIndicators.get(occurrence.settledTransactionId as string) ?? null)
 		: null;
 	const lastOccurrenceId = flow.occurrenceIds[flow.occurrenceIds.length - 1];
-	const inheritedIndicator = exactIndicator
-		? null
-		: (splitIndicators.get(lastOccurrenceId) ?? null);
+	const inheritedIndicator = isExact ? null : (splitIndicators.get(lastOccurrenceId) ?? null);
 
 	return {
 		rowKey: `${flow.direction}:${normalizedLabel}:${occurrence.dateIso}:${index}`,
@@ -931,8 +942,8 @@ function toRowView(
 		variability: getFlowAmountVariability(flow),
 		countsInRemainingTotal: occurrence.countsInRemainingTotal,
 		appliedActionId: occurrence.appliedActionId,
-		splitIndicator: exactIndicator ?? inheritedIndicator,
-		splitIndicatorIsInherited: !exactIndicator && inheritedIndicator !== null,
+		splitIndicator: isExact ? exactIndicator : inheritedIndicator,
+		splitIndicatorIsInherited: !isExact && inheritedIndicator !== null,
 		actionPayload: {
 			direction: flow.direction,
 			// Capped the same way recordStreamAction caps, so the value posted back is already the

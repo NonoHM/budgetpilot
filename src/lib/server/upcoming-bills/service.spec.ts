@@ -383,6 +383,42 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(projectedRent?.splitIndicatorIsInherited).toBe(true);
 	});
 
+	/**
+	 * THE FIXTURE ABOVE CANNOT TELL THE TWO BRANCHES APART, AND THIS ONE CAN.
+	 *
+	 * There, the split transaction (`RENT[3]`, July) is ALSO the flow's most recent occurrence, so
+	 * "this row's own parts" and "the flow's most recent occurrence's parts" resolve to the same
+	 * transaction and every assertion passes under either rule. Its unsplit control does not
+	 * discriminate either: SUBSCRIPTION's latest occurrence is itself unsplit, so the inherited
+	 * lookup also yields null. Two green assertions, neither of which could see the defect.
+	 *
+	 * Here July is split and JUNE is the month under view. June's occurrence is settled and backed by
+	 * its own transaction, which is NOT split — so the only correct answer is "no badge", and the
+	 * only way to get one is to fall through to July's répartition. `occurrenceIds` spans the whole
+	 * 12-month lookback, so this is the ordinary shape of the feature: "I split the insurance out of
+	 * this month's rent but not out of the earlier ones."
+	 */
+	it('a settled occurrence KNOWN to be unsplit borrows nothing from a later one that is', async () => {
+		expect.assertions(4);
+
+		const rentJulySplit: RawTransaction = {
+			...RENT[3],
+			splits: [{ amountCents: -20_000, position: 0, category: { name: 'Assurance' } }]
+		};
+		const fixture = [...RENT.slice(0, 3), rentJulySplit, ...SUBSCRIPTION];
+
+		mockRead(fixture);
+		const june = await loadUpcomingBillsMonth(userId, '2026-06');
+		const settledJune = june.rows.find((row) => row.dateIso === '2026-06-05');
+
+		// Proven settled first: an assertion about a row that does not exist, or that is projected,
+		// would pass for the wrong reason — the inherited branch is the one it must NOT be taking.
+		expect(settledJune?.status).toBe('settled');
+		expect(settledJune?.settledTransactionId ?? RENT[2].id).toBe(RENT[2].id);
+		expect(settledJune?.splitIndicator).toBeNull();
+		expect(settledJune?.splitIndicatorIsInherited).toBe(false);
+	});
+
 	it('scopes the transaction and action reads on userId', async () => {
 		mockRead(RENT);
 
