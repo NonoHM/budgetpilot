@@ -163,4 +163,62 @@ describe('buildTransactionsCsv', () => {
 		// fix-the-instance shape.
 		expect(line.split(';').at(-1)).toBe("'=SUM(A1)");
 	});
+
+	// PR5: a filtered export must read like the screen it came from, which means emitting only the
+	// allocations the filter matched — never a répartition's OTHER parts, which the screen never
+	// showed under that filter either.
+	describe('with a categoryFilter (PR5)', () => {
+		const SPLIT_THREE_WAYS = row({
+			category: { name: 'Maison' },
+			splits: [
+				{ amountCents: 5_000, position: 0, category: { name: 'Bricolage' } },
+				{ amountCents: 2_000, position: 1, category: { name: 'Jardin' } },
+				{ amountCents: 1_000, position: 2, category: { name: 'Loisirs' } }
+			]
+		});
+
+		it('emits only the matching line for a fully unrelated filter, unaffected by it', () => {
+			expect.assertions(1);
+
+			const lines = bodyOf(buildTransactionsCsv([row()], NO_MAPPINGS, 'Maison'));
+			expect(lines).toHaveLength(1);
+		});
+
+		it('drops the non-matching lines but keeps `part` stating the TRUE, full count', () => {
+			expect.assertions(2);
+
+			const lines = bodyOf(buildTransactionsCsv([SPLIT_THREE_WAYS], NO_MAPPINGS, 'Jardin'));
+
+			expect(lines).toHaveLength(1);
+			// `2/3`: the true position AND the true total, not `1/1` — a file claiming a complete
+			// one-part répartition would silently corrupt a re-import (see the module docstring).
+			expect(lines[0].split(';')[8]).toBe('2/3');
+		});
+
+		it('folds the category name, like every other category read in the app', () => {
+			expect.assertions(1);
+
+			const lines = bodyOf(buildTransactionsCsv([SPLIT_THREE_WAYS], NO_MAPPINGS, 'JARDIN'));
+			expect(lines).toHaveLength(1);
+		});
+
+		it('emits nothing extra for an unsplit row whose own category matches', () => {
+			expect.assertions(2);
+
+			const lines = bodyOf(buildTransactionsCsv([row()], NO_MAPPINGS, 'Maison'));
+			expect(lines).toHaveLength(1);
+			expect(lines[0].split(';')[8]).toBe('1/1');
+		});
+
+		it('is a strict no-op when undefined, unaffected by an empty string, and identical to the two-argument call', () => {
+			expect.assertions(2);
+
+			const withoutFilter = buildTransactionsCsv([SPLIT_THREE_WAYS], NO_MAPPINGS);
+			const withUndefined = buildTransactionsCsv([SPLIT_THREE_WAYS], NO_MAPPINGS, undefined);
+			const withEmpty = buildTransactionsCsv([SPLIT_THREE_WAYS], NO_MAPPINGS, '');
+
+			expect(withUndefined).toBe(withoutFilter);
+			expect(withEmpty).toBe(withoutFilter);
+		});
+	});
 });

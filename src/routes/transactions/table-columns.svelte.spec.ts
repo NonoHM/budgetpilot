@@ -48,6 +48,7 @@ function makeTransaction(overrides: Record<string, unknown> = {}) {
 		natureSource: 'category' as const,
 		source: 'manual' as const,
 		splitIndicator: null,
+		matchedCategoryAllocation: null,
 		suggestion: null,
 		tags: [],
 		...overrides

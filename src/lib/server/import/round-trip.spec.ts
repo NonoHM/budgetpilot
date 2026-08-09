@@ -168,4 +168,50 @@ describe('CSV round trip', () => {
 			{ category: 'Primes', amountCents: 50_000 }
 		]);
 	});
+
+	/**
+	 * PR5's resolution of the filtered-export tension: a file that only PARTLY captures a
+	 * répartition (the screen's own category filter dropped a part the export therefore never
+	 * wrote) must be refused BY NAME as incomplete, never silently re-imported as a smaller, wrong
+	 * répartition — CLAUDE.md's own recorded case for why a refusal test asserts the REASON, not
+	 * merely that a refusal happened: a different check catching the same file for the WRONG reason
+	 * (e.g. "duplicate positions") would send a user looking at the wrong lines.
+	 */
+	it('refuses a category-filtered export of a partial split as INCOMPLETE, never as a smaller répartition', () => {
+		expect.assertions(3);
+
+		const filtered = parseCsvTransactions(buildTransactionsCsv([SPLIT_ROW], NO_MAPPINGS, 'Jardin'));
+
+		expect(filtered.transactions).toHaveLength(0);
+		expect(filtered.invalidRows).toHaveLength(1);
+		expect(filtered.invalidRows[0]).toMatchObject({
+			reason: 'répartition incomplète',
+			field: 'part'
+		});
+	});
+
+	it('keeps round-tripping cleanly when the filter happens to match every part', () => {
+		expect.assertions(3);
+
+		// Both parts are filed under the SAME category, so a filter on it matches the whole
+		// répartition — nothing is dropped, and the file re-imports exactly like an unfiltered one.
+		const bothBricolage = row({
+			category: { name: 'Maison' },
+			splits: [
+				{ amountCents: 5_000, position: 0, category: { name: 'Bricolage' } },
+				{ amountCents: 3_000, position: 1, category: { name: 'Bricolage' } }
+			]
+		});
+
+		const result = parseCsvTransactions(
+			buildTransactionsCsv([bothBricolage], NO_MAPPINGS, 'Bricolage')
+		);
+
+		expect(result.errors).toEqual([]);
+		expect(result.transactions).toHaveLength(1);
+		expect(result.transactions[0].splitParts).toEqual([
+			{ category: 'Bricolage', amountCents: -5_000 },
+			{ category: 'Bricolage', amountCents: -3_000 }
+		]);
+	});
 });

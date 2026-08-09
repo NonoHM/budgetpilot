@@ -166,6 +166,48 @@ export interface TransactionRowForTotals {
 }
 
 /**
+ * The result of narrowing an already-flattened allocation list to the ones matching a folded
+ * category key — `allocateByCategory`'s own output for a row's amount (this file), or
+ * `mapTransactionAllocations`'s richer, nature-bearing output for a list row's DISPLAY (see
+ * `+page.server.ts`). One shape, two callers, so a transaction list row and the filtered-totals
+ * band read the matched amount from the SAME computation: PR5's "Σ rows ≡ band" is a theorem, not
+ * a hope kept true by two copies that happen to agree today. See CLAUDE.md's recorded incident
+ * where a spec retyped `manualCategory ?? category.name` and drifted by the sentinel fallback.
+ */
+export interface MatchedAllocation<T> {
+	/** The heaviest matching entry — DOMINANT by magnitude, ties to the earliest — for display:
+	 *  which category/nature a row under a category filter shows. Same tie rule as
+	 *  `splitIndicatorOf`, applied to the narrower set that matched instead of to the whole row. */
+	entry: T;
+	/** Unsigned sum of every matching entry's magnitude (two parts filed under the same category
+	 *  both count). What `sumFilteredTotals` adds into its income/expense bucket; a row applies its
+	 *  own kind's sign to it before display, since a signed sum of the raw entries would let a
+	 *  hand-forged pair of opposite-sign parts in one category silently cancel instead of add. */
+	amountCentsAbs: number;
+}
+
+/**
+ * `null` when nothing in `allocations` matches `nameKey` — a row a category filter should never
+ * have matched in the first place (see the `?category=` identity-match case documented on
+ * `computeFilteredTotals` above, where the parent's own category matches but no part's money did).
+ */
+export function pickMatchedAllocation<T extends { category: string; amountCents: number }>(
+	allocations: ReadonlyArray<T>,
+	nameKey: string
+): MatchedAllocation<T> | null {
+	const matches = allocations.filter((entry) => computeNameKey(entry.category) === nameKey);
+	if (matches.length === 0) return null;
+
+	let dominant = matches[0];
+	let amountCentsAbs = 0;
+	for (const entry of matches) {
+		amountCentsAbs += Math.abs(entry.amountCents);
+		if (Math.abs(entry.amountCents) > Math.abs(dominant.amountCents)) dominant = entry;
+	}
+	return { entry: dominant, amountCentsAbs };
+}
+
+/**
  * In-memory counterpart, for the `?q=` path where matching happens in JS and the rows are already
  * loaded. The two must agree; totals.spec.ts pins them against the same fixture, and
  * totals.db-smoke.ts runs the pair against every engine.
@@ -189,15 +231,16 @@ export function sumFilteredTotals(
 		const contribution =
 			nameKey === null
 				? Math.abs(row.amountCents)
-				: allocateByCategory(
-						{ category: getEffectiveCategory(row), amountCents: row.amountCents },
-						row.splits.map((split) => ({
-							category: split.category.name,
-							amountCents: split.amountCents
-						}))
-					)
-						.filter((entry) => computeNameKey(entry.category) === nameKey)
-						.reduce((total, entry) => total + Math.abs(entry.amountCents), 0);
+				: (pickMatchedAllocation(
+						allocateByCategory(
+							{ category: getEffectiveCategory(row), amountCents: row.amountCents },
+							row.splits.map((split) => ({
+								category: split.category.name,
+								amountCents: split.amountCents
+							}))
+						),
+						nameKey
+					)?.amountCentsAbs ?? 0);
 
 		if (kind === 'income') incomeCents += contribution;
 		else expenseCents += contribution;

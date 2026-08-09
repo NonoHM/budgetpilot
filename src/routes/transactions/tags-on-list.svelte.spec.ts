@@ -41,6 +41,7 @@ function makeTransaction(overrides: Record<string, unknown> = {}) {
 		source: 'Carrefour Market SA',
 		tags: THREE_TAGS,
 		splitIndicator: null,
+		matchedCategoryAllocation: null,
 		suggestion: null,
 		...overrides
 	};

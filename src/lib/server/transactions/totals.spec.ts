@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { resolveTransactionType, sumFilteredTotals } from './totals';
+import { computeNameKey } from '$lib/server/naming/nameKey';
+import { resolveTransactionType, sumFilteredTotals, pickMatchedAllocation } from './totals';
 
 /**
  * The canonical répartition from the design: 80 € at a supermarket, 60 € Alimentation + 20 € Maison,
@@ -169,5 +170,39 @@ describe('sumFilteredTotals', () => {
 				'Maison'
 			)
 		).toEqual({ incomeCents: 0, expenseCents: 1_500 });
+	});
+});
+
+describe('pickMatchedAllocation', () => {
+	// The two ordinary (category, amountCents) pairs `allocateByCategory` would hand back for the
+	// canonical répartition: 80,00 € split 60,00 € Alimentation / 20,00 € Maison.
+	const alimentation = { category: 'Alimentation', amountCents: -6_000 };
+	const maison = { category: 'Maison', amountCents: -2_000 };
+
+	it('returns null when nothing matches — the identity-match, zero-money case', () => {
+		expect(pickMatchedAllocation([alimentation, maison], computeNameKey('Loisirs'))).toBeNull();
+	});
+
+	it('picks the single matching entry and reports its magnitude', () => {
+		expect(pickMatchedAllocation([alimentation, maison], computeNameKey('Maison'))).toEqual({
+			entry: maison,
+			amountCentsAbs: 2_000
+		});
+	});
+
+	it('folds the category name, exactly like sumFilteredTotals', () => {
+		expect(pickMatchedAllocation([alimentation, maison], computeNameKey('MAISON'))?.entry).toBe(
+			maison
+		);
+	});
+
+	it('sums every matching entry and keeps the DOMINANT one by magnitude, ties to the earliest', () => {
+		const first = { category: 'Maison', amountCents: -3_000 };
+		const second = { category: 'Maison', amountCents: -2_000 };
+
+		const result = pickMatchedAllocation([first, second], computeNameKey('Maison'));
+
+		expect(result?.amountCentsAbs).toBe(5_000);
+		expect(result?.entry).toBe(first);
 	});
 });

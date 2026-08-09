@@ -620,6 +620,7 @@
 	"transactions_table_category": "Category",
 	"transactions_table_tags": "Tags",
 	"transactions_table_amount": "Amount",
+	"transactions_row_matched_of": "of {amount}",
 	"transactions_no_suggestion": "No suggestion",
 	"transactions_accept": "Accept",
 	"transactions_rule_button": "Rule",

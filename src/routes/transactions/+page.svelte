@@ -410,25 +410,54 @@
 	}
 
 	/**
-	 * ON A RÉPARTIE ROW THE CATÉGORIE COLUMN SHOWS THE DOMINANT PART, NOT THE PARENT (design 1l).
+	 * ON A RÉPARTIE ROW THE CATÉGORIE COLUMN SHOWS THE DOMINANT PART, NOT THE PARENT (design 1l) —
+	 * AND UNDER A CATEGORY FILTER IT SHOWS THE MATCHED PART INSTEAD OF THE DOMINANT ONE (PR5).
 	 *
 	 * The parent keeps a category, but it is a restoration value rather than a display truth:
 	 * writing « Alimentation » on a transaction of which 20 € went to Maison is false, and false in
 	 * a way that cannot be seen — which is the worst kind. The dot follows the same value, because a
 	 * colour disagreeing with the name beside it is a second false statement rather than a decoration.
+	 *
+	 * `matchedCategoryAllocation` is `null` outside a category filter, so this falls through to the
+	 * pre-PR5 rule exactly. Inside one, the dominant category can differ from the one the filter
+	 * actually found — a row can be dominated by Alimentation while `?category=Loisirs` matched a
+	 * smaller part — and naming the dominant one there would be the same false-but-invisible claim
+	 * the badge exists to prevent, just moved one filter later.
 	 */
 	function rowCategory(tx: (typeof data.transactions)[number]): string {
-		return tx.splitIndicator?.dominantCategory ?? tx.category;
+		return (
+			tx.matchedCategoryAllocation?.category ?? tx.splitIndicator?.dominantCategory ?? tx.category
+		);
 	}
 
 	/**
-	 * ONE RULE FOR BOTH LINES. Under OD-4 nature resolves per part, so printing the parent's nature
-	 * under the dominant part's name would be false in precisely the way `rowCategory` refuses for
-	 * the category — and self-inconsistent besides, since the two lines would then describe
-	 * different parts of the same transaction.
+	 * ONE RULE FOR BOTH LINES, category and nature alike. Under OD-4 nature resolves per part, so
+	 * printing a nature that belongs to a different part than the one `rowCategory` just named would
+	 * be self-inconsistent — the two lines would describe different fragments of the same
+	 * transaction. Mirrors `rowCategory` exactly, including the PR5 matched-allocation precedence.
 	 */
 	function rowNature(tx: (typeof data.transactions)[number]): TransactionNature {
-		return tx.splitIndicator?.dominantNature ?? tx.nature;
+		return tx.matchedCategoryAllocation?.nature ?? tx.splitIndicator?.dominantNature ?? tx.nature;
+	}
+
+	/**
+	 * The matched allocation's amount, but only when it is a genuine FRAGMENT of the row's own
+	 * total — never for an unsplit row (its one allocation IS the total) and never when the filter
+	 * happens to match every part (their sum is the total too). `null` in both of those cases and
+	 * outside a category filter, so the primary amount and the "sur {total}" secondary line both
+	 * fall back to the row's own total exactly as before PR5.
+	 */
+	function rowPartialMatch(
+		tx: (typeof data.transactions)[number]
+	): { category: string; amountCents: number } | null {
+		const matched = tx.matchedCategoryAllocation;
+		return matched && matched.amountCents !== tx.amountCents ? matched : null;
+	}
+
+	/** The primary amount a row shows: the matched allocation's when it is a genuine fragment (see
+	 *  `rowPartialMatch`), the transaction's own total otherwise. */
+	function rowAmountCents(tx: (typeof data.transactions)[number]): number {
+		return rowPartialMatch(tx)?.amountCents ?? tx.amountCents;
 	}
 
 	/** The badge renders what it is given, so the sentinel is resolved here rather than inside it. */
@@ -2697,9 +2726,7 @@
 																<SplitBadge
 																	parts={badgeParts(tx.splitIndicator)}
 																	otherCategoryCount={tx.splitIndicator.otherCategoryCount}
-																	dominantCategory={displayCategory(
-																		tx.splitIndicator.dominantCategory
-																	)}
+																	dominantCategory={displayCategory(rowCategory(tx))}
 																	interactive
 																/>
 															{/if}
@@ -2730,13 +2757,25 @@
 												     state — a realistic amount fits the column — but it decides what happens when one
 												     does not, and silently stealing width from Libellé is not it. -->
 												<td class="{colAmount} p-0">
-													<div
-														class="{colAmount} truncate px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
-														'income'
-															? 'text-emerald-700'
-															: 'text-rose-600'}"
-													>
-														{formatCents(tx.amountCents)}
+													<div class="{colAmount} px-4 py-3 text-right">
+														<div
+															class="truncate font-semibold tabular-nums {tx.type === 'income'
+																? 'text-emerald-700'
+																: 'text-rose-600'}"
+														>
+															{formatCents(rowAmountCents(tx))}
+														</div>
+														<!-- PR5: only under a category filter, and only when the primary figure above is a
+														     FRAGMENT of this row's own total (see rowPartialMatch). Measured free: the amount
+														     cell's own headroom (44px used of the 67px the Libellé cell sets) absorbs this
+														     second line at every 1280 column width, roomy or panel-open, and at 390. -->
+														{#if rowPartialMatch(tx)}
+															<p class="mt-0.5 truncate text-xs text-zinc-400">
+																{m.transactions_row_matched_of({
+																	amount: formatCents(tx.amountCents)
+																})}
+															</p>
+														{/if}
 													</div>
 												</td>
 											</tr>
@@ -3520,17 +3559,25 @@
 													<SplitBadge
 														parts={badgeParts(tx.splitIndicator)}
 														otherCategoryCount={tx.splitIndicator.otherCategoryCount}
-														dominantCategory={displayCategory(tx.splitIndicator.dominantCategory)}
+														dominantCategory={displayCategory(rowCategory(tx))}
 													/>
 												{/if}
 											</div>
 										</div>
-										<div
-											class="shrink-0 text-[14.5px] font-bold tabular-nums {tx.type === 'income'
-												? 'text-emerald-600'
-												: 'text-rose-600'}"
-										>
-											{formatCents(tx.amountCents)}
+										<div class="shrink-0 text-right">
+											<div
+												class="text-[14.5px] font-bold tabular-nums {tx.type === 'income'
+													? 'text-emerald-600'
+													: 'text-rose-600'}"
+											>
+												{formatCents(rowAmountCents(tx))}
+											</div>
+											<!-- PR5: same rule as the desktop amount cell — see the comment there. -->
+											{#if rowPartialMatch(tx)}
+												<p class="mt-0.5 text-xs text-zinc-400">
+													{m.transactions_row_matched_of({ amount: formatCents(tx.amountCents) })}
+												</p>
+											{/if}
 										</div>
 									</div>
 									{#if tx.tags.length > 0}

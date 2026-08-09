@@ -63,6 +63,7 @@ const TX = {
 	natureSource: 'category' as const,
 	source: 'manual' as const,
 	splitIndicator: null,
+	matchedCategoryAllocation: null,
 	suggestion: null,
 	tags: [TAG]
 };

@@ -368,4 +368,132 @@ test.describe('the split editor on /transactions', () => {
 			'true'
 		);
 	});
+
+	/**
+	 * PR5, in the real artifact: a category filter narrowing onto the NON-dominant part, on both
+	 * breakpoints and through the CSV export. Every leg is proven in isolation elsewhere —
+	 * `pickMatchedAllocation` in totals.spec.ts, the row's data shape in page.server.spec.ts, the
+	 * CSV truncation refusal in round-trip.spec.ts — and none of them reads a real filtered page
+	 * through the real load, with the real summary band and the real export route beside it. Same
+	 * reasoning as the test above: the combination gets its own check.
+	 *
+	 * Restores the database exactly like the test above, and for the same reason.
+	 */
+	test('a category filter shows the MATCHED part, not the dominant one, on both breakpoints and in the export', async ({
+		page
+	}) => {
+		test.slow();
+
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await openDetail(page);
+		// The click in `openDetail` is a client-side navigation (a plain `<a>`, intercepted by
+		// SvelteKit's router): the URL updates once that navigation resolves, not the instant the
+		// click event dispatches, so reading it immediately races.
+		await page.waitForURL(/[?&]selected=/);
+		await removeAnyExistingSplit(page);
+
+		// The suite shares one database across ~35 files, so by the time this test runs other specs
+		// may have created their own Alimentation-categorised rows. `?ids=` scopes every check below
+		// to THIS transaction alone (intersected with the category filter, never replacing it — see
+		// scope.ts), so the test proves the feature rather than a fixture-population accident.
+		const txId = new URL(page.url()).searchParams.get('selected');
+		expect(txId, 'openDetail did not select a transaction').toBeTruthy();
+		const scopedTo = (query: string) => `/transactions?ids=${txId}&${query}`;
+
+		await page.getByRole('button', { name: m.splits_entry_action() }).first().click();
+		const editor = page.locator('form[action*="/saveSplits"]').first();
+		await expect(editor).toBeVisible();
+
+		// Part 1 keeps the inherited category (Alimentation, the parent's own — 12,90 €, the
+		// SMALLER, non-dominant part). Part 2 is filed under Transport (30,00 €, the dominant one).
+		await editor.getByLabel(m.splits_part_amount_aria({ position: 1 })).fill(PART_ONE);
+		await editor.getByLabel(m.splits_part_amount_aria({ position: 2 })).fill(PART_TWO);
+		await editor
+			.locator(
+				`[data-split-category="2"] button[aria-label="${m.common_combobox_open_list_aria()}"]`
+			)
+			.click();
+		await page.getByRole('option', { name: 'Transport' }).first().click();
+		await editor.getByRole('button', { name: m.common_save() }).click();
+		await expect(
+			page.locator('aside').getByText(m.splits_success_saved({ count: 2 }))
+		).toBeVisible();
+
+		const row = () => page.getByRole('row', { name: new RegExp(SPLIT_LABEL) }).first();
+		const categoryCell = () => row().getByRole('cell').nth(1);
+		const amountCell = () => row().getByRole('cell').nth(3);
+
+		// ---- 1280, plain column set: row height must not move between the two states -----------
+		await page.goto(scopedTo(''));
+		const heightUnfiltered = (await row().boundingBox())!.height;
+
+		await page.goto(scopedTo('category=Alimentation'));
+		// The MATCHED category, not the dominant Transport — decision B.
+		await expect(categoryCell()).toContainText('Alimentation');
+		await expect(categoryCell()).not.toContainText('Transport');
+		// The MATCHED amount as the primary figure, with the parent total on a second line —
+		// decision A. Both read off the same cell rather than the whole page, so a stray "12,90"
+		// or "42,90" elsewhere cannot make this pass by accident.
+		await expect(amountCell()).toContainText('12,90');
+		await expect(amountCell()).not.toContainText('30,00');
+		await expect(amountCell()).toContainText(m.transactions_row_matched_of({ amount: '-42,90 €' }));
+		// The band: 12,90 €, not the row's own 42,90 € and not the dominant part's 30,00 € — exact
+		// because `ids=` scopes the whole page to this one transaction, so nothing else contributes.
+		const summaryBand = page.getByTestId('summary-band');
+		await expect(summaryBand).toContainText(`${m.transactions_totals_expense_label()} -12,90 €`);
+		await expect(summaryBand).not.toContainText('42,90');
+		await expect(summaryBand).not.toContainText('30,00');
+
+		const heightFilteredPlain = (await row().boundingBox())!.height;
+		expect(
+			heightFilteredPlain,
+			`row height moved when the secondary "sur" line appeared: ${heightUnfiltered} -> ${heightFilteredPlain}`
+		).toBeCloseTo(heightUnfiltered, 0);
+
+		// ---- 1280, panel-open column set (1fr/140/190/110) --------------------------------------
+		await page.goto(scopedTo(''));
+		await row().getByRole('link').first().click();
+		const heightUnfilteredPanelOpen = (await row().boundingBox())!.height;
+
+		await page.goto(scopedTo('category=Alimentation'));
+		await row().getByRole('link').first().click();
+		const heightFilteredPanelOpen = (await row().boundingBox())!.height;
+		expect(
+			heightFilteredPanelOpen,
+			`row height moved in the panel-open column set: ${heightUnfilteredPanelOpen} -> ${heightFilteredPanelOpen}`
+		).toBeCloseTo(heightUnfilteredPanelOpen, 0);
+
+		// ---- the CSV export reads exactly what the row does --------------------------------------
+		const csv = await (
+			await page.request.get(`/transactions/export?ids=${txId}&category=Alimentation`)
+		).text();
+		const line = csv.split('\r\n').find((entry) => entry.includes(SPLIT_LABEL));
+		expect(line, 'no CSV line for the filtered row').toBeTruthy();
+		const cells = (line as string).split(';');
+		expect(cells[2]).toBe('Alimentation');
+		// `1/2`: the TRUE position and the TRUE count, never `1/1` — a filtered export states a
+		// répartition is incomplete rather than claiming a smaller, complete one.
+		expect(cells[8]).toBe('1/2');
+
+		// ---- 390: the mobile card tells the same story -------------------------------------------
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto(scopedTo(''));
+		const mobileRow = () => page.locator('[id^="tx-row-"]').filter({ hasText: SPLIT_LABEL });
+		const heightMobileUnfiltered = (await mobileRow().boundingBox())!.height;
+
+		await page.goto(scopedTo('category=Alimentation'));
+		await expect(mobileRow()).toContainText('Alimentation');
+		await expect(mobileRow()).not.toContainText('Transport');
+		await expect(mobileRow()).toContainText('12,90');
+		await expect(mobileRow()).toContainText(m.transactions_row_matched_of({ amount: '-42,90 €' }));
+		const heightMobileFiltered = (await mobileRow().boundingBox())!.height;
+		expect(
+			heightMobileFiltered,
+			`mobile row height moved: ${heightMobileUnfiltered} -> ${heightMobileFiltered}`
+		).toBeCloseTo(heightMobileUnfiltered, 0);
+
+		// ---- restore the database for every spec after this one -----------------------------------
+		await openDetail(page);
+		await removeAnyExistingSplit(page);
+	});
 });
