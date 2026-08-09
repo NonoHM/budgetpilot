@@ -1,6 +1,7 @@
 import * as m from '$lib/paraglide/messages';
 import type { Transaction } from '$lib/domain/transaction';
-import type { CategoryAllocation } from '$lib/domain/allocation';
+import type { CategoryAllocation, SplitIndicator } from '$lib/domain/allocation';
+import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { getTransactionKind } from '$lib/domain/transaction';
 import { getSimilarAmountGroups, normalizeRecurringLabel } from '$lib/domain/recurrence';
 import {
@@ -19,6 +20,16 @@ export interface AnonymizedExpense {
 	label: string;
 	amountCents: number;
 	category: string;
+	/**
+	 * `null` for an unsplit transaction. The RANKING and the displayed `category`/`amountCents`
+	 * above are still the PARENT's — OD-3, unchanged by this field — so a répartie entry here reads
+	 * "this 80,00 € Alimentation purchase was split" rather than re-ranking or re-labelling the row
+	 * from its parts. What this field adds is the ANSWER to "into what": the same breakdown
+	 * `splitIndicatorOf` gives the transaction list, reused rather than restated, and reaching the
+	 * local-model prompt automatically (`toPromptPayload` walks it like any other nested object; see
+	 * `server/insights/summary.ts`). It carries no `note` — `SplitIndicator` has none to carry.
+	 */
+	splitIndicator: SplitIndicator | null;
 }
 
 export interface RecurringPayment {
@@ -95,6 +106,12 @@ export function buildMonthlyReport(
  *  - IDENTITY, from transactions: `transactionCount` (how many bank lines), `largestExpenses`
  *    (OD-3 — a répartition is one purchase, ranked whole) and `recurringPayments` (a stream is
  *    anchored on transactions; a part has no identity to recur).
+ *
+ *    `largestExpenses` also takes `allocations`, alongside `expenses`, but only to ANNOTATE each
+ *    ranked row with its `SplitIndicator` (`AnonymizedExpense.splitIndicator`) — OD-3 itself is
+ *    unchanged: ranking, `category` and `amountCents` still come from the transaction, whole. The
+ *    annotation exists so a surface that lists parent-shaped rows (this one, and the AI payload
+ *    that reuses it) can say a répartition exists without pretending the row is now the parts.
  *  - EITHER, and read from allocations for consistency: `incomeCents` / `expenseCents`. Every
  *    allocation of a transaction carries that transaction's kind, so the two sums are equal by
  *    construction — the conservation theorem, and the guard measures it rather than assuming it.
@@ -123,7 +140,7 @@ export function buildPeriodReport(
 	const balanceCents = incomeCents - expenseCents;
 	const dayCount = Math.max(1, options.dayCount ?? getCoveredDayCount(transactions));
 	const topCategories = getTopCategories(expenseAllocations, expenseCents);
-	const largestExpenses = getLargestExpenses(expenses);
+	const largestExpenses = getLargestExpenses(expenses, expenseAllocations);
 	const recurringPayments = getRecurringPayments(expenses);
 	const natureAnalysis = analyzeTransactionNatures(allocations);
 	const previousMonth = previousPeriod
@@ -210,14 +227,20 @@ export function getTopCategories(
 		.slice(0, 5);
 }
 
-export function getLargestExpenses(expenses: Transaction[]): AnonymizedExpense[] {
+export function getLargestExpenses(
+	expenses: Transaction[],
+	allocations: ReadonlyArray<CategoryAllocation>
+): AnonymizedExpense[] {
+	const splitIndicators = splitIndicatorsByTransactionId(allocations);
+
 	return [...expenses]
 		.sort((left, right) => Math.abs(right.amountCents) - Math.abs(left.amountCents))
 		.slice(0, 5)
 		.map((transaction) => ({
 			label: anonymizeLabel(transaction.label, transaction.category),
 			amountCents: Math.abs(transaction.amountCents),
-			category: transaction.category
+			category: transaction.category,
+			splitIndicator: splitIndicators.get(transaction.id) ?? null
 		}));
 }
 

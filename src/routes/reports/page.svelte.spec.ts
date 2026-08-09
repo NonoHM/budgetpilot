@@ -3,8 +3,17 @@ import { render } from 'vitest-browser-svelte';
 import '../layout.css';
 import type { MonthlyReport } from '$lib/server/reports/monthly';
 import * as m from '$lib/paraglide/messages';
+import { formatCents } from '$lib/domain/budget';
 import Page from './+page.svelte';
 import type { PageData } from './$types';
+
+/** Same rule SplitBadge's own `detail` uses, called rather than retyped — `formatCents` puts a
+ *  narrow no-break space before "€", which a hand-typed literal gets silently wrong. */
+function detailOf(parts: { category: string; amountCents: number }[]): string {
+	return parts
+		.map((part) => `${part.category} ${formatCents(Math.abs(part.amountCents))}`)
+		.join(', ');
+}
 
 /**
  * Task 2 of the detection-window-upper-bound chantier: `emptyState` distinguishes "nothing
@@ -69,6 +78,66 @@ function buildData(emptyState: PageData['cashFlowForecast']['emptyState']): Page
 		forecastHorizonMonths: 3
 	} as PageData;
 }
+
+describe('/reports largest expenses — split indicator (PR6)', () => {
+	it('shows an INERT répartition badge on a split expense, and none on an unsplit one', async () => {
+		expect.assertions(3);
+
+		const data = buildData('none-detected');
+		data.report = {
+			...buildReport(),
+			transactionCount: 2,
+			largestExpenses: [
+				{
+					label: 'Loyer - Logement',
+					amountCents: 80_000,
+					category: 'Logement',
+					splitIndicator: {
+						dominantCategory: 'Logement',
+						dominantNature: 'spending',
+						otherCategoryCount: 1,
+						partCount: 2,
+						parts: [
+							{ category: 'Assurance', amountCents: -20_000 },
+							{ category: 'Logement', amountCents: -60_000 }
+						]
+					}
+				},
+				{
+					label: 'Courses - Alimentation',
+					amountCents: 4_000,
+					category: 'Alimentation',
+					splitIndicator: null
+				}
+			]
+		};
+
+		const screen = render(Page, { data });
+
+		// Never `interactive` on this surface: the desktop card wraps the table in
+		// `overflow-hidden` on both axes, which would clip the hover bubble (see +page.svelte). Named
+		// by the exact aria-label the interactive branch would set, rather than by role — the period
+		// forms carry their own submit buttons.
+		const interactiveName = m.splits_row_badge_others_detail({
+			count: 2,
+			detail: detailOf([
+				{ category: 'Assurance', amountCents: -20_000 },
+				{ category: 'Logement', amountCents: -60_000 }
+			])
+		});
+		expect(document.querySelector(`[aria-label="${interactiveName}"]`)).toBeNull();
+
+		await expect
+			.element(screen.getByText(m.splits_row_badge_others_short({ count: 2 })).first())
+			.toBeInTheDocument();
+		// The desktop table and the mobile card both render in the DOM at once (CSS, not `{#if}`,
+		// picks the visible one — same shape CLAUDE.md records for the flows/upcoming-bills tables),
+		// so the split row's sentence legitimately appears twice, and the unsplit row's never does.
+		expect(screen.getByText(m.splits_row_badge_others_short({ count: 2 })).elements()).toHaveLength(
+			2
+		);
+	});
+});
 
 describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("renders the 'nothing detected yet' copy when emptyState is 'none-detected'", async () => {

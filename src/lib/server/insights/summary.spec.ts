@@ -160,6 +160,64 @@ describe('buildTransactionSummary and split notes', () => {
 	});
 });
 
+/**
+ * `expense-1` (Loyer juin, −120 000) split into a −20 000 Assurance part and a −100 000 Logement
+ * remainder — the ONLY fixture in this file carrying more than one allocation per transaction id.
+ */
+function toAllocationsWithSplitExpense(txns: Transaction[]): CategoryAllocation[] {
+	return txns.flatMap((transaction) => {
+		const nature =
+			transaction.nature ?? getEffectiveTransactionNature(transaction, new Map()).nature;
+		if (transaction.id !== 'expense-1') return allocationsOf({ ...transaction, nature });
+
+		return allocationsOf({ ...transaction, nature }, [
+			{ category: 'Assurance', amountCents: -20_000 }
+		]);
+	});
+}
+
+describe('buildTransactionSummary and split indicators', () => {
+	it("porte l'indicateur de répartition d'une plus grosse dépense jusqu'au payload, sous label opt-out y compris", () => {
+		expect.assertions(6);
+
+		const allocations = toAllocationsWithSplitExpense(transactions);
+		const monthlySummary = summarizeBudgetAllocations(
+			allocations,
+			[{ category: 'Logement', limitCents: 100_000 }],
+			'2026-06'
+		);
+
+		// includeLabels: true — the exact claim the badge on `/reports` makes.
+		const labelled = buildTransactionSummary(transactions, allocations, monthlySummary, undefined, {
+			includeLabels: true
+		});
+		// By amount, not by the anonymized label's exact casing (`anonymizeMerchant` title-cases it) —
+		// the amount is the one figure OD-3 guarantees stays the parent's, whole.
+		const labelledExpense = labelled.largestExpenses.find(
+			(expense) => expense.amountCents === 120_000
+		);
+		expect(labelledExpense?.splitIndicator).not.toBeNull();
+		expect(labelledExpense?.splitIndicator?.dominantCategory).toBe('Logement');
+		expect(labelledExpense?.splitIndicator?.parts).toEqual([
+			{ category: 'Assurance', amountCents: -20_000 },
+			{ category: 'Logement', amountCents: -100_000 }
+		]);
+
+		// includeLabels omitted — the merchant is anonymized to 'Expense', but the category
+		// breakdown is not label data (every other category-shaped field already reaches the model
+		// regardless of this option), so it must still be there. Checked explicitly rather than
+		// assumed from the object-spread in buildTransactionSummary (see CLAUDE.md: a green test
+		// that merely spreads is not evidence the field survives on purpose).
+		const anonymized = buildTransactionSummary(transactions, allocations, monthlySummary);
+		const anonymizedExpense = anonymized.largestExpenses.find(
+			(expense) => expense.amountCents === 120_000
+		);
+		expect(anonymizedExpense?.label).toBe('Expense');
+		expect(anonymizedExpense?.splitIndicator).not.toBeNull();
+		expect(anonymizedExpense?.splitIndicator?.dominantCategory).toBe('Logement');
+	});
+});
+
 describe('buildTransactionSummary - includeLabels', () => {
 	it('n’inclut aucun libellé de transaction quand includeLabels est omis', () => {
 		expect.assertions(2);

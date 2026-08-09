@@ -324,6 +324,41 @@ describe('getRecurringPayments', () => {
 		expect(report.largestExpenses[1].label).not.toContain('ABONNEMENT');
 		expect(report.topCategories[0].percentageOfExpenses).toBeCloseTo(0.927, 3);
 	});
+
+	/**
+	 * OD-3 says the RANKING and the displayed category/amount stay the parent's, whole. This is the
+	 * negative half of that claim: a split does not move the row or relabel it. The positive half —
+	 * that the row also carries the breakdown — is `splitIndicator` below.
+	 */
+	it("garde le classement et le montant du PARENT sur une dépense répartie (OD-3), et y ajoute l'indicateur de répartition", () => {
+		expect.assertions(4);
+
+		const rent: Transaction = {
+			id: 'rent-split',
+			date: '2026-06-05',
+			label: 'Loyer juin',
+			amountCents: -120_000,
+			type: 'expense',
+			category: 'Logement',
+			source: 'manual'
+		};
+		const allocations = allocationsOf(
+			{ ...rent, nature: getEffectiveTransactionNature(rent, new Map()).nature },
+			[{ category: 'Assurance', amountCents: -20_000 }]
+		);
+
+		const report = buildPeriodReport([rent], allocations, 'juin');
+		const [expense] = report.largestExpenses;
+
+		// Parent-shaped, unmoved by the split: 120 000, not 100 000 (the remainder) or 20 000.
+		expect(expense.amountCents).toBe(120_000);
+		expect(expense.category).toBe('Logement');
+		expect(expense.splitIndicator?.dominantCategory).toBe('Logement');
+		expect(expense.splitIndicator?.parts).toEqual([
+			{ category: 'Assurance', amountCents: -20_000 },
+			{ category: 'Logement', amountCents: -100_000 }
+		]);
+	});
 });
 
 describe('anonymizeMerchant / anonymizeLabel', () => {

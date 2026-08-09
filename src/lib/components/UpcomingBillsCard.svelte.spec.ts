@@ -37,6 +37,8 @@ function buildRow(overrides: Partial<UpcomingBillRowView> = {}): UpcomingBillRow
 		variability: 'fixed',
 		countsInRemainingTotal: true,
 		appliedActionId: null,
+		splitIndicator: null,
+		splitIndicatorIsInherited: false,
 		actionPayload: {
 			direction: 'expense',
 			normalizedLabel: 'edf',
