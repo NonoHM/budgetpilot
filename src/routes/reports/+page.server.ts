@@ -8,6 +8,7 @@ import {
 import { requireUser } from '$lib/server/auth';
 import { readDashboardDataForRange } from '$lib/server/budget/dashboard';
 import { prisma } from '$lib/server/db';
+import { collectAllTransactions } from '$lib/server/transactions/batch';
 import { buildPeriodReport } from '$lib/server/reports/monthly';
 import {
 	buildCategoryNatureMap,
@@ -79,15 +80,21 @@ async function readTransactionsForRange(
 		select: { categoryName: true, nature: true }
 	});
 	const mappingMap = buildCategoryNatureMap(mappings);
-	const transactions = await prisma.transaction.findMany({
-		where: {
+	// Batched (see collectAllTransactions/forEachTransactionBatch), not a plain findMany: this
+	// select spreads EFFECTIVE_CATEGORY_SELECT, whose `splits` relation Prisma resolves with a
+	// second query carrying one host parameter per parent row — a plain findMany 500'd on SQLite
+	// once the comparison period held enough transactions. `order: 'asc'` matches this read's
+	// previous `orderBy`; every downstream consumer (buildPeriodReport) sums/filters/sorts its own
+	// way and does not depend on the order rows arrive in.
+	const transactions = await collectAllTransactions(
+		{
 			userId,
 			date: {
 				gte: from,
 				lt: to
 			}
 		},
-		select: {
+		{
 			id: true,
 			date: true,
 			label: true,
@@ -97,8 +104,8 @@ async function readTransactionsForRange(
 			natureManual: true,
 			...EFFECTIVE_CATEGORY_SELECT
 		},
-		orderBy: { date: 'asc' }
-	});
+		{ order: 'asc' }
+	);
 
 	return {
 		transactions: transactions.map((transaction) =>

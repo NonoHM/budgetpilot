@@ -12,6 +12,7 @@ import { parseManualAmountCents } from '$lib/domain/money';
 import type { DateRange } from '$lib/server/date-range';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
+import { collectAllTransactions } from '$lib/server/transactions/batch';
 import {
 	buildCategoryNatureMap,
 	EFFECTIVE_CATEGORY_SELECT,
@@ -99,15 +100,20 @@ export async function readDashboardDataForRange(
 	range: Pick<DateRange, 'from' | 'to' | 'budgetMonth'>
 ): Promise<DashboardData> {
 	const [transactions, budgets, mappings] = await Promise.all([
-		prisma.transaction.findMany({
-			where: {
+		// Batched (see collectAllTransactions/forEachTransactionBatch), not a plain findMany: this
+		// select spreads EFFECTIVE_CATEGORY_SELECT, whose `splits` relation Prisma resolves with a
+		// second query carrying one host parameter per parent row, and SQLite refuses that query
+		// once the parent count crosses the batch cap. An unbatched findMany here 500'd on any
+		// range wide enough to cross it. `order: 'desc'` matches this read's previous `orderBy`.
+		collectAllTransactions(
+			{
 				userId,
 				date: {
 					gte: range.from,
 					lt: range.to
 				}
 			},
-			select: {
+			{
 				id: true,
 				date: true,
 				label: true,
@@ -117,10 +123,8 @@ export async function readDashboardDataForRange(
 				natureManual: true,
 				...EFFECTIVE_CATEGORY_SELECT
 			},
-			orderBy: {
-				date: 'desc'
-			}
-		}),
+			{ order: 'desc' }
+		),
 		prisma.monthlyBudget.findMany({
 			where: { userId },
 			orderBy: { categoryName: 'asc' }
@@ -419,17 +423,20 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
 	const firstOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 	const firstOfNextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 
-	const transactions = await prisma.transaction.findMany({
-		where: {
+	// Batched, same reason as readDashboardDataForRange above: this select also spreads
+	// EFFECTIVE_CATEGORY_SELECT. Order is irrelevant here — the result is only ever summed into a
+	// Map — so the default direction is left unspecified.
+	const transactions = await collectAllTransactions(
+		{
 			userId,
 			type: 'expense',
 			date: { gte: firstOfMonth, lt: firstOfNextMonth }
 		},
-		select: {
+		{
 			amountCents: true,
 			...EFFECTIVE_CATEGORY_SELECT
 		}
-	});
+	);
 
 	const spending = new Map<string, number>();
 	for (const tx of transactions) {

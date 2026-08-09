@@ -1,10 +1,9 @@
-import type { Prisma } from '$lib/server/database/types';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { buildCategoryNatureMap, EFFECTIVE_CATEGORY_SELECT } from '$lib/server/transactions/nature';
 import { buildTransactionsCsv } from '$lib/server/transactions/exportCsv';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
-import { forEachTransactionBatch } from '$lib/server/transactions/batch';
+import { collectAllTransactions } from '$lib/server/transactions/batch';
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import type { RequestHandler } from './$types';
@@ -60,17 +59,3 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		}
 	});
 };
-
-// Batched full dump (see forEachTransactionBatch): same date-desc order as the previous single
-// findMany, but never materializes the whole matching set from one Prisma query — bounded
-// per-batch memory even on a large per-user history (see CLAUDE.md technical debt).
-async function collectAllTransactions<Select extends Prisma.TransactionSelect>(
-	where: Prisma.TransactionWhereInput,
-	select: Select
-): Promise<Array<Prisma.TransactionGetPayload<{ select: Select }>>> {
-	const rows: Array<Prisma.TransactionGetPayload<{ select: Select }>> = [];
-	await forEachTransactionBatch(where, select, (batch) => {
-		rows.push(...batch);
-	});
-	return rows;
-}
