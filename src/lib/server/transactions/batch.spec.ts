@@ -4,6 +4,7 @@ interface Row {
 	id: string;
 	date: Date;
 	label: string;
+	userId: string;
 }
 
 const db = vi.hoisted(() => {
@@ -30,8 +31,28 @@ const db = vi.hoisted(() => {
 						skip?: number;
 						take?: number;
 					}) => {
-						void where;
-						let result = [...rows].sort((a, b) => {
+						// THE FAKE APPLIES `where`, AND THROWS ON ANYTHING IT CANNOT APPLY.
+						//
+						// It used to be `void where` — every tenancy property of the function under test
+						// was therefore untested by this file: deleting `where` from the real query, or
+						// letting the cursor spread clobber it, left all six tests green. That is the
+						// silently-widening fake CLAUDE.md records, and it is worse here than elsewhere
+						// because this helper is the ONLY thing standing between a batched scan and
+						// another user's rows.
+						//
+						// Throwing on an unmodelled key rather than ignoring it is the other half:
+						// a fake that narrows on something it does not understand fails noisily and
+						// sends you to look, while one that ignores it ships.
+						const modelled = new Set(['userId']);
+						for (const key of Object.keys(where ?? {})) {
+							if (!modelled.has(key)) {
+								throw new Error(
+									`batch.spec fake cannot model where.${key} — model it or assert against a real engine`
+								);
+							}
+						}
+						let result = [...rows].filter((row) => !where?.userId || row.userId === where.userId);
+						result = result.sort((a, b) => {
 							for (const clause of orderBy ?? []) {
 								const [field, dir] = Object.entries(clause)[0] as [keyof Row, 'asc' | 'desc'];
 								const av = a[field];
@@ -59,15 +80,16 @@ const db = vi.hoisted(() => {
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
-const { forEachTransactionBatch } = await import('./batch');
+const { forEachTransactionBatch, collectAllTransactions } = await import('./batch');
 
-function makeRows(count: number): Row[] {
+function makeRows(count: number, userId = 'user-a'): Row[] {
 	// Distinct dates (descending as index grows) with zero-padded ids so (date desc, id desc)
 	// gives a single deterministic total order — makes the expected scan order trivial to assert.
 	return Array.from({ length: count }, (_, i) => ({
-		id: `tx-${String(count - i).padStart(6, '0')}`,
+		id: `${userId}-tx-${String(count - i).padStart(6, '0')}`,
 		date: new Date(2026, 0, count - i),
-		label: `Transaction ${i}`
+		label: `Transaction ${i}`,
+		userId
 	}));
 }
 
@@ -147,7 +169,7 @@ describe('forEachTransactionBatch', () => {
 		// makeRows generates ids tx-000010 (most recent date) down to tx-000001 (oldest).
 		const expectedOrder = Array.from(
 			{ length: 10 },
-			(_, i) => `tx-${String(10 - i).padStart(6, '0')}`
+			(_, i) => `user-a-tx-${String(10 - i).padStart(6, '0')}`
 		);
 		expect(seen).toEqual(expectedOrder);
 	});
@@ -160,6 +182,84 @@ describe('forEachTransactionBatch', () => {
 
 		expect(onBatch).not.toHaveBeenCalled();
 		expect(db.prisma.transaction.findMany).toHaveBeenCalledTimes(1);
+	});
+
+	/**
+	 * The tenancy half, which this file could not see at all until the fake started applying `where`.
+	 * Two owners, interleaved by date so the scan crosses between them inside every batch rather than
+	 * finding one user's rows in a contiguous run.
+	 */
+	it('returns only the requested owner\u2019s rows, across every batch', async () => {
+		expect.assertions(2);
+
+		db.rows.push(...makeRows(6, 'user-a'), ...makeRows(6, 'user-b'));
+		const seen: string[] = [];
+
+		await forEachTransactionBatch(
+			{ userId: 'user-a' },
+			{ id: true },
+			(rows) => {
+				seen.push(...rows.map((r) => r.id));
+			},
+			2
+		);
+
+		// The property, named: nobody else's row is here. Asserted before the count, so a dropped
+		// `where` fails saying whose rows leaked rather than reporting an arithmetic surprise.
+		expect(seen.filter((id) => !id.startsWith('user-a-'))).toEqual([]);
+		expect(seen).toHaveLength(6);
+	});
+
+	/**
+	 * `order: 'asc'` is genuinely new production behaviour — `readTransactionsForRange` is the only
+	 * caller that needs it — and nothing exercised it: every other test in this file pins the
+	 * default `desc`, so an `order` that was accepted and then ignored would have shipped.
+	 */
+	it('walks ascending when asked to, across batch boundaries', async () => {
+		expect.assertions(2);
+
+		db.rows.push(...makeRows(10));
+		const seen: string[] = [];
+
+		await forEachTransactionBatch(
+			{ userId: 'user-a' },
+			{ id: true },
+			(rows) => {
+				seen.push(...rows.map((r) => r.id));
+			},
+			{ batchSize: 4, order: 'asc' }
+		);
+
+		const ascending = Array.from(
+			{ length: 10 },
+			(_, i) => `user-a-tx-${String(i + 1).padStart(6, '0')}`
+		);
+		expect(seen).toEqual(ascending);
+		// Both keys, not just the first: a change that ordered by date ascending and left the id
+		// tiebreak descending would still pass the array comparison above on these distinct dates.
+		const calls = db.prisma.transaction.findMany.mock.calls as Array<
+			[{ orderBy: Array<Record<string, string>> }]
+		>;
+		expect(
+			calls.every(([args]) => JSON.stringify(args.orderBy) === '[{"date":"asc"},{"id":"asc"}]')
+		).toBe(true);
+	});
+
+	/**
+	 * `collectAllTransactions` had no direct test at all — it was exercised only transitively through
+	 * a db-smoke suite, which is a slow and indirect place to learn that a helper drops a batch.
+	 */
+	it('collectAllTransactions materialises every batch, in order, for one owner', async () => {
+		expect.assertions(2);
+
+		db.rows.push(...makeRows(9, 'user-a'), ...makeRows(9, 'user-b'));
+
+		const rows = await collectAllTransactions({ userId: 'user-a' }, { id: true }, { batchSize: 4 });
+
+		expect(rows.map((row) => (row as { id: string }).id)).toEqual(
+			Array.from({ length: 9 }, (_, i) => `user-a-tx-${String(9 - i).padStart(6, '0')}`)
+		);
+		expect(db.prisma.transaction.findMany).toHaveBeenCalledTimes(3); // ceil(9/4)
 	});
 
 	it('advances the cursor to the last row id of the previous batch, with skip: 1 (excludes it from the next page)', async () => {
@@ -176,8 +276,8 @@ describe('forEachTransactionBatch', () => {
 		>;
 		expect(calls.map(([args]) => ({ cursor: args.cursor, skip: args.skip }))).toEqual([
 			{ cursor: undefined, skip: undefined },
-			{ cursor: { id: 'tx-000005' }, skip: 1 },
-			{ cursor: { id: 'tx-000002' }, skip: 1 }
+			{ cursor: { id: 'user-a-tx-000005' }, skip: 1 },
+			{ cursor: { id: 'user-a-tx-000002' }, skip: 1 }
 		]);
 	});
 });

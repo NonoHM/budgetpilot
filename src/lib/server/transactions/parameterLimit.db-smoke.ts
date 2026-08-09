@@ -181,6 +181,37 @@ describe('EFFECTIVE_CATEGORY_SELECT past the SQLite parameter-limit boundary', (
 		// Every part's amount equals its parent's — a spot check that the join actually resolved the
 		// right child rows rather than, say, an empty relation silently satisfying "length === 1".
 		expect(rows.every((row) => row.splits[0].amountCents === row.amountCents)).toBe(true);
+		// COUNTED BY DISTINCT ID, not by length. A cursor walk fails by repeating a row on one batch
+		// and omitting another, and those two errors CANCEL in a length: the recorded paging incident
+		// is precisely that shape, and the omission is the half that matters because the user simply
+		// never sees a transaction they own.
+		expect(new Set(rows.map((row) => row.id)).size).toBe(ROWS_PER_MONTH);
+	}, 60_000);
+
+	/**
+	 * THE BATCHED WALK STILL BELONGS TO ONE USER, and until this test nothing in the suite could
+	 * see otherwise: every other `it` seeds a fresh user into an otherwise empty table, so a
+	 * `forEachTransactionBatch` that dropped its `where` entirely would have returned the same rows
+	 * and every assertion would have stayed green. `batch.spec.ts`'s fake does not close it either —
+	 * it discards `where` (`void where`) and models only the cursor.
+	 *
+	 * Two tenants, both past the boundary, so the walk has to survive several batches while another
+	 * user's rows sit interleaved in the same table on the same dates.
+	 */
+	it('excludes a second tenant across every batch of the walk', async () => {
+		const mine = await seedUser();
+		const theirs = await seedUser();
+		await seedMonth(mine, 0, ROWS_PER_MONTH);
+		await seedMonth(theirs, 0, ROWS_PER_MONTH);
+
+		const rows = await collectAllTransactions({ userId: mine.userId }, { id: true, userId: true });
+
+		// THE TENANCY ASSERTION COMES FIRST, deliberately. Both orderings go red on a dropped `where`,
+		// but a length assertion fails as « expected 3300 to have a length of 1100 », which reads like
+		// a fixture that leaked; this one fails naming the rows that should not be there. A test on a
+		// refusal asserts the REASON, and the reason is only the first assertion to run.
+		expect(rows.filter((row) => row.userId !== mine.userId)).toEqual([]);
+		expect(rows).toHaveLength(ROWS_PER_MONTH);
 	}, 60_000);
 
 	it('reaches every real call site the defect was measured on, past the boundary', async () => {
@@ -235,7 +266,25 @@ describe('EFFECTIVE_CATEGORY_SELECT past the SQLite parameter-limit boundary', (
 		const reportsPage = (await reportsLoad({
 			locals: { user: authUser() },
 			url: new URL('http://localhost/reports')
-		} as never)) as { report: { transactionCount: number } };
+		} as never)) as {
+			report: {
+				transactionCount: number;
+				previousMonth?: { expenseDeltaCents: number };
+			};
+		};
 		expect(reportsPage.report.transactionCount).toBe(ROWS_PER_MONTH);
+		// THE PREVIOUS-MONTH FIGURE, not just the page not throwing. `report.transactionCount` above
+		// is derived from the CURRENT month's `readDashboardDataForRange`, so it says nothing at all
+		// about `readTransactionsForRange` — the one read on this page that walks ASCENDING, and the
+		// one this PR converted last. Without an assertion that reaches it, a defect specific to the
+		// 'asc' cursor direction (a row dropped or repeated under a date tie, and all 1 100 rows here
+		// share one date) would pass the whole suite, because the only thing proven about that call
+		// would be that it returned.
+		//
+		// It surfaces as a DELTA rather than as a count: the load hands the previous period into
+		// `buildPeriodReport`, which keeps only the differences. Both months hold the identical 1 100
+		// rows with the identical amounts, so the delta is exactly zero — and a single row lost or
+		// repeated by the ascending walk moves it off zero by that row's amount.
+		expect(reportsPage.report.previousMonth?.expenseDeltaCents).toBe(0);
 	}, 60_000);
 });

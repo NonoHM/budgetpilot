@@ -48,6 +48,12 @@ export interface ForEachTransactionBatchOptions {
  * The 4th argument accepts a bare `number` as well as `ForEachTransactionBatchOptions`, purely so
  * every pre-existing caller passing a raw batch size keeps compiling unchanged; new callers that
  * also need `order` pass the options form.
+ *
+ * THE MEMORY CLAIM IN THE FIRST PARAGRAPH IS ABOUT THIS FUNCTION AND NOT ABOUT
+ * `collectAllTransactions` BELOW, which accumulates the whole result set by design. A reader who
+ * follows that helper's "see its docstring" pointer up here must not take the memory bound with
+ * them: what the helper inherits is the QUERY WIDTH bound, and nothing else. The three reads
+ * converted to it hold exactly what they held before.
  */
 export async function forEachTransactionBatch<Select extends Prisma.TransactionSelect>(
 	where: Prisma.TransactionWhereInput,
@@ -79,6 +85,11 @@ export async function forEachTransactionBatch<Select extends Prisma.TransactionS
 		if (result === false) return;
 
 		if (rows.length < batchSize) return;
+		// `date` is carried for readability at the assignment and is deliberately NOT passed to
+		// Prisma: `cursor: { id }` names a ROW, and Prisma reads that row's own ordering values back
+		// out of it, so restating the date would be a second source of truth for the same position.
+		// Written down because the pair reads like a compound cursor and is not one, and the obvious
+		// "fix" is to start passing both.
 		const last = rows[rows.length - 1] as { date: Date; id: string };
 		cursor = { date: last.date, id: last.id };
 	}
