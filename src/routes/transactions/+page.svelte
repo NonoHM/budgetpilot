@@ -446,12 +446,26 @@
 	 * happens to match every part (their sum is the total too). `null` in both of those cases and
 	 * outside a category filter, so the primary amount and the "sur {total}" secondary line both
 	 * fall back to the row's own total exactly as before PR5.
+	 *
+	 * COMPARED AS MAGNITUDES, and that is not defensive rounding — it is what stops this predicate
+	 * depending on a sign convention it does not own. `matched.amountCents` is signed by the row's
+	 * resolved KIND. `tx.amountCents` is signed by whatever the loader decided, and the two write
+	 * paths disagree: manual entry stores a signed value while `import/persist.ts` stores
+	 * `Math.abs(...)` and puts the direction in `type`. Compared signed, an unsplit IMPORTED expense
+	 * reads -4290 against +4290, reports itself a fragment of itself, and renders « -42,90 € » over
+	 * « sur 42,90 € » — the same number twice, one announced as part of the other.
+	 *
+	 * Found by review on this branch alone, and it does NOT reproduce once the loader signs the
+	 * column (a change landing on another branch of this chantier). That is exactly why it is fixed
+	 * HERE rather than left to that: a predicate whose correctness rests on a sibling branch's
+	 * behaviour regresses silently the day that behaviour is reverted, and nothing would point back
+	 * to this line. Magnitudes are true under either convention.
 	 */
 	function rowPartialMatch(
 		tx: (typeof data.transactions)[number]
 	): { category: string; amountCents: number } | null {
 		const matched = tx.matchedCategoryAllocation;
-		return matched && matched.amountCents !== tx.amountCents ? matched : null;
+		return matched && Math.abs(matched.amountCents) !== Math.abs(tx.amountCents) ? matched : null;
 	}
 
 	/** The primary amount a row shows: the matched allocation's when it is a genuine fragment (see
