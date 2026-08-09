@@ -281,8 +281,16 @@
 	 * for the measurement. ONE flag for both mounts, for the same reason `splitSaving` is one: the
 	 * répartition is opened once and the two surfaces are two views of it, so a per-surface flag
 	 * would leave the hidden one holding a stale failure.
+	 *
+	 * IT CARRIES THE TRANSACTION IT IS ABOUT, and that is not defensive bookkeeping. Selecting
+	 * another row does not remount this page — it changes `?selected=`, so `data` moves and every
+	 * `$state` here does not. A bare string would go on being rendered above a DIFFERENT
+	 * transaction's editor, attributing a failure to a save that was never attempted on it. Scoped
+	 * structurally through `splitSaveFailureForSelection` below rather than through an `$effect`
+	 * that clears it, because a derivation cannot be forgotten by whoever adds the next navigation
+	 * path.
 	 */
-	let splitSaveFailure = $state<string | null>(null);
+	let splitSaveFailure = $state<{ transactionId: string; message: string } | null>(null);
 	const splitParts = $derived(data.selectedTransaction?.splits ?? []);
 	/**
 	 * Remounts `SplitEditor` when — and only when — the SAVED parts change.
@@ -316,15 +324,30 @@
 	/**
 	 * The ONE sentence the editor is handed, whichever half produced it.
 	 *
-	 * The server's own refusal wins when there is one: it is the specific message (« les parts
-	 * doivent totaliser… ») and the client-side one is the fallback for the answers that never
-	 * become `form` data at all. They cannot both be true of the same submission — a redirect or a
-	 * transport error carries no `ActionData` — so the order only fixes what happens across two
-	 * submissions, and a stale server error must not outlive the attempt that followed it. It
-	 * cannot: `splitSaveFailure` is cleared at the start of every submission, and `form` is
-	 * replaced by `update()` on every one that answers.
+	 * THE CLIENT-SIDE SIGNAL WINS, AND THE ORDER IS LOAD-BEARING RATHER THAN ARBITRARY. The two can
+	 * never both describe the same submission — a redirect or a transport error carries no
+	 * `ActionData` — so this only decides what happens ACROSS two submissions, and there the two are
+	 * not equally fresh:
+	 *
+	 * - `splitSaveFailure` is cleared at the start of every submission, so a non-null value can only
+	 *   have come from the most recent one.
+	 * - `splitsError` derives from `form`, which is replaced only by `update()` — and the failure
+	 *   branch is defined as the branch that does NOT call `update()`. So it survives from whichever
+	 *   earlier submission last answered, however long ago.
+	 *
+	 * The first draft of this had the opposite order, with a comment asserting the stale case could
+	 * not arise because "`form` is replaced by `update()` on every submission that answers". True,
+	 * and beside the point: the failing submission is exactly the one that does not answer. A user
+	 * whose sum was refused, and whose session then expired before the retry, was told « les parts
+	 * doivent totaliser… » — a false sentence sending them to re-check arithmetic that was fine,
+	 * while the real cause went unsaid. Found by review, pinned by the two specs below.
 	 */
-	const splitEditorError = $derived(splitsError ?? splitSaveFailure ?? undefined);
+	const splitSaveFailureForSelection = $derived(
+		splitSaveFailure && splitSaveFailure.transactionId === data.selectedTransaction?.id
+			? splitSaveFailure.message
+			: null
+	);
+	const splitEditorError = $derived(splitSaveFailureForSelection ?? splitsError ?? undefined);
 
 	/**
 	 * ONE handler for the two `?/saveSplits` mounts, not one each.
@@ -334,11 +357,14 @@
 	 * failures. A decision written twice is the shape this repo has been caught by repeatedly —
 	 * the fix lands on the copy that was noticed and the other one goes on shipping the defect.
 	 */
-	const enhanceSplitForm: SubmitFunction = () => {
+	const enhanceSplitForm: SubmitFunction = ({ formData }) => {
 		splitSaving = true;
 		// Cleared HERE rather than on success, so the banner belongs to the attempt in flight: a
 		// failure sentence surviving into the next submission would describe a request that is over.
 		splitSaveFailure = null;
+		// Read off the FORM, not off `data.selectedTransaction`: the form field is what the server
+		// acts on, so a banner keyed on it can never be attributed to a row the request did not name.
+		const submittedTransactionId = String(formData.get('transactionId') ?? '');
 		return async ({ result, update }) => {
 			const failure = splitSaveFailureMessage(result);
 			if (failure) {
@@ -348,7 +374,7 @@
 				// pressed, being cancelled by this page's own unsaved-changes guard and asking
 				// « Abandonner les modifications ? » about a save the user believes succeeded.
 				// Measured 2026-08-09; see `split-save-failure.ts`.
-				splitSaveFailure = failure;
+				splitSaveFailure = { transactionId: submittedTransactionId, message: failure };
 				splitSaving = false;
 				return;
 			}

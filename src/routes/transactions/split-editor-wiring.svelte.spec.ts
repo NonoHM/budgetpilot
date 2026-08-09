@@ -412,6 +412,143 @@ describe('the states after a write (1i)', () => {
 		expect(visibleAmount(2).value).toBe('10,00');
 	});
 
+	/**
+	 * THE TWO SIGNALS ARE NOT EQUALLY FRESH, AND THE ONE THAT LOOKS MORE SPECIFIC IS THE OLDER ONE.
+	 *
+	 * `splitsError` comes from `form`, which only `update()` replaces — and the client-side failure
+	 * branch is DEFINED as the branch that does not call `update()`. So a server refusal survives the
+	 * submission that followed it, while `splitSaveFailure` is cleared at the start of every one.
+	 * Preferring the server's sentence therefore shows a message about a request that is over.
+	 *
+	 * The first version of this page did exactly that, under a comment asserting it could not happen.
+	 * The user experience it produced: a sum refused, then the session expires before the retry, and
+	 * the panel says « les parts doivent totaliser… » — sending the user to re-check arithmetic that
+	 * was already correct while the real cause is never stated. A refusal whose REASON is wrong,
+	 * which is worse than a generic one, because it is actionable and the action does not help.
+	 */
+	it('a client-side failure REPLACES the previous submission’s server refusal, rather than hiding behind it', async () => {
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			// The state a first submission left behind: the server explained a refusal.
+			form: actionResult({ splitsError: m.splits_error_sum() })
+		});
+
+		// Appear first. The assertion below is that this sentence GOES AWAY, and an absence that was
+		// never a presence proves nothing at all.
+		await expect
+			.poll(() =>
+				Array.from(document.querySelectorAll('[role="alert"]')).some((element) =>
+					element.textContent?.includes(m.splits_error_sum())
+				)
+			)
+			.toBe(true);
+
+		const visibleAmount = (position: number) =>
+			Array.from(container.querySelectorAll('input')).find(
+				(input) =>
+					input.closest('label')?.textContent?.includes(m.splits_part_amount_aria({ position })) &&
+					input.getBoundingClientRect().height > 0
+			) as HTMLInputElement;
+		await userEvent.fill(visibleAmount(2), '10,00');
+		await userEvent.fill(visibleAmount(1), '70,00');
+
+		const splitFormEl = aside(container).querySelector(
+			'form[action*="/saveSplits"]'
+		) as HTMLFormElement;
+		const save = Array.from(splitFormEl.querySelectorAll('button')).find(
+			(button) => button.textContent?.trim() === m.common_save()
+		) as HTMLButtonElement;
+		expect(save.getAttribute('aria-disabled')).not.toBe('true');
+
+		const realFetch = window.fetch;
+		window.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof window.fetch;
+		try {
+			save.click();
+			await expect
+				.poll(() =>
+					Array.from(document.querySelectorAll('[role="alert"]')).some((element) =>
+						element.textContent?.includes(m.splits_error_unreachable())
+					)
+				)
+				.toBe(true);
+		} finally {
+			window.fetch = realFetch;
+		}
+
+		// And the stale one is gone rather than merely joined. Two sentences would be its own defect:
+		// the panel would name two causes for one attempt.
+		const alerts = Array.from(document.querySelectorAll('[role="alert"]'));
+		expect(alerts.some((element) => element.textContent?.includes(m.splits_error_sum()))).toBe(
+			false
+		);
+	});
+
+	/**
+	 * Selecting another row does not remount this page — `?selected=` changes, so `data` moves and
+	 * every `$state` declared here does not. A failure banner that is a bare string therefore goes on
+	 * being rendered above a DIFFERENT transaction's editor, attributing a failure to a save that was
+	 * never attempted on it.
+	 */
+	it('a failure does not follow the user to another transaction', async () => {
+		await page.viewport(1280, 800);
+		const { container, rerender } = render(Page, {
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			form: null
+		});
+
+		const visibleAmount = (position: number) =>
+			Array.from(container.querySelectorAll('input')).find(
+				(input) =>
+					input.closest('label')?.textContent?.includes(m.splits_part_amount_aria({ position })) &&
+					input.getBoundingClientRect().height > 0
+			) as HTMLInputElement;
+		await userEvent.fill(visibleAmount(2), '10,00');
+		await userEvent.fill(visibleAmount(1), '70,00');
+
+		const splitFormEl = aside(container).querySelector(
+			'form[action*="/saveSplits"]'
+		) as HTMLFormElement;
+		const save = Array.from(splitFormEl.querySelectorAll('button')).find(
+			(button) => button.textContent?.trim() === m.common_save()
+		) as HTMLButtonElement;
+
+		const realFetch = window.fetch;
+		window.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof window.fetch;
+		try {
+			save.click();
+			// Present, on the transaction it belongs to.
+			await expect
+				.poll(() =>
+					Array.from(document.querySelectorAll('[role="alert"]')).some((element) =>
+						element.textContent?.includes(m.splits_error_unreachable())
+					)
+				)
+				.toBe(true);
+		} finally {
+			window.fetch = realFetch;
+		}
+
+		// The user picks another row. Same page instance, new `data`.
+		await rerender({
+			data: baseData({
+				id: 'tx-2',
+				label: 'Fnac Paris',
+				splits: SPLIT_60_20,
+				splitEntryAvailable: false
+			}),
+			form: null
+		});
+
+		await expect
+			.poll(() =>
+				Array.from(document.querySelectorAll('[role="alert"]')).some((element) =>
+					element.textContent?.includes(m.splits_error_unreachable())
+				)
+			)
+			.toBe(false);
+	});
+
 	it('the removal message names the recovered category, which is what makes it obviously lossless', async () => {
 		await page.viewport(1280, 800);
 		const { container } = render(Page, {
