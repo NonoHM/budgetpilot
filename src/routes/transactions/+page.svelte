@@ -13,7 +13,9 @@
 	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
 	import { getInitials } from '$lib/domain/initials';
 	import { buildTransactionsHref, buildTransactionsExportHref, filterHiddenInputs } from './hrefs';
+	import { splitSaveFailureMessage } from './split-save-failure';
 	import { normalizeForMatch } from '$lib/domain/normalize';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { ActionData, PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
 	import Modal from '$lib/components/Modal.svelte';
@@ -274,6 +276,13 @@
 	let splitDraftOpen = $state(false);
 	/** 1i: a répartition write is in flight. Set by `use:enhance`, read by both mounts. */
 	let splitSaving = $state(false);
+	/**
+	 * 1i's failure sentence for the answers that never reach `form` — see `split-save-failure.ts`
+	 * for the measurement. ONE flag for both mounts, for the same reason `splitSaving` is one: the
+	 * répartition is opened once and the two surfaces are two views of it, so a per-surface flag
+	 * would leave the hidden one holding a stale failure.
+	 */
+	let splitSaveFailure = $state<string | null>(null);
 	const splitParts = $derived(data.selectedTransaction?.splits ?? []);
 	/**
 	 * Remounts `SplitEditor` when — and only when — the SAVED parts change.
@@ -304,6 +313,51 @@
 	const splitsError = $derived(
 		form && 'splitsError' in form ? (form.splitsError as string) : undefined
 	);
+	/**
+	 * The ONE sentence the editor is handed, whichever half produced it.
+	 *
+	 * The server's own refusal wins when there is one: it is the specific message (« les parts
+	 * doivent totaliser… ») and the client-side one is the fallback for the answers that never
+	 * become `form` data at all. They cannot both be true of the same submission — a redirect or a
+	 * transport error carries no `ActionData` — so the order only fixes what happens across two
+	 * submissions, and a stale server error must not outlive the attempt that followed it. It
+	 * cannot: `splitSaveFailure` is cleared at the start of every submission, and `form` is
+	 * replaced by `update()` on every one that answers.
+	 */
+	const splitEditorError = $derived(splitsError ?? splitSaveFailure ?? undefined);
+
+	/**
+	 * ONE handler for the two `?/saveSplits` mounts, not one each.
+	 *
+	 * They were byte-identical copies before this, which was harmless while they only flipped a
+	 * flag; it stops being harmless the moment they carry a decision about which answers are
+	 * failures. A decision written twice is the shape this repo has been caught by repeatedly —
+	 * the fix lands on the copy that was noticed and the other one goes on shipping the defect.
+	 */
+	const enhanceSplitForm: SubmitFunction = () => {
+		splitSaving = true;
+		// Cleared HERE rather than on success, so the banner belongs to the attempt in flight: a
+		// failure sentence surviving into the next submission would describe a request that is over.
+		splitSaveFailure = null;
+		return async ({ result, update }) => {
+			const failure = splitSaveFailureMessage(result);
+			if (failure) {
+				// Deliberately NOT `update()`, and this is the whole fix. `update()` hands the result
+				// to `applyAction`, which follows a redirect with `goto('/login?…')` — taking the
+				// draft with it, or, since the editor is dirty by construction whenever Save can be
+				// pressed, being cancelled by this page's own unsaved-changes guard and asking
+				// « Abandonner les modifications ? » about a save the user believes succeeded.
+				// Measured 2026-08-09; see `split-save-failure.ts`.
+				splitSaveFailure = failure;
+				splitSaving = false;
+				return;
+			}
+			// `reset: false` because this editor is state-driven, not value-driven: resetting the
+			// form would clear the native fields under a component that is not reading them.
+			await update({ reset: false });
+			splitSaving = false;
+		};
+	};
 	/**
 	 * 1r, the save-response half. Only the `category` refusal reaches the panel as « choisissez une
 	 * catégorie pour la part N » — every other refusal carries positions too, so the discriminator is
@@ -3021,19 +3075,7 @@
 								<!-- Répartition — spec §9.1's fourth sibling section -->
 								{#if splitEditorActive}
 									<section class="rounded-xl border border-zinc-200 p-3">
-										<form
-											method="POST"
-											action={splitFormAction}
-											use:enhance={() => {
-												splitSaving = true;
-												return async ({ update }) => {
-													// `reset: false` because this editor is state-driven, not value-driven: resetting the
-													// form would clear the native fields under a component that is not reading them.
-													await update({ reset: false });
-													splitSaving = false;
-												};
-											}}
-										>
+										<form method="POST" action={splitFormAction} use:enhance={enhanceSplitForm}>
 											{#key splitPartsSignature}
 												<SplitEditor
 													transactionId={data.selectedTransaction.id}
@@ -3042,7 +3084,7 @@
 													categoryOptions={data.splitCategoryOptions}
 													existingParts={splitParts.length > 0 ? splitParts : null}
 													conflictPositions={splitsConflictPositions}
-													error={splitsError}
+													error={splitEditorError}
 													parentLockId={desktopParentLockId}
 													saving={splitSaving}
 													bind:dirty={splitsDirtyDesktop}
@@ -3908,19 +3950,7 @@
 			<!-- Répartition -->
 			{#if splitEditorActive}
 				<section class="flex flex-col gap-2">
-					<form
-						method="POST"
-						action={splitFormAction}
-						use:enhance={() => {
-							splitSaving = true;
-							return async ({ update }) => {
-								// `reset: false` because this editor is state-driven, not value-driven: resetting the
-								// form would clear the native fields under a component that is not reading them.
-								await update({ reset: false });
-								splitSaving = false;
-							};
-						}}
-					>
+					<form method="POST" action={splitFormAction} use:enhance={enhanceSplitForm}>
 						{#key splitPartsSignature}
 							<SplitEditor
 								transactionId={data.selectedTransaction.id}
@@ -3929,7 +3959,7 @@
 								categoryOptions={data.splitCategoryOptions}
 								existingParts={splitParts.length > 0 ? splitParts : null}
 								conflictPositions={splitsConflictPositions}
-								error={splitsError}
+								error={splitEditorError}
 								parentLockId={mobileParentLockId}
 								saving={splitSaving}
 								size="lg"

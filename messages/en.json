@@ -1197,6 +1197,8 @@
 	"splits_error_note": "A part note is at most 80 characters.",
 	"splits_error_category": "Choose a valid category for each flagged part.",
 	"splits_error_generic": "The split could not be saved. Your parts are kept.",
+	"splits_error_session_expired": "The split could not be saved. Your parts are kept. Your session has expired: sign in again in another tab, then retry here.",
+	"splits_error_unreachable": "The split could not be saved. Your parts are kept. The server did not answer: check your connection, then try again.",
 	"splits_success_saved": "Transaction split into {count} parts.",
 	"splits_success_removed": "Split removed. The transaction is back on {category}.",
 	"splits_entry_action": "Split across several categories",

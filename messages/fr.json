@@ -1197,6 +1197,8 @@
 	"splits_error_note": "Une note de part fait au plus 80 caractères.",
 	"splits_error_category": "Choisissez une catégorie valide pour chaque part signalée.",
 	"splits_error_generic": "La répartition n'a pas pu être enregistrée. Vos parts sont conservées.",
+	"splits_error_session_expired": "La répartition n'a pas pu être enregistrée. Vos parts sont conservées. Votre session a expiré : reconnectez-vous dans un autre onglet, puis réessayez ici.",
+	"splits_error_unreachable": "La répartition n'a pas pu être enregistrée. Vos parts sont conservées. Le serveur n'a pas répondu : vérifiez votre connexion, puis réessayez.",
 	"splits_success_saved": "Transaction répartie en {count} parts.",
 	"splits_success_removed": "Répartition retirée. La transaction est de nouveau sur {category}.",
 	"splits_entry_action": "Répartir entre plusieurs catégories",
