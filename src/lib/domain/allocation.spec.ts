@@ -1,5 +1,10 @@
 import { describe, it, expect } from 'vitest';
-import { allocationsOf, distributeEvenly, splitIndicatorOf } from './allocation';
+import {
+	allocationsOf,
+	distributeEvenly,
+	isValidSplitPartAmount,
+	splitIndicatorOf
+} from './allocation';
 import type { Transaction } from './transaction';
 
 // `satisfies` rather than a type annotation: allocationsOf requires a resolved `nature`, which the
@@ -247,5 +252,73 @@ describe('splitIndicatorOf', () => {
 			])
 		);
 		expect(indicator?.dominantNature).toBe('transfer');
+	});
+});
+
+/**
+ * BOTH SIGNS GET A FIXTURE. An expense and an income are not "the same rule with a minus": the
+ * predicate's whole job is to compare a part's sign with its parent's, so a suite written around
+ * whichever sign came to mind first would pass on half the world. Expenses are most of this app's
+ * transactions, which is exactly why the income half is the one that would have been forgotten.
+ */
+describe('isValidSplitPartAmount', () => {
+	it('accepts a part carrying the parent sign, on an expense and on an income alike', () => {
+		expect.assertions(2);
+		expect(isValidSplitPartAmount(-2000, -8000)).toBe(true);
+		expect(isValidSplitPartAmount(2000, 8000)).toBe(true);
+	});
+
+	it('refuses a part whose sign is opposite the parent, in both directions', () => {
+		expect.assertions(2);
+		expect(isValidSplitPartAmount(5000, -8000)).toBe(false);
+		expect(isValidSplitPartAmount(-5000, 8000)).toBe(false);
+	});
+
+	it('refuses zero, which says nothing about where money went', () => {
+		expect.assertions(2);
+		expect(isValidSplitPartAmount(0, -8000)).toBe(false);
+		expect(isValidSplitPartAmount(0, 8000)).toBe(false);
+	});
+
+	it('refuses a non-integer and a non-safe integer', () => {
+		expect.assertions(3);
+		expect(isValidSplitPartAmount(-2000.5, -8000)).toBe(false);
+		expect(isValidSplitPartAmount(-(Number.MAX_SAFE_INTEGER + 2), -8000)).toBe(false);
+		expect(isValidSplitPartAmount(Number.NaN, -8000)).toBe(false);
+	});
+
+	/**
+	 * THE HAZARD, pinned where it is, so no caller inherits it by accident.
+	 *
+	 * This is not a desirable behaviour being locked in; it is the REASON every call site refuses a
+	 * missing parent before calling. The function compares signs, so an absent parent makes every
+	 * NEGATIVE part answer true — and negative parts are most of this app's parts, which makes the
+	 * failure open, silent, and in the common direction. `backup/import.ts` refuses a part whose
+	 * parent is not in the payload (twice over: the dangling-transaction loop, and an explicit
+	 * `=== undefined` beside this call); `replaceSplits` re-reads the parent row inside its own
+	 * transaction and cannot proceed without it.
+	 *
+	 * If a future change makes this return false for an absent parent, that is an improvement:
+	 * delete this test rather than weakening it, and say at both call sites that the guard there is
+	 * now belt and braces. What must never happen is this assertion being read as "undefined is
+	 * handled".
+	 */
+	it('cannot answer for a missing parent, which is why the callers refuse one first', () => {
+		expect.assertions(2);
+		const absentParent = undefined as unknown as number;
+		expect(isValidSplitPartAmount(-2000, absentParent)).toBe(true);
+		// The positive part is refused, which is what makes the hazard asymmetric and easy to miss:
+		// a fixture built from an income would have reported this as safe.
+		expect(isValidSplitPartAmount(2000, absentParent)).toBe(false);
+	});
+
+	// A zero-amount parent is treated as positive, matching `getTransactionKind` and every other
+	// sign test in the app: `>= 0` rather than `> 0`. It cannot arise from a legal répartition
+	// anyway, since two non-zero parts of one sign can never sum to zero — pinned so the tie-break
+	// is a decision rather than an accident of operator choice.
+	it('treats a zero parent as positive', () => {
+		expect.assertions(2);
+		expect(isValidSplitPartAmount(100, 0)).toBe(true);
+		expect(isValidSplitPartAmount(-100, 0)).toBe(false);
 	});
 });

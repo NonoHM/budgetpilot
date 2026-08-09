@@ -58,6 +58,56 @@ export function normalizeSplitNote(raw: string | null | undefined): string {
 }
 
 /**
+ * THE PER-PART AMOUNT RULE, expressed once, for every path that writes a `TransactionSplit`.
+ *
+ * A part must be a safe integer, non-zero, and carry the PARENT's sign. Zero says nothing, and an
+ * opposite sign is a refund or a transfer rather than an allocation — allowing one would let a
+ * répartition SUM CORRECTLY while containing a part that no per-category total can interpret.
+ * Measured, on a real instance: parent −80,00 €, parts forged to −130,00 € and +50,00 €. Sum
+ * exact, count 2, both categories present. Every per-category and per-nature reader takes
+ * `Math.abs(allocation.amountCents)`, so Σ|allocations| was 180,00 € for an 80,00 € transaction
+ * and `/reports` expenseCents went 21450 → 31450. Once stored, those rows are indistinguishable
+ * from good ones: nothing records which write path produced a part.
+ *
+ * It lives here rather than in the write path for the reason MAX_SPLITS_PER_TRANSACTION does: it
+ * is a claim about EVERY write path, not about one function. The rule was enforced in
+ * `replaceSplits` alone, and the restore does not go through `replaceSplits`.
+ *
+ * THE WRITE-PATH MATRIX for `TransactionSplit`, so the next writer knows what it inherits and what
+ * it must supply. `+` enforced, `—` not applicable, `✗` not enforced.
+ *
+ * | Path | sum | count | amount (this fn) | tx ownership | category ownership | position |
+ * | --- | --- | --- | --- | --- | --- | --- |
+ * | `replaceSplits` (form action + CSV import via `import/persist.ts`) | + | + | + | + | + | + |
+ * | `clearSplits` (deletes only) | — | — | — | + | — | — |
+ * | restore, `backup/import.ts` (`assertReferentialIntegrity` then `createMany`) | + | + | + | + | + | + |
+ * | category-rename backfill, `naming/backfill.ts` (`updateMany`, `categoryId` only) | — | — | — | + | + | — |
+ *
+ * Notes on the two that are not obvious. The restore's ownership is structural rather than a
+ * conjunct: every id in the payload is REGENERATED and every parent row is created under the
+ * restoring `userId` in the same transaction, so a part cannot reach a row it does not own; its
+ * positions come from the zod schema (`int().min(0)`). The backfill re-points parts at the
+ * surviving category of a fold, under a `where` already scoped to the user's own categories, and
+ * touches no amount — so it cannot break an invariant it does not need to check.
+ *
+ * A REAL PARENT AMOUNT IS REQUIRED, AND THE CALLER OWES IT. The type says so, and the type is all
+ * that says so: this compares SIGNS, so an `undefined` arriving through a non-null assertion or an
+ * `any` makes every NEGATIVE part answer true — `(-2000 > 0) === (undefined >= 0)` is
+ * `false === false` — a fail-OPEN answer in the direction most of this app's parts point. Each call
+ * site therefore establishes the parent first and refuses when it cannot: `backup/import.ts`
+ * refuses a part whose parent is absent from the payload, `replaceSplits` re-reads the parent row
+ * inside its own transaction. The check is not repeated in here, where the parameter's type would
+ * have to be widened to `number | undefined` to express a state no caller is allowed to be in.
+ */
+export function isValidSplitPartAmount(amountCents: number, parentAmountCents: number): boolean {
+	return (
+		Number.isSafeInteger(amountCents) &&
+		amountCents !== 0 &&
+		amountCents > 0 === parentAmountCents >= 0
+	);
+}
+
+/**
  * One (category, amount) pair resolved from a transaction. NOT a Transaction, and the distinction
  * is the entire protection: an allocation has no identity, cannot be counted as an occurrence,
  * cannot anchor a recurring stream, and must never be a grouping key for anything but its own

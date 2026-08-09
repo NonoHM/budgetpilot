@@ -776,6 +776,40 @@ describe('tags', () => {
 		expect(backupExportSchema.safeParse(payload).success).toBe(false);
 	});
 
+	// WHICH GUARD ACTUALLY REFUSES A FRACTIONAL PART, asked rather than assumed. The per-part rule
+	// in domain/allocation.ts refuses a non-safe integer, and adding it to the restore validator
+	// leaves that conjunct UNREACHABLE there: `z.number().int()` bounds the value at
+	// ±Number.MAX_SAFE_INTEGER and refuses a fraction, so a payload carrying one never reaches
+	// assertReferentialIntegrity at all. Recorded here, at the guard that really fires, so a
+	// future reader does not conclude from the restore tests that the validator is what stops it.
+	//
+	// The two conjuncts that ARE load-bearing in the restore are zero and opposite sign: this
+	// schema accepts both, and backup.spec.ts covers them there.
+	it('rejects a fractional part amount, and a non-safe integer, before any validator sees them', () => {
+		expect.assertions(3);
+
+		const withAmount = (amountCents: number) => {
+			const payload = buildValidPayload();
+			payload.transactionSplits = [
+				{
+					id: 'file-split-0',
+					transactionId: payload.transactions[0].id,
+					categoryId: 'file-cat-1',
+					amountCents,
+					position: 0,
+					note: null
+				}
+			];
+			return backupExportSchema.safeParse(payload).success;
+		};
+
+		expect(withAmount(-2_000.5)).toBe(false);
+		expect(withAmount(-(Number.MAX_SAFE_INTEGER + 2))).toBe(false);
+		// The control: an ordinary integer of the same shape is accepted, so the two refusals above
+		// are about the value rather than about the fixture.
+		expect(withAmount(-2_000)).toBe(true);
+	});
+
 	it('rejects a pair array amplified beyond what the transactions could legally carry', () => {
 		expect.assertions(1);
 

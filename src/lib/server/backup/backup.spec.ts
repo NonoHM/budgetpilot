@@ -322,6 +322,7 @@ const { computeNameKey } = await import('$lib/server/naming/nameKey');
 type TagColorToken = import('$lib/domain/tags').TagColorToken;
 const { UNCLASSIFIED_CATEGORY } = await import('$lib/domain/categories');
 const { LONG_TRANSACTION_OPTIONS } = await import('$lib/server/dbTransaction');
+const m = await import('$lib/paraglide/messages');
 
 describe('buildBackupExport', () => {
 	beforeEach(() => {
@@ -1930,6 +1931,97 @@ describe('backup with transaction splits', () => {
 		return payload;
 	}
 
+	/**
+	 * TWO transactions, of OPPOSITE sign, each with its own valid répartition.
+	 *
+	 * Every other fixture in this file carries exactly one transaction, which makes "each part is
+	 * checked against ITS OWN parent" correct by inspection and never once observed: with a single
+	 * parent, a lookup that collapsed to "whichever amount the map returns" would behave
+	 * identically. The second transaction is an income precisely so that collapse cannot pass —
+	 * under a single shared parent amount, one of the two répartitions is necessarily wrong-signed.
+	 */
+	function buildTwoSplitRestorePayload() {
+		const payload = buildSplitRestorePayload();
+		const expense = payload.transactions[0];
+		const income = { ...expense, id: 'file-tx-2', label: 'Salaire', amountCents: 8000 };
+		// The builder's `type` is a literal 'expense', so the field is widened to write 'income'
+		// through it. Nothing about what the restore receives changes.
+		(income as { type: string }).type = 'income';
+		payload.transactions = [expense, income];
+		payload.transactionSplits = [
+			...payload.transactionSplits,
+			{
+				id: 'file-split-3',
+				transactionId: 'file-tx-2',
+				categoryId: 'file-cat-1',
+				amountCents: 5000,
+				position: 0,
+				note: null
+			},
+			{
+				id: 'file-split-4',
+				transactionId: 'file-tx-2',
+				categoryId: 'file-cat-2',
+				amountCents: 3000,
+				position: 1,
+				note: null
+			}
+		];
+		return payload;
+	}
+
+	it('restores an expense and an income répartition from the same file, each summing to its own parent', async () => {
+		expect.assertions(3);
+
+		await restoreBackup('user-a', buildTwoSplitRestorePayload());
+
+		const parents = db.store.transactions.filter((row) => row.userId === 'user-a');
+		const restored = db.store.transactionSplits.filter((row) => row.userId === 'user-a');
+		expect(restored).toHaveLength(4);
+
+		// Grouped by the REGENERATED parent id, so this says nothing about which file row it came
+		// from and everything about which parent it now belongs to.
+		const sumFor = (transactionId: string) =>
+			restored
+				.filter((row) => row.transactionId === transactionId)
+				.reduce((sum, row) => sum + (row.amountCents as number), 0);
+		const expense = parents.find((row) => row.amountCents === -8000)!;
+		const income = parents.find((row) => row.amountCents === 8000)!;
+		expect(sumFor(expense.id)).toBe(-8000);
+		expect(sumFor(income.id)).toBe(8000);
+	});
+
+	// WHICH transaction the refusal names is the assertion, not that a refusal happened. Only the
+	// SECOND répartition is forged, and the first is left legal and of the opposite sign, so a
+	// refusal naming the first would be a false sentence.
+	//
+	// WHAT THIS DOES NOT CATCH, measured rather than assumed: collapsing the lookup onto
+	// `payload.transactions[0].amountCents` leaves this test GREEN, because the message is built
+	// from the SPLIT's own `transactionId` and the forged part is opposite-signed under either
+	// parent. The test above — an income and an expense répartition both surviving — is the one
+	// that goes red on that collapse, and it was watched doing so. Recorded here so neither test
+	// is credited with the other's coverage.
+	it('names the transaction whose own part carries the wrong sign, not the other one', async () => {
+		expect.assertions(4);
+
+		const payload = buildTwoSplitRestorePayload();
+		payload.transactionSplits[2].amountCents = 13_000;
+		payload.transactionSplits[3].amountCents = -5_000;
+		// Still sums to its own parent, so nothing but the sign rule can refuse it.
+		expect(
+			payload.transactionSplits[2].amountCents + payload.transactionSplits[3].amountCents
+		).toBe(8000);
+
+		const error = await restoreBackup('user-a', payload).catch((caught: Error) => caught);
+		expect(error).toBeInstanceOf(BackupImportError);
+		expect((error as Error).message).toBe(
+			m.settings_backup_error_split_amount({ id: 'file-tx-2' })
+		);
+		// The first transaction's répartition is untouched and legal, so naming it would be a false
+		// sentence sending the user to the wrong rows.
+		expect((error as Error).message).not.toContain('file-tx-1');
+	});
+
 	// The COMBINATION, in the restored artifact, rather than each half alone. Per-leg checks pass
 	// while the whole is broken: the parts can survive and no longer sum, which is the one state
 	// the write path can never produce and the only one that makes every per-category total wrong.
@@ -1950,13 +2042,22 @@ describe('backup with transaction splits', () => {
 		);
 	});
 
+	// THE FOUR REFUSALS BELOW ASSERT THEIR OWN SENTENCE, not merely that a refusal happened. Four
+	// checks stand within a dozen lines of each other over the same payload, and each of them can
+	// catch another's case for the wrong reason: a part naming an absent transaction would still be
+	// refused if its check moved below the per-part loop — by that loop, under « les parts doivent
+	// être du même signe », which is false and sends the user looking at signs rather than at a
+	// dangling id. `toBeInstanceOf(BackupImportError)` stays green through every one of those
+	// swaps, so it cannot tell four guards from one.
 	it('refuses a payload whose parts do not sum to their parent, before any write', async () => {
 		expect.assertions(2);
 
 		const payload = buildSplitRestorePayload();
 		payload.transactionSplits[1].amountCents = -1900;
 
-		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		await expect(restoreBackup('user-a', payload)).rejects.toThrow(
+			m.settings_backup_error_split_sum_mismatch({ id: 'file-tx-1' })
+		);
 		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
 	});
 
@@ -1967,7 +2068,9 @@ describe('backup with transaction splits', () => {
 		payload.transactionSplits = [payload.transactionSplits[0]];
 		payload.transactionSplits[0].amountCents = -8000;
 
-		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		await expect(restoreBackup('user-a', payload)).rejects.toThrow(
+			m.settings_backup_error_split_count({ id: 'file-tx-1' })
+		);
 		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
 	});
 
@@ -1977,7 +2080,9 @@ describe('backup with transaction splits', () => {
 		const payload = buildSplitRestorePayload();
 		payload.transactionSplits[0].transactionId = 'file-tx-missing';
 
-		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		await expect(restoreBackup('user-a', payload)).rejects.toThrow(
+			m.settings_backup_error_unknown_split_transaction({ id: 'file-tx-missing' })
+		);
 		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
 	});
 
@@ -1987,7 +2092,9 @@ describe('backup with transaction splits', () => {
 		const payload = buildSplitRestorePayload();
 		payload.transactionSplits[0].categoryId = 'file-cat-missing';
 
-		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
+		await expect(restoreBackup('user-a', payload)).rejects.toThrow(
+			m.settings_backup_error_unknown_split_category({ id: 'file-cat-missing' })
+		);
 		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
 	});
 
@@ -2014,6 +2121,88 @@ describe('backup with transaction splits', () => {
 		const categoryPurge = db.prisma.category.deleteMany.mock.invocationCallOrder[0];
 		expect(transactionPurge).toBeDefined();
 		expect(transactionPurge).toBeLessThan(categoryPurge);
+	});
+
+	// THE SUM IS NOT THE WHOLE INVARIANT, and this fixture is the proof: −130,00 € and +50,00 €
+	// under a −80,00 € parent sum EXACTLY, count 2, both categories present, so every other check
+	// in assertReferentialIntegrity passes. Measured on a real instance before the guard existed:
+	// the restore was accepted and /reports expenseCents went 21450 → 31450, because every
+	// per-category reader takes Math.abs(allocation.amountCents) and Σ|parts| is 180,00 € for an
+	// 80,00 € transaction.
+	//
+	// The REASON is asserted, not merely that a refusal happened: the sum and count checks stand
+	// one line away and refuse plenty of neighbouring payloads, so a test that only asserted
+	// "rejected" could not tell this guard from either of them — and if the sum check were the one
+	// firing, the user would be told their parts do not add up, which is false and sends them
+	// looking at the wrong number.
+	it('refuses a part whose sign is opposite the parent, even though the parts sum exactly', async () => {
+		expect.assertions(3);
+
+		const payload = buildSplitRestorePayload();
+		payload.transactionSplits[0].amountCents = -13_000;
+		payload.transactionSplits[1].amountCents = 5_000;
+		expect(
+			payload.transactionSplits[0].amountCents + payload.transactionSplits[1].amountCents
+		).toBe(payload.transactions[0].amountCents);
+
+		await expect(restoreBackup('user-a', payload)).rejects.toThrow(
+			m.settings_backup_error_split_amount({ id: 'file-tx-1' })
+		);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	// Zero is reachable through the real parse path — the zod schema's `int()` accepts it — and it
+	// allocates money to a category while saying nothing about where any went.
+	it('refuses a zero-valued part, naming the transaction', async () => {
+		expect.assertions(2);
+
+		const payload = buildSplitRestorePayload();
+		payload.transactionSplits[0].amountCents = -8_000;
+		payload.transactionSplits[1].amountCents = 0;
+
+		await expect(restoreBackup('user-a', payload)).rejects.toThrow(
+			m.settings_backup_error_split_amount({ id: 'file-tx-1' })
+		);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	// THE POSITIVE CONTROL, and it is an INCOME, deliberately. A sign rule refusing everything is
+	// indistinguishable from a sign rule working, and the sign that would have gone untested is the
+	// one an expense-shaped fixture never reaches. A salary split across two categories is a legal
+	// répartition and must still restore.
+	it('restores an income répartition whose parts are all positive', async () => {
+		expect.assertions(2);
+
+		const payload = buildSplitRestorePayload();
+		// The builder's `type` is a literal 'expense', so widening it here is what lets the parent
+		// be a coherent income rather than a positive expense.
+		const parent = payload.transactions[0] as { amountCents: number; type: string };
+		parent.amountCents = 8_000;
+		parent.type = 'income';
+		payload.transactionSplits[0].amountCents = 6_000;
+		payload.transactionSplits[1].amountCents = 2_000;
+
+		await restoreBackup('user-a', payload);
+
+		const restored = db.store.transactionSplits.filter((row) => row.userId === 'user-a');
+		expect(restored).toHaveLength(2);
+		expect(restored.reduce((sum, row) => sum + (row.amountCents as number), 0)).toBe(8_000);
+	});
+
+	it('refuses a negative part under a positive parent, the mirror of the expense case', async () => {
+		expect.assertions(2);
+
+		const payload = buildSplitRestorePayload();
+		const parent = payload.transactions[0] as { amountCents: number; type: string };
+		parent.amountCents = 8_000;
+		parent.type = 'income';
+		payload.transactionSplits[0].amountCents = 13_000;
+		payload.transactionSplits[1].amountCents = -5_000;
+
+		await expect(restoreBackup('user-a', payload)).rejects.toThrow(
+			m.settings_backup_error_split_amount({ id: 'file-tx-1' })
+		);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
 	});
 });
 
