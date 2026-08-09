@@ -50,7 +50,14 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 			: collectAllTransactions(scope.where, exportSelect)
 	]);
 
-	const csv = buildTransactionsCsv(transactions, buildCategoryNatureMap(mappings));
+	// A filtered export must read like the screen it came from (PR5): passing the active
+	// `?category=` through is what makes `buildTransactionsCsv` emit only the matching allocations,
+	// never a répartition's other parts the filter never showed.
+	const csv = buildTransactionsCsv(
+		transactions,
+		buildCategoryNatureMap(mappings),
+		scope.filters.category || undefined
+	);
 	const dateStamp = new Date().toISOString().slice(0, 10);
 
 	return new Response(csv, {

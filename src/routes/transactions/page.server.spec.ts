@@ -1804,6 +1804,67 @@ describe('/transactions load — the row indicator', () => {
 	});
 });
 
+describe('/transactions load — matchedCategoryAllocation (PR5)', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	interface RowWithMatch {
+		id: string;
+		amountCents: number;
+		matchedCategoryAllocation: { category: string; nature: string; amountCents: number } | null;
+	}
+
+	it('is null on every row when no category filter is active', async () => {
+		expect.assertions(2);
+		const data = await runLoad('/transactions?split=split');
+		const rows = data.transactions as unknown as RowWithMatch[];
+
+		expect(rows.length).toBeGreaterThan(0);
+		expect(rows.every((row) => row.matchedCategoryAllocation === null)).toBe(true);
+	});
+
+	// The defect this whole PR exists for: `?category=Autre` matches transaction-split through its
+	// NON-dominant part (10,00 € Autre, against 20,00 € Alimentation), and the row must show the
+	// 10,00 € the filter actually found, not the 20,00 € the badge would otherwise lead with.
+	it('carries the MATCHED part, not the dominant one, when the filter names the smaller part', async () => {
+		expect.assertions(1);
+		const data = await runLoad('/transactions?category=Autre&split=split');
+		const row = data.transactions.find((t) => t.id === 'transaction-split') as unknown as
+			RowWithMatch | undefined;
+
+		// Expense: the row's own kind decides the sign, so the matched fragment reads negative
+		// exactly like the row's own total does everywhere else in this file.
+		expect(row?.matchedCategoryAllocation).toEqual({
+			category: 'Autre',
+			nature: 'spending',
+			amountCents: -1_000
+		});
+	});
+
+	it('carries the nature of the MATCHED part too, not the dominant one (OD-4, filtered)', async () => {
+		expect.assertions(1);
+		// Alimentation is mapped to 'transfer' and is ALSO this row's dominant part — Autre is
+		// unmapped and falls back to 'spending'. Filtering on Autre must report 'spending', proving
+		// the nature line would follow the matched category rather than repeating the dominant one.
+		const data = await runLoad('/transactions?category=Autre&split=split');
+		const row = data.transactions.find((t) => t.id === 'transaction-split') as unknown as
+			RowWithMatch | undefined;
+
+		expect(row?.matchedCategoryAllocation?.nature).toBe('spending');
+	});
+
+	it('equals the parent total for an UNSPLIT row, so no row lies about a transaction it never split', async () => {
+		expect.assertions(1);
+		// transaction-2 is unsplit and carries category 'Autre' by construction (see the fixture).
+		const data = await runLoad('/transactions?category=Autre');
+		const row = data.transactions.find((t) => t.id === 'transaction-2') as unknown as
+			RowWithMatch | undefined;
+
+		expect(row?.matchedCategoryAllocation?.amountCents).toBe(row?.amountCents);
+	});
+});
+
 describe('/transactions load — tags', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();

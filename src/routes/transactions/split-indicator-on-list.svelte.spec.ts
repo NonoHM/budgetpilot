@@ -51,6 +51,7 @@ function makeTransaction(overrides: Record<string, unknown> = {}) {
 		source: 'Leroy Merlin',
 		tags: [],
 		splitIndicator: null,
+		matchedCategoryAllocation: null,
 		suggestion: null,
 		...overrides
 	};

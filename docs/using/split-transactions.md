@@ -106,10 +106,13 @@ useful rather than decorative.
   with a badge saying how many other categories are involved. `+2` means
   two other categories besides the one shown. `×3` means three parts that
   are all in the same category.
-- **Filtering by category finds it.** Filter on Garden and the
-  transaction appears, even though its own category is Home. The total at
-  the top of the list then counts the 30,00 € that went to Garden, not
-  the whole 80,00 €.
+- **Filtering by category finds it, and the row changes to match.** Filter
+  on Garden and the transaction appears, even though its own category is
+  Home. The row itself now shows Garden and 30,00 €, the part the filter
+  found, with the full 80,00 € underneath it as "of 80,00 €" so you can
+  still see what the whole payment was. The total at the top of the list
+  counts the same 30,00 €, never the whole 80,00 €, and the two always
+  agree: what the rows add up to is what the total says.
 - **It leaves the "to classify" pile.** A split transaction is fully
   categorized by definition, so it stops appearing in the classify flow.
 - **Categorization rules leave it alone.** A rule that would have moved
@@ -147,6 +150,21 @@ Two things the round trip does not do:
   line is recognised as something you already have and reported as a
   duplicate. This is on purpose. To move data to another instance, export
   from this one and import into that one.
+
+### Exporting with a category filter active
+
+Download the CSV while a category filter is set and the file matches what
+the screen showed you: only the parts that went to that category, not
+every part of every répartition the filter pulled in. The `part` column
+still states the true number of parts the transaction actually has, so a
+répartition you only partly exported reads as incomplete, for example
+`2/3` with no `1/3` or `3/3` beside it in the file.
+
+That is deliberate. A filtered export is a view of what you were looking
+at, not a backup of your data, so importing it back is refused with a
+clear reason rather than silently recreating a smaller, wrong
+répartition. To get a file that always imports cleanly, export without a
+category filter.
 
 ## When something is refused
 

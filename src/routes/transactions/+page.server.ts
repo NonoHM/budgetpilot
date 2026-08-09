@@ -54,6 +54,7 @@ import {
 	sumFilteredTotals,
 	resolveTransactionType,
 	transactionKindWhere,
+	pickMatchedAllocation,
 	type FilteredTotals
 } from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
@@ -177,6 +178,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// the shared resolver costs no extra query.
 	const scope = await resolveTransactionScope(user.id, scopeUrl, { uncategorizedCategoryId });
 	const { filters } = scope;
+
+	// PR5: under a category filter, the row's own display swaps from the DOMINANT allocation to the
+	// MATCHED one (see docs/using/split-transactions.md and mapTransactionListItem below). Folded
+	// once, here, the same way `categoryTotalsScope` below folds it once for the band.
+	const categoryFilterNameKey = filters.category ? computeNameKey(filters.category) : null;
 
 	// "To classify" pile: independent of the current tab/filters (see classifyStackIds comment
 	// below) — always the global uncategorized-by-category set, computed in SQL instead of
@@ -468,7 +474,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	return {
 		splitFilterAvailable,
 		splitCounts,
-		transactions: transactions.map((t) => mapTransactionListItem(t, mappingMap, rules)),
+		transactions: transactions.map((t) =>
+			mapTransactionListItem(t, mappingMap, rules, categoryFilterNameKey)
+		),
 		selectedTransaction: selectedTransaction
 			? mapTransactionDetail(selectedTransaction, mappingMap, categories, uncategorizedCategoryId)
 			: null,
@@ -1036,13 +1044,17 @@ function mapTransactionListItem(
 		targetCategory: string;
 		targetNature?: TransactionNature | null;
 		enabled: boolean;
-	}>
+	}>,
+	/** The active `?category=` filter, folded once by the caller — `null` when no category filter
+	 *  is active. See `matchedCategoryAllocation` below. */
+	categoryFilterNameKey: string | null
 ) {
+	const kind = resolveTransactionType(transaction);
 	const category = getEffectiveCategory(transaction);
 	const nature = getEffectiveTransactionNature(
 		{
 			amountCents: transaction.amountCents,
-			type: resolveTransactionType(transaction),
+			type: kind,
 			category,
 			natureManual: transaction.natureManual
 		},
@@ -1055,7 +1067,39 @@ function mapTransactionListItem(
 	// so the indicator resolves each part's nature exactly the way every per-category figure does
 	// (OD-4), and a répartition whose parts no longer sum shows its remainder rather than hiding it.
 	// Deriving the badge from `transaction.splits` here instead would be a second copy of the rule.
-	const splitIndicator = splitIndicatorOf(mapTransactionAllocations(transaction, mappingMap));
+	const allocations = mapTransactionAllocations(transaction, mappingMap);
+	const splitIndicator = splitIndicatorOf(allocations);
+
+	/**
+	 * PR5: under a category filter, the row's primary amount and displayed category are the
+	 * MATCHED allocation's, not the dominant one — a row showing "17,99 €, Abonnements" under
+	 * `?category=Loisirs` lied about both what the filter found and how much of it there was (the
+	 * band read 7,99 €). `pickMatchedAllocation` is the same function `sumFilteredTotals` calls for
+	 * the band's own per-row contribution, so the two cannot drift apart.
+	 *
+	 * `null` when no category filter is active, or — defensively — when nothing in this row's own
+	 * allocations actually matched one that is: the SQL/JS filter already narrowed the list to rows
+	 * that match by IDENTITY (see `computeFilteredTotals`'s own docstring for the parent-matches-but-
+	 * no-part-does case), and such a row has nothing to show as "matched" here either.
+	 */
+	const matched = categoryFilterNameKey
+		? pickMatchedAllocation(allocations, categoryFilterNameKey)
+		: null;
+	const matchedCategoryAllocation = matched
+		? {
+				category: matched.entry.category,
+				// Same rule as `rowNature`/`rowCategory` in +page.svelte always applied together: the
+				// nature line must describe the SAME part the category name does.
+				nature: matched.entry.nature,
+				// Signed, to match `amountCents` below's own convention (income positive, expense
+				// negative). `pickMatchedAllocation` returns an unsigned magnitude because
+				// `sumFilteredTotals` buckets income and expense separately; the row's own KIND decides
+				// the sign here, never a raw part's stored sign — see the doc comment on
+				// `MatchedAllocation` for why summing signed values instead would risk a forged pair of
+				// opposite-sign parts silently cancelling.
+				amountCents: kind === 'income' ? matched.amountCentsAbs : -matched.amountCentsAbs
+			}
+		: null;
 
 	return {
 		id: transaction.id,
@@ -1069,13 +1113,17 @@ function mapTransactionListItem(
 		natureSource: nature.source,
 		manualNature: transaction.natureManual,
 		amountCents: transaction.amountCents,
-		type: resolveTransactionType(transaction),
+		type: kind,
 		source: transaction.source,
 		tags: flattenTagLinks(transaction.tags),
 		// `null` on an unsplit row, and the view renders nothing at all for it. The three fields the
 		// desktop cell reads — dominant category, its nature, the count — travel together so the two
 		// lines of that cell cannot end up describing different parts.
 		splitIndicator,
+		// `null` outside a category filter, or when nothing on this row matched one that is (see
+		// above). Present, the view reads it in PLACE of splitIndicator's dominant fields (1l keeps
+		// deciding the badge's "+N"/"×N" count; only WHICH category/amount is named changes).
+		matchedCategoryAllocation,
 		suggestion
 	};
 }

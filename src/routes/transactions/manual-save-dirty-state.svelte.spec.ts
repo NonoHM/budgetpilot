@@ -35,6 +35,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 				source: 'Carrefour Market SA',
 				tags: [],
 				splitIndicator: null,
+				matchedCategoryAllocation: null,
 				suggestion: null
 			}
 		],

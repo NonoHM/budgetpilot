@@ -2,6 +2,7 @@ import type { TransactionNature } from '$lib/domain/transaction';
 import { mapTransactionAllocations, getEffectiveCategory } from './nature';
 import type { TransactionRowForMapping } from './nature';
 import { resolveTransactionType } from './totals';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 
 /**
  * The CSV a user downloads from /transactions, built from ALLOCATIONS rather than from parent rows.
@@ -29,6 +30,15 @@ import { resolveTransactionType } from './totals';
  *    the parent's category appears in no line. It is §2.2's restoration value — what the transaction
  *    returns to when the répartition is removed — so a round trip without it silently replaces a
  *    user-authored value with whichever part happened to be first.
+ *
+ * **A `categoryFilter` narrows WHICH LINES are written, never what `part` means.** PR5: exporting
+ * under `?category=Loisirs` must read 32,99 € like the screen it came from, which means emitting
+ * only the allocations that matched — not the whole répartition of every transaction the filter's
+ * identity match pulled in. `i` and `n` still describe the TRUE, full group (`i` restores
+ * `position`, `n` is the real allocation count), so a partially-matched split's file reads e.g.
+ * `2/3` and the maison v2 parser refuses it by name ("répartition incomplète") instead of
+ * re-importing a smaller, wrong répartition. A filtered export is a view of the screen, not a
+ * backup — see docs/using/split-transactions.md.
  */
 export const TRANSACTION_CSV_HEADER =
 	'date;libelle;categorie;montant;type;nature;source_bancaire;montant_total;part;categorie_parent';
@@ -38,8 +48,12 @@ const NEEDS_QUOTING_PATTERN = /[;"\n\r]/;
 
 export function buildTransactionsCsv(
 	transactions: readonly TransactionRowForMapping[],
-	mappingMap: Map<string, TransactionNature>
+	mappingMap: Map<string, TransactionNature>,
+	/** The active `?category=` filter, if any — see the doc comment above. `undefined`/empty means
+	 *  no filter, and every allocation is emitted exactly as before this parameter existed. */
+	categoryFilter?: string
 ): string {
+	const categoryKey = categoryFilter ? computeNameKey(categoryFilter) : null;
 	const rows = transactions.flatMap((transaction) => {
 		const allocations = mapTransactionAllocations(transaction, mappingMap);
 		const transactionType = resolveTransactionType(transaction);
@@ -51,7 +65,16 @@ export function buildTransactionsCsv(
 		const parentCategory = getEffectiveCategory(transaction);
 		const totalCents = signed(transaction.amountCents);
 
-		return allocations.map((allocation, index) =>
+		// `index` and `allocations.length` are taken from the FULL, unfiltered group even when only
+		// a subset is emitted below: the `part` column's `i/n` always describes the true group, so a
+		// filter that drops a line makes the group read as incomplete rather than as a smaller,
+		// complete one.
+		const numbered = allocations.map((allocation, index) => ({ allocation, index }));
+		const emitted = categoryKey
+			? numbered.filter(({ allocation }) => computeNameKey(allocation.category) === categoryKey)
+			: numbered;
+
+		return emitted.map(({ allocation, index }) =>
 			[
 				allocation.date,
 				transaction.label,
