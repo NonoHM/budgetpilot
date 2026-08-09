@@ -45,6 +45,7 @@ const {
 	spentCentsFor,
 	updateBudget
 } = await import('./dashboard');
+import type { CategorySpending } from './dashboard';
 
 describe('parseManualAmountCents', () => {
 	it('convertit un montant manuel en centimes', () => {
@@ -446,6 +447,19 @@ describe('écritures dashboard', () => {
  * The fixture is deliberately mixed-case. A fixture spelling every row the way the budget is
  * spelled cannot see this defect at all, which is exactly how it survived.
  */
+/**
+ * A raw, UNFOLDED lookup into the spending map — the thing production code can no longer express,
+ * reconstructed here on purpose.
+ *
+ * These two tests exist to pin the PRE-FIX figure: what /budgets printed when it looked the category
+ * up by its own raw spelling. Stating that requires performing the mistake, so the cast is confined
+ * to this one helper, named for what it is, rather than spread across the assertions where a reader
+ * might take it for the supported access pattern.
+ */
+function rawLookup(spending: CategorySpending, rawName: string): number {
+	return (spending as ReadonlyMap<string, number>).get(rawName) ?? 0;
+}
+
 describe('readCurrentMonthSpending + spentCentsFor — the /budgets under-report', () => {
 	const userId = 'user-a';
 	/** The instant the whole block is pinned to, stated so a diff cannot be blamed on the calendar. */
@@ -476,8 +490,10 @@ describe('readCurrentMonthSpending + spentCentsFor — the /budgets under-report
 		const spending = await readCurrentMonthSpending(userId);
 
 		// The pre-fix figure, and the reason it was wrong: a raw lookup still finds only one of the
-		// two spellings, so this is what /budgets printed.
-		expect(spending.get('Alimentation') ?? 0).toBe(0);
+		// two spellings, so this is what /budgets printed. Reached through `rawLookup` because the
+		// map's key type is now branded and `spending.get('Alimentation')` does not compile — which
+		// is the point of the brand, and does not make this assertion less true.
+		expect(rawLookup(spending, 'Alimentation')).toBe(0);
 		expect(spentCentsFor(spending, 'Alimentation')).toBe(7_450);
 		// Folding is symmetric: the budget's own spelling does not decide the answer.
 		expect(spentCentsFor(spending, 'ALIMENTATION')).toBe(7_450);
@@ -490,7 +506,7 @@ describe('readCurrentMonthSpending + spentCentsFor — the /budgets under-report
 
 		const spending = await readCurrentMonthSpending(userId);
 
-		expect(spending.get('Transport') ?? 0).toBe(0);
+		expect(rawLookup(spending, 'Transport')).toBe(0);
 		expect(spentCentsFor(spending, 'Transport')).toBe(2_700);
 	});
 

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { CategorySpending } from '$lib/server/budget/dashboard';
 
 const db = vi.hoisted(() => ({
 	prisma: {
@@ -45,8 +46,8 @@ const budgetService = vi.hoisted(() => ({
 	deleteBudget: vi.fn(async () => undefined),
 	// The REAL folding helper, not a stand-in. A hand-written fake here would be a second copy of
 	// the fold, and the copy is what the whole defect was made of.
-	spentCentsFor: vi.fn((spending: Map<string, number>, categoryName: string) =>
-		realSpentCentsFor(spending, categoryName)
+	spentCentsFor: vi.fn((spending: ReadonlyMap<string, number>, categoryName: string) =>
+		realSpentCentsFor(spending as CategorySpending, categoryName)
 	)
 }));
 

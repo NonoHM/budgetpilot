@@ -422,8 +422,17 @@ function isValidMonth(value: string): boolean {
  * as one name. Keyed raw, this map under-reported /budgets by exactly the parts spelled
  * differently from the budget: 70,00 € shown against 74,50 € on the dashboard for the same budget
  * in the same month, and 0,00 € against 27,00 € for Transport. Folding here merges them, and
- * `spentCentsFor` below is the only supported way to read the result, so a caller cannot
- * reintroduce a raw lookup without deleting it.
+ * `spentCentsFor` below is the only supported way to read the result, and it is now a CONSTRAINT
+ * rather than a convention: the return type is `CategorySpending`, whose key type is a brand no
+ * caller can construct, so `spending.get(rawName)` does not compile.
+ *
+ * THAT WAS A COMMENT UNTIL IT WASN'T. Review flagged the plain `Map<string, number>` as "a
+ * convention, not a type-level constraint — nothing stops a future caller writing
+ * `spending.get(rawName)`". The very next new caller did exactly that: a db-smoke test written on a
+ * parallel branch asserted `spendingByCategory.get('ParamLimit')`, passed on its own branch where
+ * the key was still raw, and failed only once the two branches met — `expected undefined to be
+ * 1704450`, a runtime surprise in a file about something else entirely. With the brand it would
+ * have been a compile error naming that line.
  *
  * Two things about it that are easy to miss, both pre-existing and both left as they are:
  *
@@ -440,7 +449,7 @@ function isValidMonth(value: string): boolean {
  * through the full allocation would mean an extra query and inventing a Transaction to throw away.
  * The remainder rule is the same function in both paths, which is the property that matters.
  */
-export async function readCurrentMonthSpending(userId: string): Promise<Map<string, number>> {
+export async function readCurrentMonthSpending(userId: string): Promise<CategorySpending> {
 	const now = new Date();
 	const firstOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
 	const firstOfNextMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
@@ -457,7 +466,7 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
 		}
 	});
 
-	const spending = new Map<string, number>();
+	const spending = new Map<string, number>() as Map<FoldedCategoryKey, number>;
 	for (const tx of transactions) {
 		const allocated = allocateByCategory(
 			{ category: getEffectiveCategory(tx), amountCents: tx.amountCents },
@@ -467,12 +476,26 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
 			}))
 		);
 		for (const entry of allocated) {
-			const key = normalizeForMatch(entry.category);
+			const key = normalizeForMatch(entry.category) as FoldedCategoryKey;
 			spending.set(key, (spending.get(key) ?? 0) + Math.abs(entry.amountCents));
 		}
 	}
 	return spending;
 }
+
+/**
+ * A category name that has been through `normalizeForMatch`.
+ *
+ * The `unique symbol` member is never present at runtime — it exists so that no caller can produce a
+ * value of this type by writing a string literal, which is what turns "read it through
+ * `spentCentsFor`" from a docstring into something the compiler enforces. `normalizeForMatch`'s
+ * output is asserted into it in exactly two places, both in this file, both on the same expression.
+ */
+declare const FOLDED_CATEGORY_KEY: unique symbol;
+export type FoldedCategoryKey = string & { readonly [FOLDED_CATEGORY_KEY]: true };
+
+/** `readCurrentMonthSpending`'s result: folded keys, read through `spentCentsFor` and nothing else. */
+export type CategorySpending = ReadonlyMap<FoldedCategoryKey, number>;
 
 /**
  * The ONLY supported read of `readCurrentMonthSpending`'s result.
@@ -483,6 +506,6 @@ export async function readCurrentMonthSpending(userId: string): Promise<Map<stri
  * or an accent. Folding here CALLS `normalizeForMatch` rather than restating it, so the lookup and
  * the accumulation above can only ever fold the same way.
  */
-export function spentCentsFor(spending: Map<string, number>, categoryName: string): number {
-	return spending.get(normalizeForMatch(categoryName)) ?? 0;
+export function spentCentsFor(spending: CategorySpending, categoryName: string): number {
+	return spending.get(normalizeForMatch(categoryName) as FoldedCategoryKey) ?? 0;
 }
