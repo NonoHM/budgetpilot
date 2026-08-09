@@ -385,13 +385,17 @@
 													</span>
 												{/if}
 											</div>
-											<!-- min-h-[22px] RESERVES the badge's own height on this line for every row,
-											     split or not — a minimum, never a fixed height (see CLAUDE.md: a fixed
-											     one absorbs an overflow invisibly, a minimum lets it grow and stay
-											     visible). -->
-											<div
-												class="flex min-h-[22px] min-w-0 items-center gap-1.5 text-xs text-zinc-400"
-											>
+											<!-- min-h-6 RESERVES the badge's own height on this line for every row, split or
+											     not — a minimum, never a fixed height (see CLAUDE.md: a fixed one absorbs
+											     an overflow invisibly, a minimum lets it grow and stay visible).
+											     24px, NOT the 22 the two inert surfaces reserve, and the difference is the
+											     whole point: this is the one surface here whose badge is INTERACTIVE, and
+											     an interactive badge is a `h-6` button. Reserving 22 measured a real
+											     +2px delta between a split row and a plain one — the reservation was
+											     undersized by exactly the button's extra height, so the content pushed the
+											     row, which is the thing a reservation exists to stop. The 2px is paid by
+											     every row equally instead. -->
+											<div class="flex min-h-6 min-w-0 items-center gap-1.5 text-xs text-zinc-400">
 												<span class="min-w-0 truncate"
 													>{formatDateShort(tx.date)} · {displayCategory(tx.category)}</span
 												>
