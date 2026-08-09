@@ -2395,7 +2395,9 @@ describe('/transactions load — the sign a row is rendered with', () => {
 		vi.clearAllMocks();
 	});
 
-	it('signs a positive-stored expense negative: 90,00 € becomes -90,00 €', async () => {
+	// The fixture stores 3 000, not the 9 000 the docstring's real-world measurement used: the title
+	// names THIS test's numbers so a reader is not sent looking for a row that is not here.
+	it('signs a positive-stored expense negative: 30,00 € becomes -30,00 €', async () => {
 		expect.assertions(3);
 
 		const data = await runLoad('/transactions');
