@@ -51,6 +51,36 @@ export function getTransactionKind(
 	return transaction.amountCents >= 0 ? 'income' : 'expense';
 }
 
+/**
+ * A stored magnitude, given the sign its DIRECTION implies. The single definition of "what sign
+ * does this money figure carry on screen".
+ *
+ * THE STORED SIGN IS NOT THE DIRECTION, and that is the whole reason this exists.
+ * `server/import/persist.ts` writes `Math.abs(amountCents)` and puts the direction in `type`, so a
+ * CSV-imported expense sits in the database as a POSITIVE number. Every aggregate in the app
+ * already knows this — the totals, the per-nature buckets and the CSV export all take
+ * `Math.abs(...)` and resolve the direction through `getTransactionKind` — but the transactions
+ * list rendered `formatCents(tx.amountCents)` raw and took only its COLOUR from `type`.
+ *
+ * Measured before the fix, in one list: two CSV-imported July rows read « 90,00 € » and
+ * « 60,00 € » beside seeded August rows reading « -16,00 € » and « -80,00 € ». All four are
+ * expenses. So an imported expense showed as a positive amount, distinguished from an income only
+ * by being rose rather than emerald — a false figure, and colour as the sole encoding of a
+ * difference, which the design plate forbids.
+ *
+ * DERIVED AT READ, NOT NORMALISED AT WRITE, and the reasoning belongs here because the opposite
+ * choice looks tidier. Normalising the column would need a data migration on three separate
+ * provider histories, rewriting every row a user has ever imported, and it would still leave the
+ * derivation in place for the rows written before it ran. More decisively, it would not remove the
+ * second source of truth it is meant to remove: `type` is nullable, `getTransactionKind` already
+ * falls back to the sign only when it is absent, and every money read in the app already treats
+ * `type` as the authority. Deriving here makes the LIST agree with the aggregates it sits next to;
+ * writing a sign into the column would make the column agree with itself and change nothing else.
+ */
+export function applyKindSign(amountCents: number, kind: TransactionKind): number {
+	return kind === 'expense' ? -Math.abs(amountCents) : Math.abs(amountCents);
+}
+
 export function isValidIsoDate(value: string): boolean {
 	if (!ISO_DATE_PATTERN.test(value)) return false;
 

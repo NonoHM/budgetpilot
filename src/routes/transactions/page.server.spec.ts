@@ -589,15 +589,27 @@ vi.mock('$lib/server/tags/bulk', async (importOriginal) => {
 	};
 });
 
+const { applyKindSign } = await import('$lib/domain/transaction');
 const { actions, load } = await import('./+page.server');
 const { MAX_BULK_TAG_TRANSACTIONS } = await import('$lib/server/tags/bulk');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
 interface TestTransactionPageData {
-	transactions: Array<{ id: string; category: string; isManualCategory: boolean }>;
+	transactions: Array<{
+		id: string;
+		category: string;
+		isManualCategory: boolean;
+		// Read by the sign block at the foot of this file. Narrow on purpose, like the rest of this
+		// interface: a field is added here when an assertion needs it, so the type says what the
+		// suite actually reads rather than mirroring the whole payload.
+		type: string;
+		amountCents: number;
+	}>;
 	uncategorizedCount: number;
 	classifiableCount: number;
 	selectedTransaction: {
+		type: string;
+		amountCents: number;
 		category: string;
 		importedCategory: string;
 		manualCategory: string | null;
@@ -2360,3 +2372,68 @@ async function runDeleteTransaction(input: Record<string, string>) {
 		})
 	})) as { status?: number; deleteSuccess?: boolean };
 }
+
+/**
+ * CSV-imported expenses used to render WITHOUT a minus sign.
+ *
+ * `import/persist.ts` stores `Math.abs(amountCents)` and puts the direction in `type`, so an
+ * imported expense sits in the database as a POSITIVE number. The list rendered
+ * `formatCents(tx.amountCents)` raw and took only its COLOUR from `type`.
+ *
+ * Measured before the fix, in one list on a seeded instance: two CSV-imported July rows read
+ * « 90,00 € » and « 60,00 € » while seeded August rows read « -16,00 € » and « -80,00 € ». All of
+ * them are expenses. So an imported expense showed as a POSITIVE amount, told apart from an income
+ * by nothing but being rose rather than emerald — a false figure, and colour as the sole encoding
+ * of the difference.
+ *
+ * The fixture's own expense rows are stored the same way (`amountCents: 3_000, type: 'expense'`),
+ * which is why nothing in this file went red when the sign was applied: no assertion had ever read
+ * the list's amount at all.
+ */
+describe('/transactions load — the sign a row is rendered with', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('signs a positive-stored expense negative: 90,00 € becomes -90,00 €', async () => {
+		expect.assertions(3);
+
+		const data = await runLoad('/transactions');
+		const row = data.transactions.find((transaction) => transaction.type === 'expense');
+
+		// The stored magnitude, unchanged in the database — this is what the raw render printed.
+		expect(row?.type).toBe('expense');
+		expect(row?.amountCents).toBeLessThan(0);
+		expect(row?.amountCents).toBe(-3_000);
+	});
+
+	it('leaves an income positive, so the sign carries direction rather than a blanket minus', async () => {
+		expect.assertions(2);
+
+		const data = await runLoad('/transactions');
+		const row = data.transactions.find((transaction) => transaction.type === 'income');
+
+		expect(row?.type).toBe('income');
+		expect(row?.amountCents).toBe(15_000);
+	});
+
+	it('signs the detail panel too, which shares the header amount with the list', async () => {
+		expect.assertions(2);
+
+		const data = await runLoad('/transactions?selected=transaction-1');
+
+		expect(data.selectedTransaction?.type).toBe('expense');
+		expect(data.selectedTransaction?.amountCents).toBe(-3_000);
+	});
+
+	it('agrees with the CSV export, which has signed by direction all along', async () => {
+		expect.assertions(1);
+
+		const data = await runLoad('/transactions');
+		const row = data.transactions.find((transaction) => transaction.type === 'expense');
+
+		// Not a restatement of the rule: `applyKindSign` is the function the export calls, so this
+		// asserts the two surfaces go through one definition rather than agreeing by coincidence.
+		expect(row?.amountCents).toBe(applyKindSign(3_000, 'expense'));
+	});
+});
