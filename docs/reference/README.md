@@ -29,6 +29,9 @@ Rules, limits and exact values. Look things up here; the pages in
 - **[Two-factor authentication](./two-factor.md)**: the TOTP and
   recovery-code figures, what each step verifies, the rate limits, and the
   one route back into a locked-out account.
+- **[Backup and restore](./backup-restore.md)**: the nineteen sections of the
+  export, what it deliberately leaves out, what the validator checks, and
+  every refusal message.
 
 Settings and environment variables are not here: those are in
 [configuration](../configuration.md), because they belong to the install

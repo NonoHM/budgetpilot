@@ -350,6 +350,14 @@ account's current data and rebuilds it from the file. That's what makes it
 the right tool for moving your data to a fresh instance, and the wrong tool
 for merging two accounts.
 
+It is one account, not the instance, so it is not a substitute for the
+database backup above: it carries no other user's data, no password, no
+two-factor secret and no session. From a user's side rather than an
+operator's, the same two buttons are covered in
+[exporting and restoring your data](./using/backup-restore.md), and what the
+file holds and what the validator checks are in the
+[backup reference](./reference/backup-restore.md).
+
 ## Moving to another machine
 
 1. Back up the database as above — the file on SQLite, a dump on PostgreSQL
