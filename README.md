@@ -35,7 +35,7 @@ All screenshots use fake demo data, not a real user's finances.
 - **Optional automatic bank sync** (PSD2, via Enable Banking). Off by default. HTTPS only, explicit host allowlist, no credential scraping, ever.
 - **Budgets**: monthly, per category, with alerts when you're close to the limit.
 - **[Net worth tracking](docs/using/net-worth.md)** across multiple accounts, with history over time.
-- **Savings goals**, with pace tracking and an optional link to a real account.
+- **[Savings goals](docs/using/savings-goals.md)**, with pace tracking and an optional link to a real account.
 - **Cash flow forecasting**: a deterministic projection of your upcoming balance, based on recurring income and expenses it actually detects from your history. No machine learning involved, nothing sent anywhere.
 - **[Categorization rules](docs/using/rules.md)** (text or regex), applied automatically on import, never overriding something you fixed by hand. 156 ship with the app.
 - **[Split transactions](docs/using/split-transactions.md)**: one payment across several categories, so an 80 € supermarket trip can be 50 € Groceries and 30 € Shopping. Budgets and reports count the parts, your totals stay exactly the same, and the CSV export carries the split back out and in again.

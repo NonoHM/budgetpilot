@@ -35,6 +35,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   what nature is for.
 - [Categorization rules](./using/rules.md): the 156 that ship, and writing
   your own.
+- [Savings goals](./using/savings-goals.md): the two tracking modes, and
+  what a deadline adds.
 - [Net worth](./using/net-worth.md): accounts and balances over time, and
   savings goals.
 - [The transactions screen](./using/transactions.md): search, filters, editing
@@ -61,6 +63,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   natures, and what deleting one does.
 - [Rules](./reference/rules.md): how matching works, and why a rule never
   overrides a category you set by hand.
+- [Savings goals](./reference/savings-goals.md): tracking modes, fields
+  and pace.
 - [Net worth](./reference/net-worth.md): account types, and which of them
   the cash-flow forecast anchors on.
 - [Split transactions](./reference/split-transactions.md): part counts,
