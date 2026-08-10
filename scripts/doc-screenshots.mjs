@@ -205,6 +205,22 @@ const GROUPS = {
 			},
 			element: '[role="dialog"], [role="alertdialog"]'
 		}
+	],
+	'upcoming-bills': [
+		{ file: 'upcoming-bills/overview-desktop.png', url: '/upcoming-bills', contentClip: true },
+		{ file: 'upcoming-bills/overview-mobile.png', url: '/upcoming-bills', viewport: MOBILE },
+		{
+			file: 'upcoming-bills/row-actions-desktop.png',
+			url: '/upcoming-bills',
+			before: async (page) => {
+				await page
+					.getByLabel(/^Actions for Rent/)
+					.first()
+					.click();
+				await page.waitForTimeout(400);
+			},
+			element: '[role="menu"]'
+		}
 	]
 };
 
