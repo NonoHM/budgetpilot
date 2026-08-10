@@ -197,7 +197,7 @@ applies its own schema on every start, but it never creates the database.
 Don't want to run a server yourself? There are two optional Compose overlays
 that start one for you, alongside the app and unpublished to the host:
 [using PostgreSQL or MySQL](./database-providers.md). Adding the overlay sets
-both variables for you, so you leave them out of `.env` entirely — its
+both variables for you, so you leave them out of `.env` entirely. Its
 `DATABASE_PASSWORD` is the only value you supply.
 
 Two things to know before you pick a server engine:

@@ -35,7 +35,7 @@ highest priority.
   optional TOTP/MFA with encrypted secrets and recovery codes.
 - **Data isolation**: every sensitive query is scoped to the authenticated
   user; the client never controls which user's data it can read or write.
-- **Registration**: closed (`admin_only`) by default — self-registration
+- **Registration**: closed (`admin_only`) by default, and self-registration
   must be explicitly opted into.
 - **Cookies**: the session cookie is forced `Secure` whenever the instance
   declares itself public (`PUBLIC_INSTANCE=true`), independent of
@@ -48,9 +48,9 @@ highest priority.
   integration will contact any host that isn't on an explicit,
   configurable allowlist. Both are disabled by default.
 - **Backup/restore**: exports are scoped to the requesting user only; a
-  restore is a full, transactional replacement — never a silent merge.
+  restore is a full, transactional replacement, never a silent merge.
 
 If you're evaluating BudgetPilot for a security-sensitive deployment, read
-[`.env.example`](./.env.example) — every security-relevant environment
+[`.env.example`](./.env.example): every security-relevant environment
 variable is documented there with its safe default and the reasoning behind
 it.

@@ -50,7 +50,7 @@ first anyway, see below.
 ### Before you upgrade to the distroless image
 
 **SQLite installs need a one-time `chown` on the data volume. PostgreSQL and
-MySQL/MariaDB installs need nothing** — they don't use `/data`.
+MySQL/MariaDB installs need nothing**: they don't use `/data`.
 
 The runtime image now runs as user ID 65532 instead of the one earlier
 images used. Your existing volume is still owned by the old ID, and the new
@@ -73,7 +73,7 @@ docker compose up -d
 ```
 
 The `busybox` helper is not an oddity to work around: the app image has no
-`chown`, and no shell to run one in. That is the point of the new base — the
+`chown`, and no shell to run one in. That is the point of the new base: the
 image contains node and the app, and essentially nothing else. Use any image
 you like for this, `busybox` is just small.
 
@@ -131,7 +131,7 @@ That prints every merge it would make, by name, and writes nothing. Take a
 backup first either way, see [Backups](#backups).
 
 The container's entrypoint is `node`, so what you append is what node runs.
-Outside Docker — a checkout with `npm install` — the same preview is
+Outside Docker, in a checkout with `npm install`, the same preview is
 `npm run db:normalize-names -- --dry-run`, and that form stays in
 `package.json`. It is only the _in-container_ form that changed: the image no
 longer ships npm, and soon ships no shell at all.
@@ -164,10 +164,9 @@ which invitation to reissue.
 **PostgreSQL and MySQL/MariaDB are supported from this version.** Nothing
 changes for you if you do nothing: SQLite stays the default and stays the
 recommended setup. See [using PostgreSQL or MySQL](./database-providers.md)
-if you want to move to a server engine — there are two optional Compose
-overlays that run one for you — and note that moving an existing install
-means exporting your data and importing it into an empty instance. There is
-no in-place conversion.
+if you want to move to a server engine. Two optional Compose overlays run
+one for you. Moving an existing install means exporting your data and
+importing it into an empty instance; there is no in-place conversion.
 
 ### Before you upgrade past 0.2.0
 
@@ -223,7 +222,7 @@ database, which is what you restore from, and the in-app JSON export, which
 is what you move one account's data with.
 
 If you run PostgreSQL or MySQL instead of the default SQLite, the first one
-is a dump rather than a file copy — skip to [PostgreSQL or
+is a dump rather than a file copy. Skip to [PostgreSQL or
 MySQL](#the-whole-database-on-postgresql-or-mysql). Everything else on this
 page is the same on every engine.
 
@@ -297,11 +296,11 @@ process list; it is the `DATABASE_PASSWORD` from your `.env`.
 The `~/` in those paths is deliberate: the dump holds every account's data,
 password hashes and encrypted two-factor secrets, so it does not belong in a
 checkout of a public repository where one `git add -A` publishes it. Treat it
-exactly like the SQLite file — same care, same place, not next to the compose
+exactly like the SQLite file: same care, same place, not next to the compose
 file.
 
 Two things this backup does not contain, on any engine: `.env` (see the next
-section — the dump is useless without it) and the volume itself. Restoring
+section, since the dump is useless without it) and the volume itself. Restoring
 into a database whose schema is older than the dump is fine; the app runs
 its migrations at the next start.
 
@@ -360,7 +359,7 @@ file holds and what the validator checks are in the
 
 ## Moving to another machine
 
-1. Back up the database as above — the file on SQLite, a dump on PostgreSQL
+1. Back up the database as above: the file on SQLite, a dump on PostgreSQL
    or MySQL.
 2. Install BudgetPilot on the new machine, following
    [getting started](./getting-started.md), but stop before creating an
@@ -378,8 +377,8 @@ file holds and what the validator checks are in the
 `docker compose logs -f budgetpilot` is the tool, and it is unchanged.
 
 Two things that used to work no longer do, because the runtime image now
-contains node and the app and essentially nothing else — no shell, no
-package manager, no `curl`, no `ls`:
+contains node and the app and essentially nothing else (no shell, no
+package manager, no `curl`, no `ls`):
 
 ```bash
 docker compose exec budgetpilot sh          # no shell to start
@@ -402,7 +401,7 @@ What replaces them:
   docker compose exec budgetpilot /nodejs/bin/node -e 'console.log(process.version)'
   ```
 - **Poke at the filesystem or fix ownership.** Use any image that has the
-  tools, mounting the same volume — this is how the upgrade `chown` above
+  tools, mounting the same volume. This is how the upgrade `chown` above
   works:
   ```bash
   docker run --rm -v budgetpilot_budgetpilot_data:/data busybox ls -ln /data
@@ -417,7 +416,7 @@ What replaces them:
 ## What the container is allowed to do
 
 The shipped Compose files run the app with four restrictions. You don't need
-to do anything about them — this section exists so they aren't a mystery if
+to do anything about them. This section exists so they aren't a mystery if
 you ever hit one.
 
 | Setting                                  | What it means                                                          |
@@ -428,7 +427,7 @@ you ever hit one.
 | `security_opt: [no-new-privileges:true]` | Nothing inside can ever gain more privileges than it started with      |
 
 **Your data is unaffected.** `/data` is a mounted volume, and mounted volumes
-stay writable — that is where the SQLite database, and everything else the
+stay writable: that is where the SQLite database, and everything else the
 app persists, lives.
 
 The one thing to know: **`/data` has to be a real mount.** The shipped files

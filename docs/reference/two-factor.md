@@ -96,7 +96,7 @@ to work.
 The TOTP secret is stored encrypted with `TOTP_ENCRYPTION_KEY`
 ([configuration](../configuration.md)). If that key is changed or lost,
 every stored secret becomes undecryptable and every code is refused, for
-every account that has two-factor enabled — the same state as a lost phone,
+every account that has two-factor enabled: the same state as a lost phone,
 for everyone at once. Back the key up with the database, not separately from
 it.
 

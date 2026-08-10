@@ -155,7 +155,7 @@ becomes the admin automatically.
 Registration attempts are limited to **5 per 15 minutes per IP address**, so
 that a short or hand-picked token can't be guessed by brute force. If you
 mistype the token five times the form stops accepting attempts and tells you
-to try again later, and you'll need to wait out the 15 minutes — check the
+to try again later, and you'll need to wait out the 15 minutes. Check the
 value with the `grep` above rather than retrying.
 
 You're done. Next: [put some data in it](#first-steps-in-the-app).
@@ -286,7 +286,7 @@ accepted, with these profiles:
 
 **Home** recognises two shapes: the seven-column header older exports wrote,
 and the ten-column one exports write today. A file you exported months ago
-still imports, unchanged — the older shape is kept, not replaced.
+still imports, unchanged: the older shape is kept, not replaced.
 
 The extra columns exist so a **split transaction** survives the trip, one
 payment recorded against several categories. See
@@ -300,10 +300,10 @@ as several separate transactions. Two limits worth knowing:
 - Re-importing an export into the same instance adds nothing. Every line is
   recognised as a transaction you already have, so it is reported as a
   duplicate rather than imported twice.
-- A part's **note** is not exported. Everything else about a split — its
-  parts' categories, their amounts, their order, and the category the
-  transaction returns to if you remove the split — comes back exactly as it
-  went out.
+- A part's **note** is not exported. Everything else about a split comes
+  back exactly as it went out: its parts' categories, their amounts, their
+  order, and the category the transaction returns to if you remove the
+  split.
 
 Your bank isn't listed? Use **Generic**. Reshape your export to exactly
 these columns:
@@ -318,7 +318,7 @@ date,label,amount,category
   be left empty.
 - `category` is matched against the category's **stored** name, and a name
   that matches nothing creates a new category. The 14 defaults are stored
-  under canonical French names whatever language you read the app in — the
+  under canonical French names whatever language you read the app in: the
   screen shows the translation, so the seeded groceries category displays as
   `Groceries` in English and is stored as `Alimentation`, which is what the
   sample above uses. Categories you create yourself are stored exactly as you
@@ -373,7 +373,7 @@ python3 -c "import secrets;print(secrets.token_hex(32))"                        
 
 `RATE_LIMIT_HASH_SECRET` and `TOTP_ENCRYPTION_KEY` must be 64 hex characters
 exactly. `BOOTSTRAP_TOKEN` has no format constraint, it just needs to be long
-and random — generate it with one of the commands above rather than picking
+and random. Generate it with one of the commands above rather than picking
 one by hand. Registration is rate limited (5 attempts per 15 minutes per IP),
 but that bounds guessing rather than preventing it, and it is no substitute
 for a token with real entropy. Use three different values, never the same one

@@ -147,7 +147,7 @@ Work through these in order:
    `qwen2.5:0.5b` and `qwen2.5` are different names.
 5. Enough data: an account with four transactions gives the model nothing
    to comment on.
-6. Still on the first load? See above — give it a moment, the card fills in
+6. Still on the first load? See above: give it a moment, the card fills in
    on its own without reloading the page.
 
 If the card says the service is unavailable, the app reached the point of

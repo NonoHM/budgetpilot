@@ -10,5 +10,5 @@ the image.
 Opening it is done by walking up from the "Restore a backup" title to the
 nearest ancestor that owns a disclosure button, rather than by index. Two
 disclosures on that page carry the label **Show options**, and picking the
-second one opened the other section — with no error, and with a capture that
+second one opened the other section, with no error, and with a capture that
 looked plausible because the section it framed was the right one.

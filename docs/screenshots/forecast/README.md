@@ -24,7 +24,7 @@ remained at all.
 
 Three one-off transactions were added before removing the last flow, so the
 dashboard still rendered its normal layout rather than its onboarding empty
-state — otherwise the capture would have shown a different screen entirely.
+state. Otherwise the capture would have shown a different screen entirely.
 
 ## Language
 

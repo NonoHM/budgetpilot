@@ -125,7 +125,7 @@ docker compose -f docker-compose.prebuilt.yml -f docker-compose.ai.yml -f docker
 docker compose -f docker-compose.yml -f docker-compose.proxy.yml ps
 ```
 
-The `budgetpilot` line must show **no** host port — only `3000/tcp`, with no
+The `budgetpilot` line must show **no** host port: only `3000/tcp`, with no
 `0.0.0.0:...->` arrow in front of it. Only `caddy` publishes anything: 80,
 443, and 443/udp for HTTP/3. If you see the app publishing a port, stop the
 stack: your Compose is older than 2.24 and silently ignored the overlay's
@@ -162,9 +162,9 @@ URL. `q` is deleted too: it's the `/transactions` search term, so it holds
 whatever merchant, amount or note the user typed to find their own
 transactions, and the access log is the one place in this stack that would
 keep that in plaintext outside the database. It used to matter for a second
-reason — the link from a detected stream on `/upcoming-bills` to its
+reason: the link from a detected stream on `/upcoming-bills` to its
 transactions filled `q` with a raw bank label off the user's statement, with
-them typing nothing — but that link now uses opaque transaction ids. The
+them typing nothing, but that link now uses opaque transaction ids. The
 filter still covers everything
 typed into the search box. If you write your own Caddyfile rather than
 starting from the example, keep it.

@@ -61,7 +61,7 @@ Adding a language is an install-level change, not a setting:
 | Reversible          | no                                          |
 
 The phrase is French in every locale. The English instruction says so
-literally — _"To confirm, type SUPPRIMER"_ — so nothing displayed is wrong,
+literally (_"To confirm, type SUPPRIMER"_), so nothing displayed is wrong,
 but an English reader is asked for a word the interface does not otherwise
 use.
 

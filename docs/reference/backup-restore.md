@@ -37,7 +37,8 @@ Verified on a real export: `passwordHash`, `totp` and `session` appear
 nowhere in the file.
 
 `userEmail` is **informational**. Restoring a file whose `userEmail` names
-somebody else succeeds — measured — because the target is always the account
+somebody else succeeds, measured rather than assumed, because the target is
+always the account
 performing the restore. It is a label recording where the file came from,
 never a check on where it may go.
 
@@ -76,7 +77,7 @@ resulting rows would be indistinguishable from legitimate ones forever
 after.
 
 String bounds are 191 characters, MySQL's `varchar` default, on every
-engine — so a value one engine could not store is refused everywhere rather
+engine, so a value one engine could not store is refused everywhere rather
 than reaching an insert on one.
 
 **Duplicate identifiers within a section are not detected.** A section

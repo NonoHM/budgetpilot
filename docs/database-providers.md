@@ -8,7 +8,7 @@ you will grow out of.
 This page is for the case where you'd rather not run one anyway: you already
 operate a PostgreSQL or MySQL server, your backups are built around it, or
 your storage layout keeps databases somewhere other than the application. If
-none of that describes you, close this page — nothing here makes the app
+none of that describes you, close this page: nothing here makes the app
 faster or safer.
 
 ## What you're choosing between
@@ -30,7 +30,7 @@ and `DATABASE_PROVIDER=mysql` covers both. The overlay below runs MariaDB,
 which is what CI and the image smoke test exercise on every change.
 
 **There is no in-place conversion.** Switching an existing install means
-exporting your data and importing it into a fresh one — see
+exporting your data and importing it into a fresh one. See
 [Switching an existing install](#switching-an-existing-install). Decide
 before you have data you care about, if you can.
 
@@ -46,7 +46,7 @@ DATABASE_PASSWORD=<the output of: openssl rand -hex 32>
 ```
 
 There is no default and there is no fallback: with `DATABASE_PASSWORD`
-unset, Compose refuses to start the stack and says so. That is deliberate —
+unset, Compose refuses to start the stack and says so. That is deliberate:
 the alternative is a database whose password is a value published in this
 repository.
 
@@ -82,7 +82,7 @@ export COMPOSE_FILE=docker-compose.yml:docker-compose.postgres.yml
 ```
 
 The overlay sets `DATABASE_PROVIDER` and `DATABASE_URL` itself, pointing at
-the server it starts. **Adding it is the switch** — you don't also edit
+the server it starts. **Adding it is the switch**: you don't also edit
 those two variables in `.env`, and if you do, the overlay wins. This is the
 same rule as the AI overlay: the stack can't end up with a database
 container running while the app quietly writes to a file on the volume.
@@ -113,7 +113,7 @@ BudgetPilot needs to own one database and nothing else, so that is all it
 gets: the PostgreSQL overlay creates a plain `budgetpilot` login role and
 hands it ownership of the `budgetpilot` database, and MariaDB's `budgetpilot`
 user is scoped to the `budgetpilot` database the same way. There is nothing
-for you to do — it happens the first time the stack creates its volume.
+for you to do. It happens the first time the stack creates its volume.
 
 Each engine keeps one administrative account for the maintenance you might
 one day need (a major-version upgrade, a restore), and neither is usable from
@@ -129,7 +129,7 @@ outside its own container:
 Neither is a password you have to store, rotate, or type.
 
 **If the app warns at startup that it has more privilege than it uses**, it
-means this setup did not apply — an operator's own server where the account
+means this setup did not apply: an operator's own server where the account
 was granted extra rights, or a volume created before this overlay existed.
 The warning names the fix for your case, and there are only three:
 
@@ -138,7 +138,7 @@ The warning names the fix for your case, and there are only three:
   `pg_read_server_files` membership. Nothing the app does needs them.
 - The role does not own the database it writes to: give it ownership first
   (`ALTER DATABASE <database> OWNER TO "<role>";`), then drop the excess. In
-  that order — the extra privilege is what is letting it write today.
+  that order: the extra privilege is what is letting it write today.
 - The role is the cluster's **bootstrap** superuser (the one `initdb`
   created). PostgreSQL refuses to demote it, so there is nothing to alter:
   create a separate login role, hand it ownership of the database, and point
@@ -151,7 +151,7 @@ Run those as a superuser, over the local socket:
 **If the PostgreSQL container fails during its very first start**, remove the
 volume rather than restarting it: `docker compose down -v` and start again.
 The server sets up its account layout once, when the volume is created, and
-never revisits it — a half-finished first start would otherwise be permanent.
+never revisits it: a half-finished first start would otherwise be permanent.
 This is safe only then, on a stack with no data yet; `-v` deletes everything
 at any other time.
 
@@ -172,7 +172,7 @@ DATABASE_URL="mysql://budgetpilot:yourpassword@db.example.lan:3306/budgetpilot"
 
 **Create the database and its user yourself first.** BudgetPilot applies its
 own schema on every start, but it never creates the database, and it does
-not need — or want — an account with permission to. Ownership of that one
+not need (or want) an account with permission to. Ownership of that one
 database is the whole requirement: no superuser, no `CREATEDB`, no
 `pg_execute_server_program`. The app says so at startup if it finds itself
 with more, see [the app's database
@@ -195,7 +195,7 @@ each one while signed in as that user on the new instance.
    the file somewhere other than the machine you're about to change.
 2. **Back up what you already have**, in case you want to walk this back:
    the SQLite file (see [operations](./operations.md#backups)) and `.env`.
-   `.env` matters as much as the database — without the original
+   `.env` matters as much as the database: without the original
    `TOTP_ENCRYPTION_KEY`, every two-factor setup in it is unreadable.
 3. **Start an empty instance on the new engine.** Add `DATABASE_PASSWORD` to
    `.env`, then start the stack with the overlay as above. It comes up with
@@ -203,7 +203,7 @@ each one while signed in as that user on the new instance.
    like a first install.
 4. **Import.** Sign in, then **Settings > Backup and restore > Import**, and
    pick the file from step 1. This is a full replacement of that account's
-   data, not a merge — which is what you want here, the account being empty.
+   data, not a merge, which is what you want here, the account being empty.
 5. **Check before you delete anything.** Transaction count, the last few
    months of the dashboard, your budgets and net worth accounts. The old
    SQLite volume is still there; nothing forces you to remove it today.
@@ -216,8 +216,8 @@ Settings, and reconnect banks from **Imports > Bank connections**.
 
 Your JSON export still works and is still the right tool for moving an
 account's data around. What changes is the operator-level backup: there is
-no longer a database file to copy. Use your engine's own dump tool —
-commands and restore instructions are in
+no longer a database file to copy. Use your engine's own dump tool.
+Commands and restore instructions are in
 [operations](./operations.md#backups).
 
 ## Connecting a client
@@ -235,8 +235,8 @@ docker compose exec postgres psql -U budgetpilot budgetpilot
 docker compose exec mysql mariadb -u budgetpilot -p budgetpilot
 ```
 
-If you genuinely need a host-side client — a GUI tool, a backup agent that
-can't run in a container — publish the port to loopback only, in a
+If you genuinely need a host-side client, such as a GUI tool or a backup
+agent that can't run in a container, publish the port to loopback only, in a
 `docker-compose.override.yml` next to the others (Compose picks that file up
 on its own, so it needs no `-f`):
 
@@ -261,28 +261,28 @@ from anything else on the network.
 
 ## When something's wrong
 
-- **`required variable DATABASE_PASSWORD is missing a value`** — `.env` has
+- **`required variable DATABASE_PASSWORD is missing a value`**: `.env` has
   no `DATABASE_PASSWORD`, or you're running the overlay from a directory
   that has no `.env`. Step 1 above.
-- **The app container restarts in a loop on a fresh stack** — check the
+- **The app container restarts in a loop on a fresh stack**: check the
   database container's logs first (`docker compose logs postgres`). The app
   waits for a healthy server, so a server that never becomes healthy (an
   unreadable volume, a password changed after the volume was created) shows
   up as an app that can't start.
-- **The app starts but every screen is empty** — you're on the wrong
+- **The app starts but every screen is empty**: you're on the wrong
   database. `docker compose logs budgetpilot | grep database-provider`
   prints which engine it actually resolved at boot.
-- **`P1013` or a scheme complaint at startup** — `DATABASE_PROVIDER` and the
+- **`P1013` or a scheme complaint at startup**: `DATABASE_PROVIDER` and the
   scheme of `DATABASE_URL` disagree. Use `postgresql://` with `postgresql`,
   `mysql://` with `mysql`. The app refuses to start on a mismatch rather
   than connecting to something you didn't mean.
 - **`P1013: invalid port number in database URL`, with a `DATABASE_PASSWORD`
-  you're sure of** — the password contains a character a URL reads as
+  you're sure of**: the password contains a character a URL reads as
   punctuation. A `/` ends the host part, and `+` can be read as a space. This
   is what a base64 password does to you; `openssl rand -hex 32` cannot.
   Regenerate it, and remember the server keeps the old one until you delete
   its volume.
-- **Pasting logs for help** — `docker compose logs mysql` includes a
+- **Pasting logs for help**: `docker compose logs mysql` includes a
   `GENERATED ROOT PASSWORD` line from the server's very first start. Nothing
   uses that account and it only accepts connections from inside its own
   container, but strip the line anyway before it goes in an issue or a

@@ -68,7 +68,7 @@ At the bottom, and irreversible. It removes your account and everything in
 it: transactions, categories, budgets, rules, net worth history, goals,
 tags.
 
-**To confirm, you must type `SUPPRIMER`** — in capitals, exactly as shown.
+**To confirm, you must type `SUPPRIMER`**, in capitals, exactly as shown.
 It is the French word for "delete", and it is the same word whatever
 language the interface is in.
 
@@ -80,5 +80,5 @@ If what you want is a copy of your data before it goes, take one first:
 
 ---
 
-For the exact figures — password rules, session lifetime, what each control
-touches — see the [account reference](../reference/account.md).
+For the exact password rules, the session lifetime, and what each control
+touches, see the [account reference](../reference/account.md).

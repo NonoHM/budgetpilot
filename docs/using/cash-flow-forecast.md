@@ -45,7 +45,7 @@ A payment has to earn its way in:
 - **at least three occurrences**, so a rhythm can be seen at all;
 - **high or medium confidence**, meaning the rhythm and the amount are
   steady enough to extrapolate;
-- and it has to be **recent** — a flow that has stopped happening stops
+- and it has to be **recent**: a flow that has stopped happening stops
   being projected.
 
 Everything else is ignored. A one-off purchase never enters the projection,
@@ -55,13 +55,13 @@ which is why the forecast does not react to a large one-off expense.
 
 Two states replace the curve, and they mean different things.
 
-**Not enough recurring flows** — fewer than three confirmed flows exist. A
+**Not enough recurring flows**: fewer than three confirmed flows exist. A
 new account is here, and so is an account whose spending is genuinely
 irregular.
 
 ![The forecast card reading "Not enough recurring flows: at least 3 confirmed recurring flows (high or medium confidence) are needed to project a balance"](../screenshots/forecast/empty-not-enough-desktop.png)
 
-**Dormant recurring flows** — flows were detected, and none of them has
+**Dormant recurring flows**: flows were detected, and none of them has
 recurred recently enough to be trusted. This is what an old database looks
 like: the rent and the subscriptions are still in the history, but the
 history stopped.
