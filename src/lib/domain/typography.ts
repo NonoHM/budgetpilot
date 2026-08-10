@@ -23,6 +23,15 @@ import { getLocale } from '$lib/paraglide/runtime';
  * on top of the four `CLAUDE.md` already records, and unlike those it fails silently: a missing
  * entry renders English spacing, which looks deliberate.
  */
+/**
+ * `locale` is typed `string`, NOT Paraglide's `Locale` union, and that is deliberate rather than
+ * lazy. Inheriting the union from `getLocale()`'s return type narrows the parameter to the two
+ * locales that exist today, which makes the regional-tag behaviour these functions implement
+ * impossible to express or to test — `'fr-CA'` is not assignable to `'en' | 'fr'`.
+ *
+ * Found by `npm run check`, after `vitest` had passed on the same file: vitest transpiles specs
+ * without typechecking them, so a spec is not covered by a green test run. See CLAUDE.md.
+ */
 const SPACE_BEFORE_PUNCTUATION = new Set(['fr']);
 
 function wantsSpace(locale: string): boolean {
@@ -38,7 +47,7 @@ function wantsSpace(locale: string): boolean {
  * rounded to a whole percent before this existed and re-deriving the fraction would only invite
  * a rounding difference between the old output and the new.
  */
-export function formatPercent(percent: number, locale = getLocale()): string {
+export function formatPercent(percent: number, locale: string = getLocale()): string {
 	return new Intl.NumberFormat(locale, {
 		style: 'percent',
 		maximumFractionDigits: 0
@@ -52,6 +61,6 @@ export function formatPercent(percent: number, locale = getLocale()): string {
  * segment's accessible name, a KPI's trailing figure — where the alternative is a literal `: `
  * in a template and therefore one spacing for every language.
  */
-export function labelledValue(label: string, value: string, locale = getLocale()): string {
+export function labelledValue(label: string, value: string, locale: string = getLocale()): string {
 	return wantsSpace(locale) ? `${label} : ${value}` : `${label}: ${value}`;
 }
