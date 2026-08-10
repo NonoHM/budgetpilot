@@ -48,6 +48,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   several categories.
 - [Two-factor authentication](./using/two-factor.md): turning it on, the
   recovery codes, and what happens if you lose access.
+- [Exporting and restoring your data](./using/backup-restore.md): the two
+  buttons in Settings, and why restoring replaces rather than merges.
 
 ## Look it up
 
@@ -78,6 +80,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
 - [Two-factor authentication](./reference/two-factor.md): the code and
   recovery-code figures, rate limits, and how a locked-out account is
   recovered.
+- [Backup and restore](./reference/backup-restore.md): what the file holds,
+  what it leaves out, and what the validator checks.
 
 ## Understand it
 

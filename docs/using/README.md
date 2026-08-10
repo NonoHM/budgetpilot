@@ -32,6 +32,8 @@ it, go to [getting started](../getting-started.md) first.
   several categories, and how to change or remove a split.
 - **[Two-factor authentication](./two-factor.md)**: turning it on, saving the
   recovery codes, and what a lost phone costs you.
+- **[Exporting and restoring your data](./backup-restore.md)**: the JSON
+  export, what restoring replaces, and which files are safe to restore.
 
 For the exact rules and limits rather than the steps, see
 [reference](../reference/README.md). For why a split row shows two amounts
