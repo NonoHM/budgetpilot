@@ -101,6 +101,28 @@ const GROUPS = {
 			},
 			element: '[role="dialog"], [role="alertdialog"]'
 		}
+	],
+	reports: [
+		{ file: 'reports/overview-desktop.png', url: '/reports', fullPage: true },
+		{ file: 'reports/overview-mobile.png', url: '/reports', viewport: MOBILE },
+		{ file: 'reports/takeaways-desktop.png', url: '/reports', clipAround: 'Key takeaways' },
+		{
+			file: 'reports/category-breakdown-desktop.png',
+			url: '/reports',
+			clipAround: 'Spending by category'
+		},
+		{
+			file: 'reports/detected-flows-desktop.png',
+			url: '/reports',
+			clipAround: 'Detected flows',
+			clipMinHeight: 200
+		},
+		{
+			file: 'reports/largest-expenses-desktop.png',
+			url: '/reports',
+			clipAround: 'Largest expenses',
+			clipMinHeight: 200
+		}
 	]
 };
 
@@ -176,7 +198,7 @@ async function capture(browser, storageState, shot) {
 			await page.screenshot({ path: file, clip });
 			console.log(`[docs] ${shot.file}  ${clip.width}x${clip.height}`);
 		} else if (shot.clipAround) {
-			const box = await resolveCard(page, shot.clipAround);
+			const box = await resolveCard(page, shot.clipAround, shot.clipMinHeight ?? 60);
 			// `fullPage` with `clip`, because the box is in PAGE coordinates and a card below the
 			// fold is outside a viewport screenshot — Playwright then refuses with "clipped area
 			// is either empty or outside the resulting image" rather than scrolling to it.
@@ -192,17 +214,25 @@ async function capture(browser, storageState, shot) {
 }
 
 /** Smallest ancestor of the named heading that carries more than the heading itself. */
-async function resolveCard(page, heading) {
-	const box = await page.evaluate((text) => {
-		const start = [...document.querySelectorAll('main *')].find(
-			(el) => el.children.length === 0 && el.textContent.trim() === text
-		);
-		if (!start) return null;
-		let node = start;
-		while (node && node.getBoundingClientRect().height < 60) node = node.parentElement;
-		const r = node.getBoundingClientRect();
-		return { x: r.x, y: r.y + window.scrollY, width: r.width, height: r.height };
-	}, heading);
+async function resolveCard(page, heading, minHeight) {
+	const box = await page.evaluate(
+		({ text, minHeight }) => {
+			const start = [...document.querySelectorAll('main *')].find(
+				(el) => el.children.length === 0 && el.textContent.trim() === text
+			);
+			if (!start) return null;
+			// Walking up until the box is "big enough" is a heuristic, and it stops one level too
+			// early wherever a heading sits in its own tall-ish wrapper — a « Detected flows »
+			// title plus its explanatory line already clears 60px, so the table underneath was
+			// cropped out of its own screenshot. `clipMinHeight` is how a caller says how much of
+			// the card it actually means.
+			let node = start;
+			while (node && node.getBoundingClientRect().height < minHeight) node = node.parentElement;
+			const r = node.getBoundingClientRect();
+			return { x: r.x, y: r.y + window.scrollY, width: r.width, height: r.height };
+		},
+		{ text: heading, minHeight }
+	);
 	if (!box) throw new Error(`[docs] no element found with text "${heading}"`);
 	return box;
 }

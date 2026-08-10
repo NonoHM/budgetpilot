@@ -25,6 +25,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   figure on it counts.
 - [Budgets](./using/budgets.md): a monthly limit per category, and the
   three states a budget can be in.
+- [Reports](./using/reports.md): where the money went over a period, with
+  charts and a three-month projection.
 - [The transactions screen](./using/transactions.md): search, filters, editing
   a transaction, and what the CSV export contains.
 - [Tags](./using/tags.md): labelling transactions across categories.
@@ -39,6 +41,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   and the caps on each card.
 - [Budgets](./reference/budgets.md): the 80% threshold, and what the
   summary strip adds up.
+- [Reports](./reference/reports.md): the six figures, and the rule a
+  recurring flow must meet to reach the projection.
 - [Split transactions](./reference/split-transactions.md): part counts,
   amount ceiling, rounding, CSV columns, refusal messages.
 
