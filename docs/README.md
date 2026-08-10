@@ -55,6 +55,15 @@ How to do things, in [using BudgetPilot](./using/README.md):
 - [The admin panel](./using/admin.md): managing accounts, and inviting
   someone to the instance.
 
+**Two features are documented above in "Install it" rather than here, and
+that is a decision rather than a gap.** [Bank sync](./bank-sync.md) and
+[local AI advice](./ai-insights.md) are both gated on setup an operator does
+first — a provider account and its credentials for one, a running Ollama
+model for the other — and neither exists in the app until that is done. A
+how-to that began "first, ask whoever runs the instance to enable this"
+would be the operator page with an extra step in front of it, so each is
+documented once, where the work starts.
+
 ## Look it up
 
 Rules, limits and exact values, in [reference](./reference/README.md):

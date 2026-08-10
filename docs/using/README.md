@@ -47,6 +47,11 @@ These pages describe the app, not the install. Anything about Docker,
 environment variables, backups or upgrades is in the pages listed in
 [the documentation index](../README.md).
 
+**[Bank sync](../bank-sync.md) and [local AI advice](../ai-insights.md) have
+no page here on purpose.** Both are gated on setup an operator does first,
+and neither exists in the app until that is done, so each is documented once
+on its own page rather than split across two.
+
 ## How these pages are written
 
 Every number, label and limit here was read out of the code before it was
