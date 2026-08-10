@@ -265,6 +265,56 @@ messages/           Paraglide translation source (fr.json / en.json)
   from the donut and surfaced separately as a single negative-balance total
   instead.
 
+## Data identity and i18n
+
+Four rules, each from a defect this repo shipped. The measurement travels with the
+rule: without it they read as generic advice and get argued with.
+
+- **Join on an identifier, never on displayed text.** Five columns name a category
+  by its text rather than its id — `MonthlyBudget.categoryName`,
+  `CategoryNatureMapping.categoryName`, `CategoryRule.targetCategory`,
+  `CategorizationRule.targetCategory`, `Transaction.manualCategory`.
+  `?/renameCategory` updated two of the five, and renaming a category took
+  `/budgets` from **5000 cents spent to 0** on unchanged spending. The shape that
+  avoids this is a surrogate primary key with the natural key alongside as a unique
+  constraint — `Category` has both (`id`, `@@unique([userId, nameKey])`) and those
+  five columns simply do not use the first. The trap, named so it is recognisable:
+  assuming a business identifier will never change. The inventory now lives in
+  `server/categories/references.ts` and a spec checks it against the schema, so a
+  sixth column fails a test by name.
+- **Case folding is not lowercasing, and folded text is never displayed.** Store the
+  original and a folded copy used only for comparison. `computeNameKey` is that
+  pattern and is the **only** folding in this repo — nothing else invents its own.
+  What it does not do is Unicode case folding, and the difference is measured:
+  `Straße`/`Strasse` stay distinct here and are folded together by MariaDB's
+  `utf8mb4_unicode_ci`, which is why the key is hashed rather than compared in SQL;
+  `İstanbul`/`Istanbul` and `ΟΔΟΣ`/`Οδός` fold together here because NFD strips the
+  dot and JS lowercases the final sigma. Turkish is the one to watch if a locale is
+  added: `toLowerCase()` is not locale-aware, and changing the rule means
+  recomputing every stored key.
+- **A localised string does not live in a database column.** `Category.name` holds a
+  canonical French name on the 14 seeded rows and free text on every other, with
+  `defaultKey` the only marker of which. One column with two meanings produced
+  **five wrong display sites and eight wrong sort sites**, and a uniqueness check
+  that accepted "Groceries" on a French instance beside a row that reads Groceries
+  in English. UI strings belong in the message catalogues, keyed by id.
+- **Sweep before fixing a comparison.** #149 was reported as one site and there were
+  **four**. The third turned up by asking the comparison BACKWARDS
+  (`restoreMissingDefaultCategories` compares an arriving default against the user's
+  own row, and uses none of the reported vocabulary); the fourth by RUNNING the fix
+  through the real request path rather than reading it. A finding phrased as one
+  line number invites one edit.
+
+**Pseudo-localisation is the verification tool this repo does not have.** Compiling
+the catalogues with every string replaced by elongated bracketed text makes two
+classes visible in one pass: a string that renders unbracketed is **hardcoded**, and
+a layout that clips or wraps has no room for a longer translation. It would have
+caught the nine hardcoded French typography sites that live in `.svelte` markup
+outside the catalogues, and it covers the **178 keys that are longer in English than
+in French** without measuring 1302 by hand. **It is not set up** — nothing in the
+test suite does this today, so no claim about layout under a longer locale is
+currently backed by anything. Tracked in #158.
+
 ## UI/UX conventions
 
 - Sober black/white/zinc theme. **Color is encoding only, never
