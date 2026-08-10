@@ -5,6 +5,8 @@ Rules, limits and exact values. Look things up here; the pages in
 
 - **[Dashboard](./dashboard.md)**: what each figure counts, the period
   choices, and the caps on every card.
+- **[Budgets](./budgets.md)**: the 80% threshold, what the summary strip
+  adds up, and what deleting one does.
 - **[Split transactions](./split-transactions.md)**: how many parts, the
   amount ceiling, the rounding cent, what a filtered row displays, the CSV
   columns, and every refusal message.

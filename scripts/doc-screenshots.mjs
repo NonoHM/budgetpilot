@@ -65,6 +65,42 @@ const GROUPS = {
 			url: '/?period=custom&from=2026-06-01&to=2026-07-31',
 			clipAround: 'Dashboard'
 		}
+	],
+	// Expects the three-budget arrangement described in docs/screenshots/budgets/README.md:
+	// one category comfortably under, one past 80% of its limit, one over. Anything else
+	// captures a page that cannot teach what the three states look like.
+	budgets: [
+		{ file: 'budgets/overview-desktop.png', url: '/budgets', contentClip: true },
+		{ file: 'budgets/overview-mobile.png', url: '/budgets', viewport: MOBILE },
+		{
+			file: 'budgets/new-budget-desktop.png',
+			url: '/budgets',
+			before: async (page) => {
+				await page.getByRole('button', { name: '+ New budget' }).click();
+				await page.waitForTimeout(300);
+			},
+			element: '[role="dialog"]'
+		},
+		{
+			file: 'budgets/edit-budget-desktop.png',
+			url: '/budgets',
+			before: async (page) => {
+				// Two copies of every row action are in the DOM at once, one per breakpoint, so
+				// the label alone is ambiguous — `.last()` is the one a 1920-wide viewport shows.
+				await page.getByLabel('Edit Transport').last().click();
+				await page.waitForTimeout(300);
+			},
+			element: '[role="dialog"]'
+		},
+		{
+			file: 'budgets/delete-confirm-desktop.png',
+			url: '/budgets',
+			before: async (page) => {
+				await page.getByLabel('Delete Dining out').last().click();
+				await page.waitForTimeout(300);
+			},
+			element: '[role="dialog"], [role="alertdialog"]'
+		}
 	]
 };
 
@@ -121,7 +157,25 @@ async function capture(browser, storageState, shot) {
 		if (shot.before) await shot.before(page);
 
 		const file = path.join(SHOTS, shot.file);
-		if (shot.clipAround) {
+		if (shot.element) {
+			await page.locator(shot.element).first().screenshot({ path: file });
+			console.log(`[docs] ${shot.file}  element`);
+		} else if (shot.contentClip) {
+			// `main` carries a min-height that fills the viewport, so clipping to it would keep
+			// every empty pixel below the last card. Measure where the content actually stops.
+			const height = await page.evaluate(() => {
+				const root = document.querySelector('main') ?? document.body;
+				let lowest = 0;
+				for (const el of root.querySelectorAll('*')) {
+					const box = el.getBoundingClientRect();
+					if (box.width > 0 && box.height > 0) lowest = Math.max(lowest, box.bottom);
+				}
+				return Math.ceil(lowest + window.scrollY + 24);
+			});
+			const clip = { x: 0, y: 0, width: DESKTOP.width, height: Math.min(DESKTOP.height, height) };
+			await page.screenshot({ path: file, clip });
+			console.log(`[docs] ${shot.file}  ${clip.width}x${clip.height}`);
+		} else if (shot.clipAround) {
 			const box = await resolveCard(page, shot.clipAround);
 			// `fullPage` with `clip`, because the box is in PAGE coordinates and a card below the
 			// fold is outside a viewport screenshot — Playwright then refuses with "clipped area
