@@ -54,10 +54,10 @@ The **five** largest single expenses of the period.
 
 The **Label** column is the merchant with the category appended. For the
 fourteen categories BudgetPilot creates for you, that appended name is the
-**stored** one, which is French, so a row can read `Corner Market -
-Alimentation` beside a Category column reading `Groceries`. Both name the
-same category. Categories you create yourself have one name and cannot
-disagree with themselves.
+**stored** one, which is French, so a row can read `Lidl - Alimentation`
+beside a Category column reading `Groceries`. Both name the same category.
+Categories you create yourself have one name and cannot disagree with
+themselves.
 
 ## Cash-flow forecast
 

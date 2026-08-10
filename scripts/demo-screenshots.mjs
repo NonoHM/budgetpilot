@@ -179,6 +179,10 @@ async function seedDemoData() {
 			});
 		}
 
+		for (const rule of RULES) {
+			await submitForm(ctx, '/rules?/create', { ...rule, targetNature: '' });
+		}
+
 		await submitForm(ctx, '/net-worth?/createSavingsGoal', SAVINGS_GOAL);
 
 		await ctx.storageState({ path: STORAGE_STATE_PATH });
@@ -491,19 +495,19 @@ const RECURRING = [
 	// medium confidence, and each needs enough occurrences to be classified as monthly at all.
 	...[3, 2, 1, 0].map((back) => ({
 		date: iso(back, SALARY_DAY),
-		label: 'Demo Corp Salary',
+		label: 'SALARY',
 		amount: '2850.00',
 		category: 'Revenus'
 	})),
 	...[3, 2, 1].map((back) => ({
 		date: iso(back, RENT_DAY),
-		label: 'Apartment Rent',
+		label: 'RENT',
 		amount: '-980.00',
 		category: 'Logement'
 	})),
 	...[3, 2, 1].map((back) => ({
 		date: iso(back, SUBSCRIPTION_DAY),
-		label: 'StreamFlix Subscription',
+		label: 'NETFLIX',
 		amount: '-13.99',
 		category: 'Abonnements'
 	}))
@@ -513,51 +517,67 @@ const TRANSACTIONS = [
 	...RECURRING,
 
 	// Two months back
-	{ date: iso(2, 4), label: 'CORNER MARKET', amount: '-58.20', category: 'Alimentation' },
-	{ date: iso(2, 19), label: 'CORNER MARKET', amount: '-61.10', category: 'Alimentation' },
-	{ date: iso(2, 11), label: 'CITY TRANSIT PASS', amount: '-29.90', category: 'Transport' },
-	{ date: iso(2, 14), label: 'THE CORNER BISTRO', amount: '-40.00', category: 'Restauration' },
-	{ date: iso(2, 21), label: 'BOOKS & TECH STORE', amount: '-29.99', category: 'Shopping' },
-	{ date: iso(2, 25), label: 'PINEWOOD CAMPGROUND', amount: '-120.00', category: 'Voyage' },
+	{ date: iso(2, 4), label: 'LIDL', amount: '-58.20', category: 'Alimentation' },
+	{ date: iso(2, 19), label: 'LIDL', amount: '-61.10', category: 'Alimentation' },
+	{ date: iso(2, 11), label: 'TRAINLINE', amount: '-29.90', category: 'Transport' },
+	{ date: iso(2, 14), label: 'PIZZA EXPRESS', amount: '-40.00', category: 'Restauration' },
+	{ date: iso(2, 21), label: 'AMAZON', amount: '-29.99', category: 'Shopping' },
+	{ date: iso(2, 25), label: 'AIRBNB', amount: '-120.00', category: 'Voyage' },
 
 	// Last month
-	{ date: iso(1, 6), label: 'CORNER MARKET', amount: '-70.40', category: 'Alimentation' },
-	{ date: iso(1, 20), label: 'CORNER MARKET', amount: '-55.00', category: 'Alimentation' },
-	{ date: iso(1, 9), label: 'CITY TRANSIT PASS', amount: '-31.50', category: 'Transport' },
+	{ date: iso(1, 6), label: 'LIDL', amount: '-70.40', category: 'Alimentation' },
+	{ date: iso(1, 20), label: 'LIDL', amount: '-55.00', category: 'Alimentation' },
+	{ date: iso(1, 9), label: 'TRAINLINE', amount: '-31.50', category: 'Transport' },
 	{ date: iso(1, 16), label: 'UBER', amount: '-18.00', category: 'Transport' },
-	{ date: iso(1, 12), label: 'THE CORNER BISTRO', amount: '-48.00', category: 'Restauration' },
-	{ date: iso(1, 23), label: 'DOWNTOWN CINEMA', amount: '-12.50', category: 'Loisirs' },
-	{ date: iso(1, 27), label: 'CENTRAL PHARMACY', amount: '-22.00', category: 'Santé' },
-	{ date: iso(1, 29), label: 'SPORTS OUTFITTERS', amount: '-60.00', category: 'Shopping' },
+	{ date: iso(1, 12), label: 'PIZZA EXPRESS', amount: '-48.00', category: 'Restauration' },
+	{ date: iso(1, 23), label: 'ODEON CINEMA', amount: '-12.50', category: 'Loisirs' },
+	{ date: iso(1, 27), label: 'CITY PHARMACY', amount: '-22.00', category: 'Santé' },
+	{ date: iso(1, 29), label: 'DECATHLON', amount: '-60.00', category: 'Shopping' },
 
 	// This month, so far. Fixed amounts whatever the spread, because the two budgets below are
 	// calibrated against these totals: Alimentation 149.22 of 300 (including today's PAUL),
 	// Restauration 115.50 of 80.
-	{ date: onDay(0), label: 'CORNER MARKET', amount: '-64.32', category: 'Alimentation' },
-	{ date: onDay(1), label: 'THE CORNER BISTRO', amount: '-45.00', category: 'Restauration' },
-	{ date: onDay(2), label: 'CENTRAL PHARMACY', amount: '-18.90', category: 'Santé' },
-	{ date: onDay(3), label: 'SPORTS OUTFITTERS', amount: '-55.00', category: 'Shopping' },
-	{ date: onDay(4), label: 'CITY TRANSIT PASS', amount: '-34.90', category: 'Transport' },
-	{ date: onDay(5), label: 'THE CORNER BISTRO', amount: '-38.50', category: 'Restauration' },
-	{ date: onDay(6), label: 'DOWNTOWN CINEMA', amount: '-12.50', category: 'Loisirs' },
-	{ date: onDay(7), label: 'CORNER MARKET', amount: '-52.10', category: 'Alimentation' },
-	{ date: onDay(8), label: 'SUSHI HOUSE', amount: '-32.00', category: 'Restauration' },
+	{ date: onDay(0), label: 'LIDL', amount: '-64.32', category: 'Alimentation' },
+	{ date: onDay(1), label: 'PIZZA EXPRESS', amount: '-45.00', category: 'Restauration' },
+	{ date: onDay(2), label: 'CITY PHARMACY', amount: '-18.90', category: 'Santé' },
+	{ date: onDay(3), label: 'DECATHLON', amount: '-55.00', category: 'Shopping' },
+	{ date: onDay(4), label: 'TRAINLINE', amount: '-34.90', category: 'Transport' },
+	{ date: onDay(5), label: 'PIZZA EXPRESS', amount: '-38.50', category: 'Restauration' },
+	{ date: onDay(6), label: 'ODEON CINEMA', amount: '-12.50', category: 'Loisirs' },
+	{ date: onDay(7), label: 'LIDL', amount: '-52.10', category: 'Alimentation' },
+	{ date: onDay(8), label: 'SUSHI SHOP', amount: '-32.00', category: 'Restauration' },
 	{ date: onDay(9), label: 'UBER', amount: '-15.20', category: 'Transport' },
 
 	...PAUL_VISITS
 ];
 
+/**
+ * Three budgets, one per state, because the budgets page has three and an image showing only
+ * « under » teaches a third of the feature. Transport's 62.00 is not a round number on purpose:
+ * 50.10 of 62.00 is 80.8% and shows « Near limit », while 50.10 of 63.00 is 79.5% and shows
+ * « OK », which is the pair the documented 80% threshold rests on.
+ */
 const BUDGETS = [
 	// Under: 149.22 € spent this month against a 300 € limit.
 	{ category: 'Alimentation', amount: '300' },
-	// Over: 115.50 € spent this month against an 80 € limit. One of each is the point — a
-	// budgets screenshot where nothing is over teaches nothing about what over looks like.
-	{ category: 'Restauration', amount: '80' }
+	// Over: 115.50 € spent this month against an 80 € limit.
+	{ category: 'Restauration', amount: '80' },
+	// Near limit: 50.10 € against 62 €.
+	{ category: 'Transport', amount: '62' }
 ];
+
+/**
+ * One rule of the user's own, alongside the 156 the app ships. Without it every row in the
+ * rules table is an identical PREDEFINED one and no image can show what a rule you wrote looks
+ * like. It also gives the preview a row that CHANGES something, next to the shipped rules that
+ * match transactions already in the right category and change nothing — both outcomes in one
+ * image, so the affected count reads as the upper bound it is.
+ */
+const RULES = [{ name: 'Bakery is dining out', matchText: 'paul', targetCategory: 'Restauration' }];
 
 const NET_WORTH_ACCOUNTS = [
 	{
-		name: 'Demo Checking Account',
+		name: 'Current account',
 		type: 'checking',
 		history: [
 			{ asOfDate: iso(3, 1), balance: '3200', type: 'checking' },
@@ -567,7 +587,7 @@ const NET_WORTH_ACCOUNTS = [
 		]
 	},
 	{
-		name: 'Demo Savings Account',
+		name: 'Savings account',
 		type: 'savings',
 		history: [
 			{ asOfDate: iso(3, 1), balance: '5000', type: 'savings' },
@@ -579,7 +599,7 @@ const NET_WORTH_ACCOUNTS = [
 ];
 
 const SAVINGS_GOAL = {
-	name: 'Demo Vacation Fund',
+	name: 'Japan trip',
 	targetAmount: '10000',
 	trackingMode: 'manual',
 	currentAmount: '5800'

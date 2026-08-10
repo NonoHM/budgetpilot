@@ -6,10 +6,12 @@ Captured with:
 BASE_URL=http://localhost:4175 node scripts/doc-screenshots.mjs budgets
 ```
 
+against an instance seeded by `scripts/demo-screenshots.mjs`.
+
 ## The arrangement they need
 
 The point of the overview image is that all **three** states are visible at
-once, so the instance must hold one budget of each before capturing:
+once, so the seed creates one budget of each:
 
 | Category   | Limit  | Spent this month | State      |
 | ---------- | ------ | ---------------- | ---------- |
@@ -18,12 +20,9 @@ once, so the instance must hold one budget of each before capturing:
 | Transport  | 62.00  | 50.10            | Near limit |
 
 Transport's limit is 62.00 rather than a round number for a reason: 50.10 of
-62.00 is 80.8%, which is the first side of the 80% boundary, and 50.10 of
-63.00 is 79.5%, which is the other. Those two figures are what the reference
-page's threshold claim rests on, so the fixture keeps one of them.
-
-The spending figures come from the demo dataset that
-`scripts/demo-screenshots.mjs` seeds.
+62.00 is 80.8%, on one side of the 80% boundary, and 50.10 of 63.00 is
+79.5%, on the other. Those two figures are what the reference page's
+threshold claim rests on, so the fixture keeps one of them.
 
 ## Language
 

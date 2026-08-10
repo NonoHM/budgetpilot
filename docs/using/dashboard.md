@@ -55,20 +55,21 @@ Expenses and contributes to two different categories. See
 **Insights** collapses and expands. Open it to see what the app thinks is
 worth your attention right now.
 
-![The Insights panel expanded, showing a Dining out budget alert reading "Over by €35.50, €115.50 / €80.00 · 22 days left" with a View category button, and below it a line reading "Dining out up — +294% vs usual (€115.50 vs €29.33 on average)"](../screenshots/dashboard/insights-desktop.png)
+![The Insights panel expanded: a red Dining out alert reading "Over by €35.50", an amber Transport alert reading "€11.90 remaining, 22 days left, about €0.54 a day", and below them a line reading "Dining out up — +294% vs usual"](../screenshots/dashboard/insights-desktop.png)
 
 Two kinds of thing appear here:
 
 - **A budget alert**, when a category is over its limit or heading that way.
-  It states how much is left, how many days remain in the month, and links
-  straight to that category's transactions.
+  It states how much is left and how many days remain in the month. A
+  category that is close but not over also gets the daily pace that would
+  keep it under, and links straight to that category's transactions.
 - **Unusual spending**, when one category is much higher than it usually is.
   The comparison figure is beside it, so you can judge whether it is a real
   change or one large purchase.
 
-The badge counts **budget alerts only**. Seeing `1 to review` above a panel
-holding two items is not a miscount: the unusual-spending line is not an
-alert.
+The badge counts **budget alerts only**. Above a panel holding three items
+it reads `2 to review`, and that is not a miscount: two of them are budget
+alerts and the third, the unusual-spending line, is not.
 
 **View category** on either one opens the transactions list already filtered
 to that category, which is where you can actually do something about it.
