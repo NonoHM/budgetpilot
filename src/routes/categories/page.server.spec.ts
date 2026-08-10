@@ -14,6 +14,7 @@ const db = vi.hoisted(() => {
 	type Category = { id: string; userId: string; name: string; defaultKey: string | null };
 	type NatureMapping = { id: string; userId: string; categoryName: string; nature: string };
 	type Budget = { id: string; userId: string; categoryName: string; amountCents: number };
+	type Rule = { id: string; userId: string; targetCategory: string };
 
 	const categories: Category[] = [
 		{ id: 'cat-alimentation', userId: 'user-a', name: 'Alimentation', defaultKey: 'food' },
@@ -36,11 +37,62 @@ const db = vi.hoisted(() => {
 		}
 	];
 
-	return {
+	// The two rule tables have no fold key, so `renameCategoryReferences` reads them and filters in
+	// JS. Seeded in a DIFFERENT case from the category on purpose: a fake that matched raw text
+	// would leave these behind, and the rename spec below is what says so.
+	const categoryRules: Rule[] = [
+		{ id: 'rule-alimentation', userId: 'user-a', targetCategory: 'alimentation' }
+	];
+	const categorizationRules: Rule[] = [
+		{ id: 'legacy-rule-alimentation', userId: 'user-a', targetCategory: 'ALIMENTATION' }
+	];
+
+	/**
+	 * The two rule tables are modelled identically, so they are built once.
+	 *
+	 * Both halves fail loudly on a filter they do not model rather than approximating one. A fake
+	 * that silently ignores an unknown key WIDENS the set it is asked about, so the guard being
+	 * added here would pass with the guard deleted — the mock change is part of the guard, and
+	 * "the test passes" says nothing until the mock has been seen to fail without it.
+	 */
+	const ruleTableMock = (rows: Rule[]) => ({
+		findMany: vi.fn(async ({ where }) => {
+			const modelled = new Set(['userId']);
+			const unknown = Object.keys(where ?? {}).filter((key) => !modelled.has(key));
+			if (unknown.length > 0) {
+				throw new Error(`rule.findMany: unmodelled filter ${unknown.join(', ')}`);
+			}
+			return rows.filter((rule) => rule.userId === where.userId);
+		}),
+		updateMany: vi.fn(async ({ where, data }) => {
+			const modelled = new Set(['userId', 'id']);
+			const unknown = Object.keys(where ?? {}).filter((key) => !modelled.has(key));
+			if (unknown.length > 0) {
+				throw new Error(`rule.updateMany: unmodelled filter ${unknown.join(', ')}`);
+			}
+			if (where.id && !Array.isArray(where.id.in)) {
+				throw new Error('rule.updateMany: only `id: { in: [...] }` is modelled');
+			}
+			let count = 0;
+			for (const rule of rows) {
+				if (rule.userId !== where.userId) continue;
+				if (where.id && !where.id.in.includes(rule.id)) continue;
+				Object.assign(rule, data);
+				count++;
+			}
+			return { count };
+		})
+	});
+
+	const base = {
 		categories,
 		mappings,
 		budgets,
+		categoryRules,
+		categorizationRules,
 		prisma: {
+			categoryRule: ruleTableMock(categoryRules),
+			categorizationRule: ruleTableMock(categorizationRules),
 			category: {
 				findFirst: vi.fn(
 					async ({ where }) =>
@@ -142,11 +194,36 @@ const db = vi.hoisted(() => {
 						}
 					}
 					return { count: before - budgets.length };
+				}),
+				updateMany: vi.fn(async ({ where, data }) => {
+					let count = 0;
+					for (const budget of budgets) {
+						if (
+							budget.userId === where.userId &&
+							computeNameKey(budget.categoryName) === where.categoryNameKey
+						) {
+							Object.assign(budget, data);
+							count++;
+						}
+					}
+					return { count };
 				})
 			},
-			$transaction: vi.fn(async (ops: unknown[]) => Promise.all(ops))
+			// Both call shapes. The array form is what deleteCategory still uses; the callback form
+			// is what renameCategory needs, because it reads the keyless rule tables and filters in
+			// JS inside the same transaction. Handing the callback `client` (not a fresh object) is
+			// what makes writes through `tx` land in these same arrays — a `tx` that wrote somewhere
+			// else would let every assertion below pass against untouched fixtures.
+			$transaction: vi.fn(async (arg: unknown) =>
+				typeof arg === 'function'
+					? (arg as (tx: unknown) => Promise<unknown>)(client)
+					: Promise.all(arg as unknown[])
+			)
 		}
 	};
+
+	const client = base.prisma;
+	return base;
 });
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
@@ -357,6 +434,50 @@ describe('renameCategory — pas de régression sur le mapping', () => {
 			nature: 'spending'
 		});
 		db.budgets.length = 0;
+		db.budgets.push({
+			id: 'budget-alimentation',
+			userId: 'user-a',
+			categoryName: 'Alimentation',
+			amountCents: 50_000
+		});
+		db.categoryRules.length = 0;
+		db.categoryRules.push({
+			id: 'rule-alimentation',
+			userId: 'user-a',
+			targetCategory: 'alimentation'
+		});
+		db.categorizationRules.length = 0;
+		db.categorizationRules.push({
+			id: 'legacy-rule-alimentation',
+			userId: 'user-a',
+			targetCategory: 'ALIMENTATION'
+		});
+	});
+
+	it('fait suivre les cinq colonnes qui nomment la catégorie, quelle que soit leur casse', async () => {
+		expect.assertions(5);
+
+		await runAction('renameCategory', { id: 'cat-alimentation', newName: 'Courses' });
+
+		// The measured defect: the budget stayed on "Alimentation" and /budgets tracked 0 spent.
+		expect(db.budgets[0]).toMatchObject({
+			categoryName: 'Courses',
+			categoryNameKey: computeNameKey('Courses')
+		});
+		expect(db.mappings[0]).toMatchObject({ categoryName: 'Courses' });
+		// The two keyless tables, both seeded in a different case: they follow only because the
+		// rename folds through computeNameKey rather than matching the stored text.
+		expect(db.categoryRules[0]).toMatchObject({ targetCategory: 'Courses' });
+		expect(db.categorizationRules[0]).toMatchObject({ targetCategory: 'Courses' });
+		// The second-order defect: applyCategoryRules writes targetCategory verbatim, so a rule
+		// left behind keeps pinning a name no Category row holds onto NEW transactions.
+		expect(db.prisma.transaction.updateMany).toHaveBeenCalledWith({
+			where: { userId: 'user-a', manualCategoryKey: computeNameKey('Alimentation') },
+			data: {
+				manualCategory: 'Courses',
+				manualCategoryKey: computeNameKey('Courses')
+			}
+		});
 	});
 
 	it("fait suivre le categoryName du mapping via updateMany (pas de suppression, pas d'orphelin)", async () => {

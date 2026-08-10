@@ -16,6 +16,7 @@ import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { findCategoryByTypedName, isReservedCategoryName } from '$lib/server/categories/nameMatch';
+import { renameCategoryReferences } from '$lib/server/categories/references';
 import { categoryLabel } from '$lib/domain/categoryLabels';
 import type { PageServerLoad } from './$types';
 
@@ -118,24 +119,18 @@ export const actions: Actions = {
 		if (clash) return fail(400, { error: duplicateError(clash) });
 
 		try {
-			await prisma.$transaction([
+			await prisma.$transaction(async (tx) => {
 				// Renaming freezes the name as free text: defaultKey is set to null, the category
 				// will never be translated again — the user-typed text becomes authoritative.
-				prisma.category.update({
+				await tx.category.update({
 					where: { id },
 					data: { name: newName, nameKey: newKey, defaultKey: null }
-				}),
-				// Matched on the key so every spelling the user pinned follows the rename, not
-				// just the one that happened to match the old name character for character.
-				prisma.transaction.updateMany({
-					where: { userId: user.id, manualCategoryKey: oldKey },
-					data: manualCategoryUpdate(newName)
-				}),
-				prisma.categoryNatureMapping.updateMany({
-					where: { userId: user.id, categoryNameKey: oldKey },
-					data: { categoryName: newName, categoryNameKey: newKey }
-				})
-			]);
+				});
+				// The category's name is a foreign key in five other columns; they all move here, in
+				// this transaction. See categories/references.ts for which, and for the 0-cents
+				// budget figure that a partial rename produced.
+				await renameCategoryReferences(tx, { userId: user.id, oldKey, newName, newKey });
+			});
 		} catch (err: unknown) {
 			if (isPrismaUniqueError(err)) return fail(400, { error: m.categories_error_duplicate() });
 			throw err;
