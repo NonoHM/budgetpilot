@@ -30,6 +30,8 @@ it, go to [getting started](../getting-started.md) first.
   many at once, and the limits.
 - **[Splitting a transaction](./split-transactions.md)**: one payment,
   several categories, and how to change or remove a split.
+- **[Two-factor authentication](./two-factor.md)**: turning it on, saving the
+  recovery codes, and what a lost phone costs you.
 
 For the exact rules and limits rather than the steps, see
 [reference](../reference/README.md). For why a split row shows two amounts
