@@ -52,6 +52,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   buttons in Settings, and why restoring replaces rather than merges.
 - [Your account and settings](./using/account.md): password, language,
   sessions, and deleting the account.
+- [The admin panel](./using/admin.md): managing accounts, and inviting
+  someone to the instance.
 
 ## Look it up
 

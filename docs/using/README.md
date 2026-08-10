@@ -36,6 +36,8 @@ it, go to [getting started](../getting-started.md) first.
   export, what restoring replaces, and which files are safe to restore.
 - **[Your account and settings](./account.md)**: the screen behind the
   avatar, and every control on it.
+- **[The admin panel](./admin.md)**: for administrators only — the user
+  table, password resets, and single-use invitation links.
 
 For the exact rules and limits rather than the steps, see
 [reference](../reference/README.md). For why a split row shows two amounts
