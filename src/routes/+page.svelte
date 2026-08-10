@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { formatCents } from '$lib/domain/budget';
+	import { labelledValue } from '$lib/domain/typography';
 	import { getTransactionKind } from '$lib/domain/transaction';
 	import type { TransactionNature } from '$lib/domain/transaction';
 	import type { PeriodKey } from '$lib/server/date-range';
@@ -638,8 +639,10 @@
 									? 'text-emerald-700'
 									: 'text-rose-600'}"
 							>
-								{m.dashboard_forecast_kpi_balance_label({ date: forecastEndDateFormatted })}
-								: {formatCents(forecastEnd?.balanceCents ?? 0)}
+								{labelledValue(
+									m.dashboard_forecast_kpi_balance_label({ date: forecastEndDateFormatted }),
+									formatCents(forecastEnd?.balanceCents ?? 0)
+								)}
 							</div>
 							<div class="mt-3">
 								<CashFlowForecastChart
