@@ -9,6 +9,8 @@ it, go to [getting started](../getting-started.md) first.
   states a budget can be in, and what the summary strip counts.
 - **[Reports](./reports.md)**: where the money went over a period, the
   charts, and the flows behind the projection.
+- **[Categorization rules](./rules.md)**: the 156 that ship, writing your
+  own, and the preview that shows what applying them would do.
 - **[The transactions screen](./transactions.md)**: search, filters,
   editing a transaction, and what the CSV export contains.
 - **[Tags](./tags.md)**: labelling transactions across categories, tagging

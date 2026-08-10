@@ -9,6 +9,8 @@ Rules, limits and exact values. Look things up here; the pages in
   adds up, and what deleting one does.
 - **[Reports](./reports.md)**: the six figures, the three-month horizon,
   and the rule a flow must meet to reach the projection.
+- **[Rules](./rules.md)**: how matching works, what the table holds, and
+  the manual-category exclusion.
 - **[Split transactions](./split-transactions.md)**: how many parts, the
   amount ceiling, the rounding cent, what a filtered row displays, the CSV
   columns, and every refusal message.

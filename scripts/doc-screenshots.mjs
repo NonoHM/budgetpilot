@@ -123,6 +123,22 @@ const GROUPS = {
 			clipAround: 'Largest expenses',
 			clipMinHeight: 200
 		}
+	],
+	// Expects one user-made rule alongside the shipped catalogue — see
+	// docs/screenshots/rules/README.md. Without it the list is 156 identical PREDEFINED rows
+	// and the image cannot show what a rule of your own looks like.
+	rules: [
+		{ file: 'rules/overview-desktop.png', url: '/rules', contentClip: true },
+		{ file: 'rules/overview-mobile.png', url: '/rules', viewport: MOBILE },
+		{
+			file: 'rules/own-rules-only-desktop.png',
+			url: '/rules',
+			before: async (page) => {
+				await page.getByRole('switch', { name: /predefined/i }).click();
+				await page.waitForTimeout(400);
+			},
+			contentClip: true
+		}
 	]
 };
 

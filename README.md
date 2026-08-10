@@ -37,7 +37,7 @@ All screenshots use fake demo data, not a real user's finances.
 - **Net worth tracking** across multiple accounts, with history over time.
 - **Savings goals**, with pace tracking and an optional link to a real account.
 - **Cash flow forecasting**: a deterministic projection of your upcoming balance, based on recurring income and expenses it actually detects from your history. No machine learning involved, nothing sent anywhere.
-- **Categorization rules** (text or regex), applied automatically on import, never overriding something you fixed by hand.
+- **[Categorization rules](docs/using/rules.md)** (text or regex), applied automatically on import, never overriding something you fixed by hand. 156 ship with the app.
 - **[Split transactions](docs/using/split-transactions.md)**: one payment across several categories, so an 80 € supermarket trip can be 50 € Groceries and 30 € Shopping. Budgets and reports count the parts, your totals stay exactly the same, and the CSV export carries the split back out and in again.
 - **Tags**: free labels that cut across categories, so "Portugal 2026" can hold a train, a restaurant and a hotel while each keeps its own category. Filter the list by one, tag a whole filtered set at once, and undo that in a click.
 - **Optional local AI advice** via Ollama. By default, only anonymized aggregates reach the model. An opt-in setting can add the labels of your largest expenses, never your full transaction history.
@@ -80,7 +80,7 @@ Reaching it from another device on your LAN takes two extra lines in `.env` (`OR
 ## Documentation
 
 - **[Getting started](docs/getting-started.md)**: the detailed version of the above, three install paths, and what to do once you're in.
-- **[Using BudgetPilot](docs/using/README.md)**: the app itself. [The dashboard](docs/using/dashboard.md), [budgets](docs/using/budgets.md), [reports](docs/using/reports.md), [transactions](docs/using/transactions.md), [tags](docs/using/tags.md), and [splitting one payment across several categories](docs/using/split-transactions.md).
+- **[Using BudgetPilot](docs/using/README.md)**: the app itself. [The dashboard](docs/using/dashboard.md), [budgets](docs/using/budgets.md), [reports](docs/using/reports.md), [rules](docs/using/rules.md), [transactions](docs/using/transactions.md), [tags](docs/using/tags.md), and [splitting one payment across several categories](docs/using/split-transactions.md).
 - **[Configuration](docs/configuration.md)**: every setting, and how to reach the app from your phone or another machine.
 - **[Reverse proxy](docs/reverse-proxy.md)**: optional Caddy overlay for a real domain with automatic HTTPS.
 - **[PostgreSQL or MySQL](docs/database-providers.md)**: optional overlays for installs that already run a database server. SQLite is the default and needs nothing.
