@@ -319,6 +319,7 @@ const { buildBackupExport } = await import('./export');
 const { restoreBackup, BackupImportError } = await import('./import');
 const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS } = await import('./schema');
 const { computeNameKey } = await import('$lib/server/naming/nameKey');
+const { MAX_TAGS_PER_TRANSACTION } = await import('$lib/domain/tags');
 type TagColorToken = import('$lib/domain/tags').TagColorToken;
 const { UNCLASSIFIED_CATEGORY } = await import('$lib/domain/categories');
 const { LONG_TRANSACTION_OPTIONS } = await import('$lib/server/dbTransaction');
@@ -1837,6 +1838,112 @@ describe('restoreBackup with tags', () => {
 
 		await expect(restoreBackup('user-a', payload)).rejects.toBeInstanceOf(BackupImportError);
 		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	/**
+	 * THE PER-TRANSACTION CAP.
+	 *
+	 * `schema.ts` bounds the array RELATIVELY, at transactions x MAX_TAGS_PER_TRANSACTION, which
+	 * says nothing about the DISTRIBUTION — piling 11 onto one transaction while the others carry
+	 * none sits well under any such ceiling. The restore is the only write path that does not go
+	 * through `setTransactionTags`, so until this check existed nothing applied the cap to an
+	 * uploaded payload. Exact analogue of the split count bounds asserted further down.
+	 *
+	 * Each case asserts the payload is under the RELATIVE ceiling first. Without that, a refusal
+	 * here is indistinguishable from `schema.ts` catching the same file for a different reason —
+	 * the two-guards-in-sequence shape, where the green conceals which one is load-bearing.
+	 */
+	/**
+	 * Adds sibling transactions so the payload can sit UNDER the relative ceiling while still
+	 * over-loading one row. Without them the fixture's single transaction makes every such payload
+	 * exceed `transactions x MAX` as well, and the two guards become indistinguishable.
+	 */
+	function withSiblingTransactions(payload: ReturnType<typeof buildTagRestorePayload>, n: number) {
+		const template = payload.transactions[0];
+		for (let i = 0; i < n; i += 1) {
+			payload.transactions.push({ ...template, id: `file-tx-sibling-${i}` });
+		}
+		return payload;
+	}
+
+	function payloadWithTagsOnOneTransaction(count: number) {
+		const payload = withSiblingTransactions(buildTagRestorePayload(), 3);
+		payload.tags = Array.from({ length: count }, (_, i) => ({
+			id: `file-tag-${i}`,
+			name: `Tag ${i}`,
+			colorToken: 'olive' as const
+		}));
+		payload.transactionTags = payload.tags.map((tag) => ({
+			transactionId: payload.transactions[0].id,
+			tagId: tag.id
+		}));
+		return payload;
+	}
+
+	it('refuses more tags on one transaction than a write path could ever put there', async () => {
+		expect.assertions(3);
+
+		const payload = payloadWithTagsOnOneTransaction(MAX_TAGS_PER_TRANSACTION + 1);
+		// Under the relative ceiling only because the fixture holds several transactions: this is
+		// the distribution the array bound cannot see.
+		expect(payload.transactionTags.length).toBeLessThanOrEqual(
+			payload.transactions.length * MAX_TAGS_PER_TRANSACTION
+		);
+
+		await expect(restoreBackup('user-a', payload)).rejects.toThrow(
+			m.settings_backup_error_tag_count({
+				id: payload.transactions[0].id,
+				max: MAX_TAGS_PER_TRANSACTION
+			})
+		);
+		expect(db.store.transactions.filter((row) => row.userId === 'user-a')).toHaveLength(0);
+	});
+
+	it('accepts exactly the cap, so the bound is off-by-one correct', async () => {
+		expect.assertions(1);
+
+		await restoreBackup('user-a', payloadWithTagsOnOneTransaction(MAX_TAGS_PER_TRANSACTION));
+
+		expect(db.store.transactionTags).toHaveLength(MAX_TAGS_PER_TRANSACTION);
+	});
+
+	it('counts what will be STORED, not what the file spells: folded names collapse first', async () => {
+		expect.assertions(2);
+
+		// MAX + 1 file tags, but two of them fold to one name, so the restore stores MAX links. A
+		// check counting raw links would refuse this — a legal file, since the same fold is what
+		// the accepted "folds two file tags onto one row" case above relies on.
+		const payload = payloadWithTagsOnOneTransaction(MAX_TAGS_PER_TRANSACTION + 1);
+		payload.tags[MAX_TAGS_PER_TRANSACTION].name = payload.tags[0].name.toUpperCase();
+
+		await restoreBackup('user-a', payload);
+
+		expect(db.store.tags.filter((row) => row.userId === 'user-a')).toHaveLength(
+			MAX_TAGS_PER_TRANSACTION
+		);
+		expect(db.store.transactionTags).toHaveLength(MAX_TAGS_PER_TRANSACTION);
+	});
+
+	it('spreads the same links across transactions without refusing', async () => {
+		expect.assertions(2);
+
+		// The same total that was refused above, distributed legally. Proves the check reads the
+		// distribution rather than the array length — a guard on the total would fail this.
+		const payload = withSiblingTransactions(buildTagRestorePayload(), 3);
+		const perTransaction = MAX_TAGS_PER_TRANSACTION;
+		payload.tags = Array.from({ length: perTransaction }, (_, i) => ({
+			id: `file-tag-${i}`,
+			name: `Tag ${i}`,
+			colorToken: 'olive' as const
+		}));
+		payload.transactionTags = payload.transactions.flatMap((transaction) =>
+			payload.tags.map((tag) => ({ transactionId: transaction.id, tagId: tag.id }))
+		);
+		expect(payload.transactionTags.length).toBeGreaterThan(MAX_TAGS_PER_TRANSACTION);
+
+		await restoreBackup('user-a', payload);
+
+		expect(db.store.transactionTags).toHaveLength(payload.transactionTags.length);
 	});
 });
 
