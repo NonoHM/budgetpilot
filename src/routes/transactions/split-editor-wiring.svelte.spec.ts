@@ -324,6 +324,231 @@ describe('the states after a write (1i)', () => {
 		}
 	});
 
+	/**
+	 * The failure treatment reached through the WIRING rather than through a hand-built `form` prop.
+	 *
+	 * Every other case in this describe hands the page an `ActionData` and checks what it renders,
+	 * which cannot see the `use:enhance` callback at all — and that callback is exactly where a
+	 * répartition save was being lost: it used to pass every answer to `update()`, so an answer that
+	 * is not `ActionData` (a redirect to /login, a dropped connection) went to `applyAction` and the
+	 * failure was never stated. Here the REAL submit handler runs.
+	 *
+	 * `fetch` is made to reject, which is precisely the condition being simulated — a request that
+	 * never comes back — and is the only part of the environment replaced. `enhance` turns a throw
+	 * into `{ type: 'error' }`, the same value a dropped connection produces in production.
+	 *
+	 * WHY NOT THE REDIRECT BRANCH HERE: this harness has no server action behind the form. The dev
+	 * server answers that POST **500 with a body that is not an ActionResult at all**, measured —
+	 * so the redirect path is not reachable from a component render, and a test written against it
+	 * would be a test of the harness. It is covered against a real server, with a real session, in
+	 * `e2e/transaction-splits-save-failure.spec.ts`.
+	 *
+	 * Asserted on BOTH mounts. The mobile sheet is mounted at every breakpoint and only hidden by
+	 * CSS, so it is in the document here, and a fix that reached one surface only is the shape this
+	 * repo keeps recording.
+	 */
+	it('a submission that never becomes ActionData still reaches the banner, on both mounts', async () => {
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			form: null
+		});
+
+		const visibleAmount = (position: number) =>
+			Array.from(container.querySelectorAll('input')).find(
+				(input) =>
+					input.closest('label')?.textContent?.includes(m.splits_part_amount_aria({ position })) &&
+					input.getBoundingClientRect().height > 0
+			) as HTMLInputElement;
+
+		// Dirty first: `canSave` requires it, and a soft-disabled Save swallows its own click. The
+		// two parts still total the parent's 80,00 €, so the remainder is not what neutralises it.
+		await userEvent.fill(visibleAmount(2), '10,00');
+		await userEvent.fill(visibleAmount(1), '70,00');
+
+		// Scoped to the SPLIT form: the panel holds four « Enregistrer » buttons (manual category,
+		// nature, étiquettes, répartition) and the first is natively `disabled` while nothing has
+		// changed — an unscoped search clicks a button that cannot submit, and the test then passes
+		// or fails for a reason that has nothing to do with its subject. Measured while writing it.
+		const splitFormEl = aside(container).querySelector(
+			'form[action*="/saveSplits"]'
+		) as HTMLFormElement;
+		expect(splitFormEl).toBeTruthy();
+		const save = Array.from(splitFormEl.querySelectorAll('button')).find(
+			(button) => button.textContent?.trim() === m.common_save()
+		) as HTMLButtonElement;
+		expect(save.getAttribute('aria-disabled')).not.toBe('true');
+
+		const realFetch = window.fetch;
+		window.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof window.fetch;
+		try {
+			save.click();
+
+			// Polled, not read once: the answer arrives asynchronously and the banner is a `$state`
+			// Svelte flushes on a microtask — reading immediately would assert on a stale DOM, the
+			// mistake that once reported working code as broken in this very component family.
+			await expect
+				.poll(
+					() =>
+						Array.from(document.querySelectorAll('[role="alert"]')).filter((element) =>
+							element.textContent?.includes(m.splits_error_unreachable())
+						).length
+				)
+				.toBeGreaterThan(0);
+		} finally {
+			window.fetch = realFetch;
+		}
+
+		// Both surfaces carry it, counted on the FORMS rather than on the alerts: the banner nests a
+		// `role="alert"` wrapper around AlertBanner's own, so counting alerts would count the
+		// nesting rather than the mounts.
+		const formsShowingIt = Array.from(
+			document.querySelectorAll('form[action*="/saveSplits"]')
+		).filter((form) => form.textContent?.includes(m.splits_error_unreachable()));
+		expect(formsShowingIt.length).toBe(2);
+
+		// And the parts are still on screen with their values — the promise the sentence opens with.
+		expect(visibleAmount(1).value).toBe('70,00');
+		expect(visibleAmount(2).value).toBe('10,00');
+	});
+
+	/**
+	 * THE TWO SIGNALS ARE NOT EQUALLY FRESH, AND THE ONE THAT LOOKS MORE SPECIFIC IS THE OLDER ONE.
+	 *
+	 * `splitsError` comes from `form`, which only `update()` replaces — and the client-side failure
+	 * branch is DEFINED as the branch that does not call `update()`. So a server refusal survives the
+	 * submission that followed it, while `splitSaveFailure` is cleared at the start of every one.
+	 * Preferring the server's sentence therefore shows a message about a request that is over.
+	 *
+	 * The first version of this page did exactly that, under a comment asserting it could not happen.
+	 * The user experience it produced: a sum refused, then the session expires before the retry, and
+	 * the panel says « les parts doivent totaliser… » — sending the user to re-check arithmetic that
+	 * was already correct while the real cause is never stated. A refusal whose REASON is wrong,
+	 * which is worse than a generic one, because it is actionable and the action does not help.
+	 */
+	it('a client-side failure REPLACES the previous submission’s server refusal, rather than hiding behind it', async () => {
+		await page.viewport(1280, 800);
+		const { container } = render(Page, {
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			// The state a first submission left behind: the server explained a refusal.
+			form: actionResult({ splitsError: m.splits_error_sum() })
+		});
+
+		// Appear first. The assertion below is that this sentence GOES AWAY, and an absence that was
+		// never a presence proves nothing at all.
+		await expect
+			.poll(() =>
+				Array.from(document.querySelectorAll('[role="alert"]')).some((element) =>
+					element.textContent?.includes(m.splits_error_sum())
+				)
+			)
+			.toBe(true);
+
+		const visibleAmount = (position: number) =>
+			Array.from(container.querySelectorAll('input')).find(
+				(input) =>
+					input.closest('label')?.textContent?.includes(m.splits_part_amount_aria({ position })) &&
+					input.getBoundingClientRect().height > 0
+			) as HTMLInputElement;
+		await userEvent.fill(visibleAmount(2), '10,00');
+		await userEvent.fill(visibleAmount(1), '70,00');
+
+		const splitFormEl = aside(container).querySelector(
+			'form[action*="/saveSplits"]'
+		) as HTMLFormElement;
+		const save = Array.from(splitFormEl.querySelectorAll('button')).find(
+			(button) => button.textContent?.trim() === m.common_save()
+		) as HTMLButtonElement;
+		expect(save.getAttribute('aria-disabled')).not.toBe('true');
+
+		const realFetch = window.fetch;
+		window.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof window.fetch;
+		try {
+			save.click();
+			await expect
+				.poll(() =>
+					Array.from(document.querySelectorAll('[role="alert"]')).some((element) =>
+						element.textContent?.includes(m.splits_error_unreachable())
+					)
+				)
+				.toBe(true);
+		} finally {
+			window.fetch = realFetch;
+		}
+
+		// And the stale one is gone rather than merely joined. Two sentences would be its own defect:
+		// the panel would name two causes for one attempt.
+		const alerts = Array.from(document.querySelectorAll('[role="alert"]'));
+		expect(alerts.some((element) => element.textContent?.includes(m.splits_error_sum()))).toBe(
+			false
+		);
+	});
+
+	/**
+	 * Selecting another row does not remount this page — `?selected=` changes, so `data` moves and
+	 * every `$state` declared here does not. A failure banner that is a bare string therefore goes on
+	 * being rendered above a DIFFERENT transaction's editor, attributing a failure to a save that was
+	 * never attempted on it.
+	 */
+	it('a failure does not follow the user to another transaction', async () => {
+		await page.viewport(1280, 800);
+		const { container, rerender } = render(Page, {
+			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
+			form: null
+		});
+
+		const visibleAmount = (position: number) =>
+			Array.from(container.querySelectorAll('input')).find(
+				(input) =>
+					input.closest('label')?.textContent?.includes(m.splits_part_amount_aria({ position })) &&
+					input.getBoundingClientRect().height > 0
+			) as HTMLInputElement;
+		await userEvent.fill(visibleAmount(2), '10,00');
+		await userEvent.fill(visibleAmount(1), '70,00');
+
+		const splitFormEl = aside(container).querySelector(
+			'form[action*="/saveSplits"]'
+		) as HTMLFormElement;
+		const save = Array.from(splitFormEl.querySelectorAll('button')).find(
+			(button) => button.textContent?.trim() === m.common_save()
+		) as HTMLButtonElement;
+
+		const realFetch = window.fetch;
+		window.fetch = (() => Promise.reject(new TypeError('Failed to fetch'))) as typeof window.fetch;
+		try {
+			save.click();
+			// Present, on the transaction it belongs to.
+			await expect
+				.poll(() =>
+					Array.from(document.querySelectorAll('[role="alert"]')).some((element) =>
+						element.textContent?.includes(m.splits_error_unreachable())
+					)
+				)
+				.toBe(true);
+		} finally {
+			window.fetch = realFetch;
+		}
+
+		// The user picks another row. Same page instance, new `data`.
+		await rerender({
+			data: baseData({
+				id: 'tx-2',
+				label: 'Fnac Paris',
+				splits: SPLIT_60_20,
+				splitEntryAvailable: false
+			}),
+			form: null
+		});
+
+		await expect
+			.poll(() =>
+				Array.from(document.querySelectorAll('[role="alert"]')).some((element) =>
+					element.textContent?.includes(m.splits_error_unreachable())
+				)
+			)
+			.toBe(false);
+	});
+
 	it('the removal message names the recovered category, which is what makes it obviously lossless', async () => {
 		await page.viewport(1280, 800);
 		const { container } = render(Page, {
