@@ -283,6 +283,23 @@ const GROUPS = {
 			},
 			element: '[role="dialog"]'
 		}
+	],
+	// The two EMPTY states are not in this group: neither is reachable from the documented
+	// fixture, which has three healthy flows by design. They are captured from a throwaway
+	// instance seeded with stale flows — see docs/screenshots/forecast/README.md.
+	forecast: [
+		{
+			file: 'forecast/card-desktop.png',
+			url: '/',
+			clipAround: 'Cash-flow forecast',
+			clipMinHeight: 200
+		},
+		{
+			file: 'forecast/reports-projection-desktop.png',
+			url: '/reports',
+			clipAround: 'Projected balance (3 months)',
+			clipMinHeight: 300
+		}
 	]
 };
 
