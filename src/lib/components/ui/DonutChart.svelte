@@ -7,6 +7,7 @@
 </script>
 
 <script lang="ts">
+	import { formatPercent } from '$lib/domain/typography';
 	let {
 		segments,
 		othersColor,
@@ -117,7 +118,9 @@
 						<rect width="10" height="10" rx="2" fill={segment.color} />
 					</svg>
 					<span class="flex-1 truncate text-zinc-700">{segment.label}</span>
-					<span class="font-medium text-zinc-900 tabular-nums">{Math.round(segment.pct)} %</span>
+					<span class="font-medium text-zinc-900 tabular-nums"
+						>{formatPercent(Math.round(segment.pct))}</span
+					>
 				</li>
 			{/each}
 		</ul>

@@ -48,7 +48,7 @@ marked.
 
 **Breakdown view** shows what the total is made of, by account type.
 
-![Asset breakdown: a donut totalling €10,250.00 over two types, Checking account 43 % and Savings 57 %, with a Negative balances line below reading €0.00](../screenshots/net-worth/breakdown-desktop.png)
+![Asset breakdown: a donut totalling €10,250.00 over two types, Checking account 43% and Savings 57%, with a Negative balances line below reading €0.00](../screenshots/net-worth/breakdown-desktop.png)
 
 The **Negative balances** line underneath is there so a debt is not
 double-counted in your head: accounts in the red are **already deducted**

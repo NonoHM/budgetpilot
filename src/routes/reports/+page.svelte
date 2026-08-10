@@ -24,6 +24,7 @@
 	import CashFlowForecastChart from '$lib/components/ui/CashFlowForecastChart.svelte';
 	import type { FlowCadence, FlowConfidenceTier } from '$lib/domain/forecast';
 	import * as m from '$lib/paraglide/messages';
+	import { formatPercent, labelledValue } from '$lib/domain/typography';
 
 	let { data }: { data: PageData } = $props();
 	const report = $derived(data.report);
@@ -115,9 +116,9 @@
 	 */
 	const categoryDonutCenterValue = $derived(formatCents(report.expenseCents));
 
-	function formatPercent(value: number | null): string {
+	function formatPercentOrNa(value: number | null): string {
 		if (value === null) return m.reports_not_available();
-		return `${Math.round(value * 100)} %`;
+		return formatPercent(Math.round(value * 100));
 	}
 
 	function formatDelta(amountCents: number): string {
@@ -364,7 +365,7 @@
 								? 'text-emerald-600'
 								: 'text-rose-600'}"
 				>
-					{formatPercent(report.savingsRate)}
+					{formatPercentOrNa(report.savingsRate)}
 				</div>
 			</div>
 		</div>
@@ -457,7 +458,7 @@
 									? 'text-emerald-600'
 									: 'text-rose-600'}"
 					>
-						{formatPercent(report.savingsRate)}
+						{formatPercentOrNa(report.savingsRate)}
 					</div>
 				</div>
 			</div>
@@ -551,7 +552,7 @@
 							<div class="mt-4 flex h-8 w-full overflow-hidden rounded-md ring-1 ring-zinc-200">
 								{#each natureSegments as segment (segment.label)}
 									<Tooltip
-										label="{segment.label} : {formatCents(segment.cents)}"
+										label={labelledValue(segment.label, formatCents(segment.cents))}
 										wrapperClass="contents"
 									>
 										<!-- Purely informative segment (no click action) made focusable so its
@@ -559,13 +560,13 @@
 											 No interactive role is added on purpose (nothing happens on activation). -->
 										<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 										<div
-											aria-label="{segment.label} : {formatCents(segment.cents)}"
+											aria-label={labelledValue(segment.label, formatCents(segment.cents))}
 											tabindex="0"
 											class="relative flex items-center justify-center text-[11px] font-semibold text-white {widthClass(
 												segment.pct
 											)} {hexToBgClass(segment.color)}"
 										>
-											{#if segment.pct >= 12}{Math.round(segment.pct)} %{/if}
+											{#if segment.pct >= 12}{formatPercent(Math.round(segment.pct))}{/if}
 										</div>
 									</Tooltip>
 								{/each}
@@ -633,7 +634,7 @@
 												{category.transactionCount}
 											</td>
 											<td class="px-5 py-3 text-right font-medium text-rose-600 tabular-nums">
-												{Math.round(category.percentageOfExpenses * 100)} %
+												{formatPercent(Math.round(category.percentageOfExpenses * 100))}
 											</td>
 										</tr>
 									{/each}
@@ -668,7 +669,7 @@
 															})}
 												</span>
 												<span class="text-sm font-semibold text-zinc-900 tabular-nums">
-													{Math.round(category.percentageOfExpenses * 100)} %
+													{formatPercent(Math.round(category.percentageOfExpenses * 100))}
 												</span>
 											</div>
 										</div>

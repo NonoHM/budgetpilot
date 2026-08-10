@@ -5,6 +5,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
+	import { labelledValue } from '$lib/domain/typography';
 	import Tooltip from './Tooltip.svelte';
 	import BottomSheet from '../BottomSheet.svelte';
 	import { formatPeriodLabel, type PeriodCopy } from '$lib/domain/periodLabel';
@@ -178,7 +179,7 @@
 	const isActive = $derived(from !== '' || to !== '');
 
 	/** aria-label ALWAYS carries the unabridged form, whichever rung the value slot renders. */
-	const fullAriaLabel = $derived(`${dimensionLabel} : ${label.full}`);
+	const fullAriaLabel = $derived(labelledValue(dimensionLabel, label.full));
 
 	/**
 	 * No `selectedPreset` derived any more, deliberately. The armed state used to be computed from
