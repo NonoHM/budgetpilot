@@ -360,6 +360,16 @@ async function captureScreenshots() {
 		await desktop.addCookies([{ name: 'PARAGLIDE_LOCALE', value: 'en', url: BASE_URL }]);
 		const desktopPage = await desktop.newPage();
 
+		// SEEDING FINISHES BEFORE ANY CAPTURE BEGINS. This used to run further down, just before
+		// the net worth shot, and the cost was invisible in that image and visible in the other:
+		// the forecast anchors on the balance of the accounts, so the dashboard was captured
+		// against each account's FIRST history point and reported « Estimated balance €2,206.01 »
+		// while net-worth-desktop.png, taken minutes later from the same database, showed the
+		// checking account at €4,450.00. Neither figure was wrong; they were taken of two
+		// different moments and published side by side.
+		await gotoAndSettle(desktopPage, '/net-worth');
+		await extendNetWorthHistory(desktopPage);
+
 		await gotoAndSettle(desktopPage, '/');
 		await assertEnglish(desktopPage, 'dashboard');
 		await assertPaulIsFirst(desktopPage);
@@ -380,8 +390,6 @@ async function captureScreenshots() {
 		await assertDepictsBudgetsBothWays(desktopPage);
 		await captureContent(desktopPage, 'budgets-desktop.png');
 
-		await gotoAndSettle(desktopPage, '/net-worth');
-		await extendNetWorthHistory(desktopPage);
 		await gotoAndSettle(desktopPage, '/net-worth');
 		await assertEnglish(desktopPage, 'net worth');
 		await assertDepictsNetWorthHistory(desktopPage);
