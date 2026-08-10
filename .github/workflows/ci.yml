@@ -304,3 +304,93 @@ jobs:
   # builds it — see .github/workflows/docker-smoke.yml.
   docker-smoke:
     uses: ./.github/workflows/docker-smoke.yml
+
+  # The image's CVE inventory, on every pull request. Nothing else in CI looked at it: Dependabot
+  # reads `package.json`, and `package.json` is not what ships. `@sveltejs/kit` is declared as a
+  # devDependency, so its alerts auto-dismiss as `development` scope — while
+  # `bits-ui -> runed -> @sveltejs/kit -> vite -> postcss -> nanoid` is installed by
+  # `npm ci --omit=dev`, which is exactly what the Dockerfile's prod-deps stage runs. Three CVEs
+  # reached a shipped image with zero open Dependabot alerts (#164). Only a scan of the image saw
+  # them, and until now the earliest such scan ran after the release was already published (#165).
+  #
+  # THE POLICY IS COPIED FROM THE PUBLISH GATE ON PURPOSE, and that is the whole value: a green
+  # check here answers the same question `docker-publish.yml`'s gate asks at release time. Any
+  # divergence — a different severity set, a different `ignore-unfixed` — would make this a check
+  # that passes while the release still cannot ship, which is worse than not having it.
+  #
+  #   severity: CRITICAL,HIGH   MEDIUM and LOW are inventory, not a release blocker. They reach
+  #                             the Security tab through trivy-scheduled.yml, which deliberately
+  #                             scans without any filter.
+  #   ignore-unfixed: true      Measured before choosing it, not assumed: today's image carries
+  #                             7 LOW, 5 MEDIUM and 1 UNKNOWN, every one of them glibc or zlib1g
+  #                             with no fixed version published by Debian. With this flag the
+  #                             image has ZERO findings at any severity, so a Debian-unfixed
+  #                             finding cannot put a red X on an unrelated pull request. Without
+  #                             it, every PR would be red for something no rebuild can remove.
+  #   TRIVY_IGNOREFILE          `.trivyignore` must not be able to make this check disagree with
+  #                             the release gate, in either direction.
+  #
+  # The noise mode this DOES have, stated rather than discovered: a CVE published upstream
+  # overnight turns every open pull request red at once, with no commit to blame. That reading is
+  # accurate — those branches genuinely cannot be released — and the remedy is one `npm update`
+  # on `main`, committed as `fix(deps)`. It is not a reason to downgrade the gate to a report.
+  #
+  # amd64 only, where the publish gate scans both platform digests. The node-pkg findings are
+  # architecture-independent and both digests come from one distroless index and one Debian
+  # snapshot; the per-platform claim stays where it is verified, at publish.
+  image-cve:
+    runs-on: ubuntu-latest
+    # A cold image build installs two full dependency trees. Set at all so a hung build fails
+    # instead of running to the six-hour default.
+    timeout-minutes: 25
+    steps:
+      # Two things, not one: the build context, AND `.trivyignore` — Trivy auto-detects it in the
+      # working directory. The gate below opts out of it explicitly, but the SARIF-free scan here
+      # would otherwise silently change meaning when that file is edited.
+      - uses: actions/checkout@v7
+
+      # Deliberately a plain `docker build`, matching scripts/docker-smoke.sh: the artifact under
+      # test must be the one the Dockerfile produces, not a buildx variant with a different layer
+      # set. docker-smoke builds its own copy and force-removes it in a cleanup trap on every exit
+      # path, so there is nothing to reuse — the second build is the cost of scanning an image
+      # that still exists when the scan runs.
+      - name: Build the runtime image
+        run: docker build -t budgetpilot:cve-scan .
+
+      # Runs first for two reasons. It puts the FULL inventory in the PR log — every severity,
+      # unfixed included — so the findings the gate deliberately ignores are still readable by
+      # whoever is looking; and it is what installs `trivy` on PATH and warms the vulnerability
+      # DB, so the probe and the gate below cost cached scans rather than three downloads. No
+      # exit-code: this step reports, it does not decide.
+      - name: Full inventory, for the log
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: image
+          image-ref: budgetpilot:cve-scan
+          scanners: vuln
+          format: table
+
+      # A scanner that sees zero packages exits 0 and the gate below passes green while proving
+      # nothing. The publish gate carries this probe for the same reason; a PR check that can pass
+      # vacuously is the one shape that is worse than no check.
+      - name: Refuse to gate on an empty package inventory
+        run: |
+          count=$(trivy image --quiet --scanners vuln --format json --list-all-pkgs budgetpilot:cve-scan \
+            | jq '[.Results[]?.Packages? // []] | flatten | length')
+          echo "package inventory: $count"
+          if [ "$count" -eq 0 ]; then
+            echo "the scanner saw zero packages — this gate would pass while proving nothing" >&2
+            exit 1
+          fi
+
+      - name: Gate on fixable CRITICAL/HIGH
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        env:
+          TRIVY_IGNOREFILE: /dev/null # must not be able to disagree with the release gate
+        with:
+          scan-type: image
+          image-ref: budgetpilot:cve-scan
+          scanners: vuln
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
