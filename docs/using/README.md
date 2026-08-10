@@ -3,6 +3,8 @@
 How to do things in the app once it is running. If you are still installing
 it, go to [getting started](../getting-started.md) first.
 
+- **[The dashboard](./dashboard.md)**: the first screen, its period
+  selector, and the two cards that look ahead instead of back.
 - **[The transactions screen](./transactions.md)**: search, filters,
   editing a transaction, and what the CSV export contains.
 - **[Tags](./tags.md)**: labelling transactions across categories, tagging

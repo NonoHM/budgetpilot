@@ -21,6 +21,8 @@
 
 How to do things, in [using BudgetPilot](./using/README.md):
 
+- [The dashboard](./using/dashboard.md): the first screen, and what each
+  figure on it counts.
 - [The transactions screen](./using/transactions.md): search, filters, editing
   a transaction, and what the CSV export contains.
 - [Tags](./using/tags.md): labelling transactions across categories.
@@ -31,6 +33,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
 
 Rules, limits and exact values, in [reference](./reference/README.md):
 
+- [Dashboard](./reference/dashboard.md): every figure, the period choices,
+  and the caps on each card.
 - [Split transactions](./reference/split-transactions.md): part counts,
   amount ceiling, rounding, CSV columns, refusal messages.
 
