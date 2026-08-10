@@ -3,9 +3,11 @@ import {
 	allocationsOf,
 	distributeEvenly,
 	isValidSplitPartAmount,
-	splitIndicatorOf
+	splitIndicatorOf,
+	splitIndicatorsByTransactionId
 } from './allocation';
 import type { Transaction } from './transaction';
+import type { CategoryAllocation } from './allocation';
 
 // `satisfies` rather than a type annotation: allocationsOf requires a resolved `nature`, which the
 // domain Transaction leaves optional, so annotating as Transaction would widen it back to
@@ -320,5 +322,89 @@ describe('isValidSplitPartAmount', () => {
 		expect.assertions(2);
 		expect(isValidSplitPartAmount(100, 0)).toBe(true);
 		expect(isValidSplitPartAmount(-100, 0)).toBe(false);
+	});
+});
+
+/**
+ * The grouped form, tested directly rather than only through the three surfaces that call it.
+ *
+ * It is a wrapper over `splitIndicatorOf`, so the interesting properties are not about the
+ * remainder rule — that is proven above — but about the GROUPING: that an interleaved list is
+ * bucketed correctly, that "absent from the map" really is the same fact as `null`, and that a
+ * transaction's own allocations are the only ones its indicator sees. Every fixture the three
+ * callers build happens to arrive pre-grouped and contiguous, so none of them could show it.
+ */
+describe('splitIndicatorsByTransactionId', () => {
+	// Typed as the real `CategoryAllocation` rather than as an inline object literal: `vitest` runs
+	// specs through a transpile-only path, so a fixture missing a field is invisible to it and shows
+	// up only in `npm run check`. That happened while writing this block — `date` and `kind` were
+	// absent and all four tests were green.
+	const alloc = (
+		transactionId: string,
+		category: string,
+		amountCents: number
+	): CategoryAllocation => ({
+		transactionId,
+		date: '2026-06-12',
+		category,
+		amountCents,
+		nature: 'spending',
+		kind: 'expense'
+	});
+
+	it('buckets an INTERLEAVED list by transaction, not by adjacency', () => {
+		expect.assertions(3);
+
+		// Deliberately shuffled: a grouping that assumed contiguity would put A's second part in B.
+		const indicators = splitIndicatorsByTransactionId([
+			alloc('a', 'Maison', -3000),
+			alloc('b', 'Loisirs', -700),
+			alloc('a', 'Transport', -1000),
+			alloc('b', 'Transport', -800)
+		]);
+
+		expect(indicators.size).toBe(2);
+		expect(indicators.get('a')?.parts).toEqual([
+			{ category: 'Maison', amountCents: -3000 },
+			{ category: 'Transport', amountCents: -1000 }
+		]);
+		expect(indicators.get('b')?.parts).toEqual([
+			{ category: 'Loisirs', amountCents: -700 },
+			{ category: 'Transport', amountCents: -800 }
+		]);
+	});
+
+	it('agrees with splitIndicatorOf on the transaction it describes', () => {
+		expect.assertions(1);
+
+		// The oracle CALLS the canonical rule instead of restating what it should have produced —
+		// this file's own subject one level up. If the two ever disagree the wrapper has drifted, and
+		// that is the only thing this assertion is about.
+		const own = [alloc('a', 'Maison', -3000), alloc('a', 'Maison', -2000)];
+		const indicators = splitIndicatorsByTransactionId([...own, alloc('b', 'Loisirs', -700)]);
+
+		expect(indicators.get('a')).toEqual(splitIndicatorOf(own));
+	});
+
+	it('omits a transaction whose allocations do not describe a split, so "absent" means "unsplit"', () => {
+		expect.assertions(3);
+
+		// One allocation covering the whole amount is what an UNSPLIT row produces, and
+		// `splitIndicatorOf` answers `null` for it. The map must not carry an entry, because every
+		// call site reads `.get(id) ?? null` and an entry here would put a badge on a plain row.
+		const indicators = splitIndicatorsByTransactionId([
+			alloc('unsplit', 'Alimentation', -4500),
+			alloc('split', 'Maison', -3000),
+			alloc('split', 'Transport', -1000)
+		]);
+
+		expect(splitIndicatorOf([alloc('unsplit', 'Alimentation', -4500)])).toBeNull();
+		expect(indicators.has('unsplit')).toBe(false);
+		expect(indicators.has('split')).toBe(true);
+	});
+
+	it('is empty for an empty input, rather than throwing', () => {
+		expect.assertions(1);
+		expect(splitIndicatorsByTransactionId([]).size).toBe(0);
 	});
 });
