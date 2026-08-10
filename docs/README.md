@@ -27,6 +27,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   three states a budget can be in.
 - [Reports](./using/reports.md): where the money went over a period, with
   charts and a three-month projection.
+- [Categorization rules](./using/rules.md): the 156 that ship, and writing
+  your own.
 - [The transactions screen](./using/transactions.md): search, filters, editing
   a transaction, and what the CSV export contains.
 - [Tags](./using/tags.md): labelling transactions across categories.
@@ -43,6 +45,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   summary strip adds up.
 - [Reports](./reference/reports.md): the six figures, and the rule a
   recurring flow must meet to reach the projection.
+- [Rules](./reference/rules.md): how matching works, and why a rule never
+  overrides a category you set by hand.
 - [Split transactions](./reference/split-transactions.md): part counts,
   amount ceiling, rounding, CSV columns, refusal messages.
 
