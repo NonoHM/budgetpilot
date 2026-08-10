@@ -7,6 +7,8 @@ Rules, limits and exact values. Look things up here; the pages in
   choices, and the caps on every card.
 - **[Budgets](./budgets.md)**: the 80% threshold, what the summary strip
   adds up, and what deleting one does.
+- **[Reports](./reports.md)**: the six figures, the three-month horizon,
+  and the rule a flow must meet to reach the projection.
 - **[Split transactions](./split-transactions.md)**: how many parts, the
   amount ceiling, the rounding cent, what a filtered row displays, the CSV
   columns, and every refusal message.
