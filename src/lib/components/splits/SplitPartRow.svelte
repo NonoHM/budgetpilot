@@ -6,12 +6,19 @@
 	import { MAX_SPLIT_NOTE_LENGTH } from '$lib/domain/allocation';
 
 	/**
-	 * One part, design 1c — TWO lines, not one.
+	 * One part, design 1c — TWO lines, not one, and the SPLIT IS BETWEEN CATEGORY AND AMOUNT.
 	 *
-	 * At 268px of panel content a single row holding category + amount + remove would leave ~90px to
-	 * the category selector, which is a permanent ellipsis on labels the user wrote themselves. The
-	 * second line is indented 20px under the part number so it reads as a continuation rather than
-	 * as another part.
+	 * 1c's reason, verbatim: at 268px of panel content a single row holding category + amount +
+	 * remove would leave ~90px to the category selector, « c'est à dire une ellipse permanente sur
+	 * des libellés que l'utilisateur a lui même écrits ». That is exactly what shipped — the amount
+	 * and the cross were left on line 1 and only the NOTE moved down, so the selector measured 98px
+	 * inside a 314px row and « Alimentation » (123px of text) truncated on the most ordinary state
+	 * the editor has. Measured 2026-08-10 at 1280 and at 390; the note field, which needs the width
+	 * least, was the one thing given the full row.
+	 *
+	 * 1c's own drawing settles the assignment: line 1 is the part number, the category combobox at
+	 * flex:1 and the 44px remove; line 2, indented 20px under the number, is the 132px MoneyInput and
+	 * the « Note » toggle. The second line reads as a continuation rather than as another part.
 	 *
 	 * The number is `aria-hidden`: the position is already in every field's accessible name
 	 * (« Montant de la part 1 »), so repeating it would be read twice. It exists so the rounding-cent
@@ -116,26 +123,6 @@
 			{/if}
 		</div>
 
-		<!-- `focusout`, not a prop on MoneyInput: blur bubbles as focusout, and 1p allows the
-		     sentence immediately on leaving a field because that is a discrete gesture. -->
-		<div class="w-[132px] shrink-0" onfocusout={() => onAmountBlur?.()}>
-			<MoneyInput
-				name="splitAmount"
-				label={m.splits_part_amount_aria({ position })}
-				labelHidden
-				bind:value={amount}
-				oninput={() => onAmountInput?.()}
-				required={false}
-				softDisabled={saving}
-				aria-describedby={saving ? savingHintId : undefined}
-				inputClass={controlHeight}
-				wrapperClass="gap-0"
-			/>
-			{#if showRoundingCent}
-				<p class="mt-1 text-[11px] text-zinc-500">{m.splits_rounding_cent()}</p>
-			{/if}
-		</div>
-
 		<!-- The wrapper carries the position so 1p's focus management can find this cross without
 		     building a selector out of a translated accessible name. -->
 		<div data-split-remove={position} class="shrink-0">
@@ -159,41 +146,67 @@
 		</div>
 	</div>
 
-	<!-- Line 2, indented 20px under the number: a continuation, not another part. 1h's three states
-	     cost nothing to the nine users in ten who ignore the note — absent, the button sits in space
-	     that is already empty to the right of the amount and the row does not grow by one pixel. -->
-	<div class="pl-5">
-		{#if noteOpen || note.length > 0}
-			<label class="grid gap-0.5">
-				<span class="sr-only">{m.splits_part_note_aria({ position })}</span>
-				<input
-					type="text"
-					name="splitNote"
-					bind:value={note}
-					readonly={saving}
-					aria-disabled={saving ? 'true' : undefined}
-					aria-describedby={saving ? savingHintId : undefined}
-					maxlength={MAX_SPLIT_NOTE_LENGTH}
-					onblur={() => (noteOpen = false)}
-					onfocus={() => (noteOpen = true)}
-					title={note}
-					class="{controlHeight} w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-700 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
-				/>
-				{#if showNoteCounter}
-					<span class="text-[11px] text-zinc-400">
-						{m.splits_note_counter({ remaining: noteRemaining })}
-					</span>
-				{/if}
-			</label>
-		{:else}
-			<input type="hidden" name="splitNote" value={note} />
-			<button
-				type="button"
-				class="text-[12px] text-zinc-500 underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
-				onclick={() => (noteOpen = true)}
-			>
-				{m.splits_note_add()}
-			</button>
-		{/if}
+	<!-- Line 2, indented 20px under the number: a continuation, not another part. The 132px amount
+	     and the « Note » toggle share it, which is 1c's own drawing — and the toggle costs nothing to
+	     the nine users in ten who ignore it, because it sits in space that is already empty to the
+	     right of a field the design fixes at 132. -->
+	<div class="flex items-start gap-2 pl-5">
+		<!-- `focusout`, not a prop on MoneyInput: blur bubbles as focusout, and 1p allows the
+		     sentence immediately on leaving a field because that is a discrete gesture. -->
+		<div class="w-[132px] shrink-0" onfocusout={() => onAmountBlur?.()}>
+			<MoneyInput
+				name="splitAmount"
+				label={m.splits_part_amount_aria({ position })}
+				labelHidden
+				bind:value={amount}
+				oninput={() => onAmountInput?.()}
+				required={false}
+				softDisabled={saving}
+				aria-describedby={saving ? savingHintId : undefined}
+				inputClass={controlHeight}
+				wrapperClass="gap-0"
+			/>
+			{#if showRoundingCent}
+				<p class="mt-1 text-[11px] text-zinc-500">{m.splits_rounding_cent()}</p>
+			{/if}
+		</div>
+
+		<div class="min-w-0 flex-1">
+			{#if noteOpen || note.length > 0}
+				<label class="grid gap-0.5">
+					<span class="sr-only">{m.splits_part_note_aria({ position })}</span>
+					<input
+						type="text"
+						name="splitNote"
+						bind:value={note}
+						readonly={saving}
+						aria-disabled={saving ? 'true' : undefined}
+						aria-describedby={saving ? savingHintId : undefined}
+						maxlength={MAX_SPLIT_NOTE_LENGTH}
+						onblur={() => (noteOpen = false)}
+						onfocus={() => (noteOpen = true)}
+						title={note}
+						class="{controlHeight} w-full rounded-xl border border-zinc-200 bg-white px-3 text-sm text-zinc-700 focus:border-zinc-500 focus:ring-2 focus:ring-zinc-400 focus:outline-none"
+					/>
+					{#if showNoteCounter}
+						<span class="text-[11px] text-zinc-400">
+							{m.splits_note_counter({ remaining: noteRemaining })}
+						</span>
+					{/if}
+				</label>
+			{:else}
+				<input type="hidden" name="splitNote" value={note} />
+				<!-- `{controlHeight}` so the toggle shares the amount field's own line box: the row's
+				     height must not depend on whether a note has been opened, which is the same
+				     reserve-on-the-line rule the list row's badge follows. -->
+				<button
+					type="button"
+					class="{controlHeight} inline-flex items-center px-2 text-[12px] text-zinc-500 underline-offset-2 hover:underline focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+					onclick={() => (noteOpen = true)}
+				>
+					{m.splits_note_add()}
+				</button>
+			{/if}
+		</div>
 	</div>
 </div>
