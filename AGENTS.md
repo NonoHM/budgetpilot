@@ -374,3 +374,28 @@ gate it) on a Dependabot PR only when the update is `semver-patch` or
 manual look, patch or not). Applies the same way to ungrouped CVE-triggered
 security PRs. Everything else (majors, lint/tooling bumps, anything CI
 doesn't pass) needs a human to merge.
+
+**A dependency bump that carries a CVE fix is committed as `fix(deps):`, never
+`chore(deps):`.** `chore` is neither versioning nor changelog-visible under the
+default `release-type: node` sections, so a security bump committed that way
+lands in a release that says nothing about it. Measured, not assumed: #115
+shipped the fast-uri fix (CVE-2026-18446, HIGH) as `chore: bump fast-uri from
+3.1.4 to 3.1.5`, and it is in 0.8.0 while appearing nowhere in 0.8.0's
+changelog. An operator deciding whether to upgrade reads the changelog; a CVE
+they are expected to act on has to be in it. Ordinary bumps stay `chore(deps)`
+— the distinction is whether an advisory is being closed, not how the PR was
+opened, so a Dependabot PR retitled by hand is the normal case here.
+
+**A green Dependabot is not evidence about what ships. The image scan is the
+authority; Dependabot is a convenience that proposes bumps early.** Dependabot
+classifies a package by where it is _declared_. The image contains the result of
+dependency _resolution_, and those are different sets. `@sveltejs/kit` is a
+devDependency, so its alerts auto-dismiss as `development` scope — while
+`bits-ui → runed → @sveltejs/kit → vite → postcss → nanoid` is installed by
+`npm ci --omit=dev`, which is exactly what the Dockerfile's prod-deps stage
+runs. `--omit=dev` drops the declaration, not the closure. Three CVEs reached a
+shipped image with **zero open Dependabot alerts**; only Trivy scanning the
+image saw them. Do not fix this by reconfiguring Dependabot — it does what it
+does. The fix is to stop reading it as a guarantee, and to ask the image. The
+`image-cve` job in `ci.yml` asks it on every pull request, with the publish
+gate's own policy so a green PR predicts a green release. Background: #164.

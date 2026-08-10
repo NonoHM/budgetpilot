@@ -288,6 +288,7 @@ jobs:
           done
 
       - name: Gate amd64 on fixable CRITICAL/HIGH
+        id: gate-amd64
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_IGNOREFILE: /dev/null # `.trivyignore` must not be able to unblock a release
@@ -298,9 +299,21 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
+          format: json
+          output: gate-amd64.json
           skip-setup-trivy: true
 
+      # What blocked the release, in the form someone acts on. The default table prints one row
+      # per scanned TARGET including every clean one — 651 lines for 2 findings on the published
+      # image — so the reason a release stopped was buried under three hundred empty rows. The
+      # full inventory is not lost: the SARIF upload above carries every severity to the Security
+      # tab, which is where completeness belongs.
+      - name: Say what amd64 blocked on
+        if: always() && steps.gate-amd64.outcome == 'failure'
+        run: ./scripts/trivy-report.sh gate-amd64.json "amd64" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Gate arm64 on fixable CRITICAL/HIGH
+        id: gate-arm64
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_IGNOREFILE: /dev/null # `.trivyignore` must not be able to unblock a release
@@ -311,7 +324,18 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
+          format: json
+          output: gate-arm64.json
           skip-setup-trivy: true
+
+      # What blocked the release, in the form someone acts on. The default table prints one row
+      # per scanned TARGET including every clean one — 651 lines for 2 findings on the published
+      # image — so the reason a release stopped was buried under three hundred empty rows. The
+      # full inventory is not lost: the SARIF upload above carries every severity to the Security
+      # tab, which is where completeness belongs.
+      - name: Say what arm64 blocked on
+        if: always() && steps.gate-arm64.outcome == 'failure'
+        run: ./scripts/trivy-report.sh gate-arm64.json "arm64" >> "$GITHUB_STEP_SUMMARY"
 
   # Combines the amd64 + arm64 digests into a single multi-arch manifest list
   # under the real tags (version + latest) — `docker buildx imagetools create`

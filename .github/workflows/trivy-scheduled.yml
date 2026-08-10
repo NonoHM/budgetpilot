@@ -154,8 +154,8 @@ jobs:
           scanners: vuln
           severity: CRITICAL,HIGH
           exit-code: '1'
-          format: table
-          output: trivy-report-amd64.txt
+          format: json
+          output: trivy-report-amd64.json
           skip-setup-trivy: true
 
       # Runs even when the amd64 gate just failed (so the issue carries both platforms'
@@ -173,16 +173,19 @@ jobs:
           scanners: vuln
           severity: CRITICAL,HIGH
           exit-code: '1'
-          format: table
-          output: trivy-report-arm64.txt
+          format: json
+          output: trivy-report-arm64.json
           skip-setup-trivy: true
 
-      - name: Show the reports in the log
+      # The same short render the issue body gets. `format: table` printed one row per scanned
+      # TARGET including every clean one — 651 lines for 2 findings on the published image — so
+      # the log said nothing the issue does not, at three hundred times the length.
+      - name: Show the findings in the log
         if: always()
         run: |
-          for f in trivy-report-amd64.txt trivy-report-arm64.txt; do
-            echo "== $f =="
-            cat "$f" 2>/dev/null || echo "(no report file produced)"
+          for platform in amd64 arm64; do
+            ./scripts/trivy-report.sh "trivy-report-$platform.json" "$platform"
+            echo
           done
 
       # One open cve-alert issue at a time: new findings land as comments on it rather than
@@ -190,8 +193,12 @@ jobs:
       # Gated on the gate steps' own outcomes, so a failure in the SARIF/upload/inventory
       # steps does not file a CVE alert about nothing. A gate can also fail on scanner
       # infrastructure (DB mirror, registry) without writing its report — the body says so
-      # instead of implying findings that were never seen. Four-backtick fences because the
-      # report text comes from third-party package metadata and may itself contain backticks.
+      # instead of implying findings that were never seen. The body is rendered by
+      # scripts/trivy-report.sh rather than pasted: Trivy's table prints one row per scanned
+      # TARGET including every clean one, which put 651 lines of mostly-zero rows in this issue
+      # for 2 findings, and an alert nobody reads has stopped being an alert. That script also
+      # escapes the package metadata it interpolates — the four-backtick fence this used to carry
+      # existed because that text can contain backticks, and a Markdown table has no fence.
       # Everything interpolated into the body is repo-derived, no user-controlled input.
       - name: Open or update the alert issue
         if: always() && (steps.gate-amd64.outcome == 'failure' || steps.gate-arm64.outcome == 'failure')
@@ -207,16 +214,7 @@ jobs:
             echo "Run: $RUN_URL"
             for platform in amd64 arm64; do
               echo
-              echo "### $platform"
-              if [ -s "trivy-report-$platform.txt" ]; then
-                echo '````'
-                head -c 30000 "trivy-report-$platform.txt"
-                echo
-                echo '````'
-              else
-                echo "_The $platform gate failed without producing a report — likely scanner"
-                echo "infrastructure (DB mirror, registry), not a confirmed CVE. Check the run log._"
-              fi
+              ./scripts/trivy-report.sh "trivy-report-$platform.json" "$platform"
             done
           } > /tmp/cve-alert-body.md
           existing=$(gh issue list --label cve-alert --state open --json number --jq '.[0].number')
