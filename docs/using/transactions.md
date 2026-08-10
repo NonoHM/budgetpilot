@@ -59,7 +59,10 @@ gives you the intersection.
 The totals line above the list always describes **what you are currently
 looking at**, not your whole history. When a category filter is active
 and a transaction is split, the total counts the part that matched, not
-the whole transaction.
+the whole transaction, and the row itself changes to show that same part
+with the transaction's full amount beneath it. That is deliberate, and
+[why it works that way](../explanation/filtered-row-amounts.md) is worth
+one read if it looks wrong to you.
 
 ### To classify
 
@@ -83,9 +86,10 @@ Open a transaction and the detail panel gives you:
   later split it.
 - **Tags**: see [tags](./tags.md).
 - **Split across several categories**: see
-  [splitting a transaction](./split-transactions.md). It is not offered
-  on a transaction that has no category yet, because a split needs a
-  category to fall back to.
+  [splitting a transaction](./split-transactions.md), and the
+  [rules and limits](../reference/split-transactions.md). It is not
+  offered on a transaction that has no category yet, because a split needs
+  a category to fall back to.
 
 ## Tagging many at once
 
