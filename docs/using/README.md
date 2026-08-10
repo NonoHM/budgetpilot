@@ -9,6 +9,8 @@ it, go to [getting started](../getting-started.md) first.
   states a budget can be in, and what the summary strip counts.
 - **[Reports](./reports.md)**: where the money went over a period, the
   charts, and the flows behind the projection.
+- **[Importing a statement](./imports.md)**: the summary an import
+  reports, the history it records, and how to undo one.
 - **[Upcoming bills](./upcoming-bills.md)**: what is due, worked out from
   your own history, and how to correct what the app got wrong.
 - **[Categories](./categories.md)**: the fourteen you start with, what

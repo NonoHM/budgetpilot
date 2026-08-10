@@ -221,6 +221,20 @@ const GROUPS = {
 			},
 			element: '[role="menu"]'
 		}
+	],
+	// Expects at least one import in the history — see docs/screenshots/imports/README.md.
+	imports: [
+		{ file: 'imports/history-desktop.png', url: '/imports', contentClip: true },
+		{ file: 'imports/history-mobile.png', url: '/imports', viewport: MOBILE },
+		{
+			file: 'imports/cancel-import-desktop.png',
+			url: '/imports',
+			before: async (page) => {
+				await page.getByRole('row').nth(2).getByRole('button', { name: 'Delete' }).click();
+				await page.waitForTimeout(400);
+			},
+			element: '[role="dialog"], [role="alertdialog"]'
+		}
 	]
 };
 
