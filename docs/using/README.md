@@ -17,6 +17,9 @@ it, go to [getting started](../getting-started.md) first.
   nature is for, and what deleting one does to its transactions.
 - **[Categorization rules](./rules.md)**: the 156 that ship, writing your
   own, and the preview that shows what applying them would do.
+- **[Cash-flow forecast](./cash-flow-forecast.md)**: what feeds the
+  projection, where its starting balance comes from, and what its two empty
+  states mean.
 - **[Savings goals](./savings-goals.md)**: the two tracking modes, and
   what a deadline turns a target into.
 - **[Net worth](./net-worth.md)**: accounts and balances over time, the
