@@ -374,3 +374,14 @@ gate it) on a Dependabot PR only when the update is `semver-patch` or
 manual look, patch or not). Applies the same way to ungrouped CVE-triggered
 security PRs. Everything else (majors, lint/tooling bumps, anything CI
 doesn't pass) needs a human to merge.
+
+**A dependency bump that carries a CVE fix is committed as `fix(deps):`, never
+`chore(deps):`.** `chore` is neither versioning nor changelog-visible under the
+default `release-type: node` sections, so a security bump committed that way
+lands in a release that says nothing about it. Measured, not assumed: #115
+shipped the fast-uri fix (CVE-2026-18446, HIGH) as `chore: bump fast-uri from
+3.1.4 to 3.1.5`, and it is in 0.8.0 while appearing nowhere in 0.8.0's
+changelog. An operator deciding whether to upgrade reads the changelog; a CVE
+they are expected to act on has to be in it. Ordinary bumps stay `chore(deps)`
+— the distinction is whether an advisory is being closed, not how the PR was
+opened, so a Dependabot PR retitled by hand is the normal case here.
