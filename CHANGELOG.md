@@ -1,5 +1,78 @@
 # Changelog
 
+## [0.8.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.7.0...budgetpilot-v0.8.0) (2026-08-10)
+
+
+### Features
+
+* **a11y:** a polite announcer that survives a value changing on every keystroke ([53cb500](https://github.com/NonoHM/budgetpilot/commit/53cb5008a94f36a3da0c7afef674c98f44735d69))
+* **budget:** the dashboard boundary emits allocations alongside transactions ([17ab5dc](https://github.com/NonoHM/budgetpilot/commit/17ab5dc8b3238c76927c1798d6d90bcd135ee4de))
+* **db:** add TransactionSplit, with backup export and restore ([3f882d1](https://github.com/NonoHM/budgetpilot/commit/3f882d1f24e93a54a3fe74795f9af5d39321e5c9))
+* **domain:** add CategoryAllocation and the total allocation read ([c2962c9](https://github.com/NonoHM/budgetpilot/commit/c2962c9e5b2796bf640d5a2207394fa858438139))
+* **domain:** add distributeEvenly for the even-split helper ([b89da59](https://github.com/NonoHM/budgetpilot/commit/b89da597e1e21f58d28a836d66e1164ee36770bc))
+* **export:** one line per allocation, and the three columns that pay for it ([c7c7b92](https://github.com/NonoHM/budgetpilot/commit/c7c7b921c551c0b58e18775ec2064c3eab06b0c7))
+* **import:** a SECOND maison profile, never an edit to the first ([e168c3f](https://github.com/NonoHM/budgetpilot/commit/e168c3f0b92346094f059004a57fb94feaa98de6))
+* **import:** imported parts go through replaceSplits, never at the table ([1bfda30](https://github.com/NonoHM/budgetpilot/commit/1bfda30a9c4798e6eead64b2ed4416e47773bc6b))
+* **money:** every per-category read goes through allocations, guarded per engine ([a70d7d1](https://github.com/NonoHM/budgetpilot/commit/a70d7d1baf81d5b10de2f447e97892ed4607b62e))
+* **sheet:** the way back never scrolls either, in every sheet ([52055f6](https://github.com/NonoHM/budgetpilot/commit/52055f65d6dd4b3fa4e20083c02dd979d634ee68))
+* **splits:** a category deleted in another window, at both moments 1r names ([8a081ae](https://github.com/NonoHM/budgetpilot/commit/8a081ae258ae5d9350b505fb7866002cc2db0811))
+* **splits:** a répartie transaction leaves every identity-side pile and write ([ab0a3e7](https://github.com/NonoHM/budgetpilot/commit/ab0a3e713b55a163f6b4fdd36ab0c038df9c5155))
+* **splits:** a répartition indicator on three parent-shaped surfaces ([323c556](https://github.com/NonoHM/budgetpilot/commit/323c556f319003be39feffe9fe27f9d02be07cff))
+* **splits:** filtered totals sum the matching parts, and ?category= reaches them ([8265dd8](https://github.com/NonoHM/budgetpilot/commit/8265dd8bddf23b19f088dfcd75e849fd084a90d6))
+* **splits:** focus after add and remove, made a decision rather than a coincidence ([dcabdb7](https://github.com/NonoHM/budgetpilot/commit/dcabdb709215609bad30adbab91ca53c7e2b998b))
+* **splits:** the Catégorie column stops describing the parent ([399eb6a](https://github.com/NonoHM/budgetpilot/commit/399eb6a73aa46e334571ae553304451ae1d139cf))
+* **splits:** the editor and its write path — one panel, three entrances ([1879f8e](https://github.com/NonoHM/budgetpilot/commit/1879f8e429ff6b2f402c3a3ec4619c34f3fc64fb))
+* **splits:** the editor becomes reachable — one door, two mounts, one lock ([d20ee39](https://github.com/NonoHM/budgetpilot/commit/d20ee391583e527bbda135f621a1300e715f4a2f))
+* **splits:** the load hands each row its indicator, through the canonical read ([cde97aa](https://github.com/NonoHM/budgetpilot/commit/cde97aa7177e63030790ffb2bfb5d54cda945af2))
+* **splits:** the remainder band and its announcement, as one component ([f648109](https://github.com/NonoHM/budgetpilot/commit/f648109b331ad3c3327dbacce578cae5d6b264b0))
+* **splits:** the remainder's arithmetic, in the parent's sign rather than the raw one ([5516a03](https://github.com/NonoHM/budgetpilot/commit/5516a0375597abb758c8a9b48fcd0ea1f0f266f5))
+* **splits:** the Répartition filter, conditional and counted, on all four surfaces ([62d4151](https://github.com/NonoHM/budgetpilot/commit/62d4151001382a62801a0816642b327a749a44b7))
+* **splits:** the repeatable part, two lines and three note states ([e260167](https://github.com/NonoHM/budgetpilot/commit/e260167950f61d3189232d9e442934601493ba05))
+* **splits:** the row indicator's rule, and the badge that renders it ([aedfa7f](https://github.com/NonoHM/budgetpilot/commit/aedfa7fa8d6610ce217ed6dd7add6f7280022560))
+* **splits:** the saving state, and the remount that has to come with it ([74459c1](https://github.com/NonoHM/budgetpilot/commit/74459c1ce897c15c81e9892fa23bf59d1a02c584))
+* **splits:** what the load hands the editor — ids, ordered parts, and a door ([7904d6e](https://github.com/NonoHM/budgetpilot/commit/7904d6e70cf43b6551dd203c52e8bbc1cef8e9d3))
+* **transactions:** replaceSplits, the single write path for a repartition ([06e8c57](https://github.com/NonoHM/budgetpilot/commit/06e8c573f6d737149a2febd3de7641cd011f9527))
+* **transactions:** split transactions — category allocation, filtered rows, UI conformance ([ce9afb6](https://github.com/NonoHM/budgetpilot/commit/ce9afb653b3c53199470a30e04c662488055d488))
+* **ui:** Combobox neutralises without going mute ([3ba3d44](https://github.com/NonoHM/budgetpilot/commit/3ba3d447cc52c9a60358c72ad5c1d18bb09aae2b))
+* **ui:** the three shared controls the split editor needs, each as a real prop ([390a30f](https://github.com/NonoHM/budgetpilot/commit/390a30f49ba016a07264a003cc512e9a928e2a86))
+
+
+### Bug Fixes
+
+* **backup:** a part must carry its parent's sign, on every write path ([9a3abf7](https://github.com/NonoHM/budgetpilot/commit/9a3abf70929e51cead5bd80847785c204d93edc8))
+* **backup:** enforce the per-transaction tag cap on restore ([#160](https://github.com/NonoHM/budgetpilot/issues/160)) ([0f27ea2](https://github.com/NonoHM/budgetpilot/commit/0f27ea2448dd46411132f3a99ffcf518c088e2ed))
+* **budgets:** fold the category name, and name the month in UTC ([3d8c947](https://github.com/NonoHM/budgetpilot/commit/3d8c9477f074e53d56a5d84608259208b49fca22))
+* **budgets:** the folded key is a constraint now, not a docstring ([7486689](https://github.com/NonoHM/budgetpilot/commit/7486689023d4615bb90e694801f16bce65e416fa))
+* **categories:** move every stored reference when a category is renamed ([#157](https://github.com/NonoHM/budgetpilot/issues/157)) ([ad320cd](https://github.com/NonoHM/budgetpilot/commit/ad320cd27194f3a4843bcd5f1ff533cbad0753ad))
+* **deps:** take nanoid 3.3.18 and SvelteKit 2.70.2, and unblock the release gate ([#163](https://github.com/NonoHM/budgetpilot/issues/163)) ([c3363d3](https://github.com/NonoHM/budgetpilot/commit/c3363d34465a74d0212a15b7569c62cf7bf61638))
+* **i18n:** punctuation that differs by locale belongs behind a function ([902a7f7](https://github.com/NonoHM/budgetpilot/commit/902a7f76d42a26d2b8a403e446f76b3f8799ad11))
+* **i18n:** punctuation that differs by locale belongs behind a function ([2d5f562](https://github.com/NonoHM/budgetpilot/commit/2d5f562ad910843271722e6c0f46248b85be015a))
+* **i18n:** type the locale parameter as string, not the two-locale union ([2d1fc69](https://github.com/NonoHM/budgetpilot/commit/2d1fc69cd08ca12790c42cc5df4dd9aece47cb43))
+* **import:** the export's own sentinel, refused by the importer that reads it ([00a3a4f](https://github.com/NonoHM/budgetpilot/commit/00a3a4fe2a40545e385b99b4a5322cf3ea2f7603))
+* **reports:** the donut centre through formatCents, like every other figure ([4a937ae](https://github.com/NonoHM/budgetpilot/commit/4a937ae7e2e1d84bb7e083371ade709568fea7ba))
+* **rules:** the Category and Nature columns are columns, not transitions ([aed2025](https://github.com/NonoHM/budgetpilot/commit/aed202585d0003c987a6d5d5bbb03559fa65ff63))
+* **rules:** the Category and Nature columns are columns, not transitions ([dec503d](https://github.com/NonoHM/budgetpilot/commit/dec503d6144ef864885bd3a534cd6e6dfd524a2f))
+* **sheet:** opening a transaction no longer lands on Supprimer ([28e9ae1](https://github.com/NonoHM/budgetpilot/commit/28e9ae1900ab161aa13ca2375109d8a291445241))
+* **splits:** a save that fails says so, instead of looking like one that worked ([3d72695](https://github.com/NonoHM/budgetpilot/commit/3d726950d8b8939dae9f5cd11f38abc3d2e8d433))
+* **splits:** a SQLite host-parameter cap, and the batching it needed everywhere ([0c97b2b](https://github.com/NonoHM/budgetpilot/commit/0c97b2bb694e7313974622f0b8e25bdc2b95543d))
+* **splits:** an unsplit settled occurrence borrows nothing from a later split one ([aa5dd32](https://github.com/NonoHM/budgetpilot/commit/aa5dd32ff0eccae365d1cd55b5f847263e9240b0))
+* **splits:** reserve the badge's height on the desktop line, and keep the guard able to see it ([8b3fc2c](https://github.com/NonoHM/budgetpilot/commit/8b3fc2c28f5e731e699380ee935effed7ce8878a))
+* **splits:** the dashboard reservation was two pixels short of its own badge ([91ccc56](https://github.com/NonoHM/budgetpilot/commit/91ccc565eb5f021f43dc6faf5e590d011ab2b46c))
+* **splits:** the failure sentence belongs to the attempt, and to the row ([8220009](https://github.com/NonoHM/budgetpilot/commit/822000982b0fe14b1d7ea763951795231a4d210e))
+* **splits:** the plate measured the column where it meant the content ([ec6b78b](https://github.com/NonoHM/budgetpilot/commit/ec6b78b00f80dca89bb2b736d19403a4c606e79f))
+* **splits:** the plate measured the column where it meant the content ([3fafeff](https://github.com/NonoHM/budgetpilot/commit/3fafeff0b6d05d056d2d430899b193faf7c8b084))
+* **tests:** a font-dependent pixel figure, and the second failure it manufactured ([243c8c4](https://github.com/NonoHM/budgetpilot/commit/243c8c4e3d9d057b8937f32942533fc6859dae37))
+* **tests:** the reconciliation the brand made visible ([d56ca70](https://github.com/NonoHM/budgetpilot/commit/d56ca70b81f33baa736eec1bb1da583518c63e36))
+* **transactions:** "is this a fragment" compares magnitudes, not signs it does not own ([c5869be](https://github.com/NonoHM/budgetpilot/commit/c5869be7c066314abf0c4912cb5aa23d67c7edd8))
+* **transactions:** a category filter shows the matched part, not the dominant one ([ce1f8c2](https://github.com/NonoHM/budgetpilot/commit/ce1f8c2737891e9df2f9a079715043eb80a8475e))
+* **transactions:** a row matched by identity alone shows zero, not the dominant part ([6f9a165](https://github.com/NonoHM/budgetpilot/commit/6f9a16506f62cf7bd0ce30787789d9f330902b8c))
+* **transactions:** sign an imported expense by its direction, not by its column ([7e1b135](https://github.com/NonoHM/budgetpilot/commit/7e1b135ba8aeb51bbe1307c379c02f2d68c4225b))
+
+
+### Performance Improvements
+
+* **transactions:** the category filter's part branch gets a covering index ([26852b0](https://github.com/NonoHM/budgetpilot/commit/26852b0d4287299d341b72312ea278fe8b48a7e1))
+
 ## [0.7.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.6.0...budgetpilot-v0.7.0) (2026-08-04)
 
 
