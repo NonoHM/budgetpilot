@@ -1,9 +1,9 @@
 # BudgetPilot documentation
 
+## Install it
+
 - **[Getting started](./getting-started.md)**: install and first login, with
   or without Docker. Start here.
-- **[Using BudgetPilot](./using/README.md)**: the app itself once it runs.
-  Transactions, tags, splitting a transaction across categories.
 - **[Configuration](./configuration.md)**: every setting, and how to reach
   the app from another machine.
 - **[Reverse proxy](./reverse-proxy.md)**: optional Caddy overlay for a real
@@ -16,6 +16,31 @@
 - **[Local AI advice](./ai-insights.md)**: the optional Ollama setup.
 - **[Bank sync](./bank-sync.md)**: the optional automatic PSD2 connection.
 - **[Troubleshooting](./troubleshooting.md)**: when something's broken.
+
+## Use it
+
+How to do things, in [using BudgetPilot](./using/README.md):
+
+- [The transactions screen](./using/transactions.md): search, filters, editing
+  a transaction, and what the CSV export contains.
+- [Tags](./using/tags.md): labelling transactions across categories.
+- [Splitting a transaction](./using/split-transactions.md): one payment,
+  several categories.
+
+## Look it up
+
+Rules, limits and exact values, in [reference](./reference/README.md):
+
+- [Split transactions](./reference/split-transactions.md): part counts,
+  amount ceiling, rounding, CSV columns, refusal messages.
+
+## Understand it
+
+Why the app behaves as it does, in [explanation](./explanation/README.md):
+
+- [Why a split row shows two amounts under a filter](./explanation/filtered-row-amounts.md).
+
+---
 
 Contributing to the code instead? See
 [CONTRIBUTING.md](../CONTRIBUTING.md) and [AGENTS.md](../AGENTS.md).

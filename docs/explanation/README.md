@@ -1,0 +1,12 @@
+# Explanation
+
+Why the app behaves the way it does, where the behaviour is deliberate and
+surprising. Nothing here is needed to use BudgetPilot. It is here so that a
+design decision is not mistaken for a defect and undone.
+
+- **[Why a split row shows two amounts under a filter](./filtered-row-amounts.md)**:
+  the same transaction displays a different amount depending on the URL, on
+  purpose.
+
+If you want the steps, go to [using BudgetPilot](../using/README.md). If you
+want the exact rules, go to [reference](../reference/README.md).
