@@ -1,5 +1,7 @@
 import * as m from '$lib/paraglide/messages';
 import type { Transaction } from '$lib/domain/transaction';
+import type { CategoryAllocation, SplitIndicator } from '$lib/domain/allocation';
+import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { getTransactionKind } from '$lib/domain/transaction';
 import { getSimilarAmountGroups, normalizeRecurringLabel } from '$lib/domain/recurrence';
 import {
@@ -18,6 +20,16 @@ export interface AnonymizedExpense {
 	label: string;
 	amountCents: number;
 	category: string;
+	/**
+	 * `null` for an unsplit transaction. The RANKING and the displayed `category`/`amountCents`
+	 * above are still the PARENT's — OD-3, unchanged by this field — so a répartie entry here reads
+	 * "this 80,00 € Alimentation purchase was split" rather than re-ranking or re-labelling the row
+	 * from its parts. What this field adds is the ANSWER to "into what": the same breakdown
+	 * `splitIndicatorOf` gives the transaction list, reused rather than restated, and reaching the
+	 * local-model prompt automatically (`toPromptPayload` walks it like any other nested object; see
+	 * `server/insights/summary.ts`). It carries no `note` — `SplitIndicator` has none to carry.
+	 */
+	splitIndicator: SplitIndicator | null;
 }
 
 export interface RecurringPayment {
@@ -72,17 +84,44 @@ export interface MonthlyReport {
 
 export function buildMonthlyReport(
 	transactions: Transaction[],
+	allocations: CategoryAllocation[],
 	month: string,
 	previousMonth?: Pick<MonthlyReport, 'month' | 'incomeCents' | 'expenseCents' | 'balanceCents'>
 ): MonthlyReport {
-	const monthlyTransactions = getTransactionsForMonth(transactions, month);
-	return buildPeriodReport(monthlyTransactions, month, previousMonth, {
-		dayCount: getDaysInMonth(month)
-	});
+	return buildPeriodReport(
+		getTransactionsForMonth(transactions, month),
+		getAllocationsForMonth(allocations, month),
+		month,
+		previousMonth,
+		{ dayCount: getDaysInMonth(month) }
+	);
 }
 
+/**
+ * A period's report, built from BOTH views, each answering only what it can answer.
+ *
+ * The split follows the blast-radius table and is the whole reason this function takes two arrays:
+ *
+ *  - MONEY, from allocations: `topCategories` (where the money went) and `natureAnalysis`.
+ *  - IDENTITY, from transactions: `transactionCount` (how many bank lines), `largestExpenses`
+ *    (OD-3 — a répartition is one purchase, ranked whole) and `recurringPayments` (a stream is
+ *    anchored on transactions; a part has no identity to recur).
+ *
+ *    `largestExpenses` also takes `allocations`, alongside `expenses`, but only to ANNOTATE each
+ *    ranked row with its `SplitIndicator` (`AnonymizedExpense.splitIndicator`) — OD-3 itself is
+ *    unchanged: ranking, `category` and `amountCents` still come from the transaction, whole. The
+ *    annotation exists so a surface that lists parent-shaped rows (this one, and the AI payload
+ *    that reuses it) can say a répartition exists without pretending the row is now the parts.
+ *  - EITHER, and read from allocations for consistency: `incomeCents` / `expenseCents`. Every
+ *    allocation of a transaction carries that transaction's kind, so the two sums are equal by
+ *    construction — the conservation theorem, and the guard measures it rather than assuming it.
+ *
+ * Passing the arrays the wrong way round does not compile: a CategoryAllocation has no `label`, and
+ * a Transaction has no `transactionId`.
+ */
 export function buildPeriodReport(
 	transactions: Transaction[],
+	allocations: CategoryAllocation[],
 	period: string,
 	previousPeriod?: Pick<MonthlyReport, 'month' | 'incomeCents' | 'expenseCents' | 'balanceCents'>,
 	options: { dayCount?: number } = {}
@@ -90,19 +129,20 @@ export function buildPeriodReport(
 	const expenses = transactions.filter(
 		(transaction) => getTransactionKind(transaction) === 'expense'
 	);
-	const incomeCents = transactions
-		.filter((transaction) => getTransactionKind(transaction) === 'income')
-		.reduce((total, transaction) => total + Math.abs(transaction.amountCents), 0);
-	const expenseCents = expenses.reduce(
-		(total, transaction) => total + Math.abs(transaction.amountCents),
+	const expenseAllocations = allocations.filter((allocation) => allocation.kind === 'expense');
+	const incomeCents = allocations
+		.filter((allocation) => allocation.kind === 'income')
+		.reduce((total, allocation) => total + Math.abs(allocation.amountCents), 0);
+	const expenseCents = expenseAllocations.reduce(
+		(total, allocation) => total + Math.abs(allocation.amountCents),
 		0
 	);
 	const balanceCents = incomeCents - expenseCents;
 	const dayCount = Math.max(1, options.dayCount ?? getCoveredDayCount(transactions));
-	const topCategories = getTopCategories(expenses, expenseCents);
-	const largestExpenses = getLargestExpenses(expenses);
+	const topCategories = getTopCategories(expenseAllocations, expenseCents);
+	const largestExpenses = getLargestExpenses(expenses, expenseAllocations);
 	const recurringPayments = getRecurringPayments(expenses);
-	const natureAnalysis = analyzeTransactionNatures(transactions);
+	const natureAnalysis = analyzeTransactionNatures(allocations);
 	const previousMonth = previousPeriod
 		? {
 				month: previousPeriod.month,
@@ -141,18 +181,36 @@ export function getTransactionsForMonth(transactions: Transaction[], month: stri
 	return transactions.filter((transaction) => transaction.date.startsWith(`${month}-`));
 }
 
+export function getAllocationsForMonth(
+	allocations: CategoryAllocation[],
+	month: string
+): CategoryAllocation[] {
+	return allocations.filter((allocation) => allocation.date.startsWith(`${month}-`));
+}
+
+/**
+ * The per-category expense breakdown, over ALLOCATIONS.
+ *
+ * `transactionCount` counts DISTINCT transactions, not entries. Counting entries would be the
+ * easier reduce and would make "3 transactions" a false claim the moment two of them are parts of
+ * one purchase — the double-count moved from the amount to the count, where it is harder to spot
+ * because the euros still add up. Distinctness is exactly what `transactionId` exists on an
+ * allocation for; it is the one identity question an allocation may answer.
+ */
 export function getTopCategories(
-	expenses: Transaction[],
+	expenses: CategoryAllocation[],
 	totalExpenseCents?: number
 ): CategoryTotal[] {
-	const categories = new Map<string, { amountCents: number; transactionCount: number }>();
+	const categories = new Map<string, { amountCents: number; transactionIds: Set<string> }>();
 
-	for (const transaction of expenses) {
-		const current = categories.get(transaction.category) ?? { amountCents: 0, transactionCount: 0 };
-		categories.set(transaction.category, {
-			amountCents: current.amountCents + Math.abs(transaction.amountCents),
-			transactionCount: current.transactionCount + 1
-		});
+	for (const allocation of expenses) {
+		const current = categories.get(allocation.category) ?? {
+			amountCents: 0,
+			transactionIds: new Set<string>()
+		};
+		current.amountCents += Math.abs(allocation.amountCents);
+		current.transactionIds.add(allocation.transactionId);
+		categories.set(allocation.category, current);
 	}
 
 	const total =
@@ -161,21 +219,28 @@ export function getTopCategories(
 	return [...categories.entries()]
 		.map(([category, value]) => ({
 			category,
-			...value,
+			amountCents: value.amountCents,
+			transactionCount: value.transactionIds.size,
 			percentageOfExpenses: total > 0 ? value.amountCents / total : 0
 		}))
 		.sort((left, right) => right.amountCents - left.amountCents)
 		.slice(0, 5);
 }
 
-export function getLargestExpenses(expenses: Transaction[]): AnonymizedExpense[] {
+export function getLargestExpenses(
+	expenses: Transaction[],
+	allocations: ReadonlyArray<CategoryAllocation>
+): AnonymizedExpense[] {
+	const splitIndicators = splitIndicatorsByTransactionId(allocations);
+
 	return [...expenses]
 		.sort((left, right) => Math.abs(right.amountCents) - Math.abs(left.amountCents))
 		.slice(0, 5)
 		.map((transaction) => ({
 			label: anonymizeLabel(transaction.label, transaction.category),
 			amountCents: Math.abs(transaction.amountCents),
-			category: transaction.category
+			category: transaction.category,
+			splitIndicator: splitIndicators.get(transaction.id) ?? null
 		}));
 }
 

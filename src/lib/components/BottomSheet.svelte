@@ -20,22 +20,60 @@
 		onClose,
 		children,
 		header,
-		footer
+		footer,
+		initialFocus = 'first-focusable'
 	}: {
 		open?: boolean;
 		ariaLabel: string;
 		onClose: () => void;
 		children: Snippet;
 		/**
-		 * Optional persistent header, rendered OUTSIDE the scrolling body — the mirror of `footer`,
+		 * What receives focus when the sheet opens.
+		 *
+		 * `'first-focusable'` is the default and is what every sheet did before this prop existed:
+		 * whatever `focusFirst` finds first in DOM order. That is a COINCIDENCE, not a decision, and
+		 * it has now gone wrong twice in this app. The transaction detail sheet's first focusable is
+		 * its « Supprimer » button, so opening a transaction landed the user directly on the
+		 * destructive action — measured 2026-08-07 at 390x844, and true since long before the header
+		 * work moved it into permanent chrome. And `PeriodFilter` carries its own comment saying
+		 * `focusFirst` "would land on the 'Toutes' row", which it settles with a `queueMicrotask`
+		 * that races this effect on purpose.
+		 *
+		 * `'panel'` focuses the dialog itself — it already carries `tabindex="-1"` — which is the
+		 * other behaviour WAI-ARIA's dialog pattern sanctions, and the one it names for exactly this
+		 * case: a first focusable that is destructive. The sheet's `aria-label` is announced, and Tab
+		 * moves forward into the content deliberately.
+		 *
+		 * The default is left alone rather than inverted because flipping it would silently move
+		 * focus on four sheets nobody complained about. A sheet whose first focusable is destructive
+		 * must pass `'panel'`.
+		 */
+		initialFocus?: 'first-focusable' | 'panel';
+		/**
+		 * REQUIRED persistent header, rendered OUTSIDE the scrolling body — the mirror of `footer`,
 		 * and for the same reason. A title and a route back that scroll away with the content leave a
 		 * reader who has scrolled the grid with no visible way out of the sheet, which is exactly the
-		 * argument that makes the footer sticky. Design 6M budgets it at 73px including the handle.
+		 * argument that makes the footer sticky: *in a sheet the primary action never scrolls, and by
+		 * the same reasoning the way back never scrolls either.*
+		 *
+		 * Required rather than conventional, deliberately. It shipped optional with the Période sheet
+		 * and stayed at one consumer: the four other sheets went on rendering their `<h2>` as the
+		 * first thing inside `children`, where it scrolls away. Measured 2026-08-07 at 390x844, both
+		 * on the live pages: the transaction detail title travelled **247 px** out of the sheet, the
+		 * category sub-sheet's **165 px**. The Filtres sheet's title held still only because its body
+		 * happened to be 174 px tall and did not scroll at all — not a guarantee, an accident of how
+		 * many filters exist today. A convention cannot see a call site that never adopted it; a
+		 * required prop is refused by `npm run check` by name.
+		 *
+		 * Height: 57 px measured on the Période sheet, which with the 28 px handle is the 85 px the
+		 * referential's V2 errata records. The design's 73 px is superseded and is not to be restored.
 		 */
-		header?: Snippet;
-		// Optional sticky footer, rendered OUTSIDE the scrolling body — see the
-		// "pied de feuille" rule below. Every existing caller omits it and keeps
-		// rendering its primary action inside `children`, unchanged.
+		header: Snippet;
+		/**
+		 * Optional sticky footer, rendered OUTSIDE the scrolling body — see the "pied de feuille" rule
+		 * below. Optional and not required, unlike `header`, because it is not universal: the sub-sheets
+		 * dismiss on selection and have no primary action to pin. A sheet that HAS one must use this.
+		 */
 		footer?: Snippet;
 	} = $props();
 
@@ -111,7 +149,8 @@
 			if (isOpen) {
 				focusRestore.save();
 				dragY = 0;
-				focusFirst(sheetEl);
+				if (initialFocus === 'panel') sheetEl?.focus();
+				else focusFirst(sheetEl);
 			} else {
 				focusRestore.restore();
 			}
@@ -256,16 +295,14 @@
 				<span class="h-1 w-9 rounded-full bg-zinc-300"></span>
 			</div>
 
-			{#if header}
-				<div class="shrink-0 border-b border-zinc-100 bg-white px-5 pb-3">
-					{@render header()}
-				</div>
-			{/if}
+			<div class="shrink-0 border-b border-zinc-100 bg-white px-5 pb-3">
+				{@render header()}
+			</div>
 
 			<div
-				class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 {footer
+				class="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-3 {footer
 					? 'pb-4'
-					: 'pb-6'} {header ? 'pt-3' : ''}"
+					: 'pb-6'}"
 				onfocusin={handleBodyFocusIn}
 			>
 				{@render children()}

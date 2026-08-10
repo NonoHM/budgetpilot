@@ -86,6 +86,11 @@ export const actions: Actions = {
 
 		await prisma.$transaction(async (tx) => {
 			await tx.session.deleteMany({ where: { userId: targetUserId } });
+			// Transactions before the user — see the identical comment in settings/+page.server.ts's
+			// deleteAccount. Deleting the user cascades into Category and Transaction in an order
+			// the engine chooses, and TransactionSplit is RESTRICT on Category, so on PostgreSQL
+			// the delete fails outright for any user who has ever split a transaction.
+			await tx.transaction.deleteMany({ where: { userId: targetUserId } });
 			await tx.user.delete({ where: { id: targetUserId } });
 		});
 

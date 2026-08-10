@@ -223,6 +223,20 @@ export const actions: Actions = {
 			await tx.session.deleteMany({
 				where: { userId: user.id }
 			});
+			// Transactions BEFORE the user, and this ordering is load-bearing rather than tidy.
+			//
+			// Deleting the user cascades to both Category and Transaction, and the database picks
+			// the order. TransactionSplit cascades from Transaction but is RESTRICT on Category —
+			// deliberately, so deleting a category can never destroy money. If the engine happens
+			// to cascade into Category first, that RESTRICT fires and the whole delete fails.
+			//
+			// Provider-divergent, which is what makes it dangerous: SQLite and MySQL happen to
+			// reach Transaction first and succeed, PostgreSQL does not. Measured, not reasoned —
+			// found when a db-smoke suite's cleanup failed on one engine of three with
+			// `Foreign key constraint violated on the constraint: TransactionSplit_categoryId_fkey`.
+			// Without this line a PostgreSQL user who has ever split a transaction cannot delete
+			// their own account at all.
+			await tx.transaction.deleteMany({ where: { userId: user.id } });
 			await tx.user.delete({
 				where: { id: user.id }
 			});

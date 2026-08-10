@@ -33,6 +33,8 @@ const TX = {
 	manualNature: null,
 	natureSource: 'category' as const,
 	source: 'manual' as const,
+	splitIndicator: null,
+	matchedCategoryAllocation: null,
 	suggestion: null,
 	tags: []
 };
@@ -44,9 +46,12 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedTransaction: null,
 		selectedSuggestion: null,
 		categoryOptions: ['Restaurants'],
-		categories: [{ name: 'Restaurants', defaultKey: null }],
+		splitCategoryOptions: [],
+		categories: [{ id: 'cat-restaurants', name: 'Restaurants', defaultKey: null }],
 		allTags: [],
 		natureOptions: TRANSACTION_NATURES,
+		splitFilterAvailable: false,
+		splitCounts: null,
 		filters: {
 			q: '',
 			qMode: 'contains' as const,
@@ -56,7 +61,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			to: '',
 			importBatchId: '',
 			ids: '',
-			tag: ''
+			tag: '',
+			split: 'all'
 		},
 		filteredTotals: { incomeCents: 0, expenseCents: 5210 },
 		queryError: false,

@@ -2,6 +2,7 @@ import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
 	TRANSACTION_NATURES,
+	applyKindSign,
 	type TransactionKind,
 	type TransactionNature,
 	isTransactionNature
@@ -11,6 +12,8 @@ import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { setTransactionTags } from '$lib/server/tags/service';
+import { clearSplits, replaceSplits } from '$lib/server/transactions/splits';
+import { parseDraftAmountCents } from '$lib/domain/splitDraft';
 import { countTagsInScope, type TagScopeCount } from '$lib/server/tags/counts';
 import {
 	applyTagToFilteredSet,
@@ -26,8 +29,12 @@ import {
 import {
 	buildCategoryNatureMap,
 	getEffectiveCategory,
-	getEffectiveTransactionNature
+	getEffectiveTransactionNature,
+	mapTransactionAllocations,
+	EFFECTIVE_CATEGORY_SELECT,
+	type SplitRow
 } from '$lib/server/transactions/nature';
+import { splitIndicatorOf } from '$lib/domain/allocation';
 import {
 	buildTransactionWhere,
 	normalizeId,
@@ -35,6 +42,8 @@ import {
 	resolveUncategorizedCategoryId
 } from '$lib/server/transactions/where';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
+import { isSplitTransaction } from '$lib/server/transactions/splits';
+import { countSplitsInScope, userHasAnySplit } from '$lib/server/transactions/splitCounts';
 import type { Prisma } from '$lib/server/database/types';
 import {
 	anonymizeDetailText,
@@ -46,6 +55,7 @@ import {
 	sumFilteredTotals,
 	resolveTransactionType,
 	transactionKindWhere,
+	pickMatchedAllocation,
 	type FilteredTotals
 } from '$lib/server/transactions/totals';
 import type { PageServerLoad } from './$types';
@@ -73,7 +83,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			prisma.category.findMany({
 				where: { userId: user.id },
 				orderBy: { name: 'asc' },
-				select: { name: true, defaultKey: true }
+				// `id` is here for the split editor: a part references its category by id, and
+				// `replaceSplits` re-resolves that id under the session. The manual-category selector
+				// beside it works in NAMES because `Transaction.manualCategory` is a free-text column;
+				// the two are not interchangeable and the load hands out both rather than making the
+				// page convert between them.
+				select: { id: true, name: true, defaultKey: true }
 			}),
 			prisma.categoryNatureMapping.findMany({
 				where: { userId: user.id },
@@ -109,6 +124,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 							importBatch: {
 								select: { id: true, fileName: true, source: true, rowCount: true, createdAt: true }
 							},
+							// Blast-radius row 42. Ordered by `position` because that order is
+							// user-visible rather than incidental: it decides which part carries the
+							// rounding cent (1e), and the editor's accessible names — « Montant de la
+							// part 2 » — are built from the index it produces.
+							splits: {
+								select: { categoryId: true, amountCents: true, note: true, position: true },
+								orderBy: { position: 'asc' }
+							},
 							tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
 						}
 					})
@@ -139,11 +162,28 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	const mappingMap = buildCategoryNatureMap(mappings);
 
+	// Resolved BEFORE the scope, because it can change what the scope is.
+	//
+	// The Répartition control is not rendered until at least one répartition exists. The design's
+	// own answer for the moment the last one is removed: "s'il était actif il est d'abord retiré, la
+	// ligne de résumé revenant au total complet". Without this the user keeps an ACTIVE filter with
+	// no control to clear it — invisible, un-removable except by editing the URL, and narrowing the
+	// list to nothing. So the parameter is dropped from the URL the scope is built from, which also
+	// makes every href built from `filters` come back clean.
+	const splitFilterAvailable = await userHasAnySplit(user.id);
+	const scopeUrl = new URL(url);
+	if (!splitFilterAvailable) scopeUrl.searchParams.delete('split');
+
 	// Passes `uncategorizedCategoryId` in rather than letting the resolver look it up itself: it is
 	// already fetched above (the "à classer" pile needs the same value), so routing the load through
 	// the shared resolver costs no extra query.
-	const scope = await resolveTransactionScope(user.id, url, { uncategorizedCategoryId });
+	const scope = await resolveTransactionScope(user.id, scopeUrl, { uncategorizedCategoryId });
 	const { filters } = scope;
+
+	// PR5: under a category filter, the row's own display swaps from the DOMINANT allocation to the
+	// MATCHED one (see docs/using/split-transactions.md and mapTransactionListItem below). Folded
+	// once, here, the same way `categoryTotalsScope` below folds it once for the band.
+	const categoryFilterNameKey = filters.category ? computeNameKey(filters.category) : null;
 
 	// "To classify" pile: independent of the current tab/filters (see classifyStackIds comment
 	// below) — always the global uncategorized-by-category set, computed in SQL instead of
@@ -181,7 +221,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		source: 'rule';
 	} | null = null;
 	if (selectedTransaction && filters.type === 'classify') {
-		const selCat = selectedTransaction.manualCategory ?? selectedTransaction.category.name;
+		const selCat = getEffectiveCategory(selectedTransaction);
 		const selNat = getEffectiveTransactionNature(
 			{
 				amountCents: selectedTransaction.amountCents,
@@ -200,6 +240,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		}
 	}
 
+	// Spreads EFFECTIVE_CATEGORY_SELECT rather than naming `manualCategory` and `category` by hand,
+	// which is what this list did before: `sumFilteredTotals` now answers a per-category question on
+	// the `?q=` path, so this read joined the family of money reads the fragment exists to keep in
+	// agreement. Naming the columns here again would have made a fourth copy, and forgetting `splits`
+	// would have silently reported a répartie row's whole total under the filtered category.
 	const transactionSelect = {
 		id: true,
 		date: true,
@@ -207,9 +252,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		amountCents: true,
 		type: true,
 		source: true,
-		manualCategory: true,
 		natureManual: true,
-		category: { select: { name: true } },
+		...EFFECTIVE_CATEGORY_SELECT,
 		tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
 	} as const;
 
@@ -223,6 +267,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
 		category: { name: string };
+		splits: SplitRow[];
 		tags: TagLinkRow[];
 	}
 
@@ -251,7 +296,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	let tagScopeTotal = 0;
 	// The whole filtered set, in memory, on the `?q=` branch only — the branch that already has it.
 	// Used for the bulk fallback below, so that branch needs no extra query at all.
-	let matchedRows: Array<{ amountCents: number; type: string | null }> | null = null;
+	let matchedRows: TransactionListRow[] | null = null;
+	// The one place the "does this filter carry a category dimension" question is asked, so the two
+	// totals paths cannot disagree about it. Empty string means no dimension, never "the category
+	// whose name is empty".
+	const categoryTotalsScope = filters.category
+		? { userId: user.id, name: filters.category }
+		: undefined;
 	if (scope.kind === 'invalid') {
 		totalTransactions = 0;
 		totalPages = 1;
@@ -285,7 +336,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		});
 		// Alongside the count, over the same `where`: the total describes the filtered SET, which
 		// is why it is not derived from `transactions` (that is one page of it).
-		filteredTotals = await computeFilteredTotals(scope.where);
+		filteredTotals = await computeFilteredTotals(scope.where, categoryTotalsScope);
 	} else {
 		// The scan runs ONCE, on the tag-free scope, and the tag filter is applied to its result in
 		// JS. Scanning the tag-filtered scope instead and reusing its ids for the counts is what
@@ -303,7 +354,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		transactions = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 		// The q path matches in JS, so the SQL aggregate would not see the same set. Same numbers,
 		// different source; totals.spec.ts pins the two implementations against one fixture.
-		filteredTotals = sumFilteredTotals(filtered);
+		filteredTotals = sumFilteredTotals(filtered, filters.category || undefined);
 		matchedIds = filteredAll.map((row) => row.id);
 		matchedRows = filtered;
 	}
@@ -398,13 +449,41 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		}
 	}
 
+	// The per-option counts, a question about the current SCOPE — distinct from
+	// `splitFilterAvailable` above, which is user-wide and decides whether the control exists at
+	// all. Inferring one from the other is what would make the control vanish the moment a filter
+	// narrowed to rows that happen to carry no parts: "un filtre qui s'évapore pendant qu'on
+	// l'utilise est pire que le filtre inutile qu'on cherchait à éviter".
+	const splitCounts =
+		scope.kind === 'invalid'
+			? null
+			: await countSplitsInScope(
+					user.id,
+					scope.kind === 'sql' ? scope.whereWithoutSplit : scope.whereWithoutSplitBeforeQuery,
+					matchedIds
+				).catch((error) => {
+					// Best-effort, exactly like tagCounts above, and the name only for the same reason:
+					// a Prisma error on a transaction query embeds parameter values, which here means
+					// labels and amounts.
+					console.warn(
+						'splitCounts unavailable:',
+						error instanceof Error ? error.name : 'unknown error'
+					);
+					return null;
+				});
+
 	return {
-		transactions: transactions.map((t) => mapTransactionListItem(t, mappingMap, rules)),
+		splitFilterAvailable,
+		splitCounts,
+		transactions: transactions.map((t) =>
+			mapTransactionListItem(t, mappingMap, rules, categoryFilterNameKey)
+		),
 		selectedTransaction: selectedTransaction
-			? mapTransactionDetail(selectedTransaction, mappingMap)
+			? mapTransactionDetail(selectedTransaction, mappingMap, categories, uncategorizedCategoryId)
 			: null,
 		selectedSuggestion,
 		categoryOptions: buildCategoryOptions(categories),
+		splitCategoryOptions: buildSplitCategoryOptions(categories, uncategorizedCategoryId),
 		categories,
 		allTags,
 		natureOptions: TRANSACTION_NATURES,
@@ -425,7 +504,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// to carry anything forward — the two cases have no observable difference here. A
 			// future consumer of `filters.ids` that runs when the list is empty must not assume it.
 			ids: filters.ids ? filters.ids.join(',') : '',
-			tag: filters.tagId
+			tag: filters.tagId,
+			split: filters.split
 		},
 		filteredTotals,
 		tagCounts,
@@ -477,6 +557,46 @@ function computeSuggestion(
 
 function buildCategoryOptions(categories: Array<{ name: string }>): string[] {
 	return categories.map((c) => c.name).sort((left, right) => left.localeCompare(right, 'fr'));
+}
+
+/**
+ * What a part may be filed under (OD-5). The sentinel is REMOVED FROM THE LIST rather than offered
+ * and refused: `replaceSplits` refuses it server-side, and design 1c asks the selector to « exclure
+ * la sentinelle de sa liste plutôt que de l'offrir pour la refuser ». Offering an option whose only
+ * outcome is a refusal is a control that cannot state its reason.
+ *
+ * Excluded by ID, not by name. `uncategorizedCategoryId` is resolved through `nameKey`, so a
+ * category the user renamed to a different spelling of "uncategorized" is still the sentinel and is
+ * still excluded — which a name comparison here would miss.
+ */
+function buildSplitCategoryOptions(
+	categories: Array<{ id: string; name: string }>,
+	uncategorizedCategoryId: string | null
+): Array<{ value: string; label: string }> {
+	return categories
+		.filter((category) => category.id !== uncategorizedCategoryId)
+		.map((category) => ({ value: category.id, label: category.name }))
+		.sort((left, right) => left.label.localeCompare(right.label, 'fr'));
+}
+
+/**
+ * The category part 1 inherits when a répartition is created (1j-A), resolved to an id.
+ *
+ * It is the EFFECTIVE category, not `Transaction.categoryId`, and that is the whole content of this
+ * function. The parent selector sitting directly above the entry row shows the manual override when
+ * one is set; inheriting the imported column underneath it would hand part 1 a category the user is
+ * not looking at, on the one gesture whose promise is « zéro risque, une frappe de moins ».
+ *
+ * Returns null when the effective name matches none of the user's categories — `manualCategory` is a
+ * free-text column, so that is reachable rather than theoretical. Part 1 then starts empty, Save is
+ * off, and the reason line says why: a legible state rather than a guess.
+ */
+function resolveInheritedCategoryId(
+	effectiveCategoryName: string,
+	categories: Array<{ id: string; name: string }>
+): string | null {
+	const key = computeNameKey(effectiveCategoryName);
+	return categories.find((category) => computeNameKey(category.name) === key)?.id ?? null;
 }
 
 export const actions: Actions = {
@@ -604,6 +724,103 @@ export const actions: Actions = {
 		return { tagsSuccess: true };
 	},
 
+	/**
+	 * The editor's single write path (design 1j). Two intents on one action, because "remove the
+	 * split" and "replace the parts" are the same gesture from the user's side — both are decided by
+	 * pressing Enregistrer, and 1j-C's removal is an INTENTION until then.
+	 *
+	 * The client sends MAGNITUDES, never signed amounts: MoneyInput refuses a minus by default and
+	 * the user types « 60,00 » on an 80,00 € expense. The parent's sign is read here, server-side,
+	 * for the same reason the parsing is — the field is a free-text control and the server is the
+	 * authority. A stale read cannot produce a bad write: `replaceSplits` re-reads the parent inside
+	 * its own transaction and refuses on `sum` or `amount` if the sign it computed disagrees.
+	 */
+	saveSplits: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const transactionId = normalizeId(getFormValue(formData, 'transactionId'));
+		if (!transactionId)
+			return fail(400, { splitsError: m.transactions_error_invalid_transaction() });
+
+		if (getFormValue(formData, 'splitIntent') === 'clear') {
+			const cleared = await clearSplits(user.id, transactionId);
+			if (!cleared.ok)
+				return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
+			return { splitsRemoved: true };
+		}
+
+		const parent = await prisma.transaction.findFirst({
+			where: { id: transactionId, userId: user.id },
+			select: { amountCents: true }
+		});
+		if (!parent) return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
+
+		const categoryIds = formData.getAll('splitCategoryId').map(String);
+		const rawAmounts = formData.getAll('splitAmount').map(String);
+		const notes = formData.getAll('splitNote').map(String);
+		// Three parallel lists whose alignment IS the part identity. A mismatch means the form was
+		// hand-built or a row rendered without one of its three fields, and guessing which part a
+		// stray amount belongs to would silently file money under the wrong category.
+		if (categoryIds.length !== rawAmounts.length || categoryIds.length !== notes.length)
+			return fail(400, { splitsError: m.splits_error_generic() });
+
+		const sign = parent.amountCents < 0 ? -1 : 1;
+		const invalidAmountPositions: number[] = [];
+		const parts = categoryIds.map((categoryId, index) => {
+			const magnitude = parseDraftAmountCents(rawAmounts[index]);
+			if (magnitude === null || magnitude === 0) invalidAmountPositions.push(index);
+			return {
+				categoryId,
+				amountCents: sign * (magnitude ?? 0),
+				note: notes[index] ?? ''
+			};
+		});
+		if (invalidAmountPositions.length > 0)
+			return fail(400, {
+				splitsError: m.splits_error_invalid_amounts(),
+				splitsPositions: invalidAmountPositions
+			});
+
+		const outcome = await replaceSplits(user.id, transactionId, parts);
+		if (outcome.ok) return { splitsSaved: true, splitsCount: parts.length };
+
+		// Every refusal that names parts carries them through to the panel, 0-based, ALL of them.
+		// This is what settles design 1r's own open question — « le refus d'écriture sur catégorie
+		// disparue suppose une réponse de conflit identifiant la ou les parts fautives » — so the
+		// panel can say « Choisissez une catégorie pour la part 2 » rather than degrade to a generic
+		// message, which 1r calls a real degradation.
+		switch (outcome.reason) {
+			case 'not-found':
+				return fail(404, { splitsError: m.transactions_error_transaction_not_found() });
+			case 'count':
+				return fail(400, { splitsError: m.splits_error_count() });
+			case 'sum':
+				return fail(400, { splitsError: m.splits_error_sum() });
+			case 'amount':
+				return fail(400, {
+					splitsError: m.splits_error_invalid_amounts(),
+					splitsPositions: outcome.positions
+				});
+			case 'note':
+				return fail(400, {
+					splitsError: m.splits_error_note(),
+					splitsPositions: outcome.positions
+				});
+			case 'category':
+				// `splitsCategoryConflict` is what tells the panel these positions mean « choose a
+				// category » rather than « fix this amount ». Every branch here carries positions, so
+				// without a discriminator the panel would have to guess the sentence from the count —
+				// and 1r's whole point is that the refusal names the part AND says what is wrong with
+				// it. A deleted, a foreign and a nonexistent category all land here identically, which
+				// is deliberate: the user's remedy is the same in all three.
+				return fail(400, {
+					splitsCategoryConflict: true,
+					splitsError: m.splits_error_category(),
+					splitsPositions: outcome.positions
+				});
+		}
+	},
+
 	saveManualCategory: async ({ locals, request }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
@@ -621,13 +838,20 @@ export const actions: Actions = {
 			if (!cat) return fail(400, { manualCategoryError: m.categories_error_invalid() });
 		}
 
+		// `splits: { none: {} }` is the protection, not the check below it: the parent's category is
+		// frozen while the transaction is répartie (D1), and an aria-disabled selector is a statement
+		// about a DOM node, not about a request. Atomic, so a split landing between the two queries
+		// cannot slip through.
 		const result = await prisma.transaction.updateMany({
-			where: { id: transactionId, userId: user.id },
+			where: { id: transactionId, userId: user.id, splits: { none: {} } },
 			data: manualCategoryUpdate(categoryResult.value)
 		});
 
-		if (result.count === 0)
+		if (result.count === 0) {
+			if (await isSplitTransaction(user.id, transactionId))
+				return fail(400, { manualCategoryError: m.transactions_error_category_locked_by_split() });
 			return fail(404, { manualCategoryError: m.transactions_error_transaction_not_found() });
+		}
 		return { manualCategorySuccess: true };
 	},
 
@@ -675,15 +899,21 @@ export const actions: Actions = {
 			: { ok: true as const, value: null };
 		if (!natureResult.ok) return fail(400, { acceptError: natureResult.error });
 
+		// Same guard, same reason as saveManualCategory. Reachable even though the suggestion is only
+		// offered inside the classify pile — which no longer contains répartie rows — because a focus
+		// session holds its stack for its whole lifetime while another tab can split a row inside it.
 		const result = await prisma.transaction.updateMany({
-			where: { id: transactionId, userId: user.id },
+			where: { id: transactionId, userId: user.id, splits: { none: {} } },
 			data: {
 				...manualCategoryUpdate(categoryResult.value),
 				natureManual: natureResult.value
 			}
 		});
-		if (result.count === 0)
+		if (result.count === 0) {
+			if (await isSplitTransaction(user.id, transactionId))
+				return fail(400, { acceptError: m.transactions_error_category_locked_by_split() });
 			return fail(404, { acceptError: m.transactions_error_transaction_not_found() });
+		}
 		return { acceptSuccess: true };
 	},
 
@@ -753,7 +983,15 @@ export const actions: Actions = {
 		if (focusRemainingIds.length === 0) return { createRuleSuccess: true };
 
 		const candidates = await prisma.transaction.findMany({
-			where: { userId: user.id, id: { in: focusRemainingIds }, manualCategory: null },
+			// `splits: { none: {} }` here and on the write below. The stack was frozen when focus mode
+			// opened, so a row in it may have been répartie since — and a rule silently overwriting the
+			// parent's category would contradict D1 on a transaction the user never named.
+			where: {
+				userId: user.id,
+				id: { in: focusRemainingIds },
+				manualCategory: null,
+				splits: { none: {} }
+			},
 			select: { id: true, label: true, manualCategory: true }
 		});
 		const candidateById = new Map(candidates.map((t) => [t.id, t]));
@@ -768,7 +1006,12 @@ export const actions: Actions = {
 
 		if (autoAppliedIds.length > 0) {
 			await prisma.transaction.updateMany({
-				where: { id: { in: autoAppliedIds }, userId: user.id, manualCategory: null },
+				where: {
+					id: { in: autoAppliedIds },
+					userId: user.id,
+					manualCategory: null,
+					splits: { none: {} }
+				},
 				data: {
 					...manualCategoryUpdate(createdRule.targetCategory),
 					...(createdRule.targetNature ? { natureManual: createdRule.targetNature } : {})
@@ -791,6 +1034,7 @@ function mapTransactionListItem(
 		manualCategory: string | null;
 		natureManual: TransactionNature | null;
 		category: { name: string };
+		splits: SplitRow[];
 		tags: TagLinkRow[];
 	},
 	mappingMap: Map<string, TransactionNature>,
@@ -801,13 +1045,17 @@ function mapTransactionListItem(
 		targetCategory: string;
 		targetNature?: TransactionNature | null;
 		enabled: boolean;
-	}>
+	}>,
+	/** The active `?category=` filter, folded once by the caller — `null` when no category filter
+	 *  is active. See `matchedCategoryAllocation` below. */
+	categoryFilterNameKey: string | null
 ) {
+	const kind = resolveTransactionType(transaction);
 	const category = getEffectiveCategory(transaction);
 	const nature = getEffectiveTransactionNature(
 		{
 			amountCents: transaction.amountCents,
-			type: resolveTransactionType(transaction),
+			type: kind,
 			category,
 			natureManual: transaction.natureManual
 		},
@@ -815,6 +1063,64 @@ function mapTransactionListItem(
 	);
 	const suggestion =
 		nature.nature === 'uncategorized' ? computeSuggestion(transaction, rules, mappingMap) : null;
+
+	// Through mapTransactionAllocations, which is the one supported way to read money out of a row —
+	// so the indicator resolves each part's nature exactly the way every per-category figure does
+	// (OD-4), and a répartition whose parts no longer sum shows its remainder rather than hiding it.
+	// Deriving the badge from `transaction.splits` here instead would be a second copy of the rule.
+	const allocations = mapTransactionAllocations(transaction, mappingMap);
+	const splitIndicator = splitIndicatorOf(allocations);
+
+	/**
+	 * PR5: under a category filter, the row's primary amount and displayed category are the
+	 * MATCHED allocation's, not the dominant one — a row showing "17,99 €, Abonnements" under
+	 * `?category=Loisirs` lied about both what the filter found and how much of it there was (the
+	 * band read 7,99 €). `pickMatchedAllocation` is the same function `sumFilteredTotals` calls for
+	 * the band's own per-row contribution, so the two cannot drift apart.
+	 *
+	 * `null` ONLY when no category filter is active.
+	 *
+	 * A ROW THAT MATCHED BY IDENTITY AND CARRIES NO MATCHING MONEY GETS A ZERO, NOT A `null`, AND THE
+	 * DIFFERENCE IS A FALSE FIGURE. `buildTransactionWhere` widens the filter to rows whose PARENT
+	 * category matches (OD-1), so a répartition filed under « Revenus » and split entirely into
+	 * Salaire and Épargne matches `?category=Revenus` while none of its money went there — the
+	 * remainder is zero, so `allocateByCategory` drops it and `pickMatchedAllocation` finds nothing.
+	 *
+	 * Returning `null` there sent the row back to the pre-filter display: the DOMINANT part's
+	 * category and the FULL parent amount. Measured on the fixture — `?category=Revenus` showed one
+	 * row reading « Salaire · 2 500,00 € » under a band reading « 0,00 € », and an export containing
+	 * no lines at all. Three surfaces, three different answers, and the row's was the only one that
+	 * was false: no money in this transaction is Revenus, and « Salaire » is not what the user asked
+	 * to see.
+	 *
+	 * Zero is the truthful figure and it is also the one that keeps Σ rows ≡ band exact, since that
+	 * is precisely what this row contributes to the band. The category shown is the PARENT's own —
+	 * which is the thing that matched, by identity — and the secondary « sur … » line still names the
+	 * parent total, so the row reads "filed here, none of the money is".
+	 */
+	const matched = categoryFilterNameKey
+		? pickMatchedAllocation(allocations, categoryFilterNameKey)
+		: null;
+	const matchedCategoryAllocation = categoryFilterNameKey
+		? {
+				// Same rule as `rowNature`/`rowCategory` in +page.svelte always applied together: the
+				// nature line must describe the SAME part the category name does. On the identity-match
+				// branch that part is the parent itself.
+				category: matched ? matched.entry.category : category,
+				nature: matched ? matched.entry.nature : nature.nature,
+				// Signed, to match `amountCents` below's own convention (income positive, expense
+				// negative). `pickMatchedAllocation` returns an unsigned magnitude because
+				// `sumFilteredTotals` buckets income and expense separately; the row's own KIND decides
+				// the sign here, never a raw part's stored sign — see the doc comment on
+				// `MatchedAllocation` for why summing signed values instead would risk a forged pair of
+				// opposite-sign parts silently cancelling.
+				amountCents: matched
+					? kind === 'income'
+						? matched.amountCentsAbs
+						: -matched.amountCentsAbs
+					: 0
+			}
+		: null;
 
 	return {
 		id: transaction.id,
@@ -827,10 +1133,29 @@ function mapTransactionListItem(
 		nature: nature.nature,
 		natureSource: nature.source,
 		manualNature: transaction.natureManual,
-		amountCents: transaction.amountCents,
-		type: resolveTransactionType(transaction),
+		// SIGNED BY DIRECTION, not by whatever the column happens to hold. `import/persist.ts` stores
+		// `Math.abs(...)`, so a CSV-imported expense is a POSITIVE row: rendered raw, it read
+		// « 90,00 € » beside a seeded expense reading « -80,00 € », with only the rose text colour
+		// saying they were the same thing. Applied here rather than in the view so every surface
+		// reading this loader — the two list layouts, the delete confirmation, the detail header —
+		// gets one answer, and so the rule is not scattered through the template.
+		//
+		// Through the `kind` already bound above rather than by resolving the type a second time:
+		// the two expressions are the same call, and binding it once is what stops them drifting.
+		// This line is the merge point of two branches that both rewrote it — the filtered-row work
+		// and the signing fix — and neither survives alone.
+		amountCents: applyKindSign(transaction.amountCents, kind),
+		type: kind,
 		source: transaction.source,
 		tags: flattenTagLinks(transaction.tags),
+		// `null` on an unsplit row, and the view renders nothing at all for it. The three fields the
+		// desktop cell reads — dominant category, its nature, the count — travel together so the two
+		// lines of that cell cannot end up describing different parts.
+		splitIndicator,
+		// `null` outside a category filter, or when nothing on this row matched one that is (see
+		// above). Present, the view reads it in PLACE of splitIndicator's dominant fields (1l keeps
+		// deciding the badge's "+N"/"×N" count; only WHICH category/amount is named changes).
+		matchedCategoryAllocation,
 		suggestion
 	};
 }
@@ -880,11 +1205,22 @@ function mapTransactionDetail(
 			createdAt: Date;
 		} | null;
 		tags: TagLinkRow[];
+		splits: Array<{
+			categoryId: string;
+			amountCents: number;
+			note: string | null;
+			position: number;
+		}>;
 	},
-	mappingMap: Map<string, TransactionNature>
+	mappingMap: Map<string, TransactionNature>,
+	/** The user's categories, id and name, so the effective category can be resolved to an id and
+	 *  the sentinel recognised. See `resolveInheritedCategoryId` and `buildSplitCategoryOptions`. */
+	splitCategories: Array<{ id: string; name: string }>,
+	uncategorizedCategoryId: string | null
 ) {
 	const metadata = parseMetadata(transaction.metadataJson);
 	const category = getEffectiveCategory(transaction);
+	const splitInheritCategoryId = resolveInheritedCategoryId(category, splitCategories);
 	const nature = getEffectiveTransactionNature(
 		{
 			amountCents: transaction.amountCents,
@@ -899,7 +1235,12 @@ function mapTransactionDetail(
 		id: transaction.id,
 		date: transaction.date.toISOString().slice(0, 10),
 		label: anonymizeDetailText(transaction.label),
-		amountCents: transaction.amountCents,
+		// Signed by direction, for the same reason as in `mapTransactionListItem` above. The split
+		// editor reads this too, and is unaffected: `resolveRemainder` normalises by the parent's
+		// direction and every other split helper takes `Math.abs`, so the sign changes what the
+		// header prints and nothing about what the parts are allowed to be. The server-side write
+		// path re-reads the parent row from the database and never trusts this value.
+		amountCents: applyKindSign(transaction.amountCents, resolveTransactionType(transaction)),
 		type: resolveTransactionType(transaction),
 		category,
 		importedCategory: transaction.category.name,
@@ -936,7 +1277,27 @@ function mapTransactionDetail(
 		// Not run through anonymizeDetailText, unlike the label and the notes beside it. Those hold
 		// bank-supplied text this app never authored; a tag name is the user's own word, and folding
 		// it would make the editor round-trip a different string than the one they typed.
-		tags: flattenTagLinks(transaction.tags)
+		tags: flattenTagLinks(transaction.tags),
+		// Same reasoning for the note, which is the user's own word too — and it is display-only by
+		// §3.2, so nothing downstream searches or groups on it.
+		splits: transaction.splits.map((part) => ({
+			categoryId: part.categoryId,
+			amountCents: part.amountCents,
+			note: part.note ?? ''
+		})),
+		splitInheritCategoryId,
+		/**
+		 * 1b: the entry row exists only where a répartition could actually begin.
+		 *
+		 * Two refusals, not one. On the sentinel, because no part may carry it (OD-5) so the first
+		 * part would have nowhere to go. And on a transaction that is already répartie, because the
+		 * editor itself is what renders there — an entry point beside an open editor is a second door
+		 * into a room you are standing in.
+		 */
+		splitEntryAvailable:
+			transaction.splits.length === 0 &&
+			splitInheritCategoryId !== null &&
+			splitInheritCategoryId !== uncategorizedCategoryId
 	};
 }
 

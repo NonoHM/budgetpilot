@@ -13,8 +13,15 @@ const db = vi.hoisted(() => ({
 
 const budgetDashboard = vi.hoisted(() => ({
 	createManualTransaction: vi.fn(),
-	readDashboardDataForRange: vi.fn(async () => ({ transactions: [], budgets: [] })),
-	readDashboardData: vi.fn(async () => ({ transactions: [], budgets: [] })),
+	// `allocations` is not optional padding: `load` reads the MONEY view for the budget summary and
+	// the nature analysis, and the IDENTITY view for everything that counts bank lines. A mock
+	// returning only one of the two is a boundary that forgot the other.
+	readDashboardDataForRange: vi.fn(async () => ({
+		transactions: [],
+		allocations: [],
+		budgets: []
+	})),
+	readDashboardData: vi.fn(async () => ({ transactions: [], allocations: [], budgets: [] })),
 	saveBudget: vi.fn()
 }));
 
@@ -116,7 +123,11 @@ describe('/ (dashboard) — gating IA à 3 états', () => {
 			aiIncludeLabels: false
 		});
 		db.prisma.category.findMany.mockResolvedValue([]);
-		budgetDashboard.readDashboardDataForRange.mockResolvedValue({ transactions: [], budgets: [] });
+		budgetDashboard.readDashboardDataForRange.mockResolvedValue({
+			transactions: [],
+			allocations: [],
+			budgets: []
+		});
 		dateRange.getPreviousMonthRange.mockReturnValue(null);
 	});
 

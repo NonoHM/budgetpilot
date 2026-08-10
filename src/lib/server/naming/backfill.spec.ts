@@ -18,7 +18,14 @@ interface Row {
 	[field: string]: unknown;
 }
 
-function matches(row: Row, where: Record<string, unknown> | undefined): boolean {
+/** Resolves a relation named in a `where` to the parent row it points at, or null. */
+type RelationResolver = (field: string, row: Row) => Row | null;
+
+function matches(
+	row: Row,
+	where: Record<string, unknown> | undefined,
+	resolveRelation?: RelationResolver
+): boolean {
 	if (!where) return true;
 	return Object.entries(where).every(([field, expected]) => {
 		const actual = row[field];
@@ -27,6 +34,15 @@ function matches(row: Row, where: Record<string, unknown> | undefined): boolean 
 		}
 		if (expected && typeof expected === 'object' && 'not' in expected) {
 			return actual !== (expected as { not: unknown }).not;
+		}
+		if (expected && typeof expected === 'object') {
+			// A relation filter — `transaction: { userId }` on TransactionSplit is the only one the
+			// backfill issues. Resolved against the real parent rows rather than skipped, because
+			// TransactionSplit carries no userId of its own and this conjunct IS its tenancy scope: a
+			// fake that ignored it would report an unscoped cross-tenant write as correctly scoped.
+			const parent = resolveRelation?.(field, row);
+			if (!parent) return false;
+			return matches(parent, expected as Record<string, unknown>, resolveRelation);
 		}
 		return actual === expected;
 	});
@@ -42,11 +58,11 @@ interface QueryArgs {
 	by?: string[];
 }
 
-function table(rows: Row[]) {
+function table(rows: Row[], resolveRelation?: RelationResolver) {
 	return {
 		rows,
 		findMany: vi.fn(async ({ where, distinct, select }: QueryArgs = {}) => {
-			let result = rows.filter((row) => matches(row, where));
+			let result = rows.filter((row) => matches(row, where, resolveRelation));
 			if (distinct) {
 				const seen = new Set<unknown>();
 				result = result.filter((row) => {
@@ -59,12 +75,13 @@ function table(rows: Row[]) {
 			return result.map((row) => (select ? pick(row, Object.keys(select)) : { ...row }));
 		}),
 		count: vi.fn(
-			async ({ where }: QueryArgs = {}) => rows.filter((row) => matches(row, where)).length
+			async ({ where }: QueryArgs = {}) =>
+				rows.filter((row) => matches(row, where, resolveRelation)).length
 		),
 		updateMany: vi.fn(async ({ where, data }: QueryArgs) => {
 			let count = 0;
 			for (const row of rows) {
-				if (!matches(row, where)) continue;
+				if (!matches(row, where, resolveRelation)) continue;
 				Object.assign(row, data);
 				count += 1;
 			}
@@ -73,7 +90,7 @@ function table(rows: Row[]) {
 		deleteMany: vi.fn(async ({ where }: QueryArgs) => {
 			let count = 0;
 			for (let index = rows.length - 1; index >= 0; index--) {
-				if (!matches(rows[index], where)) continue;
+				if (!matches(rows[index], where, resolveRelation)) continue;
 				rows.splice(index, 1);
 				count += 1;
 			}
@@ -82,7 +99,7 @@ function table(rows: Row[]) {
 		groupBy: vi.fn(async ({ by, where }: QueryArgs) => {
 			const field = by?.[0] ?? 'id';
 			const counts = new Map<unknown, number>();
-			for (const row of rows.filter((item) => matches(item, where))) {
+			for (const row of rows.filter((item) => matches(item, where, resolveRelation))) {
 				const value = row[field];
 				counts.set(value, (counts.get(value) ?? 0) + 1);
 			}
@@ -103,6 +120,35 @@ function row(overrides: Partial<Row> & { id: string; userId: string }): Row {
 }
 
 function buildDb() {
+	// Built before `tables` so the split table's relation resolver can close over it by name. Held
+	// inside `tables` too — the two are the same array, so a write through either is visible to both.
+	const transactionRows = [
+		row({
+			id: 'tx-1',
+			userId: 'user-a',
+			categoryId: 'cat-new',
+			accountId: 'acc-1',
+			manualCategory: 'Courses',
+			manualCategoryKey: null
+		}),
+		row({
+			id: 'tx-2',
+			userId: 'user-a',
+			categoryId: 'cat-new',
+			accountId: 'acc-1',
+			manualCategory: null,
+			manualCategoryKey: null
+		}),
+		row({
+			id: 'tx-3',
+			userId: 'user-a',
+			categoryId: 'cat-old',
+			accountId: 'acc-1',
+			manualCategory: null,
+			manualCategoryKey: null
+		})
+	];
+
 	const tables = {
 		user: table([row({ id: 'user-a', userId: 'user-a' }), row({ id: 'user-b', userId: 'user-b' })]),
 		category: table([
@@ -162,32 +208,22 @@ function buildDb() {
 			row({ id: 'nwa-1', userId: 'user-a', name: 'Livret A', deletedAt: null, nameKey: null }),
 			row({ id: 'nwa-2', userId: 'user-a', name: 'livret a', deletedAt: null, nameKey: null })
 		]),
-		transaction: table([
-			row({
-				id: 'tx-1',
-				userId: 'user-a',
-				categoryId: 'cat-new',
-				accountId: 'acc-1',
-				manualCategory: 'Courses',
-				manualCategoryKey: null
-			}),
-			row({
-				id: 'tx-2',
-				userId: 'user-a',
-				categoryId: 'cat-new',
-				accountId: 'acc-1',
-				manualCategory: null,
-				manualCategoryKey: null
-			}),
-			row({
-				id: 'tx-3',
-				userId: 'user-a',
-				categoryId: 'cat-old',
-				accountId: 'acc-1',
-				manualCategory: null,
-				manualCategoryKey: null
-			})
-		])
+		transaction: table(transactionRows),
+		// cat-old is the SURVIVOR of the cat-old/cat-new fold (it is the older row), so split-1
+		// carries the loser and split-2 already carries the survivor. `Category` does not cascade
+		// into `TransactionSplit`, so without the repoint the category deleteMany would fail on the
+		// foreign key in production. The two parts landing in ONE category afterwards is legal —
+		// same category twice on a transaction is allowed — and needs no reconciliation.
+		transactionSplit: table(
+			[
+				row({ id: 'split-1', userId: 'user-a', transactionId: 'tx-1', categoryId: 'cat-new' }),
+				row({ id: 'split-2', userId: 'user-a', transactionId: 'tx-1', categoryId: 'cat-old' })
+			],
+			(field, splitRow) =>
+				field === 'transaction'
+					? (transactionRows.find((tx) => tx.id === splitRow.transactionId) ?? null)
+					: null
+		)
 	};
 
 	const prisma = {
@@ -215,6 +251,24 @@ describe('runNameKeyBackfill', () => {
 		expect(db.tables.transaction.rows.every((row) => row.categoryId === 'cat-old')).toBe(true);
 		// The loser carried the only default key, so the survivor keeps it.
 		expect(db.tables.category.rows[0].defaultKey).toBe('food');
+	});
+
+	it('repoints the parts of a merged category before the loser row is deleted', async () => {
+		expect.assertions(2);
+
+		await runNameKeyBackfill({ prisma: db.prisma });
+
+		// Not "the parts survived" — that would also be true if nothing had been deleted. The claim
+		// is that no part is left pointing at a category row that no longer exists, which on a real
+		// engine is the difference between a completed merge and a foreign-key error.
+		expect(db.tables.transactionSplit.rows.map((r) => r.categoryId)).toEqual([
+			'cat-old',
+			'cat-old'
+		]);
+		const survivingCategoryIds = new Set(db.tables.category.rows.map((r) => r.id));
+		expect(
+			db.tables.transactionSplit.rows.every((r) => survivingCategoryIds.has(r.categoryId as string))
+		).toBe(true);
 	});
 
 	it('leaves another user rows alone', async () => {

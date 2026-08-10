@@ -19,6 +19,7 @@ const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const 
 
 function makeTransaction(overrides: Partial<Record<string, unknown>> = {}) {
 	return {
+		id: 'transaction-1',
 		date: new Date('2026-06-24T00:00:00.000Z'),
 		label: 'Courses Auchan',
 		amountCents: 3_000,
@@ -27,8 +28,36 @@ function makeTransaction(overrides: Partial<Record<string, unknown>> = {}) {
 		manualCategory: null,
 		natureManual: null,
 		category: { name: 'Alimentation' },
+		splits: [],
 		...overrides
 	};
+}
+
+/**
+ * Answers `findMany` through the select the route actually passed, instead of handing back the
+ * fixture whole.
+ *
+ * A fake that ignores `select` cannot tell a route that reads parts from one that does not: drop
+ * `splits` from the export's select and every test here would still see the fixture's parts and
+ * still go green, while the shipped CSV lost every répartition. Same defect class as the
+ * `updateMany` matcher in page.server.spec.ts — and the same remedy, which is to REFUSE rather
+ * than to approximate.
+ */
+function respondWith(rows: Array<Record<string, unknown>>) {
+	db.prisma.transaction.findMany.mockImplementation(
+		({ select }: { select?: Record<string, unknown> }) => {
+			if (!select?.splits) {
+				throw new Error(
+					'the export must select `splits` — without them every répartition exports as its parent'
+				);
+			}
+			return Promise.resolve(
+				rows.map((row) =>
+					Object.fromEntries(Object.keys(select).map((column) => [column, row[column]]))
+				)
+			);
+		}
+	);
 }
 
 function makeRequest(query = '') {
@@ -41,7 +70,7 @@ function makeRequest(query = '') {
 describe('GET /transactions/export', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		db.prisma.transaction.findMany.mockResolvedValue([]);
+		respondWith([]);
 		db.prisma.categoryNatureMapping.findMany.mockResolvedValue([]);
 	});
 
@@ -143,14 +172,14 @@ describe('GET /transactions/export', () => {
 		const body = await response.text();
 
 		expect(body.split('\r\n')[0]).toBe(
-			'date;libelle;categorie;montant;type;nature;source_bancaire'
+			'date;libelle;categorie;montant;type;nature;source_bancaire;montant_total;part;categorie_parent'
 		);
 	});
 
 	it('un libellé au format injection de formule est préfixé par une apostrophe à l’export', async () => {
 		expect.assertions(1);
 
-		db.prisma.transaction.findMany.mockResolvedValue([makeTransaction({ label: '=cmd|calc!A0' })]);
+		respondWith([makeTransaction({ label: '=cmd|calc!A0' })]);
 
 		const response = await GET(makeRequest() as never);
 		const body = await response.text();
@@ -161,9 +190,7 @@ describe('GET /transactions/export', () => {
 	it('un libellé contenant ; ou " ou un retour ligne est correctement échappé/quoté', async () => {
 		expect.assertions(2);
 
-		db.prisma.transaction.findMany.mockResolvedValue([
-			makeTransaction({ label: 'Chèque n°1; "spécial"' })
-		]);
+		respondWith([makeTransaction({ label: 'Chèque n°1; "spécial"' })]);
 
 		const response = await GET(makeRequest() as never);
 		const [, row] = (await response.text()).split('\r\n');
@@ -175,7 +202,7 @@ describe('GET /transactions/export', () => {
 	it('la catégorie effective (override manuel) prime sur category.name', async () => {
 		expect.assertions(1);
 
-		db.prisma.transaction.findMany.mockResolvedValue([
+		respondWith([
 			makeTransaction({ manualCategory: 'Loisirs', category: { name: 'Alimentation' } })
 		]);
 
@@ -188,7 +215,7 @@ describe('GET /transactions/export', () => {
 	it('filtre par recherche libellé, insensible à la casse et aux accents', async () => {
 		expect.assertions(1);
 
-		db.prisma.transaction.findMany.mockResolvedValue([
+		respondWith([
 			makeTransaction({ label: 'Dépenses courantes' }),
 			makeTransaction({ label: 'Salaire' })
 		]);
@@ -256,7 +283,7 @@ describe('GET /transactions/export', () => {
 	it('la nature effective priorise natureManual puis le mapping catégorie puis le défaut', async () => {
 		expect.assertions(3);
 
-		db.prisma.transaction.findMany.mockResolvedValue([
+		respondWith([
 			makeTransaction({ natureManual: 'fee', category: { name: 'Alimentation' } }),
 			makeTransaction({
 				label: 'Virement épargne',

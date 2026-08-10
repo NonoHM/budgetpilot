@@ -11,6 +11,7 @@
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Menu from '$lib/components/ui/DropdownMenu.svelte';
+	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
@@ -323,20 +324,39 @@
 		return m.bills_date_in_days_full({ count: delta });
 	}
 
-	/** Mobile condenses date + variability + category into one sub-line (design planche C1). */
-	function mobileSubLine(row: UpcomingBillRowView): string {
+	/**
+	 * Mobile condenses date + variability into the sub-line's own prefix (design planche C1). The
+	 * tail — the category, or its uncertain-tier substitute — is a SEPARATE function so a
+	 * répartition badge can sit next to the category text in markup rather than living inside one
+	 * opaque string.
+	 */
+	function mobileSubLinePrefix(row: UpcomingBillRowView): string {
 		const shortDate = formatShortDate(row.dateIso, locale);
 
 		if (row.status === 'ignored') return `${shortDate} · ${notCountedLabel()}`;
-		if (row.status === 'settled') return `${variabilityLabel(row)} · ${row.category}`;
+		if (row.status === 'settled') return variabilityLabel(row);
 
 		const datePart = row.estimatePassed
 			? m.bills_date_passed_short({ date: shortDate })
 			: daysUntil(row.dateIso) <= 0 && row.status === 'upcoming'
 				? m.bills_date_today()
 				: shortDate;
-		const tail = row.tier === 'uncertain' ? m.bills_amount_excluded() : row.category;
-		return `${datePart} · ${variabilityLabel(row)} · ${tail}`;
+		return `${datePart} · ${variabilityLabel(row)}`;
+	}
+
+	/**
+	 * `null` for an ignored row (`mobileSubLinePrefix` already names the reason, nothing to add).
+	 * `isCategory` distinguishes the two things this tail can say: the parent's category (the one
+	 * case a répartition badge may follow) or the uncertain-tier "hors total" substitute, which
+	 * names no category at all and must never carry one.
+	 */
+	function mobileSubLineTail(
+		row: UpcomingBillRowView
+	): { text: string; isCategory: boolean } | null {
+		if (row.status === 'ignored') return null;
+		if (row.status === 'settled') return { text: row.category, isCategory: true };
+		if (row.tier === 'uncertain') return { text: m.bills_amount_excluded(), isCategory: false };
+		return { text: row.category, isCategory: true };
 	}
 
 	// ─── Row actions ──────────────────────────────────────────────────────────
@@ -963,12 +983,26 @@
 													{@render natureBadge(row)}
 													{@render tierBadge(row)}
 												</div>
+												<!-- min-h-[22px] RESERVES the inert badge's own height on this line for
+												     every row — a minimum, never a fixed height (see CLAUDE.md: a fixed one
+												     absorbs an overflow invisibly, a minimum lets it grow and stay visible). -->
 												<div
-													class="truncate text-xs {row.status === 'ignored'
+													class="flex min-h-[22px] min-w-0 items-center gap-1.5 text-xs {row.status ===
+													'ignored'
 														? 'text-zinc-400'
 														: 'text-zinc-500'}"
 												>
-													{kindLabel(row)} · {cadenceLabel(row)} · {row.category}
+													<span class="min-w-0 truncate"
+														>{kindLabel(row)} · {cadenceLabel(row)} · {row.category}</span
+													>
+													{#if row.splitIndicator}
+														<SplitBadge
+															parts={row.splitIndicator.parts}
+															otherCategoryCount={row.splitIndicator.otherCategoryCount}
+															dominantCategory={row.splitIndicator.dominantCategory}
+															inherited={row.splitIndicatorIsInherited}
+														/>
+													{/if}
 												</div>
 											</div>
 										</div>
@@ -1214,6 +1248,7 @@
 </main>
 
 {#snippet mobileRowBody(row: UpcomingBillRowView)}
+	{@const tail = mobileSubLineTail(row)}
 	<Avatar initials={row.initials} size={32} />
 	<div class="min-w-0 flex-1">
 		<div class="flex items-baseline justify-between gap-2">
@@ -1234,12 +1269,26 @@
 							: 'text-zinc-900'}">{amountText(row)}</span
 			>
 		</div>
+		<!-- min-h-[22px] RESERVES the inert badge's own height on this line for every row — a
+		     minimum, never a fixed height (see CLAUDE.md: a fixed one absorbs an overflow
+		     invisibly, a minimum lets it grow and stay visible). -->
 		<div
-			class="mt-0.5 truncate text-xs {row.status === 'overdue'
+			class="mt-0.5 flex min-h-[22px] min-w-0 items-center gap-1.5 text-xs {row.status === 'overdue'
 				? OVERDUE_TEXT_CLASS
 				: 'text-zinc-500'}"
 		>
-			{mobileSubLine(row)}
+			<span class="min-w-0 truncate"
+				>{mobileSubLinePrefix(row)}{#if tail}
+					· {tail.text}{/if}</span
+			>
+			{#if tail?.isCategory && row.splitIndicator}
+				<SplitBadge
+					parts={row.splitIndicator.parts}
+					otherCategoryCount={row.splitIndicator.otherCategoryCount}
+					dominantCategory={row.splitIndicator.dominantCategory}
+					inherited={row.splitIndicatorIsInherited}
+				/>
+			{/if}
 		</div>
 	</div>
 	<div class="flex shrink-0 flex-col items-end gap-1">
@@ -1255,10 +1304,12 @@
 	{@const row = sheetRow}
 	{@const domKey = toBillRowDomKey(row.rowKey)}
 	<BottomSheet open ariaLabel={row.label} onClose={() => (sheetRow = null)}>
-		<div class="pb-2">
-			<p class="text-base font-bold text-zinc-950">{row.label}</p>
-			<p class="mt-0.5 text-xs text-zinc-500">{sheetMeta(row)}</p>
-		</div>
+		{#snippet header()}
+			<div>
+				<p class="text-base font-bold text-zinc-950">{row.label}</p>
+				<p class="mt-0.5 text-xs text-zinc-500">{sheetMeta(row)}</p>
+			</div>
+		{/snippet}
 		<div class="flex flex-col">
 			<button
 				type="button"

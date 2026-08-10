@@ -2,8 +2,17 @@ import { describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import './layout.css';
 import * as m from '$lib/paraglide/messages';
+import { formatCents } from '$lib/domain/budget';
 import Page from './+page.svelte';
 import type { ActionData, PageData } from './$types';
+
+/** Same rule SplitBadge's own `detail` uses, called rather than retyped — `formatCents` puts a
+ *  narrow no-break space before "€", which a hand-typed literal gets silently wrong. */
+function detailOf(parts: { category: string; amountCents: number }[]): string {
+	return parts
+		.map((part) => `${part.category} ${formatCents(Math.abs(part.amountCents))}`)
+		.join(', ');
+}
 
 /**
  * Task 3 (B5a), fix round 1: `dashboard-mode.spec.ts` originally asserted this gate by reading
@@ -103,7 +112,9 @@ function buildData(
 		natureAnalysis: EMPTY_NATURE_ANALYSIS,
 		aiAdvice: null,
 		aiAllowed: false,
-		recentTransactions: transactions.slice(0, 10),
+		recentTransactions: transactions
+			.slice(0, 10)
+			.map((transaction) => ({ ...transaction, splitIndicator: null })),
 		insights: EMPTY_INSIGHTS,
 		savingsGoals,
 		savingsGoalsOverflowCount: 0,
@@ -231,6 +242,62 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
  * different EmptyState for each rather than collapsing both into one sentence. Asserted against
  * the Paraglide message, never a hardcoded French literal (CLAUDE.md).
  */
+describe('/ dashboard recent transactions — split indicator (PR6)', () => {
+	it("shows an INTERACTIVE répartition badge without moving the row's parent category/amount", async () => {
+		expect.assertions(3);
+
+		const data = buildData({
+			transactions: [
+				{
+					id: 'carrefour',
+					date: '2026-07-05',
+					label: 'Carrefour Market',
+					amountCents: -8_000,
+					type: 'expense',
+					category: 'Alimentation',
+					source: 'csv'
+				}
+			]
+		});
+		data.recentTransactions = [
+			{
+				...data.recentTransactions[0],
+				splitIndicator: {
+					dominantCategory: 'Alimentation',
+					dominantNature: 'spending',
+					otherCategoryCount: 1,
+					partCount: 2,
+					parts: [
+						{ category: 'Maison', amountCents: -2_000 },
+						{ category: 'Alimentation', amountCents: -6_000 }
+					]
+				}
+			}
+		];
+
+		const screen = render(Page, { data, form: null as ActionData });
+
+		// The row still shows the PARENT's own category and amount (OD-3) — the badge only flags
+		// the répartition, it never re-ranks or relabels the row from its parts.
+		await expect.element(screen.getByText(/Carrefour Market/)).toBeInTheDocument();
+		expect(screen.container.textContent).toContain('80,00');
+		// Interactive here: `cardBase` carries no `overflow-hidden`, unlike /reports' desktop table.
+		expect(
+			screen
+				.getByRole('button', {
+					name: m.splits_row_badge_others_detail({
+						count: 2,
+						detail: detailOf([
+							{ category: 'Maison', amountCents: -2_000 },
+							{ category: 'Alimentation', amountCents: -6_000 }
+						])
+					})
+				})
+				.elements()
+		).toHaveLength(1);
+	});
+});
+
 describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => {
 	it("renders the 'nothing detected yet' copy when emptyState is 'none-detected'", async () => {
 		const screen = render(Page, {

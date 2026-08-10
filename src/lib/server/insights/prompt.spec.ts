@@ -11,7 +11,9 @@ const summary: TransactionSummary = {
 	topCategories: [
 		{ category: 'Logement', amountCents: -95_000, transactionCount: 1, percentageOfExpenses: 62 }
 	],
-	largestExpenses: [{ label: 'Loyer', amountCents: -95_000, category: 'Logement' }],
+	largestExpenses: [
+		{ label: 'Loyer', amountCents: -95_000, category: 'Logement', splitIndicator: null }
+	],
 	recurringPayments: [
 		{
 			label: 'Spotify',
@@ -70,6 +72,41 @@ describe('toPromptPayload', () => {
 
 	it('does not convert a *Cents key whose value is not a number', () => {
 		expect(toPromptPayload({ amountCents: null })).toEqual({ amountCents: null });
+	});
+
+	it('converts a nested splitIndicator.parts array (the allocation breakdown) to euros', () => {
+		const withSplit: TransactionSummary = {
+			...summary,
+			largestExpenses: [
+				{
+					label: 'Loyer',
+					amountCents: -95_000,
+					category: 'Logement',
+					splitIndicator: {
+						dominantCategory: 'Logement',
+						dominantNature: 'spending',
+						otherCategoryCount: 1,
+						partCount: 2,
+						parts: [
+							{ category: 'Assurance', amountCents: -20_000 },
+							{ category: 'Logement', amountCents: -75_000 }
+						]
+					}
+				}
+			]
+		};
+
+		const payload = toPromptPayload(withSplit) as {
+			largestExpenses: {
+				splitIndicator: { dominantCategory: string; parts: { category: string; amount: number }[] };
+			}[];
+		};
+
+		expect(payload.largestExpenses[0].splitIndicator.dominantCategory).toBe('Logement');
+		expect(payload.largestExpenses[0].splitIndicator.parts).toEqual([
+			{ category: 'Assurance', amount: -200 },
+			{ category: 'Logement', amount: -750 }
+		]);
 	});
 });
 

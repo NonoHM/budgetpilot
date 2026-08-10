@@ -33,10 +33,18 @@ const prismaMock = vi.hoisted(() => ({
 }));
 
 const applyCategoryRulesMock = vi.hoisted(() => vi.fn());
+const replaceSplitsMock = vi.hoisted(() => vi.fn());
 
 vi.mock('$lib/server/db', () => ({ prisma: prismaMock }));
 vi.mock('$lib/server/categorization/rules', () => ({
 	applyCategoryRules: applyCategoryRulesMock
+}));
+// Mocked so this spec can state WHICH path an imported répartition takes. The claim is not "parts
+// end up in the table" — a `createMany` would do that too, and would bypass the sum invariant that
+// makes every per-category figure in the app add up. The claim is that the import goes through the
+// service, so replacing the call with a direct write turns these tests red rather than green.
+vi.mock('$lib/server/transactions/splits', () => ({
+	replaceSplits: replaceSplitsMock
 }));
 
 const {
@@ -359,6 +367,7 @@ describe('persistImportedTransactions', () => {
 		);
 		prismaMock.importBatch.update.mockResolvedValue({});
 		applyCategoryRulesMock.mockResolvedValue(0);
+		replaceSplitsMock.mockResolvedValue({ ok: true });
 	});
 
 	it('imports valid rows, sums debit/credit cents as absolute values, and returns their ids', async () => {
@@ -659,6 +668,91 @@ describe('persistImportedTransactions', () => {
 			anonymizeDetailText('AUCHAN 0065 SC 78MAUREPAS', 18)
 		);
 		expect(metadata.csvFields['Libelle simplifie']).toBe('AUCHAN 0065 SC 78…');
+	});
+
+	describe('an imported répartition', () => {
+		function importSplit(splitParts: Array<{ category: string; amountCents: number }> | undefined) {
+			return persistImportedTransactions({
+				userId: 'user-1',
+				accountId: 'account-1',
+				importBatchId: 'batch-1',
+				source: 'csv',
+				transactions: [baseTransaction({ label: 'Leroy Merlin', amountCents: -8000, splitParts })]
+			});
+		}
+
+		it('goes through replaceSplits, resolving each part’s category by NAME', async () => {
+			expect.assertions(2);
+
+			await importSplit([
+				{ category: 'Bricolage', amountCents: -5000 },
+				{ category: 'Jardin', amountCents: -3000 }
+			]);
+
+			expect(replaceSplitsMock).toHaveBeenCalledTimes(1);
+			expect(replaceSplitsMock.mock.calls[0][2]).toEqual([
+				{ categoryId: 'category-Bricolage', amountCents: 5000 },
+				{ categoryId: 'category-Jardin', amountCents: 3000 }
+			]);
+		});
+
+		/**
+		 * The magnitudes above are the whole test, not a detail of it.
+		 *
+		 * `persistTransaction` stores `Math.abs(amountCents)` on the parent and puts the direction in
+		 * `type`, while `replaceSplits` requires every part to carry the PARENT ROW's sign. Passing
+		 * the file's signed amounts through unchanged sums to −80,00 € against a stored +80,00 €
+		 * parent and is refused — on every expense, which is most of what anyone imports.
+		 */
+		it('is refused loudly rather than imported without its parts', async () => {
+			expect.assertions(1);
+
+			replaceSplitsMock.mockResolvedValue({ ok: false, reason: 'sum' });
+
+			await expect(
+				importSplit([
+					{ category: 'Bricolage', amountCents: -5000 },
+					{ category: 'Jardin', amountCents: -3000 }
+				])
+			).rejects.toThrow(/replaceSplits: sum/);
+		});
+
+		/**
+		 * ORDER, not merely both calls. `applyCategoryRules` deliberately skips a row that has parts
+		 * (`splits: { none: {} }`), which protects an imported répartition only for as long as the
+		 * parts are already there when the rules run. Write them afterwards and every rule is free to
+		 * overwrite the parent's category on exactly the transactions D1 says it must not touch — and
+		 * a test asserting only that both functions were called would report that as working.
+		 */
+		it('writes the parts BEFORE the rules engine gets to see the row', async () => {
+			expect.assertions(1);
+
+			const order: string[] = [];
+			replaceSplitsMock.mockImplementation(async () => {
+				order.push('splits');
+				return { ok: true };
+			});
+			applyCategoryRulesMock.mockImplementation(async () => {
+				order.push('rules');
+				return 0;
+			});
+
+			await importSplit([
+				{ category: 'Bricolage', amountCents: -5000 },
+				{ category: 'Jardin', amountCents: -3000 }
+			]);
+
+			expect(order).toEqual(['splits', 'rules']);
+		});
+
+		it('leaves the service untouched for an ordinary row', async () => {
+			expect.assertions(2);
+
+			const result = await importSplit(undefined);
+
+			expect(result.importedRows).toBe(1);
+			expect(replaceSplitsMock).not.toHaveBeenCalled();
+		});
 	});
 });
 

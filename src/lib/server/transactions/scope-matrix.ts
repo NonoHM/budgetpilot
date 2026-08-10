@@ -1,7 +1,7 @@
 /**
  * The filter combination space for /transactions, enumerated rather than hoped for.
  *
- * Seven dimensions in value CLASSES (not raw values) give a full cross product of 19 440, which is
+ * Eight dimensions in value CLASSES (not raw values) give a full cross product of 58 320, which is
  * not exhaustible: each row costs three call sites, `load` walks every page, and the agreement
  * suite runs on three engines, two of them over a socket.
  *
@@ -19,11 +19,18 @@
 export const DIMENSIONS = {
 	q: ['absent', 'contains-some', 'contains-none', 'regex-valid', 'regex-invalid'],
 	type: ['all', 'income', 'expense', 'classify'],
-	category: ['absent', 'real', 'nonexistent'],
+	// 'part-only' names a category NO PARENT carries — it exists solely on parts. It is what makes
+	// OD-1 provable rather than merely present: `?category=<real>` matches the répartie rows through
+	// their parent anyway, so without this class the splits branch of the category predicate could be
+	// deleted and every row here would still pass.
+	category: ['absent', 'real', 'part-only', 'nonexistent'],
 	range: ['absent', 'valid-narrow', 'valid-covering-all', 'lone-from', 'malformed', 'reversed'],
 	importBatch: ['absent', 'real', 'nonexistent'],
 	tag: ['absent', 'real', 'nonexistent'],
-	ids: ['absent', 'subset', 'empty', 'all-malformed', 'over-cap', 'covering-all']
+	ids: ['absent', 'subset', 'empty', 'all-malformed', 'over-cap', 'covering-all'],
+	// A fixed enum like `type`, not an id lookup like `tag`/`category` — `split` has no
+	// real/nonexistent distinction, only the three literal values TransactionSplitFilter admits.
+	split: ['all', 'split', 'unsplit']
 } as const satisfies Record<string, readonly string[]>;
 
 export type Dimensions = typeof DIMENSIONS;
@@ -48,11 +55,17 @@ export type FilterRow = { [K in keyof Dimensions]: Dimensions[K][number] };
 export const PRODUCTIVE_DIMENSIONS = {
 	q: ['absent', 'contains-some', 'regex-valid'],
 	type: ['all', 'income', 'expense', 'classify'],
-	category: ['absent', 'real'],
+	category: ['absent', 'real', 'part-only'],
 	range: ['absent', 'valid-narrow', 'valid-covering-all'],
 	importBatch: ['absent', 'real'],
 	tag: ['absent', 'real'],
-	ids: ['absent', 'subset', 'over-cap', 'covering-all']
+	ids: ['absent', 'subset', 'over-cap', 'covering-all'],
+	// All three, because the fixture now SEEDS répartitions (every 11th row). The first version of
+	// this line excluded 'split' on the correct observation that no parts existed — which would have
+	// declared the class in DIMENSIONS while it proved nothing, the "declared exception that never
+	// moved" shape CLAUDE.md records. The fix is to give the class something to find, not to admit
+	// it cannot find anything.
+	split: ['all', 'split', 'unsplit']
 } as const satisfies Record<keyof Dimensions, readonly string[]>;
 
 function pairKey(keys: string[], a: string, av: string, b: string, bv: string): string {
@@ -183,9 +196,22 @@ export function uncoveredPairs(
  * Higher-order combinations the pairwise set does not guarantee, named because the code has a
  * REASON for these dimensions to interfere — not because they feel risky.
  *
- *  - type=classify x category: the only structural interaction in buildTransactionWhere. Both push
- *    into `conditions[]`, and where.ts:110-114 collapses one into `where.OR` and two into
- *    `where.AND`. The comment there records that they must not overwrite one another.
+ *  - type=classify x category: both push into `conditions[]`, and where.ts collapses one into
+ *    `where.OR` and two into `where.AND`. The comment there records that they must not overwrite
+ *    one another.
+ *  - type=classify x split: the SECOND structural interaction, added with the Répartition filter.
+ *    This one is not about `conditions[]` at all — both constrain the same RELATION, and the
+ *    accumulator in where.ts resolves the contradictory pair to match-nothing rather than letting
+ *    whichever was assigned last win. Pairwise over DIMENSIONS reaches the isolated pair, but not
+ *    the property that matters here: that the contradiction dominates a rich background of other
+ *    active filters instead of being quietly discarded by one of them. Hence a named row, and a
+ *    second one pairing it with `ids=subset`, which is the conjunct the first implementation of
+ *    this contradiction collided with.
+ *
+ *    This entry replaces a sentence that called classify x category "the only structural
+ *    interaction". It was true when written and stopped being true the moment a filter constrained
+ *    a relation another filter already constrained — which is exactly the expiry condition the
+ *    DIMENSIONS docstring above states, met for the first time here.
  *  - q x tag: three implementations of one intersection (load scans the tag-free scope and
  *    re-filters in JS; bulkTag narrows to `id: { in }`; export runs the full where).
  *  - q x ids: the JS match is collected THROUGH the where, then re-narrowed by id.
@@ -201,7 +227,47 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'absent',
 		importBatch: 'absent',
 		tag: 'real',
-		ids: 'absent'
+		ids: 'absent',
+		split: 'all'
+	},
+	// The contradiction, against a rich background: every other dimension is active and productive,
+	// so a row coming back non-empty here means the classify requirement or the split requirement
+	// was dropped rather than composed.
+	{
+		q: 'contains-some',
+		type: 'classify',
+		category: 'real',
+		range: 'valid-covering-all',
+		importBatch: 'real',
+		tag: 'real',
+		ids: 'covering-all',
+		split: 'split'
+	},
+	// The same contradiction beside `ids=subset`. `?ids=` writes `where.id`, which the first draft
+	// of the contradiction used as its match-nothing mechanism and which would have silently
+	// overwritten it. Pinned so that mechanism cannot come back unnoticed.
+	{
+		q: 'absent',
+		type: 'classify',
+		category: 'absent',
+		range: 'absent',
+		importBatch: 'absent',
+		tag: 'absent',
+		ids: 'subset',
+		split: 'split'
+	},
+	// The productive half of the same dimension: répartie rows, on their own and crossed with the
+	// category that only a PART carries. Without this row the split dimension would appear in the
+	// matrix only through combinations that resolve nothing.
+	{
+		q: 'absent',
+		type: 'all',
+		category: 'absent',
+		range: 'absent',
+		importBatch: 'absent',
+		tag: 'absent',
+		ids: 'absent',
+		split: 'split'
 	},
 	{
 		q: 'contains-some',
@@ -210,7 +276,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'valid-narrow',
 		importBatch: 'real',
 		tag: 'real',
-		ids: 'subset'
+		ids: 'subset',
+		split: 'all'
 	},
 	{
 		q: 'regex-valid',
@@ -219,7 +286,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'absent',
 		importBatch: 'absent',
 		tag: 'real',
-		ids: 'subset'
+		ids: 'subset',
+		split: 'all'
 	},
 	{
 		q: 'contains-some',
@@ -228,7 +296,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'valid-narrow',
 		importBatch: 'absent',
 		tag: 'absent',
-		ids: 'absent'
+		ids: 'absent',
+		split: 'all'
 	},
 	{
 		q: 'absent',
@@ -237,7 +306,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'valid-covering-all',
 		importBatch: 'absent',
 		tag: 'absent',
-		ids: 'covering-all'
+		ids: 'covering-all',
+		split: 'all'
 	},
 	{
 		q: 'regex-invalid',
@@ -246,7 +316,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'valid-narrow',
 		importBatch: 'real',
 		tag: 'real',
-		ids: 'subset'
+		ids: 'subset',
+		split: 'all'
 	},
 	{
 		q: 'contains-some',
@@ -255,7 +326,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'malformed',
 		importBatch: 'real',
 		tag: 'real',
-		ids: 'subset'
+		ids: 'subset',
+		split: 'all'
 	},
 	{
 		q: 'contains-some',
@@ -264,7 +336,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'lone-from',
 		importBatch: 'real',
 		tag: 'real',
-		ids: 'subset'
+		ids: 'subset',
+		split: 'all'
 	},
 	{
 		q: 'contains-some',
@@ -273,7 +346,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'reversed',
 		importBatch: 'real',
 		tag: 'real',
-		ids: 'subset'
+		ids: 'subset',
+		split: 'all'
 	},
 	{
 		q: 'contains-some',
@@ -282,7 +356,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'valid-narrow',
 		importBatch: 'real',
 		tag: 'real',
-		ids: 'empty'
+		ids: 'empty',
+		split: 'all'
 	},
 	{
 		q: 'absent',
@@ -291,7 +366,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'absent',
 		importBatch: 'absent',
 		tag: 'absent',
-		ids: 'empty'
+		ids: 'empty',
+		split: 'all'
 	},
 	{
 		q: 'absent',
@@ -300,7 +376,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'absent',
 		importBatch: 'absent',
 		tag: 'real',
-		ids: 'empty'
+		ids: 'empty',
+		split: 'all'
 	},
 	{
 		q: 'contains-some',
@@ -309,7 +386,8 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'absent',
 		importBatch: 'absent',
 		tag: 'absent',
-		ids: 'all-malformed'
+		ids: 'all-malformed',
+		split: 'all'
 	},
 	{
 		q: 'absent',
@@ -318,6 +396,7 @@ export const NAMED_ROWS: FilterRow[] = [
 		range: 'absent',
 		importBatch: 'absent',
 		tag: 'absent',
-		ids: 'over-cap'
+		ids: 'over-cap',
+		split: 'all'
 	}
 ];

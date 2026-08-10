@@ -22,6 +22,8 @@
 		type = 'button',
 		onclick,
 		disabled = false,
+		softDisabled = false,
+		'aria-describedby': ariaDescribedby,
 		class: extraClass = '',
 		title,
 		children
@@ -33,6 +35,20 @@
 		type?: 'button' | 'submit';
 		onclick?: () => void;
 		disabled?: boolean;
+		/**
+		 * Neutralised but still reachable — `aria-disabled`, never the native `disabled`. Design 1q
+		 * makes this law for EVERY neutralised control in the app, not only primary actions: a
+		 * control that is switched off must still be focusable so it can state its own reason, and
+		 * that reason is carried by `aria-describedby`. A natively `disabled` button is unreachable
+		 * by keyboard and therefore mute, which is the shape CLAUDE.md already records four sightings
+		 * of. Mirrors `Button.svelte`'s prop of the same name, including swallowing the click.
+		 *
+		 * The corollary, from 1q: a control whose neutralisation cannot be explained is not
+		 * neutralised — it is removed, or it does not exist yet. So `softDisabled` without an
+		 * `aria-describedby` is a half-applied rule.
+		 */
+		softDisabled?: boolean;
+		'aria-describedby'?: string;
 		class?: string;
 		title?: string;
 		children: Snippet;
@@ -76,9 +92,23 @@
 	{disabled}
 	aria-label={label}
 	aria-pressed={pressed}
+	aria-disabled={softDisabled ? 'true' : undefined}
+	aria-describedby={ariaDescribedby}
 	{title}
-	{onclick}
-	class="{base} {shapeToneClasses} {ringClasses} {extraClass}"
+	onclick={(event) => {
+		if (softDisabled) {
+			// Swallowed here rather than left to the caller, and `stopImmediatePropagation` because a
+			// `type="submit"` inside a form would otherwise still submit: this is a real, focusable,
+			// tabbable button, and only the activation is switched off.
+			event.preventDefault();
+			event.stopImmediatePropagation();
+			return;
+		}
+		onclick?.();
+	}}
+	class="{base} {shapeToneClasses} {ringClasses} {softDisabled
+		? 'cursor-default text-zinc-400'
+		: ''} {extraClass}"
 >
 	{@render children()}
 </button>

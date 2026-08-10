@@ -34,7 +34,8 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		bankConnections,
 		recurringStreamActions,
 		tags,
-		transactionTags
+		transactionTags,
+		transactionSplits
 	] = await Promise.all([
 		prisma.user.findUniqueOrThrow({ where: { id: userId }, select: { email: true } }),
 		prisma.account.findMany({
@@ -186,6 +187,30 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		prisma.transactionTag.findMany({
 			where: { transaction: { userId }, tag: { userId } },
 			select: { transactionId: true, tagId: true }
+		}),
+		// Same shape and the same two conjuncts as transactionTags above, for the same reason:
+		// TransactionSplit has no userId of its own, and "a part's category and its transaction
+		// have the same owner" is an invariant the write path maintains and NO constraint
+		// enforces. The two foreign keys are independent; nothing ties Category.userId to
+		// Transaction.userId. Scoping only the transaction would let one bad write anywhere emit
+		// a part whose categoryId is absent from the `categories` array, which
+		// assertReferentialIntegrity refuses on the way back in — making the user's own export
+		// permanently unrestorable. Both columns are indexed, so agreeing by construction is free.
+		//
+		// Ordered so the payload is stable across exports: a diff between two backups of an
+		// unchanged database should be empty, and `position` is user-visible (it decides which
+		// part carries the rounding cent).
+		prisma.transactionSplit.findMany({
+			where: { transaction: { userId }, category: { userId } },
+			select: {
+				id: true,
+				transactionId: true,
+				categoryId: true,
+				amountCents: true,
+				position: true,
+				note: true
+			},
+			orderBy: [{ transactionId: 'asc' }, { position: 'asc' }]
 		})
 	]);
 
@@ -254,6 +279,7 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 			// palette set. A row holding anything else cannot have been written by this app.
 			colorToken: tag.colorToken as TagColorTokenExport
 		})),
-		transactionTags
+		transactionTags,
+		transactionSplits
 	};
 }

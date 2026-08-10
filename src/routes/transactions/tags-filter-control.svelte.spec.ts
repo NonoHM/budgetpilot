@@ -28,9 +28,12 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedTransaction: null,
 		selectedSuggestion: null,
 		categoryOptions: ['Alimentation'],
-		categories: [{ name: 'Alimentation', defaultKey: null }],
+		splitCategoryOptions: [],
+		categories: [{ id: 'cat-alimentation', name: 'Alimentation', defaultKey: null }],
 		allTags: [],
 		natureOptions: TRANSACTION_NATURES,
+		splitFilterAvailable: false,
+		splitCounts: null,
 		filters: {
 			q: '',
 			qMode: 'contains' as const,
@@ -40,7 +43,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			to: '',
 			importBatchId: '',
 			ids: '',
-			tag: ''
+			tag: '',
+			split: 'all'
 		},
 		filteredTotals: { incomeCents: 0, expenseCents: 0 },
 		queryError: false,

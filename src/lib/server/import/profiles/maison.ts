@@ -194,7 +194,12 @@ function resolveMaisonCategory(
 	const sanitized = sanitizeImportedText(rawValue);
 	if (!sanitized) return { ok: true, value: UNCLASSIFIED_CATEGORY };
 	if (sanitized.length > MAX_CATEGORY_LENGTH) return { ok: false, reason: 'catégorie trop longue' };
-	if (sanitized === UNCLASSIFIED_CATEGORY)
-		return { ok: false, reason: 'catégorie réservée refusée' };
+	// The literal sentinel is ACCEPTED, not refused, and the reason is the round trip: the export
+	// writes `getEffectiveCategory`, which is exactly this string for every row in the « à classer »
+	// pile. Refusing it made `docs/getting-started.md`'s "an export re-imports cleanly" false for
+	// the commonest kind of row in a fresh install. An empty cell already resolves here, so this
+	// widens nothing a third-party file could not already reach. There is deliberately no branch
+	// for it: the value is returned unchanged like any other, and a `=== UNCLASSIFIED_CATEGORY`
+	// test that returns the same string either way would be a protection that protects nothing.
 	return { ok: true, value: sanitized };
 }

@@ -3,6 +3,7 @@ import { TRANSACTION_NATURES } from '$lib/domain/transaction';
 import { DEFAULT_CATEGORY_KEYS } from '$lib/domain/categories';
 import { NET_WORTH_ACCOUNT_TYPES } from '$lib/domain/netWorth';
 import { TAG_COLOR_TOKENS, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
+import { MAX_SPLITS_PER_TRANSACTION } from '$lib/domain/allocation';
 
 const transactionKind = z.enum(['income', 'expense']);
 const categorizationRuleKind = z.enum(['income', 'expense', 'any']);
@@ -199,6 +200,27 @@ const backupTransactionTagSchema = z
 	})
 	.strict();
 
+// One line of a transaction's category allocation. Carries its own id, unlike TransactionTag:
+// the same category may legitimately appear twice in one répartition, so there is no natural
+// composite key and the restore remaps the id like every other table's.
+//
+// `amountCents` is deliberately unbounded here beyond being an integer. The invariant that gives
+// it meaning is `sum of parts === parent.amountCents`, which no per-field validator can express —
+// it is checked against the parent row, on the way in, in assertReferentialIntegrity.
+const backupTransactionSplitSchema = z
+	.object({
+		id: z.string().min(1),
+		transactionId: z.string().min(1),
+		categoryId: z.string().min(1),
+		amountCents: z.number().int(),
+		position: z.number().int().min(0),
+		// MAX_PORTABLE_STRING, not the write path's 80: this bound exists so a value MySQL cannot
+		// store is refused by the validator on every engine, and it must still accept what an
+		// older build legally wrote. Rejecting a legal export is worse than a looser bound.
+		note: z.string().max(MAX_PORTABLE_STRING).nullable().default(null)
+	})
+	.strict();
+
 const backupImportBatchSchema = z
 	.object({
 		id: z.string().min(1),
@@ -386,7 +408,22 @@ export const backupExportSchema = z
 		// validator refuses, on the user's own untampered file. Any new path that ADDS a link, as
 		// opposed to replacing a transaction's whole set, has to count first. See the cap check in
 		// server/tags/bulk.ts.
-		transactionTags: z.array(backupTransactionTagSchema).default([])
+		transactionTags: z.array(backupTransactionTagSchema).default([]),
+
+		// Bounded relative to the transactions array, exactly as transactionTags is and for the
+		// same reason: every split transaction leaves the bulk `createMany` and gets its own
+		// `create` inside the single interactive transaction, so an unbounded array lets a
+		// hand-edited file well under the upload limit hold a pooled connection for the whole
+		// LONG_TRANSACTION_OPTIONS ceiling.
+		//
+		// Relative rather than absolute because splitting every transaction you own is legitimate,
+		// so any absolute number would eventually refuse somebody's own export. The ceiling a legal
+		// export cannot exceed is transactions x MAX_SPLITS_PER_TRANSACTION.
+		//
+		// Note the version-skew this accepts, knowingly and for the reason `.strict()` already
+		// accepts it everywhere else: an export from a future build with a higher cap will not
+		// restore here.
+		transactionSplits: z.array(backupTransactionSplitSchema).default([])
 	})
 	.strict()
 	.superRefine((payload, ctx) => {
@@ -396,6 +433,15 @@ export const backupExportSchema = z
 				code: 'custom',
 				path: ['transactionTags'],
 				message: `transactionTags exceeds ${ceiling}, the most ${payload.transactions.length} transactions can legally carry`
+			});
+		}
+
+		const splitCeiling = payload.transactions.length * MAX_SPLITS_PER_TRANSACTION;
+		if (payload.transactionSplits.length > splitCeiling) {
+			ctx.addIssue({
+				code: 'custom',
+				path: ['transactionSplits'],
+				message: `transactionSplits exceeds ${splitCeiling}, the most ${payload.transactions.length} transactions can legally carry`
 			});
 		}
 	});

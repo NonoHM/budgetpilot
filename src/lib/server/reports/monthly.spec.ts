@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Transaction } from '$lib/domain/transaction';
+import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
+import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
 import {
 	anonymizeLabel,
 	anonymizeMerchant,
@@ -7,6 +9,21 @@ import {
 	buildPeriodReport,
 	getRecurringPayments
 } from './monthly';
+
+/**
+ * Derives the MONEY view from the fixture's IDENTITY view, by calling the canonical helpers rather
+ * than restating the remainder rule or the nature default (see CLAUDE.md: an oracle that retypes
+ * the rule it audits drifts by exactly the clause it forgets). Every fixture in this file is
+ * unsplit, so this always yields exactly one allocation per transaction, carrying its whole amount.
+ */
+function toAllocations(transactions: Transaction[]): CategoryAllocation[] {
+	return transactions.flatMap((transaction) =>
+		allocationsOf({
+			...transaction,
+			nature: transaction.nature ?? getEffectiveTransactionNature(transaction, new Map()).nature
+		})
+	);
+}
 
 const transactions: Transaction[] = [
 	{
@@ -69,7 +86,7 @@ describe('buildMonthlyReport', () => {
 	it('compte toutes les incomes et expenses du mois sans filtre source', () => {
 		expect.assertions(7);
 
-		const report = buildMonthlyReport(transactions, '2026-06');
+		const report = buildMonthlyReport(transactions, toAllocations(transactions), '2026-06');
 
 		expect(report.incomeCents).toBe(215_000);
 		expect(report.expenseCents).toBe(82_048);
@@ -83,7 +100,7 @@ describe('buildMonthlyReport', () => {
 	it('produit des takeaways structurés (code + champs optionnels), pas des chaînes libres', () => {
 		expect.assertions(2);
 
-		const report = buildMonthlyReport(transactions, '2026-06');
+		const report = buildMonthlyReport(transactions, toAllocations(transactions), '2026-06');
 		const topCategoryTakeaway = report.takeaways.find(
 			(takeaway) => takeaway.code === 'top_category'
 		);
@@ -103,7 +120,7 @@ describe('buildMonthlyReport', () => {
 	it('compare le mois courant au mois précédent', () => {
 		expect.assertions(3);
 
-		const report = buildMonthlyReport(transactions, '2026-06', {
+		const report = buildMonthlyReport(transactions, toAllocations(transactions), '2026-06', {
 			month: '2026-05',
 			incomeCents: 100_000,
 			expenseCents: 40_000,
@@ -152,7 +169,7 @@ describe('buildPeriodReport', () => {
 			}
 		] as unknown as Transaction[];
 
-		const report = buildPeriodReport(tagged, '2026-06');
+		const report = buildPeriodReport(tagged, toAllocations(tagged), '2026-06');
 
 		// Two complementary checks, because either alone is a bad guard.
 		//
@@ -181,27 +198,29 @@ describe('buildPeriodReport', () => {
 	it('compte une income du mois précédent dans une période glissante', () => {
 		expect.assertions(6);
 
+		const slidingTransactions: Transaction[] = [
+			{
+				id: 'income-last-month',
+				date: '2026-05-28',
+				label: 'Salaire',
+				amountCents: 177_000,
+				type: 'income',
+				category: 'Revenus',
+				source: 'csv'
+			},
+			{
+				id: 'expense-current-month',
+				date: '2026-06-20',
+				label: 'Courses',
+				amountCents: -7_000,
+				type: 'expense',
+				category: 'Alimentation',
+				source: 'banque_populaire'
+			}
+		];
 		const report = buildPeriodReport(
-			[
-				{
-					id: 'income-last-month',
-					date: '2026-05-28',
-					label: 'Salaire',
-					amountCents: 177_000,
-					type: 'income',
-					category: 'Revenus',
-					source: 'csv'
-				},
-				{
-					id: 'expense-current-month',
-					date: '2026-06-20',
-					label: 'Courses',
-					amountCents: -7_000,
-					type: 'expense',
-					category: 'Alimentation',
-					source: 'banque_populaire'
-				}
-			],
+			slidingTransactions,
+			toAllocations(slidingTransactions),
 			'30 derniers jours',
 			undefined,
 			{ dayCount: 30 }
@@ -218,41 +237,39 @@ describe('buildPeriodReport', () => {
 	it('sépare les natures analytiques', () => {
 		expect.assertions(4);
 
-		const report = buildPeriodReport(
-			[
-				{
-					id: 'fee',
-					date: '2026-06-10',
-					label: 'Commission',
-					amountCents: -500,
-					type: 'expense',
-					category: 'Frais bancaires',
-					source: 'csv',
-					nature: 'fee'
-				},
-				{
-					id: 'refund',
-					date: '2026-06-11',
-					label: 'Remboursement',
-					amountCents: 2_000,
-					type: 'income',
-					category: 'Remboursements',
-					source: 'csv',
-					nature: 'refund'
-				},
-				{
-					id: 'investment',
-					date: '2026-06-12',
-					label: 'PEA',
-					amountCents: -15_000,
-					type: 'expense',
-					category: 'Investissement',
-					source: 'csv',
-					nature: 'investment'
-				}
-			],
-			'juin'
-		);
+		const natureTransactions: Transaction[] = [
+			{
+				id: 'fee',
+				date: '2026-06-10',
+				label: 'Commission',
+				amountCents: -500,
+				type: 'expense',
+				category: 'Frais bancaires',
+				source: 'csv',
+				nature: 'fee'
+			},
+			{
+				id: 'refund',
+				date: '2026-06-11',
+				label: 'Remboursement',
+				amountCents: 2_000,
+				type: 'income',
+				category: 'Remboursements',
+				source: 'csv',
+				nature: 'refund'
+			},
+			{
+				id: 'investment',
+				date: '2026-06-12',
+				label: 'PEA',
+				amountCents: -15_000,
+				type: 'expense',
+				category: 'Investissement',
+				source: 'csv',
+				nature: 'investment'
+			}
+		];
+		const report = buildPeriodReport(natureTransactions, toAllocations(natureTransactions), 'juin');
 
 		expect(report.natureAnalysis.feeCents).toBe(500);
 		expect(report.natureAnalysis.refundCents).toBe(2_000);
@@ -283,21 +300,19 @@ describe('getRecurringPayments', () => {
 	it('anonymise les plus grosses dépenses sans exposer de référence bancaire', () => {
 		expect.assertions(8);
 
-		const report = buildPeriodReport(
-			[
-				{
-					id: 'card',
-					date: '2026-06-10',
-					label: 'CARTE 4970123412341234 AUCHAN 23/06;Debit;42,10;Reference BP123456789',
-					amountCents: -4_210,
-					type: 'expense',
-					category: 'Alimentation',
-					source: 'csv'
-				},
-				...transactions.filter((transaction) => transaction.date.startsWith('2026-06-'))
-			],
-			'juin'
-		);
+		const cardTransactions: Transaction[] = [
+			{
+				id: 'card',
+				date: '2026-06-10',
+				label: 'CARTE 4970123412341234 AUCHAN 23/06;Debit;42,10;Reference BP123456789',
+				amountCents: -4_210,
+				type: 'expense',
+				category: 'Alimentation',
+				source: 'csv'
+			},
+			...transactions.filter((transaction) => transaction.date.startsWith('2026-06-'))
+		];
+		const report = buildPeriodReport(cardTransactions, toAllocations(cardTransactions), 'juin');
 		const cardExpense = report.largestExpenses.find((expense) => expense.label.includes('Auchan'));
 
 		expect(report.largestExpenses[0].label).toBe('Loyer - Logement');
@@ -308,6 +323,41 @@ describe('getRecurringPayments', () => {
 		expect(cardExpense?.label).not.toContain('Debit');
 		expect(report.largestExpenses[1].label).not.toContain('ABONNEMENT');
 		expect(report.topCategories[0].percentageOfExpenses).toBeCloseTo(0.927, 3);
+	});
+
+	/**
+	 * OD-3 says the RANKING and the displayed category/amount stay the parent's, whole. This is the
+	 * negative half of that claim: a split does not move the row or relabel it. The positive half —
+	 * that the row also carries the breakdown — is `splitIndicator` below.
+	 */
+	it("garde le classement et le montant du PARENT sur une dépense répartie (OD-3), et y ajoute l'indicateur de répartition", () => {
+		expect.assertions(4);
+
+		const rent: Transaction = {
+			id: 'rent-split',
+			date: '2026-06-05',
+			label: 'Loyer juin',
+			amountCents: -120_000,
+			type: 'expense',
+			category: 'Logement',
+			source: 'manual'
+		};
+		const allocations = allocationsOf(
+			{ ...rent, nature: getEffectiveTransactionNature(rent, new Map()).nature },
+			[{ category: 'Assurance', amountCents: -20_000 }]
+		);
+
+		const report = buildPeriodReport([rent], allocations, 'juin');
+		const [expense] = report.largestExpenses;
+
+		// Parent-shaped, unmoved by the split: 120 000, not 100 000 (the remainder) or 20 000.
+		expect(expense.amountCents).toBe(120_000);
+		expect(expense.category).toBe('Logement');
+		expect(expense.splitIndicator?.dominantCategory).toBe('Logement');
+		expect(expense.splitIndicator?.parts).toEqual([
+			{ category: 'Assurance', amountCents: -20_000 },
+			{ category: 'Logement', amountCents: -100_000 }
+		]);
 	});
 });
 

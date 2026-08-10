@@ -17,6 +17,8 @@ interface Row {
 	natureManual: string | null;
 	categoryId: string;
 	category: { name: string };
+	/** Parts of a répartition. Only presence is modelled here — see matchesTransactionWhere. */
+	splits: Array<{ categoryId: string }>;
 }
 
 const UNCLASSIFIED = 'uncategorized';
@@ -49,6 +51,30 @@ const db = vi.hoisted(() => {
 					!(value as Array<Record<string, unknown>>).every((c) => matchesTransactionWhere(row, c))
 				)
 					return false;
+				continue;
+			}
+			if (key === 'splits') {
+				// Only the two EMPTY relation predicates the production code issues are modelled.
+				// A filtered `some`/`every` is refused loudly rather than approximated: a fake that
+				// silently under-models a predicate reports the aggregate it was built to check as
+				// correct, which is the one failure this whole file exists to make impossible.
+				const relation = value as Record<string, unknown>;
+				const keys = Object.keys(relation);
+				const filter = relation[keys[0]] as Record<string, unknown> | undefined;
+				if (keys.length !== 1 || Object.keys(filter ?? {}).length > 0) {
+					throw new Error(
+						`volume.spec fake prisma: unsupported splits filter ${JSON.stringify(value)}`
+					);
+				}
+				if (keys[0] === 'none') {
+					if (row.splits.length > 0) return false;
+				} else if (keys[0] === 'some') {
+					if (row.splits.length === 0) return false;
+				} else {
+					throw new Error(
+						`volume.spec fake prisma: unsupported splits filter ${JSON.stringify(value)}`
+					);
+				}
 				continue;
 			}
 			if (key === 'category') {
@@ -183,7 +209,7 @@ const db = vi.hoisted(() => {
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
-const { countUncategorizedTransactions } = await import('./nature');
+const { countUncategorizedTransactions, getEffectiveCategory } = await import('./nature');
 const { forEachTransactionBatch } = await import('./batch');
 const { collectTransactionsMatchingQuery } = await import('./search');
 const { buildTransactionWhere, resolveUncategorizedCategoryId } = await import('./where');
@@ -204,7 +230,7 @@ function normalizeForMatch(value: string): string {
 }
 
 /**
- * Builds a synthetic dataset of `count` transactions cycling through 6 archetypes, exercising
+ * Builds a synthetic dataset of `count` transactions cycling through 8 archetypes, exercising
  * every branch of countUncategorizedTransactions/isUncategorizedByCategory/rule matching:
  *  0: natureManual = 'uncategorized' (manual override) -> counts as uncategorized nature.
  *  1: manualCategory null, linked to the "Non catégorisé" category (mapped -> uncategorized nature
@@ -215,10 +241,19 @@ function normalizeForMatch(value: string): string {
  *  4: natureManual = 'fee' (manual, wins over any mapping) + linked to "Non catégorisé" (must NOT
  *     count as uncategorized nature despite the category link, but DOES stay in the classify pile).
  *  5: manualCategory = 'Autre-perso' (already classified, label contains "uber", matches rule B).
+ *  6: RÉPARTIE, and otherwise byte-identical to archetype 1 — the parent sits under the sentinel
+ *     category with a rule-matching label. It must leave the classify pile, leave the
+ *     uncategorized-nature count, and be invisible to preview/apply rules. Every one of those
+ *     four exclusions is a different predicate, and this archetype is what distinguishes them
+ *     from archetype 1, which differs in nothing else.
+ *  7: RÉPARTIE with natureManual = 'uncategorized' — the parent's manual override still governs
+ *     every part (see mapTransactionAllocations), so this one must STAY in the uncategorized-nature
+ *     count while still leaving the classify pile. The pair 6/7 is what keeps "exclude splits"
+ *     from being applied to the manual branch by mistake.
  */
 function buildDataset(count: number): Row[] {
 	return Array.from({ length: count }, (_, i) => {
-		const archetype = i % 6;
+		const archetype = i % 8;
 		const id = `tx-${String(count - i).padStart(7, '0')}`;
 		const date = new Date(2024, 0, 1 + (i % 700));
 		switch (archetype) {
@@ -231,7 +266,8 @@ function buildDataset(count: number): Row[] {
 					manualCategory: null,
 					natureManual: 'uncategorized',
 					categoryId: CAT_AUTRE,
-					category: { name: 'Autre' }
+					category: { name: 'Autre' },
+					splits: []
 				};
 			case 1:
 				return {
@@ -242,7 +278,8 @@ function buildDataset(count: number): Row[] {
 					manualCategory: null,
 					natureManual: null,
 					categoryId: CAT_UNCATEGORIZED,
-					category: { name: UNCLASSIFIED }
+					category: { name: UNCLASSIFIED },
+					splits: []
 				};
 			case 2:
 				return {
@@ -253,7 +290,8 @@ function buildDataset(count: number): Row[] {
 					manualCategory: 'MysteryBucket',
 					natureManual: null,
 					categoryId: CAT_AUTRE,
-					category: { name: 'Autre' }
+					category: { name: 'Autre' },
+					splits: []
 				};
 			case 3:
 				return {
@@ -264,7 +302,8 @@ function buildDataset(count: number): Row[] {
 					manualCategory: null,
 					natureManual: null,
 					categoryId: CAT_ALIMENTATION,
-					category: { name: 'Alimentation' }
+					category: { name: 'Alimentation' },
+					splits: []
 				};
 			case 4:
 				return {
@@ -275,7 +314,32 @@ function buildDataset(count: number): Row[] {
 					manualCategory: null,
 					natureManual: 'fee',
 					categoryId: CAT_UNCATEGORIZED,
-					category: { name: UNCLASSIFIED }
+					category: { name: UNCLASSIFIED },
+					splits: []
+				};
+			case 6:
+				return {
+					id,
+					userId: USER,
+					date,
+					label: `AUCHAN Épicerie répartie ${i}`,
+					manualCategory: null,
+					natureManual: null,
+					categoryId: CAT_UNCATEGORIZED,
+					category: { name: UNCLASSIFIED },
+					splits: [{ categoryId: CAT_ALIMENTATION }, { categoryId: CAT_AUTRE }]
+				};
+			case 7:
+				return {
+					id,
+					userId: USER,
+					date,
+					label: `AUCHAN Épicerie répartie manuelle ${i}`,
+					manualCategory: null,
+					natureManual: 'uncategorized',
+					categoryId: CAT_UNCATEGORIZED,
+					category: { name: UNCLASSIFIED },
+					splits: [{ categoryId: CAT_ALIMENTATION }, { categoryId: CAT_AUTRE }]
 				};
 			default:
 				return {
@@ -286,7 +350,8 @@ function buildDataset(count: number): Row[] {
 					manualCategory: 'Autre-perso',
 					natureManual: null,
 					categoryId: CAT_AUTRE,
-					category: { name: 'Autre' }
+					category: { name: 'Autre' },
+					splits: []
 				};
 		}
 	});
@@ -303,10 +368,15 @@ function naiveUncategorizedNatureCount(
 	let count = 0;
 	for (const row of rows) {
 		if (row.natureManual) {
+			// The MANUAL branch counts a répartie row like any other: the parent's override still
+			// governs every part, so an override of 'uncategorized' really does make all of its
+			// money uncategorized. Only the branch below — which infers nature from the PARENT's
+			// category — stops being meaningful once the parts decide where the money went.
 			if (row.natureManual === 'uncategorized') count += 1;
 			continue;
 		}
-		const effectiveCategory = row.manualCategory ?? row.category.name;
+		if (row.splits.length > 0) continue;
+		const effectiveCategory = getEffectiveCategory(row);
 		if (mapByName.get(effectiveCategory) === 'uncategorized') count += 1;
 	}
 	return count;
@@ -315,7 +385,16 @@ function naiveUncategorizedNatureCount(
 // Naive full-scan reference for the "to classify" pile (see CLAUDE.md: effective category ===
 // "Non catégorisé", independent of nature).
 function naiveClassifyPile(rows: Row[]): Row[] {
-	return rows.filter((row) => (row.manualCategory ?? row.category.name) === UNCLASSIFIED);
+	// getEffectiveCategory rather than a retyped `manualCategory ?? category.name`: this naive scan
+	// is the ORACLE for the SQL predicate, and an oracle that retypes the rule drifts by exactly the
+	// clause it forgets — this one forgot the sentinel fallback. It stays independent of the code
+	// under test, since the SQL path compares manualCategoryKey/categoryId and never calls this.
+	// A répartie transaction is fully categorised by the sum invariant, so it is not in the pile
+	// whatever its parent category says. Independent of the SQL path, which asks the database for
+	// `splits: { none: {} }` and never reads this array.
+	return rows.filter(
+		(row) => getEffectiveCategory(row) === UNCLASSIFIED && row.splits.length === 0
+	);
 }
 
 describe('volume equivalence — countUncategorizedTransactions (SQL) vs naive full-scan', () => {
@@ -532,9 +611,14 @@ describe('volume equivalence — previewCategoryRules / applyCategoryRules vs na
 
 		const preview = await previewCategoryRules(USER);
 
+		// `splits.length === 0` is part of the preview's definition, not a convenience. The preview
+		// tells the user how many transactions "Apply rules" WILL change; applyCategoryRules skips
+		// répartie rows, so a preview that counted them would overstate by exactly the archetype-6
+		// rows and promise work that is never done.
 		const naiveCount = dataset.filter(
 			(row) =>
 				row.manualCategory === null &&
+				row.splits.length === 0 &&
 				findMatchingCategoryRule(
 					{ label: row.label, manualCategory: row.manualCategory },
 					db.categoryRules
@@ -546,7 +630,9 @@ describe('volume equivalence — previewCategoryRules / applyCategoryRules vs na
 	});
 
 	it('applyCategoryRules updates exactly the naive-expected number of rows, respecting the natureManual guard (rules never overwrite a manual correction), on 20 000 rows', async () => {
-		expect.assertions(3);
+		// 3 fixed assertions plus one per updateMany call (one group per (category, nature) pair the
+		// rules produce), which is why this count is not a literal.
+		expect.assertions(3 + 1);
 
 		const dataset = buildDataset(20_000);
 		// A subset of otherwise-matching rows already has a manual nature set: applyCategoryRules
@@ -561,6 +647,9 @@ describe('volume equivalence — previewCategoryRules / applyCategoryRules vs na
 		// natureManual and silently zero itself out.
 		const naiveExpected = dataset.filter((row) => {
 			if (row.manualCategory !== null) return false;
+			// A rule must never overwrite the parent category of a répartie transaction: the parts
+			// already say where the money went, and D1 makes the parent's category an identity fact.
+			if (row.splits.length > 0) return false;
 			const rule = findMatchingCategoryRule(
 				{ label: row.label, manualCategory: row.manualCategory },
 				db.categoryRules
@@ -577,6 +666,20 @@ describe('volume equivalence — previewCategoryRules / applyCategoryRules vs na
 
 		expect(updated).toBe(naiveExpected);
 		expect(updated).toBeGreaterThan(0);
+
+		// The WRITE carries the split exclusion, not merely the scan that feeds it. Asserted on the
+		// call rather than inferred from the count, because the two conjuncts are deliberately
+		// redundant: with the scan already filtering répartie rows, deleting the one on updateMany
+		// changes no number here, so a future reader would find it "provably dead" and remove the
+		// only line that is actually a protection. The scan is an optimisation; the write is the
+		// guard, and this is what says so.
+		for (const [call] of (
+			db.prisma.transaction.updateMany as unknown as {
+				mock: { calls: Array<[{ where: Record<string, unknown> }]> };
+			}
+		).mock.calls) {
+			expect(call.where.splits).toEqual({ none: {} });
+		}
 
 		// Spot-check: rows excluded by the guard must keep their pre-existing manual nature.
 		const guarded = dataset.find(

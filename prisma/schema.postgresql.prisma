@@ -280,7 +280,7 @@ model BankAuthorizationRequest {
 }
 
 model Category {
-  id           String        @id @default(cuid())
+  id           String             @id @default(cuid())
   userId       String
   name         String
   /// Stable key of a default category (e.g. "food"), resolved to a translated label
@@ -293,10 +293,13 @@ model Category {
   /// NULLs are distinct in a unique index on all three providers, so a not-yet-backfilled
   /// database satisfies it. Every write path fills it.
   nameKey      String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  user         User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   transactions Transaction[]
+  /// Deliberately NOT a cascade (see TransactionSplit.category): a category delete must re-point
+  /// these rows, never destroy them, because each one carries money.
+  splits       TransactionSplit[]
 
   @@unique([userId, nameKey])
   @@index([userId])
@@ -367,6 +370,88 @@ model TransactionTag {
   @@index([tagId])
 }
 
+/// One line of a transaction's category allocation ("répartition").
+///
+/// Exists so a single bank line can feed several category budgets: 80 € at a supermarket is
+/// 60 € alimentation + 20 € maison. It splits the MONEY dimension and nothing else.
+///
+/// THE RULE, and every consumer is checked against it: when parts exist, the parts are the truth
+/// for money; the parent's category is never a money fact — it is the recurrence grouping key
+/// (domain/forecast.ts, groupTransactionsForRecurrence) and a display label. A site that adds a
+/// parent's amountCents to its parts' amountCents is a double-count defect. See
+/// domain/allocation.ts, which is the only supported way to read money out of a transaction.
+///
+/// No userId column, deliberately, and for the reason TransactionTag records: a part's owner is
+/// unambiguously its transaction's owner, so queries scope through `transaction: { userId }`
+/// rather than copying a userId somewhere it can drift out of agreement with the row it
+/// describes. `categoryId` is scoped independently on every read AND every write, because a
+/// foreign key alone does not stop a part pointing at another user's category — only the write
+/// path re-resolving it under the session does. Proven by attempting it, in splits.db-smoke.ts.
+///
+/// Surrogate id rather than TransactionTag's composite key: the same category may legitimately
+/// appear twice in one répartition (two lines the user wants to keep apart, distinguished by
+/// their notes), so (transactionId, categoryId) is not unique and cannot be the key.
+model TransactionSplit {
+  id            String      @id @default(cuid())
+  transactionId String
+  categoryId    String
+  /// Signed integer cents, same sign as the parent, never zero. Neither the sum invariant
+  /// (sum of parts == parent.amountCents) nor the per-part rule is expressible portably across
+  /// the three providers, so both live in application code — and this table has MORE THAN ONE
+  /// writer, which is what a reader auditing the next one has to know first.
+  /// domain/allocation.ts (isValidSplitPartAmount) holds the per-part rule and, beside it, the
+  /// WRITE-PATH MATRIX naming every writer and the invariants each enforces. Today:
+  /// server/transactions/splits.ts validates against the parent row re-read inside its own
+  /// transaction, never against a client-supplied total; server/backup/import.ts validates an
+  /// uploaded payload before restoring it, because a restore bypasses that service entirely.
+  amountCents   Int
+  /// 0-based display order. Load-bearing rather than cosmetic: the even-split helper gives the
+  /// extra cent(s) to the FIRST r parts (domain/allocation.ts, distributeEvenly), so which part
+  /// carries them is user-visible and must be stable across reads. It is also the tiebreak for
+  /// the dominant-part rule the transaction list's indicator uses.
+  position      Int
+  /// Optional free text, display only. Capped at 80 by the write path and bounded at
+  /// MAX_PORTABLE_STRING (191) in the backup schema — the established split, for the reason
+  /// Account.providerAccountId records: the write path bounds what THIS version produces, the
+  /// backup bound must still accept what an older one legally wrote.
+  ///
+  /// Never indexed, never searched, never a grouping key, and never sent to the AI payload.
+  /// Nothing on a part may become a filter dimension or a search target; if something here needs
+  /// to be queryable, the model is wrong and that is the signal.
+  note          String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  /// No cascade, matching Transaction.category: deleting a category in use must never delete
+  /// money. /categories' delete path re-points Transaction.categoryId and must re-point this
+  /// column in the same breath, or the delete fails on this foreign key.
+  category      Category    @relation(fields: [categoryId], references: [id])
+
+  @@index([transactionId])
+  /// COMPOSITE, and the second column is the whole point: it makes this index COVERING for the
+  /// correlated subquery `?category=` produces, and it replaces the plain `@@index([categoryId])`
+  /// rather than sitting beside it (`categoryId` is leftmost, so every lookup the single-column
+  /// index served is still served, including the foreign key MySQL requires an index for).
+  ///
+  /// WHY, measured, because "add an index" is the suggestion that gets waved away here — the
+  /// single-column index DID exist and the query was still 321x slow, which reads as "not an index
+  /// problem" and is not.
+  ///
+  /// `?category=X` is an OR of three branches: the parent's manual key, the parent's category, and
+  /// "a PART carries X". Prisma compiles that third branch to a CORRELATED subquery, so it is
+  /// re-evaluated once per outer row rather than materialised once. With only `@@index([categoryId])`
+  /// the engine can seek on `categoryId` and must then scan every part in that category looking for
+  /// the outer row's id: at 10 000 transactions with 2 000 parts under one category that is ~8 750
+  /// outer rows x 2 000 index entries, and `/transactions?category=Loisirs` measured **8 366 ms**
+  /// against 36 ms unfiltered. With `transactionId` in the index the same subquery seeks straight to
+  /// `(categoryId, transactionId)` and touches one entry: the page measures **60 ms**.
+  ///
+  /// So this is not a tuning knob to drop when tidying. Removing the second column restores an
+  /// 8-second page at the transaction ceiling `docs/` promises, with every test still green —
+  /// no assertion in this repository can see it, which is why the reason is written here.
+  @@index([categoryId, transactionId])
+}
+
 model Transaction {
   id                String             @id @default(cuid())
   userId            String
@@ -403,6 +488,7 @@ model Transaction {
   category          Category           @relation(fields: [categoryId], references: [id])
   importBatch       ImportBatch?       @relation(fields: [importBatchId], references: [id])
   tags              TransactionTag[]
+  splits            TransactionSplit[]
 
   @@unique([userId, dedupeKeyHash])
   @@index([userId])

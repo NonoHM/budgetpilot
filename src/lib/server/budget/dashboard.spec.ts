@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 
 const db = vi.hoisted(() => ({
@@ -33,15 +33,19 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 const {
 	createManualTransaction,
 	deleteBudget,
+	getCurrentMonth,
 	parseManualAmountCents,
 	parseMonth,
 	readBudgetCategoryOptions,
 	readDashboardData,
 	readDashboardDataForRange,
+	readCurrentMonthSpending,
 	readMonthlyBudgets,
 	saveBudget,
+	spentCentsFor,
 	updateBudget
 } = await import('./dashboard');
+import type { CategorySpending } from './dashboard';
 
 describe('parseManualAmountCents', () => {
 	it('convertit un montant manuel en centimes', () => {
@@ -196,7 +200,8 @@ describe('readDashboardData', () => {
 				source: 'unknown_source',
 				manualCategory: null,
 				natureManual: null,
-				category: { name: 'Revenus' }
+				category: { name: 'Revenus' },
+				splits: []
 			},
 			{
 				id: 'expense-any-source',
@@ -207,7 +212,8 @@ describe('readDashboardData', () => {
 				source: 'legacy_import',
 				manualCategory: 'Maison',
 				natureManual: null,
-				category: { name: 'Alimentation' }
+				category: { name: 'Alimentation' },
+				splits: []
 			}
 		]);
 		db.prisma.monthlyBudget.findMany.mockResolvedValue([]);
@@ -261,7 +267,8 @@ describe('readDashboardData', () => {
 				source: 'legacy_import',
 				manualCategory: 'Revenus exceptionnels',
 				natureManual: null,
-				category: { name: 'Revenus' }
+				category: { name: 'Revenus' },
+				splits: []
 			}
 		]);
 
@@ -425,5 +432,184 @@ describe('écritures dashboard', () => {
 		]);
 
 		await expect(readBudgetCategoryOptions(userId)).resolves.toEqual(['Alimentation', 'Maison']);
+	});
+});
+
+/**
+ * The /budgets under-report, reproduced end to end at the two functions that produce it.
+ *
+ * Measured in a real browser before the fix: /budgets showed 70,00 € for a budget the dashboard
+ * showed 74,50 € for, in the same month, and 0,00 € for Transport against the dashboard's 27,00 €.
+ * The cause is a spelling: `manualCategory` is free text, so a user who types "alimentation" on
+ * one transaction and picks "Alimentation" on another produces two keys in a map every other
+ * reader in the app folds into one, and /budgets looked one of them up raw.
+ *
+ * The fixture is deliberately mixed-case. A fixture spelling every row the way the budget is
+ * spelled cannot see this defect at all, which is exactly how it survived.
+ */
+/**
+ * A raw, UNFOLDED lookup into the spending map — the thing production code can no longer express,
+ * reconstructed here on purpose.
+ *
+ * These two tests exist to pin the PRE-FIX figure: what /budgets printed when it looked the category
+ * up by its own raw spelling. Stating that requires performing the mistake, so the cast is confined
+ * to this one helper, named for what it is, rather than spread across the assertions where a reader
+ * might take it for the supported access pattern.
+ */
+function rawLookup(spending: CategorySpending, rawName: string): number {
+	return (spending as ReadonlyMap<string, number>).get(rawName) ?? 0;
+}
+
+describe('readCurrentMonthSpending + spentCentsFor — the /budgets under-report', () => {
+	const userId = 'user-a';
+	/** The instant the whole block is pinned to, stated so a diff cannot be blamed on the calendar. */
+	const PINNED_NOW = '2026-08-15T12:00:00.000Z';
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date(PINNED_NOW));
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	function unsplit(manualCategory: string, amountCents: number) {
+		return { amountCents, manualCategory, category: { name: 'Divers' }, splits: [] };
+	}
+
+	it('merges two spellings of one category: 70,00 € raw becomes the true 74,50 €', async () => {
+		expect.assertions(3);
+
+		db.prisma.transaction.findMany.mockResolvedValue([
+			unsplit('Alimentation', -7_000),
+			unsplit('alimentation', -450)
+		]);
+
+		const spending = await readCurrentMonthSpending(userId);
+
+		// The pre-fix figure, and the reason it was wrong: a raw lookup still finds only one of the
+		// two spellings, so this is what /budgets printed. Reached through `rawLookup` because the
+		// map's key type is now branded and `spending.get('Alimentation')` does not compile — which
+		// is the point of the brand, and does not make this assertion less true.
+		expect(rawLookup(spending, 'Alimentation')).toBe(0);
+		expect(spentCentsFor(spending, 'Alimentation')).toBe(7_450);
+		// Folding is symmetric: the budget's own spelling does not decide the answer.
+		expect(spentCentsFor(spending, 'ALIMENTATION')).toBe(7_450);
+	});
+
+	it('finds a category spelled only in lower case: 0,00 € becomes 27,00 €', async () => {
+		expect.assertions(2);
+
+		db.prisma.transaction.findMany.mockResolvedValue([unsplit('transport', -2_700)]);
+
+		const spending = await readCurrentMonthSpending(userId);
+
+		expect(rawLookup(spending, 'Transport')).toBe(0);
+		expect(spentCentsFor(spending, 'Transport')).toBe(2_700);
+	});
+
+	it('folds accents too, the other half of what normalizeForMatch decides', async () => {
+		expect.assertions(1);
+
+		db.prisma.transaction.findMany.mockResolvedValue([unsplit('Épargne', -1_000)]);
+
+		const spending = await readCurrentMonthSpending(userId);
+
+		expect(spentCentsFor(spending, 'epargne')).toBe(1_000);
+	});
+
+	it('folds the parts of a répartition, not only the parent', async () => {
+		expect.assertions(1);
+
+		db.prisma.transaction.findMany.mockResolvedValue([
+			{
+				amountCents: -8_000,
+				manualCategory: null,
+				category: { name: 'Courses' },
+				splits: [
+					{ amountCents: -6_000, position: 0, category: { name: 'Alimentation' } },
+					{ amountCents: -2_000, position: 1, category: { name: 'alimentation' } }
+				]
+			}
+		]);
+
+		const spending = await readCurrentMonthSpending(userId);
+
+		expect(spentCentsFor(spending, 'Alimentation')).toBe(8_000);
+	});
+
+	it('reads the pinned UTC month, so the range is not the test machine', async () => {
+		expect.assertions(1);
+
+		db.prisma.transaction.findMany.mockResolvedValue([]);
+		await readCurrentMonthSpending(userId);
+
+		expect(db.prisma.transaction.findMany.mock.calls[0][0].where.date).toEqual({
+			gte: new Date('2026-08-01T00:00:00.000Z'),
+			lt: new Date('2026-09-01T00:00:00.000Z')
+		});
+	});
+});
+
+/**
+ * The /budgets header naming the wrong month, reproduced at the function that names it.
+ *
+ * Measured before the fix, on a UTC+2 host at 2026-08-31 23:30 UTC: /budgets printed
+ * « septembre 2026 » above August's figures, and `loadDashboardInsights` read September, so the
+ * budget alerts silently vanished while the dashboard beside them still said August.
+ *
+ * THE CLOCK AND THE TIMEZONE ARE BOTH STATED, in the test and in its assertions. A harness that
+ * embeds a clock must expose the value it used, or a diff is ambiguous between "the code changed"
+ * and "the day changed" — and the timezone has to be MOVED for any of this to mean anything: on a
+ * UTC host the local and UTC implementations agree at every instant, so every assertion below
+ * passes on the broken code. Node re-reads `process.env.TZ` on assignment (tzset), so the swap
+ * takes effect in-process.
+ */
+describe('getCurrentMonth — the /budgets header month', () => {
+	const originalTz = process.env.TZ;
+
+	afterEach(() => {
+		vi.useRealTimers();
+		if (originalTz === undefined) delete process.env.TZ;
+		else process.env.TZ = originalTz;
+	});
+
+	function pin(tz: string, instantIso: string) {
+		process.env.TZ = tz;
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date(instantIso));
+	}
+
+	it('names August at 2026-08-31 23:30 UTC on a UTC+2 host, where the header printed septembre', () => {
+		expect.assertions(3);
+		pin('Europe/Paris', '2026-08-31T23:30:00.000Z');
+
+		// The host clock really has rolled into September locally — without this the assertion
+		// below is vacuous, which is the failure mode this whole block exists to avoid.
+		expect(new Date().getMonth() + 1).toBe(9);
+		expect(getCurrentMonth()).toBe('2026-08');
+		// The reason, not just the value: it agrees with the UTC clock every figure it labels is
+		// read against (readDashboardData's Date.UTC range, readCurrentMonthSpending's bounds,
+		// the forecast's todayIso).
+		expect(getCurrentMonth()).toBe(new Date().toISOString().slice(0, 7));
+	});
+
+	it('still names August fourteen hours early, at UTC+14', () => {
+		expect.assertions(2);
+		pin('Pacific/Kiritimati', '2026-08-31T10:30:00.000Z');
+
+		expect(new Date().getMonth() + 1).toBe(9);
+		expect(getCurrentMonth()).toBe('2026-08');
+	});
+
+	it('does not lag on a negative-offset host at the other edge of the month', () => {
+		expect.assertions(2);
+		pin('America/Los_Angeles', '2026-09-01T00:30:00.000Z');
+
+		// Locally it is still August 31st; UTC has already turned.
+		expect(new Date().getMonth() + 1).toBe(8);
+		expect(getCurrentMonth()).toBe('2026-09');
 	});
 });

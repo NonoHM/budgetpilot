@@ -1,4 +1,5 @@
 import { expect, test } from './fixtures';
+import * as m from '../src/lib/paraglide/messages';
 
 // Keyboard contract of BottomSheet (mobile transaction detail sheet), added with
 // the shared $lib/focus.ts extraction: the sheet carries aria-modal="true", so
@@ -22,8 +23,19 @@ test('BottomSheet traps Tab both ways, closes on Escape and restores focus', asy
 	const sheet = page.getByRole('dialog', { name: /CARREFOUR MARKET/ });
 	await expect(sheet).toBeVisible();
 
-	// Initial focus moves into the sheet (focusFirst on open).
+	// Initial focus moves into the sheet.
 	await expect.poll(() => sheet.evaluate((el) => el.contains(document.activeElement))).toBe(true);
+
+	// And lands on the PANEL, not on the first focusable — which here is « Supprimer ». Opening a
+	// transaction used to put focus directly on the destructive action, measured 2026-08-07 and true
+	// since long before the fixed header made that button permanently visible chrome. One Enter away
+	// from the delete confirmation is not where a sheet should open, so this sheet passes
+	// `initialFocus="panel"`. Asserted on the real page because the component spec can only prove the
+	// prop works, never that this call site passes it.
+	expect(await sheet.evaluate((el) => el === document.activeElement)).toBe(true);
+	const deleteControl = sheet.getByRole('button', { name: m.common_delete() });
+	await expect(deleteControl).toBeVisible();
+	expect(await deleteControl.evaluate((el) => el === document.activeElement)).toBe(false);
 
 	// Forward Tab: walk one full cycle past the number of focusable elements —
 	// focus must stay inside the sheet at every step, including the wrap-around.

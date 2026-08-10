@@ -29,9 +29,12 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedTransaction: null,
 		selectedSuggestion: null,
 		categoryOptions: ['Voyages'],
-		categories: [{ name: 'Voyages', defaultKey: null }],
+		splitCategoryOptions: [],
+		categories: [{ id: 'cat-voyages', name: 'Voyages', defaultKey: null }],
 		allTags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
 		natureOptions: TRANSACTION_NATURES,
+		splitFilterAvailable: false,
+		splitCounts: null,
 		filters: {
 			q: '',
 			qMode: 'contains' as const,
@@ -41,7 +44,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			to: '',
 			importBatchId: '',
 			ids: '',
-			tag: ''
+			tag: '',
+			split: 'all'
 		},
 		filteredTotals: { incomeCents: 426000, expenseCents: 341890 },
 		queryError: false,

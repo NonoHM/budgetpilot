@@ -2,6 +2,8 @@
 
 - **[Getting started](./getting-started.md)**: install and first login, with
   or without Docker. Start here.
+- **[Using BudgetPilot](./using/README.md)**: the app itself once it runs.
+  Transactions, tags, splitting a transaction across categories.
 - **[Configuration](./configuration.md)**: every setting, and how to reach
   the app from another machine.
 - **[Reverse proxy](./reverse-proxy.md)**: optional Caddy overlay for a real

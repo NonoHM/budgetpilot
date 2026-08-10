@@ -81,7 +81,9 @@ describe('mode dashboard', () => {
 		expect(page).not.toContain('>Import CSV</span>');
 		expect(page).not.toContain('>Connecteur mocké</span>');
 		expect(page).toContain('{m.dashboard_view_all()}');
-		expect(server).toContain('recentTransactions: transactions.slice(0, 10)');
+		// Still the plain 10 most recent — `.map` below only annotates each with its split
+		// indicator (see recentSplitIndicators), it does not widen or reorder the slice.
+		expect(server).toContain('recentTransactions: transactions.slice(0, 10).map(');
 	});
 
 	it('affiche une navigation simple sur les pages principales', () => {

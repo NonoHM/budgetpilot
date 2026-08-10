@@ -7,6 +7,13 @@ import { prisma } from '$lib/server/db';
 
 export type TransactionFilter = 'all' | 'income' | 'expense' | 'classify';
 
+/** The Répartition filter dimension. `'all'` is the absence of the filter, not a third state. */
+export type TransactionSplitFilter = 'all' | 'split' | 'unsplit';
+
+export function parseTransactionSplitFilter(value: string | null): TransactionSplitFilter {
+	return value === 'split' || value === 'unsplit' ? value : 'all';
+}
+
 /**
  * Resolves the userId-scoped id of the "Non catégorisé" (UNCLASSIFIED_CATEGORY) category row.
  * Backed by the unique (userId, nameKey) index — a fast point lookup, not a scan, and at most
@@ -53,6 +60,17 @@ export function buildTransactionWhere(input: {
 	 * belonging to another account matches zero rows, byte-identical to an id that never existed.
 	 */
 	tagId?: string;
+	/**
+	 * Répartition dimension from `?split=`. A plain conjunct like `tagId`, not one of the OR-shaped
+	 * `conditions`.
+	 *
+	 * It constrains the SAME relation as the classify pile below, which is why neither assigns
+	 * `where.splits` directly: the second assignment would silently replace the first, and the
+	 * combination that matters — `type=classify&split=split` — would come back as "every répartie
+	 * transaction" instead of "none", with nothing going red. They are composed through
+	 * `splitsRequirement` instead, and the contradictory pair resolves to match-nothing.
+	 */
+	split?: TransactionSplitFilter;
 }): Prisma.TransactionWhereInput {
 	// The one conjunct every other filter here relies on. `?ids=` in particular is raw client input
 	// naming rows directly, so this equality is the whole thing standing between it and a
@@ -62,6 +80,10 @@ export function buildTransactionWhere(input: {
 	// conditions (classify pile, category text filter) that must be ANDed together, not
 	// overwrite one another — combined via `AND` below instead of both writing `where.OR`.
 	const conditions: Prisma.TransactionWhereInput[] = [];
+	// 'none' = must have no parts, 'some' = must have at least one, null = unconstrained. Two
+	// requirements that disagree are a contradiction, resolved below as match-nothing rather than
+	// as whichever was written last.
+	const splitsRequirements: Array<'none' | 'some'> = [];
 
 	if (input.type === 'classify') {
 		conditions.push({
@@ -75,6 +97,27 @@ export function buildTransactionWhere(input: {
 				}
 			]
 		});
+		// A répartie transaction is fully categorised by the sum invariant — every cent of it sits
+		// under a part's category, and a part can never carry the sentinel — so its PARENT category
+		// says nothing about whether the money needs classifying. Leaving it in the pile would ask
+		// the user to classify money that is already classified, and "classify all" would then
+		// overwrite the répartition to answer a question that was not open.
+		//
+		// A conjunct on `where`, never a third branch of `conditions`: those exist solely for the
+		// effective-category fallback, where one concept has two possible columns (see the tagId
+		// note above). Pushed in there it would WIDEN the pile to every unsplit transaction the
+		// moment a second condition became active.
+		//
+		// It is also why the remainder is not consulted: a drifted parent (amount moved out from
+		// under its parts) would leave real money under the sentinel, but that state is unreachable
+		// — `amountCents` is never rewritten on an existing row (amount-immutability.spec.ts) and
+		// the backup validator refuses a payload whose parts do not sum. If either of those two
+		// facts stops holding, this line is one of the places that has to be revisited.
+		//
+		// `?split=` constrains the SAME relation, so this is a REQUIREMENT rather than an assignment
+		// (see the `split` input's docstring). Assigning `where.splits` here and again below would
+		// have put répartie rows back into the classify pile with nothing going red.
+		splitsRequirements.push('none');
 	} else if (input.type === 'income' || input.type === 'expense') {
 		where.type = input.type;
 	}
@@ -92,12 +135,52 @@ export function buildTransactionWhere(input: {
 							}
 						}
 					]
+				},
+				// OD-1: a transaction whose PART carries the category matches too. A widening, which is
+				// the safe direction — no row that matched before stops matching.
+				//
+				// The parent branches above are kept rather than replaced, deliberately. A répartie
+				// row filed under Maison is still filed under Maison: that is an identity fact, and
+				// `?category=` reads identity as well as money. It contributes ZERO to the filtered
+				// total in that case, which `computeFilteredTotals` gets right by summing allocations
+				// rather than by narrowing this predicate — the list and the total answer two different
+				// questions and must not be collapsed into one.
+				//
+				// `userId` on the part's category as well as on the parent, because the two foreign
+				// keys are independent: nothing in the schema ties Category.userId to
+				// Transaction.userId, so only this conjunct keeps a part's category inside the account.
+				// Same rule, same reason, as the `tag: { userId }` note in tags/counts.ts.
+				{
+					splits: {
+						some: {
+							category: {
+								is: { userId: input.userId, nameKey: computeNameKey(input.category) }
+							}
+						}
+					}
 				}
 			]
 		});
 	}
 	if (input.importBatchId) where.importBatchId = input.importBatchId;
 	if (input.tagId) where.tags = { some: { tagId: input.tagId } };
+	if (input.split === 'split') splitsRequirements.push('some');
+	else if (input.split === 'unsplit') splitsRequirements.push('none');
+
+	if (splitsRequirements.includes('none') && splitsRequirements.includes('some')) {
+		// `type=classify&split=split` asks for transactions that both have and have not got parts.
+		// An empty result is the honest answer; silently dropping one half would answer a question
+		// the user did not ask, and it is the WIDENING half a naive last-write-wins would keep. Same
+		// reasoning as `ids: []` meaning match-nothing rather than no filter.
+		//
+		// Expressed inside the relation filter rather than as `where.id = { in: [] }`, which would be
+		// overwritten by the `?ids=` conjunct three lines down — the exact collision this whole
+		// accumulator exists to avoid, reintroduced one field over. Prisma ANDs `none` and `some`, so
+		// no row can satisfy both.
+		where.splits = { none: {}, some: {} };
+	} else if (splitsRequirements.length > 0) {
+		where.splits = splitsRequirements[0] === 'none' ? { none: {} } : { some: {} };
+	}
 	// `input.ids` is spread into a mutable array because Prisma's generated `in` takes `string[]`;
 	// the `!= null` test (not truthiness) is what keeps an empty list meaning "match nothing".
 	if (input.ids != null) where.id = { in: [...input.ids] };

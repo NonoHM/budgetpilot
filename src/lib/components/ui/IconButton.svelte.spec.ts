@@ -123,4 +123,56 @@ describe('IconButton.svelte', () => {
 			.element(page.getByRole('button', { name: 'Envoyer' }))
 			.toHaveAttribute('type', 'submit');
 	});
+
+	/**
+	 * `softDisabled`, added because design 1q makes "neutralised, not mute" law for every
+	 * `aria-disabled` control in the app rather than for primary actions only. The floor cross and
+	 * the ceiling add button in the split editor are both IconButtons, and both must be able to say
+	 * why they are off — which a natively `disabled` button cannot do, being unreachable.
+	 */
+	it('neutralises with aria-disabled and stays focusable, never native disabled', async () => {
+		render(IconButton, {
+			label: 'Retirer la part 2',
+			softDisabled: true,
+			'aria-describedby': 'floor-hint',
+			children: iconSnippet()
+		});
+
+		const button = page.getByRole('button', { name: 'Retirer la part 2' }).element();
+		expect(button.getAttribute('aria-disabled')).toBe('true');
+		// The whole point: not `disabled`, so it is still in the tab order and can carry a reason.
+		expect(button.hasAttribute('disabled')).toBe(false);
+		expect(button.getAttribute('aria-describedby')).toBe('floor-hint');
+
+		(button as HTMLElement).focus();
+		expect(document.activeElement).toBe(button);
+	});
+
+	it('swallows the click while soft-disabled, and lets it through once it is not', async () => {
+		const onclick = vi.fn<() => void>();
+		const { rerender } = render(IconButton, {
+			label: 'Retirer la part 2',
+			softDisabled: true,
+			onclick,
+			children: iconSnippet()
+		});
+
+		// `.click()` on the element rather than `userEvent.click`, and the reason is the finding:
+		// Playwright's actionability check treats `aria-disabled="true"` as not-enabled and simply
+		// waits forever, so it can never exercise the swallow. A programmatic or assistive-technology
+		// activation is under no such restraint and DOES reach the handler — which is exactly why the
+		// component has to swallow it rather than rely on being un-clickable.
+		const button = page.getByRole('button', { name: 'Retirer la part 2' }).element() as HTMLElement;
+		button.click();
+		expect(onclick).not.toHaveBeenCalled();
+
+		await rerender({
+			label: 'Retirer la part 2',
+			softDisabled: false,
+			onclick,
+			children: iconSnippet()
+		});
+		(page.getByRole('button', { name: 'Retirer la part 2' }).element() as HTMLElement).click();
+		expect(onclick).toHaveBeenCalledTimes(1);
+	});
 });

@@ -40,6 +40,8 @@ function makeTransaction(overrides: Record<string, unknown> = {}) {
 		type: 'expense' as const,
 		source: 'Carrefour Market SA',
 		tags: THREE_TAGS,
+		splitIndicator: null,
+		matchedCategoryAllocation: null,
 		suggestion: null,
 		...overrides
 	};
@@ -50,6 +52,12 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		user: { email: 'test@example.com', role: 'USER' as const },
 		transactions: [makeTransaction()],
 		selectedTransaction: {
+			// The three fields the split editor reads. Spelled out rather than defaulted, for the reason
+			// EFFECTIVE_CATEGORY_SELECT's `splits` is required: an absent répartition and a forgotten
+			// one look identical the moment either is optional.
+			splits: [],
+			splitInheritCategoryId: null,
+			splitEntryAvailable: false,
 			id: 'tx-1',
 			date: '2026-06-12',
 			label: 'Carrefour Market',
@@ -78,8 +86,11 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		allTags: THREE_TAGS,
 		selectedSuggestion: null,
 		categoryOptions: ['Alimentation'],
-		categories: [{ name: 'Alimentation', defaultKey: null }],
+		splitCategoryOptions: [],
+		categories: [{ id: 'cat-alimentation', name: 'Alimentation', defaultKey: null }],
 		natureOptions: TRANSACTION_NATURES,
+		splitFilterAvailable: false,
+		splitCounts: null,
 		filters: {
 			q: '',
 			qMode: 'contains' as const,
@@ -89,7 +100,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			to: '',
 			importBatchId: '',
 			ids: '',
-			tag: ''
+			tag: '',
+			split: 'all'
 		},
 		filteredTotals: { incomeCents: 0, expenseCents: 5420 },
 		queryError: false,

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { beforeNavigate, goto } from '$app/navigation';
+	import { beforeNavigate, goto, invalidateAll } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { navigating } from '$app/state';
 	import { tick } from 'svelte';
@@ -9,11 +9,13 @@
 	import { resolveCategoryColorClass } from '$lib/domain/colors';
 	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
 	import { natureLabel } from '$lib/domain/natureLabels';
-	import { isTransactionNature } from '$lib/domain/transaction';
+	import { isTransactionNature, type TransactionNature } from '$lib/domain/transaction';
 	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
 	import { getInitials } from '$lib/domain/initials';
 	import { buildTransactionsHref, buildTransactionsExportHref, filterHiddenInputs } from './hrefs';
+	import { splitSaveFailureMessage } from './split-save-failure';
 	import { normalizeForMatch } from '$lib/domain/normalize';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import type { ActionData, PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
 	import Modal from '$lib/components/Modal.svelte';
@@ -23,10 +25,12 @@
 	import Select from '$lib/components/ui/Select.svelte';
 	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import ListCard from '$lib/components/ui/ListCard.svelte';
+	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import TransactionProposalCard from '$lib/components/TransactionProposalCard.svelte';
 	import TransactionTagsEditor from '$lib/components/TransactionTagsEditor.svelte';
+	import SplitEditor from '$lib/components/splits/SplitEditor.svelte';
 	import TransactionFocusOverlay from '$lib/components/TransactionFocusOverlay.svelte';
 	import TagChips from '$lib/components/ui/TagChips.svelte';
 	import FilterDropdown from '$lib/components/ui/FilterDropdown.svelte';
@@ -246,8 +250,181 @@
 	 */
 	let tagsDirtyDesktop = $state(false);
 	let tagsDirtyMobile = $state(false);
+	// A fourth source, and it joins the guard for exactly the reason the third did: a répartition in
+	// progress is hand-typed work, and up to twenty rows of it. Losing that to a row click would be
+	// the most expensive silent discard on this page.
+	let splitsDirtyDesktop = $state(false);
+	let splitsDirtyMobile = $state(false);
 	const hasUnsavedChanges = $derived(
-		categoryIsDirty || natureIsDirty || tagsDirtyDesktop || tagsDirtyMobile
+		categoryIsDirty ||
+			natureIsDirty ||
+			tagsDirtyDesktop ||
+			tagsDirtyMobile ||
+			splitsDirtyDesktop ||
+			splitsDirtyMobile
+	);
+
+	/**
+	 * The split editor's presence, design 1b and 1j.
+	 *
+	 * ONE flag for both surfaces, not one each. The desktop panel and the mobile sheet are mounted
+	 * simultaneously — a documented duplication on this page — but only ever one is visible, so a
+	 * per-surface flag would let the mode be on in the hidden one and produce two Save buttons for a
+	 * répartition the user opened once. `dirty` is still mirrored per surface, because that answers a
+	 * different question: which editor is holding work.
+	 */
+	let splitDraftOpen = $state(false);
+	/** 1i: a répartition write is in flight. Set by `use:enhance`, read by both mounts. */
+	let splitSaving = $state(false);
+	/**
+	 * 1i's failure sentence for the answers that never reach `form` — see `split-save-failure.ts`
+	 * for the measurement. ONE flag for both mounts, for the same reason `splitSaving` is one: the
+	 * répartition is opened once and the two surfaces are two views of it, so a per-surface flag
+	 * would leave the hidden one holding a stale failure.
+	 *
+	 * IT CARRIES THE TRANSACTION IT IS ABOUT, and that is not defensive bookkeeping. Selecting
+	 * another row does not remount this page — it changes `?selected=`, so `data` moves and every
+	 * `$state` here does not. A bare string would go on being rendered above a DIFFERENT
+	 * transaction's editor, attributing a failure to a save that was never attempted on it. Scoped
+	 * structurally through `splitSaveFailureForSelection` below rather than through an `$effect`
+	 * that clears it, because a derivation cannot be forgotten by whoever adds the next navigation
+	 * path.
+	 */
+	let splitSaveFailure = $state<{ transactionId: string; message: string } | null>(null);
+	const splitParts = $derived(data.selectedTransaction?.splits ?? []);
+	/**
+	 * Remounts `SplitEditor` when — and only when — the SAVED parts change.
+	 *
+	 * The editor takes a snapshot of its parts at initialisation, deliberately: that snapshot is the
+	 * BEFORE its dirty check compares against, and a reactive one would track the after so nothing
+	 * would ever read as dirty. Under a full-page POST that snapshot was refreshed by the navigation
+	 * remounting the component. `use:enhance` keeps the page, so without this the editor would still
+	 * be comparing against the parts as they were BEFORE the save — « Enregistrer » would stay lit
+	 * on a répartition that was just written, and the reason line would never say « rien n'a changé ».
+	 *
+	 * Keyed on the saved parts rather than on any save at all, which is what makes it safe: a FAILED
+	 * save leaves them untouched, so the editor is not remounted and the user's draft survives —
+	 * exactly what 1i promises with « vos parts sont conservées ». Same for the tab-return refresh
+	 * when nothing has changed.
+	 */
+	const splitPartsSignature = $derived(JSON.stringify(splitParts));
+	/** 1j-B when parts exist, 1j-A once the entry row is pressed. Same editor, same mechanics. */
+	const splitEditorActive = $derived(splitParts.length > 0 || splitDraftOpen);
+
+	// Two ids rather than one, kept apart HERE rather than inside the editor: the sentence belongs to
+	// the editor and the control it explains belongs to this page, so the id has to be owned by
+	// whichever of the two renders twice — and that is this page. See SplitEditor's `parentLockId`.
+	const pageInstanceId = $props.id();
+	const desktopParentLockId = `split-parent-lock-desktop-${pageInstanceId}`;
+	const mobileParentLockId = `split-parent-lock-mobile-${pageInstanceId}`;
+
+	const splitsError = $derived(
+		form && 'splitsError' in form ? (form.splitsError as string) : undefined
+	);
+	/**
+	 * The ONE sentence the editor is handed, whichever half produced it.
+	 *
+	 * THE CLIENT-SIDE SIGNAL WINS, AND THE ORDER IS LOAD-BEARING RATHER THAN ARBITRARY. The two can
+	 * never both describe the same submission — a redirect or a transport error carries no
+	 * `ActionData` — so this only decides what happens ACROSS two submissions, and there the two are
+	 * not equally fresh:
+	 *
+	 * - `splitSaveFailure` is cleared at the start of every submission, so a non-null value can only
+	 *   have come from the most recent one.
+	 * - `splitsError` derives from `form`, which is replaced only by `update()` — and the failure
+	 *   branch is defined as the branch that does NOT call `update()`. So it survives from whichever
+	 *   earlier submission last answered, however long ago.
+	 *
+	 * The first draft of this had the opposite order, with a comment asserting the stale case could
+	 * not arise because "`form` is replaced by `update()` on every submission that answers". True,
+	 * and beside the point: the failing submission is exactly the one that does not answer. A user
+	 * whose sum was refused, and whose session then expired before the retry, was told « les parts
+	 * doivent totaliser… » — a false sentence sending them to re-check arithmetic that was fine,
+	 * while the real cause went unsaid. Found by review, pinned by the two specs below.
+	 */
+	const splitSaveFailureForSelection = $derived(
+		splitSaveFailure && splitSaveFailure.transactionId === data.selectedTransaction?.id
+			? splitSaveFailure.message
+			: null
+	);
+	const splitEditorError = $derived(splitSaveFailureForSelection ?? splitsError ?? undefined);
+
+	/**
+	 * ONE handler for the two `?/saveSplits` mounts, not one each.
+	 *
+	 * They were byte-identical copies before this, which was harmless while they only flipped a
+	 * flag; it stops being harmless the moment they carry a decision about which answers are
+	 * failures. A decision written twice is the shape this repo has been caught by repeatedly —
+	 * the fix lands on the copy that was noticed and the other one goes on shipping the defect.
+	 */
+	const enhanceSplitForm: SubmitFunction = ({ formData }) => {
+		splitSaving = true;
+		// Cleared HERE rather than on success, so the banner belongs to the attempt in flight: a
+		// failure sentence surviving into the next submission would describe a request that is over.
+		splitSaveFailure = null;
+		// Read off the FORM, not off `data.selectedTransaction`: the form field is what the server
+		// acts on, so a banner keyed on it can never be attributed to a row the request did not name.
+		const submittedTransactionId = String(formData.get('transactionId') ?? '');
+		return async ({ result, update }) => {
+			const failure = splitSaveFailureMessage(result);
+			if (failure) {
+				// Deliberately NOT `update()`, and this is the whole fix. `update()` hands the result
+				// to `applyAction`, which follows a redirect with `goto('/login?…')` — taking the
+				// draft with it, or, since the editor is dirty by construction whenever Save can be
+				// pressed, being cancelled by this page's own unsaved-changes guard and asking
+				// « Abandonner les modifications ? » about a save the user believes succeeded.
+				// Measured 2026-08-09; see `split-save-failure.ts`.
+				splitSaveFailure = { transactionId: submittedTransactionId, message: failure };
+				splitSaving = false;
+				return;
+			}
+			// `reset: false` because this editor is state-driven, not value-driven: resetting the
+			// form would clear the native fields under a component that is not reading them.
+			await update({ reset: false });
+			splitSaving = false;
+		};
+	};
+	/**
+	 * 1r, the save-response half. Only the `category` refusal reaches the panel as « choisissez une
+	 * catégorie pour la part N » — every other refusal carries positions too, so the discriminator is
+	 * what stops an over-long note being reported as a missing category.
+	 */
+	const splitsConflictPositions = $derived.by(() => {
+		// Read through one narrow cast rather than `'key' in form`: `ActionData` here is intersected
+		// with `Record<string, unknown>`, so the `in` operator is true for every member of the union
+		// and narrows nothing — the same reason the neighbouring deriveds read a single property each.
+		const result = form as { splitsCategoryConflict?: boolean; splitsPositions?: number[] } | null;
+		return result?.splitsCategoryConflict ? (result.splitsPositions ?? []) : [];
+	});
+	const splitsSavedCount = $derived(
+		form && 'splitsSaved' in form && form.splitsSaved ? (form.splitsCount as number) : null
+	);
+	/**
+	 * 1r's FIRST moment: « aux deux moments où l'application rafraîchit déjà — au retour sur
+	 * l'onglet et à la réponse d'enregistrement. Aucun sondage périodique n'est introduit pour un
+	 * cas qui se compte en unités par an. »
+	 *
+	 * The refresh is the whole mechanism. `SplitEditor` decides the conflict by comparing its draft
+	 * against the options it is currently handed, so reloading is all this has to do, and the second
+	 * moment reuses the same derivation rather than a second code path.
+	 *
+	 * THE GUARDS ARE THE CAREFUL PART, and each is here for a specific reason rather than for
+	 * caution. `invalidateAll` re-runs the load and hands every editor on this page a fresh object.
+	 * The split draft survives that — it is `$state` initialised once, never a `$derived` — but
+	 * `TransactionTagsEditor`'s selection IS a writable `$derived` off `tags`, so it re-derives and
+	 * a pending tag edit would be discarded by a gesture as innocent as coming back to the tab. So:
+	 * only when there is an editor whose conflict this could reveal, and only when no sibling editor
+	 * is holding work the refresh would throw away.
+	 */
+	function handleTabReturn() {
+		if (document.visibilityState !== 'visible') return;
+		if (!splitEditorActive) return;
+		if (categoryIsDirty || natureIsDirty || tagsDirtyDesktop || tagsDirtyMobile) return;
+		invalidateAll();
+	}
+
+	const splitsRemoved = $derived(
+		form && 'splitsRemoved' in form ? Boolean(form.splitsRemoved) : false
 	);
 
 	// Set for exactly one hop, by "Abandonner". Without it, replaying the navigation would be
@@ -312,6 +489,81 @@
 		return categoryLabelByName(name, defaultKeyByName);
 	}
 
+	/**
+	 * ON A RÉPARTIE ROW THE CATÉGORIE COLUMN SHOWS THE DOMINANT PART, NOT THE PARENT (design 1l) —
+	 * AND UNDER A CATEGORY FILTER IT SHOWS THE MATCHED PART INSTEAD OF THE DOMINANT ONE (PR5).
+	 *
+	 * The parent keeps a category, but it is a restoration value rather than a display truth:
+	 * writing « Alimentation » on a transaction of which 20 € went to Maison is false, and false in
+	 * a way that cannot be seen — which is the worst kind. The dot follows the same value, because a
+	 * colour disagreeing with the name beside it is a second false statement rather than a decoration.
+	 *
+	 * `matchedCategoryAllocation` is `null` outside a category filter, so this falls through to the
+	 * pre-PR5 rule exactly. Inside one, the dominant category can differ from the one the filter
+	 * actually found — a row can be dominated by Alimentation while `?category=Loisirs` matched a
+	 * smaller part — and naming the dominant one there would be the same false-but-invisible claim
+	 * the badge exists to prevent, just moved one filter later.
+	 */
+	function rowCategory(tx: (typeof data.transactions)[number]): string {
+		return (
+			tx.matchedCategoryAllocation?.category ?? tx.splitIndicator?.dominantCategory ?? tx.category
+		);
+	}
+
+	/**
+	 * ONE RULE FOR BOTH LINES, category and nature alike. Under OD-4 nature resolves per part, so
+	 * printing a nature that belongs to a different part than the one `rowCategory` just named would
+	 * be self-inconsistent — the two lines would describe different fragments of the same
+	 * transaction. Mirrors `rowCategory` exactly, including the PR5 matched-allocation precedence.
+	 */
+	function rowNature(tx: (typeof data.transactions)[number]): TransactionNature {
+		return tx.matchedCategoryAllocation?.nature ?? tx.splitIndicator?.dominantNature ?? tx.nature;
+	}
+
+	/**
+	 * The matched allocation's amount, but only when it is a genuine FRAGMENT of the row's own
+	 * total — never for an unsplit row (its one allocation IS the total) and never when the filter
+	 * happens to match every part (their sum is the total too). `null` in both of those cases and
+	 * outside a category filter, so the primary amount and the "sur {total}" secondary line both
+	 * fall back to the row's own total exactly as before PR5.
+	 *
+	 * COMPARED AS MAGNITUDES, and that is not defensive rounding — it is what stops this predicate
+	 * depending on a sign convention it does not own. `matched.amountCents` is signed by the row's
+	 * resolved KIND. `tx.amountCents` is signed by whatever the loader decided, and the two write
+	 * paths disagree: manual entry stores a signed value while `import/persist.ts` stores
+	 * `Math.abs(...)` and puts the direction in `type`. Compared signed, an unsplit IMPORTED expense
+	 * reads -4290 against +4290, reports itself a fragment of itself, and renders « -42,90 € » over
+	 * « sur 42,90 € » — the same number twice, one announced as part of the other.
+	 *
+	 * Found by review on this branch alone, and it does NOT reproduce once the loader signs the
+	 * column (a change landing on another branch of this chantier). That is exactly why it is fixed
+	 * HERE rather than left to that: a predicate whose correctness rests on a sibling branch's
+	 * behaviour regresses silently the day that behaviour is reverted, and nothing would point back
+	 * to this line. Magnitudes are true under either convention.
+	 */
+	function rowPartialMatch(
+		tx: (typeof data.transactions)[number]
+	): { category: string; amountCents: number } | null {
+		const matched = tx.matchedCategoryAllocation;
+		return matched && Math.abs(matched.amountCents) !== Math.abs(tx.amountCents) ? matched : null;
+	}
+
+	/** The primary amount a row shows: the matched allocation's when it is a genuine fragment (see
+	 *  `rowPartialMatch`), the transaction's own total otherwise. */
+	function rowAmountCents(tx: (typeof data.transactions)[number]): number {
+		return rowPartialMatch(tx)?.amountCents ?? tx.amountCents;
+	}
+
+	/** The badge renders what it is given, so the sentinel is resolved here rather than inside it. */
+	function badgeParts(
+		indicator: NonNullable<(typeof data.transactions)[number]['splitIndicator']>
+	): Array<{ category: string; amountCents: number }> {
+		return indicator.parts.map((part) => ({
+			category: displayCategory(part.category),
+			amountCents: part.amountCents
+		}));
+	}
+
 	// Maps the flat { id, name, colorToken: string } rows the load returns into TagChips'
 	// TagChipItem shape. `colorToken` arrives as a plain string from the database column, not the
 	// closed TagColorToken union; isTagColorToken re-validates it here rather than casting blindly,
@@ -374,6 +626,7 @@
 		tag?: string;
 		from?: string;
 		to?: string;
+		split?: string;
 	}) {
 		goto(resolve(buildTransactionsHref({ ...data.filters, ...patch }, {}, { keepIds: false })), {
 			keepFocus: true,
@@ -444,6 +697,47 @@
 	);
 
 	/**
+	 * The Répartition dimension. Exactly two rows plus the « Toutes » return row the component
+	 * renders itself — "trois rangées, jamais plus".
+	 *
+	 * The zero row is written « 0 » and aria-disabled, following the tag rows, and the design notes
+	 * that it can only ever be « Non répartie »: the control is not rendered at all until at least
+	 * one répartition exists, so the répartie count cannot be zero while this list is on screen.
+	 * The disabled flag is still computed from the count rather than hard-coded to the unsplit row —
+	 * a rule derived from data outlives the reasoning that made it true today.
+	 */
+	const splitFilterOptions = $derived([
+		{
+			value: 'split',
+			label: m.splits_filter_option_split(),
+			count: data.splitCounts?.splitCount ?? null,
+			disabled: data.splitCounts !== null && data.splitCounts.splitCount === 0
+		},
+		{
+			value: 'unsplit',
+			label: m.splits_filter_option_unsplit(),
+			count: data.splitCounts?.unsplitCount ?? null,
+			disabled: data.splitCounts !== null && data.splitCounts.unsplitCount === 0
+		}
+	]);
+
+	const splitFilterAllCount = $derived(
+		data.splitCounts === null ? null : data.splitCounts.splitCount + data.splitCounts.unsplitCount
+	);
+
+	const activeSplitLabel = $derived(
+		data.filters.split === 'all'
+			? undefined
+			: m.transactions_filter_active_trigger({
+					dimension: m.splits_filter_dimension(),
+					value:
+						data.filters.split === 'split'
+							? m.splits_filter_option_split()
+							: m.splits_filter_option_unsplit()
+				})
+	);
+
+	/**
 	 * Mobile-only: category and tag collapse behind one "Filtres" sheet instead of the desktop's
 	 * two side-by-side dropdowns plus the date range — four controls that fit a 1280px bar but not
 	 * a 390px card without pushing the submit button several swipes down. Search and the date
@@ -452,7 +746,7 @@
 	 * move it out of sight of where it was typed.
 	 */
 	let mobileFiltersOpen = $state(false);
-	let mobileFilterSubDimension = $state<'category' | 'tag' | null>(null);
+	let mobileFilterSubDimension = $state<'category' | 'tag' | 'split' | null>(null);
 
 	function closeMobileFiltersSheet() {
 		mobileFiltersOpen = false;
@@ -555,7 +849,35 @@
 	 * aesthetic gain. The row aimed at therefore stays on its own line at its exact ordinate.
 	 */
 	const detailOpen = $derived(data.selectedTransaction !== null);
-	const colCategory = $derived(detailOpen ? 'w-[140px]' : 'w-[160px]');
+	/**
+	 * CATÉGORIE IS 176/200, NOT THE PLATE'S 140/160, AND THE PLATE'S OWN FIGURE IS WHAT MOVED.
+	 *
+	 * 1m states « à 140 px, "Alimentation" plus le badge occupent 126 px des 140 disponibles ». That
+	 * measured the wrong box: 140 is the COLUMN, and `px-4` on the inner block takes 16 + 16, so the
+	 * usable content is 108. Measured in Chromium at 14px, the real figures are dot 8 + gap 6 + name,
+	 * plus gap 6 + badge 24 when the row is répartie:
+	 *
+	 *   Alimentation        79.28 → 93.28 plain, 123.28 with the badge
+	 *   Abonnements         87.11 → 101.11 plain, 131.11 with the badge
+	 *   Factures & énergie 115.56 → 129.56 plain   (the longest DEFAULT category)
+	 *   Produits ménagers  118.03 → 132.03 plain   (a user-authored one, and the reported case)
+	 *
+	 * So at 108 the plate's own demonstration row truncates, and « Abonnements » truncates at the
+	 * roomy set too. 184 gives 152 of content — 138 to the name on a plain row, 108 with a badge —
+	 * and 200 gives 168, i.e. 154 plain and 124 with a badge. Both hold every label above on a plain
+	 * row, including the 134.28 of « Loisirs et équipement », which 176 still cut by four pixels.
+	 * A répartie row is a different promise and the plate makes it explicitly: « l'ellipse fait son
+	 * travail sans que le décompte ne cède » — the badge is `shrink-0`, so what gives way there is
+	 * the name, never the count.
+	 *
+	 * THE 36/40 px COME FROM LIBELLÉ, THE 1fr COLUMN, AND FROM NOTHING ELSE. Étiquettes has no slack
+	 * to give: `TagChips` caps a chip at 110px, so two chips already exceed the 158 of content that
+	 * 190 leaves — the column is at its own minimum, and it is empty in the reported fixture only by
+	 * accident of that data. Libellé measured 682.5 roomy and 348.5 open against a `max-w-[260px]`
+	 * label, so it is the only column carrying real slack; after the change it is 642.5 and 304.5,
+	 * both still above the 292 that cap plus padding needs.
+	 */
+	const colCategory = $derived(detailOpen ? 'w-[184px]' : 'w-[200px]');
 	const colTags = $derived(detailOpen ? 'w-[190px]' : 'w-[240px]');
 	const colAmount = $derived(detailOpen ? 'w-[110px]' : 'w-[130px]');
 
@@ -710,6 +1032,10 @@
 		openSections = new Set();
 		manualCategoryValue = tx?.manualCategory ?? '';
 		manualNatureValue = tx?.manualNature ?? '';
+		// Same reset as the two above, and for the same reason: an editor opened on one transaction
+		// must not be found open on the next one. After a save the load re-runs and `splitParts` is
+		// what keeps the editor on screen, so this closes the DRAFT only — never a real répartition.
+		splitDraftOpen = false;
 		// Only dismiss a pending delete confirmation when the user actively switches to a
 		// *different* transaction (desktop: clicking another row). Deselecting to null — which
 		// is exactly what the mobile flow does to close the sheet behind the dialog — must not
@@ -807,6 +1133,28 @@
 	 */
 	const buildRowHref = (id: string) =>
 		data.selectedTransaction?.id === id ? buildDeselectedHref() : buildSelectedHref(id);
+
+	/**
+	 * The split form's action, carrying the CURRENT selection and filters through the POST.
+	 *
+	 * A bare `action="?/saveSplits"` posts to `/transactions?/saveSplits`, and that query string is
+	 * the WHOLE query string — `selected` goes with it, so the panel the form lives in is gone by the
+	 * time the response renders. Measured, not reasoned: the first e2e run of this flow saved the
+	 * répartition correctly (the Répartition filter appeared, which only happens once the user owns a
+	 * part) and then found no success banner, because there was no panel left to hold one. SvelteKit
+	 * reads the action from the search param whose key starts with `/`, so every other param riding
+	 * along is preserved rather than parsed.
+	 *
+	 * The three sibling forms in this panel — manual category, manual nature, étiquettes — have the
+	 * same shape and all close the panel on save. That is pre-existing and is left alone here; it
+	 * matters more for this one because 1j-B's edit state and 1i's success message are both things
+	 * the user is meant to SEE after saving.
+	 */
+	const splitFormAction = $derived(
+		data.selectedTransaction
+			? `${buildSelectedHref(data.selectedTransaction.id)}&/saveSplits`
+			: '?/saveSplits'
+	);
 
 	/**
 	 * The ONE way the detail closes, whichever gesture asked for it: the header cross, Escape, a
@@ -1001,6 +1349,9 @@
 			: TABS
 	);
 </script>
+
+<!-- 1r's first moment. The handler itself explains why it is guarded. -->
+<svelte:document onvisibilitychange={handleTabReturn} />
 
 <svelte:head>
 	<title>{m.transactions_page_title()}</title>
@@ -1525,6 +1876,34 @@
 					onApply={(range) => applyFilterDimension(range)}
 					onClear={() => applyFilterDimension({ from: '', to: '' })}
 				/>
+				{#if data.splitFilterAvailable}
+					<!-- LAST among the dimensions, and that placement is the reason it can exist at all:
+					     it is the only one that can be ABSENT, and an absence at the end of a row moves
+					     nobody. Inserted between Catégorie and Période, its appearance would shift two
+					     controls whose position the user had memorised.
+					     Rendered only once at least one répartition exists — ni grisé, ni "aucune
+					     répartition". A visible filter would teach the feature in a toolbar, to someone
+					     who came looking for something else. The condition is evaluated server-side at
+					     view load and nowhere else, so it cannot evaporate under a finger mid-use.
+					     A Dropdown rather than a segmented group like Nature, even though two values plus
+					     "Toutes" would fit one: Nature is ALWAYS rendered, while a segmented group
+					     appearing at once would add ~210px mid-bar and push everything after it. It is
+					     the conditional rendering that chooses the component, not the number of values. -->
+					<FilterDropdown
+						dimensionLabel={m.splits_filter_dimension()}
+						activeLabel={activeSplitLabel}
+						options={splitFilterOptions}
+						value={data.filters.split === 'all' ? '' : data.filters.split}
+						allLabel={m.transactions_filter_all()}
+						allCount={splitFilterAllCount}
+						searchPlaceholder={m.splits_filter_dimension()}
+						clearAriaLabel={m.transactions_filter_clear_aria({
+							dimension: m.splits_filter_dimension()
+						})}
+						onSelect={(split) => applyFilterDimension({ split })}
+						onClear={() => applyFilterDimension({ split: 'all' })}
+					/>
+				{/if}
 				<!-- The search field sits at the RIGHT END of the bar, at 300px, with the regex toggle
 				     INSIDE it. Both halves are section 7's point, and only the first half shipped at
 				     first: the toggle got its bordered box and stayed outside the field, to its left,
@@ -1793,6 +2172,42 @@
 						onApply={(range) => applyFilterDimension(range)}
 						onClear={() => applyFilterDimension({ from: '', to: '' })}
 					/>
+					{#if data.splitFilterAvailable}
+						<!-- Third surface, same grammar and the same conditional rendering as the other
+						     two. Last in the row for the reason 1s gives: it is the only dimension that
+						     can be absent, and an absence at the end moves nobody. -->
+						<span
+							class="inline-flex min-h-11 items-stretch overflow-hidden rounded-xl border bg-white {data
+								.filters.split !== 'all'
+								? 'border-zinc-900'
+								: 'border-zinc-200'}"
+						>
+							<button
+								type="button"
+								class="inline-flex min-h-11 items-center px-2.5 text-sm text-zinc-900"
+								onclick={() => (mobileFilterSubDimension = 'split')}
+							>
+								<span class="max-w-[190px] truncate"
+									>{data.filters.split !== 'all'
+										? activeSplitLabel
+										: m.splits_filter_dimension()}</span
+								>
+							</button>
+							{#if data.filters.split !== 'all'}
+								<span class="w-px self-stretch bg-zinc-200" aria-hidden="true"></span>
+								<button
+									type="button"
+									class="inline-flex min-h-11 min-w-11 items-center justify-center text-zinc-500"
+									aria-label={m.transactions_filter_clear_aria({
+										dimension: m.splits_filter_dimension()
+									})}
+									onclick={() => applyFilterDimension({ split: 'all' })}
+								>
+									<span aria-hidden="true">×</span>
+								</button>
+							{/if}
+						</span>
+					{/if}
 				</div>
 
 				<!-- The "Filtres" sheet: category and tag rows, each showing the vertical form of
@@ -1804,10 +2219,12 @@
 					ariaLabel={m.transactions_filters_sheet_label()}
 					onClose={closeMobileFiltersSheet}
 				>
-					<div class="space-y-1 pb-1">
-						<h2 class="mb-2 text-base font-semibold text-zinc-950">
+					{#snippet header()}
+						<h2 class="text-base font-semibold text-zinc-950">
 							{m.transactions_filters_sheet_label()}
 						</h2>
+					{/snippet}
+					<div class="space-y-1 pb-1">
 						<button
 							type="button"
 							class="flex min-h-[52px] w-full items-center justify-between gap-2 border-b border-zinc-100 py-2 text-left"
@@ -1883,6 +2300,48 @@
 								</svg>
 							</button>
 						{/if}
+						{#if data.splitFilterAvailable}
+							<!-- Same conditional rendering as the desktop trigger, and last for the same
+							     reason. The value sits right, « Toutes » in zinc-400 while the dimension
+							     rests and the value in zinc-900 once set, so the sheet reads down one
+							     column. -->
+							<button
+								type="button"
+								class="flex min-h-[52px] w-full items-center justify-between gap-2 border-b border-zinc-100 py-2 text-left"
+								onclick={() => (mobileFilterSubDimension = 'split')}
+							>
+								<span class="flex min-w-0 flex-col">
+									<span class="text-[11px] font-medium text-zinc-500"
+										>{m.splits_filter_dimension()}</span
+									>
+									<span
+										class="truncate text-sm {data.filters.split !== 'all'
+											? 'font-semibold text-zinc-900'
+											: 'text-zinc-400'}"
+									>
+										{data.filters.split === 'split'
+											? m.splits_filter_option_split()
+											: data.filters.split === 'unsplit'
+												? m.splits_filter_option_unsplit()
+												: m.transactions_filter_all()}
+									</span>
+								</span>
+								<svg
+									class="h-4 w-4 shrink-0 text-zinc-400"
+									viewBox="0 0 20 20"
+									fill="none"
+									aria-hidden="true"
+								>
+									<path
+										d="M7.5 5.5 12 10l-4.5 4.5"
+										stroke="currentColor"
+										stroke-width="1.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									/>
+								</svg>
+							</button>
+						{/if}
 						<Button type="button" class="mt-3 h-11 w-full" onclick={closeMobileFiltersSheet}>
 							{mobileFiltersApplyLabel}
 						</Button>
@@ -1896,10 +2355,12 @@
 					ariaLabel={m.transactions_filter_dimension_category()}
 					onClose={closeMobileFilterSubSheet}
 				>
-					<div class="pb-1">
-						<h2 class="mb-2 text-base font-semibold text-zinc-950">
+					{#snippet header()}
+						<h2 class="text-base font-semibold text-zinc-950">
 							{m.transactions_filter_dimension_category()}
 						</h2>
+					{/snippet}
+					<div class="pb-1">
 						<ul class="divide-y divide-zinc-100">
 							<li>
 								<button
@@ -1937,6 +2398,73 @@
 					</div>
 				</BottomSheet>
 
+				<!-- Répartition sub-sheet: the same three rows the desktop panel renders, with the same
+				     counts and the same zero-count rule — « 0 » and aria-disabled, reachable by the
+				     arrows so the state is announced, never activable. -->
+				{#if data.splitFilterAvailable}
+					<BottomSheet
+						open={mobileFilterSubDimension === 'split'}
+						ariaLabel={m.splits_filter_dimension()}
+						onClose={closeMobileFilterSubSheet}
+					>
+						{#snippet header()}
+							<h2 class="text-base font-semibold text-zinc-950">
+								{m.splits_filter_dimension()}
+							</h2>
+						{/snippet}
+						<div class="pb-1">
+							<ul class="divide-y divide-zinc-100">
+								<li>
+									<button
+										type="button"
+										class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm text-zinc-700"
+										onclick={() => {
+											applyFilterDimension({ split: 'all' });
+											closeMobileFilterSubSheet();
+										}}
+									>
+										<span>{m.transactions_filter_all()}</span>
+										<span class="flex items-center gap-2">
+											{#if splitFilterAllCount !== null}
+												<span class="text-xs text-zinc-500">{splitFilterAllCount}</span>
+											{/if}
+											{#if data.filters.split === 'all'}
+												{@render mobileFilterCheckMark()}
+											{/if}
+										</span>
+									</button>
+								</li>
+								{#each splitFilterOptions as option (option.value)}
+									<li>
+										<button
+											type="button"
+											class="flex min-h-[52px] w-full items-center justify-between gap-2 text-left text-sm {option.disabled
+												? 'text-zinc-400'
+												: 'text-zinc-700'}"
+											aria-disabled={option.disabled ? 'true' : undefined}
+											onclick={() => {
+												if (option.disabled) return;
+												applyFilterDimension({ split: option.value });
+												closeMobileFilterSubSheet();
+											}}
+										>
+											<span class="truncate">{option.label}</span>
+											<span class="flex items-center gap-2">
+												{#if option.count !== null}
+													<span class="text-xs text-zinc-500">{option.count}</span>
+												{/if}
+												{#if option.value === data.filters.split}
+													{@render mobileFilterCheckMark()}
+												{/if}
+											</span>
+										</button>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					</BottomSheet>
+				{/if}
+
 				<!-- Tag sub-sheet: same option set as the desktop tag panel — counts, the scope note, a
 				     zero-count row dimmed but reachable, and the same "Gérer dans Paramètres" footer. -->
 				{#if data.allTags.length > 0}
@@ -1945,10 +2473,14 @@
 						ariaLabel={m.tags_filter_dimension()}
 						onClose={closeMobileFilterSubSheet}
 					>
-						<div class="pb-1">
-							<h2 class="mb-1 text-base font-semibold text-zinc-950">
+						{#snippet header()}
+							<h2 class="text-base font-semibold text-zinc-950">
 								{m.tags_filter_dimension()}
 							</h2>
+						{/snippet}
+						<div class="pb-1">
+							<!-- The scope note stays in the body: it explains the counts, it is not the way
+							     back, and only the way back is owed a fixed place. -->
 							<p class="mb-2 text-xs text-zinc-500">
 								{data.tagCounts === null
 									? m.tags_filter_counts_unavailable()
@@ -2285,18 +2817,45 @@
 												     l'autre, c'est ce qui garde le tableau scannable"). -->
 												<td class="{colCategory} p-0">
 													<div class="{colCategory} px-4 py-3">
-														<div class="flex items-center gap-1.5">
+														<!-- h-6 RESERVES the badge's height on line 1 of EVERY row, répartie or not — the same
+														     decision as the 22px meta line at 390, not a second one. Measured here: an ordinary row
+														     is 63px and a row whose line 1 carries a 24px badge is 66.5, because THIS cell has two
+														     lines (dot+name, then the nature) and is therefore exactly as tall as the Libellé cell,
+														     with no slack to absorb a badge in. The design's « le badge est gratuit » is true of the
+														     single-line cell it draws and false of the one shipped here. Reserving costs every
+														     desktop row 3.5px once, instead of letting the rows carrying a badge grow past those
+														     that do not. Reserve the height on the line; never let the content push it.
+
+											     min-h-6 rather than h-6, and that is not a detail. A fixed height CLAMPS the
+											     badge: a margin added to it then overflows this line silently instead of growing
+											     the row, and the row-height guard — the one that exists to catch exactly that —
+											     goes GREEN on the tags chantier's own regression. Found by break-checking with
+											     h-6 in place. A minimum reserves the same 24px and leaves the failure visible. -->
+														<div class="flex min-h-6 items-center gap-1.5">
 															<span
 																class="h-2 w-2 shrink-0 rounded-full {getCategoryColor(
-																	tx.category
+																	rowCategory(tx)
 																)}"
 															></span>
 															<span class="min-w-0 truncate text-zinc-700"
-																>{displayCategory(tx.category)}</span
+																>{displayCategory(rowCategory(tx))}</span
 															>
+															<!-- The badge is `shrink-0` and the name is `min-w-0 truncate`, which is what
+															     guarantees the count survives any category name: the ellipse does the work
+															     rather than the number being cut off. What the ellipse must NOT do is fire
+															     on an ordinary label, which is why the column is 176/200 rather than the
+															     plate's 140/160 — see `colCategory` for the measured figures. -->
+															{#if tx.splitIndicator}
+																<SplitBadge
+																	parts={badgeParts(tx.splitIndicator)}
+																	otherCategoryCount={tx.splitIndicator.otherCategoryCount}
+																	dominantCategory={displayCategory(rowCategory(tx))}
+																	interactive
+																/>
+															{/if}
 														</div>
 														<p class="mt-0.5 ml-3.5 truncate text-xs text-zinc-500">
-															{formatNatureLabel(tx.nature)}
+															{formatNatureLabel(rowNature(tx))}
 														</p>
 													</div>
 												</td>
@@ -2321,13 +2880,25 @@
 												     state — a realistic amount fits the column — but it decides what happens when one
 												     does not, and silently stealing width from Libellé is not it. -->
 												<td class="{colAmount} p-0">
-													<div
-														class="{colAmount} truncate px-4 py-3 text-right font-semibold tabular-nums {tx.type ===
-														'income'
-															? 'text-emerald-700'
-															: 'text-rose-600'}"
-													>
-														{formatCents(tx.amountCents)}
+													<div class="{colAmount} px-4 py-3 text-right">
+														<div
+															class="truncate font-semibold tabular-nums {tx.type === 'income'
+																? 'text-emerald-700'
+																: 'text-rose-600'}"
+														>
+															{formatCents(rowAmountCents(tx))}
+														</div>
+														<!-- PR5: only under a category filter, and only when the primary figure above is a
+														     FRAGMENT of this row's own total (see rowPartialMatch). Measured free: the amount
+														     cell's own headroom (44px used of the 67px the Libellé cell sets) absorbs this
+														     second line at every 1280 column width, roomy or panel-open, and at 390. -->
+														{#if rowPartialMatch(tx)}
+															<p class="mt-0.5 truncate text-xs text-zinc-400">
+																{m.transactions_row_matched_of({
+																	amount: formatCents(tx.amountCents)
+																})}
+															</p>
+														{/if}
 													</div>
 												</td>
 											</tr>
@@ -2507,11 +3078,29 @@
 								<!-- Catégorie manuelle -->
 								<section class="rounded-xl border border-zinc-200 p-3">
 									<h3 class="text-sm font-semibold">{m.transactions_manual_category_heading()}</h3>
+									{#if splitsSavedCount !== null}
+										<AlertBanner variant="success" size="sm" class="mt-2">
+											{m.splits_success_saved({ count: splitsSavedCount })}
+										</AlertBanner>
+									{:else if splitsRemoved}
+										<!-- Names the recovered category, which is what makes the removal obviously
+										     lossless without a dialog having promised it in advance (1i). -->
+										<AlertBanner variant="success" size="sm" class="mt-2">
+											{m.splits_success_removed({
+												category: displayCategory(data.selectedTransaction.category)
+											})}
+										</AlertBanner>
+									{/if}
 									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualCategory">
 										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 										<input type="hidden" name="manualCategory" value={manualCategoryValue} />
 										<label class="grid gap-1 text-sm font-medium text-zinc-600">
 											<span class="sr-only">{m.budgets_field_category()}</span>
+											<!--
+												D1 / 1j: neutralised IN SITU, never hidden and never silently ignored.
+												`softDisabled` rather than `disabled` so it keeps its place in the tab
+												order and can point at the sentence the editor renders below.
+											-->
 											<Combobox
 												value={manualCategoryValue}
 												options={[
@@ -2523,6 +3112,8 @@
 												]}
 												placeholder={m.transactions_automatic()}
 												ariaLabel={m.transactions_manual_category_heading()}
+												softDisabled={splitEditorActive}
+												aria-describedby={splitEditorActive ? desktopParentLockId : undefined}
 												onValueChange={(v) => {
 													manualCategoryValue = v;
 												}}
@@ -2535,7 +3126,14 @@
 											<Button type="submit" size="sm" disabled={!categoryIsDirty}
 												>{m.common_save()}</Button
 											>
-											{#if data.selectedTransaction.manualCategory}
+											<!--
+												Withheld while the editor is open, and this is not cosmetic: this button
+												submits `manualCategory=""`, which is a WRITE to the parent's category —
+												the one thing D1 forbids while parts exist. The server refuses it anyway
+												(`saveManualCategory` carries `splits: { none: {} }`), so offering it
+												would be offering a button whose only outcome is a silent refusal.
+											-->
+											{#if data.selectedTransaction.manualCategory && !splitEditorActive}
 												<Button
 													type="submit"
 													variant="secondary"
@@ -2546,10 +3144,63 @@
 											{/if}
 										</div>
 									</form>
+
+									<!--
+										1b: ONE action, 44px, directly under the selector, in the card it modifies —
+										« on la trouve au moment exact où l'on constate qu'une catégorie ne suffit
+										pas ». Not an overflow menu and not a footer button: that would make it a
+										feature to discover instead of an answer to a difficulty. The label says what
+										will happen rather than naming the feature.
+									-->
+									{#if data.selectedTransaction.splitEntryAvailable}
+										<button
+											type="button"
+											class="mt-2 flex min-h-[44px] w-full items-center gap-2 rounded-xl px-1 text-left text-sm font-medium text-zinc-700 hover:bg-zinc-50 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+											onclick={() => (splitDraftOpen = true)}
+										>
+											<svg
+												viewBox="0 0 20 20"
+												class="h-4 w-4 shrink-0"
+												fill="none"
+												aria-hidden="true"
+											>
+												<path
+													d="M4 6h12M4 10h7M4 14h9"
+													stroke="currentColor"
+													stroke-width="1.5"
+													stroke-linecap="round"
+												/>
+											</svg>
+											{m.splits_entry_action()}
+										</button>
+									{/if}
+
 									<p class="mt-2">
 										<TapLink href="/categories">{m.transactions_manage_categories_link()}</TapLink>
 									</p>
 								</section>
+
+								<!-- Répartition — spec §9.1's fourth sibling section -->
+								{#if splitEditorActive}
+									<section class="rounded-xl border border-zinc-200 p-3">
+										<form method="POST" action={splitFormAction} use:enhance={enhanceSplitForm}>
+											{#key splitPartsSignature}
+												<SplitEditor
+													transactionId={data.selectedTransaction.id}
+													amountCents={data.selectedTransaction.amountCents}
+													parentCategoryId={data.selectedTransaction.splitInheritCategoryId ?? ''}
+													categoryOptions={data.splitCategoryOptions}
+													existingParts={splitParts.length > 0 ? splitParts : null}
+													conflictPositions={splitsConflictPositions}
+													error={splitEditorError}
+													parentLockId={desktopParentLockId}
+													saving={splitSaving}
+													bind:dirty={splitsDirtyDesktop}
+												/>
+											{/key}
+										</form>
+									</section>
+								{/if}
 
 								<!-- Nature manuelle -->
 								<section class="rounded-xl border border-zinc-200 p-3">
@@ -2992,21 +3643,56 @@
 										<Avatar initials={getInitials(tx.label)} size={32} />
 										<div class="min-w-0 flex-1">
 											<p class="truncate text-[14.5px] font-semibold text-zinc-900">{tx.label}</p>
-											<div class="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-400">
+											<!-- PINNED TO 22px ON EVERY ROW, badge or no badge (design 1n/1o). An ordinary
+											     meta line is 15px and the badge is 22 including its borders, so a répartie row
+											     grew by 7 — the tags chantier's regression exactly: a component taller than the
+											     line hosting it. The height is RESERVED here rather than paid by the rows that
+											     carry one, which costs every 390 row 7px and about one row per screen at 844.
+											     That is the price of a table whose height does not depend on its content, and
+											     the alternative (a 15px badge) falls under the 24px target floor the moment it
+											     becomes interactive again. Reserve the height on the line; never let the
+											     content push it. -->
+											<div class="mt-0.5 flex h-[22px] items-center gap-1.5 text-xs text-zinc-400">
 												<span
-													class="h-1.5 w-1.5 shrink-0 rounded-full {getCategoryColor(tx.category)}"
+													class="h-1.5 w-1.5 shrink-0 rounded-full {getCategoryColor(
+														rowCategory(tx)
+													)}"
 												></span>
-												<span class="truncate"
-													>{displayCategory(tx.category)} · {formatNatureLabel(tx.nature)}</span
-												>
+												<!-- TWO SPANS, NOT ONE, AND THAT IS 1n'S OWN STRUCTURE: the category is the
+												     single element carrying `text-overflow: ellipsis` and everything beside it
+												     is `flex-shrink:0`. Shipped as one span the ellipse landed on whatever came
+												     last, which here is the NATURE — « Produits ménagers · Dépense… », a word
+												     cut out of a closed set of seven, where a cut CATEGORY still reads as a
+												     recognisable prefix of a name the user wrote. Same one line, same 22px, same
+												     content; only which of the two gives way changes. -->
+												<span class="min-w-0 truncate">{displayCategory(rowCategory(tx))}</span>
+												<span class="shrink-0">· {formatNatureLabel(rowNature(tx))}</span>
+												<!-- Inert at 390: a 22px target glued to a full-row target is two destinations
+												     under one thumb. The sentence that replaces « fois deux » travels inside the
+												     component, so nothing here can render a badge without its explanation. -->
+												{#if tx.splitIndicator}
+													<SplitBadge
+														parts={badgeParts(tx.splitIndicator)}
+														otherCategoryCount={tx.splitIndicator.otherCategoryCount}
+														dominantCategory={displayCategory(rowCategory(tx))}
+													/>
+												{/if}
 											</div>
 										</div>
-										<div
-											class="shrink-0 text-[14.5px] font-bold tabular-nums {tx.type === 'income'
-												? 'text-emerald-600'
-												: 'text-rose-600'}"
-										>
-											{formatCents(tx.amountCents)}
+										<div class="shrink-0 text-right">
+											<div
+												class="text-[14.5px] font-bold tabular-nums {tx.type === 'income'
+													? 'text-emerald-600'
+													: 'text-rose-600'}"
+											>
+												{formatCents(rowAmountCents(tx))}
+											</div>
+											<!-- PR5: same rule as the desktop amount cell — see the comment there. -->
+											{#if rowPartialMatch(tx)}
+												<p class="mt-0.5 text-xs text-zinc-400">
+													{m.transactions_row_matched_of({ amount: formatCents(tx.amountCents) })}
+												</p>
+											{/if}
 										</div>
 									</div>
 									{#if tx.tags.length > 0}
@@ -3195,10 +3881,14 @@
 		? data.selectedTransaction.label
 		: m.transactions_detail_heading()}
 	onClose={closeMobileSheet}
+	initialFocus="panel"
 >
-	{#if data.selectedTransaction}
-		<div class="flex flex-col gap-4">
-			<!-- En-tête -->
+	<!-- The date row and the label are the sheet's identity, so they sit in the fixed header rather
+	     than at the top of the scrolling body: the body is 689px of panel against 936px of content,
+	     measured at 390x844, and the label used to travel 247px out of view on the way down. Only
+	     the identity is lifted — the amount and everything below it keep scrolling. -->
+	{#snippet header()}
+		{#if data.selectedTransaction}
 			<div class="flex flex-col gap-1.5">
 				<div class="flex items-center justify-between">
 					<span class="text-[12.5px] font-medium text-zinc-400"
@@ -3218,6 +3908,12 @@
 				<p class="text-[17px] font-bold tracking-tight text-zinc-900">
 					{data.selectedTransaction.label}
 				</p>
+			</div>
+		{/if}
+	{/snippet}
+	{#if data.selectedTransaction}
+		<div class="flex flex-col gap-4">
+			<div class="flex flex-col gap-1.5">
 				<p
 					class="text-[30px] font-extrabold tracking-tight tabular-nums {data.selectedTransaction
 						.type === 'income'
@@ -3283,7 +3979,9 @@
 					<h3 class="text-[13px] font-bold text-zinc-900">
 						{m.transactions_manual_category_heading()}
 					</h3>
-					{#if data.selectedTransaction.manualCategory}
+					<!-- Withheld while the editor is open for the same reason as its desktop twin: it
+					     writes the parent's category, which is what D1 forbids while parts exist. -->
+					{#if data.selectedTransaction.manualCategory && !splitEditorActive}
 						<button
 							type="button"
 							class="flex min-h-[44px] items-center border-0 bg-transparent p-0 text-xs font-semibold text-zinc-500 underline"
@@ -3296,6 +3994,17 @@
 						</button>
 					{/if}
 				</div>
+				{#if splitsSavedCount !== null}
+					<AlertBanner variant="success" size="sm">
+						{m.splits_success_saved({ count: splitsSavedCount })}
+					</AlertBanner>
+				{:else if splitsRemoved}
+					<AlertBanner variant="success" size="sm">
+						{m.splits_success_removed({
+							category: displayCategory(data.selectedTransaction.category)
+						})}
+					</AlertBanner>
+				{/if}
 				<form
 					bind:this={mobileCategoryFormEl}
 					class="flex flex-col gap-2"
@@ -3312,6 +4021,8 @@
 						]}
 						placeholder={m.transactions_automatic()}
 						ariaLabel={m.transactions_manual_category_heading()}
+						softDisabled={splitEditorActive}
+						aria-describedby={splitEditorActive ? mobileParentLockId : undefined}
 						onValueChange={(v) => {
 							manualCategoryValue = v;
 						}}
@@ -3330,10 +4041,54 @@
 						{m.common_save()}
 					</Button>
 				</form>
+
+				<!-- 1b, the mobile twin: 48px here, since every control inside the sheet goes to 48 and
+				     « le plancher de 44 l'emporte sans exception d'écran ». -->
+				{#if data.selectedTransaction.splitEntryAvailable}
+					<button
+						type="button"
+						class="flex min-h-12 w-full items-center gap-2 rounded-xl bg-zinc-50 px-3 text-left text-sm font-medium text-zinc-700 focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none"
+						onclick={() => (splitDraftOpen = true)}
+					>
+						<svg viewBox="0 0 20 20" class="h-4 w-4 shrink-0" fill="none" aria-hidden="true">
+							<path
+								d="M4 6h12M4 10h7M4 14h9"
+								stroke="currentColor"
+								stroke-width="1.5"
+								stroke-linecap="round"
+							/>
+						</svg>
+						{m.splits_entry_action()}
+					</button>
+				{/if}
+
 				<p>
 					<TapLink href="/categories">{m.transactions_manage_categories_link()}</TapLink>
 				</p>
 			</section>
+
+			<!-- Répartition -->
+			{#if splitEditorActive}
+				<section class="flex flex-col gap-2">
+					<form method="POST" action={splitFormAction} use:enhance={enhanceSplitForm}>
+						{#key splitPartsSignature}
+							<SplitEditor
+								transactionId={data.selectedTransaction.id}
+								amountCents={data.selectedTransaction.amountCents}
+								parentCategoryId={data.selectedTransaction.splitInheritCategoryId ?? ''}
+								categoryOptions={data.splitCategoryOptions}
+								existingParts={splitParts.length > 0 ? splitParts : null}
+								conflictPositions={splitsConflictPositions}
+								error={splitEditorError}
+								parentLockId={mobileParentLockId}
+								saving={splitSaving}
+								size="lg"
+								bind:dirty={splitsDirtyMobile}
+							/>
+						{/key}
+					</form>
+				</section>
+			{/if}
 
 			<!-- Nature -->
 			<section class="flex flex-col gap-2">

@@ -4,6 +4,9 @@ const tx = vi.hoisted(() => ({
 	session: {
 		deleteMany: vi.fn()
 	},
+	transaction: {
+		deleteMany: vi.fn()
+	},
 	user: {
 		delete: vi.fn(),
 		update: vi.fn()
@@ -240,10 +243,11 @@ describe('/admin action deleteUser', () => {
 	});
 
 	it("supprime les sessions puis le compte de l'utilisateur cible", async () => {
-		expect.assertions(3);
+		expect.assertions(5);
 
 		db.prisma.user.findUnique.mockResolvedValue({ id: 'user-b' });
 		tx.session.deleteMany.mockResolvedValue({ count: 1 });
+		tx.transaction.deleteMany.mockResolvedValue({ count: 3 });
 		tx.user.delete.mockResolvedValue({ id: 'user-b' });
 
 		const result = await runDeleteUser({ targetUserId: 'user-b' }, ADMIN);
@@ -251,6 +255,17 @@ describe('/admin action deleteUser', () => {
 		expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-b' } });
 		expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-b' } });
 		expect(result).toEqual({ deleteSuccess: expect.any(String) });
+
+		// Transactions BEFORE the user, and the ORDER is the assertion rather than the call.
+		// Deleting a user cascades into Category and Transaction in whatever order the engine
+		// picks, and TransactionSplit is RESTRICT on Category — so on PostgreSQL the bare
+		// `user.delete` fails outright for anyone who has ever split a transaction. Measured on
+		// three engines in transactions/splits.db-smoke.ts; pinned here so the line cannot be
+		// removed as redundant.
+		expect(tx.transaction.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-b' } });
+		expect(tx.transaction.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+			tx.user.delete.mock.invocationCallOrder[0]
+		);
 	});
 });
 

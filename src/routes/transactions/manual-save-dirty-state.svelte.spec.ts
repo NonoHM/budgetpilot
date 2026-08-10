@@ -34,10 +34,18 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 				type: 'expense' as const,
 				source: 'Carrefour Market SA',
 				tags: [],
+				splitIndicator: null,
+				matchedCategoryAllocation: null,
 				suggestion: null
 			}
 		],
 		selectedTransaction: {
+			// The three fields the split editor reads. Spelled out rather than defaulted, for the reason
+			// EFFECTIVE_CATEGORY_SELECT's `splits` is required: an absent répartition and a forgotten
+			// one look identical the moment either is optional.
+			splits: [],
+			splitInheritCategoryId: null,
+			splitEntryAvailable: false,
 			id: 'tx-1',
 			date: '2026-06-12',
 			label: 'Carrefour Market',
@@ -66,12 +74,15 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		allTags: [],
 		selectedSuggestion: null,
 		categoryOptions: ['Alimentation', 'Abonnements', 'Loisirs'],
+		splitCategoryOptions: [],
 		categories: [
-			{ name: 'Alimentation', defaultKey: null },
-			{ name: 'Abonnements', defaultKey: null },
-			{ name: 'Loisirs', defaultKey: null }
+			{ id: 'cat-alimentation', name: 'Alimentation', defaultKey: null },
+			{ id: 'cat-abonnements', name: 'Abonnements', defaultKey: null },
+			{ id: 'cat-loisirs', name: 'Loisirs', defaultKey: null }
 		],
 		natureOptions: TRANSACTION_NATURES,
+		splitFilterAvailable: false,
+		splitCounts: null,
 		filters: {
 			q: '',
 			qMode: 'contains' as const,
@@ -81,7 +92,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			to: '',
 			importBatchId: '',
 			ids: '',
-			tag: ''
+			tag: '',
+			split: 'all'
 		},
 		filteredTotals: { incomeCents: 0, expenseCents: 5420 },
 		queryError: false,

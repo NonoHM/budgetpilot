@@ -4,6 +4,7 @@ import {
 } from './profiles/banque-populaire';
 import { matchesGenericHeader, parseGenericRows } from './profiles/generic';
 import { matchesMaisonHeader, parseMaisonRows } from './profiles/maison';
+import { matchesMaisonV2Header, parseMaisonV2Rows } from './profiles/maison-v2';
 import { matchesRevolutHeader, parseRevolutRows } from './profiles/revolut';
 import type { CsvImportProfile, CsvProfileParser, ResolvedCsvImportProfile } from './types';
 
@@ -17,6 +18,15 @@ export const csvProfileParsers: CsvProfileParser[] = [
 		profile: 'revolut',
 		matches: matchesRevolutHeader,
 		parse: parseRevolutRows
+	},
+	// TWO parsers share the `maison` name, and that is the versioning: v2 recognises the header the
+	// export writes today, v1 the seven-column header a user's older file still carries. Neither
+	// matches the other's shape (both check an exact column count), so order between them is a
+	// preference rather than a hazard — but both must sit before `generic`, whose match is loose.
+	{
+		profile: 'maison',
+		matches: matchesMaisonV2Header,
+		parse: parseMaisonV2Rows
 	},
 	{
 		profile: 'maison',
@@ -38,9 +48,13 @@ export function resolveProfile(
 		return csvProfileParsers.find((parser) => parser.matches(headers)) ?? null;
 	}
 
-	const parser = csvProfileParsers.find(
-		(candidate) => candidate.profile === (profile as ResolvedCsvImportProfile)
+	// The match is part of the lookup, not a check applied after it: a profile can be served by more
+	// than one parser (see `maison` above), and finding the first parser NAMED `maison` and then
+	// asking whether it matches would answer `null` for a v2 file whenever v1 happened to be first.
+	return (
+		csvProfileParsers.find(
+			(candidate) =>
+				candidate.profile === (profile as ResolvedCsvImportProfile) && candidate.matches(headers)
+		) ?? null
 	);
-	if (!parser) return null;
-	return parser.matches(headers) ? parser : null;
 }

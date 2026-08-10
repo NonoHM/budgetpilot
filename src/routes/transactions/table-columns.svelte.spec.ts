@@ -47,6 +47,8 @@ function makeTransaction(overrides: Record<string, unknown> = {}) {
 		manualNature: null,
 		natureSource: 'category' as const,
 		source: 'manual' as const,
+		splitIndicator: null,
+		matchedCategoryAllocation: null,
 		suggestion: null,
 		tags: [],
 		...overrides
@@ -71,7 +73,44 @@ const ROWS = [
 			{ id: 'tag-2', name: 'Remboursable Marc', colorToken: 'ochre' }
 		]
 	}),
-	makeTransaction({ id: 'tx-amount', amountCents: -99999999999 })
+	makeTransaction({ id: 'tx-amount', amountCents: -99999999999 }),
+	// Two répartie shapes (design 1l–1o). The badge is `shrink-0` beside a `min-w-0 truncate` name,
+	// so the case that matters is a LONG UNBREAKABLE dominant category carrying a count: the column
+	// holds 160/140 only if the name yields and the number does not. A short category with a badge
+	// would pass whatever either of them did.
+	makeTransaction({
+		id: 'tx-split-many',
+		splitIndicator: {
+			dominantCategory: UNBREAKABLE,
+			dominantNature: 'spending' as const,
+			otherCategoryCount: 5,
+			partCount: 6,
+			parts: [
+				{ category: UNBREAKABLE, amountCents: -2000 },
+				{ category: 'Maison', amountCents: -1000 },
+				{ category: 'Transport', amountCents: -800 },
+				{ category: 'Énergie', amountCents: -600 },
+				{ category: 'Loisirs', amountCents: -500 },
+				{ category: 'Santé', amountCents: -310 }
+			]
+		}
+	}),
+	// The « ×2 » form, which renders at a different width — two characters against three — and is
+	// the one shape that exists at all only because a bare category name would be indistinguishable
+	// from an unsplit row.
+	makeTransaction({
+		id: 'tx-split-same',
+		splitIndicator: {
+			dominantCategory: 'Restaurants',
+			dominantNature: 'spending' as const,
+			otherCategoryCount: 0,
+			partCount: 2,
+			parts: [
+				{ category: 'Restaurants', amountCents: -2605 },
+				{ category: 'Restaurants', amountCents: -2605 }
+			]
+		}
+	})
 ];
 
 function baseData(overrides: Record<string, unknown> = {}): PageData {
@@ -81,9 +120,12 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedTransaction: null,
 		selectedSuggestion: null,
 		categoryOptions: ['Restaurants'],
-		categories: [{ name: 'Restaurants', defaultKey: null }],
+		splitCategoryOptions: [],
+		categories: [{ id: 'cat-restaurants', name: 'Restaurants', defaultKey: null }],
 		allTags: [],
 		natureOptions: TRANSACTION_NATURES,
+		splitFilterAvailable: false,
+		splitCounts: null,
 		filters: {
 			q: '',
 			qMode: 'contains' as const,
@@ -93,7 +135,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 			to: '',
 			importBatchId: '',
 			ids: '',
-			tag: ''
+			tag: '',
+			split: 'all'
 		},
 		filteredTotals: { incomeCents: 0, expenseCents: 5210 },
 		queryError: false,
@@ -149,6 +192,28 @@ function rowHeights(container: HTMLElement): number[] {
 	);
 }
 
+/**
+ * The longest label the app's OWN default catalogue can produce (`server/categories/defaults.ts`),
+ * and the longest one measured on a real instance. Both must render whole on a plain row, which is
+ * the property the 184/200 column set exists for — see `colCategory` in `+page.svelte` for the
+ * measured widths.
+ *
+ * Read from the catalogue rather than retyped would be better still, but the catalogue is a server
+ * module and this is a browser spec; the pairing is pinned by `defaults.spec.ts` instead, which
+ * fails if `Factures & énergie` is renamed.
+ */
+const LONGEST_DEFAULT = 'Factures & énergie';
+const LONGEST_MEASURED = 'Produits ménagers';
+
+/** Every category name rendered on a PLAIN row, with whether the ellipse fired on it. */
+function truncatedCategories(container: HTMLElement): string[] {
+	return [...container.querySelectorAll('table tbody tr')]
+		.map((tr) => tr.querySelectorAll('td')[1]?.querySelector('span.truncate'))
+		.filter((span): span is HTMLElement => span instanceof HTMLElement)
+		.filter((span) => span.scrollWidth > span.clientWidth)
+		.map((span) => (span.textContent ?? '').trim());
+}
+
 describe('the table holds its column set whatever the content', () => {
 	it('pins Catégorie, Étiquettes and Montant in both column sets, and keeps every row one height', async () => {
 		expect.assertions(5);
@@ -160,18 +225,62 @@ describe('the table holds its column set whatever the content', () => {
 		const roomy = render(Page, { data: baseData(), form: null });
 		const roomyCols = columnWidths(roomy.container);
 		// Libellé is `1fr` and is the ONLY column allowed to move: it absorbs the slack.
-		expect(roomyCols.slice(1)).toEqual([160, 240, 130]);
-		// One height for every row, including the two long-category rows. A wrapped category grows
-		// its row, and a table whose row height follows its content stops being scannable.
+		//
+		// 200/184, not the design plate's 160/140: the plate's §1m sized the COLUMN where it meant
+		// the CONTENT, and at `px-4` the content is 32px narrower, so every label past
+		// « Investissement » ellipsed on an ordinary row. The figures moved with the plate; see
+		// `colCategory`. The `truncates nothing` test below is what makes this pair meaningful —
+		// on its own a width is a number nobody can read a defect out of.
+		expect(roomyCols.slice(1)).toEqual([200, 240, 130]);
+		// One height for every row, including the two long-category rows and the two répartie ones.
+		// A wrapped category grows its row, and a table whose row height follows its content stops
+		// being scannable. The badge is free only as long as it stays under the height the Libellé
+		// cell's two lines already fix — which is a claim about MARGINS, not about the badge's own
+		// 24px, and it is the claim the tags chantier got wrong.
 		expect(new Set(rowHeights(roomy.container)).size).toBe(1);
 		roomy.unmount();
 
 		const tight = render(Page, { data: selected(), form: null });
 		const tightCols = columnWidths(tight.container);
-		expect(tightCols.slice(1)).toEqual([140, 190, 110]);
+		expect(tightCols.slice(1)).toEqual([184, 190, 110]);
 		expect(new Set(rowHeights(tight.container)).size).toBe(1);
 		// And the narrowing is the ONLY thing that moved the 1fr column: it gave up width to the
 		// panel rather than to a neighbour that refused to shrink.
 		expect(tightCols[0]).toBeLessThan(roomyCols[0]);
+	});
+
+	/**
+	 * The property the widths exist FOR, asserted separately from the widths themselves.
+	 *
+	 * A width is a number; it cannot say whether a name fits, because whether it fits depends on the
+	 * cell's padding, the colour dot, the gap and the font — four things that can each move without
+	 * the width moving. Pinning only the figure is how « Produits ménagers » came to ellipse beside
+	 * a 240px Étiquettes column that was entirely empty.
+	 *
+	 * ABSOLUTE, not comparative: `../../lib/components/.../layout.css` is imported at the top of this
+	 * file, and a geometry spec whose stylesheet never loaded measures UA defaults while reporting
+	 * plausible numbers. The unbreakable name below is what proves the environment exists at all —
+	 * it MUST truncate, and a run with no stylesheet has no `truncate` rule to fire.
+	 */
+	it('truncates nothing an ordinary row can carry, at either column set', async () => {
+		expect.assertions(4);
+		await page.viewport(1280, 800);
+
+		const rows = [
+			makeTransaction({ id: 'tx-default-longest', category: LONGEST_DEFAULT }),
+			makeTransaction({ id: 'tx-measured-longest', category: LONGEST_MEASURED }),
+			makeTransaction({ id: 'tx-cat-unbreakable', category: UNBREAKABLE })
+		];
+
+		const roomy = render(Page, { data: baseData({ transactions: rows }), form: null });
+		// Only the 40-character unbreakable one gives way, and it is the calibration: something has
+		// to fire, or the `truncate` class is not in effect and this test proves nothing.
+		expect(truncatedCategories(roomy.container)).toEqual([UNBREAKABLE]);
+		expect(truncatedCategories(roomy.container)).not.toContain(LONGEST_DEFAULT);
+		roomy.unmount();
+
+		const tight = render(Page, { data: selected({ transactions: rows }), form: null });
+		expect(truncatedCategories(tight.container)).toEqual([UNBREAKABLE]);
+		expect(truncatedCategories(tight.container)).not.toContain(LONGEST_MEASURED);
 	});
 });

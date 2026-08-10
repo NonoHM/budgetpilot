@@ -1,6 +1,7 @@
 import { fail, isHttpError, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
-import { summarizeBudgetTransactions } from '$lib/domain/budget';
+import { summarizeBudgetAllocations } from '$lib/domain/budget';
+import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import {
@@ -29,22 +30,22 @@ const MAX_DASHBOARD_GOALS = 2;
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
 	const period = parseDateRange(url.searchParams);
-	const { transactions, budgets } = await readDashboardDataForRange(user.id, period);
+	const { transactions, allocations, budgets } = await readDashboardDataForRange(user.id, period);
 	const budgetSummaryAvailable = isWholeMonthPeriod(period.from, period.to);
 	const previousPeriod = getPreviousMonthRange(period);
 	const previousMonthData = previousPeriod
 		? await readDashboardData(user.id, previousPeriod.budgetMonth)
 		: undefined;
-	const summary = summarizeBudgetTransactions(
-		transactions,
+	const summary = summarizeBudgetAllocations(
+		allocations,
 		budgetSummaryAvailable ? budgets : [],
 		period.label
 	);
 	const previousSummary =
 		previousMonthData &&
 		(previousMonthData.transactions.length > 0 || previousMonthData.budgets.length > 0)
-			? summarizeBudgetTransactions(
-					previousMonthData.transactions,
+			? summarizeBudgetAllocations(
+					previousMonthData.allocations,
 					previousMonthData.budgets,
 					previousPeriod?.label ?? m.dashboard_previous_period_fallback()
 				)
@@ -83,6 +84,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const aiAdvice = aiAllowed
 		? getBudgetInsights({
 				transactions,
+				allocations,
 				monthlySummary: summary,
 				previousMonth: previousSummary,
 				env: process.env,
@@ -94,6 +96,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				}))
 				.catch(() => ({ insights: [], unavailable: true }))
 		: null;
+	// Computed once over the period's allocations, not per row: `recentTransactions` only ever
+	// looks up the first 10, but the map itself is built from the whole set exactly once.
+	const recentSplitIndicators = splitIndicatorsByTransactionId(allocations);
 
 	return {
 		categoryOptions: categories.map((c) => c.name),
@@ -105,10 +110,16 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		transactions,
 		budgets,
 		summary,
-		natureAnalysis: analyzeTransactionNatures(transactions),
+		natureAnalysis: analyzeTransactionNatures(allocations),
 		aiAdvice,
 		aiAllowed,
-		recentTransactions: transactions.slice(0, 10),
+		// Parent-shaped, like the identity view it's sliced from — never re-ranked or relabelled
+		// from a répartition's parts (same OD-3 posture as reports/monthly.ts's largestExpenses).
+		// `splitIndicator` only flags that a répartition exists; `null` for an unsplit row.
+		recentTransactions: transactions.slice(0, 10).map((transaction) => ({
+			...transaction,
+			splitIndicator: recentSplitIndicators.get(transaction.id) ?? null
+		})),
 		insights,
 		savingsGoals: savingsGoals.slice(0, MAX_DASHBOARD_GOALS),
 		savingsGoalsOverflowCount: Math.max(0, savingsGoals.length - MAX_DASHBOARD_GOALS),

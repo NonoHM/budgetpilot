@@ -17,6 +17,7 @@
 	import DonutChart, { type DonutSegment } from '$lib/components/ui/DonutChart.svelte';
 	import { cardBase, inputFilter } from '$lib/styles';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
@@ -42,6 +43,24 @@
 	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
 	function displayCategory(name: string): string {
 		return categoryLabelByName(name, defaultKeyByName);
+	}
+
+	/**
+	 * « Plus grosses dépenses » KEEPS the parent's ranking, category and amount (OD-3) — a split
+	 * transaction here is never re-ranked or relabelled from its parts, only flagged. The badge is
+	 * always the INERT form, never `interactive`: the desktop card wrapping this table carries
+	 * `overflow-hidden` on BOTH axes (a non-`visible` value on one CSS Overflow axis forces the other
+	 * to `auto`, so it cannot be relaxed to `overflow-y-visible` — that computes straight back to
+	 * `auto`), which would clip the interactive branch's hover bubble on every row. The detail is
+	 * one click away regardless: every row in this table is already the transaction that produced it.
+	 */
+	function badgeParts(
+		indicator: NonNullable<(typeof report.largestExpenses)[number]['splitIndicator']>
+	): Array<{ category: string; amountCents: number }> {
+		return indicator.parts.map((part) => ({
+			category: displayCategory(part.category),
+			amountCents: part.amountCents
+		}));
 	}
 
 	type NatureSegment = { label: string; color: string; cents: number; pct: number };
@@ -84,6 +103,17 @@
 				: m.reports_donut_category_count_one({ count: report.topCategories.length })
 		}`
 	);
+
+	/**
+	 * The donut's centre figure, through `formatCents` like every other money figure in the app.
+	 *
+	 * It was the one exception, hand-rolled as `${Math.round(cents / 100)} €`, and both halves of
+	 * that expression were wrong on screen. The rounding printed « 215 € » in the centre while
+	 * `categoryDonutMeta` — the same `report.expenseCents`, 8 px above — read « 214,50 € ». And with
+	 * no `Intl` behind it there were no thousands separators, so a large total ran together as
+	 * « 1005002785 € ». Both were measured in a real browser before this line changed.
+	 */
+	const categoryDonutCenterValue = $derived(formatCents(report.expenseCents));
 
 	function formatPercent(value: number | null): string {
 		if (value === null) return m.reports_not_available();
@@ -505,7 +535,7 @@
 							title={m.reports_donut_title()}
 							meta={categoryDonutMeta}
 							centerCaption={m.reports_donut_total_label()}
-							centerValue={`${Math.round(report.expenseCents / 100)} €`}
+							centerValue={categoryDonutCenterValue}
 							emptyText={m.reports_empty_no_expense()}
 						/>
 					</div>
@@ -685,7 +715,24 @@
 									{#each report.largestExpenses as expense, i (i)}
 										<tr>
 											<td class="px-5 py-3 font-medium text-zinc-900">{expense.label}</td>
-											<td class="px-5 py-3 text-zinc-500">{displayCategory(expense.category)}</td>
+											<td class="px-5 py-3 text-zinc-500">
+												<!-- min-h-[22px] RESERVES the inert badge's own height on this line for every
+												     row, split or not — never `h-`, which would clamp instead: see CLAUDE.md,
+												     a fixed height absorbs an overflow invisibly where a minimum lets it grow
+												     and stay visible. -->
+												<div class="flex min-h-[22px] min-w-0 items-center gap-1.5">
+													<span class="min-w-0 truncate">{displayCategory(expense.category)}</span>
+													{#if expense.splitIndicator}
+														<SplitBadge
+															parts={badgeParts(expense.splitIndicator)}
+															otherCategoryCount={expense.splitIndicator.otherCategoryCount}
+															dominantCategory={displayCategory(
+																expense.splitIndicator.dominantCategory
+															)}
+														/>
+													{/if}
+												</div>
+											</td>
 											<td class="px-5 py-3 text-right font-semibold text-rose-600 tabular-nums">
 												{formatCents(expense.amountCents)}
 											</td>
@@ -711,8 +758,21 @@
 											<div class="truncate text-sm font-semibold text-zinc-900">
 												{expense.label}
 											</div>
-											<div class="mt-0.5 truncate text-xs text-zinc-500">
-												{displayCategory(expense.category)}
+											<!-- min-h-[22px] reserves the badge's own height on this line — see the
+											     desktop table cell above for why it is a minimum, never a fixed height. -->
+											<div class="mt-0.5 flex min-h-[22px] min-w-0 items-center gap-1.5">
+												<span class="min-w-0 truncate text-xs text-zinc-500"
+													>{displayCategory(expense.category)}</span
+												>
+												{#if expense.splitIndicator}
+													<SplitBadge
+														parts={badgeParts(expense.splitIndicator)}
+														otherCategoryCount={expense.splitIndicator.otherCategoryCount}
+														dominantCategory={displayCategory(
+															expense.splitIndicator.dominantCategory
+														)}
+													/>
+												{/if}
 											</div>
 										</div>
 										<div class="shrink-0 text-sm font-semibold text-rose-600 tabular-nums">

@@ -87,6 +87,12 @@ interface RawTransaction {
 	manualCategory: string | null;
 	natureManual: null;
 	category: { name: string };
+	// The read boundary selects the parts too (EFFECTIVE_CATEGORY_SELECT). Upcoming bills is
+	// primarily an IDENTITY consumer — `label`/`category`/`amountCents` above are the transaction's
+	// own, never a part's — but `splitIndicator`/`splitIndicatorIsInherited` (see toRowView) DO read
+	// `allocations`, which is why this is no longer typed `[]`: a fixture exercising that field
+	// needs to carry real parts. Every fixture but the split ones below still passes `[]`.
+	splits: Array<{ amountCents: number; position: number; category: { name: string } }>;
 }
 
 function tx(
@@ -105,7 +111,8 @@ function tx(
 		source: 'csv',
 		manualCategory: null,
 		natureManual: null,
-		category: { name: category }
+		category: { name: category },
+		splits: []
 	};
 }
 
@@ -278,10 +285,12 @@ afterEach(() => {
 });
 
 describe('getCurrentBillsMonth', () => {
-	// Pinned against a REVERT to the local-clock `getCurrentMonth()`, which nothing else would catch:
+	// Pinned against a REVERT to a LOCAL-clock month, which nothing else would catch:
 	// `isCurrentMonth` / `isFutureMonth` are derived from a UTC `todayIso`, so a local-month default
 	// makes the load resolve one month while the view labels it another — the page loses "Ce mois"
-	// and renders "Revenir à ce mois" as a link to the page it is already on.
+	// and renders "Revenir à ce mois" as a link to the page it is already on. `getCurrentMonth()` is
+	// UTC too since the false-figures fix, so this now guards a property both functions hold rather
+	// than a difference between them; it is still the only assertion that reads THIS one.
 	//
 	// The timezone has to be moved for the assertion to mean anything: on a UTC host both
 	// implementations agree at every instant, and this test would pass on the broken one. Node
@@ -335,6 +344,83 @@ describe('loadUpcomingBillsMonth', () => {
 		expect(view.expectedIncomeCents).toBe(250_000);
 		// Rows exist, so the observation list is not even computed.
 		expect(view.observationCandidates).toEqual([]);
+	});
+
+	/**
+	 * PR6: a settled row is EXACT (its own transaction's parts), a projected one is INHERITED (the
+	 * flow's most recent occurrence's parts) — see `toRowView`'s own docstring for why a projection
+	 * cannot be exact. Same fixture (RENT's July occurrence carries the split), two months, so the
+	 * only thing that differs between the two assertions is which of those two the row is.
+	 */
+	it('EXACTE sur une occurrence réglée, HÉRITÉE sur une occurrence projetée, jamais sur une transaction non répartie', async () => {
+		expect.assertions(8);
+
+		const rentJulySplit: RawTransaction = {
+			...RENT[3],
+			splits: [{ amountCents: -20_000, position: 0, category: { name: 'Assurance' } }]
+		};
+		const fixture = [...RENT.slice(0, 3), rentJulySplit, ...SUBSCRIPTION];
+
+		mockRead(fixture);
+		const july = await loadUpcomingBillsMonth(userId, '2026-07');
+		const settledRent = july.rows.find((row) => row.dateIso === '2026-07-05');
+		const settledSubscription = july.rows.find((row) => row.category === 'Loisirs');
+
+		expect(settledRent?.status).toBe('settled');
+		expect(settledRent?.splitIndicatorIsInherited).toBe(false);
+		expect(settledRent?.splitIndicator?.dominantCategory).toBe('Logement');
+		expect(settledRent?.splitIndicator?.parts).toEqual([
+			{ category: 'Assurance', amountCents: -20_000 },
+			{ category: 'Logement', amountCents: -60_000 }
+		]);
+		// The unsplit control: no indicator at all, on either field.
+		expect(settledSubscription?.splitIndicator).toBeNull();
+		expect(settledSubscription?.splitIndicatorIsInherited).toBe(false);
+
+		mockRead(fixture);
+		const august = await loadUpcomingBillsMonth(userId, '2026-08');
+		const projectedRent = august.rows.find((row) => row.dateIso === '2026-08-05');
+
+		expect(projectedRent?.status).toBe('upcoming');
+		expect(projectedRent?.splitIndicatorIsInherited).toBe(true);
+	});
+
+	/**
+	 * THE FIXTURE ABOVE CANNOT TELL THE TWO BRANCHES APART, AND THIS ONE CAN.
+	 *
+	 * There, the split transaction (`RENT[3]`, July) is ALSO the flow's most recent occurrence, so
+	 * "this row's own parts" and "the flow's most recent occurrence's parts" resolve to the same
+	 * transaction and every assertion passes under either rule. Its unsplit control does not
+	 * discriminate either: SUBSCRIPTION's latest occurrence is itself unsplit, so the inherited
+	 * lookup also yields null. Two green assertions, neither of which could see the defect.
+	 *
+	 * Here July is split and JUNE is the month under view. June's occurrence is settled and backed by
+	 * its own transaction, which is NOT split — so the only correct answer is "no badge", and the
+	 * only way to get one is to fall through to July's répartition. `occurrenceIds` spans the whole
+	 * 12-month lookback, so this is the ordinary shape of the feature: "I split the insurance out of
+	 * this month's rent but not out of the earlier ones."
+	 */
+	it('a settled occurrence KNOWN to be unsplit borrows nothing from a later one that is', async () => {
+		expect.assertions(4);
+
+		const rentJulySplit: RawTransaction = {
+			...RENT[3],
+			splits: [{ amountCents: -20_000, position: 0, category: { name: 'Assurance' } }]
+		};
+		const fixture = [...RENT.slice(0, 3), rentJulySplit, ...SUBSCRIPTION];
+
+		mockRead(fixture);
+		const june = await loadUpcomingBillsMonth(userId, '2026-06');
+		const settledJune = june.rows.find((row) => row.dateIso === '2026-06-05');
+
+		// Proven settled first: an assertion about a row that does not exist, or that is projected,
+		// would pass for the wrong reason — the inherited branch is the one it must NOT be taking.
+		// `settledKind: 'auto'` is the row view's own way of saying a real transaction backs it;
+		// `settledTransactionId` is on the OCCURRENCE and is deliberately not projected onto the row.
+		expect(settledJune?.status).toBe('settled');
+		expect(settledJune?.settledKind).toBe('auto');
+		expect(settledJune?.splitIndicator).toBeNull();
+		expect(settledJune?.splitIndicatorIsInherited).toBe(false);
 	});
 
 	it('scopes the transaction and action reads on userId', async () => {

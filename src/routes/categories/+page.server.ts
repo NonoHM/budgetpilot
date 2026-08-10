@@ -160,6 +160,44 @@ export const actions: Actions = {
 			return fail(400, { error: m.categories_error_delete_unclassified() });
 		}
 
+		// REFUSED, not repointed, and this is a deliberate departure from how the parent rows below
+		// are handled. `TransactionSplit.categoryId` has no cascade from `Category` (deleting a
+		// category must never delete money), so an untreated delete fails on the foreign key — but
+		// the symmetrical repair, sending the parts to "Non catégorisé" as the transactions go, is
+		// worse than the crash: a part may never carry the sentinel (replaceSplits refuses it on
+		// input), and a répartie transaction is excluded from the "à classer" pile, so those cents
+		// would end up uncategorised AND absent from the one screen that exists to find
+		// uncategorised money. Refusing is reversible by the user; that state is not.
+		const splitCount = await prisma.transactionSplit.count({
+			// Scoped through the category's own owner: `id` is client-supplied, and this count decides
+			// whether an action is refused, so an unscoped read would answer questions about another
+			// account's data.
+			where: { categoryId: id, category: { userId: user.id } }
+		});
+		if (splitCount > 0) {
+			return fail(400, {
+				// Explicit `_one`/`_many` selection, the convention this repo already uses (see
+				// pluralTx in categories/+page.svelte): Paraglide compiles the two suffixes to two
+				// separate functions rather than a pluralising one.
+				error:
+					splitCount > 1
+						? m.categories_error_delete_used_by_splits_many({ count: splitCount })
+						: m.categories_error_delete_used_by_splits_one({ count: splitCount }),
+				// The refusal must be ACTIONABLE, not merely correct. A count alone tells the user
+				// they are blocked without telling them where to look — the /upcoming-bills empty
+				// state that recommended the one action which could not help. `?category=` now matches
+				// a PART's category (OD-1, same PR), so this link resolves to exactly the
+				// transactions the count is about. It ships with OD-1 rather than after it, because a
+				// link that resolves to an empty list is worse than no link at all.
+				// One field carrying both halves rather than two that can disagree — an href with no
+				// label renders an empty link, and a label with no href renders nothing at all.
+				errorLink: {
+					href: `/transactions?category=${encodeURIComponent(cat.name)}`,
+					label: m.categories_error_delete_used_by_splits_link()
+				}
+			});
+		}
+
 		const txCount = await prisma.transaction.count({ where: { categoryId: id, userId: user.id } });
 
 		const fallback = await resolveCategoryByName(user.id, UNCLASSIFIED_CATEGORY);

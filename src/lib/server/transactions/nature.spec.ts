@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
+import type { Transaction, TransactionNature } from '$lib/domain/transaction';
 import {
 	analyzeTransactionNatures,
 	buildCategoryNatureMap,
@@ -9,6 +11,15 @@ import {
 	parseTransactionNatureInput,
 	shouldCountTransactionInBudget
 } from './nature';
+
+/**
+ * The one CategoryAllocation an unsplit transaction fixture yields. Every fixture below already
+ * pins its own `nature` explicitly, so this only calls allocationsOf (the real remainder rule) —
+ * it never re-derives a default.
+ */
+function toAllocation(tx: Transaction & { nature: TransactionNature }): CategoryAllocation {
+	return allocationsOf(tx)[0];
+}
 
 describe('transaction nature helpers', () => {
 	it('applique la priorité manuel puis mapping puis défaut', () => {
@@ -101,7 +112,7 @@ describe('transaction nature helpers', () => {
 	it('sépare correctement les montants analytiques', () => {
 		expect.assertions(4);
 
-		const summary = analyzeTransactionNatures([
+		const analyticalTransactions: Array<Transaction & { nature: TransactionNature }> = [
 			{
 				id: '1',
 				date: '2026-06-01',
@@ -142,7 +153,9 @@ describe('transaction nature helpers', () => {
 				source: 'csv',
 				nature: 'income'
 			}
-		]);
+		];
+
+		const summary = analyzeTransactionNatures(analyticalTransactions.map(toAllocation));
 
 		expect(summary.spendingCents).toBe(1_500);
 		expect(summary.investmentCents).toBe(10_000);
@@ -153,7 +166,7 @@ describe('transaction nature helpers', () => {
 	it("n'incrémente incomeCents que pour les transactions nature=income, sans toucher aux autres compteurs", () => {
 		expect.assertions(7);
 
-		const summary = analyzeTransactionNatures([
+		const incomeOnlyTransactions: Array<Transaction & { nature: TransactionNature }> = [
 			{
 				id: '1',
 				date: '2026-06-01',
@@ -174,7 +187,9 @@ describe('transaction nature helpers', () => {
 				source: 'csv',
 				nature: 'income'
 			}
-		]);
+		];
+
+		const summary = analyzeTransactionNatures(incomeOnlyTransactions.map(toAllocation));
 
 		expect(summary.incomeCents).toBe(250_000);
 		expect(summary.spendingCents).toBe(0);

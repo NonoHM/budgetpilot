@@ -1,21 +1,12 @@
-import type { Prisma } from '$lib/server/database/types';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
-import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
-import { resolveTransactionType } from '$lib/server/transactions/totals';
-import {
-	buildCategoryNatureMap,
-	getEffectiveTransactionNature
-} from '$lib/server/transactions/nature';
+import { buildCategoryNatureMap, EFFECTIVE_CATEGORY_SELECT } from '$lib/server/transactions/nature';
+import { buildTransactionsCsv } from '$lib/server/transactions/exportCsv';
 import { resolveTransactionScope } from '$lib/server/transactions/scope';
-import { forEachTransactionBatch } from '$lib/server/transactions/batch';
+import { collectAllTransactions } from '$lib/server/transactions/batch';
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import type { RequestHandler } from './$types';
-
-const CSV_HEADER = 'date;libelle;categorie;montant;type;nature;source_bancaire';
-const FORMULA_INJECTION_PATTERN = /^[=+\-@\t\r]/;
-const NEEDS_QUOTING_PATTERN = /[;"\n\r]/;
 
 export const GET: RequestHandler = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -34,15 +25,18 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		);
 	}
 
+	// Spreads EFFECTIVE_CATEGORY_SELECT rather than naming `manualCategory`/`category` itself: the
+	// export is a per-category read like the other three, and this is the fragment that stops a
+	// fourth site deciding for itself which columns "where did the money go" needs.
 	const exportSelect = {
+		id: true,
 		date: true,
 		label: true,
 		amountCents: true,
 		type: true,
 		source: true,
-		manualCategory: true,
 		natureManual: true,
-		category: { select: { name: true } }
+		...EFFECTIVE_CATEGORY_SELECT
 	} as const;
 
 	const [mappings, transactions] = await Promise.all([
@@ -55,40 +49,14 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 			: collectAllTransactions(scope.where, exportSelect)
 	]);
 
-	const mappingMap = buildCategoryNatureMap(mappings);
-
-	const rows = transactions.map((transaction) => {
-		const effectiveCategory =
-			transaction.manualCategory ?? transaction.category.name ?? UNCLASSIFIED_CATEGORY;
-		const transactionType = resolveTransactionType(transaction);
-		const nature = getEffectiveTransactionNature(
-			{
-				amountCents: transaction.amountCents,
-				type: transactionType,
-				category: effectiveCategory,
-				natureManual: transaction.natureManual
-			},
-			mappingMap
-		);
-		const signedAmountCents =
-			transactionType === 'expense'
-				? -Math.abs(transaction.amountCents)
-				: Math.abs(transaction.amountCents);
-
-		return [
-			transaction.date.toISOString().slice(0, 10),
-			transaction.label,
-			effectiveCategory,
-			formatAmount(signedAmountCents),
-			transactionType,
-			nature.nature,
-			transaction.source
-		]
-			.map(escapeCsvField)
-			.join(';');
-	});
-
-	const csv = [CSV_HEADER, ...rows].join('\r\n');
+	// A filtered export must read like the screen it came from (PR5): passing the active
+	// `?category=` through is what makes `buildTransactionsCsv` emit only the matching allocations,
+	// never a répartition's other parts the filter never showed.
+	const csv = buildTransactionsCsv(
+		transactions,
+		buildCategoryNatureMap(mappings),
+		scope.filters.category || undefined
+	);
 	const dateStamp = new Date().toISOString().slice(0, 10);
 
 	return new Response(csv, {
@@ -98,29 +66,3 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		}
 	});
 };
-
-// Batched full dump (see forEachTransactionBatch): same date-desc order as the previous single
-// findMany, but never materializes the whole matching set from one Prisma query — bounded
-// per-batch memory even on a large per-user history (see CLAUDE.md technical debt).
-async function collectAllTransactions<Select extends Prisma.TransactionSelect>(
-	where: Prisma.TransactionWhereInput,
-	select: Select
-): Promise<Array<Prisma.TransactionGetPayload<{ select: Select }>>> {
-	const rows: Array<Prisma.TransactionGetPayload<{ select: Select }>> = [];
-	await forEachTransactionBatch(where, select, (batch) => {
-		rows.push(...batch);
-	});
-	return rows;
-}
-
-function formatAmount(amountCents: number): string {
-	return (amountCents / 100).toFixed(2);
-}
-
-function escapeCsvField(value: string): string {
-	const withGuard = FORMULA_INJECTION_PATTERN.test(value) ? `'${value}` : value;
-	if (NEEDS_QUOTING_PATTERN.test(withGuard)) {
-		return `"${withGuard.replace(/"/g, '""')}"`;
-	}
-	return withGuard;
-}

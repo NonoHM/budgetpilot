@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { resolve } from '$app/paths';
 	import { tick } from 'svelte';
 	import type { ActionData, PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
@@ -44,6 +45,22 @@
 		return nature && isTransactionNature(nature) ? natureLabel(nature) : m.categories_nature_none();
 	}
 
+	/**
+	 * The actionable half of a refusal: an obstacle and the path to it, in one breath.
+	 *
+	 * Read through one narrow cast rather than off `form` directly. `ActionData` is the union of
+	 * every `fail()` shape this route returns, and only `deleteCategory`'s "used by parts" branch
+	 * carries a link — `'errorLink' in form` narrows the OTHER members to `{}` rather than giving
+	 * this one back, so the property has to be named once, here, with its type. Keeping the cast to
+	 * a single line beside the type it asserts is the point: the alternative was two `in` checks
+	 * scattered through the markup, each silently typed `{}`.
+	 */
+	const errorLink = $derived(
+		form && 'errorLink' in form
+			? ((form as { errorLink?: { href: string; label: string } }).errorLink ?? null)
+			: null
+	);
+
 	function pluralTx(n: number): string {
 		return n > 1
 			? m.categories_delete_tx_count_many({ count: n })
@@ -58,7 +75,21 @@
 <main class="min-h-screen bg-zinc-50 px-4 py-8 text-zinc-950 sm:px-6 lg:px-8">
 	<div class="mx-auto max-w-4xl">
 		{#if form?.error}
-			<AlertBanner variant="error" class="mb-4">{form.error}</AlertBanner>
+			<AlertBanner variant="error" class="mb-4">
+				{form.error}
+				<!-- The obstacle and the path in one breath. Rendered as a real link rather than
+				     interpolated into the sentence: the message stays translatable as prose, and no
+				     catalogue entry has to carry markup.
+				     See `errorLink` in the script for why it is read through a typed local. -->
+				{#if errorLink}
+					<a
+						href={resolve(errorLink.href as `/transactions?${string}`)}
+						class="ml-1 font-medium underline underline-offset-2"
+					>
+						{errorLink.label}
+					</a>
+				{/if}
+			</AlertBanner>
 		{/if}
 		{#if form?.success}
 			<AlertBanner variant="success" class="mb-4">{form.success}</AlertBanner>

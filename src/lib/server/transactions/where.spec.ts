@@ -84,6 +84,99 @@ describe('buildTransactionWhere', () => {
 		]);
 	});
 
+	it('excludes split transactions from the classify pile', () => {
+		expect.assertions(2);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'classify',
+			category: '',
+			importBatchId: '',
+			uncategorizedCategoryId: 'cat-uncat-id'
+		});
+
+		// A CONJUNCT, not a third OR branch. Pushed into the OR it would widen the pile to every
+		// unsplit transaction the user owns, which is the opposite of the intent and reads as more
+		// results rather than as an error.
+		expect(where.splits).toEqual({ none: {} });
+		expect(where.OR).toEqual([
+			{ manualCategoryKey: computeNameKey('uncategorized') },
+			{ AND: [{ manualCategory: null }, { categoryId: 'cat-uncat-id' }] }
+		]);
+	});
+
+	it('constrains the splits relation from ?split=, in both directions', () => {
+		expect.assertions(2);
+
+		const base = { userId: 'user-a', type: 'all' as const, category: '', importBatchId: '' };
+		expect(buildTransactionWhere({ ...base, split: 'split' }).splits).toEqual({ some: {} });
+		expect(buildTransactionWhere({ ...base, split: 'unsplit' }).splits).toEqual({ none: {} });
+	});
+
+	it('matches NOTHING when ?split=split meets the classify pile, instead of dropping one half', () => {
+		expect.assertions(2);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'classify',
+			category: '',
+			importBatchId: '',
+			uncategorizedCategoryId: 'cat-uncat-id',
+			split: 'split'
+		});
+
+		// The classify pile requires NO parts; ?split=split requires some. Both are kept, and Prisma
+		// ANDs them, so no row satisfies the pair. The failure mode this pins is last-write-wins:
+		// whichever conjunct was assigned second would silently win, and the losing one is the
+		// narrowing one — so the pile would come back full of répartie rows.
+		expect(where.splits).toEqual({ none: {}, some: {} });
+		// And the id filter is untouched, because the contradiction lives in the relation rather
+		// than in `where.id`, which `?ids=` overwrites unconditionally.
+		expect(where).not.toHaveProperty('id');
+	});
+
+	it('leaves ?ids= intact alongside a contradictory split pair', () => {
+		expect.assertions(2);
+
+		const where = buildTransactionWhere({
+			userId: 'user-a',
+			type: 'classify',
+			category: '',
+			importBatchId: '',
+			uncategorizedCategoryId: 'cat-uncat-id',
+			split: 'split',
+			ids: ['transaction-1']
+		});
+
+		expect(where.id).toEqual({ in: ['transaction-1'] });
+		expect(where.splits).toEqual({ none: {}, some: {} });
+	});
+
+	it('leaves the splits relation unconstrained for every filter other than classify', () => {
+		expect.assertions(4);
+
+		for (const type of ['all', 'income', 'expense'] as const) {
+			const where = buildTransactionWhere({
+				userId: 'user-a',
+				type,
+				category: '',
+				importBatchId: ''
+			});
+			expect(where).not.toHaveProperty('splits');
+		}
+
+		// The category filter is the one that shares the `conditions` list with the classify branch,
+		// so it is the one that could pick the conjunct up by accident.
+		expect(
+			buildTransactionWhere({
+				userId: 'user-a',
+				type: 'all',
+				category: 'Alimentation',
+				importBatchId: ''
+			})
+		).not.toHaveProperty('splits');
+	});
+
 	it('type "classify" sans uncategorizedCategoryId résolu ne matche aucune catégorie liée', () => {
 		expect.assertions(1);
 
@@ -126,6 +219,13 @@ describe('buildTransactionWhere', () => {
 							{ manualCategory: null },
 							{ category: { is: { userId: 'user-a', nameKey: computeNameKey('Alimentation') } } }
 						]
+					},
+					{
+						splits: {
+							some: {
+								category: { is: { userId: 'user-a', nameKey: computeNameKey('Alimentation') } }
+							}
+						}
 					}
 				]
 			}
@@ -149,12 +249,23 @@ describe('buildTransactionWhere', () => {
 					{ manualCategory: null },
 					{ category: { is: { userId: 'user-a', nameKey: computeNameKey('Alimentation') } } }
 				]
+			},
+			// OD-1: a part's category matches too. A WIDENING — every row that matched before still
+			// matches — and the parent branches stay, because `?category=` reads identity as well as
+			// money. What stops that being a double-count is the filtered TOTAL summing allocations,
+			// not a narrowing of this predicate.
+			{
+				splits: {
+					some: {
+						category: { is: { userId: 'user-a', nameKey: computeNameKey('Alimentation') } }
+					}
+				}
 			}
 		]);
 	});
 
 	it('le filtre catégorie ne fuit jamais vers un autre userId', () => {
-		expect.assertions(1);
+		expect.assertions(2);
 
 		const where = buildTransactionWhere({
 			userId: 'victim-user',
@@ -165,6 +276,13 @@ describe('buildTransactionWhere', () => {
 
 		expect(where.OR?.[1]).toMatchObject({
 			AND: [{ manualCategory: null }, { category: { is: { userId: 'victim-user' } } }]
+		});
+		// EVERY branch that reaches a Category row carries the scope, not just the first one that
+		// did. OD-1 added a third, and a part's category is reached through two independent foreign
+		// keys — nothing in the schema ties Category.userId to Transaction.userId — so this conjunct
+		// is the only thing keeping a part's category inside the account.
+		expect(where.OR?.[2]).toMatchObject({
+			splits: { some: { category: { is: { userId: 'victim-user' } } } }
 		});
 	});
 

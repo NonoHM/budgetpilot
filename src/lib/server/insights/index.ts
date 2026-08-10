@@ -1,5 +1,6 @@
 import type { MonthlyBudgetSummary } from '$lib/domain/budget';
 import type { Transaction } from '$lib/domain/transaction';
+import type { CategoryAllocation } from '$lib/domain/allocation';
 import { requestLocalBudgetInsights } from './local-llm';
 import { buildBudgetInsightsPrompt } from './prompt';
 import { generateRuleInsights } from './rules';
@@ -14,6 +15,7 @@ export interface BudgetInsightsResult {
 
 export async function getBudgetInsights(params: {
 	transactions: Transaction[];
+	allocations: CategoryAllocation[];
 	monthlySummary: MonthlyBudgetSummary;
 	previousMonth?: MonthlyBudgetSummary;
 	env?: NodeJS.ProcessEnv;
@@ -21,6 +23,7 @@ export async function getBudgetInsights(params: {
 }): Promise<BudgetInsightsResult> {
 	const transactionSummary = buildTransactionSummary(
 		params.transactions,
+		params.allocations,
 		params.monthlySummary,
 		params.previousMonth,
 		{ includeLabels: params.includeLabels }

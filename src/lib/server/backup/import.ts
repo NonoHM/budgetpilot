@@ -7,6 +7,12 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import { normalizeTagName } from '$lib/domain/tags';
+import {
+	isValidSplitPartAmount,
+	MIN_SPLITS_PER_TRANSACTION,
+	MAX_SPLITS_PER_TRANSACTION,
+	normalizeSplitNote
+} from '$lib/domain/allocation';
 import { MAX_ANCHOR_IDS, parseAnchorTransactionIds, type BackupExport } from './schema';
 
 export class BackupImportError extends Error {}
@@ -78,6 +84,15 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// TransactionTag is deliberately absent from this list: it has no userId to scope a
 		// deleteMany by, and it cascades from BOTH parents, the first of which (transaction) is
 		// already deleted above. A test asserts no orphan link survives a restore.
+		//
+		// TransactionSplit is absent for the same reason but NOT by the same mechanism, and the
+		// difference is worth stating because it constrains the order above. It cascades from
+		// Transaction ONLY — Category deliberately does not cascade, since deleting a category
+		// must never delete money. So a part dies with its transaction at the top of this block
+		// and nothing else can remove it. That ordering is already correct: `transaction` is
+		// purged first, so by the time `category` is purged no part remains to block it on the
+		// foreign key. Moving the category purge above the transaction purge would break the
+		// restore on every account that has ever used a répartition.
 		await tx.tag.deleteMany({ where: { userId } });
 
 		// b. Recreation: NetWorthAccount first (ids regenerated, one by one to build the id
@@ -265,14 +280,19 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// Bounded by the relative bound on `transactionTags` (see backup/schema.ts), which is what
 		// keeps this loop from being an availability problem on a hand-edited file.
 		//
+		// Splits: same mechanism as tags. A part names its transaction by id and `createMany`
+		// cannot return generated ids, so a split transaction has to be created on its own.
+		// Bounded by the relative bound on `transactionSplits` (see backup/schema.ts).
+		//
 		// Everything outside the union keeps the bulk `createMany` path, and the union is empty
-		// for any backup carrying neither an action nor a tag, which is every file written before
-		// those features.
+		// for any backup carrying neither an action nor a tag nor a split, which is every file
+		// written before those features.
 		const idCapturingTransactionIds = new Set([
 			...payload.recurringStreamActions.flatMap((action) =>
 				parseAnchorTransactionIds(action.anchorTransactionIds)
 			),
-			...payload.transactionTags.map((link) => link.transactionId)
+			...payload.transactionTags.map((link) => link.transactionId),
+			...payload.transactionSplits.map((split) => split.transactionId)
 		]);
 		const transactionIdMap = new Map<string, string>();
 
@@ -366,6 +386,73 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			const unique = new Map(links.map((link) => [`${link.transactionId}:${link.tagId}`, link]));
 			if (unique.size > 0) {
 				await tx.transactionTag.createMany({ data: [...unique.values()] });
+			}
+		}
+
+		if (payload.transactionSplits.length > 0) {
+			// Bulk, like the tag pairs: a part's own id is regenerated and nothing references it.
+			//
+			// A part whose transaction or category is missing from the id maps REFUSES the restore.
+			// It does not get filtered out, and that is the one place this deliberately differs
+			// from the tag pairs above.
+			//
+			// Dropping a tag link loses a label. Dropping a part loses MONEY: the surviving parts
+			// would no longer sum to their parent, and the sum check that ran before any write
+			// would already have certified a total that is no longer what got stored. Nothing
+			// downstream could tell — allocationsOf would emit the shortfall as a phantom
+			// remainder under the parent's category, indistinguishable from a legitimate one.
+			//
+			// Today this is unreachable: assertReferentialIntegrity has refused any part naming a
+			// row absent from the file, and every payload category gets a map entry (folding
+			// re-points both spellings at the survivor rather than losing either). But that is two
+			// modules independently maintaining one invariant with nothing shared enforcing it.
+			// Tags already show how it breaks — a whitespace-only name normalizes to '' and is
+			// skipped, leaving no map entry — so the day a category acquires a normalization step
+			// that can collapse the same way, this must fail loudly rather than quietly write a
+			// répartition that no longer adds up.
+			//
+			// DO NOT REMOVE THIS ON THE GROUNDS THAT "THE SUM IS ALREADY CHECKED". That sentence is
+			// true and is exactly the trap: the sum check runs over the PAYLOAD, before any write.
+			// If a part is dropped between that check and this insert, the check has certified a
+			// total that no longer matches what got stored — the guard passes while the write
+			// diverges from it. A refusal here is what keeps the two describing the same thing.
+			const parts = payload.transactionSplits.map((split) => ({
+				transactionId: transactionIdMap.get(split.transactionId),
+				categoryId: categoryIdMap.get(split.categoryId),
+				amountCents: split.amountCents,
+				position: split.position,
+				// Normalized here too, not just in replaceSplits. A restore is a write path, and an
+				// uploaded payload is the one place a note arrives without ever having passed
+				// through the editor — so it is exactly where a bidi override would enter if this
+				// were left to the service that this path bypasses.
+				note: normalizeSplitNote(split.note) || null
+			}));
+			for (const [index, part] of parts.entries()) {
+				if (part.transactionId === undefined) {
+					throw new BackupImportError(
+						m.settings_backup_error_unknown_split_transaction({
+							id: payload.transactionSplits[index].transactionId
+						})
+					);
+				}
+				if (part.categoryId === undefined) {
+					throw new BackupImportError(
+						m.settings_backup_error_unknown_split_category({
+							id: payload.transactionSplits[index].categoryId
+						})
+					);
+				}
+			}
+			if (parts.length > 0) {
+				await tx.transactionSplit.createMany({
+					data: parts as Array<{
+						transactionId: string;
+						categoryId: string;
+						amountCents: number;
+						position: number;
+						note: string | null;
+					}>
+				});
 			}
 		}
 
@@ -505,6 +592,94 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 		}
 		if (!tagIds.has(link.tagId)) {
 			throw new BackupImportError(m.settings_backup_error_unknown_tag({ id: link.tagId }));
+		}
+	}
+
+	// Both sides of a part, same treatment as a tag pair and for the same reason.
+	for (const split of payload.transactionSplits) {
+		if (!transactionIds.has(split.transactionId)) {
+			throw new BackupImportError(
+				m.settings_backup_error_unknown_split_transaction({ id: split.transactionId })
+			);
+		}
+		if (!categoryIds.has(split.categoryId)) {
+			throw new BackupImportError(
+				m.settings_backup_error_unknown_split_category({ id: split.categoryId })
+			);
+		}
+	}
+
+	// THE SUM INVARIANT, checked here because the restore is the one write path that does not go
+	// through replaceSplits.
+	//
+	// Everywhere else, "the parts sum to their parent" holds because a single service enforces it
+	// against the parent row re-read inside the same transaction. A restore inserts parts with
+	// createMany, bypassing that service entirely, so without this check a hand-edited file is a
+	// way to write a répartition that sums to anything at all — and the resulting rows would look
+	// exactly like legitimate ones. The consequence is not cosmetic: allocationsOf would emit the
+	// difference as a phantom remainder under the parent's category, so a crafted backup could
+	// silently invent or destroy money in every per-category total the app shows.
+	//
+	// The count bounds are checked in the same pass. A part count below MIN or above MAX cannot
+	// come from this app's write path, so it can only come from a hand-edited file.
+	const partsByTransaction = new Map<string, { sum: number; count: number }>();
+	for (const split of payload.transactionSplits) {
+		const entry = partsByTransaction.get(split.transactionId) ?? { sum: 0, count: 0 };
+		entry.sum += split.amountCents;
+		entry.count += 1;
+		partsByTransaction.set(split.transactionId, entry);
+	}
+	const transactionAmountById = new Map(payload.transactions.map((t) => [t.id, t.amountCents]));
+
+	// THE PER-PART RULE, checked here for the same reason the sum is: the restore does not go
+	// through replaceSplits, so nothing else applies it to an uploaded payload.
+	//
+	// The sum is not enough on its own, and that is the whole point of this loop. Parts of
+	// −130,00 € and +50,00 € under a −80,00 € parent SUM EXACTLY, count 2, both categories
+	// present — so every check above passes. Measured on a real instance: the restore was accepted
+	// and /reports expenseCents went 21450 → 31450, one hundred euros of expense invented by a
+	// transaction that still reads −80,00 €, because every per-category and per-nature reader takes
+	// Math.abs(allocation.amountCents) and Σ|parts| is 180,00 € where |parent| is 80,00 €.
+	//
+	// The predicate is CALLED, never restated: it is the same function replaceSplits refuses on,
+	// so the two paths cannot drift.
+	//
+	// A MISSING PARENT IS REFUSED HERE, not asserted away with `!`. The loop above has already
+	// refused any part naming a transaction absent from the file, so `get` cannot return undefined
+	// today — but `!` erases at runtime, and the predicate compares signs, so an undefined parent
+	// would make it answer TRUE for every negative part: `(-2000 > 0) === (undefined >= 0)` is
+	// `false === false`. Negative parts are most of this app's parts, so that failure is open and
+	// silent, in the common direction. The sum check below carries the same `!` and fails CLOSED
+	// (`sum !== undefined` always holds), which is exactly why the two read as equally safe from
+	// three lines away and are not.
+	//
+	// BREAK-CHECKED, and the result is worth carrying: removing this clause alone changes nothing,
+	// because the dangling-transaction loop refuses first. Removing BOTH still refuses — by the sum
+	// check, under « les parts ne totalisent pas son montant », which is a true refusal with a
+	// false explanation. So what this clause buys is not the refusal; it is that the predicate's
+	// contract is honoured where it is called, rather than resting on a neighbouring check whose
+	// fail-closed behaviour is an accident of comparing against `undefined` with `!==`.
+	for (const split of payload.transactionSplits) {
+		const parentAmountCents = transactionAmountById.get(split.transactionId);
+		if (
+			parentAmountCents === undefined ||
+			!isValidSplitPartAmount(split.amountCents, parentAmountCents)
+		) {
+			throw new BackupImportError(
+				m.settings_backup_error_split_amount({ id: split.transactionId })
+			);
+		}
+	}
+
+	for (const [transactionId, { sum, count }] of partsByTransaction) {
+		const parentAmountCents = transactionAmountById.get(transactionId)!;
+		if (sum !== parentAmountCents) {
+			throw new BackupImportError(
+				m.settings_backup_error_split_sum_mismatch({ id: transactionId })
+			);
+		}
+		if (count < MIN_SPLITS_PER_TRANSACTION || count > MAX_SPLITS_PER_TRANSACTION) {
+			throw new BackupImportError(m.settings_backup_error_split_count({ id: transactionId }));
 		}
 	}
 
