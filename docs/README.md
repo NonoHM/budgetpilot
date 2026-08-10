@@ -27,6 +27,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   three states a budget can be in.
 - [Reports](./using/reports.md): where the money went over a period, with
   charts and a three-month projection.
+- [Categories](./using/categories.md): the fourteen you start with, and
+  what nature is for.
 - [Categorization rules](./using/rules.md): the 156 that ship, and writing
   your own.
 - [Net worth](./using/net-worth.md): accounts and balances over time, and
@@ -47,6 +49,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   summary strip adds up.
 - [Reports](./reference/reports.md): the six figures, and the rule a
   recurring flow must meet to reach the projection.
+- [Categories](./reference/categories.md): naming rules, the eight
+  natures, and what deleting one does.
 - [Rules](./reference/rules.md): how matching works, and why a rule never
   overrides a category you set by hand.
 - [Net worth](./reference/net-worth.md): account types, and which of them

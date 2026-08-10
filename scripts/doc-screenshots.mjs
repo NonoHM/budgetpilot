@@ -177,6 +177,34 @@ const GROUPS = {
 			},
 			element: '[role="dialog"]'
 		}
+	],
+	categories: [
+		{ file: 'categories/overview-desktop.png', url: '/categories', contentClip: true },
+		{ file: 'categories/overview-mobile.png', url: '/categories', viewport: MOBILE },
+		{
+			file: 'categories/new-category-desktop.png',
+			url: '/categories',
+			before: async (page) => {
+				await page.getByRole('button', { name: '+ New category' }).first().click();
+				await page.waitForTimeout(300);
+			},
+			element: '[role="dialog"]'
+		},
+		{
+			file: 'categories/delete-with-transactions-desktop.png',
+			url: '/categories',
+			before: async (page) => {
+				// Groceries, which holds transactions — the dialog says how many and where they go.
+				// A category with none says something shorter and teaches less.
+				await page
+					.getByRole('row', { name: /Groceries/ })
+					.first()
+					.getByRole('button', { name: 'Delete' })
+					.click();
+				await page.waitForTimeout(300);
+			},
+			element: '[role="dialog"], [role="alertdialog"]'
+		}
 	]
 };
 

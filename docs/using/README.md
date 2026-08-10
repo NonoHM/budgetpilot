@@ -9,6 +9,8 @@ it, go to [getting started](../getting-started.md) first.
   states a budget can be in, and what the summary strip counts.
 - **[Reports](./reports.md)**: where the money went over a period, the
   charts, and the flows behind the projection.
+- **[Categories](./categories.md)**: the fourteen you start with, what
+  nature is for, and what deleting one does to its transactions.
 - **[Categorization rules](./rules.md)**: the 156 that ship, writing your
   own, and the preview that shows what applying them would do.
 - **[Net worth](./net-worth.md)**: accounts and balances over time, the
