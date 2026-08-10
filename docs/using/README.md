@@ -34,6 +34,8 @@ it, go to [getting started](../getting-started.md) first.
   recovery codes, and what a lost phone costs you.
 - **[Exporting and restoring your data](./backup-restore.md)**: the JSON
   export, what restoring replaces, and which files are safe to restore.
+- **[Your account and settings](./account.md)**: the screen behind the
+  avatar, and every control on it.
 
 For the exact rules and limits rather than the steps, see
 [reference](../reference/README.md). For why a split row shows two amounts

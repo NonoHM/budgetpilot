@@ -50,6 +50,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   recovery codes, and what happens if you lose access.
 - [Exporting and restoring your data](./using/backup-restore.md): the two
   buttons in Settings, and why restoring replaces rather than merges.
+- [Your account and settings](./using/account.md): password, language,
+  sessions, and deleting the account.
 
 ## Look it up
 
@@ -82,6 +84,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   recovered.
 - [Backup and restore](./reference/backup-restore.md): what the file holds,
   what it leaves out, and what the validator checks.
+- [Account settings](./reference/account.md): password rules, session
+  lifetime, and where the language preference is stored.
 
 ## Understand it
 
