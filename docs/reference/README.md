@@ -32,6 +32,8 @@ Rules, limits and exact values. Look things up here; the pages in
 - **[Backup and restore](./backup-restore.md)**: the nineteen sections of the
   export, what it deliberately leaves out, what the validator checks, and
   every refusal message.
+- **[Account settings](./account.md)**: the password rules, the session
+  lifetime, where the language preference lives, and what Settings cannot do.
 
 Settings and environment variables are not here: those are in
 [configuration](../configuration.md), because they belong to the install
