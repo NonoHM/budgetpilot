@@ -282,7 +282,32 @@
 	}
 </script>
 
-<div class="grid gap-3" bind:this={rootEl}>
+<!--
+	THREE ROWS, AND THE MIDDLE ONE IS THE ONLY THING THAT SCROLLS (1d).
+
+	« Le bandeau de reste est collé au pied du panneau, HORS DE LA ZONE DÉFILANTE. » Shipped, the
+	band was `position: sticky; bottom: 0` inside one long flow, which is not the same property and
+	cannot be made into it by choosing a better offset: a bottom-sticky element is pinned to the
+	scrollport's bottom edge while its containing block still extends below, so it is DRAWN OVER
+	whatever content occupies that strip. Measured 2026-08-10 on the real pages: at 1280 the band's
+	top edge sat at 1025 against part rows spanning 969→1150, hiding part 2 entirely while the
+	heading above it announced two; at 390, 688 against 714→903, hiding both. The band asks the user
+	to correct the very rows it was covering.
+
+	A grid row cannot overlap its siblings, so the fix is structural rather than a larger offset:
+	`grid-rows-[auto_minmax(0,1fr)_auto]` with the parts in a `min-h-0 overflow-y-auto` middle row.
+	The band and the action row are then the editor's FOOT — outside the scrolling zone, in 1d's own
+	words — and the overlap is zero by construction at every scroll offset rather than at the ones
+	that were checked.
+
+	`minmax(0, 1fr)`, never `1fr`: a `1fr` track has `min-height: auto`, so it refuses to shrink
+	below its content and the max-height is quietly ignored — the row list would grow the editor
+	past its cap and the foot would leave the screen again, which is the defect one level out.
+-->
+<div
+	class="grid max-h-[calc(100vh-8rem)] grid-rows-[auto_minmax(0,1fr)_auto] gap-3"
+	bind:this={rootEl}
+>
 	<!--
 		1j: the parent selector stays where it always was and neutralises IN SITU. It is the thing
 		being prevented, so the sentence reads next to it. This block is rendered by the caller; what
@@ -292,144 +317,153 @@
 		{removalPending ? m.splits_parent_unlocked() : m.splits_parent_locked()}
 	</p>
 
-	{#if removalPending}
-		<!--
+	<!-- The scrolling body. `min-h-0` is the other half of `minmax(0,1fr)`: without it the flex/grid
+	     item's automatic minimum size keeps the track at its content height and nothing ever
+	     scrolls. -->
+	<div class="grid min-h-0 gap-3 overflow-y-auto">
+		{#if removalPending}
+			<!--
 			1j-C: removal is deferred to save, therefore reversible, therefore NO ConfirmDialog. An
 			information band in zinc — neither success nor danger, and AlertBanner has no `info`
 			variant, so this must not be built as one.
 		-->
-		<div class="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-			<p class="text-sm text-zinc-700">
-				{m.splits_removal_pending({ count: parts.length })}
-			</p>
-			<div>
-				<Button
-					type="button"
-					variant="secondary"
-					size="sm"
-					onclick={() => (removalPending = false)}
-				>
-					{m.splits_removal_cancel()}
-				</Button>
-			</div>
-		</div>
-		<input type="hidden" name="splitIntent" value="clear" />
-	{:else}
-		<input type="hidden" name="splitIntent" value="replace" />
-
-		<fieldset class="rounded-xl border border-zinc-200 p-3">
-			<legend class="px-1 text-sm font-semibold">
-				{isEditingExisting
-					? m.splits_section_heading_count({ count: parts.length })
-					: m.splits_section_heading()}
-			</legend>
-
-			<div class="mt-1">
-				{#each parts as _part, index (index)}
-					<SplitPartRow
-						position={index + 1}
-						bind:categoryId={parts[index].categoryId}
-						bind:amount={parts[index].amount}
-						bind:note={parts[index].note}
-						{categoryOptions}
-						{size}
-						{saving}
-						{savingHintId}
-						deletedCategoryName={missingCategoryPositions.includes(index)
-							? labelsWhenOpened.get(parts[index].categoryId)
-							: undefined}
-						removeSoftDisabled={atFloor}
-						removeHintId={floorHintId}
-						showRoundingCent={evenSplitAppliedAt === index}
-						onRemove={() => removePart(index)}
-						onAmountInput={onAmountEdited}
-						onAmountBlur={() => band?.flushAnnouncement()}
-					/>
-				{/each}
-			</div>
-
-			{#if atFloor}
-				<!--
-					1f: at the floor the sentence CONTAINS the exit. Whoever clicks the second cross does
-					not want one part fewer, they want out — and without this they face two dead buttons
-					with no idea the way out is elsewhere in the panel.
-				-->
-				<p id={floorHintId} class="mt-2 text-xs text-zinc-500">
-					{m.splits_floor_hint()}
-					<button
-						type="button"
-						class="underline underline-offset-2 hover:text-zinc-700"
-						onclick={() => (removalPending = true)}
-					>
-						{m.splits_remove_action()}
-					</button>
-					{m.splits_floor_hint_tail()}
+			<div class="grid gap-2 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
+				<p class="text-sm text-zinc-700">
+					{m.splits_removal_pending({ count: parts.length })}
 				</p>
-			{/if}
-
-			<div class="mt-3 grid gap-2 sm:flex sm:flex-wrap">
-				<div data-split-add>
+				<div>
 					<Button
 						type="button"
 						variant="secondary"
 						size="sm"
-						softDisabled={saving || atCeiling}
-						aria-describedby={saving ? savingHintId : atCeiling ? ceilingHintId : undefined}
-						onclick={addPart}
+						onclick={() => (removalPending = false)}
 					>
-						{m.splits_add_part()}
+						{m.splits_removal_cancel()}
 					</Button>
 				</div>
-				<Button
-					type="button"
-					variant="secondary"
-					size="sm"
-					softDisabled={saving || !canDistributeEvenly(amountCents, parts.length)}
-					aria-describedby={saving ? savingHintId : undefined}
-					onclick={distribute}
-				>
-					{m.splits_distribute_evenly()}
-				</Button>
 			</div>
-			{#if atCeiling}
-				<!-- The button is not removed: a disappearance is one more mystery to solve. -->
-				<p id={ceilingHintId} class="mt-2 text-xs text-zinc-500">
-					{m.splits_ceiling_hint({ max: MAX_SPLITS_PER_TRANSACTION })}
-				</p>
-			{/if}
-		</fieldset>
-	{/if}
+			<input type="hidden" name="splitIntent" value="clear" />
+		{:else}
+			<input type="hidden" name="splitIntent" value="replace" />
 
-	<input type="hidden" name="transactionId" value={transactionId} />
+			<fieldset class="rounded-xl border border-zinc-200 p-3">
+				<legend class="px-1 text-sm font-semibold">
+					{isEditingExisting
+						? m.splits_section_heading_count({ count: parts.length })
+						: m.splits_section_heading()}
+				</legend>
 
-	<!--
+				<div class="mt-1">
+					{#each parts as _part, index (index)}
+						<SplitPartRow
+							position={index + 1}
+							bind:categoryId={parts[index].categoryId}
+							bind:amount={parts[index].amount}
+							bind:note={parts[index].note}
+							{categoryOptions}
+							{size}
+							{saving}
+							{savingHintId}
+							deletedCategoryName={missingCategoryPositions.includes(index)
+								? labelsWhenOpened.get(parts[index].categoryId)
+								: undefined}
+							removeSoftDisabled={atFloor}
+							removeHintId={floorHintId}
+							showRoundingCent={evenSplitAppliedAt === index}
+							onRemove={() => removePart(index)}
+							onAmountInput={onAmountEdited}
+							onAmountBlur={() => band?.flushAnnouncement()}
+						/>
+					{/each}
+				</div>
+
+				{#if atFloor}
+					<!--
+					1f: at the floor the sentence CONTAINS the exit. Whoever clicks the second cross does
+					not want one part fewer, they want out — and without this they face two dead buttons
+					with no idea the way out is elsewhere in the panel.
+				-->
+					<p id={floorHintId} class="mt-2 text-xs text-zinc-500">
+						{m.splits_floor_hint()}
+						<button
+							type="button"
+							class="underline underline-offset-2 hover:text-zinc-700"
+							onclick={() => (removalPending = true)}
+						>
+							{m.splits_remove_action()}
+						</button>
+						{m.splits_floor_hint_tail()}
+					</p>
+				{/if}
+
+				<div class="mt-3 grid gap-2 sm:flex sm:flex-wrap">
+					<div data-split-add>
+						<Button
+							type="button"
+							variant="secondary"
+							size="sm"
+							softDisabled={saving || atCeiling}
+							aria-describedby={saving ? savingHintId : atCeiling ? ceilingHintId : undefined}
+							onclick={addPart}
+						>
+							{m.splits_add_part()}
+						</Button>
+					</div>
+					<Button
+						type="button"
+						variant="secondary"
+						size="sm"
+						softDisabled={saving || !canDistributeEvenly(amountCents, parts.length)}
+						aria-describedby={saving ? savingHintId : undefined}
+						onclick={distribute}
+					>
+						{m.splits_distribute_evenly()}
+					</Button>
+				</div>
+				{#if atCeiling}
+					<!-- The button is not removed: a disappearance is one more mystery to solve. -->
+					<p id={ceilingHintId} class="mt-2 text-xs text-zinc-500">
+						{m.splits_ceiling_hint({ max: MAX_SPLITS_PER_TRANSACTION })}
+					</p>
+				{/if}
+			</fieldset>
+		{/if}
+
+		<input type="hidden" name="transactionId" value={transactionId} />
+
+		<!--
 		1q: the one explanation every field points at while the write is in flight. Visually hidden
 		because the VISIBLE signal is the spinner on the button — a second sentence on screen saying
 		the same thing would be the two-locations defect this design refuses everywhere else.
 	-->
-	{#if saving}
-		<p id={savingHintId} class="sr-only">{m.splits_saving_hint()}</p>
-	{/if}
+		{#if saving}
+			<p id={savingHintId} class="sr-only">{m.splits_saving_hint()}</p>
+		{/if}
+	</div>
 
 	<!--
-		1d and 1k: the remainder band and the action row travel TOGETHER, pinned to the bottom of
-		whatever is scrolling, « c'est la règle du pied de feuille étendue d'un cran : ce qui commande
-		l'action primaire voyage avec elle ». That is what guarantees the reason and the neutralised
-		button are read in the same glance whatever the number of parts, and at 390 it is what keeps
-		the remainder visible while typing — « un reste placé en haut disparaîtrait au premier champ
-		ciblé, exactement au moment où il devient utile ».
+		1d and 1k: the remainder band and the action row travel TOGETHER, at the FOOT of the editor,
+		« c'est la règle du pied de feuille étendue d'un cran : ce qui commande l'action primaire
+		voyage avec elle ». That is what guarantees the reason and the neutralised button are read in
+		the same glance whatever the number of parts, and at 390 it is what keeps the remainder
+		visible while typing — « un reste placé en haut disparaîtrait au premier champ ciblé,
+		exactement au moment où il devient utile ».
 
 		DIVERGENCE FROM THE DRAWING, recorded rather than smuggled. 1k puts this group in the SHEET's
 		own sticky footer. This app's detail sheet is not the sheet 1k drew: it hosts four independent
 		forms — manual category, manual nature, étiquettes and this one — so a sheet-level footer
 		would pin ONE form's « Enregistrer » as the whole sheet's permanent chrome, and a screen
-		reader would meet a Save button with no fieldset to belong to. `position: sticky` scoped to
-		this editor's own box gives the identical property with the right owner: the group pins while
-		the editor is on screen and releases when it is not. The cost is that the sheet keeps its
+		reader would meet a Save button with no fieldset to belong to. The editor's own box carries
+		the property instead, which is the right owner. The cost is that the sheet keeps its
 		`max-h-[85vh]` instead of the ~809 px the footer prop grants; that is a height, not a
 		reachability, and 1k's own note says the property that matters is unaffected.
+
+		NOT `position: sticky`, which was the 2026-08-07 answer and is precisely what this row
+		replaces — see the block comment at the top of this component for the measurement. As the
+		third grid track of a height-capped box it pins for the same reason and cannot overlap
+		anything, because a grid row has no way to be drawn over its siblings.
 	-->
-	<div class="sticky bottom-0 z-10 grid gap-2 bg-white pt-2 pb-1">
+	<div class="z-10 grid gap-2 bg-white pt-2 pb-1">
 		{#if error}
 			<!--
 				1i: inside the panel, ABOVE the remainder band, never at the top of the page — « l'échec

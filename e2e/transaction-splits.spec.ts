@@ -100,6 +100,24 @@ async function measure(page: import('@playwright/test').Page) {
 			handle: handle ? handle.getBoundingClientRect().height : null,
 			headerBand: headerBand ? headerBand.getBoundingClientRect().height : null,
 			save: { top: saveBox.top, bottom: saveBox.bottom, height: saveBox.height },
+			// THE OVERLAP, read as a relation rather than as a position. The band and the action row
+			// are one foot; the question this answers is whether that foot is DRAWN OVER the rows it
+			// is explaining, which no single element's box can say — CLAUDE.md's wrong-box entry, and
+			// the reason the defect it replaces survived a spec that measured `save` alone.
+			partRowsUnderFoot: (() => {
+				const foot = save.parentElement?.parentElement ?? null;
+				if (!foot) return null;
+				const footTop = foot.getBoundingClientRect().top;
+				return Array.from(form.querySelectorAll('[data-split-category]'))
+					.map((wrapper) => wrapper.closest('div.grid') ?? wrapper)
+					.filter((row) => row.getBoundingClientRect().bottom > footTop)
+					.map((row) => ({
+						position: (row.querySelector('[data-split-category]') as HTMLElement | null)?.dataset
+							.splitCategory,
+						rowBottom: +row.getBoundingClientRect().bottom.toFixed(2),
+						footTop: +footTop.toFixed(2)
+					}));
+			})(),
 			scroller: scrollerBox
 				? {
 						top: scrollerBox.top,
@@ -108,9 +126,11 @@ async function measure(page: import('@playwright/test').Page) {
 						scrollHeight: scroller!.scrollHeight
 					}
 				: null,
-			// The sticky group's own computed position, so "it is sticky" is a measurement rather
-			// than a class name.
-			savePosition: getComputedStyle(save.closest('.sticky') ?? save).position
+			// The foot's own computed position, logged rather than asserted since 2026-08-10: it is
+			// `static` now, and the property that replaced it is `partRowsUnderFoot` above. Kept in
+			// the payload because a future session reading these logs will want to know which of the
+			// two eras a capture came from.
+			footPosition: getComputedStyle(save.parentElement?.parentElement ?? save).position
 		};
 	});
 }
@@ -205,13 +225,42 @@ test.describe('the split editor on /transactions', () => {
 		expect(desktop, 'the split editor was not found at 1280x800').not.toBeNull();
 		console.log('SPLIT GEOMETRY 1280x800', JSON.stringify(desktop, null, 1));
 
-		// The claim that matters, and the one the Période panel failed twice: the primary action is
-		// ON SCREEN, not merely inside a panel that fits. Measured from the anchor against the fold.
+		// THE FOOT COVERS NOTHING. 1d asks for the band « hors de la zone défilante », and until
+		// 2026-08-10 it was `position: sticky; bottom: 0` instead — which is a different property and
+		// cannot be turned into that one by choosing a better offset. A bottom-sticky element is
+		// painted at the scrollport's bottom edge while its containing block still extends below, so
+		// it is drawn OVER whatever occupies that strip. Measured on this page before the fix: the
+		// band's top edge at 1025 against part rows spanning 969→1150, hiding part 2 while the
+		// heading above it announced two parts, and 688 against 714→903 at 390.
+		//
+		// The foot is now the third track of a grid whose middle track is the only thing that
+		// scrolls, so this is zero by construction rather than at the scroll offsets that were
+		// checked. It is asserted anyway, because "by construction" is what the sticky version was
+		// believed to be too.
 		expect(
-			desktop!.save.bottom,
-			`« Enregistrer » sits below the fold at 1280x800: ${JSON.stringify(desktop!.save)}`
-		).toBeLessThanOrEqual(desktop!.viewport.height);
-		expect(desktop!.save.top).toBeGreaterThanOrEqual(0);
+			desktop!.partRowsUnderFoot,
+			`the remainder band is drawn over part rows at 1280x800: ${JSON.stringify(desktop!.partRowsUnderFoot)}`
+		).toEqual([]);
+
+		// AND THE COST, ASSERTED RATHER THAN LEFT SILENT. The sticky foot dragged « Enregistrer »
+		// into the viewport wherever the panel happened to sit; a foot that cannot overlap cannot do
+		// that, so the button is reached by scrolling the panel — exactly as the three sibling forms
+		// in this same panel already are. What survives, and what this pins, is the property 1d gives
+		// the reason FOR: the band and the button it blocks are read in one glance. Ruled 2026-08-10
+		// with both measurements in hand; the alternative was keeping a band that hides the rows it
+		// asks the user to correct.
+		//
+		// An ABSENCE would age badly here (CLAUDE.md), so the condition travels with it: this is only
+		// acceptable while the band sits immediately above the button. If they are ever separated,
+		// the trade is off and the sticky question reopens.
+		await save.scrollIntoViewIfNeeded();
+		const reached = await measure(page);
+		expect(
+			reached!.save.bottom,
+			`« Enregistrer » is unreachable at 1280x800 even after scrolling: ${JSON.stringify(reached!.save)}`
+		).toBeLessThanOrEqual(reached!.viewport.height);
+		expect(reached!.save.top).toBeGreaterThanOrEqual(0);
+		expect(reached!.partRowsUnderFoot).toEqual([]);
 
 		await save.click();
 		await expect(
@@ -253,10 +302,20 @@ test.describe('the split editor on /transactions', () => {
 		await expect(sheet).toBeVisible();
 		await expect(sheet.getByText(m.splits_section_heading_count({ count: 2 }))).toBeVisible();
 
-		// Scroll the sheet's body to the bottom of the editor: the whole point of the sticky group
-		// is that the remainder and the neutralised button stay in the same glance whatever the
-		// number of parts, so the measurement has to be taken with the body actually scrolled.
-		await sheet.getByLabel(m.splits_part_amount_aria({ position: 1 })).scrollIntoViewIfNeeded();
+		// Scroll the sheet's body to the FOOT of the editor: the whole point of the group is that the
+		// remainder and the neutralised button stay in the same glance whatever the number of parts,
+		// so the measurement has to be taken with the body actually scrolled.
+		//
+		// Aimed at Save rather than at part 1 since 2026-08-10. While the foot was `position: sticky`
+		// it rode into view on its own from any offset, which is exactly the behaviour that drew it
+		// over the part rows; now it is the third track of the editor's grid and is reached like any
+		// other content. Scrolling to part 1 and then measuring Save would be measuring whether the
+		// editor happens to be shorter than the sheet's body, which is a property of this fixture's
+		// two parts and not of the layout.
+		await sheet
+			.locator('form[action*="/saveSplits"]')
+			.getByRole('button', { name: m.common_save() })
+			.scrollIntoViewIfNeeded();
 
 		const mobile = await measure(page);
 		expect(mobile, 'the split editor was not found at 390x844').not.toBeNull();
@@ -274,18 +333,24 @@ test.describe('the split editor on /transactions', () => {
 		//
 		// The design's predicted body of 591 is neither confirmed nor refuted by this, and saying so
 		// is the point: 591 was derived for a sheet of 809 with an 85 px header, and this sheet is
-		// 717.39 with an 88.5 px header. It is 717.39 because the group is sticky INSIDE the body
-		// rather than in `BottomSheet`'s footer (the divergence recorded in the editor), and 88.5
-		// because this sheet's header lifts the date row and « Supprimer » alongside the label — a
-		// decision that predates this work. A prediction for a different configuration is not a
-		// figure this measurement can agree or disagree with.
+		// 717.39 with an 88.5 px header. It is 717.39 because the group lives INSIDE the body rather
+		// than in `BottomSheet`'s footer (the divergence recorded in the editor), and 88.5 because
+		// this sheet's header lifts the date row and « Supprimer » alongside the label — a decision
+		// that predates this work. A prediction for a different configuration is not a figure this
+		// measurement can agree or disagree with.
 		expect(
 			mobile!.handle! + mobile!.headerBand! + mobile!.scroller!.height,
 			`the sheet's regions do not account for its height: ${JSON.stringify(mobile)}`
 		).toBeCloseTo(mobile!.panel!.height, 1);
 		// « Le bandeau de reste ne bouge jamais. C'est la règle du pied de feuille étendue d'un
-		// cran : ce qui commande l'action primaire voyage avec elle. »
-		expect(mobile!.savePosition).toBe('sticky');
+		// cran : ce qui commande l'action primaire voyage avec elle. » What pins that is no longer
+		// `position: sticky` — see the 1280 block above for why, and for the cost. What is asserted
+		// here is the half of the sentence the sticky version was breaking: the foot is not drawn
+		// over the parts it explains, at the one width where it hid BOTH of them.
+		expect(
+			mobile!.partRowsUnderFoot,
+			`the remainder band is drawn over part rows at 390x844: ${JSON.stringify(mobile!.partRowsUnderFoot)}`
+		).toEqual([]);
 
 		// ---- the keyboard-open column (1k) ------------------------------------------------------
 		//
@@ -333,6 +398,10 @@ test.describe('the split editor on /transactions', () => {
 			`« Enregistrer » is under the keyboard: ${JSON.stringify(keyboard!.save)}`
 		).toBeLessThanOrEqual(KEYBOARD_OPEN_VIEWPORT);
 		expect(keyboard!.save.top).toBeGreaterThanOrEqual(0);
+		expect(
+			keyboard!.partRowsUnderFoot,
+			`the remainder band is drawn over part rows with the keyboard open: ${JSON.stringify(keyboard!.partRowsUnderFoot)}`
+		).toEqual([]);
 		// Same relational check, on the shrunken column: 28 + 88.5 + 427.5 = 544, to the pixel.
 		expect(
 			keyboard!.handle! + keyboard!.headerBand! + keyboard!.scroller!.height,

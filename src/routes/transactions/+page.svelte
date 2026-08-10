@@ -849,7 +849,35 @@
 	 * aesthetic gain. The row aimed at therefore stays on its own line at its exact ordinate.
 	 */
 	const detailOpen = $derived(data.selectedTransaction !== null);
-	const colCategory = $derived(detailOpen ? 'w-[140px]' : 'w-[160px]');
+	/**
+	 * CATÉGORIE IS 176/200, NOT THE PLATE'S 140/160, AND THE PLATE'S OWN FIGURE IS WHAT MOVED.
+	 *
+	 * 1m states « à 140 px, "Alimentation" plus le badge occupent 126 px des 140 disponibles ». That
+	 * measured the wrong box: 140 is the COLUMN, and `px-4` on the inner block takes 16 + 16, so the
+	 * usable content is 108. Measured in Chromium at 14px, the real figures are dot 8 + gap 6 + name,
+	 * plus gap 6 + badge 24 when the row is répartie:
+	 *
+	 *   Alimentation        79.28 → 93.28 plain, 123.28 with the badge
+	 *   Abonnements         87.11 → 101.11 plain, 131.11 with the badge
+	 *   Factures & énergie 115.56 → 129.56 plain   (the longest DEFAULT category)
+	 *   Produits ménagers  118.03 → 132.03 plain   (a user-authored one, and the reported case)
+	 *
+	 * So at 108 the plate's own demonstration row truncates, and « Abonnements » truncates at the
+	 * roomy set too. 184 gives 152 of content — 138 to the name on a plain row, 108 with a badge —
+	 * and 200 gives 168, i.e. 154 plain and 124 with a badge. Both hold every label above on a plain
+	 * row, including the 134.28 of « Loisirs et équipement », which 176 still cut by four pixels.
+	 * A répartie row is a different promise and the plate makes it explicitly: « l'ellipse fait son
+	 * travail sans que le décompte ne cède » — the badge is `shrink-0`, so what gives way there is
+	 * the name, never the count.
+	 *
+	 * THE 36/40 px COME FROM LIBELLÉ, THE 1fr COLUMN, AND FROM NOTHING ELSE. Étiquettes has no slack
+	 * to give: `TagChips` caps a chip at 110px, so two chips already exceed the 158 of content that
+	 * 190 leaves — the column is at its own minimum, and it is empty in the reported fixture only by
+	 * accident of that data. Libellé measured 682.5 roomy and 348.5 open against a `max-w-[260px]`
+	 * label, so it is the only column carrying real slack; after the change it is 642.5 and 304.5,
+	 * both still above the 292 that cap plus padding needs.
+	 */
+	const colCategory = $derived(detailOpen ? 'w-[184px]' : 'w-[200px]');
 	const colTags = $derived(detailOpen ? 'w-[190px]' : 'w-[240px]');
 	const colAmount = $derived(detailOpen ? 'w-[110px]' : 'w-[130px]');
 
@@ -2813,9 +2841,10 @@
 																>{displayCategory(rowCategory(tx))}</span
 															>
 															<!-- The badge is `shrink-0` and the name is `min-w-0 truncate`, which is what
-															     guarantees the count survives any category name: at 140px « Alimentation »
-															     plus the badge occupy 126, and past that the ellipse does the work rather
-															     than the number being cut off. -->
+															     guarantees the count survives any category name: the ellipse does the work
+															     rather than the number being cut off. What the ellipse must NOT do is fire
+															     on an ordinary label, which is why the column is 176/200 rather than the
+															     plate's 140/160 — see `colCategory` for the measured figures. -->
 															{#if tx.splitIndicator}
 																<SplitBadge
 																	parts={badgeParts(tx.splitIndicator)}
@@ -3629,11 +3658,15 @@
 														rowCategory(tx)
 													)}"
 												></span>
-												<span class="truncate"
-													>{displayCategory(rowCategory(tx))} · {formatNatureLabel(
-														rowNature(tx)
-													)}</span
-												>
+												<!-- TWO SPANS, NOT ONE, AND THAT IS 1n'S OWN STRUCTURE: the category is the
+												     single element carrying `text-overflow: ellipsis` and everything beside it
+												     is `flex-shrink:0`. Shipped as one span the ellipse landed on whatever came
+												     last, which here is the NATURE — « Produits ménagers · Dépense… », a word
+												     cut out of a closed set of seven, where a cut CATEGORY still reads as a
+												     recognisable prefix of a name the user wrote. Same one line, same 22px, same
+												     content; only which of the two gives way changes. -->
+												<span class="min-w-0 truncate">{displayCategory(rowCategory(tx))}</span>
+												<span class="shrink-0">· {formatNatureLabel(rowNature(tx))}</span>
 												<!-- Inert at 390: a 22px target glued to a full-row target is two destinations
 												     under one thumb. The sentence that replaces « fois deux » travels inside the
 												     component, so nothing here can render a badge without its explanation. -->
