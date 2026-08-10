@@ -46,6 +46,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
 - [Tags](./using/tags.md): labelling transactions across categories.
 - [Splitting a transaction](./using/split-transactions.md): one payment,
   several categories.
+- [Two-factor authentication](./using/two-factor.md): turning it on, the
+  recovery codes, and what happens if you lose access.
 
 ## Look it up
 
@@ -73,6 +75,9 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   the cash-flow forecast anchors on.
 - [Split transactions](./reference/split-transactions.md): part counts,
   amount ceiling, rounding, CSV columns, refusal messages.
+- [Two-factor authentication](./reference/two-factor.md): the code and
+  recovery-code figures, rate limits, and how a locked-out account is
+  recovered.
 
 ## Understand it
 

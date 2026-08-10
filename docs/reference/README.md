@@ -26,6 +26,9 @@ Rules, limits and exact values. Look things up here; the pages in
 - **[Split transactions](./split-transactions.md)**: how many parts, the
   amount ceiling, the rounding cent, what a filtered row displays, the CSV
   columns, and every refusal message.
+- **[Two-factor authentication](./two-factor.md)**: the TOTP and
+  recovery-code figures, what each step verifies, the rate limits, and the
+  one route back into a locked-out account.
 
 Settings and environment variables are not here: those are in
 [configuration](../configuration.md), because they belong to the install

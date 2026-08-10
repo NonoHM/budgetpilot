@@ -20,6 +20,7 @@ import path from 'node:path';
 const BASE_URL = process.env.BASE_URL ?? 'http://localhost:4175';
 const EMAIL = process.env.DOC_EMAIL ?? 'demo@example.invalid';
 const PASSWORD = process.env.DOC_PASSWORD ?? 'DemoBudgetPilot123!';
+const TOTP_SECRET = process.env.DOC_TOTP_SECRET ?? null;
 const SHOTS = path.resolve('docs/screenshots');
 
 const DESKTOP = { width: 1920, height: 1080 };
@@ -300,8 +301,150 @@ const GROUPS = {
 			clipAround: 'Projected balance (3 months)',
 			clipMinHeight: 300
 		}
+	],
+	// Run these against an account that does NOT yet have two-factor enabled: the group walks
+	// the enrolment for real, so the codes photographed are ones the app actually issued.
+	'two-factor': [
+		{
+			file: 'two-factor/settings-card-desktop.png',
+			url: '/settings',
+			clipAround: 'Two-factor authentication',
+			clipMinHeight: 120
+		},
+		{
+			file: 'two-factor/setup-desktop.png',
+			url: '/settings',
+			before: openTotpSetup,
+			// The dialog is portalled out of `main`, so the heading walk cannot reach it.
+			element: '[role="dialog"]'
+		},
+		{
+			file: 'two-factor/recovery-codes-desktop.png',
+			url: '/settings',
+			before: async (page) => {
+				await openTotpSetup(page);
+				await completeTotpSetup(page);
+			},
+			element: '[role="dialog"]'
+		}
+	],
+	// Split out because it is the only shot in the family that needs an account which ALREADY has
+	// two-factor enabled, which is the one state the enrolment walk above destroys.
+	'two-factor-verify': [
+		{
+			// The second sign-in step, which only exists while a challenge is open — so this one
+			// runs signed OUT and performs the password step itself.
+			file: 'two-factor/verify-desktop.png',
+			url: '/login',
+			anonymous: true,
+			// A narrower viewport than the 1920 default: the sign-in card is centred and fixed
+			// width, so a full-width capture is mostly empty page.
+			viewport: { width: 960, height: 760 },
+			before: async (page, { email, password }) => {
+				await page.getByRole('textbox', { name: 'Email' }).fill(email);
+				await page.getByLabel('Password', { exact: true }).fill(password);
+				await page.getByRole('button', { name: 'Sign in' }).click();
+				await page.waitForURL(/verify-totp/);
+			},
+			contentClip: true
+		}
+	],
+	// The enabled state, which the `two-factor` group cannot also capture: it walks the enrolment,
+	// so by the time it finishes the account can never show the disabled card again.
+	'two-factor-on': [
+		{
+			file: 'two-factor/settings-card-on-desktop.png',
+			url: '/settings',
+			// The section HEADING, not the card: once enabled the card's own title is no longer a
+			// leaf node, so the walk that finds it in the disabled state finds nothing here.
+			clipAround: 'Authenticator app (TOTP)',
+			clipMinHeight: 120
+		}
+	],
+	backup: [
+		{
+			file: 'backup/section-desktop.png',
+			url: '/settings',
+			clipAround: 'Export my data',
+			clipMinHeight: 120
+		},
+		{
+			file: 'backup/restore-open-desktop.png',
+			url: '/settings',
+			before: async (page) => {
+				// The restore form is behind a disclosure, deliberately — the whole point of the
+				// image is the warning it reveals, so the shot has to open it.
+				// Two disclosures on the page carry the label "Show options", and picking by index got
+				// the other one — so this walks up from the "Restore a backup" title to the nearest
+				// ancestor that owns a disclosure, which cannot address the wrong section.
+				await page.evaluate(() => {
+					const title = [...document.querySelectorAll('*')].find(
+						(el) => el.children.length === 0 && el.textContent.trim() === 'Restore a backup'
+					);
+					let node = title;
+					while (node && !node.querySelector?.('button[aria-expanded]')) node = node.parentElement;
+					node.querySelector('button[aria-expanded]').click();
+				});
+				await page.waitForTimeout(400);
+			},
+			clipAround: 'Export my data',
+			clipMinHeight: 120
+		}
+	],
+	account: [
+		{
+			file: 'account/overview-desktop.png',
+			url: '/settings',
+			contentClip: true
+		},
+		{
+			file: 'account/language-desktop.png',
+			url: '/settings',
+			clipAround: 'Language',
+			clipMinHeight: 120
+		},
+		{
+			file: 'account/sessions-desktop.png',
+			url: '/settings',
+			clipAround: 'Sessions',
+			clipMinHeight: 200
+		}
+	],
+	admin: [
+		{
+			file: 'admin/users-desktop.png',
+			url: '/admin',
+			contentClip: true
+		},
+		{
+			file: 'admin/invitations-desktop.png',
+			url: '/admin',
+			clipAround: 'Invitations',
+			clipMinHeight: 300
+		}
 	]
 };
+
+/** Opens the enrolment dialog from the two-factor switch. */
+async function openTotpSetup(page) {
+	await page.getByRole('switch', { name: 'Enable two-factor authentication' }).click();
+	await page.waitForTimeout(400);
+}
+
+/**
+ * Finishes the enrolment the way a user does, by reading the key the dialog offers for manual
+ * entry and generating a code from it. `otpauth` is the library the app itself verifies with, so
+ * this is not a re-implementation of the algorithm — it is the same one, driven from outside.
+ */
+async function completeTotpSetup(page) {
+	const { TOTP, Secret } = await import('otpauth');
+	const secret = await page.locator('input[name="secretBase32"]').inputValue();
+	const code = new TOTP({ issuer: 'BudgetPilot', secret: Secret.fromBase32(secret) }).generate();
+	await page.getByLabel('Current password').fill(PASSWORD);
+	await page.locator('input[name="code"]').fill(code);
+	await page.getByRole('button', { name: 'Enable', exact: true }).click();
+	await page.waitForTimeout(600);
+}
 
 async function main() {
 	const groups = process.argv.slice(2);
@@ -318,6 +461,24 @@ async function main() {
 	const body = await res.json();
 	if (body.type !== 'redirect' && body.type !== 'success') {
 		throw new Error(`[docs] login failed: ${JSON.stringify(body).slice(0, 200)}`);
+	}
+	// An account with two-factor enabled stops at the second step, and the session cookie is only
+	// issued once that step passes — so without this the capture would run signed OUT and
+	// photograph /login. DOC_TOTP_SECRET is what lets a group document the ENABLED state.
+	if (String(body.location ?? '').includes('verify-totp')) {
+		if (!TOTP_SECRET) {
+			throw new Error('[docs] this account has two-factor enabled: set DOC_TOTP_SECRET');
+		}
+		const { TOTP, Secret } = await import('otpauth');
+		const code = new TOTP({
+			issuer: 'BudgetPilot',
+			secret: Secret.fromBase32(TOTP_SECRET)
+		}).generate();
+		const second = await ctx.post('/login/verify-totp', { form: { code }, maxRedirects: 0 });
+		const secondBody = await second.json();
+		if (secondBody.type !== 'redirect') {
+			throw new Error(`[docs] second factor failed: ${JSON.stringify(secondBody).slice(0, 200)}`);
+		}
 	}
 	const storageState = await ctx.storageState();
 	await ctx.dispose();
@@ -338,7 +499,9 @@ async function main() {
 
 async function capture(browser, storageState, shot) {
 	const context = await browser.newContext({
-		storageState,
+		// A signed-in state is the default, but the second sign-in step only exists for a visitor
+		// who has not finished signing in — so a shot can ask for a clean context instead.
+		storageState: shot.anonymous ? undefined : storageState,
 		viewport: shot.viewport ?? DESKTOP,
 		deviceScaleFactor: 1,
 		locale: 'en-GB',
@@ -353,7 +516,7 @@ async function capture(browser, storageState, shot) {
 		const lang = await page.locator('html').getAttribute('lang');
 		if (lang !== 'en') throw new Error(`[docs] ${shot.file} rendered with lang="${lang}"`);
 
-		if (shot.before) await shot.before(page);
+		if (shot.before) await shot.before(page, { email: EMAIL, password: PASSWORD });
 
 		const file = path.join(SHOTS, shot.file);
 		if (shot.element) {
@@ -371,7 +534,10 @@ async function capture(browser, storageState, shot) {
 				}
 				return Math.ceil(lowest + window.scrollY + 24);
 			});
-			const clip = { x: 0, y: 0, width: DESKTOP.width, height: Math.min(DESKTOP.height, height) };
+			// The shot's own viewport, not the desktop default: a narrower capture would otherwise
+			// ask Playwright to clip a region wider than the page it rendered.
+			const view = shot.viewport ?? DESKTOP;
+			const clip = { x: 0, y: 0, width: view.width, height: Math.min(view.height, height) };
 			await page.screenshot({ path: file, clip });
 			console.log(`[docs] ${shot.file}  ${clip.width}x${clip.height}`);
 		} else if (shot.clipAround) {
