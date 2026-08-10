@@ -11,6 +11,8 @@ Rules, limits and exact values. Look things up here; the pages in
   and the rule a flow must meet to reach the projection.
 - **[Rules](./rules.md)**: how matching works, what the table holds, and
   the manual-category exclusion.
+- **[Net worth](./net-worth.md)**: the account types, what the curve is
+  built from, and which accounts the forecast anchors on.
 - **[Split transactions](./split-transactions.md)**: how many parts, the
   amount ceiling, the rounding cent, what a filtered row displays, the CSV
   columns, and every refusal message.

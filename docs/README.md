@@ -29,6 +29,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   charts and a three-month projection.
 - [Categorization rules](./using/rules.md): the 156 that ship, and writing
   your own.
+- [Net worth](./using/net-worth.md): accounts and balances over time, and
+  savings goals.
 - [The transactions screen](./using/transactions.md): search, filters, editing
   a transaction, and what the CSV export contains.
 - [Tags](./using/tags.md): labelling transactions across categories.
@@ -47,6 +49,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   recurring flow must meet to reach the projection.
 - [Rules](./reference/rules.md): how matching works, and why a rule never
   overrides a category you set by hand.
+- [Net worth](./reference/net-worth.md): account types, and which of them
+  the cash-flow forecast anchors on.
 - [Split transactions](./reference/split-transactions.md): part counts,
   amount ceiling, rounding, CSV columns, refusal messages.
 
