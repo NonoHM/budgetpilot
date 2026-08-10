@@ -80,7 +80,7 @@ Reaching it from another device on your LAN takes two extra lines in `.env` (`OR
 ## Documentation
 
 - **[Getting started](docs/getting-started.md)**: the detailed version of the above, three install paths, and what to do once you're in.
-- **[Using BudgetPilot](docs/using/README.md)**: the app itself. [The dashboard](docs/using/dashboard.md), [transactions](docs/using/transactions.md), [tags](docs/using/tags.md), and [splitting one payment across several categories](docs/using/split-transactions.md).
+- **[Using BudgetPilot](docs/using/README.md)**: the app itself. [The dashboard](docs/using/dashboard.md), [budgets](docs/using/budgets.md), [transactions](docs/using/transactions.md), [tags](docs/using/tags.md), and [splitting one payment across several categories](docs/using/split-transactions.md).
 - **[Configuration](docs/configuration.md)**: every setting, and how to reach the app from your phone or another machine.
 - **[Reverse proxy](docs/reverse-proxy.md)**: optional Caddy overlay for a real domain with automatic HTTPS.
 - **[PostgreSQL or MySQL](docs/database-providers.md)**: optional overlays for installs that already run a database server. SQLite is the default and needs nothing.
