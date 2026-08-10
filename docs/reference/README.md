@@ -9,6 +9,8 @@ Rules, limits and exact values. Look things up here; the pages in
   adds up, and what deleting one does.
 - **[Reports](./reports.md)**: the six figures, the three-month horizon,
   and the rule a flow must meet to reach the projection.
+- **[Imports](./imports.md)**: accepted files, the four counts, duplicate
+  detection, and what deleting a run removes.
 - **[Upcoming bills](./upcoming-bills.md)**: the two badges, what the
   header total counts, and the three windows it is compared against.
 - **[Categories](./categories.md)**: naming rules, the eight natures, and
