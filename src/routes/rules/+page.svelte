@@ -523,7 +523,7 @@
 									{/if}
 								</p>
 								<p class="mt-1 text-sm text-zinc-500">
-									→ {displayCategory(rule.targetCategory)} · {formatNatureLabel(rule.targetNature)}
+									{displayCategory(rule.targetCategory)} · {formatNatureLabel(rule.targetNature)}
 								</p>
 								{#snippet details()}
 									<div class="flex items-center justify-end">
