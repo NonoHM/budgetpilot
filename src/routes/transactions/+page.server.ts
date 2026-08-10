@@ -1078,27 +1078,47 @@ function mapTransactionListItem(
 	 * band read 7,99 €). `pickMatchedAllocation` is the same function `sumFilteredTotals` calls for
 	 * the band's own per-row contribution, so the two cannot drift apart.
 	 *
-	 * `null` when no category filter is active, or — defensively — when nothing in this row's own
-	 * allocations actually matched one that is: the SQL/JS filter already narrowed the list to rows
-	 * that match by IDENTITY (see `computeFilteredTotals`'s own docstring for the parent-matches-but-
-	 * no-part-does case), and such a row has nothing to show as "matched" here either.
+	 * `null` ONLY when no category filter is active.
+	 *
+	 * A ROW THAT MATCHED BY IDENTITY AND CARRIES NO MATCHING MONEY GETS A ZERO, NOT A `null`, AND THE
+	 * DIFFERENCE IS A FALSE FIGURE. `buildTransactionWhere` widens the filter to rows whose PARENT
+	 * category matches (OD-1), so a répartition filed under « Revenus » and split entirely into
+	 * Salaire and Épargne matches `?category=Revenus` while none of its money went there — the
+	 * remainder is zero, so `allocateByCategory` drops it and `pickMatchedAllocation` finds nothing.
+	 *
+	 * Returning `null` there sent the row back to the pre-filter display: the DOMINANT part's
+	 * category and the FULL parent amount. Measured on the fixture — `?category=Revenus` showed one
+	 * row reading « Salaire · 2 500,00 € » under a band reading « 0,00 € », and an export containing
+	 * no lines at all. Three surfaces, three different answers, and the row's was the only one that
+	 * was false: no money in this transaction is Revenus, and « Salaire » is not what the user asked
+	 * to see.
+	 *
+	 * Zero is the truthful figure and it is also the one that keeps Σ rows ≡ band exact, since that
+	 * is precisely what this row contributes to the band. The category shown is the PARENT's own —
+	 * which is the thing that matched, by identity — and the secondary « sur … » line still names the
+	 * parent total, so the row reads "filed here, none of the money is".
 	 */
 	const matched = categoryFilterNameKey
 		? pickMatchedAllocation(allocations, categoryFilterNameKey)
 		: null;
-	const matchedCategoryAllocation = matched
+	const matchedCategoryAllocation = categoryFilterNameKey
 		? {
-				category: matched.entry.category,
 				// Same rule as `rowNature`/`rowCategory` in +page.svelte always applied together: the
-				// nature line must describe the SAME part the category name does.
-				nature: matched.entry.nature,
+				// nature line must describe the SAME part the category name does. On the identity-match
+				// branch that part is the parent itself.
+				category: matched ? matched.entry.category : category,
+				nature: matched ? matched.entry.nature : nature.nature,
 				// Signed, to match `amountCents` below's own convention (income positive, expense
 				// negative). `pickMatchedAllocation` returns an unsigned magnitude because
 				// `sumFilteredTotals` buckets income and expense separately; the row's own KIND decides
 				// the sign here, never a raw part's stored sign — see the doc comment on
 				// `MatchedAllocation` for why summing signed values instead would risk a forged pair of
 				// opposite-sign parts silently cancelling.
-				amountCents: kind === 'income' ? matched.amountCentsAbs : -matched.amountCentsAbs
+				amountCents: matched
+					? kind === 'income'
+						? matched.amountCentsAbs
+						: -matched.amountCentsAbs
+					: 0
 			}
 		: null;
 
