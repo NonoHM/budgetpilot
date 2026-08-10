@@ -139,6 +139,38 @@ const GROUPS = {
 			},
 			contentClip: true
 		}
+	],
+	'net-worth': [
+		{ file: 'net-worth/overview-desktop.png', url: '/net-worth', contentClip: true },
+		{ file: 'net-worth/overview-mobile.png', url: '/net-worth', viewport: MOBILE },
+		{
+			file: 'net-worth/breakdown-desktop.png',
+			url: '/net-worth',
+			before: async (page) => {
+				await page.getByLabel('Breakdown view').first().click();
+				await page.waitForTimeout(400);
+			},
+			clipAround: 'Asset breakdown',
+			clipMinHeight: 200
+		},
+		{
+			file: 'net-worth/new-account-desktop.png',
+			url: '/net-worth',
+			before: async (page) => {
+				await page.getByRole('button', { name: '+ New account' }).first().click();
+				await page.waitForTimeout(300);
+			},
+			element: '[role="dialog"]'
+		},
+		{
+			file: 'net-worth/new-goal-desktop.png',
+			url: '/net-worth',
+			before: async (page) => {
+				await page.getByRole('button', { name: '+ New goal' }).first().click();
+				await page.waitForTimeout(300);
+			},
+			element: '[role="dialog"]'
+		}
 	]
 };
 

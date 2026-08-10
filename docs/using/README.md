@@ -11,6 +11,8 @@ it, go to [getting started](../getting-started.md) first.
   charts, and the flows behind the projection.
 - **[Categorization rules](./rules.md)**: the 156 that ship, writing your
   own, and the preview that shows what applying them would do.
+- **[Net worth](./net-worth.md)**: accounts and balances over time, the
+  two views, and savings goals.
 - **[The transactions screen](./transactions.md)**: search, filters,
   editing a transaction, and what the CSV export contains.
 - **[Tags](./tags.md)**: labelling transactions across categories, tagging
