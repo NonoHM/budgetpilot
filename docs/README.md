@@ -27,6 +27,8 @@ How to do things, in [using BudgetPilot](./using/README.md):
   three states a budget can be in.
 - [Reports](./using/reports.md): where the money went over a period, with
   charts and a three-month projection.
+- [Upcoming bills](./using/upcoming-bills.md): what is due, and how to
+  correct a flow the app got wrong.
 - [Categories](./using/categories.md): the fourteen you start with, and
   what nature is for.
 - [Categorization rules](./using/rules.md): the 156 that ship, and writing
@@ -49,6 +51,8 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   summary strip adds up.
 - [Reports](./reference/reports.md): the six figures, and the rule a
   recurring flow must meet to reach the projection.
+- [Upcoming bills](./reference/upcoming-bills.md): the badges, the header
+  total, and the three windows.
 - [Categories](./reference/categories.md): naming rules, the eight
   natures, and what deleting one does.
 - [Rules](./reference/rules.md): how matching works, and why a rule never
