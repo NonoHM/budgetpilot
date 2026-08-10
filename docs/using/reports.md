@@ -32,7 +32,7 @@ Three sentences under the figures, in plain language: whether the period is
 in surplus, which category took the largest share, and whether spending is
 rising or not.
 
-![Key takeaways: the period is in surplus, Groceries is the top spending category at 37 % of expenses, expenses are decreasing or stable](../screenshots/reports/takeaways-desktop.png)
+![Key takeaways: the period is in surplus, Groceries is the top spending category at 37% of expenses, expenses are decreasing or stable](../screenshots/reports/takeaways-desktop.png)
 
 They restate what the charts show. If you only read one part of this page,
 read this one.
@@ -43,7 +43,7 @@ read this one.
 share of each category beside it. The header says how many categories the
 period covers.
 
-![Spending by category: a donut totalling €401.22 over five categories, with Groceries 37 %, Dining out 29 %, Shopping 14 %, Transport 12 % and Health 5 %](../screenshots/reports/category-breakdown-desktop.png)
+![Spending by category: a donut totalling €401.22 over five categories, with Groceries 37%, Dining out 29%, Shopping 14%, Transport 12% and Health 5%](../screenshots/reports/category-breakdown-desktop.png)
 
 **Spending by nature** answers a different question: how much of that was
 really spending, as opposed to a transfer between your own accounts, an
