@@ -235,6 +235,54 @@ const GROUPS = {
 			},
 			element: '[role="dialog"], [role="alertdialog"]'
 		}
+	],
+	// Expects the two goals described in docs/screenshots/savings-goals/README.md: one tracked
+	// by hand and one linked to an account with a deadline. One of each, because the two modes
+	// show different things and a single goal can only show one of them.
+	'savings-goals': [
+		{
+			file: 'savings-goals/cards-desktop.png',
+			url: '/net-worth',
+			clipAround: 'Savings goals',
+			clipMinHeight: 180
+		},
+		{
+			file: 'savings-goals/new-goal-linked-desktop.png',
+			url: '/net-worth',
+			before: async (page) => {
+				await page.getByRole('button', { name: '+ New goal' }).first().click();
+				await page.waitForTimeout(300);
+				await page.getByRole('button', { name: 'Linked to an account' }).click();
+				await page.waitForTimeout(200);
+				await page.getByRole('button', { name: '+ Add a deadline' }).click();
+				await page.waitForTimeout(200);
+			},
+			element: '[role="dialog"]'
+		},
+		{
+			file: 'savings-goals/detail-linked-desktop.png',
+			url: '/net-worth',
+			before: async (page) => {
+				await page
+					.getByRole('button', { name: /Emergency fund/ })
+					.first()
+					.click();
+				await page.waitForTimeout(600);
+			},
+			element: '[role="dialog"]'
+		},
+		{
+			file: 'savings-goals/detail-manual-desktop.png',
+			url: '/net-worth',
+			before: async (page) => {
+				await page
+					.getByRole('button', { name: /Japan trip/ })
+					.first()
+					.click();
+				await page.waitForTimeout(600);
+			},
+			element: '[role="dialog"]'
+		}
 	]
 };
 

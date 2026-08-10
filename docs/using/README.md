@@ -17,6 +17,8 @@ it, go to [getting started](../getting-started.md) first.
   nature is for, and what deleting one does to its transactions.
 - **[Categorization rules](./rules.md)**: the 156 that ship, writing your
   own, and the preview that shows what applying them would do.
+- **[Savings goals](./savings-goals.md)**: the two tracking modes, and
+  what a deadline turns a target into.
 - **[Net worth](./net-worth.md)**: accounts and balances over time, the
   two views, and savings goals.
 - **[The transactions screen](./transactions.md)**: search, filters,

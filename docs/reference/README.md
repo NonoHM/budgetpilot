@@ -17,6 +17,8 @@ Rules, limits and exact values. Look things up here; the pages in
   the three outcomes of a delete.
 - **[Rules](./rules.md)**: how matching works, what the table holds, and
   the manual-category exclusion.
+- **[Savings goals](./savings-goals.md)**: the two tracking modes, the
+  fields, and how the pace is derived.
 - **[Net worth](./net-worth.md)**: the account types, what the curve is
   built from, and which accounts the forecast anchors on.
 - **[Split transactions](./split-transactions.md)**: how many parts, the
