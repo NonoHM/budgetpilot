@@ -3,6 +3,8 @@
 Rules, limits and exact values. Look things up here; the pages in
 [using BudgetPilot](../using/README.md) tell you how to do things.
 
+- **[Dashboard](./dashboard.md)**: what each figure counts, the period
+  choices, and the caps on every card.
 - **[Split transactions](./split-transactions.md)**: how many parts, the
   amount ceiling, the rounding cent, what a filtered row displays, the CSV
   columns, and every refusal message.
