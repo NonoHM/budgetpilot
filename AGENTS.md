@@ -385,3 +385,17 @@ changelog. An operator deciding whether to upgrade reads the changelog; a CVE
 they are expected to act on has to be in it. Ordinary bumps stay `chore(deps)`
 — the distinction is whether an advisory is being closed, not how the PR was
 opened, so a Dependabot PR retitled by hand is the normal case here.
+
+**A green Dependabot is not evidence about what ships. The image scan is the
+authority; Dependabot is a convenience that proposes bumps early.** Dependabot
+classifies a package by where it is _declared_. The image contains the result of
+dependency _resolution_, and those are different sets. `@sveltejs/kit` is a
+devDependency, so its alerts auto-dismiss as `development` scope — while
+`bits-ui → runed → @sveltejs/kit → vite → postcss → nanoid` is installed by
+`npm ci --omit=dev`, which is exactly what the Dockerfile's prod-deps stage
+runs. `--omit=dev` drops the declaration, not the closure. Three CVEs reached a
+shipped image with **zero open Dependabot alerts**; only Trivy scanning the
+image saw them. Do not fix this by reconfiguring Dependabot — it does what it
+does. The fix is to stop reading it as a guarantee, and to ask the image. The
+`image-cve` job in `ci.yml` asks it on every pull request, with the publish
+gate's own policy so a green PR predicts a green release. Background: #164.
