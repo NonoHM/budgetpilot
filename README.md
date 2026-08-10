@@ -23,8 +23,8 @@ The weakest part right now is honestly CSV import: only a handful of bank profil
 ![Dashboard](docs/screenshots/dashboard-desktop.png)
 
 <p align="center">
-  <img src="docs/screenshots/net-worth.png" alt="Net worth tracking with history chart" width="49%" />
-  <img src="docs/screenshots/budgets.png" alt="Monthly budgets, one over and one under" width="49%" />
+  <img src="docs/screenshots/net-worth-desktop.png" alt="Net worth tracking with history chart" width="49%" />
+  <img src="docs/screenshots/budgets-desktop.png" alt="Monthly budgets, one over and one under" width="49%" />
 </p>
 
 All screenshots use fake demo data, not a real user's finances.
