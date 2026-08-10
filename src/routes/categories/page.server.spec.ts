@@ -1,4 +1,5 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { overwriteGetLocale } from '$lib/paraglide/runtime';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 // Compared against the message FUNCTION, never a copied literal: a spec that retypes the sentence
 // keeps passing while the catalogue says something else.
@@ -52,6 +53,23 @@ const db = vi.hoisted(() => {
 										(!where.id?.not || cat.id !== where.id.not))
 						) ?? null
 				),
+				findMany: vi.fn(async ({ where }) => {
+					// Fails loudly rather than approximating: the uniqueness check reads the whole
+					// list precisely because a displayed label cannot be expressed as a `where`, so a
+					// fake that quietly ignored a conjunct it did not model would widen the set the
+					// check is asked about and pass the very test that exists to refuse it.
+					const modelled = new Set(['userId']);
+					const unknown = Object.keys(where ?? {}).filter((key) => !modelled.has(key));
+					if (unknown.length > 0) {
+						throw new Error(`category.findMany: unmodelled filter ${unknown.join(', ')}`);
+					}
+					return categories.filter((cat) => cat.userId === where.userId);
+				}),
+				create: vi.fn(async ({ data }) => {
+					const created = { id: `cat-created-${categories.length}`, defaultKey: null, ...data };
+					categories.push(created);
+					return created;
+				}),
 				upsert: vi.fn(async ({ where, create }) => {
 					// Keyed on the folded name, matching the unique constraint the real table now
 					// carries: two spellings of one category resolve to the same row.
@@ -352,6 +370,111 @@ describe('renameCategory — pas de régression sur le mapping', () => {
 			data: { categoryName: 'Courses', categoryNameKey: computeNameKey('Courses') }
 		});
 		expect(db.mappings[0]).toMatchObject({ categoryName: 'Courses' });
+	});
+});
+
+/**
+ * The uniqueness check across locales.
+ *
+ * Every other describe in this file runs under the 'fr' pin from vitest.server.setup.ts, which
+ * is also the locale in which this defect is invisible: in French the seeded default is stored
+ * and displayed as "Alimentation", so the stored fold answers correctly and nothing is wrong.
+ * Flipping the pin is therefore not a formatting detail here, it IS the condition under test —
+ * the check has to be evaluated in the language the user is reading, and the previous one was
+ * evaluated in the language the database was seeded in.
+ */
+describe('createCategory / renameCategory — le nom comparé est celui que l’utilisateur voit', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		overwriteGetLocale(() => 'en');
+		db.categories.length = 0;
+		db.categories.push(
+			{ id: 'cat-alimentation', userId: 'user-a', name: 'Alimentation', defaultKey: 'food' },
+			{ id: 'cat-non-classe', userId: 'user-a', name: UNCLASSIFIED_CATEGORY, defaultKey: null }
+		);
+	});
+
+	afterEach(() => {
+		// Restores the file-wide pin rather than leaving the last describe to run in English.
+		overwriteGetLocale(() => 'fr');
+	});
+
+	it('refuse "Groceries" quand la catégorie par défaut affichée ainsi existe déjà', async () => {
+		expect.assertions(3);
+
+		const result = await runAction('createCategory', { name: 'Groceries' });
+
+		expect(result.status).toBe(400);
+		expect(db.prisma.category.create).not.toHaveBeenCalled();
+		// The label the user reads, not the string in the column: told "this name already exists"
+		// with nothing on screen carrying it, they cannot find what is blocking them.
+		expect(result.data?.error).toBe(
+			m.categories_error_duplicate_named({ name: m.category_default_food() })
+		);
+	});
+
+	it('nomme la ligne visible, pas la ligne stockée, quand le nom tapé est le nom stocké', async () => {
+		expect.assertions(2);
+
+		// The mirror case. "Alimentation" is the stored name, so the fold has always caught it —
+		// what was wrong is the sentence: an English reader sees no row called Alimentation.
+		const result = await runAction('createCategory', { name: 'Alimentation' });
+
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toContain(m.category_default_food());
+	});
+
+	it('accepte "Groceries" en français, où aucune catégorie ne porte ce nom à l’écran', async () => {
+		expect.assertions(2);
+		overwriteGetLocale(() => 'fr');
+
+		const result = await runAction('createCategory', { name: 'Groceries' });
+
+		// The check is about what is displayed, so it must not refuse a name that is free in the
+		// locale the user is in. A guard that refused both ways would be a rename of the defect.
+		expect(result.status).toBeUndefined();
+		expect(db.prisma.category.create).toHaveBeenCalled();
+	});
+
+	it('refuse le renommage vers le libellé affiché d’une autre catégorie', async () => {
+		expect.assertions(2);
+		db.categories.push({ id: 'cat-loisirs', userId: 'user-a', name: 'Loisirs', defaultKey: null });
+
+		const result = await runAction('renameCategory', { id: 'cat-loisirs', newName: 'Groceries' });
+
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(
+			m.categories_error_duplicate_named({ name: m.category_default_food() })
+		);
+	});
+
+	it('laisse une catégorie se renommer en son propre libellé affiché', async () => {
+		expect.assertions(1);
+
+		// Excluding self is what makes the check a uniqueness rule rather than a freeze: the row
+		// the user is renaming must not count as its own clash.
+		const result = await runAction('renameCategory', {
+			id: 'cat-alimentation',
+			newName: 'Groceries'
+		});
+
+		expect(result.status).toBeUndefined();
+	});
+
+	it('réserve le libellé affiché de la pile « à classer », pas seulement son slug', async () => {
+		expect.assertions(4);
+
+		for (const typed of [
+			m.common_category_uncategorized(),
+			// The label of the OTHER locale too: allowing it only defers the collision to the day
+			// the user switches language, and the pile can never be renamed out of the way.
+			m.common_category_uncategorized({}, { locale: 'fr' })
+		]) {
+			const result = await runAction('createCategory', { name: typed });
+
+			expect(result.status).toBe(400);
+			expect(result.data?.error).toBe(m.categories_error_reserved_name());
+		}
 	});
 });
 

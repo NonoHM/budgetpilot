@@ -177,6 +177,7 @@
 	"categories_error_invalid_name": "Nom invalide (1–80 caractères).",
 	"categories_error_reserved_name": "Ce nom est réservé.",
 	"categories_error_duplicate": "Ce nom existe déjà.",
+	"categories_error_duplicate_named": "Une catégorie nommée « {name} » existe déjà.",
 	"categories_error_invalid": "Catégorie invalide.",
 	"categories_error_not_found": "Catégorie introuvable.",
 	"categories_error_rename_unclassified": "Impossible de renommer « Non catégorisé ».",

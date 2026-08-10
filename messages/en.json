@@ -177,6 +177,7 @@
 	"categories_error_invalid_name": "Invalid name (1–80 characters).",
 	"categories_error_reserved_name": "This name is reserved.",
 	"categories_error_duplicate": "This name already exists.",
+	"categories_error_duplicate_named": "A category named “{name}” already exists.",
 	"categories_error_invalid": "Invalid category.",
 	"categories_error_not_found": "Category not found.",
 	"categories_error_rename_unclassified": "“Uncategorized” cannot be renamed.",

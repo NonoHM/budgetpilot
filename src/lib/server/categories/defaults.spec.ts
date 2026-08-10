@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { overwriteGetLocale } from '$lib/paraglide/runtime';
+import * as m from '$lib/paraglide/messages';
 
 const db = vi.hoisted(() => ({
 	prisma: {
@@ -134,5 +136,32 @@ describe('restoreMissingDefaultCategories', () => {
 		db.prisma.categoryNatureMapping.findMany.mockResolvedValue([]);
 
 		await expect(restoreMissingDefaultCategories('user-restoring')).resolves.toBe(2);
+	});
+
+	it('does not recreate a default the user already has under its displayed label', async () => {
+		expect.assertions(3);
+		overwriteGetLocale(() => 'en');
+
+		// The reverse direction of the uniqueness check: here the typed name is already stored and
+		// the default is the one arriving. Same two-rows-read-as-one outcome, so the same
+		// definition decides it.
+		db.prisma.category.findMany.mockResolvedValue([
+			{ name: m.category_default_food(), defaultKey: null }
+		]);
+		db.prisma.categoryNatureMapping.findMany.mockResolvedValue([]);
+
+		const created = await restoreMissingDefaultCategories('user-restoring');
+
+		expect(created).toBe(DEFAULT_CATEGORIES.length - 1);
+		expect(upsertedCategories().map((c) => c.name)).not.toContain('Alimentation');
+		// The mapping goes with it: creating one for a category we deliberately did not create
+		// leaves a row joined to nothing.
+		expect(
+			db.prisma.categoryNatureMapping.upsert.mock.calls.map(
+				(call) => (call[0].create as { categoryName: string }).categoryName
+			)
+		).not.toContain('Alimentation');
+
+		overwriteGetLocale(() => 'fr');
 	});
 });
