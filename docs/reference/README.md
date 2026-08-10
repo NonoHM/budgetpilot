@@ -9,6 +9,8 @@ Rules, limits and exact values. Look things up here; the pages in
   adds up, and what deleting one does.
 - **[Reports](./reports.md)**: the six figures, the three-month horizon,
   and the rule a flow must meet to reach the projection.
+- **[Categories](./categories.md)**: naming rules, the eight natures, and
+  the three outcomes of a delete.
 - **[Rules](./rules.md)**: how matching works, what the table holds, and
   the manual-category exclusion.
 - **[Net worth](./net-worth.md)**: the account types, what the curve is
