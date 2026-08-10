@@ -74,12 +74,12 @@ transaction.
 
 ## What Settings does not do
 
-|                      | Where instead                                  |
-| -------------------- | ---------------------------------------------- |
-| Change your email    | nowhere; it is fixed at registration           |
-| Change your own role | only an administrator, from the admin panel    |
-| Create a tag         | on a transaction, see [tags](../using/tags.md) |
-| Add a language       | [configuration](../configuration.md)           |
+|                      | Where instead                                                  |
+| -------------------- | -------------------------------------------------------------- |
+| Change your email    | nowhere; it is fixed at registration                           |
+| Change your own role | only an administrator, in [the admin panel](../using/admin.md) |
+| Create a tag         | on a transaction, see [tags](../using/tags.md)                 |
+| Add a language       | [configuration](../configuration.md)                           |
 
 ## Related
 

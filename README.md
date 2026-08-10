@@ -81,6 +81,7 @@ Reaching it from another device on your LAN takes two extra lines in `.env` (`OR
 
 - **[Getting started](docs/getting-started.md)**: the detailed version of the above, three install paths, and what to do once you're in.
 - **[Using BudgetPilot](docs/using/README.md)**: the app itself. [The dashboard](docs/using/dashboard.md), [budgets](docs/using/budgets.md), [reports](docs/using/reports.md), [rules](docs/using/rules.md), [categories](docs/using/categories.md), [upcoming bills](docs/using/upcoming-bills.md), [imports](docs/using/imports.md), [net worth](docs/using/net-worth.md), [transactions](docs/using/transactions.md), [tags](docs/using/tags.md), and [splitting one payment across several categories](docs/using/split-transactions.md).
+- **[Your account](docs/using/account.md)**: the settings screen, plus [two-factor authentication](docs/using/two-factor.md), [exporting and restoring your data](docs/using/backup-restore.md), and [the admin panel](docs/using/admin.md) if you run the instance for other people.
 - **[Configuration](docs/configuration.md)**: every setting, and how to reach the app from your phone or another machine.
 - **[Reverse proxy](docs/reverse-proxy.md)**: optional Caddy overlay for a real domain with automatic HTTPS.
 - **[PostgreSQL or MySQL](docs/database-providers.md)**: optional overlays for installs that already run a database server. SQLite is the default and needs nothing.
