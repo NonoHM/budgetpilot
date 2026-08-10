@@ -357,18 +357,27 @@ jobs:
       - name: Build the runtime image
         run: docker build -t budgetpilot:cve-scan .
 
-      # Runs first for two reasons. It puts the FULL inventory in the PR log — every severity,
-      # unfixed included — so the findings the gate deliberately ignores are still readable by
-      # whoever is looking; and it is what installs `trivy` on PATH and warms the vulnerability
-      # DB, so the probe and the gate below cost cached scans rather than three downloads. No
-      # exit-code: this step reports, it does not decide.
-      - name: Full inventory, for the log
+      # Runs first for two reasons. It records EVERY severity, unfixed included, so the findings
+      # the gate deliberately ignores stay readable by whoever is looking; and it is what installs
+      # `trivy` on PATH and warms the vulnerability DB, so the probe and the gate below cost cached
+      # scans rather than three downloads. No exit-code: this step reports, it does not decide.
+      #
+      # JSON, then rendered — never `format: table`. Trivy's table prints one row per scanned
+      # TARGET including every clean one: 651 lines for 2 findings on the published image. A log
+      # nobody scrolls through is the same failure as an alert nobody reads.
+      - name: Scan every severity
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
           image-ref: budgetpilot:cve-scan
           scanners: vuln
-          format: table
+          format: json
+          output: image-cve-full.json
+
+      # Into the job summary rather than only the log, because this is the one CI job whose output
+      # a reviewer is expected to read on a PR that changes no dependency at all.
+      - name: Show the findings
+        run: ./scripts/trivy-report.sh image-cve-full.json "every severity, unfixed included" | tee -a "$GITHUB_STEP_SUMMARY"
 
       # A scanner that sees zero packages exits 0 and the gate below passes green while proving
       # nothing. The publish gate carries this probe for the same reason; a PR check that can pass
@@ -384,6 +393,7 @@ jobs:
           fi
 
       - name: Gate on fixable CRITICAL/HIGH
+        id: gate
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_IGNOREFILE: /dev/null # must not be able to disagree with the release gate
@@ -394,3 +404,12 @@ jobs:
           severity: CRITICAL,HIGH
           ignore-unfixed: true
           exit-code: '1'
+          format: json
+          output: image-cve-gate.json
+
+      # Only what blocked the PR, at the top of the summary. The step above already listed
+      # everything; repeating it here would put the actionable rows back under the ignorable ones,
+      # which is the whole problem this rendering exists to remove.
+      - name: Say what blocked
+        if: always() && steps.gate.outcome == 'failure'
+        run: ./scripts/trivy-report.sh image-cve-gate.json "blocking — fixable CRITICAL/HIGH" >> "$GITHUB_STEP_SUMMARY"
