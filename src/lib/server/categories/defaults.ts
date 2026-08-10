@@ -1,5 +1,6 @@
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { categoriesCollide } from '$lib/server/categories/nameMatch';
 import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { TransactionNature } from '$lib/domain/transaction';
 import type { DefaultCategoryKey } from '$lib/domain/categories';
@@ -68,7 +69,7 @@ export async function restoreMissingDefaultCategories(userId: string): Promise<n
 
 async function createMissingDefaultCategories(userId: string): Promise<number> {
 	const [existingCategories, existingMappings] = await Promise.all([
-		prisma.category.findMany({ where: { userId }, select: { name: true } }),
+		prisma.category.findMany({ where: { userId }, select: { name: true, defaultKey: true } }),
 		prisma.categoryNatureMapping.findMany({ where: { userId }, select: { categoryName: true } })
 	]);
 	// Compared on the folded name: restoring the defaults must not add a second "Loisirs"
@@ -76,11 +77,33 @@ async function createMissingDefaultCategories(userId: string): Promise<number> {
 	const existingCategoryNames = new Set(existingCategories.map((c) => computeNameKey(c.name)));
 	const existingMappingNames = new Set(existingMappings.map((m) => computeNameKey(m.categoryName)));
 
-	const categoriesToCreate = DEFAULT_CATEGORIES.filter(
+	const missing = DEFAULT_CATEGORIES.filter(
 		({ name }) => !existingCategoryNames.has(computeNameKey(name))
-	).map(({ name, key }) => ({ userId, name, nameKey: computeNameKey(name), defaultKey: key }));
+	);
+
+	// Absent under its stored name, and yet already on screen. A user on an English instance who
+	// deleted Groceries and made their own category of that name has one row reading "Groceries";
+	// recreating the default would give them two, which is the same two-rows-read-as-one defect
+	// the uniqueness check was fixed for. Third site of that comparison, so it uses the same
+	// definition rather than a fourth restatement of it.
+	const shadowed = new Set(
+		missing
+			.filter(({ name, key }) =>
+				existingCategories.some((existing) =>
+					categoriesCollide({ name, defaultKey: key }, existing)
+				)
+			)
+			.map(({ key }) => key)
+	);
+
+	const categoriesToCreate = missing
+		.filter(({ key }) => !shadowed.has(key))
+		.map(({ name, key }) => ({ userId, name, nameKey: computeNameKey(name), defaultKey: key }));
+	// Shadowed defaults are skipped here too, or the run leaves a nature mapping behind for a
+	// category it deliberately did not create. Everything else is unchanged: a mapping missing
+	// beside a category that exists is still restored, which is what resetting a nature leaves.
 	const mappingsToCreate = DEFAULT_CATEGORIES.filter(
-		({ name }) => !existingMappingNames.has(computeNameKey(name))
+		({ name, key }) => !shadowed.has(key) && !existingMappingNames.has(computeNameKey(name))
 	).map(({ name, nature }) => ({
 		userId,
 		categoryName: name,

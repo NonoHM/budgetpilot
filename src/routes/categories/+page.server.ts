@@ -15,6 +15,8 @@ import { normalizeId } from '$lib/server/transactions/where';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
+import { findCategoryByTypedName, isReservedCategoryName } from '$lib/server/categories/nameMatch';
+import { categoryLabel } from '$lib/domain/categoryLabels';
 import type { PageServerLoad } from './$types';
 
 export type CategoryRow = {
@@ -67,19 +69,16 @@ export const actions: Actions = {
 		const name = getFormValue(formData, 'name').trim().replace(/\s+/g, ' ');
 
 		if (!name || name.length > 80) return fail(400, { error: m.categories_error_invalid_name() });
-		if (name === UNCLASSIFIED_CATEGORY)
+		if (isReservedCategoryName(name))
 			return fail(400, { error: m.categories_error_reserved_name() });
 
-		// Folded pre-check, kept for the message rather than for the guarantee: the unique
-		// constraint on (userId, nameKey) already refuses "courses" next to an existing
-		// "Courses". Asking first turns that into "this category already exists" instead of a
-		// P2002 the user never asked about. The constraint is what makes it true; this is what
-		// makes it readable.
-		const clash = await prisma.category.findFirst({
-			where: { userId: user.id, nameKey: computeNameKey(name) },
-			select: { id: true }
-		});
-		if (clash) return fail(400, { error: m.categories_error_duplicate() });
+		// Compared against every name the user can SEE, not only the ones stored — see
+		// server/categories/nameMatch.ts for why those differ and what it cost. The unique
+		// constraint on (userId, nameKey) still backs the stored half of this and is what makes
+		// it true under a race; it cannot back the displayed half, because a locale-dependent
+		// key has no business in a column.
+		const clash = findCategoryByTypedName(name, await readCategoryNames(user.id));
+		if (clash) return fail(400, { error: duplicateError(clash) });
 
 		try {
 			await prisma.category.create({
@@ -102,7 +101,7 @@ export const actions: Actions = {
 		if (!id) return fail(400, { error: m.categories_error_invalid() });
 		if (!newName || newName.length > 80)
 			return fail(400, { error: m.categories_error_invalid_name() });
-		if (newName === UNCLASSIFIED_CATEGORY)
+		if (isReservedCategoryName(newName))
 			return fail(400, { error: m.categories_error_reserved_name() });
 
 		const cat = await prisma.category.findFirst({ where: { id, userId: user.id } });
@@ -114,11 +113,9 @@ export const actions: Actions = {
 		const oldKey = computeNameKey(cat.name);
 		const newKey = computeNameKey(newName);
 
-		const clash = await prisma.category.findFirst({
-			where: { userId: user.id, nameKey: newKey, id: { not: id } },
-			select: { id: true }
-		});
-		if (clash) return fail(400, { error: m.categories_error_duplicate() });
+		const others = (await readCategoryNames(user.id)).filter((other) => other.id !== id);
+		const clash = findCategoryByTypedName(newName, others);
+		if (clash) return fail(400, { error: duplicateError(clash) });
 
 		try {
 			await prisma.$transaction([
@@ -275,6 +272,26 @@ export const actions: Actions = {
 		};
 	}
 };
+
+type NamedCategory = { id: string; name: string; defaultKey: string | null };
+
+/** The whole list, because a displayed label cannot be turned into a `where` clause. */
+function readCategoryNames(userId: string): Promise<NamedCategory[]> {
+	return prisma.category.findMany({
+		where: { userId },
+		select: { id: true, name: true, defaultKey: true }
+	});
+}
+
+/**
+ * Names the row the user can see, never the string in the column. Told "this name already
+ * exists" while nothing on screen carries it, a user has no way to find what is blocking them —
+ * which is exactly the state an English instance was in, where the blocking row reads
+ * "Groceries" and is stored as "Alimentation".
+ */
+function duplicateError(clash: NamedCategory): string {
+	return m.categories_error_duplicate_named({ name: categoryLabel(clash.name, clash.defaultKey) });
+}
 
 function getFormValue(formData: FormData, key: string): string {
 	const value = formData.get(key);
