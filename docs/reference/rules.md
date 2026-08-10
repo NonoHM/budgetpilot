@@ -51,10 +51,10 @@ upper bound on what will actually change.
 ## The manual-category exclusion
 
 **A rule never overrides a category set by hand.** Measured rather than
-quoted: a preview reporting 6 affected transactions dropped to **5** as soon
-as one of them was given a manual category on the transactions screen, and
-that transaction left the list. Clearing the manual category put it back
-at 6.
+quoted: a preview reporting **23** affected transactions dropped to **22**
+as soon as one of them was given a manual category on the transactions
+screen, and that transaction left the list. Clearing the manual category put
+it back to 23.
 
 This is what makes running the rules over your whole history safe.
 

@@ -6,13 +6,12 @@ Captured with:
 BASE_URL=http://localhost:4175 node scripts/doc-screenshots.mjs rules
 ```
 
+against an instance seeded by `scripts/demo-screenshots.mjs`.
+
 ## The arrangement they need
 
-**One rule of your own**, alongside the 156 that ship. Without it the list
-is 156 identical `PREDEFINED` rows and no image can show what a rule you
-wrote looks like, which is the thing the page is for.
-
-The one used here:
+**One rule of the user's own**, alongside the 156 that ship, created by the
+seed:
 
 | Field           | Value                |
 | --------------- | -------------------- |
@@ -21,11 +20,13 @@ The one used here:
 | Target category | Restauration         |
 | Target nature   | none                 |
 
-It is chosen so the **preview** image shows both outcomes at once: the rule
-moves the bakery from Groceries to Dining out, while the shipped `Uber` rule
-matches transactions already in Transport and changes nothing. A preview
-where every row is a real change would hide the fact that the count is
-matches rather than changes.
+Without it every row in the table is an identical `PREDEFINED` one and no
+image can show what a rule you wrote looks like.
+
+It also gives the preview a row that **changes** something, next to the
+shipped rules matching transactions already in the right category, which
+change nothing. Both outcomes are in one image, so the affected count reads
+as the upper bound it is rather than as a promise of that many edits.
 
 `preview-desktop.png` is captured from `/rules?preview=1`.
 

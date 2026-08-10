@@ -131,6 +131,12 @@ const GROUPS = {
 		{ file: 'rules/overview-desktop.png', url: '/rules', contentClip: true },
 		{ file: 'rules/overview-mobile.png', url: '/rules', viewport: MOBILE },
 		{
+			file: 'rules/preview-desktop.png',
+			url: '/rules?preview=1',
+			clipAround: 'Current',
+			clipMinHeight: 240
+		},
+		{
 			file: 'rules/own-rules-only-desktop.png',
 			url: '/rules',
 			before: async (page) => {

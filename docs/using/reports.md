@@ -57,13 +57,13 @@ transactions each category holds.
 
 **Largest expenses** lists the five biggest single expenses of the period.
 
-![Largest expenses: five rows with a label, a category and an amount](../screenshots/reports/largest-expenses-desktop.png)
+![Largest expenses: five rows, each with a merchant, a category and an amount](../screenshots/reports/largest-expenses-desktop.png)
 
 In this table the **Label** column appends the transaction's category to the
 merchant. For the fourteen categories BudgetPilot creates for you, the name
 appended is the stored one, which is French, so a row can read
-`Corner Market - Alimentation` while the Category column beside it reads
-`Groceries`. Both name the same category.
+`Lidl - Alimentation` while the Category column beside it reads `Groceries`.
+Both name the same category.
 
 ## The three-month projection
 

@@ -41,7 +41,7 @@ covers several spellings of the same thing.
 **Preview** lists the transactions the rules match, with the category each
 one has now and the category it would get.
 
-![The preview panel: 6 transactions affected, listing PAUL going from Groceries to Dining out, and UBER staying in Transport](../screenshots/rules/preview-desktop.png)
+![The preview panel: 23 transactions affected, with one row moving a bakery from Groceries to Dining out and four rows whose current and target categories are the same](../screenshots/rules/preview-desktop.png)
 
 Read the **Current** and **Target** columns together. A row where they are
 the same is a rule matching something already in the right place, which

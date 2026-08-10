@@ -42,13 +42,14 @@ splitting. See the
 | Budget alert     | A category with a budget is over it, or near it |
 | Unusual spending | A category is well above its own usual level    |
 
-**The badge counts budget alerts only.** A panel can hold an unusual-spending
-line and still say `1 to review`, because that line is not an alert. When
-there is no alert at all, no badge is shown.
+**The badge counts budget alerts only.** A panel holding two budget alerts
+and one unusual-spending line reads `2 to review`, because the third item is
+not an alert. When there is no alert at all, no badge is shown.
 
 A budget alert states the spend, the limit, and how many days are left in
-the month. **View category** opens the transactions list filtered to that
-category.
+the month. One that is near its limit rather than past it also gives the
+daily pace that would keep it under. **View category** opens the
+transactions list filtered to that category.
 
 ## Recent transactions
 
