@@ -6,7 +6,7 @@ import { DEFAULT_CATEGORIES } from '$lib/server/categories/defaults';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
-import { normalizeTagName } from '$lib/domain/tags';
+import { normalizeTagName, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 import {
 	isValidSplitPartAmount,
 	MIN_SPLITS_PER_TRANSACTION,
@@ -592,6 +592,60 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 		}
 		if (!tagIds.has(link.tagId)) {
 			throw new BackupImportError(m.settings_backup_error_unknown_tag({ id: link.tagId }));
+		}
+	}
+
+	// THE PER-TRANSACTION CAP, checked here for the same reason the split count bounds below are:
+	// the restore does not go through `setTransactionTags`, so nothing else applies it to an
+	// uploaded payload. It is the exact analogue of the MIN/MAX_SPLITS_PER_TRANSACTION check, and
+	// its absence was the one thing a forged tag payload could still do — every other shape
+	// (dangling transaction, dangling tag, tag with no owner, off-palette colour) is already
+	// refused by name.
+	//
+	// `schema.ts` bounds the array RELATIVELY, at transactions x MAX_TAGS_PER_TRANSACTION. That is
+	// a ceiling on the total and says nothing about the distribution: 11 tags on one transaction
+	// and none on the other ten is well under it. MEASURED before this check existed — a payload
+	// putting 11 on a single row was accepted and stored all 11, with two consequences neither of
+	// which mentions tags:
+	//
+	//   - the user's own untampered export then becomes UN-IMPORTABLE the moment they delete the
+	//     other transactions, because the relative ceiling finally catches what the distribution
+	//     always violated: "transactionTags exceeds 10, the most 1 transactions can legally carry";
+	//   - the tag editor on that row cannot save. Resubmitting its own 11 tags unchanged returns
+	//     `too-many`, and the only way out is to drop one.
+	//
+	// COUNTED AS THE RESTORE WILL STORE IT, not as the file spells it. Below, two file tags whose
+	// names fold to one key become one row and one link, a whitespace-only name is skipped along
+	// with every link naming it, and identical pairs are de-duplicated before `createMany`. So the
+	// count that matters is the number of distinct surviving NAME KEYS, and it is computed by
+	// CALLING `normalizeTagName` and `computeNameKey` — the same two functions the restore calls —
+	// rather than by restating what they do. Counting raw links instead would refuse a payload that
+	// stores ten, which is a legal file.
+	const tagKeyById = new Map<string, string>();
+	for (const tag of payload.tags) {
+		const name = normalizeTagName(tag.name);
+		if (!name) continue;
+		tagKeyById.set(tag.id, computeNameKey(name));
+	}
+	const tagKeysByTransaction = new Map<string, Set<string>>();
+	for (const link of payload.transactionTags) {
+		const tagKey = tagKeyById.get(link.tagId);
+		if (tagKey === undefined) continue;
+		let keys = tagKeysByTransaction.get(link.transactionId);
+		if (!keys) {
+			keys = new Set();
+			tagKeysByTransaction.set(link.transactionId, keys);
+		}
+		keys.add(tagKey);
+	}
+	for (const [transactionId, keys] of tagKeysByTransaction) {
+		if (keys.size > MAX_TAGS_PER_TRANSACTION) {
+			throw new BackupImportError(
+				m.settings_backup_error_tag_count({
+					id: transactionId,
+					max: MAX_TAGS_PER_TRANSACTION
+				})
+			);
 		}
 	}
 
