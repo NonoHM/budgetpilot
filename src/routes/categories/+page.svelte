@@ -555,5 +555,17 @@
 		{:else}
 			<p class="text-sm text-zinc-600">{m.categories_delete_confirm_irreversible()}</p>
 		{/if}
+		<!-- #161: the consequence stated BEFORE the action, on its own line rather than folded into
+		     the sentence above, because it is a different subject. The transaction line is about
+		     money that moves; this is about automation that stops, and it survives the `{:else}`
+		     branch above precisely because a category with no transactions can still be the target
+		     of rules the user wrote months ago and has not thought about since. -->
+		{#if (deletingCategory?.pausedRuleCount ?? 0) > 0}
+			<p class="mt-2 text-sm text-zinc-600">
+				{(deletingCategory?.pausedRuleCount ?? 0) > 1
+					? m.categories_delete_rules_paused_many({ count: deletingCategory!.pausedRuleCount })
+					: m.categories_delete_rules_paused_one({ count: deletingCategory!.pausedRuleCount })}
+			</p>
+		{/if}
 	</ConfirmDialog>
 </form>

@@ -7,6 +7,7 @@ import {
 	previewCategoryRules
 } from '$lib/server/categorization/rules';
 import { restoreMissingDefaultRules } from '$lib/server/categorization/defaultRules';
+import { isRuleTargetLive, toCategoryNameKeys } from '$lib/server/categories/references';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
@@ -38,9 +39,23 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		url.searchParams.get('preview') === '1' ? previewCategoryRules(user.id) : Promise.resolve(null)
 	]);
 
+	// #161: a rule whose target no longer resolves to one of the user's categories is PAUSED. It
+	// keeps its row and its pattern and does not fire, and this is where the user finds out.
+	//
+	// Derived here rather than read from a column, for the reasons `references.ts` sets out: the
+	// verdict is recomputed on every render, so recreating a category resumes its rules and no
+	// stored sentence can outlive the fact it describes. Free, because `categories` is loaded above
+	// anyway to populate the target picker.
+	//
+	// Sent as a resolved boolean rather than left to the component: the fold is `computeNameKey`,
+	// a server concern that has to agree with `renameCategoryReferences`, and a page that
+	// re-derived it from `categories` in the browser would be the retyped-oracle shape.
+	const categoryNameKeys = toCategoryNameKeys(categories);
+
 	return {
 		rules: rules.map((rule) => ({
 			...rule,
+			paused: !isRuleTargetLive(rule.targetCategory, categoryNameKeys),
 			createdAt: rule.createdAt.toISOString(),
 			updatedAt: rule.updatedAt.toISOString()
 		})),

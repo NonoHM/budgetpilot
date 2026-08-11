@@ -25,6 +25,14 @@ export type CategoryRow = {
 	name: string;
 	defaultKey: string | null;
 	transactionCount: number;
+	/**
+	 * Rules that target this category and would be paused by deleting it (#161).
+	 *
+	 * Counted for the confirmation dialog, which has to state the consequence before the action
+	 * rather than after: the query that finds them has to exist either way, and this is the only
+	 * moment the user has the context to react.
+	 */
+	pausedRuleCount: number;
 	nature: TransactionNature | null;
 	mappingId: string | null;
 };
@@ -32,7 +40,7 @@ export type CategoryRow = {
 export const load: PageServerLoad = async ({ locals }) => {
 	const user = requireUser(locals.user);
 
-	const [categories, mappings] = await Promise.all([
+	const [categories, mappings, rules] = await Promise.all([
 		prisma.category.findMany({
 			where: { userId: user.id },
 			orderBy: { name: 'asc' },
@@ -43,10 +51,32 @@ export const load: PageServerLoad = async ({ locals }) => {
 				_count: { select: { transactions: true } }
 			}
 		}),
-		readCategoryNatureMappings(user.id)
+		readCategoryNatureMappings(user.id),
+		// #161: the delete dialog states the consequence BEFORE the action, so it needs to know how
+		// many rules each category would pause. Read once for the page and folded into a count per
+		// key, rather than a query per category: the user is thinking about transactions when they
+		// delete a category, not about a rule they wrote three months ago, and the dialog is the
+		// only moment they hold both.
+		//
+		// `CategoryRule` only. The legacy `CategorizationRule` does not pause, because its target is
+		// a name the import CREATES if it is absent rather than a reference to an existing row (run,
+		// not read: see the import route's own tests), so it cannot dangle.
+		prisma.categoryRule.findMany({
+			where: { userId: user.id },
+			select: { targetCategory: true }
+		})
 	]);
 
 	const mappingByName = new Map(mappings.map((m) => [m.categoryName, m]));
+
+	// Folded with `computeNameKey` and never compared as raw text: a rule stored as "loisirs"
+	// belongs to the "Loisirs" being deleted, exactly as `renameCategoryReferences` treats it, and
+	// a SQL equality here would answer differently on MariaDB than on SQLite and PostgreSQL.
+	const ruleCountByKey = new Map<string, number>();
+	for (const rule of rules) {
+		const key = computeNameKey(rule.targetCategory);
+		ruleCountByKey.set(key, (ruleCountByKey.get(key) ?? 0) + 1);
+	}
 
 	const categoryRows: CategoryRow[] = categories.map((cat) => {
 		const mapping = mappingByName.get(cat.name) ?? null;
@@ -55,6 +85,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 			name: cat.name,
 			defaultKey: cat.defaultKey,
 			transactionCount: cat._count.transactions,
+			pausedRuleCount: ruleCountByKey.get(computeNameKey(cat.name)) ?? 0,
 			nature: mapping ? mapping.nature : null,
 			mappingId: mapping ? mapping.id : null
 		};

@@ -105,7 +105,7 @@ const db = vi.hoisted(() => {
 										(!where.id?.not || cat.id !== where.id.not))
 						) ?? null
 				),
-				findMany: vi.fn(async ({ where }) => {
+				findMany: vi.fn(async ({ where, select }) => {
 					// Fails loudly rather than approximating: the uniqueness check reads the whole
 					// list precisely because a displayed label cannot be expressed as a `where`, so a
 					// fake that quietly ignored a conjunct it did not model would widen the set the
@@ -115,7 +115,13 @@ const db = vi.hoisted(() => {
 					if (unknown.length > 0) {
 						throw new Error(`category.findMany: unmodelled filter ${unknown.join(', ')}`);
 					}
-					return categories.filter((cat) => cat.userId === where.userId);
+					const rows = categories.filter((cat) => cat.userId === where.userId);
+					// `load` asks for the relation count. Zero for every category, and consistent with
+					// `transaction.count` above rather than invented: this file holds no transaction
+					// fixture at all, so any other number would be a claim about rows that do not
+					// exist. Tests about the transaction count itself belong where those rows do.
+					if (!select?._count) return rows;
+					return rows.map((cat) => ({ ...cat, _count: { transactions: 0 } }));
 				}),
 				create: vi.fn(async ({ data }) => {
 					const created = { id: `cat-created-${categories.length}`, defaultKey: null, ...data };
@@ -156,6 +162,17 @@ const db = vi.hoisted(() => {
 				count: vi.fn(async () => 0)
 			},
 			categoryNatureMapping: {
+				// Only `load` reads them; the actions above go through deleteMany/updateMany.
+				findMany: vi.fn(async ({ where }) => {
+					const modelled = new Set(['userId']);
+					const unknown = Object.keys(where ?? {}).filter((key) => !modelled.has(key));
+					if (unknown.length > 0) {
+						throw new Error(
+							`categoryNatureMapping.findMany: unmodelled filter ${unknown.join(', ')}`
+						);
+					}
+					return mappings.filter((mapping) => mapping.userId === where.userId);
+				}),
 				deleteMany: vi.fn(async ({ where }) => {
 					const before = mappings.length;
 					for (let i = mappings.length - 1; i >= 0; i--) {
@@ -231,7 +248,7 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 // Must stay aligned with UNCLASSIFIED_CATEGORY ($lib/domain/categories).
 const UNCLASSIFIED_CATEGORY = 'uncategorized';
 
-const { actions } = await import('./+page.server');
+const { actions, load } = await import('./+page.server');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
 describe('deleteCategory — orphelins CategoryNatureMapping / MonthlyBudget', () => {
@@ -617,3 +634,60 @@ async function runAction(name: keyof typeof actions, input: Record<string, strin
 		data?: { error?: string; errorLink?: { href: string; label: string } };
 	};
 }
+
+// #161: the delete dialog states the consequence BEFORE the action, so `load` has to carry the
+// number of rules each category would pause. The user is thinking about transactions when they
+// delete a category, not about a rule they wrote three months ago; the dialog is the only moment
+// they hold both, and a count computed after the fact would arrive too late to be a choice.
+describe('load — rules a delete would pause', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.categories.length = 0;
+		db.categories.push(
+			{ id: 'cat-loisirs', userId: 'user-a', name: 'Loisirs', defaultKey: null },
+			{ id: 'cat-alimentation', userId: 'user-a', name: 'Alimentation', defaultKey: 'food' }
+		);
+		db.categoryRules.length = 0;
+		db.mappings.length = 0;
+	});
+
+	async function loadCategories() {
+		const data = (await load({ locals: { user: testUser } } as Parameters<typeof load>[0])) as {
+			categories: Array<{ name: string; pausedRuleCount: number }>;
+		};
+		return new Map(data.categories.map((category) => [category.name, category.pausedRuleCount]));
+	}
+
+	it('counts the rules that target a category, folding case as the delete does', async () => {
+		expect.assertions(2);
+
+		// Two spellings of one category. The delete matches on `computeNameKey`, so both rules
+		// follow it, and a count that compared raw text would under-report by one and understate the
+		// consequence in the one sentence the user reads before deciding.
+		db.categoryRules.push(
+			{ id: 'r1', userId: 'user-a', targetCategory: 'Loisirs' },
+			{ id: 'r2', userId: 'user-a', targetCategory: 'loisirs' }
+		);
+
+		const counts = await loadCategories();
+
+		expect(counts.get('Loisirs')).toBe(2);
+		expect(counts.get('Alimentation')).toBe(0);
+	});
+
+	it("does not count another user's rules", async () => {
+		expect.assertions(1);
+
+		db.categoryRules.push({ id: 'r-other', userId: 'user-b', targetCategory: 'Loisirs' });
+
+		expect((await loadCategories()).get('Loisirs')).toBe(0);
+	});
+
+	it('reports zero rather than omitting the field when nothing targets the category', async () => {
+		expect.assertions(1);
+
+		// The dialog renders the line only above zero, so an `undefined` here would read as "no
+		// rules" and be indistinguishable from a real count that failed to arrive.
+		expect((await loadCategories()).get('Loisirs')).toBe(0);
+	});
+});

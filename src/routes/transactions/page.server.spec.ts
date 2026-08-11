@@ -1262,12 +1262,16 @@ describe('/transactions load — "to classify" pile', () => {
 			tags: [],
 			splits: []
 		});
+		// Targets a category the fixture actually carries. Since #161 a rule whose target no longer
+		// resolves to a Category is paused and excluded from `classifiableCount`, so a target of
+		// "Loisirs" here would have made this test assert 0 for a reason that has nothing to do
+		// with its subject, which is that the UNCLASSIFIED_CATEGORY sentinel counts as classifiable.
 		db.prisma.categoryRule.findMany.mockResolvedValueOnce([
 			{
 				id: 'r1',
 				name: 'Regle mystery',
 				matchText: 'mystery',
-				targetCategory: 'Loisirs',
+				targetCategory: 'Alimentation',
 				targetNature: null,
 				isRegex: false,
 				enabled: true

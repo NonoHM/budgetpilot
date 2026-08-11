@@ -10,6 +10,7 @@ import {
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { isRuleTargetLive, toCategoryNameKeys } from '$lib/server/categories/references';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { setTransactionTags } from '$lib/server/tags/service';
 import { clearSplits, replaceSplits } from '$lib/server/transactions/splits';
@@ -78,87 +79,109 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const page = parsePositiveInteger(url.searchParams.get('page')) ?? 1;
 	const selectedId = normalizeId(url.searchParams.get('selected'));
 
-	const [categories, mappings, selectedTransaction, rules, uncategorizedCategoryId, allTags] =
-		await Promise.all([
-			prisma.category.findMany({
-				where: { userId: user.id },
-				orderBy: { name: 'asc' },
-				// `id` is here for the split editor: a part references its category by id, and
-				// `replaceSplits` re-resolves that id under the session. The manual-category selector
-				// beside it works in NAMES because `Transaction.manualCategory` is a free-text column;
-				// the two are not interchangeable and the load hands out both rather than making the
-				// page convert between them.
-				select: { id: true, name: true, defaultKey: true }
-			}),
-			prisma.categoryNatureMapping.findMany({
-				where: { userId: user.id },
-				orderBy: { categoryName: 'asc' },
-				select: { categoryName: true, nature: true }
-			}),
-			selectedId
-				? prisma.transaction.findFirst({
-						where: { id: selectedId, userId: user.id },
-						select: {
-							id: true,
-							date: true,
-							label: true,
-							amountCents: true,
-							type: true,
-							source: true,
-							notes: true,
-							bankOperationType: true,
-							manualCategory: true,
-							natureManual: true,
-							dedupeKey: true,
-							metadataJson: true,
-							createdAt: true,
-							updatedAt: true,
-							category: { select: { name: true } },
-							account: {
-								select: {
-									name: true,
-									source: true,
-									netWorthAccount: { select: { name: true } }
-								}
-							},
-							importBatch: {
-								select: { id: true, fileName: true, source: true, rowCount: true, createdAt: true }
-							},
-							// Blast-radius row 42. Ordered by `position` because that order is
-							// user-visible rather than incidental: it decides which part carries the
-							// rounding cent (1e), and the editor's accessible names — « Montant de la
-							// part 2 » — are built from the index it produces.
-							splits: {
-								select: { categoryId: true, amountCents: true, note: true, position: true },
-								orderBy: { position: 'asc' }
-							},
-							tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
-						}
-					})
-				: Promise.resolve(null),
-			prisma.categoryRule.findMany({
-				where: { userId: user.id, enabled: true },
-				orderBy: { createdAt: 'asc' },
-				select: {
-					id: true,
-					name: true,
-					matchText: true,
-					targetCategory: true,
-					targetNature: true,
-					isRegex: true,
-					enabled: true
-				}
-			}),
-			resolveUncategorizedCategoryId(user.id),
-			// The whole tag list, not a page of it: MAX_TAGS_PER_TRANSACTION bounds what one
-			// transaction carries, and a user's total tag count is small by construction because a
-			// tag with no transactions is pruned the moment it loses its last one.
-			prisma.tag.findMany({
-				where: { userId: user.id },
-				orderBy: { name: 'asc' },
-				select: { id: true, name: true, colorToken: true }
-			})
-		]);
+	const [
+		categories,
+		mappings,
+		selectedTransaction,
+		candidateRules,
+		uncategorizedCategoryId,
+		allTags
+	] = await Promise.all([
+		prisma.category.findMany({
+			where: { userId: user.id },
+			orderBy: { name: 'asc' },
+			// `id` is here for the split editor: a part references its category by id, and
+			// `replaceSplits` re-resolves that id under the session. The manual-category selector
+			// beside it works in NAMES because `Transaction.manualCategory` is a free-text column;
+			// the two are not interchangeable and the load hands out both rather than making the
+			// page convert between them.
+			select: { id: true, name: true, defaultKey: true }
+		}),
+		prisma.categoryNatureMapping.findMany({
+			where: { userId: user.id },
+			orderBy: { categoryName: 'asc' },
+			select: { categoryName: true, nature: true }
+		}),
+		selectedId
+			? prisma.transaction.findFirst({
+					where: { id: selectedId, userId: user.id },
+					select: {
+						id: true,
+						date: true,
+						label: true,
+						amountCents: true,
+						type: true,
+						source: true,
+						notes: true,
+						bankOperationType: true,
+						manualCategory: true,
+						natureManual: true,
+						dedupeKey: true,
+						metadataJson: true,
+						createdAt: true,
+						updatedAt: true,
+						category: { select: { name: true } },
+						account: {
+							select: {
+								name: true,
+								source: true,
+								netWorthAccount: { select: { name: true } }
+							}
+						},
+						importBatch: {
+							select: { id: true, fileName: true, source: true, rowCount: true, createdAt: true }
+						},
+						// Blast-radius row 42. Ordered by `position` because that order is
+						// user-visible rather than incidental: it decides which part carries the
+						// rounding cent (1e), and the editor's accessible names — « Montant de la
+						// part 2 » — are built from the index it produces.
+						splits: {
+							select: { categoryId: true, amountCents: true, note: true, position: true },
+							orderBy: { position: 'asc' }
+						},
+						tags: { select: { tag: { select: { id: true, name: true, colorToken: true } } } }
+					}
+				})
+			: Promise.resolve(null),
+		prisma.categoryRule.findMany({
+			where: { userId: user.id, enabled: true },
+			orderBy: { createdAt: 'asc' },
+			select: {
+				id: true,
+				name: true,
+				matchText: true,
+				targetCategory: true,
+				targetNature: true,
+				isRegex: true,
+				enabled: true
+			}
+		}),
+		resolveUncategorizedCategoryId(user.id),
+		// The whole tag list, not a page of it: MAX_TAGS_PER_TRANSACTION bounds what one
+		// transaction carries, and a user's total tag count is small by construction because a
+		// tag with no transactions is pruned the moment it loses its last one.
+		prisma.tag.findMany({
+			where: { userId: user.id },
+			orderBy: { name: 'asc' },
+			select: { id: true, name: true, colorToken: true }
+		})
+	]);
+
+	// #161: a rule whose target no longer resolves to a Category is PAUSED, and this page has to
+	// know it even though it writes nothing.
+	//
+	// These rules feed `findMatchingCategoryRule` twice below: `classifiableCount`, the number on
+	// the "accept all" control, and `selectedSuggestion`, the detail panel's proposed category.
+	// Both are promises about what pressing a button will do, and `applyCategoryRules` refuses a
+	// paused rule, so leaving one in this list makes the page offer a categorisation that cannot
+	// happen. Same false-claim shape as the write the issue is about, minus the write, which is
+	// why it was missed: nothing here looked like a rules engine.
+	//
+	// Free: `categories` is already loaded above for the split editor and the category selector.
+	const categoryNameKeys = toCategoryNameKeys(categories);
+	const rules = candidateRules.filter((rule) =>
+		isRuleTargetLive(rule.targetCategory, categoryNameKeys)
+	);
 
 	const mappingMap = buildCategoryNatureMap(mappings);
 

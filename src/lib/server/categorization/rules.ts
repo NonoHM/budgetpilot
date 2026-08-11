@@ -3,6 +3,7 @@ import { prisma } from '$lib/server/db';
 import { forEachTransactionBatch } from '$lib/server/transactions/batch';
 import { normalizeForMatch } from '$lib/domain/normalize';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
+import { isRuleTargetLive, readCategoryNameKeys } from '$lib/server/categories/references';
 import {
 	isSafeRegexPattern as isSafeRegexPatternShared,
 	safeRegexTest
@@ -193,19 +194,31 @@ function ruleMatchesLabel(label: string, rule: { matchText: string; isRegex?: bo
 }
 
 export async function previewCategoryRules(userId: string): Promise<CategoryRulePreview> {
-	const rules = await prisma.categoryRule.findMany({
-		where: { userId, enabled: true },
-		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-		select: {
-			id: true,
-			name: true,
-			matchText: true,
-			targetCategory: true,
-			targetNature: true,
-			enabled: true,
-			isRegex: true
-		}
-	});
+	const [candidateRules, categoryNameKeys] = await Promise.all([
+		prisma.categoryRule.findMany({
+			where: { userId, enabled: true },
+			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+			select: {
+				id: true,
+				name: true,
+				matchText: true,
+				targetCategory: true,
+				targetNature: true,
+				enabled: true,
+				isRegex: true
+			}
+		}),
+		readCategoryNameKeys(prisma, userId)
+	]);
+
+	// Paused rules are excluded here for the same reason `splits: { none: {} }` is: this count is
+	// shown to the user as "N transactions will be recategorised", and applyCategoryRules refuses
+	// these. A preview that counted a rule the apply skips is a false promise, and it is the kind
+	// that is never contradicted on screen, since the user reads the number and then sees a smaller
+	// effect they have no way to attribute.
+	const rules = candidateRules.filter((rule) =>
+		isRuleTargetLive(rule.targetCategory, categoryNameKeys)
+	);
 	if (rules.length === 0) return { count: 0, examples: [] };
 
 	let count = 0;
@@ -248,19 +261,36 @@ export async function applyCategoryRules(
 	userId: string,
 	options: { transactionIds?: string[]; categoryId?: string } = {}
 ): Promise<number> {
-	const rules = await prisma.categoryRule.findMany({
-		where: { userId, enabled: true },
-		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-		select: {
-			id: true,
-			name: true,
-			matchText: true,
-			targetCategory: true,
-			targetNature: true,
-			enabled: true,
-			isRegex: true
-		}
-	});
+	const [candidateRules, categoryNameKeys] = await Promise.all([
+		prisma.categoryRule.findMany({
+			where: { userId, enabled: true },
+			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+			select: {
+				id: true,
+				name: true,
+				matchText: true,
+				targetCategory: true,
+				targetNature: true,
+				enabled: true,
+				isRegex: true
+			}
+		}),
+		readCategoryNameKeys(prisma, userId)
+	]);
+
+	// #161: a rule whose target no longer resolves to a Category is PAUSED and must not fire.
+	// This is the write the whole issue is about — `manualCategoryUpdate(rule.targetCategory)`
+	// below writes the name verbatim, so without this filter deleting a category leaves a
+	// mechanism that puts the deleted name back on the next run, over the very transactions the
+	// delete had just moved to the fallback.
+	//
+	// Filtered here rather than in SQL, and that is not a style choice: `targetCategory` has no key
+	// column, so an equality on the raw text is decided by the column's collation and answers
+	// differently on MariaDB than on SQLite and PostgreSQL (measured, see references.ts). The rule
+	// would pause on one engine and go on writing the dead name on the other two.
+	const rules = candidateRules.filter((rule) =>
+		isRuleTargetLive(rule.targetCategory, categoryNameKeys)
+	);
 	if (rules.length === 0) return 0;
 
 	const groups = new Map<

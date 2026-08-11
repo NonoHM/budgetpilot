@@ -130,3 +130,94 @@ export async function renameCategoryReferences(
 		});
 	}
 }
+
+/**
+ * The user's category names, folded, as the set a rule's `targetCategory` is resolved against.
+ *
+ * ## Why a rule's target is DERIVED rather than a stored flag (issue #161)
+ *
+ * `?/deleteCategory` used to treat three of the five columns above as data and leave the two rule
+ * tables pointing at a name no `Category` row carried. That is worse than an orphan row, because
+ * `applyCategoryRules` writes `manualCategory: rule.targetCategory` verbatim: the next rules run
+ * put the deleted name back onto transactions, including the very ones the delete had just moved
+ * to the fallback. The delete did not merely leave debris, it left a mechanism that reversed
+ * itself.
+ *
+ * The fix disables the rule rather than deleting it (the pattern is user-authored work) or
+ * repointing it at "Non catégorisé" (a claim the user never made, applied to every future import).
+ * What is deliberately NOT done is storing that disabled state.
+ *
+ * A stored `disabledReason` written at delete time is a claim about the past that the present can
+ * falsify: recreate a category under the deleted name and the rule stays paused, under a sentence
+ * saying its target was deleted, which is no longer true. That is the `/upcoming-bills` shape this
+ * project keeps closing, a screen stating the one thing that stopped being so. It would also give
+ * `enabled` two meanings at once, the user's own switch and a system verdict, with a second column
+ * as discriminator: the `Category.name` + `defaultKey` shape that produced five wrong display
+ * sites.
+ *
+ * Deriving it costs one bounded read and buys four properties outright. It cannot go stale, so
+ * recreating the category resumes the rule. A restored backup naming an absent category arrives
+ * paused by construction, which is why `backup/import.ts` needs no validation for this and refuses
+ * nothing (a restore is one of the three write paths that habitually bypass the service, and here
+ * there is no service state to bypass). Re-enabling a paused rule from `/rules` cannot resurrect
+ * the defect, because `enabled` is not the gate that decides. And the delete stays all-or-none
+ * without trying: nothing is added to its `$transaction`, so the window in which a category is
+ * gone and its rules are not yet paused does not exist rather than being closed.
+ *
+ * ## Why the fold is in JS and never a SQL equality
+ *
+ * The same reason `renameCategoryReferences` gives above, and it is the same measurement:
+ * `targetCategory` has no key column, so `WHERE targetCategory = 'Loisirs'` against a row stored
+ * as "loisirs" returns 1 row on MariaDB 11 and 0 rows on SQLite and PostgreSQL 17. A rule would
+ * pause on one engine and go on writing the dead name on the other two.
+ *
+ * Bounded by what the user authored through a UI that lists every category on one page, and every
+ * caller either already reads its categories (`/rules`, `/categories`) or reads every rule
+ * unbounded anyway.
+ */
+export async function readCategoryNameKeys(
+	client: TransactionClient,
+	userId: string
+): Promise<Set<string>> {
+	return toCategoryNameKeys(
+		await client.category.findMany({ where: { userId }, select: { name: true } })
+	);
+}
+
+/**
+ * The same fold, for a caller that already holds the rows.
+ *
+ * `/transactions`, `/rules` and `/categories` all load their categories for other reasons, so they
+ * pay nothing for this. It exists as its own function rather than as a `new Set(...map(...))` at
+ * each of them because the fold is the part that has to agree with `renameCategoryReferences`, and
+ * a decision restated at four call sites is one that drifts at three of them.
+ */
+export function toCategoryNameKeys(categories: ReadonlyArray<{ name: string }>): Set<string> {
+	return new Set(categories.map((category) => computeNameKey(category.name)));
+}
+
+/**
+ * Whether a rule's target still resolves to one of the user's categories.
+ *
+ * A rule that answers false is PAUSED: it keeps its row, keeps its pattern, and does not fire.
+ * Every site that reads a rule has to ask this, and there are four, which is one more than the
+ * issue listed. Three are obvious once stated: `applyCategoryRules` writes the name, so it is the
+ * defect itself; `previewCategoryRules` counts what that write would do, and a preview that
+ * disagrees with the apply is a false promise; `/import` feeds `applyCategorizationRules` for the
+ * legacy table.
+ *
+ * The fourth is `/transactions`' own load, and it was missed because nothing there writes
+ * anything. It reads enabled rules to tell a row and the detail panel that a rule matches this
+ * transaction. Leaving a paused rule in that list makes the page promise a categorisation that
+ * cannot happen, which is the same false-claim shape as the write, minus the write.
+ *
+ * Pure and separate from the read above so it can be exercised without a database: the fold is the
+ * part that has to agree with `renameCategoryReferences`, and agreement is what a unit test can
+ * actually pin.
+ */
+export function isRuleTargetLive(
+	targetCategory: string,
+	categoryNameKeys: ReadonlySet<string>
+): boolean {
+	return categoryNameKeys.has(computeNameKey(targetCategory));
+}
