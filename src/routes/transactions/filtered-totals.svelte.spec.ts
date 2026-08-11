@@ -33,7 +33,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedTransaction: null,
 		selectedSuggestion: null,
 		categoryOptions: ['Loyer'],
-		categories: [{ name: 'Loyer', defaultKey: null }],
+		categories: [{ name: 'Loyer' }],
 		allTags: [],
 		natureOptions: TRANSACTION_NATURES,
 		filters: {

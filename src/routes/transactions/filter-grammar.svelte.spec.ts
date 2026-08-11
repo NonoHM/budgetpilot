@@ -38,8 +38,8 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		categoryOptions: ['Alimentation', 'Voyages'],
 		splitCategoryOptions: [],
 		categories: [
-			{ id: 'cat-alimentation', name: 'Alimentation', defaultKey: null },
-			{ id: 'cat-voyages', name: 'Voyages', defaultKey: null }
+			{ id: 'cat-alimentation', name: 'Alimentation' },
+			{ id: 'cat-voyages', name: 'Voyages' }
 		],
 		allTags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
 		natureOptions: TRANSACTION_NATURES,

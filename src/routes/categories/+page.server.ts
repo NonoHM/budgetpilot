@@ -17,13 +17,11 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { findCategoryByTypedName, isReservedCategoryName } from '$lib/server/categories/nameMatch';
 import { renameCategoryReferences } from '$lib/server/categories/references';
-import { categoryLabel } from '$lib/domain/categoryLabels';
 import type { PageServerLoad } from './$types';
 
 export type CategoryRow = {
 	id: string;
 	name: string;
-	defaultKey: string | null;
 	transactionCount: number;
 	/**
 	 * Rules that target this category and would be paused by deleting it (#161).
@@ -47,7 +45,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 			select: {
 				id: true,
 				name: true,
-				defaultKey: true,
 				_count: { select: { transactions: true } }
 			}
 		}),
@@ -83,7 +80,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 		return {
 			id: cat.id,
 			name: cat.name,
-			defaultKey: cat.defaultKey,
 			transactionCount: cat._count.transactions,
 			pausedRuleCount: ruleCountByKey.get(computeNameKey(cat.name)) ?? 0,
 			nature: mapping ? mapping.nature : null,
@@ -151,11 +147,17 @@ export const actions: Actions = {
 
 		try {
 			await prisma.$transaction(async (tx) => {
-				// Renaming freezes the name as free text: defaultKey is set to null, the category
-				// will never be translated again — the user-typed text becomes authoritative.
+				// `defaultKey` is deliberately NOT written, where this used to set it to null.
+				//
+				// That write was the old model's whole hinge: renaming froze the name as free text
+				// and stopped the row being translated, so a category was seeded-and-translated
+				// until the first rename and ordinary afterwards. Since #162 it is ordinary from
+				// the start, so there is no state to leave and the column is a tombstone nothing
+				// reads (see prisma/schema.prisma). Clearing it here would be a write whose only
+				// effect is to look meaningful to the next reader.
 				await tx.category.update({
 					where: { id },
-					data: { name: newName, nameKey: newKey, defaultKey: null }
+					data: { name: newName, nameKey: newKey }
 				});
 				// The category's name is a foreign key in five other columns; they all move here, in
 				// this transaction. See categories/references.ts for which, and for the 0-cents
@@ -299,24 +301,31 @@ export const actions: Actions = {
 	}
 };
 
-type NamedCategory = { id: string; name: string; defaultKey: string | null };
+type NamedCategory = { id: string; name: string };
 
-/** The whole list, because a displayed label cannot be turned into a `where` clause. */
+/**
+ * The whole list, because the check folds both sides through `computeNameKey` and a folded key
+ * cannot be turned into a `where` clause. The unique constraint on `(userId, nameKey)` is what
+ * makes the answer true under a race; this read is what makes the REFUSAL legible.
+ */
 function readCategoryNames(userId: string): Promise<NamedCategory[]> {
 	return prisma.category.findMany({
 		where: { userId },
-		select: { id: true, name: true, defaultKey: true }
+		select: { id: true, name: true }
 	});
 }
 
 /**
- * Names the row the user can see, never the string in the column. Told "this name already
- * exists" while nothing on screen carries it, a user has no way to find what is blocking them —
- * which is exactly the state an English instance was in, where the blocking row reads
- * "Groceries" and is stored as "Alimentation".
+ * Names the blocking row, which since #162 is simply its stored name.
+ *
+ * This function used to resolve a label, because the row the user could SEE and the string in the
+ * column were different things: told "this name already exists" while nothing on screen carried
+ * it, a user had no way to find what was blocking them, which is exactly the state an English
+ * instance was in when the blocking row read "Groceries" and was stored as "Alimentation". The
+ * two are now the same string, so the indirection is gone rather than fixed.
  */
 function duplicateError(clash: NamedCategory): string {
-	return m.categories_error_duplicate_named({ name: categoryLabel(clash.name, clash.defaultKey) });
+	return m.categories_error_duplicate_named({ name: clash.name });
 }
 
 function getFormValue(formData: FormData, key: string): string {

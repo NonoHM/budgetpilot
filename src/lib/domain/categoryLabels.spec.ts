@@ -1,95 +1,45 @@
 import { describe, expect, it } from 'vitest';
 import * as m from '$lib/paraglide/messages';
 import { UNCLASSIFIED_CATEGORY } from './categories';
-import { buildDefaultKeyByName, categoryLabel, categoryLabelByName } from './categoryLabels';
+import { categoryDisplayName } from './categoryLabels';
 
-describe('categoryLabel', () => {
-	it('traduit le sentinel "à classer" au lieu d’afficher le slug technique', () => {
+describe('categoryDisplayName', () => {
+	it('traduit le sentinel « à classer » au lieu d’afficher le slug technique', () => {
 		expect.assertions(2);
 
-		const label = categoryLabel(UNCLASSIFIED_CATEGORY);
+		const label = categoryDisplayName(UNCLASSIFIED_CATEGORY);
 
 		expect(label).toBe(m.common_category_uncategorized());
 		expect(label).not.toBe(UNCLASSIFIED_CATEGORY);
 	});
 
-	it('ignore le name stocké quand un defaultKey connu est fourni', () => {
+	it('rend une catégorie par défaut sous son nom stocké, sans traduction (#162)', () => {
 		expect.assertions(2);
 
-		const label = categoryLabel('Nom historique périmé', 'food');
-
-		expect(label).toBe(m.category_default_food());
-		expect(label).not.toBe('Nom historique périmé');
+		// LE TEST QUI DIT CE QUI A CHANGÉ. « Alimentation » est l’une des quatorze catégories
+		// semées : elle s’affichait « Groceries » sur une instance anglaise, parce que son
+		// `defaultKey` décidait de son libellé. Elle s’affiche désormais telle qu’elle est
+		// stockée, dans toutes les langues.
+		expect(categoryDisplayName('Alimentation')).toBe('Alimentation');
+		expect(categoryDisplayName('Alimentation')).not.toBe(
+			m.category_default_food({}, { locale: 'en' })
+		);
 	});
 
-	it('retombe sur le name tel quel quand defaultKey est null (catégorie renommée par l’utilisateur)', () => {
+	it('rend un nom saisi par l’utilisateur tel quel', () => {
 		expect.assertions(1);
 
-		expect(categoryLabel('Mes courses', null)).toBe('Mes courses');
+		expect(categoryDisplayName('Mes courses')).toBe('Mes courses');
 	});
 
-	it('retombe sur le name tel quel quand defaultKey est absent', () => {
-		expect.assertions(1);
-
-		expect(categoryLabel('Catégorie perso')).toBe('Catégorie perso');
-	});
-
-	it('retombe sur le name tel quel quand defaultKey est inconnu/invalide', () => {
-		expect.assertions(1);
-
-		expect(categoryLabel('Catégorie perso', 'not-a-real-key')).toBe('Catégorie perso');
-	});
-
-	it('donne la priorité au sentinel même si un defaultKey (invalide) est fourni', () => {
-		expect.assertions(1);
-
-		expect(categoryLabel(UNCLASSIFIED_CATEGORY, 'food')).toBe(m.common_category_uncategorized());
-	});
-});
-
-describe('categoryLabelByName', () => {
-	it('résout le defaultKey depuis la map name → defaultKey', () => {
-		expect.assertions(1);
-
-		const map = buildDefaultKeyByName([
-			{ name: 'Alimentation', defaultKey: 'food' },
-			{ name: 'Mes courses perso', defaultKey: null }
-		]);
-
-		expect(categoryLabelByName('Alimentation', map)).toBe(m.category_default_food());
-	});
-
-	it('retombe sur le name pour une catégorie renommée (defaultKey null dans la map)', () => {
-		expect.assertions(1);
-
-		const map = buildDefaultKeyByName([{ name: 'Mes courses perso', defaultKey: null }]);
-
-		expect(categoryLabelByName('Mes courses perso', map)).toBe('Mes courses perso');
-	});
-
-	it('retombe sur le name quand la map ne contient pas la catégorie', () => {
-		expect.assertions(1);
-
-		expect(categoryLabelByName('Catégorie inconnue', new Map())).toBe('Catégorie inconnue');
-	});
-
-	it('fonctionne sans map fournie', () => {
-		expect.assertions(1);
-
-		expect(categoryLabelByName('Catégorie perso')).toBe('Catégorie perso');
-	});
-});
-
-describe('buildDefaultKeyByName', () => {
-	it('construit une map indexée par name', () => {
+	it('ne traite spécialement que le sentinel, y compris pour un nom qui lui ressemble', () => {
 		expect.assertions(2);
 
-		const map = buildDefaultKeyByName([
-			{ name: 'Alimentation', defaultKey: 'food' },
-			{ name: 'Autres', defaultKey: null }
-		]);
-
-		expect(map.get('Alimentation')).toBe('food');
-		expect(map.get('Autres')).toBeNull();
+		// La casse compte ici, délibérément : `categoryDisplayName` compare au slug EXACT, sans
+		// passer par `computeNameKey`. Une catégorie que l’utilisateur aurait nommée
+		// « Uncategorized » est une catégorie ordinaire et doit s’afficher telle quelle ; c’est
+		// `isReservedCategoryName` qui refuse de la CRÉER, et c’est le bon endroit pour ce refus.
+		expect(categoryDisplayName('Uncategorized')).toBe('Uncategorized');
+		expect(categoryDisplayName('UNCATEGORIZED')).toBe('UNCATEGORIZED');
 	});
 });

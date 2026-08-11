@@ -7,7 +7,7 @@
 	import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 	import { formatCents } from '$lib/domain/budget';
 	import { resolveCategoryColorClass } from '$lib/domain/colors';
-	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
+	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { isTransactionNature, type TransactionNature } from '$lib/domain/transaction';
 	import { isTagColorToken, MAX_TAG_NAME_LENGTH, type TagColorToken } from '$lib/domain/tags';
@@ -484,11 +484,6 @@
 	// honest number of what is actually on screen.
 	const idsFilterActive = $derived(Boolean(data.filters.ids));
 
-	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
-	function displayCategory(name: string): string {
-		return categoryLabelByName(name, defaultKeyByName);
-	}
-
 	/**
 	 * ON A RÉPARTIE ROW THE CATÉGORIE COLUMN SHOWS THE DOMINANT PART, NOT THE PARENT (design 1l) —
 	 * AND UNDER A CATEGORY FILTER IT SHOWS THE MATCHED PART INSTEAD OF THE DOMINANT ONE (PR5).
@@ -559,7 +554,7 @@
 		indicator: NonNullable<(typeof data.transactions)[number]['splitIndicator']>
 	): Array<{ category: string; amountCents: number }> {
 		return indicator.parts.map((part) => ({
-			category: displayCategory(part.category),
+			category: categoryDisplayName(part.category),
 			amountCents: part.amountCents
 		}));
 	}
@@ -639,7 +634,7 @@
 	 * a per-category count is a separate load-shaped decision that has not been taken.
 	 */
 	const categoryFilterOptions = $derived(
-		data.categoryOptions.map((name) => ({ value: name, label: displayCategory(name) }))
+		data.categoryOptions.map((name) => ({ value: name, label: categoryDisplayName(name) }))
 	);
 
 	/**
@@ -682,7 +677,7 @@
 		data.filters.category
 			? m.transactions_filter_active_trigger({
 					dimension: m.transactions_filter_dimension_category(),
-					value: displayCategory(data.filters.category)
+					value: categoryDisplayName(data.filters.category)
 				})
 			: undefined
 	);
@@ -979,7 +974,7 @@
 		}
 		if (data.filters.category) {
 			fragments.push(
-				m.tags_bulk_filter_category({ category: displayCategory(data.filters.category) })
+				m.tags_bulk_filter_category({ category: categoryDisplayName(data.filters.category) })
 			);
 		}
 		if (data.filters.q) {
@@ -2240,7 +2235,7 @@
 										: 'text-zinc-400'}"
 								>
 									{data.filters.category
-										? displayCategory(data.filters.category)
+										? categoryDisplayName(data.filters.category)
 										: m.transactions_category_filter_all()}
 								</span>
 							</span>
@@ -2719,7 +2714,7 @@
 																			tx.suggestion.category
 																		)}"
 																	></span>
-																	{displayCategory(tx.suggestion.category)}
+																	{categoryDisplayName(tx.suggestion.category)}
 																</span>
 																{#if tx.suggestion.nature}
 																	<span
@@ -2838,7 +2833,7 @@
 																)}"
 															></span>
 															<span class="min-w-0 truncate text-zinc-700"
-																>{displayCategory(rowCategory(tx))}</span
+																>{categoryDisplayName(rowCategory(tx))}</span
 															>
 															<!-- The badge is `shrink-0` and the name is `min-w-0 truncate`, which is what
 															     guarantees the count survives any category name: the ellipse does the work
@@ -2849,7 +2844,7 @@
 																<SplitBadge
 																	parts={badgeParts(tx.splitIndicator)}
 																	otherCategoryCount={tx.splitIndicator.otherCategoryCount}
-																	dominantCategory={displayCategory(rowCategory(tx))}
+																	dominantCategory={categoryDisplayName(rowCategory(tx))}
 																	interactive
 																/>
 															{/if}
@@ -3027,7 +3022,6 @@
 									natureOptions={data.natureOptions}
 									variant="panel"
 									{getCategoryColor}
-									{displayCategory}
 									{formatNatureLabel}
 									acceptError={form?.acceptError}
 									onAccepted={handleAccepted}
@@ -3087,7 +3081,7 @@
 										     lossless without a dialog having promised it in advance (1i). -->
 										<AlertBanner variant="success" size="sm" class="mt-2">
 											{m.splits_success_removed({
-												category: displayCategory(data.selectedTransaction.category)
+												category: categoryDisplayName(data.selectedTransaction.category)
 											})}
 										</AlertBanner>
 									{/if}
@@ -3107,7 +3101,7 @@
 													{ value: '', label: m.transactions_automatic() },
 													...data.categoryOptions.map((c) => ({
 														value: c,
-														label: displayCategory(c)
+														label: categoryDisplayName(c)
 													}))
 												]}
 												placeholder={m.transactions_automatic()}
@@ -3553,7 +3547,7 @@
 											<span class="text-xs text-zinc-600">
 												{m.transactions_suggested_label()}
 												<strong class="font-bold text-zinc-900"
-													>{displayCategory(tx.suggestion.category)}</strong
+													>{categoryDisplayName(tx.suggestion.category)}</strong
 												>
 												{#if tx.suggestion.nature}
 													· {formatNatureLabel(tx.suggestion.nature)}{/if}
@@ -3665,7 +3659,7 @@
 												     cut out of a closed set of seven, where a cut CATEGORY still reads as a
 												     recognisable prefix of a name the user wrote. Same one line, same 22px, same
 												     content; only which of the two gives way changes. -->
-												<span class="min-w-0 truncate">{displayCategory(rowCategory(tx))}</span>
+												<span class="min-w-0 truncate">{categoryDisplayName(rowCategory(tx))}</span>
 												<span class="shrink-0">· {formatNatureLabel(rowNature(tx))}</span>
 												<!-- Inert at 390: a 22px target glued to a full-row target is two destinations
 												     under one thumb. The sentence that replaces « fois deux » travels inside the
@@ -3674,7 +3668,7 @@
 													<SplitBadge
 														parts={badgeParts(tx.splitIndicator)}
 														otherCategoryCount={tx.splitIndicator.otherCategoryCount}
-														dominantCategory={displayCategory(rowCategory(tx))}
+														dominantCategory={categoryDisplayName(rowCategory(tx))}
 													/>
 												{/if}
 											</div>
@@ -3933,7 +3927,6 @@
 					natureOptions={data.natureOptions}
 					variant="compact"
 					{getCategoryColor}
-					{displayCategory}
 					{formatNatureLabel}
 					acceptError={form?.acceptError}
 					onAccepted={handleAccepted}
@@ -4001,7 +3994,7 @@
 				{:else if splitsRemoved}
 					<AlertBanner variant="success" size="sm">
 						{m.splits_success_removed({
-							category: displayCategory(data.selectedTransaction.category)
+							category: categoryDisplayName(data.selectedTransaction.category)
 						})}
 					</AlertBanner>
 				{/if}
@@ -4017,7 +4010,7 @@
 						value={manualCategoryValue}
 						options={[
 							{ value: '', label: m.transactions_automatic() },
-							...data.categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))
+							...data.categoryOptions.map((c) => ({ value: c, label: categoryDisplayName(c) }))
 						]}
 						placeholder={m.transactions_automatic()}
 						ariaLabel={m.transactions_manual_category_heading()}
@@ -4346,7 +4339,6 @@
 	canGoNext={focusNextId !== null}
 	autoAppliedCount={focusAutoAppliedCount}
 	{getCategoryColor}
-	{displayCategory}
 	{formatNatureLabel}
 	{formatDate}
 	{formatCents}
@@ -4478,7 +4470,7 @@
 			<Combobox
 				name="targetCategory"
 				value={ruleTarget?.targetCategory ?? ''}
-				options={data.categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))}
+				options={data.categoryOptions.map((c) => ({ value: c, label: categoryDisplayName(c) }))}
 				placeholder={m.transactions_rule_target_category_placeholder()}
 				ariaLabel={m.rules_field_target_category()}
 				triggerClass="!bg-zinc-50 lg:!bg-white"

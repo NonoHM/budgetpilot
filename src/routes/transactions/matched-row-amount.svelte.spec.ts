@@ -80,7 +80,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedSuggestion: null,
 		categoryOptions: ['Transport'],
 		splitCategoryOptions: [],
-		categories: [{ id: 'cat-transport', name: 'Transport', defaultKey: null }],
+		categories: [{ id: 'cat-transport', name: 'Transport' }],
 		natureOptions: TRANSACTION_NATURES,
 		splitFilterAvailable: false,
 		splitCounts: null,

@@ -14,7 +14,7 @@
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import { inputBase } from '$lib/styles';
 	import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
-	import { categoryLabel } from '$lib/domain/categoryLabels';
+	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { isTransactionNature } from '$lib/domain/transaction';
 	import { resolveCategoryColorClass } from '$lib/domain/colors';
@@ -151,7 +151,7 @@
 						<tbody>
 							{#each data.categories as cat (cat.id)}
 								<tr class="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
-									<td class="px-5 py-2.5 font-medium">{categoryLabel(cat.name, cat.defaultKey)}</td>
+									<td class="px-5 py-2.5 font-medium">{cat.name}</td>
 									<td class="px-5 py-2.5">
 										<form
 											bind:this={natureFormRefs[cat.id]}
@@ -184,7 +184,7 @@
 												<Select
 													value={getNatureValue(cat.id, cat.nature)}
 													ariaLabel={m.categories_nature_aria({
-														name: categoryLabel(cat.name, cat.defaultKey)
+														name: cat.name
 													})}
 													options={[
 														{ value: '', label: m.categories_nature_none() },
@@ -307,9 +307,7 @@
 							></span>
 							<div class="min-w-0 flex-1">
 								<div class="flex flex-wrap items-center gap-2">
-									<span class="text-[15.5px] font-bold text-zinc-950"
-										>{categoryLabel(cat.name, cat.defaultKey)}</span
-									>
+									<span class="text-[15.5px] font-bold text-zinc-950">{cat.name}</span>
 									{#if isUnclassified}
 										<span
 											class="flex h-[18px] shrink-0 items-center rounded-md bg-zinc-100 px-1.5 text-[10px] font-bold tracking-wide text-zinc-500 uppercase"
@@ -324,7 +322,7 @@
 								<IconButton
 									class="shrink-0"
 									label={m.categories_rename_aria({
-										name: categoryLabel(cat.name, cat.defaultKey)
+										name: cat.name
 									})}
 									onclick={() => (renamingCategory = cat)}
 								>
@@ -368,7 +366,7 @@
 								<Select
 									value={getNatureValue(cat.id, cat.nature)}
 									ariaLabel={m.categories_nature_aria({
-										name: categoryLabel(cat.name, cat.defaultKey)
+										name: cat.name
 									})}
 									class="!bg-zinc-50"
 									options={[
@@ -408,7 +406,7 @@
 					{:else}
 						<ListCard
 							expandAriaLabel={m.categories_delete_expand_aria({
-								name: categoryLabel(cat.name, cat.defaultKey)
+								name: cat.name
 							})}
 						>
 							{@render categoryPrimary()}
@@ -504,9 +502,7 @@
 				name="newName"
 				maxlength="80"
 				required
-				value={renamingCategory
-					? categoryLabel(renamingCategory.name, renamingCategory.defaultKey)
-					: ''}
+				value={renamingCategory ? renamingCategory.name : ''}
 				class={inputBase}
 			/>
 		</label>
@@ -536,9 +532,7 @@
 	<ConfirmDialog
 		open={deletingCategory !== null}
 		title={m.categories_delete_confirm_title({
-			name: deletingCategory
-				? categoryLabel(deletingCategory.name, deletingCategory.defaultKey)
-				: ''
+			name: deletingCategory ? deletingCategory.name : ''
 		})}
 		confirmLabel={m.common_delete()}
 		tone="danger"
@@ -550,7 +544,7 @@
 				{m.categories_delete_confirm_contains()}
 				<strong>{pluralTx(deletingCategory!.transactionCount)}</strong>.
 				{m.categories_delete_confirm_moved_prefix()}
-				<em>{categoryLabel(UNCLASSIFIED_CATEGORY)}</em>.
+				<em>{categoryDisplayName(UNCLASSIFIED_CATEGORY)}</em>.
 			</p>
 		{:else}
 			<p class="text-sm text-zinc-600">{m.categories_delete_confirm_irreversible()}</p>

@@ -60,7 +60,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			prisma.category.findMany({
 				where: { userId: user.id },
 				orderBy: { name: 'asc' },
-				select: { name: true, defaultKey: true }
+				select: { name: true }
 			}),
 			readSavingsGoals(user.id),
 			loadCashFlowForecast(user.id, getRemainingDaysInMonthUtc(new Date())).then(
@@ -102,7 +102,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	return {
 		categoryOptions: categories.map((c) => c.name),
-		categories,
 		month: period.budgetMonth,
 		period,
 		budgetSummaryAvailable,

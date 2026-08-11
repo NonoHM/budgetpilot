@@ -2,7 +2,7 @@
 	import { resolve } from '$app/paths';
 	import { formatCents, formatBudgetDelta, formatSpentOfLimit } from '$lib/domain/budget';
 	import { widthClass } from '$lib/domain/widthClass';
-	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
+	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import type { DashboardInsights } from '$lib/server/dashboard/insights';
 	import type { LocalAiAdvice } from '$lib/server/insights/types';
 	import Badge from '$lib/components/ui/Badge.svelte';
@@ -12,8 +12,7 @@
 	let {
 		insights,
 		aiAdvice,
-		aiAllowed,
-		categories
+		aiAllowed
 	}: {
 		insights: DashboardInsights;
 		// A promise while the local model is still generating (the server streams it rather
@@ -21,13 +20,7 @@
 		// any non-streaming caller straightforward — `{#await}` resolves those immediately.
 		aiAdvice: LocalAiAdvice | Promise<LocalAiAdvice | null> | null;
 		aiAllowed: boolean;
-		categories: Array<{ name: string; defaultKey: string | null }>;
 	} = $props();
-
-	const defaultKeyByName = $derived(buildDefaultKeyByName(categories));
-	function displayCategory(name: string): string {
-		return categoryLabelByName(name, defaultKeyByName);
-	}
 
 	const insightsHasContent = $derived(
 		insights.alerts.length > 0 ||
@@ -108,7 +101,7 @@
 						>
 							<div class="flex items-start justify-between gap-3">
 								<span class="text-sm font-semibold text-zinc-900"
-									>{displayCategory(alert.category)}</span
+									>{categoryDisplayName(alert.category)}</span
 								>
 								<span
 									class="shrink-0 text-sm font-semibold tabular-nums"
@@ -175,7 +168,7 @@
 							</svg>
 							<div class="min-w-0 flex-1 text-sm text-zinc-600">
 								{m.dashboard_insights_unusual_spending({
-									category: displayCategory(spending.category),
+									category: categoryDisplayName(spending.category),
 									percent: Math.round(spending.increasePercentage)
 								})}
 								<span class="text-zinc-400">

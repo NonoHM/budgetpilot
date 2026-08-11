@@ -1,15 +1,16 @@
 import * as m from '$lib/paraglide/messages';
 import type { Takeaway } from '$lib/server/reports/monthly';
+import { categoryDisplayName } from '$lib/domain/categoryLabels';
 
 /**
- * Translated label for a report takeaway. `displayCategory` is injected (rather
- * than imported here) because defaultKey → label resolution depends on the
- * current user's categories, loaded on the page side.
+ * Translated label for a report takeaway.
+ *
+ * The display function used to be INJECTED rather than imported, and the docstring said why:
+ * resolving a category's label needed the current user's categories, because the label came from
+ * a `defaultKey` that only a loaded row carried. Since #162 the label is a pure function of the
+ * name, so the parameter was threading a constant down from the page for no reason.
  */
-export function takeawayText(
-	takeaway: Takeaway,
-	displayCategory: (name: string) => string
-): string {
+export function takeawayText(takeaway: Takeaway): string {
 	switch (takeaway.code) {
 		case 'balance_positive':
 			return m.reports_takeaway_balance_positive();
@@ -17,7 +18,7 @@ export function takeawayText(
 			return m.reports_takeaway_balance_negative();
 		case 'top_category':
 			return m.reports_takeaway_top_category({
-				category: displayCategory(takeaway.category ?? ''),
+				category: categoryDisplayName(takeaway.category ?? ''),
 				percent: takeaway.percent ?? ''
 			});
 		case 'recurring':

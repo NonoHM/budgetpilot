@@ -170,10 +170,16 @@ const backupCategorySchema = z
 	.object({
 		id: z.string().min(1),
 		name: z.string().min(1).max(MAX_PORTABLE_STRING),
-		// Absent from pre-i18n exports: re-derived on import from the canonical FR name.
-		// Constrained to real system keys: a defaultKey forged outside this enum is
-		// rejected here; a defaultKey valid but inconsistent with `name` is neutralized
-		// on import (see normalizeCategoryDefaultKey in backup/import.ts).
+		// ACCEPTED AND IGNORED since #162, and it must stay that way. Nothing emits it and
+		// nothing reads it, but every backup written before that chantier carries it, and this
+		// object is `.strict()`: removing the field would turn an unrecognised key into a hard
+		// rejection and make every installed user's existing file un-restorable. It is
+		// `.optional()`, so a file written today validates too. Same constraint as
+		// `categorizationRules`, for the same reason.
+		//
+		// Left constrained to the real enum rather than loosened to `z.unknown()`: a payload
+		// carrying a forged key is still a malformed payload, and refusing it costs nothing now
+		// that no code path can act on the value either way.
 		defaultKey: defaultCategoryKey.nullable().optional()
 	})
 	.strict();

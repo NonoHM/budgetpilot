@@ -16,17 +16,12 @@
 	import { cardBase, inputBase } from '$lib/styles';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
-	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
+	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { isTransactionNature } from '$lib/domain/transaction';
 	import * as m from '$lib/paraglide/messages';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
-
-	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
-	function displayCategory(name: string): string {
-		return categoryLabelByName(name, defaultKeyByName);
-	}
 
 	type Rule = PageData['rules'][number];
 
@@ -47,10 +42,13 @@
 	let deleteSubmitting = $state(false);
 
 	const targetCategoryOptions = $derived.by(() => {
-		const options = data.categories.map((c) => ({ value: c.name, label: displayCategory(c.name) }));
+		const options = data.categories.map((c) => ({
+			value: c.name,
+			label: categoryDisplayName(c.name)
+		}));
 		const currentTarget = editingRule?.targetCategory;
 		if (currentTarget && !data.categories.some((c) => c.name === currentTarget)) {
-			options.push({ value: currentTarget, label: displayCategory(currentTarget) });
+			options.push({ value: currentTarget, label: categoryDisplayName(currentTarget) });
 		}
 		return options;
 	});
@@ -193,9 +191,9 @@
 											<tr class="border-b border-zinc-100 last:border-0">
 												<td class="py-2 pr-4 font-mono text-xs">{item.labelPreview}</td>
 												<td class="py-2 pr-4 text-zinc-600"
-													>{displayCategory(item.currentCategory)}</td
+													>{categoryDisplayName(item.currentCategory)}</td
 												>
-												<td class="py-2 pr-4">{displayCategory(item.targetCategory)}</td>
+												<td class="py-2 pr-4">{categoryDisplayName(item.targetCategory)}</td>
 												<td class="py-2 text-zinc-600">{item.ruleName}</td>
 											</tr>
 										{/each}
@@ -264,7 +262,7 @@
 												<Badge tone="neutral" shape="rounded">{m.rules_badge_regex()}</Badge>
 											{/if}
 										</td>
-										<td class="py-2.5 pr-4">{displayCategory(rule.targetCategory)}</td>
+										<td class="py-2.5 pr-4">{categoryDisplayName(rule.targetCategory)}</td>
 										<td class="py-2.5 pr-4 text-zinc-600">{formatNatureLabel(rule.targetNature)}</td
 										>
 										<td class="py-2.5 pr-4">
@@ -416,11 +414,12 @@
 								<div class="py-3 first:pt-0 last:pb-0">
 									<p class="font-mono text-xs text-zinc-700">{item.labelPreview}</p>
 									<p class="mt-1 text-sm">
-										<span class="text-zinc-400 italic">{displayCategory(item.currentCategory)}</span
+										<span class="text-zinc-400 italic"
+											>{categoryDisplayName(item.currentCategory)}</span
 										>
 										<span class="text-zinc-400"> → </span>
 										<span class="font-semibold text-zinc-950"
-											>{displayCategory(item.targetCategory)}</span
+											>{categoryDisplayName(item.targetCategory)}</span
 										>
 									</p>
 								</div>
@@ -544,7 +543,9 @@
 									{/if}
 								</p>
 								<p class="mt-1 text-sm text-zinc-500">
-									{displayCategory(rule.targetCategory)} · {formatNatureLabel(rule.targetNature)}
+									{categoryDisplayName(rule.targetCategory)} · {formatNatureLabel(
+										rule.targetNature
+									)}
 								</p>
 								<!-- #161, always visible rather than behind the card's `details` disclosure. The
 								     reason a rule is not firing is the first thing the user needs, not a detail:

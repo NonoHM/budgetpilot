@@ -11,6 +11,11 @@ const db = vi.hoisted(() => {
 	// required here because vi.hoisted() runs before module imports are ready.
 	const UNCLASSIFIED_CATEGORY = 'uncategorized';
 
+	// `defaultKey` stays on the fake's row shape, and stays POPULATED in the fixtures below, on
+	// purpose. The column survives #162 as a tombstone, and between this change and the migration
+	// that clears it every real row still holds its old value. A fixture carrying one is therefore
+	// the un-migrated state, and every assertion here is evidence that the code ignores the column
+	// rather than evidence that the column is empty.
 	type Category = { id: string; userId: string; name: string; defaultKey: string | null };
 	type NatureMapping = { id: string; userId: string; categoryName: string; nature: string };
 	type Budget = { id: string; userId: string; categoryName: string; amountCents: number };
@@ -521,7 +526,7 @@ describe('renameCategory — pas de régression sur le mapping', () => {
  * the check has to be evaluated in the language the user is reading, and the previous one was
  * evaluated in the language the database was seeded in.
  */
-describe('createCategory / renameCategory — le nom comparé est celui que l’utilisateur voit', () => {
+describe('createCategory / renameCategory : le nom comparé est le nom stocké, dans toutes les langues (#162)', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 		overwriteGetLocale(() => 'en');
@@ -537,63 +542,77 @@ describe('createCategory / renameCategory — le nom comparé est celui que l’
 		overwriteGetLocale(() => 'fr');
 	});
 
-	it('refuse "Groceries" quand la catégorie par défaut affichée ainsi existe déjà', async () => {
-		expect.assertions(3);
-
-		const result = await runAction('createCategory', { name: 'Groceries' });
-
-		expect(result.status).toBe(400);
-		expect(db.prisma.category.create).not.toHaveBeenCalled();
-		// The label the user reads, not the string in the column: told "this name already exists"
-		// with nothing on screen carrying it, they cannot find what is blocking them.
-		expect(result.data?.error).toBe(
-			m.categories_error_duplicate_named({ name: m.category_default_food() })
-		);
-	});
-
-	it('nomme la ligne visible, pas la ligne stockée, quand le nom tapé est le nom stocké', async () => {
+	it('ACCEPTE "Groceries" en anglais, là où c’était refusé avant #162', async () => {
 		expect.assertions(2);
 
-		// The mirror case. "Alimentation" is the stored name, so the fold has always caught it —
-		// what was wrong is the sentence: an English reader sees no row called Alimentation.
-		const result = await runAction('createCategory', { name: 'Alimentation' });
-
-		expect(result.status).toBe(400);
-		expect(result.data?.error).toContain(m.category_default_food());
-	});
-
-	it('accepte "Groceries" en français, où aucune catégorie ne porte ce nom à l’écran', async () => {
-		expect.assertions(2);
-		overwriteGetLocale(() => 'fr');
-
+		// LE RENVERSEMENT, et c’est la moitié visible de l’option B. La ligne semée stockée
+		// « Alimentation » s’affichait « Groceries », donc ce nom était pris sans qu’aucune ligne
+		// ne le porte. Elle s’affiche désormais « Alimentation », « Groceries » est libre, et la
+		// liste montrera deux lignes portant deux noms distincts au lieu de deux lignes que le
+		// lecteur prend pour une seule.
 		const result = await runAction('createCategory', { name: 'Groceries' });
 
-		// The check is about what is displayed, so it must not refuse a name that is free in the
-		// locale the user is in. A guard that refused both ways would be a rename of the defect.
 		expect(result.status).toBeUndefined();
 		expect(db.prisma.category.create).toHaveBeenCalled();
 	});
 
-	it('refuse le renommage vers le libellé affiché d’une autre catégorie', async () => {
+	it('refuse le nom stocké, plié sur la casse, et nomme la ligne qui bloque', async () => {
+		expect.assertions(3);
+
+		const result = await runAction('createCategory', { name: 'ALIMENTATION' });
+
+		expect(result.status).toBe(400);
+		expect(db.prisma.category.create).not.toHaveBeenCalled();
+		// Le refus nomme la ligne telle qu’elle est stockée, qui est exactement ce que
+		// l’utilisateur a sous les yeux. Assertion sur la RAISON et pas seulement sur le refus :
+		// deux gardes en série sont indiscernables d’une seule si l’on n’assert que le 400.
+		expect(result.data?.error).toBe(m.categories_error_duplicate_named({ name: 'Alimentation' }));
+	});
+
+	it('donne la même réponse dans les deux langues, ce que #162 rend possible', async () => {
+		expect.assertions(4);
+
+		// La propriété centrale : la réponse ne dépend plus de la langue lue. Avant, cette même
+		// paire d’appels donnait 400 en anglais et rien en français.
+		for (const locale of ['en', 'fr'] as const) {
+			overwriteGetLocale(() => locale);
+			vi.clearAllMocks();
+			// La table est remise à son état initial à CHAQUE tour, et pas seulement les mocks.
+			// Sans cela, le « Groceries » créé au tour anglais est encore là au tour français, qui
+			// le refuse alors très correctement : la deuxième itération mesurerait la fuite d’état
+			// du test au lieu de la propriété visée.
+			db.categories.length = 0;
+			db.categories.push(
+				{ id: 'cat-alimentation', userId: 'user-a', name: 'Alimentation', defaultKey: 'food' },
+				{ id: 'cat-non-classe', userId: 'user-a', name: UNCLASSIFIED_CATEGORY, defaultKey: null }
+			);
+
+			expect((await runAction('createCategory', { name: 'Groceries' })).status).toBeUndefined();
+			expect((await runAction('createCategory', { name: 'Alimentation' })).status).toBe(400);
+		}
+	});
+
+	it('refuse le renommage vers le nom stocké d’une autre catégorie', async () => {
 		expect.assertions(2);
 		db.categories.push({ id: 'cat-loisirs', userId: 'user-a', name: 'Loisirs', defaultKey: null });
 
-		const result = await runAction('renameCategory', { id: 'cat-loisirs', newName: 'Groceries' });
+		const result = await runAction('renameCategory', {
+			id: 'cat-loisirs',
+			newName: 'Alimentation'
+		});
 
 		expect(result.status).toBe(400);
-		expect(result.data?.error).toBe(
-			m.categories_error_duplicate_named({ name: m.category_default_food() })
-		);
+		expect(result.data?.error).toBe(m.categories_error_duplicate_named({ name: 'Alimentation' }));
 	});
 
-	it('laisse une catégorie se renommer en son propre libellé affiché', async () => {
+	it('laisse une catégorie se renommer en une variante de casse de son propre nom', async () => {
 		expect.assertions(1);
 
-		// Excluding self is what makes the check a uniqueness rule rather than a freeze: the row
-		// the user is renaming must not count as its own clash.
+		// Exclure la ligne elle-même est ce qui fait de ce contrôle une règle d’unicité plutôt
+		// qu’un gel : la ligne renommée ne doit pas compter comme son propre conflit.
 		const result = await runAction('renameCategory', {
 			id: 'cat-alimentation',
-			newName: 'Groceries'
+			newName: 'alimentation'
 		});
 
 		expect(result.status).toBeUndefined();

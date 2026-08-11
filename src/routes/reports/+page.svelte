@@ -7,7 +7,7 @@
 		hexToBgClass
 	} from '$lib/domain/colors';
 	import { widthClass } from '$lib/domain/widthClass';
-	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
+	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import { natureLabel } from '$lib/domain/natureLabels';
 	import { takeawayDot, takeawayText as resolveTakeawayText } from '$lib/domain/takeawayLabels';
 	import type { Takeaway } from '$lib/server/reports/monthly';
@@ -41,11 +41,6 @@
 
 	const hasData = $derived(report.transactionCount > 0);
 
-	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
-	function displayCategory(name: string): string {
-		return categoryLabelByName(name, defaultKeyByName);
-	}
-
 	/**
 	 * « Plus grosses dépenses » KEEPS the parent's ranking, category and amount (OD-3) — a split
 	 * transaction here is never re-ranked or relabelled from its parts, only flagged. The badge is
@@ -59,7 +54,7 @@
 		indicator: NonNullable<(typeof report.largestExpenses)[number]['splitIndicator']>
 	): Array<{ category: string; amountCents: number }> {
 		return indicator.parts.map((part) => ({
-			category: displayCategory(part.category),
+			category: categoryDisplayName(part.category),
 			amountCents: part.amountCents
 		}));
 	}
@@ -89,7 +84,7 @@
 		categories: Array<{ category: string; percentageOfExpenses: number }>
 	): DonutSegment[] {
 		return categories.slice(0, 5).map((category, i) => ({
-			label: displayCategory(category.category),
+			label: categoryDisplayName(category.category),
 			color: CATEGORY_PALETTE[i] ?? CATEGORY_PALETTE_OTHERS,
 			pct: category.percentageOfExpenses * 100
 		}));
@@ -127,7 +122,7 @@
 	}
 
 	function takeawaySegments(takeaway: Takeaway): Array<{ text: string; bold: boolean }> {
-		const text = resolveTakeawayText(takeaway, displayCategory);
+		const text = resolveTakeawayText(takeaway);
 		return text.split('**').map((segment, i) => ({ text: segment, bold: i % 2 === 1 }));
 	}
 
@@ -620,7 +615,7 @@
 										<tr>
 											<td class="px-5 py-3">
 												<div class="font-medium text-zinc-900">
-													{displayCategory(category.category)}
+													{categoryDisplayName(category.category)}
 												</div>
 												<div class="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-100">
 													<div
@@ -656,7 +651,7 @@
 									<div class="{cardBase} p-4">
 										<div class="flex items-baseline justify-between gap-3">
 											<span class="truncate text-sm font-semibold text-zinc-900"
-												>{displayCategory(category.category)}</span
+												>{categoryDisplayName(category.category)}</span
 											>
 											<div class="flex shrink-0 items-baseline gap-3">
 												<span class="text-xs text-zinc-500 tabular-nums">
@@ -722,12 +717,14 @@
 												     a fixed height absorbs an overflow invisibly where a minimum lets it grow
 												     and stay visible. -->
 												<div class="flex min-h-[22px] min-w-0 items-center gap-1.5">
-													<span class="min-w-0 truncate">{displayCategory(expense.category)}</span>
+													<span class="min-w-0 truncate"
+														>{categoryDisplayName(expense.category)}</span
+													>
 													{#if expense.splitIndicator}
 														<SplitBadge
 															parts={badgeParts(expense.splitIndicator)}
 															otherCategoryCount={expense.splitIndicator.otherCategoryCount}
-															dominantCategory={displayCategory(
+															dominantCategory={categoryDisplayName(
 																expense.splitIndicator.dominantCategory
 															)}
 														/>
@@ -763,13 +760,13 @@
 											     desktop table cell above for why it is a minimum, never a fixed height. -->
 											<div class="mt-0.5 flex min-h-[22px] min-w-0 items-center gap-1.5">
 												<span class="min-w-0 truncate text-xs text-zinc-500"
-													>{displayCategory(expense.category)}</span
+													>{categoryDisplayName(expense.category)}</span
 												>
 												{#if expense.splitIndicator}
 													<SplitBadge
 														parts={badgeParts(expense.splitIndicator)}
 														otherCategoryCount={expense.splitIndicator.otherCategoryCount}
-														dominantCategory={displayCategory(
+														dominantCategory={categoryDisplayName(
 															expense.splitIndicator.dominantCategory
 														)}
 													/>
@@ -847,7 +844,7 @@
 									{#each includedForecastFlows as flow (`${flow.label}:${flow.category}:${flow.direction}`)}
 										<tr>
 											<td class="px-5 py-3 font-medium text-zinc-700">{flow.label}</td>
-											<td class="px-5 py-3 text-zinc-500">{displayCategory(flow.category)}</td>
+											<td class="px-5 py-3 text-zinc-500">{categoryDisplayName(flow.category)}</td>
 											<td class="px-5 py-3 text-right text-zinc-500"
 												>{forecastCadenceLabel(flow.cadence)}</td
 											>
@@ -884,7 +881,7 @@
 										<div class="min-w-0">
 											<div class="truncate font-medium text-zinc-900">{flow.label}</div>
 											<div class="mt-0.5 truncate text-xs text-zinc-500">
-												{displayCategory(flow.category)}
+												{categoryDisplayName(flow.category)}
 											</div>
 										</div>
 										<span class="shrink-0">
@@ -991,7 +988,7 @@
 									{#each report.recurringPayments as rec (`${rec.label}:${rec.category}:${rec.amountCents}`)}
 										<tr>
 											<td class="px-5 py-3 font-medium text-zinc-700">{rec.label}</td>
-											<td class="px-5 py-3 text-zinc-500">{displayCategory(rec.category)}</td>
+											<td class="px-5 py-3 text-zinc-500">{categoryDisplayName(rec.category)}</td>
 											<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">{rec.count}</td>
 											<td class="px-5 py-3 text-right text-zinc-500 tabular-nums">{rec.lastDate}</td
 											>
@@ -1024,7 +1021,7 @@
 										<div class="min-w-0">
 											<div class="truncate font-medium text-zinc-900">{rec.label}</div>
 											<div class="mt-0.5 truncate text-xs text-zinc-500">
-												{displayCategory(rec.category)}
+												{categoryDisplayName(rec.category)}
 											</div>
 										</div>
 										<span class="shrink-0">

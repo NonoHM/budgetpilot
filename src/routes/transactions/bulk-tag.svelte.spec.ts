@@ -20,7 +20,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedTransaction: null,
 		selectedSuggestion: null,
 		categoryOptions: ['Loyer'],
-		categories: [{ name: 'Loyer', defaultKey: null }],
+		categories: [{ name: 'Loyer' }],
 		allTags: [{ id: 'tag-1', name: 'Voyage', colorToken: 'clay' as const }],
 		natureOptions: TRANSACTION_NATURES,
 		filters: {

@@ -34,7 +34,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		}),
 		prisma.category.findMany({
 			where: { userId: user.id },
-			select: { name: true, defaultKey: true }
+			select: { name: true }
 		}),
 		url.searchParams.get('preview') === '1' ? previewCategoryRules(user.id) : Promise.resolve(null)
 	]);

@@ -93,7 +93,6 @@ function buildData(
 	return {
 		user: { email: 'user@example.com', role: 'USER' } as PageData['user'],
 		categoryOptions: [],
-		categories: [],
 		month: '2026-07',
 		period: {
 			key: 'this-month',
