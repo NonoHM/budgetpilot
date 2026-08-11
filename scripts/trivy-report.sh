@@ -4,7 +4,7 @@
 # WHY THIS EXISTS, since "just print the table" is the obvious alternative and was what we had:
 # Trivy's `format: table` prints one row per scanned TARGET, including every target with zero
 # findings. Measured on the published image at CRITICAL/HIGH: **651 lines of table for 2
-# findings** — three hundred `... | node-pkg | 0` rows around the three that matter. That output
+# findings**: three hundred `... | node-pkg | 0` rows around the three that matter. That output
 # was going straight into the body of the cve-alert issue, and an alert nobody reads has stopped
 # being an alert.
 #
@@ -13,13 +13,13 @@
 # severity ordering and the empty-input case in Go template syntax, and the JSON is the same data
 # the SARIF upload carries, so there is one shape to reason about rather than two.
 #
-# COMPLETENESS LIVES ELSEWHERE, DELIBERATELY. The SARIF upload keeps carrying the full inventory —
-# every severity, unfixed included — to the Security tab, which filters natively and is built for
+# COMPLETENESS LIVES ELSEWHERE, DELIBERATELY. The SARIF upload keeps carrying the full inventory
+# (every severity, unfixed included) to the Security tab, which filters natively and is built for
 # it. This script is the human-facing summary and is allowed to be partial. Do not "fix" it by
 # adding the clean targets back.
 #
 # Usage:  scripts/trivy-report.sh <trivy-json-file> [heading]
-# Writes Markdown to stdout. Exits 0 whether or not there are findings — the CALLER decides what a
+# Writes Markdown to stdout. Exits 0 whether or not there are findings. The CALLER decides what a
 # finding means; this only renders. That separation is why the gate steps keep their own
 # `exit-code: 1` rather than reading this script's status.
 
@@ -31,8 +31,8 @@ HEADING="${2:-}"
 [ -n "$HEADING" ] && printf '### %s\n\n' "$HEADING"
 
 if [ ! -s "$REPORT" ]; then
-	echo "_No report file was produced — likely scanner infrastructure (DB mirror, registry)"
-	echo "rather than a confirmed finding. Check the run log._"
+	echo "_No report file was produced. This is likely scanner infrastructure (DB mirror,"
+	echo "registry) rather than a confirmed finding. Check the run log._"
 	exit 0
 fi
 
@@ -43,8 +43,8 @@ fi
 # versions and advisory ids come from THIRD-PARTY IMAGE METADATA, not from us. The output this
 # replaced fenced the whole report in four backticks precisely because that text can contain
 # backticks; a Markdown TABLE has no fence, so a `|` would split a row into extra columns and a
-# backtick would unbalance the code span around it. Neither executes anything — the body is
-# Markdown in a GitHub issue — but either makes the row unreadable, which is the exact failure
+# backtick would unbalance the code span around it. Neither executes anything (the body is
+# Markdown in a GitHub issue), but either makes the row unreadable, which is the exact failure
 # this script exists to remove. Newlines collapse for the same reason: one would end the row.
 jq -r '
   def cell: tostring | gsub("\\|"; "\\|") | gsub("`"; "'"'"'") | gsub("[\r\n]+"; " ");

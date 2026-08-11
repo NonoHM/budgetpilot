@@ -67,7 +67,7 @@ async function findFreePort(startPort, { limit = 50 } = {}) {
 function setEnvValue(content, key, value) {
 	const pattern = new RegExp(`^${key}=.*$`, 'm');
 	if (!pattern.test(content)) {
-		throw new Error(`${key} not found in .env.example — is the template out of date?`);
+		throw new Error(`${key} not found in .env.example. Is the template out of date?`);
 	}
 	return content.replace(pattern, `${key}=${value}`);
 }
@@ -109,7 +109,7 @@ if (useDocker) {
 				appPort = fallback;
 			} else {
 				console.log(
-					`Port ${appPort} is also taken, and no free port was found nearby. Writing it anyway — edit APP_PORT in .env before running docker compose up.`
+					`Port ${appPort} is also taken, and no free port was found nearby. Writing it anyway. Edit APP_PORT in .env before running docker compose up.`
 				);
 			}
 		}
@@ -168,7 +168,7 @@ if (useDocker) {
 }
 
 console.log(
-	'\nThe first account you register needs the BOOTSTRAP_TOKEN from your new .env — it becomes an admin automatically.'
+	'\nThe first account you register needs the BOOTSTRAP_TOKEN from your new .env. That account becomes an admin automatically.'
 );
 
 if (enableLlm) {
@@ -181,6 +181,6 @@ if (enableLlm) {
 
 if (enableBankSync) {
 	console.log(
-		'\nBank sync enabled: you still need to set ENABLE_BANKING_APP_ID and a private key in .env — see the comments there.'
+		'\nBank sync enabled: you still need to set ENABLE_BANKING_APP_ID and a private key in .env. See the comments there.'
 	);
 }

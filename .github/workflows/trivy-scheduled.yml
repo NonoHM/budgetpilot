@@ -86,7 +86,7 @@ jobs:
       # The gate steps below deliberately opt out via `TRIVY_IGNOREFILE=/dev/null`: quieting
       # the Security tab is a reading-comfort decision, and it must not be able to suppress
       # the CRITICAL/HIGH alert this workflow's whole purpose is to raise.
-      - name: Scan published amd64 image — full inventory as SARIF
+      - name: Scan published amd64 image (full inventory as SARIF)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PLATFORM: linux/amd64
@@ -106,7 +106,7 @@ jobs:
           sarif_file: trivy-published-amd64.sarif
           category: trivy-published-image-amd64
 
-      - name: Scan published arm64 image — full inventory as SARIF
+      - name: Scan published arm64 image (full inventory as SARIF)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         env:
           TRIVY_PLATFORM: linux/arm64
@@ -137,7 +137,7 @@ jobs:
               | jq '[.Results[]?.Packages? // []] | flatten | length')
             echo "$IMAGE_REF ($platform): $count packages"
             if [ "$count" -eq 0 ]; then
-              echo "the scanner saw zero packages ($platform) — the gate would pass while proving nothing" >&2
+              echo "the scanner saw zero packages ($platform). The gate would pass while proving nothing" >&2
               exit 1
             fi
           done

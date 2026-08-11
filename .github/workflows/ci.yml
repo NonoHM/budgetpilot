@@ -388,7 +388,7 @@ jobs:
             | jq '[.Results[]?.Packages? // []] | flatten | length')
           echo "package inventory: $count"
           if [ "$count" -eq 0 ]; then
-            echo "the scanner saw zero packages — this gate would pass while proving nothing" >&2
+            echo "the scanner saw zero packages. This gate would pass while proving nothing" >&2
             exit 1
           fi
 
@@ -412,4 +412,4 @@ jobs:
       # which is the whole problem this rendering exists to remove.
       - name: Say what blocked
         if: always() && steps.gate.outcome == 'failure'
-        run: ./scripts/trivy-report.sh image-cve-gate.json "blocking — fixable CRITICAL/HIGH" >> "$GITHUB_STEP_SUMMARY"
+        run: ./scripts/trivy-report.sh image-cve-gate.json "Blocking findings (fixable CRITICAL/HIGH)" >> "$GITHUB_STEP_SUMMARY"

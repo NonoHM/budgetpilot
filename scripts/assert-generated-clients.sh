@@ -12,10 +12,11 @@
 #
 # It used to run *inside* the image, via `docker run --entrypoint sh`. It runs on the host now
 # because the runtime image is moving to a base with no shell, no grep and no coreutils. Nothing
-# about the claim changes — docker export flattens exactly the filesystem a container would see —
-# and the assertions gain the ability to run against an image that could not execute them.
+# about the claim changes, because docker export flattens exactly the filesystem a container
+# would see, and the assertions gain the ability to run against an image that could not
+# execute them.
 #
-# Two modes, both required — they check different halves of the pipeline:
+# Two modes, both required. They check different halves of the pipeline:
 #
 #   dirs    the builder stage's source tree, i.e. what `prisma generate` actually wrote
 #   bundle  the runner image's compiled ./build, i.e. what the published image runs
@@ -29,8 +30,8 @@ set -eu
 MODE=${1:-}
 ROOT=${2:-}
 
-# Overridable so the assertions themselves can be tested against a deliberately broken tree —
-# a check that has never been seen to fail is not yet a check. Both defaults are the paths as
+# Overridable so the assertions themselves can be tested against a deliberately broken tree.
+# A check that has never been seen to fail is not yet a check. Both defaults are the paths as
 # they appear inside the image, resolved under the extracted root.
 GENERATED_DIR=${GENERATED_DIR:-$ROOT/app/src/lib/server/database/generated}
 BUNDLE_DIR=${BUNDLE_DIR:-$ROOT/app/build}
@@ -59,7 +60,7 @@ assert_dirs() {
 	for provider in $PROVIDERS; do
 		dir="$GENERATED_DIR/$provider"
 
-		[ -d "$dir" ] || fail "$dir does not exist — the client for $provider was never generated"
+		[ -d "$dir" ] || fail "$dir does not exist: the client for $provider was never generated"
 		[ -n "$(ls -A "$dir")" ] || fail "$dir is empty"
 
 		# Each client must carry its own provider and only its own. Two clients reporting the
@@ -94,7 +95,7 @@ assert_bundle() {
 }
 
 [ -n "$ROOT" ] || fail "usage: $0 dirs|bundle <rootfs-dir>"
-[ -d "$ROOT" ] || fail "$ROOT is not a directory — nothing was extracted from the image"
+[ -d "$ROOT" ] || fail "$ROOT is not a directory: nothing was extracted from the image"
 
 case "$MODE" in
 	dirs) assert_dirs ;;

@@ -240,7 +240,7 @@ echo "  ok: no shell on disk, and none of 4 candidate interpreters can be execut
 echo
 echo "=== asserting the migrate path and runtime uid survive the base swap ==="
 [ -f "$IMAGE_ROOTFS/app/node_modules/prisma/build/index.js" ] \
-	|| { echo "FAIL: prisma CLI bin entry missing — check prisma's package.json \"bin\" mapping" >&2; exit 1; }
+	|| { echo "FAIL: prisma CLI bin entry missing. Check prisma's package.json \"bin\" mapping" >&2; exit 1; }
 [ -x "$IMAGE_ROOTFS/app/node_modules/@prisma/engines/schema-engine-debian-openssl-3.0.x" ] \
 	|| { echo "FAIL: the schema-engine binary is missing or not executable in the image" >&2; exit 1; }
 image_user=$(docker inspect --format '{{.Config.User}}' "$IMAGE")
@@ -539,7 +539,7 @@ if [ "$failpath_status" -eq 124 ]; then
 fi
 if [ "$failpath_status" -eq 0 ]; then
 	echo "$failpath_logs"
-	echo "FAIL: the container exited 0 with an unreachable database — a failed migrate deploy no longer aborts boot" >&2
+	echo "FAIL: the container exited 0 with an unreachable database, so a failed migrate deploy no longer aborts boot" >&2
 	exit 1
 fi
 if ! grep -q 'refusing to start' <<<"$failpath_logs"; then
@@ -774,7 +774,7 @@ fi
 # the driver produces its opaque error.
 if grep -qE 'SQLITE_CANTOPEN|unable to open database file' <<<"$upgrade_logs"; then
 	echo "$upgrade_logs"
-	echo "FAIL: Prisma's own error surfaced — the preflight did not run first" >&2
+	echo "FAIL: Prisma's own error surfaced, so the preflight did not run first" >&2
 	exit 1
 fi
 echo "  ok: refused with the remediation, before Prisma saw the volume"

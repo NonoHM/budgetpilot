@@ -24,5 +24,5 @@ What you expected to happen instead.
 
 **Additional context**
 Logs, screenshots, anything else relevant. Never paste real financial data,
-tokens, or secrets here — see [SECURITY.md](../../SECURITY.md) if the bug is
+tokens, or secrets here. See [SECURITY.md](../../SECURITY.md) if the bug is
 security-sensitive.

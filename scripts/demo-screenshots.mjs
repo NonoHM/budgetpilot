@@ -235,7 +235,9 @@ async function assertEnglish(page, where) {
 async function assertDepictsWorkingForecast(page) {
 	for (const absent of ['Not enough recurring flows', 'Dormant recurring flows']) {
 		if (await page.getByText(absent).count()) {
-			throw new Error(`[demo] dashboard shows "${absent}" — the seeded streams were not detected`);
+			throw new Error(
+				`[demo] dashboard shows "${absent}", so the seeded streams were not detected`
+			);
 		}
 	}
 	const kpi = await page.getByText('projected by month end').locator('xpath=..').innerText();
@@ -243,7 +245,7 @@ async function assertDepictsWorkingForecast(page) {
 	if (/^[+-]?€?0[.,]00$/.test(delta)) {
 		throw new Error(
 			`[demo] the forecast delta is ${delta}. Every recurring stream is already past for this ` +
-				`month, so there is nothing left to project — this is the "+€0.00" image. Re-run on a ` +
+				`month, so there is nothing left to project. This is the "+€0.00" image. Re-run on a ` +
 				`day that is not the last of the month.`
 		);
 	}
