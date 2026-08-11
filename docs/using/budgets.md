@@ -3,7 +3,7 @@
 A budget is a monthly limit on one category. Set one, and the app tells you
 where you stand against it, every month, without you entering anything again.
 
-![The budgets page: a summary strip reading Spent this month €314.82, Total budget €442.00, 71% used, €127.18 remaining, above three cards — Groceries marked OK, Dining out marked Over, Transport marked Near limit](../screenshots/budgets/overview-desktop.png)
+![The budgets page: a summary strip reading Spent this month €314.82, Total budget €442.00, 71% used, €127.18 remaining, above three cards (Groceries marked OK, Dining out marked Over, Transport marked Near limit)](../screenshots/budgets/overview-desktop.png)
 
 ## Set a budget
 

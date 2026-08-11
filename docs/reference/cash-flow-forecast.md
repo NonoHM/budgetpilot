@@ -21,7 +21,7 @@ The sum of the user's **checking** accounts on the net worth page. Savings,
 investment, real estate, other and debt are excluded.
 
 Measured on the documented fixture: net worth €10,250.00, forecast anchor
-€4,450.00 — the checking account alone.
+€4,450.00, the checking account alone.
 
 With no checking account, the ledger starts at a relative zero and shows net
 projected movement rather than a balance. No figure is invented.
@@ -35,8 +35,8 @@ projected movement rather than a balance. No figure is invented.
 
 Both were reproduced on a throwaway instance rather than described:
 
-- Three monthly flows seeded 6, 7 and 8 months ago — confirmed by
-  occurrence count, all long past a cycle — render **Dormant**.
+- Three monthly flows seeded 6, 7 and 8 months ago, confirmed by occurrence
+  count and all long past a cycle, render **Dormant**.
 - Removing flows until only one remained still rendered **Dormant**, so
   dormancy is decided before the count is. **Not enough** appeared only once
   no detected flow was left at all.

@@ -1,8 +1,8 @@
 # Contributing to BudgetPilot
 
 BudgetPilot is a solo-maintained, local-first personal budgeting app.
-Contributions (bug reports, small fixes, focused features) are welcome —
-please keep changes focused and discuss larger ones in an issue first.
+Contributions (bug reports, small fixes, focused features) are welcome.
+Please keep changes focused and discuss larger ones in an issue first.
 
 ## Setup
 
@@ -16,7 +16,7 @@ npm install
 cp .env.example .env
 ```
 
-Generate the required secrets and paste them into `.env` — leaving them
+Generate the required secrets and paste them into `.env`. Leaving them
 blank crashes `/register` and `/login` at startup:
 
 ```bash
@@ -38,7 +38,7 @@ server, or stuck on any of this? See
 
 ## Before opening a PR
 
-Run the full validation suite locally — it must be 100% green:
+Run the full validation suite locally. It must be 100% green:
 
 ```bash
 npx prisma generate
@@ -50,7 +50,7 @@ npm run test:e2e        # self-contained, uses its own throwaway DB
 ```
 
 The same commands run in CI (`.github/workflows/ci.yml`) on every push and
-PR — a red CI run blocks merge.
+PR, and a red CI run blocks merge.
 
 If you changed `prisma/schema.prisma`, generate a migration and refresh the
 other providers' schemas:
@@ -80,15 +80,20 @@ Never run `prisma migrate reset` against a database you care about.
   strings go through the i18n system (Paraglide, `messages/fr.json` /
   `messages/en.json`).
 - **Comments**: only when the _why_ isn't obvious from the code itself (a
-  non-obvious constraint, a workaround, a subtle invariant) — not a
+  non-obvious constraint, a workaround, a subtle invariant), not a
   restatement of what the code does.
+- **No em dashes (`—`)** in anything written for a reader: documentation,
+  comments, commit messages, PR and issue titles and bodies. Use a colon,
+  a comma, parentheses, or a full stop, whichever the sentence wants, and
+  not a hyphen standing in for the same construction. Quoted material (a
+  rendered UI string, a log line) is reproduced exactly.
 - Prefer editing/reusing existing shared components and server-side
-  modules over duplicating logic — check for an existing helper before
+  modules over duplicating logic. Check for an existing helper before
   writing a new one.
 - Keep `src/lib/domain/` free of infrastructure imports (no Prisma, no
-  `$app/*`, no `src/lib/server/`) — it must stay pure, framework-agnostic
+  `$app/*`, no `src/lib/server/`). It must stay pure, framework-agnostic
   logic that's testable without mounting a route.
-- No visual regression tooling is used in this project — Playwright
+- No visual regression tooling is used in this project: Playwright
   end-to-end specs (`npm run test:e2e`) are the source of truth for UI
   behavior; a UI change should come with a targeted e2e or component test
   where it makes sense, not a full VRT snapshot suite.
@@ -125,5 +130,5 @@ non-conforming commit message will be invisible to that automation.
 
 ## Reporting security issues
 
-Do not open a public issue for a vulnerability — see
+Do not open a public issue for a vulnerability. See
 [SECURITY.md](./SECURITY.md) for the private reporting process.

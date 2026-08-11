@@ -6,8 +6,8 @@ Every import is recorded, with what it did, and can be undone in one action.
 
 **Imports > New import** takes a **CSV** or **XLSX** statement.
 
-Five profiles are offered — **Auto**, **Banque Populaire**, **Revolut**,
-**Home** and **Generic** — and Auto recognises the others from the file's
+Five profiles are offered: **Auto**, **Banque Populaire**, **Revolut**,
+**Home** and **Generic**. Auto recognises the others from the file's
 header row. The column layouts each one expects are in
 [getting started](../getting-started.md#first-steps-in-the-app).
 

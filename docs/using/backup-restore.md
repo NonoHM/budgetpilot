@@ -5,8 +5,8 @@ and another button puts it back.
 
 ![The Backup and restore section of Settings: "Export my data" with its button, and "Restore a backup" behind a Show options disclosure](../screenshots/backup/section-desktop.png)
 
-This is the user-facing half. Backing up the whole instance — every account,
-the database file, the secrets — is a different job and belongs to whoever
+This is the user-facing half. Backing up the whole instance is a different
+job: every account, the database file, and the secrets. It belongs to whoever
 runs the server: see [running it day to day](../operations.md#backups).
 
 ## Export
@@ -52,10 +52,10 @@ not affected, and neither is your password or your two-factor setup.
 
 ## Only restore a file you exported yourself
 
-A backup is **input the app trusts**. It is checked for shape — the format
+A backup is **input the app trusts**. It is checked for shape: the format
 version, the required sections, the field types, and that the parts of a
-split add up to their parent — but it is not otherwise treated as hostile,
-and it becomes your data wholesale.
+split add up to their parent. It is not otherwise treated as hostile, and it
+becomes your data wholesale.
 
 Concretely, a file that someone else edited can put figures in your account
 that no screen in the app would ever have produced. The sum check exists

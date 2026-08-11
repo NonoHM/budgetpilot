@@ -1,4 +1,4 @@
-# BudgetPilot — Agent Guide
+# BudgetPilot Agent Guide
 
 BudgetPilot is a **local-first** personal budgeting web app. Privacy is a
 core design constraint, not an add-on: no bank cloud sync, no scraping, no
@@ -14,12 +14,12 @@ for i18n (`fr` base locale, `en`).
 
 ## Security posture
 
-Treat these areas with maximum rigor — defense in depth, no shortcuts, no
-residual risk left without an explicit, documented decision: **auth/session
+Treat these areas with maximum rigor (defense in depth, no shortcuts, no
+residual risk left without an explicit, documented decision): **auth/session
 handling, financial data (export/import), and any flow that talks to an
 external service (Ollama, bank-sync providers)**. Elsewhere (standard CRUD,
-UI), stick to the basics — scope every query to the authenticated user,
-never expose sensitive fields client-side — and avoid over-engineering.
+UI), stick to the basics: scope every query to the authenticated user,
+never expose sensitive fields client-side, and avoid over-engineering.
 More security code is more surface for bugs, including within security
 logic itself. See [SECURITY.md](./SECURITY.md) for the full policy and how
 to report a vulnerability.
@@ -29,41 +29,41 @@ to report a vulnerability.
 - **Never** log banking data, passwords, tokens, or session identifiers.
 - **Never** expose client-side: password hashes, session/token internals,
   or raw imported-transaction metadata.
-- **Never** accept a `userId` coming from the client — always derive it
+- **Never** accept a `userId` coming from the client. Always derive it
   from the authenticated session (`locals.user.id`).
 - **Always** filter sensitive Prisma queries by the authenticated user's id.
 - Passwords are hashed with bcrypt at a configurable cost (minimum 12).
   Sessions are opaque tokens, hashed at rest.
 - The session cookie is forced `Secure` whenever the instance declares
-  itself public, independent of `NODE_ENV` — never remove that guard.
+  itself public, independent of `NODE_ENV`. Never remove that guard.
 - Login has active rate limiting (per email and per IP); identifiers used
   for rate limiting are stored as HMACs, never in clear text.
 - Self-registration is closed by default; enabling it is an explicit,
   informed opt-in, especially for a publicly reachable instance.
 - The admin panel can reset passwords and delete accounts, but an admin can
   never reset or delete their own account through it. There is no admin
-  action to disable another user's TOTP/MFA — intentional, since that would
+  action to disable another user's TOTP/MFA. That is intentional, since it would
   let an admin unilaterally weaken another account's second factor; don't
   propose adding one.
 - No external host (local AI, bank-sync providers) is ever called without
-  validating it against an explicit, configurable allowlist — never a
+  validating it against an explicit, configurable allowlist, never a
   hardcoded or inferred trusted URL.
 - Content-Security-Policy is enforced via SvelteKit's `kit.csp`
-  (`svelte.config.js`) — nonce-based `script-src`, no `'unsafe-inline'`
+  (`svelte.config.js`): nonce-based `script-src`, no `'unsafe-inline'`
   anywhere. Don't introduce a literal, dynamically-valued `style=""`
-  attribute; it's silently blocked, not warned about — use static classes,
+  attribute; it's silently blocked, not warned about. Use static classes,
   SVG presentation attributes, or Svelte's `style:` directive instead.
 
 ## Architecture conventions
 
-- Don't duplicate business logic across files — check `src/lib/components`,
+- Don't duplicate business logic across files. Check `src/lib/components`,
   `src/lib/domain`, and `src/lib/server` (see "Folder structure" below) for
   an existing helper before writing a new one.
 - `src/lib/domain/` stays infrastructure-agnostic: no imports from
-  `src/lib/server/`, `$app/*`, or Prisma — pure logic, testable without
+  `src/lib/server/`, `$app/*`, or Prisma. It is pure logic, testable without
   mounting a route.
 - Security-, PII-, or financial-calculation logic belongs in a pure,
-  exported, independently-tested function — not inlined in a
+  exported, independently-tested function, not inlined in a
   `+page.server.ts` where it can only be verified indirectly.
 - Before adding a utility, check whether it already exists.
 
@@ -83,7 +83,7 @@ stays one image and two environment variables, at the cost of carrying two clien
 that will never execute. The Rust-free `prisma-client` generator keeps that cost
 small (the query engine is shared, so three clients are a few MB of generated
 TypeScript, not three full engines). Revisit only if image size becomes a real
-operational problem — not on principle.
+operational problem, not on principle.
 
 Two optional Compose overlays (`docker-compose.postgres.yml`,
 `docker-compose.mysql.yml`) run a server next to the app for operators who want
@@ -92,7 +92,7 @@ variables, so the stack can never run a database container while the app quietly
 writes to the SQLite file on the volume. They are mutually exclusive, they never
 publish the database port, and their password comes from `DATABASE_PASSWORD` in
 `.env` with no default. On both engines the app connects as a role scoped to its own
-database, never an administrative one — PostgreSQL's is created by an inline initdb
+database, never an administrative one. PostgreSQL's is created by an inline initdb
 config, since the image's `POSTGRES_USER` is the bootstrap superuser and PostgreSQL
 will not let that role give up the attribute. `hooks.server.ts` warns at every boot if
 it finds itself connected as a PostgreSQL superuser anyway (an operator's own server,
@@ -121,7 +121,7 @@ npm run check:watch
 
 # Schema migration (only if schema.prisma changes)
 # db:schemas regenerates the PostgreSQL/MySQL schemas from it; CI fails if they are stale.
-# db:generate regenerates all three clients — the app imports every provider's client
+# db:generate regenerates all three clients: the app imports every provider's client
 # statically, so nothing builds or type-checks until all three exist.
 npx prisma migrate dev --name <name> && npm run db:schemas && npm run db:generate
 
@@ -131,7 +131,7 @@ npm run test:e2e
 # Docker, prod-like / demo (includes the optional Ollama service)
 docker compose up -d --build
 docker compose logs -f budgetpilot
-docker compose down   # NEVER -v — that deletes the Docker DB volume
+docker compose down   # NEVER -v: that deletes the Docker DB volume
 
 # Builds the image and boots it on SQLite, PostgreSQL and MariaDB. Same script CI runs,
 # so a failure there reproduces here exactly. Needs ~4 GB free; cleans up after itself.
@@ -148,11 +148,11 @@ docker compose down   # NEVER -v — that deletes the Docker DB volume
   `docker compose run --rm budgetpilot scripts/<name>.mjs [args]` or
   `docker compose exec budgetpilot /nodejs/bin/node -e '<snippet>'`. Anything
   a smoke assertion needs to read out of the image is extracted to the host
-  first — see `extract_from_image` in `scripts/docker-smoke.sh`; do not add a
+  first: see `extract_from_image` in `scripts/docker-smoke.sh`; do not add a
   check that shells into the image, because it cannot work.
 - The app container runs `read_only`, with `/tmp` as its only tmpfs, all
   capabilities dropped and `no-new-privileges`. **`/data` must be a mounted
-  volume** — under a read-only root it is otherwise unwritable, and boot.mjs
+  volume**: under a read-only root it is otherwise unwritable, and boot.mjs
   refuses to start rather than failing later inside Prisma. Anything you add
   that writes to disk at runtime has to write under `/data`, or it will work
   in `npm run dev` and fail in the image. `scripts/check-compose-combinations.sh`
@@ -166,7 +166,7 @@ docker compose down   # NEVER -v — that deletes the Docker DB volume
   `@prisma/client`. That module names the one generated client the types come
   from; importing the package directly reintroduces a second, unrelated
   `PrismaClient` type and produces union errors across the codebase.
-- `npm run check` also compiles Paraglide translations — don't skip it to
+- `npm run check` also compiles Paraglide translations, so don't skip it to
   save time; generated message types depend on it.
 - The test suite is expected to stay 100% green. A failure means a real
   problem, not noise.
@@ -256,12 +256,12 @@ messages/           Paraglide translation source (fr.json / en.json)
   columns) is never touched. Guarded by `import/round-trip.spec.ts` and
   `e2e/transaction-splits-round-trip.spec.ts`.
 - **Backup/restore**: export is a full JSON dump scoped to the requesting
-  user; restore is a full, transactional replacement (never a merge) — IDs
+  user; restore is a full, transactional replacement (never a merge), and IDs
   are regenerated on import.
 - **Net worth**: the evolution curve plots one point per distinct snapshot
   timestamp (never grouped/bucketed by month). The alternate donut view
   breaks down assets by account type and shows **non-negative type totals
-  only** — debt, and any other type netting to zero or below, is excluded
+  only**: debt, and any other type netting to zero or below, is excluded
   from the donut and surfaced separately as a single negative-balance total
   instead.
 
@@ -271,20 +271,20 @@ Four rules, each from a defect this repo shipped. The measurement travels with t
 rule: without it they read as generic advice and get argued with.
 
 - **Join on an identifier, never on displayed text.** Five columns name a category
-  by its text rather than its id — `MonthlyBudget.categoryName`,
+  by its text rather than its id: `MonthlyBudget.categoryName`,
   `CategoryNatureMapping.categoryName`, `CategoryRule.targetCategory`,
   `CategorizationRule.targetCategory`, `Transaction.manualCategory`.
   `?/renameCategory` updated two of the five, and renaming a category took
   `/budgets` from **5000 cents spent to 0** on unchanged spending. The shape that
   avoids this is a surrogate primary key with the natural key alongside as a unique
-  constraint — `Category` has both (`id`, `@@unique([userId, nameKey])`) and those
+  constraint: `Category` has both (`id`, `@@unique([userId, nameKey])`) and those
   five columns simply do not use the first. The trap, named so it is recognisable:
   assuming a business identifier will never change. The inventory now lives in
   `server/categories/references.ts` and a spec checks it against the schema, so a
   sixth column fails a test by name.
 - **Case folding is not lowercasing, and folded text is never displayed.** Store the
   original and a folded copy used only for comparison. `computeNameKey` is that
-  pattern and is the **only** folding in this repo — nothing else invents its own.
+  pattern and is the **only** folding in this repo, and nothing else invents its own.
   What it does not do is Unicode case folding, and the difference is measured:
   `Straße`/`Strasse` stay distinct here and are folded together by MariaDB's
   `utf8mb4_unicode_ci`, which is why the key is hashed rather than compared in SQL;
@@ -311,14 +311,14 @@ classes visible in one pass: a string that renders unbracketed is **hardcoded**,
 a layout that clips or wraps has no room for a longer translation. It would have
 caught the nine hardcoded French typography sites that live in `.svelte` markup
 outside the catalogues, and it covers the **178 keys that are longer in English than
-in French** without measuring 1302 by hand. **It is not set up** — nothing in the
+in French** without measuring 1302 by hand. **It is not set up**: nothing in the
 test suite does this today, so no claim about layout under a longer locale is
 currently backed by anything. Tracked in #158.
 
 ## UI/UX conventions
 
 - Sober black/white/zinc theme. **Color is encoding only, never
-  decoration** — one category maps to one constant color, and there's no
+  decoration**: one category maps to one constant color, and there's no
   decorative teal/green just for visual variety.
 - Buttons: primary is black/zinc, green means a positive action, red means
   destructive, secondary uses a zinc border. One primary action per screen.
@@ -331,7 +331,7 @@ currently backed by anything. Tracked in #158.
 - Progressive disclosure: secondary/dangerous actions stay collapsed by
   default. Empty states carry exactly one clear call to action.
 - Every form control follows one shared 44px-tall, 12px-radius template
-  (`src/lib/styles.ts`) — reuse it instead of hand-rolling field styles.
+  (`src/lib/styles.ts`). Reuse it instead of hand-rolling field styles.
 
 ## Language policy
 
@@ -339,10 +339,62 @@ Code, identifiers, and comments are always written in English, regardless
 of the app's own UI language(s). Only user-facing strings go through the
 i18n system (Paraglide).
 
+## Prose style
+
+**No em dashes (`—`), anywhere we write.** Documentation, commit messages,
+PR descriptions and titles, issue bodies and titles, review comments, code
+comments, headings. They read as scientific-paper punctuation, and
+everything here is written for a person trying to get something done.
+
+Replace one with the punctuation the sentence actually wants, which is
+never the same choice twice:
+
+- a **colon** when what follows explains or expands what came before
+  ("close this page: nothing here makes the app faster");
+- a **comma** when it is a short aside inside one sentence
+  ("a full replacement, never a silent merge");
+- **parentheses** when a dash pair wraps a genuine digression
+  ("stick to the basics (scope every query to the authenticated user)");
+- a **full stop** when the two halves are two sentences
+  ("it must be long and random. Generate it with one of the commands
+  above").
+
+**Do not substitute a hyphen or an en dash.** That keeps the construction
+and only changes the character, which is the thing being fixed.
+
+Recasting beats punctuating. A dash usually marks a sentence carrying two
+ideas, and the best fix is often two sentences. Prefer that to a long
+parenthetical, and never let one separate a subject from its verb.
+
+The one exception is **quoted material**. A page reproducing a rendered UI
+string, a log line, or someone else's text quotes it exactly, dashes
+included, because the reader is meant to match it against what is on their
+screen. `docs/using/dashboard.md` holds the only such quote today, of
+`dashboard_insights_unusual_spending`.
+
+### The guides this follows
+
+User documentation in `docs/` is organised on
+[Diátaxis](https://diataxis.fr/): `getting-started.md` is the tutorial,
+`docs/using/` is task-oriented how-to, `docs/reference/` is the lookup
+material, and an explanation belongs in whichever of those already owns the
+subject. Keep a page in one mode. A how-to that starts explaining the data
+model, or a reference page that grows steps, is a sign the content belongs
+on its neighbour.
+
+For sentence-level questions the house style is the
+[Google developer documentation style guide](https://developers.google.com/style),
+with the
+[Microsoft Writing Style Guide](https://learn.microsoft.com/en-us/style-guide/welcome/)
+as the second opinion. Both agree on what matters most here: second person
+and the active voice, present tense, short sentences, sentence case in
+headings, and a descriptive link rather than "click here". Both also say to
+use dashes sparingly, which is the milder version of the rule above.
+
 ## Backlog / roadmap
 
 Tracked in [GitHub Issues](https://github.com/NonoHM/budgetpilot/issues),
-not here — this file documents what's built, not what's planned.
+not here: this file documents what's built, not what's planned.
 
 ## Contributing
 
@@ -360,16 +412,16 @@ there in the same PR.
 **No direct commits or pushes to `main`, ever.** Always: create a branch,
 push it, open a PR, wait for CI to pass, then merge. The repo is public and
 GitHub's branch protection ruleset enforces this (PR required, all 3
-required checks green — `lint`, `typecheck`, `test-and-build` — no bypass).
+required checks green: `lint`, `typecheck` and `test-and-build`, no bypass).
 
 ## Dependency updates (Dependabot auto-merge)
 
 `.github/workflows/dependabot-auto-merge.yml` auto-enables `gh pr merge
---auto --squash` (never a direct merge — the required checks above still
+--auto --squash` (never a direct merge, since the required checks above still
 gate it) on a Dependabot PR only when the update is `semver-patch` or
 `semver-minor` (never major) AND the package isn't in `.github/dependabot.yml`'s
 `npm-lint-tooling` group (`eslint*`, `prettier*`, `@typescript-eslint/*`,
-`typescript-eslint` — a formatter/linter bump can change what
+`typescript-eslint`, since a formatter/linter bump can change what
 "lint-clean"/"correctly formatted" means repo-wide, so it always needs a
 manual look, patch or not). Applies the same way to ungrouped CVE-triggered
 security PRs. Everything else (majors, lint/tooling bumps, anything CI
@@ -382,20 +434,20 @@ lands in a release that says nothing about it. Measured, not assumed: #115
 shipped the fast-uri fix (CVE-2026-18446, HIGH) as `chore: bump fast-uri from
 3.1.4 to 3.1.5`, and it is in 0.8.0 while appearing nowhere in 0.8.0's
 changelog. An operator deciding whether to upgrade reads the changelog; a CVE
-they are expected to act on has to be in it. Ordinary bumps stay `chore(deps)`
-— the distinction is whether an advisory is being closed, not how the PR was
+they are expected to act on has to be in it. Ordinary bumps stay `chore(deps)`:
+the distinction is whether an advisory is being closed, not how the PR was
 opened, so a Dependabot PR retitled by hand is the normal case here.
 
 **A green Dependabot is not evidence about what ships. The image scan is the
 authority; Dependabot is a convenience that proposes bumps early.** Dependabot
 classifies a package by where it is _declared_. The image contains the result of
 dependency _resolution_, and those are different sets. `@sveltejs/kit` is a
-devDependency, so its alerts auto-dismiss as `development` scope — while
+devDependency, so its alerts auto-dismiss as `development` scope, while
 `bits-ui → runed → @sveltejs/kit → vite → postcss → nanoid` is installed by
 `npm ci --omit=dev`, which is exactly what the Dockerfile's prod-deps stage
 runs. `--omit=dev` drops the declaration, not the closure. Three CVEs reached a
 shipped image with **zero open Dependabot alerts**; only Trivy scanning the
-image saw them. Do not fix this by reconfiguring Dependabot — it does what it
+image saw them. Do not fix this by reconfiguring Dependabot: it does what it
 does. The fix is to stop reading it as a guarantee, and to ask the image. The
 `image-cve` job in `ci.yml` asks it on every pull request, with the publish
 gate's own policy so a green PR predicts a green release. Background: #164.
