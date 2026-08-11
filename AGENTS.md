@@ -369,8 +369,20 @@ parenthetical, and never let one separate a subject from its verb.
 The one exception is **quoted material**. A page reproducing a rendered UI
 string, a log line, or someone else's text quotes it exactly, dashes
 included, because the reader is meant to match it against what is on their
-screen. `docs/using/dashboard.md` holds the only such quote today, of
-`dashboard_insights_unusual_spending`.
+screen.
+
+**That exception is not a place to park a dash you could have fixed.** It
+held exactly one entry for three days: alt text in `docs/using/dashboard.md`
+quoting `dashboard_insights_unusual_spending`. The honest reading was that
+the quote was faithful to a string that should not have said it, so the
+string was fixed and the exception went away with it. Before invoking the
+exception, ask whether you own the thing being quoted. If you do, fix that
+instead.
+
+**`messages/en.json` and `messages/fr.json` are the surface that matters
+most, because they are the only text a user actually reads.** Both are clean
+and should stay that way. A dash there also propagates into the screenshots
+that photograph it, so fixing one is never only a string change.
 
 ### The guides this follows
 

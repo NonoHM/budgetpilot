@@ -55,7 +55,7 @@ Expenses and contributes to two different categories. See
 **Insights** collapses and expands. Open it to see what the app thinks is
 worth your attention right now.
 
-![The Insights panel expanded: a red Dining out alert reading "Over by €35.50", an amber Transport alert reading "€11.90 remaining, 22 days left, about €0.54 a day", and below them a line reading "Dining out up — +294% vs usual"](../screenshots/dashboard/insights-desktop.png)
+![The Insights panel expanded: a red Dining out alert reading "Over by €35.50", an amber Transport alert reading "€11.90 remaining, 21 days left, about €0.57 a day", and below them a line reading "Dining out up +294% vs usual"](../screenshots/dashboard/insights-desktop.png)
 
 Two kinds of thing appear here:
 
