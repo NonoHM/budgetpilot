@@ -231,6 +231,19 @@ const db = vi.hoisted(() => {
 						) ?? null
 					);
 				}),
+				// #161: `applyCategoryRules` runs at the end of an import and resolves each rule's
+				// target against the user's categories, so the import path reads this too.
+				findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+					const keys = Object.keys(where);
+					if (keys.length !== 1 || keys[0] !== 'userId') {
+						throw new Error(
+							`category.findMany fake does not model where: ${JSON.stringify(where)}`
+						);
+					}
+					return state.categories
+						.filter((category) => category.userId === where.userId)
+						.map((category) => ({ name: category.name }));
+				}),
 				upsert: vi.fn(async ({ where, create }: CategoryUpsertArgs) => {
 					// Keyed on the folded name, matching the unique constraint the real table
 					// carries: two spellings of one category resolve to the same row.
@@ -582,6 +595,17 @@ describe('/import actions', () => {
 	it('applies a user rule as manualCategory during import', async () => {
 		expect.assertions(2);
 
+		// The target has to be one of the user's own categories, which is a precondition this test
+		// always had and never stated. Since #161 a CategoryRule whose target resolves to nothing is
+		// paused, precisely so a deleted category's name cannot be written back onto transactions,
+		// and `applyCategoryRules` writes `manualCategory` as free text without ever creating a
+		// Category row. Unlike the two CategorizationRule tests above, nothing in this path would
+		// bring "Abonnements" into existence.
+		db.state.categories.push({
+			id: 'category-abonnements',
+			userId: testUser.id,
+			name: 'Abonnements'
+		});
 		db.state.rules.push({
 			id: 'category-rule-patreon',
 			pattern: 'patreon',

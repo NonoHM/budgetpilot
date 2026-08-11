@@ -288,16 +288,37 @@
 														: m.rules_status_inactive()}
 													onchange={() => desktopToggleForms[rule.id]?.requestSubmit()}
 												/>
+												<!-- The EFFECTIVE state, which is not the switch's state (#161). `enabled` is the
+												     user's own intent and stays under their control; a paused rule is one whose
+												     target category no longer exists, and it does not fire whatever the switch
+												     says. Showing "Active" beside a rule that cannot run is the false claim this
+												     whole change exists to remove, so the word tracks what actually happens. -->
 												<span
-													class="text-xs font-medium {effectiveEnabled(rule)
-														? 'text-emerald-700'
-														: 'text-zinc-500'}"
+													class="text-xs font-medium {rule.paused
+														? 'text-zinc-500'
+														: effectiveEnabled(rule)
+															? 'text-emerald-700'
+															: 'text-zinc-500'}"
 												>
-													{effectiveEnabled(rule)
-														? m.rules_status_active()
-														: m.rules_status_inactive()}
+													{rule.paused
+														? m.rules_status_paused()
+														: effectiveEnabled(rule)
+															? m.rules_status_active()
+															: m.rules_status_inactive()}
 												</span>
 											</form>
+											<!-- Zinc, never rose: the user did nothing wrong, they deleted a category, which
+											     is an ordinary thing to do. The plate settles this for the staged split
+											     removal the same way. And the state carries a WORD above rather than relying
+											     on the colour, so the reason here is an explanation, not the signal. -->
+											{#if rule.paused}
+												<p class="mt-1 max-w-[22ch] text-xs text-zinc-500">
+													{m.rules_paused_reason()}
+												</p>
+												<p class="mt-0.5 max-w-[22ch] text-xs text-zinc-400">
+													{m.rules_paused_hint()}
+												</p>
+											{/if}
 										</td>
 										<td class="py-2.5 text-right">
 											<div class="flex justify-end gap-2">
@@ -525,6 +546,17 @@
 								<p class="mt-1 text-sm text-zinc-500">
 									{displayCategory(rule.targetCategory)} · {formatNatureLabel(rule.targetNature)}
 								</p>
+								<!-- #161, always visible rather than behind the card's `details` disclosure. The
+								     reason a rule is not firing is the first thing the user needs, not a detail:
+								     hiding it would leave the card looking exactly like a working rule, which is
+								     the silent failure the pause exists to replace. -->
+								{#if rule.paused}
+									<p class="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-zinc-500">
+										<Badge tone="neutral" shape="rounded">{m.rules_status_paused()}</Badge>
+										{m.rules_paused_reason()}
+									</p>
+									<p class="mt-0.5 text-xs text-zinc-400">{m.rules_paused_hint()}</p>
+								{/if}
 								{#snippet details()}
 									<div class="flex items-center justify-end">
 										<IconButton

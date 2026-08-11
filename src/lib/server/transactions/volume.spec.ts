@@ -166,12 +166,42 @@ const db = vi.hoisted(() => {
 				);
 				return found ? { id: found.id } : null;
 			}),
-			findMany: vi.fn(async ({ where }: { where: { userId: string; nameKey: { in: string[] } } }) =>
-				categories
-					.filter(
-						(c) => c.userId === where.userId && where.nameKey.in.includes(computeNameKey(c.name))
-					)
-					.map((c) => ({ id: c.id }))
+			findMany: vi.fn(
+				async ({
+					where,
+					select
+				}: {
+					where: { userId: string; nameKey?: { in: string[] } };
+					select?: { id?: boolean; name?: boolean };
+				}) => {
+					// Two shapes reach this fake: `nature.ts` filters on `nameKey: { in: [...] }` and
+					// wants ids, `readCategoryNameKeys` (#161) reads the whole set and wants names.
+					// Anything else throws rather than being approximated: a fake that ignores an
+					// unknown key answers every question about exclusion vacuously.
+					const unmodelled = Object.keys(where).filter(
+						(key) => key !== 'userId' && key !== 'nameKey'
+					);
+					if (unmodelled.length > 0) {
+						throw new Error(
+							`category.findMany fake does not model where: ${unmodelled.join(', ')}`
+						);
+					}
+
+					const rows = categories.filter(
+						(c) =>
+							c.userId === where.userId &&
+							(!where.nameKey || where.nameKey.in.includes(computeNameKey(c.name)))
+					);
+
+					// `select` is honoured rather than ignored: returning `{ id }` to a caller that
+					// asked for `name` would fold `undefined` into every key, and the resulting set
+					// would silently match nothing.
+					if (!select) return rows.map((c) => ({ id: c.id }));
+					return rows.map((c) => ({
+						...(select.id ? { id: c.id } : {}),
+						...(select.name ? { name: c.name } : {})
+					}));
+				}
 			)
 		},
 		categoryNatureMapping: {

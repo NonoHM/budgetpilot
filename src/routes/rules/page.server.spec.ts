@@ -52,11 +52,26 @@ const db = vi.hoisted(() => {
 		}
 	];
 
+	// #161: whether a rule's target still resolves to one of these decides whether it is paused, so
+	// the fixture has to carry them. "Abonnements" is spelled differently from the rule that targets
+	// it on purpose, because the resolution folds through `computeNameKey` and a fixture that agreed
+	// character for character would pass under a raw comparison too.
+	const categories: Array<{ userId: string; name: string; defaultKey: string | null }> = [
+		{ userId: 'user-a', name: 'abonnements', defaultKey: null },
+		{ userId: 'user-a', name: 'Alimentation', defaultKey: 'food' },
+		{ userId: 'user-b', name: 'Autre', defaultKey: null }
+	];
+
 	return {
 		rules,
+		categories,
 		prisma: {
 			category: {
-				findMany: vi.fn(async () => [])
+				findMany: vi.fn(async ({ where }: { where: { userId: string } }) =>
+					categories
+						.filter((category) => category.userId === where.userId)
+						.map((category) => ({ name: category.name, defaultKey: category.defaultKey }))
+				)
 			},
 			categoryRule: {
 				findMany: vi.fn(async ({ where }) => rules.filter((rule) => rule.userId === where.userId)),
@@ -131,7 +146,7 @@ const { actions, load } = await import('./+page.server');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
 interface RulesPageData {
-	rules: Array<{ id: string }>;
+	rules: Array<{ id: string; paused: boolean }>;
 }
 
 describe('/rules', () => {
@@ -149,6 +164,66 @@ describe('/rules', () => {
 
 		expect(data.rules).toHaveLength(1);
 		expect(data.rules[0].id).toBe('rule-user-a');
+	});
+
+	// #161. The page has to be able to SAY a rule is paused, which is the condition the whole fix
+	// hangs on: a rule that silently stops firing turns a loud bug into a quiet one, and the user's
+	// imports just stop being categorised with nothing on any screen to explain it. These assert
+	// the flag the render reads; the render itself is covered end to end in e2e/rules-paused.
+	async function loadRules(): Promise<RulesPageData['rules']> {
+		const data = (await load({
+			locals: { user: testUser },
+			url: new URL('http://localhost/rules')
+		} as Parameters<typeof load>[0])) as RulesPageData;
+		return data.rules;
+	}
+
+	it('marks a rule live when its target resolves, folding case as the rename does', async () => {
+		expect.assertions(2);
+
+		// The rule targets "Abonnements"; the category is stored as "abonnements". They are the same
+		// category, and `renameCategoryReferences` would repoint this rule, so the page must not
+		// call it broken. Deleting the fold from isRuleTargetLive turns this red.
+		const rules = await loadRules();
+
+		expect(rules[0].id).toBe('rule-user-a');
+		expect(rules[0].paused).toBe(false);
+	});
+
+	it('marks a rule paused when no category carries its target any more', async () => {
+		expect.assertions(2);
+
+		db.categories.splice(
+			db.categories.findIndex((category) => category.name === 'abonnements'),
+			1
+		);
+
+		const rules = await loadRules();
+
+		expect(rules[0].id, 'the rule must survive as a row, not be deleted').toBe('rule-user-a');
+		expect(rules[0].paused).toBe(true);
+
+		db.categories.unshift({ userId: 'user-a', name: 'abonnements', defaultKey: null });
+	});
+
+	it('resumes a rule when a category under its target name comes back', async () => {
+		expect.assertions(2);
+
+		// The property a stored `disabledReason` column could not have had: nothing was written at
+		// delete time, so nothing has to be un-written here, and no sentence on screen can outlive
+		// the fact it describes.
+		const index = db.categories.findIndex((category) => category.name === 'abonnements');
+		db.categories.splice(index, 1);
+		expect((await loadRules())[0].paused).toBe(true);
+
+		db.categories.unshift({ userId: 'user-a', name: 'Abonnements', defaultKey: null });
+		expect((await loadRules())[0].paused).toBe(false);
+
+		db.categories.splice(
+			db.categories.findIndex((category) => category.name === 'Abonnements'),
+			1
+		);
+		db.categories.unshift({ userId: 'user-a', name: 'abonnements', defaultKey: null });
 	});
 
 	it('crée une règle sans accepter de userId client', async () => {

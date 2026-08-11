@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { actions } from '../../../routes/categories/+page.server';
 import { applyCategoryRules } from '$lib/server/categorization/rules';
 import {
@@ -46,6 +47,19 @@ const SPENT_CENTS = 5_000;
 let userId: string;
 let categoryId: string;
 let locals: { user: { id: string; email: string; role: string } };
+
+/** Drives the real form action exactly as the browser does. */
+async function remove(id: string) {
+	const formData = new FormData();
+	formData.set('id', id);
+	return actions.deleteCategory({
+		locals,
+		request: new Request('http://localhost/categories?/deleteCategory', {
+			method: 'POST',
+			body: formData
+		})
+	} as never);
+}
 
 /** Drives the real form action exactly as the browser does. */
 async function rename(id: string, newName: string) {
@@ -232,5 +246,124 @@ describe('renaming a category', () => {
 			select: { name: true }
 		});
 		expect(category.name).toBe('Loisirs');
+	});
+});
+
+/**
+ * #161. Deleting a category used to leave both rule tables pointing at the deleted name, and
+ * `applyCategoryRules` writes `manualCategory: rule.targetCategory` verbatim, so the next rules
+ * run put that name BACK onto transactions — including the ones the delete had just moved to the
+ * fallback. The delete did not merely leave debris, it left a mechanism that reversed itself.
+ *
+ * A real engine on all three providers because the fold is the subject. `targetCategory` has no
+ * key column, so the fixture stores the rule as "loisirs" against a category named "Loisirs": a
+ * SQL equality on the raw text would resolve that pair on MariaDB and not on SQLite or
+ * PostgreSQL, which is exactly the provider divergence a mocked Prisma cannot show.
+ */
+describe('deleting a category', () => {
+	it('does not let the rules write the deleted name back', async () => {
+		const account = await prisma.account.findFirstOrThrow({
+			where: { userId },
+			select: { id: true }
+		});
+
+		await expect(remove(categoryId)).resolves.toMatchObject({ success: expect.anything() });
+
+		// A fresh transaction the rule still matches, with no manual category, so anything that
+		// fires will pin one. Created AFTER the delete on purpose: this is the "next import" the
+		// issue is about, not a row the delete could have cleaned up.
+		const fresh = await prisma.transaction.create({
+			data: {
+				userId,
+				accountId: account.id,
+				categoryId: (
+					await prisma.category.findFirstOrThrow({ where: { userId }, select: { id: true } })
+				).id,
+				date: new Date(),
+				label: 'CINEMA UGC',
+				amountCents: -1_200,
+				type: 'expense',
+				source: 'manual'
+			},
+			select: { id: true }
+		});
+
+		const updated = await applyCategoryRules(userId, { transactionIds: [fresh.id] });
+
+		// THE FIGURE. Removing `isRuleTargetLive` from applyCategoryRules turns this red with
+		// manualCategory back at "loisirs".
+		const after = await prisma.transaction.findUniqueOrThrow({
+			where: { id: fresh.id },
+			select: { manualCategory: true }
+		});
+		expect(after.manualCategory, 'the deleted category name came back').toBeNull();
+		expect(updated).toBe(0);
+	});
+
+	it('pauses the rule rather than deleting it, and keeps every field', async () => {
+		const before = await prisma.categoryRule.findFirstOrThrow({
+			where: { userId },
+			select: { id: true, name: true, matchText: true, targetCategory: true, enabled: true }
+		});
+
+		await remove(categoryId);
+
+		// A test that only asserted "the rule did not fire" cannot tell pausing from deletion, and
+		// those are the two options the issue explicitly decided between. So the row is compared
+		// field by field: the pattern is user-authored work and the delete must not touch a byte of
+		// it. `enabled` included, because the pause is DERIVED — the user's own switch is not the
+		// mechanism and must come through untouched, or re-enabling would be the resurrection.
+		const after = await prisma.categoryRule.findUnique({
+			where: { id: before.id },
+			select: { id: true, name: true, matchText: true, targetCategory: true, enabled: true }
+		});
+		expect(after, 'the rule was deleted instead of paused').not.toBeNull();
+		expect(after).toEqual(before);
+	});
+
+	it('moves the transactions to the fallback and leaves them there', async () => {
+		await remove(categoryId);
+
+		// The half the delete already did correctly, asserted here so a future change to the rules
+		// half cannot quietly break it: the manual pin keyed on the deleted category is cleared and
+		// the row sits under the fallback.
+		const rows = await prisma.transaction.findMany({
+			where: { userId },
+			select: { manualCategory: true, category: { select: { name: true } } }
+		});
+		expect(rows).toHaveLength(1);
+		expect(rows[0].manualCategory).toBeNull();
+		// The stored sentinel, not its rendering. `UNCLASSIFIED_CATEGORY` is "uncategorized" in the
+		// column and resolves to a translated label only at display time, so a French literal here
+		// would be asserting against a screen this test never renders.
+		expect(rows[0].category.name).toBe(UNCLASSIFIED_CATEGORY);
+	});
+
+	it('is all-or-none: a refused delete writes nothing', async () => {
+		// The split guard refuses the delete outright. What matters for #161 is that the refusal
+		// leaves the rule exactly as it was, the same property `renameCategoryReferences` has, and
+		// here it holds by construction rather than by care: nothing about the pause is written at
+		// delete time, so there is no partial state to leave behind.
+		const split = await prisma.transaction.findFirstOrThrow({
+			where: { userId },
+			select: { id: true, amountCents: true }
+		});
+		await prisma.transactionSplit.create({
+			data: {
+				transactionId: split.id,
+				categoryId,
+				amountCents: split.amountCents,
+				position: 0
+			}
+		});
+		const before = await readReferences();
+
+		const result = await remove(categoryId);
+		expect(result, 'the split guard must still refuse').toMatchObject({ status: 400 });
+
+		expect(await readReferences()).toEqual(before);
+		await expect(
+			prisma.category.findUniqueOrThrow({ where: { id: categoryId }, select: { name: true } })
+		).resolves.toEqual({ name: 'Loisirs' });
 	});
 });
