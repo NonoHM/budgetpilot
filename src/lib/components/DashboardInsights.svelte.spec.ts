@@ -35,8 +35,7 @@ describe('DashboardInsights.svelte', () => {
 		render(DashboardInsights, {
 			insights: alertInsights,
 			aiAdvice: null,
-			aiAllowed: false,
-			categories: []
+			aiAllowed: false
 		});
 
 		const toggle = page.getByRole('button', { name: m.dashboard_insights_heading() });
@@ -50,8 +49,7 @@ describe('DashboardInsights.svelte', () => {
 		render(DashboardInsights, {
 			insights: alertInsights,
 			aiAdvice: null,
-			aiAllowed: false,
-			categories: []
+			aiAllowed: false
 		});
 
 		const toggle = page.getByRole('button', { name: m.dashboard_insights_heading() });
@@ -67,8 +65,7 @@ describe('DashboardInsights.svelte', () => {
 		render(DashboardInsights, {
 			insights: emptyInsights,
 			aiAdvice: null,
-			aiAllowed: false,
-			categories: []
+			aiAllowed: false
 		});
 
 		expect(document.getElementById('dashboard-insights-content')).toBeNull();
@@ -92,8 +89,7 @@ describe('DashboardInsights.svelte', () => {
 				],
 				unavailable: true
 			},
-			aiAllowed: true,
-			categories: []
+			aiAllowed: true
 		});
 
 		const adviceToggle = page.getByRole('button', {
@@ -109,8 +105,7 @@ describe('DashboardInsights.svelte', () => {
 			insights: emptyInsights,
 			// Never resolves: the component must show the pending state rather than nothing.
 			aiAdvice: new Promise<never>(() => {}),
-			aiAllowed: true,
-			categories: []
+			aiAllowed: true
 		});
 
 		await expect.element(page.getByText(m.dashboard_insights_ai_pending())).toBeInTheDocument();
@@ -132,8 +127,7 @@ describe('DashboardInsights.svelte', () => {
 				],
 				unavailable: false
 			}),
-			aiAllowed: true,
-			categories: []
+			aiAllowed: true
 		});
 
 		await expect
@@ -146,8 +140,7 @@ describe('DashboardInsights.svelte', () => {
 		render(DashboardInsights, {
 			insights: emptyInsights,
 			aiAdvice: Promise.resolve({ insights: [], unavailable: true }),
-			aiAllowed: true,
-			categories: []
+			aiAllowed: true
 		});
 
 		await expect
@@ -159,8 +152,7 @@ describe('DashboardInsights.svelte', () => {
 		render(DashboardInsights, {
 			insights: emptyInsights,
 			aiAdvice: new Promise<never>(() => {}),
-			aiAllowed: false,
-			categories: []
+			aiAllowed: false
 		});
 
 		expect(page.getByText(m.dashboard_insights_ai_pending()).elements()).toHaveLength(0);

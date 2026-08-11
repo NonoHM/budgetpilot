@@ -2,7 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { formatCents, formatBudgetDelta } from '$lib/domain/budget';
 	import { widthClass } from '$lib/domain/widthClass';
-	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
+	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import Modal from '$lib/components/Modal.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
@@ -20,11 +20,6 @@
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
-
-	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
-	function displayCategory(name: string): string {
-		return categoryLabelByName(name, defaultKeyByName);
-	}
 
 	let showCreateModal = $state(false);
 	let editingBudget = $state<{ id: string; categoryName: string; amountEuros: string } | null>(
@@ -170,19 +165,19 @@
 				{#each data.budgets as budget (budget.id)}
 					<ListCard
 						expandAriaLabel={m.budgets_delete_expand_aria({
-							name: displayCategory(budget.categoryName)
+							name: categoryDisplayName(budget.categoryName)
 						})}
 					>
 						<BudgetStatusCard
 							variant="plain"
 							showBadge
-							categoryLabel={displayCategory(budget.categoryName)}
+							categoryLabel={categoryDisplayName(budget.categoryName)}
 							spentCents={budget.spentCents}
 							limitCents={budget.amountCents}
 						>
 							{#snippet actions()}
 								<IconButton
-									label={m.budgets_edit_aria({ name: displayCategory(budget.categoryName) })}
+									label={m.budgets_edit_aria({ name: categoryDisplayName(budget.categoryName) })}
 									onclick={() =>
 										(editingBudget = {
 											id: budget.id,
@@ -279,13 +274,13 @@
 			<div class="hidden gap-3 sm:grid-cols-2 lg:grid">
 				{#each data.budgets as budget (budget.id)}
 					<BudgetStatusCard
-						categoryLabel={displayCategory(budget.categoryName)}
+						categoryLabel={categoryDisplayName(budget.categoryName)}
 						spentCents={budget.spentCents}
 						limitCents={budget.amountCents}
 					>
 						{#snippet actions()}
 							<IconButton
-								label={m.budgets_edit_aria({ name: displayCategory(budget.categoryName) })}
+								label={m.budgets_edit_aria({ name: categoryDisplayName(budget.categoryName) })}
 								onclick={() =>
 									(editingBudget = {
 										id: budget.id,
@@ -307,7 +302,7 @@
 							</IconButton>
 							<IconButton
 								tone="danger"
-								label={m.budgets_delete_aria({ name: displayCategory(budget.categoryName) })}
+								label={m.budgets_delete_aria({ name: categoryDisplayName(budget.categoryName) })}
 								onclick={() =>
 									(deletingBudget = {
 										id: budget.id,
@@ -375,7 +370,10 @@
 							ariaLabel={m.budgets_field_category()}
 							required
 							triggerClass="!bg-zinc-50 lg:!bg-white"
-							options={data.categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))}
+							options={data.categoryOptions.map((c) => ({
+								value: c,
+								label: categoryDisplayName(c)
+							}))}
 						/>
 					</div>
 				</label>
@@ -450,7 +448,10 @@
 							ariaLabel={m.budgets_field_category()}
 							required
 							triggerClass="!bg-zinc-50 lg:!bg-white"
-							options={data.categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))}
+							options={data.categoryOptions.map((c) => ({
+								value: c,
+								label: categoryDisplayName(c)
+							}))}
 						/>
 					</div>
 				</label>
@@ -500,7 +501,9 @@
 		<input type="hidden" name="id" value={deletingBudget.id} />
 		<ConfirmDialog
 			open={true}
-			title={m.budgets_delete_confirm_title({ name: displayCategory(deletingBudget.categoryName) })}
+			title={m.budgets_delete_confirm_title({
+				name: categoryDisplayName(deletingBudget.categoryName)
+			})}
 			confirmLabel={m.common_delete()}
 			tone="danger"
 			confirmLoading={deleteSubmitting}

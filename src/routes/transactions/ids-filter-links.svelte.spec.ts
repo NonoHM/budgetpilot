@@ -59,7 +59,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedTransaction: null,
 		selectedSuggestion: null,
 		categoryOptions: ['Alimentation'],
-		categories: [{ name: 'Alimentation', defaultKey: null }],
+		categories: [{ name: 'Alimentation' }],
 		allTags: [],
 		natureOptions: TRANSACTION_NATURES,
 		filters: {

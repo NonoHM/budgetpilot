@@ -3,7 +3,6 @@ import type { BackupExport } from './schema';
 
 type TransactionKind = BackupExport['transactions'][number]['type'];
 type CategorizationRuleKind = BackupExport['categorizationRules'][number]['type'];
-type DefaultCategoryKeyExport = BackupExport['categories'][number]['defaultKey'];
 type NetWorthAccountTypeExport = BackupExport['netWorthAccounts'][number]['type'];
 type BankConnectionStatusExport = BackupExport['bankConnections'][number]['status'];
 // `direction` is a plain String column (FlowDirection lives in the domain, not in the DB), so
@@ -53,7 +52,7 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		}),
 		prisma.category.findMany({
 			where: { userId },
-			select: { id: true, name: true, defaultKey: true }
+			select: { id: true, name: true }
 		}),
 		prisma.importBatch.findMany({
 			where: { userId },
@@ -219,10 +218,10 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		exportedAt: new Date().toISOString(),
 		userEmail: user.email,
 		accounts,
-		categories: categories.map((category) => ({
-			...category,
-			defaultKey: category.defaultKey as DefaultCategoryKeyExport
-		})),
+		// No `defaultKey`. The schema still ACCEPTS one so that a file written before #162
+		// restores unchanged, but nothing emits one any more: the stored name is the name, so
+		// there is no second identity for a backup to carry.
+		categories,
 		importBatches: importBatches.map((batch) => ({
 			...batch,
 			periodStart: batch.periodStart ? batch.periodStart.toISOString() : null,

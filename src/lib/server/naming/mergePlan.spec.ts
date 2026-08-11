@@ -17,7 +17,6 @@ const NEW = new Date('2026-06-01T00:00:00.000Z');
 function category(overrides: Partial<CategoryRow> & { id: string; name: string }): CategoryRow {
 	return {
 		createdAt: MID,
-		defaultKey: null,
 		transactionCount: 0,
 		...overrides
 	};
@@ -95,53 +94,23 @@ describe('planCategoryMerges', () => {
 		expect(merge.losers.map((row) => row.id)).toEqual(['young', 'younger']);
 	});
 
-	it('keeps the survivor own defaultKey when it has one', () => {
-		expect.assertions(2);
-
-		const [merge] = planCategoryMerges([
-			category({ id: 'old', name: 'Courses', createdAt: OLD, defaultKey: 'food' }),
-			category({ id: 'young', name: 'courses', createdAt: NEW, defaultKey: 'leisure' })
-		]);
-
-		expect(merge.resolvedDefaultKey).toBe('food');
-		expect(merge.defaultKeySource).toBe('survivor');
-	});
-
-	it('adopts a loser defaultKey when the survivor is a renamed or custom category', () => {
+	it('leaves the survivor its own name and nothing else to reconcile (#162)', () => {
 		expect.assertions(3);
 
+		// Four tests used to live here, one per branch of a `defaultKey` reconciliation: keep the
+		// survivor's key, adopt a loser's, report the ones dropped, report none. That decision
+		// existed because the key decided how the survivor would be DISPLAYED, so picking wrong
+		// made a row the user had renamed start showing a translated name again. Since #162
+		// nothing reads the column, so a merge has no second identity to resolve and the four
+		// branches collapse into "the survivor keeps its name".
 		const [merge] = planCategoryMerges([
-			category({ id: 'old', name: 'Courses', createdAt: OLD, defaultKey: null }),
-			category({ id: 'young', name: 'courses', createdAt: NEW, defaultKey: 'food' })
+			category({ id: 'old', name: 'Courses', createdAt: OLD, transactionCount: 4 }),
+			category({ id: 'young', name: 'courses', createdAt: NEW, transactionCount: 3 })
 		]);
 
-		expect(merge.resolvedDefaultKey).toBe('food');
-		expect(merge.defaultKeySource).toBe('loser');
-		expect(merge.discardedDefaultKeys).toEqual([]);
-	});
-
-	it('reports the default keys it drops instead of dropping them silently', () => {
-		expect.assertions(2);
-
-		const [merge] = planCategoryMerges([
-			category({ id: 'old', name: 'Courses', createdAt: OLD, defaultKey: 'food' }),
-			category({ id: 'young', name: 'courses', createdAt: NEW, defaultKey: 'leisure' })
-		]);
-
-		expect(merge.resolvedDefaultKey).toBe('food');
-		expect(merge.discardedDefaultKeys).toEqual(['leisure']);
-	});
-
-	it('reports no default key at all when neither row carries one', () => {
-		expect.assertions(2);
-
-		const [merge] = planCategoryMerges([
-			category({ id: 'old', name: 'Courses', createdAt: OLD }),
-			category({ id: 'young', name: 'courses', createdAt: NEW })
-		]);
-
-		expect(merge.resolvedDefaultKey).toBeNull();
-		expect(merge.defaultKeySource).toBe('none');
+		expect(merge.survivorName).toBe('Courses');
+		expect(merge.survivorId).toBe('old');
+		expect(merge.transactionsToReassign).toBe(3);
 	});
 
 	it('plans nothing when every name is already distinct', () => {

@@ -2,7 +2,6 @@ import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
 import { LONG_TRANSACTION_OPTIONS } from '$lib/server/dbTransaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
-import { DEFAULT_CATEGORIES } from '$lib/server/categories/defaults';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
@@ -20,8 +19,6 @@ export class BackupImportError extends Error {}
 /** Historical FR name of the sentinel, present in pre-i18n exports. */
 const LEGACY_UNCLASSIFIED_NAME = 'Non catégorisé';
 
-const DEFAULT_KEY_BY_NAME = new Map(DEFAULT_CATEGORIES.map((c) => [c.name, c.key]));
-
 /**
  * Compatibility with pre-i18n exports: the "to classify" sentinel is stored there under its
  * old FR name. Normalized to the current slug everywhere a category is
@@ -29,23 +26,6 @@ const DEFAULT_KEY_BY_NAME = new Map(DEFAULT_CATEGORIES.map((c) => [c.name, c.key
  */
 function normalizeCategoryName(name: string): string {
 	return name === LEGACY_UNCLASSIFIED_NAME ? UNCLASSIFIED_CATEGORY : name;
-}
-
-/**
- * The Zod schema already constrains `defaultKey` to the enum of real system keys, but
- * doesn't prevent a hand-edited backup from associating a valid key with a `name` that
- * doesn't match it (e.g. name="Compte piégé" + defaultKey="income" → would display
- * "Revenus" instead of the real name). We only trust a defaultKey consistent with
- * the expected canonical name; otherwise we neutralize it (null) rather than reject
- * the whole restore for this one row.
- */
-function normalizeCategoryDefaultKey(
-	name: string,
-	defaultKey: string | null | undefined
-): string | null {
-	const canonicalKey = DEFAULT_KEY_BY_NAME.get(name) ?? null;
-	if (defaultKey == null) return canonicalKey;
-	return defaultKey === canonicalKey ? defaultKey : null;
 }
 
 /**
@@ -209,13 +189,15 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 				continue;
 			}
 
+			// A `defaultKey` in the payload is READ AND IGNORED, deliberately, and the schema goes
+			// on accepting one so that every file written before #162 still restores. It used to
+			// be sanitised here, because a hand-edited backup could pair a valid key with a
+			// mismatched name (name="Compte piégé" + defaultKey="income" displayed as "Revenus")
+			// and hand the restorer a category that showed a name nobody had written. That whole
+			// class is gone rather than defended against: the stored name is the only name, so
+			// there is nothing a forged key can make a row claim.
 			const created = await tx.category.create({
-				data: {
-					userId,
-					name,
-					nameKey,
-					defaultKey: normalizeCategoryDefaultKey(name, category.defaultKey)
-				},
+				data: { userId, name, nameKey },
 				select: { id: true }
 			});
 			categoryIdMap.set(category.id, created.id);

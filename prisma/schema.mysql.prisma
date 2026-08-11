@@ -283,8 +283,18 @@ model Category {
   id           String             @id @default(cuid())
   userId       String
   name         String
-  /// Stable key of a default category (e.g. "food"), resolved to a translated label
-  /// at display time. NULL = custom or renamed category: name is displayed as-is.
+  /// TOMBSTONE (#162). Always NULL on any row written since that chantier, read by nothing, and
+  /// kept only so the change that retired it could be one transactional UPDATE on all three
+  /// engines rather than a DDL drop, which MySQL cannot roll back.
+  ///
+  /// It used to hold the stable key of a seeded default ("food"), which resolved to a translated
+  /// label at display time, so a category's stored name and its displayed name could differ. That
+  /// is the second identity #162 removed: one column meant "this row is a system default" AND
+  /// "ignore this row's name", and it produced five wrong display sites, eight wrong sort sites
+  /// and a uniqueness check that accepted "Groceries" beside a row already reading Groceries.
+  ///
+  /// Do not read it, do not write it, and do not give it a new meaning. Dropping the column is a
+  /// separate migration, deliberately deferred: see CLAUDE.md.
   defaultKey   String?
   /// Collation-independent equality key for `name` (see server/naming/nameKey.ts).
   /// Computed by the app, never supplied by a client. THE uniqueness key for a category:

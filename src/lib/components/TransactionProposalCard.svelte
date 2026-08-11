@@ -5,6 +5,11 @@
 	import Select from './ui/Select.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { resolveProposalCategory } from '$lib/domain/categories';
+	// Imported rather than received as a prop. It used to be one, because a category's label
+	// depended on the per-page `defaultKey` map that only a loader could supply. Since #162 the
+	// label is a pure function of the stored name, so the prop was threading a constant through
+	// two components.
+	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 
 	// Proposal (category/nature suggestion) + Accept/Create rule/Ignore actions, shared by the
 	// desktop detail panel, the mobile bottom sheet, and TransactionFocusOverlay (see CLAUDE.md
@@ -21,7 +26,6 @@
 		natureOptions,
 		variant = 'panel',
 		getCategoryColor,
-		displayCategory,
 		formatNatureLabel,
 		acceptError,
 		onAccepted,
@@ -34,7 +38,6 @@
 		natureOptions: readonly string[];
 		variant?: 'panel' | 'compact';
 		getCategoryColor: (categoryName: string) => string;
-		displayCategory: (name: string) => string;
 		formatNatureLabel: (nature: string | null) => string;
 		acceptError?: string;
 		onAccepted: (transactionId: string) => void;
@@ -99,7 +102,7 @@
 		<div class="grid grid-cols-2 gap-2">
 			<Combobox
 				value={categoryValue}
-				options={categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))}
+				options={categoryOptions.map((c) => ({ value: c, label: categoryDisplayName(c) }))}
 				ariaLabel={m.budgets_field_category()}
 				onValueChange={(v) => {
 					categoryValue = v;
@@ -174,7 +177,7 @@
 		<div class="mt-2 flex flex-wrap items-center gap-2">
 			<Combobox
 				value={categoryValue}
-				options={categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))}
+				options={categoryOptions.map((c) => ({ value: c, label: categoryDisplayName(c) }))}
 				ariaLabel={m.budgets_field_category()}
 				class="w-44"
 				onValueChange={(v) => {

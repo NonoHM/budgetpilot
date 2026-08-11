@@ -15,7 +15,7 @@ function baseData(overrides: Partial<PageData> = {}): PageData {
 	return {
 		budgets: [],
 		categoryOptions: ['Alimentation'],
-		categories: [{ name: 'Alimentation', defaultKey: null }],
+		categories: [{ name: 'Alimentation' }],
 		currentMonth: '2026-07',
 		...overrides
 	} as PageData;

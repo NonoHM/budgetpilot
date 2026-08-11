@@ -138,29 +138,30 @@ describe('restoreMissingDefaultCategories', () => {
 		await expect(restoreMissingDefaultCategories('user-restoring')).resolves.toBe(2);
 	});
 
-	it('does not recreate a default the user already has under its displayed label', async () => {
-		expect.assertions(3);
+	it('recreates Alimentation beside a user category called Groceries, which is now correct (#162)', async () => {
+		expect.assertions(2);
 		overwriteGetLocale(() => 'en');
 
-		// The reverse direction of the uniqueness check: here the typed name is already stored and
-		// the default is the one arriving. Same two-rows-read-as-one outcome, so the same
-		// definition decides it.
+		// THIS TEST ASSERTED THE OPPOSITE BEFORE #162, and the reversal is the point rather than a
+		// regression. A user on an English instance who deleted the seeded food category and made
+		// their own "Groceries" used to be spared a second row, because "Alimentation" was
+		// DISPLAYED as Groceries and recreating it would have shown two rows a reader takes for
+		// one category.
+		//
+		// Nothing displays as Groceries any more. "Groceries" and "Alimentation" are two names,
+		// they read as two names on every screen, and restoring the defaults gives the user back
+		// the one they deleted without touching the one they wrote. Suppressing it now would be
+		// the defect: "Restore default categories" would silently skip a default for a reason
+		// invisible on screen.
 		db.prisma.category.findMany.mockResolvedValue([
-			{ name: m.category_default_food(), defaultKey: null }
+			{ name: m.category_default_food({}, { locale: 'en' }) }
 		]);
 		db.prisma.categoryNatureMapping.findMany.mockResolvedValue([]);
 
 		const created = await restoreMissingDefaultCategories('user-restoring');
 
-		expect(created).toBe(DEFAULT_CATEGORIES.length - 1);
-		expect(upsertedCategories().map((c) => c.name)).not.toContain('Alimentation');
-		// The mapping goes with it: creating one for a category we deliberately did not create
-		// leaves a row joined to nothing.
-		expect(
-			db.prisma.categoryNatureMapping.upsert.mock.calls.map(
-				(call) => (call[0].create as { categoryName: string }).categoryName
-			)
-		).not.toContain('Alimentation');
+		expect(created).toBe(DEFAULT_CATEGORIES.length);
+		expect(upsertedCategories().map((c) => c.name)).toContain('Alimentation');
 
 		overwriteGetLocale(() => 'fr');
 	});

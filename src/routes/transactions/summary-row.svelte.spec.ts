@@ -30,7 +30,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedSuggestion: null,
 		categoryOptions: ['Voyages'],
 		splitCategoryOptions: [],
-		categories: [{ id: 'cat-voyages', name: 'Voyages', defaultKey: null }],
+		categories: [{ id: 'cat-voyages', name: 'Voyages' }],
 		allTags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
 		natureOptions: TRANSACTION_NATURES,
 		splitFilterAvailable: false,

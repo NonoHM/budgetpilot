@@ -87,18 +87,7 @@ function renderCategories(user: UserNameKeyReport, lines: string[]): void {
 					`(${loser.transactionCount} transaction(s) repointed)`
 			);
 		}
-		lines.push(
-			`    defaultKey: ${describeDefaultKey(merge.resolvedDefaultKey, merge.defaultKeySource)}`
-		);
-		if (merge.discardedDefaultKeys.length > 0) {
-			lines.push(`    defaultKey dropped: ${merge.discardedDefaultKeys.join(', ')}`);
-		}
 	}
-}
-
-function describeDefaultKey(resolved: string | null, source: string): string {
-	if (resolved === null) return 'none (both rows were custom or renamed categories)';
-	return `"${resolved}" (kept from the ${source})`;
 }
 
 function renderAccounts(user: UserNameKeyReport, lines: string[]): void {

@@ -29,7 +29,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedSuggestion: null,
 		categoryOptions: ['Alimentation'],
 		splitCategoryOptions: [],
-		categories: [{ id: 'cat-alimentation', name: 'Alimentation', defaultKey: null }],
+		categories: [{ id: 'cat-alimentation', name: 'Alimentation' }],
 		allTags: [],
 		natureOptions: TRANSACTION_NATURES,
 		splitFilterAvailable: false,

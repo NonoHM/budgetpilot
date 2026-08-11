@@ -136,7 +136,7 @@ async function processUser(
 	const [categories, accounts, budgets, natures, netWorthAccounts] = await Promise.all([
 		prisma.category.findMany({
 			where: { userId },
-			select: { id: true, name: true, defaultKey: true, createdAt: true }
+			select: { id: true, name: true, createdAt: true }
 		}),
 		prisma.account.findMany({
 			where: { userId },
@@ -239,10 +239,6 @@ async function processUser(
 				data: { categoryId: merge.survivorId }
 			});
 			await tx.category.deleteMany({ where: { userId, id: { in: loserIds } } });
-			await tx.category.updateMany({
-				where: { userId, id: merge.survivorId },
-				data: { defaultKey: merge.resolvedDefaultKey }
-			});
 		}
 
 		for (const merge of accountPlan.merges) {

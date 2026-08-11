@@ -99,8 +99,8 @@ function baseData(selectedOverrides: Record<string, unknown> = {}): PageData {
 		categoryOptions: ['Alimentation', 'Maison'],
 		splitCategoryOptions: CATEGORY_OPTIONS,
 		categories: [
-			{ id: 'cat-alimentation', name: 'Alimentation', defaultKey: null },
-			{ id: 'cat-maison', name: 'Maison', defaultKey: null }
+			{ id: 'cat-alimentation', name: 'Alimentation' },
+			{ id: 'cat-maison', name: 'Maison' }
 		],
 		allTags: [],
 		natureOptions: TRANSACTION_NATURES,

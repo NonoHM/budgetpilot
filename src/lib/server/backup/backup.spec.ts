@@ -964,9 +964,16 @@ describe('restoreBackup', () => {
 		expect(unclassified).toHaveLength(1);
 	});
 
-	it('preserves a defaultKey consistent with the canonical name', async () => {
-		expect.assertions(1);
+	it('RESTORES A PRE-#162 BACKUP, defaultKey and all, without writing the key', async () => {
+		expect.assertions(3);
 
+		// THE COMPATIBILITY GUARANTEE, and the reason `backupCategorySchema` still declares the
+		// field. Every file written before #162 carries a `defaultKey`, and that object is
+		// `.strict()`: dropping the field from the schema would turn it into an unrecognised key
+		// and make every installed user's existing backup un-restorable in one release.
+		//
+		// So it is accepted and ignored. The category arrives under the name the file gives it,
+		// which since #162 is the name it will display under, and nothing writes the column.
 		const payload = buildValidPayload();
 		payload.categories = [{ id: 'file-cat-1', name: 'Alimentation', defaultKey: 'food' } as never];
 		payload.transactions[0].categoryId = 'file-cat-1';
@@ -977,11 +984,13 @@ describe('restoreBackup', () => {
 		const category = db.store.categories.find(
 			(c) => c.userId === 'user-a' && c.name === 'Alimentation'
 		);
-		expect(category?.defaultKey).toBe('food');
+		expect(category).toBeDefined();
+		expect(category?.name).toBe('Alimentation');
+		expect(category?.defaultKey).toBeUndefined();
 	});
 
-	it('re-derives the defaultKey from the canonical name on a pre-i18n export (defaultKey absent)', async () => {
-		expect.assertions(1);
+	it('restores a file with no defaultKey at all, which is what this version writes', async () => {
+		expect.assertions(2);
 
 		const payload = buildValidPayload();
 		payload.categories = [{ id: 'file-cat-1', name: 'Alimentation' }];
@@ -993,15 +1002,21 @@ describe('restoreBackup', () => {
 		const category = db.store.categories.find(
 			(c) => c.userId === 'user-a' && c.name === 'Alimentation'
 		);
-		expect(category?.defaultKey).toBe('food');
+		expect(category?.name).toBe('Alimentation');
+		expect(category?.defaultKey).toBeUndefined();
 	});
 
-	it('neutralizes a forged defaultKey inconsistent with the name rather than rejecting the whole import', async () => {
+	it('cannot be made to display a name nobody wrote, whatever defaultKey the file forges', async () => {
 		expect.assertions(2);
 
+		// This used to be a SANITISATION test: a `defaultKey` valid in the enum but inconsistent
+		// with the name ("Compte piégé" + "income") would have displayed the row as "Revenus", so
+		// the importer neutralised the key rather than rejecting the whole file.
+		//
+		// The attack it defended against no longer exists, and that is worth an assertion rather
+		// than a deletion. No column decides how a category is displayed any more, so a forged
+		// key cannot make a row claim a name: the row shows what the file called it, full stop.
 		const payload = buildValidPayload();
-		// defaultKey valid in the enum (so it passes Zod) but doesn't match this name:
-		// an attempt to hijack the translated "Revenus" label onto a custom category.
 		payload.categories = [
 			{ id: 'file-cat-1', name: 'Compte piégé', defaultKey: 'income' } as never
 		];
@@ -1014,7 +1029,7 @@ describe('restoreBackup', () => {
 			(c) => c.userId === 'user-a' && c.name === 'Compte piégé'
 		);
 		expect(category?.name).toBe('Compte piégé');
-		expect(category?.defaultKey).toBeNull();
+		expect(category?.defaultKey).toBeUndefined();
 	});
 
 	it('rejects a transaction referencing an accountId absent from the file, before any write', async () => {

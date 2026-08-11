@@ -81,23 +81,29 @@ describe('takeawayDot — category name collision (end-to-end via buildMonthlyRe
 });
 
 describe('takeawayText', () => {
-	it('resolves the top_category takeaway text by passing the category through the injected displayCategory', () => {
+	it('resolves the top_category takeaway text with the category name as stored (#162)', () => {
 		expect.assertions(1);
 
-		const text = takeawayText(
-			{ code: 'top_category', category: 'Investissement', percent: '80 %' },
-			(name) => `[${name}]`
-		);
+		// The display function used to be INJECTED here, and this test proved the injection by
+		// passing `(name) => `[${name}]`` and looking for the brackets. That was a test of the
+		// wiring rather than of the output, and it could not fail if the wiring were replaced by
+		// anything else that returned a string. The assertion is now absolute: the real function
+		// runs, and the category appears under the name the database holds.
+		const text = takeawayText({
+			code: 'top_category',
+			category: 'Investissement',
+			percent: '80 %'
+		});
 
 		expect(text).toBe(
-			'**[Investissement]** est le premier poste de dépenses avec 80 % des dépenses.'
+			'**Investissement** est le premier poste de dépenses avec 80 % des dépenses.'
 		);
 	});
 
-	it('resolves the investment takeaway text without depending on displayCategory', () => {
+	it('resolves the investment takeaway text, which names no category at all', () => {
 		expect.assertions(1);
 
-		const text = takeawayText({ code: 'investment' }, (name) => name);
+		const text = takeawayText({ code: 'investment' });
 
 		expect(text).toBe(
 			'Une part des sorties correspond à des investissements et non à de la consommation.'

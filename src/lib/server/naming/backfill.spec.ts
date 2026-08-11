@@ -242,15 +242,17 @@ describe('runNameKeyBackfill', () => {
 	});
 
 	it('merges categories that fold together and repoints their transactions', async () => {
-		expect.assertions(3);
+		expect.assertions(2);
 
 		await runNameKeyBackfill({ prisma: db.prisma });
 
 		expect(db.tables.category.rows.map((row) => row.id)).toEqual(['cat-old', 'cat-other']);
 		// tx-1 and tx-2 pointed at the losing row and now point at the survivor.
+		//
+		// A third assertion used to check that the survivor inherited the loser's `defaultKey`.
+		// Since #162 the merge writes no key at all: the column is a tombstone nothing reads, so
+		// the survivor simply keeps its own name and there is nothing to inherit.
 		expect(db.tables.transaction.rows.every((row) => row.categoryId === 'cat-old')).toBe(true);
-		// The loser carried the only default key, so the survivor keeps it.
-		expect(db.tables.category.rows[0].defaultKey).toBe('food');
 	});
 
 	it('repoints the parts of a merged category before the loser row is deleted', async () => {

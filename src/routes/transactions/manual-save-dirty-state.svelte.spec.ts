@@ -76,9 +76,9 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		categoryOptions: ['Alimentation', 'Abonnements', 'Loisirs'],
 		splitCategoryOptions: [],
 		categories: [
-			{ id: 'cat-alimentation', name: 'Alimentation', defaultKey: null },
-			{ id: 'cat-abonnements', name: 'Abonnements', defaultKey: null },
-			{ id: 'cat-loisirs', name: 'Loisirs', defaultKey: null }
+			{ id: 'cat-alimentation', name: 'Alimentation' },
+			{ id: 'cat-abonnements', name: 'Abonnements' },
+			{ id: 'cat-loisirs', name: 'Loisirs' }
 		],
 		natureOptions: TRANSACTION_NATURES,
 		splitFilterAvailable: false,

@@ -29,7 +29,6 @@
 		canGoNext,
 		autoAppliedCount = 0,
 		getCategoryColor,
-		displayCategory,
 		formatNatureLabel,
 		formatDate,
 		formatCents,
@@ -61,7 +60,6 @@
 		// createRuleInFocusMode in +page.svelte) — drives the transient banner below, 0 = hidden.
 		autoAppliedCount?: number;
 		getCategoryColor: (categoryName: string) => string;
-		displayCategory: (name: string) => string;
 		formatNatureLabel: (nature: string | null) => string;
 		formatDate: (dateStr: string) => string;
 		formatCents: (amountCents: number) => string;
@@ -251,7 +249,6 @@
 				{natureOptions}
 				variant="compact"
 				{getCategoryColor}
-				{displayCategory}
 				{formatNatureLabel}
 				{acceptError}
 				{onAccepted}

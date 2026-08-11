@@ -95,7 +95,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			// beside it works in NAMES because `Transaction.manualCategory` is a free-text column;
 			// the two are not interchangeable and the load hands out both rather than making the
 			// page convert between them.
-			select: { id: true, name: true, defaultKey: true }
+			select: { id: true, name: true }
 		}),
 		prisma.categoryNatureMapping.findMany({
 			where: { userId: user.id },

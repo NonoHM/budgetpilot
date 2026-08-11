@@ -121,7 +121,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 		selectedSuggestion: null,
 		categoryOptions: ['Restaurants'],
 		splitCategoryOptions: [],
-		categories: [{ id: 'cat-restaurants', name: 'Restaurants', defaultKey: null }],
+		categories: [{ id: 'cat-restaurants', name: 'Restaurants' }],
 		allTags: [],
 		natureOptions: TRANSACTION_NATURES,
 		splitFilterAvailable: false,

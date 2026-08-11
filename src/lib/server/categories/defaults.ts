@@ -1,6 +1,5 @@
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
-import { categoriesCollide } from '$lib/server/categories/nameMatch';
 import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { TransactionNature } from '$lib/domain/transaction';
 import type { DefaultCategoryKey } from '$lib/domain/categories';
@@ -10,9 +9,15 @@ import type { DefaultCategoryKey } from '$lib/domain/categories';
  * Distinct from bank operation types (stored in Transaction.bankOperationType).
  * The "to classify" pile (UNCLASSIFIED_CATEGORY) is NOT here: it's not a chosen category.
  *
- * `name` = canonical FR name stored in DB (de facto identifier: budgets, nature
- * mappings and rules reference categories by name). `key` = Category.defaultKey,
- * the only source of the displayed (translated) label as long as the category isn't renamed.
+ * `name` is the name, full stop: what is stored, what is displayed, what budgets, nature mappings
+ * and rules reference. These fourteen are INITIAL SUGGESTIONS, not a protected class. The moment
+ * they are seeded they are ordinary rows the user owns, renames and deletes like any other, and
+ * nothing downstream can tell one of them from a category the user typed.
+ *
+ * `key` no longer decides how the row is displayed (#162 retired that). It survives for two jobs,
+ * both of which are about these fourteen as a CATALOGUE rather than about any row in a database:
+ * naming the nature each one ships with, and letting `/categories` offer to rename the seeded rows
+ * into the reader's own language once.
  */
 export const DEFAULT_CATEGORIES: ReadonlyArray<{
 	key: DefaultCategoryKey;
@@ -69,7 +74,7 @@ export async function restoreMissingDefaultCategories(userId: string): Promise<n
 
 async function createMissingDefaultCategories(userId: string): Promise<number> {
 	const [existingCategories, existingMappings] = await Promise.all([
-		prisma.category.findMany({ where: { userId }, select: { name: true, defaultKey: true } }),
+		prisma.category.findMany({ where: { userId }, select: { name: true } }),
 		prisma.categoryNatureMapping.findMany({ where: { userId }, select: { categoryName: true } })
 	]);
 	// Compared on the folded name: restoring the defaults must not add a second "Loisirs"
@@ -81,29 +86,27 @@ async function createMissingDefaultCategories(userId: string): Promise<number> {
 		({ name }) => !existingCategoryNames.has(computeNameKey(name))
 	);
 
-	// Absent under its stored name, and yet already on screen. A user on an English instance who
-	// deleted Groceries and made their own category of that name has one row reading "Groceries";
-	// recreating the default would give them two, which is the same two-rows-read-as-one defect
-	// the uniqueness check was fixed for. Third site of that comparison, so it uses the same
-	// definition rather than a fourth restatement of it.
-	const shadowed = new Set(
-		missing
-			.filter(({ name, key }) =>
-				existingCategories.some((existing) =>
-					categoriesCollide({ name, defaultKey: key }, existing)
-				)
-			)
-			.map(({ key }) => key)
-	);
-
-	const categoriesToCreate = missing
-		.filter(({ key }) => !shadowed.has(key))
-		.map(({ name, key }) => ({ userId, name, nameKey: computeNameKey(name), defaultKey: key }));
-	// Shadowed defaults are skipped here too, or the run leaves a nature mapping behind for a
-	// category it deliberately did not create. Everything else is unchanged: a mapping missing
-	// beside a category that exists is still restored, which is what resetting a nature leaves.
+	// One comparison, on the folded stored name, and that is now the whole test.
+	//
+	// There used to be a second one. A default could be absent under its stored name and yet
+	// already on screen, because the fourteen were displayed through a translation: a user on an
+	// English instance who deleted Groceries and made their own category of that name had one row
+	// reading "Groceries", and recreating the default gave them two. Since #162 the stored name is
+	// the displayed name, so "absent under its stored name" and "absent from the screen" are the
+	// same statement and the shadowing check has nothing left to catch.
+	//
+	// `defaultKey` is NOT written. The column survives #162 as a tombstone (see prisma/schema.prisma)
+	// and nothing reads it; writing it here would hand every newly seeded account the two-meaning
+	// column the chantier exists to retire, one user at a time.
+	const categoriesToCreate = missing.map(({ name }) => ({
+		userId,
+		name,
+		nameKey: computeNameKey(name)
+	}));
+	// A mapping missing beside a category that exists is still restored, which is what resetting a
+	// nature leaves behind.
 	const mappingsToCreate = DEFAULT_CATEGORIES.filter(
-		({ name, key }) => !shadowed.has(key) && !existingMappingNames.has(computeNameKey(name))
+		({ name }) => !existingMappingNames.has(computeNameKey(name))
 	).map(({ name, nature }) => ({
 		userId,
 		categoryName: name,

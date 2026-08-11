@@ -26,7 +26,7 @@
 	import DashboardSkeleton from '$lib/components/DashboardSkeleton.svelte';
 	import CashFlowForecastChart from '$lib/components/ui/CashFlowForecastChart.svelte';
 	import UpcomingBillsCard from '$lib/components/UpcomingBillsCard.svelte';
-	import { buildDefaultKeyByName, categoryLabelByName } from '$lib/domain/categoryLabels';
+	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import { formatShortDate } from '$lib/domain/dateFormat';
 	import { getNatureTag } from '$lib/domain/natureLabels';
 	import * as m from '$lib/paraglide/messages';
@@ -85,11 +85,6 @@
 	const natureAnalysis = $derived(data.natureAnalysis);
 	const budgetSummaries = $derived(data.summary.categorySummaries.slice(0, 6));
 
-	const defaultKeyByName = $derived(buildDefaultKeyByName(data.categories));
-	function displayCategory(name: string): string {
-		return categoryLabelByName(name, defaultKeyByName);
-	}
-
 	/**
 	 * Recent transactions keep the parent's own category (never re-ranked or relabelled from a
 	 * répartition's parts, same OD-3 posture as `/reports`' largest expenses) and only gain the
@@ -100,7 +95,7 @@
 		indicator: NonNullable<(typeof recentTransactions)[number]['splitIndicator']>
 	): Array<{ category: string; amountCents: number }> {
 		return indicator.parts.map((part) => ({
-			category: displayCategory(part.category),
+			category: categoryDisplayName(part.category),
 			amountCents: part.amountCents
 		}));
 	}
@@ -309,7 +304,6 @@
 			insights={data.insights}
 			aiAdvice={data.aiAdvice}
 			aiAllowed={data.aiAllowed}
-			categories={data.categories}
 		/>
 
 		{#if !showDashboardBody}
@@ -398,13 +392,15 @@
 											     every row equally instead. -->
 											<div class="flex min-h-6 min-w-0 items-center gap-1.5 text-xs text-zinc-400">
 												<span class="min-w-0 truncate"
-													>{formatDateShort(tx.date)} · {displayCategory(tx.category)}</span
+													>{formatDateShort(tx.date)} · {categoryDisplayName(tx.category)}</span
 												>
 												{#if tx.splitIndicator}
 													<SplitBadge
 														parts={badgeParts(tx.splitIndicator)}
 														otherCategoryCount={tx.splitIndicator.otherCategoryCount}
-														dominantCategory={displayCategory(tx.splitIndicator.dominantCategory)}
+														dominantCategory={categoryDisplayName(
+															tx.splitIndicator.dominantCategory
+														)}
 														interactive
 													/>
 												{/if}
@@ -540,7 +536,7 @@
 								{#each budgetSummaries as cat (cat.category)}
 									<BudgetStatusCard
 										variant="plain"
-										categoryLabel={displayCategory(cat.category)}
+										categoryLabel={categoryDisplayName(cat.category)}
 										spentCents={cat.spentCents}
 										limitCents={cat.limitCents}
 									/>
@@ -757,7 +753,7 @@
 			<Combobox
 				name="category"
 				value={manualTransactionCategory}
-				options={data.categoryOptions.map((c) => ({ value: c, label: displayCategory(c) }))}
+				options={data.categoryOptions.map((c) => ({ value: c, label: categoryDisplayName(c) }))}
 				placeholder={m.dashboard_category_placeholder()}
 				ariaLabel={m.budgets_field_category()}
 				triggerClass="!bg-zinc-50 lg:!bg-white"

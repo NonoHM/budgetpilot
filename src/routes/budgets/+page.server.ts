@@ -22,7 +22,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		readCurrentMonthSpending(user.id),
 		prisma.category.findMany({
 			where: { userId: user.id },
-			select: { name: true, defaultKey: true }
+			select: { name: true }
 		})
 	]);
 

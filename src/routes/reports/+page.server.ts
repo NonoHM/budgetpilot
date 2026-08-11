@@ -35,7 +35,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			: Promise.resolve({ transactions: [], allocations: [] }),
 		prisma.category.findMany({
 			where: { userId: user.id },
-			select: { name: true, defaultKey: true }
+			select: { name: true }
 		}),
 		loadCashFlowForecast(user.id, FORECAST_REPORTS_HORIZON_DAYS).then(toDisplayCashFlowForecast)
 	]);
