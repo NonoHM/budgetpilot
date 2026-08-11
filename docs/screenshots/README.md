@@ -22,6 +22,26 @@ any way the page is trying to show, not that it was forgotten.
   for example [`split/`](./split/). Each has its own README recording how
   its data was produced.
 
+## Figures that move on their own
+
+The dataset behind every generated image is relative to the day it was
+captured. A screen showing a countdown, a deadline or a per-day rate
+therefore renders a different number every time it is shot. The dashboard's
+budget alert is the clearest case: one capture reads `€11.90 remaining, 22
+days left, about €0.54 a day` and the next reads `€11.90 remaining, 21 days
+left, about €0.57 a day`. Nothing changed but the date.
+
+**That is not a defect and it is not something to re-measure.** Each figure
+is correct on the day it was taken. Alt text quoting one of these numbers
+has to follow the image it describes, so a reshoot usually means editing the
+prose beside it too.
+
+The consequence worth planning for: **a reshoot is never scoped to the
+change that prompted it.** Retaking two images after a string fix
+re-rendered five others in the same groups, identical except for their
+dates. Capture the whole group, then keep only the files the change actually
+touched and restore the rest.
+
 ## Language
 
 Every image is captured in **English**, with both the `PARAGLIDE_LOCALE`

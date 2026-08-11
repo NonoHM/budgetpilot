@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: 'Release tag to publish (e.g. budgetpilot-v0.1.1) — for retroactively publishing a release whose published event never fired'
+        description: 'Release tag to publish (e.g. budgetpilot-v0.1.1). Use this to publish a release retroactively when its published event never fired'
         required: true
 
 permissions:
@@ -237,7 +237,7 @@ jobs:
             echo "$platform=$IMAGE@sha256:$digest" >> "$GITHUB_OUTPUT"
           done
 
-      - name: Scan amd64 digest — full inventory as SARIF
+      - name: Scan amd64 digest (full inventory as SARIF)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
@@ -252,7 +252,7 @@ jobs:
           sarif_file: trivy-release-amd64.sarif
           category: trivy-image-release-amd64
 
-      - name: Scan arm64 digest — full inventory as SARIF
+      - name: Scan arm64 digest (full inventory as SARIF)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           scan-type: image
@@ -282,7 +282,7 @@ jobs:
               | jq '[.Results[]?.Packages? // []] | flatten | length')
             echo "$ref: $count packages"
             if [ "$count" -eq 0 ]; then
-              echo "the scanner saw zero packages in $ref — the CVE gate would pass while proving nothing" >&2
+              echo "the scanner saw zero packages in $ref. The CVE gate would pass while proving nothing" >&2
               exit 1
             fi
           done
