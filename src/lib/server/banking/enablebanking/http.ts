@@ -1,4 +1,5 @@
 import { getBankProviderBaseUrl, isBankSyncEnabled } from '$lib/server/banking/config';
+import { fetchWithRedirectGuard } from '$lib/server/net/redirectGuard';
 import { createEnableBankingJwt, getEnableBankingCredentials } from './jwt';
 
 /**
@@ -69,15 +70,25 @@ export async function enableBankingRequest(
 
 	const token = await createEnableBankingJwt(credentials, options.now?.() ?? new Date());
 	const fetchImpl = options.fetchImpl ?? fetch;
-	const response = await fetchImpl(url.toString(), {
-		method: input.method ?? 'GET',
-		headers: {
-			Authorization: `Bearer ${token}`,
-			...(input.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-			Accept: 'application/json'
+	// #215: do not blind-follow redirects. Every redirect target is re-validated against the SAME
+	// allowlist as the base URL (getBankProviderBaseUrl), so a compromised/MITM'd provider cannot
+	// bounce this authenticated fetch to an internal host. A non-allowlisted target throws.
+	const response = await fetchWithRedirectGuard(
+		url.toString(),
+		{
+			method: input.method ?? 'GET',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				...(input.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
+				Accept: 'application/json'
+			},
+			...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {})
 		},
-		...(input.body !== undefined ? { body: JSON.stringify(input.body) } : {})
-	});
+		{
+			fetchImpl,
+			isRedirectTargetAllowed: (target) => getBankProviderBaseUrl(target.href, env) !== null
+		}
+	);
 
 	if (!response.ok) {
 		throw new EnableBankingApiError(

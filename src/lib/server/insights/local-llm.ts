@@ -1,5 +1,6 @@
 import { Ollama } from 'ollama';
 import { parseHostsCsv } from '$lib/server/hosts';
+import { fetchWithRedirectGuard } from '$lib/server/net/redirectGuard';
 import { localLlmJsonSchema, localLlmResponseSchema } from './schema';
 import type { BudgetInsight, LocalLlmResult } from './types';
 
@@ -29,7 +30,16 @@ export async function requestLocalBudgetInsights(
 
 	const client = new Ollama({
 		host: baseUrl,
-		fetch: (input, init) => fetch(input, { ...init, signal: AbortSignal.timeout(timeoutMs) })
+		// #215: guard redirects here too. The base URL is allowlisted (getLocalBaseUrl above), but a
+		// redirect could still bounce the fetch to a non-allowlisted host; every redirect target is
+		// re-validated against the same allowlist. Smaller exposure than the bank client (localhost
+		// only), identical guard-scope gap.
+		fetch: (input, init) =>
+			fetchWithRedirectGuard(
+				typeof input === 'string' ? input : input instanceof URL ? input.href : input.url,
+				{ ...init, signal: AbortSignal.timeout(timeoutMs) },
+				{ isRedirectTargetAllowed: (target) => getLocalBaseUrl(target.href, env) !== null }
+			)
 	});
 
 	try {

@@ -18,6 +18,32 @@ describe('requestLocalBudgetInsights', () => {
 		fetchMock.mockRestore();
 	});
 
+	it('refuse une redirection Ollama vers un hôte non autorisé (#215) et ne le contacte jamais', async () => {
+		expect.assertions(3);
+
+		// Base URL allowlisted, but Ollama answers 302 to a non-allowlisted internal host.
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+			new Response(null, {
+				status: 302,
+				headers: { location: 'http://127.0.0.2:9998/latest/meta-data/' }
+			})
+		);
+		const result = await requestLocalBudgetInsights('prompt agrégé', {
+			LLM_ENABLED: 'true',
+			LLM_PROVIDER: 'ollama',
+			LLM_BASE_URL: 'http://127.0.0.1:11434'
+		});
+
+		expect(result?.unavailable).toBe(true);
+		// Only the first (allowlisted) hop ran; the internal target was never requested.
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(fetchMock.mock.calls.map((call) => String(call[0]))).not.toContain(
+			'http://127.0.0.2:9998/latest/meta-data/'
+		);
+
+		fetchMock.mockRestore();
+	});
+
 	it('retourne unavailable quand le contenu renvoyé par Ollama n’est pas du JSON valide', async () => {
 		expect.assertions(2);
 

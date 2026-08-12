@@ -254,3 +254,130 @@ describe('Budget Insights', () => {
 		expect(insights.some((item) => item.id === 'expenses-increased')).toBe(true);
 	});
 });
+
+/**
+ * #216: the prompt's own sentence claimed "no raw transactions" even when the aiIncludeLabels opt-in
+ * sent the largest-expense merchant labels to the model. The fix threads includeLabels through
+ * getBudgetInsights into the sentence.
+ *
+ * These tests separate the two states that matter, which reading the source constant (or calling
+ * buildBudgetInsightsPrompt directly with an explicit flag) cannot: "the sentence in the source
+ * changed" versus "the sentence that REACHES THE MODEL changed". The actual defect lived in the
+ * assembly (index.ts did not pass the flag), so the observation has to be the payload the model
+ * receives. We capture it the way the pentest did: off the fetch the Ollama client ultimately calls.
+ */
+describe('AI prompt truthfulness: the sentence matches the shared payload (#216)', () => {
+	// A distinctive merchant token that survives anonymization ("Auchan"), on an expense big enough to
+	// land in largestExpenses. The CATEGORY ("Logement") is deliberately not the discriminator: it
+	// leaks into the payload via topCategories REGARDLESS of the toggle, so only the merchant token
+	// tells labels-on from labels-off. Keying an assertion on the category would separate neither state.
+	const labelFixture: Transaction[] = [
+		{
+			id: 'income',
+			date: '2026-06-01',
+			label: 'Salaire',
+			amountCents: 300_000,
+			type: 'income',
+			category: 'Revenus',
+			source: 'manual'
+		},
+		{
+			id: 'auchan',
+			date: '2026-06-02',
+			label: 'CARTE AUCHAN PARIS 23/06',
+			amountCents: -120_000,
+			type: 'expense',
+			category: 'Logement',
+			source: 'banque_populaire'
+		}
+	];
+
+	const MERCHANT_TOKEN = 'Auchan';
+	const ANONYMIZED_LABEL = 'Expense';
+	const AGGREGATED = 'Aggregated data, no raw transactions';
+	const WITH_LABELS = 'Aggregated data plus your largest transaction labels';
+
+	/**
+	 * Returns the exact prompt string the model would receive. The Ollama client's fetch is spied on,
+	 * the /api/chat body is read, and the request is then aborted: requestLocalBudgetInsights swallows
+	 * the failure, and by then the prompt has already been assembled and captured. Going through
+	 * getBudgetInsights is the point: a test that called buildBudgetInsightsPrompt directly would pass
+	 * even if the assembly dropped the flag, which is exactly the bug.
+	 */
+	async function captureModelPrompt(includeLabels: boolean): Promise<string> {
+		let captured: string | null = null;
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+			const body = JSON.parse(String((init as RequestInit).body)) as {
+				messages: { content: string }[];
+			};
+			captured = body.messages[0].content;
+			throw new Error('captured: aborting the real round trip');
+		});
+
+		try {
+			const allocations = toAllocations(labelFixture);
+			const monthlySummary = summarizeMonthlyBudget(allocations, [], '2026-06');
+			await getBudgetInsights({
+				transactions: labelFixture,
+				allocations,
+				monthlySummary,
+				includeLabels,
+				env: {
+					LLM_ENABLED: 'true',
+					LLM_PROVIDER: 'ollama',
+					LLM_BASE_URL: 'http://127.0.0.1:11434',
+					LLM_MODEL: 'qwen2.5:0.5b',
+					LLM_TIMEOUT_MS: '1000'
+				}
+			});
+		} finally {
+			fetchMock.mockRestore();
+		}
+
+		if (captured === null) throw new Error('fetch was never called: the prompt was not captured');
+		return captured;
+	}
+
+	/** Parses the JSON payload embedded at the tail of the prompt (its `{"currency"...}` line). */
+	function payloadOf(prompt: string): { largestExpenses: { label: string }[] } {
+		const start = prompt.indexOf('{"currency"');
+		return JSON.parse(prompt.slice(start)) as { largestExpenses: { label: string }[] };
+	}
+
+	it('labels off: the sentence claims aggregated-only and the payload carries no merchant label', async () => {
+		expect.assertions(4);
+		const prompt = await captureModelPrompt(false);
+
+		expect(prompt).toContain(AGGREGATED);
+		expect(prompt).not.toContain(WITH_LABELS);
+		// The merchant never leaves the process; every largest-expense label is the placeholder.
+		expect(prompt).not.toContain(MERCHANT_TOKEN);
+		expect(payloadOf(prompt).largestExpenses.every((e) => e.label === ANONYMIZED_LABEL)).toBe(true);
+	});
+
+	it('labels on: the sentence says labels are included and the payload actually carries them', async () => {
+		expect.assertions(4);
+		const prompt = await captureModelPrompt(true);
+
+		expect(prompt).toContain(WITH_LABELS);
+		// Shared "Aggregated data" stem, so the off-phrase's absence is the real discriminator.
+		expect(prompt).not.toContain(AGGREGATED);
+		// The real merchant now reaches the model, exactly what the sentence now admits.
+		expect(prompt).toContain(MERCHANT_TOKEN);
+		expect(payloadOf(prompt).largestExpenses.some((e) => e.label.includes(MERCHANT_TOKEN))).toBe(
+			true
+		);
+	});
+
+	it('the sentence and the payload agree in both directions, which is the whole defect', async () => {
+		expect.assertions(2);
+		const off = await captureModelPrompt(false);
+		const on = await captureModelPrompt(true);
+
+		// Before the fix the sentence was fixed at "no raw transactions" while the payload's merchant
+		// presence tracked the toggle. The invariant that closes #216: the sentence admits labels if
+		// and only if the payload actually carries a merchant label.
+		expect(off.includes(WITH_LABELS)).toBe(off.includes(MERCHANT_TOKEN));
+		expect(on.includes(WITH_LABELS)).toBe(on.includes(MERCHANT_TOKEN));
+	});
+});
