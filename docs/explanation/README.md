@@ -7,6 +7,11 @@ design decision is not mistaken for a defect and undone.
 - **[Why a split row shows two amounts under a filter](./filtered-row-amounts.md)**:
   the same transaction displays a different amount depending on the URL, on
   purpose.
+- **[Where BudgetPilot differs from comparable tools](./where-this-differs.md)**:
+  three choices taken differently from the tools this one is compared against,
+  and what each cost.
+- **[What BudgetPilot deliberately does not do](./what-this-does-not-do.md)**:
+  three capabilities other tools have that this one will not gain, and why.
 
 If you want the steps, go to [using BudgetPilot](../using/README.md). If you
 want the exact rules, go to [reference](../reference/README.md).
