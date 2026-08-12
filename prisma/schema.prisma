@@ -274,9 +274,7 @@ model Category {
   id           String             @id @default(cuid())
   userId       String
   name         String
-  /// TOMBSTONE (#162). Always NULL on any row written since that chantier, read by nothing, and
-  /// kept only so the change that retired it could be one transactional UPDATE on all three
-  /// engines rather than a DDL drop, which MySQL cannot roll back.
+  /// TOMBSTONE (#162). Always NULL on any row written since that chantier, and read by nothing.
   ///
   /// It used to hold the stable key of a seeded default ("food"), which resolved to a translated
   /// label at display time, so a category's stored name and its displayed name could differ. That
@@ -284,8 +282,36 @@ model Category {
   /// "ignore this row's name", and it produced five wrong display sites, eight wrong sort sites
   /// and a uniqueness check that accepted "Groceries" beside a row already reading Groceries.
   ///
-  /// Do not read it, do not write it, and do not give it a new meaning. Dropping the column is a
-  /// separate migration, deliberately deferred: see CLAUDE.md.
+  /// Do not read it, do not write it, and do not give it a new meaning.
+  ///
+  /// ## WHY THE COLUMN IS STILL HERE, and it is a decision rather than an unfinished step
+  ///
+  /// Dropping it is DDL, and on MySQL DDL commits implicitly and cannot be rolled back, so a
+  /// migration that cleared the values AND dropped the column could not be all-or-none on that
+  /// engine: the clear could land and the drop fail, or the reverse, with no way back. Clearing
+  /// alone is one UPDATE, which has no halfway state to leave behind on any engine. Splitting the
+  /// two is what buys that, and it is measured rather than assumed: `migrate deploy` wraps a
+  /// migration file in a transaction on NONE of the three engines, so a two-statement version
+  /// would have been able to half-apply on PostgreSQL too.
+  ///
+  /// The tombstone also keeps the migration safe to roll the APP back across. Prisma names every
+  /// scalar column in its SELECTs, so a pre-#162 image pointed at a post-#162 database still
+  /// reads Category rows; it sees defaultKey NULL everywhere and treats the fourteen defaults as
+  /// ordinary user categories, which is degraded but working. Against a dropped column it would
+  /// fail on every category read instead.
+  ///
+  /// ## THE DROP, and the trigger that releases it
+  ///
+  /// One statement, `ALTER TABLE "Category" DROP COLUMN "defaultKey"`, in its own migration on
+  /// each of the three histories, together with removing this field from the model and from
+  /// `backup/schema.ts`'s accepted-and-ignored list.
+  ///
+  /// Take it once BOTH hold, and not before:
+  ///   1. the release carrying #162 has shipped and been superseded by at least one further
+  ///      release, so no supported upgrade path runs a pre-#162 image against a dropped column;
+  ///   2. the rename prompt on /categories has shipped, so an operator who wants the old English
+  ///      labels back has a route that does not involve rolling the image back.
+  /// Until then its absence is this decision, not an oversight.
   defaultKey   String?
   /// Collation-independent equality key for `name` (see server/naming/nameKey.ts).
   /// Computed by the app, never supplied by a client. THE uniqueness key for a category:
