@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.9.0...budgetpilot-v0.9.1) (2026-08-12)
+
+
+### Documentation
+
+* record where this project differs, and what it will not do ([#183](https://github.com/NonoHM/budgetpilot/issues/183)) ([9309908](https://github.com/NonoHM/budgetpilot/commit/930990863cd8de437807768ce365c43662572d03))
+
 ## [0.9.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.8.1...budgetpilot-v0.9.0) (2026-08-12)
 
 
