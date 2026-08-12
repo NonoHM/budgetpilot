@@ -2,6 +2,9 @@
 
 [![CI](https://github.com/NonoHM/budgetpilot/actions/workflows/ci.yml/badge.svg)](https://github.com/NonoHM/budgetpilot/actions/workflows/ci.yml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](./LICENSE)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/NonoHM/budgetpilot/badge)](https://securityscorecards.dev/viewer/?uri=github.com/NonoHM/budgetpilot)
+
+<sub>The Scorecard score measures supply-chain and repository posture, not application security, and a few checks are structurally out of reach for a single maintainer: Code-Review and Contributors need a second person, Branch-Protection is capped at tier 1 because tier 2 requires a mandatory reviewer, and Maintained rises on its own as the repository ages. [Full results](https://securityscorecards.dev/viewer/?uri=github.com/NonoHM/budgetpilot).</sub>
 
 A local-first, privacy-first personal budgeting app. Think Monarch or YNAB, but self-hosted, and your bank data never leaves your own machine.
 
