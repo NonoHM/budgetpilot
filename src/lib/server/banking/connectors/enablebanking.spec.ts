@@ -104,6 +104,34 @@ describe('EnableBankingConnector — gating', () => {
 	});
 });
 
+describe('EnableBankingConnector, SSRF redirect guard (#215)', () => {
+	it('REFUSES a provider redirect to a non-allowlisted host and never fetches it', async () => {
+		// Allowlisted base (default api.enablebanking.com), but the provider answers 302 to an
+		// internal host. Pre-fix, fetch auto-followed and issued GET to 127.0.0.2; now the redirect
+		// target is re-validated against the same allowlist and refused.
+		const fetchImpl = vi.fn().mockResolvedValue(
+			new Response(null, {
+				status: 302,
+				headers: { location: 'http://127.0.0.2:9998/latest/meta-data/' }
+			})
+		);
+		const { connector } = makeConnector({ fetchImpl });
+
+		await expect(
+			connector.createConnection({
+				redirectUrl: 'http://localhost/cb',
+				aspsp: { name: 'Test Bank', country: 'FR' }
+			})
+		).rejects.toThrow(/not allowlisted/);
+
+		// Only the first hop ran; the internal target was never requested.
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(fetchImpl.mock.calls.map((call) => String(call[0]))).not.toContain(
+			'http://127.0.0.2:9998/latest/meta-data/'
+		);
+	});
+});
+
 describe('EnableBankingConnector — JWT signing', () => {
 	it("signe l'Authorization header avec un JWT RS256 correctement formé", async () => {
 		const fetchImpl = vi
