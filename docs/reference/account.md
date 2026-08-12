@@ -54,16 +54,28 @@ Adding a language is an install-level change, not a setting:
 
 ## Deleting the account
 
-|                     |                                             |
-| ------------------- | ------------------------------------------- |
-| Confirmation phrase | **`SUPPRIMER`**, exactly, in every language |
-| Scope               | the current account only                    |
-| Reversible          | no                                          |
+|                     |                                                             |
+| ------------------- | ----------------------------------------------------------- |
+| Confirmation phrase | follows the locale: **`DELETE`** (en), **`SUPPRIMER`** (fr) |
+| Also requires       | the current password, plus a TOTP code when enabled         |
+| Scope               | the current account only                                    |
+| Reversible          | no                                                          |
 
-The phrase is French in every locale. The English instruction says so
-literally (_"To confirm, type SUPPRIMER"_), so nothing displayed is wrong,
-but an English reader is asked for a word the interface does not otherwise
-use.
+The phrase confirms intent; the credential authenticates. The phrase alone
+used to be enough, which meant an open session could delete the account with
+nothing the session holder had to know. Deletion now re-verifies the current
+password, and a valid six-digit code when an authenticator app is enabled,
+the same pair `Disable two-factor` asks for. The check is rate limited on the
+shared re-auth counter, so a wrong password or code is throttled rather than
+being an unlimited guessing oracle.
+
+The phrase also follows the interface language now, so an English instance
+asks for `DELETE` rather than the French `SUPPRIMER` it displayed before.
+
+One consequence worth stating: an operator who has lost their password can no
+longer delete their own account from the interface. That is the point of the
+change, not a regression; the password must be reset first (an admin can do
+that, or the user can change it from the same page while still signed in).
 
 Deletion removes transactions first and the user afterwards, rather than
 relying on the database's cascade order. Both orders delete the same rows on

@@ -26,7 +26,9 @@ const {
 	isMfaRateLimited,
 	recordMfaAttempt,
 	isBankSyncStartRateLimited,
-	recordBankSyncStartAttempt
+	recordBankSyncStartAttempt,
+	isReauthRateLimited,
+	recordReauthAttempt
 } = await import('./rateLimit');
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
@@ -505,6 +507,85 @@ describe('recordBankSyncStartAttempt', () => {
 		const createArgs = db.prisma.loginAttempt.create.mock.calls[0][0];
 
 		expect(createArgs.data.kind).toBe('BANK_SYNC_START');
+		expect(createArgs.data.emailHash).toMatch(HEX_SHA256);
+		expect(createArgs.data.ipHash).toMatch(HEX_SHA256);
+	});
+});
+
+describe('isReauthRateLimited / recordReauthAttempt (shared settings re-auth limiter)', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+	});
+
+	it('retourne true si >= 5 tentatives par userId dans la fenêtre', async () => {
+		expect.assertions(1);
+
+		db.prisma.loginAttempt.count
+			.mockResolvedValueOnce(5) // par userId
+			.mockResolvedValueOnce(0); // par ip
+
+		await expect(isReauthRateLimited('user-1', '127.0.0.1')).resolves.toBe(true);
+	});
+
+	it('retourne true si >= 5 tentatives par IP, même sur des comptes différents', async () => {
+		expect.assertions(1);
+
+		db.prisma.loginAttempt.count
+			.mockResolvedValueOnce(0) // par userId
+			.mockResolvedValueOnce(5); // par ip
+
+		await expect(isReauthRateLimited('user-1', '127.0.0.1')).resolves.toBe(true);
+	});
+
+	it("retourne false sous le seuil pour le userId et pour l'IP", async () => {
+		expect.assertions(1);
+
+		db.prisma.loginAttempt.count.mockResolvedValueOnce(4).mockResolvedValueOnce(4);
+
+		await expect(isReauthRateLimited('user-1', '127.0.0.1')).resolves.toBe(false);
+	});
+
+	it("filtre par kind: 'REAUTH', isolé des autres compteurs", async () => {
+		expect.assertions(2);
+
+		db.prisma.loginAttempt.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+
+		await isReauthRateLimited('user-1', '127.0.0.1');
+
+		expect(db.prisma.loginAttempt.count.mock.calls[0][0].where.kind).toBe('REAUTH');
+		expect(db.prisma.loginAttempt.count.mock.calls[1][0].where.kind).toBe('REAUTH');
+	});
+
+	it('utilise une fenêtre de 5 minutes, plus courte que les 15 minutes du login', async () => {
+		expect.assertions(2);
+
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date('2026-07-02T12:00:00.000Z'));
+
+		db.prisma.loginAttempt.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0);
+		await isReauthRateLimited('user-1', '127.0.0.1');
+
+		// The distinctive property of this kind: a 5-minute sliding window (not 15), so an honest
+		// owner locked out by five wrong attempts recovers three times faster and the escape hatch
+		// (deleteAccount) reopens quickly.
+		const userArgs = db.prisma.loginAttempt.count.mock.calls[0][0];
+		const ipArgs = db.prisma.loginAttempt.count.mock.calls[1][0];
+		expect(userArgs.where.createdAt.gte).toEqual(new Date('2026-07-02T11:55:00.000Z'));
+		expect(ipArgs.where.createdAt.gte).toEqual(new Date('2026-07-02T11:55:00.000Z'));
+	});
+
+	it("recordReauthAttempt crée une ligne kind: 'REAUTH' avec userId et IP hachés", async () => {
+		expect.assertions(4);
+
+		await recordReauthAttempt('user-1', '127.0.0.1');
+
+		expect(db.prisma.loginAttempt.create).toHaveBeenCalledTimes(1);
+		const createArgs = db.prisma.loginAttempt.create.mock.calls[0][0];
+		expect(createArgs.data.kind).toBe('REAUTH');
 		expect(createArgs.data.emailHash).toMatch(HEX_SHA256);
 		expect(createArgs.data.ipHash).toMatch(HEX_SHA256);
 	});
