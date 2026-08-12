@@ -12,7 +12,7 @@
 
 ### Behaviour and internals
 
-* **categories:** make the stored name the only name ([#162](https://github.com/NonoHM/budgetpilot/issues/162)) ([#176](https://github.com/NonoHM/budgetpilot/issues/176)) ([98c281c](https://github.com/NonoHM/budgetpilot/commit/98c281cf0bf9721c1037af1e7a5a50951b5642a7))
+* **categories:** seeded categories now show their stored French name until you rename them. An English instance that displayed "Groceries" for the category stored as "Alimentation" now displays "Alimentation", because a category's stored name has become its only name and there is no translation layer left. Nothing is renamed, no data moves, and every budget, rule and report keeps pointing where it did. A later release adds a one-click prompt on /categories that renames the seeded categories into the language you read. ([#162](https://github.com/NonoHM/budgetpilot/issues/162)) ([#176](https://github.com/NonoHM/budgetpilot/issues/176)) ([98c281c](https://github.com/NonoHM/budgetpilot/commit/98c281cf0bf9721c1037af1e7a5a50951b5642a7))
 
 
 ### Documentation
