@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.9.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.8.1...budgetpilot-v0.9.0) (2026-08-12)
+
+
+### Features
+
+* **categories:** offer to rename the seeded categories into your own language ([#181](https://github.com/NonoHM/budgetpilot/issues/181)) ([cd15816](https://github.com/NonoHM/budgetpilot/commit/cd158166fb38c39276398b47386d6f7a1a43ff35))
+* **db:** clear Category.defaultKey on every install ([#162](https://github.com/NonoHM/budgetpilot/issues/162)) ([#177](https://github.com/NonoHM/budgetpilot/issues/177)) ([b56b095](https://github.com/NonoHM/budgetpilot/commit/b56b095bb69c5d94a515ce4b54fbc805094a7190))
+
+
+### Documentation
+
+* **categories:** a category has one name, and say so everywhere ([#162](https://github.com/NonoHM/budgetpilot/issues/162)) ([#182](https://github.com/NonoHM/budgetpilot/issues/182)) ([10a0da1](https://github.com/NonoHM/budgetpilot/commit/10a0da1afdace190cb997e8ab2d719df88429d14))
+
 ## [0.8.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.8.0...budgetpilot-v0.8.1) (2026-08-12)
 
 
