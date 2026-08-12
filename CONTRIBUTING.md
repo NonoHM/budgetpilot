@@ -128,6 +128,46 @@ This isn't just a style preference: release automation
 commit history to compute the next version and generate `CHANGELOG.md`. A
 non-conforming commit message will be invisible to that automation.
 
+### Which types reach the changelog
+
+BudgetPilot is self-hosted, so the changelog is what an operator reads to
+decide whether to upgrade and what to expect afterwards. The default set of
+visible types assumes a library, where a refactor cannot change what a user
+sees. That assumption does not hold here, so `release-please-config.json`
+sets `changelog-sections` explicitly:
+
+| Type                  | Shown as                 | Why                                                               |
+| --------------------- | ------------------------ | ----------------------------------------------------------------- |
+| `feat`                | Features                 | New capability.                                                   |
+| `fix`                 | Bug Fixes                | Corrected behaviour, including security fixes.                    |
+| `perf`                | Performance Improvements | Visible in how the app responds.                                  |
+| `refactor`            | Behaviour and internals  | An internal change can still move what a user sees on screen.     |
+| `deps`                | Dependencies             | A dependency ships inside the image.                              |
+| `build`               | Build and packaging      | Image, Dockerfile and Compose changes are the operator's upgrade. |
+| `docs`                | Documentation            | The docs are part of what is delivered.                           |
+| `chore`               | Maintenance              | Everything else that ships.                                       |
+| `revert`              | Reverts                  | Something was taken back out.                                     |
+| `ci`, `test`, `style` | hidden                   | Cannot reach a running install.                                   |
+
+Two consequences worth knowing:
+
+- **Visibility and versioning are separate.** Only `feat`, `fix` and a
+  `BREAKING CHANGE:` footer move the version number. Listing a type above
+  makes it appear in the changelog and does nothing to the version.
+- **`chore` is visible on purpose,** which is noisier than the default. It
+  is deliberate: Dependabot opens every bump as `chore(deps)`, and under
+  the default configuration a dependency upgrade carrying a security fix
+  shipped in a release whose notes did not mention it. Retitling such a PR
+  to `fix(deps)` is still the right thing, because Bug Fixes is where a
+  reader looks for it, but the changelog no longer depends on someone
+  remembering.
+
+**Write the description for the person reading the changelog.** Say the
+user-visible consequence, not the internal mechanism. "make the stored name
+the only name" tells a maintainer what changed in the code; "seeded
+categories now show their stored French name until you rename them" tells an
+operator what their users will see on Monday.
+
 ## Reporting security issues
 
 Do not open a public issue for a vulnerability. See
