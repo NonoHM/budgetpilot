@@ -60,10 +60,8 @@ transactions each category holds.
 ![Largest expenses: five rows, each with a merchant, a category and an amount](../screenshots/reports/largest-expenses-desktop.png)
 
 In this table the **Label** column appends the transaction's category to the
-merchant. For the fourteen categories BudgetPilot creates for you, the name
-appended is the stored one, which is French, so a row can read
-`Lidl - Alimentation` while the Category column beside it reads `Groceries`.
-Both name the same category.
+merchant, so a row reads `Lidl - Groceries` with `Groceries` again in the
+Category column beside it. The two always agree: a category has one name.
 
 ## The three-month projection
 

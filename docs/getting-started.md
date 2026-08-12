@@ -316,13 +316,12 @@ date,label,amount,category
 
 - `date`, `label` and `amount` are required, `category` is optional and can
   be left empty.
-- `category` is matched against the category's **stored** name, and a name
-  that matches nothing creates a new category. The 14 defaults are stored
-  under canonical French names whatever language you read the app in: the
-  screen shows the translation, so the seeded groceries category displays as
-  `Groceries` in English and is stored as `Alimentation`, which is what the
-  sample above uses. Categories you create yourself are stored exactly as you
-  typed them and are never translated.
+- `category` is matched against the category name, and a name that matches
+  nothing creates a new category. A category has one name, the one you see, so
+  write in your file exactly what the Categories page shows. The 14 built-in
+  categories are created under French names, which is what the sample above
+  uses; if you accepted the offer to rename them into your own language, use
+  the new names instead.
 - No other column is allowed, the import refuses the file rather than
   guessing.
 - Dates are `YYYY-MM-DD` or `DD/MM/YYYY`.
