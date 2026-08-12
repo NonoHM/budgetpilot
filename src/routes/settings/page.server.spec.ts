@@ -67,10 +67,20 @@ const tagsService = vi.hoisted(() => ({
 	deleteTag: vi.fn()
 }));
 
+// The shared re-auth limiter is mocked here so this file tests the ORCHESTRATION (does each
+// sensitive action check the limiter and record on a wrong secret), not the limiter's SQL, which
+// lives in rateLimit.spec.ts. Default: never limited. Tests that need a tripped counter override
+// isReauthRateLimited.mockResolvedValueOnce(true).
+const rateLimit = vi.hoisted(() => ({
+	isReauthRateLimited: vi.fn(async () => false),
+	recordReauthAttempt: vi.fn(async () => {})
+}));
+
 vi.mock('node:fs', () => fs);
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 vi.mock('$lib/server/backup/import', () => backupImport);
 vi.mock('$lib/server/tags/service', () => tagsService);
+vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
 
 const { hashPassword, hashSessionToken, SESSION_COOKIE } = await import('$lib/server/auth');
 const { actions, load } = await import('./+page.server');
@@ -82,6 +92,13 @@ describe('/settings', () => {
 		delete process.env.LLM_ENABLED;
 		fs.existsSync.mockReturnValue(false);
 		db.prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+		// mockReset (not just clearAllMocks) so a mockResolvedValueOnce left UNCONSUMED by one test
+		// cannot bleed a stale "true" into the next action's limiter check. clearAllMocks does not
+		// drain the once-queue; only a reset does. Re-establish the default afterwards.
+		rateLimit.isReauthRateLimited.mockReset();
+		rateLimit.isReauthRateLimited.mockResolvedValue(false);
+		rateLimit.recordReauthAttempt.mockReset();
+		rateLimit.recordReauthAttempt.mockResolvedValue(undefined);
 	});
 
 	it('charge uniquement les sessions du user connecté sans exposer token hash ni passwordHash', async () => {
@@ -440,55 +457,257 @@ describe('/settings', () => {
 		});
 	});
 
-	it('supprime uniquement le compte courant après confirmation explicite', async () => {
-		expect.assertions(8);
-
-		tx.session.deleteMany.mockResolvedValue({ count: 4 });
-		tx.transaction.deleteMany.mockResolvedValue({ count: 7 });
-		tx.user.delete.mockResolvedValue({ id: 'user-a' });
-		const cookies = buildCookies('session-courante');
-
-		await expect(
-			invokeAction('deleteAccount', {
-				cookies,
-				request: buildRequest({
-					confirmation: 'SUPPRIMER'
-				}),
+	describe('deleteAccount (#220: phrase confirms intent, password/TOTP authenticate)', () => {
+		async function deleteWith(input: Record<string, string>) {
+			return invokeAction('deleteAccount', {
+				cookies: buildCookies('session-courante'),
+				request: buildRequest(input),
 				locals: {
 					user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' }
 				}
-			})
-		).rejects.toMatchObject({ status: 303, location: '/login' });
+			});
+		}
 
-		expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
-		expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-a' } });
-		// Transactions BEFORE the user — see the same assertion in admin/page.server.spec.ts. A
-		// bare user.delete relies on a cascade ORDER the engine chooses, and TransactionSplit is
-		// RESTRICT on Category, so on PostgreSQL a user who has ever split a transaction could
-		// not delete their own account at all.
-		expect(tx.transaction.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
-		expect(tx.transaction.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
-			tx.user.delete.mock.invocationCallOrder[0]
-		);
-		expect(cookies.delete).toHaveBeenCalledWith(SESSION_COOKIE, { path: '/' });
-		expect(JSON.stringify(tx.session.deleteMany.mock.calls[0][0])).not.toContain('user-b');
-		expect(JSON.stringify(tx.user.delete.mock.calls[0][0])).not.toContain('user-b');
+		it('supprime le compte après phrase + mot de passe corrects (TOTP désactivé)', async () => {
+			expect.assertions(8);
+
+			const passwordHash = await hashPassword('mot-de-passe-long');
+			db.prisma.user.findUnique.mockResolvedValue({
+				passwordHash,
+				totpEnabled: false,
+				totpSecretEncrypted: null
+			});
+			tx.session.deleteMany.mockResolvedValue({ count: 4 });
+			tx.transaction.deleteMany.mockResolvedValue({ count: 7 });
+			tx.user.delete.mockResolvedValue({ id: 'user-a' });
+			const cookies = buildCookies('session-courante');
+
+			await expect(
+				invokeAction('deleteAccount', {
+					cookies,
+					request: buildRequest({
+						confirmation: 'SUPPRIMER',
+						currentPassword: 'mot-de-passe-long'
+					}),
+					locals: { user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' } }
+				})
+			).rejects.toMatchObject({ status: 303, location: '/login' });
+
+			expect(tx.session.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
+			expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-a' } });
+			// Transactions BEFORE the user — see the same assertion in admin/page.server.spec.ts. A
+			// bare user.delete relies on a cascade ORDER the engine chooses, and TransactionSplit is
+			// RESTRICT on Category, so on PostgreSQL a user who has ever split a transaction could
+			// not delete their own account at all.
+			expect(tx.transaction.deleteMany).toHaveBeenCalledWith({ where: { userId: 'user-a' } });
+			expect(tx.transaction.deleteMany.mock.invocationCallOrder[0]).toBeLessThan(
+				tx.user.delete.mock.invocationCallOrder[0]
+			);
+			expect(cookies.delete).toHaveBeenCalledWith(SESSION_COOKIE, { path: '/' });
+			expect(JSON.stringify(tx.user.delete.mock.calls[0][0])).not.toContain('user-b');
+			// A correct secret is never recorded, so legitimate use cannot trip the limiter.
+			expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+		});
+
+		it('phrase correcte + MAUVAIS mot de passe : compte intact, tentative comptée', async () => {
+			expect.assertions(4);
+
+			const passwordHash = await hashPassword('mot-de-passe-long');
+			db.prisma.user.findUnique.mockResolvedValue({
+				passwordHash,
+				totpEnabled: false,
+				totpSecretEncrypted: null
+			});
+
+			const result = (await deleteWith({
+				confirmation: 'SUPPRIMER',
+				currentPassword: 'mauvais-mot-de-passe'
+			})) as { status: number; data: { deleteError: string } };
+
+			expect(result.status).toBe(400);
+			expect(result.data.deleteError).toBe('Mot de passe ou code incorrect.');
+			expect(tx.user.delete).not.toHaveBeenCalled();
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+		});
+
+		it('phrase correcte + AUCUN mot de passe : refusé, compte intact', async () => {
+			expect.assertions(3);
+
+			const passwordHash = await hashPassword('mot-de-passe-long');
+			db.prisma.user.findUnique.mockResolvedValue({
+				passwordHash,
+				totpEnabled: false,
+				totpSecretEncrypted: null
+			});
+
+			const result = (await deleteWith({ confirmation: 'SUPPRIMER' })) as {
+				status: number;
+				data: { deleteError: string };
+			};
+
+			expect(result.status).toBe(400);
+			expect(result.data.deleteError).toBe('Mot de passe ou code incorrect.');
+			expect(tx.user.delete).not.toHaveBeenCalled();
+		});
+
+		it('TOTP activé, phrase + mot de passe corrects mais MAUVAIS code : compte intact', async () => {
+			expect.assertions(3);
+
+			const { generateTotpSecretBase32, encryptTotpSecret } = await import('$lib/server/auth/totp');
+			const secretBase32 = generateTotpSecretBase32();
+			const passwordHash = await hashPassword('mot-de-passe-long');
+			db.prisma.user.findUnique.mockResolvedValue({
+				passwordHash,
+				totpEnabled: true,
+				totpSecretEncrypted: encryptTotpSecret(secretBase32)
+			});
+
+			const result = (await deleteWith({
+				confirmation: 'SUPPRIMER',
+				currentPassword: 'mot-de-passe-long',
+				code: '000000'
+			})) as { status: number; data: { deleteError: string } };
+
+			expect(result.status).toBe(400);
+			expect(tx.user.delete).not.toHaveBeenCalled();
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+		});
+
+		it('TOTP activé, phrase + mot de passe + code corrects : supprime', async () => {
+			expect.assertions(3);
+
+			const { generateTotpSecretBase32, encryptTotpSecret } = await import('$lib/server/auth/totp');
+			const OTPAuth = await import('otpauth');
+			const secretBase32 = generateTotpSecretBase32();
+			const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secretBase32) });
+			const code = totp.generate();
+			const passwordHash = await hashPassword('mot-de-passe-long');
+			db.prisma.user.findUnique.mockResolvedValue({
+				passwordHash,
+				totpEnabled: true,
+				totpSecretEncrypted: encryptTotpSecret(secretBase32)
+			});
+			tx.session.deleteMany.mockResolvedValue({ count: 1 });
+			tx.transaction.deleteMany.mockResolvedValue({ count: 0 });
+			tx.user.delete.mockResolvedValue({ id: 'user-a' });
+
+			await expect(
+				deleteWith({ confirmation: 'SUPPRIMER', currentPassword: 'mot-de-passe-long', code })
+			).rejects.toMatchObject({ status: 303, location: '/login' });
+
+			expect(tx.user.delete).toHaveBeenCalledWith({ where: { id: 'user-a' } });
+			expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+		});
+
+		it('MAUVAISE phrase : erreur de confirmation, secret jamais vérifié ni compté', async () => {
+			expect.assertions(4);
+
+			const result = (await deleteWith({
+				confirmation: 'NON',
+				currentPassword: 'mot-de-passe-long'
+			})) as { status: number; data: { deleteError: string } };
+
+			expect(result.status).toBe(400);
+			expect(result.data.deleteError).toBe('Confirmation obligatoire.');
+			expect(tx.user.delete).not.toHaveBeenCalled();
+			// Phrase is checked BEFORE the limiter: a mistyped confirmation must not burn an attempt,
+			// nor even read the account, so the owner cannot lock themselves out by fumbling the word.
+			expect(rateLimit.recordReauthAttempt).not.toHaveBeenCalled();
+		});
+
+		it('limiteur déclenché : refus immédiat, aucun accès au secret, aucune suppression', async () => {
+			expect.assertions(4);
+
+			rateLimit.isReauthRateLimited.mockResolvedValueOnce(true);
+
+			const result = (await deleteWith({
+				confirmation: 'SUPPRIMER',
+				currentPassword: 'mot-de-passe-long'
+			})) as { status: number; data: { deleteError: string } };
+
+			expect(result.status).toBe(400);
+			expect(result.data.deleteError).toBe('Trop de tentatives. Réessayez dans quelques minutes.');
+			// Short-circuits before the expensive verify: findUnique is never reached.
+			expect(db.prisma.user.findUnique).not.toHaveBeenCalled();
+			expect(tx.user.delete).not.toHaveBeenCalled();
+		});
 	});
 
-	it('refuse la suppression sans email courant ni texte SUPPRIMER', async () => {
-		expect.assertions(3);
+	// The three siblings PRE-DATE #220: they already re-verified a secret with no counter. The sweep
+	// wires them into the same limiter. These prove the gate reaches each one (short-circuits when
+	// tripped) and that a wrong secret is counted.
+	describe('re-auth limiter wiring on the pre-existing siblings (#220 sweep)', () => {
+		it('changePassword : un mauvais mot de passe compte une tentative', async () => {
+			expect.assertions(2);
+			const passwordHash = await hashPassword('mot-de-passe-long');
+			db.prisma.user.findUnique.mockResolvedValue({ passwordHash });
 
-		const result = (await runAction('deleteAccount', {
-			token: 'session-courante',
-			input: {
-				email: 'user-b@example.test',
-				confirmation: 'NON'
-			}
-		})) as { status: number; data: { deleteError: string } };
+			const result = (await runAction('changePassword', {
+				input: {
+					currentPassword: 'faux',
+					newPassword: 'nouveau-mot-de-passe',
+					confirmPassword: 'nouveau-mot-de-passe'
+				}
+			})) as { status: number };
 
-		expect(result.status).toBe(400);
-		expect(result.data.deleteError).toBe('Confirmation obligatoire.');
-		expect(tx.user.delete).not.toHaveBeenCalled();
+			expect(result.status).toBe(400);
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+		});
+
+		it('changePassword : limiteur déclenché court-circuite avant la vérification', async () => {
+			expect.assertions(2);
+			rateLimit.isReauthRateLimited.mockResolvedValueOnce(true);
+
+			const result = (await runAction('changePassword', {
+				input: {
+					currentPassword: 'x',
+					newPassword: 'nouveau-mot-de-passe',
+					confirmPassword: 'nouveau-mot-de-passe'
+				}
+			})) as { status: number; data: { passwordError: string } };
+
+			expect(result.data.passwordError).toBe(
+				'Trop de tentatives. Réessayez dans quelques minutes.'
+			);
+			expect(db.prisma.user.findUnique).not.toHaveBeenCalled();
+		});
+
+		it('disableTotp : un mauvais mot de passe compte une tentative', async () => {
+			expect.assertions(2);
+			const { generateTotpSecretBase32, encryptTotpSecret } = await import('$lib/server/auth/totp');
+			const secretBase32 = generateTotpSecretBase32();
+			const passwordHash = await hashPassword('mot-de-passe-long');
+			db.prisma.user.findUnique.mockResolvedValue({
+				passwordHash,
+				totpEnabled: true,
+				totpSecretEncrypted: encryptTotpSecret(secretBase32)
+			});
+
+			const result = (await runAction('disableTotp', {
+				input: { currentPassword: 'faux', code: '000000' }
+			})) as { status: number };
+
+			expect(result.status).toBe(400);
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+		});
+
+		it('confirmTotpSetup : un mauvais mot de passe compte une tentative', async () => {
+			expect.assertions(2);
+			const { generateTotpSecretBase32 } = await import('$lib/server/auth/totp');
+			const OTPAuth = await import('otpauth');
+			const secretBase32 = generateTotpSecretBase32();
+			const totp = new OTPAuth.TOTP({ secret: OTPAuth.Secret.fromBase32(secretBase32) });
+			const code = totp.generate();
+			const passwordHash = await hashPassword('mot-de-passe-long');
+			db.prisma.user.findUnique.mockResolvedValue({ passwordHash });
+
+			const result = (await runAction('confirmTotpSetup', {
+				input: { currentPassword: 'faux', secretBase32, code }
+			})) as { status: number };
+
+			expect(result.status).toBe(400);
+			expect(rateLimit.recordReauthAttempt).toHaveBeenCalledWith('user-a', '203.0.113.10');
+		});
 	});
 
 	describe('updateAiInsightsEnabled / updateAiIncludeLabels', () => {
@@ -1123,6 +1342,7 @@ async function runAction(
 ) {
 	return (await invokeAction(name, {
 		cookies: buildCookies(token),
+		getClientAddress: () => '203.0.113.10',
 		request: buildRequest(input),
 		locals: {
 			user: { id: 'user-a', email: 'user-a@example.test', role: 'USER' }
@@ -1139,13 +1359,17 @@ async function invokeAction(
 	name: keyof typeof actions,
 	event: {
 		cookies: ReturnType<typeof buildCookies>;
+		getClientAddress?: () => string;
 		request: Request;
 		locals: {
 			user: { id: string; email: string; role: 'USER' };
 		};
 	}
 ) {
-	return (actions[name] as unknown as (input: typeof event) => Promise<unknown>)(event);
+	return (actions[name] as unknown as (input: typeof event) => Promise<unknown>)({
+		getClientAddress: () => '203.0.113.10',
+		...event
+	});
 }
 
 function buildBackupFile(content: string, name = 'backup.json'): File {

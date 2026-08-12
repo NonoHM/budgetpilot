@@ -36,7 +36,7 @@ describe('settings +page.svelte button tone convention', () => {
 		expect.assertions(2);
 
 		expect(settingsPage).toContain('{m.settings_delete_confirm_submit()}');
-		// The delete-account submit button (gated by the typed "SUPPRIMER" confirmation) and the
+		// The delete-account submit button (gated by the typed confirmation phrase) and the
 		// MFA-disable submit button are themselves the final destructive action, not a dialog
 		// trigger — they're allowed to stay solid `danger`.
 		const deleteSubmitBlock = settingsPage.slice(

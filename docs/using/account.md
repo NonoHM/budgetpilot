@@ -68,9 +68,19 @@ At the bottom, and irreversible. It removes your account and everything in
 it: transactions, categories, budgets, rules, net worth history, goals,
 tags.
 
-**To confirm, you must type `SUPPRIMER`**, in capitals, exactly as shown.
-It is the French word for "delete", and it is the same word whatever
-language the interface is in.
+Deleting takes two things, and they answer two different questions.
+
+- **The confirmation phrase** confirms that you mean it. Type it exactly as
+  shown, in capitals. It follows the interface language: `DELETE` in English,
+  `SUPPRIMER` in French.
+- **Your current password** confirms that it is you. When you have an
+  authenticator app enabled, a valid six-digit code is required as well, the
+  same pair that turning that app off asks for.
+
+So a session someone left open cannot delete the account on its own: it also
+needs the password, and the code if you have one. If you have lost your
+password, change it first from the same page; there is no way to delete
+without it.
 
 Only your own account goes. Other accounts on the same instance are
 untouched, and so is the instance itself.
