@@ -29,7 +29,9 @@ export async function getBudgetInsights(params: {
 		{ includeLabels: params.includeLabels }
 	);
 	const ruleInsights = generateRuleInsights(params.monthlySummary, transactionSummary);
-	const prompt = buildBudgetInsightsPrompt(transactionSummary);
+	const prompt = buildBudgetInsightsPrompt(transactionSummary, {
+		includeLabels: params.includeLabels
+	});
 	const llmResult = await requestLocalBudgetInsights(prompt, params.env);
 
 	return {

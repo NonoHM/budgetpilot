@@ -65,14 +65,27 @@ export function toPromptPayload(value: unknown): unknown {
 	);
 }
 
+// #216: this sentence is the model-facing description of what the payload contains, and it has to
+// stay true to what is actually sent. When the user has NOT opted into sharing labels, the payload's
+// merchant labels are anonymized to a placeholder (see summary.ts), so "no raw transactions" holds.
+// When they HAVE opted in, `largestExpenses[].label` and `recurringPayments[].label` carry their real
+// (title-cased, truncated) merchant text, so the sentence must say so rather than claim the opposite.
+// Both variants are plain English like the rest of this prompt: they reach the model, never the UI.
+const DATA_DESCRIPTION_AGGREGATED = 'Aggregated data, no raw transactions';
+const DATA_DESCRIPTION_WITH_LABELS = 'Aggregated data plus your largest transaction labels';
+
 export function buildBudgetInsightsPrompt(
 	summary: TransactionSummary,
-	locale: string = getLocale()
+	options: { includeLabels?: boolean; locale?: string } = {}
 ): string {
+	const locale = options.locale ?? getLocale();
 	const responseLanguage = RESPONSE_LANGUAGES[locale] ?? DEFAULT_RESPONSE_LANGUAGE;
+	const dataDescription = options.includeLabels
+		? DATA_DESCRIPTION_WITH_LABELS
+		: DATA_DESCRIPTION_AGGREGATED;
 
 	return `${buildSystemPrompt(responseLanguage)}
 
-Aggregated data, no raw transactions (amounts in ${PROMPT_CURRENCY}):
+${dataDescription} (amounts in ${PROMPT_CURRENCY}):
 ${JSON.stringify({ currency: PROMPT_CURRENCY, ...(toPromptPayload(summary) as object) })}`;
 }
