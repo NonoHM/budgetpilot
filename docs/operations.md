@@ -47,6 +47,60 @@ Database migrations run automatically when the container starts, so there's
 no separate step and your data carries across the update. Take a backup
 first anyway, see below.
 
+### If a migration fails partway
+
+The container refuses to start rather than serving against a half-migrated
+database, so the symptom is a container that exits immediately after an
+upgrade. `docker compose logs budgetpilot` shows a Prisma error code.
+
+Two facts decide what to do, and both were measured on SQLite, PostgreSQL and
+MySQL rather than assumed:
+
+- **The statements that ran before the failure are already committed.**
+  `prisma migrate deploy` does not wrap a migration file in a transaction on
+  any of the three engines, PostgreSQL included. If a migration contains
+  several statements and the third fails, the first two are in your database.
+  BudgetPilot's own migrations are written to survive this, but a failure
+  still leaves a state that has to be looked at rather than guessed at.
+- **Nothing further will run until you clear the failure.** Every later start
+  fails with `P3009` and names the migration. This is a feature: the app
+  cannot skip past a broken migration and quietly serve the wrong schema.
+
+The recovery, in order:
+
+1. **Take a backup now**, before touching anything. See "Backups" below.
+2. **Read the error.** `P3018` on the first failure names the migration and
+   the database's own error underneath it, which is what tells you whether
+   the cause is your data (a constraint violated by rows you already have) or
+   the environment (disk full, permissions, a connection dropped).
+3. **Decide which is true of that migration**, by inspecting the database:
+   - it did not take effect, or took effect only partly: mark it rolled back,
+     then let it run again;
+   - it actually completed and only the recording failed: mark it applied,
+     which records it without running it.
+4. **Tell Prisma**, using the CLI that ships in the image. The runtime image
+   has no shell, so this is `node` argv rather than a shell command:
+
+   ```bash
+   docker compose run --rm budgetpilot \
+     node_modules/prisma/build/index.js migrate resolve \
+     --rolled-back <migration_name>
+   ```
+
+   Use `--applied <migration_name>` instead for the second case.
+
+5. **Start normally.** `docker compose up -d` runs the migrations again.
+
+**Re-running restarts the migration file from the top.** After
+`--rolled-back`, the whole file runs again, including any statement that had
+already succeeded before the failure. That is safe for a migration written to
+be idempotent and is the reason to inspect at step 3 rather than reaching for
+`--rolled-back` reflexively.
+
+If you cannot tell what state the database is in, restore the backup from
+step 1 onto the previous version of the image and ask on the issue tracker
+before trying again. A restore you understand beats a migration you don't.
+
 ### Before you upgrade to the distroless image
 
 **SQLite installs need a one-time `chown` on the data volume. PostgreSQL and

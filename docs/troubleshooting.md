@@ -30,6 +30,11 @@ to run with a security control switched off.
 cat .env    # every one of the three secrets should have a long value
 ```
 
+If instead the logs show a Prisma error code such as `P3009` or `P3018`, a
+database migration failed and the app is refusing to serve against a
+half-migrated database. Do not delete the volume: see
+[If a migration fails partway](./operations.md#if-a-migration-fails-partway).
+
 ## Registration always says the token is invalid
 
 You paste the `BOOTSTRAP_TOKEN` and the form rejects it every time.
