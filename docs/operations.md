@@ -101,6 +101,35 @@ If you cannot tell what state the database is in, restore the backup from
 step 1 onto the previous version of the image and ask on the issue tracker
 before trying again. A restore you understand beats a migration you don't.
 
+### Before you upgrade past 0.9.1 (reverse-proxy setups only)
+
+**If you set `ADDRESS_HEADER` (and `XFF_DEPTH`) on the app, the new version
+will refuse to start until you remove them.** This is deliberate. Those two
+told the framework to trust `X-Forwarded-For` from anyone who could reach the
+app, which let a client that reached the port directly forge its own address
+and walk through every per-IP rate limit (login, MFA, registration, bank-sync
+consent). The app now validates the header itself and trusts it only from a
+proxy you name, so it will not run in the old, unverifiable configuration
+rather than pretend to limit while not limiting.
+
+What to change if you run behind a reverse proxy:
+
+- **Remove** `ADDRESS_HEADER` and `XFF_DEPTH` from the app's environment.
+- **Add** `TRUSTED_PROXIES`, set to your proxy's IP address or CIDR. The app
+  trusts `X-Forwarded-For` only when the request's socket peer is inside this
+  list; from anywhere else the header is ignored and the socket peer is used.
+- **How to find the value:** if the proxy and app share a Docker network, run
+  `docker network inspect <network>` and use the proxy container's address (or
+  the network's subnet). If the proxy is a separate host, use that host's LAN
+  address. If you use the bundled Caddy overlay
+  (`docker-compose.proxy.yml`), this is already done for you: the overlay pins
+  the network to `172.28.5.0/24` and sets `TRUSTED_PROXIES` to it, so just drop
+  any `ADDRESS_HEADER`/`XFF_DEPTH` you added by hand.
+
+If you do **not** use a reverse proxy, there is nothing to do: leave
+`TRUSTED_PROXIES` unset and the app rate limits on the direct socket address,
+which is correct. The startup log states which mode is active on every boot.
+
 ### Before you upgrade to the distroless image
 
 **SQLite installs need a one-time `chown` on the data volume. PostgreSQL and

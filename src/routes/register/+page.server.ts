@@ -18,6 +18,7 @@ import {
 	recordInviteAttempt,
 	recordRegisterAttempt
 } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
 import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRules';
 import { prisma } from '$lib/server/db';
@@ -49,7 +50,7 @@ export const actions: Actions = {
 		const registrationMode = getRegistrationMode();
 		const isOpenRegistration = registrationMode === 'open';
 		const inviteToken = url.searchParams.get('invite') ?? '';
-		const ip = getClientAddress();
+		const ip = resolveClientAddress({ getClientAddress, request });
 
 		if (inviteToken) {
 			if (await isInviteRateLimited(ip)) {

@@ -95,17 +95,19 @@ docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml up -d
 
 The overlay also stops publishing the app's own port on the host, so Caddy
 becomes the only way in. Reaching the container directly on `APP_PORT` no
-longer works, which is the point. It sets `ADDRESS_HEADER=X-Forwarded-For`
-and `XFF_DEPTH=1` at the same time, so the app still sees each visitor's real
-address and the per-IP rate limits keep working instead of counting everyone
-as one client.
+longer works, which is the point. It sets `TRUSTED_PROXIES` to the pinned
+Compose network subnet (`172.28.5.0/24`), so the app trusts the real client
+in `X-Forwarded-For` only when the request actually came from Caddy, and the
+per-IP rate limits keep working instead of counting everyone as one client.
 
-Those two go together and neither is optional: the app only trusts
-`X-Forwarded-For` because Caddy is the sole way in. If the port were still
-published, anyone reaching it could forge that header, hand themselves a
-fresh address on every request, and walk straight through the rate limits on
-login, MFA, registration and bank-sync consent. Which is why the next step
-is worth the ten seconds.
+The allowlist and the closed port go together. The app trusts a forwarded
+address only from a peer inside `TRUSTED_PROXIES`, which here is only Caddy.
+A client reaching the app any other way is on a different peer address, so
+its forged `X-Forwarded-For` is ignored and it is rate limited on its own
+socket address. Do NOT set `ADDRESS_HEADER`: that made an older setup trust
+the header from anyone, and the app now refuses to boot if it is set. If you
+must run with the port published, an attacker on the trusted subnet could
+still forge the header, so keep the port closed.
 
 The AI overlay stacks on top if you use it, any order:
 
@@ -202,10 +204,14 @@ case, just publish `APP_PORT` as usual and point your proxy at it.
 
 Two things to carry over yourself:
 
-- Set `ADDRESS_HEADER=X-Forwarded-For` and `XFF_DEPTH=1` on the app so the
-  per-IP rate limits see real client addresses. Only do this once the app is
-  no longer reachable except through your proxy: while it's directly
-  reachable, that header lets anyone claim any address.
+- Set `TRUSTED_PROXIES` to your proxy's address or CIDR so the per-IP rate
+  limits see real client addresses. Find it with `docker network inspect` on
+  the network the two share, or use your proxy host's LAN address. Leave
+  `ADDRESS_HEADER` and `XFF_DEPTH` unset: the app validates `X-Forwarded-For`
+  against `TRUSTED_PROXIES` itself and refuses to boot if `ADDRESS_HEADER` is
+  set. Only trust the header once the app is unreachable except through your
+  proxy: a client that can reach the app from inside the trusted range can
+  still forge the header.
 - Drop the `code` and `state` query parameters from the access log if you
   plan to use bank sync, and `q` as well: it's the `/transactions` search
   term, so it carries whatever merchant or amount the user typed to find

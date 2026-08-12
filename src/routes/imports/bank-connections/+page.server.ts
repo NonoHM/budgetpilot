@@ -17,6 +17,7 @@ import {
 	readLinkableNetWorthAccounts
 } from '$lib/server/net-worth/service';
 import { isBankSyncStartRateLimited, recordBankSyncStartAttempt } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { normalizeId } from '$lib/server/transactions/where';
 import type { PageServerLoad } from './$types';
 
@@ -71,7 +72,7 @@ export const actions: Actions = {
 			return fail(400, { error: m.bank_connections_error_generic() });
 		}
 
-		const ip = getClientAddress();
+		const ip = resolveClientAddress({ getClientAddress, request });
 		if (await isBankSyncStartRateLimited(user.id, ip)) {
 			return fail(429, { error: m.bank_connections_error_too_many_attempts() });
 		}
@@ -103,7 +104,7 @@ export const actions: Actions = {
 		const connectionId = normalizeId(getFormValue(formData, 'connectionId'));
 		if (!connectionId) return fail(400, { error: m.bank_connections_error_generic() });
 
-		const ip = getClientAddress();
+		const ip = resolveClientAddress({ getClientAddress, request });
 		if (await isBankSyncStartRateLimited(user.id, ip)) {
 			return fail(429, { error: m.bank_connections_error_too_many_attempts() });
 		}

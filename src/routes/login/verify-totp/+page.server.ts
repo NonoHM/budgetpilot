@@ -3,6 +3,7 @@ import * as m from '$lib/paraglide/messages';
 import { createSession, getSafeRedirect } from '$lib/server/auth';
 import { consumeMfaChallenge, readMfaChallenge } from '$lib/server/auth/mfaChallenge';
 import { isMfaRateLimited, recordMfaAttempt } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { verifyTotpCode, decryptTotpSecret, verifyRecoveryCode } from '$lib/server/auth/totp';
 import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
 import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRules';
@@ -26,7 +27,7 @@ export const actions: Actions = {
 		const challenge = await readMfaChallenge(cookies);
 		if (!challenge) throw redirect(303, '/login');
 
-		const ip = getClientAddress();
+		const ip = resolveClientAddress({ getClientAddress, request });
 		if (await isMfaRateLimited(challenge.id, ip)) return tooManyAttempts();
 
 		const formData = await request.formData();
