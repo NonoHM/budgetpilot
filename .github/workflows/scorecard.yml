@@ -1,0 +1,54 @@
+# OpenSSF Scorecard: continuous supply-chain posture measurement.
+# Results publish to the repository Security tab (code scanning) and to the public
+# Scorecard API, so improvements show as a delta rather than a claim. See #184 follow-up.
+#
+# This workflow is itself pinned by commit SHA and keeps its token read-only at the top
+# level with writes scoped to the job, so it does not add to the Pinned-Dependencies or
+# Token-Permissions findings it helps track.
+name: Scorecard supply-chain security
+
+on:
+  # Re-run when branch protection changes, weekly, and on push to the default branch.
+  branch_protection_rule:
+  schedule:
+    - cron: '20 7 * * 1'
+  push:
+    branches: [main]
+
+# Least privilege: read-only by default, writes declared per job below.
+permissions: read-all
+
+jobs:
+  analysis:
+    name: Scorecard analysis
+    runs-on: ubuntu-latest
+    permissions:
+      # Needed to upload the SARIF results to the code-scanning dashboard.
+      security-events: write
+      # Needed for the publish step to authenticate to the Scorecard API via OIDC.
+      id-token: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Run analysis
+        uses: ossf/scorecard-action@2d1146689b8cda280b9bc96326124645441f03bc # v2.4.4
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          # Publish so the public Scorecard badge and API reflect each run.
+          publish_results: true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: SARIF file
+          path: results.sarif
+          retention-days: 5
+
+      - name: Upload to code-scanning
+        uses: github/codeql-action/upload-sarif@c16c0f3f2812ec4bb3750a5ed64873fe2ce0fbef # codeql-bundle-v2.26.3
+        with:
+          sarif_file: results.sarif
