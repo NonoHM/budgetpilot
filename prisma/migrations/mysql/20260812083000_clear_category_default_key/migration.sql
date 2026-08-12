@@ -1,0 +1,40 @@
+-- Retires Category.defaultKey (#162). The stored name becomes the only name a category has.
+--
+-- ONE STATEMENT, AND THAT IS THE ENTIRE SAFETY ARGUMENT. The reason was measured rather than
+-- assumed, and the measurement corrected the expectation this comment was first written to state:
+-- it is not that MySQL is the weak engine here and the other two would have covered a second
+-- statement. `prisma migrate deploy` wraps a migration file in a transaction on NONE of the
+-- three. A second statement was appended that fails on a unique violation (chosen over a missing
+-- table so that its error PROVES the first statement executed), and on all three the first
+-- statement stayed committed while the migration was recorded as failed. A CREATE TABLE control
+-- gave the same verdict on all three.
+--
+-- So "all or none" here is a property of the SHAPE and of nothing else. A single UPDATE has no
+-- halfway state to leave behind. Any second statement added to this file would be able to leave
+-- one. Do not add one.
+--
+-- What remains true of this engine ALONE is narrower and belongs to the drop rather than to the
+-- clear: DDL commits implicitly here and cannot be rolled back at all, so a clear-and-drop could
+-- not be made all-or-none on MySQL even by an engine that did wrap the file.
+--
+-- The statement is also idempotent, which the recovery path needs: after `migrate resolve
+-- --rolled-back`, `migrate deploy` re-runs the whole file from the top.
+--
+-- WHAT THIS DOES NOT DO, deliberately:
+--
+--   * It writes no name. Not one row's `name` changes, so nothing joined on that text can break.
+--     Five tables reference a category by its displayed text (Transaction.manualCategory,
+--     MonthlyBudget.categoryName, CategoryNatureMapping.categoryName, CategoryRule.targetCategory,
+--     CategorizationRule.targetCategory) and every one of them keeps pointing at the same string
+--     it pointed at before this ran. Measured: three seeded names present before, three after.
+--
+--   * It does not DROP the column. See the docstring on Category.defaultKey in
+--     prisma/schema.prisma, which carries the reason and the trigger that releases the drop.
+--
+-- WHAT IT COSTS, stated rather than hidden: a user reading the app in English saw "Groceries" for
+-- the row stored as "Alimentation", because this column decided that row's label. After this runs
+-- the same row reads "Alimentation" until the user accepts the rename prompt on /categories. A
+-- French install is a genuine no-op, because all fourteen seeded names are stored exactly as they
+-- were displayed.
+
+UPDATE `Category` SET `defaultKey` = NULL;
