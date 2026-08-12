@@ -48,14 +48,20 @@ Every image is captured in **English**, with both the `PARAGLIDE_LOCALE`
 cookie and the `Accept-Language` header set, and the generator reads the
 rendered `lang` attribute back before it writes a file.
 
-One thing to check before capturing any screen that names a category: the
-14 seeded default categories are **stored** under canonical French names and
-translated for display. Most surfaces show the translation, but the split
-editor's category picker shows and searches the stored name, so an English
-capture of that picker reads `Alimentation` while the row behind it reads
-`Groceries`. Where that matters, the defaults were renamed to their English
-labels through the Categories page first. Check which name a surface shows
-before shooting it rather than after.
+**The category names are no longer something to check by hand.** A category
+has one name, the one stored, so the 14 built-in ones would read
+`Alimentation` and `Loisirs` on an otherwise English page. Both capture
+scripts therefore post `/categories?/adoptDefaultNames` as part of signing
+in, which is the same action the offer on the Categories page drives, and
+every surface then agrees: the list, the pickers, the report labels and the
+search all show the English name.
+
+This used to be a manual rename performed through the Categories page and
+recorded only in this paragraph, which is precisely the shape that gets
+forgotten by whoever reshoots next. It is now part of the scripts, and it
+fails the capture rather than passing quietly: the action refuses when it has
+nothing to rename, so a seeder that stopped creating the defaults or a locale
+that failed to pin stops the run instead of writing French images.
 
 ## Reproducing the three README images
 

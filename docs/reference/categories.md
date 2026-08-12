@@ -21,19 +21,22 @@ reference the category, not its spelling, so all of them follow.
 
 ### Uniqueness and the built-in names
 
-**The fourteen categories BudgetPilot creates for you are stored under
-canonical French names and translated for display.** So in English,
-`Groceries` on screen is `Alimentation` in the database.
+**A category has one name: the one stored, which is the one shown.** Nothing
+is translated, including the fourteen BudgetPilot creates for you. They are
+created under French names and are ordinary rows from that moment on: you
+rename and delete them like any other, and nothing downstream can tell one
+from a category you typed yourself.
 
-Uniqueness is checked against the **stored** name. The consequence is worth
-knowing before it surprises you: creating a category called `Groceries` in
-an English instance **succeeds**, because nothing named `Groceries` is
-stored, and the list then shows two rows that read almost identically. The
-dialog's promise that the name must be unique is true of what is stored, not
-of what you see.
+Uniqueness is therefore checked against the name you see, and the dialog's
+promise that a name must be unique means what it says in every language.
 
-Categories you create yourself are stored exactly as you typed them and are
-never translated, so they cannot disagree with themselves.
+**If you read the app in English, the fourteen start out reading in French.**
+The Categories page offers, once, to rename them all into the language you
+are reading; accepting is an ordinary rename, so budgets, rules, category
+natures and any transaction you pinned by hand all follow. Dismissing the
+offer keeps the names as they are and it does not come back. If you later
+rename one back by hand, or switch language, the offer returns for what it
+still applies to.
 
 ## Nature
 

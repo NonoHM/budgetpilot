@@ -117,8 +117,8 @@ async function waitForServer(url, timeoutMs = 60_000) {
 
 // ---- Seeding (real HTTP form actions only, same discipline as e2e/seed.ts) ----
 
-async function submitForm(ctx, formPath, fields) {
-	const res = await ctx.post(formPath, { form: fields, maxRedirects: 0 });
+async function submitForm(ctx, formPath, fields, headers) {
+	const res = await ctx.post(formPath, { form: fields, maxRedirects: 0, headers });
 	const body = await res.json();
 	if (body.type !== 'success' && body.type !== 'redirect') {
 		throw new Error(`demo seed: POST ${formPath} failed (${body.type}, status ${body.status})`);
@@ -184,6 +184,27 @@ async function seedDemoData() {
 		}
 
 		await submitForm(ctx, '/net-worth?/createSavingsGoal', SAVINGS_GOAL);
+
+		// Renames the fourteen seeded categories into English, through the same form action the
+		// prompt on /categories drives (#162).
+		//
+		// Necessary because a category's stored name is now its only name: the seeder creates them
+		// under canonical French names, and without this every image would read "Alimentation" and
+		// "Loisirs" on an otherwise English screen. This used to be a manual step performed through
+		// the Categories page and recorded in prose, which is the shape that gets forgotten by
+		// whoever reshoots next; it is now part of seeding.
+		//
+		// THE LOCALE IS PINNED ON THIS CALL, not inherited. The action renames into the language of
+		// the REQUEST, and this seeding context sets no locale at all, so it would resolve whatever
+		// negotiation falls back to. That happens to be English today (`baseLocale` in
+		// project.inlang/settings.json), which is the right answer for the wrong reason: the day a
+		// different base locale lands, the demo images would silently change language.
+		//
+		// `Accept-Language` ONLY, never a `Cookie` header. Setting one here would replace this
+		// context's cookie jar, session cookie included, and the request would arrive signed out and
+		// be redirected to /login. The capture contexts below can set both because they start from a
+		// storageState that already carries the session.
+		await submitForm(ctx, '/categories?/adoptDefaultNames', {}, { 'Accept-Language': 'en' });
 
 		await ctx.storageState({ path: STORAGE_STATE_PATH });
 	} finally {

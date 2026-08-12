@@ -480,6 +480,36 @@ async function main() {
 			throw new Error(`[docs] second factor failed: ${JSON.stringify(secondBody).slice(0, 200)}`);
 		}
 	}
+	// Renames the fourteen seeded categories into English, through the same form action the prompt
+	// on /categories drives (#162). A category's stored name is now its only name, so without this
+	// every screen naming a category reads "Alimentation" and "Loisirs" on an otherwise English
+	// page. This used to be a manual step performed through the Categories page and recorded only
+	// in prose, which is exactly the shape that gets forgotten by whoever reshoots next.
+	//
+	// `Accept-Language` ONLY, never a `Cookie` header: setting one would replace this context's
+	// cookie jar, session cookie included, and the request would arrive signed out.
+	//
+	// A 400 here means the plan was empty, which is the honest failure: it says the defaults were
+	// never seeded, or were already renamed, or the locale did not resolve to English. Any of those
+	// makes the capture's premise false, so it stops rather than writing French images that look
+	// deliberate. It is IDEMPOTENT against a repeat run, which is the one case worth tolerating:
+	// re-running the capture on an instance already renamed is normal.
+	const adopt = await ctx.post('/categories?/adoptDefaultNames', {
+		form: {},
+		maxRedirects: 0,
+		headers: { 'Accept-Language': 'en' }
+	});
+	const adoptBody = await adopt.json();
+	if (adoptBody.type !== 'success' && adoptBody.type !== 'redirect') {
+		const alreadyDone = JSON.stringify(adoptBody).includes('Nothing to rename');
+		if (!alreadyDone) {
+			throw new Error(
+				`[docs] adopting English category names failed: ${JSON.stringify(adoptBody).slice(0, 200)}`
+			);
+		}
+		console.log('[docs] categories already carry their English names, nothing to rename');
+	}
+
 	const storageState = await ctx.storageState();
 	await ctx.dispose();
 
