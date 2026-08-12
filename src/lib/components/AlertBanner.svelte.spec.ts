@@ -36,6 +36,75 @@ describe('AlertBanner.svelte', () => {
 		await expect.element(page.getByText('Careful')).toBeInTheDocument();
 	});
 
+	it('never auto-hides an info banner regardless of autoDismissMs', async () => {
+		render(AlertBanner, {
+			variant: 'info',
+			autoDismissMs: 20,
+			children: textSnippet('Rename them?')
+		});
+
+		// An offer the reader has not answered yet is not a confirmation that can expire.
+		await new Promise((resolve) => setTimeout(resolve, 100));
+		await expect.element(page.getByText('Rename them?')).toBeInTheDocument();
+	});
+
+	it('announces an info banner politely, not assertively', async () => {
+		render(AlertBanner, { variant: 'info', children: textSnippet('Rename them?') });
+
+		// `status`/`polite` rather than `alert`/`assertive`: an assertive region cuts across
+		// whatever the reader is in the middle of, which is right for an error blocking their
+		// action and wrong for an offer they can take at any time.
+		const banner = page.getByRole('status').element();
+		expect(banner.getAttribute('aria-live')).toBe('polite');
+		expect(banner.textContent).toContain('Rename them?');
+	});
+
+	it('gives info its own GLYPH, so the tone is never carried by colour alone', () => {
+		// The accessibility rule this variant is most likely to break. Zinc against rose is a
+		// colour difference, and a reader who cannot use colour has to be able to tell an offer
+		// from a failure. Asserted on the SVG markup rather than on a class name: the class is what
+		// the author wrote, the markup is what the reader sees.
+		//
+		// Two structural differences, both checked. Info's circle is STROKED where error's is
+		// filled, and info's dot sits ABOVE the bar where error's sits below.
+		const { container: infoContainer } = render(AlertBanner, {
+			variant: 'info',
+			children: textSnippet('Offer')
+		});
+		const infoIcon = infoContainer.querySelector('[aria-hidden="true"] svg');
+
+		const { container: errorContainer } = render(AlertBanner, {
+			variant: 'error',
+			children: textSnippet('Failure')
+		});
+		const errorIcon = errorContainer.querySelector('[aria-hidden="true"] svg');
+
+		expect(infoIcon?.getAttribute('fill')).toBe('none');
+		expect(errorIcon?.getAttribute('fill')).toBe('currentColor');
+		expect(infoIcon?.innerHTML).not.toBe(errorIcon?.innerHTML);
+	});
+
+	it('lets a caller name the close control when "Close" would understate it', async () => {
+		// A banner whose dismissal is PERSISTED makes the X a permanent decision. Announced as
+		// "Close", a screen reader user has no way to know that before pressing it.
+		render(AlertBanner, {
+			variant: 'info',
+			dismissLabel: 'Keep the current names',
+			children: textSnippet('Offer')
+		});
+
+		await expect
+			.element(page.getByRole('button', { name: 'Keep the current names' }))
+			.toBeVisible();
+		expect(page.getByRole('button', { name: 'Fermer' }).elements().length).toBe(0);
+	});
+
+	it('still says "Fermer" when no dismissLabel is passed, so existing callers are unaffected', async () => {
+		render(AlertBanner, { variant: 'info', children: textSnippet('Offer') });
+
+		await expect.element(page.getByRole('button', { name: 'Fermer' })).toBeVisible();
+	});
+
 	it('closes any variant immediately via the manual close button', async () => {
 		render(AlertBanner, { variant: 'error', children: textSnippet('Oops') });
 

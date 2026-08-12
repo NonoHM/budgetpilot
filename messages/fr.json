@@ -1308,5 +1308,15 @@
 	"transactions_unsaved_stay": "Rester",
 	"transactions_unsaved_discard": "Abandonner",
 	"common_retry": "Réessayer",
-	"transactions_period_sheet_back": "Filtres"
+	"transactions_period_sheet_back": "Filtres",
+	"categories_rename_prompt_body": "{count} de vos catégories portent encore le nom sous lequel elles ont été créées, elles se lisent donc différemment du reste de l'interface. Les renommer pour correspondre à la langue que vous lisez ?",
+	"categories_rename_prompt_body_one": "Une de vos catégories porte encore le nom sous lequel elle a été créée, elle se lit donc différemment du reste de l'interface. La renommer pour correspondre à la langue que vous lisez ?",
+	"categories_rename_prompt_action": "Les renommer",
+	"categories_rename_prompt_action_one": "La renommer",
+	"categories_rename_prompt_dismiss_aria": "Conserver les noms de catégories actuels",
+	"categories_rename_prompt_success": "{count} catégories renommées. Les budgets, les règles et les transactions ont suivi.",
+	"categories_rename_prompt_success_one": "Une catégorie renommée. Les budgets, les règles et les transactions ont suivi.",
+	"categories_rename_prompt_blocked": "{count} ont conservé leur nom, car vous avez déjà une catégorie portant le nom proposé.",
+	"categories_rename_prompt_blocked_one": "Une a conservé son nom, car vous avez déjà une catégorie portant le nom proposé.",
+	"categories_rename_prompt_nothing": "Rien à renommer."
 }

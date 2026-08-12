@@ -89,12 +89,16 @@ const db = vi.hoisted(() => {
 		})
 	});
 
+	// The one stored half of #162's rename prompt. Everything else about it is derived per request.
+	const promptDismissal: { at: Date | null } = { at: null };
+
 	const base = {
 		categories,
 		mappings,
 		budgets,
 		categoryRules,
 		categorizationRules,
+		promptDismissal,
 		prisma: {
 			categoryRule: ruleTableMock(categoryRules),
 			categorizationRule: ruleTableMock(categorizationRules),
@@ -155,6 +159,30 @@ const db = vi.hoisted(() => {
 					const cat = categories.find((c) => c.id === where.id);
 					if (cat) Object.assign(cat, data);
 					return cat;
+				})
+			},
+			user: {
+				// #162's rename prompt. `load` reads the dismissal; `?/dismissRenamePrompt` writes it.
+				//
+				// Held in a mutable box rather than returned as a constant, so a test can drive the
+				// dismiss action and then observe `load` going quiet, which is the whole behaviour.
+				// Fails loudly on an unmodelled select for the same reason every other fake here does:
+				// silently returning a row without the field would make the prompt look dismissed,
+				// which is the direction that HIDES a regression rather than reporting one.
+				findUnique: vi.fn(async ({ where, select }) => {
+					if (where.id !== 'user-a') return null;
+					if (!select?.categoryRenamePromptDismissedAt) {
+						throw new Error('user.findUnique: only `categoryRenamePromptDismissedAt` is modelled');
+					}
+					return { categoryRenamePromptDismissedAt: promptDismissal.at };
+				}),
+				update: vi.fn(async ({ where, data }) => {
+					if (where.id !== 'user-a') throw new Error('user.update: unmodelled user');
+					if (!('categoryRenamePromptDismissedAt' in data)) {
+						throw new Error('user.update: only `categoryRenamePromptDismissedAt` is modelled');
+					}
+					promptDismissal.at = data.categoryRenamePromptDismissedAt;
+					return { id: where.id };
 				})
 			},
 			transaction: {
@@ -708,5 +736,93 @@ describe('load — rules a delete would pause', () => {
 		// The dialog renders the line only above zero, so an `undefined` here would read as "no
 		// rules" and be indistinguishable from a real count that failed to arrive.
 		expect((await loadCategories()).get('Loisirs')).toBe(0);
+	});
+});
+
+// #162's rename prompt, at the seam the unit spec beside `planDefaultCategoryRenames` cannot
+// reach: the load's decision to SHOW it. The plan and the dismissal are two independent inputs,
+// and the whole design rests on only one of them being stored, so both directions are asserted
+// here rather than inferred from the schema docstring.
+describe('load — the rename prompt (#162)', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.promptDismissal.at = null;
+		db.categories.length = 0;
+		db.categories.push(
+			{ id: 'cat-alimentation', userId: 'user-a', name: 'Alimentation', defaultKey: 'food' },
+			{ id: 'cat-mine', userId: 'user-a', name: 'Mes courses', defaultKey: null }
+		);
+		db.categoryRules.length = 0;
+		db.mappings.length = 0;
+	});
+
+	afterEach(() => {
+		overwriteGetLocale(() => 'fr');
+	});
+
+	async function loadPrompt() {
+		const data = (await load({ locals: { user: testUser } } as Parameters<typeof load>[0])) as {
+			renamePrompt: { count: number; blockedByExistingName: number } | null;
+		};
+		return data.renamePrompt;
+	}
+
+	it('offers the rename to a reader whose language renders the name differently', async () => {
+		expect.assertions(2);
+		overwriteGetLocale(() => 'en');
+
+		const prompt = await loadPrompt();
+
+		// One, not two: "Mes courses" is a name the user chose and nothing may offer to change it.
+		expect(prompt).not.toBeNull();
+		expect(prompt?.count).toBe(1);
+	});
+
+	it('offers NOTHING to a French reader, which is the migration no-op seen from the UI', async () => {
+		expect.assertions(1);
+		overwriteGetLocale(() => 'fr');
+
+		// The same rows, the same code, a different reader. No condition anywhere special-cases
+		// French: the plan is empty because the catalogue renders "Alimentation" as "Alimentation".
+		expect(await loadPrompt()).toBeNull();
+	});
+
+	it('goes quiet once the user has dismissed it', async () => {
+		expect.assertions(2);
+		overwriteGetLocale(() => 'en');
+
+		// APPEAR then DISAPPEAR, never absence-then-hope: asserting the prompt is present first is
+		// what proves this fixture can produce one at all, so the null below means the dismissal did
+		// it rather than the fixture never having had anything to offer.
+		expect(await loadPrompt()).not.toBeNull();
+
+		await runAction('dismissRenamePrompt', {});
+
+		expect(await loadPrompt()).toBeNull();
+	});
+
+	it('dismissing does not touch a single category name', async () => {
+		expect.assertions(1);
+		overwriteGetLocale(() => 'en');
+
+		const before = db.categories.map((category) => category.name);
+		await runAction('dismissRenamePrompt', {});
+
+		expect(db.categories.map((category) => category.name)).toEqual(before);
+	});
+
+	it('stops offering on its own once the names have been adopted, with nothing dismissed', async () => {
+		expect.assertions(3);
+		overwriteGetLocale(() => 'en');
+
+		expect(await loadPrompt()).not.toBeNull();
+
+		await runAction('adoptDefaultNames', {});
+
+		// The derived half going false is what silences it, so the stored flag is still null. That
+		// is the property the schema docstring claims and the reason a user who renames a category
+		// back, or switches language, is offered it again.
+		expect(await loadPrompt()).toBeNull();
+		expect(db.promptDismissal.at).toBeNull();
 	});
 });
