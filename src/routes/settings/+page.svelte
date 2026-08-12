@@ -149,7 +149,16 @@
 	// Danger zone (controlled button, not <details>/<summary>)
 	let dangerOpen = $state(false);
 	let dangerConfirmValue = $state('');
-	const deleteConfirmValid = $derived(dangerConfirmValue === 'SUPPRIMER');
+	const deleteConfirmValid = $derived(
+		dangerConfirmValue === m.settings_delete_confirmation_phrase()
+	);
+
+	// A failed delete (wrong phrase, wrong password/code, rate limited) reloads the page via a plain
+	// POST, which resets dangerOpen to false and would hide the error inside the collapsed panel.
+	// Reopen it so the message is visible, mirroring the restore/password effects above.
+	$effect(() => {
+		if (form?.deleteError) dangerOpen = true;
+	});
 
 	// Backup restore (controlled button)
 	let restoreOpen = $state(false);
@@ -1022,30 +1031,57 @@
 
 				{#if dangerOpen}
 					<div class="border-t border-rose-100 px-5 py-4">
-						<form method="POST" action="?/deleteAccount">
-							<label for="danger-confirm" class="block text-xs font-medium text-rose-700">
-								{m.settings_delete_confirm_instruction()}
-							</label>
-							<div class="mt-2 flex flex-col gap-2 lg:flex-row lg:flex-wrap lg:items-center">
+						<form method="POST" action="?/deleteAccount" autocomplete="off" class="space-y-3">
+							<div>
+								<label for="danger-confirm" class="block text-xs font-medium text-rose-700">
+									{m.settings_delete_confirm_instruction({
+										phrase: m.settings_delete_confirmation_phrase()
+									})}
+								</label>
 								<input
 									id="danger-confirm"
 									type="text"
 									name="confirmation"
-									placeholder="SUPPRIMER"
+									placeholder={m.settings_delete_confirmation_phrase()}
 									autocomplete="off"
 									bind:value={dangerConfirmValue}
-									class="h-11 w-full rounded-xl border border-rose-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none lg:w-48"
+									class="mt-2 h-11 w-full rounded-xl border border-rose-200 bg-white px-3 text-sm text-zinc-900 placeholder:text-rose-300 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none lg:w-64"
 								/>
-								<Button
-									type="submit"
-									variant="danger"
-									size="sm"
-									disabled={!deleteConfirmValid}
-									class="h-11 w-full lg:h-auto lg:w-auto"
-								>
-									{m.settings_delete_confirm_submit()}
-								</Button>
 							</div>
+
+							<label class="block space-y-1.5 text-xs font-medium text-rose-700">
+								<span>{m.settings_delete_confirm_password_label()}</span>
+								<PasswordInput name="currentPassword" required autocomplete="current-password" />
+							</label>
+
+							{#if data.mfa.enabled}
+								<label
+									for="danger-code"
+									class="block space-y-1.5 text-xs font-medium text-rose-700"
+								>
+									<span>{m.settings_delete_confirm_code_label()}</span>
+									<input
+										id="danger-code"
+										type="text"
+										inputmode="numeric"
+										name="code"
+										required
+										autocomplete="one-time-code"
+										class="h-11 w-full rounded-xl border border-rose-200 bg-white px-3 text-sm text-zinc-900 focus:border-rose-400 focus:ring-2 focus:ring-rose-200 focus:outline-none lg:w-64"
+									/>
+								</label>
+							{/if}
+
+							<Button
+								type="submit"
+								variant="danger"
+								size="sm"
+								disabled={!deleteConfirmValid}
+								class="h-11 w-full lg:h-auto lg:w-auto"
+							>
+								{m.settings_delete_confirm_submit()}
+							</Button>
+
 							{#if form?.deleteError}
 								<p class="mt-2 text-xs text-rose-600" role="alert" aria-live="assertive">
 									{form.deleteError}

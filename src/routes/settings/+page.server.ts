@@ -19,6 +19,8 @@ import {
 	hashRecoveryCode,
 	verifyTotpCode
 } from '$lib/server/auth/totp';
+import { isReauthRateLimited, recordReauthAttempt } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
 import { BackupImportError, restoreBackup } from '$lib/server/backup/import';
 import { backupExportSchema } from '$lib/server/backup/schema';
@@ -33,7 +35,6 @@ import type { PageServerLoad } from './$types';
 
 const TOTP_CODE_PATTERN = /^[0-9]{6}$/;
 
-const DELETE_CONFIRMATION = 'SUPPRIMER';
 const BACKUP_MAX_BYTES = 20_000_000;
 
 export const load: PageServerLoad = async ({ cookies, locals }) => {
@@ -103,8 +104,9 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 };
 
 export const actions: Actions = {
-	changePassword: async ({ cookies, locals, request }) => {
+	changePassword: async ({ cookies, getClientAddress, locals, request }) => {
 		const user = requireUser(locals.user);
+		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
 		const currentPassword = getFormValue(formData, 'currentPassword');
 		const newPassword = getFormValue(formData, 'newPassword');
@@ -120,6 +122,12 @@ export const actions: Actions = {
 			return fail(400, { passwordError: m.settings_error_password_update_failed() });
 		}
 
+		// This action re-verifies the current password, so it is a password-guessing oracle behind a
+		// session: throttled by the shared re-auth limiter. See rateLimit.ts (isReauthRateLimited).
+		if (await isReauthRateLimited(user.id, ip)) {
+			return fail(400, { passwordError: m.settings_error_reauth_too_many() });
+		}
+
 		const account = await prisma.user.findUnique({
 			where: { id: user.id },
 			select: {
@@ -129,8 +137,10 @@ export const actions: Actions = {
 		if (!account) throw redirect(303, '/login');
 
 		const currentPasswordOk = await verifyPassword(currentPassword, account.passwordHash);
-		if (!currentPasswordOk)
+		if (!currentPasswordOk) {
+			await recordReauthAttempt(user.id, ip);
 			return fail(400, { passwordError: m.settings_error_password_update_failed() });
+		}
 
 		const newPasswordHash = await hashPassword(newPassword);
 		const now = new Date();
@@ -210,13 +220,44 @@ export const actions: Actions = {
 			sessionsSuccess: m.settings_success_session_revoked()
 		};
 	},
-	deleteAccount: async ({ cookies, locals, request }) => {
+	deleteAccount: async ({ cookies, getClientAddress, locals, request }) => {
 		const user = requireUser(locals.user);
+		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
 		const confirmation = getFormValue(formData, 'confirmation');
+		const currentPassword = getFormValue(formData, 'currentPassword');
+		const code = getFormValue(formData, 'code').trim();
 
-		if (confirmation !== DELETE_CONFIRMATION) {
+		// The phrase confirms INTENT and is checked first, before the limiter and before any secret:
+		// it is a fixed word, not a secret, so a mistyped phrase must never consume a re-auth attempt
+		// (otherwise fumbling the confirmation would lock the owner out of their own delete). Compared
+		// against the localised phrase (#203) so an English user types DELETE, not SUPPRIMER.
+		if (confirmation !== m.settings_delete_confirmation_phrase()) {
 			return fail(400, { deleteError: m.settings_error_confirmation_required() });
+		}
+
+		// The phrase confirms intent; the credential authenticates. Deleting an account is at least as
+		// sensitive as disabling TOTP, so it re-verifies the password and, when TOTP is on, a valid
+		// code, the same pair disableTotp requires. Throttled by the shared re-auth limiter so this
+		// new password/TOTP check is not an uncounted brute-force oracle (rateLimit.ts).
+		if (await isReauthRateLimited(user.id, ip)) {
+			return fail(400, { deleteError: m.settings_error_reauth_too_many() });
+		}
+
+		const account = await prisma.user.findUnique({
+			where: { id: user.id },
+			select: { passwordHash: true, totpEnabled: true, totpSecretEncrypted: true }
+		});
+		if (!account) throw redirect(303, '/login');
+
+		const passwordOk = await verifyPassword(currentPassword, account.passwordHash);
+		const codeOk =
+			account.totpEnabled && account.totpSecretEncrypted
+				? TOTP_CODE_PATTERN.test(code) && verifyTotpCodeSafely(account.totpSecretEncrypted, code)
+				: true;
+		if (!passwordOk || !codeOk) {
+			await recordReauthAttempt(user.id, ip);
+			return fail(400, { deleteError: m.settings_error_delete_credentials() });
 		}
 
 		await prisma.$transaction(async (tx) => {
@@ -342,8 +383,9 @@ export const actions: Actions = {
 	// Requires the current password, symmetric to disableTotp: enabling a second factor
 	// is at least as sensitive as disabling it (otherwise an already-open session would
 	// be enough to enroll an attacker's device and obtain the recovery codes).
-	confirmTotpSetup: async ({ locals, request }) => {
+	confirmTotpSetup: async ({ getClientAddress, locals, request }) => {
 		const user = requireUser(locals.user);
+		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
 		const currentPassword = getFormValue(formData, 'currentPassword');
 		const secretBase32 = getFormValue(formData, 'secretBase32');
@@ -363,6 +405,12 @@ export const actions: Actions = {
 			});
 		if (!currentPassword || !secretBase32 || !TOTP_CODE_PATTERN.test(code)) return invalid();
 
+		// Re-verifies the current password (and the freshly-scanned code), so it is throttled by the
+		// shared re-auth limiter like the other three (rateLimit.ts).
+		if (await isReauthRateLimited(user.id, ip)) {
+			return invalid(m.settings_error_reauth_too_many());
+		}
+
 		const account = await prisma.user.findUnique({
 			where: { id: user.id },
 			select: { passwordHash: true }
@@ -370,9 +418,15 @@ export const actions: Actions = {
 		if (!account) throw redirect(303, '/login');
 
 		const passwordOk = await verifyPassword(currentPassword, account.passwordHash);
-		if (!passwordOk) return invalid(m.settings_mfa_error_setup_invalid_password());
+		if (!passwordOk) {
+			await recordReauthAttempt(user.id, ip);
+			return invalid(m.settings_mfa_error_setup_invalid_password());
+		}
 
-		if (!verifyTotpCode(secretBase32, code)) return invalid();
+		if (!verifyTotpCode(secretBase32, code)) {
+			await recordReauthAttempt(user.id, ip);
+			return invalid();
+		}
 
 		const recoveryCodes = generateRecoveryCodes();
 		const recoveryCodeHashes = await Promise.all(recoveryCodes.map((c) => hashRecoveryCode(c)));
@@ -394,14 +448,23 @@ export const actions: Actions = {
 
 		return { totpEnableSuccess: true, recoveryCodes };
 	},
-	disableTotp: async ({ locals, request }) => {
+	disableTotp: async ({ getClientAddress, locals, request }) => {
 		const user = requireUser(locals.user);
+		const ip = resolveClientAddress({ getClientAddress, request });
 		const formData = await request.formData();
 		const currentPassword = getFormValue(formData, 'currentPassword');
 		const code = getFormValue(formData, 'code').trim();
 
 		const invalid = () => fail(400, { totpDisableError: m.settings_mfa_error_disable_failed() });
 		if (!currentPassword || !TOTP_CODE_PATTERN.test(code)) return invalid();
+
+		// The sharpest of the four re-auth actions: it verifies the current password AND the current
+		// TOTP code, so without a limiter the 6-digit second factor that protects the account could
+		// itself be brute-forced off by anyone already holding a session. Throttled by the shared
+		// re-auth limiter (rateLimit.ts).
+		if (await isReauthRateLimited(user.id, ip)) {
+			return fail(400, { totpDisableError: m.settings_error_reauth_too_many() });
+		}
 
 		const account = await prisma.user.findUnique({
 			where: { id: user.id },
@@ -410,17 +473,11 @@ export const actions: Actions = {
 		if (!account || !account.totpEnabled || !account.totpSecretEncrypted) return invalid();
 
 		const passwordOk = await verifyPassword(currentPassword, account.passwordHash);
-		if (!passwordOk) return invalid();
-
-		// A rotated/corrupted encryption key makes the GCM decryption fail (invalid auth
-		// tag): treated as an invalid code rather than crashing the request.
-		let codeOk: boolean;
-		try {
-			codeOk = verifyTotpCode(decryptTotpSecret(account.totpSecretEncrypted), code);
-		} catch {
-			codeOk = false;
+		const codeOk = passwordOk && verifyTotpCodeSafely(account.totpSecretEncrypted, code);
+		if (!passwordOk || !codeOk) {
+			await recordReauthAttempt(user.id, ip);
+			return invalid();
 		}
-		if (!codeOk) return invalid();
 
 		await prisma.$transaction(async (tx) => {
 			await tx.user.update({
@@ -497,6 +554,17 @@ export const actions: Actions = {
 
 function detectRuntime(): 'docker' | 'local' {
 	return existsSync('/.dockerenv') ? 'docker' : 'local';
+}
+
+// A rotated/corrupted encryption key makes the GCM decryption fail (invalid auth tag): treated as
+// an invalid code rather than letting the request crash with a 500. Shared by disableTotp and
+// deleteAccount, which both verify the stored (encrypted) secret.
+function verifyTotpCodeSafely(secretEncrypted: string, code: string): boolean {
+	try {
+		return verifyTotpCode(decryptTotpSecret(secretEncrypted), code);
+	} catch {
+		return false;
+	}
 }
 
 function getFormValue(formData: FormData, key: string): string {
