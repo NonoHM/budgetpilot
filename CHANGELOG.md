@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.10.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.9.1...budgetpilot-v0.10.0) (2026-08-12)
+
+
+### ⚠ BREAKING CHANGES
+
+* reverse-proxy deployments must remove ADDRESS_HEADER and XFF_DEPTH and set TRUSTED_PROXIES to the proxy's IP or CIDR, or the app refuses to start. The bundled Caddy overlay (docker-compose.proxy.yml) is already migrated. See docs/operations.md "Before you upgrade past 0.9.1".
+
+### Bug Fixes
+
+* **insights:** the AI prompt now admits when it shares transaction labels ([#216](https://github.com/NonoHM/budgetpilot/issues/216)) ([#232](https://github.com/NonoHM/budgetpilot/issues/232)) ([d48fd91](https://github.com/NonoHM/budgetpilot/commit/d48fd91d442ce00801cff21ab93b9946e6b04652))
+* **security:** re-validate redirect targets against the host allowlist on provider fetches ([#215](https://github.com/NonoHM/budgetpilot/issues/215)) ([#231](https://github.com/NonoHM/budgetpilot/issues/231)) ([6480db8](https://github.com/NonoHM/budgetpilot/commit/6480db8e69aa68af6f75a97694e089efdfdcaba6))
+* **settings:** re-authenticate before deleting an account, and localise the phrase ([#220](https://github.com/NonoHM/budgetpilot/issues/220), [#203](https://github.com/NonoHM/budgetpilot/issues/203)) ([#230](https://github.com/NonoHM/budgetpilot/issues/230)) ([aba0bee](https://github.com/NonoHM/budgetpilot/commit/aba0bee9eada86fdcec5f0ebbbe98626c5bf3141))
+* validate X-Forwarded-For against a TRUSTED_PROXIES allowlist ([#219](https://github.com/NonoHM/budgetpilot/issues/219)) ([#226](https://github.com/NonoHM/budgetpilot/issues/226)) ([4b6ca13](https://github.com/NonoHM/budgetpilot/commit/4b6ca132ba56b46043a3b8a40eb4c116c3003c75))
+
+
+### Documentation
+
+* add the OpenSSF Scorecard badge, with what it does and does not measure ([#233](https://github.com/NonoHM/budgetpilot/issues/233)) ([220f65f](https://github.com/NonoHM/budgetpilot/commit/220f65ffe39675c3f4087d576ec46d77e2416b92))
+
 ## [0.9.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.9.0...budgetpilot-v0.9.1) (2026-08-12)
 
 
