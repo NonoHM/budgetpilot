@@ -22,22 +22,25 @@ services:
     # The `!reset` tag is load-bearing and must not be simplified to a plain
     # `ports: []`. Compose merges sequences from several -f files by APPENDING,
     # so an empty list appends nothing and the base file's
-    # "${APP_PORT:-3000}:3000" mapping silently survives — the app stays
-    # published on 0.0.0.0 while the block below tells it to trust
-    # X-Forwarded-For, which together let anyone reaching that port forge their
-    # own client address and reset every per-IP rate limit at will.
+    # "${APP_PORT:-3000}:3000" mapping silently survives: the app stays
+    # published on 0.0.0.0 while the block below trusts a forwarded client
+    # address, which together let anyone reaching that port forge their own
+    # address and reset every per-IP rate limit at will.
     # `!reset` removes the key outright, which is the only thing that actually
     # cancels it. Requires Compose >= 2.24 (see docs/reverse-proxy.md).
     ports: !reset []
     environment:
-      # Without these, every request reaches the app with Caddy's container IP,
-      # collapsing every per-IP rate limit (login, MFA, registration, bank-sync
-      # consent) into a single shared bucket. adapter-node reads the client IP
-      # from this header instead. Safe here precisely because `ports: !reset []`
-      # above makes Caddy the only way in: a client that could reach the app
-      # directly would be able to forge its own address this way.
-      ADDRESS_HEADER: X-Forwarded-For
-      XFF_DEPTH: '1'
+      # Without a trusted-proxy allowlist, every request reaches the app with Caddy's
+      # container IP, collapsing every per-IP rate limit (login, MFA, registration,
+      # bank-sync consent) into a single shared bucket. The app trusts the real client
+      # from X-Forwarded-For ONLY when the socket peer is inside TRUSTED_PROXIES; the
+      # network below is pinned to 172.28.5.0/24, so it trusts Caddy and nothing else.
+      # It validates the header itself (do NOT set ADDRESS_HEADER: that makes the
+      # framework trust the header from anyone, and the app now refuses to boot if it is
+      # set, see #219). Combined with `ports: !reset []` above (Caddy is the sole way
+      # in), a client that could reach the app directly is on a different peer address
+      # and its forged header is ignored.
+      TRUSTED_PROXIES: 172.28.5.0/24
 
   caddy:
     image: caddy:2-alpine
@@ -53,6 +56,14 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     restart: unless-stopped
+
+# Pinned so TRUSTED_PROXIES above is a fixed, knowable value rather than whatever subnet
+# Docker happens to assign. Caddy and the app both get an address in this /24.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.28.5.0/24
 
 volumes:
   caddy_data:

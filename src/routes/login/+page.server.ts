@@ -9,6 +9,7 @@ import {
 import { createMfaChallenge } from '$lib/server/auth/mfaChallenge';
 import { isSelfRegistrationOpen } from '$lib/server/auth/registration';
 import { isLoginRateLimited, recordFailedLoginAttempt } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { ensureDefaultCategoriesSeeded } from '$lib/server/categories/defaults';
 import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRules';
 import { prisma } from '$lib/server/db';
@@ -32,7 +33,7 @@ export const actions: Actions = {
 
 		if (!email || !password) return invalid();
 
-		const ip = getClientAddress();
+		const ip = resolveClientAddress({ getClientAddress, request });
 		if (await isLoginRateLimited(email, ip)) return tooManyAttempts();
 
 		const user = await prisma.user.findUnique({

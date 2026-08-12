@@ -12,6 +12,7 @@ import { resolveDatabaseProvider } from '$lib/server/database/provider';
 import { warnIfDatabaseRoleIsOverprivileged } from '$lib/server/database/privileges';
 import { ensureNameKeysBackfilled } from '$lib/server/naming/boot';
 import { ensureDedupeKeyHashesBackfilled } from '$lib/server/import/dedupeBoot';
+import { assertForwardingConfigSafe, parseTrustedProxies } from '$lib/server/net/clientAddress';
 // Side-effect imports only: each module throws at load time if its required secret
 // (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
 // the one module SvelteKit always loads at boot, so importing them here turns a missing
@@ -25,6 +26,11 @@ import '$lib/server/crypto';
 // once per server start and adapter-node awaits it before listening, so throwing here is
 // still a crash-at-startup rather than a failure on some later request.
 export const init: ServerInit = async () => {
+	// Refuses to start if ADDRESS_HEADER/XFF_DEPTH are set: the app validates X-Forwarded-For
+	// against TRUSTED_PROXIES itself, and ADDRESS_HEADER would make the framework trust the header
+	// blindly (#219). Env-only, so it could be module-level, but keeping it beside the other boot
+	// assertions makes the ordering obvious.
+	assertForwardingConfigSafe();
 	await assertBootstrapTokenConfigured();
 	// Reports, never gates: see the module for why an over-privileged role is a loud warning
 	// rather than a refusal to start.
@@ -48,6 +54,20 @@ console.log(
 );
 // The warning fires on the opt-OUT, since that is the only way to reach this state:
 // secure cookies are the default whenever PUBLIC_INSTANCE is anything but "false".
+// Rate limiting keys on the client IP, so whether X-Forwarded-For is trusted is a security state
+// worth printing on every start, like cookies-secure above. The empty-default line is written to
+// TEACH, not just report: it names the setting, says when it is needed, and states the consequence
+// of leaving it unset (see #219), so an operator behind a proxy who never configured it can act.
+const trustedProxyRanges = parseTrustedProxies(process.env.TRUSTED_PROXIES);
+if (trustedProxyRanges.length > 0) {
+	console.log(
+		`[budgetpilot] startup: TRUSTED_PROXIES set (${trustedProxyRanges.length} range(s)). X-Forwarded-For is trusted only from these peers; rate limiting keys on the forwarded client IP.`
+	);
+} else {
+	console.log(
+		'[budgetpilot] startup: TRUSTED_PROXIES is unset, so X-Forwarded-For is NOT trusted and rate limiting keys on the socket peer. Correct when the app is reached directly. If it sits behind a reverse proxy, set TRUSTED_PROXIES to the proxy IP or CIDR (docker inspect its container, or your LAN/Docker-network range): otherwise every visitor shares the proxy address and one attacker can rate-limit them all. See docs/reverse-proxy.md.'
+	);
+}
 if (!secureCookies) {
 	console.warn(
 		'[budgetpilot] ⚠️ SECURITY: PUBLIC_INSTANCE=false, LAN mode: session cookies are sent WITHOUT the Secure flag. This is correct for a private instance reached over plain http:// on a trusted network, and unsafe anywhere else. If this instance is reachable from the Internet, remove PUBLIC_INSTANCE=false and serve it over HTTPS.'
