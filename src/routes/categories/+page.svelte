@@ -29,6 +29,8 @@
 	let deletingCategory: CategoryRow | null = $state(null);
 	let savedNatureIds = $state(new Set<string>());
 	let restoreDefaultsSubmitting = $state(false);
+	let adoptSubmitting = $state(false);
+	let dismissPromptForm: HTMLFormElement | null = $state(null);
 	let createSubmitting = $state(false);
 	let renameSubmitting = $state(false);
 	let deleteSubmitting = $state(false);
@@ -93,6 +95,68 @@
 		{/if}
 		{#if form?.success}
 			<AlertBanner variant="success" class="mb-4">{form.success}</AlertBanner>
+		{/if}
+
+		<!-- #162's offer. `data.renamePrompt` is null unless there is something to rename AND the
+		     user has not declined, so there is no condition to restate here.
+
+		     Zinc, not amber: the user did nothing wrong and nothing is broken. Their categories are
+		     stored under the names they were created with, which is a fact rather than a fault, and
+		     an amber banner would be the app apologising for its own data model. -->
+		{#if data.renamePrompt}
+			<!-- Bound once here because the action snippet is a closure: `data.renamePrompt` is
+			     narrowed by the `{#if}` in the banner's own body but not inside the snippet, so
+			     without this the count would have to be re-checked for null down there. -->
+			{@const promptCount = data.renamePrompt.count}
+			<form
+				bind:this={dismissPromptForm}
+				method="POST"
+				action="?/dismissRenamePrompt"
+				class="hidden"
+				aria-hidden="true"
+				use:enhance={() =>
+					async ({ update }) => {
+						await update();
+					}}
+			></form>
+			<AlertBanner
+				variant="info"
+				class="mb-4"
+				dismissLabel={m.categories_rename_prompt_dismiss_aria()}
+				onDismiss={() => dismissPromptForm?.requestSubmit()}
+			>
+				{promptCount === 1
+					? m.categories_rename_prompt_body_one()
+					: m.categories_rename_prompt_body({ count: promptCount })}
+				{#snippet action()}
+					<form
+						method="POST"
+						action="?/adoptDefaultNames"
+						class="shrink-0"
+						use:enhance={() => {
+							adoptSubmitting = true;
+							return async ({ update }) => {
+								await update();
+								adoptSubmitting = false;
+							};
+						}}
+					>
+						<!-- A submit button styled as the banner's own action, per AlertBanner's
+						     contract: the banner's tone rather than TapLink's default, and an
+						     always-visible underline, since an action inside a sentence has no
+						     surrounding "this is clickable" context to lean on. -->
+						<button
+							type="submit"
+							disabled={adoptSubmitting}
+							class="rounded-sm font-medium text-zinc-900 underline underline-offset-2 hover:text-zinc-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-zinc-400 disabled:opacity-60"
+						>
+							{promptCount === 1
+								? m.categories_rename_prompt_action_one()
+								: m.categories_rename_prompt_action()}
+						</button>
+					</form>
+				{/snippet}
+			</AlertBanner>
 		{/if}
 	</div>
 

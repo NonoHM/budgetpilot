@@ -17,6 +17,7 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { findCategoryByTypedName, isReservedCategoryName } from '$lib/server/categories/nameMatch';
 import { renameCategoryReferences } from '$lib/server/categories/references';
+import { planDefaultCategoryRenames } from '$lib/server/categories/renamePrompt';
 import type { PageServerLoad } from './$types';
 
 export type CategoryRow = {
@@ -38,7 +39,7 @@ export type CategoryRow = {
 export const load: PageServerLoad = async ({ locals }) => {
 	const user = requireUser(locals.user);
 
-	const [categories, mappings, rules] = await Promise.all([
+	const [categories, mappings, rules, dismissal] = await Promise.all([
 		prisma.category.findMany({
 			where: { userId: user.id },
 			orderBy: { name: 'asc' },
@@ -61,6 +62,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 		prisma.categoryRule.findMany({
 			where: { userId: user.id },
 			select: { targetCategory: true }
+		}),
+		prisma.user.findUnique({
+			where: { id: user.id },
+			select: { categoryRenamePromptDismissedAt: true }
 		})
 	]);
 
@@ -87,7 +92,23 @@ export const load: PageServerLoad = async ({ locals }) => {
 		};
 	});
 
-	return { categories: categoryRows, natureOptions: TRANSACTION_NATURES };
+	// #162's offer, computed here rather than stored anywhere. It reads the request's locale, so it
+	// has to be built per request; that is the same property that makes it correct after the user
+	// changes language in `/settings`. See server/categories/renamePrompt.ts.
+	//
+	// The dismissal is the one half that is stored, and it is applied LAST, after the plan is built.
+	// Ordering it this way keeps the plan itself honest: it is what the offer WOULD be, so a spec
+	// can assert the plan without having to arrange a user who has never dismissed anything.
+	const renamePlan = planDefaultCategoryRenames(categories);
+	const renamePrompt =
+		dismissal?.categoryRenamePromptDismissedAt || renamePlan.proposals.length === 0
+			? null
+			: {
+					count: renamePlan.proposals.length,
+					blockedByExistingName: renamePlan.blockedByExistingName
+				};
+
+	return { categories: categoryRows, natureOptions: TRANSACTION_NATURES, renamePrompt };
 };
 
 export const actions: Actions = {
@@ -170,6 +191,92 @@ export const actions: Actions = {
 		}
 
 		return { success: m.categories_success_renamed() };
+	},
+
+	/**
+	 * Accepts #162's offer: renames every seeded category still stored under its original name into
+	 * the language this request is being rendered in.
+	 *
+	 * ONE TRANSACTION FOR THE WHOLE SET, and that is the load-bearing decision. Each rename moves
+	 * the row plus the five columns that reference it by text, and a rename that moved the category
+	 * and not its budget is exactly the defect that produced the 0-cents figure #157 fixed. Doing
+	 * twelve of those as twelve independent transactions would make a failure halfway leave the user
+	 * with a set of categories in two languages and no way to tell which half moved.
+	 *
+	 * It takes NO id list from the form. The plan is recomputed here from the database and the
+	 * current locale, so a stale page, a replayed POST or a hand-edited payload cannot rename
+	 * anything the server would not have offered on its own. That also makes the action naturally
+	 * idempotent: run it twice and the second run finds an empty plan.
+	 */
+	adoptDefaultNames: async ({ locals }) => {
+		const user = requireUser(locals.user);
+
+		const categories = await prisma.category.findMany({
+			where: { userId: user.id },
+			select: { id: true, name: true }
+		});
+		const plan = planDefaultCategoryRenames(categories);
+		if (plan.proposals.length === 0) {
+			return fail(400, { error: m.categories_rename_prompt_nothing() });
+		}
+
+		try {
+			await prisma.$transaction(async (tx) => {
+				for (const proposal of plan.proposals) {
+					const oldKey = computeNameKey(proposal.currentName);
+					const newKey = computeNameKey(proposal.proposedName);
+					await tx.category.update({
+						where: { id: proposal.id },
+						data: { name: proposal.proposedName, nameKey: newKey }
+					});
+					// The same helper the single-category rename calls, for the same reason: the
+					// category's name is a foreign key in five other columns and they move with it.
+					await renameCategoryReferences(tx, {
+						userId: user.id,
+						oldKey,
+						newName: proposal.proposedName,
+						newKey
+					});
+				}
+			});
+		} catch (err: unknown) {
+			if (isPrismaUniqueError(err)) return fail(400, { error: m.categories_error_duplicate() });
+			throw err;
+		}
+
+		const renamed = plan.proposals.length;
+		const success =
+			renamed === 1
+				? m.categories_rename_prompt_success_one()
+				: m.categories_rename_prompt_success({ count: renamed });
+		if (plan.blockedByExistingName === 0) return { success };
+
+		// Stated rather than swallowed. A count that silently disagrees with what the banner offered
+		// is the shape this project keeps closing: the user counted the categories they expected to
+		// move, and the ones that did not have a reason they can act on.
+		const blocked =
+			plan.blockedByExistingName === 1
+				? m.categories_rename_prompt_blocked_one()
+				: m.categories_rename_prompt_blocked({ count: plan.blockedByExistingName });
+		return { success: `${success} ${blocked}` };
+	},
+
+	/**
+	 * Declines #162's offer, permanently.
+	 *
+	 * The one piece of this feature that is stored, because it is the one piece that is a fact about
+	 * the past rather than a verdict on the present. Everything else is recomputed per request; see
+	 * the docstring on User.categoryRenamePromptDismissedAt.
+	 */
+	dismissRenamePrompt: async ({ locals }) => {
+		const user = requireUser(locals.user);
+
+		await prisma.user.update({
+			where: { id: user.id },
+			data: { categoryRenamePromptDismissedAt: new Date() }
+		});
+
+		return { dismissed: true };
 	},
 
 	deleteCategory: async ({ locals, request }) => {

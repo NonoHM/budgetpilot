@@ -54,41 +54,55 @@ enum RecurringActionKind {
 }
 
 model User {
-  id                        String                     @id @default(cuid())
-  email                     String                     @unique @db.VarChar(254)
-  passwordHash              String
-  role                      Role                       @default(USER)
-  forcePasswordChange       Boolean                    @default(false)
-  defaultsSeededAt          DateTime?
-  defaultRulesSeededAt      DateTime?
-  aiInsightsEnabled         Boolean                    @default(true)
-  aiIncludeLabels           Boolean                    @default(false)
+  id                              String                     @id @default(cuid())
+  email                           String                     @unique @db.VarChar(254)
+  passwordHash                    String
+  role                            Role                       @default(USER)
+  forcePasswordChange             Boolean                    @default(false)
+  defaultsSeededAt                DateTime?
+  defaultRulesSeededAt            DateTime?
+  aiInsightsEnabled               Boolean                    @default(true)
+  aiIncludeLabels                 Boolean                    @default(false)
   /// TOTP secret encrypted at rest (AES-256-GCM, iv:authTag:ciphertext format in base64url).
   /// Never log or expose client-side. NULL as long as TOTP has never been configured.
-  totpSecretEncrypted       String? @db.Text
-  totpEnabled               Boolean                    @default(false)
-  totpEnabledAt             DateTime?
-  createdAt                 DateTime                   @default(now())
-  updatedAt                 DateTime                   @updatedAt
-  accounts                  Account[]
-  categories                Category[]
-  transactions              Transaction[]
-  importBatches             ImportBatch[]
-  rules                     CategorizationRule[]
-  categoryRules             CategoryRule[]
-  monthlyBudgets            MonthlyBudget[]
-  categoryNatureMappings    CategoryNatureMapping[]
-  sessions                  Session[]
-  invitationsCreated        Invitation[]               @relation("InvitationCreatedBy")
-  invitationsUsed           Invitation[]               @relation("InvitationUsedBy")
-  recoveryCodes             RecoveryCode[]
-  pendingMfaChallenges      PendingMfaChallenge[]
-  netWorthAccounts          NetWorthAccount[]
-  savingsGoals              SavingsGoal[]
-  bankConnections           BankConnection[]
-  bankAuthorizationRequests BankAuthorizationRequest[]
-  recurringStreamActions    RecurringStreamAction[]
-  tags                      Tag[]
+  totpSecretEncrypted             String? @db.Text
+  totpEnabled                     Boolean                    @default(false)
+  totpEnabledAt                   DateTime?
+  /// When this user dismissed the offer to rename the seeded categories into their own language
+  /// (#162). NULL means never dismissed, which is the state every existing row starts in.
+  ///
+  /// STORED because it is a fact about the past ("this user said no, on this date"), which is the
+  /// one kind of state a column can hold without going stale. Everything else about that prompt is
+  /// DERIVED per request: whether a seeded name is still stored, and whether the reader's language
+  /// would render it differently. Freezing either of those would leave a banner offering a rename
+  /// the user has already performed, or hiding one they now need after switching language.
+  ///
+  /// Accepting the rename does NOT set this. The prompt then stops appearing because its derived
+  /// half has become false, so a user who renames some categories back still gets the offer for the
+  /// rest, and one who switches language gets it again. That is the intended behaviour and it falls
+  /// out of the split rather than being coded.
+  categoryRenamePromptDismissedAt DateTime?
+  createdAt                       DateTime                   @default(now())
+  updatedAt                       DateTime                   @updatedAt
+  accounts                        Account[]
+  categories                      Category[]
+  transactions                    Transaction[]
+  importBatches                   ImportBatch[]
+  rules                           CategorizationRule[]
+  categoryRules                   CategoryRule[]
+  monthlyBudgets                  MonthlyBudget[]
+  categoryNatureMappings          CategoryNatureMapping[]
+  sessions                        Session[]
+  invitationsCreated              Invitation[]               @relation("InvitationCreatedBy")
+  invitationsUsed                 Invitation[]               @relation("InvitationUsedBy")
+  recoveryCodes                   RecoveryCode[]
+  pendingMfaChallenges            PendingMfaChallenge[]
+  netWorthAccounts                NetWorthAccount[]
+  savingsGoals                    SavingsGoal[]
+  bankConnections                 BankConnection[]
+  bankAuthorizationRequests       BankAuthorizationRequest[]
+  recurringStreamActions          RecurringStreamAction[]
+  tags                            Tag[]
 }
 
 model RecoveryCode {

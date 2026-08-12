@@ -11,10 +11,17 @@
 		class: className = '',
 		autoDismissMs = 6000,
 		onDismiss,
+		dismissLabel,
 		action,
 		children
 	}: {
-		variant: 'success' | 'error' | 'warning';
+		// `info` is the neutral one, and its tone is a decision rather than a leftover default: it
+		// carries no judgement, so it gets no judgement colour. Rose says the user broke something
+		// and amber says something is wrong, and both are false for a banner that merely offers a
+		// choice. Zinc is what the design plate already uses for the staged split removal, for
+		// exactly that reason. Never auto-dismissed: an offer the reader has not answered yet is
+		// not a confirmation that can expire.
+		variant: 'success' | 'error' | 'warning' | 'info';
 		size?: 'sm' | 'md';
 		class?: string;
 		// Only applied to variant="success" — errors/warnings stay until the user dismisses
@@ -29,6 +36,12 @@
 		// reappear on the next load. Purely additive: existing callers that don't pass
 		// it keep the same local-only dismiss behavior.
 		onDismiss?: () => void;
+		// Accessible name for the close control, when "Close" would understate what it does.
+		// Defaults to it, which is honest for a banner that merely goes away. It is NOT honest for
+		// one whose dismissal is persisted: there the X is a permanent decision, and a control
+		// announced as "Close" gives a screen reader user no way to know that before pressing it.
+		// Pass what the choice means, e.g. "Keep the current category names".
+		dismissLabel?: string;
 		// Optional single action, e.g. a bulk-apply "Annuler" undo (transverse-tags design, section
 		// 6): rendered between the message and the close control, never after it and never
 		// replacing it. At most one — this is a single Snippet slot, not a list, by construction.
@@ -57,13 +70,15 @@
 	const variantClasses = {
 		success: 'border-emerald-200 bg-emerald-50 text-emerald-700',
 		error: 'border-rose-200 bg-rose-50 text-rose-700',
-		warning: 'border-amber-200 bg-amber-50 text-amber-900'
+		warning: 'border-amber-200 bg-amber-50 text-amber-900',
+		info: 'border-zinc-300 bg-zinc-100 text-zinc-700'
 	} as const;
 
 	const iconWrapClasses = {
 		success: 'bg-emerald-100/60 text-emerald-700',
 		error: 'bg-rose-100/60 text-rose-700',
-		warning: 'bg-amber-100/60 text-amber-700'
+		warning: 'bg-amber-100/60 text-amber-700',
+		info: 'bg-zinc-200/70 text-zinc-700'
 	} as const;
 
 	const sizeClasses = {
@@ -81,8 +96,12 @@
 		md: 'h-3 w-3'
 	} as const;
 
-	const role = $derived(variant === 'success' ? 'status' : 'alert');
-	const ariaLive = $derived(variant === 'success' ? 'polite' : 'assertive');
+	// `info` is polite for the same reason `success` is: it reports rather than interrupts. An
+	// assertive region cuts across whatever the reader is in the middle of, which is right for an
+	// error blocking their action and wrong for an offer they can take at any time.
+	const politeVariants = ['success', 'info'];
+	const role = $derived(politeVariants.includes(variant) ? 'status' : 'alert');
+	const ariaLive = $derived(politeVariants.includes(variant) ? 'polite' : 'assertive');
 </script>
 
 {#if !dismissed}
@@ -119,7 +138,7 @@
 					<rect x="9" y="5" width="2" height="7" rx="1" fill="white" />
 					<rect x="9" y="13.2" width="2" height="2" rx="1" fill="white" />
 				</svg>
-			{:else}
+			{:else if variant === 'warning'}
 				<svg
 					viewBox="0 0 20 20"
 					fill="none"
@@ -133,6 +152,25 @@
 					<line x1="10" y1="8.5" x2="10" y2="11.5" />
 					<circle cx="10" cy="14.3" r="0.8" fill="currentColor" stroke="none" />
 				</svg>
+			{:else}
+				<!-- `info` gets its own glyph, and the differences from `error` are deliberate rather
+				     than incidental, because zinc against rose is a colour difference and colour is
+				     never allowed to carry a distinction on its own. This circle is STROKED where
+				     error's is filled, and its dot sits ABOVE the bar where error's sits below. Two
+				     shape differences, legible at the 12px this renders at, before any colour is
+				     read. -->
+				<svg
+					viewBox="0 0 20 20"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.8"
+					stroke-linecap="round"
+					class={svgSizeClasses[size]}
+				>
+					<circle cx="10" cy="10" r="8" />
+					<circle cx="10" cy="6.2" r="0.9" fill="currentColor" stroke="none" />
+					<line x1="10" y1="9.4" x2="10" y2="14.5" />
+				</svg>
 			{/if}
 		</span>
 		<span class="min-w-0 flex-1">{@render children()}</span>
@@ -143,7 +181,7 @@
 		     centers its glyph on the first text line (items-start container). -->
 		<IconButton
 			class="-my-2.5 -mr-1 shrink-0"
-			label={m.common_close()}
+			label={dismissLabel ?? m.common_close()}
 			onclick={() => {
 				dismissed = true;
 				onDismiss?.();

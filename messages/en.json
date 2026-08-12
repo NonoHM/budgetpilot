@@ -1308,5 +1308,15 @@
 	"transactions_unsaved_stay": "Stay",
 	"transactions_unsaved_discard": "Discard",
 	"common_retry": "Retry",
-	"transactions_period_sheet_back": "Filters"
+	"transactions_period_sheet_back": "Filters",
+	"categories_rename_prompt_body": "{count} of your categories are still stored under the original names they were created with, so they read differently from the rest of the interface. Rename them to match the language you are reading?",
+	"categories_rename_prompt_body_one": "One of your categories is still stored under the original name it was created with, so it reads differently from the rest of the interface. Rename it to match the language you are reading?",
+	"categories_rename_prompt_action": "Rename them",
+	"categories_rename_prompt_action_one": "Rename it",
+	"categories_rename_prompt_dismiss_aria": "Keep the current category names",
+	"categories_rename_prompt_success": "{count} categories renamed. Budgets, rules and transactions followed them.",
+	"categories_rename_prompt_success_one": "One category renamed. Budgets, rules and transactions followed it.",
+	"categories_rename_prompt_blocked": "{count} kept their names, because you already have a category under the name that was proposed.",
+	"categories_rename_prompt_blocked_one": "One kept its name, because you already have a category under the name that was proposed.",
+	"categories_rename_prompt_nothing": "Nothing to rename."
 }
