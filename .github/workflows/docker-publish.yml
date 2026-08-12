@@ -13,9 +13,11 @@ on:
         description: 'Release tag to publish (e.g. budgetpilot-v0.1.1). Use this to publish a release retroactively when its published event never fired'
         required: true
 
+# Least privilege: read-only by default. packages: write is declared on the two jobs that push
+# to the registry (build, merge); every other job that needs it already narrows explicitly
+# (OpenSSF Token-Permissions).
 permissions:
   contents: read
-  packages: write
 
 jobs:
   # Computes the version/image name/tags once so every other job (and both
@@ -23,8 +25,8 @@ jobs:
   # per-matrix-leg.
   prepare:
     runs-on: ubuntu-latest
-    # Computes strings; needs neither the registry nor write access. The workflow-level
-    # packages: write exists for build and merge — every other job narrows it.
+    # Computes strings; needs neither the registry nor write access. packages: write is
+    # declared only on build and merge (the two jobs that push); this job stays read-only.
     permissions:
       contents: read
     outputs:
@@ -76,7 +78,7 @@ jobs:
         run: |
           echo "name=${REPOSITORY,,}" >> "$GITHUB_OUTPUT"
 
-      - uses: docker/metadata-action@v6
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6
         id: meta
         with:
           images: ghcr.io/${{ steps.image.outputs.name }}
@@ -108,12 +110,15 @@ jobs:
           - platform: linux/arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: write # push image by digest
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
-      - uses: docker/login-action@v4.5.2
+      - uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -121,7 +126,7 @@ jobs:
 
       - name: Build and push by digest
         id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
           context: .
           platforms: ${{ matrix.platform }}
@@ -149,7 +154,7 @@ jobs:
         env:
           platform: ${{ matrix.platform }}
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: digests-${{ steps.platform-key.outputs.key }}
           path: /tmp/digests/*
@@ -191,20 +196,20 @@ jobs:
       # Two things, not one: upload-sarif's source context, AND `.trivyignore` — Trivy
       # auto-detects it in the working directory, which is this checkout. Drop the checkout
       # and the suppressions silently stop applying while every scan still passes.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      - uses: docker/login-action@v4.5.2
+      - uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: digests-linux-amd64
           path: /tmp/scan-digests/amd64
 
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: digests-linux-arm64
           path: /tmp/scan-digests/arm64
@@ -247,7 +252,7 @@ jobs:
           output: trivy-release-amd64.sarif
 
       - name: Upload amd64 results to the Security tab
-        uses: github/codeql-action/upload-sarif@v4.37.3
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-release-amd64.sarif
           category: trivy-image-release-amd64
@@ -263,7 +268,7 @@ jobs:
           skip-setup-trivy: true
 
       - name: Upload arm64 results to the Security tab
-        uses: github/codeql-action/upload-sarif@v4.37.3
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-release-arm64.sarif
           category: trivy-image-release-arm64
@@ -343,16 +348,19 @@ jobs:
   merge:
     needs: [prepare, build, scan]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # push the multi-arch manifest
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           path: /tmp/digests
           pattern: digests-*
           merge-multiple: true
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
-      - uses: docker/login-action@v4.5.2
+      - uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -479,7 +487,7 @@ jobs:
           upload-artifact: false
           upload-release-assets: false
 
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: sbom
           path: budgetpilot-*.spdx.json
@@ -493,7 +501,7 @@ jobs:
     permissions:
       contents: write # gh release upload — and nothing third-party runs here
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: sbom
 
