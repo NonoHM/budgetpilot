@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.8.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.8.0...budgetpilot-v0.8.1) (2026-08-12)
+
+
+### Bug Fixes
+
+* **build:** stop hiding operator-facing changes from the changelog ([#178](https://github.com/NonoHM/budgetpilot/issues/178)) ([37c55f6](https://github.com/NonoHM/budgetpilot/commit/37c55f615476ba195ad6ead70aa27bb5b1e46336))
+* **categories:** pause rules whose target category was deleted ([#161](https://github.com/NonoHM/budgetpilot/issues/161)) ([#173](https://github.com/NonoHM/budgetpilot/issues/173)) ([ee337e1](https://github.com/NonoHM/budgetpilot/commit/ee337e192aee4c070b3bf06d63f2abee990e3666))
+* **i18n:** remove em dashes from the strings users actually read ([#170](https://github.com/NonoHM/budgetpilot/issues/170)) ([546a4ea](https://github.com/NonoHM/budgetpilot/commit/546a4ea572e94e0a26d692f6b92c314f6ac64fa4))
+
+
+### Behaviour and internals
+
+* **categories:** seeded categories now show their stored French name until you rename them. An English instance that displayed "Groceries" for the category stored as "Alimentation" now displays "Alimentation", because a category's stored name has become its only name and there is no translation layer left. Nothing is renamed, no data moves, and every budget, rule and report keeps pointing where it did. A later release adds a one-click prompt on /categories that renames the seeded categories into the language you read. ([#162](https://github.com/NonoHM/budgetpilot/issues/162)) ([#176](https://github.com/NonoHM/budgetpilot/issues/176)) ([98c281c](https://github.com/NonoHM/budgetpilot/commit/98c281cf0bf9721c1037af1e7a5a50951b5642a7))
+
+
+### Documentation
+
+* replace em dashes with the punctuation each sentence wants ([#169](https://github.com/NonoHM/budgetpilot/issues/169)) ([4844684](https://github.com/NonoHM/budgetpilot/commit/48446845c01c9ba29057ec4730d885cf098807cc))
+
 ## [0.8.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.7.0...budgetpilot-v0.8.0) (2026-08-10)
 
 
