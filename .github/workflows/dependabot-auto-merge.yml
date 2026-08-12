@@ -2,18 +2,23 @@ name: Dependabot auto-merge
 
 on: pull_request_target
 
+# Least privilege: read-only by default, the write this workflow needs is declared on the
+# one job that needs it (see the OpenSSF Token-Permissions check). This workflow deliberately
+# never checks out the PR head, so pull_request_target runs no untrusted code.
 permissions:
-  contents: write
-  pull-requests: write
+  contents: read
 
 jobs:
   auto-merge:
     if: github.actor == 'dependabot[bot]'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - name: Read Dependabot metadata
         id: metadata
-        uses: dependabot/fetch-metadata@v3
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3
         with:
           github-token: '${{ secrets.GITHUB_TOKEN }}'
 

@@ -39,12 +39,12 @@ jobs:
       # Two things, not one: upload-sarif's source context, AND `.trivyignore` — Trivy
       # auto-detects it in the working directory, which is this checkout. Drop the checkout
       # and the suppressions silently stop applying while every scan still passes.
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
       # The package is public today (verified by an anonymous pull), so this is not strictly
       # needed — but if its visibility ever flips, an unauthenticated scan would fail on the
       # pull and the zero-commit CVE alerting this workflow exists for would silently stop.
-      - uses: docker/login-action@v4.5.2
+      - uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -101,7 +101,7 @@ jobs:
       # findings share one view. Runs on the default branch (schedule/dispatch context),
       # which is exactly where the Security tab's default alert list looks.
       - name: Upload amd64 results to the Security tab
-        uses: github/codeql-action/upload-sarif@v4.37.3
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-published-amd64.sarif
           category: trivy-published-image-amd64
@@ -119,7 +119,7 @@ jobs:
           skip-setup-trivy: true
 
       - name: Upload arm64 results to the Security tab
-        uses: github/codeql-action/upload-sarif@v4.37.3
+        uses: github/codeql-action/upload-sarif@e4fba868fa4b1b91e1fdab776edc8cfbe6e9fb81 # v4.37.3
         with:
           sarif_file: trivy-published-arm64.sarif
           category: trivy-published-image-arm64
