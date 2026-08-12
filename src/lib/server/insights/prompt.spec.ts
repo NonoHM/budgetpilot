@@ -112,7 +112,7 @@ describe('toPromptPayload', () => {
 
 describe('buildBudgetInsightsPrompt', () => {
 	it('never leaks a raw cents amount into the prompt', () => {
-		const prompt = buildBudgetInsightsPrompt(summary, 'en');
+		const prompt = buildBudgetInsightsPrompt(summary, { locale: 'en' });
 
 		// The exact figures that produced "245000 - 151487 = 93513 dollars" in real output.
 		expect(prompt).not.toContain('245000');
@@ -122,25 +122,66 @@ describe('buildBudgetInsightsPrompt', () => {
 	});
 
 	it('states the currency both in the instructions and in the payload', () => {
-		const prompt = buildBudgetInsightsPrompt(summary, 'en');
+		const prompt = buildBudgetInsightsPrompt(summary, { locale: 'en' });
 
 		expect(prompt).toContain('euros (EUR)');
 		expect(prompt).toContain('"currency":"EUR"');
 	});
 
 	it('carries the converted amounts', () => {
-		const prompt = buildBudgetInsightsPrompt(summary, 'en');
+		const prompt = buildBudgetInsightsPrompt(summary, { locale: 'en' });
 
 		expect(prompt).toContain('"income":2450');
 		expect(prompt).toContain('"expense":1514.87');
 	});
 
 	it('asks for the reply in the caller’s locale', () => {
-		expect(buildBudgetInsightsPrompt(summary, 'fr')).toContain('Reply in French.');
-		expect(buildBudgetInsightsPrompt(summary, 'en')).toContain('Reply in English.');
+		expect(buildBudgetInsightsPrompt(summary, { locale: 'fr' })).toContain('Reply in French.');
+		expect(buildBudgetInsightsPrompt(summary, { locale: 'en' })).toContain('Reply in English.');
 	});
 
 	it('falls back to English for an unknown locale', () => {
-		expect(buildBudgetInsightsPrompt(summary, 'de')).toContain('Reply in English.');
+		expect(buildBudgetInsightsPrompt(summary, { locale: 'de' })).toContain('Reply in English.');
+	});
+});
+
+/**
+ * #216: the data-description sentence must match whether labels are actually shared, and it must do
+ * so INDEPENDENTLY of the reply-language branch — the conditional lives one line above the payload
+ * and could easily be entangled with the locale. Running both locales separates "the includeLabels
+ * branch works" from "it works only in English"; a break that tied the sentence to the locale would
+ * pass a single-locale test and fail here.
+ *
+ * These assert on the SOURCE function directly; the payload actually delivered to the model is
+ * captured end-to-end in index.spec.ts, which is the only thing that proves getBudgetInsights threads
+ * the flag through at all.
+ */
+describe('buildBudgetInsightsPrompt data-description sentence, both locales (#216)', () => {
+	const AGGREGATED = 'Aggregated data, no raw transactions';
+	const WITH_LABELS = 'Aggregated data plus your largest transaction labels';
+
+	for (const locale of ['en', 'fr']) {
+		it(`says aggregated-only when labels are off (${locale})`, () => {
+			const prompt = buildBudgetInsightsPrompt(summary, { includeLabels: false, locale });
+
+			expect(prompt).toContain(AGGREGATED);
+			expect(prompt).not.toContain(WITH_LABELS);
+		});
+
+		it(`says labels-are-included when labels are on (${locale})`, () => {
+			const prompt = buildBudgetInsightsPrompt(summary, { includeLabels: true, locale });
+
+			expect(prompt).toContain(WITH_LABELS);
+			// The two sentences share the "Aggregated data" stem, so the off-phrase's absence is the
+			// real discriminator: without it, a sentence carrying both would pass the line above.
+			expect(prompt).not.toContain(AGGREGATED);
+		});
+	}
+
+	it('omitting includeLabels defaults to the safe aggregated-only claim', () => {
+		const prompt = buildBudgetInsightsPrompt(summary, { locale: 'en' });
+
+		expect(prompt).toContain(AGGREGATED);
+		expect(prompt).not.toContain(WITH_LABELS);
 	});
 });
