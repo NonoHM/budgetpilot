@@ -224,6 +224,39 @@ tooling is built around a database server. [Using PostgreSQL or
 MySQL](./database-providers.md) walks through both, including what switching
 an existing install actually costs.
 
+## Backup size
+
+`BACKUP_MAX_JSON_NODES` is **optional**: leave it out and you get 2,000,000,
+which is the measured default. It bounds how many separate entries a backup
+file may contain, checked before the file is opened.
+
+It exists because the size of a backup does not tell you what it costs to
+open. A 20 MB file holding a real history of 40,559 transactions takes about
+132 MB of memory and a tenth of a second. A 20 MB file crafted to hold as
+many empty entries as possible takes **801 MB**, and the check that would
+reject it as not-a-backup only runs after that memory has been spent. So the
+app counts the entries first, which takes 28 ms, and refuses before opening.
+
+2,000,000 is a little over twice the most this app can itself put in a
+backup, which is 888,888 entries at the 20 MB limit. That headroom is the
+point: **the app must always be able to restore a file it produced.** Set it
+lower and you risk your own backups being refused, with a message saying the
+file is too complex rather than that a limit was lowered. The startup log
+says so too if you set it below that figure.
+
+**4,000,000 is a hard ceiling and a higher value stops the app at startup**
+rather than being quietly reduced. At 4,000,000 the worst case is about
+214 MB to open one backup, against 107 MB at the default. Refused rather
+than clamped for the same reason as the spreadsheet limit above: a limit
+that silently reduces your value leaves your restore failing for a reason
+your own configuration says should not apply.
+
+One thing it does not cover, said plainly rather than left to be discovered:
+a backup that is one enormous piece of text rather than many entries has one
+entry, so this limit is silent about it. That case is cheap (20 MB of text
+costs 20 MB) and `BODY_SIZE_LIMIT` is what bounds it. The two work together:
+one bounds size, the other bounds structure.
+
 ## Optional features
 
 Both are off by default, and neither makes a single network call while off.
@@ -245,13 +278,14 @@ backup rather than a statement that was refused.
 ```dotenv
 BODY_SIZE_LIMIT=21000000
 IMPORT_XLSX_MAX_UNCOMPRESSED_MB=8   # optional, 32 maximum
+BACKUP_MAX_JSON_NODES=2000000       # optional, 4000000 maximum
 ```
 
-| What you are uploading    | What limits it                                              | Can you change it      |
-| ------------------------- | ----------------------------------------------------------- | ---------------------- |
-| A bank statement, `.csv`  | 256 KB                                                      | no                     |
-| A bank statement, `.xlsx` | 256 KB as sent, and a second limit on the sheet once opened | the second one         |
-| A backup, to restore      | 20 MB                                                       | yes, `BODY_SIZE_LIMIT` |
+| What you are uploading    | What limits it                                              | Can you change it |
+| ------------------------- | ----------------------------------------------------------- | ----------------- |
+| A bank statement, `.csv`  | 256 KB                                                      | no                |
+| A bank statement, `.xlsx` | 256 KB as sent, and a second limit on the sheet once opened | the second one    |
+| A backup, to restore      | 20 MB, and a second limit on how many entries it holds      | the second one    |
 
 The `.xlsx` row has two limits because a spreadsheet file is a compressed
 archive: a small file can hold a very large sheet, so the app also checks how
@@ -259,6 +293,11 @@ big the sheet is once opened. That second one is
 `IMPORT_XLSX_MAX_UNCOMPRESSED_MB` below.
 
 The 256 KB statement limit is not configurable today.
+
+The backup row has two limits for a related reason: a 20 MB file can hold a
+few thousand entries or several million, and it is the number of entries
+rather than the size that decides how much memory opening it takes. That
+second one is `BACKUP_MAX_JSON_NODES` below.
 
 `BODY_SIZE_LIMIT` is not in the table because it is not about any one of
 these: it caps every HTTP request, and it exists so the largest of the above

@@ -24,6 +24,7 @@ import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
 import { BackupImportError, restoreBackup } from '$lib/server/backup/import';
 import { backupExportSchema } from '$lib/server/backup/schema';
+import { countJsonNodes, resolveBackupMaxJsonNodes } from '$lib/server/backup/parseBounds';
 import {
 	listTagsWithCounts,
 	renameTag as renameTagService,
@@ -306,6 +307,19 @@ export const actions: Actions = {
 			rawText = await backupFile.text();
 		} catch {
 			return fail(400, { restoreError: m.settings_error_restore_read_failed() });
+		}
+
+		// BEFORE `JSON.parse`, and the placement is the whole fix (#276). The byte cap above and the
+		// schema below both bound something real and neither bounds this: 20 MB of `[{},{},...]`
+		// passes the cap, costs 801 MB inside the parse, and is refused microseconds later for
+		// having no `formatVersion`. Every byte is spent before the first check runs, so the bound
+		// has to sit ahead of the parse. A linear scan, 28.5 ms on a 20 MB payload.
+		const maxJsonNodes = resolveBackupMaxJsonNodes();
+		const jsonNodes = countJsonNodes(rawText);
+		if (jsonNodes > maxJsonNodes) {
+			return fail(400, {
+				restoreError: m.settings_error_restore_too_complex({ max: maxJsonNodes })
+			});
 		}
 
 		let rawJson: unknown;

@@ -74,6 +74,7 @@ from a stranger.
 | From a newer format version       | _Unsupported backup format._        |
 | Missing a section, or a bad field | _Invalid or corrupted backup file._ |
 | Larger than 20 MB                 | _...file is too large..._           |
+| Holding over 2 million entries    | _...too many separate entries..._   |
 | Nothing chosen                    | _No file selected._                 |
 
 A refusal changes nothing. Your data is only touched once the file has

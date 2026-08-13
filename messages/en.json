@@ -799,6 +799,7 @@
 	"settings_error_restore_no_file": "Select a backup file to restore.",
 	"settings_error_restore_too_large": "File too large (maximum {max} MB).",
 	"settings_error_restore_read_failed": "Could not read the file.",
+	"settings_error_restore_too_complex": "This backup contains too many separate entries to open safely (limit {max}). If it is a file this app produced, please report it.",
 	"settings_error_restore_invalid_json": "The file is not valid JSON.",
 	"settings_error_restore_unsupported_format": "Unsupported backup format.",
 	"settings_error_restore_corrupted": "Invalid or corrupted backup file.",

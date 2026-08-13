@@ -14,6 +14,7 @@ import { ensureNameKeysBackfilled } from '$lib/server/naming/boot';
 import { ensureDedupeKeyHashesBackfilled } from '$lib/server/import/dedupeBoot';
 import { assertForwardingConfigSafe, parseTrustedProxies } from '$lib/server/net/clientAddress';
 import { assertXlsxBoundConfigured } from '$lib/server/import/zipBounds';
+import { assertBackupBoundConfigured } from '$lib/server/backup/parseBounds';
 // Side-effect imports only: each module throws at load time if its required secret
 // (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
 // the one module SvelteKit always loads at boot, so importing them here turns a missing
@@ -37,6 +38,9 @@ export const init: ServerInit = async () => {
 	// limit while discarding the operator's intent, leaving their import failing for a reason their
 	// own configuration says should not apply. Env-only, so it sits with the other boot assertions.
 	assertXlsxBoundConfigured();
+	// Same contract as the line above, on the backup restore path (#276): refused above its hard
+	// ceiling rather than clamped, and any departure from the default named in the log.
+	assertBackupBoundConfigured();
 	await assertBootstrapTokenConfigured();
 	// Reports, never gates: see the module for why an over-privileged role is a loud warning
 	// rather than a refusal to start.

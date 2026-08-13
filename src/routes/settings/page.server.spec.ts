@@ -808,6 +808,60 @@ describe('/settings', () => {
 			expect(backupImport.restoreBackup).not.toHaveBeenCalled();
 		});
 
+		/**
+		 * #276. Added because the break-check found the hole: replacing the comparison in the action
+		 * with `if (false)` left the whole of `parseBounds.spec.ts` GREEN. That file asserts the
+		 * counter is correct and that it is called before `JSON.parse`, and neither of those is an
+		 * assertion that its RESULT is acted on. A build computing the count and discarding it passed
+		 * every test. This is the only thing that sees it.
+		 *
+		 * Asserted on the REASON, not on "it was refused": the byte cap, the malformed-JSON branch
+		 * and the schema all refuse this file too, and three of those four refusals would send the
+		 * user to the wrong place. The bomb here is deliberately WELL UNDER the 20 MB byte cap, so a
+		 * refusal cannot be the size check firing.
+		 */
+		it('refuse une sauvegarde trop dense avant de la parser, en le disant', async () => {
+			expect.assertions(4);
+
+			// 2,000,001 values in about 3 MB: comfortably under the 20 MB cap, so the byte check
+			// cannot be what refuses it, and one value over the default bound.
+			const bomb = '[' + '{},'.repeat(1_000_000) + '{}]';
+			const file = buildBackupFile(bomb);
+
+			expect(bomb.length).toBeLessThan(20_000_000);
+
+			const result = (await runRestoreAction(buildBackupFormData(file))) as {
+				status: number;
+				data: { restoreError: string };
+			};
+
+			expect(result.status).toBe(400);
+			expect(result.data.restoreError).toContain('trop d’entrées distinctes');
+			expect(backupImport.restoreBackup).not.toHaveBeenCalled();
+		});
+
+		it('restaure une sauvegarde légitime de la même taille que la précédente', async () => {
+			expect.assertions(2);
+
+			// THE POSITIVE HALF, and without it the test above is satisfied by a bound that refuses
+			// every backup. Same order of magnitude in bytes, real record density, must go through.
+			const rows = Array.from({ length: 8_000 }, (_, i) => ({
+				id: `cmsqeu119${String(i).padStart(11, '0')}xk`,
+				accountId: 'cmsqeu10k00afw8klhoez9xgy',
+				label: `CARTE 12/03 CARREFOUR MARKET ${String(i).padStart(6, '0')} FACTURE 4512`,
+				amountCents: -100
+			}));
+			const legitimate = JSON.stringify({ formatVersion: 1, transactions: rows });
+			expect(legitimate.length).toBeGreaterThan(1_000_000);
+
+			const result = await runRestoreAction(buildBackupFormData(buildBackupFile(legitimate)));
+
+			// It gets PAST the density bound. It is then refused by the schema, which is correct and
+			// is a different refusal: this fixture is not a complete backup. The assertion is that
+			// the density message is not what came back.
+			expect(JSON.stringify(result)).not.toContain('trop d’entrées distinctes');
+		});
+
 		it('rejette un JSON mal formé sans appeler restoreBackup', async () => {
 			expect.assertions(3);
 

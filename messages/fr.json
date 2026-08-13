@@ -799,6 +799,7 @@
 	"settings_error_restore_no_file": "Sélectionnez un fichier de sauvegarde à restaurer.",
 	"settings_error_restore_too_large": "Fichier trop volumineux (maximum {max} Mo).",
 	"settings_error_restore_read_failed": "Impossible de lire le fichier.",
+	"settings_error_restore_too_complex": "Cette sauvegarde contient trop d’entrées distinctes pour être ouverte sans risque (limite {max}). S’il s’agit d’un fichier produit par cette application, merci de le signaler.",
 	"settings_error_restore_invalid_json": "Le fichier n’est pas un JSON valide.",
 	"settings_error_restore_unsupported_format": "Format de sauvegarde non supporté.",
 	"settings_error_restore_corrupted": "Fichier de sauvegarde invalide ou corrompu.",
