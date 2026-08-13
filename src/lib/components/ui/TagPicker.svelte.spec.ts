@@ -114,6 +114,9 @@ describe('TagPicker.svelte', () => {
 		const { container } = render(TagPicker, { options: [], selected: many, name: 'tagNames' });
 
 		await userEvent.type(fieldInput(), 'Une de plus');
+		// Gate on the full value before acting on it: under CI contention `type` can return with
+		// only the first keystrokes committed, and the Enter then submits a truncated name.
+		await expect.element(fieldInput()).toHaveValue('Une de plus');
 		await userEvent.keyboard('{Enter}');
 
 		await expect.element(page.getByText('Limite de 10 étiquettes atteinte.')).toBeInTheDocument();
@@ -129,6 +132,9 @@ describe('TagPicker.svelte', () => {
 		const { container } = render(TagPicker, { options: [], selected: [], name: 'tagNames' });
 
 		await userEvent.type(fieldInput(), '  Vacances   Portugal  ');
+		// Without this gate the click lands on a "Créer" option built from a partial value: CI has
+		// observed the hidden input come back as 'Va', which reads as a normalisation bug.
+		await expect.element(fieldInput()).toHaveValue('  Vacances   Portugal  ');
 		await userEvent.click(page.getByRole('option', { name: /^Créer/ }));
 
 		const hidden = container.querySelector('input[type="hidden"][name="tagNames"]');
@@ -270,6 +276,9 @@ describe('TagPicker.svelte', () => {
 
 		await userEvent.click(fieldInput());
 		await userEvent.type(fieldInput(), 'Trav');
+		// Escape can only be shown to close the panel if the panel is open first, which is also the
+		// proof that the keystrokes landed. Same gate as the keyboard-reachability test above.
+		await expect.element(page.getByRole('option', { name: 'Travaux' })).toBeInTheDocument();
 		await userEvent.keyboard('{Escape}');
 		await userEvent.keyboard('{Enter}');
 
