@@ -171,6 +171,99 @@ docker compose down   # NEVER -v: that deletes the Docker DB volume
 - The test suite is expected to stay 100% green. A failure means a real
   problem, not noise.
 
+## What a test has to do
+
+A green test says nothing until you know what it would have taken to make it red.
+
+### Before writing
+
+Two questions, both free, and the second was learned the hard way.
+
+**Which two states does this observation separate, and can it actually separate
+them?** A pooled count of distinct values is a proxy for entropy, and an ordered
+counter satisfies the proxy exactly. A successful exploit can fail in the same way
+a correct refusal does. A green run does not distinguish a job that passed from a
+job that was skipped.
+
+**And: what does this mechanism report on a tree with no defect at all?** A scan
+for inline script tags finds 76 files in a perfectly healthy codebase. A guard that
+is wrong on a clean tree gets deleted by the first person who meets it, and it takes
+the half that worked with it. A false positive does not merely waste attention, it
+removes the control.
+
+### While writing
+
+**A test is never shaped around the defect it should catch.** Excluding the path
+where the bug lives produces a green identical to the one correct code produces, and
+nobody will know afterwards. When a test fails, remove the cause, not the view.
+
+**A test that copies what it verifies verifies only its copy.** Call the production
+predicate, never retype its pattern.
+
+**A test that asserts a value it also mocks asserts the mock.** Anything pinning a
+real constant lives in a file where that module is not mocked.
+
+**An absence assertion requires a presence first.** Before believing nothing leaked,
+prove the detector can detect, by pointing it at a real leak.
+
+**A test on a refusal asserts the REASON, not that a refusal happened.** Two guards in
+sequence are indistinguishable from one when the assertion only says "it was refused",
+and the covering guard can catch the case and explain it wrongly, which sends the user
+looking at the wrong line. The reason is the only part of a refusal a user ever sees.
+
+**Every absence or emptiness assertion carries an absolute figure beside it.** "No
+value threw" is satisfied by a function that refuses everything, "nothing leaked" by a
+scan that read nothing, "no offenders" by a pattern that matches nothing. One positive
+number in the same test (how many returned true, how many files were read, how many
+rows the fixture holds) is what separates a clean result from an empty one.
+
+### After writing
+
+**Break the thing on purpose and watch it go red.** That is the only moment a test
+tells you something you did not already know.
+
+**Read the greens as much as the reds.** A break that reddens one test and leaves
+another green is a finding about the second one.
+
+**A green break has four meanings and only one of them is "redundant guard".** Either
+something else covers the case, which is a finding about that something else; or the
+line cannot execute, which makes it dead code wearing the costume of a protection, and
+it gets deleted; or the break was too small to cross the threshold, which is a fact
+about the break; or the break changed no observable behaviour at all, in which case
+the thing you meant to remove was already doing nothing. Tell the last two apart by
+running both versions over a corpus and comparing the answers, not by reasoning.
+
+**Reproduce the figure.** On a measured defect, the red has to bring back the
+original value, not merely fail. Going red without reproducing the measurement has
+verified nothing.
+
+### The harness is a subject, not an instrument
+
+It lies too, and it lies in the comfortable direction. A harness that never reaches
+the code reports clean refusals. A scanner that sees zero packages passes the gate.
+A fuzzer that reaches no accept path reports 5000 clean refusals, which reads exactly
+like a healthy run.
+
+So every harness carries its own calibration: give it a known failing case and check
+that it reports it, before believing any negative result.
+
+**And calibrate on the label of the thing you want to count, not on one that travels
+with it.** A per-profile coverage gate reported a fuzzer blind for one CSV profile
+while that profile was being exercised thousands of times, because the parser labels
+its own result with a sibling profile's name. The gate was reading a real field, from
+a real result, and answering a question nobody had asked. Count by what produced the
+input, not by what the output happens to call itself.
+
+### Order
+
+The order between the test and the code matters less than the red you observed. A
+test written after the code has seen the implementation and tends to take its shape,
+defects included, and that is truest when the same hand writes both in one sitting.
+Breaking it is what compensates.
+
+On a defect the order is fixed: measure, write the test that reproduces the
+measurement, fix, break, check that the measurement comes back.
+
 ## Folder structure
 
 ```
