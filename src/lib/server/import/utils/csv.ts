@@ -69,10 +69,10 @@ export function normalizeParsedRows(rows: ParsedCsvRow[]): ParsedCsvRow[] {
 
 export function normalizeDate(value: string): string {
 	const trimmed = value.trim();
-	if (isSafeIsoDate(trimmed)) return trimmed;
+	if (isValidIsoDate(trimmed)) return trimmed;
 
 	const isoDateTime = /^(\d{4}-\d{2}-\d{2})[ T]/.exec(trimmed);
-	if (isoDateTime && isSafeIsoDate(isoDateTime[1])) return isoDateTime[1];
+	if (isoDateTime && isValidIsoDate(isoDateTime[1])) return isoDateTime[1];
 
 	const frenchDate = /^(\d{2})[/-](\d{2})[/-](\d{4})/.exec(trimmed);
 	if (!frenchDate) return trimmed;
@@ -84,18 +84,10 @@ export function normalizeDate(value: string): string {
 export function normalizeFirstValidDate(...values: Array<string | undefined>): string {
 	for (const value of values) {
 		const normalized = normalizeDate(value ?? '');
-		if (isSafeIsoDate(normalized)) return normalized;
+		if (isValidIsoDate(normalized)) return normalized;
 	}
 
 	return normalizeDate(firstPresentValue(...values));
-}
-
-export function isSafeIsoDate(value: string): boolean {
-	try {
-		return isValidIsoDate(value);
-	} catch {
-		return false;
-	}
 }
 
 export function emptyResult(
