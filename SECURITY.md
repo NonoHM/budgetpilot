@@ -117,12 +117,16 @@ That is a different and weaker thing than an external audit by people with no st
 the result, and it should be weighed as such when deciding whether to trust this
 project with financial data.
 
+**[How this project's security is verified, and by whom](./docs/explanation/security-verification.md)**
+gathers all of it in one place, including what is deliberately NOT covered and where this
+project stands under the EU Cyber Resilience Act.
+
 ## Self-assessed against OWASP ASVS 5.0.0 Level 2
 
-**Self-assessed against OWASP ASVS 5.0.0 Level 2. 121 of 253 in-scope requirements met
-(32 verified by attack, 89 by construction), 80 not applicable with stated reasons, and
-52 exceptions. Assessed 2026-08-13 against commit
-[`85d4b6b`](https://github.com/NonoHM/budgetpilot/commit/85d4b6b), by the maintainer,
+**Self-assessed against OWASP ASVS 5.0.0 Level 2. 122 of 253 in-scope requirements met
+(33 verified by attack, 89 by construction), 80 not applicable with stated reasons, and
+51 exceptions. Re-derived 2026-08-13 against commit
+[`f85b37f`](https://github.com/NonoHM/budgetpilot/commit/f85b37f), by the maintainer,
 unverified by any third party.**
 
 **This is not a claim of compliance, and no such claim exists to make.** OWASP certifies
@@ -143,29 +147,34 @@ inflate the denominator without saying anything true.
 present on the afternoon of the assessment. Every verdict describes one commit on one
 day. A refactor the next morning can move any of them and nothing here would notice.
 
-Of the 121 met requirements, **103 could be asserted continuously by an automated check**
-rather than by a person re-reading the code once a year. That inventory exists, names a
-mechanism per requirement, and **none of it is built yet**. Until it is, treat the number
-above as a measurement with a date on it rather than a property of the software.
+Of the 122 met requirements, **104 could be asserted continuously by an automated check**
+rather than by a person re-reading the code once a year.
 
-### The 52 exceptions
+**46 of the 253 in-scope requirements now are**, by tests that run on every push, at a
+measured cost of 93 assertions for twelve seconds of CI. Five of the forty-five pin an
+exception at its current wrong value, so the published claim is forced to move on the day
+that gap is fixed. The rest of the number above remains a measurement with a date on it
+rather than a property of the software. What is covered, and what it cost, is in
+[how this project's security is verified](./docs/explanation/security-verification.md).
+
+### The 51 exceptions
 
 Published in full, at the level of individual requirements, because an exception list is
 the useful half of an ASVS report and withholding it would leave you unable to check the
 claim above. They are grouped below rather than tabulated, so that this section stays
 true as issues close instead of freezing on the day it was written.
 
-| Area                                      | Exceptions | Where                                                                                                                                                                                                                                                                                                                             |
-| ----------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Security logging                          | 9          | [#250](https://github.com/NonoHM/budgetpilot/issues/250) covers the class: the application records nothing on authentication, authorization or bypass attempts                                                                                                                                                                    |
-| Authentication and recovery               | 11         | No breached-password check, no context-specific denylist, and no self-service password reset ([#155](https://github.com/NonoHM/budgetpilot/issues/155), [#244](https://github.com/NonoHM/budgetpilot/issues/244), [#248](https://github.com/NonoHM/budgetpilot/issues/248))                                                       |
-| Cryptography, transport and configuration | 12         | Includes database TLS ([#251](https://github.com/NonoHM/budgetpilot/issues/251)), HSTS max-age ([#247](https://github.com/NonoHM/budgetpilot/issues/247)), a redirect scheme allowlist ([#245](https://github.com/NonoHM/budgetpilot/issues/245)), cookie prefixes, and secrets held in environment variables rather than a vault |
-| Documentation of security decisions       | 10         | Data classification, cryptographic inventory, key-management policy, and the per-user data-access rule ([#246](https://github.com/NonoHM/budgetpilot/issues/246))                                                                                                                                                                 |
-| Session management                        | 6          | [Its own milestone](https://github.com/NonoHM/budgetpilot/milestone/7): idle timeout, re-authentication and session termination, grouped because they interlock                                                                                                                                                                   |
-| Availability                              | 4          | Expensive operations have no rate limit, and the spreadsheet import bounds the compressed upload but not the uncompressed size ([#254](https://github.com/NonoHM/budgetpilot/issues/254))                                                                                                                                         |
+| Area                                      | Exceptions | Where                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| ----------------------------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Security logging                          | 9          | [#250](https://github.com/NonoHM/budgetpilot/issues/250) covers the class: the application records nothing on authentication, authorization or bypass attempts                                                                                                                                                                                                                                                                                       |
+| Authentication and recovery               | 11         | No breached-password check, no context-specific denylist, and no self-service password reset ([#155](https://github.com/NonoHM/budgetpilot/issues/155), [#244](https://github.com/NonoHM/budgetpilot/issues/244), [#248](https://github.com/NonoHM/budgetpilot/issues/248))                                                                                                                                                                          |
+| Cryptography, transport and configuration | 12         | Includes database TLS ([#251](https://github.com/NonoHM/budgetpilot/issues/251)), HSTS max-age ([#247](https://github.com/NonoHM/budgetpilot/issues/247)), a redirect scheme allowlist ([#245](https://github.com/NonoHM/budgetpilot/issues/245)), cookie prefixes, and secrets held in environment variables rather than a vault                                                                                                                    |
+| Documentation of security decisions       | 10         | Data classification, cryptographic inventory, key-management policy, and the per-user data-access rule ([#246](https://github.com/NonoHM/budgetpilot/issues/246))                                                                                                                                                                                                                                                                                    |
+| Session management                        | 6          | [Its own milestone](https://github.com/NonoHM/budgetpilot/milestone/7): idle timeout, re-authentication and session termination, grouped because they interlock                                                                                                                                                                                                                                                                                      |
+| Availability                              | 3          | Expensive operations have no rate limit, and nothing bounds concurrent imports ([#283](https://github.com/NonoHM/budgetpilot/issues/283)). The two measured denial-of-service paths are now closed: the spreadsheet import bounds what a file expands to ([#254](https://github.com/NonoHM/budgetpilot/issues/254)) and the backup restore bounds a payload's structure before parsing it ([#276](https://github.com/NonoHM/budgetpilot/issues/276)) |
 
 Every exception either has an issue above or is a documentation or hardening gap with no
-reachable path to it. **None of the 52 is a known-exploitable defect**: an exception means
+reachable path to it. **None of the 51 is a known-exploitable defect**: an exception means
 a control the standard asks for is absent or unverified, not that an attack against it
 has been demonstrated.
 
