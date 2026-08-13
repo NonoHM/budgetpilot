@@ -61,7 +61,7 @@ describe('CSV round trip', () => {
 
 		const result = roundTrip([SPLIT_ROW]);
 
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions).toHaveLength(1);
 		expect(result.transactions[0].amountCents).toBe(-8_000);
 		expect(result.transactions[0].splitParts).toEqual([
@@ -101,7 +101,7 @@ describe('CSV round trip', () => {
 
 		const result = roundTrip([row({ category: { name: UNCLASSIFIED_CATEGORY } })]);
 
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions[0].category).toBe(UNCLASSIFIED_CATEGORY);
 	});
 
@@ -185,7 +185,7 @@ describe('CSV round trip', () => {
 		expect(filtered.transactions).toHaveLength(0);
 		expect(filtered.invalidRows).toHaveLength(1);
 		expect(filtered.invalidRows[0]).toMatchObject({
-			reason: 'répartition incomplète',
+			fact: { code: 'split-incomplete' },
 			field: 'part'
 		});
 	});
@@ -207,7 +207,7 @@ describe('CSV round trip', () => {
 			buildTransactionsCsv([bothBricolage], NO_MAPPINGS, 'Bricolage')
 		);
 
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions).toHaveLength(1);
 		expect(result.transactions[0].splitParts).toEqual([
 			{ category: 'Bricolage', amountCents: -5_000 },

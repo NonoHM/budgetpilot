@@ -35,7 +35,7 @@ describe('profil maison v2', () => {
 		);
 
 		expect(result.summary.profile).toBe('maison');
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 	});
 
 	// The whole point of the version. Before OD-2 these two lines were two transactions of 50,00 €
@@ -55,7 +55,7 @@ describe('profil maison v2', () => {
 			{ category: 'Bricolage', amountCents: -5_000 },
 			{ category: 'Jardin', amountCents: -3_000 }
 		]);
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 	});
 
 	// §2.2: the parent keeps its own category as the restoration value. Taking the first part's
@@ -94,7 +94,10 @@ describe('profil maison v2', () => {
 		);
 
 		expect(result.transactions).toHaveLength(0);
-		expect(result.invalidRows[0]).toMatchObject({ field: 'amount' });
+		expect(result.invalidRows[0]).toMatchObject({
+			fact: { code: 'split-sum-mismatch' },
+			field: 'amount'
+		});
 	});
 
 	/**
@@ -112,9 +115,12 @@ describe('profil maison v2', () => {
 		);
 
 		expect(result.transactions).toHaveLength(0);
+		// The code is `split-incomplete`, never `split-duplicate-positions`: a truncated group
+		// (too few lines) and a group with duplicated positions are different facts, and conflating
+		// them once told a user their positions were duplicated when a line was simply missing.
 		expect(result.invalidRows[0]).toMatchObject({
 			field: 'part',
-			reason: 'répartition incomplète'
+			fact: { code: 'split-incomplete' }
 		});
 	});
 
@@ -132,7 +138,7 @@ describe('profil maison v2', () => {
 		expect(result.transactions).toHaveLength(0);
 		expect(result.invalidRows[0]).toMatchObject({
 			field: 'part',
-			reason: 'lignes de répartition en trop'
+			fact: { code: 'split-too-many-lines' }
 		});
 	});
 
@@ -196,7 +202,10 @@ describe('profil maison v2', () => {
 		);
 
 		expect(result.transactions).toHaveLength(0);
-		expect(result.invalidRows[0]).toMatchObject({ field: 'category' });
+		expect(result.invalidRows[0]).toMatchObject({
+			fact: { code: 'split-reserved-category-on-part' },
+			field: 'category'
+		});
 	});
 
 	it('accepts the sentinel the export writes for an unclassified row', () => {
