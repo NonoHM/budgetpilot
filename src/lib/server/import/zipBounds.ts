@@ -83,14 +83,35 @@ export const XLSX_DEFAULT_MAX_UNCOMPRESSED_MB = 8;
  * not apply, and nothing connects the two. `PASSWORD_HASH_COST` in `auth.ts` clamps exactly this way
  * today, so an operator setting 20 silently gets 15, and that precedent is why this one does not.
  *
- * WHERE THE NUMBER COMES FROM, which is a measurement rather than a round figure. On the expensive
- * XML shape above, 32 MB is the largest value measured whose worst case (467 MB of RSS) still sits
- * inside half a gigabyte; the next step measured, 48 MB, costs 672 MB. Half a gigabyte is the line
- * because this project documents running on a Raspberry Pi 4/5, where one request holding more than
- * that alongside the application's own footprint is an out-of-memory kill rather than a spike. **An
- * operator who raises this to the ceiling is accepting about 467 MB of resident memory from a single
- * upload**, four times what the default costs, and that sentence is what the boot warning exists to
- * put in front of them.
+ * WHERE THE NUMBER COMES FROM, and the first answer written here was withdrawn, which is worth more
+ * than the number. It said 32 was the largest value whose worst case (467 MB of RSS) stayed inside
+ * half a gigabyte, and that half a gigabyte was the line "because this project documents running on
+ * a Raspberry Pi 4/5". **It documents no such thing.** The only mention of a Pi in `docs/` is
+ * `getting-started.md` describing the multi-arch image, which is a statement about CPU ARCHITECTURE;
+ * there is no memory floor stated anywhere in the docs, the Dockerfile or the compose files, and no
+ * `NODE_OPTIONS` or `mem_limit` either. The constraint was inferred from a sentence about arm64 and
+ * then cited as though it were sourced. A ceiling resting on an invented figure is a ceiling the
+ * first person to question it correctly deletes.
+ *
+ * So it is re-derived from a property of the SHIPPED ARTIFACT, which is citable because it can be
+ * re-measured on any machine. `readSheet` holds the thread: a 32 MB workbook takes **1054 ms** to
+ * parse and the default 8 MB takes 340 ms, against 153 ms for a legitimate 3.2 MB one. 32 MB is the
+ * largest measured value whose single-import parse stays at about one second. **An operator who
+ * raises this to the ceiling is accepting a one-second parse**, three times the default's, and that
+ * is what the boot warning exists to put in front of them.
+ *
+ * THE BOUND IS PER REQUEST AND THE OPERATOR OWNS THE AGGREGATE. Nothing here or anywhere else in the
+ * application serialises imports: the route has no queue, no lock and no rate limiter. Measured, the
+ * memory does NOT stack the way that invites you to assume, because nothing runs concurrently either:
+ * two 32 MB imports peak at 587 MB against 547 MB for one, and total time is linear in the count,
+ * which is the signature of serialisation rather than parallelism. What DOES stack is latency, and
+ * it stacks badly: two simultaneous 32 MB imports hold the event loop for **1007 ms** at a stretch,
+ * and during that second the process serves nobody, not a request and not a health check. Four take
+ * 3851 ms. At the default the same figures are 290 ms for two and 502 ms for four.
+ *
+ * That is a per-process cost this per-request bound does not address, and the sentence below saying
+ * it bounds memory rather than time is the one that turned out to matter. Tracked separately rather
+ * than solved here, because a concurrency limit is a new control and not a cap.
  */
 export const XLSX_MAX_UNCOMPRESSED_CEILING_MB = 32;
 
@@ -130,7 +151,7 @@ export function resolveXlsxMaxUncompressedBytes(): number {
 
 	if (megabytes > XLSX_MAX_UNCOMPRESSED_CEILING_MB) {
 		throw new Error(
-			`${XLSX_MAX_UNCOMPRESSED_ENV}=${megabytes} is above the hard ceiling of ${XLSX_MAX_UNCOMPRESSED_CEILING_MB}. This is a denial-of-service limit (#254): an .xlsx expanding to ${XLSX_MAX_UNCOMPRESSED_CEILING_MB} MB already costs about 467 MB of resident memory, and raising it further lets one upload exhaust the memory of the machines this project documents. The value is refused rather than clamped so that a bound you set is the bound that runs. The number and the measurements that chose it are in src/lib/server/import/zipBounds.ts.`
+			`${XLSX_MAX_UNCOMPRESSED_ENV}=${megabytes} is above the hard ceiling of ${XLSX_MAX_UNCOMPRESSED_CEILING_MB}. This is a denial-of-service limit (#254): an .xlsx expanding to ${XLSX_MAX_UNCOMPRESSED_CEILING_MB} MB takes about a second to parse and holds the thread while it does, so raising it further lets one upload stall every other request for longer. The value is refused rather than clamped so that a bound you set is the bound that runs. The number and the measurements that chose it are in src/lib/server/import/zipBounds.ts.`
 		);
 	}
 
@@ -157,7 +178,7 @@ export function assertXlsxBoundConfigured(): void {
 
 	if (bytes > XLSX_DEFAULT_MAX_UNCOMPRESSED_MB * MEGABYTE) {
 		console.warn(
-			`[budgetpilot] ${XLSX_MAX_UNCOMPRESSED_ENV} is RAISED above the default, so one .xlsx upload may hold more memory than this instance was measured for. At the ${XLSX_MAX_UNCOMPRESSED_CEILING_MB} MB ceiling the measured cost is about 467 MB of resident memory per upload.`
+			`[budgetpilot] ${XLSX_MAX_UNCOMPRESSED_ENV} is RAISED above the default, so one .xlsx upload may cost more than this instance was measured for. At the ${XLSX_MAX_UNCOMPRESSED_CEILING_MB} MB ceiling a single parse takes about 1s and holds the thread throughout, and two at once block it for about 1s at a stretch. The bound is per request: nothing serialises concurrent imports.`
 		);
 	} else if (bytes < LARGEST_MEASURED_LEGITIMATE_BYTES) {
 		console.warn(
