@@ -235,28 +235,47 @@ BANK_SYNC_ENABLED=false   # automatic bank sync, see docs/bank-sync.md
 
 ## Upload size
 
+**If a statement was refused as too large, split it by date range and import
+the parts.** That is safe: duplicate detection works per transaction rather
+than per file, so pieces that overlap cannot double anything.
+
+The rest of this section is why that works, and what to change if it is a
+backup rather than a statement that was refused.
+
 ```dotenv
 BODY_SIZE_LIMIT=21000000
 IMPORT_XLSX_MAX_UNCOMPRESSED_MB=8   # optional, 32 maximum
 ```
 
-`BODY_SIZE_LIMIT` is roughly 20 MB, the cap on an imported statement file.
-Raise it if you have a genuinely enormous export.
+| What you are uploading    | What limits it                                              | Can you change it      |
+| ------------------------- | ----------------------------------------------------------- | ---------------------- |
+| A bank statement, `.csv`  | 256 KB                                                      | no                     |
+| A bank statement, `.xlsx` | 256 KB as sent, and a second limit on the sheet once opened | the second one         |
+| A backup, to restore      | 20 MB                                                       | yes, `BODY_SIZE_LIMIT` |
+
+The `.xlsx` row has two limits because a spreadsheet file is a compressed
+archive: a small file can hold a very large sheet, so the app also checks how
+big the sheet is once opened. That second one is
+`IMPORT_XLSX_MAX_UNCOMPRESSED_MB` below.
+
+The 256 KB statement limit is not configurable today.
+
+`BODY_SIZE_LIMIT` is not in the table because it is not about any one of
+these: it caps every HTTP request, and it exists so the largest of the above
+fits through. **Lowering it below 20 MB breaks restoring a large backup**,
+which is the one refusal that costs you your data recovery rather than an
+import you can retry. Raising it does not raise any of the limits in the
+table.
 
 `IMPORT_XLSX_MAX_UNCOMPRESSED_MB` is **optional**: leave it out entirely and
 you get 8, which is the measured default. It is not one of
 [the three secrets](#the-three-secrets), and unlike those, its absence never
-stops the app. It is a different quantity from the upload size, and the
-reason it exists is worth a paragraph. An `.xlsx` is a zip archive, so the
-size of the file you upload says nothing about how much it holds once
-opened: a 205 KB file can carry 260 MB of XML, and opening one costs the
-server about 760 MB of memory and nearly two seconds during which it answers
-nothing else. So the app measures what an archive really unpacks to before
-opening it, and refuses anything past this limit.
+stops the app. It is the second of the two limits on an `.xlsx`: the one on
+the sheet once opened, rather than on the file as sent.
 
-8 MB is roughly two and a half times the largest workbook LibreOffice
-produced that still fits under the upload cap (12,000 statement rows,
-3.2 MB of XML). If a genuine export is ever refused, raise it, and please
+8 MB is roughly two and a half times the largest workbook a spreadsheet
+application produced that still fits under the 256 KB upload limit. If a
+genuine export is ever refused, raise it, and please
 [open an issue](https://github.com/NonoHM/budgetpilot/issues): the number
 came from a measurement and a better measurement should replace it.
 
