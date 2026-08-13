@@ -38,11 +38,19 @@ docker compose up -d
 
 ### Checking the image is really ours
 
-From 0.11.0 on, every published image is signed. The signature is made during
+From 0.11.1 on, every published image is signed. The signature is made during
 the release workflow with a short-lived Sigstore certificate, so there is no
 signing key held anywhere that could be stolen. What the signature proves is
 that this exact image was built and published by BudgetPilot's own release
 workflow, and not substituted by someone with access to the registry.
+
+**0.11.0 is an exception and is not signed.** Signing was added in that release
+and its very first run failed, so the image published fine and the signing step
+did not. 0.11.0 also has no SBOM attached for the same reason. Both are fixed in
+0.11.1, and there is nothing wrong with the 0.11.0 image itself: it passed the
+same build, vulnerability and boot checks as every other release. It simply
+cannot be verified with the command below, so upgrade to 0.11.1 if you want to
+check it.
 
 Checking is optional and takes one command. Install
 [cosign](https://docs.sigstore.dev/cosign/system_config/installation/), then:
@@ -58,7 +66,7 @@ A good result prints a JSON block and exits 0. Anything else is a failure, and
 the two failures worth telling apart are:
 
 - `no signatures found` means the image carries no signature at all. Expected
-  for 0.10.0 and earlier, which shipped before signing existed.
+  for 0.11.0 and earlier, for the reasons above.
 - `no matching CertificateIdentity found` means the image is signed, but not by
   this project's release workflow. **Do not run it.**
 
