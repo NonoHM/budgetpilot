@@ -1,3 +1,5 @@
+import type { TransactionValidationCode } from '$lib/domain/transaction';
+
 /**
  * Where a refusal applies. A header level complaint has nowhere to put a line number,
  * which is how #291 is made unrepresentable rather than corrected: the invented
@@ -62,10 +64,13 @@ export type CsvRefusalFact =
 	| { code: 'split-parent-category-inconsistent' }
 	| { code: 'split-reserved-category-on-part' }
 	| { code: 'split-sign-opposite' }
-	| { code: 'split-sum-mismatch' };
-// The 29th member, `transaction-invalid`, carries the domain's own verdict and is added
-// in Task 2, because it depends on a type Task 2 creates. Adding it here would make this
-// file import a type that does not exist yet.
+	| { code: 'split-sum-mismatch' }
+	// The domain's own verdict, carried as codes rather than as the sentences
+	// `validateTransaction` used to return. Rendered by the catalogue's
+	// `import_refusal_transaction_invalid` key, whose `{violations}` placeholder is filled
+	// with the joined per-code labels, in the same source order `validateTransaction` pushed
+	// them, with no prefix: today the user sees exactly `validation.errors.join(', ')`.
+	| { code: 'transaction-invalid'; violations: TransactionValidationCode[] };
 
 export type CsvRefusalCode = CsvRefusalFact['code'];
 
@@ -108,8 +113,8 @@ export const CSV_REFUSAL_CODES = [
 	'split-parent-category-inconsistent',
 	'split-reserved-category-on-part',
 	'split-sign-opposite',
-	'split-sum-mismatch'
-	// 'transaction-invalid' is appended in Task 2, with the domain type it carries.
+	'split-sum-mismatch',
+	'transaction-invalid'
 ] as const satisfies readonly CsvRefusalCode[];
 
 // Exhaustive in the other direction too: a code in the union but absent from the array
