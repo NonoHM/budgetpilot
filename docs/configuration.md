@@ -237,7 +237,60 @@ BANK_SYNC_ENABLED=false   # automatic bank sync, see docs/bank-sync.md
 
 ```dotenv
 BODY_SIZE_LIMIT=21000000
+IMPORT_XLSX_MAX_UNCOMPRESSED_MB=8   # optional, 32 maximum
 ```
 
-Roughly 20 MB, the cap on an imported statement file. Raise it if you have a
-genuinely enormous export.
+`BODY_SIZE_LIMIT` is roughly 20 MB, the cap on an imported statement file.
+Raise it if you have a genuinely enormous export.
+
+`IMPORT_XLSX_MAX_UNCOMPRESSED_MB` is **optional**: leave it out entirely and
+you get 8, which is the measured default. It is not one of
+[the three secrets](#the-three-secrets), and unlike those, its absence never
+stops the app. It is a different quantity from the upload size, and the
+reason it exists is worth a paragraph. An `.xlsx` is a zip archive, so the
+size of the file you upload says nothing about how much it holds once
+opened: a
+205 KB file can carry 260 MB of XML, and opening one costs the server about
+760 MB of memory, which on a Raspberry Pi is the process being killed rather
+than a slow import. So the app measures what an archive really unpacks to
+before opening it, and refuses anything past this limit.
+
+8 MB is roughly two and a half times the largest workbook LibreOffice
+produced that still fits under the upload cap (12,000 statement rows,
+3.2 MB of XML). If a genuine export is ever refused, raise it, and please
+[open an issue](https://github.com/NonoHM/budgetpilot/issues): the number
+came from a measurement and a better measurement should replace it.
+
+**32 is a hard ceiling and a higher value stops the app at startup** rather
+than being quietly reduced to 32.
+
+Where 32 comes from, since a ceiling nobody can justify is a number someone
+will eventually raise. What costs memory is not the megabytes but the number
+of XML elements in them, so the figures below were measured on the expensive
+shape, tens of thousands of small elements rather than one large one:
+
+| Unpacks to | Memory to open it |
+| ---------- | ----------------- |
+| 4 MB       | 113 MB            |
+| **8 MB**   | **192 MB**        |
+| 16 MB      | 310 MB            |
+| **32 MB**  | **467 MB**        |
+| 48 MB      | 672 MB            |
+| 64 MB      | 845 MB            |
+
+32 is the largest of those whose cost still fits in half a gigabyte, and
+half a gigabyte is the line because this project documents running on a
+Raspberry Pi 4/5, where one request holding more than that alongside the
+app itself is the process being killed rather than a slow request. The next
+step measured, 48, costs 672 MB. So an operator who sets 32 is accepting
+about 467 MB from a single upload, four times what the default costs, which
+is a real choice and is why it is the most the app will accept.
+
+Refused rather than clamped, and that is the more important half. A limit
+that silently reduces your value honours itself and discards your intent:
+your import goes on failing, for a reason your own configuration says should
+not apply, with nothing anywhere connecting the two.
+
+Any value different from 8 is also named in the startup log, alongside the
+default. That line exists for the person reading logs after an incident, who
+is usually not the person who changed the setting.

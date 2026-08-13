@@ -2,7 +2,7 @@ import { readSheet } from 'read-excel-file/node';
 import type { CellValue } from 'read-excel-file/node';
 import type { ParsedCsvRow } from './types';
 import { normalizeParsedRows, parseRows } from './utils/csv';
-import { measureZipExpansion, XLSX_MAX_UNCOMPRESSED_BYTES, ZipBoundError } from './zipBounds';
+import { measureZipExpansion, resolveXlsxMaxUncompressedBytes, ZipBoundError } from './zipBounds';
 
 export const IMPORT_FILE_MAX_BYTES = 256_000;
 
@@ -114,7 +114,7 @@ async function readXlsxImportFile(file: File): Promise<ReadImportFileResult> {
 	// COMPRESSED upload, which the parser never allocates; this bounds what the parser is actually
 	// asked to hold. A guard that runs after the allocation that matters is not a guard for it.
 	try {
-		measureZipExpansion(buffer, XLSX_MAX_UNCOMPRESSED_BYTES);
+		measureZipExpansion(buffer, resolveXlsxMaxUncompressedBytes());
 	} catch (caught) {
 		if (caught instanceof ZipBoundError) {
 			// A malformed archive is reported as a bad file rather than as an oversized one, so the

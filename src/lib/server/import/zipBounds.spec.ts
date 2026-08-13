@@ -1,7 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
+import { readFileSync } from 'node:fs';
 import { strToU8, zipSync } from 'fflate';
-import { measureZipExpansion, XLSX_MAX_UNCOMPRESSED_BYTES, ZipBoundError } from './zipBounds';
+import {
+	assertXlsxBoundConfigured,
+	LARGEST_MEASURED_LEGITIMATE_BYTES,
+	measureZipExpansion,
+	resolveXlsxMaxUncompressedBytes,
+	XLSX_DEFAULT_MAX_UNCOMPRESSED_MB,
+	XLSX_MAX_UNCOMPRESSED_CEILING_MB,
+	XLSX_MAX_UNCOMPRESSED_ENV,
+	ZipBoundError
+} from './zipBounds';
 import { ImportFileError, readImportFile } from './file';
 
 /**
@@ -33,8 +43,8 @@ import { ImportFileError, readImportFile } from './file';
  * figure, not merely as "it was admitted".
  *
  * BREAK-CHECK, and it reproduces the FIGURE rather than merely going red, because going red without
- * reproducing the measurement verifies nothing. `XLSX_MAX_UNCOMPRESSED_BYTES` raised to 400 MB so
- * the guard admits it, #254's own 205,196-byte fixture, through the real `readImportFile`:
+ * reproducing the measurement verifies nothing. The bound raised to 400 MB so the guard admits it,
+ * #254's own 205,196-byte fixture, through the real `readImportFile`:
  *
  *   bound raised    205,196 B   parsed    1669 ms   rss 112 MB -> 798 MB
  *   bound in place  205,196 B   refused      4 ms   rss 112 MB -> 121 MB
@@ -103,6 +113,9 @@ const BOMB_BODY_BYTES = 12_000_000;
 const bombWorkbook = workbookCarrying('A'.repeat(BOMB_BODY_BYTES));
 const benignWorkbook = workbookCarrying('CARTE 12/03 CARREFOUR MARKET 000123 FACTURE 4512');
 
+/** What `resolveXlsxMaxUncompressedBytes` returns with nothing configured. */
+const DEFAULT_BOUND = XLSX_DEFAULT_MAX_UNCOMPRESSED_MB * 1_000_000;
+
 function asUpload(bytes: Uint8Array, name = 'releve.xlsx'): File {
 	return new File([bytes as BlobPart], name, {
 		type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -143,7 +156,7 @@ describe('control: the fixtures reach the guard rather than being stopped before
 		// The ratio is the claim. A fixture that were merely large would be caught by the upload cap
 		// and would prove nothing about this guard.
 		expect(bombWorkbook.byteLength).toBeLessThan(50_000);
-		expect(BOMB_BODY_BYTES).toBeGreaterThan(XLSX_MAX_UNCOMPRESSED_BYTES);
+		expect(BOMB_BODY_BYTES).toBeGreaterThan(DEFAULT_BOUND);
 		expect(BOMB_BODY_BYTES / bombWorkbook.byteLength).toBeGreaterThan(500);
 	});
 });
@@ -152,7 +165,7 @@ describe('the bound admits a legitimate workbook, measured absolutely', () => {
 	it('reports the real expanded size of a benign workbook, and its entry count', () => {
 		expect.assertions(3);
 
-		const measured = measureZipExpansion(Buffer.from(benignWorkbook), XLSX_MAX_UNCOMPRESSED_BYTES);
+		const measured = measureZipExpansion(Buffer.from(benignWorkbook), DEFAULT_BOUND);
 
 		// Absolute figures, because a guard that measured nothing would also "not refuse". The six
 		// parts are the six a minimal workbook needs; the byte total is what they really inflate to.
@@ -174,9 +187,180 @@ describe('the bound admits a legitimate workbook, measured absolutely', () => {
 		// Not a fixture: the figure LibreOffice produced for 12000 statement rows at 241,592 bytes on
 		// the wire, which is the largest such workbook the upload cap admits. The bound has to clear
 		// it, and this is the assertion that goes red if anyone tightens the bound below reality.
-		const LARGEST_MEASURED_LEGITIMATE = 3_222_491;
-		expect(LARGEST_MEASURED_LEGITIMATE).toBeLessThan(XLSX_MAX_UNCOMPRESSED_BYTES);
-		expect(XLSX_MAX_UNCOMPRESSED_BYTES / LARGEST_MEASURED_LEGITIMATE).toBeGreaterThan(2);
+		expect(LARGEST_MEASURED_LEGITIMATE_BYTES).toBeLessThan(DEFAULT_BOUND);
+		expect(DEFAULT_BOUND / LARGEST_MEASURED_LEGITIMATE_BYTES).toBeGreaterThan(2);
+	});
+});
+
+/**
+ * The two guards on the configurable bound.
+ *
+ * A security limit an operator can raise is a limit an operator can remove, and the realistic way
+ * this one dies is not a decision to disable it: it is one import failing, someone raising the
+ * number until it stops failing, and the guard becoming a suggestion nobody re-reads. So the ceiling
+ * is asserted to REFUSE rather than to clamp, and the warning is asserted to NAME BOTH VALUES.
+ *
+ * Both halves are absence-shaped by default ("it did not start", "nothing was logged"), which is the
+ * shape that passes for free. Each therefore carries its presence control first: the refusal test
+ * asserts a value one below the ceiling is ACCEPTED before asserting one above it is refused, and
+ * the warning tests capture `console.warn` and assert the default logs NOTHING before asserting a
+ * departure logs something. Without those, a resolver that refused everything and a logger that
+ * warned on every boot would both pass.
+ */
+describe('the bound is configurable, and the configuration cannot remove it', () => {
+	function withEnv<T>(value: string | undefined, run: () => T): T {
+		const previous = process.env[XLSX_MAX_UNCOMPRESSED_ENV];
+		if (value === undefined) delete process.env[XLSX_MAX_UNCOMPRESSED_ENV];
+		else process.env[XLSX_MAX_UNCOMPRESSED_ENV] = value;
+		try {
+			return run();
+		} finally {
+			if (previous === undefined) delete process.env[XLSX_MAX_UNCOMPRESSED_ENV];
+			else process.env[XLSX_MAX_UNCOMPRESSED_ENV] = previous;
+		}
+	}
+
+	function captureWarnings(run: () => void): string[] {
+		const lines: string[] = [];
+		const original = console.warn;
+		console.warn = (...args: unknown[]) => void lines.push(args.map(String).join(' '));
+		try {
+			run();
+		} finally {
+			console.warn = original;
+		}
+		return lines;
+	}
+
+	it('is OPTIONAL: an absent or blank value is the default, never a refusal to start', () => {
+		expect.assertions(4);
+
+		// DELIBERATELY UNLIKE `BOOTSTRAP_TOKEN` AND `TOTP_ENCRYPTION_KEY`, which are required and
+		// crash the boot when missing. Those guard secrets that have no safe default. This one has a
+		// measured default that is correct for every instance, so requiring it would break every
+		// existing deployment on upgrade to buy nothing at all.
+		//
+		// The distinction is worth a test rather than a comment, because the refusal path added
+		// alongside it is exactly the kind of thing a later edit generalises to "refuse when unset".
+		expect(() => withEnv(undefined, assertXlsxBoundConfigured)).not.toThrow();
+		expect(() => withEnv('', assertXlsxBoundConfigured)).not.toThrow();
+		expect(() => withEnv('   ', assertXlsxBoundConfigured)).not.toThrow();
+		expect(withEnv('  ', resolveXlsxMaxUncompressedBytes)).toBe(DEFAULT_BOUND);
+	});
+
+	it('unset means the measured default, and a value under the ceiling is honoured', () => {
+		expect.assertions(3);
+
+		// The presence half. An operator who sets a legal value must get that value, or the variable
+		// is decoration and every refusal below is satisfied by a resolver that refuses everything.
+		expect(withEnv(undefined, resolveXlsxMaxUncompressedBytes)).toBe(DEFAULT_BOUND);
+		expect(withEnv('16', resolveXlsxMaxUncompressedBytes)).toBe(16_000_000);
+		expect(withEnv(String(XLSX_MAX_UNCOMPRESSED_CEILING_MB), resolveXlsxMaxUncompressedBytes)).toBe(
+			XLSX_MAX_UNCOMPRESSED_CEILING_MB * 1_000_000
+		);
+	});
+
+	it('refuses a value above the hard ceiling instead of clamping it', () => {
+		expect.assertions(3);
+
+		// REFUSED, not clamped, and the assertion is on the throw rather than on the returned number
+		// precisely because a clamp returns a perfectly reasonable number. `PASSWORD_HASH_COST` in
+		// auth.ts clamps, so an operator setting 20 gets 15 and is never told; this must not.
+		expect(() => withEnv('33', resolveXlsxMaxUncompressedBytes)).toThrow(
+			/above the hard ceiling of 32/
+		);
+		expect(() => withEnv('4096', resolveXlsxMaxUncompressedBytes)).toThrow(
+			new RegExp(XLSX_MAX_UNCOMPRESSED_ENV)
+		);
+		// And the boot check is what turns that into a refusal to start rather than a 500 on the
+		// first import, which is the only reason no request ever sees the throw above.
+		expect(() => withEnv('4096', assertXlsxBoundConfigured)).toThrow(/hard ceiling/);
+	});
+
+	it('refuses a value that is not a whole number of megabytes, rather than falling back', () => {
+		expect.assertions(4);
+
+		// A fallback would mean the bound in force is not the bound configured. That is survivable
+		// for SESSION_TTL_DAYS and is not survivable here, because the operator would go on believing
+		// their value applied.
+		for (const bad of ['0', '-1', 'huit', '8.5']) {
+			expect(() => withEnv(bad, resolveXlsxMaxUncompressedBytes)).toThrow(/whole number/);
+		}
+	});
+
+	it('says nothing at boot on the default, and names both values on any departure', () => {
+		expect.assertions(5);
+
+		// The presence control first: a logger that warned unconditionally would satisfy every
+		// assertion below, and an operator who reads a warning on a default install stops reading
+		// warnings.
+		expect(withEnv(undefined, () => captureWarnings(assertXlsxBoundConfigured))).toEqual([]);
+		expect(
+			withEnv(String(XLSX_DEFAULT_MAX_UNCOMPRESSED_MB), () =>
+				captureWarnings(assertXlsxBoundConfigured)
+			)
+		).toEqual([]);
+
+		const raised = withEnv('24', () => captureWarnings(assertXlsxBoundConfigured));
+		// BOTH values, because a warning naming only the configured one leaves the reader unable to
+		// tell whether it was raised or lowered, which is the whole question in a post-mortem.
+		expect(raised.join('\n')).toContain('=24');
+		expect(raised.join('\n')).toContain(`default of ${XLSX_DEFAULT_MAX_UNCOMPRESSED_MB}`);
+		expect(raised.join('\n')).toContain('RAISED');
+	});
+
+	it('warns when the bound is set below what real spreadsheet software emits', () => {
+		expect.assertions(2);
+
+		// The other direction, which is not a security risk and is a support incident: at 2 MB every
+		// LibreOffice export of any size is refused, and the message a user gets says nothing about
+		// configuration. Cheap to say at boot, expensive to diagnose later.
+		const lowered = withEnv('2', () => captureWarnings(assertXlsxBoundConfigured));
+		expect(lowered.join('\n')).toContain('LOWERED');
+		expect(lowered.join('\n')).toContain(String(LARGEST_MEASURED_LEGITIMATE_BYTES));
+	});
+
+	it('the boot check is actually wired into the init hook', () => {
+		expect.assertions(3);
+
+		// WITHOUT THIS THE CEILING IS DECORATION. Every other test here calls the resolver or the
+		// asserter directly, so all of them pass on a build where `hooks.server.ts` never invokes it,
+		// and a ceiling that never runs at boot refuses nothing: an operator's out-of-range value
+		// would simply throw on their first import instead, months later, as a 500.
+		//
+		// A source scan rather than an `init()` call, because `init` also backfills against a live
+		// database. Structural, and therefore a proxy, so it is calibrated below rather than trusted.
+		const hooks = readFileSync(new URL('../../../hooks.server.ts', import.meta.url), 'utf8');
+		const callsBootCheck = (source: string) => /\bassertXlsxBoundConfigured\(\)/.test(source);
+
+		expect(hooks).toContain("from '$lib/server/import/zipBounds'");
+		expect(callsBootCheck(hooks)).toBe(true);
+		// The calibration: the same predicate must report FALSE on a source that does not call it,
+		// or "it is wired" is a statement about a regex that matches anything.
+		expect(callsBootCheck('export const init = async () => { await somethingElse(); };')).toBe(
+			false
+		);
+	});
+
+	it('the configured value is what the import path actually enforces', () => {
+		expect.assertions(2);
+
+		// The wiring, which the tests above cannot see: they all call the resolver directly. Without
+		// this, `readImportFile` could go on using a hardcoded constant and every one of them passes.
+		const measured = withEnv('4', () =>
+			measureZipExpansion(Buffer.from(benignWorkbook), resolveXlsxMaxUncompressedBytes())
+		);
+		expect(measured.uncompressedBytes).toBeLessThan(4_000_000);
+
+		let caught: unknown;
+		withEnv('4', () => {
+			try {
+				measureZipExpansion(Buffer.from(bombWorkbook), resolveXlsxMaxUncompressedBytes());
+			} catch (error) {
+				caught = error;
+			}
+		});
+		expect((caught as ZipBoundError).maxBytes).toBe(4_000_000);
 	});
 });
 
@@ -186,7 +370,7 @@ describe('v5.0.0-5.2.3: an archive is bounded by what it expands to', () => {
 
 		let caught: unknown;
 		try {
-			measureZipExpansion(Buffer.from(bombWorkbook), XLSX_MAX_UNCOMPRESSED_BYTES);
+			measureZipExpansion(Buffer.from(bombWorkbook), DEFAULT_BOUND);
 		} catch (error) {
 			caught = error;
 		}
@@ -195,8 +379,8 @@ describe('v5.0.0-5.2.3: an archive is bounded by what it expands to', () => {
 		// The REASON, not that a refusal happened. `malformed` is the other way this call can throw,
 		// and it would mean the walk broke rather than the bound firing.
 		expect((caught as ZipBoundError).reason).toBe('expands_too_far');
-		expect((caught as ZipBoundError).maxBytes).toBe(XLSX_MAX_UNCOMPRESSED_BYTES);
-		expect((caught as ZipBoundError).measuredBytes).toBe(XLSX_MAX_UNCOMPRESSED_BYTES);
+		expect((caught as ZipBoundError).maxBytes).toBe(DEFAULT_BOUND);
+		expect((caught as ZipBoundError).measuredBytes).toBe(DEFAULT_BOUND);
 	});
 
 	it('the declared sizes are not what is measured', () => {
@@ -208,7 +392,7 @@ describe('v5.0.0-5.2.3: an archive is bounded by what it expands to', () => {
 		const forged = forgeDeclaredSizes(bombWorkbook, 1024);
 		expect(forged.readUInt32LE(22)).toBe(1024);
 
-		expect(() => measureZipExpansion(forged, XLSX_MAX_UNCOMPRESSED_BYTES)).toThrow(
+		expect(() => measureZipExpansion(forged, DEFAULT_BOUND)).toThrow(
 			expect.objectContaining({ reason: 'expands_too_far' })
 		);
 	});
@@ -244,7 +428,7 @@ describe('the walk survives archives real software produces', () => {
 		expect(archive.readUInt32LE(22)).toBe(0);
 		// Unchanged: the walk takes its sizes from the central directory, where a streamed writer
 		// does fill them in.
-		expect(measureZipExpansion(archive, XLSX_MAX_UNCOMPRESSED_BYTES).entryCount).toBe(6);
+		expect(measureZipExpansion(archive, DEFAULT_BOUND).entryCount).toBe(6);
 	});
 
 	it('refuses an archive whose structure does not walk, and says so as malformed', () => {
@@ -255,7 +439,7 @@ describe('the walk survives archives real software produces', () => {
 		).toThrow(expect.objectContaining({ reason: 'malformed' }));
 		// Truncation is the common accidental case, and it must not be reported as an oversized file.
 		const truncated = Buffer.from(bombWorkbook).subarray(0, 200);
-		expect(() => measureZipExpansion(truncated, XLSX_MAX_UNCOMPRESSED_BYTES)).toThrow(
+		expect(() => measureZipExpansion(truncated, DEFAULT_BOUND)).toThrow(
 			expect.objectContaining({ reason: 'malformed' })
 		);
 	});
@@ -270,7 +454,7 @@ describe('the walk survives archives real software produces', () => {
 		for (let i = 0; i + 4 <= archive.length; i += 1) {
 			if (archive.readUInt32LE(i) === 0x02014b50) archive.writeUInt16LE(9, i + 10);
 		}
-		expect(() => measureZipExpansion(archive, XLSX_MAX_UNCOMPRESSED_BYTES)).toThrow(
+		expect(() => measureZipExpansion(archive, DEFAULT_BOUND)).toThrow(
 			expect.objectContaining({ reason: 'malformed' })
 		);
 	});
@@ -291,8 +475,8 @@ describe('the import path refuses the bomb with the reason a user is shown', () 
 		// The reason is the only part of a refusal the user ever sees, and the three neighbouring
 		// codes all produce a refusal that reads as correct while sending them to the wrong place.
 		expect((caught as ImportFileError).code).toBe('expands_too_far');
-		expect((caught as ImportFileError).params?.max).toBe(XLSX_MAX_UNCOMPRESSED_BYTES);
-		expect((caught as ImportFileError).params?.size).toBe(XLSX_MAX_UNCOMPRESSED_BYTES);
+		expect((caught as ImportFileError).params?.max).toBe(DEFAULT_BOUND);
+		expect((caught as ImportFileError).params?.size).toBe(DEFAULT_BOUND);
 	});
 
 	it('and still parses a legitimate workbook end to end', async () => {

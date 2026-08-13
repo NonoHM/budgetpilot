@@ -33,7 +33,9 @@ spreadsheet application reaches about 3 MB unpacked at the largest size the
 upload limit allows, so the 8 MB ceiling is roughly twice what a real
 statement needs. If a genuine export is ever refused by it, that is worth
 [reporting](https://github.com/NonoHM/budgetpilot/issues), because the
-number was chosen from a measurement and can be corrected by another.
+number was chosen from a measurement and can be corrected by another. An
+operator can also raise it, up to a point:
+see [`IMPORT_XLSX_MAX_UNCOMPRESSED_MB`](../configuration.md#upload-size).
 
 Splitting a long history into several files, a year at a time, works and
 costs nothing: duplicate detection is per transaction, so overlapping

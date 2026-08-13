@@ -37,8 +37,21 @@ import { inflateRawSync } from 'node:zlib';
  *
  * 3.22 MB is therefore the largest expansion a legitimate workbook can carry past the upload cap as
  * measured, and 13.4:1 against the full 256,000 bytes puts the arithmetic ceiling at about 3.43 MB.
- * **8 MB is 2.5x the measured ceiling and 2.3x the arithmetic one.** The residual cost at the bound
- * is 42 MB of RSS, against 760 MB unbounded.
+ * **8 MB is 2.5x the measured ceiling and 2.3x the arithmetic one.**
+ *
+ * WHAT THE BOUND COSTS AT ITS DEFAULT, and the correction that produced this paragraph, because the
+ * first figure written here was wrong in the reassuring direction. Cost was first measured with a
+ * `sharedStrings.xml` holding ONE enormous element, which gave 42 MB of RSS for 8 MB of XML. #254's
+ * own fixture is repeated MARKUP, tens of thousands of small elements, and the same 8 MB then costs
+ * **192 MB**. What the parser holds is a DOM and a DOM is priced per NODE, so the byte count does
+ * not predict the memory, and the cheap shape is not the one a bound has to survive. Re-measured on
+ * the expensive shape:
+ *
+ *    4 MB -> 113 MB     8 MB -> 192 MB    16 MB -> 310 MB
+ *   24 MB -> 386 MB    32 MB -> 467 MB    48 MB -> 672 MB    64 MB -> 845 MB
+ *
+ * So the honest statement is 192 MB at the default, against 686 MB for #254's own 50 MB fixture and
+ * multiple gigabytes at the 260 MB the upload cap admits. A real reduction, not a small residual.
  *
  * WHAT THIS DOES NOT PREVENT, stated because the neighbouring fix invites the assumption that it
  * does. It is a bound on ZIP decompression and on nothing else. It says nothing about #276, the
@@ -51,7 +64,107 @@ import { inflateRawSync } from 'node:zlib';
  * Measured at 2.6 ms for a 12000-row workbook, against the parse's own tens of milliseconds. Peak
  * transient allocation is the bound itself, since each entry is materialised to be counted.
  */
-export const XLSX_MAX_UNCOMPRESSED_BYTES = 8_000_000;
+/** Megabytes, because that is the unit an operator thinks in and the one the errors speak. */
+export const XLSX_DEFAULT_MAX_UNCOMPRESSED_MB = 8;
+
+/**
+ * The value above which a configured bound is REFUSED at boot rather than clamped.
+ *
+ * WHY A CEILING AT ALL, WHEN THE OPERATOR OWNS THE MACHINE. A security limit an operator can raise
+ * is a limit an operator can remove, and the realistic way this bound dies is not a decision to
+ * disable it: it is one legitimate import failing, someone raising the number until the failure
+ * stops, and the guard quietly becoming a suggestion. That is the `.trivyignore` reasoning one
+ * layer over, and it produces the same rule: a convenience must never be able to weaken a gate. A
+ * ceiling costs an operator with a genuinely enormous workbook a patch and a pull request, which is
+ * the right amount of friction for removing a denial-of-service control.
+ *
+ * REFUSED, NOT CLAMPED, and the difference is the point. Clamping honours the limit and discards the
+ * intent: the operator's import goes on failing, for a reason their own configuration says should
+ * not apply, and nothing connects the two. `PASSWORD_HASH_COST` in `auth.ts` clamps exactly this way
+ * today, so an operator setting 20 silently gets 15, and that precedent is why this one does not.
+ *
+ * WHERE THE NUMBER COMES FROM, which is a measurement rather than a round figure. On the expensive
+ * XML shape above, 32 MB is the largest value measured whose worst case (467 MB of RSS) still sits
+ * inside half a gigabyte; the next step measured, 48 MB, costs 672 MB. Half a gigabyte is the line
+ * because this project documents running on a Raspberry Pi 4/5, where one request holding more than
+ * that alongside the application's own footprint is an out-of-memory kill rather than a spike. **An
+ * operator who raises this to the ceiling is accepting about 467 MB of resident memory from a single
+ * upload**, four times what the default costs, and that sentence is what the boot warning exists to
+ * put in front of them.
+ */
+export const XLSX_MAX_UNCOMPRESSED_CEILING_MB = 32;
+
+/**
+ * The largest expansion LibreOffice produced for a workbook still under the upload cap. Not a limit:
+ * the figure a configured value is compared against, so that setting the bound BELOW what real
+ * spreadsheet software emits is reported at boot rather than discovered as a failing import.
+ */
+export const LARGEST_MEASURED_LEGITIMATE_BYTES = 3_222_491;
+
+export const XLSX_MAX_UNCOMPRESSED_ENV = 'IMPORT_XLSX_MAX_UNCOMPRESSED_MB';
+
+const MEGABYTE = 1_000_000;
+
+/**
+ * Reads the configured bound, or throws. Read per call rather than cached at import, matching
+ * `SESSION_TTL_DAYS` and `INVITATION_TTL_HOURS`, so the value stays configurable without a stateful
+ * redeploy.
+ *
+ * It THROWS on a bad value where those neighbours fall back to their default, and the asymmetry is
+ * deliberate: a fallback here would mean the bound in force is not the bound the operator
+ * configured, which is the one thing a limit must never do quietly. `assertXlsxBoundConfigured` is
+ * what turns this throw into a refusal to start, so in practice no request ever sees it.
+ */
+export function resolveXlsxMaxUncompressedBytes(): number {
+	const raw = process.env[XLSX_MAX_UNCOMPRESSED_ENV];
+	if (raw === undefined || raw.trim() === '') {
+		return XLSX_DEFAULT_MAX_UNCOMPRESSED_MB * MEGABYTE;
+	}
+
+	const megabytes = Number(raw);
+	if (!Number.isInteger(megabytes) || megabytes < 1) {
+		throw new Error(
+			`${XLSX_MAX_UNCOMPRESSED_ENV} must be a whole number of megabytes, at least 1 (got ${JSON.stringify(raw)}). It bounds how much XML an uploaded .xlsx may expand to. The default is ${XLSX_DEFAULT_MAX_UNCOMPRESSED_MB}.`
+		);
+	}
+
+	if (megabytes > XLSX_MAX_UNCOMPRESSED_CEILING_MB) {
+		throw new Error(
+			`${XLSX_MAX_UNCOMPRESSED_ENV}=${megabytes} is above the hard ceiling of ${XLSX_MAX_UNCOMPRESSED_CEILING_MB}. This is a denial-of-service limit (#254): an .xlsx expanding to ${XLSX_MAX_UNCOMPRESSED_CEILING_MB} MB already costs about 467 MB of resident memory, and raising it further lets one upload exhaust the memory of the machines this project documents. The value is refused rather than clamped so that a bound you set is the bound that runs. The number and the measurements that chose it are in src/lib/server/import/zipBounds.ts.`
+		);
+	}
+
+	return megabytes * MEGABYTE;
+}
+
+/**
+ * Boot check, called from `hooks.server.ts`. Refuses to start on an out-of-range value, and reports
+ * any departure from the default.
+ *
+ * The warning is the half that is easy to leave out and it is worth more than the refusal. Someone
+ * who raised this bound to make a failing import go away will not remember doing so when an upload
+ * kills the instance six months later, and nothing else in the running system states what the limit
+ * is. A line naming the configured value AND the default puts that fact where a post-mortem starts.
+ */
+export function assertXlsxBoundConfigured(): void {
+	const bytes = resolveXlsxMaxUncompressedBytes();
+	const configuredMb = bytes / MEGABYTE;
+	if (configuredMb === XLSX_DEFAULT_MAX_UNCOMPRESSED_MB) return;
+
+	console.warn(
+		`[budgetpilot] ${XLSX_MAX_UNCOMPRESSED_ENV}=${configuredMb} differs from the default of ${XLSX_DEFAULT_MAX_UNCOMPRESSED_MB}. It bounds how much XML an uploaded .xlsx may expand to, and it exists so that one upload cannot exhaust this machine's memory (#254).`
+	);
+
+	if (bytes > XLSX_DEFAULT_MAX_UNCOMPRESSED_MB * MEGABYTE) {
+		console.warn(
+			`[budgetpilot] ${XLSX_MAX_UNCOMPRESSED_ENV} is RAISED above the default, so one .xlsx upload may hold more memory than this instance was measured for. At the ${XLSX_MAX_UNCOMPRESSED_CEILING_MB} MB ceiling the measured cost is about 467 MB of resident memory per upload.`
+		);
+	} else if (bytes < LARGEST_MEASURED_LEGITIMATE_BYTES) {
+		console.warn(
+			`[budgetpilot] ${XLSX_MAX_UNCOMPRESSED_ENV} is LOWERED below ${LARGEST_MEASURED_LEGITIMATE_BYTES} bytes, the largest workbook LibreOffice produced that still passes the upload cap. Legitimate spreadsheet imports are likely to be refused.`
+		);
+	}
+}
 
 const END_OF_CENTRAL_DIRECTORY = 0x06054b50;
 const CENTRAL_DIRECTORY_ENTRY = 0x02014b50;
