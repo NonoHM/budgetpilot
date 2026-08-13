@@ -10,6 +10,9 @@ design decision is not mistaken for a defect and undone.
 - **[Where BudgetPilot differs from comparable tools](./where-this-differs.md)**:
   three choices taken differently from the tools this one is compared against,
   and what each cost.
+- **[How this project's security is verified, and by whom](./security-verification.md)**:
+  what was tested, what is asserted on every run, what is not covered, and why
+  none of it is an independent audit.
 - **[What BudgetPilot deliberately does not do](./what-this-does-not-do.md)**:
   three capabilities other tools have that this one will not gain, and why.
 

@@ -107,6 +107,8 @@ Release notes live in [CHANGELOG.md](./CHANGELOG.md).
 
 This is a finance app, so security gets taken seriously. See [SECURITY.md](./SECURITY.md) for what's supported and how to report a vulnerability privately (please don't open a public issue for that one).
 
+For what has actually been verified, by whom, and what is not covered, see [how this project's security is verified](./docs/explanation/security-verification.md). No independent third party has audited this project, and that page says so first.
+
 ## License
 
 [Apache License 2.0](./LICENSE).
