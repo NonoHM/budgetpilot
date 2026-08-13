@@ -2,19 +2,18 @@ import { validateTransaction } from '$lib/domain/transaction';
 import { applyCategorizationRules } from '$lib/server/categorization/rules';
 import type {
 	CsvImportResult,
-	CsvInvalidRow,
 	CsvProfileParseInput,
 	ImportedTransaction,
 	ImportedTransactionType
 } from '../types';
+import type { CsvRefusal, CsvRefusalFact } from '../refusals';
 import {
-	addInvalidRow,
+	addRefusal,
 	buildSummary,
 	emptyResult,
 	isIgnorableBankingRow,
 	normalizeFirstValidDate,
 	normalizeHeaderCells,
-	resolveValidationField,
 	toRecord
 } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
@@ -54,7 +53,6 @@ export function matchesBanquePopulaireHeader(headers: string[]): boolean {
 
 export function parseBanquePopulaireRows({
 	rows,
-	errors,
 	warnings,
 	sourceName,
 	categorizationRules
@@ -62,7 +60,7 @@ export function parseBanquePopulaireRows({
 	const headers = normalizeHeaderCells(rows[0].cells);
 	if (!matchesBanquePopulaireHeader(headers)) {
 		return emptyResult(
-			['En-tête Banque Populaire non reconnu'],
+			[{ code: 'header-not-recognized', profile: 'Banque Populaire' }],
 			warnings,
 			'banque-populaire',
 			rows.length - 1
@@ -71,7 +69,7 @@ export function parseBanquePopulaireRows({
 
 	const transactions: ImportedTransaction[] = [];
 	const seenFingerprints = new Set<string>();
-	const invalidRows: CsvInvalidRow[] = [];
+	const refusals: CsvRefusal[] = [];
 	let duplicateRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
@@ -82,11 +80,16 @@ export function parseBanquePopulaireRows({
 		const line = parsedRow.line;
 		if (row.length !== headers.length) {
 			if (isIgnorableBankingRow(row)) {
-				addInvalidRow(errors, invalidRows, line, 'ligne ignorée: footer bancaire', 'line');
+				addRefusal(refusals, { kind: 'row', line }, { code: 'footer-ignored' }, 'line');
 				return;
 			}
 
-			addInvalidRow(errors, invalidRows, line, 'nombre de colonnes incorrect', 'colonnes');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'bad-column-count', expected: headers.length, actual: row.length },
+				'colonnes'
+			);
 			return;
 		}
 
@@ -123,7 +126,7 @@ export function parseBanquePopulaireRows({
 		}
 
 		if (!amount.ok) {
-			addInvalidRow(errors, invalidRows, line, amount.reason, amount.field);
+			addRefusal(refusals, { kind: 'row', line }, amount.fact, amount.field);
 			return;
 		}
 
@@ -168,12 +171,13 @@ export function parseBanquePopulaireRows({
 		};
 		const validation = validateTransaction(transaction);
 		if (!validation.ok) {
-			addInvalidRow(
-				errors,
-				invalidRows,
-				line,
-				validation.errors.join(', '),
-				resolveValidationField(validation.errors)
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{
+					code: 'transaction-invalid',
+					violations: validation.violations
+				}
 			);
 			return;
 		}
@@ -186,14 +190,13 @@ export function parseBanquePopulaireRows({
 
 	return {
 		transactions,
-		errors,
 		warnings,
-		invalidRows,
+		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'banque-populaire',
 			totalRows: rows.length - 1,
 			validRows: transactions.length,
-			invalidRows: invalidRows.length,
+			invalidRows: refusals.length,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,
@@ -211,7 +214,7 @@ type BanquePopulaireAmountResult =
 	  }
 	| {
 			ok: false;
-			reason: string;
+			fact: CsvRefusalFact;
 			field: string;
 	  };
 
@@ -219,15 +222,23 @@ function parseBanquePopulaireAmount(debit: string, credit: string): BanquePopula
 	const hasDebit = debit.trim() !== '';
 	const hasCredit = credit.trim() !== '';
 	if (!hasDebit && !hasCredit)
-		return { ok: false, reason: 'débit et crédit vides', field: 'Debit/Credit' };
+		return { ok: false, fact: { code: 'debit-credit-empty' }, field: 'Debit/Credit' };
 	if (hasDebit && hasCredit)
-		return { ok: false, reason: 'débit et crédit remplis en même temps', field: 'Debit/Credit' };
+		return { ok: false, fact: { code: 'debit-credit-both' }, field: 'Debit/Credit' };
 
 	const parsedAmount = parseAmountCents(hasDebit ? debit : credit);
 	if (parsedAmount === null)
-		return { ok: false, reason: 'montant invalide', field: hasDebit ? 'Debit' : 'Credit' };
+		return {
+			ok: false,
+			fact: { code: 'invalid-amount', column: hasDebit ? 'Debit' : 'Credit' },
+			field: hasDebit ? 'Debit' : 'Credit'
+		};
 	if (parsedAmount === 0)
-		return { ok: false, reason: 'montant à zéro refusé', field: hasDebit ? 'Debit' : 'Credit' };
+		return {
+			ok: false,
+			fact: { code: 'zero-amount', column: hasDebit ? 'Debit' : 'Credit' },
+			field: hasDebit ? 'Debit' : 'Credit'
+		};
 
 	if (hasDebit) {
 		return { ok: true, amountCents: Math.abs(parsedAmount), type: 'expense' };
