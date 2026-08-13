@@ -55,6 +55,68 @@ If you're evaluating BudgetPilot for a security-sensitive deployment, read
 variable is documented there with its safe default and the reasoning behind
 it.
 
+## Badges, and what they do and do not mean
+
+Two badges are linked from the README. Neither is an audit, and they measure different
+things.
+
+**OpenSSF Scorecard** is automated. It scores repository and supply-chain process:
+whether workflow tokens are scoped to the job, whether actions are pinned by commit
+hash, whether a security policy exists, whether releases are signed. It does not read
+this application's own code and it does not look for vulnerabilities in it. A high
+Scorecard number says the repository is run a certain way. It says nothing about
+whether the figures on your screen are right.
+
+**The OpenSSF Best Practices Badge is self-certified.** The project answers a public
+criteria list and nobody verifies the answers. Every answer and the justification
+behind it are visible at
+[the entry](https://www.bestpractices.dev/projects/14059), which is the only reason it
+carries any weight: you can read what was claimed and check each claim against this
+repository yourself.
+
+Four criteria are answered **Unmet on purpose**, where a generous reading would have
+passed:
+
+- **`test_most`** (does the suite cover most branches, inputs and functionality): no
+  coverage instrument is configured, so the claim would have nothing behind it. The
+  suite is large, and large is not the same as covering.
+- **`dynamic_analysis`**: no fuzzer and no web application scanner is run, and the
+  alternative the criterion allows (an automated suite with at least 80% branch
+  coverage) is unavailable for the same reason. A manual penetration test was run, and
+  it is not the tool-driven input variation this criterion asks for.
+- **`dynamic_analysis_enable_assertions`**: run-time invariants do exist and are
+  enforced, but the criterion asks that they be checked during dynamic analysis, and no
+  dynamic analysis is run for them to be checked during.
+- **`warnings_strict`**: TypeScript runs with `strict` and `checkJs`, and unused
+  variables are an error rather than a warning, but typescript-eslint sits at its
+  `recommended` set rather than `strict`, so "maximally strict where practical" is
+  arguable rather than true.
+
+## Verifying what you run
+
+From 0.11.1 onward, every published image is signed with cosign keyless through
+Sigstore, and each release SBOM is signed separately. The verification command,
+including the two flags without which the check proves nothing, is in
+[`docs/operations.md`](./docs/operations.md) under "Checking the image is really ours".
+0.11.0 is not signed: its signing run failed, and that is recorded in the same place.
+
+## No independent audit has been performed
+
+Stated plainly, because it is the question this file exists to answer: **no third party
+has audited this project.** What exists is verification by the maintainer, documented so
+that it can be checked rather than taken on trust:
+
+- an owner-authorised penetration test of a local instance, mapped against OWASP ASVS
+  4.0.3 level 1, with the retest rule below;
+- CodeQL static analysis on every commit and every pull request;
+- Trivy against the built image on every pull request, and against the published image
+  daily, with the publish gate refusing a release that carries a fixable critical or
+  high finding.
+
+That is a different and weaker thing than an external audit by people with no stake in
+the result, and it should be weighed as such when deciding whether to trust this
+project with financial data.
+
 ## Penetration testing and retest policy
 
 A full application penetration test is the annual-equivalent baseline. It
