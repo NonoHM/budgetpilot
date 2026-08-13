@@ -237,7 +237,73 @@ BANK_SYNC_ENABLED=false   # automatic bank sync, see docs/bank-sync.md
 
 ```dotenv
 BODY_SIZE_LIMIT=21000000
+IMPORT_XLSX_MAX_UNCOMPRESSED_MB=8   # optional, 32 maximum
 ```
 
-Roughly 20 MB, the cap on an imported statement file. Raise it if you have a
-genuinely enormous export.
+`BODY_SIZE_LIMIT` is roughly 20 MB, the cap on an imported statement file.
+Raise it if you have a genuinely enormous export.
+
+`IMPORT_XLSX_MAX_UNCOMPRESSED_MB` is **optional**: leave it out entirely and
+you get 8, which is the measured default. It is not one of
+[the three secrets](#the-three-secrets), and unlike those, its absence never
+stops the app. It is a different quantity from the upload size, and the
+reason it exists is worth a paragraph. An `.xlsx` is a zip archive, so the
+size of the file you upload says nothing about how much it holds once
+opened: a 205 KB file can carry 260 MB of XML, and opening one costs the
+server about 760 MB of memory and nearly two seconds during which it answers
+nothing else. So the app measures what an archive really unpacks to before
+opening it, and refuses anything past this limit.
+
+8 MB is roughly two and a half times the largest workbook LibreOffice
+produced that still fits under the upload cap (12,000 statement rows,
+3.2 MB of XML). If a genuine export is ever refused, raise it, and please
+[open an issue](https://github.com/NonoHM/budgetpilot/issues): the number
+came from a measurement and a better measurement should replace it.
+
+**32 is a hard ceiling and a higher value stops the app at startup** rather
+than being quietly reduced to 32.
+
+Where 32 comes from, since a ceiling nobody can justify is a number someone
+will eventually raise. Opening a workbook holds the server's only thread for
+as long as it takes, so the limit is set by how long you are willing for one
+upload to make the app unresponsive. Measured on the shape that costs most,
+tens of thousands of small XML elements rather than one large one:
+
+| Unpacks to          | Memory to open it | Time to open it |
+| ------------------- | ----------------- | --------------- |
+| 3.2 MB (a real one) | ~100 MB           | 153 ms          |
+| **8 MB** (default)  | 192 MB            | **340 ms**      |
+| 16 MB               | 310 MB            |                 |
+| **32 MB** (ceiling) | 467 MB            | **1054 ms**     |
+| 48 MB               | 672 MB            |                 |
+| 64 MB               | 845 MB            |                 |
+
+32 is the largest of those whose parse still takes about a second. So an
+operator who sets 32 is accepting a one-second freeze from a single upload,
+three times the default's, which is a real choice and is why it is the most
+the app will accept.
+
+Refused rather than clamped, and that is the more important half. A limit
+that silently reduces your value honours itself and discards your intent:
+your import goes on failing, for a reason your own configuration says should
+not apply, with nothing anywhere connecting the two.
+
+### This limit is per upload, not per server
+
+Worth knowing before you raise it. Nothing queues or rate-limits imports, so
+two people importing at once, or one person with two tabs, both happen.
+
+Memory does not add up the way you would expect, because the imports do not
+actually overlap: the server parses them one after another, so two 32 MB
+imports peak at 587 MB rather than twice 467 MB. What adds up is the wait.
+Two simultaneous 32 MB imports hold the server for **1007 ms at a stretch**,
+during which it answers nothing at all, and four take 3.9 seconds. At the
+default of 8 the same figures are 290 ms and 502 ms.
+
+So the limit bounds what one upload costs, and the total is yours to manage.
+If your instance has several active users, that is an argument for leaving
+the default alone rather than raising it.
+
+Any value different from 8 is also named in the startup log, alongside the
+default. That line exists for the person reading logs after an incident, who
+is usually not the person who changed the setting.

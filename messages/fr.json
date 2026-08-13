@@ -324,6 +324,7 @@
 	"import_error_no_file": "Sélectionnez un fichier de relevé à importer.",
 	"import_error_bad_extension": "Le fichier doit utiliser l’extension .csv ou .xlsx.",
 	"import_error_too_large": "Relevé trop volumineux ({size} octets, maximum {max} octets).",
+	"import_error_expands_too_far": "Ce classeur se décompresse en {size} Mo, au-delà de la limite de {max} Mo. Exportez une période plus courte, ou répartissez-la sur plusieurs fichiers.",
 	"import_error_empty_file": "Le fichier de relevé est vide.",
 	"import_error_no_valid_transactions": "Aucune transaction valide à importer.",
 	"import_error_invalid_net_worth_account": "Le compte de patrimoine sélectionné est invalide.",

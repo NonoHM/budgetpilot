@@ -13,6 +13,7 @@ import { warnIfDatabaseRoleIsOverprivileged } from '$lib/server/database/privile
 import { ensureNameKeysBackfilled } from '$lib/server/naming/boot';
 import { ensureDedupeKeyHashesBackfilled } from '$lib/server/import/dedupeBoot';
 import { assertForwardingConfigSafe, parseTrustedProxies } from '$lib/server/net/clientAddress';
+import { assertXlsxBoundConfigured } from '$lib/server/import/zipBounds';
 // Side-effect imports only: each module throws at load time if its required secret
 // (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
 // the one module SvelteKit always loads at boot, so importing them here turns a missing
@@ -31,6 +32,11 @@ export const init: ServerInit = async () => {
 	// blindly (#219). Env-only, so it could be module-level, but keeping it beside the other boot
 	// assertions makes the ordering obvious.
 	assertForwardingConfigSafe();
+	// Refuses to start on an IMPORT_XLSX_MAX_UNCOMPRESSED_MB above its hard ceiling, and warns on any
+	// departure from the default. Refused rather than clamped on purpose: a clamp would honour the
+	// limit while discarding the operator's intent, leaving their import failing for a reason their
+	// own configuration says should not apply. Env-only, so it sits with the other boot assertions.
+	assertXlsxBoundConfigured();
 	await assertBootstrapTokenConfigured();
 	// Reports, never gates: see the module for why an over-privileged role is a loud warning
 	// rather than a refusal to start.
