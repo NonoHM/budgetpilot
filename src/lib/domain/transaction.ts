@@ -91,10 +91,33 @@ export function applyKindSign(amountCents: number, kind: TransactionKind): numbe
 	return kind === 'expense' ? -magnitude : magnitude;
 }
 
+/**
+ * A predicate, so it RETURNS rather than throws, and the `Number.isNaN` line is what makes that
+ * true rather than a description of intent.
+ *
+ * `ISO_DATE_PATTERN` admits any two digits for month and day, so `2026-13-45` reaches
+ * `new Date(...)`, which answers an Invalid Date, whose `toISOString()` raises `RangeError:
+ * Invalid time value` instead of returning a sentinel. Measured over every `2026-MM-DD` with MM
+ * and DD from 00 to 99, all 10000 of which pass the pattern: without this line **9628 throw** and
+ * 372 return a boolean. The 372 are the real calendar days plus the handful JavaScript rolls over
+ * rather than rejecting, which is why `2026-02-30` answers `false` cleanly and hides the whole
+ * thing from the obvious test case.
+ *
+ * The line is not defensive. `date-predicate.spec.ts` exercises all 10000 and goes red without it.
+ *
+ * AND IT DEMOTES THE PATTERN, which is worth stating because the pattern still reads like the
+ * guarantee. Widening it to `/^.*$/` in a break-check left every test in that spec GREEN, so the
+ * two versions were compared over a 10019-string corpus: the answers differ on **zero**. Anything
+ * the pattern would have refused now either produces an Invalid Date, caught one line below, or a
+ * valid one whose ISO prefix cannot equal the input. The pattern is kept as an early return that
+ * avoids allocating a `Date` per CSV row, not as the thing making this function total, and no test
+ * here proves it load-bearing because none can.
+ */
 export function isValidIsoDate(value: string): boolean {
 	if (!ISO_DATE_PATTERN.test(value)) return false;
 
 	const date = new Date(`${value}T00:00:00.000Z`);
+	if (Number.isNaN(date.getTime())) return false;
 	return date.toISOString().slice(0, 10) === value;
 }
 
