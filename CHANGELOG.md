@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.11.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.11.0...budgetpilot-v0.11.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* **security:** sign 0.11.0's successor, and stop a signing failure losing the SBOM ([#237](https://github.com/NonoHM/budgetpilot/issues/237)) ([ec120f7](https://github.com/NonoHM/budgetpilot/commit/ec120f7da8ecfc3dbfc1c0ec347cd1fd0353560e))
+
 ## [0.11.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.10.0...budgetpilot-v0.11.0) (2026-08-13)
 
 
