@@ -110,6 +110,76 @@ Database migrations run automatically when the container starts, so there's
 no separate step and your data carries across the update. Take a backup
 first anyway, see below.
 
+### Rolling back a bad release
+
+**Read the database warning below before you do this.** Rolling back the image
+is easy; rolling back the database is not, and the second one is what decides
+whether a rollback is safe.
+
+Pin the previous version in your `.env`:
+
+```bash
+BUDGETPILOT_VERSION=0.11.0
+```
+
+Then bring it back up:
+
+```bash
+docker compose -f docker-compose.prebuilt.yml up -d
+```
+
+`docker compose ps` should show the container running. Leaving
+`BUDGETPILOT_VERSION` set means you stay on that version until you clear it,
+which is what you want after a rollback: `latest` would pull you straight back
+onto the bad release on the next `docker compose pull`.
+
+**The database is the part that does not roll back.** Migrations run on
+startup and are not reversed by running an older image. If the release you are
+leaving contained a migration, the old image is now pointing at a newer schema,
+and it may fail to start or behave incorrectly. In that case the rollback is
+not "run the old image", it is **restore the backup you took before upgrading**
+(see Backups below) and then run the old image against it. If the release
+contained no migration, the image rollback alone is enough. `docker compose
+logs budgetpilot` tells you which case you are in: a schema mismatch shows up
+immediately at startup, not later.
+
+**What a rollback does not undo**, so nobody expects more from it than it
+gives:
+
+- The bad version stays on the releases page, keeps its git tag, and stays
+  pullable by version and by digest. Nothing is deleted.
+- Its signature stays valid, and that is correct rather than a gap. A signature
+  proves the image came from this project's release workflow. It says nothing
+  about whether the release was any good, and a rollback does not make the
+  provenance false.
+- Anyone who already pulled it still has it.
+- Data written by the newer version stays written.
+
+#### If you maintain this project
+
+The steps above fix one install. To stop everyone else pulling the bad image,
+repoint `latest` at the previous release's index digest:
+
+```bash
+docker buildx imagetools create \
+  -t ghcr.io/nonohm/budgetpilot:latest \
+  ghcr.io/nonohm/budgetpilot@sha256:<previous release index digest>
+```
+
+Get that digest from the release you are rolling back to:
+
+```bash
+docker buildx imagetools inspect ghcr.io/nonohm/budgetpilot:0.11.0 \
+  --format '{{.Manifest.Digest}}'
+```
+
+This moves a tag and copies nothing, so the digest is unchanged and the
+signature made for it still verifies. Confirm that before announcing the
+rollback, using the verification command above against `latest`. The version
+tag of the bad release is deliberately left alone: deleting or moving it would
+break anyone who pinned it, which includes everyone who just followed the
+rollback instructions above.
+
 ### If a migration fails partway
 
 The container refuses to start rather than serving against a half-migrated
