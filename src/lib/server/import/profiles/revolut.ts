@@ -2,18 +2,17 @@ import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
 import { applyCategorizationRules } from '$lib/server/categorization/rules';
 import type {
 	CsvImportResult,
-	CsvInvalidRow,
 	CsvProfileParseInput,
 	ImportedTransaction,
 	ImportedTransactionType
 } from '../types';
+import type { CsvRefusal } from '../refusals';
 import {
-	addInvalidRow,
+	addRefusal,
 	buildSummary,
 	emptyResult,
 	normalizeFirstValidDate,
 	normalizeHeaderCells,
-	resolveValidationField,
 	toRecord
 } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
@@ -63,19 +62,23 @@ export function matchesRevolutHeader(headers: string[]): boolean {
 
 export function parseRevolutRows({
 	rows,
-	errors,
 	warnings,
 	sourceName,
 	categorizationRules
 }: CsvProfileParseInput): CsvImportResult {
 	const headers = normalizeHeaderCells(rows[0].cells);
 	if (!matchesRevolutHeader(headers)) {
-		return emptyResult(['En-tête Revolut non reconnu'], warnings, 'revolut', rows.length - 1);
+		return emptyResult(
+			[{ code: 'header-not-recognized', profile: 'Revolut' }],
+			warnings,
+			'revolut',
+			rows.length - 1
+		);
 	}
 
 	const transactions: ImportedTransaction[] = [];
 	const seenFingerprints = new Set<string>();
-	const invalidRows: CsvInvalidRow[] = [];
+	const refusals: CsvRefusal[] = [];
 	let duplicateRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
@@ -85,7 +88,12 @@ export function parseRevolutRows({
 		const row = parsedRow.cells;
 		const line = parsedRow.line;
 		if (row.length !== headers.length) {
-			addInvalidRow(errors, invalidRows, line, 'nombre de colonnes incorrect', 'colonnes');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'bad-column-count', expected: headers.length, actual: row.length },
+				'colonnes'
+			);
 			return;
 		}
 
@@ -94,41 +102,61 @@ export function parseRevolutRows({
 		const currency = sanitizeImportedText(record.Devise ?? '');
 
 		if (!isCompletedState(state)) {
-			addInvalidRow(errors, invalidRows, line, 'état Revolut non terminé', 'État');
+			addRefusal(refusals, { kind: 'row', line }, { code: 'state-not-completed', state }, 'État');
 			return;
 		}
 
 		if (currency !== 'EUR') {
-			addInvalidRow(errors, invalidRows, line, 'devise Revolut non supportée', 'Devise');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'unsupported-currency', currency },
+				'Devise'
+			);
 			return;
 		}
 
 		const date = normalizeFirstValidDate(record['Date de fin'], record['Date de début']);
 		if (!isValidIsoDate(date)) {
-			addInvalidRow(errors, invalidRows, line, 'date invalide', 'Date de fin');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'invalid-date', column: 'Date de fin' },
+				'Date de fin'
+			);
 			return;
 		}
 
 		const amountCents = parseAmountCents(record.Montant ?? '');
 		if (amountCents === null) {
-			addInvalidRow(errors, invalidRows, line, 'montant invalide', 'Montant');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'invalid-amount', column: 'Montant' },
+				'Montant'
+			);
 			return;
 		}
 
 		if (amountCents === 0) {
-			addInvalidRow(errors, invalidRows, line, 'montant à zéro refusé', 'Montant');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'zero-amount', column: 'Montant' },
+				'Montant'
+			);
 			return;
 		}
 
 		const feeCents = firstPresent(record.Frais) ? parseAmountCents(record.Frais ?? '') : null;
 		if (feeCents === null && firstPresent(record.Frais)) {
-			addInvalidRow(errors, invalidRows, line, 'frais invalide', 'Frais');
+			addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-fee' }, 'Frais');
 			return;
 		}
 
 		const balanceCents = firstPresent(record.Solde) ? parseAmountCents(record.Solde ?? '') : null;
 		if (balanceCents === null && firstPresent(record.Solde)) {
-			addInvalidRow(errors, invalidRows, line, 'solde invalide', 'Solde');
+			addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-balance' }, 'Solde');
 			return;
 		}
 
@@ -188,12 +216,13 @@ export function parseRevolutRows({
 		};
 		const validation = validateTransaction(transaction);
 		if (!validation.ok) {
-			addInvalidRow(
-				errors,
-				invalidRows,
-				line,
-				validation.errors.join(', '),
-				resolveValidationField(validation.errors)
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{
+					code: 'transaction-invalid',
+					violations: validation.violations
+				}
 			);
 			return;
 		}
@@ -206,14 +235,13 @@ export function parseRevolutRows({
 
 	return {
 		transactions,
-		errors,
 		warnings,
-		invalidRows,
+		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'revolut',
 			totalRows: rows.length - 1,
 			validRows: transactions.length,
-			invalidRows: invalidRows.length,
+			invalidRows: refusals.length,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,
