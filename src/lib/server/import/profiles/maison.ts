@@ -1,4 +1,4 @@
-import { isTransactionNature, validateTransaction } from '$lib/domain/transaction';
+import { isTransactionNature, isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
 import type { TransactionNature } from '$lib/domain/transaction';
 import type {
 	CsvImportResult,
@@ -10,7 +10,6 @@ import type {
 import {
 	addInvalidRow,
 	buildSummary,
-	isSafeIsoDate,
 	normalizeDate,
 	resolveValidationField,
 	toRecord
@@ -83,7 +82,7 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 		const record = toRecord(headers, row);
 
 		const date = normalizeDate(record.date ?? '');
-		if (!isSafeIsoDate(date)) {
+		if (!isValidIsoDate(date)) {
 			addInvalidRow(errors, invalidRows, line, 'date invalide', 'date');
 			return;
 		}

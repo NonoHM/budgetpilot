@@ -1,4 +1,4 @@
-import { validateTransaction } from '$lib/domain/transaction';
+import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
 import { applyCategorizationRules } from '$lib/server/categorization/rules';
 import type {
 	CsvImportResult,
@@ -11,7 +11,6 @@ import {
 	addInvalidRow,
 	buildSummary,
 	emptyResult,
-	isSafeIsoDate,
 	normalizeFirstValidDate,
 	normalizeHeaderCells,
 	resolveValidationField,
@@ -105,7 +104,7 @@ export function parseRevolutRows({
 		}
 
 		const date = normalizeFirstValidDate(record['Date de fin'], record['Date de début']);
-		if (!isSafeIsoDate(date)) {
+		if (!isValidIsoDate(date)) {
 			addInvalidRow(errors, invalidRows, line, 'date invalide', 'Date de fin');
 			return;
 		}

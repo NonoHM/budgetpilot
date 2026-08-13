@@ -1,4 +1,4 @@
-import { validateTransaction } from '$lib/domain/transaction';
+import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
 import { applyCategorizationRules } from '$lib/server/categorization/rules';
 import type {
 	CsvImportResult,
@@ -11,7 +11,6 @@ import {
 	addInvalidRow,
 	buildSummary,
 	getDuplicateHeaders,
-	isSafeIsoDate,
 	normalizeDate,
 	resolveValidationField,
 	toRecord
@@ -91,7 +90,7 @@ export function parseGenericRows({
 		const label = sanitizeImportedText(record.label ?? '');
 		const category = sanitizeImportedText(record.category || UNCLASSIFIED_CATEGORY);
 
-		if (!isSafeIsoDate(date)) {
+		if (!isValidIsoDate(date)) {
 			addInvalidRow(errors, invalidRows, line, 'date invalide', 'date');
 			return;
 		}
