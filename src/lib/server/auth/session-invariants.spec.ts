@@ -98,6 +98,11 @@ describe('v5.0.0-7.2.3: session token entropy', () => {
 		// Per position it is decisive and not close: over 1000 samples a counter's worst position
 		// holds 1 distinct value and `randomBytes` holds 246, against an expectation of ~251. The
 		// floor of 200 sits far enough below 246 that a flake is not a real possibility.
+		//
+		// SO DO NOT REPLACE THIS WITH A POOLED COUNT, however much simpler it reads. The pooled
+		// form is not a weaker version of this one, it is a different assertion that the defect
+		// passes. The same applies to any future widening: state which two generators the new
+		// version separates before changing it.
 		const perPosition = Array.from(
 			{ length: 32 },
 			(_, index) => new Set(tokens.map((token) => Buffer.from(token, 'base64url')[index])).size
