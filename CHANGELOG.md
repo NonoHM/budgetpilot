@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.11.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.10.0...budgetpilot-v0.11.0) (2026-08-13)
+
+
+### Features
+
+* **security:** sign the published image and the release SBOM ([#218](https://github.com/NonoHM/budgetpilot/issues/218)) ([#235](https://github.com/NonoHM/budgetpilot/issues/235)) ([172f88d](https://github.com/NonoHM/budgetpilot/commit/172f88d9c3bac3000ba04ad961617414db34bc5b))
+
+
+### Documentation
+
+* **security:** state when a change needs a new penetration-testing pass ([#234](https://github.com/NonoHM/budgetpilot/issues/234)) ([381415f](https://github.com/NonoHM/budgetpilot/commit/381415fbf6f4807924419cd9cfd9e265bc20cf69))
+
 ## [0.10.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.9.1...budgetpilot-v0.10.0) (2026-08-12)
 
 
