@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.11.2](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.11.1...budgetpilot-v0.11.2) (2026-08-13)
+
+
+### Bug Fixes
+
+* **backup:** bound a restore by its structure, before the parse that costs ([#286](https://github.com/NonoHM/budgetpilot/issues/286)) ([f85b37f](https://github.com/NonoHM/budgetpilot/commit/f85b37f199fc21cef14e86cc5edac55700c8fdad)), closes [#276](https://github.com/NonoHM/budgetpilot/issues/276)
+* **import:** bound what an xlsx expands to, not just what it weighs ([#282](https://github.com/NonoHM/budgetpilot/issues/282)) ([bc59cc8](https://github.com/NonoHM/budgetpilot/commit/bc59cc8625f8644c4674324883aea63b94acb9e7))
+* **import:** make isValidIsoDate a predicate, and delete the workaround it forced ([#278](https://github.com/NonoHM/budgetpilot/issues/278)) ([c539dae](https://github.com/NonoHM/budgetpilot/commit/c539dae45a000a18fe6df27d6a7d3089cb0c4ccc)), closes [#275](https://github.com/NonoHM/budgetpilot/issues/275)
+
+
+### Documentation
+
+* **agents:** state what a test has to do, and what a green one does not say ([#279](https://github.com/NonoHM/budgetpilot/issues/279)) ([9a13089](https://github.com/NonoHM/budgetpilot/commit/9a130890ba0bb06dcff3a056ba589316f8ca8c85))
+* **configuration:** BODY_SIZE_LIMIT named the wrong limit ([#285](https://github.com/NonoHM/budgetpilot/issues/285)) ([d2ba73d](https://github.com/NonoHM/budgetpilot/commit/d2ba73d008be98734c274b7b9c4c1f9b9a7e4ce6))
+* **database:** require TLS on a remote database, and say which parameter ([#256](https://github.com/NonoHM/budgetpilot/issues/256)) ([7689347](https://github.com/NonoHM/budgetpilot/commit/7689347bf3833aac0c47345b3a59dc18b03f5759))
+* **operations:** document how to roll back a release, and serialise publishes ([#239](https://github.com/NonoHM/budgetpilot/issues/239)) ([54d9032](https://github.com/NonoHM/budgetpilot/commit/54d9032db81890a84da444d165f82ff2d6e98843))
+* **security:** add the Best Practices badge, and say what both badges do not mean ([#243](https://github.com/NonoHM/budgetpilot/issues/243)) ([85d4b6b](https://github.com/NonoHM/budgetpilot/commit/85d4b6bdf39e55d393f7769591ac7b3487f62dc7))
+* **security:** publish what was verified, by whom, and what is not covered ([#287](https://github.com/NonoHM/budgetpilot/issues/287)) ([bad452f](https://github.com/NonoHM/budgetpilot/commit/bad452f7bd3be742f0ef8cef62365074f37b0666))
+* **security:** state the ASVS 5.0 Level 2 self-assessment, retire the 4.0.3 citations ([#257](https://github.com/NonoHM/budgetpilot/issues/257)) ([4a5d945](https://github.com/NonoHM/budgetpilot/commit/4a5d945b7ce1c5ecb3cbdfff821333105d9b8b56))
+
+
+### Maintenance
+
+* ignore the security programme's working directory ([#268](https://github.com/NonoHM/budgetpilot/issues/268)) ([20d38d1](https://github.com/NonoHM/budgetpilot/commit/20d38d11b2299691da8acace8d3454fa2031f1ba))
+
 ## [0.11.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.11.0...budgetpilot-v0.11.1) (2026-08-13)
 
 
