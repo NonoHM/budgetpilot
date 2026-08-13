@@ -206,6 +206,17 @@ real constant lives in a file where that module is not mocked.
 **An absence assertion requires a presence first.** Before believing nothing leaked,
 prove the detector can detect, by pointing it at a real leak.
 
+**A test on a refusal asserts the REASON, not that a refusal happened.** Two guards in
+sequence are indistinguishable from one when the assertion only says "it was refused",
+and the covering guard can catch the case and explain it wrongly, which sends the user
+looking at the wrong line. The reason is the only part of a refusal a user ever sees.
+
+**Every absence or emptiness assertion carries an absolute figure beside it.** "No
+value threw" is satisfied by a function that refuses everything, "nothing leaked" by a
+scan that read nothing, "no offenders" by a pattern that matches nothing. One positive
+number in the same test (how many returned true, how many files were read, how many
+rows the fixture holds) is what separates a clean result from an empty one.
+
 ### After writing
 
 **Break the thing on purpose and watch it go red.** That is the only moment a test
@@ -213,6 +224,14 @@ tells you something you did not already know.
 
 **Read the greens as much as the reds.** A break that reddens one test and leaves
 another green is a finding about the second one.
+
+**A green break has four meanings and only one of them is "redundant guard".** Either
+something else covers the case, which is a finding about that something else; or the
+line cannot execute, which makes it dead code wearing the costume of a protection, and
+it gets deleted; or the break was too small to cross the threshold, which is a fact
+about the break; or the break changed no observable behaviour at all, in which case
+the thing you meant to remove was already doing nothing. Tell the last two apart by
+running both versions over a corpus and comparing the answers, not by reasoning.
 
 **Reproduce the figure.** On a measured defect, the red has to bring back the
 original value, not merely fail. Going red without reproducing the measurement has
@@ -227,6 +246,13 @@ like a healthy run.
 
 So every harness carries its own calibration: give it a known failing case and check
 that it reports it, before believing any negative result.
+
+**And calibrate on the label of the thing you want to count, not on one that travels
+with it.** A per-profile coverage gate reported a fuzzer blind for one CSV profile
+while that profile was being exercised thousands of times, because the parser labels
+its own result with a sibling profile's name. The gate was reading a real field, from
+a real result, and answering a question nobody had asked. Count by what produced the
+input, not by what the output happens to call itself.
 
 ### Order
 
