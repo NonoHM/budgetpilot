@@ -3,19 +3,13 @@ import type { TransactionNature } from '$lib/domain/transaction';
 import { MAX_SPLITS_PER_TRANSACTION, MIN_SPLITS_PER_TRANSACTION } from '$lib/domain/allocation';
 import type {
 	CsvImportResult,
-	CsvInvalidRow,
 	CsvProfileParseInput,
 	ImportedSplitPart,
 	ImportedTransaction,
 	ImportedTransactionType
 } from '../types';
-import {
-	addInvalidRow,
-	buildSummary,
-	normalizeDate,
-	resolveValidationField,
-	toRecord
-} from '../utils/csv';
+import type { CsvRefusal, CsvRefusalFact } from '../refusals';
+import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildMaisonDeduplicationKey,
@@ -79,18 +73,19 @@ interface AllocationLine {
 	count: number;
 }
 
-export function parseMaisonV2Rows({
-	rows,
-	errors,
-	warnings
-}: CsvProfileParseInput): CsvImportResult {
+export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): CsvImportResult {
 	const headers = rows[0].cells.map((header) => header.trim().toLowerCase());
-	const invalidRows: CsvInvalidRow[] = [];
 
 	if (!matchesMaisonV2Header(headers)) {
-		errors.push('En-tête maison non reconnu');
-		return emptyV2Result(errors, warnings);
+		return emptyResult(
+			[{ code: 'header-not-recognized', profile: 'maison' }],
+			warnings,
+			'maison',
+			0
+		);
 	}
+
+	const refusals: CsvRefusal[] = [];
 
 	// Grouped in file order, so the first line of a group is the one a refusal is reported against —
 	// the line the user's eye lands on when they open the file at the reported number.
@@ -101,13 +96,7 @@ export function parseMaisonV2Rows({
 	let ungroupableLines = 0;
 
 	rows.slice(1).forEach((parsedRow) => {
-		const parsed = parseAllocationLine(
-			parsedRow.cells,
-			headers,
-			parsedRow.line,
-			errors,
-			invalidRows
-		);
+		const parsed = parseAllocationLine(parsedRow.cells, headers, parsedRow.line, refusals);
 		if (!parsed) {
 			ungroupableLines += 1;
 			return;
@@ -136,7 +125,7 @@ export function parseMaisonV2Rows({
 
 		const shape = validateGroupShape(group);
 		if (shape) {
-			addInvalidRow(errors, invalidRows, line, shape.reason, shape.field);
+			addRefusal(refusals, { kind: 'row', line }, shape.fact, shape.field);
 			continue;
 		}
 
@@ -181,12 +170,13 @@ export function parseMaisonV2Rows({
 
 		const validation = validateTransaction(transaction);
 		if (!validation.ok) {
-			addInvalidRow(
-				errors,
-				invalidRows,
-				line,
-				validation.errors.join(', '),
-				resolveValidationField(validation.errors)
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{
+					code: 'transaction-invalid',
+					violations: validation.violations
+				}
 			);
 			continue;
 		}
@@ -200,9 +190,8 @@ export function parseMaisonV2Rows({
 
 	return {
 		transactions,
-		errors,
 		warnings,
-		invalidRows,
+		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'maison',
 			// TRANSACTIONS, not physical lines: a file of five répartitions is five things the user
@@ -211,7 +200,7 @@ export function parseMaisonV2Rows({
 			// they are added back individually and the three tallies reconcile.
 			totalRows: groupOrder.length + ungroupableLines,
 			validRows: transactions.length,
-			invalidRows: invalidRows.length,
+			invalidRows: refusals.length,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,
@@ -224,11 +213,15 @@ function parseAllocationLine(
 	row: string[],
 	headers: string[],
 	line: number,
-	errors: string[],
-	invalidRows: CsvInvalidRow[]
+	refusals: CsvRefusal[]
 ): AllocationLine | null {
 	if (row.length !== headers.length) {
-		addInvalidRow(errors, invalidRows, line, 'nombre de colonnes incorrect', 'colonnes');
+		addRefusal(
+			refusals,
+			{ kind: 'row', line },
+			{ code: 'bad-column-count', expected: headers.length, actual: row.length },
+			'colonnes'
+		);
 		return null;
 	}
 
@@ -236,7 +229,7 @@ function parseAllocationLine(
 
 	const date = normalizeDate(record.date ?? '');
 	if (!isValidIsoDate(date)) {
-		addInvalidRow(errors, invalidRows, line, 'date invalide', 'date');
+		addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-date', column: 'date' }, 'date');
 		return null;
 	}
 
@@ -244,7 +237,7 @@ function parseAllocationLine(
 
 	const category = resolveV2Category(record.categorie ?? '');
 	if (!category.ok) {
-		addInvalidRow(errors, invalidRows, line, category.reason, 'category');
+		addRefusal(refusals, { kind: 'row', line }, { code: 'category-too-long' }, 'category');
 		return null;
 	}
 
@@ -255,25 +248,35 @@ function parseAllocationLine(
 	const parentRaw = (record.categorie_parent ?? '').trim();
 	const parentCategory = parentRaw ? resolveV2Category(parentRaw) : category;
 	if (!parentCategory.ok) {
-		addInvalidRow(errors, invalidRows, line, parentCategory.reason, 'category');
+		addRefusal(refusals, { kind: 'row', line }, { code: 'category-too-long' }, 'category');
 		return null;
 	}
 
 	const amountCents = parseSignedAmount(record.montant ?? '');
 	if (amountCents === null) {
-		addInvalidRow(errors, invalidRows, line, 'montant invalide', 'amount');
+		addRefusal(
+			refusals,
+			{ kind: 'row', line },
+			{ code: 'invalid-amount', column: 'montant' },
+			'amount'
+		);
 		return null;
 	}
 	const totalCents = parseSignedAmount(record.montant_total ?? '');
 	if (totalCents === null) {
-		addInvalidRow(errors, invalidRows, line, 'montant total invalide', 'amount');
+		addRefusal(
+			refusals,
+			{ kind: 'row', line },
+			{ code: 'invalid-total-amount', column: 'montant_total' },
+			'amount'
+		);
 		return null;
 	}
 
 	const type: ImportedTransactionType = amountCents >= 0 ? 'income' : 'expense';
 	const rawType = (record.type ?? '').trim().toLowerCase();
 	if (rawType !== type) {
-		addInvalidRow(errors, invalidRows, line, 'type et signe du montant incohérents', 'type');
+		addRefusal(refusals, { kind: 'row', line }, { code: 'type-amount-mismatch' }, 'type');
 		return null;
 	}
 
@@ -281,7 +284,12 @@ function parseAllocationLine(
 	let natureManual: TransactionNature | null = null;
 	if (rawNature) {
 		if (!isTransactionNature(rawNature)) {
-			addInvalidRow(errors, invalidRows, line, 'nature invalide', 'nature');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'invalid-nature', value: record.nature ?? '' },
+				'nature'
+			);
 			return null;
 		}
 		natureManual = rawNature;
@@ -289,13 +297,13 @@ function parseAllocationLine(
 
 	const part = PART_PATTERN.exec((record.part ?? '').trim());
 	if (!part) {
-		addInvalidRow(errors, invalidRows, line, 'colonne part illisible', 'part');
+		addRefusal(refusals, { kind: 'row', line }, { code: 'split-column-unreadable' }, 'part');
 		return null;
 	}
 	const index = Number(part[1]);
 	const count = Number(part[2]);
 	if (index < 1 || count < 1 || index > count || count > MAX_SPLITS_PER_TRANSACTION) {
-		addInvalidRow(errors, invalidRows, line, 'répartition hors bornes', 'part');
+		addRefusal(refusals, { kind: 'row', line }, { code: 'split-out-of-bounds' }, 'part');
 		return null;
 	}
 
@@ -314,30 +322,32 @@ function parseAllocationLine(
 	};
 }
 
-/** `null` when the group is sound; otherwise the single reason a user is shown for it. */
-function validateGroupShape(group: AllocationLine[]): { reason: string; field: string } | null {
+/** `null` when the group is sound; otherwise the single fact a user is shown for it. */
+function validateGroupShape(
+	group: AllocationLine[]
+): { fact: CsvRefusalFact; field: string } | null {
 	const count = group[0].count;
 	if (group.some((part) => part.count !== count)) {
-		return { reason: 'répartition incohérente entre les lignes', field: 'part' };
+		return { fact: { code: 'split-inconsistent' }, field: 'part' };
 	}
-	// Two directions, two sentences, and the pair is ORDERED. Found by break-checking: deleting the
+	// Two directions, two facts, and the pair is ORDERED. Found by break-checking: deleting the
 	// length test left the file still refused — by the index test below, since a missing line also
-	// shrinks the set — but under the reason « positions en double », which is simply not what
+	// shrinks the set — but under the fact `split-duplicate-positions`, which is simply not what
 	// happened. And the index test alone cannot see a group with one line too MANY whose indices
 	// happen to repeat (1, 2, 2 against a stated 2), because the set is then exactly the right size.
 	// So each check earns its place only with the other in front of it: once the count is known to
 	// match, a short set can mean nothing but a duplicate.
 	if (group.length < count) {
-		return { reason: 'répartition incomplète', field: 'part' };
+		return { fact: { code: 'split-incomplete' }, field: 'part' };
 	}
 	if (group.length > count) {
-		return { reason: 'lignes de répartition en trop', field: 'part' };
+		return { fact: { code: 'split-too-many-lines' }, field: 'part' };
 	}
 	if (new Set(group.map((part) => part.index)).size !== count) {
-		return { reason: 'positions de répartition en double', field: 'part' };
+		return { fact: { code: 'split-duplicate-positions' }, field: 'part' };
 	}
 	if (new Set(group.map((part) => part.parentCategory)).size !== 1) {
-		return { reason: 'catégorie parente incohérente entre les lignes', field: 'category' };
+		return { fact: { code: 'split-parent-category-inconsistent' }, field: 'category' };
 	}
 	// OD-5: no part may carry the sentinel — money allocated to « à classer » is money that is
 	// categorised and uncategorised at once, and a répartie transaction is excluded from the one
@@ -346,22 +356,22 @@ function validateGroupShape(group: AllocationLine[]): { reason: string; field: s
 	// `replaceSplits` refuses it too; without this the refusal would arrive with no line number,
 	// after the parent row had already been inserted.
 	if (group.length > 1 && group.some((part) => part.category === UNCLASSIFIED_CATEGORY)) {
-		return { reason: 'catégorie réservée refusée sur une part', field: 'category' };
+		return { fact: { code: 'split-reserved-category-on-part' }, field: 'category' };
 	}
 
 	const total = group[0].totalCents;
-	if (total === 0) return { reason: 'montant à zéro refusé', field: 'amount' };
+	if (total === 0) return { fact: { code: 'zero-amount', column: 'montant' }, field: 'amount' };
 	if (group.some((part) => part.amountCents === 0)) {
-		return { reason: 'montant à zéro refusé', field: 'amount' };
+		return { fact: { code: 'zero-amount', column: 'montant' }, field: 'amount' };
 	}
 	// Same sign as the parent, for the same reason `replaceSplits` refuses the opposite one: a part
 	// pointing the other way is a refund or a transfer, not an allocation, and no per-category total
 	// can interpret it. Checked here too so the refusal carries a line number.
 	if (group.some((part) => part.amountCents > 0 !== total > 0)) {
-		return { reason: 'part de signe opposé au total', field: 'amount' };
+		return { fact: { code: 'split-sign-opposite' }, field: 'amount' };
 	}
 	if (group.reduce((sum, part) => sum + part.amountCents, 0) !== total) {
-		return { reason: 'les parts ne totalisent pas le montant', field: 'amount' };
+		return { fact: { code: 'split-sum-mismatch' }, field: 'amount' };
 	}
 
 	return null;
@@ -384,23 +394,4 @@ function resolveV2Category(
 	// Accepted rather than refused, exactly as in v1 and for the same reason: it is what the export
 	// writes for every row in the « à classer » pile.
 	return { ok: true, value: sanitized };
-}
-
-function emptyV2Result(errors: string[], warnings: string[]): CsvImportResult {
-	return {
-		transactions: [],
-		errors,
-		warnings,
-		invalidRows: errors.map((reason, index) => ({ line: index + 1, reason })),
-		summary: buildSummary({
-			profile: 'maison',
-			totalRows: 0,
-			validRows: 0,
-			invalidRows: errors.length,
-			duplicateRows: 0,
-			totalDebitCents: 0,
-			totalCreditCents: 0,
-			dates: []
-		})
-	};
 }
