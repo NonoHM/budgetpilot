@@ -54,3 +54,34 @@ If you're evaluating BudgetPilot for a security-sensitive deployment, read
 [`.env.example`](./.env.example): every security-relevant environment
 variable is documented there with its safe default and the reasoning behind
 it.
+
+## Penetration testing and retest policy
+
+A full application penetration test is the annual-equivalent baseline. It
+attacks the running instance (access control both axes, injection, XSS, CSRF,
+authentication and session, file upload, backup-restore integrity, SSRF, and
+the money invariants) with reproducible evidence. It is the adversary-emulation
+layer, and it does not overlap with the automated scanning below.
+
+After a baseline pass, a **new pass is run only when a change touches one of
+these surfaces**:
+
+- authentication or session handling;
+- a write path, or a new one;
+- a new user-supplied input that reaches storage or rendering;
+- access control, horizontal or vertical.
+
+A change that touches none of these does not need a pass. By that rule:
+
+- **Needs a full pass**: account reconciliation, and any OIDC or passkey work.
+- **Needs a short pass** (it touches a money read): the computed-balance work.
+- **Does not need a pass**: the Sankey view, loan-amortisation display, and
+  pure rendering changes.
+
+Releases follow the process in [`CONTRIBUTING.md`](./CONTRIBUTING.md); this
+policy decides whether a release's changes require a security pass before it
+ships, so it is not re-argued each time.
+
+**Automated scanning is not a substitute.** The daily image scan, the publish
+gate, per-PR Trivy, and CodeQL cover known-CVE exposure and configuration
+drift. They are not adversary emulation and do not replace the pass above.
