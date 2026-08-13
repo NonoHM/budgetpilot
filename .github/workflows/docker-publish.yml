@@ -27,9 +27,18 @@ permissions:
 # the workflow that requested it, so pinning this is what makes the signature mean "budgetpilot
 # published this" rather than "somebody signed this". `refs/tags/` matters as much as the path,
 # since it refuses anything signed from a branch, including a fork's copy of this file.
+#
+# THE `BP_` PREFIX IS LOAD-BEARING AND THESE MUST NEVER BE NAMED `COSIGN_*`. cosign binds its
+# flags to environment variables under that prefix, so a workflow-level `env:` entry called
+# COSIGN_OIDC_ISSUER is not an inert string of ours: cosign reads it as an explicit OIDC service
+# URL. Workflow-level env reaches every step, so it reached `cosign sign`, which refused with
+# "cannot specify service URLs and use signing config" because cosign v3 takes those endpoints
+# from its TUF-distributed signing config instead. That is exactly how 0.11.0 shipped unsigned.
+# Reproduced locally with cosign v3.1.3: identical command, the variable set versus unset, error
+# versus normal start. Keep our own values outside any namespace a tool we invoke owns.
 env:
-  COSIGN_IDENTITY_REGEXP: '^https://github\.com/NonoHM/budgetpilot/\.github/workflows/docker-publish\.yml@refs/tags/'
-  COSIGN_OIDC_ISSUER: https://token.actions.githubusercontent.com
+  BP_SIGN_IDENTITY_REGEXP: '^https://github\.com/NonoHM/budgetpilot/\.github/workflows/docker-publish\.yml@refs/tags/'
+  BP_SIGN_OIDC_ISSUER: https://token.actions.githubusercontent.com
 
 jobs:
   # Computes the version/image name/tags once so every other job (and both
@@ -559,17 +568,17 @@ jobs:
   #      Scorecard reads, and it is genuinely useful on its own: the SBOM is the file an operator
   #      downloads to answer "what is in this image", and unsigned it is an unattributed claim.
   #
-  # --recursive is required and is not a nicety. The published tag is a manifest LIST; signing its
-  # digest alone leaves both platform manifests unsigned, so `cosign verify` against the digest an
-  # arm64 machine actually resolves would fail while the tag verified fine. -r additionally signs
-  # each discrete image, and verify-signature below checks all three.
+  # THEY ARE TWO JOBS, NOT ONE, AND THE SPLIT IS THE POINT. As one job, signing the image
+  # required `needs: sbom`, so a failure in Syft (a third-party action producing a file the image
+  # signature has nothing to do with) would have left the IMAGE unsigned. That is the same defect
+  # that made 0.11.0 ship with no SBOM: an unrelated upstream able to take a control down. The
+  # image signature now depends on nothing but the image existing.
   #
-  # Placed after `scan`, transitively: sbom needs merge, merge needs scan. So nothing is ever
-  # signed until the CVE gate has passed, and a gate failure leaves an unsigned image rather than
-  # a signed bad one. This does not change #165 (the tag and release already exist by the time any
-  # of this runs); it only avoids making it worse.
-  sign:
-    needs: [prepare, merge, sbom]
+  # Placed after `scan`, transitively via `merge`. Nothing is signed until the CVE gate has
+  # passed, so a gate failure leaves an unsigned image rather than a signed bad one. This does
+  # not change #165 (the tag and release already exist by the time any of this runs).
+  sign-image:
+    needs: [prepare, merge]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
@@ -589,15 +598,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
-        with:
-          name: sbom
-
+      # --recursive is required and is not a nicety. The published tag is a manifest LIST;
+      # signing its digest alone leaves both platform manifests unsigned, so `cosign verify`
+      # against the digest an arm64 machine actually resolves would fail while the tag verified
+      # fine. -r additionally signs each discrete image, and verify-signature checks all three.
       - name: Sign the image, and every architecture inside it
         env:
           IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
           DIGEST: ${{ needs.merge.outputs.digest }}
         run: cosign sign --yes --recursive "$IMAGE@$DIGEST"
+
+  # Signs a local file and never touches the registry, so this job holds NO packages permission
+  # and does no docker login. It is the only thing that needs the SBOM, which is why the
+  # dependency lives here rather than on the image signature above.
+  sign-sbom:
+    needs: [prepare, merge, sbom]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # Fulcio certificate for the detached signature
+    steps:
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sbom
 
       - name: Sign the SBOM as a detached bundle
         env:
@@ -630,7 +658,7 @@ jobs:
   # stale: the first pins an identity nobody can obtain, the second points at an object that
   # exists in our own registry and is never signed by anything.
   verify-signature:
-    needs: [prepare, merge, sign]
+    needs: [prepare, merge, sign-image]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Anonymous read of the public image and the public Rekor log. No registry write, no token.
@@ -673,8 +701,8 @@ jobs:
           for ref in "${refs[@]}"; do
             echo "::group::verify $ref"
             cosign verify \
-              --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
-              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+              --certificate-identity-regexp "$BP_SIGN_IDENTITY_REGEXP" \
+              --certificate-oidc-issuer "$BP_SIGN_OIDC_ISSUER" \
               "$ref" > /dev/null
             echo "verified: $ref"
             echo "::endgroup::"
@@ -703,7 +731,7 @@ jobs:
         run: |
           out=$(cosign verify \
                   --certificate-identity-regexp '^https://github\.com/NonoHM/not-budgetpilot/' \
-                  --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+                  --certificate-oidc-issuer "$BP_SIGN_OIDC_ISSUER" \
                   "$IMAGE@$DIGEST" 2>&1) && {
             echo "cosign accepted a certificate identity that is not this repository" >&2
             exit 1
@@ -728,8 +756,8 @@ jobs:
           UNSIGNED: ghcr.io/nonohm/budgetpilot@sha256:aa5511bab7f7aefd977915c8cad3074b8a35e279c163cffdb548b1b60634ab6d
         run: |
           out=$(cosign verify \
-                  --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
-                  --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+                  --certificate-identity-regexp "$BP_SIGN_IDENTITY_REGEXP" \
+                  --certificate-oidc-issuer "$BP_SIGN_OIDC_ISSUER" \
                   "$UNSIGNED" 2>&1) && {
             echo "cosign accepted an object this workflow never signed" >&2
             exit 1
@@ -743,35 +771,52 @@ jobs:
               exit 1 ;;
           esac
 
+  # DELIBERATELY INDEPENDENT OF `sign`, and this is the second thing 0.11.0 taught. Attaching the
+  # SBOM used to depend on the signing job, so when `sign` failed this job was SKIPPED and the
+  # release ended up with no assets at all: a failure in a NEW control destroyed a guarantee that
+  # had shipped correctly since 0.7.0. A new control must not be able to take an existing one down
+  # with it. The SBOM is independently useful, so it attaches on its own and a signing failure now
+  # costs only the signature.
   sbom-attach:
-    needs: [prepare, sbom, sign]
+    needs: [prepare, sbom]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write # gh release upload — and nothing third-party runs here
     steps:
-      # Both artifacts: the SBOM and the detached bundle that signs it. `merge-multiple` puts
-      # them in one directory so the upload below is a single glob.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          pattern: sbom*
-          merge-multiple: true
+          name: sbom
 
       # On `release: published` the tag comes from the event; on workflow_dispatch from the
-      # input — the same fallback the version step uses. --clobber so a retroactive re-publish
+      # input, the same fallback the version step uses. --clobber so a retroactive re-publish
       # of a tag replaces the asset instead of failing on it.
-      # Both files go up together, and both are named explicitly rather than by one wildcard, so
-      # a missing bundle fails here instead of silently publishing an unsigned SBOM: `gh release
-      # upload` errors on a path that does not exist, while a glob that matches nothing would
-      # expand to itself and produce a confusing upload of a literal filename.
-      - name: Attach the SBOM and its signature to the release
+      - name: Attach SBOM to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
+        run: gh release upload "$TAG_NAME" budgetpilot-*.spdx.json --clobber
+
+  # The signature travels separately, for the reason on sbom-attach above. Named explicitly rather
+  # than by glob so a missing bundle fails loudly: `gh release upload` errors on a path that does
+  # not exist, while an unmatched glob would expand to itself and upload a file named after the
+  # pattern.
+  signature-attach:
+    needs: [prepare, sign-sbom]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # gh release upload, and nothing third-party runs here
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sbom-signature
+
+      - name: Attach the SBOM signature to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
           VERSION: ${{ needs.prepare.outputs.version }}
-        run: |
-          gh release upload "$TAG_NAME" \
-            "budgetpilot-$VERSION.spdx.json" \
-            "budgetpilot-$VERSION.sigstore.json" \
-            --clobber
+        run: gh release upload "$TAG_NAME" "budgetpilot-$VERSION.sigstore.json" --clobber
