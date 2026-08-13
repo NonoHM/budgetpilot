@@ -39,6 +39,27 @@ import {
  * against the victim's id (must refuse, victim unchanged), and once by the OWNER against their
  * own row (must succeed). The owner leg is what proves the payload is well-formed, the id is
  * real and reachable, and the action exists. Only then does the attacker's refusal mean scoping.
+ *
+ * THE ONE THAT PROVES IT, and the reason the fixture below looks the way it does.
+ * `savingsGoal-dismiss` refuses its OWNER with the SAME 404 it gives the attacker, because
+ * `dismissReachedBanner` filters on `reachedAt: { not: null }` and the goal was seeded unreached.
+ * Two states, one reading: "refused because it is not yours" and "refused because it is not
+ * reached" are indistinguishable through the attacker leg, so that probe would have been counted
+ * as proof of isolation while measuring nothing but an unreached goal. It was the owner leg that
+ * said so, on the first run.
+ *
+ * That is why `seedVictimRows` creates the goal already reached AND loads /net-worth once:
+ * `reachedAt` is written lazily, on read. Anyone changing that fixture back to an unreached goal
+ * silently converts this probe into a green that means nothing, and nothing else in the file
+ * would notice.
+ *
+ * AND WHY THE EXPECTED OUTCOME IS DECLARED PER ACTION rather than asserted uniformly. The first
+ * version of this file asserted that EVERY probe must be refused, and went red on `undoBulkTag`,
+ * which is correct code: it is one `deleteMany` filtered on `transaction: { userId }`, it matches
+ * zero rows, and deleting zero rows is not an error. The assertion was wrong, not the
+ * application. It generalises past this file: a battery that expects one outcome from every
+ * probe will eventually be wrong about a correct behaviour, and the wrongness arrives looking
+ * exactly like a finding. Declare what each probe should do, and a row that MOVES is the signal.
  */
 
 // The attacker is the disposable bootstrap ADMIN, deliberately: an admin is the hardest case for
