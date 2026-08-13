@@ -130,7 +130,6 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 			label
 		});
 		if (seenFingerprints.has(fingerprint)) {
-			errors.push(`Ligne ${line}: doublon détecté`);
 			duplicateRows += 1;
 			return;
 		}

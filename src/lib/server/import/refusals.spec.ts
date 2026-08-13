@@ -11,8 +11,10 @@ describe('refusal catalogue coverage', () => {
 	it('every code has a key in both locales, and the population is not empty', () => {
 		expect.assertions(3);
 		// The absolute figure: a run that checked nothing must not read as clean.
-		// 29 here: 28 from Task 1, plus `transaction-invalid`, appended in Task 2.
-		expect(CSV_REFUSAL_CODES.length).toBeGreaterThanOrEqual(29);
+		// 33 here: 28 from Task 1, `transaction-invalid` from Task 2, and the four
+		// file level codes (`file-too-large`, `file-empty`, `too-many-rows`,
+		// `header-not-recognized`) added in Task 3.
+		expect(CSV_REFUSAL_CODES.length).toBeGreaterThanOrEqual(33);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

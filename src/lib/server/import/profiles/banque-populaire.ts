@@ -136,7 +136,6 @@ export function parseBanquePopulaireRows({
 			account: sourceName
 		});
 		if (seenFingerprints.has(fingerprint)) {
-			errors.push(`Ligne ${line}: doublon détecté`);
 			duplicateRows += 1;
 			return;
 		}

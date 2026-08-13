@@ -147,7 +147,6 @@ export function parseMaisonV2Rows({
 			label
 		});
 		if (seenFingerprints.has(fingerprint)) {
-			errors.push(`Ligne ${line}: doublon détecté`);
 			duplicateRows += 1;
 			continue;
 		}

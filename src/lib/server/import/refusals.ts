@@ -34,6 +34,12 @@ export type CsvRefusalScope = { kind: 'file' } | { kind: 'header' } | { kind: 'r
  * sentence already names the value.
  */
 export type CsvRefusalFact =
+	// file level, always { kind: 'file' } scope except header-not-recognized, which is
+	// { kind: 'header' }: none of the four has a line to point at.
+	| { code: 'file-too-large'; bytes: number }
+	| { code: 'file-empty' }
+	| { code: 'too-many-rows'; max: number }
+	| { code: 'header-not-recognized'; profile: string }
 	// structural
 	| { code: 'unknown-column'; column: string }
 	| { code: 'duplicate-column'; column: string }
@@ -86,6 +92,10 @@ export interface CsvRefusal {
 }
 
 export const CSV_REFUSAL_CODES = [
+	'file-too-large',
+	'file-empty',
+	'too-many-rows',
+	'header-not-recognized',
 	'unknown-column',
 	'duplicate-column',
 	'missing-required-column',
