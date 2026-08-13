@@ -162,13 +162,35 @@ the base compose file with two variables in `.env`:
 
 ```dotenv
 DATABASE_PROVIDER=postgresql
-DATABASE_URL="postgresql://budgetpilot:yourpassword@db.example.lan:5432/budgetpilot"
+DATABASE_URL="postgresql://budgetpilot:yourpassword@db.example.lan:5432/budgetpilot?sslmode=verify-full"
 ```
 
 ```dotenv
 DATABASE_PROVIDER=mysql
-DATABASE_URL="mysql://budgetpilot:yourpassword@db.example.lan:3306/budgetpilot"
+DATABASE_URL="mysql://budgetpilot:yourpassword@db.example.lan:3306/budgetpilot?ssl=true"
 ```
+
+**Encrypt the connection, because this one crosses a network.** Both examples
+carry a TLS parameter and the bundled overlays do not, and the difference is
+the only thing that matters here: a database on another host means every
+query crosses a wire, and a query carries transaction amounts, merchant
+labels, category names and password hashes. Neither engine demands TLS on its
+own, and the app does not add it for you, so a URL without one of these
+parameters connects in clear text and nothing anywhere says so.
+
+Write `sslmode=verify-full` rather than `sslmode=require`. They behave
+identically today, because the PostgreSQL driver currently treats `require`
+and `verify-ca` as aliases for `verify-full`, but the driver warns that a
+future major version will give them their weaker standard meanings: encrypt
+the connection without checking that the server is the one you meant, which
+leaves an attacker able to sit in the middle. `verify-full` means the same
+thing before and after that change. For MySQL and MariaDB, `ssl=true` turns
+on TLS with certificate verification.
+
+Verification is the point, and it is also the part that will fail first: if
+your database presents a self-signed certificate or one from a private CA,
+these settings reject it, which is them working. Trust that CA in the
+container rather than reaching for a setting that disables the check.
 
 **Create the database and its user yourself first.** BudgetPilot applies its
 own schema on every start, but it never creates the database, and it does
