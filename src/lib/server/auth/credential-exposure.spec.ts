@@ -1,6 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import {
+	blockCommentRanges,
+	callTextAt,
+	isInComment,
+	productionSourceFiles,
+	readSource,
+	balancedFrom
+} from '$lib/server/security/sourceScan';
 
 /**
  * Structural credential scan: check 4 of the Phase 5 automation inventory, covering
@@ -44,92 +51,17 @@ const CREDENTIAL_PATHS = [
 ];
 
 /**
- * Production source only.
+ * The `select:` object literal of a call, or '' when there is none.
  *
- * Specs are excluded because they MOCK `prisma.user.findUnique` and assert against the calls,
- * so they carry dozens of occurrences with no `select` that are not queries at all. Measured:
- * including them takes the count from 15 to 97 and the apparent offenders from 0 to 76, which
- * would be a guard that could only ever be silenced by exempting the very thing it counts.
- *
- * `withFileTypes` for the reason recorded in
- * src/lib/server/transactions/effective-category-single-source.spec.ts: a failed browser test
- * writes a DIRECTORY named `<spec>.ts`, and a scan matching on extension alone then dies with
- * EISDIR in a file that has nothing to do with the real failure.
- */
-function productionSourceFiles(): string[] {
-	return readdirSync('src', { recursive: true, withFileTypes: true })
-		.filter((entry) => entry.isFile())
-		.map((entry) => join(entry.parentPath, entry.name))
-		.filter((path) => path.endsWith('.ts') || path.endsWith('.svelte'))
-		.filter((path) => !path.includes(join('database', 'generated')))
-		.filter((path) => !path.includes(join('lib', 'paraglide')))
-		.filter(
-			(path) =>
-				!path.endsWith('.spec.ts') && !path.endsWith('.db-smoke.ts') && !path.endsWith('.test.ts')
-		);
-}
-
-/** Character ranges covered by a block comment, so a match inside one can be discarded. */
-function blockCommentRanges(source: string): [number, number][] {
-	return [...source.matchAll(/\/\*[\s\S]*?\*\//g)].map((match) => [
-		match.index,
-		match.index + match[0].length
-	]);
-}
-
-/**
- * Whether an offset sits inside a comment.
- *
- * NOT defensive tidiness. The first draft of this scan omitted it and immediately reported
- * `src/lib/server/auth.ts` as a query with no `select`, which would have been a finding against
- * the published assessment. The match was inside a JSDoc paragraph explaining a NUL-byte fix,
- * five lines of prose about a `prisma.user.findUnique` that is not there. A scan that reads
- * comments as code manufactures findings, and a manufactured finding costs more than a missing
- * one because somebody acts on it.
- */
-function isInComment(source: string, offset: number, blocks: [number, number][]): boolean {
-	if (blocks.some(([start, end]) => offset >= start && offset < end)) return true;
-	const lineStart = source.lastIndexOf('\n', offset) + 1;
-	return source.slice(lineStart, offset).includes('//');
-}
-
-/** The full text of the call whose opening parenthesis follows `from`, brackets balanced. */
-function callTextAt(source: string, from: number): string {
-	const open = source.indexOf('(', from);
-	if (open === -1) return '';
-	let depth = 0;
-	for (let i = open; i < source.length; i += 1) {
-		if (source[i] === '(') depth += 1;
-		else if (source[i] === ')') {
-			depth -= 1;
-			if (depth === 0) return source.slice(open, i + 1);
-		}
-	}
-	return source.slice(open);
-}
-
-/**
- * The object literal passed to `select:`, or '' when the call has none.
- *
- * Extracted rather than searched for as a substring of the whole call, so that writing a
+ * Extracted rather than searched for as a substring of the whole call, so that WRITING a
  * credential (`data: { passwordHash }`, which registration and password change legitimately do)
- * is never mistaken for returning one. The distinction is the entire point of the requirement:
- * v5.0.0-15.3.1 is about what comes BACK.
+ * is never mistaken for RETURNING one. The distinction is the entire point of the requirement:
+ * v5.0.0-15.3.1 is about what comes back.
  */
 function selectBlockOf(callText: string): string {
 	const at = callText.indexOf('select:');
 	if (at === -1) return '';
-	const open = callText.indexOf('{', at);
-	if (open === -1) return '';
-	let depth = 0;
-	for (let i = open; i < callText.length; i += 1) {
-		if (callText[i] === '{') depth += 1;
-		else if (callText[i] === '}') {
-			depth -= 1;
-			if (depth === 0) return callText.slice(open, i + 1);
-		}
-	}
-	return callText.slice(open);
+	return balancedFrom(callText, callText.indexOf('{', at), '{', '}');
 }
 
 interface UserQuery {
@@ -142,7 +74,7 @@ interface UserQuery {
 function findUserQueries(): UserQuery[] {
 	const queries: UserQuery[] = [];
 	for (const path of productionSourceFiles()) {
-		const source = readFileSync(path, 'utf8');
+		const source = readSource(path);
 		const blocks = blockCommentRanges(source);
 		for (const match of source.matchAll(/prisma\.user\.(\w+)/g)) {
 			if (isInComment(source, match.index, blocks)) continue;
@@ -229,7 +161,7 @@ describe('credential exposure (v5.0.0-15.3.1, v5.0.0-8.2.3)', () => {
 		expect(components.length).toBeGreaterThan(50);
 
 		const offenders = components.filter((path) => {
-			const source = readFileSync(path, 'utf8');
+			const source = readSource(path);
 			const blocks = blockCommentRanges(source);
 			return CREDENTIAL_FIELDS.some((field) =>
 				[...source.matchAll(new RegExp(field, 'g'))].some(
