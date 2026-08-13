@@ -75,6 +75,17 @@ docs/responsive-consistency-audit.md
 docs/i18n.md
 docs/superpowers/
 
+# Security programme working artifacts: the ASVS 5.0 map and its generators, the #184 pentest
+# harnesses, and the throwaway credentials those harnesses were run with. Local only, one
+# machine, no backup, the same arrangement as docs/superpowers/ above.
+#
+# Tracked as an ignore rule rather than left as a local working-tree edit, and the reason is
+# worth keeping: this directory holds live private keys (eb_key.pem, eb_stub_key.pem), captured
+# cookie jars and a TOTP secret. An unignored `git add -A` publishes them to a public
+# repository. The rule was twice lost to a `git reset --hard` that discarded the working-tree
+# edit carrying it, in one afternoon, which is exactly as often as it takes.
+scripts/security/
+
 # Local-only agent instructions (public shared file is AGENTS.md)
 /CLAUDE.md
 # Per-machine Claude Code permissions (shared config is .claude/settings.json)
