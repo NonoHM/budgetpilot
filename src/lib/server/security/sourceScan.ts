@@ -28,16 +28,110 @@ import { join } from 'node:path';
  * EISDIR in a file that has nothing to do with the real failure.
  */
 export function productionSourceFiles(root = 'src'): string[] {
-	return readdirSync(root, { recursive: true, withFileTypes: true })
-		.filter((entry) => entry.isFile())
-		.map((entry) => join(entry.parentPath, entry.name))
-		.filter((path) => path.endsWith('.ts') || path.endsWith('.svelte'))
-		.filter((path) => !path.includes(join('database', 'generated')))
-		.filter((path) => !path.includes(join('lib', 'paraglide')))
-		.filter(
-			(path) =>
-				!path.endsWith('.spec.ts') && !path.endsWith('.db-smoke.ts') && !path.endsWith('.test.ts')
-		);
+	return (
+		readdirSync(root, { recursive: true, withFileTypes: true })
+			.filter((entry) => entry.isFile())
+			.map((entry) => join(entry.parentPath, entry.name))
+			.filter((path) => path.endsWith('.ts') || path.endsWith('.svelte'))
+			.filter((path) => !path.includes(join('database', 'generated')))
+			.filter((path) => !path.includes(join('lib', 'paraglide')))
+			.filter(
+				(path) =>
+					!path.endsWith('.spec.ts') && !path.endsWith('.db-smoke.ts') && !path.endsWith('.test.ts')
+			)
+			// A test file is one that imports vitest, not one whose name matches a convention. Measured:
+			// `banking/enablebanking/enablebanking.sandbox-validation.ts` opens with
+			// `import { describe, expect, it } from 'vitest'` and matches none of the suffixes above, so
+			// every scan built on this helper was reading a test file as production source. It changed no
+			// verdict, and that is luck rather than design.
+			.filter((path) => !/^import\s*\{[^}]*\}\s*from\s*'vitest'/m.test(readFileSync(path, 'utf8')))
+	);
+}
+
+/**
+ * Character ranges covered by a string or template literal, comments excluded, template
+ * interpolations excluded.
+ *
+ * Needed because an identifier scan cannot tell a symbol from an English word inside a message,
+ * and this codebase writes both. Measured on the outbound-containment scan: `\bfetch\b` matched
+ * `[bank-sync] balance fetch failed for connection ...` and `Session has no accounts to fetch
+ * transactions from`, two log strings, and both would have been reported as an unguarded outbound
+ * client. Same family as the French article `des` matching 7 times in the crypto scan, one layer
+ * over: there the word was in markup, here it is in a string.
+ *
+ * `${...}` inside a template is NOT treated as string, because it is code and an identifier
+ * there is a real reference.
+ *
+ * Deliberately a PREDICATE rather than a blanking pass: `crypto-allowlist.spec.ts` reads string
+ * literals on purpose, since the algorithm it checks IS a string argument. A helper that erased
+ * them would break the scan that needs them most.
+ */
+export function stringLiteralRanges(source: string): [number, number][] {
+	const ranges: [number, number][] = [];
+	let i = 0;
+	while (i < source.length) {
+		const ch = source[i];
+		if (ch === '/' && source[i + 1] === '/') {
+			const end = source.indexOf('\n', i);
+			i = end === -1 ? source.length : end;
+			continue;
+		}
+		if (ch === '/' && source[i + 1] === '*') {
+			const end = source.indexOf('*/', i + 2);
+			i = end === -1 ? source.length : end + 2;
+			continue;
+		}
+		if (ch === "'" || ch === '"') {
+			const start = i;
+			i += 1;
+			while (i < source.length && source[i] !== ch) {
+				if (source[i] === '\\') i += 1;
+				if (source[i] === '\n') break;
+				i += 1;
+			}
+			ranges.push([start, i + 1]);
+			i += 1;
+			continue;
+		}
+		if (ch === '`') {
+			let start = i;
+			i += 1;
+			while (i < source.length && source[i] !== '`') {
+				if (source[i] === '\\') {
+					i += 2;
+					continue;
+				}
+				// An interpolation is code: close the run before it and reopen after.
+				if (source[i] === '$' && source[i + 1] === '{') {
+					ranges.push([start, i]);
+					let depth = 1;
+					i += 2;
+					while (i < source.length && depth > 0) {
+						if (source[i] === '{') depth += 1;
+						else if (source[i] === '}') depth -= 1;
+						i += 1;
+					}
+					start = i;
+					continue;
+				}
+				i += 1;
+			}
+			ranges.push([start, i + 1]);
+			i += 1;
+			continue;
+		}
+		i += 1;
+	}
+	return ranges;
+}
+
+/** Whether an offset sits inside a string or template literal. */
+export function isInStringLiteral(
+	source: string,
+	offset: number,
+	ranges: [number, number][] = stringLiteralRanges(source)
+): boolean {
+	return ranges.some(([start, end]) => offset >= start && offset < end);
 }
 
 /** Character ranges covered by a block comment. */
