@@ -19,6 +19,22 @@ on:
 permissions:
   contents: read
 
+# One publish at a time, and NEVER cancel one in flight.
+#
+# Without this, two releases published close together run concurrently and both call
+# `imagetools create -t latest`. Whichever run finishes last wins `latest`, and finishing order
+# has nothing to do with version order: the older release can take longer (a cold build cache,
+# a slower runner) and land second, leaving `latest` pointing at the earlier version. Nothing
+# fails, nothing is logged, and the only symptom is users pulling a version they did not expect.
+#
+# `cancel-in-progress: false` is the load-bearing half. The default for a concurrency group is
+# to cancel the running job, which here would abort a publish partway: with `merge` done and
+# `sign-image` not, that leaves exactly the state 0.11.0 shipped in, a pullable unsigned tag.
+# Queuing is correct; cancelling is the failure we already had.
+concurrency:
+  group: docker-publish
+  cancel-in-progress: false
+
 # What a valid signature from this project looks like, in one place, because the same two values
 # appear in the signing job, in the verification job, and in the command operators are given in
 # docs/operations.md. If they ever drift apart, verification passes here and fails for the user.
