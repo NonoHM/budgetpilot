@@ -16,6 +16,29 @@ it that is easy to get wrong: it applies only to the **very first** import
 of a given bank profile. Once a technical account exists for that profile,
 the choice is ignored.
 
+## What is refused
+
+| The file                       | What you get                             |
+| ------------------------------ | ---------------------------------------- |
+| Not `.csv` or `.xlsx`          | _The file must use the .csv or .xlsx..._ |
+| Larger than 256,000 bytes      | _Statement too large..._                 |
+| An `.xlsx` unpacking past 8 MB | _This spreadsheet unpacks to..._         |
+| Empty                          | _The statement file is empty._           |
+
+The last one needs a word, because it is the only limit that is not about
+the size of the file you picked. An `.xlsx` is a zip archive, so a small
+file can hold a very large amount of data once opened, and the app measures
+that before opening it rather than after. A statement exported from a
+spreadsheet application reaches about 3 MB unpacked at the largest size the
+upload limit allows, so the 8 MB ceiling is roughly twice what a real
+statement needs. If a genuine export is ever refused by it, that is worth
+[reporting](https://github.com/NonoHM/budgetpilot/issues), because the
+number was chosen from a measurement and can be corrected by another.
+
+Splitting a long history into several files, a year at a time, works and
+costs nothing: duplicate detection is per transaction, so overlapping
+files cannot double anything.
+
 ## Read the summary
 
 The import reports what it did before you go anywhere.

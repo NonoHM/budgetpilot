@@ -28,7 +28,7 @@ interface ImportInvalidRowDetail {
 
 /**
  * Sources an import CSV row can land on, based on the auto-detected profile (see
- * getImportSource below) — the exact one is only known after the file is uploaded and its
+ * getImportSource below). The exact one is only known after the file is uploaded and its
  * profile detected, so the selector's visibility can't be decided from a single source.
  */
 const CSV_IMPORT_SOURCES = ['csv', 'revolut', 'banque_populaire'] as const;
@@ -49,7 +49,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		// The destination-account selector only has an effect the very first time a given
 		// profile's bucket is created (see the `update: {}` no-op below). Since the exact
 		// profile isn't known before upload, the selector stays visible as long as ANY
-		// profile could still be a first import — it's only hidden once every possible
+		// profile could still be a first import. It's only hidden once every possible
 		// bucket already exists, at which point selecting a destination would always be a
 		// no-op regardless of the uploaded file.
 		hasAllImportBucketsExisting: CSV_IMPORT_SOURCES.every((source) =>
@@ -218,7 +218,7 @@ const INVALID_NET_WORTH_ACCOUNT = Symbol('invalid-net-worth-account');
 
 /**
  * Validates the client-submitted destination account against the user's own active, linkable
- * NetWorthAccounts (never trust a client-supplied foreign key blindly — see CLAUDE.md). An
+ * NetWorthAccounts (never trust a client-supplied foreign key blindly, see CLAUDE.md). An
  * empty selection ("Aucun") is valid and means null. An id that doesn't resolve to one of the
  * user's own accounts is rejected rather than silently ignored.
  */
@@ -277,6 +277,14 @@ async function readUploadedImportFile(file: File) {
 function importFileErrorMessage(err: ImportFileError): string {
 	if (err.code === 'too_large') {
 		return m.import_error_too_large({ size: err.params?.size ?? 0, max: err.params?.max ?? 0 });
+	}
+	if (err.code === 'expands_too_far') {
+		// Megabytes rather than bytes: the figures here are in the millions, and the number the
+		// user can act on is "how much bigger than allowed", not the exact byte count.
+		return m.import_error_expands_too_far({
+			size: Math.ceil((err.params?.size ?? 0) / 1_000_000),
+			max: Math.floor((err.params?.max ?? 0) / 1_000_000)
+		});
 	}
 	if (err.code === 'bad_extension') return m.import_error_bad_extension();
 	return m.import_error_empty_file();

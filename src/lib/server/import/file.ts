@@ -2,6 +2,7 @@ import { readSheet } from 'read-excel-file/node';
 import type { CellValue } from 'read-excel-file/node';
 import type { ParsedCsvRow } from './types';
 import { normalizeParsedRows, parseRows } from './utils/csv';
+import { measureZipExpansion, XLSX_MAX_UNCOMPRESSED_BYTES, ZipBoundError } from './zipBounds';
 
 export const IMPORT_FILE_MAX_BYTES = 256_000;
 
@@ -72,7 +73,7 @@ export function isSupportedImportFile(fileName: string): boolean {
 	return getImportFileFormat(fileName) !== null;
 }
 
-export type ImportFileErrorCode = 'too_large' | 'bad_extension' | 'empty';
+export type ImportFileErrorCode = 'too_large' | 'bad_extension' | 'empty' | 'expands_too_far';
 
 export class ImportFileError extends Error {
 	/** Stable code for translation on the route side; the French message stays for logs/tests. */
@@ -108,6 +109,28 @@ async function readCsvImportFile(file: File): Promise<ReadImportFileResult> {
 
 async function readXlsxImportFile(file: File): Promise<ReadImportFileResult> {
 	const buffer = Buffer.from(await file.arrayBuffer());
+
+	// BEFORE `readSheet`, and the order is the whole fix (#254). The size cap above bounds the
+	// COMPRESSED upload, which the parser never allocates; this bounds what the parser is actually
+	// asked to hold. A guard that runs after the allocation that matters is not a guard for it.
+	try {
+		measureZipExpansion(buffer, XLSX_MAX_UNCOMPRESSED_BYTES);
+	} catch (caught) {
+		if (caught instanceof ZipBoundError) {
+			// A malformed archive is reported as a bad file rather than as an oversized one, so the
+			// user is told the thing that is actually true about their upload.
+			if (caught.reason === 'malformed') {
+				throw new ImportFileError('Le fichier .xlsx est illisible.', 'bad_extension');
+			}
+			throw new ImportFileError(
+				`Le classeur se décompresse au-delà de la limite (${caught.measuredBytes} octets, maximum ${caught.maxBytes} octets).`,
+				'expands_too_far',
+				{ size: caught.measuredBytes, max: caught.maxBytes }
+			);
+		}
+		throw caught;
+	}
+
 	const sheet = await readSheet(buffer);
 	const rows = sheet
 		.map((row, index) => ({ cells: row.map((cell) => formatCellValue(cell)), line: index + 1 }))
