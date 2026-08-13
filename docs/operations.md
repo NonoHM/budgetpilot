@@ -36,6 +36,61 @@ docker compose pull
 docker compose up -d
 ```
 
+### Checking the image is really ours
+
+From 0.11.0 on, every published image is signed. The signature is made during
+the release workflow with a short-lived Sigstore certificate, so there is no
+signing key held anywhere that could be stolen. What the signature proves is
+that this exact image was built and published by BudgetPilot's own release
+workflow, and not substituted by someone with access to the registry.
+
+Checking is optional and takes one command. Install
+[cosign](https://docs.sigstore.dev/cosign/system_config/installation/), then:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/NonoHM/budgetpilot/\.github/workflows/docker-publish\.yml@refs/tags/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/nonohm/budgetpilot:latest
+```
+
+A good result prints a JSON block and exits 0. Anything else is a failure, and
+the two failures worth telling apart are:
+
+- `no signatures found` means the image carries no signature at all. Expected
+  for 0.10.0 and earlier, which shipped before signing existed.
+- `no matching CertificateIdentity found` means the image is signed, but not by
+  this project's release workflow. **Do not run it.**
+
+Both halves of that command matter. Without `--certificate-identity-regexp` and
+`--certificate-oidc-issuer`, cosign accepts a signature from anybody, which
+proves only that the image was signed and nothing about who signed it.
+
+The published tag is a multi-arch index, and each architecture inside it is
+signed separately, so the command works the same on amd64 and arm64. To check
+the exact image you are running rather than whatever the tag points at now,
+substitute the digest:
+
+```bash
+cosign verify \
+  --certificate-identity-regexp '^https://github\.com/NonoHM/budgetpilot/\.github/workflows/docker-publish\.yml@refs/tags/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  ghcr.io/nonohm/budgetpilot@sha256:<digest>
+```
+
+Each release also carries an SBOM (`budgetpilot-<version>.spdx.json`, the list
+of everything inside the image) and a detached signature for it
+(`budgetpilot-<version>.sigstore.json`). To check the SBOM came from us, download
+both from the release page and run:
+
+```bash
+cosign verify-blob \
+  --bundle budgetpilot-<version>.sigstore.json \
+  --certificate-identity-regexp '^https://github\.com/NonoHM/budgetpilot/\.github/workflows/docker-publish\.yml@refs/tags/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  budgetpilot-<version>.spdx.json
+```
+
 **Built from source:**
 
 ```bash

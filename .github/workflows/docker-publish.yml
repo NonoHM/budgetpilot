@@ -19,6 +19,18 @@ on:
 permissions:
   contents: read
 
+# What a valid signature from this project looks like, in one place, because the same two values
+# appear in the signing job, in the verification job, and in the command operators are given in
+# docs/operations.md. If they ever drift apart, verification passes here and fails for the user.
+#
+# The identity is the workflow file itself, at a TAG ref: keyless signing binds the certificate to
+# the workflow that requested it, so pinning this is what makes the signature mean "budgetpilot
+# published this" rather than "somebody signed this". `refs/tags/` matters as much as the path,
+# since it refuses anything signed from a branch, including a fork's copy of this file.
+env:
+  COSIGN_IDENTITY_REGEXP: '^https://github\.com/NonoHM/budgetpilot/\.github/workflows/docker-publish\.yml@refs/tags/'
+  COSIGN_OIDC_ISSUER: https://token.actions.githubusercontent.com
+
 jobs:
   # Computes the version/image name/tags once so every other job (and both
   # platform builds) uses the exact same values — nothing is recomputed
@@ -351,6 +363,10 @@ jobs:
     permissions:
       contents: read
       packages: write # push the multi-arch manifest
+    outputs:
+      # The digest of the manifest LIST, which is what `sign` signs and what an operator's
+      # `cosign verify` resolves a tag to. Not either platform digest: those are its children.
+      digest: ${{ steps.digest.outputs.digest }}
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -387,6 +403,33 @@ jobs:
           IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
           VERSION: ${{ needs.prepare.outputs.version }}
         run: docker buildx imagetools inspect "$IMAGE:$VERSION"
+
+      # Resolved from the registry rather than recomputed, so `sign` and `verify-signature`
+      # act on the object a user pulling this tag actually receives. Shape-checked for the
+      # same reason the scan job checks its digest files: a garbled value here would fail
+      # later with a much worse error, and an EMPTY one would make `cosign sign` operate on
+      # a bare tag, which signs whatever that tag points at at some later moment.
+      - name: Record the index digest
+        id: digest
+        env:
+          IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          digest=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{.Manifest.Digest}}')
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "not a sha256 digest: $digest" >&2; exit 1 ;;
+          esac
+          hex=${digest#sha256:}
+          case "$hex" in
+            *[!0-9a-f]* | '') echo "digest is not hex: $digest" >&2; exit 1 ;;
+          esac
+          if [ "${#hex}" -ne 64 ]; then
+            echo "digest is not 64 hex characters: $digest" >&2
+            exit 1
+          fi
+          echo "index digest: $digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
 
   # Pulls the just-published manifest tag on a native arm64 runner and checks
   # the actual downloaded image reports linux/arm64 — proof the arm64 layer
@@ -494,23 +537,241 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # Signs what ships, in the two places a user can check it (#218, ASVS 10.3).
+  #
+  # Keyless, via the workflow's own OIDC identity: Fulcio issues a ~10-minute certificate bound
+  # to `.github/workflows/docker-publish.yml@refs/tags/<tag>`, and the record goes to the public
+  # Rekor log. There is no private key in a secret, so there is nothing to rotate and nothing to
+  # leak. Same fail-closed reasoning as the rest of this programme: a secret that does not exist
+  # cannot be stolen. What replaces "guard the key" is "pin the identity", which is why every
+  # verify below asserts the certificate identity and issuer rather than merely that a signature
+  # exists. A signature that verifies against any identity proves only that SOMEBODY signed it.
+  #
+  # TWO artefacts, because they protect different people and only one of them is what OpenSSF
+  # Scorecard's Signed-Releases check reads:
+  #
+  #   1. The IMAGE in GHCR. This is the one that matters: it is what `docker pull` fetches, and
+  #      the only thing standing between an operator and a substituted image. Scorecard cannot
+  #      see it at all, because that check inspects GitHub release ASSETS and never contacts a
+  #      registry (probes/releasesAreSigned, probes/releasesHaveProvenance, both of which iterate
+  #      release.Assets).
+  #   2. The SBOM asset on the GitHub release, signed as a detached Sigstore bundle. This is what
+  #      Scorecard reads, and it is genuinely useful on its own: the SBOM is the file an operator
+  #      downloads to answer "what is in this image", and unsigned it is an unattributed claim.
+  #
+  # --recursive is required and is not a nicety. The published tag is a manifest LIST; signing its
+  # digest alone leaves both platform manifests unsigned, so `cosign verify` against the digest an
+  # arm64 machine actually resolves would fail while the tag verified fine. -r additionally signs
+  # each discrete image, and verify-signature below checks all three.
+  #
+  # Placed after `scan`, transitively: sbom needs merge, merge needs scan. So nothing is ever
+  # signed until the CVE gate has passed, and a gate failure leaves an unsigned image rather than
+  # a signed bad one. This does not change #165 (the tag and release already exist by the time any
+  # of this runs); it only avoids making it worse.
+  sign:
+    needs: [prepare, merge, sbom]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write # cosign writes the signature alongside the image in GHCR
+      id-token: write # mint the OIDC token Fulcio exchanges for a signing certificate
+    steps:
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          # Pinned for the same reason the actions are pinned by SHA: the signature format and
+          # the flags below are properties of a cosign version, not constants.
+          cosign-release: v3.1.3
+
+      - uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c # v4.5.2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sbom
+
+      - name: Sign the image, and every architecture inside it
+        env:
+          IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
+          DIGEST: ${{ needs.merge.outputs.digest }}
+        run: cosign sign --yes --recursive "$IMAGE@$DIGEST"
+
+      - name: Sign the SBOM as a detached bundle
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          cosign sign-blob --yes \
+            --bundle "budgetpilot-$VERSION.sigstore.json" \
+            "budgetpilot-$VERSION.spdx.json"
+
+      # `.sigstore.json` is the conventional extension for a Sigstore bundle, and it is what this
+      # file IS. Scorecard counts that suffix as a signature (8 points) and reserves 10 for
+      # `.intoto.jsonl`, a different serialisation we do not produce. The check never opens the
+      # file, so renaming this one would score the extra 2 points by asserting a format the bytes
+      # do not have. That is a false statement about an artefact in exchange for a number, which
+      # is the exact failure this whole programme exists to avoid. The name follows the content.
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sbom-signature
+          path: budgetpilot-*.sigstore.json
+          if-no-files-found: error
+          retention-days: 1
+
+  # Verifies the signatures that were just made, against the registry, before anyone is told the
+  # release is signed. A signing step that is never verified proves only that cosign exited 0.
+  #
+  # Three positive checks (the index and BOTH platform digests) because --recursive is the thing
+  # most likely to be silently dropped later, and its absence is invisible from the tag alone.
+  #
+  # Two negative controls, because a verify that accepts anything is decorative. Neither can go
+  # stale: the first pins an identity nobody can obtain, the second points at an object that
+  # exists in our own registry and is never signed by anything.
+  verify-signature:
+    needs: [prepare, merge, sign]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Anonymous read of the public image and the public Rekor log. No registry write, no token.
+    permissions:
+      contents: read
+    steps:
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: digests-linux-amd64
+          path: /tmp/verify-digests/amd64
+
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: digests-linux-arm64
+          path: /tmp/verify-digests/arm64
+
+      - name: Verify the index and both architectures
+        env:
+          IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
+          DIGEST: ${{ needs.merge.outputs.digest }}
+        run: |
+          set -euo pipefail
+          # Without nullglob an absent directory yields the literal pattern as a single element,
+          # which passes the count check below and then verifies a nonsense ref. Same reason the
+          # scan job sets it.
+          shopt -s nullglob
+          refs=("$IMAGE@$DIGEST")
+          for platform in amd64 arm64; do
+            files=(/tmp/verify-digests/"$platform"/*)
+            if [ "${#files[@]}" -ne 1 ]; then
+              echo "expected exactly one $platform digest file, found ${#files[@]}" >&2
+              exit 1
+            fi
+            refs+=("$IMAGE@sha256:$(basename "${files[0]}")")
+          done
+          for ref in "${refs[@]}"; do
+            echo "::group::verify $ref"
+            cosign verify \
+              --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
+              --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+              "$ref" > /dev/null
+            echo "verified: $ref"
+            echo "::endgroup::"
+          done
+
+      # BOTH controls below assert the REASON for the refusal, not just a non-zero exit, and that
+      # is the whole point rather than pedantry. A first draft of control 2 pointed at the
+      # `sha256-<hex>.sig` tag on the theory that a signature artifact is not itself signed.
+      # Measured against a signed third-party image before shipping: that tag can simply be
+      # ABSENT (cosign v3 can store signatures via the OCI 1.1 referrers API instead), and cosign
+      # then fails with `MANIFEST_UNKNOWN`. Non-zero exit, control "passes", and it proved only
+      # that a name did not resolve. Exit status alone cannot tell "refused because unsigned"
+      # from "refused because missing"; the message can, so the message is what is asserted.
+      #
+      # The two strings, verified by running them against real registries on 2026-08-13:
+      #   unsigned but present  -> "no signatures found"
+      #   signed, wrong identity -> "no matching CertificateIdentity found"
+
+      # Control 1: the signature is real and present, so the ONLY thing that can refuse it is the
+      # identity pin. This is what proves the pin is load-bearing; without it, a verify carrying a
+      # `.*` identity regexp would look identical to the passing checks above.
+      - name: Refuse a signature that is not from this repository
+        env:
+          IMAGE: ghcr.io/${{ needs.prepare.outputs.image }}
+          DIGEST: ${{ needs.merge.outputs.digest }}
+        run: |
+          out=$(cosign verify \
+                  --certificate-identity-regexp '^https://github\.com/NonoHM/not-budgetpilot/' \
+                  --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+                  "$IMAGE@$DIGEST" 2>&1) && {
+            echo "cosign accepted a certificate identity that is not this repository" >&2
+            exit 1
+          }
+          case "$out" in
+            *"no matching CertificateIdentity found"*)
+              echo "refused for the right reason: the certificate identity did not match" ;;
+            *)
+              echo "refused, but NOT because of the identity pin. This control proved nothing:" >&2
+              echo "$out" >&2
+              exit 1 ;;
+          esac
+
+      # Control 2: an object that EXISTS in our registry and carries no signature, so the refusal
+      # is about signing rather than about a name failing to resolve. Pinned to the 0.10.0 index,
+      # deliberately: it is the last release published before signing existed, so it can never
+      # acquire a signature, which makes it a fixed point rather than a moving target. Asserting
+      # the message also catches the day it gets deleted from GHCR, which would otherwise turn
+      # this back into the MANIFEST_UNKNOWN false pass described above.
+      - name: Refuse an object this workflow never signed
+        env:
+          UNSIGNED: ghcr.io/nonohm/budgetpilot@sha256:aa5511bab7f7aefd977915c8cad3074b8a35e279c163cffdb548b1b60634ab6d
+        run: |
+          out=$(cosign verify \
+                  --certificate-identity-regexp "$COSIGN_IDENTITY_REGEXP" \
+                  --certificate-oidc-issuer "$COSIGN_OIDC_ISSUER" \
+                  "$UNSIGNED" 2>&1) && {
+            echo "cosign accepted an object this workflow never signed" >&2
+            exit 1
+          }
+          case "$out" in
+            *"no signatures found"*)
+              echo "refused for the right reason: the object carries no signature" ;;
+            *)
+              echo "refused, but NOT because the object is unsigned. This control proved nothing:" >&2
+              echo "$out" >&2
+              exit 1 ;;
+          esac
+
   sbom-attach:
-    needs: [prepare, sbom]
+    needs: [prepare, sbom, sign]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: write # gh release upload — and nothing third-party runs here
     steps:
+      # Both artifacts: the SBOM and the detached bundle that signs it. `merge-multiple` puts
+      # them in one directory so the upload below is a single glob.
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: sbom
+          pattern: sbom*
+          merge-multiple: true
 
       # On `release: published` the tag comes from the event; on workflow_dispatch from the
       # input — the same fallback the version step uses. --clobber so a retroactive re-publish
       # of a tag replaces the asset instead of failing on it.
-      - name: Attach SBOM to the release
+      # Both files go up together, and both are named explicitly rather than by one wildcard, so
+      # a missing bundle fails here instead of silently publishing an unsigned SBOM: `gh release
+      # upload` errors on a path that does not exist, while a glob that matches nothing would
+      # expand to itself and produce a confusing upload of a literal filename.
+      - name: Attach the SBOM and its signature to the release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ github.event.inputs.tag_name || github.event.release.tag_name }}
-        run: gh release upload "$TAG_NAME" budgetpilot-*.spdx.json --clobber
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          gh release upload "$TAG_NAME" \
+            "budgetpilot-$VERSION.spdx.json" \
+            "budgetpilot-$VERSION.sigstore.json" \
+            --clobber
