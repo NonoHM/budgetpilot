@@ -562,7 +562,15 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  # Signs what ships, in the two places a user can check it (#218, ASVS 10.3).
+  # Signs what ships, in the two places a user can check it (#218).
+  #
+  # No standard reference here, deliberately, and the absence is worth a line. This used to cite
+  # "ASVS 10.3", which was a 4.0.3 number; ASVS 5.0 retired it and asks for artefact signing at
+  # NO level, not even L3. So the citation pointed at a requirement that no longer exists, and
+  # replacing it with a different id would be inventing agreement. The practice is right and the
+  # standard simply does not ask for it: an operator pulling this image has no other way to
+  # establish it came from us, which is reason enough on its own. Signing is also what the OpenSSF
+  # Scorecard Signed-Releases check reads, and what the Best Practices badge requires at silver.
   #
   # Keyless, via the workflow's own OIDC identity: Fulcio issues a ~10-minute certificate bound
   # to `.github/workflows/docker-publish.yml@refs/tags/<tag>`, and the record goes to the public
