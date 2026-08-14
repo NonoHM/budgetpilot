@@ -1,32 +1,10 @@
-import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
-import { applyCategorizationRules } from '$lib/server/categorization/rules';
-import type {
-	CsvImportResult,
-	CsvProfileParseInput,
-	ImportedTransaction,
-	ImportedTransactionType
-} from '../types';
+import type { CsvImportResult, CsvProfileParseInput } from '../types';
 import type { CsvRefusal } from '../refusals';
-import {
-	addRefusal,
-	buildSummary,
-	getDuplicateHeaders,
-	normalizeDate,
-	toRecord
-} from '../utils/csv';
-import { parseAmountCents } from '../utils/money';
+import { addRefusal, buildSummary, getDuplicateHeaders } from '../utils/csv';
 import { REQUIRED_ROLES, resolveRequiredColumns } from './columnAliases';
+import { parseResolvedRows } from './resolvedRows';
 import { detectSignIndicatorColumn } from '../signIndicator';
-import { createOccurrenceCounter } from '../occurrence';
-import {
-	buildCsvFields,
-	buildDeduplicationGroupKey,
-	buildDeduplicationKey,
-	hashFingerprint,
-	refusalCellValue,
-	sanitizeImportedText,
-	UNCLASSIFIED_CATEGORY
-} from '../utils/safety';
+import { refusalCellValue } from '../utils/safety';
 
 /** The one column that is optional and still matched by its exact name: it has no role in
  *  building a transaction, so an absent or unrecognised category simply falls back to the
@@ -159,150 +137,22 @@ export function parseGenericRows({
 	// Which header, if any, declares the currency. Absent is the common case and is fine.
 	const currencyColumn = CURRENCY_COLUMNS.find((name) => headers.includes(name));
 
-	const resolvedFields = [columns.date, columns.label, columns.amount, CATEGORY_COLUMN].filter(
-		(field): field is string => Boolean(field)
-	);
-
-	const transactions: ImportedTransaction[] = [];
-	// One counter per parse, never shared between files: see occurrence.ts.
-	const nextOccurrence = createOccurrenceCounter();
-	const refusals: CsvRefusal[] = [];
-	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
-	// saying so in the summary is what stops a reader inferring the counter was forgotten.
-	const duplicateRows = 0;
-	let totalDebitCents = 0;
-	let totalCreditCents = 0;
-	const validDates: string[] = [];
-
-	rows.slice(1).forEach((parsedRow) => {
-		const row = parsedRow.cells;
-		const line = parsedRow.line;
-		if (row.length !== headers.length) {
-			addRefusal(
-				refusals,
-				{ kind: 'row', line },
-				{ code: 'bad-column-count', expected: headers.length, actual: row.length },
-				'colonnes'
-			);
-			return;
-		}
-
-		const record = toRecord(headers, row);
-		// Read through the RESOLVED column name, not a hardcoded one: that indirection is the
-		// whole widening. `columns.date` is `dateop` for a Boursorama file and `started date`
-		// for a Revolut one.
-		const amountCents = parseAmountCents(record[columns.amount ?? ''] ?? '');
-		const date = normalizeDate(record[columns.date ?? ''] ?? '');
-		const label = sanitizeImportedText(record[columns.label ?? ''] ?? '');
-		const category = sanitizeImportedText(record[CATEGORY_COLUMN] || UNCLASSIFIED_CATEGORY);
-
-		// Per row, like `revolut.ts`, because the column is per row and a file may mix. Checked
-		// BEFORE the date and the amount so the refusal names the reason the row cannot be
-		// imported at all, rather than a downstream complaint about a value we were never going
-		// to keep.
-		if (currencyColumn) {
-			const declared = sanitizeImportedText(record[currencyColumn] ?? '');
-			// An EMPTY cell is not a declaration. A file with the column present and the value
-			// blank is the same situation as a file with no column, and must still import.
-			if (declared && declared.toUpperCase() !== ACCEPTED_CURRENCY) {
-				addRefusal(
-					refusals,
-					{ kind: 'row', line },
-					{ code: 'unsupported-currency', currency: refusalCellValue(declared) },
-					currencyColumn
-				);
-				return;
-			}
-		}
-
-		if (!isValidIsoDate(date)) {
-			addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-date', column: 'date' }, 'date');
-			return;
-		}
-
-		if (amountCents === null) {
-			addRefusal(
-				refusals,
-				{ kind: 'row', line },
-				{ code: 'invalid-amount', column: 'amount' },
-				'amount'
-			);
-			return;
-		}
-
-		if (amountCents === 0) {
-			addRefusal(
-				refusals,
-				{ kind: 'row', line },
-				{ code: 'zero-amount', column: 'amount' },
-				'amount'
-			);
-			return;
-		}
-
-		const type: ImportedTransactionType = amountCents >= 0 ? 'income' : 'expense';
-		// The ordinal is what makes two identical rows two transactions rather than one. Before
-		// it, this profile collapsed them here and counted the second as a duplicate, so a file
-		// carrying the same coffee twice imported one of them and reported the other as already
-		// present. The in-file skip is gone with it: within one source a repeated row is now
-		// occurrence 1, and the only authority on duplicates is the unique constraint in the
-		// database, which is where a duplicate ACROSS sources has always been decided.
-		const group = { date, label, amountCents, type };
-		const fingerprint = buildDeduplicationKey({
-			...group,
-			occurrence: nextOccurrence(buildDeduplicationGroupKey(group))
-		});
-		const categorization = applyCategorizationRules({ label, category, type }, categorizationRules);
-
-		const transaction: ImportedTransaction = {
-			id: `csv-${hashFingerprint(fingerprint)}`,
-			date,
-			label,
-			amountCents,
-			category: categorization.category,
-			source: 'csv',
-			metadata: {
-				reference: '',
-				notes: label,
-				type,
-				deduplicationKey: fingerprint,
-				// The RESOLVED names, not a fixed list: with a fixed one a Boursorama file would
-				// store no date at all, because its column is `dateop`.
-				csvFields: buildCsvFields(record, resolvedFields)
-			}
-		};
-		const validation = validateTransaction(transaction);
-		if (!validation.ok) {
-			addRefusal(
-				refusals,
-				{ kind: 'row', line },
-				{
-					code: 'transaction-invalid',
-					violations: validation.violations
-				}
-			);
-			return;
-		}
-
-		if (type === 'expense') totalDebitCents += Math.abs(amountCents);
-		if (type === 'income') totalCreditCents += Math.abs(amountCents);
-		validDates.push(date);
-		transactions.push(transaction);
-	});
-
-	return {
-		transactions,
+	return parseResolvedRows({
+		rows,
+		headers,
+		// `resolution.ok` is guaranteed here: the header refusals above returned early otherwise,
+		// and every required role was checked for presence. The assertions are what carries that
+		// through to a type the shared loop can use without another null check per row.
+		columns: {
+			date: columns.date as string,
+			label: columns.label as string,
+			amount: columns.amount as string,
+			category: CATEGORY_COLUMN
+		},
+		currencyColumn,
+		acceptedCurrency: ACCEPTED_CURRENCY,
+		profile: 'generic',
 		warnings,
-		invalidRows: refusals,
-		summary: buildSummary({
-			profile: 'generic',
-			totalRows: rows.length - 1,
-			validRows: transactions.length,
-			invalidRows: refusals.length,
-			duplicateRows,
-			totalDebitCents,
-			totalCreditCents,
-			dates: validDates
-		})
-	};
+		categorizationRules
+	});
 }
