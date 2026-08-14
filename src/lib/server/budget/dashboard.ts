@@ -6,7 +6,7 @@ import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { normalizeForMatch } from '$lib/domain/normalize';
 import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
-import type { Transaction } from '$lib/domain/transaction';
+import type { Transaction, TransactionValidationCode } from '$lib/domain/transaction';
 import { allocateByCategory, type CategoryAllocation } from '$lib/domain/allocation';
 import { validateTransaction } from '$lib/domain/transaction';
 import { parseManualAmountCents } from '$lib/domain/money';
@@ -27,6 +27,26 @@ const MANUAL_ACCOUNT_NAME = 'Compte manuel';
 const MONTH_PATTERN = /^\d{4}-\d{2}$/;
 const MAX_BUDGET_AMOUNT_CENTS = 100_000_000;
 const MAX_BUDGET_CATEGORY_LENGTH = 80;
+
+/**
+ * Byte identical to the message this route threw before the refusal contract landed.
+ * Temporary, and deliberately not improved here: fixing it is a behaviour change on a
+ * journey this chantier is not about, and it must not ride inside a mechanical diff.
+ * Replaced by #299, which decides whether the route maps the code or the page renders it.
+ */
+const LEGACY_FR: Record<TransactionValidationCode, string> = {
+	'id-required': 'id requis',
+	'invalid-iso-date': 'date ISO invalide',
+	'amount-cents-required': 'montant en centimes requis',
+	'zero-amount': 'montant nul interdit',
+	'amount-too-large': 'montant trop élevé',
+	'invalid-type': 'type invalide',
+	'label-required': 'libellé requis',
+	'label-too-long': 'libellé trop long',
+	'category-required': 'catégorie requise',
+	'category-too-long': 'catégorie trop longue',
+	'invalid-nature': 'nature invalide'
+};
 
 /** Re-exported for callers/tests that historically imported it from here (dashboard.ts). The
  *  actual implementation lives in domain/money.ts, per the architecture posture (pure logic
@@ -191,7 +211,9 @@ export async function createManualTransaction(
 		source: 'manual'
 	};
 	const validation = validateTransaction(transaction);
-	if (!validation.ok) throw error(400, validation.errors.join(', '));
+	if (!validation.ok) {
+		throw error(400, validation.violations.map((code) => LEGACY_FR[code]).join(', '));
+	}
 
 	const [account, category] = await Promise.all([
 		ensureManualAccount(userId),

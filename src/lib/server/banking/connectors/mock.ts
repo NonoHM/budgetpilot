@@ -120,7 +120,7 @@ export class MockBankConnector implements BankConnector {
 				amountCents: Math.abs(flow.amountCents),
 				type,
 				category: UNCLASSIFIED_CATEGORY,
-				account: accountId
+				accountScope: accountId
 			});
 			transactions.push({
 				id: `mock-${hashFingerprint(fingerprint)}`,

@@ -110,9 +110,14 @@ describe('the import profile that reached it unguarded', () => {
 		// no pre-check of its own: the refusal arrives from `validateTransaction` rather than from
 		// the profile, which is the same absence that let the throw escape. The other four
 		// profiles say « date invalide ». Not reconciled here, and noted so the difference reads
-		// as a measurement rather than a typo.
-		expect(result.errors.join(' ')).toContain('date ISO invalide');
-		expect(result.invalidRows[0]?.line).toBe(2);
+		// as a measurement rather than a typo. Carried into the contract as two distinct codes:
+		// the domain's `invalid-iso-date`, inside a `transaction-invalid` fact, versus a profile's
+		// own `invalid-date`.
+		expect(result.invalidRows[0]?.fact).toEqual({
+			code: 'transaction-invalid',
+			violations: ['invalid-iso-date']
+		});
+		expect(result.invalidRows[0]?.scope).toEqual({ kind: 'row', line: 2 });
 	});
 
 	it('still accepts a real date, so the refusal above is about the date and not the fixture', () => {
@@ -120,7 +125,7 @@ describe('the import profile that reached it unguarded', () => {
 
 		const result = parseCsvTransactions([header, row('2026-03-15')].join('\n'));
 
-		expect(result.errors).toStrictEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions).toHaveLength(1);
 	});
 });

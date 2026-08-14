@@ -35,10 +35,43 @@ export interface TransactionClassificationSuggestion {
 	reason: string;
 }
 
-export interface TransactionValidationResult {
-	ok: boolean;
-	errors: string[];
-}
+/**
+ * A violation as a code, never as a sentence: `validateTransaction` used to return eleven
+ * French sentences that five CSV parsers forwarded verbatim, so the parsers were relaying
+ * language rather than writing it. Language for these codes lives only in the message
+ * catalogue (`import_refusal_tx_<code>`) and, temporarily, in the dashboard's legacy shim
+ * (`src/lib/server/budget/dashboard.ts`), which reproduces today's HTTP 400 wording exactly
+ * until #299 decides whether the route maps the code or the page renders it.
+ */
+export type TransactionValidationCode =
+	| 'id-required'
+	| 'invalid-iso-date'
+	| 'amount-cents-required'
+	| 'zero-amount'
+	| 'amount-too-large'
+	| 'invalid-type'
+	| 'label-required'
+	| 'label-too-long'
+	| 'category-required'
+	| 'category-too-long'
+	| 'invalid-nature';
+
+export const TRANSACTION_VALIDATION_CODES = [
+	'id-required',
+	'invalid-iso-date',
+	'amount-cents-required',
+	'zero-amount',
+	'amount-too-large',
+	'invalid-type',
+	'label-required',
+	'label-too-long',
+	'category-required',
+	'category-too-long',
+	'invalid-nature'
+] as const satisfies readonly TransactionValidationCode[];
+
+export type TransactionValidationResult =
+	{ ok: true } | { ok: false; violations: TransactionValidationCode[] };
 
 const MAX_LABEL_LENGTH = 120;
 const MAX_CATEGORY_LENGTH = 60;
@@ -122,23 +155,24 @@ export function isValidIsoDate(value: string): boolean {
 }
 
 export function validateTransaction(transaction: Transaction): TransactionValidationResult {
-	const errors: string[] = [];
+	const violations: TransactionValidationCode[] = [];
 
-	if (!transaction.id.trim()) errors.push('id requis');
-	if (!isValidIsoDate(transaction.date)) errors.push('date ISO invalide');
-	if (!Number.isInteger(transaction.amountCents)) errors.push('montant en centimes requis');
-	if (transaction.amountCents === 0) errors.push('montant nul interdit');
-	if (Math.abs(transaction.amountCents) > 100_000_000) errors.push('montant trop élevé');
+	if (!transaction.id.trim()) violations.push('id-required');
+	if (!isValidIsoDate(transaction.date)) violations.push('invalid-iso-date');
+	if (!Number.isInteger(transaction.amountCents)) violations.push('amount-cents-required');
+	if (transaction.amountCents === 0) violations.push('zero-amount');
+	if (Math.abs(transaction.amountCents) > 100_000_000) violations.push('amount-too-large');
 	if (transaction.type && transaction.type !== 'income' && transaction.type !== 'expense')
-		errors.push('type invalide');
-	if (!transaction.label.trim()) errors.push('libellé requis');
-	if (transaction.label.length > MAX_LABEL_LENGTH) errors.push('libellé trop long');
-	if (!transaction.category.trim()) errors.push('catégorie requise');
-	if (transaction.category.length > MAX_CATEGORY_LENGTH) errors.push('catégorie trop longue');
+		violations.push('invalid-type');
+	if (!transaction.label.trim()) violations.push('label-required');
+	if (transaction.label.length > MAX_LABEL_LENGTH) violations.push('label-too-long');
+	if (!transaction.category.trim()) violations.push('category-required');
+	if (transaction.category.length > MAX_CATEGORY_LENGTH) violations.push('category-too-long');
 	if (transaction.nature && !isTransactionNature(transaction.nature))
-		errors.push('nature invalide');
+		violations.push('invalid-nature');
 
-	return { ok: errors.length === 0, errors };
+	if (violations.length === 0) return { ok: true };
+	return { ok: false, violations };
 }
 
 export function isTransactionNature(value: string): value is TransactionNature {
