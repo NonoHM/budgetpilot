@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { refusalCellValue, sanitizeImportedText } from './safety';
+import {
+	buildDeduplicationGroupKey,
+	buildDeduplicationKey,
+	refusalCellValue,
+	sanitizeImportedText
+} from './safety';
 
 /**
  * `refusalCellValue` exists because a refusal fact travels to the browser.
@@ -44,5 +49,61 @@ describe('refusalCellValue', () => {
 
 	it('collapses whitespace, so a cell of newlines cannot pad the payload', () => {
 		expect(refusalCellValue('a\n\n\n\n\nb')).toBe('a b');
+	});
+});
+
+describe('buildDeduplicationGroupKey and buildDeduplicationKey', () => {
+	const base = {
+		date: '2026-06-24',
+		label: 'CARREFOUR  MARKET',
+		amountCents: -2490,
+		type: 'expense' as const
+	};
+
+	it('folds the label and takes the magnitude, so the group key is what collides', () => {
+		expect(buildDeduplicationGroupKey(base)).toBe('2026-06-24|carrefour market|2490|expense');
+	});
+
+	it('takes the same group key whichever sign the caller passes', () => {
+		// The direction lives in `type`. A caller passing a signed amount and one passing a
+		// magnitude must not produce two keys for one transaction, which is what happened while
+		// each profile applied Math.abs at its own call site.
+		expect(buildDeduplicationGroupKey({ ...base, amountCents: 2490, type: 'income' })).toBe(
+			'2026-06-24|carrefour market|2490|income'
+		);
+	});
+
+	it('appends the occurrence and the account scope to the group key, in that order', () => {
+		expect(buildDeduplicationKey({ ...base, occurrence: 0 })).toBe(
+			'2026-06-24|carrefour market|2490|expense|0|'
+		);
+	});
+
+	it('cannot disagree with its own group key', () => {
+		// The whole reason the group key is exported rather than recomputed at each call site:
+		// the ordinal is assigned over one string and the final key is built from another, and
+		// two copies of that expression are where they quietly stop agreeing.
+		const key = buildDeduplicationKey({ ...base, occurrence: 2 });
+		expect(key.startsWith(`${buildDeduplicationGroupKey(base)}|`)).toBe(true);
+	});
+
+	it('separates two otherwise identical rows by their occurrence', () => {
+		expect(buildDeduplicationKey({ ...base, occurrence: 0 })).not.toBe(
+			buildDeduplicationKey({ ...base, occurrence: 1 })
+		);
+	});
+
+	it('still separates two accounts holding the same transaction', () => {
+		expect(
+			buildDeduplicationKey({ ...base, occurrence: 0, accountScope: 'enablebanking:a' })
+		).not.toBe(buildDeduplicationKey({ ...base, occurrence: 0, accountScope: 'enablebanking:b' }));
+	});
+
+	it('carries exactly six fields, so nothing optional can widen it', () => {
+		// The absolute figure. `category` and `reference` used to occupy the fifth slot depending
+		// on the profile, which made the key depend on which columns a file happened to carry:
+		// a file with a reference this month and none next month produced two keys for one
+		// transaction, and correcting a column mapping would have rewritten every key a user has.
+		expect(buildDeduplicationKey({ ...base, occurrence: 0 }).split('|')).toHaveLength(6);
 	});
 });

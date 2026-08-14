@@ -43,9 +43,10 @@ const PROFILES: Profile[] = [
 		source: 'gen',
 		header: 'date;label;amount;category',
 		row: '2026-08-01;MonoprixGen;-8,40;Alimentation',
-		// Same date, same label, same amount, DIFFERENT category. The key still carries category,
-		// so this must remain a second transaction.
-		distinctRow: '2026-08-01;MonoprixGen;-8,40;Transport'
+		// Different AMOUNT. It used to be a different category, which worked while the key carried
+		// one; under the v2 key it does not, and the cost of that is pinned by its own test below
+		// rather than papered over by this fixture.
+		distinctRow: '2026-08-01;MonoprixGen;-19,90;Alimentation'
 	},
 	{
 		name: 'revolut',
@@ -61,16 +62,17 @@ const PROFILES: Profile[] = [
 		source: 'bp',
 		header: BP_HEADER,
 		row: '01/08/2026;MONOPRIX;PAIEMENT CB MONOPRIX;REF001;;Carte;Alimentation;Courses;-8,40;;01/08/2026;01/08/2026;',
-		// Different reference: banque-populaire's key carries it, so this is a second transaction.
+		// Different AMOUNT. It used to be a different reference, for the same reason as generic's
+		// category above, and it stopped working for the same reason.
 		distinctRow:
-			'01/08/2026;MONOPRIX;PAIEMENT CB MONOPRIX;REF002;;Carte;Alimentation;Courses;-8,40;;01/08/2026;01/08/2026;'
+			'01/08/2026;MONOPRIX;PAIEMENT CB MONOPRIX;REF001;;Carte;Alimentation;Courses;-19,90;;01/08/2026;01/08/2026;'
 	},
 	{
 		name: 'maison',
 		source: 'mai',
 		header: MAISON_HEADER,
 		row: '2026-08-01;MonoprixMai;Alimentation;-8,40;expense;spending;CB',
-		// maison's key is date, amount, label only, so the amount is what has to differ.
+		// The amount is what has to differ, as for every profile since the key was unified.
 		distinctRow: '2026-08-01;MonoprixMai;Alimentation;-19,90;expense;spending;CB'
 	},
 	{
@@ -153,6 +155,72 @@ describe.each(PROFILES)('$name: the deduplication key ignores the file name', (p
 			where: { userId, account: { source: profile.source } }
 		});
 		// Two now: the one from the test above, plus this one.
+		expect(rows).toBe(2);
+	});
+});
+
+/**
+ * THE COST OF THE v2 KEY, PINNED RATHER THAN DISCOVERED.
+ *
+ * `category` and `reference` left the key so that it depends only on what every source
+ * guarantees. The price is here: two transactions that differ ONLY in one of those fields, and
+ * that arrive in two SEPARATE files, are now one transaction.
+ *
+ * Within one file they are still two, because the occurrence ordinal separates them. Across
+ * files each import starts its own counter, so both are occurrence 0 and the keys match.
+ *
+ * This is written as a test rather than as a comment because it is a real narrowing and the next
+ * reader deserves to meet it as an assertion. If it is ever judged unacceptable, the fix is NOT
+ * to put the category back: that makes the key depend on which columns a file carries, and a
+ * mapping correction would then rewrite every key the user has. The fix would be a stable
+ * per-row identifier the file itself provides, which is what `entry_reference` already is on the
+ * bank-sync path.
+ */
+describe('what the v2 key deliberately no longer separates', () => {
+	it('treats two rows differing only by category, in two files, as one transaction', async () => {
+		// 4 here plus one per runImport call, which asserts its own fixture parsed.
+		expect.assertions(6);
+
+		const profile: Profile = {
+			name: 'generic',
+			source: 'cost',
+			header: 'date;label;amount;category',
+			row: '2026-09-01;CostFixture;-4,20;Alimentation',
+			distinctRow: '2026-09-01;CostFixture;-4,20;Transport'
+		};
+
+		const first = await runImport(profile, profile.row, 'a.csv');
+		const second = await runImport(profile, profile.distinctRow, 'b.csv');
+
+		expect(first.importedRows).toBe(1);
+		expect(second.importedRows).toBe(0);
+		expect(second.duplicateRows).toBe(1);
+
+		const rows = await prisma.transaction.count({
+			where: { userId, account: { source: profile.source } }
+		});
+		expect(rows).toBe(1);
+	});
+
+	it('keeps them apart when they arrive in the SAME file, which is what the ordinal buys', async () => {
+		// 2 here plus one for the single runImport call.
+		expect.assertions(3);
+
+		const profile: Profile = {
+			name: 'generic',
+			source: 'cost2',
+			header: 'date;label;amount;category',
+			row: '2026-09-02;CostFixture2;-4,20;Alimentation\n2026-09-02;CostFixture2;-4,20;Transport',
+			distinctRow: ''
+		};
+
+		const both = await runImport(profile, profile.row, 'together.csv');
+
+		expect(both.importedRows).toBe(2);
+
+		const rows = await prisma.transaction.count({
+			where: { userId, account: { source: profile.source } }
+		});
 		expect(rows).toBe(2);
 	});
 });

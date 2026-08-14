@@ -4,10 +4,12 @@ import { isValidIsoDate } from '$lib/domain/transaction';
 import { decryptSecret, encryptSecret } from '$lib/server/crypto';
 import type { ImportedTransaction, ImportedTransactionType } from '$lib/server/import/types';
 import {
+	buildDeduplicationGroupKey,
 	buildDeduplicationKey,
 	hashFingerprint,
 	UNCLASSIFIED_CATEGORY
 } from '$lib/server/import/utils/safety';
+import { createOccurrenceCounter } from '$lib/server/import/occurrence';
 import type {
 	AuthorizationCallbackInput,
 	BankAspsp,
@@ -111,15 +113,20 @@ export class MockBankConnector implements BankConnector {
 		}
 
 		const transactions: ImportedTransaction[] = [];
+		// One counter per fetch. See occurrence.ts: sharing one across two fetches would number
+		// the second fetch's rows as continuations of the first, so the same transaction would key
+		// differently on the next sync and import again.
+		const nextOccurrence = createOccurrenceCounter();
 		for (const date of enumerateFlowDates(accountId, range)) {
 			const flow = date.flow;
 			const type: ImportedTransactionType = flow.amountCents >= 0 ? 'income' : 'expense';
+			// `category` left the key in v2: it was the constant UNCLASSIFIED_CATEGORY here, so it
+			// never distinguished anything, and on the CSV side it made the key depend on which
+			// columns a file carried.
+			const group = { date: date.iso, label: flow.label, amountCents: flow.amountCents, type };
 			const fingerprint = buildDeduplicationKey({
-				date: date.iso,
-				label: flow.label,
-				amountCents: Math.abs(flow.amountCents),
-				type,
-				category: UNCLASSIFIED_CATEGORY,
+				...group,
+				occurrence: nextOccurrence(buildDeduplicationGroupKey(group)),
 				accountScope: accountId
 			});
 			transactions.push({

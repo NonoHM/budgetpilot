@@ -12,12 +12,14 @@ import type { CsvRefusal, CsvRefusalFact } from '../refusals';
 import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
-	buildMaisonDeduplicationKey,
+	buildDeduplicationGroupKey,
+	buildDeduplicationKey,
 	hashFingerprint,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
+import { createOccurrenceCounter } from '../occurrence';
 
 /**
  * « maison » version 2 — the export's own format once a transaction can be répartie (OD-2, option b).
@@ -114,8 +116,11 @@ export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): Csv
 	});
 
 	const transactions: ImportedTransaction[] = [];
-	const seenFingerprints = new Set<string>();
-	let duplicateRows = 0;
+	// One counter per parse, never shared between files: see occurrence.ts.
+	const nextOccurrence = createOccurrenceCounter();
+	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
+	// saying so in the summary is what stops a reader inferring the counter was forgotten.
+	const duplicateRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
@@ -131,16 +136,17 @@ export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): Csv
 		}
 
 		const { date, label, totalCents, type, parentCategory } = group[0];
-		const fingerprint = buildMaisonDeduplicationKey({
-			date,
-			amountCents: Math.abs(totalCents),
-			label
+		// The ordinal is what makes two identical rows two transactions rather than one. The
+		// in-file skip that used to sit here collapsed them and counted the second as a
+		// duplicate, so a file carrying the same row twice imported one of them.
+		// `dedupeGroup` rather than `group`: this file's `group` is the allocation group, a
+		// different thing entirely, and one of them shadowing the other would read as the same
+		// concept.
+		const dedupeGroup = { date, label, amountCents: totalCents, type };
+		const fingerprint = buildDeduplicationKey({
+			...dedupeGroup,
+			occurrence: nextOccurrence(buildDeduplicationGroupKey(dedupeGroup))
 		});
-		if (seenFingerprints.has(fingerprint)) {
-			duplicateRows += 1;
-			continue;
-		}
-		seenFingerprints.add(fingerprint);
 
 		// A nature the whole group agrees on is the parent's override reproduced; a group that
 		// disagrees is OD-4 working as designed, and there is no honest single value to store.

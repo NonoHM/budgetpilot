@@ -10,12 +10,14 @@ import type { CsvRefusal } from '../refusals';
 import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
-	buildMaisonDeduplicationKey,
+	buildDeduplicationGroupKey,
+	buildDeduplicationKey,
 	hashFingerprint,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
+import { createOccurrenceCounter } from '../occurrence';
 
 const MAISON_HEADERS = [
 	'date',
@@ -48,9 +50,12 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 	}
 
 	const transactions: ImportedTransaction[] = [];
-	const seenFingerprints = new Set<string>();
+	// One counter per parse, never shared between files: see occurrence.ts.
+	const nextOccurrence = createOccurrenceCounter();
 	const refusals: CsvRefusal[] = [];
-	let duplicateRows = 0;
+	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
+	// saying so in the summary is what stops a reader inferring the counter was forgotten.
+	const duplicateRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
@@ -128,16 +133,14 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 			natureManual = rawNature;
 		}
 
-		const fingerprint = buildMaisonDeduplicationKey({
-			date,
-			amountCents: Math.abs(amountCents),
-			label
+		// The ordinal is what makes two identical rows two transactions rather than one. The
+		// in-file skip that used to sit here collapsed them and counted the second as a
+		// duplicate, so a file carrying the same row twice imported one of them.
+		const group = { date, label, amountCents, type: derivedType };
+		const fingerprint = buildDeduplicationKey({
+			...group,
+			occurrence: nextOccurrence(buildDeduplicationGroupKey(group))
 		});
-		if (seenFingerprints.has(fingerprint)) {
-			duplicateRows += 1;
-			return;
-		}
-		seenFingerprints.add(fingerprint);
 
 		const transaction: ImportedTransaction = {
 			id: `csv-${hashFingerprint(fingerprint)}`,

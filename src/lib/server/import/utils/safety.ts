@@ -90,34 +90,96 @@ export function firstPresent(...values: Array<string | undefined>): string {
  * The CSV profiles now pass nothing. The rename is what stops a filename coming back: `account`
  * invited any account-ish string, `accountScope` does not read like somewhere to put a file.
  */
-export function buildDeduplicationKey(input: {
+export interface DeduplicationGroup {
 	date: string;
 	label: string;
+	/** Signed or not: the magnitude is taken here, and the direction lives in `type`. */
 	amountCents: number;
 	type: ImportedTransactionType;
-	category?: string;
-	reference?: string;
-	accountScope?: string;
-}): string {
-	const label = input.label.trim().toLowerCase().replace(/\s+/g, ' ');
-	const category = input.category?.trim().toLowerCase().replace(/\s+/g, ' ') ?? '';
-	const reference = input.reference?.trim() ?? '';
-	const scope = input.accountScope?.trim().toLowerCase().replace(/\s+/g, ' ') ?? '';
-
-	if (reference) {
-		return [input.date, label, input.amountCents, input.type, reference, scope].join('|');
-	}
-
-	return [input.date, label, input.amountCents, input.type, category, scope].join('|');
 }
 
-export function buildMaisonDeduplicationKey(input: {
-	date: string;
-	amountCents: number;
-	label: string;
-}): string {
+/**
+ * The four fields two transactions must share to be candidates for being the same transaction.
+ *
+ * This is a GROUP key, not an identity: several genuinely different transactions can share it,
+ * and separating them is what the occurrence ordinal does. It is exported so a caller assigns
+ * ordinals over exactly the string the final key is built from. Recomputing that expression at
+ * the call site is how the two would quietly stop agreeing, which is the shape this repository
+ * has already paid for in an oracle that retyped the rule it audited.
+ */
+export function buildDeduplicationGroupKey(input: DeduplicationGroup): string {
 	const label = input.label.trim().toLowerCase().replace(/\s+/g, ' ');
-	return [input.date, input.amountCents, label].join('|');
+	return [input.date, label, Math.abs(input.amountCents), input.type].join('|');
+}
+
+/**
+ * The duplicate-detection key for an imported transaction. Version 2.
+ *
+ * ## What it contains, and the one rule behind it
+ *
+ * `date | folded label | magnitude | type | occurrence | accountScope`
+ *
+ * **Only the fields every source guarantees, plus values derived from them.** Nothing optional,
+ * nothing that depends on which columns a file happened to carry.
+ *
+ * ## What v1 contained, and why each part left
+ *
+ * **`category` left.** It was the fifth field on `generic` and on both bank connectors. If the key
+ * depended on which columns were mapped, then correcting a mapping would change every fingerprint
+ * and re-import the user's entire history as new transactions. Correction is the whole point of
+ * the column mapping path, and **a key that changes when the user fixes a mistake is not a key.**
+ * The same argument one step down excludes it generally: a file carrying a category this month and
+ * not next month produces two keys for one transaction. On the two bank connectors it was the
+ * constant `UNCLASSIFIED_CATEGORY` and contributed nothing at all.
+ *
+ * **`reference` left, for the same reason with a sharper edge.** It occupied the fifth field on
+ * `revolut` (as `type:product`) and on `banque-populaire` (as the statement's own reference), so
+ * two profiles were keying on a value the file may or may not carry. Measured before the change:
+ * `2026-08-01|tesco|1230|expense|card_payment:current|` against
+ * `2026-06-24|carrefour|2490|expense|REF1|`. A bank that stops emitting its reference column, or
+ * emits it blank for one row, produced a different key for a transaction already imported.
+ *
+ * **The filename left in #317**, and `accountScope` stays, unchanged and for its own reason: it
+ * SEPARATES TWO ACCOUNTS THAT HOLD THE SAME TRANSACTION, and nothing else. It carries a provider
+ * account identifier (`enablebanking:<accountId>`) on the bank-sync path. Two accounts at one
+ * provider can genuinely hold a transaction with the same date, label, amount and direction, and
+ * without this they would deduplicate against each other and one would silently vanish. **It must
+ * be stable for the life of the account and must never be anything per file**: it was called
+ * `account`, three CSV profiles passed the uploaded file's name into it, and the same statement
+ * re-downloaded as `releve (1).csv` imported twice.
+ *
+ * ## What `occurrence` buys, and what it costs
+ *
+ * Two coffees at the same price on the same day at the same merchant are ordinary, and v1 merged
+ * them: measured, every profile reported `validRows: 1, duplicateRows: 1` on a file carrying the
+ * row twice. **A silently dropped transaction is the worse failure direction**, because a
+ * duplicate is visible on the screen and a missing row is not.
+ *
+ * Its cost, stated: a bank that reorders rows within one day can shift an ordinal and produce one
+ * duplicate. That is the visible direction, chosen deliberately. See `occurrence.ts` for why the
+ * ordinal is scoped to the collision group rather than to the file.
+ *
+ * ## Migration: this is v2, and old rows keep old keys
+ *
+ * A statement imported both before and after this change duplicates once, in the visible
+ * direction. Backfill was rejected as impossible rather than expensive: `dedupeKey` is stored raw
+ * for traceability, but old keys carry no ordinal and, on three profiles, cannot be separated from
+ * the filename that used to be embedded in them.
+ *
+ * Profile-conditional dedupe (a new rule for mapped imports only) was rejected for what it does to
+ * readers: it makes the contract depend on which import wrote a row, so "why did this duplicate"
+ * needs archaeology. **Two contracts pretending to be one.** A versioned key is one contract with
+ * a stated history.
+ */
+export function buildDeduplicationKey(
+	input: DeduplicationGroup & {
+		/** Index within the collision group, in source order. See `assignOccurrences`. */
+		occurrence: number;
+		accountScope?: string;
+	}
+): string {
+	const scope = input.accountScope?.trim().toLowerCase().replace(/\s+/g, ' ') ?? '';
+	return [buildDeduplicationGroupKey(input), input.occurrence, scope].join('|');
 }
 
 export function hashFingerprint(value: string): string {

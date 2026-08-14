@@ -4,11 +4,13 @@ import { normalizeForMatch } from '$lib/domain/normalize';
 import { filterBalancesByCurrency, selectPreferredBalance } from '$lib/domain/bankBalance';
 import type { ImportedTransaction, ImportedTransactionType } from '$lib/server/import/types';
 import {
+	buildDeduplicationGroupKey,
 	buildDeduplicationKey,
 	hashFingerprint,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '$lib/server/import/utils/safety';
+import { createOccurrenceCounter } from '$lib/server/import/occurrence';
 import {
 	EnableBankingApiError,
 	enableBankingRequest,
@@ -182,6 +184,9 @@ export class EnableBankingConnector implements BankConnector {
 
 		const transactions: ImportedTransaction[] = [];
 		let continuationKey: string | undefined;
+		// One counter per fetch, created OUTSIDE the pagination loop so a group spanning two
+		// pages keeps counting rather than restarting. See occurrence.ts.
+		const nextOccurrence = createOccurrenceCounter();
 		for (let page = 0; ; page += 1) {
 			if (page >= MAX_TRANSACTION_PAGES) {
 				throw new Error('Enable Banking pagination exceeded the defensive page cap');
@@ -195,7 +200,7 @@ export class EnableBankingConnector implements BankConnector {
 			);
 			const parsed = transactionsResponseSchema.parse(raw);
 			for (const transaction of parsed.transactions) {
-				const mapped = mapTransaction(transaction, accountId);
+				const mapped = mapTransaction(transaction, accountId, nextOccurrence);
 				if (mapped) transactions.push(mapped);
 			}
 			if (!parsed.continuation_key) break;
@@ -319,7 +324,8 @@ function maskIbanTail(iban: string | null | undefined): string | null {
 /** Maps one provider transaction; returns null for entries we deliberately skip (non-BOOK). */
 function mapTransaction(
 	transaction: EnableBankingTransaction,
-	accountId: string
+	accountId: string,
+	nextOccurrence: (groupKey: string) => number
 ): ImportedTransaction | null {
 	if (transaction.status && transaction.status !== 'BOOK') return null;
 
@@ -345,17 +351,28 @@ function mapTransaction(
 	const counterparty = type === 'expense' ? transaction.creditor?.name : transaction.debtor?.name;
 	const label = sanitizeImportedText(remittance || counterparty || '') || 'OPERATION BANCAIRE';
 
+	// Built here rather than inside the branch below so `date` keeps the narrowing the guard
+	// above gave it: TypeScript drops it inside a nested function, and a closure was the first
+	// shape tried. The ternary is lazy, so the counter is still consumed only on the fallback
+	// branch, and a provider emitting entry_reference never advances an ordinal it will not use.
+	//
+	// `category` left the key in v2: it was the constant UNCLASSIFIED_CATEGORY here, so it never
+	// distinguished anything.
+	const fallbackGroup = {
+		date,
+		label: normalizeForMatch(label),
+		amountCents: absAmountCents,
+		type
+	};
+
 	const entryReference = transaction.entry_reference?.trim() ?? '';
 	// Provider entry_reference is the stable per-account dedup anchor; the content
 	// fingerprint (normalized label) only backs up ASPSPs that omit it.
 	const deduplicationKey = entryReference
 		? `enablebanking:${accountId}:${entryReference}`
 		: buildDeduplicationKey({
-				date,
-				label: normalizeForMatch(label),
-				amountCents: absAmountCents,
-				type,
-				category: UNCLASSIFIED_CATEGORY,
+				...fallbackGroup,
+				occurrence: nextOccurrence(buildDeduplicationGroupKey(fallbackGroup)),
 				accountScope: `enablebanking:${accountId}`
 			});
 

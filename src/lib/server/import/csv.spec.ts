@@ -65,17 +65,30 @@ describe('parseCsvTransactions', () => {
 		});
 	});
 
-	it('compte les lignes en double sans les refuser', () => {
-		expect.assertions(2);
+	it('imports two identical rows as two transactions, with different keys', () => {
+		expect.assertions(4);
 
+		// This test asserted the opposite until the key gained its occurrence ordinal: one
+		// transaction and one duplicate. That was the defect rather than the contract. Two coffees
+		// at the same price on the same day at the same merchant is ordinary, and collapsing them
+		// dropped the second with nothing to report it, which is the failure direction nobody can
+		// see. A duplicate is visible on the screen; a missing row is not.
 		const duplicates = parseCsvTransactions(
 			'date;label;amount;category\n2026-06-01;Achat;-10;Divers\n2026-06-01;Achat;-10;Divers'
 		);
 
-		expect(duplicates.summary.duplicateRows).toBe(1);
-		// The absolute figure beside it: one row still imported, so the count is not what a
-		// parser that refused both would report.
-		expect(duplicates.transactions).toHaveLength(1);
+		expect(duplicates.transactions).toHaveLength(2);
+		expect(duplicates.summary.duplicateRows).toBe(0);
+		// The keys differ, which is what lets the database keep both rather than rejecting the
+		// second on the unique constraint. Asserting only the count would pass on two rows sharing
+		// one key, and the loss would move from the parser to the insert.
+		const [first, second] = duplicates.transactions;
+		expect(first.metadata.deduplicationKey).not.toBe(second.metadata.deduplicationKey);
+		// The ordinals are 0 and 1, in file order, rather than merely different.
+		expect([
+			first.metadata.deduplicationKey.split('|')[4],
+			second.metadata.deduplicationKey.split('|')[4]
+		]).toEqual(['0', '1']);
 	});
 
 	it('neutralizes labels compatible with a formula injection', () => {
@@ -410,8 +423,8 @@ describe('parseCsvTransactions', () => {
 		expect(result.transactions[0].category).toBe(UNCLASSIFIED_CATEGORY);
 	});
 
-	it('detects Banque Populaire duplicates via the reference', () => {
-		expect.assertions(3);
+	it('imports two identical Banque Populaire rows as two, no longer keyed on the reference', () => {
+		expect.assertions(4);
 
 		const result = parseCsvTransactions(
 			`${BANQUE_POPULAIRE_HEADER}\n` +
@@ -419,9 +432,18 @@ describe('parseCsvTransactions', () => {
 				'24/06/2026;A;A;REFDUP;;Carte bancaire;Autre;;10,00;;24/06/2026;24/06/2026;0'
 		);
 
-		expect(result.transactions).toHaveLength(1);
-		expect(result.summary.duplicateRows).toBe(1);
-		expect(result.transactions[0].metadata.deduplicationKey).toContain('REFDUP');
+		expect(result.transactions).toHaveLength(2);
+		expect(result.summary.duplicateRows).toBe(0);
+		// The statement reference is NO LONGER in the key, and that is the point of this
+		// assertion rather than an incidental consequence. Keying on it made the key depend on a
+		// column the file may or may not carry: a bank that stops emitting the reference, or
+		// leaves it blank on one row, produced a different key for a transaction already
+		// imported. The two rows are now separated by their occurrence instead.
+		expect(result.transactions[0].metadata.deduplicationKey).not.toContain('REFDUP');
+		expect(result.transactions.map((t) => t.metadata.deduplicationKey.split('|')[4])).toEqual([
+			'0',
+			'1'
+		]);
 	});
 
 	it('importe l’exemple AUCHAN Banque Populaire complet', () => {
