@@ -17,8 +17,10 @@ import {
 import { parseAmountCents } from '../utils/money';
 import { REQUIRED_ROLES, resolveRequiredColumns } from './columnAliases';
 import { detectSignIndicatorColumn } from '../signIndicator';
+import { createOccurrenceCounter } from '../occurrence';
 import {
 	buildCsvFields,
+	buildDeduplicationGroupKey,
 	buildDeduplicationKey,
 	hashFingerprint,
 	refusalCellValue,
@@ -162,9 +164,12 @@ export function parseGenericRows({
 	);
 
 	const transactions: ImportedTransaction[] = [];
-	const seenFingerprints = new Set<string>();
+	// One counter per parse, never shared between files: see occurrence.ts.
+	const nextOccurrence = createOccurrenceCounter();
 	const refusals: CsvRefusal[] = [];
-	let duplicateRows = 0;
+	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
+	// saying so in the summary is what stops a reader inferring the counter was forgotten.
+	const duplicateRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
@@ -236,18 +241,17 @@ export function parseGenericRows({
 		}
 
 		const type: ImportedTransactionType = amountCents >= 0 ? 'income' : 'expense';
+		// The ordinal is what makes two identical rows two transactions rather than one. Before
+		// it, this profile collapsed them here and counted the second as a duplicate, so a file
+		// carrying the same coffee twice imported one of them and reported the other as already
+		// present. The in-file skip is gone with it: within one source a repeated row is now
+		// occurrence 1, and the only authority on duplicates is the unique constraint in the
+		// database, which is where a duplicate ACROSS sources has always been decided.
+		const group = { date, label, amountCents, type };
 		const fingerprint = buildDeduplicationKey({
-			date,
-			label,
-			amountCents: Math.abs(amountCents),
-			type,
-			category
+			...group,
+			occurrence: nextOccurrence(buildDeduplicationGroupKey(group))
 		});
-		if (seenFingerprints.has(fingerprint)) {
-			duplicateRows += 1;
-			return;
-		}
-		seenFingerprints.add(fingerprint);
 		const categorization = applyCategorizationRules({ label, category, type }, categorizationRules);
 
 		const transaction: ImportedTransaction = {

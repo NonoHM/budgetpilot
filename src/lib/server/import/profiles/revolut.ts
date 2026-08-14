@@ -18,6 +18,7 @@ import {
 import { parseAmountCents } from '../utils/money';
 import {
 	buildCsvFields,
+	buildDeduplicationGroupKey,
 	buildDeduplicationKey,
 	buildNotes,
 	firstPresent,
@@ -26,6 +27,7 @@ import {
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
+import { createOccurrenceCounter } from '../occurrence';
 
 /**
  * Revolut's ten columns, in the spellings this profile accepts.
@@ -121,9 +123,12 @@ export function parseRevolutRows({
 	}
 
 	const transactions: ImportedTransaction[] = [];
-	const seenFingerprints = new Set<string>();
+	// One counter per parse, never shared between files: see occurrence.ts.
+	const nextOccurrence = createOccurrenceCounter();
 	const refusals: CsvRefusal[] = [];
-	let duplicateRows = 0;
+	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
+	// saying so in the summary is what stops a reader inferring the counter was forgotten.
+	const duplicateRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
@@ -215,19 +220,14 @@ export function parseRevolutRows({
 		const category = sanitizeImportedText(revolutType || 'Revolut');
 		const type: ImportedTransactionType = amountCents >= 0 ? 'income' : 'expense';
 		const absAmountCents = Math.abs(amountCents);
+		// The ordinal is what makes two identical rows two transactions rather than one. The
+		// in-file skip that used to sit here collapsed them and counted the second as a
+		// duplicate, so a file carrying the same row twice imported one of them.
+		const group = { date, label, amountCents: absAmountCents, type };
 		const fingerprint = buildDeduplicationKey({
-			date,
-			label,
-			amountCents: absAmountCents,
-			type,
-			category: product ? `${category}:${product}` : category
+			...group,
+			occurrence: nextOccurrence(buildDeduplicationGroupKey(group))
 		});
-
-		if (seenFingerprints.has(fingerprint)) {
-			duplicateRows += 1;
-			return;
-		}
-		seenFingerprints.add(fingerprint);
 		const categorization = applyCategorizationRules({ label, category, type }, categorizationRules);
 		// The Revolut operation type (the "Type" field) is never a business category:
 		// it's applied only if a rule explicitly mapped it, otherwise it stays "to classify".

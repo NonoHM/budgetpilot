@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
-import { buildMaisonDeduplicationKey } from '$lib/server/import/utils/safety';
+import { buildDeduplicationKey } from '$lib/server/import/utils/safety';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { resolve } from 'node:path';
@@ -1217,12 +1217,21 @@ describe('/import actions', () => {
 	it('universal deduplication: a maison line identical to a transaction already imported via another profile is ignored', async () => {
 		expect.assertions(3);
 
-		// Transaction already in the database, previously imported via the banque-populaire profile
-		// (or any other profile), with the same date|amountCents|label fingerprint as the maison profile.
-		const existingFingerprint = buildMaisonDeduplicationKey({
+		// Transaction already in the database, previously imported through banque-populaire, seeded
+		// with the key the CURRENT builder produces.
+		//
+		// This test's name claimed cross-profile deduplication and could not deliver it before the
+		// key was unified: `maison` built `date|amount|label` while every other profile built
+		// `date|label|amount|type|<category or reference>|scope`, so two profiles never produced the
+		// same key for the same transaction and this only ever exercised maison against maison. One
+		// builder for all five is what makes the claim true, and seeding through that builder is
+		// what keeps this test honest about which claim it is making.
+		const existingFingerprint = buildDeduplicationKey({
 			date: '2026-06-01',
+			label: 'Courses Auchan',
 			amountCents: 4_210,
-			label: 'Courses Auchan'
+			type: 'expense',
+			occurrence: 0
 		});
 		db.state.transactions.push({
 			id: 'transaction-existing',

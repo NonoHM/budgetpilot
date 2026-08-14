@@ -43,13 +43,15 @@ describe('computeDedupeKeyHash', () => {
 			date: '2026-06-01',
 			label: 'Café de la Gare',
 			amountCents: -350,
-			type: 'expense'
+			type: 'expense',
+			occurrence: 0
 		});
 		const right = buildDeduplicationKey({
 			date: '2026-06-01',
 			label: 'Cafe de la Gare',
 			amountCents: -350,
-			type: 'expense'
+			type: 'expense',
+			occurrence: 0
 		});
 
 		expect(computeDedupeKeyHash(left)).not.toBe(computeDedupeKeyHash(right));

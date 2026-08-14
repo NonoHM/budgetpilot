@@ -156,17 +156,25 @@ describe('profil maison', () => {
 		expect(result.transactions[0].label).toBe("'=SUM(A1:A9)");
 	});
 
-	it('détecte un doublon intra-fichier (même date+montant+libellé)', () => {
-		expect.assertions(3);
+	it('imports two identical rows as two transactions, with different keys', () => {
+		expect.assertions(4);
 
+		// Asserted the opposite until the key gained its occurrence ordinal. See the same test in
+		// csv.spec.ts for why collapsing them was the defect and not the contract.
+		//
+		// This profile reads BudgetPilot's own export, so the case is not hypothetical: a user
+		// with two identical transactions who exports and re-imports used to get one back.
 		const result = parseCsvTransactions(
 			`${MAISON_HEADER}\n` +
 				'2026-06-01;Courses;Alimentation;-10;expense;;csv\n' +
 				'2026-06-01;Courses;Alimentation;-10;expense;;csv'
 		);
 
-		expect(result.transactions).toHaveLength(1);
+		expect(result.transactions).toHaveLength(2);
 		expect(result.invalidRows).toStrictEqual([]);
-		expect(result.summary.duplicateRows).toBe(1);
+		expect(result.summary.duplicateRows).toBe(0);
+		expect(result.transactions[0].metadata.deduplicationKey).not.toBe(
+			result.transactions[1].metadata.deduplicationKey
+		);
 	});
 });

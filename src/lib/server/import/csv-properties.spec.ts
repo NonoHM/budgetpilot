@@ -4,6 +4,7 @@ import { parseCsvTransactions } from './csv';
 import { MAISON_V2_HEADER } from './profiles/maison-v2';
 import { BANQUE_POPULAIRE_HEADERS } from './profiles/banque-populaire';
 import { REVOLUT_HEADERS } from './profiles/revolut';
+import { buildDeduplicationGroupKey } from './utils/safety';
 
 /**
  * Property-based coverage of the CSV import parser, which is the larger of the two attacker-facing
@@ -44,6 +45,8 @@ interface Outcome {
 	threw: string | null;
 	refused: boolean;
 	accepted: boolean;
+	/** How many groups of two or more accepted rows share date, folded label, magnitude and direction. */
+	collisionGroups: number;
 	violations: string[];
 	/** Every refusal code this parse produced, so a run can prove it REACHED a guard rather
 	 *  than merely counting how many inputs were refused. */
@@ -60,7 +63,14 @@ function inspect(content: string, parse = parseCsvTransactions): Outcome {
 	try {
 		result = parse(content);
 	} catch (error) {
-		return { threw: String(error), refused: false, accepted: false, violations: [], codes: [] };
+		return {
+			threw: String(error),
+			refused: false,
+			accepted: false,
+			violations: [],
+			codes: [],
+			collisionGroups: 0
+		};
 	}
 
 	const violations: string[] = [];
@@ -84,14 +94,37 @@ function inspect(content: string, parse = parseCsvTransactions): Outcome {
 		}
 	}
 
-	// `invalidRows` alone drops the per-line duplicate signal that used to live inside
-	// `errors`: task 3 removed the `errors.push('Ligne N: doublon détecté')` calls one-for-one
-	// while keeping `duplicateRows`, so `errors.length` used to equal
-	// `invalidRows.length + duplicateRows` exactly, and this is the boolean form of that sum.
-	// Swapping to `invalidRows.length > 0` alone silently reclassifies every duplicate-bearing
-	// input from refused to accepted.
+	// `summary.duplicateRows` is deliberately still read rather than deleted.
+	//
+	// The history is the reason this line was ever written: the refusal contract removed the
+	// per-line `errors.push('Ligne N: doublon détecté')` calls one-for-one while keeping the
+	// counter, so `errors.length` equalled `invalidRows.length + duplicateRows` exactly, and
+	// dropping the second term would have silently reclassified every duplicate-bearing input
+	// from refused to accepted.
+	//
+	// Since the occurrence ordinal, no profile increments it: within one file a repeated row is
+	// occurrence 1 rather than a duplicate, so the term is structurally 0 at all five profiles.
+	// It stays because it costs nothing and the field is still part of the summary the route
+	// reads. If the field is ever removed, this term goes in the same change. What must not
+	// happen is this line being simplified away while the field still exists and something
+	// starts setting it again.
 	const refusedSignals = result.invalidRows.length > 0 || result.summary.duplicateRows > 0;
+
+	// Counted over the ACCEPTED rows, which is what makes it a fact about the generator rather
+	// than about the parser's verdict.
+	const groups = new Map<string, number>();
+	for (const transaction of result.transactions) {
+		const key = buildDeduplicationGroupKey({
+			date: transaction.date,
+			label: transaction.label,
+			amountCents: transaction.amountCents,
+			type: transaction.metadata.type
+		});
+		groups.set(key, (groups.get(key) ?? 0) + 1);
+	}
+
 	return {
+		collisionGroups: [...groups.values()].filter((count) => count > 1).length,
 		threw: null,
 		refused: refusedSignals || result.transactions.length === 0,
 		accepted: !refusedSignals && result.transactions.length > 0,
@@ -369,12 +402,13 @@ const FLOOR = 10;
 
 describe('the CSV parser under generated input', () => {
 	it('refuses hostile input rather than raising, and reaches every profile while doing it', () => {
-		expect.assertions(4);
+		expect.assertions(5);
 
 		const throws: Array<{ error: string; input: string }> = [];
 		const violations: string[] = [];
 		const acceptedBy: Record<string, number> = {};
 		const seenCodes = new Set<string>();
+		let inputsCarryingACollisionGroup = 0;
 
 		fc.assert(
 			fc.property(anyInput, ([generatedAs, content]) => {
@@ -382,6 +416,7 @@ describe('the CSV parser under generated input', () => {
 				if (outcome.threw) throws.push({ error: outcome.threw, input: content });
 				violations.push(...outcome.violations);
 				if (outcome.accepted) acceptedBy[generatedAs] = (acceptedBy[generatedAs] ?? 0) + 1;
+				if (outcome.collisionGroups > 0) inputsCarryingACollisionGroup += 1;
 				for (const code of outcome.codes) seenCodes.add(code);
 				return true;
 			}),
@@ -405,6 +440,24 @@ describe('the CSV parser under generated input', () => {
 		// fuzzer; lowering the floor to whatever the generator happens to produce would stop it
 		// being a floor.
 		expect(PROFILES.filter((profile) => (acceptedBy[profile] ?? 0) < FLOOR)).toStrictEqual([]);
+
+		// CALIBRATION FOR THE OCCURRENCE ORDINAL, and it exists for the same reason as the alias
+		// calibration below: this gate was once measured BLIND to a change and reported identical
+		// per profile counts on both sides, which reads as "nothing was reclassified" and meant
+		// "the generator never emitted the shape".
+		//
+		// The shape here is a COLLISION GROUP: two accepted rows sharing date, folded label,
+		// magnitude and direction. Before the ordinal those two collapsed into one transaction and
+		// one `duplicateRows`; after it they are two transactions whose keys end `|0|` and `|1|`.
+		// An input carrying no such group cannot tell the two versions apart, so a before-and-after
+		// taken without this number compares two figures computed without the subject.
+		//
+		// MEASURED, WITH MARGIN, SEED NOT PINNED, like the floor above: 9, 10, 10, 11, 18 and 19
+		// over six unpinned runs at 2000 runs each. The floor sits at 3, well under the tightest,
+		// so an unlucky seed is not a red build while a generator that stops emitting repeated rows
+		// is. Break-checked by reporting the count as a constant 0: red at "expected 0 to be
+		// greater than or equal to 3".
+		expect(inputsCarryingACollisionGroup).toBeGreaterThanOrEqual(3);
 
 		// CALIBRATION FOR THE ALIAS SHAPES, and it exists because the gate was measured BLIND
 		// to them. Pinning the seed across the alias change gave identical per profile counts

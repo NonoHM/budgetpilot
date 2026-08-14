@@ -19,6 +19,7 @@ import {
 import { parseAmountCents } from '../utils/money';
 import {
 	buildCsvFields,
+	buildDeduplicationGroupKey,
 	buildDeduplicationKey,
 	buildNotes,
 	firstPresent,
@@ -26,6 +27,7 @@ import {
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
+import { createOccurrenceCounter } from '../occurrence';
 
 export const BANQUE_POPULAIRE_HEADERS = [
 	'Date de comptabilisation',
@@ -67,9 +69,12 @@ export function parseBanquePopulaireRows({
 	}
 
 	const transactions: ImportedTransaction[] = [];
-	const seenFingerprints = new Set<string>();
+	// One counter per parse, never shared between files: see occurrence.ts.
+	const nextOccurrence = createOccurrenceCounter();
 	const refusals: CsvRefusal[] = [];
-	let duplicateRows = 0;
+	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
+	// saying so in the summary is what stops a reader inferring the counter was forgotten.
+	const duplicateRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
@@ -129,18 +134,14 @@ export function parseBanquePopulaireRows({
 			return;
 		}
 
+		// The ordinal is what makes two identical rows two transactions rather than one. The
+		// in-file skip that used to sit here collapsed them and counted the second as a
+		// duplicate, so a file carrying the same row twice imported one of them.
+		const group = { date, label, amountCents: amount.amountCents, type: amount.type };
 		const fingerprint = buildDeduplicationKey({
-			date,
-			label,
-			amountCents: amount.amountCents,
-			type: amount.type,
-			reference
+			...group,
+			occurrence: nextOccurrence(buildDeduplicationGroupKey(group))
 		});
-		if (seenFingerprints.has(fingerprint)) {
-			duplicateRows += 1;
-			return;
-		}
-		seenFingerprints.add(fingerprint);
 		const categorization = applyCategorizationRules(
 			{ label, category: banquePopulaireCategory, type: amount.type },
 			categorizationRules
