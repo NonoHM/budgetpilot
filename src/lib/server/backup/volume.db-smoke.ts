@@ -110,6 +110,9 @@ function buildVolumePayload(count: number): BackupExport {
 		accounts: [{ id: 'file-acc-1', name: 'Compte courant', currency: 'EUR', source: 'csv' }],
 		categories: [{ id: 'file-cat-1', name: 'Courses' }],
 		importBatches: [],
+		// This fixture measures restore volume; a mapping is a fixed handful of rows and would
+		// not move the figure, so it stays empty rather than adding noise to a measurement.
+		columnMappings: [],
 		transactions,
 		monthlyBudgets: [],
 		categoryRules: [],

@@ -25,7 +25,8 @@ const db = vi.hoisted(() => {
 		recurringStreamActions: [] as Row[],
 		tags: [] as Row[],
 		transactionTags: [] as Row[],
-		transactionSplits: [] as Row[]
+		transactionSplits: [] as Row[],
+		columnMappings: [] as Row[]
 	};
 
 	let counter = 0;
@@ -250,23 +251,12 @@ const db = vi.hoisted(() => {
 	return {
 		store,
 		reset() {
-			store.users.length = 0;
-			store.accounts.length = 0;
-			store.categories.length = 0;
-			store.importBatches.length = 0;
-			store.transactions.length = 0;
-			store.monthlyBudgets.length = 0;
-			store.categoryRules.length = 0;
-			store.categorizationRules.length = 0;
-			store.categoryNatureMappings.length = 0;
-			store.netWorthAccounts.length = 0;
-			store.netWorthSnapshots.length = 0;
-			store.savingsGoals.length = 0;
-			store.bankConnections.length = 0;
-			store.recurringStreamActions.length = 0;
-			store.tags.length = 0;
-			store.transactionTags.length = 0;
-			store.transactionSplits.length = 0;
+			// Iterates the store rather than listing its tables by hand. The hand-written version
+			// omitted `columnMappings` the day that table was added, and the symptom was a row
+			// surviving into the next test, where it read as a refusal that had failed to refuse:
+			// the assertion was about the store's contents and the cause was two tests away. A
+			// table added later cannot be forgotten by a loop.
+			for (const table of Object.values(store)) table.length = 0;
 			counter = 0;
 		},
 		prisma: {
@@ -288,6 +278,7 @@ const db = vi.hoisted(() => {
 			account: table(store.accounts, 'account'),
 			category: { ...categoryTable, upsert: categoryUpsert },
 			importBatch: table(store.importBatches, 'batch'),
+			columnMapping: table(store.columnMappings, 'column-mapping'),
 			transaction: table(store.transactions, 'transaction'),
 			monthlyBudget: table(store.monthlyBudgets, 'budget'),
 			categoryRule: table(store.categoryRules, 'category-rule'),
@@ -725,6 +716,22 @@ describe('restoreBackup', () => {
 
 	function buildValidPayload() {
 		return {
+			// Empty by default: the mapping restore path has its own tests, and every other test
+			// here would otherwise carry a mapping it says nothing about.
+			columnMappings: [] as Array<{
+				fingerprint: string;
+				matchBy: 'name' | 'position';
+				dateColumn: string | null;
+				labelColumn: string | null;
+				amountColumn: string | null;
+				categoryColumn: string | null;
+				dateIndex: number | null;
+				labelIndex: number | null;
+				amountIndex: number | null;
+				categoryIndex: number | null;
+				columnCount: number;
+				useCount: number;
+			}>,
 			formatVersion: 1 as const,
 			exportedAt: new Date().toISOString(),
 			userEmail: 'user-a@example.test',
@@ -870,6 +877,78 @@ describe('restoreBackup', () => {
 		// Guards the constant itself against a careless edit back under Prisma's defaults.
 		expect(LONG_TRANSACTION_OPTIONS.timeout).toBeGreaterThan(5_000);
 		expect(LONG_TRANSACTION_OPTIONS.maxWait).toBeGreaterThan(2_000);
+	});
+
+	/**
+	 * A mapping arriving through a restore is the `replaceSplits`/`createMany` shape again, and it
+	 * is more dangerous than that one was: a bad split is one wrong transaction, a bad mapping
+	 * decides which column is money on every future import of that shape.
+	 *
+	 * The zod schema cannot catch any of the three below. It bounds the SHAPE of a mapping; these
+	 * are facts about the RELATIONSHIP between its fields, and only the shared validator sees them.
+	 */
+	function payloadWithMapping(overrides: Record<string, unknown> = {}) {
+		return {
+			...buildValidPayload(),
+			columnMappings: [
+				{
+					fingerprint: 'a'.repeat(64),
+					matchBy: 'name' as const,
+					dateColumn: 'date operation',
+					labelColumn: 'libelle complet',
+					amountColumn: 'montant',
+					categoryColumn: 'categorie banque',
+					dateIndex: null,
+					labelIndex: null,
+					amountIndex: null,
+					categoryIndex: null,
+					columnCount: 15,
+					useCount: 0,
+					...overrides
+				}
+			]
+		};
+	}
+
+	it('restores a valid column mapping', async () => {
+		expect.assertions(2);
+
+		await restoreBackup('user-a', payloadWithMapping());
+
+		// The presence half for the three refusals below: without it, a restore that dropped every
+		// mapping on the floor would satisfy all of them.
+		expect(db.store.columnMappings).toHaveLength(1);
+		expect(db.store.columnMappings[0].labelColumn).toBe('libelle complet');
+	});
+
+	it('refuses a mapping whose category column repeats a required role', async () => {
+		expect.assertions(2);
+
+		// The hand-edited backup. On the form path this is unreachable, because the selector does
+		// not offer a column another role holds; on this path there is no selector, which is why
+		// the check has to be here and not only there.
+		await expect(
+			restoreBackup('user-a', payloadWithMapping({ categoryColumn: 'libelle complet' }))
+		).rejects.toThrow();
+		expect(db.store.columnMappings).toHaveLength(0);
+	});
+
+	it('refuses a mapping carrying both names and indices', async () => {
+		expect.assertions(1);
+
+		await expect(restoreBackup('user-a', payloadWithMapping({ dateIndex: 0 }))).rejects.toThrow();
+	});
+
+	it('refuses two mappings sharing one fingerprint before writing either', async () => {
+		expect.assertions(2);
+
+		const payload = payloadWithMapping();
+		payload.columnMappings.push({ ...payload.columnMappings[0] });
+
+		// Refused by name rather than by the unique constraint firing mid-restore, which on
+		// PostgreSQL aborts the enclosing transaction and takes the whole restore with it.
+		await expect(restoreBackup('user-a', payload)).rejects.toThrow();
+		expect(db.store.columnMappings).toHaveLength(0);
 	});
 
 	it('restores all tables with FKs remapped to newly generated ids', async () => {
@@ -1654,6 +1733,21 @@ describe('restoreBackup', () => {
  */
 function buildTagRestorePayload() {
 	return {
+		// Empty for the same reason as buildValidPayload's: this fixture is about tags.
+		columnMappings: [] as Array<{
+			fingerprint: string;
+			matchBy: 'name' | 'position';
+			dateColumn: string | null;
+			labelColumn: string | null;
+			amountColumn: string | null;
+			categoryColumn: string | null;
+			dateIndex: number | null;
+			labelIndex: number | null;
+			amountIndex: number | null;
+			categoryIndex: number | null;
+			columnCount: number;
+			useCount: number;
+		}>,
 		formatVersion: 1 as const,
 		exportedAt: new Date('2026-08-02T00:00:00.000Z').toISOString(),
 		userEmail: 'a@example.test',

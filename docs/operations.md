@@ -195,6 +195,17 @@ MySQL rather than assumed:
   several statements and the third fails, the first two are in your database.
   BudgetPilot's own migrations are written to survive this, but a failure
   still leaves a state that has to be looked at rather than guessed at.
+- **One migration is a different number of statements on each engine, so the
+  same failure leaves a different half-built state.** Prisma generates the SQL
+  per engine, and what one writes inline another writes as a separate
+  statement. The migration that adds the `ColumnMapping` table is **two**
+  statements on MySQL, **three** on SQLite and **four** on PostgreSQL, because
+  MySQL declares both indexes inside `CREATE TABLE` while PostgreSQL adds the
+  foreign key afterwards. So a mid-file failure on PostgreSQL can leave a table
+  with its indexes and no foreign key, where the same failure on MySQL leaves
+  either no table or a complete one. Read the migration file for **your**
+  engine, under `prisma/migrations/<engine>/`, before deciding at step 3 below
+  what actually landed.
 - **Nothing further will run until you clear the failure.** Every later start
   fails with `P3009` and names the migration. This is a feature: the app
   cannot skip past a broken migration and quietly serve the wrong schema.

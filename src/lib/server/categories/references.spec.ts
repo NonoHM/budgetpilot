@@ -32,7 +32,13 @@ function categoryNameColumnsInSchema(): SchemaField[] {
 			if (!field) continue;
 			const column = field[1];
 			if (!/category/i.test(column)) continue;
-			if (/Id$/.test(column) || /Key$/.test(column)) continue;
+			// `*Id` is a real foreign key, which a rename does not touch. `*Key` is the fold of a name
+			// in the same row, moved with it. `*Column` names a COLUMN IN A USER'S FILE rather than a
+			// category: `ColumnMapping.categoryColumn` holds a header like "categorie banque", which
+			// is what that bank calls its column and has nothing to do with what this user calls a
+			// category. Renaming a category must leave it alone, and a rename that touched it would
+			// break the mapping's ability to find its column at all.
+			if (/Id$/.test(column) || /Key$/.test(column) || /Column$/.test(column)) continue;
 			found.push({ model, column });
 		}
 	}
