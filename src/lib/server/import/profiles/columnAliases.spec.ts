@@ -93,6 +93,21 @@ describe('the alias table itself', () => {
 		expect(new Set(all).size).toBe(all.length);
 	});
 
+	it.each(REQUIRED_ROLES.flatMap((role) => REQUIRED_COLUMN_ALIASES[role].map((a) => [role, a])))(
+		'every spelling in the table actually resolves: %s <- %s',
+		(role, alias) => {
+			// Found by break checking one alias at a time against the real headers: removing
+			// `montant` reddened NOTHING, because no fixture file uses it. An alias nothing
+			// exercises is indistinguishable from one that is misspelt, and the table is the
+			// only place that could tell you.
+			const result = resolveRequiredColumns([alias as string]);
+
+			expect(result.ok).toBe(true);
+			if (!result.ok) return;
+			expect(result.columns[role as keyof typeof result.columns]).toBe(alias);
+		}
+	);
+
 	it('is entirely lowercase and untrimmed-free, because lookup normalises the header', () => {
 		const all = REQUIRED_ROLES.flatMap((role) => [...REQUIRED_COLUMN_ALIASES[role]]);
 
@@ -102,6 +117,12 @@ describe('the alias table itself', () => {
 		// 12: five date spellings, four label, three amount. Exact rather than a floor, so
 		// adding a spelling is a deliberate edit here and gets checked against the real
 		// headers fixture for a collision.
+		//
+		// THIS IS THE ONLY TEST THAT SEES A DELETION, and the division of labour is worth
+		// stating. The per alias test above is GENERATED FROM the table, so removing an entry
+		// simply removes its case and it stays green: a test built from its own subject cannot
+		// notice the subject shrinking. That one catches a misspelt alias, one that could never
+		// match anything. This one catches a missing alias. Neither covers the other.
 		expect(all).toHaveLength(12);
 	});
 });

@@ -45,6 +45,9 @@ interface Outcome {
 	refused: boolean;
 	accepted: boolean;
 	violations: string[];
+	/** Every refusal code this parse produced, so a run can prove it REACHED a guard rather
+	 *  than merely counting how many inputs were refused. */
+	codes: string[];
 }
 
 /**
@@ -57,7 +60,7 @@ function inspect(content: string, parse = parseCsvTransactions): Outcome {
 	try {
 		result = parse(content);
 	} catch (error) {
-		return { threw: String(error), refused: false, accepted: false, violations: [] };
+		return { threw: String(error), refused: false, accepted: false, violations: [], codes: [] };
 	}
 
 	const violations: string[] = [];
@@ -92,7 +95,8 @@ function inspect(content: string, parse = parseCsvTransactions): Outcome {
 		threw: null,
 		refused: refusedSignals || result.transactions.length === 0,
 		accepted: !refusedSignals && result.transactions.length > 0,
-		violations
+		violations,
+		codes: result.invalidRows.map((refusal) => refusal.fact.code)
 	};
 }
 
@@ -195,6 +199,43 @@ const genericDoc = documentFor('date;label;amount;category', [
 	amountish,
 	textish
 ]);
+
+/**
+ * The alias resolver's own population, and it exists because measuring found the gate blind.
+ *
+ * Pinning the seed across the alias change gave IDENTICAL per profile counts on both sides,
+ * generic included. That reads as "nothing was reclassified" and it is not what it meant: the
+ * generic generator emits only the canonical `date;label;amount;category`, so it never produced
+ * an alias spelling, an unrecognised column or a collision, and the gate could not observe the
+ * change at all. A population that excludes the change cannot report on it.
+ *
+ * These four shapes are what the resolver actually meets:
+ *  - an alias header, which must parse exactly as the canonical one does;
+ *  - a header carrying an extra column we do not know, which must now be DROPPED rather than
+ *    refuse the file;
+ *  - two spellings of one role, which must refuse with `ambiguous-column-mapping`;
+ *  - a duplicated header, which must still refuse, because `toRecord` lets the later column
+ *    overwrite the earlier one.
+ *
+ * Their counts are a NEW baseline rather than a comparison: they did not exist before, so no
+ * before/after equality can be asserted over them.
+ */
+const aliasHeaderDoc = fc
+	.constantFrom(
+		'dateop;label;amount;category',
+		'booking date;partner name;amount (eur);category',
+		'started date;description;montant;category',
+		'date;libelle;amount;iban',
+		'date;label;amount;iban;solde;reference',
+		'date;dateop;label;amount',
+		'date;label;label;amount'
+	)
+	.chain((header) =>
+		documentFor(
+			header,
+			[dateish, textish, amountish, textish, textish, textish].slice(0, header.split(';').length)
+		)
+	);
 /**
  * `maison` refuses a row whose `type` disagrees with the sign of its `montant`, so drawing the two
  * independently refused about half of everything and left the calibration floor with 7 accepted
@@ -307,6 +348,11 @@ const PROFILES = ['generic', 'maison', 'maison-v2', 'banque-populaire', 'revolut
 
 const labelled = fc.oneof(
 	genericDoc.map((c) => ['generic', c] as const),
+	// Labelled `generic` because that is the profile that PARSES it, which is the axis this
+	// gate is counted on. Recorded because the label a result carries and the label of the
+	// thing that produced the input are not the same question, and this gate has been read
+	// wrongly on exactly that distinction before.
+	aliasHeaderDoc.map((c) => ['generic', c] as const),
 	maisonDoc.map((c) => ['maison', c] as const),
 	maisonV2Doc.map((c) => ['maison-v2', c] as const),
 	bpDoc.map((c) => ['banque-populaire', c] as const),
@@ -323,11 +369,12 @@ const FLOOR = 10;
 
 describe('the CSV parser under generated input', () => {
 	it('refuses hostile input rather than raising, and reaches every profile while doing it', () => {
-		expect.assertions(3);
+		expect.assertions(4);
 
 		const throws: Array<{ error: string; input: string }> = [];
 		const violations: string[] = [];
 		const acceptedBy: Record<string, number> = {};
+		const seenCodes = new Set<string>();
 
 		fc.assert(
 			fc.property(anyInput, ([generatedAs, content]) => {
@@ -335,6 +382,7 @@ describe('the CSV parser under generated input', () => {
 				if (outcome.threw) throws.push({ error: outcome.threw, input: content });
 				violations.push(...outcome.violations);
 				if (outcome.accepted) acceptedBy[generatedAs] = (acceptedBy[generatedAs] ?? 0) + 1;
+				for (const code of outcome.codes) seenCodes.add(code);
 				return true;
 			}),
 			{ numRuns: RUNS }
@@ -357,6 +405,18 @@ describe('the CSV parser under generated input', () => {
 		// fuzzer; lowering the floor to whatever the generator happens to produce would stop it
 		// being a floor.
 		expect(PROFILES.filter((profile) => (acceptedBy[profile] ?? 0) < FLOOR)).toStrictEqual([]);
+
+		// CALIBRATION FOR THE ALIAS SHAPES, and it exists because the gate was measured BLIND
+		// to them. Pinning the seed across the alias change gave identical per profile counts
+		// on both sides, which reads as "nothing was reclassified" and meant "the generator
+		// only ever emitted the canonical header, so it never reached the new code".
+		//
+		// Accepting more is not evidence the collision path runs: acceptance proves resolution
+		// works. These two codes prove the generator reaches the two guards that REFUSE, which
+		// is the half a count of accepted parses structurally cannot show.
+		expect([...seenCodes].sort()).toEqual(
+			expect.arrayContaining(['ambiguous-column-mapping', 'duplicate-column'])
+		);
 	});
 
 	it('never reports a refusal without a well-formed scope', () => {
