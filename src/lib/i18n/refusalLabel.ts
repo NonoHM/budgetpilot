@@ -87,6 +87,11 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			return m.import_refusal_missing_required_column({ column: fact.column });
 		case 'bad-column-count':
 			return m.import_refusal_bad_column_count();
+		case 'ambiguous-column-mapping':
+			return m.import_refusal_ambiguous_column_mapping({
+				role: fact.role,
+				columns: fact.columns
+			});
 		case 'invalid-date':
 			return m.import_refusal_invalid_date();
 		case 'invalid-amount':

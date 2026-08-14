@@ -341,6 +341,7 @@
 	"import_refusal_duplicate_column": "Duplicate column: {column}",
 	"import_refusal_missing_required_column": "Required column missing: {column}",
 	"import_refusal_bad_column_count": "incorrect column count",
+	"import_refusal_ambiguous_column_mapping": "Two columns claim the {role} role: {columns}",
 	"import_refusal_footer_ignored": "row skipped: bank footer",
 	"import_refusal_invalid_date": "invalid date",
 	"import_refusal_invalid_amount": "invalid amount",
