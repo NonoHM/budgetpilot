@@ -16,6 +16,7 @@ import {
 } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import { REQUIRED_ROLES, resolveRequiredColumns } from './columnAliases';
+import { detectSignIndicatorColumn } from '../signIndicator';
 import {
 	buildCsvFields,
 	buildDeduplicationKey,
@@ -119,6 +120,20 @@ export function parseGenericRows({
 					{ code: 'missing-required-column', column: role }
 				);
 		}
+	}
+
+	// AFTER the required roles have resolved, because the detector needs to know which column is
+	// the amount, and BEFORE any row is read, because this is a fact about the whole file rather
+	// than about one line. A file whose amount column never resolved has a louder problem already
+	// reported above.
+	if (columns.amount) {
+		const indicatorColumn = detectSignIndicatorColumn(headers, rows, columns.amount);
+		if (indicatorColumn)
+			addRefusal(
+				headerRefusals,
+				{ kind: 'header' },
+				{ code: 'amount-sign-in-separate-column', column: refusalCellValue(indicatorColumn) }
+			);
 	}
 
 	if (headerRefusals.length > 0) {

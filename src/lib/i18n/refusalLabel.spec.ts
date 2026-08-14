@@ -36,6 +36,7 @@ const FACTS: { [C in CsvRefusalFact['code']]: Extract<CsvRefusalFact, { code: C 
 		role: 'date',
 		columns: 'dateop, booking date'
 	},
+	'amount-sign-in-separate-column': { code: 'amount-sign-in-separate-column', column: 'sens' },
 	'invalid-date': { code: 'invalid-date', column: 'date' },
 	'invalid-amount': { code: 'invalid-amount', column: 'montant' },
 	'zero-amount': { code: 'zero-amount', column: 'montant' },
@@ -70,14 +71,14 @@ describe('refusalLabel', () => {
 		expect(refusalLabel({ code: 'file-empty' })).toBe('CSV vide ou sans données');
 	});
 
-	it('renders every code in the union, and there are 34 of them', () => {
+	it('renders every code in the union, and there are 35 of them', () => {
 		const rendered = CSV_REFUSAL_CODES.map((code) => refusalLabel(FACTS[code]));
 
 		// The absolute figure beside the emptiness assertion: a run that rendered nothing at all
 		// would satisfy "none is empty" perfectly.
-		expect(rendered).toHaveLength(34);
-		expect(CSV_REFUSAL_CODES).toHaveLength(34);
-		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(34);
+		expect(rendered).toHaveLength(35);
+		expect(CSV_REFUSAL_CODES).toHaveLength(35);
+		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(35);
 		// A key leaking through would render as the key itself.
 		expect(rendered.filter((label) => label.startsWith('import_refusal_'))).toEqual([]);
 	});
@@ -87,7 +88,7 @@ describe('refusalLabel', () => {
 
 		// Two guards in sequence are indistinguishable to a user when they render the same
 		// sentence, which is the whole reason the contract names them separately.
-		expect(new Set(rendered).size).toBe(34);
+		expect(new Set(rendered).size).toBe(35);
 	});
 
 	it('renders the payload of the three facts whose sentence names a value', () => {

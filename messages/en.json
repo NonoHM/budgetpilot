@@ -342,6 +342,7 @@
 	"import_refusal_missing_required_column": "Required column missing: {column}",
 	"import_refusal_bad_column_count": "incorrect column count",
 	"import_refusal_ambiguous_column_mapping": "Two columns claim the {role} role: {columns}",
+	"import_refusal_amount_sign_in_separate_column": "The amounts carry no sign: the \"{column}\" column holds the direction. This format is not read yet.",
 	"import_refusal_footer_ignored": "row skipped: bank footer",
 	"import_refusal_invalid_date": "invalid date",
 	"import_refusal_invalid_amount": "invalid amount",
