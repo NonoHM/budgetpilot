@@ -2,22 +2,17 @@ import { isTransactionNature, isValidIsoDate, validateTransaction } from '$lib/d
 import type { TransactionNature } from '$lib/domain/transaction';
 import type {
 	CsvImportResult,
-	CsvInvalidRow,
 	CsvProfileParseInput,
 	ImportedTransaction,
 	ImportedTransactionType
 } from '../types';
-import {
-	addInvalidRow,
-	buildSummary,
-	normalizeDate,
-	resolveValidationField,
-	toRecord
-} from '../utils/csv';
+import type { CsvRefusal } from '../refusals';
+import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildMaisonDeduplicationKey,
 	hashFingerprint,
+	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
@@ -41,31 +36,20 @@ export function matchesMaisonHeader(headers: string[]): boolean {
 	);
 }
 
-export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput): CsvImportResult {
+export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvImportResult {
 	const headers = rows[0].cells.map((header) => header.trim().toLowerCase());
 	if (!matchesMaisonHeader(headers)) {
-		errors.push('En-tête maison non reconnu');
-		return {
-			transactions: [],
-			errors,
+		return emptyResult(
+			[{ code: 'header-not-recognized', profile: 'maison' }],
 			warnings,
-			invalidRows: errors.map((reason, index) => ({ line: index + 1, reason })),
-			summary: buildSummary({
-				profile: 'maison',
-				totalRows: rows.length - 1,
-				validRows: 0,
-				invalidRows: errors.length,
-				duplicateRows: 0,
-				totalDebitCents: 0,
-				totalCreditCents: 0,
-				dates: []
-			})
-		};
+			'maison',
+			rows.length - 1
+		);
 	}
 
 	const transactions: ImportedTransaction[] = [];
 	const seenFingerprints = new Set<string>();
-	const invalidRows: CsvInvalidRow[] = [];
+	const refusals: CsvRefusal[] = [];
 	let duplicateRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
@@ -75,7 +59,12 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 		const row = parsedRow.cells;
 		const line = parsedRow.line;
 		if (row.length !== headers.length) {
-			addInvalidRow(errors, invalidRows, line, 'nombre de colonnes incorrect', 'colonnes');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'bad-column-count', expected: headers.length, actual: row.length },
+				'colonnes'
+			);
 			return;
 		}
 
@@ -83,7 +72,7 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 
 		const date = normalizeDate(record.date ?? '');
 		if (!isValidIsoDate(date)) {
-			addInvalidRow(errors, invalidRows, line, 'date invalide', 'date');
+			addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-date', column: 'date' }, 'date');
 			return;
 		}
 
@@ -91,7 +80,7 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 
 		const categoryResult = resolveMaisonCategory(record.categorie ?? '');
 		if (!categoryResult.ok) {
-			addInvalidRow(errors, invalidRows, line, categoryResult.reason, 'category');
+			addRefusal(refusals, { kind: 'row', line }, { code: 'category-too-long' }, 'category');
 			return;
 		}
 		const category = categoryResult.value;
@@ -99,18 +88,28 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 		const rawAmount = (record.montant ?? '').trim().replace(/^'/, '');
 		const amountCents = parseAmountCents(rawAmount);
 		if (amountCents === null) {
-			addInvalidRow(errors, invalidRows, line, 'montant invalide', 'amount');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'invalid-amount', column: 'montant' },
+				'amount'
+			);
 			return;
 		}
 		if (amountCents === 0) {
-			addInvalidRow(errors, invalidRows, line, 'montant à zéro refusé', 'amount');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'zero-amount', column: 'montant' },
+				'amount'
+			);
 			return;
 		}
 
 		const derivedType: ImportedTransactionType = amountCents >= 0 ? 'income' : 'expense';
 		const rawType = (record.type ?? '').trim().toLowerCase();
 		if (rawType !== derivedType) {
-			addInvalidRow(errors, invalidRows, line, 'type et signe du montant incohérents', 'type');
+			addRefusal(refusals, { kind: 'row', line }, { code: 'type-amount-mismatch' }, 'type');
 			return;
 		}
 
@@ -118,7 +117,12 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 		let natureManual: TransactionNature | null = null;
 		if (rawNature) {
 			if (!isTransactionNature(rawNature)) {
-				addInvalidRow(errors, invalidRows, line, 'nature invalide', 'nature');
+				addRefusal(
+					refusals,
+					{ kind: 'row', line },
+					{ code: 'invalid-nature', value: refusalCellValue(rawNature) },
+					'nature'
+				);
 				return;
 			}
 			natureManual = rawNature;
@@ -130,7 +134,6 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 			label
 		});
 		if (seenFingerprints.has(fingerprint)) {
-			errors.push(`Ligne ${line}: doublon détecté`);
 			duplicateRows += 1;
 			return;
 		}
@@ -153,12 +156,13 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 		};
 		const validation = validateTransaction(transaction);
 		if (!validation.ok) {
-			addInvalidRow(
-				errors,
-				invalidRows,
-				line,
-				validation.errors.join(', '),
-				resolveValidationField(validation.errors)
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{
+					code: 'transaction-invalid',
+					violations: validation.violations
+				}
 			);
 			return;
 		}
@@ -171,14 +175,13 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 
 	return {
 		transactions,
-		errors,
 		warnings,
-		invalidRows,
+		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'maison',
 			totalRows: rows.length - 1,
 			validRows: transactions.length,
-			invalidRows: invalidRows.length,
+			invalidRows: refusals.length,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,
@@ -187,12 +190,10 @@ export function parseMaisonRows({ rows, errors, warnings }: CsvProfileParseInput
 	};
 }
 
-function resolveMaisonCategory(
-	rawValue: string
-): { ok: true; value: string } | { ok: false; reason: string } {
+function resolveMaisonCategory(rawValue: string): { ok: true; value: string } | { ok: false } {
 	const sanitized = sanitizeImportedText(rawValue);
 	if (!sanitized) return { ok: true, value: UNCLASSIFIED_CATEGORY };
-	if (sanitized.length > MAX_CATEGORY_LENGTH) return { ok: false, reason: 'catégorie trop longue' };
+	if (sanitized.length > MAX_CATEGORY_LENGTH) return { ok: false };
 	// The literal sentinel is ACCEPTED, not refused, and the reason is the round trip: the export
 	// writes `getEffectiveCategory`, which is exactly this string for every row in the « à classer »
 	// pile. Refusing it made `docs/getting-started.md`'s "an export re-imports cleanly" false for

@@ -365,6 +365,57 @@ describe('écritures dashboard', () => {
 		expect(db.prisma.transaction.create).not.toHaveBeenCalled();
 	});
 
+	/**
+	 * `validateTransaction` now reports CODES, and the dashboard's `LEGACY_FR` shim maps them
+	 * back to today's exact French sentences so this route's HTTP 400 body is byte identical
+	 * to what it was before the refusal contract landed. This is the ONLY test that ever
+	 * exercised that 400: dashboard.spec.ts's other three 400 assertions belong to
+	 * saveBudget/updateBudget/deleteBudget and check the status only, with no message, and
+	 * the "uncategorized" test above throws from the reserved-name guard, before
+	 * validateTransaction is ever reached. So this is the measurement that backs the "no
+	 * behaviour change" claim, not a re-run of an existing guard.
+	 */
+	it('rejette une transaction manuelle avec un libellé trop long, message legacy inchangé', async () => {
+		expect.assertions(3);
+
+		await expect(
+			createManualTransaction(userId, {
+				date: '2026-06-25',
+				label: 'a'.repeat(500),
+				amount: '-42,10',
+				category: 'Alimentation'
+			})
+		).rejects.toMatchObject({ status: 400, body: { message: 'libellé trop long' } });
+		expect(db.prisma.category.upsert).not.toHaveBeenCalled();
+		expect(db.prisma.transaction.create).not.toHaveBeenCalled();
+	});
+
+	/**
+	 * Two violations, and the assertion is the ORDER, not merely the two sentences: label
+	 * ('label-too-long') is pushed before category ('category-required') by
+	 * `validateTransaction`'s source order, which is the opposite of alphabetical
+	 * ('category-required' < 'label-too-long'). A shim that sorted or deduped the violations
+	 * before joining would still print two French sentences here, and this is the assertion
+	 * that would catch it: it fails on the ORDER of the join, not merely its content.
+	 */
+	it('rejette une transaction manuelle avec deux violations, jointes dans l’ordre source', async () => {
+		expect.assertions(3);
+
+		await expect(
+			createManualTransaction(userId, {
+				date: '2026-06-25',
+				label: 'a'.repeat(500),
+				amount: '-42,10',
+				category: ''
+			})
+		).rejects.toMatchObject({
+			status: 400,
+			body: { message: 'libellé trop long, catégorie requise' }
+		});
+		expect(db.prisma.category.upsert).not.toHaveBeenCalled();
+		expect(db.prisma.transaction.create).not.toHaveBeenCalled();
+	});
+
 	it('scopes every budget write to the calling user', async () => {
 		expect.assertions(3);
 

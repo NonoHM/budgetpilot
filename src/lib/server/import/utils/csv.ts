@@ -2,10 +2,10 @@ import { isValidIsoDate } from '$lib/domain/transaction';
 import type {
 	CsvImportResult,
 	CsvImportSummary,
-	CsvInvalidRow,
 	ParsedCsvRow,
 	ResolvedCsvImportProfile
 } from '../types';
+import type { CsvRefusal, CsvRefusalFact, CsvRefusalScope } from '../refusals';
 import { normalizeHeaderName, normalizeMojibakeText } from './encoding';
 
 export function parseRows(content: string): ParsedCsvRow[] {
@@ -91,21 +91,25 @@ export function normalizeFirstValidDate(...values: Array<string | undefined>): s
 }
 
 export function emptyResult(
-	errors: string[],
+	facts: CsvRefusalFact[],
 	warnings: string[],
 	profile: ResolvedCsvImportProfile = 'generic',
 	totalRows = 0
 ): CsvImportResult {
 	return {
 		transactions: [],
-		errors,
 		warnings,
-		invalidRows: errors.map((reason, index) => ({ line: index + 1, reason })),
+		// header-not-recognized has nowhere to point but the header row, never the file as a
+		// whole: the catalogue calls this out as the one exception to the { kind: 'file' } default.
+		invalidRows: facts.map((fact) => ({
+			scope: fact.code === 'header-not-recognized' ? { kind: 'header' } : { kind: 'file' },
+			fact
+		})),
 		summary: buildSummary({
 			profile,
 			totalRows,
 			validRows: 0,
-			invalidRows: errors.length,
+			invalidRows: facts.length,
 			duplicateRows: 0,
 			totalDebitCents: 0,
 			totalCreditCents: 0,
@@ -114,24 +118,13 @@ export function emptyResult(
 	};
 }
 
-export function addInvalidRow(
-	errors: string[],
-	invalidRows: CsvInvalidRow[],
-	line: number,
-	reason: string,
+export function addRefusal(
+	refusals: CsvRefusal[],
+	scope: CsvRefusalScope,
+	fact: CsvRefusalFact,
 	field?: string
 ): void {
-	errors.push(`Ligne ${line}: ${reason}`);
-	invalidRows.push({ line, reason, field });
-}
-
-export function resolveValidationField(errors: string[]): string | undefined {
-	if (errors.some((error) => error.includes('date'))) return 'date';
-	if (errors.some((error) => error.includes('montant'))) return 'amount';
-	if (errors.some((error) => error.includes('libellé'))) return 'label';
-	if (errors.some((error) => error.includes('catégorie'))) return 'category';
-	if (errors.some((error) => error.includes('type'))) return 'type';
-	return undefined;
+	refusals.push({ scope, fact, field });
 }
 
 export function isIgnorableBankingRow(row: string[]): boolean {

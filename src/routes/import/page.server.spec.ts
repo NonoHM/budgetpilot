@@ -6,6 +6,7 @@ import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ImportInvalidRowDetail } from './+page.server';
 
 const db = vi.hoisted(() => {
 	type Account = {
@@ -459,6 +460,30 @@ describe('/import load', () => {
 });
 
 describe('/import actions', () => {
+	it('detects the format and ignores any profile the client tries to send', async () => {
+		expect.assertions(4);
+
+		// The page offers no profile selector, and this is the PROPERTY behind that rather than
+		// the wording: the server hardcodes `profile: 'auto'` and never reads a profile from the
+		// form, so a hand crafted POST cannot pick one either. Guarding the copy would go stale
+		// the moment somebody rephrases it; guarding this does not.
+		const honest = await runImportWithFile(`${BANQUE_POPULAIRE_HEADER}\n${AUCHAN_ROW}`);
+		// A DIFFERENT amount, so the second run is not deduplicated against the first. Without
+		// this the forged run imports 0 rows for a reason that has nothing to do with profiles,
+		// and the test would fail while the app was behaving correctly.
+		const forged = await runImportWithFileAndFields(
+			`${BANQUE_POPULAIRE_HEADER}\n${AUCHAN_ROW.replace('-38,46', '-51,20')}`,
+			{ profile: 'maison' }
+		);
+
+		// The presence half: detection really did run and really did produce a result, so the
+		// equality below is not two identical failures agreeing with each other.
+		expect(getImportResult(honest).profile).toBe('banque-populaire');
+		expect(getImportResult(honest).importedRows).toBe(1);
+		expect(getImportResult(forged).profile).toBe('banque-populaire');
+		expect(getImportResult(forged).importedRows).toBe(1);
+	});
+
 	beforeEach(() => {
 		db.reset();
 		vi.clearAllMocks();
@@ -664,9 +689,12 @@ describe('/import actions', () => {
 		expect(importResult.totalRows).toBe(2);
 		expect(importResult.importedRows).toBe(1);
 		expect(importResult.invalidRows).toBe(1);
+		// The code rather than the sentence, and the scope rather than a bare number: this now
+		// proves WHICH guard refused the row and that the refusal is about a real line, where the
+		// French substring could have come from any producer of that wording.
 		expect(importResult.invalidRowDetails[0]).toMatchObject({
-			lineNumber: 3,
-			reason: 'débit et crédit vides',
+			scope: { kind: 'row', line: 3 },
+			fact: { code: 'debit-credit-empty' },
 			field: 'Debit/Credit',
 			profile: 'banque-populaire'
 		});
@@ -1231,6 +1259,13 @@ async function runImportWithFile(content: string) {
 	return runImport(formData);
 }
 
+async function runImportWithFileAndFields(content: string, fields: Record<string, string>) {
+	const formData = new FormData();
+	formData.set('csvFile', new File([content], 'export.csv', { type: 'text/csv' }));
+	for (const [key, value] of Object.entries(fields)) formData.set(key, value);
+	return runImport(formData);
+}
+
 async function runImportWithXlsxFile(rows: string[][], fileName = 'export.xlsx') {
 	const formData = new FormData();
 	const bytes = buildXlsx(rows);
@@ -1269,13 +1304,7 @@ async function runImport(formData: FormData) {
 				invalidRows: number;
 				totalDebitCents: number;
 				totalCreditCents: number;
-				invalidRowDetails: Array<{
-					lineNumber: number;
-					reason: string;
-					field: string;
-					profile: string;
-					preview: string;
-				}>;
+				invalidRowDetails: ImportInvalidRowDetail[];
 				hiddenInvalidRowsCount: number;
 				netWorthLinkStatus?: 'applied' | 'ignored' | null;
 			};
@@ -1289,13 +1318,7 @@ async function runImport(formData: FormData) {
 			invalidRows: number;
 			totalDebitCents: number;
 			totalCreditCents: number;
-			invalidRowDetails: Array<{
-				lineNumber: number;
-				reason: string;
-				field: string;
-				profile: string;
-				preview: string;
-			}>;
+			invalidRowDetails: ImportInvalidRowDetail[];
 			hiddenInvalidRowsCount: number;
 			netWorthLinkStatus?: 'applied' | 'ignored' | null;
 		};

@@ -21,7 +21,7 @@ describe('parseCsvTransactions', () => {
 			'date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus\n01/06/2026;Courses;-42.10;Alimentation'
 		);
 
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions).toHaveLength(2);
 		expect(result.transactions[0].amountCents).toBe(250_050);
 		expect(result.transactions[1]).toMatchObject({
@@ -30,18 +30,52 @@ describe('parseCsvTransactions', () => {
 		});
 	});
 
-	it('rejette les colonnes inconnues et les doublons', () => {
+	it('ignore une colonne inconnue au lieu de refuser tout le fichier', () => {
+		expect.assertions(4);
+
+		// This asserted the OPPOSITE until the alias table landed: one unrecognised column
+		// refused the whole file, which is why no real bank statement imported.
+		const unknownColumn = parseCsvTransactions(
+			'date;label;amount;iban\n2026-06-01;Achat;-10;FR76...'
+		);
+
+		expect(unknownColumn.invalidRows).toStrictEqual([]);
+		expect(unknownColumn.transactions).toHaveLength(1);
+		expect(unknownColumn.transactions[0].label).toBe('Achat');
+		// Dropped means DROPPED: the ignored column's value must not have been read into any
+		// role. Without this, a resolver that silently took `iban` as the label would pass the
+		// three assertions above.
+		expect(JSON.stringify(unknownColumn.transactions[0])).not.toContain('FR76');
+	});
+
+	it('refuse un en-tête dupliqué, parce que la dernière colonne écraserait la première', () => {
 		expect.assertions(2);
 
-		const unknownColumn = parseCsvTransactions(
-			'date;label;amount;iban\n2026-06-01;Achat;-10;FR...'
+		// Kept for a sharper reason than ambiguity: `toRecord` assigns
+		// `record[header] = row[index]`, so a later duplicate OVERWRITES an earlier one and the
+		// last column silently wins. This refusal is the only thing making that unreachable.
+		const duplicateHeader = parseCsvTransactions(
+			'date;label;amount;label\n2026-06-01;Achat;-10;Autre'
 		);
+
+		expect(duplicateHeader.transactions).toStrictEqual([]);
+		expect(duplicateHeader.invalidRows[0].fact).toStrictEqual({
+			code: 'duplicate-column',
+			column: 'label'
+		});
+	});
+
+	it('compte les lignes en double sans les refuser', () => {
+		expect.assertions(2);
+
 		const duplicates = parseCsvTransactions(
 			'date;label;amount;category\n2026-06-01;Achat;-10;Divers\n2026-06-01;Achat;-10;Divers'
 		);
 
-		expect(unknownColumn.errors).toContain('Colonne non autorisée: iban');
-		expect(duplicates.errors).toContain('Ligne 3: doublon détecté');
+		expect(duplicates.summary.duplicateRows).toBe(1);
+		// The absolute figure beside it: one row still imported, so the count is not what a
+		// parser that refused both would report.
+		expect(duplicates.transactions).toHaveLength(1);
 	});
 
 	it('neutralizes labels compatible with a formula injection', () => {
@@ -60,12 +94,18 @@ describe('parseCsvTransactions', () => {
 		expect.assertions(2);
 
 		expect(
-			parseCsvTransactions('date,label,amount\n2026-06-01,A,-1', { maxBytes: 10 }).errors[0]
-		).toContain('CSV trop volumineux');
+			parseCsvTransactions('date,label,amount\n2026-06-01,A,-1', { maxBytes: 10 }).invalidRows[0]
+		).toMatchObject({
+			scope: { kind: 'file' },
+			fact: { code: 'file-too-large' }
+		});
 		expect(
 			parseCsvTransactions('date,label,amount\n2026-06-01,A,-1\n2026-06-02,B,-2', { maxRows: 1 })
-				.errors[0]
-		).toBe('CSV limité à 1 lignes');
+				.invalidRows[0]
+		).toEqual({
+			scope: { kind: 'file' },
+			fact: { code: 'too-many-rows', max: 1 }
+		});
 	});
 
 	it('auto-detects the Banque Populaire profile', () => {
@@ -76,7 +116,7 @@ describe('parseCsvTransactions', () => {
 		);
 
 		expect(result.summary.profile).toBe('banque-populaire');
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 	});
 
 	it('rejects an altered Banque Populaire header in forced profile mode', () => {
@@ -89,7 +129,12 @@ describe('parseCsvTransactions', () => {
 		);
 
 		expect(result.transactions).toHaveLength(0);
-		expect(result.errors).toContain('En-tête Banque Populaire non reconnu');
+		expect(result.invalidRows).toEqual([
+			{
+				scope: { kind: 'header' },
+				fact: { code: 'header-not-recognized', profile: 'Banque Populaire' }
+			}
+		]);
 	});
 
 	it('imports a Banque Populaire expense with a positive debit', () => {
@@ -134,7 +179,7 @@ describe('parseCsvTransactions', () => {
 			'22/06/2026;+M PAUL PAUL;VIR M PAUL PAUL;REFVIR;Vir. vers Compte Cheque-;Virement recu;Transaction exclue;Virement interne;;+150,00;20/06/2026;20/06/2026;0'
 		);
 
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions[0].metadata.type).toBe('income');
 		expect(result.transactions[0].amountCents).toBe(15_000);
 		expect(result.summary.totalCreditCents).toBe(15_000);
@@ -149,7 +194,7 @@ describe('parseCsvTransactions', () => {
 			'22/06/2026;+M PAUL PAUL;VIR M PAUL PAUL;REFVIR;Vir. vers Compte Cheque-;Virement recu;Transaction exclue;Virement interne;;+150,00;20/06/2026;20/06/2026;0'
 		);
 
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions).toHaveLength(1);
 		expect(result.transactions[0].category).toBe(UNCLASSIFIED_CATEGORY);
 		expect(result.transactions[0].metadata.type).toBe('income');
@@ -213,7 +258,7 @@ describe('parseCsvTransactions', () => {
 			'22/06/2026;REVOLUT;REVOLUT TEST;REFREV;210626 CB****0000-30,00EUR;Carte bancaire;Banque et assurances;Banque et assurance - autre;-30,00;;22/06/2026;22/06/2026;0'
 		);
 
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions[0].metadata.type).toBe('expense');
 		expect(result.transactions[0].amountCents).toBe(3_000);
 		expect(result.summary.totalDebitCents).toBe(3_000);
@@ -253,16 +298,16 @@ describe('parseCsvTransactions', () => {
 		);
 
 		expect(emptyAmounts.transactions).toHaveLength(0);
-		expect(emptyAmounts.invalidRows[0]).toMatchObject({
-			line: 2,
-			reason: 'débit et crédit vides',
+		expect(emptyAmounts.invalidRows[0]).toEqual({
+			scope: { kind: 'row', line: 2 },
+			fact: { code: 'debit-credit-empty' },
 			field: 'Debit/Credit'
 		});
 		expect(emptyAmounts.summary.invalidRows).toBe(1);
 		expect(ambiguousAmounts.transactions).toHaveLength(0);
-		expect(ambiguousAmounts.invalidRows[0]).toMatchObject({
-			line: 2,
-			reason: 'débit et crédit remplis en même temps',
+		expect(ambiguousAmounts.invalidRows[0]).toEqual({
+			scope: { kind: 'row', line: 2 },
+			fact: { code: 'debit-credit-both' },
 			field: 'Debit/Credit'
 		});
 		expect(ambiguousAmounts.summary.invalidRows).toBe(1);
@@ -276,9 +321,9 @@ describe('parseCsvTransactions', () => {
 		);
 
 		expect(result.transactions).toHaveLength(0);
-		expect(result.invalidRows[0]).toMatchObject({
-			line: 2,
-			reason: 'date invalide',
+		expect(result.invalidRows[0]).toEqual({
+			scope: { kind: 'row', line: 2 },
+			fact: { code: 'invalid-date', column: 'date' },
 			field: 'date'
 		});
 	});
@@ -289,9 +334,9 @@ describe('parseCsvTransactions', () => {
 		const result = parseCsvTransactions('date;label;amount;category\n2026-06-01;Courses;-42,10');
 
 		expect(result.transactions).toHaveLength(0);
-		expect(result.invalidRows[0]).toMatchObject({
-			line: 2,
-			reason: 'nombre de colonnes incorrect',
+		expect(result.invalidRows[0]).toEqual({
+			scope: { kind: 'row', line: 2 },
+			fact: { code: 'bad-column-count', expected: 4, actual: 3 },
 			field: 'colonnes'
 		});
 	});
@@ -305,7 +350,7 @@ describe('parseCsvTransactions', () => {
 
 		expect(result.summary.totalRows).toBe(1);
 		expect(result.invalidRows).toHaveLength(1);
-		expect(result.invalidRows[0].line).toBe(3);
+		expect(result.invalidRows[0].scope).toEqual({ kind: 'row', line: 3 });
 	});
 
 	it('marks a Banque Populaire footer as an ignored line', () => {
@@ -314,9 +359,9 @@ describe('parseCsvTransactions', () => {
 		const result = parseCsvTransactions(`${BANQUE_POPULAIRE_HEADER}\nSolde au 24/06/2026;123,45`);
 
 		expect(result.transactions).toHaveLength(0);
-		expect(result.invalidRows[0]).toMatchObject({
-			line: 2,
-			reason: 'ligne ignorée: footer bancaire',
+		expect(result.invalidRows[0]).toEqual({
+			scope: { kind: 'row', line: 2 },
+			fact: { code: 'footer-ignored' },
 			field: 'line'
 		});
 		expect(result.summary.invalidRows).toBe(1);
@@ -375,7 +420,7 @@ describe('parseCsvTransactions', () => {
 		);
 
 		expect(result.transactions).toHaveLength(1);
-		expect(result.errors).toContain('Ligne 3: doublon détecté');
+		expect(result.summary.duplicateRows).toBe(1);
 		expect(result.transactions[0].metadata.deduplicationKey).toContain('REFDUP');
 	});
 
@@ -426,7 +471,7 @@ describe('parseCsvTransactions', () => {
 		);
 
 		expect(result.transactions).toHaveLength(2);
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 	});
 
 	it('auto-detects a Revolut export with a normal header', () => {
@@ -437,7 +482,7 @@ describe('parseCsvTransactions', () => {
 		);
 
 		expect(result.summary.profile).toBe('revolut');
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions[0].metadata.type).toBe('expense');
 		expect(result.transactions[0].amountCents).toBe(780);
 	});
@@ -450,7 +495,7 @@ describe('parseCsvTransactions', () => {
 		);
 
 		expect(result.summary.profile).toBe('revolut');
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions[0].metadata.type).toBe('income');
 		expect(result.transactions[0].amountCents).toBe(6_000);
 	});
@@ -476,17 +521,19 @@ describe('parseCsvTransactions', () => {
 		);
 
 		expect(pending.transactions).toHaveLength(0);
-		expect(pending.invalidRows[0]).toMatchObject({
-			reason: 'état Revolut non terminé',
+		expect(pending.invalidRows[0]).toEqual({
+			scope: { kind: 'row', line: 2 },
+			fact: { code: 'state-not-completed', state: 'EN ATTENTE' },
 			field: 'État'
 		});
-		expect(pending.errors.join('\n')).not.toContain('Patreon');
+		expect(JSON.stringify(pending.invalidRows)).not.toContain('Patreon');
 		expect(usd.transactions).toHaveLength(0);
-		expect(usd.invalidRows[0]).toMatchObject({
-			reason: 'devise Revolut non supportée',
+		expect(usd.invalidRows[0]).toEqual({
+			scope: { kind: 'row', line: 2 },
+			fact: { code: 'unsupported-currency', currency: 'USD' },
 			field: 'Devise'
 		});
-		expect(usd.errors.join('\n')).not.toContain('Patreon');
+		expect(JSON.stringify(usd.invalidRows)).not.toContain('Patreon');
 	});
 
 	it('conserve les champs Revolut utiles en metadata sans ajouter les frais au montant', () => {
@@ -522,7 +569,7 @@ describe('parseCsvTransactions', () => {
 			`${REVOLUT_HEADER}\nTRANSFER,Valeur actuelle,2026-05-01 02:52:44,2026-05-01 05:37:37,Virement SEPA,-50.00,0.00,EUR,TERMINÉ,64.00`
 		);
 
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.transactions[0].category).toBe(UNCLASSIFIED_CATEGORY);
 		expect(result.transactions[0].metadata.bankOperationType).toBe('TRANSFER');
 	});
