@@ -6,6 +6,7 @@ import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ImportInvalidRowDetail } from './+page.server';
 
 const db = vi.hoisted(() => {
 	type Account = {
@@ -664,9 +665,12 @@ describe('/import actions', () => {
 		expect(importResult.totalRows).toBe(2);
 		expect(importResult.importedRows).toBe(1);
 		expect(importResult.invalidRows).toBe(1);
+		// The code rather than the sentence, and the scope rather than a bare number: this now
+		// proves WHICH guard refused the row and that the refusal is about a real line, where the
+		// French substring could have come from any producer of that wording.
 		expect(importResult.invalidRowDetails[0]).toMatchObject({
-			lineNumber: 3,
-			reason: 'débit et crédit vides',
+			scope: { kind: 'row', line: 3 },
+			fact: { code: 'debit-credit-empty' },
 			field: 'Debit/Credit',
 			profile: 'banque-populaire'
 		});
@@ -1269,13 +1273,7 @@ async function runImport(formData: FormData) {
 				invalidRows: number;
 				totalDebitCents: number;
 				totalCreditCents: number;
-				invalidRowDetails: Array<{
-					lineNumber: number;
-					reason: string;
-					field: string;
-					profile: string;
-					preview: string;
-				}>;
+				invalidRowDetails: ImportInvalidRowDetail[];
 				hiddenInvalidRowsCount: number;
 				netWorthLinkStatus?: 'applied' | 'ignored' | null;
 			};
@@ -1289,13 +1287,7 @@ async function runImport(formData: FormData) {
 			invalidRows: number;
 			totalDebitCents: number;
 			totalCreditCents: number;
-			invalidRowDetails: Array<{
-				lineNumber: number;
-				reason: string;
-				field: string;
-				profile: string;
-				preview: string;
-			}>;
+			invalidRowDetails: ImportInvalidRowDetail[];
 			hiddenInvalidRowsCount: number;
 			netWorthLinkStatus?: 'applied' | 'ignored' | null;
 		};
