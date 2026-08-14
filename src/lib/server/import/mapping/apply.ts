@@ -54,7 +54,10 @@ function fold(header: string): string {
  * order sensitive, which lives in the other file. Neither half covers the other, and the recap
  * screen has to say « mémorisée par position » for exactly this reason.
  */
-export function applyColumnMapping(mapping: UntrustedColumnMapping, headers: string[]): MappingVerdict {
+export function applyColumnMapping(
+	mapping: UntrustedColumnMapping,
+	headers: string[]
+): MappingVerdict {
 	if (headers.length === 0) return { kind: 'lost' };
 
 	// An unrecognised `matchBy` resolves NOTHING rather than falling through to the name branch.

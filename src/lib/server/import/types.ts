@@ -28,12 +28,7 @@ export interface CsvImportOptions {
  * `profiles/mapped.ts`.
  */
 export type CsvImportProfile =
-	| 'generic'
-	| 'banque-populaire'
-	| 'revolut'
-	| 'maison'
-	| 'mapped'
-	| 'auto';
+	'generic' | 'banque-populaire' | 'revolut' | 'maison' | 'mapped' | 'auto';
 
 export type ResolvedCsvImportProfile = Exclude<CsvImportProfile, 'auto'>;
 
