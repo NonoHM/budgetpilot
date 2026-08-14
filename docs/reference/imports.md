@@ -43,6 +43,25 @@ imports. Ignoring is not the same as understanding: the column's values are
 not read, not stored, and not shown. Giving those columns a meaning is what
 the column mapping screen will do.
 
+### Currency
+
+BudgetPilot holds **euros**. Every amount is stored and displayed in euros, and
+there is no conversion anywhere.
+
+If your file has a **`currency`** or **`devise`** column, it is read, and any row
+declaring something other than `EUR` is refused, naming the currency it found. A
+row left blank in that column is treated as no declaration and imports normally.
+
+**If your file has no such column, the amounts are assumed to be euros.** That
+assumption is not checked, because there is nothing in the file to check it
+against. So a statement in another currency that does not name it will import,
+and its amounts will be shown with a euro sign. This is the one case the
+application cannot detect, and it is worth knowing if your bank is outside the
+euro area.
+
+The **Banque Populaire** and **Home** formats carry no currency column at all, by
+construction, so files read through them are always assumed to be in euros.
+
 ### When Generic refuses
 
 **A column it needs is missing.** If no column matches the date, label or
@@ -82,6 +101,9 @@ Currency is GBP, USD or anything else is refused one row at a time. **A Revolut
 account in the UK or Ireland will get past the header and then have every row
 refused on the currency.** That is a decision about the whole application rather
 than about this profile, and it has not been taken.
+
+Generic now refuses the same way for the same reason, so a file that names its
+currency gets the same answer whichever format it arrives in.
 
 **Revolut's nine column export.** A semicolon separated variant with separate
 debit and credit columns exists in some regions. It is a different format rather
