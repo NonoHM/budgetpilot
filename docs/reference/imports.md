@@ -7,13 +7,18 @@ Checked against a running instance, not recalled. For the steps, see
 
 **CSV** and **XLSX**.
 
-| Profile          | What it reads                                   |
+**The format is detected, not chosen.** There is no profile selector: the
+header row decides, on every import, and these are the shapes it recognises.
+
+| Format           | What it reads                                   |
 | ---------------- | ----------------------------------------------- |
-| Auto             | Detects one of the below from the header row    |
 | Banque Populaire | Their statement export                          |
 | Revolut          | Their statement export, French or English       |
 | Home             | BudgetPilot's own CSV export                    |
 | Generic          | Any file carrying a date, a label and an amount |
+
+Generic is the fallback, so a file that matches none of the three named
+formats is read as Generic rather than refused for not being one of them.
 
 The column layouts are in
 [getting started](../getting-started.md#first-steps-in-the-app), which also
