@@ -88,6 +88,7 @@ model User {
   categories                      Category[]
   transactions                    Transaction[]
   importBatches                   ImportBatch[]
+  columnMappings                  ColumnMapping[]
   rules                           CategorizationRule[]
   categoryRules                   CategoryRule[]
   monthlyBudgets                  MonthlyBudget[]
@@ -574,6 +575,105 @@ model ImportBatch {
   @@index([userId])
   @@index([source])
   @@index([userId, createdAt])
+}
+
+/// One user's answer to "which column of this file holds what", remembered by the shape of the
+/// file's header row so the next statement with the same columns imports without asking.
+///
+/// ## Explicit columns rather than a JSON blob, and it is a security decision
+///
+/// The role set is CLOSED at four: date, label, amount, category. Explicit columns make that
+/// closure a SCHEMA property rather than a validation rule, which is what ASVS 5.0 V2.2.1 asks
+/// for: positive validation against an allow list. A role name arriving as free text, from a form
+/// or from a restored backup, is exactly what that row exists to prevent, and a JSON blob makes
+/// the role set open by default.
+///
+/// ## The fingerprint keys a MAPPING and never a BUCKET
+///
+/// It is a full SHA-256 digest of the header row, canonicalised per `matchBy`. See
+/// server/import/mapping/fingerprint.ts for the canonical forms and the collision analysis.
+///
+/// It is NOT an account identifier. Revolut's English and French exports of the SAME account
+/// produce two different fingerprints (51950c945ad6 and 4e41ab460bf5, measured in #316), so a
+/// fingerprint-keyed bucket would split that user's history silently. The project's own rule:
+/// join on an identifier, never on displayed text, and hashing displayed text does not make it
+/// one. The account a user chose is a field on a mapping, never the key.
+///
+/// ## Names are authoritative, positions are the fallback, and `matchBy` says which
+///
+/// A file with readable headers is remembered by NAME, so a column inserted in the middle breaks
+/// nothing and a column renamed breaks exactly one role. A file whose header row exists but is
+/// undecodable, empty or duplicated is remembered by POSITION, which is weaker: there are no
+/// names to verify against the file, so the only structural check left is the column count. The
+/// user is told, in the recap, because they have to know before a reordered export puts amounts
+/// in the date column.
+///
+/// A file with NO header row at all is never remembered. Its first line is data that changes with
+/// every statement, so there is nothing stable to fingerprint: memorising it would promise a
+/// recognition the key cannot keep, the next import would fingerprint differently and ask again,
+/// and nothing on screen would explain why. A promise that cannot be kept is not made.
+///
+/// ## A designation never empties a required role to fill the optional one
+///
+/// `categoryColumn` may never equal `dateColumn`, `labelColumn` or `amountColumn`, and no two
+/// required roles may share a column. Enforced by `validateColumnMapping` on the form path AND on
+/// the restore path, because a selector is an affordance and only a server check is a control
+/// (ASVS 5.0 V8.3.1).
+///
+/// REFUSED OPTION, recorded so it is not reopened as an obvious permissiveness: allowing one
+/// column to carry both the label role and the category role, which is what the design plate's
+/// section 1g
+/// originally specified, on the grounds that uniqueness constrains the role rather than the
+/// column. A 148-line file carrying 100 distinct merchants then creates 100 categories, repairable
+/// only by hand, and because the mapping is REMEMBERED it repeats on every later import with
+/// nobody watching. The clause's own defence does not survive either: a file with only one text
+/// column has a label, not a category, so designating it as both categorises nothing.
+model ColumnMapping {
+  id             String   @id @default(cuid())
+  userId         String
+  /// Full 64 character SHA-256 digest, never truncated. See fingerprint.ts for why.
+  fingerprint    String
+  /// "name" or "position". Decides both how roles resolve and how `fingerprint` was canonicalised,
+  /// which is why the two spaces are domain-separated rather than sharing one digest.
+  matchBy        String   @default("name")
+  /// Populated when matchBy is "name", null when it is "position". Bounded and sanitised at the
+  /// boundary by `boundedColumnName`: these are cells from a user's file, they are rendered, and
+  /// `sanitizeImportedText` puts no length bound of its own.
+  dateColumn     String?
+  labelColumn    String?
+  amountColumn   String?
+  categoryColumn String?
+  /// Populated when matchBy is "position", null when it is "name".
+  dateIndex      Int?
+  labelIndex     Int?
+  amountIndex    Int?
+  categoryIndex  Int?
+  /// How many columns the file had when the mapping was made. Rendered in the recap, and the only
+  /// structural check a positional mapping has before it is applied.
+  columnCount    Int
+  /// How many imports have used this mapping. Rendered in the recap sentence that reports when a
+  /// mapping was remembered and how often it has been used since. Not a metric: it is what lets a
+  /// user who has never seen the designation screen understand what happened to their file.
+  useCount       Int      @default(0)
+  lastUsedAt     DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// COMPOSITE, and the precise claim matters because a looser one would mislead. The
+  /// authorization is `userId` appearing in every where clause; this constraint does not enforce
+  /// it and dropping it would not create an IDOR. What it does is make the SAFE query the
+  /// shortest one to write: Prisma generates a findUnique whose where requires both members, so
+  /// the unsafe query ("has anyone mapped this header?") has to be constructed deliberately
+  /// rather than reached for.
+  ///
+  /// That distinction is worth keeping because a fingerprint is derived from a bank's PUBLIC
+  /// column names, so every user of that bank shares one. A global lookup is not a rare collision
+  /// to guard against, it is the designed behaviour of the key, and the thing standing between it
+  /// and a read of somebody else's configuration is a habit that this constraint makes easy.
+  /// ASVS 5.0 V8.2.2 is the row; the scoped where clause is the control.
+  @@unique([userId, fingerprint])
+  @@index([userId])
 }
 
 model CategorizationRule {

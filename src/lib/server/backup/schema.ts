@@ -227,6 +227,32 @@ const backupTransactionSplitSchema = z
 	})
 	.strict();
 
+/**
+ * A remembered column mapping.
+ *
+ * `.strict()` and per-field bounds like every other entry here, but the SHAPE check is not what
+ * makes this safe: `assertReferentialIntegrity` runs `validateColumnMapping`, the same predicate
+ * the form path runs, over every entry. A schema can say a field is a string of at most 120
+ * characters; only the validator can say that the category column is not also the label column,
+ * and that is the rule whose violation creates one category per merchant on every later import.
+ */
+const backupColumnMappingSchema = z
+	.object({
+		fingerprint: z.string().length(64),
+		matchBy: z.enum(['name', 'position']),
+		dateColumn: z.string().max(120).nullable(),
+		labelColumn: z.string().max(120).nullable(),
+		amountColumn: z.string().max(120).nullable(),
+		categoryColumn: z.string().max(120).nullable(),
+		dateIndex: z.number().int().nullable(),
+		labelIndex: z.number().int().nullable(),
+		amountIndex: z.number().int().nullable(),
+		categoryIndex: z.number().int().nullable(),
+		columnCount: z.number().int(),
+		useCount: z.number().int()
+	})
+	.strict();
+
 const backupImportBatchSchema = z
 	.object({
 		id: z.string().min(1),
@@ -360,6 +386,11 @@ export const backupExportSchema = z
 		accounts: z.array(backupAccountSchema),
 		categories: z.array(backupCategorySchema),
 		importBatches: z.array(backupImportBatchSchema),
+		// DEFAULTED, not required, because an export format is a CONTRACT: a file produced by a
+		// version before column mappings existed must still restore. Same treatment as
+		// `bankConnections`, which has its own backward-compatibility test for the same reason.
+		// Making it required was the first attempt and the suite refused it by name.
+		columnMappings: z.array(backupColumnMappingSchema).default([]),
 		transactions: z.array(backupTransactionSchema),
 		monthlyBudgets: z.array(backupMonthlyBudgetSchema),
 		categoryRules: z.array(backupCategoryRuleSchema),

@@ -13,6 +13,8 @@ import {
 	normalizeSplitNote
 } from '$lib/domain/allocation';
 import { MAX_ANCHOR_IDS, parseAnchorTransactionIds, type BackupExport } from './schema';
+import { validateColumnMapping } from '$lib/server/import/mapping/model';
+import { resolveColumnMappingsPerUser } from '$lib/server/import/mapping/store';
 
 export class BackupImportError extends Error {}
 
@@ -61,6 +63,10 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// No table references a RecurringStreamAction and it references none by foreign key (its
 		// anchors are transaction ids inside a JSON cell), so its position here is free.
 		await tx.recurringStreamAction.deleteMany({ where: { userId } });
+		// Position is free, and stating why stops the next reader moving it "to be safe": nothing
+		// references a ColumnMapping and it references nothing by foreign key except its owner,
+		// exactly like RecurringStreamAction above.
+		await tx.columnMapping.deleteMany({ where: { userId } });
 		// TransactionTag is deliberately absent from this list: it has no userId to scope a
 		// deleteMany by, and it cascades from BOTH parents, the first of which (transaction) is
 		// already deleted above. A test asserts no orphan link survives a restore.
@@ -228,6 +234,26 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			});
 			tagIdMap.set(tag.id, created.id);
 			tagKeyMap.set(nameKey, created.id);
+		}
+
+		for (const mapping of payload.columnMappings) {
+			await tx.columnMapping.create({
+				data: {
+					userId,
+					fingerprint: mapping.fingerprint,
+					matchBy: mapping.matchBy,
+					dateColumn: mapping.dateColumn,
+					labelColumn: mapping.labelColumn,
+					amountColumn: mapping.amountColumn,
+					categoryColumn: mapping.categoryColumn,
+					dateIndex: mapping.dateIndex,
+					labelIndex: mapping.labelIndex,
+					amountIndex: mapping.amountIndex,
+					categoryIndex: mapping.categoryIndex,
+					columnCount: mapping.columnCount,
+					useCount: mapping.useCount
+				}
+			});
 		}
 
 		const importBatchIdMap = new Map<string, string>();
@@ -537,6 +563,56 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	const bankConnectionIds = new Set(payload.bankConnections.map((c) => c.id));
 	const tagIds = new Set(payload.tags.map((t) => t.id));
 	const transactionIds = new Set(payload.transactions.map((t) => t.id));
+
+	// COLUMN MAPPINGS, and the two checks below are not interchangeable with the zod schema.
+	//
+	// The schema bounds the SHAPE: a 64 character fingerprint, a matchBy from a two-value enum,
+	// column names of at most 120 characters. It cannot express that the category column is not
+	// also the label column, and that is the rule whose violation creates one category per
+	// merchant on every later import of that shape, repairable only by hand.
+	//
+	// This repository has shipped the two-predicate version of exactly this once: `replaceSplits`
+	// enforced the sum invariant while the restore inserted parts with `createMany`, so a
+	// hand-edited backup could write a repartition summing to anything. `validateColumnMapping` is
+	// the SAME function the form path runs, not a second predicate that agrees with it today.
+	//
+	// A mapping arriving through a restore is more dangerous than a split was: a bad split is one
+	// wrong transaction, a bad mapping decides which column is money on every future import.
+	for (const mapping of payload.columnMappings) {
+		const verdict = validateColumnMapping(mapping);
+		if (!verdict.ok) {
+			throw new BackupImportError(
+				m.settings_backup_error_invalid_column_mapping({ reason: verdict.reason.code })
+			);
+		}
+	}
+
+	// The PER-ARRAY bound, and it is owed separately from the document-wide one. BACKUP_MAX_JSON_NODES
+	// bounds this array incidentally, and an incidental bound is not the bound for this array: the
+	// same argument that gave the split count its own MIN/MAX check rather than leaning on the node
+	// count. Nothing deletes a mapping yet (#326), so a restore is the one path that could plant
+	// thousands in a single request.
+	const mappingCap = resolveColumnMappingsPerUser();
+	if (payload.columnMappings.length > mappingCap) {
+		throw new BackupImportError(
+			m.settings_backup_error_too_many_column_mappings({ max: mappingCap })
+		);
+	}
+
+	// Two mappings sharing a fingerprint would violate @@unique([userId, fingerprint]) mid-restore,
+	// which aborts the enclosing transaction on PostgreSQL and takes the whole restore with it.
+	// Refused by name instead, before any write.
+	const fingerprints = new Set<string>();
+	for (const mapping of payload.columnMappings) {
+		if (fingerprints.has(mapping.fingerprint)) {
+			throw new BackupImportError(
+				m.settings_backup_error_duplicate_column_mapping({
+					fingerprint: mapping.fingerprint.slice(0, 12)
+				})
+			);
+		}
+		fingerprints.add(mapping.fingerprint);
+	}
 
 	for (const account of payload.accounts) {
 		if (account.netWorthAccountId && !netWorthAccountIds.has(account.netWorthAccountId)) {

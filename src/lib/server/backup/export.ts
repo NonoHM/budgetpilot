@@ -22,6 +22,7 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		accounts,
 		categories,
 		importBatches,
+		columnMappings,
 		transactions,
 		monthlyBudgets,
 		categoryRules,
@@ -67,6 +68,23 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				invalidRows: true,
 				periodStart: true,
 				periodEnd: true
+			}
+		}),
+		prisma.columnMapping.findMany({
+			where: { userId },
+			select: {
+				fingerprint: true,
+				matchBy: true,
+				dateColumn: true,
+				labelColumn: true,
+				amountColumn: true,
+				categoryColumn: true,
+				dateIndex: true,
+				labelIndex: true,
+				amountIndex: true,
+				categoryIndex: true,
+				columnCount: true,
+				useCount: true
 			}
 		}),
 		prisma.transaction.findMany({
@@ -222,6 +240,19 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		// restores unchanged, but nothing emits one any more: the stored name is the name, so
 		// there is no second identity for a backup to carry.
 		categories,
+		// No `id`: nothing references a mapping, so it restores as a fresh row keyed by its own
+		// (userId, fingerprint). `lastUsedAt` is left out for the same reason `useCount` is kept:
+		// the count is what the recap sentence reports, the timestamp is not portable state worth
+		// carrying across a restore.
+		//
+		// `matchBy` is narrowed rather than cast. The column is a string in the database and the
+		// only writer is the validated store, so a row carrying anything else is corruption; a cast
+		// would put it in the payload and let the restore refuse it later, on the user's machine,
+		// as a malformed backup. Refusing at export names the row instead.
+		columnMappings: columnMappings.map((mapping) => ({
+			...mapping,
+			matchBy: assertMatchBy(mapping.matchBy, mapping.fingerprint)
+		})),
 		importBatches: importBatches.map((batch) => ({
 			...batch,
 			periodStart: batch.periodStart ? batch.periodStart.toISOString() : null,
@@ -281,4 +312,17 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		transactionTags,
 		transactionSplits
 	};
+}
+
+/**
+ * Narrows a stored `matchBy` to the union the payload declares, refusing anything else.
+ *
+ * The only writer is `saveColumnMapping`, which validates, so an unexpected value means the row
+ * was written by something that bypassed it. Throwing here is the loud half of that discovery.
+ */
+function assertMatchBy(value: string, fingerprint: string): 'name' | 'position' {
+	if (value === 'name' || value === 'position') return value;
+	throw new Error(
+		`column mapping ${fingerprint.slice(0, 12)} has an unknown matchBy (${JSON.stringify(value)}); it was not written through saveColumnMapping`
+	);
 }
