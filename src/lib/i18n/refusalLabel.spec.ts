@@ -31,6 +31,11 @@ const FACTS: { [C in CsvRefusalFact['code']]: Extract<CsvRefusalFact, { code: C 
 	'duplicate-column': { code: 'duplicate-column', column: 'date' },
 	'missing-required-column': { code: 'missing-required-column', column: 'amount' },
 	'bad-column-count': { code: 'bad-column-count', expected: 5, actual: 4 },
+	'ambiguous-column-mapping': {
+		code: 'ambiguous-column-mapping',
+		role: 'date',
+		columns: 'dateop, booking date'
+	},
 	'invalid-date': { code: 'invalid-date', column: 'date' },
 	'invalid-amount': { code: 'invalid-amount', column: 'montant' },
 	'zero-amount': { code: 'zero-amount', column: 'montant' },
@@ -65,14 +70,14 @@ describe('refusalLabel', () => {
 		expect(refusalLabel({ code: 'file-empty' })).toBe('CSV vide ou sans données');
 	});
 
-	it('renders every code in the union, and there are 33 of them', () => {
+	it('renders every code in the union, and there are 34 of them', () => {
 		const rendered = CSV_REFUSAL_CODES.map((code) => refusalLabel(FACTS[code]));
 
 		// The absolute figure beside the emptiness assertion: a run that rendered nothing at all
 		// would satisfy "none is empty" perfectly.
-		expect(rendered).toHaveLength(33);
-		expect(CSV_REFUSAL_CODES).toHaveLength(33);
-		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(33);
+		expect(rendered).toHaveLength(34);
+		expect(CSV_REFUSAL_CODES).toHaveLength(34);
+		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(34);
 		// A key leaking through would render as the key itself.
 		expect(rendered.filter((label) => label.startsWith('import_refusal_'))).toEqual([]);
 	});
@@ -82,7 +87,7 @@ describe('refusalLabel', () => {
 
 		// Two guards in sequence are indistinguishable to a user when they render the same
 		// sentence, which is the whole reason the contract names them separately.
-		expect(new Set(rendered).size).toBe(33);
+		expect(new Set(rendered).size).toBe(34);
 	});
 
 	it('renders the payload of the three facts whose sentence names a value', () => {

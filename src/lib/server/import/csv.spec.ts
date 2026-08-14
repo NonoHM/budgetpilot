@@ -30,21 +30,52 @@ describe('parseCsvTransactions', () => {
 		});
 	});
 
-	it('rejette les colonnes inconnues et les doublons', () => {
+	it('ignore une colonne inconnue au lieu de refuser tout le fichier', () => {
+		expect.assertions(4);
+
+		// This asserted the OPPOSITE until the alias table landed: one unrecognised column
+		// refused the whole file, which is why no real bank statement imported.
+		const unknownColumn = parseCsvTransactions(
+			'date;label;amount;iban\n2026-06-01;Achat;-10;FR76...'
+		);
+
+		expect(unknownColumn.invalidRows).toStrictEqual([]);
+		expect(unknownColumn.transactions).toHaveLength(1);
+		expect(unknownColumn.transactions[0].label).toBe('Achat');
+		// Dropped means DROPPED: the ignored column's value must not have been read into any
+		// role. Without this, a resolver that silently took `iban` as the label would pass the
+		// three assertions above.
+		expect(JSON.stringify(unknownColumn.transactions[0])).not.toContain('FR76');
+	});
+
+	it('refuse un en-tête dupliqué, parce que la dernière colonne écraserait la première', () => {
 		expect.assertions(2);
 
-		const unknownColumn = parseCsvTransactions(
-			'date;label;amount;iban\n2026-06-01;Achat;-10;FR...'
+		// Kept for a sharper reason than ambiguity: `toRecord` assigns
+		// `record[header] = row[index]`, so a later duplicate OVERWRITES an earlier one and the
+		// last column silently wins. This refusal is the only thing making that unreachable.
+		const duplicateHeader = parseCsvTransactions(
+			'date;label;amount;label\n2026-06-01;Achat;-10;Autre'
 		);
+
+		expect(duplicateHeader.transactions).toStrictEqual([]);
+		expect(duplicateHeader.invalidRows[0].fact).toStrictEqual({
+			code: 'duplicate-column',
+			column: 'label'
+		});
+	});
+
+	it('compte les lignes en double sans les refuser', () => {
+		expect.assertions(2);
+
 		const duplicates = parseCsvTransactions(
 			'date;label;amount;category\n2026-06-01;Achat;-10;Divers\n2026-06-01;Achat;-10;Divers'
 		);
 
-		expect(unknownColumn.invalidRows).toContainEqual({
-			scope: { kind: 'header' },
-			fact: { code: 'unknown-column', column: 'iban' }
-		});
 		expect(duplicates.summary.duplicateRows).toBe(1);
+		// The absolute figure beside it: one row still imported, so the count is not what a
+		// parser that refused both would report.
+		expect(duplicates.transactions).toHaveLength(1);
 	});
 
 	it('neutralizes labels compatible with a formula injection', () => {

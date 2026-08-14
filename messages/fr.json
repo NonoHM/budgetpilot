@@ -341,6 +341,7 @@
 	"import_refusal_duplicate_column": "Colonne dupliquée: {column}",
 	"import_refusal_missing_required_column": "Colonne requise absente: {column}",
 	"import_refusal_bad_column_count": "nombre de colonnes incorrect",
+	"import_refusal_ambiguous_column_mapping": "Deux colonnes se disputent le rôle {role} : {columns}",
 	"import_refusal_invalid_date": "date invalide",
 	"import_refusal_invalid_amount": "montant invalide",
 	"import_refusal_zero_amount": "montant à zéro refusé",

@@ -7,17 +7,58 @@ Checked against a running instance, not recalled. For the steps, see
 
 **CSV** and **XLSX**.
 
-| Profile          | What it reads                                |
-| ---------------- | -------------------------------------------- |
-| Auto             | Detects one of the below from the header row |
-| Banque Populaire | Their statement export                       |
-| Revolut          | Their statement export                       |
-| Home             | BudgetPilot's own CSV export                 |
-| Generic          | A four-column file you shape yourself        |
+| Profile          | What it reads                                   |
+| ---------------- | ----------------------------------------------- |
+| Auto             | Detects one of the below from the header row    |
+| Banque Populaire | Their statement export                          |
+| Revolut          | Their statement export                          |
+| Home             | BudgetPilot's own CSV export                    |
+| Generic          | Any file carrying a date, a label and an amount |
 
 The column layouts are in
 [getting started](../getting-started.md#first-steps-in-the-app), which also
 covers the two header shapes **Home** accepts, old and current.
+
+## What Generic recognises
+
+Generic needs three columns: a **date**, a **label** and an **amount**. It
+finds them by name, so the file does not have to use BudgetPilot's own
+spelling. A **category** column is used when present and is optional.
+
+| Role   | Column names recognised                                            |
+| ------ | ------------------------------------------------------------------ |
+| Date   | `date`, `dateOp`, `Started Date`, `Booking Date`, `Date operation` |
+| Label  | `label`, `libelle`, `Description`, `Partner Name`                  |
+| Amount | `amount`, `montant`, `Amount (EUR)`                                |
+
+Case and surrounding spaces do not matter.
+
+**Any column it does not recognise is ignored**, and the rest of the file
+imports. Ignoring is not the same as understanding: the column's values are
+not read, not stored, and not shown. Giving those columns a meaning is what
+the column mapping screen will do.
+
+### When Generic refuses
+
+**A column it needs is missing.** If no column matches the date, label or
+amount role, there is nothing to build a transaction from.
+
+**Two columns claim the same role.** A file carrying both `Date` and `dateOp`
+is refused, naming both, rather than one being chosen for you.
+
+This is the honest side of a trade, and it costs something real: **a file with
+two date-ish columns refuses where a guess would have imported it.** The guess
+is what we are refusing to make. Which of two date columns your transaction
+should be dated by is a question about your bank's file, not one this
+application can answer by looking at the names, and getting it wrong dates
+your money to the wrong day silently. When the column mapping screen lands,
+this is exactly the moment it will ask you to pick.
+
+A statement whose date column reads `08/01/2026` is a related problem this
+does not solve. BudgetPilot reads dates as day/month, so a file written
+month/day would import on the wrong date rather than refuse. Column names
+cannot express which order a file uses, so files in that order are not
+recognised for now.
 
 ## The four counts
 

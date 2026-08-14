@@ -45,6 +45,10 @@ export type CsvRefusalFact =
 	| { code: 'duplicate-column'; column: string }
 	| { code: 'missing-required-column'; column: string }
 	| { code: 'bad-column-count'; expected: number; actual: number }
+	// Two distinct headers claiming the same required role. Carries BOTH, because naming
+	// only one would tell the user to look at half the problem. See columnAliases.ts for why
+	// this refuses rather than picking.
+	| { code: 'ambiguous-column-mapping'; role: string; columns: string }
 	// row level
 	| { code: 'invalid-date'; column: string }
 	| { code: 'invalid-amount'; column: string }
@@ -100,6 +104,7 @@ export const CSV_REFUSAL_CODES = [
 	'duplicate-column',
 	'missing-required-column',
 	'bad-column-count',
+	'ambiguous-column-mapping',
 	'invalid-date',
 	'invalid-amount',
 	'zero-amount',

@@ -11,10 +11,16 @@ describe('refusal catalogue coverage', () => {
 	it('every code has a key in both locales, and the population is not empty', () => {
 		expect.assertions(3);
 		// The absolute figure: a run that checked nothing must not read as clean.
-		// 33 here: 28 from Task 1, `transaction-invalid` from Task 2, and the four
-		// file level codes (`file-too-large`, `file-empty`, `too-many-rows`,
-		// `header-not-recognized`) added in Task 3.
-		expect(CSV_REFUSAL_CODES.length).toBeGreaterThanOrEqual(33);
+		// 34 here: 28 from the original vocabulary, `transaction-invalid` from the domain
+		// conversion, the four file level codes (`file-too-large`, `file-empty`,
+		// `too-many-rows`, `header-not-recognized`), and `ambiguous-column-mapping` from the
+		// alias table.
+		//
+		// EXACT, not a floor. This was `toBeGreaterThanOrEqual(33)`, which is satisfied by a
+		// tree that has DELETED a code and added two, and by any future count above 33: an
+		// assertion with slack has a blind band the size of its slack. The count is knowable,
+		// so every change to it should be deliberate enough to edit this line.
+		expect(CSV_REFUSAL_CODES).toHaveLength(34);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));
