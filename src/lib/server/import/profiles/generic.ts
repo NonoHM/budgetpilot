@@ -30,6 +30,42 @@ import {
  *  sentinel rather than refusing anything. Aliasing it belongs with the mapping path. */
 const CATEGORY_COLUMN = 'category';
 
+/**
+ * The names a file may use to declare what currency its amounts are in.
+ *
+ * ## Why this exists, and why it REFUSES rather than converts
+ *
+ * This application holds euros. Every amount is stored as a bare `amountCents` with no currency
+ * beside it, and `formatCents` puts a euro symbol on all 121 of its call sites. So a file whose
+ * amounts are pounds has nowhere honest to go: importing it writes the right number under the
+ * wrong unit, and the user reads « -12,30 € » for a charge that was £12.30.
+ *
+ * `revolut.ts` has refused a non EUR row since long before this, and it is the MODEL here rather
+ * than the outlier. This gives `generic` the same honesty, with the same refusal code, so the two
+ * paths say the same thing for the same reason.
+ *
+ * ## The asymmetry is deliberate: a declared currency is checked, an absent one is assumed
+ *
+ * A file that DECLARES a currency is making a claim, and ignoring a claim the file makes is the
+ * defect. A file that declares nothing makes no claim, so there is nothing to contradict. Refusing
+ * on the absence of a signal would refuse almost every real statement, including this
+ * application's own export format, which carries no currency column at all.
+ *
+ * **What that costs, stated rather than left to be discovered: a user whose bank emits no currency
+ * column and is not in euros is still silently wrong, and this cannot fix them.** There is nothing
+ * to detect. Closing that needs somewhere to store a currency, or asking the user, and both belong
+ * to the aggregation issue rather than here.
+ *
+ * ## Only this profile can see it
+ *
+ * `maison`, `maison-v2` and `banque-populaire` match on exact ordered equality against a fixed
+ * header list, so a file carrying an extra currency column has the wrong column count and never
+ * reaches them: it falls through to here. A currency guard in those three would be unreachable,
+ * which is a guard in costume rather than a guard. Their EUR assumption is documented instead.
+ */
+const CURRENCY_COLUMNS = ['currency', 'devise'];
+const ACCEPTED_CURRENCY = 'EUR';
+
 export function matchesGenericHeader(): boolean {
 	return true;
 }
@@ -104,6 +140,9 @@ export function parseGenericRows({
 		};
 	}
 
+	// Which header, if any, declares the currency. Absent is the common case and is fine.
+	const currencyColumn = CURRENCY_COLUMNS.find((name) => headers.includes(name));
+
 	const resolvedFields = [columns.date, columns.label, columns.amount, CATEGORY_COLUMN].filter(
 		(field): field is string => Boolean(field)
 	);
@@ -137,6 +176,25 @@ export function parseGenericRows({
 		const date = normalizeDate(record[columns.date ?? ''] ?? '');
 		const label = sanitizeImportedText(record[columns.label ?? ''] ?? '');
 		const category = sanitizeImportedText(record[CATEGORY_COLUMN] || UNCLASSIFIED_CATEGORY);
+
+		// Per row, like `revolut.ts`, because the column is per row and a file may mix. Checked
+		// BEFORE the date and the amount so the refusal names the reason the row cannot be
+		// imported at all, rather than a downstream complaint about a value we were never going
+		// to keep.
+		if (currencyColumn) {
+			const declared = sanitizeImportedText(record[currencyColumn] ?? '');
+			// An EMPTY cell is not a declaration. A file with the column present and the value
+			// blank is the same situation as a file with no column, and must still import.
+			if (declared && declared.toUpperCase() !== ACCEPTED_CURRENCY) {
+				addRefusal(
+					refusals,
+					{ kind: 'row', line },
+					{ code: 'unsupported-currency', currency: refusalCellValue(declared) },
+					currencyColumn
+				);
+				return;
+			}
+		}
 
 		if (!isValidIsoDate(date)) {
 			addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-date', column: 'date' }, 'date');
