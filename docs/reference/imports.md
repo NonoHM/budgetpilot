@@ -11,7 +11,7 @@ Checked against a running instance, not recalled. For the steps, see
 | ---------------- | ----------------------------------------------- |
 | Auto             | Detects one of the below from the header row    |
 | Banque Populaire | Their statement export                          |
-| Revolut          | Their statement export                          |
+| Revolut          | Their statement export, French or English       |
 | Home             | BudgetPilot's own CSV export                    |
 | Generic          | Any file carrying a date, a label and an amount |
 
@@ -59,6 +59,28 @@ does not solve. BudgetPilot reads dates as day/month, so a file written
 month/day would import on the wrong date rather than refuse. Column names
 cannot express which order a file uses, so files in that order are not
 recognised for now.
+
+## What Revolut accepts
+
+The ten column export, with the columns named in **either French or English**, in
+any order. A statement downloaded from an English locale account reads
+`Started Date`, `Description`, `Amount`, `Currency`, `State`; a French one reads
+`Date de début`, `Description`, `Montant`, `Devise`, `État`. Both import.
+
+A row is imported only when its **State** reads `TERMINÉ` or `COMPLETED`. A
+pending or reverted row is refused, and the refusal names the state it found.
+
+### Revolut rows this still refuses
+
+**Anything not in euros.** BudgetPilot is a euro application, so a row whose
+Currency is GBP, USD or anything else is refused one row at a time. **A Revolut
+account in the UK or Ireland will get past the header and then have every row
+refused on the currency.** That is a decision about the whole application rather
+than about this profile, and it has not been taken.
+
+**Revolut's nine column export.** A semicolon separated variant with separate
+debit and credit columns exists in some regions. It is a different format rather
+than a reordering, and reading it needs a rule about which column is negative.
 
 ## The four counts
 
