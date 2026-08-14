@@ -400,6 +400,25 @@ const anyInput = fc.oneof(
 const RUNS = 2000;
 const FLOOR = 10;
 
+/**
+ * THE `mapped` PROFILE IS OUTSIDE THIS GATE'S POPULATION, AND THAT IS STATED HERE RATHER THAN LEFT
+ * TO BE INFERRED FROM ITS ABSENCE.
+ *
+ * Every generator above produces a DOCUMENT, and `inspect` calls the parser with no options. A
+ * mapped parse needs `{ profile: 'mapped', columnMapping }`, which no generated string can carry,
+ * so this gate cannot reach that parser at all.
+ *
+ * Recorded because of the exact failure this file already documents twice: a before-and-after on
+ * these counts across the mapped work comes back IDENTICAL, and identical means "the generator
+ * never emitted the shape", not "nothing was reclassified". Those numbers are evidence about the
+ * five profiles below, which is real, and no evidence whatever about the sixth.
+ *
+ * The before-and-after was still worth taking, for a different subject: the row loop was extracted
+ * out of `generic.ts` into `parseResolvedRows`, and generic IS in this population. Seed pinned at
+ * 424242, per profile accepted counts before and after the extraction: generic 130, maison-v2 241,
+ * maison 34, banque-populaire 146, revolut 29. Identical on both sides.
+ */
+
 describe('the CSV parser under generated input', () => {
 	it('refuses hostile input rather than raising, and reaches every profile while doing it', () => {
 		expect.assertions(5);

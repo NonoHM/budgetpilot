@@ -1,4 +1,5 @@
 import { resolveProfile } from './registry';
+import { parseMappedRows } from './profiles/mapped';
 import type {
 	CsvImportOptions,
 	CsvImportProfile,
@@ -67,6 +68,22 @@ export function parseImportRows(
 		return emptyResult([{ code: 'too-many-columns', max: maxColumns }], warnings);
 
 	const requestedProfile = options.profile ?? 'auto';
+
+	// Routed here rather than through `csvProfileParsers`, because this profile is chosen by a row
+	// in the database rather than by the header line. Keeping it out of the registry is what makes
+	// "a mapping is never auto-detected" structural: registered after `generic`, whose match
+	// returns true for everything, it would be unreachable today and reachable the day somebody
+	// reorders that list, with nothing able to tell the difference. See `profiles/mapped.ts`.
+	if (requestedProfile === 'mapped') {
+		return parseMappedRows({
+			rows: normalizedRows,
+			warnings,
+			sourceName: options.sourceName,
+			categorizationRules: options.categorizationRules ?? [],
+			columnMapping: options.columnMapping
+		});
+	}
+
 	const parser = resolveProfile(normalizedRows[0].cells, requestedProfile);
 	if (!parser) {
 		const profileLabel = requestedProfile === 'auto' ? 'CSV' : profileErrorLabel(requestedProfile);
