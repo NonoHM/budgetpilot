@@ -108,7 +108,6 @@ export function matchesRevolutHeader(headers: string[]): boolean {
 export function parseRevolutRows({
 	rows,
 	warnings,
-	sourceName,
 	categorizationRules
 }: CsvProfileParseInput): CsvImportResult {
 	const headers = normalizeHeaderCells(rows[0].cells);
@@ -221,8 +220,7 @@ export function parseRevolutRows({
 			label,
 			amountCents: absAmountCents,
 			type,
-			category: product ? `${category}:${product}` : category,
-			account: sourceName
+			category: product ? `${category}:${product}` : category
 		});
 
 		if (seenFingerprints.has(fingerprint)) {

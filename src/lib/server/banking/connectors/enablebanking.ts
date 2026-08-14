@@ -356,7 +356,7 @@ function mapTransaction(
 				amountCents: absAmountCents,
 				type,
 				category: UNCLASSIFIED_CATEGORY,
-				account: `enablebanking:${accountId}`
+				accountScope: `enablebanking:${accountId}`
 			});
 
 	return {

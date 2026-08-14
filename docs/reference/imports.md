@@ -131,6 +131,12 @@ the rows that are new. Verified: the same five-row file imported twice
 reported 5 read / 5 imported / 0 duplicates, then 5 read / 0 imported /
 5 duplicates.
 
+**The file's name does not matter.** Downloading your statement a second time,
+so it lands as `releve (1).csv`, and importing that changes nothing: it is the
+same statement and it is recognised as such. Two transactions that are
+genuinely distinct still both import, even when they share a date, a label and
+an amount, as long as something else about them differs.
+
 ## Destination account
 
 Optional, and applied only on the **very first** import of a given bank

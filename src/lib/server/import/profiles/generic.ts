@@ -73,7 +73,6 @@ export function matchesGenericHeader(): boolean {
 export function parseGenericRows({
 	rows,
 	warnings,
-	sourceName,
 	categorizationRules
 }: CsvProfileParseInput): CsvImportResult {
 	const headers = rows[0].cells.map((header) => header.trim().toLowerCase());
@@ -227,8 +226,7 @@ export function parseGenericRows({
 			label,
 			amountCents: Math.abs(amountCents),
 			type,
-			category,
-			account: sourceName
+			category
 		});
 		if (seenFingerprints.has(fingerprint)) {
 			duplicateRows += 1;

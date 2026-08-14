@@ -54,7 +54,6 @@ export function matchesBanquePopulaireHeader(headers: string[]): boolean {
 export function parseBanquePopulaireRows({
 	rows,
 	warnings,
-	sourceName,
 	categorizationRules
 }: CsvProfileParseInput): CsvImportResult {
 	const headers = normalizeHeaderCells(rows[0].cells);
@@ -135,8 +134,7 @@ export function parseBanquePopulaireRows({
 			label,
 			amountCents: amount.amountCents,
 			type: amount.type,
-			reference,
-			account: sourceName
+			reference
 		});
 		if (seenFingerprints.has(fingerprint)) {
 			duplicateRows += 1;
