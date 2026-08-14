@@ -77,6 +77,8 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			return m.import_refusal_file_empty();
 		case 'too-many-rows':
 			return m.import_refusal_too_many_rows({ max: fact.max });
+		case 'too-many-columns':
+			return m.import_refusal_too_many_columns({ max: fact.max });
 		case 'header-not-recognized':
 			return m.import_refusal_header_not_recognized({ profile: fact.profile });
 		case 'unknown-column':

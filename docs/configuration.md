@@ -224,6 +224,32 @@ tooling is built around a database server. [Using PostgreSQL or
 MySQL](./database-providers.md) walks through both, including what switching
 an existing install actually costs.
 
+## How many columns a statement may have
+
+`CSV_MAX_COLUMNS` is **optional**: leave it out and you get 512. It bounds how
+many columns an imported statement may declare, checked before anything else
+reads the file.
+
+**It is not there because a wide file is slow to read.** It is not. Measured
+against the widest shapes the 256 KB limit allows: 100 columns over 1000 rows
+parses in 37 milliseconds, and 27,000 columns in a single row parses in 28. The
+size limit already bounds the work.
+
+It is there for the screen that lets you say which column holds your dates,
+your labels and your amounts. That screen draws one card per column and shows
+three real values inside each, so its cost is per column rather than per byte.
+27,000 columns in one row fits comfortably inside the size limit and would ask
+that screen for 27,000 cards and 81,000 values.
+
+512 is about thirteen times the widest thing anyone actually exports: a bank
+statement carries around fifteen columns, an accounting package around forty.
+Set it lower than 40 and the startup log says so, because at that point you are
+refusing files this app should be able to read.
+
+A value above 4096 is refused at startup rather than quietly reduced, for the
+same reason as the two limits below: **a limit you set should be the limit that
+runs.**
+
 ## Backup size
 
 `BACKUP_MAX_JSON_NODES` is **optional**: leave it out and you get 2,000,000,
@@ -279,11 +305,12 @@ backup rather than a statement that was refused.
 BODY_SIZE_LIMIT=21000000
 IMPORT_XLSX_MAX_UNCOMPRESSED_MB=8   # optional, 32 maximum
 BACKUP_MAX_JSON_NODES=2000000       # optional, 4000000 maximum
+CSV_MAX_COLUMNS=512                 # optional, 4096 maximum
 ```
 
 | What you are uploading    | What limits it                                              | Can you change it |
 | ------------------------- | ----------------------------------------------------------- | ----------------- |
-| A bank statement, `.csv`  | 256 KB                                                      | no                |
+| A bank statement, `.csv`  | 256 KB, and a limit on how many columns it declares         | the second one    |
 | A bank statement, `.xlsx` | 256 KB as sent, and a second limit on the sheet once opened | the second one    |
 | A backup, to restore      | 20 MB, and a second limit on how many entries it holds      | the second one    |
 

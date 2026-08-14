@@ -39,6 +39,7 @@ export type CsvRefusalFact =
 	| { code: 'file-too-large'; bytes: number }
 	| { code: 'file-empty' }
 	| { code: 'too-many-rows'; max: number }
+	| { code: 'too-many-columns'; max: number }
 	| { code: 'header-not-recognized'; profile: string }
 	// structural
 	| { code: 'unknown-column'; column: string }
@@ -103,6 +104,7 @@ export const CSV_REFUSAL_CODES = [
 	'file-too-large',
 	'file-empty',
 	'too-many-rows',
+	'too-many-columns',
 	'header-not-recognized',
 	'unknown-column',
 	'duplicate-column',
