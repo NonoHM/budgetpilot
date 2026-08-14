@@ -936,9 +936,7 @@ describe('restoreBackup', () => {
 	it('refuses a mapping carrying both names and indices', async () => {
 		expect.assertions(1);
 
-		await expect(
-			restoreBackup('user-a', payloadWithMapping({ dateIndex: 0 }))
-		).rejects.toThrow();
+		await expect(restoreBackup('user-a', payloadWithMapping({ dateIndex: 0 }))).rejects.toThrow();
 	});
 
 	it('refuses two mappings sharing one fingerprint before writing either', async () => {

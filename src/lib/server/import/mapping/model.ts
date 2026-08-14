@@ -12,7 +12,11 @@ export const MAPPING_ROLES = ['date', 'label', 'amount', 'category'] as const;
 export type MappingRole = (typeof MAPPING_ROLES)[number];
 
 /** The three a transaction cannot be built without. `category` is the optional fourth. */
-export const REQUIRED_MAPPING_ROLES = ['date', 'label', 'amount'] as const satisfies readonly MappingRole[];
+export const REQUIRED_MAPPING_ROLES = [
+	'date',
+	'label',
+	'amount'
+] as const satisfies readonly MappingRole[];
 
 export type ColumnMatchBy = 'name' | 'position';
 

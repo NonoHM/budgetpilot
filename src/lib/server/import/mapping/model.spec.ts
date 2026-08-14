@@ -111,9 +111,10 @@ describe('validateColumnMapping, what it refuses', () => {
 	it('refuses an unknown matchBy rather than treating it as a default', () => {
 		// The value arrives from a restored backup as free text. Defaulting it would let a payload
 		// choose the weaker matching mode by writing a typo.
-		expect(
-			validateColumnMapping({ ...byName, matchBy: 'whatever' as unknown as 'name' })
-		).toEqual({ ok: false, reason: { code: 'match-by-unknown', value: 'whatever' } });
+		expect(validateColumnMapping({ ...byName, matchBy: 'whatever' as unknown as 'name' })).toEqual({
+			ok: false,
+			reason: { code: 'match-by-unknown', value: 'whatever' }
+		});
 	});
 
 	it('refuses a column count that is not a positive whole number', () => {

@@ -250,6 +250,27 @@ A value above 4096 is refused at startup rather than quietly reduced, for the
 same reason as the two limits below: **a limit you set should be the limit that
 runs.**
 
+## How many column mappings one account may keep
+
+`COLUMN_MAPPINGS_PER_USER` is **optional**: leave it out and you get 50.
+
+When you tell BudgetPilot which column of a statement holds your dates, your
+labels and your amounts, it remembers that answer so the next statement with the
+same columns imports without asking. One answer is kept per distinct set of
+column names.
+
+50 is generous on purpose. Five banks with three format changes each is fifteen.
+
+**Nothing deletes a remembered answer yet.** A screen to review and remove them
+is owed, and until it exists this limit is the only thing bounding a table that
+one upload can grow. That is also why reaching it is refused rather than solved
+by quietly forgetting your oldest answer: forgetting one would mean your regular
+bank stops being recognised because you once imported twenty odd files, which is
+a worse surprise than being told the limit was reached.
+
+If you do reach it, the refusal says so and points at the issue tracking the
+removal screen.
+
 ## Backup size
 
 `BACKUP_MAX_JSON_NODES` is **optional**: leave it out and you get 2,000,000,
@@ -306,6 +327,7 @@ BODY_SIZE_LIMIT=21000000
 IMPORT_XLSX_MAX_UNCOMPRESSED_MB=8   # optional, 32 maximum
 BACKUP_MAX_JSON_NODES=2000000       # optional, 4000000 maximum
 CSV_MAX_COLUMNS=512                 # optional, 4096 maximum
+COLUMN_MAPPINGS_PER_USER=50         # optional, 500 maximum
 ```
 
 | What you are uploading    | What limits it                                              | Can you change it |

@@ -59,6 +59,29 @@ export function resolveColumnMappingsPerUser(): number {
 	return cap;
 }
 
+/**
+ * Boot check, called from `hooks.server.ts` beside the other two bounds. Refuses to start on an
+ * out-of-range value, and reports any departure from the default.
+ *
+ * At boot rather than on first use, which is where `resolveColumnMappingsPerUser` would otherwise
+ * surface it: an operator typo would then appear as one user's import failing, months later, with
+ * a message about a limit rather than about their configuration.
+ */
+export function assertColumnMappingCapConfigured(): void {
+	const cap = resolveColumnMappingsPerUser();
+	if (cap === COLUMN_MAPPINGS_PER_USER_DEFAULT) return;
+
+	console.warn(
+		`[budgetpilot] ${COLUMN_MAPPINGS_PER_USER_ENV}=${cap} differs from the default of ${COLUMN_MAPPINGS_PER_USER_DEFAULT}. It bounds how many remembered column mappings one user may hold.`
+	);
+
+	if (cap > COLUMN_MAPPINGS_PER_USER_DEFAULT) {
+		console.warn(
+			`[budgetpilot] ${COLUMN_MAPPINGS_PER_USER_ENV} is RAISED above the default, and nothing deletes a column mapping yet (issue #326), so this cap is the only thing bounding a table one upload can grow.`
+		);
+	}
+}
+
 export type SaveColumnMappingResult =
 	| { ok: true; id: string }
 	| { ok: false; reason: ColumnMappingRefusal | { code: 'cap-reached'; max: number } };

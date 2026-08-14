@@ -16,6 +16,7 @@ import { assertForwardingConfigSafe, parseTrustedProxies } from '$lib/server/net
 import { assertXlsxBoundConfigured } from '$lib/server/import/zipBounds';
 import { assertBackupBoundConfigured } from '$lib/server/backup/parseBounds';
 import { assertCsvColumnBoundConfigured } from '$lib/server/import/columnBounds';
+import { assertColumnMappingCapConfigured } from '$lib/server/import/mapping/store';
 // Side-effect imports only: each module throws at load time if its required secret
 // (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
 // the one module SvelteKit always loads at boot, so importing them here turns a missing
@@ -46,6 +47,9 @@ export const init: ServerInit = async () => {
 	// declare, and it exists for the designation screen rather than for the parser. See
 	// server/import/columnBounds.ts, which states the measurement saying the parser is fine.
 	assertCsvColumnBoundConfigured();
+	// And the third: how many remembered column mappings one user may hold. Nothing deletes one
+	// yet (#326), so this cap is the only thing bounding a table an upload can grow.
+	assertColumnMappingCapConfigured();
 	await assertBootstrapTokenConfigured();
 	// Reports, never gates: see the module for why an over-privileged role is a loud warning
 	// rather than a refusal to start.
