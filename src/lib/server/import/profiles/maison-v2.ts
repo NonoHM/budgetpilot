@@ -359,6 +359,14 @@ function validateGroupShape(
 		return { fact: { code: 'split-reserved-category-on-part' }, field: 'category' };
 	}
 
+	// BOTH OF THE NEXT TWO BRANCHES ARE UNREACHABLE TODAY, and they are left in place on purpose:
+	// see #303. `parseSignedAmount` is the only source of `amountCents` and `totalCents`, it folds
+	// its zero check into its `null` return, and both call sites (:255, :265) refuse a `null` before
+	// the line can join a group. So no group can contain a zero, and a zero amount is reported to
+	// the user as « montant invalide » rather than as the zero it is. That sentence is false, and
+	// `maison` v1 does say the right thing for the same input, which is the divergence #303 tracks.
+	// Deleting these would treat the symptom: the fix is upstream, in `parseSignedAmount`, and it
+	// changes a user-visible string, which is why it is not in the refusal-contract PR.
 	const total = group[0].totalCents;
 	if (total === 0) return { fact: { code: 'zero-amount', column: 'montant' }, field: 'amount' };
 	if (group.some((part) => part.amountCents === 0)) {
