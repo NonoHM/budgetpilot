@@ -1,4 +1,4 @@
-import { MAPPING_ROLES, type ColumnMappingInput, type MappingRole } from './model';
+import { MAPPING_ROLES, type MappingRole, type UntrustedColumnMapping } from './model';
 
 /**
  * Which header of THIS file fills each role, or null where the role was never mapped.
@@ -54,15 +54,19 @@ function fold(header: string): string {
  * order sensitive, which lives in the other file. Neither half covers the other, and the recap
  * screen has to say « mémorisée par position » for exactly this reason.
  */
-export function applyColumnMapping(mapping: ColumnMappingInput, headers: string[]): MappingVerdict {
+export function applyColumnMapping(mapping: UntrustedColumnMapping, headers: string[]): MappingVerdict {
 	if (headers.length === 0) return { kind: 'lost' };
 
-	return mapping.matchBy === 'position'
-		? applyByPosition(mapping, headers)
-		: applyByName(mapping, headers);
+	// An unrecognised `matchBy` resolves NOTHING rather than falling through to the name branch.
+	// This function runs before the validator at the route, so a restored row carrying a typo must
+	// not quietly get the name treatment: that would be a stored record choosing its own matching
+	// mode by being malformed.
+	if (mapping.matchBy === 'position') return applyByPosition(mapping, headers);
+	if (mapping.matchBy !== 'name') return { kind: 'lost' };
+	return applyByName(mapping, headers);
 }
 
-function applyByName(mapping: ColumnMappingInput, headers: string[]): MappingVerdict {
+function applyByName(mapping: UntrustedColumnMapping, headers: string[]): MappingVerdict {
 	const remembered: Record<MappingRole, string | null> = {
 		date: mapping.dateColumn,
 		label: mapping.labelColumn,
@@ -100,7 +104,7 @@ function applyByName(mapping: ColumnMappingInput, headers: string[]): MappingVer
 	return { kind: 'partial', columns: kept, lostRoles };
 }
 
-function applyByPosition(mapping: ColumnMappingInput, headers: string[]): MappingVerdict {
+function applyByPosition(mapping: UntrustedColumnMapping, headers: string[]): MappingVerdict {
 	// The shape check, which is the whole of what this path can verify. See the docstring.
 	if (mapping.columnCount !== headers.length) return { kind: 'lost' };
 

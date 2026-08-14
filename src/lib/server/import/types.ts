@@ -1,7 +1,7 @@
 import type { Transaction, TransactionNature } from '$lib/domain/transaction';
 import type { CategorizationRuleInput } from '$lib/server/categorization/rules';
 import type { CsvRefusal } from './refusals';
-import type { ColumnMappingInput } from './mapping/model';
+import type { UntrustedColumnMapping } from './mapping/model';
 
 export interface CsvImportOptions {
 	sourceName?: string;
@@ -19,7 +19,7 @@ export interface CsvImportOptions {
 	 * what made it unbundlable and put every profile parser out of a fuzzer's reach, so the
 	 * database stays at the route and the parser stays pure.
 	 */
-	columnMapping?: ColumnMappingInput;
+	columnMapping?: UntrustedColumnMapping;
 }
 
 /**

@@ -48,6 +48,18 @@ export function parseCsvTransactionRows(
 	return parseImportRows(rows, options);
 }
 
+/**
+ * The header cells a parse of these rows will actually see.
+ *
+ * Exported so the route can fingerprint the SAME bytes the parser resolves against. Reading
+ * `rows[0].cells` directly is one BOM away from a fingerprint that never matches the mapping it
+ * just wrote, and the symptom would be "it forgets my designation", with nothing to point at.
+ */
+export function importHeaderCells(rows: ParsedCsvRow[]): string[] {
+	const normalized = normalizeParsedRows(rows);
+	return normalized.length === 0 ? [] : normalized[0].cells;
+}
+
 export function parseImportRows(
 	rows: ParsedCsvRow[],
 	options: CsvImportOptions = {}

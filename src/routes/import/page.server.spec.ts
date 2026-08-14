@@ -3,6 +3,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { buildDeduplicationKey } from '$lib/server/import/utils/safety';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
+import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -28,6 +29,28 @@ const db = vi.hoisted(() => {
 		createdAt: Date;
 	};
 	type Category = { id: string; userId: string; name: string };
+	type ColumnMappingRow = {
+		id: string;
+		userId: string;
+		fingerprint: string;
+		matchBy: string;
+		dateColumn: string | null;
+		labelColumn: string | null;
+		amountColumn: string | null;
+		categoryColumn: string | null;
+		dateIndex: number | null;
+		labelIndex: number | null;
+		amountIndex: number | null;
+		categoryIndex: number | null;
+		columnCount: number;
+		useCount: number;
+		lastUsedAt: Date | null;
+	};
+	type ColumnMappingWhere = { userId?: string; fingerprint: { in: string[] } };
+	type ColumnMappingUpdateArgs = {
+		where: { id: string; userId: string };
+		data: { useCount: { increment: number }; lastUsedAt: Date };
+	};
 	type Batch = {
 		id: string;
 		userId: string;
@@ -91,6 +114,7 @@ const db = vi.hoisted(() => {
 		rules: [] as Rule[],
 		transactions: [] as Transaction[],
 		netWorthAccounts: [] as NetWorthAccount[],
+		columnMappings: [] as ColumnMappingRow[],
 		nextId: 1
 	};
 
@@ -103,12 +127,14 @@ const db = vi.hoisted(() => {
 	return {
 		state,
 		reset() {
-			state.accounts = [];
-			state.categories = [];
-			state.batches = [];
-			state.rules = [];
-			state.transactions = [];
-			state.netWorthAccounts = [];
+			// Iterated rather than named one by one. A hand-written list is a list of what its
+			// author knew about, and cleanup is where such a list is least likely to be re-read:
+			// a table added to `state` and forgotten here survives into the next test, where it
+			// reads as a guard that failed to fire rather than as leftover state. Measured on the
+			// backup spec's fake, which had exactly this shape.
+			for (const value of Object.values(state)) {
+				if (Array.isArray(value)) value.length = 0;
+			}
 			state.nextId = 1;
 		},
 		prisma: {
@@ -209,6 +235,45 @@ const db = vi.hoisted(() => {
 			},
 			categorizationRule: {
 				findMany: vi.fn(async () => state.rules.filter((rule) => rule.active))
+			},
+			// A fake that NARROWS on a predicate it does not model, never one that approximates it.
+			// A `where` this does not understand throws, because a fake that silently ignores a
+			// clause makes every assertion about scoping pass vacuously, and the clause being
+			// ignored here would be `userId`.
+			columnMapping: {
+				findFirst: vi.fn(async ({ where }: { where: ColumnMappingWhere }) => {
+					// FAITHFUL, not strict, and the difference was measured. An earlier version threw
+					// on any where that was not exactly `{userId, fingerprint}`, which sounds like the
+					// fake-must-fail-loudly rule and defeated the break-check that matters: dropping
+					// `userId` from the production query then reddened every test in this file with
+					// "unmodelled where" before reaching the one assertion about cross-user scoping.
+					// Red on the wrong gate is not a result.
+					//
+					// So an ABSENT clause is modelled as absent, which is what Prisma does, and the
+					// loud throw is kept for a clause this cannot express at all.
+					const keys = Object.keys(where).sort();
+					const unmodelled = keys.filter((key) => key !== 'userId' && key !== 'fingerprint');
+					if (unmodelled.length > 0 || where.fingerprint === undefined)
+						throw new Error(`columnMapping.findFirst: unmodelled where ${keys.join(',')}`);
+					const wanted = where.fingerprint.in;
+					return (
+						state.columnMappings.find(
+							(row) =>
+								(where.userId === undefined || row.userId === where.userId) &&
+								wanted.includes(row.fingerprint)
+						) ?? null
+					);
+				}),
+				updateMany: vi.fn(async ({ where, data }: ColumnMappingUpdateArgs) => {
+					const rows = state.columnMappings.filter(
+						(row) => row.id === where.id && row.userId === where.userId
+					);
+					for (const row of rows) {
+						row.useCount += data.useCount.increment;
+						row.lastUsedAt = data.lastUsedAt;
+					}
+					return { count: rows.length };
+				})
 			},
 			categoryRule: {
 				findMany: vi.fn(async () =>
@@ -1259,6 +1324,105 @@ describe('/import actions', () => {
 		expect(db.state.transactions).toHaveLength(1);
 		expect(result.importResult.importedRows).toBe(0);
 		expect(result.importResult.duplicateRows).toBe(1);
+	});
+
+	/**
+	 * BREAK MATRIX for the owner scoping, 2026-08-14. The break: drop `userId` from
+	 * `readColumnMapping`'s where clause, which is how it would really arrive (the key is
+	 * `(userId, fingerprint)`, the fingerprint is 64 hex characters, so it reads as unique on its
+	 * own; it is not, because it is derived from a bank's PUBLIC column names).
+	 *
+	 * **One red in the whole unit suite**: `is invisible to another user`. 2627 green.
+	 * `store.db-smoke.ts` adds two more against a real engine, and the two layers are not
+	 * duplicates: the db-smoke proves the QUERY is scoped, this proves the scoped query is the one
+	 * the ACTION calls.
+	 *
+	 * The first attempt at this break was RED ON THE WRONG GATE and is worth recording, because it
+	 * looked like a result. The fake's `findFirst` threw on any where that was not exactly
+	 * `{userId, fingerprint}`, so the break reddened every test in this file with "unmodelled
+	 * where" before reaching the one assertion about scoping. The fake now models an absent clause
+	 * as absent, which is what Prisma does, and keeps the loud throw for a clause it cannot express.
+	 */
+	describe('a remembered column mapping at the import action', () => {
+		// A file no alias table can read: `Jour`, `Intitule operation` and `Somme` are in no alias
+		// list, so without a mapping this content is refused. That is what makes the two tests below
+		// separate two states rather than one.
+		const UNRECOGNISED = 'Jour;Intitule operation;Somme\n24/06/2026;CARREFOUR MARKET;-24,90';
+
+		function rememberFor(userId: string) {
+			const mapping = {
+				matchBy: 'name' as const,
+				dateColumn: 'jour',
+				labelColumn: 'intitule operation',
+				amountColumn: 'somme',
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null,
+				columnCount: 3
+			};
+			const row = {
+				id: `mapping-${userId}`,
+				userId,
+				fingerprint: fingerprintFor(['Jour', 'Intitule operation', 'Somme'], 'name'),
+				...mapping,
+				useCount: 0,
+				lastUsedAt: null as Date | null
+			};
+			db.state.columnMappings.push(row);
+			return row;
+		}
+
+		it('imports through the mapping and counts the use', async () => {
+			const row = rememberFor(testUser.id);
+
+			const result = await runImportWithFile(UNRECOGNISED);
+
+			expect(result.importResult.importedRows).toBe(1);
+			expect(db.state.transactions).toHaveLength(1);
+			expect(db.state.transactions[0].label).toBe('CARREFOUR MARKET');
+			// The count and the stamp, because the recap sentence reads both.
+			expect(row.useCount).toBe(1);
+			expect(row.lastUsedAt).not.toBeNull();
+		});
+
+		it('is invisible to another user, whose identical file is refused', async () => {
+			// The fingerprint is derived from a bank's PUBLIC column names, so `user-b` designating
+			// this shape produces the SAME fingerprint `user-a` would. Without the userId in the where
+			// clause this file would import, which is the whole of the authorization control.
+			const foreign = rememberFor('user-b');
+
+			const result = await runImportWithFile(UNRECOGNISED);
+
+			expect(db.state.transactions).toStrictEqual([]);
+			expect(foreign.useCount).toBe(0);
+			// The REASON, not merely that it was refused: this must fail for "no column mapped these
+			// headers", the same way it does for a user who has designated nothing, and not through
+			// some second guard that would mask a scoping bug behind a different sentence.
+			expect(getImportResult(result).invalidRowDetails.map((row) => row.fact.code)).toStrictEqual([
+				'missing-required-column',
+				'missing-required-column',
+				'missing-required-column'
+			]);
+		});
+
+		it('falls through to today behaviour when the remembered columns are gone', async () => {
+			// Plate state 3b at the route. The designation screen does not exist yet, so a bank that
+			// renames a column must cost the user exactly what it costs them today and not more.
+			rememberFor(testUser.id);
+
+			const renamed = 'Jour;Libelle complet;Somme\n24/06/2026;CARREFOUR MARKET;-24,90';
+			const result = await runImportWithFile(renamed);
+
+			expect(db.state.transactions).toStrictEqual([]);
+			// `missing-required-column`, which is the unmapped path speaking, NOT
+			// `mapping-columns-missing`, which would mean the parser was handed a mapping that does
+			// not fit. The difference is the whole of "falls through".
+			expect(getImportResult(result).invalidRowDetails.map((row) => row.fact.code)).not.toContain(
+				'mapping-columns-missing'
+			);
+		});
 	});
 });
 

@@ -7,7 +7,7 @@ import { applyColumnMapping } from '../mapping/apply';
 import {
 	MAPPING_ROLES,
 	validateColumnMapping,
-	type ColumnMappingInput,
+	type UntrustedColumnMapping,
 	type MappingRole
 } from '../mapping/model';
 import { parseResolvedRows } from './resolvedRows';
@@ -17,7 +17,7 @@ const CURRENCY_COLUMNS = ['currency', 'devise'];
 const ACCEPTED_CURRENCY = 'EUR';
 
 export interface MappedParseInput extends CsvProfileParseInput {
-	columnMapping: ColumnMappingInput | undefined;
+	columnMapping: UntrustedColumnMapping | undefined;
 }
 
 /**
@@ -102,7 +102,7 @@ export function parseMappedRows({
  * is keyed by the folded one. Two consumers, two forms, one fold.
  */
 function resolveMappedColumns(
-	mapping: ColumnMappingInput | undefined,
+	mapping: UntrustedColumnMapping | undefined,
 	rawHeaders: string[],
 	refusals: CsvRefusal[]
 ): { columns: { date: string; label: string; amount: string; category: string | null } } | null {
@@ -153,7 +153,7 @@ function resolveMappedColumns(
 }
 
 /** Whether the mapping actually carries this role, in whichever space it uses. */
-function mappedRoleIsSet(mapping: ColumnMappingInput, role: MappingRole): boolean {
+function mappedRoleIsSet(mapping: UntrustedColumnMapping, role: MappingRole): boolean {
 	const names: Record<MappingRole, string | null> = {
 		date: mapping.dateColumn,
 		label: mapping.labelColumn,
