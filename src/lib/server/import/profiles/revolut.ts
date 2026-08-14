@@ -22,6 +22,7 @@ import {
 	buildNotes,
 	firstPresent,
 	hashFingerprint,
+	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
@@ -102,7 +103,12 @@ export function parseRevolutRows({
 		const currency = sanitizeImportedText(record.Devise ?? '');
 
 		if (!isCompletedState(state)) {
-			addRefusal(refusals, { kind: 'row', line }, { code: 'state-not-completed', state }, 'État');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'state-not-completed', state: refusalCellValue(state) },
+				'État'
+			);
 			return;
 		}
 
@@ -110,7 +116,7 @@ export function parseRevolutRows({
 			addRefusal(
 				refusals,
 				{ kind: 'row', line },
-				{ code: 'unsupported-currency', currency },
+				{ code: 'unsupported-currency', currency: refusalCellValue(currency) },
 				'Devise'
 			);
 			return;

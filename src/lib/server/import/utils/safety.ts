@@ -11,6 +11,34 @@ export function sanitizeImportedText(value: string): string {
 	return DANGEROUS_TEXT_PATTERN.test(sanitized) ? `'${sanitized}` : sanitized;
 }
 
+/**
+ * How much of a cell a refusal fact may carry back to the browser.
+ *
+ * Every field this bounds holds a short token by construction: a nature, an ISO currency code,
+ * a transaction state. 64 characters is far more than any of them needs and far less than a
+ * cell can hold.
+ */
+const MAX_REFUSAL_CELL_LENGTH = 64;
+
+/**
+ * A cell value on its way into a refusal fact, and therefore on its way to the browser.
+ *
+ * `sanitizeImportedText` normalises mojibake, collapses whitespace and neutralises a leading
+ * formula character, but it puts NO BOUND on length, which did not matter while these values
+ * stayed on the server. A refusal fact is different: it is serialised into the page's data on
+ * every failed import, so an unbounded cell means a user's own upload can put an arbitrary
+ * blob there, limited only by the file size cap.
+ *
+ * So the rule for a fact payload is stricter than for stored text: sanitise AND bound. Use this
+ * for anything lifted from a cell, never `sanitizeImportedText` alone.
+ */
+export function refusalCellValue(value: string): string {
+	const sanitized = sanitizeImportedText(value);
+	return sanitized.length > MAX_REFUSAL_CELL_LENGTH
+		? `${sanitized.slice(0, MAX_REFUSAL_CELL_LENGTH)}...`
+		: sanitized;
+}
+
 export function buildNotes(values: Array<string | undefined>): string {
 	return values
 		.map((value) => sanitizeImportedText(value ?? ''))

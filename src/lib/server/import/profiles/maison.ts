@@ -12,6 +12,7 @@ import { parseAmountCents } from '../utils/money';
 import {
 	buildMaisonDeduplicationKey,
 	hashFingerprint,
+	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
@@ -119,7 +120,7 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 				addRefusal(
 					refusals,
 					{ kind: 'row', line },
-					{ code: 'invalid-nature', value: record.nature ?? '' },
+					{ code: 'invalid-nature', value: refusalCellValue(rawNature) },
 					'nature'
 				);
 				return;
