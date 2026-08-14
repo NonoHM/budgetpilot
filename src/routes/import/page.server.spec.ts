@@ -460,6 +460,30 @@ describe('/import load', () => {
 });
 
 describe('/import actions', () => {
+	it('detects the format and ignores any profile the client tries to send', async () => {
+		expect.assertions(4);
+
+		// The page offers no profile selector, and this is the PROPERTY behind that rather than
+		// the wording: the server hardcodes `profile: 'auto'` and never reads a profile from the
+		// form, so a hand crafted POST cannot pick one either. Guarding the copy would go stale
+		// the moment somebody rephrases it; guarding this does not.
+		const honest = await runImportWithFile(`${BANQUE_POPULAIRE_HEADER}\n${AUCHAN_ROW}`);
+		// A DIFFERENT amount, so the second run is not deduplicated against the first. Without
+		// this the forged run imports 0 rows for a reason that has nothing to do with profiles,
+		// and the test would fail while the app was behaving correctly.
+		const forged = await runImportWithFileAndFields(
+			`${BANQUE_POPULAIRE_HEADER}\n${AUCHAN_ROW.replace('-38,46', '-51,20')}`,
+			{ profile: 'maison' }
+		);
+
+		// The presence half: detection really did run and really did produce a result, so the
+		// equality below is not two identical failures agreeing with each other.
+		expect(getImportResult(honest).profile).toBe('banque-populaire');
+		expect(getImportResult(honest).importedRows).toBe(1);
+		expect(getImportResult(forged).profile).toBe('banque-populaire');
+		expect(getImportResult(forged).importedRows).toBe(1);
+	});
+
 	beforeEach(() => {
 		db.reset();
 		vi.clearAllMocks();
@@ -1232,6 +1256,13 @@ describe('/import actions', () => {
 async function runImportWithFile(content: string) {
 	const formData = new FormData();
 	formData.set('csvFile', new File([content], 'export.csv', { type: 'text/csv' }));
+	return runImport(formData);
+}
+
+async function runImportWithFileAndFields(content: string, fields: Record<string, string>) {
+	const formData = new FormData();
+	formData.set('csvFile', new File([content], 'export.csv', { type: 'text/csv' }));
+	for (const [key, value] of Object.entries(fields)) formData.set(key, value);
 	return runImport(formData);
 }
 
