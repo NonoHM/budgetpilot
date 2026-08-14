@@ -92,6 +92,8 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 				role: fact.role,
 				columns: fact.columns
 			});
+		case 'amount-sign-in-separate-column':
+			return m.import_refusal_amount_sign_in_separate_column({ column: fact.column });
 		case 'invalid-date':
 			return m.import_refusal_invalid_date();
 		case 'invalid-amount':

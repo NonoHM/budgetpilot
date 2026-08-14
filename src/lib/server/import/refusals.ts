@@ -49,6 +49,10 @@ export type CsvRefusalFact =
 	// only one would tell the user to look at half the problem. See columnAliases.ts for why
 	// this refuses rather than picking.
 	| { code: 'ambiguous-column-mapping'; role: string; columns: string }
+	// The amount column holds magnitudes and a sibling column holds the direction, so every
+	// row would import as income. Carries the offending column so the user can look at it: a
+	// refusal saying "your amounts have no sign" leaves them nowhere to go.
+	| { code: 'amount-sign-in-separate-column'; column: string }
 	// row level
 	| { code: 'invalid-date'; column: string }
 	| { code: 'invalid-amount'; column: string }
@@ -105,6 +109,7 @@ export const CSV_REFUSAL_CODES = [
 	'missing-required-column',
 	'bad-column-count',
 	'ambiguous-column-mapping',
+	'amount-sign-in-separate-column',
 	'invalid-date',
 	'invalid-amount',
 	'zero-amount',
