@@ -78,6 +78,20 @@ application can answer by looking at the names, and getting it wrong dates
 your money to the wrong day silently. When the column mapping screen lands,
 this is exactly the moment it will ask you to pick.
 
+**The file declares more columns than we will render.** A file may carry up to **512**
+columns. That is far more than any bank or accounting package emits: a bank statement
+carries around fifteen, an accounting export around forty.
+
+The limit is not there because a wide file is slow to read. It is not: the widest file
+the size limit allows takes about 37 milliseconds to parse. It is there because of the
+screen that lets you say which column is which, which draws one card per column and
+shows three real values in each. Without a limit, a single small file could ask that
+screen for tens of thousands of cards.
+
+An operator running their own instance can change it with the `CSV_MAX_COLUMNS`
+environment variable, up to a hard maximum of 4096. A value above that is refused at
+startup rather than quietly reduced, so the limit you set is the limit that runs.
+
 **The amounts have no sign and a separate column says debit or credit.** Some
 banks write every amount as a positive number and put the direction in its own
 column, so a statement reads `24,90` with a `D` beside it. BudgetPilot takes the

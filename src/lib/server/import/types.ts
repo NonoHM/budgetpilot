@@ -6,6 +6,9 @@ export interface CsvImportOptions {
 	sourceName?: string;
 	maxBytes?: number;
 	maxRows?: number;
+	/** Overrides the configured column bound. For tests: the real one is read from the
+	 *  environment through `resolveCsvMaxColumns`. */
+	maxColumns?: number;
 	profile?: CsvImportProfile;
 	categorizationRules?: CategorizationRuleInput[];
 }

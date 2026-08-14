@@ -11,6 +11,7 @@ import type {
 	ResolvedCsvImportProfile
 } from './types';
 import { emptyResult, normalizeParsedRows, parseRows } from './utils/csv';
+import { resolveCsvMaxColumns } from './columnBounds';
 export { sanitizeImportedText } from './utils/safety';
 export type {
 	CsvImportOptions,
@@ -57,6 +58,13 @@ export function parseImportRows(
 	if (normalizedRows.length < 2) return emptyResult([{ code: 'file-empty' }], warnings);
 	if (normalizedRows.length - 1 > maxRows)
 		return emptyResult([{ code: 'too-many-rows', max: maxRows }], warnings);
+
+	// Beside the row cap and BEFORE profile resolution: the column count is a property of the
+	// file, so the answer must not depend on which profile happened to match. See
+	// columnBounds.ts for why the parser does not need this and the designation screen does.
+	const maxColumns = options.maxColumns ?? resolveCsvMaxColumns();
+	if (normalizedRows[0].cells.length > maxColumns)
+		return emptyResult([{ code: 'too-many-columns', max: maxColumns }], warnings);
 
 	const requestedProfile = options.profile ?? 'auto';
 	const parser = resolveProfile(normalizedRows[0].cells, requestedProfile);

@@ -382,6 +382,7 @@
 	"import_refusal_file_too_large": "CSV too large ({bytes} bytes)",
 	"import_refusal_file_empty": "CSV empty or contains no data",
 	"import_refusal_too_many_rows": "CSV limited to {max} rows",
+	"import_refusal_too_many_columns": "This file declares more than {max} columns. That limit exists for the column designation screen.",
 	"import_refusal_header_not_recognized": "{profile} header not recognized",
 	"category_default_food": "Groceries",
 	"category_default_dining": "Dining out",

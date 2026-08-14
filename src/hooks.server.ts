@@ -15,6 +15,7 @@ import { ensureDedupeKeyHashesBackfilled } from '$lib/server/import/dedupeBoot';
 import { assertForwardingConfigSafe, parseTrustedProxies } from '$lib/server/net/clientAddress';
 import { assertXlsxBoundConfigured } from '$lib/server/import/zipBounds';
 import { assertBackupBoundConfigured } from '$lib/server/backup/parseBounds';
+import { assertCsvColumnBoundConfigured } from '$lib/server/import/columnBounds';
 // Side-effect imports only: each module throws at load time if its required secret
 // (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
 // the one module SvelteKit always loads at boot, so importing them here turns a missing
@@ -41,6 +42,10 @@ export const init: ServerInit = async () => {
 	// Same contract as the line above, on the backup restore path (#276): refused above its hard
 	// ceiling rather than clamped, and any departure from the default named in the log.
 	assertBackupBoundConfigured();
+	// Same contract again, on the import path: this one bounds how many columns a file may
+	// declare, and it exists for the designation screen rather than for the parser. See
+	// server/import/columnBounds.ts, which states the measurement saying the parser is fine.
+	assertCsvColumnBoundConfigured();
 	await assertBootstrapTokenConfigured();
 	// Reports, never gates: see the module for why an over-privileged role is a loud warning
 	// rather than a refusal to start.

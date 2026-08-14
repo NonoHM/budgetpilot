@@ -106,3 +106,11 @@ e2e/.audit390/
 # (per Serena's own docs); cache, memories and project.local.yml are local-only.
 .serena/*
 !.serena/project.yml
+
+# Golden master harness and its captures. Same rule as e2e/.audit390 above: a harness that writes
+# into the repo gets swept in by `git add -A`, and a capture is hundreds of kilobytes of generated
+# JSON with no forward readership. It is a CONVENIENCE on this list, not a control: nothing here
+# protects anything, so losing the rule costs a noisy diff rather than a secret. If the config is
+# ever judged worth versioning, `git add -f vitest.golden.config.ts` and move that line out.
+/golden-master/
+/vitest.golden.config.ts
