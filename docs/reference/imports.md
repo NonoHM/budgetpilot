@@ -78,6 +78,29 @@ application can answer by looking at the names, and getting it wrong dates
 your money to the wrong day silently. When the column mapping screen lands,
 this is exactly the moment it will ask you to pick.
 
+**The amounts have no sign and a separate column says debit or credit.** Some
+banks write every amount as a positive number and put the direction in its own
+column, so a statement reads `24,90` with a `D` beside it. BudgetPilot takes the
+direction from the sign of the amount, so a file like that would import as pure
+income: your spending would read zero. It is refused instead, naming the column
+that holds the direction.
+
+The check is deliberately narrow, and here is exactly when it applies: every
+amount in the file is positive or zero, another column's values are all drawn
+from a short list of direction markers (`D`, `C`, `DB`, `CR`, `DR`, `debit`,
+`credit`, `W`), and that column carries at least two different markers. A file
+that signs its own amounts is never affected, even when it also carries such a
+column: the sign wins. A column that reads `D` on every row is a constant rather
+than a direction, so it changes nothing either.
+
+What this cannot see, stated plainly: a file whose amounts are all positive with
+no direction column at all is indistinguishable from a genuine income-only
+statement, and it imports as one. So does a file whose direction column uses
+words this list does not carry. There is nothing in the file to tell those apart,
+and widening the list to guess would start refusing statements that import
+correctly today. The column mapping screen is what closes this properly, by
+asking you.
+
 A statement whose date column reads `08/01/2026` is a related problem this
 does not solve. BudgetPilot reads dates as day/month, so a file written
 month/day would import on the wrong date rather than refuse. Column names
