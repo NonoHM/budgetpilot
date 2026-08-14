@@ -385,12 +385,10 @@ function parseSignedAmount(raw: string): number | null {
 	return amountCents;
 }
 
-function resolveV2Category(
-	rawValue: string
-): { ok: true; value: string } | { ok: false; reason: string } {
+function resolveV2Category(rawValue: string): { ok: true; value: string } | { ok: false } {
 	const sanitized = sanitizeImportedText(rawValue);
 	if (!sanitized) return { ok: true, value: UNCLASSIFIED_CATEGORY };
-	if (sanitized.length > MAX_CATEGORY_LENGTH) return { ok: false, reason: 'catégorie trop longue' };
+	if (sanitized.length > MAX_CATEGORY_LENGTH) return { ok: false };
 	// Accepted rather than refused, exactly as in v1 and for the same reason: it is what the export
 	// writes for every row in the « à classer » pile.
 	return { ok: true, value: sanitized };

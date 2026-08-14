@@ -189,12 +189,10 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 	};
 }
 
-function resolveMaisonCategory(
-	rawValue: string
-): { ok: true; value: string } | { ok: false; reason: string } {
+function resolveMaisonCategory(rawValue: string): { ok: true; value: string } | { ok: false } {
 	const sanitized = sanitizeImportedText(rawValue);
 	if (!sanitized) return { ok: true, value: UNCLASSIFIED_CATEGORY };
-	if (sanitized.length > MAX_CATEGORY_LENGTH) return { ok: false, reason: 'catégorie trop longue' };
+	if (sanitized.length > MAX_CATEGORY_LENGTH) return { ok: false };
 	// The literal sentinel is ACCEPTED, not refused, and the reason is the round trip: the export
 	// writes `getEffectiveCategory`, which is exactly this string for every row in the « à classer »
 	// pile. Refusing it made `docs/getting-started.md`'s "an export re-imports cleanly" false for

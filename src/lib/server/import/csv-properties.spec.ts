@@ -16,8 +16,9 @@ import { REVOLUT_HEADERS } from './profiles/revolut';
  * of, and it survived a suite of 3000 tests. The property is the thing that was always true and
  * never written down: **a parser handed hostile bytes REFUSES them; it does not raise.**
  *
- * THE BUCKETS ARE THE POINT. A refusal is a result carrying `errors[]`, and it is a success of the
- * parser. A throw is a defect. Collapsing the two, which is what a bare `expect(() => ...).not
+ * THE BUCKETS ARE THE POINT. A refusal is a result carrying `invalidRows` or a nonzero
+ * `summary.duplicateRows`, and it is a success of the parser. A throw is a defect. Collapsing the
+ * two, which is what a bare `expect(() => ...).not
  * .toThrow()` over one fixture does, is what let #275 live: every profile refused bad dates
  * loudly, four of them by returning and one by raising, and no assertion anywhere could tell those
  * apart.
