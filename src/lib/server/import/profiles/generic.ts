@@ -2,17 +2,16 @@ import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
 import { applyCategorizationRules } from '$lib/server/categorization/rules';
 import type {
 	CsvImportResult,
-	CsvInvalidRow,
 	CsvProfileParseInput,
 	ImportedTransaction,
 	ImportedTransactionType
 } from '../types';
+import type { CsvRefusal } from '../refusals';
 import {
-	addInvalidRow,
+	addRefusal,
 	buildSummary,
 	getDuplicateHeaders,
 	normalizeDate,
-	resolveValidationField,
 	toRecord
 } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
@@ -33,33 +32,38 @@ export function matchesGenericHeader(): boolean {
 
 export function parseGenericRows({
 	rows,
-	errors,
 	warnings,
 	sourceName,
 	categorizationRules
 }: CsvProfileParseInput): CsvImportResult {
 	const headers = rows[0].cells.map((header) => header.trim().toLowerCase());
+	const headerRefusals: CsvRefusal[] = [];
 	const duplicateHeaders = getDuplicateHeaders(headers);
-	for (const header of duplicateHeaders) errors.push(`Colonne dupliquée: ${header}`);
+	for (const header of duplicateHeaders)
+		addRefusal(headerRefusals, { kind: 'header' }, { code: 'duplicate-column', column: header });
 	const unknownHeaders = headers.filter((header) => !ALLOWED_HEADERS.has(header));
-	for (const header of unknownHeaders) errors.push(`Colonne non autorisée: ${header}`);
+	for (const header of unknownHeaders)
+		addRefusal(headerRefusals, { kind: 'header' }, { code: 'unknown-column', column: header });
 
 	for (const requiredHeader of ['date', 'label', 'amount']) {
 		if (!headers.includes(requiredHeader))
-			errors.push(`Colonne requise absente: ${requiredHeader}`);
+			addRefusal(
+				headerRefusals,
+				{ kind: 'header' },
+				{ code: 'missing-required-column', column: requiredHeader }
+			);
 	}
 
-	if (errors.length > 0) {
+	if (headerRefusals.length > 0) {
 		return {
 			transactions: [],
-			errors,
 			warnings,
-			invalidRows: errors.map((reason, index) => ({ line: index + 1, reason })),
+			invalidRows: headerRefusals,
 			summary: buildSummary({
 				profile: 'generic',
 				totalRows: rows.length - 1,
 				validRows: 0,
-				invalidRows: errors.length,
+				invalidRows: headerRefusals.length,
 				duplicateRows: 0,
 				totalDebitCents: 0,
 				totalCreditCents: 0,
@@ -70,7 +74,7 @@ export function parseGenericRows({
 
 	const transactions: ImportedTransaction[] = [];
 	const seenFingerprints = new Set<string>();
-	const invalidRows: CsvInvalidRow[] = [];
+	const refusals: CsvRefusal[] = [];
 	let duplicateRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
@@ -80,7 +84,12 @@ export function parseGenericRows({
 		const row = parsedRow.cells;
 		const line = parsedRow.line;
 		if (row.length !== headers.length) {
-			addInvalidRow(errors, invalidRows, line, 'nombre de colonnes incorrect', 'colonnes');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'bad-column-count', expected: headers.length, actual: row.length },
+				'colonnes'
+			);
 			return;
 		}
 
@@ -91,17 +100,27 @@ export function parseGenericRows({
 		const category = sanitizeImportedText(record.category || UNCLASSIFIED_CATEGORY);
 
 		if (!isValidIsoDate(date)) {
-			addInvalidRow(errors, invalidRows, line, 'date invalide', 'date');
+			addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-date', column: 'date' }, 'date');
 			return;
 		}
 
 		if (amountCents === null) {
-			addInvalidRow(errors, invalidRows, line, 'montant invalide', 'amount');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'invalid-amount', column: 'amount' },
+				'amount'
+			);
 			return;
 		}
 
 		if (amountCents === 0) {
-			addInvalidRow(errors, invalidRows, line, 'montant à zéro refusé', 'amount');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'zero-amount', column: 'amount' },
+				'amount'
+			);
 			return;
 		}
 
@@ -115,7 +134,6 @@ export function parseGenericRows({
 			account: sourceName
 		});
 		if (seenFingerprints.has(fingerprint)) {
-			errors.push(`Ligne ${line}: doublon détecté`);
 			duplicateRows += 1;
 			return;
 		}
@@ -139,12 +157,13 @@ export function parseGenericRows({
 		};
 		const validation = validateTransaction(transaction);
 		if (!validation.ok) {
-			addInvalidRow(
-				errors,
-				invalidRows,
-				line,
-				validation.errors.join(', '),
-				resolveValidationField(validation.errors)
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{
+					code: 'transaction-invalid',
+					violations: validation.violations
+				}
 			);
 			return;
 		}
@@ -157,14 +176,13 @@ export function parseGenericRows({
 
 	return {
 		transactions,
-		errors,
 		warnings,
-		invalidRows,
+		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'generic',
 			totalRows: rows.length - 1,
 			validRows: transactions.length,
-			invalidRows: invalidRows.length,
+			invalidRows: refusals.length,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,

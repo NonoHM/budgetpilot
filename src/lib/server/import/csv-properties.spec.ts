@@ -16,8 +16,9 @@ import { REVOLUT_HEADERS } from './profiles/revolut';
  * of, and it survived a suite of 3000 tests. The property is the thing that was always true and
  * never written down: **a parser handed hostile bytes REFUSES them; it does not raise.**
  *
- * THE BUCKETS ARE THE POINT. A refusal is a result carrying `errors[]`, and it is a success of the
- * parser. A throw is a defect. Collapsing the two, which is what a bare `expect(() => ...).not
+ * THE BUCKETS ARE THE POINT. A refusal is a result carrying `invalidRows` or a nonzero
+ * `summary.duplicateRows`, and it is a success of the parser. A throw is a defect. Collapsing the
+ * two, which is what a bare `expect(() => ...).not
  * .toThrow()` over one fixture does, is what let #275 live: every profile refused bad dates
  * loudly, four of them by returning and one by raising, and no assertion anywhere could tell those
  * apart.
@@ -80,10 +81,17 @@ function inspect(content: string, parse = parseCsvTransactions): Outcome {
 		}
 	}
 
+	// `invalidRows` alone drops the per-line duplicate signal that used to live inside
+	// `errors`: task 3 removed the `errors.push('Ligne N: doublon détecté')` calls one-for-one
+	// while keeping `duplicateRows`, so `errors.length` used to equal
+	// `invalidRows.length + duplicateRows` exactly, and this is the boolean form of that sum.
+	// Swapping to `invalidRows.length > 0` alone silently reclassifies every duplicate-bearing
+	// input from refused to accepted.
+	const refusedSignals = result.invalidRows.length > 0 || result.summary.duplicateRows > 0;
 	return {
 		threw: null,
-		refused: result.errors.length > 0 || result.transactions.length === 0,
-		accepted: result.errors.length === 0 && result.transactions.length > 0,
+		refused: refusedSignals || result.transactions.length === 0,
+		accepted: !refusedSignals && result.transactions.length > 0,
 		violations
 	};
 }
@@ -94,7 +102,6 @@ function leakingResult(label: string): ReturnType<typeof parseCsvTransactions> {
 	const empty = parseCsvTransactions('date;label;amount\n2026-01-02;Carrefour;12,34');
 	return {
 		...empty,
-		errors: [],
 		transactions: [{ ...empty.transactions[0], label }]
 	};
 }
@@ -352,27 +359,31 @@ describe('the CSV parser under generated input', () => {
 		expect(PROFILES.filter((profile) => (acceptedBy[profile] ?? 0) < FLOOR)).toStrictEqual([]);
 	});
 
-	it('never reports a refusal without a reason attached to a line', () => {
+	it('never reports a refusal without a well-formed scope', () => {
 		expect.assertions(1);
 
-		const silent: string[] = [];
+		const malformed: string[] = [];
 		fc.assert(
 			fc.property(anyInput, ([, content]) => {
 				const result = parseCsvTransactions(content);
-				// Every error names its line, so a user given a refusal is given somewhere to look.
-				// The empty-document case says « CSV vide ou sans données » and carries no line,
-				// which is correct: there is no line to name.
-				for (const error of result.errors) {
-					if (!/^Ligne \d+:/.test(error) && !/^(CSV|En-tête|Colonne)/.test(error)) {
-						silent.push(error);
-					}
+				// Every refusal carries a scope: a row points to a line the user can look at, and a
+				// file or header level complaint has nowhere else to point. The empty-document case
+				// carries the `file-empty` fact with { kind: 'file' } and no line, which is correct:
+				// there is no line to name.
+				for (const refusal of result.invalidRows) {
+					const { scope } = refusal;
+					const wellFormed =
+						scope.kind === 'file' ||
+						scope.kind === 'header' ||
+						(scope.kind === 'row' && Number.isInteger(scope.line));
+					if (!wellFormed) malformed.push(JSON.stringify(refusal));
 				}
 				return true;
 			}),
 			{ numRuns: RUNS }
 		);
 
-		expect(silent).toStrictEqual([]);
+		expect(malformed).toStrictEqual([]);
 	});
 });
 

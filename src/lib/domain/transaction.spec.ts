@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { applyKindSign } from './transaction';
+import { applyKindSign, validateTransaction } from './transaction';
+import type { Transaction } from './transaction';
 import { formatCents } from './budget';
 
 /**
@@ -49,5 +50,27 @@ describe('applyKindSign', () => {
 		// here, so the previous test's absence is an absence of something that can be present.
 		expect(formatCents(applyKindSign(1600, 'expense'), 'fr')).toBe('-16,00\u00a0\u20ac');
 		expect(formatCents(applyKindSign(1600, 'income'), 'fr')).toBe('16,00\u00a0\u20ac');
+	});
+});
+
+/**
+ * `validateTransaction` used to return French sentences that five CSV parsers forwarded
+ * verbatim. This is a CODE now, never a sentence: the UI (or, temporarily, the dashboard
+ * shim) is the only place language exists.
+ */
+describe('validateTransaction', () => {
+	it('reports a violation as a code, never as a sentence', () => {
+		expect.assertions(2);
+		const result = validateTransaction({
+			id: 'x',
+			date: '2026-08-01',
+			amountCents: 100,
+			label: 'a'.repeat(500),
+			category: 'Alimentation',
+			source: 'csv'
+		} as Transaction);
+
+		expect(result.ok).toBe(false);
+		expect(result.ok === false && result.violations).toStrictEqual(['label-too-long']);
 	});
 });

@@ -17,7 +17,7 @@ describe('profil maison', () => {
 		);
 
 		expect(result.summary.profile).toBe('maison');
-		expect(result.errors).toEqual([]);
+		expect(result.invalidRows).toStrictEqual([]);
 	});
 
 	it('importe une ligne maison valide complète (round-trip)', () => {
@@ -62,7 +62,10 @@ describe('profil maison', () => {
 		const result = parseMaisonLine('2026-06-01;X;Autre;10;income;bogus;csv');
 
 		expect(result.transactions).toHaveLength(0);
-		expect(result.invalidRows[0]).toMatchObject({ reason: 'nature invalide', field: 'nature' });
+		expect(result.invalidRows[0]).toMatchObject({
+			fact: { code: 'invalid-nature', value: 'bogus' },
+			field: 'nature'
+		});
 		expect(result.summary.invalidRows).toBe(1);
 	});
 
@@ -73,7 +76,7 @@ describe('profil maison', () => {
 
 		expect(result.transactions).toHaveLength(0);
 		expect(result.invalidRows[0]).toMatchObject({
-			reason: 'type et signe du montant incohérents',
+			fact: { code: 'type-amount-mismatch' },
 			field: 'type'
 		});
 	});
@@ -85,7 +88,7 @@ describe('profil maison', () => {
 
 		expect(result.transactions).toHaveLength(0);
 		expect(result.invalidRows[0]).toMatchObject({
-			reason: 'type et signe du montant incohérents',
+			fact: { code: 'type-amount-mismatch' },
 			field: 'type'
 		});
 	});
@@ -100,7 +103,7 @@ describe('profil maison', () => {
 
 		expect(result.transactions).toHaveLength(0);
 		expect(result.invalidRows[0]).toMatchObject({
-			reason: 'montant à zéro refusé',
+			fact: { code: 'zero-amount', column: 'montant' },
 			field: 'amount'
 		});
 	});
@@ -163,7 +166,7 @@ describe('profil maison', () => {
 		);
 
 		expect(result.transactions).toHaveLength(1);
-		expect(result.errors).toContain('Ligne 3: doublon détecté');
+		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.summary.duplicateRows).toBe(1);
 	});
 });
