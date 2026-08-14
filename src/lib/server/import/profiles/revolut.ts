@@ -27,18 +27,43 @@ import {
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
 
-export const REVOLUT_HEADERS = [
-	'Type',
-	'Produit',
-	'Date de début',
-	'Date de fin',
-	'Description',
-	'Montant',
-	'Frais',
-	'Devise',
-	'État',
-	'Solde'
+/**
+ * Revolut's ten columns, in the spellings this profile accepts.
+ *
+ * The French name stays CANONICAL: `normalizeRevolutRecord` rewrites whichever spelling the
+ * file used back to it, so everything downstream reads `record['Date de fin']` unchanged and
+ * this widening touches the matcher and nothing else.
+ *
+ * **The English spellings are not a nicety.** Revolut is the one international bank this
+ * application claims to support, and before this it only worked if the user happened to
+ * download their statement from a French locale account. An English export was refused with
+ * nine `Colonne non autorisée` lines.
+ *
+ * Confirmed against parsers that read real files rather than against a guess: `tarioch/
+ * beancounttools` lists these ten names in this order, and `mlaitinen/ofxstatement-revolut`
+ * tests `line[c["State"]] != "COMPLETED"`.
+ */
+const REVOLUT_COLUMNS: Array<{ canonical: string; spellings: string[] }> = [
+	{ canonical: 'Type', spellings: ['Type'] },
+	{ canonical: 'Produit', spellings: ['Produit', 'Product'] },
+	{ canonical: 'Date de début', spellings: ['Date de début', 'Started Date'] },
+	{ canonical: 'Date de fin', spellings: ['Date de fin', 'Completed Date'] },
+	{ canonical: 'Description', spellings: ['Description'] },
+	{ canonical: 'Montant', spellings: ['Montant', 'Amount'] },
+	{ canonical: 'Frais', spellings: ['Frais', 'Fee'] },
+	{ canonical: 'Devise', spellings: ['Devise', 'Currency'] },
+	{ canonical: 'État', spellings: ['État', 'State'] },
+	{ canonical: 'Solde', spellings: ['Solde', 'Balance'] }
 ];
+
+export const REVOLUT_HEADERS = REVOLUT_COLUMNS.map((column) => column.canonical);
+
+/** Every accepted spelling, folded, to the canonical name it stands for. */
+const SPELLING_TO_CANONICAL = new Map(
+	REVOLUT_COLUMNS.flatMap((column) =>
+		column.spellings.map((spelling) => [normalizeComparableHeader(spelling), column.canonical])
+	)
+);
 
 const REVOLUT_METADATA_FIELDS = [
 	'Type',
@@ -51,14 +76,33 @@ const REVOLUT_METADATA_FIELDS = [
 	'Solde'
 ];
 
+/**
+ * ORDER IS NO LONGER LOAD BEARING, and that is a deliberate second change.
+ *
+ * The issue that prompted this warned that a matcher keyed on exact ordered equality will keep
+ * breaking, because Revolut has changed its export across regions and over time. Nothing
+ * downstream ever depended on the order: `normalizeRevolutRecord` builds a record by NAME and
+ * every read is `record['Date de fin']` and friends. Only this function imposed it.
+ *
+ * The ten names are required to be present exactly once each, so a file is still refused if it
+ * is missing a column, carries a duplicate, or has a different count.
+ *
+ * WHAT THIS STILL DOES NOT ACCEPT, stated so the fix is not read as more than it is: Revolut's
+ * NINE column, semicolon separated `amount_debit` / `amount_credit` variant is a different
+ * format, not a reordering, and it needs a stated sign rule. It is out of scope here.
+ */
 export function matchesRevolutHeader(headers: string[]): boolean {
 	const normalizedHeaders = normalizeHeaderCells(headers).map(normalizeComparableHeader);
-	return (
-		normalizedHeaders.length === REVOLUT_HEADERS.length &&
-		normalizedHeaders.every(
-			(header, index) => header === normalizeComparableHeader(REVOLUT_HEADERS[index])
-		)
+	if (normalizedHeaders.length !== REVOLUT_COLUMNS.length) return false;
+	const canonicals = new Set(
+		normalizedHeaders
+			.map((header) => SPELLING_TO_CANONICAL.get(header))
+			.filter((canonical): canonical is string => canonical !== undefined)
 	);
+	// Ten headers that resolve to ten DISTINCT canonical names. The count check above plus this
+	// one together rule out a duplicate (which would shrink the set) and an unknown column
+	// (which `filter` drops, also shrinking it), so no third clause is needed.
+	return canonicals.size === REVOLUT_COLUMNS.length;
 }
 
 export function parseRevolutRows({
@@ -267,14 +311,27 @@ function normalizeComparableHeader(value: string): string {
 function normalizeRevolutRecord(record: Record<string, string>): Record<string, string> {
 	const normalized: Record<string, string> = {};
 	for (const [key, value] of Object.entries(record)) {
-		const canonical = REVOLUT_HEADERS.find(
-			(header) => normalizeComparableHeader(header) === normalizeComparableHeader(key)
-		);
+		// Any accepted spelling, French or English, becomes the canonical French key, so every
+		// read below this line is unchanged by the widening.
+		const canonical = SPELLING_TO_CANONICAL.get(normalizeComparableHeader(key));
 		normalized[canonical ?? key] = value;
 	}
 	return normalized;
 }
 
+/**
+ * The header is only half the defect.
+ *
+ * An English export writes `COMPLETED` in the State column, so a file whose header now matches
+ * would still have had every row refused as `état Revolut non terminé`. The two halves fail
+ * independently and are therefore break checked independently.
+ *
+ * An allow list of two values, not a pattern: anything else is still refused, which is the
+ * point of the column. `normalizeComparableHeader` folds case and diacritics, so `Terminé`,
+ * `TERMINE`, `Completed` and `COMPLETED` all land here.
+ */
+const COMPLETED_STATES = new Set(['termine', 'completed']);
+
 function isCompletedState(value: string): boolean {
-	return normalizeComparableHeader(value) === 'termine';
+	return COMPLETED_STATES.has(normalizeComparableHeader(value));
 }
