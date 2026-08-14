@@ -4,6 +4,7 @@ import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { parseCsvTransactionRows } from '$lib/server/import/csv';
 import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
+import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
 import {
 	anonymizeImportCell,
 	createImportBatch,
@@ -18,10 +19,26 @@ const IMPORT_MAX_BYTES = 256_000;
 const CSV_ACCOUNT_NAME = 'Compte import CSV';
 const INVALID_ROW_DETAIL_LIMIT = 20;
 
-interface ImportInvalidRowDetail {
-	lineNumber: number;
-	reason: string;
-	field: string;
+/**
+ * Exported so the spec can name the shape instead of retyping it. It used to be declared by
+ * hand in two places there, which is a copy certifying the original: the two could drift by
+ * exactly the field that matters and the comparison would still pass.
+ */
+export interface ImportInvalidRowDetail {
+	/**
+	 * Identity for the render's keyed each block, and nothing else.
+	 *
+	 * It used to be the line number, which worked only because header level complaints were
+	 * given an invented `index + 1` (#291). Removing that invention without changing the key
+	 * would give every header complaint the same key, which is a runtime crash rather than a
+	 * type error, because the dependency lives in markup. A position in this list is stable:
+	 * it is never reordered or filtered on the client.
+	 */
+	key: number;
+	scope: CsvRefusalScope;
+	fact: CsvRefusalFact;
+	/** Absent when the refusal names no field. Never defaulted: the scope carries what the old `?? 'ligne'` fallback used to imply. */
+	field?: string;
 	profile: string;
 	preview: string;
 }
@@ -201,12 +218,20 @@ function buildInvalidRowDetails(
 	previewRowsByLine: Record<number, string[]>,
 	result: ReturnType<typeof parseCsvTransactionRows>
 ): ImportInvalidRowDetail[] {
-	return result.invalidRows.slice(0, INVALID_ROW_DETAIL_LIMIT).map((row) => ({
-		lineNumber: row.line,
-		reason: row.reason,
-		field: row.field ?? 'ligne',
+	return result.invalidRows.slice(0, INVALID_ROW_DETAIL_LIMIT).map((row, index) => ({
+		key: index,
+		scope: row.scope,
+		fact: row.fact,
+		field: row.field,
 		profile: result.summary.profile,
-		preview: anonymizeCsvRowPreview(previewRowsByLine[row.line] ?? [])
+		// Only a row scoped refusal has a row to preview. A header or file scoped one gets an
+		// empty preview rather than `anonymizeCsvRowPreview([])`, which returns « ligne vide »
+		// and would assert the file had an empty line there. Before #291 these carried invented
+		// lines and so pulled a real transaction's cells into a complaint about the header.
+		preview:
+			row.scope.kind === 'row'
+				? anonymizeCsvRowPreview(previewRowsByLine[row.scope.line] ?? [])
+				: ''
 	}));
 }
 
@@ -249,7 +274,11 @@ function anonymizeCsvRowPreview(cells: string[]): string {
 		.slice(0, 8)
 		.join(' | ');
 
-	return preview || 'ligne vide';
+	// Through the catalogue, not as a literal. This string is rendered straight into the invalid
+	// rows table, so a hardcoded French one is the same defect the refusal contract removes from
+	// the parsers, one layer out: an English user was shown French. The French output is
+	// unchanged, byte for byte.
+	return preview || m.import_invalid_preview_empty();
 }
 
 function isUploadedFile(value: FormDataEntryValue | null): value is File {

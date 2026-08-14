@@ -1,5 +1,6 @@
 import type { Transaction, TransactionNature } from '$lib/domain/transaction';
 import type { CategorizationRuleInput } from '$lib/server/categorization/rules';
+import type { CsvRefusal } from './refusals';
 
 export interface CsvImportOptions {
 	sourceName?: string;
@@ -75,17 +76,10 @@ export interface CsvImportSummary {
 	};
 }
 
-export interface CsvInvalidRow {
-	line: number;
-	reason: string;
-	field?: string;
-}
-
 export interface CsvImportResult {
 	transactions: ImportedTransaction[];
-	errors: string[];
 	warnings: string[];
-	invalidRows: CsvInvalidRow[];
+	invalidRows: CsvRefusal[];
 	summary: CsvImportSummary;
 }
 
@@ -102,7 +96,6 @@ export interface CsvProfileParser {
 
 export interface CsvProfileParseInput {
 	rows: ParsedCsvRow[];
-	errors: string[];
 	warnings: string[];
 	sourceName?: string;
 	categorizationRules: CategorizationRuleInput[];

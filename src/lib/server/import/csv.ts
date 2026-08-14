@@ -4,7 +4,6 @@ import type {
 	CsvImportProfile,
 	CsvImportResult,
 	CsvImportSummary,
-	CsvInvalidRow,
 	ImportedTransaction,
 	ImportedTransactionMetadata,
 	ImportedTransactionType,
@@ -18,7 +17,6 @@ export type {
 	CsvImportProfile,
 	CsvImportResult,
 	CsvImportSummary,
-	CsvInvalidRow,
 	ImportedTransaction,
 	ImportedTransactionMetadata,
 	ImportedTransactionType
@@ -35,7 +33,7 @@ export function parseCsvTransactions(
 	const sizeBytes = new TextEncoder().encode(content).length;
 
 	if (sizeBytes > maxBytes) {
-		return emptyResult([`CSV trop volumineux (${sizeBytes} octets)`], []);
+		return emptyResult([{ code: 'file-too-large', bytes: sizeBytes }], []);
 	}
 
 	return parseImportRows(parseRows(content), options);
@@ -52,21 +50,20 @@ export function parseImportRows(
 	rows: ParsedCsvRow[],
 	options: CsvImportOptions = {}
 ): CsvImportResult {
-	const errors: string[] = [];
 	const warnings: string[] = [];
 	const maxRows = options.maxRows ?? DEFAULT_MAX_ROWS;
 	const normalizedRows = normalizeParsedRows(rows);
 
-	if (normalizedRows.length < 2) return emptyResult(['CSV vide ou sans données'], warnings);
+	if (normalizedRows.length < 2) return emptyResult([{ code: 'file-empty' }], warnings);
 	if (normalizedRows.length - 1 > maxRows)
-		return emptyResult([`CSV limité à ${maxRows} lignes`], warnings);
+		return emptyResult([{ code: 'too-many-rows', max: maxRows }], warnings);
 
 	const requestedProfile = options.profile ?? 'auto';
 	const parser = resolveProfile(normalizedRows[0].cells, requestedProfile);
 	if (!parser) {
 		const profileLabel = requestedProfile === 'auto' ? 'CSV' : profileErrorLabel(requestedProfile);
 		return emptyResult(
-			[`En-tête ${profileLabel} non reconnu`],
+			[{ code: 'header-not-recognized', profile: profileLabel }],
 			warnings,
 			resultProfile(requestedProfile)
 		);
@@ -74,7 +71,6 @@ export function parseImportRows(
 
 	return parser.parse({
 		rows: normalizedRows,
-		errors,
 		warnings,
 		sourceName: options.sourceName,
 		categorizationRules: options.categorizationRules ?? []

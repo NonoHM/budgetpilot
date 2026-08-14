@@ -6,10 +6,15 @@ Every import is recorded, with what it did, and can be undone in one action.
 
 **Imports > New import** takes a **CSV** or **XLSX** statement.
 
-Five profiles are offered: **Auto**, **Banque Populaire**, **Revolut**,
-**Home** and **Generic**. Auto recognises the others from the file's
-header row. The column layouts each one expects are in
-[getting started](../getting-started.md#first-steps-in-the-app).
+**There is nothing to choose.** BudgetPilot reads the file's header row and
+works out the format itself. It recognises **Banque Populaire**, **Revolut**,
+**Home** (its own export) and a **Generic** shape covering any file that
+carries a date, a label and an amount under a name it knows.
+
+The column layouts each one expects are in
+[getting started](../getting-started.md#first-steps-in-the-app), and what
+Generic and Revolut accept, and still refuse, is in
+[the imports reference](../reference/imports.md).
 
 **Destination account** is optional, and the form says the one thing about
 it that is easy to get wrong: it applies only to the **very first** import

@@ -9,6 +9,7 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
+	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -19,32 +20,17 @@
 	]);
 	let selectedNetWorthAccountId = $state('');
 
-	// The parser's `reason` values are stable codes (historical French strings);
-	// translated here for display, falling back to the raw value if unknown.
-	const REASON_LABELS: Record<string, () => string> = {
-		'date invalide': m.import_reason_invalid_date,
-		'devise Revolut non supportée': m.import_reason_unsupported_currency,
-		'état Revolut non terminé': m.import_reason_state_not_completed,
-		'frais invalide': m.import_reason_invalid_fee,
-		'ligne ignorée: footer bancaire': m.import_reason_footer_ignored,
-		'montant à zéro refusé': m.import_reason_zero_amount,
-		'montant invalide': m.import_reason_invalid_amount,
-		'nombre de colonnes incorrect': m.import_reason_bad_column_count,
-		'solde invalide': m.import_reason_invalid_balance,
-		'débit et crédit remplis en même temps': m.import_reason_debit_credit_both,
-		'débit et crédit vides': m.import_reason_debit_credit_empty,
-		'type et signe du montant incohérents': m.import_reason_type_amount_mismatch,
-		'nature invalide': m.import_reason_invalid_nature,
-		'catégorie réservée refusée': m.import_reason_reserved_category
-	};
-	function reasonLabel(reason: string): string {
-		return REASON_LABELS[reason]?.() ?? reason;
-	}
 	const errorReport = $derived(
 		importResult?.invalidRowDetails
-			?.map(
-				(row) =>
-					`${m.import_invalid_table_line()} ${row.lineNumber}; ${m.import_invalid_table_reason()}=${reasonLabel(row.reason)}; ${m.import_invalid_table_field()}=${row.field}; ${m.import_invalid_table_preview()}=${row.preview}`
+			?.map((row) =>
+				[
+					`${m.import_invalid_table_line()} ${scopeLabel(row.scope)}`,
+					`${m.import_invalid_table_reason()}=${refusalLabel(row.fact)}`,
+					// Omitted rather than interpolated when absent: `${undefined}` would write the
+					// literal string into text the user copies into a support request.
+					...(row.field ? [`${m.import_invalid_table_field()}=${row.field}`] : []),
+					`${m.import_invalid_table_preview()}=${row.preview}`
+				].join('; ')
 			)
 			.join('\n') ?? ''
 	);
@@ -219,11 +205,11 @@
 									</tr>
 								</thead>
 								<tbody>
-									{#each importResult.invalidRowDetails as row (row.lineNumber)}
+									{#each importResult.invalidRowDetails as row (row.key)}
 										<tr class="border-t border-zinc-100">
-											<td class="px-3 py-2 font-medium">{row.lineNumber}</td>
-											<td class="px-3 py-2 text-rose-700">{reasonLabel(row.reason)}</td>
-											<td class="px-3 py-2">{row.field}</td>
+											<td class="px-3 py-2 font-medium">{scopeLabel(row.scope)}</td>
+											<td class="px-3 py-2 text-rose-700">{refusalLabel(row.fact)}</td>
+											<td class="px-3 py-2">{row.field ?? ''}</td>
 											<td class="px-3 py-2 text-zinc-600">{row.preview}</td>
 										</tr>
 									{/each}
@@ -393,22 +379,29 @@
 					<p class="mt-1 text-sm text-zinc-500">{m.import_invalid_description()}</p>
 
 					<div class="mt-4 space-y-3">
-						{#each importResult.invalidRowDetails as row (row.lineNumber)}
+						{#each importResult.invalidRowDetails as row (row.key)}
 							<div class="rounded-xl border border-zinc-100 bg-zinc-50/60 p-3">
 								<p class="text-xs text-zinc-400">
 									{m.import_invalid_table_line()}
-									{row.lineNumber}
+									{scopeLabel(row.scope)}
 								</p>
-								<p class="mt-0.5 font-semibold text-rose-600">{reasonLabel(row.reason)}</p>
-								<p class="mt-1 text-xs text-zinc-500">
-									{m.import_invalid_field_prefix()}
-									{row.field}
-								</p>
-								<p
-									class="mt-2 rounded-lg bg-zinc-100 px-2.5 py-2 font-mono text-xs break-words whitespace-pre-wrap text-zinc-600"
-								>
-									{row.preview}
-								</p>
+								<p class="mt-0.5 font-semibold text-rose-600">{refusalLabel(row.fact)}</p>
+								<!-- Both of these are omitted rather than rendered empty: a field prefix with
+								     nothing after it, or an empty preview box, each state something the refusal
+								     does not say. A header scoped refusal names no field and previews no row. -->
+								{#if row.field}
+									<p class="mt-1 text-xs text-zinc-500">
+										{m.import_invalid_field_prefix()}
+										{row.field}
+									</p>
+								{/if}
+								{#if row.preview}
+									<p
+										class="mt-2 rounded-lg bg-zinc-100 px-2.5 py-2 font-mono text-xs break-words whitespace-pre-wrap text-zinc-600"
+									>
+										{row.preview}
+									</p>
+								{/if}
 							</div>
 						{/each}
 					</div>
