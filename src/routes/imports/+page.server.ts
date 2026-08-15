@@ -3,6 +3,7 @@ import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
+import { findCollidingPairs } from '$lib/server/import/collision';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
@@ -35,8 +36,23 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		}
 	});
 
+	/**
+	 * Imports that already doubled, found by comparing what is stored rather than what arrives.
+	 *
+	 * The check that runs before a write cannot help anyone whose statement was doubled before it
+	 * shipped: the fingerprints are written and nothing can recompute them. The comparison itself
+	 * still works, because a batch's period, its row count and its totals are all still here, and
+	 * without it a user has no way to find out at all. That was the state the blind usability session
+	 * ended in, with two identical imports on this very page and nothing saying so.
+	 *
+	 * Read on the ordinary load rather than behind an action: a warning the user has to ask for is a
+	 * warning for people who already suspect.
+	 */
+	const collisions = await findCollidingPairs(user.id);
+
 	return {
 		cancelled,
+		collisions,
 		batches: batches.map((batch) => ({
 			id: batch.id,
 			fileName: batch.fileName,

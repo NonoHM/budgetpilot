@@ -11,8 +11,13 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
+	import { formatCents } from '$lib/domain/budget';
+	import type { CollidingBatchView } from '$lib/domain/importCollision';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	const collisionPair = $derived(data.collisions[0] ?? null);
+	const otherCollisions = $derived(Math.max(0, data.collisions.length - 1));
 
 	let pendingCancel = $state<{ id: string; fileName: string | null; importedRows: number } | null>(
 		null
@@ -25,6 +30,26 @@
 
 	function formatDateOnly(iso: string): string {
 		return new Date(iso).toLocaleDateString(getLocale(), { dateStyle: 'long' });
+	}
+
+	/**
+	 * The two imports named, with the figures that make them look alike.
+	 *
+	 * Named rather than resolved. For an import already written the certainty the pre-write check has
+	 * is gone: its fingerprints cannot be recomputed, so « the same statement twice » and « two
+	 * statements that happen to agree on all three figures » are no longer distinguishable from here.
+	 * The copy says « peut-être » because that is what is known, and the banner's job is to make the
+	 * pair findable rather than to decide for the user. Each import already links to its own
+	 * transactions from its row below, which is where a comparison actually happens.
+	 */
+	function collisionFigures(batch: CollidingBatchView): string {
+		return m.imports_collision_figures({
+			count: batch.transactionCount,
+			debit: formatCents(batch.debitCents),
+			credit: formatCents(batch.creditCents),
+			from: batch.periodStart ? formatDateOnly(batch.periodStart) : '',
+			to: batch.periodEnd ? formatDateOnly(batch.periodEnd) : ''
+		});
 	}
 
 	function cancelConfirmDescription(importedRows: number): string {
@@ -90,6 +115,52 @@
 	</div>
 {/snippet}
 
+<!--
+	Two imports that look like the same statement, surfaced on the page that lists them.
+
+	A banner above the history rather than a badge on a row, because the finding is about a PAIR and
+	a row cannot express one.
+
+	`AlertBanner` (brique 8) rather than a surface built here. The first draft of this block was a
+	bordered `<section>` with its own heading and five paragraphs, which is a seventeenth pattern for
+	a job the referential already has a piece for, on the one page that owns page-level messages.
+
+	`warning` and not `info`, decided from AlertBanner's own rule: info « carries no judgement »
+	and is for a banner that merely offers a choice. This is not an offer. Something in the user's
+	data is probably wrong and they are the only one who can settle it.
+
+	AlertBanner's root is a `<p>`, so every line here is phrasing content. `<strong>` and
+	`<span class="block">` rather than headings and paragraphs, which would be invalid inside it.
+
+	No « Supprimer » button. Deleting an import takes its transactions, and with them, by cascade,
+	every répartition and every étiquette added since. Offering that as the one-tap answer to a
+	finding the app is explicitly unsure about is the class of destructive shortcut this codebase has
+	spent a fortnight removing. The way out is the row's own Supprimer, which now states that cost.
+-->
+{#snippet collisionNotice()}
+	{#if collisionPair}
+		<AlertBanner variant="warning">
+			<strong class="block font-semibold">{m.imports_collision_title()}</strong>
+			<span class="mt-1 block font-normal">
+				{m.imports_collision_body({
+					first: collisionPair.first.fileName ?? m.imports_default_file_name(),
+					second: collisionPair.second.fileName ?? m.imports_default_file_name()
+				})}
+			</span>
+			<span class="mt-0.5 block text-xs font-normal">{collisionFigures(collisionPair.first)}</span>
+			<span class="mt-2 block font-semibold">{m.imports_collision_consequence()}</span>
+			<span class="mt-0.5 block text-xs font-normal">{m.imports_collision_advice()}</span>
+			{#if otherCollisions > 0}
+				<span class="mt-2 block text-xs font-normal">
+					{otherCollisions === 1
+						? m.imports_collision_more_one({ count: otherCollisions })
+						: m.imports_collision_more_many({ count: otherCollisions })}
+				</span>
+			{/if}
+		</AlertBanner>
+	{/if}
+{/snippet}
+
 <svelte:head>
 	<title>{m.imports_page_title()}</title>
 </svelte:head>
@@ -123,6 +194,7 @@
 		{#if data.cancelled}
 			<AlertBanner variant="success">{m.imports_cancelled_notice()}</AlertBanner>
 		{/if}
+		{@render collisionNotice()}
 		<!-- Gated to skip while the cancel-import ConfirmDialog is open: it already shows its own
 		     contextual AlertBanner for the same form.error — without this, both would mount
 		     role="alert" simultaneously for the same message, double-announcing it to screen
@@ -382,6 +454,14 @@
 				{m.imports_cancel_file_prefix()}
 				<span class="font-medium">{pendingCancel.fileName ?? m.imports_default_file_name()}</span>
 			</p>
+			<!--
+				What the count in the description does not say. Deleting the transactions cascades to
+				their répartitions and their étiquettes, and those are the user's own work rather than
+				the import's: a statement can be re-imported, an evening spent splitting a shopping trip
+				across four categories cannot. A destructive action stating only half its cost is a
+				confirmation that is not one.
+			-->
+			<p class="mt-2 text-sm text-zinc-600">{m.imports_cancel_cost_note()}</p>
 			{#if form?.error}
 				<AlertBanner variant="error" class="mt-2">{form.error}</AlertBanner>
 			{/if}
