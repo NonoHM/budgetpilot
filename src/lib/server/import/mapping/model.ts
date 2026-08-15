@@ -33,6 +33,20 @@ export interface ColumnMappingInput {
 	columnCount: number;
 }
 
+/**
+ * A mapping as it comes back OUT of storage, or out of a restored backup, where `matchBy` is a
+ * plain string because no database column and no JSON payload can promise more.
+ *
+ * The distinction from `ColumnMappingInput` is the point rather than pedantry: with a narrow
+ * `matchBy` on the read side, `validateColumnMapping`'s `match-by-unknown` branch is unreachable
+ * by type and reads as dead code, which is how a guard gets deleted. It is reachable, and this
+ * type is what keeps it honest. Narrowing happens by VALIDATING, never by casting: this repository
+ * has the same shape on the backup path, where `assertMatchBy` throws rather than asserting.
+ */
+export interface UntrustedColumnMapping extends Omit<ColumnMappingInput, 'matchBy'> {
+	matchBy: string;
+}
+
 export type ColumnMappingRefusal =
 	| { code: 'missing-required-role'; role: MappingRole }
 	| { code: 'roles-share-a-column'; roles: [MappingRole, MappingRole] }
@@ -84,7 +98,7 @@ export function boundedColumnName(value: string): string {
  *
  * A selector that does not offer a choice is an affordance. This is the control (ASVS 5.0 V8.3.1).
  */
-export function validateColumnMapping(input: ColumnMappingInput): ColumnMappingVerdict {
+export function validateColumnMapping(input: UntrustedColumnMapping): ColumnMappingVerdict {
 	if (input.matchBy !== 'name' && input.matchBy !== 'position') {
 		return { ok: false, reason: { code: 'match-by-unknown', value: String(input.matchBy) } };
 	}

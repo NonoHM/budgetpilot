@@ -1,6 +1,7 @@
 import type { Transaction, TransactionNature } from '$lib/domain/transaction';
 import type { CategorizationRuleInput } from '$lib/server/categorization/rules';
 import type { CsvRefusal } from './refusals';
+import type { UntrustedColumnMapping } from './mapping/model';
 
 export interface CsvImportOptions {
 	sourceName?: string;
@@ -11,9 +12,23 @@ export interface CsvImportOptions {
 	maxColumns?: number;
 	profile?: CsvImportProfile;
 	categorizationRules?: CategorizationRuleInput[];
+	/**
+	 * The mapping to parse through, when `profile` is `mapped`.
+	 *
+	 * Passed IN rather than resolved inside the parser. `parseCsvTransactions` reaching Prisma is
+	 * what made it unbundlable and put every profile parser out of a fuzzer's reach, so the
+	 * database stays at the route and the parser stays pure.
+	 */
+	columnMapping?: UntrustedColumnMapping;
 }
 
-export type CsvImportProfile = 'generic' | 'banque-populaire' | 'revolut' | 'maison' | 'auto';
+/**
+ * `mapped` is a resolved profile with no entry in `csvProfileParsers`, deliberately: it is chosen
+ * because a row exists in the database rather than by looking at the header row. See
+ * `profiles/mapped.ts`.
+ */
+export type CsvImportProfile =
+	'generic' | 'banque-populaire' | 'revolut' | 'maison' | 'mapped' | 'auto';
 
 export type ResolvedCsvImportProfile = Exclude<CsvImportProfile, 'auto'>;
 

@@ -12,6 +12,7 @@
  * carried them inline until this file existed.
  */
 
+import { execFileSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -46,6 +47,68 @@ export function productionSourceFiles(root = 'src'): string[] {
 			// verdict, and that is luck rather than design.
 			.filter((path) => !/^import\s*\{[^}]*\}\s*from\s*'vitest'/m.test(readFileSync(path, 'utf8')))
 	);
+}
+
+/** Extensions whose whole point is being readable, so a byte that hides them from grep is a defect. */
+const SEARCHABLE_EXTENSIONS = [
+	'.ts',
+	'.svelte',
+	'.js',
+	'.mjs',
+	'.cjs',
+	'.json',
+	'.md',
+	'.yml',
+	'.yaml',
+	'.sh',
+	'.prisma',
+	'.css',
+	'.html'
+];
+
+/**
+ * Every TRACKED text file a contributor would expect a `grep` to read.
+ *
+ * DELIBERATELY WIDER than `productionSourceFiles` in one direction and narrower in another, and
+ * both differences were decided by running it.
+ *
+ * **Wider: specs are included.** That helper excludes them because they mock the very APIs the
+ * security scans look for. A NUL byte hides a spec from grep exactly as well as it hides a module,
+ * so excluding specs would leave the larger half of the tree unguarded.
+ *
+ * **Narrower: the population is `git ls-files`, not the filesystem.** The first run of this scan
+ * walked directories and reported `scripts/security/fuzz/csv-explore.ts`, a gitignored local
+ * probe belonging to whoever happened to be at that machine. That is a check that is RED on one
+ * developer's clean tree and GREEN in CI, which is the shape that gets a good gate deleted. What
+ * the defect actually costs is committed code being invisible to a committed search, so tracked
+ * is the subject.
+ */
+export function searchableSourceFiles(): string[] {
+	const listing = execFileSync('git', ['ls-files', '-z'], { encoding: 'buffer' });
+	return listing
+		.toString('utf8')
+		.split('\0')
+		.filter((path) => path.length > 0)
+		.filter((path) => SEARCHABLE_EXTENSIONS.some((extension) => path.endsWith(extension)))
+		.filter((path) => !path.includes(join('database', 'generated')))
+		.filter((path) => !path.includes(join('lib', 'paraglide')));
+}
+
+/**
+ * Whether a file's bytes contain a NUL, which is what makes `grep`, `rg` and `git grep` treat it
+ * as binary and print `binary file matches` instead of the line.
+ *
+ * Read as BYTES, never as a string: `readFileSync(path, 'utf8')` on a file with a NUL still gives
+ * you the character, but the whole failure this detects is about tools that decide by inspecting
+ * bytes, so the detector inspects bytes too.
+ */
+export function containsNulByte(bytes: Buffer): boolean {
+	return bytes.includes(0);
+}
+
+/** Reads a file as raw bytes, for `containsNulByte`. */
+export function readSourceBytes(path: string): Buffer {
+	return readFileSync(path);
 }
 
 /**

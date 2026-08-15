@@ -22,7 +22,7 @@ describe('refusal catalogue coverage', () => {
 		// tree that has DELETED a code and added two, and by any future count above 33: an
 		// assertion with slack has a blind band the size of its slack. The count is knowable,
 		// so every change to it should be deliberate enough to edit this line.
-		expect(CSV_REFUSAL_CODES).toHaveLength(36);
+		expect(CSV_REFUSAL_CODES).toHaveLength(38);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

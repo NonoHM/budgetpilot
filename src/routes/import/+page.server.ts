@@ -2,7 +2,9 @@ import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
-import { parseCsvTransactionRows } from '$lib/server/import/csv';
+import { importHeaderCells, parseCsvTransactionRows } from '$lib/server/import/csv';
+import { applyColumnMapping } from '$lib/server/import/mapping/apply';
+import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
 import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
 import {
@@ -116,9 +118,31 @@ export const actions: Actions = {
 			orderBy: { createdAt: 'asc' }
 		});
 
+		// A mapping this user designated for this exact header shape, if there is one.
+		//
+		// Resolved HERE rather than inside the parser: `parseCsvTransactions` reaching Prisma is
+		// what made it unbundlable and put every profile parser out of a fuzzer's reach. The
+		// database stays at the route and the parser stays a pure function of its input.
+		//
+		// `readColumnMapping` is scoped by `user.id`, always. The fingerprint is derived from a
+		// bank's PUBLIC column names, so every user of that bank shares one: a lookup without the
+		// owner would read another user's configuration, and that is the designed behaviour of the
+		// key rather than a rare collision.
+		const headerCells = importHeaderCells(importData.rows);
+		const remembered =
+			headerCells.length === 0 ? null : await readColumnMapping(user.id, headerCells);
+		const verdict = remembered ? applyColumnMapping(remembered, headerCells) : null;
+
+		// Only `recognised` parses through the mapping. `partial` and `lost` are the plate's states
+		// 3b and 3c, which belong to the designation screen: until it exists they fall through to
+		// today's behaviour rather than refusing, so a bank that renames a column costs the user
+		// exactly what it costs them today and not more.
+		const useMapping = verdict?.kind === 'recognised';
+
 		const result = parseCsvTransactionRows(importData.rows, {
 			maxBytes: IMPORT_MAX_BYTES,
-			profile: 'auto',
+			profile: useMapping ? 'mapped' : 'auto',
+			columnMapping: useMapping ? remembered! : undefined,
 			sourceName: importFile.name || importData.kind,
 			categorizationRules: categorizationRules.map((rule) => ({
 				...rule,
@@ -141,6 +165,12 @@ export const actions: Actions = {
 				)
 			});
 		}
+
+		// Counted only once the file actually produced transactions, and only for the mapping that
+		// parsed it. A file refused by every row still "used" the mapping in some sense, and the
+		// recap sentence this feeds says « utilisée N fois » about a designation that WORKED, so
+		// counting a refusal there would overstate how much the user should trust it.
+		if (useMapping && remembered) await recordColumnMappingUse(user.id, remembered.id);
 
 		const source = getImportSource(result.summary.profile);
 		const bucket = await resolveImportBucketAccount({

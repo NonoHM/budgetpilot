@@ -54,6 +54,17 @@ export type CsvRefusalFact =
 	// row would import as income. Carries the offending column so the user can look at it: a
 	// refusal saying "your amounts have no sign" leaves them nowhere to go.
 	| { code: 'amount-sign-in-separate-column'; column: string }
+	// A remembered column mapping no longer fits the file in front of it: the plate's states 3b
+	// and 3c reaching the parser. Carries the ROLES rather than a count, because "your mapping no
+	// longer fits" leaves the user nowhere to go and "the label column is gone" does not.
+	| { code: 'mapping-columns-missing'; roles: string }
+	// A stored mapping that fails the validator, or is absent where one was required. Unreachable
+	// through the route, which checks both first, and kept because a mapping is a stored record
+	// that outlives the code that wrote it: a restore from before the validator, or a row edited
+	// in the database. `reason` carries the validator's own code and is deliberately NOT rendered,
+	// following the convention this file already documents for unrendered payloads: the user
+	// cannot act on `roles-share-a-column`, and a future screen can.
+	| { code: 'mapping-invalid'; reason: string }
 	// row level
 	| { code: 'invalid-date'; column: string }
 	| { code: 'invalid-amount'; column: string }
@@ -136,6 +147,8 @@ export const CSV_REFUSAL_CODES = [
 	'split-reserved-category-on-part',
 	'split-sign-opposite',
 	'split-sum-mismatch',
+	'mapping-columns-missing',
+	'mapping-invalid',
 	'transaction-invalid'
 ] as const satisfies readonly CsvRefusalCode[];
 

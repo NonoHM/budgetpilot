@@ -343,6 +343,8 @@
 	"import_refusal_bad_column_count": "nombre de colonnes incorrect",
 	"import_refusal_ambiguous_column_mapping": "Deux colonnes se disputent le rôle {role} : {columns}",
 	"import_refusal_amount_sign_in_separate_column": "Les montants n'ont pas de signe : la colonne « {column} » porte le sens de l'opération. Ce format n'est pas encore lu.",
+	"import_refusal_mapping_columns_missing": "Les colonnes mémorisées ne sont plus dans ce fichier : {roles}. Redésignez-les.",
+	"import_refusal_mapping_invalid": "La correspondance de colonnes mémorisée n'est pas utilisable. Redésignez les colonnes de ce fichier.",
 	"import_refusal_invalid_date": "date invalide",
 	"import_refusal_invalid_amount": "montant invalide",
 	"import_refusal_zero_amount": "montant à zéro refusé",
