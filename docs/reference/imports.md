@@ -182,11 +182,28 @@ rows only, so a run that skipped everything reports zero for both.
 
 ## Duplicate detection
 
-Per **transaction**, not per file. Importing the same statement twice creates
-nothing the second time, and importing an overlapping statement creates only
-the rows that are new. Verified: the same five-row file imported twice
-reported 5 read / 5 imported / 0 duplicates, then 5 read / 0 imported /
-5 duplicates.
+Per **transaction**, not per file, and the comparison is over the
+transaction's **date, label, amount and direction**, plus an ordinal that
+separates genuine repeats of the same payment on the same day. Importing the
+same statement twice creates nothing the second time, and importing an
+overlapping statement creates only the rows that are new. Verified: the same
+five-row file imported twice reported 5 read / 5 imported / 0 duplicates, then
+5 read / 0 imported / 5 duplicates.
+
+**The label is a column you designate, so changing which column feeds it
+changes every comparison.** Re-reading a statement through a different label
+column, or a different date column, produces rows this check treats as new,
+and it would import the whole statement a second time. That is checked
+separately, before anything is written: a run whose period, transaction count
+and both totals match an earlier import, while not one of its lines is
+recognised, is refused until confirmed. The check does not fire when any line
+IS recognised, because the per-transaction comparison already handles that
+run.
+
+Not covered: a re-reading that also changes **which rows are valid**, since
+the transaction count then differs and the two runs no longer match. The
+**Imports** page carries a retroactive version of the same comparison for
+imports made before this check existed.
 
 **The file's name does not matter.** Downloading your statement a second time,
 so it lands as `releve (1).csv`, and importing that changes nothing: it is the

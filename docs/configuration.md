@@ -317,7 +317,10 @@ BANK_SYNC_ENABLED=false   # automatic bank sync, see docs/bank-sync.md
 
 **If a statement was refused as too large, split it by date range and import
 the parts.** That is safe: duplicate detection works per transaction rather
-than per file, so pieces that overlap cannot double anything.
+than per file, so the overlap between two pieces is imported once. It holds as
+long as every piece is read through the same columns, which splitting a file by
+date range does not change. See
+[duplicate detection](./reference/imports.md#duplicate-detection).
 
 The rest of this section is why that works, and what to change if it is a
 backup rather than a statement that was refused.

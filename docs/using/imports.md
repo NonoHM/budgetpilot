@@ -104,8 +104,11 @@ operator can also raise it, up to a point:
 see [`IMPORT_XLSX_MAX_UNCOMPRESSED_MB`](../configuration.md#upload-size).
 
 Splitting a long history into several files, a year at a time, works and
-costs nothing: duplicate detection is per transaction, so overlapping
-files cannot double anything.
+costs nothing: duplicate detection is per transaction, so the overlap
+between two files is recognised and imported once.
+
+One case it does not cover, because the recognition depends on the
+columns: see [Importing the same file twice](#importing-the-same-file-twice).
 
 ## Read the summary
 
@@ -126,15 +129,35 @@ The four add up: rows read is imported plus duplicates plus invalid.
 after an import that skipped everything they are both zero. That is the
 quickest way to tell "nothing happened" from "nothing needed to happen".
 
-## Importing the same file twice is safe
+## Importing the same file twice
 
-Duplicate detection is per transaction, not per file, so overlapping
-statements do not double your history.
+Duplicate detection is per transaction, not per file, so importing the
+same statement again, or a statement that overlaps one you already have,
+creates only the rows that are new.
 
 ![Import history: two runs of the same file, the first importing 5 transactions, the second reading the same 5 and skipping all of them as duplicates](../screenshots/imports/history-desktop.png)
 
 The two rows above are the same file imported twice. The second read the
 same five lines, created nothing, and recorded five duplicates.
+
+### When the columns change, the recognition changes
+
+A transaction is recognised by its **date, label, amount and direction**.
+The label is one of the columns you designate, so the same statement read
+through a **different label column**, or a different date column, produces
+different transactions as far as this check is concerned, and every line
+imports again.
+
+That happens on exactly one path: correcting a memorised correspondance,
+or designating by hand a file that had already been imported under an
+automatic profile. BudgetPilot compares the whole run against your
+previous imports before writing anything, and if the period, the number
+of transactions and both totals match while no individual line is
+recognised, it stops and asks. Answer **Ne pas importer** and nothing is
+written.
+
+If two imports already in your history look like the same statement, the
+**Imports** page says so at the top of the list.
 
 ## The history
 
