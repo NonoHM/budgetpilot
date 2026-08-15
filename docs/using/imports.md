@@ -6,15 +6,60 @@ Every import is recorded, with what it did, and can be undone in one action.
 
 **Imports > New import** takes a **CSV** or **XLSX** statement.
 
-**There is nothing to choose.** BudgetPilot reads the file's header row and
-works out the format itself. It recognises **Banque Populaire**, **Revolut**,
-**Home** (its own export) and a **Generic** shape covering any file that
-carries a date, a label and an amount under a name it knows.
+There are three ways a file gets read, and you only ever meet the first one
+unless it fails.
+
+### 1. It is recognised, and there is nothing to choose
+
+BudgetPilot reads the file's header row and works out the format itself. It
+recognises **Banque Populaire**, **Revolut**, **Home** (its own export) and a
+**Generic** shape covering any file whose date, label and amount columns are
+named something it already knows.
 
 The column layouts each one expects are in
 [getting started](../getting-started.md#first-steps-in-the-app), and what
 Generic and Revolut accept, and still refuse, is in
 [the imports reference](../reference/imports.md).
+
+### 2. It is not recognised, so you are asked which column is which
+
+Banks name their columns however they like, and no list covers all of them. When
+none of the four shapes fits, the import is not refused: the summary says the
+columns were not recognised and offers **Designate the columns**.
+
+That screen shows four rows, one per role, and nothing else:
+
+| Row          | What it wants                             |
+| ------------ | ----------------------------------------- |
+| **Date**     | the column holding the transaction's date |
+| **Label**    | what the transaction says it was          |
+| **Amount**   | the sum, with its sign                    |
+| **Category** | optional, if your bank provides one       |
+
+Tap a row and you get your own file, one card per column, each showing the
+column's name and its **first three real values**. You are choosing from the
+data in front of you rather than from a list of names.
+
+**Columns you do not designate are ignored**, and that is the normal outcome. A
+fifteen-column statement usually needs three of them; the screen says how many
+it will ignore before you import.
+
+Three columns are enough. **Category is optional**, and leaving it empty means
+the transactions arrive uncategorised, where [categorization
+rules](./rules.md) can still pick them up.
+
+### 3. It is remembered, so you are only asked once
+
+Once you have designated a file's columns, BudgetPilot remembers the answer
+against that file's **column names**, not its name or its date. The next
+statement from the same bank imports straight through without asking.
+
+Because it is keyed on the column names, a bank that adds a column, or reorders
+them, changes nothing. If a bank **renames** one, that row alone comes back to
+be redesignated and the others keep their answers.
+
+Memorisation is on by default, stated on the screen, with a link to decline it
+for a file you do not expect to see again.
 
 **Destination account** is optional, and the form says the one thing about
 it that is easy to get wrong: it applies only to the **very first** import
@@ -29,6 +74,16 @@ the choice is ignored.
 | Larger than 256,000 bytes      | _Statement too large..._                 |
 | An `.xlsx` unpacking past 8 MB | _This spreadsheet unpacks to..._         |
 | Empty                          | _The statement file is empty._           |
+| Fewer than three columns       | _This file has 2 columns..._             |
+
+**A missing column is not in that table, on purpose.** If the file carries a
+date, a label and an amount under names BudgetPilot does not know, you get
+_Required column missing_ against each one it could not find, **and the offer to
+designate them yourself**. That is a question, not a refusal, and it is
+answered on the screen described above.
+
+A file with fewer than three columns is the one case designating cannot repair:
+there is nothing to point the three roles at.
 
 The last one needs a word, because it is the only limit that is not about
 the size of the file you picked. An `.xlsx` is a zip archive, so a small

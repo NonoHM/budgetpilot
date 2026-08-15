@@ -432,6 +432,25 @@ Code, identifiers, and comments are always written in English, regardless
 of the app's own UI language(s). Only user-facing strings go through the
 i18n system (Paraglide).
 
+## User documentation
+
+**Never write about future work in the present tense of a promise.** A page saying "the
+column mapping screen **will do** this" plants something whose failure coincides exactly
+with the work SUCCEEDING, and nobody re-reads a page when a feature ships: pages get
+re-read when they break.
+
+Measured 2026-08-15. `docs/reference/imports.md` carried three sentences of the form "when
+the column mapping screen lands, it will ask you to pick". The screen landed. All three
+then told a reader that the thing in front of them did not exist yet.
+
+**That is worse than a page merely being stale.** A stale page describes a smaller world
+and lags the product; a future-tense page CONTRADICTS it, and the contradiction is
+strongest for the user who just used the feature and went to the manual to understand it.
+
+If a page must mention work not yet done, **name the issue rather than promising the
+outcome**: "not supported today (#316)" ages into a closed link, while "this will soon"
+ages into a lie.
+
 ## Prose style
 
 **No em dashes (`—`), anywhere we write.** Documentation, commit messages,
