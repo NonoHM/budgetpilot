@@ -87,6 +87,7 @@
 		signaturePartial = false,
 		signatureLostDate = null,
 		announceDelayMs = 150,
+		readOnly = false,
 		onCancel,
 		onSubmit
 	}: {
@@ -118,6 +119,17 @@
 		 * gesture and must not be pre-empted by a summary. A prop only so a test can drive it.
 		 */
 		announceDelayMs?: number;
+		/**
+		 * Opens as the read-only RECAPITULATIF rather than as the control form.
+		 *
+		 * A MODE of this screen and deliberately not a second screen. Ruling A1 says the designation
+		 * screen does not open for a recognised file, and its accepted cost is that the user never
+		 * re-sees what was memorised: a correspondance that is ninety percent right then repeats
+		 * unattended forever. This is the path that corrects it, so it has to show the same four
+		 * roles resolved the same way. A separate screen would drift from this one by exactly the
+		 * detail that matters, and nothing would go red.
+		 */
+		readOnly?: boolean;
 		onCancel?: () => void;
 		onSubmit?: (result: { assignment: RoleAssignment; remember: boolean }) => void;
 	} = $props();
@@ -136,6 +148,8 @@
 	// answer must outlive the parent's own guess about the file.
 	// svelte-ignore state_referenced_locally
 	let hasHeaderRow = $state(file.hasHeaderRow);
+	// svelte-ignore state_referenced_locally
+	let recap = $state(readOnly);
 	let announcement = $state('');
 	let announceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -240,7 +254,8 @@
 	 */
 	function stateOf(
 		role: MappingRole
-	): 'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'skeleton' {
+	): 'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'skeleton' | 'recap' {
+		if (recap) return 'recap';
 		if (analysing) return 'skeleton';
 		if (lostHeaders[role]) return 'missingColumn';
 		if (vacated[role]) return 'vacated';
@@ -340,10 +355,11 @@
 			</p>
 			<div class="mt-2.5">
 				{#each MAPPING_ROLES as role, position (role)}
-					{#if role === 'category'}
+					{#if role === 'category' && !recap}
 						<!-- A STRONGER separator than the hairlines above it, with 12 px either side. It
 						     is what marks the optional role as a different kind of thing, and it is why
-						     the three required rows need no asterisk. -->
+						     the three required rows need no asterisk. Not drawn in the recap: nothing
+						     there is being asked for, so there is no required/optional to mark. -->
 						<div class="my-3 h-px bg-zinc-200" aria-hidden="true"></div>
 					{:else if position > 0}
 						<div class="h-px bg-zinc-100" aria-hidden="true"></div>
@@ -378,7 +394,16 @@
 			{m.import_columns_file_format_row()}
 		</div>
 
-		{#if pageState === 'complete' || pageState === 'submitting'}
+		{#if recap}
+			<!--
+				ONE action. Returning the four rows to their 68 px control form is what proves the
+				recap is a MODE of this screen rather than a second screen: the same rows, resolved
+				the same way, drawn differently.
+			-->
+			<div class="flex h-12 shrink-0 items-center" data-testid="designation-modify">
+				<TapLink onclick={() => (recap = false)}>{m.import_columns_modify()}</TapLink>
+			</div>
+		{:else if pageState === 'complete' || pageState === 'submitting'}
 			<!--
 				86 px: two lines of sentence at 17, then a 48 px TapLink. With its 14 px gap that is
 				the 100 px state 2 adds, taking the body to 611 of 636 and still not scrolling.
@@ -402,13 +427,23 @@
 		{/if}
 	</div>
 
-	<ConditionBanner
-		label={banner.label}
-		count={banner.count}
-		consequence={banner.consequence}
-		consequenceId={CONSEQUENCE_ID}
-		complete={banner.complete}
-	/>
+	{#if recap}
+		<!--
+			No condition banner and no primary in the recap. There is no condition: nothing is being
+			satisfied and nothing is blocked, so a banner would report the state of a question nobody
+			is being asked. An empty region here would also break the 64 px invariant it exists to
+			hold.
+		-->
+		<div></div>
+	{:else}
+		<ConditionBanner
+			label={banner.label}
+			count={banner.count}
+			consequence={banner.consequence}
+			consequenceId={CONSEQUENCE_ID}
+			complete={banner.complete}
+		/>
+	{/if}
 
 	<!-- 88 = 12 top padding + 48 controls + 28 home indicator area. -->
 	<footer class="flex items-stretch gap-3 px-5 pt-3 pb-7" data-testid="designation-footer">
@@ -419,31 +454,37 @@
 		>
 			{pageState === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
 		</button>
-		<!--
+		{#if recap}
+			<!-- One way out and no primary: the recap changes nothing, so there is nothing to confirm.
+			     The single action it does offer, « Modifier les colonnes », is in the body beside the
+			     rows it acts on rather than in the footer beside the way out. -->
+		{:else}
+			<!--
 			`aria-disabled`, NEVER the `disabled` attribute, and `aria-describedby` pointing at the
 			banner's second line. One reason location per disabled control: the cause is a count, the
 			count is in the banner, so the explanation lives beside the count and never in a line
 			under this button. A natively disabled button is unreachable by keyboard and therefore
 			mute about its own reason.
 		-->
-		<button
-			type="button"
-			class="h-12 flex-[1.4] rounded-[14px] text-[15px] font-semibold {importable
-				? 'bg-zinc-900 text-white'
-				: 'bg-zinc-200 text-zinc-400'}"
-			aria-disabled={importable ? undefined : 'true'}
-			aria-describedby={importable ? undefined : CONSEQUENCE_ID}
-			aria-busy={submitting ? 'true' : undefined}
-			onclick={() => importable && onSubmit?.({ assignment, remember })}
-		>
-			{#if submitting}
-				{m.import_columns_submitting()}
-			{:else if importable}
-				{m.import_columns_submit({ rows: file.rowCount })}
-			{:else}
-				{m.import_columns_submit_blocked()}
-			{/if}
-		</button>
+			<button
+				type="button"
+				class="h-12 flex-[1.4] rounded-[14px] text-[15px] font-semibold {importable
+					? 'bg-zinc-900 text-white'
+					: 'bg-zinc-200 text-zinc-400'}"
+				aria-disabled={importable ? undefined : 'true'}
+				aria-describedby={importable ? undefined : CONSEQUENCE_ID}
+				aria-busy={submitting ? 'true' : undefined}
+				onclick={() => importable && onSubmit?.({ assignment, remember })}
+			>
+				{#if submitting}
+					{m.import_columns_submitting()}
+				{:else if importable}
+					{m.import_columns_submit({ rows: file.rowCount })}
+				{:else}
+					{m.import_columns_submit_blocked()}
+				{/if}
+			</button>
+		{/if}
 	</footer>
 </div>
 

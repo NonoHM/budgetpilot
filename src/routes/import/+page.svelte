@@ -10,6 +10,9 @@
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
+	import { goto } from '$app/navigation';
+	import { EMPTY_ASSIGNMENT, type DesignationFile } from '$lib/domain/columnDesignation';
+	import { setPendingDesignation } from '$lib/import/pendingDesignation.svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -34,6 +37,47 @@
 			)
 			.join('\n') ?? ''
 	);
+
+	// Read through an `in` check rather than directly: `fail()` returns a UNION of payload shapes
+	// and only one branch carries this key. Widening every branch to carry it as `undefined` was
+	// tried first and cost 28 unrelated type errors, because it also widened `importResult` and
+	// destroyed the narrowing the rest of this file depends on.
+	const designation = $derived(
+		form && 'designation' in form ? (form.designation as DesignationFile | undefined) : undefined
+	);
+
+	/**
+	 * Hands the file to the designation screen and navigates.
+	 *
+	 * The FILE goes with it, in memory, because owner ruling 2 keeps it in the browser: storing the
+	 * upload server side between two requests would create an asset with a lifetime, an expiry and a
+	 * key to protect, which is three problems created to avoid one re-post.
+	 *
+	 * The headers and samples travel too, but only so the screen can DRAW the file. The server never
+	 * reads them back: the submit re-posts the file and re-derives its own header list.
+	 */
+	async function designateColumns(event: SubmitEvent) {
+		event.preventDefault();
+		const input = (event.currentTarget as HTMLFormElement).querySelector(
+			'input[type="file"]'
+		) as HTMLInputElement | null;
+		const file = input?.files?.[0];
+		if (!file || !designation) return;
+
+		setPendingDesignation({
+			file,
+			view: {
+				name: designation.name,
+				headers: designation.headers,
+				samples: designation.samples,
+				rowCount: designation.rowCount,
+				hasHeaderRow: designation.hasHeaderRow
+			},
+			initialAssignment: EMPTY_ASSIGNMENT,
+			candidates: {}
+		});
+		await goto(resolve('/import/columns'));
+	}
 
 	async function copyErrorReport() {
 		if (!errorReport || !navigator.clipboard) return;
@@ -61,7 +105,12 @@
 				>
 			</div>
 
-			<form class="mt-6 grid gap-4" method="POST" enctype="multipart/form-data">
+			<form
+				class="mt-6 grid gap-4"
+				method="POST"
+				enctype="multipart/form-data"
+				onsubmit={designation ? designateColumns : undefined}
+			>
 				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
 					<span class="font-medium text-zinc-800">{m.import_supported_formats()}</span>
 					<br />
@@ -102,6 +151,17 @@
 
 				{#if form?.error}
 					<AlertBanner variant="error">{form.error}</AlertBanner>
+				{/if}
+
+				{#if designation}
+					<!-- The file nothing recognised. A refusal that offers the repair rather than
+					     stating the problem: the user's next step is naming three columns, and the
+					     screen that does it is one tap away. -->
+					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+						<p class="text-sm font-semibold text-zinc-900">{m.import_columns_offer()}</p>
+						<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
+						<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>
+					</div>
 				{/if}
 
 				<Button type="submit">{m.import_submit()}</Button>
@@ -249,7 +309,12 @@
 			{m.import_supported_profiles_list()}
 		</div>
 
-		<form class="grid gap-4" method="POST" enctype="multipart/form-data">
+		<form
+			class="grid gap-4"
+			method="POST"
+			enctype="multipart/form-data"
+			onsubmit={designation ? designateColumns : undefined}
+		>
 			<FileDropZone
 				name="csvFile"
 				accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -284,6 +349,17 @@
 
 			{#if form?.error}
 				<AlertBanner variant="error">{form.error}</AlertBanner>
+			{/if}
+
+			{#if designation}
+				<!-- The file nothing recognised. A refusal that offers the repair rather than
+				     stating the problem: the user's next step is naming three columns, and the
+				     screen that does it is one tap away. -->
+				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
+					<p class="text-sm font-semibold text-zinc-900">{m.import_columns_offer()}</p>
+					<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
+					<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>
+				</div>
 			{/if}
 
 			<Button type="submit" class="h-11 w-full !rounded-xl">{m.import_submit()}</Button>

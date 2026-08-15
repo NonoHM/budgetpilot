@@ -1447,5 +1447,9 @@
 	"import_columns_remember_opt_in": "Remember this correspondence",
 	"import_columns_announce_designated": "{count}. {consequence}",
 	"import_columns_announce_moved": "{role}: {header}. {vacated} to designate again. {count}.",
-	"import_columns_remember_opt_in_explanation": "This correspondence will not be remembered. The next file of this shape will ask for the columns again."
+	"import_columns_remember_opt_in_explanation": "This correspondence will not be remembered. The next file of this shape will ask for the columns again.",
+	"import_columns_error_invalid_designation": "This designation does not match the file. Designate the columns again.",
+	"import_columns_offer": "Designate the columns",
+	"import_columns_offer_explanation": "This statement is not recognised. Say which column carries the date, the label and the amount.",
+	"import_columns_modify": "Change the columns"
 }

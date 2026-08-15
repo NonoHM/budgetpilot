@@ -402,3 +402,55 @@ describe('above 20 columns the picker gains a search field, and below it does no
 		expect(container.textContent).toContain('Aucune colonne ne correspond');
 	});
 });
+
+describe('the recapitulatif, which is a MODE of this screen and not a second screen', () => {
+	it('draws four 44 px rows in a 235 px card', async () => {
+		// 14 padding + 16 label + 10 gap + 4 rows of 44 + 3 hairlines + 14 padding + 2 border.
+		// Absolute, because the recap's whole job is to show the same resolution the control form
+		// shows, and a card that drifted by a row height would be showing something else.
+		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		const card = container.querySelector('[data-testid="designation-card"]') as HTMLElement;
+		expect(card.getBoundingClientRect().height).toBe(235);
+	});
+
+	it('opens nothing: the rows are not buttons and do not take focus', async () => {
+		// Asserting `tabindex` is absent proves less than it looks, because an element can be
+		// focusable without one. So focus is actually attempted on each row and the check is where
+		// it landed. The two states separated: a row that looks inert and is, and one that looks
+		// inert and still answers a keyboard.
+		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(0);
+		const rows = container.querySelectorAll('[data-testid="designation-card"] > div > div');
+		expect(rows.length).toBeGreaterThan(0);
+		for (const row of rows) {
+			(row as HTMLElement).focus();
+			expect(document.activeElement).not.toBe(row);
+		}
+	});
+
+	it('carries no condition banner, because nothing is being asked', async () => {
+		// A banner reports the state of a condition. In the recap there is no condition: nothing is
+		// blocked and nothing is being satisfied, so a banner would answer a question nobody asked.
+		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		expect(container.querySelector('[data-testid="condition-banner"]')).toBeNull();
+	});
+
+	it('returns the rows to their 68 px control form, which is what makes it one screen', async () => {
+		// The assertion that proves the recap is a MODE rather than a second screen: the same rows,
+		// resolved the same way, become the control form in place. A second screen would have to be
+		// kept in step by hand, and nothing would go red when it drifted.
+		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		await page.getByRole('button', { name: 'Modifier les colonnes' }).click();
+
+		await expect
+			.element(page.getByRole('button', { name: /^Date, colonne désignée/ }))
+			.toBeInTheDocument();
+		const card = container.querySelector('[data-testid="designation-card"]') as HTMLElement;
+		expect(card.getBoundingClientRect().height).toBe(355);
+		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(4);
+	});
+});
