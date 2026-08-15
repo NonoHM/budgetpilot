@@ -41,7 +41,9 @@ Case and surrounding spaces do not matter.
 **Any column it does not recognise is ignored**, and the rest of the file
 imports. Ignoring is not the same as understanding: the column's values are
 not read, not stored, and not shown. Giving those columns a meaning is what
-the column mapping screen will do.
+the [column designation screen](../using/imports.md#2-it-is-not-recognised-so-you-are-asked-which-column-is-which)
+does: it asks you which column holds the date, the label and the amount, and
+remembers the answer for the next file with the same columns.
 
 ### Currency
 
@@ -65,7 +67,17 @@ construction, so files read through them are always assumed to be in euros.
 ### When Generic refuses
 
 **A column it needs is missing.** If no column matches the date, label or
-amount role, there is nothing to build a transaction from.
+amount role, there is nothing to build a transaction from. The refusal is
+`missing-required-column`, named once per role it could not find, and it is
+**the one refusal that comes with an offer rather than a full stop**: the
+summary proposes designating the columns yourself, and the
+[designation screen](../using/imports.md#2-it-is-not-recognised-so-you-are-asked-which-column-is-which)
+shows each of your file's columns with its first three real values so you can
+say which is which. Answer it once and the answer is remembered for every later
+file with the same columns.
+
+The refusal still stands on its own for a reader arriving from the invalid rows
+table, which is why it is listed here rather than replaced by the offer.
 
 **Two columns claim the same role.** A file carrying both `Date` and `dateOp`
 is refused, naming both, rather than one being chosen for you.
@@ -75,8 +87,10 @@ two date-ish columns refuses where a guess would have imported it.** The guess
 is what we are refusing to make. Which of two date columns your transaction
 should be dated by is a question about your bank's file, not one this
 application can answer by looking at the names, and getting it wrong dates
-your money to the wrong day silently. When the column mapping screen lands,
-this is exactly the moment it will ask you to pick.
+your money to the wrong day silently. This is exactly the moment the
+[column designation screen](../using/imports.md#2-it-is-not-recognised-so-you-are-asked-which-column-is-which)
+asks you to pick, showing each candidate column with its first three real
+values so the choice is made against the data rather than against the names.
 
 **The file declares more columns than we will render.** A file may carry up to **512**
 columns. That is far more than any bank or accounting package emits: a bank statement
@@ -112,8 +126,14 @@ no direction column at all is indistinguishable from a genuine income-only
 statement, and it imports as one. So does a file whose direction column uses
 words this list does not carry. There is nothing in the file to tell those apart,
 and widening the list to guess would start refusing statements that import
-correctly today. The column mapping screen is what closes this properly, by
-asking you.
+correctly today.
+
+The [column designation screen](../using/imports.md#2-it-is-not-recognised-so-you-are-asked-which-column-is-which)
+closes the naming half of this, by asking rather than guessing. **It does not
+close the sign half.** The role set is closed at four (date, label, amount,
+category) and none of them carries a direction, so a statement whose amounts are
+magnitudes beside a separate debit/credit column is refused before the screen
+opens rather than designated through it. That is #320's decision and it stands.
 
 A statement whose date column reads `08/01/2026` is a related problem this
 does not solve. BudgetPilot reads dates as day/month, so a file written

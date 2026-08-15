@@ -23,6 +23,34 @@ const PASSWORD = process.env.DOC_PASSWORD ?? 'DemoBudgetPilot123!';
 const TOTP_SECRET = process.env.DOC_TOTP_SECRET ?? null;
 const SHOTS = path.resolve('docs/screenshots');
 
+/**
+ * A statement no profile recognises, uploaded through the real form.
+ *
+ * `Jour`, `Intitule operation` and `Somme` are real spellings a French bank uses and the alias
+ * table does not carry, which is what makes the designation screen open at all. If a later change
+ * teaches the alias table these names, THESE CAPTURES FAIL rather than quietly photographing a
+ * recognised import: the offer button will not appear and the shot times out. That is the correct
+ * failure, and it is why the file is uploaded rather than seeded.
+ */
+async function uploadUnrecognisedStatement(page) {
+	const form = page.locator('form[method="POST"]:visible').first();
+	await form.locator('input[name="csvFile"]').setInputFiles({
+		name: 'releve.csv',
+		mimeType: 'text/csv',
+		buffer: Buffer.from(
+			[
+				'Jour;Intitule operation;Somme',
+				'24/06/2026;CARREFOUR MARKET;-24,90',
+				'21/06/2026;VIR RECU SALAIRE;1850,00',
+				'03/06/2026;SNCF;-58,00'
+			].join('\n'),
+			'utf-8'
+		)
+	});
+	await form.getByRole('button', { name: 'Import' }).click();
+	await page.waitForTimeout(600);
+}
+
 const DESKTOP = { width: 1920, height: 1080 };
 const MOBILE = { width: 393, height: 852 };
 
@@ -235,6 +263,54 @@ const GROUPS = {
 				await page.waitForTimeout(400);
 			},
 			element: '[role="dialog"], [role="alertdialog"]'
+		}
+	],
+	// Its own group, not part of `imports`, because its ARRANGEMENT is different: these need no
+	// seeded history at all, and the `imports` group's cancel shot needs a two-import one. A group
+	// is the unit someone re-captures, so two different arrangements are two groups.
+	//
+	// The file is uploaded live rather than seeded, because the whole point of the screen is a file
+	// no profile recognises, and a seeded import is by definition one that was recognised.
+	'import-columns': [
+		{
+			file: 'imports/columns-offer-desktop.png',
+			url: '/import',
+			before: uploadUnrecognisedStatement,
+			clipAround: 'Designate the columns',
+			clipMinHeight: 200
+		},
+		{
+			file: 'imports/columns-designation-mobile.png',
+			url: '/import',
+			viewport: MOBILE,
+			before: async (page) => {
+				await uploadUnrecognisedStatement(page);
+				await page.getByRole('button', { name: 'Designate the columns' }).click();
+				await page.waitForURL(/\/import\/columns$/);
+				// Designated, so the capture shows the screen doing its job rather than empty: the
+				// four rows carrying real column names and real values, and the count at 3 of 3.
+				for (const [row, column] of [
+					[/^Date, no column designated/, /^Jour\./],
+					[/^Label, no column designated/, /^Intitule operation\./],
+					[/^Amount, no column designated/, /^Somme\./]
+				]) {
+					await page.getByRole('button', { name: row }).click();
+					await page.getByRole('option', { name: column }).click();
+					await page.waitForTimeout(200);
+				}
+			}
+		},
+		{
+			file: 'imports/columns-picker-mobile.png',
+			url: '/import',
+			viewport: MOBILE,
+			before: async (page) => {
+				await uploadUnrecognisedStatement(page);
+				await page.getByRole('button', { name: 'Designate the columns' }).click();
+				await page.waitForURL(/\/import\/columns$/);
+				await page.getByRole('button', { name: /^Amount, no column designated/ }).click();
+				await page.waitForTimeout(300);
+			}
 		}
 	],
 	// Expects the two goals described in docs/screenshots/savings-goals/README.md: one tracked
