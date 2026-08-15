@@ -4,6 +4,7 @@ import { buildDeduplicationKey } from '$lib/server/import/utils/safety';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
+import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1452,6 +1453,84 @@ describe('/import actions', () => {
 	 * where" before reaching the one assertion about scoping. The fake now models an absent clause
 	 * as absent, which is what Prisma does, and keeps the loud throw for a clause it cannot express.
 	 */
+	/**
+	 * The date wall, and the route that was pointed away from it.
+	 *
+	 * The rescue existed and was reachable only from a file NOTHING recognised. A file whose headers
+	 * matched and whose values then failed ended on the same sentence with no way forward, and the
+	 * two are indistinguishable from the outside. Nothing covered `offersDesignation` at any level
+	 * before this block, which is why the routing could be wrong for a whole chantier.
+	 */
+	describe('the designation offer on a file that produced nothing', () => {
+		// Headers a profile READS (`date`, `label`, `amount`), values it cannot: dots are not one of
+		// the three accepted date forms. This is the blind session's own file, reduced.
+		const RECOGNISED_HEADERS_UNREADABLE_DATES =
+			'date,label,amount\n01.06.2026,CARREFOUR MARKET,-24.90\n02.06.2026,SALAIRE,2140.00';
+
+		it('is offered when the headers matched and every value failed', async () => {
+			const result = (await runImportWithFile(RECOGNISED_HEADERS_UNREADABLE_DATES)) as unknown as {
+				data: { designation?: { headers: string[]; rowCount: number } };
+			};
+
+			expect(result.data.designation).toBeDefined();
+			expect(result.data.designation?.headers).toEqual(['date', 'label', 'amount']);
+			// The screen rests on the preview, so it is handed the rows it will draw.
+			expect(result.data.designation?.rowCount).toBe(2);
+		});
+
+		it('names the expected date form beside the value that was rejected', async () => {
+			const result = (await runImportWithFile(RECOGNISED_HEADERS_UNREADABLE_DATES)) as unknown as {
+				// Typed from the production type, so the assertion below cannot drift from the shape
+				// the action actually returns.
+				data: { importResult: { invalidRowDetails: ImportInvalidRowDetail[] } };
+			};
+
+			const details = result.data.importResult.invalidRowDetails;
+			expect(details).toHaveLength(2);
+			expect(details[0].fact.code).toBe('invalid-date');
+			// The refusal LABEL carries the accepted forms, and the row preview beside it carries the
+			// value. Asserted through the production label function rather than against a retyped
+			// string, so a catalogue edit that drops the forms turns this red.
+			expect(refusalLabel(details[0].fact)).toMatch(/JJ\/MM\/AAAA/);
+		});
+
+		it('is not offered when every refusal is one no column can repair', async () => {
+			// A currency the app does not hold is a fact about the money, not about which column
+			// carries it. There is no column to name that would make this file importable, and
+			// sending the user to designate ends with them believing the feature is broken.
+			const foreign =
+				'date,label,amount,currency\n2026-06-01,TESCO,-24.90,GBP\n2026-06-02,TESCO,-11.00,GBP';
+
+			const result = (await runImportWithFile(foreign)) as unknown as {
+				data: { designation?: unknown };
+			};
+
+			expect(result.data.designation).toBeUndefined();
+		});
+
+		it('is still offered when only SOME rows are beyond repair', async () => {
+			// `every`, not `some`. One unusable currency among rows that failed on their dates is
+			// still a file naming a column might rescue, and the earlier reading would have refused
+			// the offer on the strength of the single row.
+			const mixed =
+				'date,label,amount,currency\n2026-06-01,TESCO,-24.90,GBP\n01.06.2026,CARREFOUR,-11.00,EUR';
+
+			const result = (await runImportWithFile(mixed)) as unknown as {
+				data: { designation?: unknown };
+			};
+
+			expect(result.data.designation).toBeDefined();
+		});
+
+		it('is not offered to a file with no data row, which the screen cannot draw', async () => {
+			const result = (await runImportWithFile('date,label,amount')) as unknown as {
+				data: { designation?: unknown };
+			};
+
+			expect(result.data.designation).toBeUndefined();
+		});
+	});
+
 	describe('a remembered column mapping at the import action', () => {
 		// A file no alias table can read: `Jour`, `Intitule operation` and `Somme` are in no alias
 		// list, so without a mapping this content is refused. That is what makes the two tests below

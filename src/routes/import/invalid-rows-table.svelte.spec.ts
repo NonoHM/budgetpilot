@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import Page from './+page.svelte';
 import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
+import { refusalLabel } from '$lib/i18n/refusalLabel';
 
 /**
  * The invalid rows table, which is the only place the application explains why an import was
@@ -83,7 +84,13 @@ describe('the import invalid rows table', () => {
 
 		const table = page.getByRole('table');
 		await expect.element(table.getByText('7', { exact: true })).toBeInTheDocument();
-		await expect.element(table.getByText('date invalide')).toBeInTheDocument();
+		// Through the production label rather than against a retyped copy of the catalogue string.
+		// The literal 'date invalide' was here, and it broke the day the string gained the accepted
+		// date forms: a test that retypes what it checks asserts the copy, not the behaviour, and
+		// the behaviour under test is that a row scoped refusal reaches the table with its reason.
+		await expect
+			.element(table.getByText(refusalLabel({ code: 'invalid-date', column: 'date' })))
+			.toBeInTheDocument();
 	});
 
 	it('never prints a line number for a header scoped refusal (#291)', async () => {
