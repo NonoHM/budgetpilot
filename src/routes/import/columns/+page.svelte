@@ -8,6 +8,7 @@
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import {
 		clearPendingDesignation,
+		setPendingDesignation,
 		takePendingDesignation
 	} from '$lib/import/pendingDesignation.svelte';
 	import { setCompletedImport } from '$lib/import/completedImport.svelte';
@@ -101,11 +102,22 @@
 				// change exists to remove, and staying here at least leaves the designations intact.
 				const carried = actionResult.type === 'success' ? actionResult.data : undefined;
 				if (!carried?.importResult) return;
+				// KEPT, not cleared, when rows failed. The plate's way back reopens this screen « en
+				// état 2, désignations intactes », which needs both the file — held in the browser,
+				// owner ruling 2 — and the answers just given. Re-seeding `initialAssignment` with
+				// them is what makes the screen come back designated rather than empty; without it
+				// the link would be a re-import with extra steps.
+				const failed = carried.importResult.invalidRows > 0;
 				setCompletedImport({
 					importResult: carried.importResult,
-					capReached: carried.capReached === true
+					capReached: carried.capReached === true,
+					canRevisit: failed
 				});
-				clearPendingDesignation();
+				if (failed) {
+					setPendingDesignation({ ...pending, initialAssignment: result.assignment });
+				} else {
+					clearPendingDesignation();
+				}
 				await goto(resolve('/import'));
 			})
 			.catch(() => {

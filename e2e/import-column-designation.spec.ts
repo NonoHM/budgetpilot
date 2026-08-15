@@ -292,6 +292,68 @@ test.describe('at 390x844', () => {
 		await expect(onScreen(page, m.import_invalid_heading())).toBeVisible();
 	});
 
+	/**
+	 * THE WAY BACK, and the plate names it as the only addition to the invalid-rows screen.
+	 *
+	 * Plate §1q table B, « Lignes invalides »: « Écran existant "Lignes invalides" de /imports,
+	 * réutilisé tel quel. Un seul ajout : un TapLink `Revoir les colonnes` qui rouvre cet écran en
+	 * état 2, désignations intactes. Sans ce chemin de retour, 130 dates mal lues obligent à
+	 * recommencer l'import. »
+	 *
+	 * A blind usability session lost rows to a wrong designation and had no route back at all: the
+	 * summary counted the failures and offered nothing to do about them. This is the plate's own
+	 * answer, and « état 2, désignations intactes » is the half that matters — a link returning to
+	 * an empty screen would be a re-import with extra steps.
+	 */
+	test('an import with invalid rows offers the way back to the columns, designations intact', async ({
+		page
+	}, testInfo) => {
+		const suffix = testInfo.retry === 0 ? '' : ` r${testInfo.retry}`;
+		const PARTIAL = [
+			`Quand${suffix};Quoi${suffix};Combien${suffix}`,
+			// DATED WELL OUTSIDE the seeded window, on purpose. This suite shares one database in
+			// declaration order, so a row this test leaves behind is a row a later spec sees: dating
+			// it 2026-06 pushed the dashboard's recent-transactions list past the row
+			// `taplink-avatar.spec.ts` asserts on, and that spec failed for a reason that had
+			// nothing to do with avatars.
+			'24/06/2019;E2E REVISIT CARREFOUR;-24,90',
+			// The row that fails, so the summary has something to send the user back about.
+			'21/06/2019;E2E REVISIT SANS MONTANT;'
+		].join('\n');
+
+		await page.goto('/import');
+		const form = page.locator('form[method="POST"]:visible').first();
+		await form.locator('input[name="csvFile"]').setInputFiles({
+			name: 'e2e-revisit.csv',
+			mimeType: 'text/csv',
+			buffer: Buffer.from(PARTIAL, 'utf-8')
+		});
+		await form.getByRole('button', { name: m.import_submit() }).click();
+		await form.getByRole('button', { name: m.import_columns_offer() }).click();
+
+		await expect(page).toHaveURL(/\/import\/columns$/);
+		for (const [rowName, column] of [
+			[/^Date, aucune colonne désignée/, /^Quand/],
+			[/^Libellé, aucune colonne désignée/, /^Quoi/],
+			[/^Montant, aucune colonne désignée/, /^Combien/]
+		] as const) {
+			await page.getByRole('button', { name: rowName }).click();
+			await page.getByRole('option', { name: column }).click();
+		}
+		await page.getByRole('button', { name: /^Importer/ }).click();
+
+		// The summary reports the failure (#338) and now offers the route back.
+		await expect(onScreen(page, m.import_invalid_heading())).toBeVisible({ timeout: 15_000 });
+		await onScreen(page, m.import_columns_revisit()).click();
+
+		// État 2, désignations intactes: back on the screen with all three still designated, so the
+		// user corrects one row rather than redoing the whole designation.
+		await expect(page).toHaveURL(/\/import\/columns$/);
+		await expect(page.getByRole('button', { name: /^Montant, colonne désignée/ })).toBeVisible();
+		await expect(page.getByRole('button', { name: /^Date, colonne désignée/ })).toBeVisible();
+		await expect(page.getByRole('button', { name: /^Libellé, colonne désignée/ })).toBeVisible();
+	});
+
 	test('the same file imports straight through the second time, without the screen opening', async ({
 		page
 	}) => {

@@ -7,6 +7,7 @@
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
 	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
@@ -310,6 +311,18 @@
 								{m.import_hidden_errors({ count: importResult.hiddenInvalidRowsCount })}
 							</p>
 						{/if}
+
+						{#if carriedImport?.canRevisit}
+							<!--
+							Plate §1q table B: the ONE addition to the invalid-rows screen. It reopens the
+							designation screen « en état 2, désignations intactes », so a user whose amount
+							column was wrong corrects one row instead of redoing the import. A TapLink, not a
+							Button: the primary here is still « Voir les transactions ».
+						-->
+							<TapLink class="mt-4" onclick={() => goto(resolve('/import/columns'))}>
+								{m.import_columns_revisit()}
+							</TapLink>
+						{/if}
 					</section>
 				{/if}
 
@@ -515,6 +528,18 @@
 						<p class="mt-3 text-center text-xs text-zinc-400">
 							{m.import_hidden_errors({ count: importResult.hiddenInvalidRowsCount })}
 						</p>
+					{/if}
+
+					{#if carriedImport?.canRevisit}
+						<!--
+							Plate §1q table B: the ONE addition to the invalid-rows screen. It reopens the
+							designation screen « en état 2, désignations intactes », so a user whose amount
+							column was wrong corrects one row instead of redoing the import. A TapLink, not a
+							Button: the primary here is still « Voir les transactions ».
+						-->
+						<TapLink class="mt-4" onclick={() => goto(resolve('/import/columns'))}>
+							{m.import_columns_revisit()}
+						</TapLink>
 					{/if}
 				</div>
 			{/if}

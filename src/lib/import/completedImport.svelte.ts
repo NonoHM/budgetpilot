@@ -33,6 +33,17 @@ export interface CompletedImport {
 	importResult: ImportSummaryResult;
 	/** True when the mapping could not be memorised because the per-account cap was reached. */
 	capReached: boolean;
+	/**
+	 * Whether the designation screen can be reopened on this import, in state 2 with the
+	 * designations intact.
+	 *
+	 * Plate §1q table B: the invalid-rows screen takes exactly one addition, a TapLink
+	 * « Revoir les colonnes », « sans ce chemin de retour, 130 dates mal lues obligent à
+	 * recommencer l'import ». It is only offered when the file is still in the browser AND rows
+	 * actually failed: a link back from a clean import would be an invitation to change an answer
+	 * that just worked.
+	 */
+	canRevisit: boolean;
 }
 
 let completed: CompletedImport | null = null;
