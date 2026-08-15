@@ -211,6 +211,87 @@ test.describe('at 390x844', () => {
 		await expect(onScreen(page, '1 850,00')).toBeVisible();
 	});
 
+	/**
+	 * THE RUN THAT DESIGNATES IS THE RUN THAT SAYS NOTHING, and that is #338.
+	 *
+	 * The test above proves the rows land and their signs are right. It cannot see that the user is
+	 * never TOLD, because it verifies the outcome from `/transactions` — which is precisely the
+	 * cross-check a person had to perform by hand to discover 9 of 66 rows had been rejected.
+	 *
+	 * The asymmetry is the defect. A file imported through `/import` reports; the same file imported
+	 * through the designation screen reports nothing; and the SECOND import of that same file, now
+	 * memorised, reports again. So the evidence does arrive — one run late, detached from the choice
+	 * that caused it, on a screen the user cannot return to.
+	 *
+	 * A HEADING ALONE WOULD NOT DO. The counts are asserted because the summary panel is what makes a
+	 * partial import legible, and a partial import is the shape this screen produces: a designated
+	 * amount column that is empty on some rows takes those rows out silently.
+	 */
+	/**
+	 * HEADERS UNIQUE PER ATTEMPT, and the retry is why.
+	 *
+	 * The suite runs with `retries: 2`. A test that designates a file MEMORISES its shape, so the
+	 * second attempt uploads a file the app now recognises, imports straight through, and never
+	 * opens the designation screen: the retry then fails waiting for an offer that is correctly
+	 * absent, reporting a fixture problem as a product one. That happened on the first run of this
+	 * test and is the same class of mistake the comments above record five times, arriving by a new
+	 * route — through the retry rather than through a sibling test.
+	 *
+	 * Suffixing the header row makes every attempt a genuinely unrecognised file, so attempt 2 tests
+	 * what attempt 1 tested.
+	 */
+	function partialCsv(attempt: number): string {
+		const suffix = attempt === 0 ? '' : ` r${attempt}`;
+		return [
+			`Date ecriture${suffix};Libelle ecriture${suffix};Mouvement${suffix}`,
+			'12/06/2026;E2E SUMMARY EPICERIE;-12,30',
+			'10/06/2026;E2E SUMMARY REMBOURSEMENT;45,00',
+			// The shape from the field report, in miniature: a row whose designated amount cell is
+			// empty. It must be REPORTED, not merely dropped.
+			'08/06/2026;E2E SUMMARY SANS MONTANT;'
+		].join('\n');
+	}
+
+	test('a designated import reports its summary on the run that designated it', async ({
+		page
+	}, testInfo) => {
+		// ITS OWN HEADERS. A mapping is fingerprinted over the header row, so reusing this file's
+		// shape from an earlier test in this file would find that mapping, import straight through,
+		// and never open the screen — the fixture mistake this spec has recorded five times.
+		const PARTIAL_CSV = partialCsv(testInfo.retry);
+		await page.goto('/import');
+		const form = page.locator('form[method="POST"]:visible').first();
+		await form.locator('input[name="csvFile"]').setInputFiles({
+			name: 'e2e-designation-summary.csv',
+			mimeType: 'text/csv',
+			buffer: Buffer.from(PARTIAL_CSV, 'utf-8')
+		});
+		await form.getByRole('button', { name: m.import_submit() }).click();
+		await form.getByRole('button', { name: m.import_columns_offer() }).click();
+
+		await expect(page).toHaveURL(/\/import\/columns$/);
+		for (const [rowName, column] of [
+			[/^Date, aucune colonne désignée/, /^Date ecriture/],
+			[/^Libellé, aucune colonne désignée/, /^Libelle ecriture/],
+			[/^Montant, aucune colonne désignée/, /^Mouvement/]
+		] as const) {
+			await page.getByRole('button', { name: rowName }).click();
+			await page.getByRole('option', { name: column }).click();
+		}
+		await page.getByRole('button', { name: /^Importer/ }).click();
+
+		await expect(onScreen(page, m.import_summary_heading())).toBeVisible({ timeout: 15_000 });
+		await expect(onScreen(page, m.import_stat_rows_read())).toBeVisible();
+		await expect(onScreen(page, m.import_stat_imported())).toBeVisible();
+		await expect(onScreen(page, m.import_stat_invalid())).toBeVisible();
+
+		// THE REJECTED ROW IS NAMED, not merely counted, and this is the half that matters. The
+		// heading below renders only when `invalidRowDetails` is non-empty, so it is a proof that the
+		// details travelled rather than that a number did. A count alone reproduces the field report:
+		// the user could see that nine rows had failed and never which nine.
+		await expect(onScreen(page, m.import_invalid_heading())).toBeVisible();
+	});
+
 	test('the same file imports straight through the second time, without the screen opening', async ({
 		page
 	}) => {
