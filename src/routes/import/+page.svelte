@@ -161,6 +161,28 @@
 		await goto(resolve('/import/columns'));
 	}
 
+	/**
+	 * The memorisation the designation screen promised, and the server then refused.
+	 *
+	 * `/import/columns` displays « Cette correspondance sera réutilisée pour les prochains fichiers
+	 * ayant les mêmes colonnes » before the import, and `saveColumnMapping` refuses with
+	 * `cap-reached` once the user holds `COLUMN_MAPPINGS_PER_USER` of them. The refusal was computed,
+	 * returned by the action, carried across the navigation and typed on `CompletedImport` -- and
+	 * rendered by nothing. The user was left with a promise the mechanism had already declined to
+	 * keep, and the only symptom was that this bank kept reopening the designation screen forever.
+	 *
+	 * The design source states the rule this restores: before displaying a promise about future
+	 * behaviour, the mechanism behind it must be able to keep it in every state it will meet. Where
+	 * it cannot, the state where it fails is exactly the state where the user has no way to find out
+	 * why.
+	 *
+	 * The cap FIGURE is deliberately not in the sentence. It is read from the environment
+	 * (`COLUMN_MAPPINGS_PER_USER`), so a literal here would be wrong on any instance that moved it,
+	 * and there is nothing the user can do with the number until a remembered-correspondance list
+	 * exists to delete from (#326).
+	 */
+	const capReached = $derived(carriedImport?.capReached === true);
+
 	async function copyErrorReport() {
 		if (!errorReport || !navigator.clipboard) return;
 		await navigator.clipboard.writeText(errorReport);
@@ -287,6 +309,14 @@
 				<Button type="submit">{m.import_submit()}</Button>
 			</form>
 		</div>
+
+		<!-- Above the summary, because it qualifies it: the counts below are true and the memorisation
+		     they were produced under did not happen. `warning` rather than `error`: nothing failed
+		     that the user asked for, the import landed, and only the convenience attached to it was
+		     declined. -->
+		{#if capReached}
+			<AlertBanner variant="warning">{m.import_columns_cap_reached()}</AlertBanner>
+		{/if}
 
 		{#if importResult}
 			<div class="rounded-lg border border-zinc-200 bg-white p-5">
@@ -505,6 +535,11 @@
 
 			<Button type="submit" class="h-11 w-full !rounded-xl">{m.import_submit()}</Button>
 		</form>
+
+		<!-- Same placement and same reason as the desktop chrome: it qualifies the counts below it. -->
+		{#if capReached}
+			<AlertBanner variant="warning">{m.import_columns_cap_reached()}</AlertBanner>
+		{/if}
 
 		{#if importResult}
 			<div class="{cardBase} p-5">

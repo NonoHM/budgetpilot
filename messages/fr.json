@@ -1460,6 +1460,7 @@
 	"import_columns_remember_opt_in_explanation": "Cette correspondance ne sera pas mémorisée. Le prochain fichier de cette forme redemandera les colonnes.",
 	"import_columns_error_invalid_designation": "Cette désignation ne correspond pas au fichier. Recommencez la désignation des colonnes.",
 	"import_columns_error_unexpected": "L’import n’a pas abouti. Vos désignations sont intactes : réessayez.",
+	"import_columns_cap_reached": "Les colonnes de ce relevé n’ont pas été mémorisées : le nombre maximum de correspondances est atteint. L’import a bien eu lieu, mais ce relevé redemandera de désigner ses colonnes.",
 	"import_columns_offer": "Désigner les colonnes",
 	"import_columns_revisit": "Revoir les colonnes",
 	"import_columns_offer_explanation": "Ce relevé n'est pas reconnu. Indiquez quelle colonne porte la date, le libellé et le montant.",
