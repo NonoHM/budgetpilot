@@ -134,6 +134,12 @@ check for that is the break step below.
 - **Reproduce the figure.** On a measured defect the red must bring back the original value.
 - **Undo a break with an inverse patch, never `git checkout --`.** Assert the old text is
   present before writing, so a patch matching nothing fails loudly.
+- **Restore in a `finally`, not on the line after the run.** A break patch is a mutation
+  with no automatic undo, so an interrupted or throwing break-check leaves the break in the
+  working tree, where it reads as code somebody meant to write. Every gate stays green,
+  because the test that would catch it is the one the break disabled. If a session ends
+  mid-break, the next one looks for it first: an inverted condition, a commented assertion,
+  a constant where a call was.
 
 ### Order
 
