@@ -95,6 +95,7 @@
 				name: designation.name,
 				headers: designation.headers,
 				samples: designation.samples,
+				coverage: designation.coverage,
 				rowCount: designation.rowCount,
 				hasHeaderRow: designation.hasHeaderRow
 			},

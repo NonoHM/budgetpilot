@@ -160,6 +160,11 @@
 			header: titleFor(index),
 			index,
 			values: file.samples[index] ?? [],
+			// Undefined rather than a zero when the file carries no counts: a card that says
+			// « 0 valeurs » about a column it has not measured is worse than one that says nothing.
+			coverage: file.coverage
+				? { filled: file.coverage[index] ?? 0, total: file.rowCount }
+				: undefined,
 			forRole: role,
 			marker: markerFor(index),
 			heldByRole: roleHolding(assignment, index) ?? undefined,

@@ -29,8 +29,18 @@ export interface DesignationFile {
 	name: string;
 	/** Header cells as the file writes them. Empty string where the file has no readable header. */
 	headers: readonly string[];
-	/** Per column, the first three data values in file order. Short columns are padded with ''. */
+	/**
+	 * Per column, three data values chosen because they exist rather than because they come
+	 * first. Columns with fewer than three values are padded with ''.
+	 */
 	samples: readonly (readonly string[])[];
+	/**
+	 * Per column, how many data rows carry a value. Read against `rowCount`.
+	 *
+	 * Optional because a `DesignationFile` assembled by a test or an older client may not carry
+	 * it, and a missing count must degrade to saying nothing rather than to saying zero.
+	 */
+	coverage?: readonly number[];
 	/** Data rows, excluding the header row. Displayed, and used in the primary's label. */
 	rowCount: number;
 	/** False when the first line is data rather than headers. Card titles become positions. */
