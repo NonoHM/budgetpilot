@@ -113,6 +113,21 @@ test.describe('a memorised correspondance that is wrong can be corrected', () =>
 		await page.getByRole('button', { name: m.import_columns_modify() }).click();
 		await expect(page).toHaveURL(/\/import\?correct=/);
 
+		// 5b. The WRONG file, handed back. Refused with its reason rather than opened: designating
+		//     through it would write a new correspondance for the file picked by mistake and leave
+		//     the one under correction exactly as it was, silently.
+		const wrongForm = page.locator('form[method="POST"]:visible').first();
+		await wrongForm.locator('input[name="csvFile"]').setInputFiles({
+			name: 'e2e-recovery-other.csv',
+			mimeType: 'text/csv',
+			buffer: Buffer.from(`Autre A${suffix};Autre B${suffix}\n12/02/2019;X\n`, 'utf-8')
+		});
+		await wrongForm.getByRole('button', { name: m.import_submit() }).click();
+		await expect(onScreen(page, m.import_columns_correct_wrong_file())).toBeVisible({
+			timeout: 15_000
+		});
+		await expect(page).toHaveURL(/\/import\?correct=/);
+
 		// 6. État 2, désignations intactes: the user came to change ONE row.
 		await upload();
 		for (const role of ['Date', 'Libellé', 'Montant']) {

@@ -1,5 +1,6 @@
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 import { MAPPING_ROLES, type MappingRole, type UntrustedColumnMapping } from './model';
+import { candidateFingerprints } from './fingerprint';
 
 /**
  * A memorised correspondance, drawn on the designation screen with no file in hand.
@@ -205,4 +206,25 @@ export function designationAssignment(
 		assignment[role] = present.get(fold(column)) ?? null;
 	}
 	return assignment;
+}
+
+/**
+ * Whether the file just offered for a correction is the file the correspondance was made for.
+ *
+ * The correction path asks for a file back, and the user can hand over the wrong one. What follows
+ * is silent by construction: the screen opens, the user designates, and the mapping written is a
+ * NEW one under the new file's fingerprint. It is correct for the file they picked, it leaves the
+ * wrong correspondance they came to fix exactly where it was, and nothing anywhere says so. The
+ * user's next statement of the original shape is read through the same mistake.
+ *
+ * BOTH canonicalisations are compared rather than the one matching `matchBy`. A correspondance
+ * « mémorisée par position » is fingerprinted over the ordered cells and one remembered by name
+ * over the sorted ones; testing only the stored `matchBy` would be right, and testing both is
+ * right and cannot be wrong when a stored row carries a `matchBy` its fingerprint disagrees with.
+ */
+export function correctionMatchesFile(
+	mapping: { fingerprint: string },
+	headers: string[]
+): boolean {
+	return candidateFingerprints(headers).includes(mapping.fingerprint);
 }

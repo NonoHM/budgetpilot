@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { UntrustedColumnMapping } from './model';
-import { designationAssignment, recapDesignation } from './recap';
+import { correctionMatchesFile, designationAssignment, recapDesignation } from './recap';
+import { fingerprintFor } from './fingerprint';
 
 /**
  * What a memorised correspondance looks like when the file that made it is long gone.
@@ -183,3 +184,39 @@ describe('re-opening the correction screen over a real file', () => {
 function base() {
 	return { fileName: 'releve.csv', rowCount: 5, sample: {} };
 }
+
+describe('the file offered for a correction is the file the correspondance was made for', () => {
+	it('accepts a file whose shape produces the stored fingerprint', () => {
+		const headers = ['Champ A', 'Champ B', 'Champ C', 'Champ D'];
+
+		expect(
+			correctionMatchesFile({ ...NAMED, fingerprint: fingerprintFor(headers, 'name') }, headers)
+		).toBe(true);
+	});
+
+	it('refuses a DIFFERENT file, because correcting through it would silently do nothing', () => {
+		// The sharp case, and it is silent by construction. The correction screen would open, the
+		// user would designate, and the mapping written would be a NEW one for the file they picked
+		// by mistake: correct for it, and leaving the wrong correspondance they came to fix exactly
+		// where it was. They would have no way of knowing.
+		const stored = fingerprintFor(['Champ A', 'Champ B', 'Champ C', 'Champ D'], 'name');
+
+		expect(correctionMatchesFile({ ...NAMED, fingerprint: stored }, ['Autre', 'Fichier'])).toBe(
+			false
+		);
+	});
+
+	it('accepts either spelling of the shape, because the stored one may be positional', () => {
+		// A mapping « mémorisée par position » is fingerprinted over the ORDERED cells rather than
+		// the sorted ones. Comparing against one canonicalisation only would refuse every positional
+		// correspondance its own file.
+		const headers = ['', '', ''];
+		const positional = {
+			...NAMED,
+			matchBy: 'position' as const,
+			fingerprint: fingerprintFor(headers, 'position')
+		};
+
+		expect(correctionMatchesFile(positional, headers)).toBe(true);
+	});
+});

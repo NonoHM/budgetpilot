@@ -11,7 +11,7 @@ import {
 } from '$lib/server/import/csv';
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
-import { designationAssignment } from '$lib/server/import/mapping/recap';
+import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
 import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
 import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
 import {
@@ -155,6 +155,13 @@ export const actions: Actions = {
 						where: { id: correctMappingId, userId: user.id }
 					})
 				: null;
+		// The wrong file, handed back. Refused rather than designated, and this is not fussiness: the
+		// screen would open, the user would designate, and the mapping written would be a NEW one
+		// under this file's fingerprint. Correct for the file they picked by mistake, and leaving the
+		// correspondance they came to fix exactly where it was, with nothing anywhere saying so.
+		if (correcting && !correctionMatchesFile(correcting, headerCells)) {
+			return fail(400, { error: m.import_columns_correct_wrong_file() });
+		}
 		if (correcting) {
 			return fail(400, {
 				designation: {
