@@ -403,7 +403,10 @@ describe('/import load', () => {
 	});
 
 	it('hasAllImportBucketsExisting: false quand aucun bucket CSV n’existe encore pour cet utilisateur', async () => {
-		const result = (await load({ locals: { user: testUser } } as never)) as {
+		const result = (await load({
+			locals: { user: testUser },
+			url: new URL('http://localhost/import')
+		} as never)) as {
 			hasAllImportBucketsExisting: boolean;
 		};
 
@@ -419,7 +422,10 @@ describe('/import load', () => {
 			currency: 'EUR'
 		});
 
-		const result = (await load({ locals: { user: testUser } } as never)) as {
+		const result = (await load({
+			locals: { user: testUser },
+			url: new URL('http://localhost/import')
+		} as never)) as {
 			hasAllImportBucketsExisting: boolean;
 		};
 
@@ -435,7 +441,10 @@ describe('/import load', () => {
 			currency: 'EUR'
 		});
 
-		const result = (await load({ locals: { user: testUser } } as never)) as {
+		const result = (await load({
+			locals: { user: testUser },
+			url: new URL('http://localhost/import')
+		} as never)) as {
 			hasAllImportBucketsExisting: boolean;
 		};
 
@@ -460,7 +469,10 @@ describe('/import load', () => {
 			}
 		);
 
-		const result = (await load({ locals: { user: testUser } } as never)) as {
+		const result = (await load({
+			locals: { user: testUser },
+			url: new URL('http://localhost/import')
+		} as never)) as {
 			hasAllImportBucketsExisting: boolean;
 		};
 
@@ -500,7 +512,10 @@ describe('/import load', () => {
 			}
 		);
 
-		const result = (await load({ locals: { user: testUser } } as never)) as {
+		const result = (await load({
+			locals: { user: testUser },
+			url: new URL('http://localhost/import')
+		} as never)) as {
 			hasAllImportBucketsExisting: boolean;
 		};
 
@@ -516,7 +531,10 @@ describe('/import load', () => {
 			currency: 'EUR'
 		});
 
-		const result = (await load({ locals: { user: testUser } } as never)) as {
+		const result = (await load({
+			locals: { user: testUser },
+			url: new URL('http://localhost/import')
+		} as never)) as {
 			hasAllImportBucketsExisting: boolean;
 		};
 

@@ -90,6 +90,7 @@
 		readOnly = false,
 		wide = false,
 		onCancel,
+		onModify,
 		onSubmit
 	}: {
 		file: DesignationFile;
@@ -145,6 +146,18 @@
 		 */
 		wide?: boolean;
 		onCancel?: () => void;
+		/**
+		 * What « Modifier les colonnes » does, when flipping back to the control form is not it.
+		 *
+		 * The recap opened by an UPLOAD has the file, so returning the rows to their 68 px controls
+		 * is the whole of the modification. The recap opened from `/imports` months later does not:
+		 * the file lived in the browser for the length of one import (owner ruling 2) and nothing
+		 * kept it. There the rows would be a control form over a file that no longer exists, so the
+		 * route asks for the file back instead and the screen reopens with the same designations.
+		 *
+		 * Default preserved, so the upload path and the three specs written against it are unchanged.
+		 */
+		onModify?: () => void;
 		onSubmit?: (result: { assignment: RoleAssignment; remember: boolean }) => void;
 	} = $props();
 
@@ -166,6 +179,18 @@
 	let recap = $state(readOnly);
 	let announcement = $state('');
 	let announceTimer: ReturnType<typeof setTimeout> | null = null;
+
+	/**
+	 * The screen names itself after what it is currently DOING, not after the route that opened it.
+	 *
+	 * In the recap the four rows answer a question rather than asking one, so « Désigner les colonnes »
+	 * is an instruction for work that is already done and cannot be done here. It follows `recap`
+	 * rather than `readOnly` so the upload path's « Modifier les colonnes », which flips back to the
+	 * control form, renames the screen with it.
+	 */
+	const heading = $derived(
+		recap ? m.import_columns_recap_page_title() : m.import_columns_page_title()
+	);
 
 	const effectiveFile = $derived({ ...file, hasHeaderRow });
 	const columnCount = $derived(file.headers.length);
@@ -410,13 +435,20 @@
 		delimiter each belong to a role or to the file and are designed but out of scope; there
 		are 125 px of air below this row at 390, so all three can arrive without the page beginning
 		to scroll and without any figure in this file being recomputed.
+
+		Not in the recap. §3.7 enumerates what that mode carries — the same card, rows at 44 px, one
+		TapLink — and a slot reserved for controls is a label with nothing under it on a screen where
+		nothing can be controlled. The 390 geometry it was sized against is the designation form's,
+		which is untouched.
 	-->
-	<div
-		class="flex h-12 shrink-0 items-center text-[13px] text-zinc-400"
-		data-testid="designation-format-row"
-	>
-		{m.import_columns_file_format_row()}
-	</div>
+	{#if !recap}
+		<div
+			class="flex h-12 shrink-0 items-center text-[13px] text-zinc-400"
+			data-testid="designation-format-row"
+		>
+			{m.import_columns_file_format_row()}
+		</div>
+	{/if}
 {/snippet}
 
 {#snippet trailingBlock()}
@@ -427,7 +459,7 @@
 			drawn differently.
 		-->
 		<div class="flex h-12 shrink-0 items-center" data-testid="designation-modify">
-			<TapLink onclick={() => (recap = false)}>{m.import_columns_modify()}</TapLink>
+			<TapLink onclick={onModify ?? (() => (recap = false))}>{m.import_columns_modify()}</TapLink>
 		</div>
 	{:else if pageState === 'complete' || pageState === 'submitting'}
 		<!--
@@ -518,7 +550,7 @@
 	>
 		<div class="mx-auto w-full" data-testid="designation-content">
 			<div class="pt-6 pb-4">
-				<h1 class="text-[22px] leading-7 font-bold">{m.import_columns_page_title()}</h1>
+				<h1 class="text-[22px] leading-7 font-bold">{heading}</h1>
 				<p class="mt-1 truncate text-[13px] text-zinc-500">
 					{file.name} ·
 					{m.import_columns_file_meta({
@@ -594,7 +626,7 @@
 					/>
 				</svg>
 			</IconButton>
-			<h1 class="text-[16px] font-bold">{m.import_columns_page_title()}</h1>
+			<h1 class="text-[16px] font-bold">{heading}</h1>
 		</header>
 
 		<!-- The ONLY scrolling region, and in practice it never does: 511 of 636 in every state. -->

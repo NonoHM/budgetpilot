@@ -6,7 +6,7 @@ import { importHeaderCells, parseCsvTransactionRows } from '$lib/server/import/c
 import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
 import { mappingFromPostedIndices } from '$lib/server/import/mapping/designation';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
-import { saveColumnMapping } from '$lib/server/import/mapping/store';
+import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import {
@@ -140,6 +140,7 @@ export const actions: Actions = {
 		// remembered from a parse that yielded nothing is a promise about a shape we have not
 		// actually read successfully.
 		let capReached = false;
+		let columnMappingId: string | null = null;
 		if (formData.get('remember') !== 'false') {
 			const saved = await saveColumnMapping(
 				user.id,
@@ -149,6 +150,14 @@ export const actions: Actions = {
 			// A refusal to REMEMBER never refuses the IMPORT: the user asked to import a file, and
 			// the memorisation is a convenience attached to it. The cap is reported and the rows land.
 			if (!saved.ok && saved.reason.code === 'cap-reached') capReached = true;
+			// Kept on the batch so `/imports` can open the recap for THIS import rather than guess
+			// which of a user's mappings read it. A user who opted out of memorisation gets no link,
+			// and rightly: there is nothing memorised to correct.
+			if (saved.ok) columnMappingId = saved.id;
+			// The run that designates IS a use, and the recap says « utilisée N fois » out loud. A
+			// mapping created at zero would tell the user, on the very screen built to let them check
+			// it, that the import they are looking at never happened.
+			if (saved.ok) await recordColumnMappingUse(user.id, saved.id);
 		}
 
 		const bucket = await resolveImportBucketAccount({
@@ -164,7 +173,8 @@ export const actions: Actions = {
 			profile: result.summary.profile,
 			rowCount: result.summary.totalRows,
 			invalidRows: result.summary.invalidRows,
-			period: result.summary.period
+			period: result.summary.period,
+			columnMappingId
 		});
 		const persisted = await persistImportedTransactions({
 			userId: user.id,

@@ -1454,5 +1454,15 @@
 	"import_columns_offer": "Désigner les colonnes",
 	"import_columns_revisit": "Revoir les colonnes",
 	"import_columns_offer_explanation": "Ce relevé n'est pas reconnu. Indiquez quelle colonne porte la date, le libellé et le montant.",
-	"import_columns_modify": "Modifier les colonnes"
+	"import_columns_modify": "Modifier les colonnes",
+	"import_columns_recognised": "Colonnes reconnues",
+	"import_columns_memorised_one": "Correspondance mémorisée le {date}, utilisée {count} fois.",
+	"import_columns_memorised_many": "Correspondance mémorisée le {date}, utilisée {count} fois.",
+	"import_columns_view": "Voir les colonnes",
+	"import_columns_recap_page_title": "Colonnes mémorisées",
+	"import_columns_recap_explanation": "Ce que chaque rôle a lu, et la valeur que cet import en a tirée.",
+	"import_columns_correct_heading": "Corriger les colonnes mémorisées",
+	"import_columns_correct_wrong_file": "Ce relevé n’a pas les colonnes pour lesquelles la correspondance a été faite. Choisissez le fichier à corriger, ou importez celui-ci depuis la page d’import ordinaire.",
+	"import_columns_correct_explanation": "Choisissez de nouveau le relevé. Les désignations mémorisées s’ouvrent pour être corrigées.",
+	"import_columns_correct_duplicate_note": "Cet import a déjà créé des transactions avec l’ancienne lecture. Les lignes corrigées s’ajoutent à côté plutôt que de les remplacer : supprimez l’ancien import depuis « Imports » une fois la correction importée."
 }

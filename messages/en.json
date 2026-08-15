@@ -1454,5 +1454,15 @@
 	"import_columns_offer": "Designate the columns",
 	"import_columns_revisit": "Review the columns",
 	"import_columns_offer_explanation": "This statement is not recognised. Say which column carries the date, the label and the amount.",
-	"import_columns_modify": "Change the columns"
+	"import_columns_modify": "Change the columns",
+	"import_columns_recognised": "Recognised columns",
+	"import_columns_memorised_one": "Correspondence memorised on {date}, used {count} time.",
+	"import_columns_memorised_many": "Correspondence memorised on {date}, used {count} times.",
+	"import_columns_view": "View the columns",
+	"import_columns_recap_page_title": "Memorised columns",
+	"import_columns_recap_explanation": "What each role was read from, and the value it produced for this import.",
+	"import_columns_correct_heading": "Correct the memorised columns",
+	"import_columns_correct_wrong_file": "This statement does not have the columns the correspondence was made for. Choose the file you want to correct, or import this one from the ordinary import page.",
+	"import_columns_correct_explanation": "Choose the statement again. The memorised designations open so you can change them.",
+	"import_columns_correct_duplicate_note": "This import has already created transactions with the old reading. The corrected rows are added beside them rather than replacing them, so delete the old import from “Imports” once the correction has landed."
 }

@@ -13,7 +13,11 @@
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
 	import { goto } from '$app/navigation';
 	import { enhance } from '$app/forms';
-	import { EMPTY_ASSIGNMENT, type DesignationFile } from '$lib/domain/columnDesignation';
+	import {
+		EMPTY_ASSIGNMENT,
+		type DesignationFile,
+		type RoleAssignment
+	} from '$lib/domain/columnDesignation';
 	import { setPendingDesignation } from '$lib/import/pendingDesignation.svelte';
 	import { takeCompletedImport, type CompletedImport } from '$lib/import/completedImport.svelte';
 	import { onMount } from 'svelte';
@@ -65,6 +69,18 @@
 	);
 
 	/**
+	 * The designations to reopen the screen WITH, when this upload is a correction.
+	 *
+	 * Read through the same `in` check and for the same reason. Absent on the ordinary offer, where
+	 * nothing has been designated yet and an empty assignment is the truth.
+	 */
+	const correctingAssignment = $derived(
+		form && 'correctingAssignment' in form
+			? (form.correctingAssignment as RoleAssignment | undefined)
+			: undefined
+	);
+
+	/**
 	 * Hands the file to the designation screen and navigates.
 	 *
 	 * The FILE goes with it, in memory, because owner ruling 2 keeps it in the browser: storing the
@@ -101,7 +117,7 @@
 				rowCount: designation.rowCount,
 				hasHeaderRow: designation.hasHeaderRow
 			},
-			initialAssignment: EMPTY_ASSIGNMENT,
+			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
 			candidates: {}
 		});
 		await goto(resolve('/import/columns'));
@@ -116,6 +132,35 @@
 <svelte:head>
 	<title>{m.import_page_title()}</title>
 </svelte:head>
+
+<!--
+	The correction path, arriving from « Modifier les colonnes » on the §3.7 recap.
+
+	Two sentences and a hidden field. The field is what turns this upload from an import into a
+	reopening: without it the file would be recognised by the very correspondance the user came to
+	change, and imported through it again.
+
+	The second sentence is NOT in the plate, and it is here because the plate does not model an
+	import that has already happened. The dedupe key carries the label, so a corrected mapping does
+	not produce duplicates: it produces a SECOND set of rows beside the first. A recovery path that
+	silently doubles a statement is not a recovery path, so the step is named where it is about to
+	be needed rather than left to be discovered afterwards.
+
+	It names the ORDER too, and the order is not the obvious one. Deleting the bad import first
+	looks right and is a trap: the recap is reached from that import's own row on `/imports`, so
+	deleting it removes the only route back to the columns, and the user's next upload is read
+	through the same wrong correspondance. Correct first, delete second.
+-->
+{#snippet correctionNotice()}
+	{#if data.correctMappingId}
+		<input type="hidden" name="correctMappingId" value={data.correctMappingId} />
+		<div class="rounded-xl border border-zinc-200 bg-white p-3">
+			<p class="text-sm font-semibold text-zinc-900">{m.import_columns_correct_heading()}</p>
+			<p class="mt-1 text-xs text-zinc-600">{m.import_columns_correct_explanation()}</p>
+			<p class="mt-2 text-xs text-zinc-500">{m.import_columns_correct_duplicate_note()}</p>
+		</div>
+	{/if}
+{/snippet}
 
 <main class="min-h-screen bg-zinc-50 px-4 py-8 text-zinc-950 sm:px-6 lg:px-8">
 	<!-- ============ DESKTOP (≥lg, unchanged) ============ -->
@@ -140,6 +185,7 @@
 				use:enhance
 				onsubmit={designation ? designateColumns : undefined}
 			>
+				{@render correctionNotice()}
 				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
 					<span class="font-medium text-zinc-800">{m.import_supported_formats()}</span>
 					<br />
@@ -188,7 +234,14 @@
 					     screen that does it is one tap away. -->
 					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
 						<p class="text-sm font-semibold text-zinc-900">{m.import_columns_offer()}</p>
-						<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
+						<!--
+							Not on the correction path: « Ce relevé n'est pas reconnu » is false there. The
+							statement IS recognised, and that is precisely why the user is here. The block
+							above already says what this upload is for.
+						-->
+						{#if !data.correctMappingId}
+							<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
+						{/if}
 						<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>
 					</div>
 				{/if}
@@ -357,6 +410,7 @@
 			use:enhance
 			onsubmit={designation ? designateColumns : undefined}
 		>
+			{@render correctionNotice()}
 			<FileDropZone
 				name="csvFile"
 				accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -399,7 +453,14 @@
 				     screen that does it is one tap away. -->
 				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-4">
 					<p class="text-sm font-semibold text-zinc-900">{m.import_columns_offer()}</p>
-					<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
+					<!--
+							Not on the correction path: « Ce relevé n'est pas reconnu » is false there. The
+							statement IS recognised, and that is precisely why the user is here. The block
+							above already says what this upload is for.
+						-->
+					{#if !data.correctMappingId}
+						<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
+					{/if}
 					<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>
 				</div>
 			{/if}
