@@ -33,8 +33,17 @@ import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesigna
  *    scrolls.
  *
  * 3. Remove `shrink-0` from the RESERVED SLOT: **one red**, the overflow calibration. This is the
- *    load-bearing one and the defect that calibration was written to find: a flex column shrinks
- *    its items before it scrolls, so the slot silently shrank back instead of overflowing.
+ *    load-bearing one and the defect that calibration was written to find.
+ *
+ *    **A FLEX COLUMN SHRINKS ITS ITEMS BEFORE IT SCROLLS.** Without `shrink-0` the slot silently
+ *    shrank back instead of overflowing, so `does not scroll, in any state` was passing over a body
+ *    that HAD NO WAY to scroll. The assertion was true and meant nothing.
+ *
+ *    That is why `scrolls the BODY and never the page when content does overflow` exists, and it is
+ *    the same shape as pointing a leak detector at a real leak or a searcher at a string known to be
+ *    present: **prove the thing can be present before asserting it is absent.** Anyone maintaining
+ *    the overflow test is meeting this note at the point they would otherwise delete it as
+ *    redundant with the four height assertions above.
  *
  * 4. Remove `shrink-0` from the CARD: **all eleven green**, and it is a fact about the card rather
  *    than about the tests. The card's height comes from content with fixed heights, so its
