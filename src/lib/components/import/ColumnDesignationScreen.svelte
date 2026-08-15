@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
-	import { MAPPING_ROLES, type MappingRole } from '$lib/server/import/mapping/model';
+	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
 	import {
 		EMPTY_ASSIGNMENT,
 		canImport,

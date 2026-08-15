@@ -2,7 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
-	import { MAPPING_ROLES, type MappingRole } from '$lib/server/import/mapping/model';
+	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
 	import type { RoleAssignment } from '$lib/domain/columnDesignation';
 	import ColumnDesignationScreen from '$lib/components/import/ColumnDesignationScreen.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';

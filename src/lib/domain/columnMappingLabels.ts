@@ -1,5 +1,5 @@
 import * as m from '$lib/paraglide/messages';
-import type { MappingRole } from '$lib/server/import/mapping/model';
+import type { MappingRole } from './mappingRoles';
 
 /**
  * The four role labels, in ONE place, because two components render them and a third will.

@@ -1,8 +1,4 @@
-import {
-	MAPPING_ROLES,
-	REQUIRED_MAPPING_ROLES,
-	type MappingRole
-} from '$lib/server/import/mapping/model';
+import { MAPPING_ROLES, REQUIRED_MAPPING_ROLES, type MappingRole } from './mappingRoles';
 
 /**
  * The designation screen's state, derived rather than stored.
