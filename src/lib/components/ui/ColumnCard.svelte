@@ -66,10 +66,38 @@
 	 * one every call site re-derives. When PR7 wires the picker, that predicate gets ONE
 	 * implementation that both the card and its tests call, never a regex written twice.
 	 *
+	 * ## OWNER RULING 1, and the plate clause it refuses
+	 *
+	 * This is one of the three homes the ruling requires, and it is here rather than only in the plan
+	 * because it sits beside the marker that implements it. The plate is a PDF and cannot be edited,
+	 * so a refusal recorded only in a plan is a refusal a future session will reopen.
+	 *
+	 * **Refused, for this screen: the plate's clause « la contrainte d'unicite est celle du role, pas
+	 * celle de la colonne », and its 1g table row « La meme colonne pour Libelle et Categorie ».**
+	 * Deleted rather than amended. Categorie may not take a column a required role holds. The
+	 * displacement the plate designs (1g) stays between the three REQUIRED roles and is unchanged.
+	 *
+	 * The reasoning, so it is not reopened on the strength of the cost line. The plate weighed this
+	 * as a one-off mis-designation, which it would be under a screen that asks every time. Under
+	 * layer three the answer is MEMORISED, so the outcome repeats unattended on every later import:
+	 * a 148-line file with 100 distinct merchants creates **100 categories**, hand-repairable only.
+	 * A sentence read once, against a hundred categories created every time, is not an even trade.
+	 *
+	 * And the clause's own defence does not survive contact with it: the defensible case was said to
+	 * be a file with a single text column, but a single text column is a LABEL, not a category, so
+	 * designating it as both categorises nothing. The Repartition plate's version of the clause is
+	 * untouched, because there the repeated thing is a category across the parts of one transaction,
+	 * which is legitimate.
+	 *
+	 * The other two homes are the `ColumnMapping` model docstring and
+	 * `validateColumnMapping`'s `category-repeats-required-role` branch, which is where the refusal
+	 * is actually ENFORCED. This component only renders it: a card that is merely unchoosable is an
+	 * affordance, and the control is on the server.
+	 *
 	 * ## `unavailable` is `aria-disabled`, never `disabled`
 	 *
-	 * Owner ruling 1. A column already held by a required role is still shown in the Categorie
-	 * picker, because removing it would send the user hunting for a column that is visibly in their
+	 * A column already held by a required role is still shown in the Categorie picker, because
+	 * removing it would send the user hunting for a column that is visibly in their
 	 * file. It is marked and it is not selectable, and it stays reachable at the keyboard so its
 	 * reason stays readable. `disabled` would take it out of the accessibility tree and out of the
 	 * tab order at once, which is the same as hiding it with extra steps.

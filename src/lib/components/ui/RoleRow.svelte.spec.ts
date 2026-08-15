@@ -136,7 +136,9 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		// A consequence, not a warning. Nobody did anything wrong by leaving it empty.
 		const { row, container } = mount({ role: 'category', state: 'empty', optional: true });
 
-		expect(row.textContent).toContain('Aucune : les transactions arriveront non catégorisées');
+		// Copied from the handoff's state table, not composed. The design is the source of truth for
+		// UI strings, so the punctuation is the plate's and not this repository's prose convention.
+		expect(row.textContent).toContain('les transactions arriveront non catégorisées');
 		expect(row.textContent).toContain('Optionnel');
 		// One svg, the chevron. A triangle here would be the second one.
 		expect(container.querySelectorAll('svg').length).toBe(1);
@@ -203,6 +205,23 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		// look self-emptied, and the user would not know a designation had moved.
 		expect(row.textContent).not.toContain('Choisir une colonne');
 		expect(row.getAttribute('aria-label')).toBe('Date, reprise par Libellé, à redésigner');
+	});
+
+	it('vacated: the VISIBLE string takes the plate dash and the SPOKEN one takes a comma', () => {
+		// Not an inconsistency and not an oversight: the plate's state table gives the visible line
+		// « Reprise par Libelle [U+2014] a redesigner » and the accessible name « Date, reprise par
+		// Libelle, a redesigner, bouton ». A dash is typography and a screen reader does not read it,
+		// so the spoken form needs a separator that survives being spoken.
+		//
+		// Pinned because this is precisely what a future sweep of the repository's no-em-dash rule
+		// would "fix". That rule governs OUR prose; the design is the source of truth for UI strings,
+		// and this is a UI string.
+		const { row } = mount({ role: 'date', state: 'vacated', vacatedBy: 'label' });
+
+		expect(row.textContent).toContain(
+			`Reprise par Libellé ${String.fromCharCode(8212)} à redésigner`
+		);
+		expect(row.getAttribute('aria-label')).not.toContain(String.fromCharCode(8212));
 	});
 
 	it('missing column: quotes the OLD header, because it is gone from the new file', () => {

@@ -44,6 +44,28 @@ describe('ConditionBanner.svelte: 64 px, and the hairline is inside it', () => {
 		expect(getComputedStyle(banner).borderTopWidth).toBe('1px');
 	});
 
+	it('renders both states and compares them, which is the assertion the pinned 64 cannot make', () => {
+		// The plan asks for BOTH forms and they answer different questions. The absolute 64 says the
+		// figure is right; this says the two states agree, which is what the layout actually needs
+		// and which an absolute assertion per state cannot express directly.
+		//
+		// It is second, never alone: a comparison passes with no stylesheet loaded at all, because
+		// both sides fall back to the same defaults. Paired with the absolute figure it is safe.
+		const incomplete = mount({ complete: false });
+		const incompleteHeight = incomplete.banner.getBoundingClientRect().height;
+		incomplete.container.remove();
+
+		const complete = mount({
+			complete: true,
+			label: 'Les trois colonnes sont désignées',
+			count: '3 sur 3',
+			consequence: 'Catégorie incluse. 11 colonnes seront ignorées.'
+		});
+
+		expect(complete.banner.getBoundingClientRect().height).toBe(incompleteHeight);
+		expect(incompleteHeight).toBe(64);
+	});
+
 	it('is 64 px in the complete state too, so the body above it never moves', () => {
 		// This banner sits OUTSIDE the scrolling area, between the 636 px body and the footer. If it
 		// changed height between states, the body would change with it and "nothing scrolls" would
