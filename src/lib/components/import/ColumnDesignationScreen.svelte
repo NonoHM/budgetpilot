@@ -294,7 +294,10 @@
 		// why there is no rows-preview at 390. The four example values read vertically ARE one
 		// transaction, which is the only line-level verification the screen offers. Sourcing them
 		// from different rows per role would destroy it silently.
-		return file.samples[index]?.[0] ?? '';
+		// POSITIONAL, and handoff §3.2 is why: the four rows are one transaction read vertically,
+		// which is the stated reason this screen carries no rows-preview at 390. `samples` is chosen
+		// to discriminate and would put a Montant from row 9 beside a Date from row 1.
+		return file.firstRow?.[index] ?? file.samples[index]?.[0] ?? '';
 	}
 
 	const CONSEQUENCE_ID = 'column-designation-consequence';

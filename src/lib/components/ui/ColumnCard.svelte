@@ -113,6 +113,7 @@
 		header,
 		index,
 		values,
+		coverage,
 		forRole,
 		marker = 'none',
 		heldByRole,
@@ -127,8 +128,22 @@
 		header: string | null;
 		/** Zero based position in the file. Only ever displayed as `index + 1`. */
 		index: number;
-		/** The first three values of this column, in file order. Empty strings render as `(vide)`. */
+		/**
+		 * Three values of this column, chosen because they exist rather than because they come
+		 * first. Empty strings render as `(vide)`, which now means the column really is that empty.
+		 */
 		values: readonly string[];
+		/**
+		 * How many of the file's rows carry a value here, and how many rows there are.
+		 *
+		 * Spoken, not drawn, and that is a deliberate limit rather than an oversight. This card is
+		 * exactly 107 px and the invariance is load-bearing twice over (the picker's measured list
+		 * length and the skeleton that stands in during analysis are both computed from it), so a
+		 * fourth line is a change to the plate rather than to this component. Three values look
+		 * identical whether a column holds three or six hundred; assistive technology gets that
+		 * distinction today and the visible form is filed for a design pass. See #342.
+		 */
+		coverage?: { filled: number; total: number };
 		/**
 		 * The role whose picker this card is sitting in.
 		 *
@@ -199,6 +214,12 @@
 
 	const ariaLabel = $derived.by(() => {
 		const parts = [m.import_columns_card_aria_examples({ header: title, values: spokenValues })];
+		// After the examples and before the markers: it qualifies the values just spoken, and a
+		// listener who has heard enough by then can move on without missing a designation state.
+		if (coverage)
+			parts.push(
+				m.import_columns_card_aria_coverage({ filled: coverage.filled, total: coverage.total })
+			);
 		if (headerUnreadable) parts.push(m.import_columns_card_aria_unreadable());
 		if (marker === 'designated')
 			parts.push(m.import_columns_card_aria_designated_as({ role: roleLabel(forRole) }));

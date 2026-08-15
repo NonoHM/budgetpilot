@@ -61,25 +61,115 @@ export function importHeaderCells(rows: ParsedCsvRow[]): string[] {
 }
 
 /**
- * The first `count` DATA values of each column, for the designation screen's cards.
+ * `count` DATA values of each column, for the designation screen's cards.
+ *
+ * ## What the samples are FOR, because leaving it implicit is what produced the defect
+ *
+ * They are not a preview of the file and not a debugging aid. They exist so that someone can
+ * **recognise their own data** on a screen where the header names are unknown or unrecognised by
+ * construction — the values are the only evidence the user has. They are therefore **chosen to
+ * discriminate, rather than taken from the top**, and any later change that makes them cheaper to
+ * compute has to be weighed against that sentence rather than against the shape of this code.
+ *
+ * ## The defect this exists for, measured
+ *
+ * These used to be the file's first `count` rows. A Banque Populaire export splits money across a
+ * `Debit` and a `Credit` column, and the opening rows of a statement are debits, so `Credit` —
+ * carrying 9 values across 66 rows — was rendered « (vide), (vide), (vide) ». A blind usability
+ * session read that as dead space, designated `Debit` as the amount, and every credit row was
+ * rejected: a whole month of income absent from an import that reported nothing wrong. The screen
+ * showed no false statement and did show false evidence. See #342.
+ *
+ * The first three rows are evidence about the first three rows. Only a value chosen because it
+ * exists is evidence about a column.
  *
  * Normalised through the same `normalizeParsedRows` as the header cells, deliberately: the screen
  * shows the user their own file and then designates columns BY INDEX into it, so a preview built
  * from a different normalisation would let someone designate a column whose values they never saw.
  *
- * Padded to `count` per column, and short rows are padded too. A column with two values must
- * render three lines or the card stops being 107 px, and the plate's own answer for the missing
- * one is « (vide) », which the card renders from an empty string. Returning a ragged array would
- * push that decision out to every call site.
+ * Padded to `count` per column. A column with two values must render three lines or the card stops
+ * being 107 px, and the plate's own answer for the missing one is « (vide) », which the card
+ * renders from an empty string. Returning a ragged array would push that decision out to every
+ * call site. A column that is genuinely empty throughout still reads « (vide) » three times, which
+ * is the honest answer there rather than the misleading one.
  */
 export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] {
 	const normalized = normalizeParsedRows(rows);
 	const header = normalized.length === 0 ? [] : normalized[0].cells;
-	const dataRows = normalized.slice(1, 1 + count);
+	const samples: string[][] = header.map(() => []);
 
-	return header.map((_, column) =>
-		Array.from({ length: count }, (_, row) => dataRows[row]?.cells[column] ?? '')
+	// One pass over the file, stopping as soon as every column has its quota. The common case —
+	// a dense statement — exits after `count` rows, which is what the old slice did; a sparse
+	// column is the case that costs more, and it is the case that was wrong.
+	let satisfied = 0;
+	for (let row = 1; row < normalized.length && satisfied < samples.length; row++) {
+		const cells = normalized[row].cells;
+		for (let column = 0; column < samples.length; column++) {
+			if (samples[column].length >= count) continue;
+			const cell = cells[column] ?? '';
+			if (cell.trim() === '') continue;
+			samples[column].push(cell);
+			if (samples[column].length === count) satisfied++;
+		}
+	}
+
+	return samples.map((values) =>
+		values.length === count ? values : [...values, ...Array(count - values.length).fill('')]
 	);
+}
+
+/**
+ * The first DATA row, padded to the header's width, for the designation screen's role rows.
+ *
+ * ## Deliberately not `importSampleValues`, and the design handoff says why
+ *
+ * Handoff §3.2: « The four example values all come from the first data row. That is load-bearing:
+ * it is why there is no rows-preview at 390 (ruling D2). Do not source the examples from different
+ * rows per role — it would silently destroy the only line-level verification the screen offers. »
+ *
+ * The four role rows are one transaction read vertically, and that is the entire argument for the
+ * screen carrying no rows preview at 390: the line is already on it. The picker's cards answer a
+ * different question — « which column is this? » — and are chosen to discriminate. Two questions,
+ * two sources.
+ *
+ * Sharing one is what this chantier nearly shipped: once the samples became "first non-empty",
+ * designating a sparse column would have put a Montant from row 9 beside a Date from row 1, and
+ * the four rows would have described nothing. No test could see it; the plate could.
+ *
+ * An empty cell stays empty here. The row renders « (vide) », which is honest, and the rows still
+ * describe one line of the file.
+ */
+export function importFirstDataRow(rows: ParsedCsvRow[]): string[] {
+	const normalized = normalizeParsedRows(rows);
+	const header = normalized.length === 0 ? [] : normalized[0].cells;
+	const first = normalized[1]?.cells ?? [];
+	return header.map((_, column) => first[column] ?? '');
+}
+
+/**
+ * How many DATA rows carry a value in each column.
+ *
+ * The other half of « chosen to discriminate ». The samples now show a sparse column its own
+ * values, which is what stops it reading as dead space, but three values look identical whether
+ * the column holds three or six hundred. This is the number that separates them.
+ *
+ * Same emptiness predicate as `importSampleValues`, deliberately: a cell the sampler skips must
+ * not be counted as carrying a value, or a column would be described as having values beside three
+ * « (vide) » lines.
+ */
+export function importSampleCoverage(rows: ParsedCsvRow[]): number[] {
+	const normalized = normalizeParsedRows(rows);
+	const header = normalized.length === 0 ? [] : normalized[0].cells;
+	const filled = header.map(() => 0);
+
+	for (let row = 1; row < normalized.length; row++) {
+		const cells = normalized[row].cells;
+		for (let column = 0; column < filled.length; column++) {
+			if ((cells[column] ?? '').trim() !== '') filled[column]++;
+		}
+	}
+
+	return filled;
 }
 
 export function parseImportRows(
