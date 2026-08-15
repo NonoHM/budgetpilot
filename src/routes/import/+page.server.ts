@@ -26,6 +26,7 @@ import {
 	persistImportedTransactions,
 	resolveImportBucketAccount
 } from '$lib/server/import/persist';
+import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { isLinkableNetWorthAccountType } from '$lib/domain/netWorth';
 import { readLinkableNetWorthAccounts, readNetWorthAccounts } from '$lib/server/net-worth/service';
@@ -251,6 +252,40 @@ export const actions: Actions = {
 					getHiddenInvalidRowsCount(result.summary.invalidRows)
 				)
 			});
+		}
+
+		/**
+		 * The statement this run appears to repeat, read through different columns.
+		 *
+		 * BEFORE `recordColumnMappingUse` and before every write below it, because a run the user
+		 * then abandons has to leave nothing behind: no batch, no bucket, and no use counted against
+		 * the correspondance whose recap sentence says « utilisée N fois ».
+		 *
+		 * `server/import/collision.ts` holds the rule and the argument for each of its three terms.
+		 * The one that matters at this call site is the third: the check stays silent unless
+		 * deduplication is about to miss this file entirely, so it cannot fire on the ordinary
+		 * re-import of an already-imported file. That run is the one every user performs, and a
+		 * warning shown on it is a warning nobody reads by the third month.
+		 */
+		if (formData.get('confirmCollision') !== '1') {
+			const incoming = describeIncomingBatch(result.transactions, result.summary.period);
+			const collision = await findCollidingBatch(user.id, incoming);
+			if (collision) {
+				return fail(409, {
+					collision,
+					// The same three figures for the file in hand. They are equal to the other side's
+					// by construction, and showing both is the point: the identity IS the evidence,
+					// and a warning that asserts a resemblance without showing it asks to be believed.
+					incoming: {
+						fileName: importFile.name,
+						periodStart: incoming.period.from,
+						periodEnd: incoming.period.to,
+						transactionCount: incoming.transactionCount,
+						debitCents: incoming.debitCents,
+						creditCents: incoming.creditCents
+					}
+				});
+			}
 		}
 
 		// Counted only once the file actually produced transactions, and only for the mapping that

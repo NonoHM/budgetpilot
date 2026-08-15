@@ -63,6 +63,10 @@ const db = vi.hoisted(() => {
 		invalidRows: number;
 		periodStart?: Date | null;
 		periodEnd?: Date | null;
+		// Stamped by the fake rather than by the production code, which lets Prisma default it. The
+		// collision payload reports WHEN the other import happened, so a batch without one would be
+		// a shape the page cannot draw.
+		createdAt?: Date;
 	};
 	type Rule = {
 		id: string;
@@ -103,6 +107,17 @@ const db = vi.hoisted(() => {
 		create: Omit<Category, 'id'>;
 	};
 	type TransactionFindFirstArgs = { where: { userId: string; dedupeKeyHash: string } };
+	type TransactionCountArgs = {
+		where: { userId: string; dedupeKeyHash?: { in: string[] } };
+	};
+	type TransactionGroupByArgs = {
+		where: { userId: string; importBatchId?: { in: string[] } };
+	};
+	type BatchFindManyWhere = {
+		userId: string;
+		periodStart?: { lte?: Date };
+		periodEnd?: { gte?: Date };
+	};
 	type TransactionCreateArgs = {
 		data: Omit<Transaction, 'id' | 'manualCategory'> & { manualCategory?: string | null };
 	};
@@ -211,6 +226,37 @@ const db = vi.hoisted(() => {
 				)
 			},
 			importBatch: {
+				/**
+				 * The candidate lookup for the collision check (server/import/collision.ts).
+				 *
+				 * Modelled rather than stubbed, because a stub returning `[]` would make every
+				 * collision test pass by never finding a candidate, which is the "fake that cannot
+				 * model the predicate" failure this file's rules warn about. The period clause is
+				 * applied here exactly as the real query states it, so removing it from the production
+				 * code changes what this fake returns.
+				 */
+				findMany: vi.fn(async ({ where }: { where: BatchFindManyWhere }) =>
+					state.batches
+						.filter((batch) => batch.userId === where.userId)
+						.filter((batch) => batch.periodStart !== null && batch.periodEnd !== null)
+						.filter((batch) =>
+							where.periodStart?.lte
+								? new Date(batch.periodStart as unknown as string) <= where.periodStart.lte
+								: true
+						)
+						.filter((batch) =>
+							where.periodEnd?.gte
+								? new Date(batch.periodEnd as unknown as string) >= where.periodEnd.gte
+								: true
+						)
+						.map((batch) => ({
+							id: batch.id,
+							fileName: batch.fileName,
+							createdAt: batch.createdAt ?? new Date(0),
+							periodStart: new Date(batch.periodStart as unknown as string),
+							periodEnd: new Date(batch.periodEnd as unknown as string)
+						}))
+				),
 				create: vi.fn(async ({ data }: BatchCreateArgs) => {
 					const batch = {
 						id: id('batch'),
@@ -221,6 +267,9 @@ const db = vi.hoisted(() => {
 						invalidRows: 0,
 						periodStart: null,
 						periodEnd: null,
+						// Ordered by the fake so two batches created in one test are distinguishable, and
+						// present at all because the collision payload reports when the other run happened.
+						createdAt: new Date(Date.UTC(2026, 0, 1 + state.batches.length)),
 						...data
 					};
 					state.batches.push(batch);
@@ -325,6 +374,48 @@ const db = vi.hoisted(() => {
 				})
 			},
 			transaction: {
+				/**
+				 * T3 of the collision rule: how many incoming fingerprints already exist.
+				 *
+				 * Faithful to the real clause, hashes included. A fake answering a constant would
+				 * decide the term it is supposed to observe.
+				 */
+				count: vi.fn(async ({ where }: TransactionCountArgs) => {
+					const hashes = where.dedupeKeyHash?.in ?? [];
+					return state.transactions.filter(
+						(transaction) =>
+							transaction.userId === where.userId &&
+							transaction.dedupeKeyHash !== null &&
+							hashes.includes(transaction.dedupeKeyHash as string)
+					).length;
+				}),
+				/**
+				 * T2's aggregation, grouped on (importBatchId, type) exactly as the production query
+				 * asks for it. Amounts are magnitudes with the direction in `type`, which is what the
+				 * write path stores, so summing here is summing the same thing.
+				 */
+				groupBy: vi.fn(async ({ where }: TransactionGroupByArgs) => {
+					const wanted = where.importBatchId?.in ?? [];
+					const buckets = new Map<string, { count: number; sum: number }>();
+					for (const transaction of state.transactions) {
+						if (transaction.userId !== where.userId) continue;
+						if (!wanted.includes(transaction.importBatchId as string)) continue;
+						const key = `${transaction.importBatchId}|${transaction.type}`;
+						const bucket = buckets.get(key) ?? { count: 0, sum: 0 };
+						bucket.count += 1;
+						bucket.sum += transaction.amountCents as number;
+						buckets.set(key, bucket);
+					}
+					return [...buckets.entries()].map(([key, bucket]) => {
+						const [importBatchId, type] = key.split('|');
+						return {
+							importBatchId,
+							type,
+							_count: { _all: bucket.count },
+							_sum: { amountCents: bucket.sum }
+						};
+					});
+				}),
 				findFirst: vi.fn(async ({ where }: TransactionFindFirstArgs) => {
 					// Matched on the hash, like the real duplicate pre-check: the raw key is the
 					// comparison that column exists to replace.
@@ -1403,6 +1494,94 @@ describe('/import actions', () => {
 			// The count and the stamp, because the recap sentence reads both.
 			expect(row.useCount).toBe(1);
 			expect(row.lastUsedAt).not.toBeNull();
+		});
+
+		/**
+		 * The seam the whole collision check exists for, at the level that can see it.
+		 *
+		 * Neither the rule's own spec nor a component test can. The rule was green throughout the
+		 * blind session that doubled a user's finances, because nothing called it. What is asserted
+		 * here is that the ACTION calls it, before it writes, and that nothing lands when it fires.
+		 *
+		 * Four columns rather than three, because the interesting move needs somewhere to move TO:
+		 * a mapping is refused outright when two roles share one column (`roles-share-a-column`), so
+		 * a three-column file cannot express "the label came from the wrong column".
+		 */
+		const FOUR_COLUMNS =
+			'Jour;Intitule operation;Somme;Detail\n24/06/2026;CARREFOUR MARKET;-24,90;PAIEMENT CB 22/06';
+
+		function rememberFourColumn(labelColumn: string) {
+			const row = {
+				id: `mapping-four-${labelColumn}`,
+				userId: testUser.id,
+				fingerprint: fingerprintFor(['Jour', 'Intitule operation', 'Somme', 'Detail'], 'name'),
+				matchBy: 'name' as const,
+				dateColumn: 'jour',
+				labelColumn,
+				amountColumn: 'somme',
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null,
+				columnCount: 4,
+				useCount: 0,
+				lastUsedAt: null as Date | null
+			};
+			db.state.columnMappings.length = 0;
+			db.state.columnMappings.push(row);
+			return row;
+		}
+
+		it('refuses a statement re-read through a different label column, before writing', async () => {
+			rememberFourColumn('intitule operation');
+			await runImportWithFile(FOUR_COLUMNS);
+			expect(db.state.transactions).toHaveLength(1);
+
+			// The correction the user makes on `/import/columns`: the same file, with the label taken
+			// from another column. Every fingerprint changes, so deduplication sees nothing it knows,
+			// and the whole statement would import a second time.
+			const corrected = rememberFourColumn('detail');
+
+			const refused = (await runImportWithFile(FOUR_COLUMNS)) as unknown as {
+				status?: number;
+				data: { collision?: { transactionCount: number }; incoming?: { transactionCount: number } };
+			};
+
+			expect(refused.status).toBe(409);
+			expect(refused.data.collision?.transactionCount).toBe(1);
+			expect(refused.data.incoming?.transactionCount).toBe(1);
+			// NOTHING was written. Not the transactions, not a second batch, and not a use against the
+			// correspondance: a run the user is about to abandon leaves no trace of having happened.
+			expect(db.state.transactions).toHaveLength(1);
+			expect(db.state.batches).toHaveLength(1);
+			expect(corrected.useCount).toBe(0);
+		});
+
+		it('writes the run once the user confirms it', async () => {
+			rememberFourColumn('intitule operation');
+			await runImportWithFile(FOUR_COLUMNS);
+			rememberFourColumn('detail');
+
+			const confirmed = await runImportWithFileAndFields(FOUR_COLUMNS, { confirmCollision: '1' });
+
+			expect(confirmed.importResult.importedRows).toBe(1);
+			expect(db.state.transactions).toHaveLength(2);
+			expect(db.state.batches).toHaveLength(2);
+		});
+
+		it('says nothing when deduplication already covers the run', async () => {
+			// The same file through the same columns, imported twice. Every fingerprint is recognised,
+			// the summary reports one duplicate, and no question is asked: this is the run every user
+			// performs, and a warning here is what makes a warning stop being read.
+			rememberFourColumn('intitule operation');
+			await runImportWithFile(FOUR_COLUMNS);
+
+			const second = await runImportWithFile(FOUR_COLUMNS);
+
+			expect(second.importResult.importedRows).toBe(0);
+			expect(second.importResult.duplicateRows).toBe(1);
+			expect(db.state.transactions).toHaveLength(1);
 		});
 
 		it('is invisible to another user, whose identical file is refused', async () => {
