@@ -8,6 +8,7 @@ import { mappingFromPostedIndices } from '$lib/server/import/mapping/designation
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { saveColumnMapping } from '$lib/server/import/mapping/store';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
+import { refusalLabel } from '$lib/i18n/refusalLabel';
 import {
 	buildInvalidRowDetails,
 	getHiddenInvalidRowsCount
@@ -118,7 +119,21 @@ export const actions: Actions = {
 			// Back to the screen with the designations intact rather than to the upload. The user's
 			// answer may be right and the file wrong, and making them re-upload to find out is how a
 			// correctable mistake becomes a reason to give up.
-			return fail(400, { error: m.import_error_no_valid_transactions(), keepDesignation: true });
+			//
+			// AND THE REASON, when the file was refused as a whole. « Aucune transaction valide à
+			// importer » is true and useless: it is the same sentence a user gets for a missing date
+			// column, so it leaves them re-designating at random. A header-scoped refusal is a fact
+			// about the FILE: the money is split across two columns, or the amounts are magnitudes
+			// beside a direction column. Naming it is the difference between a refusal that
+			// teaches and one that only blocks. Row-scoped refusals are deliberately not surfaced
+			// here: sixty-six of them are a summary, not a banner. See #343.
+			const headerRefusal = result.invalidRows.find((row) => row.scope.kind === 'header');
+			return fail(400, {
+				error: headerRefusal
+					? refusalLabel(headerRefusal.fact)
+					: m.import_error_no_valid_transactions(),
+				keepDesignation: true
+			});
 		}
 
 		// Memorised by default, and only once the file actually produced transactions. A mapping
@@ -173,7 +188,7 @@ export const actions: Actions = {
 				period: result.summary.period,
 				batchId,
 				// The rejected rows themselves, not only their count. This route used to return the
-				// count alone, so a designated import could reject rows and name none of them — on the
+				// count alone, so a designated import could reject rows and name none of them, on the
 				// one run where the user had just chosen the columns and could still tell a wrong
 				// choice from a bad file. Same shape as `/import` so one panel draws both (#338).
 				invalidRowDetails: buildInvalidRowDetails(importData.previewRowsByLine, result),

@@ -54,6 +54,8 @@ export type CsvRefusalFact =
 	// row would import as income. Carries the offending column so the user can look at it: a
 	// refusal saying "your amounts have no sign" leaves them nowhere to go.
 	| { code: 'amount-sign-in-separate-column'; column: string }
+	/** The file splits its money across two columns; `columns` names both, in file order. See #343. */
+	| { code: 'amount-split-across-columns'; columns: string }
 	// A remembered column mapping no longer fits the file in front of it: the plate's states 3b
 	// and 3c reaching the parser. Carries the ROLES rather than a count, because "your mapping no
 	// longer fits" leaves the user nowhere to go and "the label column is gone" does not.
@@ -123,6 +125,7 @@ export const CSV_REFUSAL_CODES = [
 	'bad-column-count',
 	'ambiguous-column-mapping',
 	'amount-sign-in-separate-column',
+	'amount-split-across-columns',
 	'invalid-date',
 	'invalid-amount',
 	'zero-amount',

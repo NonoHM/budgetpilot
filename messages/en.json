@@ -343,6 +343,7 @@
 	"import_refusal_bad_column_count": "incorrect column count",
 	"import_refusal_ambiguous_column_mapping": "Two columns claim the {role} role: {columns}",
 	"import_refusal_amount_sign_in_separate_column": "The amounts carry no sign: the \"{column}\" column holds the direction. This format is not read yet.",
+	"import_refusal_amount_split_across_columns": "This statement splits its amounts across two columns, {columns}. BudgetPilot cannot read that shape yet: designating only one of them would leave out every row carried by the other.",
 	"import_refusal_mapping_columns_missing": "The remembered columns are no longer in this file: {roles}. Designate them again.",
 	"import_refusal_mapping_invalid": "The remembered column mapping cannot be used. Designate this file's columns again.",
 	"import_refusal_footer_ignored": "row skipped: bank footer",
