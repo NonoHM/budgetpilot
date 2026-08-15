@@ -33,6 +33,21 @@
 	let formEl = $state<HTMLFormElement | null>(null);
 
 	/**
+	 * A failure this page has to report ITSELF, because no `ActionResult` arrived to report it.
+	 *
+	 * `form` covers every refusal the server managed to express: `applyAction` writes it and the
+	 * banner below reads it. It cannot cover the two cases where there is no server answer to apply
+	 * at all, and those are exactly the cases that used to be silent: the fetch rejecting, and a
+	 * body that is not a serialised `ActionResult` (a crash outside the action returns an HTML error
+	 * page, which `deserialize` throws on).
+	 *
+	 * ASVS 5.0 **V16.5.1**: the message is GENERIC. The caught value is never rendered and never
+	 * interpolated, so a stack trace or an internal path cannot reach the page through this route.
+	 */
+	let localError = $state<string | null>(null);
+	const shownError = $derived(form?.error ?? localError);
+
+	/**
 	 * Which chrome the one screen wears, resolved from `matchMedia` rather than from CSS.
 	 *
 	 * The alternative, rendering both and hiding one with `lg:hidden`, would mount the screen TWICE.
@@ -60,6 +75,9 @@
 	function submit(result: { assignment: RoleAssignment; remember: boolean }) {
 		if (!pending || !formEl) return;
 		submitting = true;
+		// Cleared per attempt, so a retry that fails differently does not read as the first failure
+		// still standing, and a retry that succeeds does not leave a banner contradicting the summary.
+		localError = null;
 
 		const data = new FormData();
 		// The file itself, re-posted. Owner ruling 2: the browser keeps it, so there is no stored
@@ -102,16 +120,33 @@
 				// Found by screenshot while verifying #343's guard, which refuses a file whose money
 				// is split across two columns. Every unit test of that guard passed: the refusal was
 				// produced correctly and never rendered.
-				if (actionResult.type === 'failure') {
+				// EVERY non-success is applied, and the union has FOUR members rather than the two
+				// this branch used to read. `failure` was handled; `redirect` and `error` fell through
+				// to the `carried` check below, came back undefined, and returned having done nothing.
+				//
+				// `redirect` is the expired session, and it is the one that mattered most. `requireUser`
+				// throws `redirect(303, '/login')`, SvelteKit serialises that as an ActionResult rather
+				// than as an HTTP redirect because the request carries `x-sveltekit-action`, and dropping
+				// it left the user pressing « Importer » against a screen that did nothing at all, for as
+				// long as they were willing to keep pressing.
+				//
+				// `applyAction` already knows all three: it writes `form` for a failure, navigates for a
+				// redirect, and renders the error boundary for an error. The fix is to stop narrowing the
+				// union, not to reimplement what it does.
+				if (actionResult.type !== 'success') {
 					await applyAction(actionResult);
 					return;
 				}
 
-				// `data` is optional on a success too, so the summary is checked rather than assumed:
-				// navigating with nothing to draw would land the user on the same silent screen this
-				// change exists to remove, and staying here at least leaves the designations intact.
-				const carried = actionResult.type === 'success' ? actionResult.data : undefined;
-				if (!carried?.importResult) return;
+				// `data` is optional on a success too, so the summary is checked rather than assumed.
+				// Reported rather than returned silently: navigating with nothing to draw would land the
+				// user on the same silent screen this change exists to remove, and returning without a
+				// word left the primary looking inert. Staying here keeps the designations intact.
+				const carried = actionResult.data;
+				if (!carried?.importResult) {
+					localError = m.import_columns_error_unexpected();
+					return;
+				}
 				// KEPT, not cleared, when rows failed. The plate's way back reopens this screen « en
 				// état 2, désignations intactes », which needs both the file — held in the browser,
 				// owner ruling 2 — and the answers just given. Re-seeding `initialAssignment` with
@@ -131,7 +166,20 @@
 				await goto(resolve('/import'));
 			})
 			.catch(() => {
+				// The network failed, or the body was not a serialised ActionResult and `deserialize`
+				// threw. Both used to land here and do nothing but stop the spinner, which is the same
+				// silence as before with a tidier shape.
+				//
+				// ASVS 5.0 **V16.5.1**: a GENERIC message, and the caught value is deliberately not a
+				// parameter of this function. There is nothing to interpolate, so no stack trace, no
+				// internal path and no upstream body can be rendered from here.
+				//
+				// ASVS 5.0 **V16.5.3**: it fails CLOSED. Nothing below this line navigates, clears the
+				// pending designation or writes a completed import, so a failed call cannot present
+				// itself as a finished one. The plate's own answer is the same: return to state 2
+				// exactly as left, no designation lost.
 				submitting = false;
+				localError = m.import_columns_error_unexpected();
 			});
 	}
 </script>
@@ -141,21 +189,39 @@
 </svelte:head>
 
 {#if pending}
-	<main class="h-dvh w-full bg-zinc-50">
-		{#if form?.error}
-			<AlertBanner variant="error">{form.error}</AlertBanner>
+	<!--
+		A FLEX COLUMN, and the banner is why. The screen's own root is `h-full`, so as siblings in a
+		block container the banner's height was ADDED to a full 844 rather than taken out of it: the
+		document grew past the viewport and the footer carrying the primary went below the fold.
+
+		That defect was latent while the banner almost never rendered. Making the silent failures
+		speak is exactly what would have made it routine, so the fix for a silent failure would have
+		shipped an occluded control instead. This repository has already paid for that once, on the
+		band whose whole purpose was to explain why Save was disabled, covering the rows it was about.
+
+		`flex-1 min-h-0` hands the screen the room that is LEFT. Its grid is
+		`[auto_minmax(0,1fr)_auto_auto]`, so the loss lands on the body, which is the only region
+		designed to give and which carries 125 px of air in every state.
+	-->
+	<main class="flex h-dvh w-full flex-col bg-zinc-50">
+		{#if shownError}
+			<div class="shrink-0">
+				<AlertBanner variant="error">{shownError}</AlertBanner>
+			</div>
 		{/if}
 		<!-- `use:enhance` is not used: the submit carries a File assembled here rather than the
 		     form's own fields, so the form element exists only to own the action URL. -->
 		<form bind:this={formEl} method="POST" enctype="multipart/form-data" class="contents"></form>
-		<ColumnDesignationScreen
-			file={pending.view}
-			initialAssignment={pending.initialAssignment}
-			candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
-			{submitting}
-			{wide}
-			onCancel={() => goto(resolve('/import'))}
-			onSubmit={submit}
-		/>
+		<div class="min-h-0 flex-1">
+			<ColumnDesignationScreen
+				file={pending.view}
+				initialAssignment={pending.initialAssignment}
+				candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
+				{submitting}
+				{wide}
+				onCancel={() => goto(resolve('/import'))}
+				onSubmit={submit}
+			/>
+		</div>
 	</main>
 {/if}

@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
+import { onScreen } from './screen-geometry';
 
 /**
  * The journey that had no route: a memorised correspondance that is WRONG, and correcting it.
@@ -48,10 +49,6 @@ function recoveryCsv(attempt: number): string {
 		'12/02/2019;E2E RECOVERY BOULANGERIE;REC0001;-6,40',
 		'13/02/2019;E2E RECOVERY LIBRAIRIE;REC0002;-22,00'
 	].join('\n');
-}
-
-function onScreen(page: import('@playwright/test').Page, text: string) {
-	return page.getByText(text).filter({ visible: true }).first();
 }
 
 test.describe('a memorised correspondance that is wrong can be corrected', () => {
