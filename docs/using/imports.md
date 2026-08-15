@@ -36,9 +36,13 @@ That screen shows four rows, one per role, and nothing else:
 | **Amount**   | the sum, with its sign                    |
 | **Category** | optional, if your bank provides one       |
 
+![The designation screen: four rows for Date, Label, Amount and Category, each showing the file's own column name and its first value, with the banner reading all three columns are designated, 3 of 3, and the primary reading Import 3 rows](../screenshots/imports/columns-designation-mobile.png)
+
 Tap a row and you get your own file, one card per column, each showing the
 column's name and its **first three real values**. You are choosing from the
 data in front of you rather than from a list of names.
+
+![The column chooser: a card per column of the file, each with the column name and its first three values](../screenshots/imports/columns-picker-mobile.png)
 
 **Columns you do not designate are ignored**, and that is the normal outcome. A
 fifteen-column statement usually needs three of them; the screen says how many
@@ -47,6 +51,8 @@ it will ignore before you import.
 Three columns are enough. **Category is optional**, and leaving it empty means
 the transactions arrive uncategorised, where [categorization
 rules](./rules.md) can still pick them up.
+
+![The import summary offering to designate the columns, under the heading Designate the columns](../screenshots/imports/columns-offer-desktop.png)
 
 ### 3. It is remembered, so you are only asked once
 
@@ -160,3 +166,21 @@ this is an undo of the import rather than a tidy-up.
 
 For the columns and what each count includes, see the
 [imports reference](../reference/imports.md).
+
+## What this screen does not do yet
+
+Named with their issues rather than promised, so each reads as a decision:
+
+- **No preview table at 1280** ([#332](https://github.com/NonoHM/budgetpilot/issues/332)).
+  The values are read in the column cards at both widths. The referential has no table
+  component yet, and building one here would define it from its rarest case.
+- **No list of remembered correspondences** ([#326](https://github.com/NonoHM/budgetpilot/issues/326)).
+  You cannot yet review or remove one from settings. There is a cap of 50 per account, and
+  reaching it says so.
+- **No date format, decimal separator or delimiter control.** The screen reserves room for
+  them and does not draw them. BudgetPilot reads dates as day/month and the comma as a
+  decimal separator; a file written the other way imports on the wrong date rather than
+  refusing, which is the one case designating columns cannot repair.
+- **A statement whose amounts are all positive beside a debit/credit column is refused
+  before this screen** ([#320](https://github.com/NonoHM/budgetpilot/issues/320)). No role
+  carries a sign, so designating the amount column would import every row as income.
