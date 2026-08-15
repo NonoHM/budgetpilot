@@ -45,10 +45,12 @@ const POSITIONAL: ColumnMappingInput = {
  * and the correct one agree. Those are the two tests anybody would point at as covering state 3,
  * and neither can see the check that makes state 3 safe.
  *
- * So within state 3 the ONLY guard is `resolves through case and surrounding spaces, and returns
- * the FILE spelling`, which reads like a cosmetic assertion about trimming. It is not: it is the
- * one fixture where the two spellings differ, which is the only condition under which the lookup
- * is observable. Do not delete it as redundant with the first test.
+ * So within state 3 the ONLY guard is `returns the FILE spelling, being the only state 3 fixture
+ * whose two spellings differ`. It reads like a cosmetic assertion about case and trimming and it is
+ * not: it is the one fixture where the two spellings differ, which is the only condition under
+ * which the lookup is observable. It was renamed after this matrix was read, because its old name
+ * described what it looked like rather than what made it load bearing, and the keep-out now sits in
+ * the test itself rather than only up here where a reader tidying one test will not be looking.
  *
  * The remaining greens are correct for their own reasons: the positional tests take another code
  * path entirely, and `is not reached by a mapping that never stored a category` asserts
@@ -74,10 +76,21 @@ describe('state 3: the file is recognised and the screen never opens', () => {
 		});
 	});
 
-	it('resolves through case and surrounding spaces, and returns the FILE spelling', () => {
+	it('returns the FILE spelling, being the only state 3 fixture whose two spellings differ', () => {
+		// DO NOT DELETE THIS AS REDUNDANT WITH THE FIRST TEST, and do not "simplify" the fixture to
+		// match the remembered spelling. The name says what makes it load bearing rather than what
+		// it looks like: it reads as a cosmetic assertion about case and trimming and it is not.
+		//
+		// Every other test in this describe uses a fixture where the remembered spelling and the
+		// file spelling are byte identical, so an implementation that skipped the lookup entirely
+		// and echoed the remembered spelling back would pass all of them. This is the one fixture
+		// where the two differ, which is the only condition under which the lookup is observable at
+		// all, so within state 3 this test is the whole of the guard. Measured in the break matrix
+		// at the top of this file: under that break, this goes red and the other two stay green.
+		//
 		// The returned value is what the parser will look up in each row, so it has to be the
-		// header exactly as this file writes it, not the remembered spelling. Asserted because
-		// returning the remembered one passes every equality test above and then finds nothing.
+		// header exactly as this file writes it, not the remembered spelling. Returning the
+		// remembered one passes every equality test above and then finds nothing.
 		const verdict = applyColumnMapping(REMEMBERED, [
 			'  Date Operation ',
 			'INTITULE',
