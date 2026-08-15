@@ -363,20 +363,39 @@
 				{:else if position > 0}
 					<div class="h-px bg-zinc-100" aria-hidden="true"></div>
 				{/if}
-				<RoleRow
-					{role}
-					state={stateOf(role)}
-					optional={role === 'category'}
-					compact={wide}
-					expanded={openRole === role}
-					columnHeader={headerOf(role)}
-					columnIndex={assignment[role] ?? undefined}
-					sampleValue={sampleOf(role)}
-					candidateCount={candidateCounts[role]}
-					vacatedBy={vacated[role]}
-					lostHeader={lostHeaders[role]}
-					onOpen={() => (openRole = role)}
-				/>
+				<!--
+					`relative`, so the 1280 picker can anchor UNDER THE ROW THAT OPENED IT. At 390 the
+					wrapper costs nothing and the sheet is rendered at screen level instead.
+				-->
+				<div class="relative">
+					<RoleRow
+						{role}
+						state={stateOf(role)}
+						optional={role === 'category'}
+						compact={wide}
+						expanded={openRole === role}
+						columnHeader={headerOf(role)}
+						columnIndex={assignment[role] ?? undefined}
+						sampleValue={sampleOf(role)}
+						candidateCount={candidateCounts[role]}
+						vacatedBy={vacated[role]}
+						lostHeader={lostHeaders[role]}
+						onOpen={() => (openRole = role)}
+					/>
+					{#if wide && openRole === role}
+						<ColumnPicker
+							open
+							variant="anchored"
+							{role}
+							file={effectiveFile}
+							{assignment}
+							candidates={candidates[role] ?? []}
+							onChoose={choose}
+							onClose={closeWithoutChoosing}
+							onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}
+						/>
+					{/if}
+				</div>
 			{/each}
 		</div>
 	</div>
@@ -610,7 +629,8 @@
 	</div>
 {/if}
 
-{#if openRole}
+{#if openRole && !wide}
+	<!-- 390 only: at 1280 the picker is anchored to its row, inside the card, a few lines up. -->
 	<ColumnPicker
 		open
 		role={openRole}

@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest';
+import { page } from 'vitest/browser';
+import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import ColumnDesignationScreen from './ColumnDesignationScreen.svelte';
@@ -166,5 +167,93 @@ describe('Lacune B: the preview table is not built, and its absence is deliberat
 		const { container } = mount();
 
 		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(4);
+	});
+});
+
+describe('the junction: a trigger and the thing it triggers, in one test, at each width', () => {
+	/**
+	 * THIS IS THE TEST WHOSE ABSENCE PRODUCED #334.
+	 *
+	 * Three levels covered this screen and every one of them was correct. `RoleRow.svelte.spec.ts`
+	 * asserts the row is a `<button aria-haspopup="listbox">` that calls `onOpen`, true at every
+	 * width. The geometry tests above assert the four buttons exist, at the right height, in a
+	 * 400 px column, and never open one. The states spec DOES open pickers and pins 390, because
+	 * the sheet needed it.
+	 *
+	 * Every level covered, every test correct, the junction covered nowhere. So the rule is: for any
+	 * trigger, name the test where it and its target appear TOGETHER, at each width where both are
+	 * supposed to exist. This is that test, and it runs at both.
+	 *
+	 * BREAK CHECK, run 2026-08-15: restoring `lg:hidden` on the anchored panel reddens the 1280 case
+	 * and leaves the 390 case green. Red at one width only is the whole point: a break that reddened
+	 * both would be a fact about the picker, and this defect was a fact about the WIDTH.
+	 */
+	/**
+	 * THE VIEWPORT, not the container, and the first version of this block got that wrong.
+	 *
+	 * Every other test in this file sizes the CONTAINER to 1280x800, which is right for geometry and
+	 * useless here: `lg:hidden` is a media query on the VIEWPORT, so a container-sized test cannot
+	 * observe it at all. The break that restores `lg:hidden` came back green until this was added.
+	 *
+	 * That is #334's own failure mode arriving in the test written to prevent it: a measurement
+	 * taken on the wrong box. The width has to be real for a width-conditional defect to exist.
+	 */
+	beforeEach(async () => {
+		await page.viewport(1280, 800);
+	});
+
+	afterAll(async () => {
+		await page.viewport(1280, 800);
+	});
+
+	const openFirstRole = async (container: HTMLElement) => {
+		const row = container.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+		expect(row).not.toBeNull();
+		row.click();
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		return row;
+	};
+
+	it('opens a real, visible list of columns at 1280', async () => {
+		const { container } = mount();
+
+		await openFirstRole(container);
+
+		// `offsetParent` is null for anything `display:none`, which is precisely how the defect
+		// hid: the panel mounted, carried the right options, and could never be seen. A query that
+		// only counted options would have passed throughout.
+		const panel = container.querySelector('[data-testid="column-picker-panel"]') as HTMLElement;
+		expect(panel).not.toBeNull();
+		expect(panel.offsetParent).not.toBeNull();
+		expect(panel.querySelectorAll('[role="option"]').length).toBe(FILE.headers.length);
+	});
+
+	it('anchors the panel under its own row and keeps it inside the window', async () => {
+		// Measured FROM THE ANCHOR. A viewport fraction is not a constraint on a box that starts
+		// partway down the page, which this repository measured once as a primary action at y=960.
+		const { container } = mount();
+
+		const row = await openFirstRole(container);
+		const panel = container.querySelector('[data-testid="column-picker-panel"]') as HTMLElement;
+
+		expect(panel.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+			row.getBoundingClientRect().bottom
+		);
+		expect(panel.getBoundingClientRect().bottom).toBeLessThanOrEqual(window.innerHeight);
+	});
+
+	it('opens a real, visible list of columns at 390 too, through the other shell', async () => {
+		// The same journey through the sheet. Asserted here rather than left to the states spec so
+		// that ONE test file carries both widths: the defect was that no file did.
+		await page.viewport(390, 844);
+		const { container } = mount({ wide: false });
+
+		await openFirstRole(container);
+
+		const options = [...document.querySelectorAll('[role="option"]')] as HTMLElement[];
+		expect(options.length).toBe(FILE.headers.length);
+		expect(options.filter((option) => option.offsetParent !== null).length).toBe(
+			FILE.headers.length
+		);
 	});
 });
