@@ -28,6 +28,25 @@
 	let submitting = $state(false);
 	let formEl = $state<HTMLFormElement | null>(null);
 
+	/**
+	 * Which chrome the one screen wears, resolved from `matchMedia` rather than from CSS.
+	 *
+	 * The alternative, rendering both and hiding one with `lg:hidden`, would mount the screen TWICE.
+	 * Each instance owns its own assignment, so a user designating at 390 and rotating to 1280 would
+	 * arrive at an empty form, and neither copy could see the other's state. Two mounts of a stateful
+	 * screen is not a responsive layout, it is two screens that happen to look alike.
+	 *
+	 * `lg` is 1024 in this project's Tailwind scale, and the desktop figures are drawn at 1280.
+	 */
+	let wide = $state(false);
+	$effect(() => {
+		const query = window.matchMedia('(min-width: 1024px)');
+		wide = query.matches;
+		const update = (event: MediaQueryListEvent) => (wide = event.matches);
+		query.addEventListener('change', update);
+		return () => query.removeEventListener('change', update);
+	});
+
 	// A reload loses the File, which cannot be serialised. Going back to the upload is the honest
 	// outcome: a designation screen with no file is a screen whose primary can never do anything.
 	$effect(() => {
@@ -70,7 +89,7 @@
 </svelte:head>
 
 {#if pending}
-	<main class="h-dvh w-full bg-white">
+	<main class="h-dvh w-full bg-zinc-50">
 		{#if form?.error}
 			<AlertBanner variant="error">{form.error}</AlertBanner>
 		{/if}
@@ -82,6 +101,7 @@
 			initialAssignment={pending.initialAssignment}
 			candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
 			{submitting}
+			{wide}
 			onCancel={() => goto(resolve('/import'))}
 			onSubmit={submit}
 		/>
