@@ -14,10 +14,26 @@
 	import { enhance } from '$app/forms';
 	import { EMPTY_ASSIGNMENT, type DesignationFile } from '$lib/domain/columnDesignation';
 	import { setPendingDesignation } from '$lib/import/pendingDesignation.svelte';
+	import { takeCompletedImport, type CompletedImport } from '$lib/import/completedImport.svelte';
+	import { onMount } from 'svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
-	const importResult = $derived(form?.importResult);
+	/**
+	 * An import performed on `/import/columns`, whose action result cannot arrive here as `form`.
+	 *
+	 * Read in `onMount` rather than at initialisation for two reasons, both of which were live
+	 * defects in the first draft. This module renders on the server, where module state is shared
+	 * between requests, so reading it during SSR is a cross-request leak waiting for a writer. And
+	 * a value present on the client but absent on the server is a hydration mismatch: the summary
+	 * would be painted, then thrown away when hydration reconciled the two trees.
+	 */
+	let carriedImport = $state<CompletedImport | null>(null);
+	onMount(() => {
+		carriedImport = takeCompletedImport();
+	});
+
+	const importResult = $derived(form?.importResult ?? carriedImport?.importResult);
 	const netWorthAccountOptions = $derived([
 		{ value: '', label: m.import_field_net_worth_account_placeholder() },
 		...data.linkableNetWorthAccounts.map((account) => ({ value: account.id, label: account.name }))

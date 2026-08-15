@@ -9,6 +9,10 @@ import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { saveColumnMapping } from '$lib/server/import/mapping/store';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import {
+	buildInvalidRowDetails,
+	getHiddenInvalidRowsCount
+} from '$lib/server/import/invalidRowDetails';
+import {
 	createImportBatch,
 	persistImportedTransactions,
 	resolveImportBucketAccount
@@ -167,7 +171,16 @@ export const actions: Actions = {
 				totalDebitCents: persisted.importedDebitCents,
 				totalCreditCents: persisted.importedCreditCents,
 				period: result.summary.period,
-				batchId
+				batchId,
+				// The rejected rows themselves, not only their count. This route used to return the
+				// count alone, so a designated import could reject rows and name none of them — on the
+				// one run where the user had just chosen the columns and could still tell a wrong
+				// choice from a bad file. Same shape as `/import` so one panel draws both (#338).
+				invalidRowDetails: buildInvalidRowDetails(importData.previewRowsByLine, result),
+				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.summary.invalidRows),
+				// Always null here: the destination-account choice belongs to the upload form, which
+				// this route does not carry. Present so the payload is one shape rather than two.
+				netWorthLinkStatus: null
 			},
 			capReached
 		};

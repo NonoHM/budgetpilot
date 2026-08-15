@@ -10,6 +10,9 @@
 		clearPendingDesignation,
 		takePendingDesignation
 	} from '$lib/import/pendingDesignation.svelte';
+	import { setCompletedImport } from '$lib/import/completedImport.svelte';
+	import type { ImportSummaryResult } from '$lib/domain/importSummary';
+	import { deserialize } from '$app/forms';
 	import type { ActionData } from './$types';
 
 	/**
@@ -70,13 +73,40 @@
 			if (index !== null) data.set(`${role}Index`, String(index));
 		}
 
-		void fetch(formEl.action, { method: 'POST', body: data })
+		// `x-sveltekit-action`, and the whole defect was its absence. Without it the action's reply
+		// is a rendered page rather than a serialised ActionResult, so there was nothing in the
+		// response worth reading and the summary the server had already built was dropped on the
+		// floor. With it, the result deserialises and is handed to `/import` to draw (#338).
+		void fetch(formEl.action, {
+			method: 'POST',
+			body: data,
+			headers: { 'x-sveltekit-action': 'true' }
+		})
 			.then(async (response) => {
 				submitting = false;
-				if (response.ok) {
-					clearPendingDesignation();
-					await goto(resolve('/import'));
-				}
+				if (!response.ok) return;
+				// Typed at the call rather than cast after it: `deserialize` returns `unknown` data by
+				// default, and a cast downstream would let the action's payload drift from what
+				// `/import` draws without anything failing.
+				const actionResult = deserialize<
+					{ importResult: ImportSummaryResult; capReached: boolean },
+					{ error?: string; keepDesignation?: boolean }
+				>(await response.text());
+				// Only a success carries a summary. A `fail()` comes back as type 'failure' and is
+				// already handled by the server returning the user to this screen with their
+				// designations intact, so nothing is carried and nothing is cleared.
+				//
+				// `data` is optional on a success too, so the summary is checked rather than assumed:
+				// navigating with nothing to draw would land the user on the same silent screen this
+				// change exists to remove, and staying here at least leaves the designations intact.
+				const carried = actionResult.type === 'success' ? actionResult.data : undefined;
+				if (!carried?.importResult) return;
+				setCompletedImport({
+					importResult: carried.importResult,
+					capReached: carried.capReached === true
+				});
+				clearPendingDesignation();
+				await goto(resolve('/import'));
 			})
 			.catch(() => {
 				submitting = false;

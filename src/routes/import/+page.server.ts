@@ -10,9 +10,14 @@ import {
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
-import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
 import {
-	anonymizeImportCell,
+	buildInvalidRowDetails,
+	getHiddenInvalidRowsCount,
+	type ImportInvalidRowDetail
+} from '$lib/server/import/invalidRowDetails';
+// Re-exported: this type was declared here and `page.server.spec.ts` names it from this module.
+export type { ImportInvalidRowDetail } from '$lib/server/import/invalidRowDetails';
+import {
 	createImportBatch,
 	persistImportedTransactions,
 	resolveImportBucketAccount
@@ -23,32 +28,6 @@ import type { PageServerLoad } from './$types';
 
 const IMPORT_MAX_BYTES = 256_000;
 const CSV_ACCOUNT_NAME = 'Compte import CSV';
-const INVALID_ROW_DETAIL_LIMIT = 20;
-
-/**
- * Exported so the spec can name the shape instead of retyping it. It used to be declared by
- * hand in two places there, which is a copy certifying the original: the two could drift by
- * exactly the field that matters and the comparison would still pass.
- */
-export interface ImportInvalidRowDetail {
-	/**
-	 * Identity for the render's keyed each block, and nothing else.
-	 *
-	 * It used to be the line number, which worked only because header level complaints were
-	 * given an invented `index + 1` (#291). Removing that invention without changing the key
-	 * would give every header complaint the same key, which is a runtime crash rather than a
-	 * type error, because the dependency lives in markup. A position in this list is stable:
-	 * it is never reordered or filtered on the client.
-	 */
-	key: number;
-	scope: CsvRefusalScope;
-	fact: CsvRefusalFact;
-	/** Absent when the refusal names no field. Never defaulted: the scope carries what the old `?? 'ligne'` fallback used to imply. */
-	field?: string;
-	profile: string;
-	preview: string;
-}
-
 /**
  * Sources an import CSV row can land on, based on the auto-detected profile (see
  * getImportSource below). The exact one is only known after the file is uploaded and its
@@ -265,27 +244,6 @@ function buildImportResult(
 	};
 }
 
-function buildInvalidRowDetails(
-	previewRowsByLine: Record<number, string[]>,
-	result: ReturnType<typeof parseCsvTransactionRows>
-): ImportInvalidRowDetail[] {
-	return result.invalidRows.slice(0, INVALID_ROW_DETAIL_LIMIT).map((row, index) => ({
-		key: index,
-		scope: row.scope,
-		fact: row.fact,
-		field: row.field,
-		profile: result.summary.profile,
-		// Only a row scoped refusal has a row to preview. A header or file scoped one gets an
-		// empty preview rather than `anonymizeCsvRowPreview([])`, which returns « ligne vide »
-		// and would assert the file had an empty line there. Before #291 these carried invented
-		// lines and so pulled a real transaction's cells into a complaint about the header.
-		preview:
-			row.scope.kind === 'row'
-				? anonymizeCsvRowPreview(previewRowsByLine[row.scope.line] ?? [])
-				: ''
-	}));
-}
-
 /**
  * Whether this refusal is one the designation screen can repair.
  *
@@ -303,10 +261,6 @@ function offersDesignation(
 ): boolean {
 	if (headerCells.length === 0) return false;
 	return result.invalidRows.some((row) => row.fact.code === 'missing-required-column');
-}
-
-function getHiddenInvalidRowsCount(invalidRows: number): number {
-	return Math.max(0, invalidRows - INVALID_ROW_DETAIL_LIMIT);
 }
 
 const INVALID_NET_WORTH_ACCOUNT = Symbol('invalid-net-worth-account');
@@ -335,20 +289,6 @@ function getImportSource(profile: string): string {
 	if (profile === 'banque-populaire') return 'banque_populaire';
 	if (profile === 'revolut') return 'revolut';
 	return 'csv';
-}
-
-function anonymizeCsvRowPreview(cells: string[]): string {
-	const preview = cells
-		.map((cell) => anonymizeImportCell(cell))
-		.filter(Boolean)
-		.slice(0, 8)
-		.join(' | ');
-
-	// Through the catalogue, not as a literal. This string is rendered straight into the invalid
-	// rows table, so a hardcoded French one is the same defect the refusal contract removes from
-	// the parsers, one layer out: an English user was shown French. The French output is
-	// unchanged, byte for byte.
-	return preview || m.import_invalid_preview_empty();
 }
 
 function isUploadedFile(value: FormDataEntryValue | null): value is File {
