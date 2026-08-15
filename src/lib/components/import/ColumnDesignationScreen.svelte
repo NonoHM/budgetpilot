@@ -2,15 +2,20 @@
 	import * as m from '$lib/paraglide/messages';
 	import { MAPPING_ROLES, type MappingRole } from '$lib/server/import/mapping/model';
 	import {
+		EMPTY_ASSIGNMENT,
 		canImport,
+		designate,
 		pageStateOf,
 		type DesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
 	import { bannerFor } from '$lib/domain/columnDesignationBanner';
+	import { roleLabel } from '$lib/domain/columnMappingLabels';
 	import ConditionBanner from '$lib/components/ui/ConditionBanner.svelte';
 	import RoleRow from '$lib/components/ui/RoleRow.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
+	import TapLink from '$lib/components/ui/TapLink.svelte';
+	import ColumnPicker from './ColumnPicker.svelte';
 
 	/**
 	 * « Désigner les colonnes », the 390x844 screen, as four fixed regions.
@@ -74,45 +79,79 @@
 	 */
 	let {
 		file,
-		assignment,
-		candidateCounts = {},
-		vacated = {},
+		initialAssignment = EMPTY_ASSIGNMENT,
+		candidates = {},
 		lostHeaders = {},
-		expandedRole = null,
 		analysing = false,
 		submitting = false,
 		signaturePartial = false,
 		signatureLostDate = null,
-		onOpenPicker,
+		announceDelayMs = 150,
 		onCancel,
 		onSubmit
 	}: {
 		file: DesignationFile;
-		assignment: RoleAssignment;
-		/** Per role, how many columns detection believes could carry it. Only >= 2 is rendered. */
-		candidateCounts?: Partial<Record<MappingRole, number>>;
-		/** Per role, the role that just took its column. Transient: it does not survive a reload. */
-		vacated?: Partial<Record<MappingRole, MappingRole>>;
+		/**
+		 * What detection already worked out. The screen OWNS the assignment from here on, because
+		 * every state that matters (the move, the vacated row, the recount) is a consequence of one
+		 * gesture on this screen, and threading it through a parent would put the three halves of one
+		 * mechanism in two files.
+		 */
+		initialAssignment?: RoleAssignment;
+		/**
+		 * Per role, the column indices detection proposes. Two or more is what makes a row ambiguous.
+		 *
+		 * Detection DOES NOT PICK BETWEEN EQUALS: it shortens the path when a column is unambiguous
+		 * and stays out of the way when it is not. A rule, never a confidence score.
+		 */
+		candidates?: Partial<Record<MappingRole, readonly number[]>>;
 		/** State 3b: per role, the remembered header that is gone from this file. */
 		lostHeaders?: Partial<Record<MappingRole, string>>;
-		expandedRole?: MappingRole | null;
 		analysing?: boolean;
 		submitting?: boolean;
 		signaturePartial?: boolean;
 		/** State 3c only: the date the lost correspondance was memorised, already formatted. */
 		signatureLostDate?: string | null;
-		onOpenPicker?: (role: MappingRole) => void;
+		/**
+		 * How long after the focus return the live region may speak. The plate's floor is 150 ms and
+		 * the reason is ordering rather than pacing: the focus return is the direct answer to the
+		 * gesture and must not be pre-empted by a summary. A prop only so a test can drive it.
+		 */
+		announceDelayMs?: number;
 		onCancel?: () => void;
-		onSubmit?: () => void;
+		onSubmit?: (result: { assignment: RoleAssignment; remember: boolean }) => void;
 	} = $props();
 
+	// Capturing only the INITIAL value is the whole point, so the warning is suppressed rather than
+	// worked around: `initialAssignment` is what detection worked out on arrival, and this screen
+	// owns the assignment from that moment. A reactive read would make the user's designations
+	// disappear whenever the parent re-derived its detection result.
+	// svelte-ignore state_referenced_locally
+	let assignment = $state<RoleAssignment>({ ...initialAssignment });
+	/** Transient, and deliberately not stored: it describes the last gesture, not the file. */
+	let vacated = $state<Partial<Record<MappingRole, MappingRole>>>({});
+	let openRole = $state<MappingRole | null>(null);
+	let remember = $state(true);
+	// Same reasoning: the user can flip "the first line is data" from inside any picker, and that
+	// answer must outlive the parent's own guess about the file.
+	// svelte-ignore state_referenced_locally
+	let hasHeaderRow = $state(file.hasHeaderRow);
+	let announcement = $state('');
+	let announceTimer: ReturnType<typeof setTimeout> | null = null;
+
+	const effectiveFile = $derived({ ...file, hasHeaderRow });
 	const columnCount = $derived(file.headers.length);
-	const state = $derived(
+	const candidateCounts = $derived(
+		Object.fromEntries(
+			Object.entries(candidates).map(([role, list]) => [role, list?.length ?? 0])
+		) as Partial<Record<MappingRole, number>>
+	);
+	const pageState = $derived(
 		pageStateOf({ assignment, columnCount, analysing, submitting, signaturePartial })
 	);
 	const banner = $derived(
 		bannerFor({
-			state,
+			state: pageState,
 			assignment,
 			columnCount,
 			candidateCounts,
@@ -120,6 +159,75 @@
 		})
 	);
 	const importable = $derived(canImport(assignment, columnCount) && !analysing && !submitting);
+
+	/**
+	 * The announcement order is NORMATIVE, and this is the whole of it.
+	 *
+	 *   1. The sheet closes.
+	 *   2. Focus returns to the row, whose accessible name is ALREADY up to date, because the
+	 *      assignment is written before the sheet is told to close and Svelte flushes both in the
+	 *      same task. That is what makes the focus return the direct answer to the gesture.
+	 *   3. Only then, in a LATER task and not before `announceDelayMs`, the live region speaks.
+	 *
+	 * **Focus return wins.** A live region that fires in the same task pre-empts the row's own name,
+	 * and the reader loses the answer to what they just did in favour of a summary.
+	 *
+	 * **A displacement is ONE update carrying both facts, never two.** A screen reader receiving two
+	 * successive polite updates drops one, and the one it drops is the second: the unintended
+	 * consequence, which is the half the user did not ask for and most needs to hear.
+	 */
+	function announceLater(sentence: string) {
+		if (announceTimer) clearTimeout(announceTimer);
+		announceTimer = setTimeout(() => {
+			announcement = sentence;
+			announceTimer = null;
+		}, announceDelayMs);
+	}
+
+	function choose(columnIndex: number) {
+		const role = openRole;
+		if (role === null) return;
+
+		// Choosing the already-designated card closes and changes nothing. Not an error, an
+		// abandonment, so nothing is announced: a "3 sur 3" here would imply a change.
+		if (assignment[role] === columnIndex) {
+			openRole = null;
+			return;
+		}
+
+		const moved = designate(assignment, role, columnIndex);
+		assignment = moved.assignment;
+		vacated = moved.vacated ? { [moved.vacated]: role } : {};
+		openRole = null;
+
+		const next = bannerFor({
+			state: pageStateOf({ assignment, columnCount, signaturePartial }),
+			assignment,
+			columnCount,
+			candidateCounts,
+			lostCount: Object.keys(lostHeaders).length
+		});
+
+		announceLater(
+			moved.vacated
+				? m.import_columns_announce_moved({
+						role: roleLabel(role),
+						header: effectiveFile.headers[columnIndex] ?? '',
+						vacated: roleLabel(moved.vacated),
+						count: next.count
+					})
+				: m.import_columns_announce_designated({
+						count: next.count,
+						consequence: next.consequence
+					})
+		);
+	}
+
+	function closeWithoutChoosing() {
+		// The live region says NOTHING. Only the focus return speaks, announcing the unchanged row.
+		// Announcing a count after a no-op close would imply a change that did not happen.
+		openRole = null;
+	}
 
 	/**
 	 * The row's state, resolved in ONE place so the visible line and the accessible name cannot
@@ -143,7 +251,11 @@
 
 	function headerOf(role: MappingRole): string | null {
 		const index = assignment[role];
-		return index === null ? null : (file.headers[index] ?? null);
+		if (index === null) return null;
+		// Null when the first line is data: the row then names the column by position, which is what
+		// `RoleRow` falls back to. Reading the header here anyway would print a transaction's own
+		// first value as if it were a column name.
+		return hasHeaderRow ? (file.headers[index] ?? null) : null;
 	}
 
 	function sampleOf(role: MappingRole): string {
@@ -240,14 +352,14 @@
 						{role}
 						state={stateOf(role)}
 						optional={role === 'category'}
-						expanded={expandedRole === role}
+						expanded={openRole === role}
 						columnHeader={headerOf(role)}
 						columnIndex={assignment[role] ?? undefined}
 						sampleValue={sampleOf(role)}
 						candidateCount={candidateCounts[role]}
 						vacatedBy={vacated[role]}
 						lostHeader={lostHeaders[role]}
-						onOpen={() => onOpenPicker?.(role)}
+						onOpen={() => (openRole = role)}
 					/>
 				{/each}
 			</div>
@@ -265,6 +377,29 @@
 		>
 			{m.import_columns_file_format_row()}
 		</div>
+
+		{#if pageState === 'complete' || pageState === 'submitting'}
+			<!--
+				86 px: two lines of sentence at 17, then a 48 px TapLink. With its 14 px gap that is
+				the 100 px state 2 adds, taking the body to 611 of 636 and still not scrolling.
+
+				Memorisation is ON by default and stated in ONE sentence with an opt-out link. There
+				is deliberately NO toggle: the referential has none, and a switch would present a
+				default as a decision the user has to take before they can leave.
+			-->
+			<div class="shrink-0" data-testid="designation-remember">
+				<p class="h-[34px] text-[12.5px] leading-[17px] text-zinc-500">
+					{remember
+						? m.import_columns_remember_sentence()
+						: m.import_columns_remember_opt_in_explanation()}
+				</p>
+				<div class="mt-1 flex h-12 items-center">
+					<TapLink onclick={() => (remember = !remember)}>
+						{remember ? m.import_columns_remember_opt_out() : m.import_columns_remember_opt_in()}
+					</TapLink>
+				</div>
+			</div>
+		{/if}
 	</div>
 
 	<ConditionBanner
@@ -282,7 +417,7 @@
 			class="h-12 flex-1 rounded-[14px] border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-700"
 			onclick={onCancel}
 		>
-			{state === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
+			{pageState === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
 		</button>
 		<!--
 			`aria-disabled`, NEVER the `disabled` attribute, and `aria-describedby` pointing at the
@@ -299,7 +434,7 @@
 			aria-disabled={importable ? undefined : 'true'}
 			aria-describedby={importable ? undefined : CONSEQUENCE_ID}
 			aria-busy={submitting ? 'true' : undefined}
-			onclick={() => importable && onSubmit?.()}
+			onclick={() => importable && onSubmit?.({ assignment, remember })}
 		>
 			{#if submitting}
 				{m.import_columns_submitting()}
@@ -310,4 +445,28 @@
 			{/if}
 		</button>
 	</footer>
+</div>
+
+{#if openRole}
+	<ColumnPicker
+		open
+		role={openRole}
+		file={effectiveFile}
+		{assignment}
+		candidates={candidates[openRole as MappingRole] ?? []}
+		onChoose={choose}
+		onClose={closeWithoutChoosing}
+		onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}
+	/>
+{/if}
+
+<!--
+	ONE announcement per user GESTURE, never one per internal state change. `role="status"` and not
+	`alert`: designating a column is a form state in progress, not an incident.
+
+	It announces nothing on open, nothing on a close without a choice, and nothing about the ignored
+	column count outside state 2's own sentence.
+-->
+<div class="sr-only" role="status" aria-live="polite" data-testid="designation-live">
+	{announcement}
 </div>

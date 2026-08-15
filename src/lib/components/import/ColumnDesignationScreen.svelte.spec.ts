@@ -75,7 +75,7 @@ const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 5, category: 7 };
 function mount(props: Record<string, unknown> = {}) {
 	const { container } = render(ColumnDesignationScreen, {
 		file: FILE,
-		assignment: EMPTY_ASSIGNMENT,
+		initialAssignment: EMPTY_ASSIGNMENT,
 		...props
 	});
 	// 390x844 exactly, which is what every figure below was drawn against.
@@ -140,15 +140,22 @@ describe("the body's 511 of 636, which is the plate's promise", () => {
 		expect(636 - contentHeight(body)).toBe(125);
 	});
 
-	it('is still 511 in state 1 and in state 2, because the rows do not move', () => {
-		// The promise is that nothing shifts as answers arrive. Asserted across all three states
-		// rather than on one: a card that grew when a row was answered would pass a single-state
-		// check and make the skeleton a lie.
-		for (const assignment of [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE]) {
-			const { body, container } = mount({ assignment });
-			expect(contentHeight(body)).toBe(511);
-			container.remove();
-		}
+	it('is still 511 in state 1, because designating a row does not move anything', () => {
+		// The promise is that nothing shifts as answers arrive. State 2 is excluded on purpose and
+		// gets its own figure below: it is the one state that legitimately adds content.
+		const { body } = mount({ initialAssignment: PARTIAL });
+
+		expect(contentHeight(body)).toBe(511);
+	});
+
+	it('is 611 in state 2, which is the 100 px the memorisation block adds', () => {
+		// 86 for the sentence and its opt-out link, plus the 14 px gap. The plate carries this
+		// figure separately from the 511 precisely because it is the one state that grows, and the
+		// point of stating it is that 611 is still under 636: the screen does not begin to scroll.
+		const { body } = mount({ initialAssignment: COMPLETE });
+
+		expect(contentHeight(body)).toBe(611);
+		expect(body.scrollHeight).toBe(body.clientHeight);
 	});
 
 	it('ends the card at 425 of 636', () => {
@@ -160,8 +167,8 @@ describe("the body's 511 of 636, which is the plate's promise", () => {
 	});
 
 	it('does not scroll, in any state', () => {
-		for (const assignment of [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE]) {
-			const { body, container } = mount({ assignment });
+		for (const initialAssignment of [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE]) {
+			const { body, container } = mount({ initialAssignment });
 			expect(body.scrollHeight).toBe(body.clientHeight);
 			container.remove();
 		}
@@ -186,8 +193,8 @@ describe('the card and its rows', () => {
 		// 14 padding + 16 label + 10 gap + (68 + 1 + 68 + 1 + 68) + 12 + 1 + 12 + 68 + 14 padding
 		// + 2 border. The stronger separator before the optional row is 25 of those, and it is what
 		// marks Categorie as a different kind of thing without an asterisk anywhere.
-		for (const assignment of [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE]) {
-			const { card, container } = mount({ assignment });
+		for (const initialAssignment of [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE]) {
+			const { card, container } = mount({ initialAssignment });
 			expect(card.getBoundingClientRect().height).toBe(355);
 			container.remove();
 		}
@@ -213,8 +220,8 @@ describe('the banner does not move between states, which is a relational promise
 		// A single-element measurement cannot answer a question about a difference, so this reads
 		// both states and compares. The absolute 64 is asserted too: a comparison alone passes in a
 		// world with no stylesheet, where every state agrees at the same wrong number.
-		const readings = [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE].map((assignment) => {
-			const { banner, screen, container } = mount({ assignment });
+		const readings = [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE].map((initialAssignment) => {
+			const { banner, screen, container } = mount({ initialAssignment });
 			const box = banner.getBoundingClientRect();
 			const reading = { height: box.height, top: box.top - screen.getBoundingClientRect().top };
 			container.remove();

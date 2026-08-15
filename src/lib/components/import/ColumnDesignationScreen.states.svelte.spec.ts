@@ -1,0 +1,404 @@
+import { page, userEvent } from 'vitest/browser';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { render } from 'vitest-browser-svelte';
+import '../../../routes/layout.css';
+import ColumnDesignationScreen from './ColumnDesignationScreen.svelte';
+import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesignation';
+
+/**
+ * The screen's WIRING, and only that.
+ *
+ * `RoleRow` and `ColumnCard` have their own specs and are not re-tested here: what a row looks like
+ * in each of its states is settled there, and repeating it would make this file go red for reasons
+ * that have nothing to do with the screen. What is only observable here is the screen's own
+ * decisions: which state each row is put into, what a designation does to the other three rows, and
+ * the order in which the answer reaches a screen reader.
+ *
+ * The viewport is set to 390x844 rather than only the container, because the picker is a
+ * `BottomSheet` and that component is `lg:hidden`: at the runner's default width the sheet would be
+ * display:none and every assertion about it would pass or fail for a reason about the viewport.
+ *
+ * BREAK MATRIX, read per test, run 2026-08-15. Three breaks, and the first pass of it found that
+ * TWO of these tests could not fail. Both are fixed and both were re-run; the figures below are the
+ * second pass.
+ *
+ * A. The move stops reporting the vacancy, so a freed row falls back to « Choisir une colonne »:
+ *    **two red.** The displacement test and the required-role displacement test. Nothing else moves,
+ *    which is right: no other test is about what a move leaves behind.
+ *
+ * B. The live region is written in the SAME task as the designation, removing the delay entirely:
+ *    **one red now, and ZERO on the first pass.** The original test read `textContent` synchronously
+ *    after the click and asserted it was empty. Svelte flushes on a microtask, so the read ran
+ *    before the update either way: it was measuring the batching and not the ordering, and the green
+ *    was indistinguishable from a pass. Fixed by waiting for the ROW's own accessible name to update
+ *    first, with a polling assertion: once that has happened the flush is done, so a live region
+ *    still empty at that moment is empty by design.
+ *
+ * C. Owner ruling 1 lifted, so Categorie may take a column a required role holds: **two red now,
+ *    and ONE on the first pass.** The second test had the same synchronous-read defect as B and was
+ *    passing over a card that had quietly succeeded. It now polls the row's accessible name.
+ *
+ * The lesson both greens carry is the same and it is not about these two tests: **an assertion read
+ * synchronously after an interaction is an assertion about the framework's batching.** Anything
+ * checking that something did NOT happen must first wait for the thing that DID.
+ */
+const HEADERS = ['Date operation', 'Date valeur', 'Libelle', 'Montant', 'Categorie'];
+
+const FILE = {
+	name: 'releve.csv',
+	headers: HEADERS,
+	samples: HEADERS.map((_, index) => [`v${index}a`, `v${index}b`, `v${index}c`]),
+	rowCount: 132,
+	hasHeaderRow: true
+};
+
+const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4 };
+
+function mount(props: Record<string, unknown> = {}) {
+	const result = render(ColumnDesignationScreen, {
+		file: FILE,
+		initialAssignment: EMPTY_ASSIGNMENT,
+		// 0 rather than 150: the ORDER is what is under test, and a real delay would make every
+		// assertion below a race. The order itself is asserted separately, in its own test.
+		announceDelayMs: 0,
+		...props
+	});
+	const row = (name: RegExp) => page.getByRole('button', { name });
+	return {
+		...result,
+		row,
+		banner: () => result.container.querySelector('[data-testid="condition-banner"]') as HTMLElement,
+		live: () => result.container.querySelector('[data-testid="designation-live"]') as HTMLElement,
+		primary: () => page.getByRole('button', { name: /Importer/ })
+	};
+}
+
+beforeEach(async () => {
+	await page.viewport(390, 844);
+});
+
+describe('the screen puts each row into one state, and the precedence is the state table', () => {
+	it('prefers a lost remembered column over the empty it would otherwise be', async () => {
+		// The two states this separates: a row with no column because the user has not chosen one,
+		// and a row with no column because the bank renamed it. Both have `assignment[role] === null`
+		// and they must not read alike, or state 3b is indistinguishable from a fresh file.
+		//
+		// Scoped to the ONE row under test. An assertion over the whole screen would also be reading
+		// the date and label rows, which are legitimately empty here, and would fail for a reason
+		// that has nothing to do with the precedence.
+		const { container } = mount({ lostHeaders: { amount: 'Montant' } });
+
+		const amountRow = await page.getByRole('button', { name: /^Montant,/ }).element();
+		expect(amountRow.textContent).toContain("n'est plus dans le fichier");
+		expect(amountRow.textContent).not.toContain('Choisir une colonne');
+		// And state 3b's own promise, which is the half a single-row assertion cannot see: the
+		// untouched rows really are untouched.
+		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(4);
+	});
+
+	it('prefers ambiguous over empty when detection proposes two columns', () => {
+		// Separates "nothing is known about this role" from "two columns could carry it". Detection
+		// does not pick between equals, so the row must say so rather than staying silent.
+		const { container } = mount({ candidates: { date: [0, 1] } });
+
+		expect(container.textContent).toContain('2 colonnes possibles');
+	});
+
+	it('leaves a single proposal as a plain empty row, not as an ambiguity', () => {
+		// The other side of the same boundary, and the reason the threshold is 2 rather than 1: one
+		// proposal is an answer the picker pins at the top, not a question for the row to ask.
+		const { container } = mount({ candidates: { date: [0] } });
+
+		expect(container.textContent).not.toContain('colonnes possibles');
+		expect(container.textContent).toContain('Choisir une colonne');
+	});
+});
+
+describe('designating a column, and what it does to the other three rows', () => {
+	it('fills the row and recounts the banner', async () => {
+		const { row, banner } = mount();
+
+		await row(/^Date, aucune colonne désignée/).click();
+		await page.getByRole('option', { name: /^Date operation\./ }).click();
+
+		expect(banner().textContent).toContain('1 sur 3');
+	});
+
+	it('MOVES a column already held, and the freed row says who took it', async () => {
+		// The displacement. A conflict has no representation in the model, so what exists is the
+		// move, and the two states this separates are "the date row is empty because the user never
+		// answered" and "the date row is empty because the label row just took its column". The
+		// second must never read as the first, or a designation moves with nobody told.
+		const { row, container, banner } = mount({ initialAssignment: COMPLETE });
+
+		await row(/^Libellé, colonne désignée/).click();
+		await page.getByRole('option', { name: /^Date operation\./ }).click();
+
+		expect(container.textContent).toContain('Reprise par Libellé');
+		expect(container.textContent).not.toContain('Choisir une colonne');
+		// The recount is the half a text assertion cannot see: the move costs one required role.
+		expect(banner().textContent).toContain('2 sur 3');
+	});
+
+	it('switches the primary off when the move empties a required role', async () => {
+		// `aria-disabled`, never `disabled`, and pointed at the banner's second line. Asserted as a
+		// pair with the enabled state above it so this cannot pass on a button that is always off.
+		const { row, primary } = mount({ initialAssignment: COMPLETE });
+		await expect.element(primary()).not.toHaveAttribute('aria-disabled');
+
+		await row(/^Libellé, colonne désignée/).click();
+		await page.getByRole('option', { name: /^Date operation\./ }).click();
+
+		await expect.element(primary()).toHaveAttribute('aria-disabled', 'true');
+		await expect
+			.element(primary())
+			.toHaveAttribute('aria-describedby', 'column-designation-consequence');
+	});
+
+	it('leaves the other rows untouched by a move', async () => {
+		// A move takes one column from one role. An implementation that reset everything would pass
+		// every assertion above, which is why this asserts the two rows that must NOT have changed.
+		const { row, container } = mount({ initialAssignment: COMPLETE });
+
+		await row(/^Libellé, colonne désignée/).click();
+		await page.getByRole('option', { name: /^Date operation\./ }).click();
+
+		expect(container.textContent).toContain('Montant');
+		expect(container.textContent).toContain('Categorie');
+	});
+});
+
+describe('owner ruling 1, in the Categorie picker', () => {
+	it('offers a required role column as unchoosable, naming its holder', async () => {
+		// Categorie may not take a column a required role holds. The card STAYS, carrying the reason,
+		// because removing it would send the user hunting for a column visibly in their own file.
+		const { row } = mount({ initialAssignment: { ...COMPLETE, category: null } });
+
+		await row(/^Catégorie, aucune colonne désignée/).click();
+		const held = page.getByRole('option', { name: /^Libelle\./ });
+
+		await expect.element(held).toHaveAttribute('aria-disabled', 'true');
+		// `toHaveAttribute` compares the WHOLE value, so a regex here asserts identity rather than
+		// containment and fails on a correct label. The reason to check containment is that the
+		// label legitimately carries the three examples first: what matters is that the holder is
+		// named at all.
+		const label = (await held.element()).getAttribute('aria-label') ?? '';
+		expect(label).toContain('Actuellement : Libellé');
+	});
+
+	it('leaves the Categorie row empty when that card is activated', async () => {
+		// The affordance half of the ruling, and the two states it separates: a card that refuses
+		// and a card that quietly succeeds. Clicked DIRECTLY, because both Playwright and
+		// vitest-browser treat `aria-disabled` as not enabled and would wait for it forever.
+		//
+		// Asserted through a POLLING query on the row's accessible name rather than by reading
+		// `textContent` synchronously. Measured 2026-08-15: the synchronous read passed under the
+		// break that lifts the ruling entirely, because Svelte flushes on a microtask and the read
+		// happened first. It was reading the DOM before the defect could reach it.
+		const { row } = mount({ initialAssignment: { ...COMPLETE, category: null } });
+
+		await row(/^Catégorie, aucune colonne désignée/).click();
+		((await page.getByRole('option', { name: /^Libelle\./ }).element()) as HTMLElement).click();
+
+		await expect.element(row(/^Catégorie, aucune colonne désignée/)).toBeInTheDocument();
+	});
+
+	it('still allows a REQUIRED role to take a held column, which is the displacement', async () => {
+		// The direction this is not moving in. A test asserting only the refusal would pass on an
+		// implementation that froze every held column, which would break the displacement entirely.
+		const { row, container } = mount({ initialAssignment: COMPLETE });
+
+		await row(/^Montant, colonne désignée/).click();
+		await page.getByRole('option', { name: /^Date operation\./ }).click();
+
+		expect(container.textContent).toContain('Reprise par Montant');
+	});
+});
+
+describe('the picker groups a column exactly once', () => {
+	it('pins the designated column above, and does not repeat it below', async () => {
+		// The rule that makes the common case one tap. A column in two groups is a second place to
+		// look for the same card, which is what the pinning exists to avoid.
+		const { row } = mount({ initialAssignment: COMPLETE });
+
+		await row(/^Date, colonne désignée/).click();
+
+		expect(page.getByRole('option', { name: /^Date operation\./ }).elements().length).toBe(1);
+	});
+
+	it('omits the proposal group AND its heading when there is no proposal', async () => {
+		// Separates "no proposals" from "proposals I cannot see". A heading over nothing is a
+		// promise the sheet cannot keep, and « Aucune proposition » would be a second empty state.
+		const { row, container } = mount();
+
+		await row(/^Date, aucune colonne désignée/).click();
+
+		expect(container.textContent).not.toContain('Proposée');
+		expect(container.textContent).not.toContain('Proposées');
+		expect(container.textContent).toContain('Toutes les colonnes');
+	});
+
+	it('shows the proposal group when there is one, so the absence above means something', async () => {
+		// The presence half. Without it, the assertion above passes on a picker that never renders
+		// a proposal group at all.
+		const { row, container } = mount({ candidates: { date: [1] } });
+
+		await row(/^Date, aucune colonne désignée/).click();
+
+		expect(container.textContent).toContain('Proposée · 1');
+	});
+});
+
+describe('closing the sheet: five ways, and only one of them changes a value', () => {
+	it('changes nothing and says nothing when closed with the cross', async () => {
+		// Separates an abandonment from a choice. A live update after a no-op close would tell the
+		// reader something changed when nothing did.
+		const { row, container, live } = mount();
+
+		await row(/^Date, aucune colonne désignée/).click();
+		await page.getByRole('button', { name: 'Fermer' }).click();
+
+		expect(container.textContent).toContain('Choisir une colonne');
+		expect(live().textContent?.trim()).toBe('');
+	});
+
+	it('changes nothing and says nothing when the already-designated card is chosen', async () => {
+		// Not an error, an abandonment. The value is the same before and after, so announcing a
+		// count would imply a change.
+		const { row, live } = mount({ initialAssignment: COMPLETE });
+
+		await row(/^Date, colonne désignée/).click();
+		await page.getByRole('option', { name: /^Date operation\./ }).click();
+
+		expect(live().textContent?.trim()).toBe('');
+	});
+});
+
+describe('the live region: one announcement per gesture, and it never pre-empts the focus return', () => {
+	it('speaks only AFTER the row has already been updated, never in the same flush', async () => {
+		// The order is normative and this is the only test of it, so it has to be able to fail.
+		//
+		// The first version could not. It read the live region synchronously after the click and
+		// asserted it was empty, which passed under the break that removes the delay entirely,
+		// because Svelte flushes on a microtask and the read ran before the flush. It was measuring
+		// the batching, not the ordering. Recorded because the green looked exactly like a pass.
+		//
+		// The fix is to WAIT for the row's own update first, with a polling assertion. Once the row
+		// carries its new accessible name the flush has happened, so a live region that is still
+		// empty at that moment is empty by design rather than by timing.
+		const { row, live } = mount({ announceDelayMs: 150 });
+
+		await row(/^Date, aucune colonne désignée/).click();
+		(
+			(await page.getByRole('option', { name: /^Date operation\./ }).element()) as HTMLElement
+		).click();
+
+		// State 1: the row is up to date. This is what focus returns to, and it must win.
+		await expect.element(row(/^Date, colonne désignée : Date operation/)).toBeInTheDocument();
+		expect(live().textContent?.trim()).toBe('');
+
+		// State 2: the summary follows, in a later task.
+		await vi.waitFor(() => expect(live().textContent?.trim()).not.toBe(''), { timeout: 2000 });
+	});
+
+	it('carries BOTH facts of a displacement in ONE update', async () => {
+		// A screen reader receiving two successive polite updates drops one, and the one it drops is
+		// the second: the unintended consequence, which is the half the user did not ask for. So the
+		// assertion is that a single string contains both, not that both were eventually said.
+		const { row, live } = mount({ initialAssignment: COMPLETE });
+
+		await row(/^Libellé, colonne désignée/).click();
+		await page.getByRole('option', { name: /^Date operation\./ }).click();
+
+		const spoken = live().textContent ?? '';
+		expect(spoken).toContain('Libellé : Date operation');
+		expect(spoken).toContain('Date à redésigner');
+		expect(spoken).toContain('2 sur 3');
+	});
+});
+
+describe('memorisation is on by default, in one sentence, with an opt-out', () => {
+	it('appears only once the three required columns are designated', async () => {
+		// Separates "not yet relevant" from "off". There is nothing to memorise until there is a
+		// correspondance, so the sentence is absent rather than present and disabled.
+		const { container } = mount();
+
+		expect(container.textContent).not.toContain('sera réutilisée');
+	});
+
+	it('states the reuse and offers a link to decline, with no toggle', async () => {
+		const { container } = mount({ initialAssignment: COMPLETE });
+
+		expect(container.textContent).toContain('sera réutilisée pour les prochains fichiers');
+		// No switch: the referential has none, and a switch would present a default as a decision
+		// the user must take before they can leave.
+		expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(0);
+	});
+
+	it('hands the caller remember: false after the opt-out is used', async () => {
+		// The assertion that the link is wired to the SUBMITTED value rather than only to the copy.
+		const onSubmit = vi.fn();
+		const { initialAssignment } = { initialAssignment: COMPLETE };
+		mount({ initialAssignment, onSubmit });
+
+		await page.getByRole('button', { name: 'Ne pas mémoriser' }).click();
+		await page.getByRole('button', { name: /Importer/ }).click();
+
+		expect(onSubmit).toHaveBeenCalledTimes(1);
+		expect(onSubmit.mock.calls[0][0].remember).toBe(false);
+		expect(onSubmit.mock.calls[0][0].assignment).toStrictEqual(COMPLETE);
+	});
+});
+
+describe('above 20 columns the picker gains a search field, and below it does not', () => {
+	const wide = (count: number) => {
+		const headers = Array.from({ length: count }, (_, index) => `Colonne ${index + 1}`);
+		return {
+			name: 'large.csv',
+			headers,
+			samples: headers.map(() => ['a', 'b', 'c']),
+			rowCount: 10,
+			hasHeaderRow: true
+		};
+	};
+
+	it('has no search field at exactly 20, which is the boundary', async () => {
+		// An off-by-one here is the difference between a sheet that scrolls for four screens and one
+		// that does not, so the boundary is tested AT the threshold and not merely below it.
+		const { row, container } = mount({ file: wide(20) });
+
+		await row(/^Date, aucune colonne désignée/).click();
+
+		expect(container.querySelector('[data-testid="column-search"]')).toBeNull();
+	});
+
+	it('has one at 21', async () => {
+		const { row, container } = mount({ file: wide(21) });
+
+		await row(/^Date, aucune colonne désignée/).click();
+
+		expect(container.querySelector('[data-testid="column-search"]')).not.toBeNull();
+	});
+
+	it('narrows the list and announces the count', async () => {
+		const { row, container } = mount({ file: wide(21) });
+
+		await row(/^Date, aucune colonne désignée/).click();
+		await userEvent.fill(page.getByRole('searchbox'), 'Colonne 1');
+
+		// COUNTED, not predicted: `Colonne 1` plus `Colonne 10` to `Colonne 19` is 11 of 21.
+		// `Colonne 21` does not match, because the substring is `Colonne 2` followed by `1`. The
+		// first draft of this comment said 12 and the run said 11; the run is right.
+		expect(container.textContent).toContain('11 colonnes');
+	});
+
+	it('offers a way out when the search matches nothing', async () => {
+		const { row, container } = mount({ file: wide(21) });
+
+		await row(/^Date, aucune colonne désignée/).click();
+		await userEvent.fill(page.getByRole('searchbox'), 'zzzz');
+
+		expect(container.querySelector('[data-testid="search-empty"]')).not.toBeNull();
+		expect(container.textContent).toContain('Aucune colonne ne correspond');
+	});
+});
