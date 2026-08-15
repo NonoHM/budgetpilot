@@ -141,6 +141,27 @@ A test written after the code has seen the implementation and takes its shape, d
 included. Breaking it is what compensates. **On a defect the order is fixed**: measure,
 write the test that reproduces the measurement, fix, break, check the measurement returns.
 
+### Every piece correct, the assembly not
+
+**No test written at the level of the thing being built can see this class**, which is why it
+gets its own check. Three instances, measured, each costing a session to find:
+
+- **#334**: the four role rows were triggers and the picker was their target. Component specs
+  asserted the four buttons EXIST; the picker had its own specs. Neither opened one, so at
+  1280 the rows opened nothing and every test was green.
+- **The occluded footer**: the action footer was measured and the page it lived on was not.
+  The bottom tab bar was painted straight over the primary for two days while the journey
+  passed, because Playwright clicks what a human cannot see.
+- **The unreachable récapitulatif**: a component state with three component specs and a
+  `readOnly` prop **no route ever set**. The plate's own answer to a wrong memorised mapping
+  was built, tested, and could not be opened from the running application.
+
+**The check, and it is cheap and mechanical: for any component state, prop or branch, name
+the route that produces it in the running application.** If no route does, it is not built, it
+is drafted, and specs covering it prove only that the draft is internally consistent.
+
+Nothing else catches it. A nine-PR plan could not, because no PR owned the seam.
+
 ## Distrusting the harness
 
 **The harness lies, and in the comfortable direction.** One that never reaches the code
