@@ -39,6 +39,43 @@
 	});
 
 	const importResult = $derived(form?.importResult ?? carriedImport?.importResult);
+
+	/**
+	 * The chosen statement, held ONCE for the two mounts of this form.
+	 *
+	 * This page renders its upload form twice, `hidden lg:block` and `lg:hidden`, and each mount
+	 * carried its own `<input type="file">`. Both are named `csvFile` but they sit in two separate
+	 * `<form>` elements, so only the submitted one is ever posted. Measured: choose a file at 1280,
+	 * resize to 390 without reloading, and the now-visible input reads `files.length` 0 while the
+	 * hidden one still holds the file. The label reverted to « Aucun fichier sélectionné », pressing
+	 * Import issued NO request, and the user was shown Chromium's own `valueMissing` bubble, in
+	 * English, on a French page.
+	 *
+	 * `FileDropZone` already exposes `files` as `$bindable`, and its own docstring records that this
+	 * page renders a parallel pair. Binding both mounts to one value is the whole fix: the two inputs
+	 * hold the same `FileList`, so whichever one is visible when the user submits carries the file.
+	 *
+	 * This is NOT the single-mount rewrite, which stays out of scope: `/import` is server rendered, so
+	 * gating the chromes on a media query would give every desktop visitor a mobile flash on first
+	 * paint. That is an architecture decision and it is filed rather than taken here.
+	 */
+	let csvFiles = $state<FileList | undefined>(undefined);
+
+	/**
+	 * And `required` came off both inputs, which is a separate decision from the binding above.
+	 *
+	 * A native `required` file input refuses in the BROWSER's language, not the page's, so a French
+	 * screen answered « Please select a file. » Worse, it refuses before any request is sent, so the
+	 * app never got to say anything of its own.
+	 *
+	 * ASVS 5.0 **V2.2.2** is the row, and it reads the right way round: input validation is enforced
+	 * at a trusted service layer, while client-side validation "improves usability and should be
+	 * encouraged" but is not the control. The control already exists and is unchanged: the action
+	 * refuses an absent or empty upload with `import_error_no_file`, in the page's own locale, and
+	 * `isSupportedImportFile` plus `IMPORT_MAX_BYTES` still answer **V5.2.2** and **V5.2.1** on the
+	 * server. Nothing that decides anything moved; a monolingual affordance was replaced by the
+	 * refusal the server was already able to give.
+	 */
 	const netWorthAccountOptions = $derived([
 		{ value: '', label: m.import_field_net_worth_account_placeholder() },
 		...data.linkableNetWorthAccounts.map((account) => ({ value: account.id, label: account.name }))
@@ -100,10 +137,11 @@
 		// Found by the e2e in `import-column-designation.spec.ts`, which is the only level that can
 		// see it: the defect is entirely about what survives a navigation.
 		event.preventDefault();
-		const input = (event.currentTarget as HTMLFormElement).querySelector(
-			'input[type="file"]'
-		) as HTMLInputElement | null;
-		const file = input?.files?.[0];
+		// Read from the SHARED binding rather than by querying the submitted form for its own input.
+		// The DOM query worked only because the submitted form happened to be the one the user chose
+		// in, which is the same per-mount coupling that lost the file across a resize. One value, read
+		// the same way whichever chrome is on screen.
+		const file = csvFiles?.[0];
 		if (!file || !designation) return;
 
 		setPendingDesignation({
@@ -122,6 +160,28 @@
 		});
 		await goto(resolve('/import/columns'));
 	}
+
+	/**
+	 * The memorisation the designation screen promised, and the server then refused.
+	 *
+	 * `/import/columns` displays « Cette correspondance sera réutilisée pour les prochains fichiers
+	 * ayant les mêmes colonnes » before the import, and `saveColumnMapping` refuses with
+	 * `cap-reached` once the user holds `COLUMN_MAPPINGS_PER_USER` of them. The refusal was computed,
+	 * returned by the action, carried across the navigation and typed on `CompletedImport` -- and
+	 * rendered by nothing. The user was left with a promise the mechanism had already declined to
+	 * keep, and the only symptom was that this bank kept reopening the designation screen forever.
+	 *
+	 * The design source states the rule this restores: before displaying a promise about future
+	 * behaviour, the mechanism behind it must be able to keep it in every state it will meet. Where
+	 * it cannot, the state where it fails is exactly the state where the user has no way to find out
+	 * why.
+	 *
+	 * The cap FIGURE is deliberately not in the sentence. It is read from the environment
+	 * (`COLUMN_MAPPINGS_PER_USER`), so a literal here would be wrong on any instance that moved it,
+	 * and there is nothing the user can do with the number until a remembered-correspondance list
+	 * exists to delete from (#326).
+	 */
+	const capReached = $derived(carriedImport?.capReached === true);
 
 	async function copyErrorReport() {
 		if (!errorReport || !navigator.clipboard) return;
@@ -196,10 +256,9 @@
 					name="csvFile"
 					accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 					label={m.import_file_label()}
-					required
+					bind:files={csvFiles}
 					chooseLabel={m.common_file_dropzone_choose()}
 					noFileLabel={m.common_file_dropzone_no_file()}
-					desktopInputClass="lg:rounded-md lg:border lg:border-zinc-300 lg:bg-white lg:p-2 lg:text-sm lg:focus:border-zinc-500 lg:focus:outline-none lg:focus:ring-2 lg:focus:ring-zinc-400"
 				/>
 
 				{#if data.hasAllImportBucketsExisting}
@@ -209,7 +268,7 @@
 				{:else if data.linkableNetWorthAccounts.length > 0}
 					<label class="block text-sm font-medium text-zinc-700">
 						{m.import_field_net_worth_account()}
-						<div class="mt-1.5">
+						<div class="mt-2">
 							<Combobox
 								name="netWorthAccountId"
 								bind:value={selectedNetWorthAccountId}
@@ -249,6 +308,14 @@
 				<Button type="submit">{m.import_submit()}</Button>
 			</form>
 		</div>
+
+		<!-- Above the summary, because it qualifies it: the counts below are true and the memorisation
+		     they were produced under did not happen. `warning` rather than `error`: nothing failed
+		     that the user asked for, the import landed, and only the convenience attached to it was
+		     declined. -->
+		{#if capReached}
+			<AlertBanner variant="warning">{m.import_columns_cap_reached()}</AlertBanner>
+		{/if}
 
 		{#if importResult}
 			<div class="rounded-lg border border-zinc-200 bg-white p-5">
@@ -415,7 +482,7 @@
 				name="csvFile"
 				accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 				label={m.import_file_label()}
-				required
+				bind:files={csvFiles}
 				chooseLabel={m.common_file_dropzone_choose()}
 				noFileLabel={m.common_file_dropzone_no_file()}
 			/>
@@ -427,7 +494,7 @@
 			{:else if data.linkableNetWorthAccounts.length > 0}
 				<label class="block text-sm font-medium text-zinc-700">
 					{m.import_field_net_worth_account()}
-					<div class="mt-1.5">
+					<div class="mt-2">
 						<Combobox
 							name="netWorthAccountId"
 							bind:value={selectedNetWorthAccountId}
@@ -467,6 +534,11 @@
 
 			<Button type="submit" class="h-11 w-full !rounded-xl">{m.import_submit()}</Button>
 		</form>
+
+		<!-- Same placement and same reason as the desktop chrome: it qualifies the counts below it. -->
+		{#if capReached}
+			<AlertBanner variant="warning">{m.import_columns_cap_reached()}</AlertBanner>
+		{/if}
 
 		{#if importResult}
 			<div class="{cardBase} p-5">

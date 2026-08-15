@@ -9,7 +9,7 @@
 		type DesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
-	import { bannerFor } from '$lib/domain/columnDesignationBanner';
+	import { bannerFor, fileMetaLine, submitLabel } from '$lib/domain/columnDesignationBanner';
 	import { roleLabel } from '$lib/domain/columnMappingLabels';
 	import ConditionBanner from '$lib/components/ui/ConditionBanner.svelte';
 	import RoleRow from '$lib/components/ui/RoleRow.svelte';
@@ -342,7 +342,7 @@
 	<div class="shrink-0" data-testid="designation-file-block">
 		<p class="h-[22px] truncate text-[15px] leading-[22px] font-semibold">{file.name}</p>
 		<p class="h-[18px] truncate text-[12.5px] leading-[18px] text-zinc-500">
-			{m.import_columns_file_meta({
+			{fileMetaLine({
 				columns: columnCount,
 				rows: file.rowCount,
 				headers: file.hasHeaderRow
@@ -526,7 +526,7 @@
 			{#if submitting}
 				{m.import_columns_submitting()}
 			{:else if importable}
-				{m.import_columns_submit({ rows: file.rowCount })}
+				{submitLabel(file.rowCount)}
 			{:else}
 				{m.import_columns_submit_blocked()}
 			{/if}
@@ -553,7 +553,7 @@
 				<h1 class="text-[22px] leading-7 font-bold">{heading}</h1>
 				<p class="mt-1 truncate text-[13px] text-zinc-500">
 					{file.name} ·
-					{m.import_columns_file_meta({
+					{fileMetaLine({
 						columns: columnCount,
 						rows: file.rowCount,
 						headers: file.hasHeaderRow

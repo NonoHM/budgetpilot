@@ -40,6 +40,73 @@ const MISSING_ROLE_LABELS: Record<'date' | 'label' | 'amount', () => string> = {
 	amount: m.import_columns_missing_amount
 };
 
+/**
+ * The repository's plural convention, applied in ONE place per sentence.
+ *
+ * `n > 1 ? many : one`, the same rule `categories/+page.svelte` selects with. No inlang selector or
+ * variant: no message in either catalogue uses one, and this is not the change that introduces the
+ * first. The comparison is `> 1` rather than `!== 1` because French takes the singular at zero too,
+ * and every sentence here that could reach zero omits itself instead (see `ignoredSentence`).
+ */
+function plural(
+	n: number,
+	one: (a: { count: number }) => string,
+	many: (a: { count: number }) => string
+): string {
+	return n > 1 ? many({ count: n }) : one({ count: n });
+}
+
+/**
+ * « Importer 132 lignes », the primary's own label.
+ *
+ * The fifth plural site, and the one found by LOOKING rather than by grepping: the four others were
+ * found by reading the catalogue, this one appeared in a verification screenshot of a one-row file
+ * reading « Importer 1 lignes ». A one-row statement is not exotic, and this label is the largest
+ * text on the screen.
+ */
+export function submitLabel(rows: number): string {
+	return plural(rows, m.import_columns_submit_one, m.import_columns_submit_many);
+}
+
+/**
+ * « 3 colonnes · 132 lignes · en-têtes détectés », composed once for both breakpoints.
+ *
+ * Lives here rather than in the screen for the reason the module comment gives: the screen renders
+ * what this returns and composes nothing itself. The screen prints this line TWICE, once in the
+ * 390 file block and once in the 1280 heading, and two ternaries would be two places that can be
+ * right about their own version of the plural.
+ */
+export function fileMetaLine(input: { columns: number; rows: number; headers: string }): string {
+	return m.import_columns_file_meta({
+		columns: plural(
+			input.columns,
+			m.import_columns_file_meta_columns_one,
+			m.import_columns_file_meta_columns_many
+		),
+		rows: plural(
+			input.rows,
+			m.import_columns_file_meta_rows_one,
+			m.import_columns_file_meta_rows_many
+		),
+		headers: input.headers
+	});
+}
+
+/**
+ * « 2 colonnes seront ignorées. », or NOTHING at zero.
+ *
+ * Zero is special and the emptiness is the point: « 0 colonnes seront ignorées » is the absence of
+ * information dressed as information, and a three-column file with all three required roles
+ * designated reaches it. Omitting the clause is also what keeps English correct at zero without a
+ * selector, since "0 column will be ignored" is what the singular branch would have produced.
+ */
+function ignoredSentence(ignored: number): string {
+	if (ignored === 0) return '';
+	return ignored > 1
+		? m.import_columns_banner_ignored_many({ ignored })
+		: m.import_columns_banner_ignored_one({ ignored });
+}
+
 export function missingRolesSentence(roles: readonly MappingRole[]): string {
 	const parts = roles
 		.filter((role): role is 'date' | 'label' | 'amount' => role in MISSING_ROLE_LABELS)
@@ -78,7 +145,11 @@ export function bannerFor(input: {
 
 	if (input.state === 'tooFewColumns') {
 		return {
-			label: m.import_columns_banner_too_few_label({ count: input.columnCount }),
+			label: plural(
+				input.columnCount,
+				m.import_columns_banner_too_few_label_one,
+				m.import_columns_banner_too_few_label_many
+			),
 			count: m.import_columns_banner_count({ n: 0 }),
 			consequence: m.import_columns_banner_too_few_consequence(),
 			complete: false
@@ -109,14 +180,22 @@ export function bannerFor(input: {
 
 	if (complete) {
 		const ignored = ignoredColumnCount(input.assignment, input.columnCount);
+		// Two sentences, joined by a space, and the second is absent at zero. The category clause
+		// carries no count and always speaks; the ignored clause carries the count and speaks only
+		// when there is something to report.
+		const category =
+			input.assignment.category !== null
+				? m.import_columns_banner_complete_with_category()
+				: m.import_columns_banner_complete_without_category();
+		const ignoredClause = ignoredSentence(ignored);
 		return {
 			label: m.import_columns_banner_complete_label(),
 			count: m.import_columns_banner_count({ n: designated }),
 			consequence: submitting
 				? m.import_columns_banner_submitting_consequence()
-				: input.assignment.category !== null
-					? m.import_columns_banner_complete_with_category({ ignored })
-					: m.import_columns_banner_complete_without_category({ ignored }),
+				: ignoredClause === ''
+					? category
+					: `${category} ${ignoredClause}`,
 			// The check glyph is BLACK. This is the state of a condition, not the result of an action.
 			complete: true
 		};
