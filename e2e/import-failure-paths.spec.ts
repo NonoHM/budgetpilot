@@ -149,3 +149,82 @@ test.describe('the designation screen answers when the import call fails', () =>
 		await expect(page.getByRole('button', { name: /^Montant, colonne désignée/ })).toBeVisible();
 	});
 });
+
+/**
+ * ## B4, the file lost between two mounts of one form
+ *
+ * `/import` renders its upload form twice and each mount carried its own `<input type="file">`.
+ * Both are named `csvFile`, but they sit in two separate `<form>` elements, so only the submitted
+ * one is ever posted. Measured before the fix: choose a file at 1280, resize to 390 without
+ * reloading, and the visible input read `files.length` 0 while the hidden one still held the file.
+ * Pressing Import issued NO request and showed Chromium's own `valueMissing` bubble, in English, on
+ * a French page.
+ *
+ * The assertion is therefore that the SERVER answered. Anything the server produced proves a
+ * request was made, which is the thing that did not happen.
+ */
+test.describe('the chosen statement survives a change of width', () => {
+	test('a file picked at 1280 is still submitted after a resize to 390', async ({
+		page
+	}, testInfo) => {
+		await page.setViewportSize({ width: 1280, height: 800 });
+		await page.goto('/import');
+		await visibleForm(page)
+			.locator('input[name="csvFile"]')
+			.setInputFiles(csvFile(testInfo.retry, 'Z'));
+
+		await page.setViewportSize({ width: 390, height: 844 });
+
+		const form = visibleForm(page);
+		// The label is read before submitting, because it is what the USER sees and it is what was
+		// wrong: it reverted to « Aucun fichier sélectionné » over an input that held nothing.
+		await expect(form.getByText(m.common_file_dropzone_no_file())).not.toBeVisible();
+
+		await form.getByRole('button', { name: m.import_submit() }).click();
+		await expect(form.getByText(m.import_columns_offer_explanation())).toBeVisible({
+			timeout: 15_000
+		});
+	});
+
+	test('a file picked at 390 is still submitted after a resize to 1280', async ({
+		page
+	}, testInfo) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto('/import');
+		await visibleForm(page)
+			.locator('input[name="csvFile"]')
+			.setInputFiles(csvFile(testInfo.retry, 'W'));
+
+		await page.setViewportSize({ width: 1280, height: 800 });
+
+		const form = visibleForm(page);
+		await form.getByRole('button', { name: m.import_submit() }).click();
+		await expect(form.getByText(m.import_columns_offer_explanation())).toBeVisible({
+			timeout: 15_000
+		});
+	});
+
+	/**
+	 * THE DIRECTION THIS CHANGE IS NOT MOVING IN.
+	 *
+	 * `required` came off both inputs, so the browser no longer refuses an empty submit before a
+	 * request is sent. The loss would be that an empty submit stops being refused AT ALL, and this
+	 * is the test that would catch it.
+	 *
+	 * ASVS 5.0 **V2.2.2**: validation is enforced at a trusted service layer, and client-side
+	 * validation "improves usability and should be encouraged" without being the control. The
+	 * control is `/import`'s own action, which refuses an absent or empty upload, and it answers in
+	 * the page's language rather than the browser's -- which is the user-visible half of this fix.
+	 */
+	test('submitting with no file is refused by the application, in its own language', async ({
+		page
+	}) => {
+		await page.setViewportSize({ width: 390, height: 844 });
+		await page.goto('/import');
+
+		const form = visibleForm(page);
+		await form.getByRole('button', { name: m.import_submit() }).click();
+
+		await expect(onScreen(page, m.import_error_no_file())).toBeVisible({ timeout: 15_000 });
+	});
+});
