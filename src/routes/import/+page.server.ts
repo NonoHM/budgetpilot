@@ -11,6 +11,7 @@ import {
 } from '$lib/server/import/csv';
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
+import { designationAssignment } from '$lib/server/import/mapping/recap';
 import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
 import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
 import {
@@ -39,8 +40,18 @@ const CSV_ACCOUNT_NAME = 'Compte import CSV';
  */
 const CSV_IMPORT_SOURCES = ['csv', 'revolut', 'banque_populaire'] as const;
 
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
+	// `?correct=<id>` arrives from « Modifier les colonnes » on the recap. Resolved against THIS
+	// user's mappings before it is echoed into the form: an id from the address bar decides which
+	// correspondance the next upload reopens, so it is verified rather than carried.
+	const correctParam = url.searchParams.get('correct');
+	const correcting = correctParam
+		? await prisma.columnMapping.findFirst({
+				where: { id: correctParam, userId: user.id },
+				select: { id: true }
+			})
+		: null;
 	const [linkableNetWorthAccounts, existingImportBuckets] = await Promise.all([
 		readLinkableNetWorthAccounts(user.id),
 		prisma.account.findMany({
@@ -51,6 +62,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const existingImportSources = existingImportBuckets.map((account) => account.source);
 
 	return {
+		correctMappingId: correcting?.id ?? null,
 		linkableNetWorthAccounts,
 		// The destination-account selector only has an effect the very first time a given
 		// profile's bucket is created (see the `update: {}` no-op below). Since the exact
@@ -122,6 +134,43 @@ export const actions: Actions = {
 		const remembered =
 			headerCells.length === 0 ? null : await readColumnMapping(user.id, headerCells);
 		const verdict = remembered ? applyColumnMapping(remembered, headerCells) : null;
+
+		/**
+		 * The correction path: this upload exists to REOPEN a memorised correspondance, not to import.
+		 *
+		 * Reached from « Modifier les colonnes » on the §3.7 recap. The file is asked for again
+		 * because nothing kept it (owner ruling 2), and the screen it reopens is the plate's state 2
+		 * « désignations intactes »: the user came to change one row, so the other three arrive
+		 * already designated.
+		 *
+		 * The decision is made BEFORE the parse, and deliberately. Letting the file parse first would
+		 * import it through the very mapping the user has just told us is wrong, and the correction
+		 * would arrive one bad import too late. The posted id is resolved against this user's own
+		 * mappings, never trusted as an id.
+		 */
+		const correctMappingId = formData.get('correctMappingId');
+		const correcting =
+			typeof correctMappingId === 'string' && correctMappingId.length > 0
+				? await prisma.columnMapping.findFirst({
+						where: { id: correctMappingId, userId: user.id }
+					})
+				: null;
+		if (correcting) {
+			return fail(400, {
+				designation: {
+					name: importFile.name,
+					headers: headerCells,
+					samples: importSampleValues(importData.rows),
+					coverage: importSampleCoverage(importData.rows),
+					firstRow: importFirstDataRow(importData.rows),
+					rowCount: Math.max(0, importData.rows.length - 1),
+					hasHeaderRow: true
+				},
+				// Null per role where the remembered column is not in this file. A neighbour picked by
+				// proximity would put the money column somewhere plausible and silent.
+				correctingAssignment: designationAssignment(correcting, headerCells)
+			});
+		}
 
 		// Only `recognised` parses through the mapping. `partial` and `lost` are the plate's states
 		// 3b and 3c, which belong to the designation screen: until it exists they fall through to
@@ -221,7 +270,10 @@ export const actions: Actions = {
 			profile: result.summary.profile,
 			rowCount: result.summary.totalRows,
 			invalidRows: result.summary.invalidRows,
-			period: result.summary.period
+			period: result.summary.period,
+			// Only when the mapping actually read this file. `useMapping` is the same condition the
+			// parser was given, so the link cannot claim a correspondance a different profile parsed.
+			columnMappingId: useMapping ? (remembered?.id ?? null) : null
 		});
 
 		const persisted = await persistImportedTransactions({

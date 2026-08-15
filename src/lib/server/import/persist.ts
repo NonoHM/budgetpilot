@@ -186,6 +186,14 @@ export interface CreateImportBatchInput {
 	invalidRows: number;
 	/** ISO dates (YYYY-MM-DD) or null when the batch has no valid dated row. */
 	period: { from: string | null; to: string | null };
+	/**
+	 * The correspondance this batch was read through, when there was one.
+	 *
+	 * What makes a memorised mapping reachable from `/imports` afterwards. Both mapped paths pass
+	 * it: the run that designates and every later run that is recognised. Null everywhere else,
+	 * which is the five auto-detected profiles and every batch imported before the mapping path.
+	 */
+	columnMappingId?: string | null;
 }
 
 /** Creates the ImportBatch row a persistence run reports into; returns its id. */
@@ -198,6 +206,7 @@ export async function createImportBatch(input: CreateImportBatchInput): Promise<
 			profile: input.profile,
 			rowCount: input.rowCount,
 			invalidRows: input.invalidRows,
+			columnMappingId: input.columnMappingId ?? null,
 			periodStart: input.period.from ? new Date(`${input.period.from}T00:00:00.000Z`) : null,
 			periodEnd: input.period.to ? new Date(`${input.period.to}T00:00:00.000Z`) : null
 		}

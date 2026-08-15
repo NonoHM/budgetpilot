@@ -556,25 +556,36 @@ model Transaction {
 }
 
 model ImportBatch {
-  id            String        @id @default(cuid())
-  userId        String
-  source        String        @default("csv")
-  fileName      String? @db.Text
-  profile       String        @default("generic")
-  rowCount      Int
-  importedRows  Int           @default(0)
-  duplicateRows Int           @default(0)
-  invalidRows   Int           @default(0)
-  periodStart   DateTime?
-  periodEnd     DateTime?
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  transactions  Transaction[]
+  id              String         @id @default(cuid())
+  userId          String
+  source          String         @default("csv")
+  fileName        String? @db.Text
+  profile         String         @default("generic")
+  rowCount        Int
+  importedRows    Int            @default(0)
+  duplicateRows   Int            @default(0)
+  invalidRows     Int            @default(0)
+  periodStart     DateTime?
+  periodEnd       DateTime?
+  /// The correspondance this batch was read through, when the user designated the columns rather
+  /// than a profile recognising them. Nullable and it always will be: the five auto-detected
+  /// profiles read a file without one, and batches predating the mapping path have none.
+  ///
+  /// This is what makes a memorised mapping REACHABLE. Without the link, `/imports` can say a
+  /// batch was `mapped` and cannot say which of a user's mappings mapped it, so the recap that
+  /// corrects a wrong designation has nothing to open. `SetNull` rather than `Cascade`: forgetting
+  /// a correspondance must not delete the transactions that were imported through it.
+  columnMappingId String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  columnMapping   ColumnMapping? @relation(fields: [columnMappingId], references: [id], onDelete: SetNull)
+  transactions    Transaction[]
 
   @@index([userId])
   @@index([source])
   @@index([userId, createdAt])
+  @@index([columnMappingId])
 }
 
 /// One user's answer to "which column of this file holds what", remembered by the shape of the
@@ -629,13 +640,13 @@ model ImportBatch {
 /// nobody watching. The clause's own defence does not survive either: a file with only one text
 /// column has a label, not a category, so designating it as both categorises nothing.
 model ColumnMapping {
-  id             String   @id @default(cuid())
+  id             String        @id @default(cuid())
   userId         String
   /// Full 64 character SHA-256 digest, never truncated. See fingerprint.ts for why.
   fingerprint    String
   /// "name" or "position". Decides both how roles resolve and how `fingerprint` was canonicalised,
   /// which is why the two spaces are domain-separated rather than sharing one digest.
-  matchBy        String   @default("name")
+  matchBy        String        @default("name")
   /// Populated when matchBy is "name", null when it is "position". Bounded and sanitised at the
   /// boundary by `boundedColumnName`: these are cells from a user's file, they are rendered, and
   /// `sanitizeImportedText` puts no length bound of its own.
@@ -654,11 +665,14 @@ model ColumnMapping {
   /// How many imports have used this mapping. Rendered in the recap sentence that reports when a
   /// mapping was remembered and how often it has been used since. Not a metric: it is what lets a
   /// user who has never seen the designation screen understand what happened to their file.
-  useCount       Int      @default(0)
+  useCount       Int           @default(0)
   lastUsedAt     DateTime?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// The imports read through this correspondance. Read from `/imports`, never the other way, and
+  /// it carries no authorization of its own: every query still names `userId`.
+  importBatches  ImportBatch[]
 
   /// COMPOSITE, and the precise claim matters because a looser one would mislead. The
   /// authorization is `userId` appearing in every where clause; this constraint does not enforce

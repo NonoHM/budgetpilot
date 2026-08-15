@@ -221,7 +221,18 @@
 	<div class="flex h-11 items-center gap-2 text-[13px]">
 		<span class="w-[74px] shrink-0 font-semibold text-zinc-900">{name}</span>
 		<span class="min-w-0 flex-1 overflow-hidden overflow-ellipsis whitespace-nowrap text-zinc-600">
-			{designatedName} · {sampleValue}
+			{#if columnIndex === undefined}
+				<!--
+					A role that holds NO column, in a read only recap. `designatedName` falls back to
+					`Colonne N` when there is no header, which is right for a designated column with an
+					unreadable one and a lie here: it would tell the user their categories were read from
+					column 1 of a file that never had a category column. Catégorie says so in its own
+					words; a required role with no column says nothing rather than something false.
+				-->
+				{role === 'category' ? m.import_columns_row_category_empty() : ''}
+			{:else}
+				{designatedName} · {sampleValue}
+			{/if}
 		</span>
 	</div>
 {:else}

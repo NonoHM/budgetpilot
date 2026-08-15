@@ -24,7 +24,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			periodStart: true,
 			periodEnd: true,
 			createdAt: true,
-			_count: { select: { transactions: true } }
+			_count: { select: { transactions: true } },
+			// The correspondance this batch was read through, for the plate's §3.7 block. Reached
+			// through the batch's own relation, so the `userId` on the outer where clause is what
+			// scopes it: a mapping is never looked up by fingerprint here, and the fingerprint is
+			// exactly the key that would read another customer of the same bank.
+			columnMapping: {
+				select: { id: true, createdAt: true, useCount: true }
+			}
 		}
 	});
 
@@ -42,7 +49,17 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			periodStart: batch.periodStart?.toISOString().slice(0, 10) ?? null,
 			periodEnd: batch.periodEnd?.toISOString().slice(0, 10) ?? null,
 			createdAt: batch.createdAt.toISOString(),
-			transactionCount: batch._count.transactions
+			transactionCount: batch._count.transactions,
+			columnMapping: batch.columnMapping
+				? {
+						id: batch.columnMapping.id,
+						memorisedAt: batch.columnMapping.createdAt.toISOString(),
+						// `useCount` is incremented only by imports that actually produced transactions,
+						// so this is how often the correspondance WORKED rather than how often it was
+						// consulted. The designating run is one of them.
+						useCount: batch.columnMapping.useCount
+					}
+				: null
 		}))
 	};
 };

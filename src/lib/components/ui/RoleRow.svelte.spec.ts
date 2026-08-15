@@ -76,12 +76,26 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 		const { row } = mount({
 			state: 'recap',
 			columnHeader: 'Date operation',
+			// Passed because the real caller always passes it: `columnIndex` is what says a role HOLDS
+			// a column, and it is the only thing that says so when the header is unreadable.
+			columnIndex: 0,
 			sampleValue: '24/06/2026'
 		});
 
 		expect(row.getBoundingClientRect().height).toBe(44);
 		expect(row.textContent).toContain('Date operation');
 		expect(row.textContent).toContain('24/06/2026');
+	});
+
+	it('names no column in a recapitulatif when the role holds none', () => {
+		// `Colonne N` is the right fallback for a designated column with an unreadable header and a
+		// LIE for a role that was never designated: it would tell a user reading their memorised
+		// correspondance that their categories came from column 1 of a file that had no category
+		// column. Catégorie says so in its own words.
+		const { row } = mount({ state: 'recap', role: 'category' });
+
+		expect(row.textContent).not.toContain('Colonne 1');
+		expect(row.textContent).toContain('Aucune');
 	});
 });
 

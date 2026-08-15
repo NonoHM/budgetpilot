@@ -32,7 +32,63 @@
 			? m.imports_cancel_confirm_description_count_many({ count: importedRows })
 			: m.imports_cancel_confirm_description_count_one({ count: importedRows });
 	}
+
+	/**
+	 * « Correspondance mémorisée le 12 juillet, utilisée 4 fois. »
+	 *
+	 * The plate writes the date as day and month with no year, and that is a choice rather than an
+	 * omission: the sentence exists to let a user place the memorisation against their own memory of
+	 * using the application, not to date a record.
+	 */
+	function memorisedSentence(mapping: { memorisedAt: string; useCount: number }): string {
+		const date = new Date(mapping.memorisedAt).toLocaleDateString(getLocale(), {
+			day: 'numeric',
+			month: 'long'
+		});
+		return mapping.useCount === 1
+			? m.import_columns_memorised_one({ date, count: mapping.useCount })
+			: m.import_columns_memorised_many({ date, count: mapping.useCount });
+	}
 </script>
+
+<!--
+	The plate's §3.7 block: a check glyph, `Colonnes reconnues`, the memorisation sentence, and a
+	TapLink that opens the recap. Drawn under the file, in both chromes.
+
+	It is the ONLY thing standing between a wrong designation and a permanent one. A correspondance
+	that named the wrong column imports every row of every file with nothing invalid, so no count is
+	wrong and no banner appears; without this the user has no route back to the four rows at all, and
+	the mistake repeats unattended on every statement of that shape.
+
+	The check glyph is BLACK, not green (§8): it is the state of a condition, not the result of an
+	action, and this screen carries no tinted surface.
+-->
+{#snippet recognisedColumns(batchId: string, mapping: { memorisedAt: string; useCount: number })}
+	<div class="flex items-start gap-2">
+		<svg
+			class="mt-0.5 h-[15px] w-[15px] shrink-0 text-zinc-900"
+			viewBox="0 0 20 20"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="1.8"
+			stroke-linecap="round"
+			stroke-linejoin="round"
+			aria-hidden="true"
+		>
+			<path d="M4 10.5 8 14.5 16 6" />
+		</svg>
+		<div class="min-w-0">
+			<p class="text-[13.5px] font-semibold text-zinc-900">{m.import_columns_recognised()}</p>
+			<p class="text-[12.5px] text-zinc-500">{memorisedSentence(mapping)}</p>
+			<a
+				href={resolve('/imports/[batchId]/columns', { batchId })}
+				class="flex min-h-[44px] items-center text-[13.5px] font-semibold text-zinc-600 hover:text-zinc-900"
+			>
+				{m.import_columns_view()}
+			</a>
+		</div>
+	</div>
+{/snippet}
 
 <svelte:head>
 	<title>{m.imports_page_title()}</title>
@@ -122,9 +178,14 @@
 									<td class="px-4 py-3 text-zinc-600" title={batch.createdAt}>
 										{formatDate(batch.createdAt)}
 									</td>
-									<td class="px-4 py-3 font-medium"
-										>{batch.fileName ?? m.imports_default_file_name()}</td
-									>
+									<td class="px-4 py-3 font-medium">
+										{batch.fileName ?? m.imports_default_file_name()}
+										{#if batch.columnMapping}
+											<div class="mt-1 font-normal">
+												{@render recognisedColumns(batch.id, batch.columnMapping)}
+											</div>
+										{/if}
+									</td>
 									<td class="px-4 py-3 text-zinc-700">{batch.profile}</td>
 									<td class="px-4 py-3 text-zinc-500">
 										{batch.periodStart ? formatDateOnly(batch.periodStart) : 'n/a'} –
@@ -240,6 +301,11 @@
 									></span
 								>
 							</p>
+							{#if batch.columnMapping}
+								<div class="mt-3 border-t border-zinc-100 pt-3">
+									{@render recognisedColumns(batch.id, batch.columnMapping)}
+								</div>
+							{/if}
 							<div class="mt-3 border-t border-zinc-100 pt-3">
 								<a
 									href={resolve(
