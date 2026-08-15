@@ -410,6 +410,32 @@ currently backed by anything. Tracked in #158.
 
 ## UI/UX conventions
 
+### The acceptance criterion for a screen is a journey completed
+
+**A PR shipping a screen proves the screen does what it promises, before it measures
+anything else.** Geometry, accessibility and states are properties of something that
+works. They are adverbs, and a PR that asserts them without asserting the verb has
+described how well a thing behaves without establishing that it behaves at all.
+
+So the first assertion in a screen's PR is a journey: arrive, do the thing the screen
+exists for, and observe the outcome elsewhere in the application. The pixel figures come
+after, and they are worth exactly as much as the journey they are measured on.
+
+Measured: a merged PR shipped a 1280 layout with its frame, content box, command column,
+card, row heights and card radius all asserted absolutely, and **the screen could not be
+used at that width at all**. The four role rows were buttons that opened nothing. Three
+levels of component test covered them and every one was correct; none opened one.
+
+**Corollary, and it is what would have caught that one: a PR deliberately shipping a
+half states what does NOT WORK, not only what is absent.** That PR was titled "without the
+preview table" and its acceptance named the command column's geometry. "Without the
+preview table" describes a missing component and reads as a scope decision; what it
+actually hid was a dead screen. The sentence owed was "the designation flow does not work
+at this width", which nobody would have merged.
+
+Ask of any deliberate half: not "what did I leave out" but **"what can a user not do
+here that they can do elsewhere"**.
+
 - Sober black/white/zinc theme. **Color is encoding only, never
   decoration**: one category maps to one constant color, and there's no
   decorative teal/green just for visual variety.

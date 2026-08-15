@@ -52,6 +52,7 @@
 	 */
 	let {
 		open = false,
+		variant = 'sheet',
 		role,
 		file,
 		assignment,
@@ -62,6 +63,18 @@
 		onToggleHeaderRow
 	}: {
 		open?: boolean;
+		/**
+		 * Which shell the SAME listbox is presented in.
+		 *
+		 * `sheet` at 390 and `anchored` at 1280, following `PeriodFilter` and `TagPicker`, which
+		 * already ship this exact split: `BottomSheet` below the breakpoint, an `absolute top-full`
+		 * popover above it, one trigger, one chevron.
+		 *
+		 * The body is identical in both, rendered from one snippet, so the group order, the
+		 * markers, the search threshold and the ARIA pattern cannot differ by width. Only the box
+		 * around it changes.
+		 */
+		variant?: 'sheet' | 'anchored';
 		role: MappingRole;
 		file: DesignationFile;
 		assignment: RoleAssignment;
@@ -78,6 +91,29 @@
 	} = $props();
 
 	let query = $state('');
+	let panelEl = $state<HTMLElement | null>(null);
+	let panelMaxHeight = $state<number | null>(null);
+
+	/**
+	 * Measured FROM THE PANEL'S OWN TOP, never as a viewport fraction.
+	 *
+	 * A size in viewport units is not a constraint on an element that starts partway down the page:
+	 * this repository has measured `max-h-[70vh]` on a panel anchored 290 px into a 900 px viewport
+	 * putting its primary action at y=960. The panel begins under a row that is itself partway down
+	 * a command column, so the only figure that bounds it is the room actually left below it.
+	 *
+	 * The 240 floor keeps it usable rather than collapsing to a sliver when the row sits low; below
+	 * that, scrolling inside the panel is the better failure. Same shape as `PeriodFilter`'s.
+	 */
+	$effect(() => {
+		if (!open || variant !== 'anchored') {
+			panelMaxHeight = null;
+			return;
+		}
+		const box = panelEl?.getBoundingClientRect();
+		if (!box) return;
+		panelMaxHeight = Math.max(240, Math.round(window.innerHeight - box.top - 16));
+	});
 
 	const TITLES: Record<MappingRole, () => string> = {
 		date: m.import_columns_picker_title_date,
@@ -136,28 +172,7 @@
 	}
 </script>
 
-<BottomSheet {open} ariaLabel={title} onClose={() => onClose?.()} initialFocus="panel">
-	{#snippet header()}
-		<div class="flex items-start justify-between gap-2 px-4 pb-3.5">
-			<div class="min-w-0">
-				<h2 class="text-[17px] leading-[22px] font-bold text-zinc-900">{title}</h2>
-				<p class="text-[12.5px] leading-[18px] text-zinc-500">
-					{m.import_columns_picker_subtitle({ columns: columnCount })}
-				</p>
-			</div>
-			<IconButton label={m.import_columns_picker_close()} onclick={() => onClose?.()}>
-				<svg viewBox="0 0 20 20" class="h-5 w-5" fill="none" aria-hidden="true">
-					<path
-						d="M5 5l10 10M15 5L5 15"
-						stroke="currentColor"
-						stroke-width="1.8"
-						stroke-linecap="round"
-					/>
-				</svg>
-			</IconButton>
-		</div>
-	{/snippet}
-
+{#snippet pickerBody()}
 	{#if searchable}
 		<!--
 			Pinned OUTSIDE the scrolling list, and the only keyboard in the whole flow. The result
@@ -235,4 +250,72 @@
 		<!-- The white fade and home indicator area under the last card. -->
 		<div class="h-14 shrink-0" aria-hidden="true"></div>
 	</div>
-</BottomSheet>
+{/snippet}
+
+{#if variant === 'anchored'}
+	<!--
+		1280. The SAME listbox, anchored under the row that opened it, following `PeriodFilter` and
+		`TagPicker`, which already ship this split. That is also why the trigger keeps its chevron:
+		every disclosure trigger in this application pairs a down chevron with an anchored panel, and
+		the glyph would have become a false claim only if the panel had stopped opening below the row.
+
+		`role="dialog"` with a label, so the panel is announced as a thing that opened; the listbox
+		inside keeps its own role, which is what a menu shell could not have offered.
+	-->
+	{#if open}
+		<div
+			bind:this={panelEl}
+			role="dialog"
+			tabindex={-1}
+			aria-label={title}
+			style:max-height={panelMaxHeight === null ? undefined : `${panelMaxHeight}px`}
+			class="absolute top-full right-0 left-0 z-20 mt-1 overflow-y-auto rounded-lg border border-zinc-200 bg-white p-3 shadow-lg"
+			data-testid="column-picker-panel"
+		>
+			<div class="flex items-start justify-between gap-2 pb-3">
+				<div class="min-w-0">
+					<h2 class="text-[15px] leading-5 font-bold text-zinc-900">{title}</h2>
+					<p class="text-[12.5px] leading-[18px] text-zinc-500">
+						{m.import_columns_picker_subtitle({ columns: columnCount })}
+					</p>
+				</div>
+				<IconButton label={m.import_columns_picker_close()} onclick={() => onClose?.()}>
+					<svg viewBox="0 0 20 20" class="h-5 w-5" fill="none" aria-hidden="true">
+						<path
+							d="M5 5l10 10M15 5L5 15"
+							stroke="currentColor"
+							stroke-width="1.8"
+							stroke-linecap="round"
+						/>
+					</svg>
+				</IconButton>
+			</div>
+			{@render pickerBody()}
+		</div>
+	{/if}
+{:else}
+	<BottomSheet {open} ariaLabel={title} onClose={() => onClose?.()} initialFocus="panel">
+		{#snippet header()}
+			<div class="flex items-start justify-between gap-2 px-4 pb-3.5">
+				<div class="min-w-0">
+					<h2 class="text-[17px] leading-[22px] font-bold text-zinc-900">{title}</h2>
+					<p class="text-[12.5px] leading-[18px] text-zinc-500">
+						{m.import_columns_picker_subtitle({ columns: columnCount })}
+					</p>
+				</div>
+				<IconButton label={m.import_columns_picker_close()} onclick={() => onClose?.()}>
+					<svg viewBox="0 0 20 20" class="h-5 w-5" fill="none" aria-hidden="true">
+						<path
+							d="M5 5l10 10M15 5L5 15"
+							stroke="currentColor"
+							stroke-width="1.8"
+							stroke-linecap="round"
+						/>
+					</svg>
+				</IconButton>
+			</div>
+		{/snippet}
+
+		{@render pickerBody()}
+	</BottomSheet>
+{/if}
