@@ -11,6 +11,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
 	import { goto } from '$app/navigation';
+	import { enhance } from '$app/forms';
 	import { EMPTY_ASSIGNMENT, type DesignationFile } from '$lib/domain/columnDesignation';
 	import { setPendingDesignation } from '$lib/import/pendingDesignation.svelte';
 
@@ -57,6 +58,14 @@
 	 * reads them back: the submit re-posts the file and re-derives its own header list.
 	 */
 	async function designateColumns(event: SubmitEvent) {
+		// **The form is `use:enhance`d and that is what makes this reachable at all.** Without it the
+		// refusal arrives through a full page POST, the document is replaced, and the `<input
+		// type="file">` the user chose comes back EMPTY. The offer button would then read no file and
+		// do nothing at all: a button that looks correct, is correct in every unit and component
+		// test, and cannot work in a browser.
+		//
+		// Found by the e2e in `import-column-designation.spec.ts`, which is the only level that can
+		// see it: the defect is entirely about what survives a navigation.
 		event.preventDefault();
 		const input = (event.currentTarget as HTMLFormElement).querySelector(
 			'input[type="file"]'
@@ -109,6 +118,7 @@
 				class="mt-6 grid gap-4"
 				method="POST"
 				enctype="multipart/form-data"
+				use:enhance
 				onsubmit={designation ? designateColumns : undefined}
 			>
 				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
@@ -313,6 +323,7 @@
 			class="grid gap-4"
 			method="POST"
 			enctype="multipart/form-data"
+			use:enhance
 			onsubmit={designation ? designateColumns : undefined}
 		>
 			<FileDropZone
