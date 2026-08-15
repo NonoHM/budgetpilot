@@ -96,6 +96,13 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			});
 		case 'amount-sign-in-separate-column':
 			return m.import_refusal_amount_sign_in_separate_column({ column: fact.column });
+		case 'mapping-columns-missing':
+			return m.import_refusal_mapping_columns_missing({ roles: fact.roles });
+		case 'mapping-invalid':
+			// `fact.reason` is deliberately not rendered: the user cannot act on
+			// `roles-share-a-column`, and the sentence tells them what they CAN do. The payload
+			// stays on the fact for the designation screen to use.
+			return m.import_refusal_mapping_invalid();
 		case 'invalid-date':
 			return m.import_refusal_invalid_date();
 		case 'invalid-amount':

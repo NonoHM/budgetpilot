@@ -87,6 +87,62 @@ describe('fingerprintFor, position matching', () => {
 	});
 });
 
+describe('the canonical encoding is injective, whatever the cells contain', () => {
+	// A separator CHARACTER can appear inside a header cell, and then two genuinely different
+	// files encode to the same string. The fix is to need no reserved character at all rather
+	// than to pick a rarer one: every candidate separator is a bet about what a file will never
+	// contain, and a length prefix is not a bet.
+	it('separates two files whose cells differ only in where a space falls', () => {
+		const split = ['date operation', 'montant'];
+		const joined = ['date', 'operation montant'];
+
+		expect(fingerprintFor(split, 'position')).not.toBe(fingerprintFor(joined, 'position'));
+		expect(fingerprintFor(split, 'name')).not.toBe(fingerprintFor(joined, 'name'));
+	});
+
+	it('separates a cell that CONTAINS the separator from the two cells it imitates', () => {
+		// The measurement that decided the encoding. The first shipped version separated the cells
+		// with a literal NUL byte, and a header cell may contain one, so these two files produced
+		// the IDENTICAL digest:
+		//
+		//   ['a\u0000b']  and  ['a', 'b']
+		//
+		// A length prefix has no reserved character, so there is nothing for a cell to imitate.
+		// Written as an escape rather than as the byte itself: a literal NUL in a source file makes
+		// that file invisible to every text search, which is how this defect shipped in the first
+		// place. See the comment in fingerprint.ts.
+		const imitator = ['a\u0000b'];
+		const genuine = ['a', 'b'];
+
+		expect(fingerprintFor(imitator, 'position')).not.toBe(fingerprintFor(genuine, 'position'));
+		expect(fingerprintFor(imitator, 'name')).not.toBe(fingerprintFor(genuine, 'name'));
+	});
+
+	it('separates cells that contain the length prefix delimiter itself', () => {
+		// The encoding reads a length and then that many characters, so a colon inside a cell is
+		// data rather than a delimiter. Asserted because a length prefix is only injective if the
+		// length is read first, and a reader who "improves" it into a delimiter split breaks that.
+		expect(fingerprintFor(['a', 'b'], 'position')).not.toBe(fingerprintFor(['a1:b'], 'position'));
+		expect(fingerprintFor(['1:a'], 'position')).not.toBe(fingerprintFor(['a'], 'position'));
+	});
+
+	it('separates a file with an empty cell from one with fewer columns', () => {
+		// The degenerate case a separator handles by accident and a length prefix handles by
+		// construction. Three columns one of which is empty is not two columns.
+		expect(fingerprintFor(['date', '', 'montant'], 'position')).not.toBe(
+			fingerprintFor(['date', 'montant'], 'position')
+		);
+	});
+
+	it('still collides for the cells that genuinely ARE the same shape', () => {
+		// The presence half, and it is what stops the fix from being "hash something unique". A
+		// name fingerprint that separated everything would never recognise a bank twice.
+		expect(fingerprintFor(['Date', 'Montant'], 'name')).toBe(
+			fingerprintFor(['  montant ', 'DATE'], 'name')
+		);
+	});
+});
+
 describe('the digest itself', () => {
 	it('is a full 64 character hex digest, never truncated', () => {
 		// #316 shows twelve hex characters in a measurement. That is a display. Truncating the
