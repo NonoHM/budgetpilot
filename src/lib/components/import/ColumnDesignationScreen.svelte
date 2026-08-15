@@ -88,6 +88,7 @@
 		signatureLostDate = null,
 		announceDelayMs = 150,
 		readOnly = false,
+		wide = false,
 		onCancel,
 		onSubmit
 	}: {
@@ -130,6 +131,19 @@
 		 * detail that matters, and nothing would go red.
 		 */
 		readOnly?: boolean;
+		/**
+		 * The 1280 layout: a 400 px command column beside the room the preview table will occupy.
+		 *
+		 * ONE control surface, two chromes. Everything that decides anything is shared through snippets,
+		 * so the rows, the states, the picker, the announcements and the memorisation cannot differ by
+		 * breakpoint. What changes is the card's radius (8 rather than 24, referential rule 5), the row
+		 * height (56 rather than 68) and where the banner and actions live.
+		 *
+		 * A prop rather than a media query, for the same reason `RoleRow` takes `compact`: both heights
+		 * are asserted absolutely, and a breakpoint-driven layout cannot be measured without also
+		 * driving the viewport, which turns every figure into a fact about the test runner.
+		 */
+		wide?: boolean;
 		onCancel?: () => void;
 		onSubmit?: (result: { assignment: RoleAssignment; remember: boolean }) => void;
 	} = $props();
@@ -287,155 +301,138 @@
 </script>
 
 <!--
-	`grid-rows-[auto_minmax(0,1fr)_auto_auto]`. See the docstring: the two alternatives that look
-	equivalent, `position: sticky; bottom: 0` and a bare `1fr`, each fail in a way no offset fixes.
+	Two layouts, ONE control surface. Everything below `#snippet` is shared verbatim between them,
+	so the rows, the states, the picker, the announcements and the memorisation cannot differ by
+	breakpoint. Only the CHROME differs: 390 stacks four fixed regions, 1280 puts the same card in a
+	400 px command column beside the room a preview table will occupy.
+
+	A prop rather than a media query, for the same reason `RoleRow` takes `compact`: both heights are
+	asserted absolutely, and a breakpoint-driven layout cannot be measured without also driving the
+	viewport, which makes every figure a fact about the runner.
 -->
-<div
-	class="grid h-full w-full grid-rows-[auto_minmax(0,1fr)_auto_auto] bg-white text-zinc-900"
-	data-testid="designation-screen"
->
-	<header class="flex h-14 items-center gap-1 pr-4 pl-1" data-testid="designation-header">
-		<IconButton label={m.import_columns_back()} onclick={onCancel}>
-			<svg viewBox="0 0 20 20" class="h-5 w-5" fill="none" aria-hidden="true">
-				<path
-					d="M12 4l-6 6 6 6"
-					stroke="currentColor"
-					stroke-width="1.8"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-				/>
-			</svg>
-		</IconButton>
-		<h1 class="text-[16px] font-bold">{m.import_columns_page_title()}</h1>
-	</header>
-
-	<!-- The ONLY scrolling region, and in practice it never does: 511 of 636 in every state. -->
-	<div
-		class="flex flex-col gap-[14px] overflow-y-auto px-5 pt-4 pb-6"
-		data-testid="designation-body"
-	>
-		<!--
-			`shrink-0` on all three body children, and it is not decoration. A flex column shrinks its
-			items before it scrolls, so without this an overfull body SQUASHES the 355 px card instead
-			of scrolling, and the card's fixed height quietly stops being fixed. Found by the overflow
-			calibration in this component's spec, which is the test that exists to prove the
-			"nothing scrolls" assertion could ever have failed.
-		-->
-		<div class="shrink-0" data-testid="designation-file-block">
-			<p class="h-[22px] truncate text-[15px] leading-[22px] font-semibold">{file.name}</p>
-			<p class="h-[18px] truncate text-[12.5px] leading-[18px] text-zinc-500">
-				{m.import_columns_file_meta({
-					columns: columnCount,
-					rows: file.rowCount,
-					headers: file.hasHeaderRow
-						? m.import_columns_headers_detected()
-						: m.import_columns_headers_absent()
-				})}
+{#snippet fileBlock()}
+	<div class="shrink-0" data-testid="designation-file-block">
+		<p class="h-[22px] truncate text-[15px] leading-[22px] font-semibold">{file.name}</p>
+		<p class="h-[18px] truncate text-[12.5px] leading-[18px] text-zinc-500">
+			{m.import_columns_file_meta({
+				columns: columnCount,
+				rows: file.rowCount,
+				headers: file.hasHeaderRow
+					? m.import_columns_headers_detected()
+					: m.import_columns_headers_absent()
+			})}
+		</p>
+		{#if signatureLostDate}
+			<!-- State 3c's third line. No tint: the bank changed its export format, which is not
+			     an act of the user. -->
+			<p class="h-[20px] truncate text-[12.5px] leading-[20px] text-zinc-500">
+				{m.import_columns_signature_lost({ date: signatureLostDate })}
 			</p>
-			{#if signatureLostDate}
-				<!-- State 3c's third line. No tint: the bank changed its export format, which is not
-				     an act of the user. -->
-				<p class="h-[20px] truncate text-[12.5px] leading-[20px] text-zinc-500">
-					{m.import_columns_signature_lost({ date: signatureLostDate })}
-				</p>
-			{/if}
-		</div>
-
-		<!-- 355 px: 16 label + 10 gap + 3x68 rows + 2 hairlines + 12 + 1 separator + 12 + 68, plus
-		     28 padding and 2 border. `no shadow` is the referential's mobile card rule. -->
-		<div
-			class="shrink-0 rounded-3xl border border-zinc-200 bg-white p-[14px]"
-			data-testid="designation-card"
-		>
-			<p
-				class="h-4 text-[11px] leading-4 font-bold tracking-[0.03em] text-zinc-500 uppercase"
-				id="designation-card-label"
-			>
-				{m.import_columns_section_label()}
-			</p>
-			<div class="mt-2.5">
-				{#each MAPPING_ROLES as role, position (role)}
-					{#if role === 'category' && !recap}
-						<!-- A STRONGER separator than the hairlines above it, with 12 px either side. It
-						     is what marks the optional role as a different kind of thing, and it is why
-						     the three required rows need no asterisk. Not drawn in the recap: nothing
-						     there is being asked for, so there is no required/optional to mark. -->
-						<div class="my-3 h-px bg-zinc-200" aria-hidden="true"></div>
-					{:else if position > 0}
-						<div class="h-px bg-zinc-100" aria-hidden="true"></div>
-					{/if}
-					<RoleRow
-						{role}
-						state={stateOf(role)}
-						optional={role === 'category'}
-						expanded={openRole === role}
-						columnHeader={headerOf(role)}
-						columnIndex={assignment[role] ?? undefined}
-						sampleValue={sampleOf(role)}
-						candidateCount={candidateCounts[role]}
-						vacatedBy={vacated[role]}
-						lostHeader={lostHeaders[role]}
-						onOpen={() => (openRole = role)}
-					/>
-				{/each}
-			</div>
-		</div>
-
-		<!--
-			RESERVED SLOT, deliberately empty today. The date format, the decimal separator and the
-			delimiter each belong to a role or to the file and are designed but out of scope; there
-			are 125 px of air below this row, so all three can arrive without the page beginning to
-			scroll and without any figure in this file being recomputed.
-		-->
-		<div
-			class="flex h-12 shrink-0 items-center text-[13px] text-zinc-400"
-			data-testid="designation-format-row"
-		>
-			{m.import_columns_file_format_row()}
-		</div>
-
-		{#if recap}
-			<!--
-				ONE action. Returning the four rows to their 68 px control form is what proves the
-				recap is a MODE of this screen rather than a second screen: the same rows, resolved
-				the same way, drawn differently.
-			-->
-			<div class="flex h-12 shrink-0 items-center" data-testid="designation-modify">
-				<TapLink onclick={() => (recap = false)}>{m.import_columns_modify()}</TapLink>
-			</div>
-		{:else if pageState === 'complete' || pageState === 'submitting'}
-			<!--
-				86 px: two lines of sentence at 17, then a 48 px TapLink. With its 14 px gap that is
-				the 100 px state 2 adds, taking the body to 611 of 636 and still not scrolling.
-
-				Memorisation is ON by default and stated in ONE sentence with an opt-out link. There
-				is deliberately NO toggle: the referential has none, and a switch would present a
-				default as a decision the user has to take before they can leave.
-			-->
-			<div class="shrink-0" data-testid="designation-remember">
-				<p class="h-[34px] text-[12.5px] leading-[17px] text-zinc-500">
-					{remember
-						? m.import_columns_remember_sentence()
-						: m.import_columns_remember_opt_in_explanation()}
-				</p>
-				<div class="mt-1 flex h-12 items-center">
-					<TapLink onclick={() => (remember = !remember)}>
-						{remember ? m.import_columns_remember_opt_out() : m.import_columns_remember_opt_in()}
-					</TapLink>
-				</div>
-			</div>
 		{/if}
 	</div>
+{/snippet}
 
+{#snippet designationCard()}
+	<!--
+		355 at 390: 16 label + 10 gap + 3x68 rows + 2 hairlines + 12 + 1 separator + 12 + 68, plus 28
+		padding and 2 border.
+		307 at 1280: the same stack with 56 px rows. Only the row height and the radius change, which
+		is what "same control surface" has to mean if it means anything.
+
+		Radius 24 on a mobile page card and 8 on a desktop one, from the referential's rule 5. No
+		shadow at either width.
+	-->
+	<div
+		class="shrink-0 border border-zinc-200 bg-white p-[14px] {wide ? 'rounded-lg' : 'rounded-3xl'}"
+		data-testid="designation-card"
+	>
+		<p
+			class="h-4 text-[11px] leading-4 font-bold tracking-[0.03em] text-zinc-500 uppercase"
+			id="designation-card-label"
+		>
+			{m.import_columns_section_label()}
+		</p>
+		<div class="mt-2.5">
+			{#each MAPPING_ROLES as role, position (role)}
+				{#if role === 'category' && !recap}
+					<!-- A STRONGER separator than the hairlines above it, with 12 px either side. It
+					     is what marks the optional role as a different kind of thing, and it is why
+					     the three required rows need no asterisk. Not drawn in the recap: nothing
+					     there is being asked for, so there is no required/optional to mark. -->
+					<div class="my-3 h-px bg-zinc-200" aria-hidden="true"></div>
+				{:else if position > 0}
+					<div class="h-px bg-zinc-100" aria-hidden="true"></div>
+				{/if}
+				<RoleRow
+					{role}
+					state={stateOf(role)}
+					optional={role === 'category'}
+					compact={wide}
+					expanded={openRole === role}
+					columnHeader={headerOf(role)}
+					columnIndex={assignment[role] ?? undefined}
+					sampleValue={sampleOf(role)}
+					candidateCount={candidateCounts[role]}
+					vacatedBy={vacated[role]}
+					lostHeader={lostHeaders[role]}
+					onOpen={() => (openRole = role)}
+				/>
+			{/each}
+		</div>
+	</div>
+{/snippet}
+
+{#snippet formatRow()}
+	<!--
+		RESERVED SLOT, deliberately empty today. The date format, the decimal separator and the
+		delimiter each belong to a role or to the file and are designed but out of scope; there
+		are 125 px of air below this row at 390, so all three can arrive without the page beginning
+		to scroll and without any figure in this file being recomputed.
+	-->
+	<div
+		class="flex h-12 shrink-0 items-center text-[13px] text-zinc-400"
+		data-testid="designation-format-row"
+	>
+		{m.import_columns_file_format_row()}
+	</div>
+{/snippet}
+
+{#snippet trailingBlock()}
 	{#if recap}
 		<!--
-			No condition banner and no primary in the recap. There is no condition: nothing is being
-			satisfied and nothing is blocked, so a banner would report the state of a question nobody
-			is being asked. An empty region here would also break the 64 px invariant it exists to
-			hold.
+			ONE action. Returning the four rows to their control form is what proves the recap is a
+			MODE of this screen rather than a second screen: the same rows, resolved the same way,
+			drawn differently.
 		-->
-		<div></div>
-	{:else}
+		<div class="flex h-12 shrink-0 items-center" data-testid="designation-modify">
+			<TapLink onclick={() => (recap = false)}>{m.import_columns_modify()}</TapLink>
+		</div>
+	{:else if pageState === 'complete' || pageState === 'submitting'}
+		<!--
+			86 px: two lines of sentence at 17, then a 48 px TapLink. With its 14 px gap that is
+			the 100 px state 2 adds, taking the body to 611 of 636 and still not scrolling.
+
+			Memorisation is ON by default and stated in ONE sentence with an opt-out link. There
+			is deliberately NO toggle: the referential has none, and a switch would present a
+			default as a decision the user has to take before they can leave.
+		-->
+		<div class="shrink-0" data-testid="designation-remember">
+			<p class="h-[34px] text-[12.5px] leading-[17px] text-zinc-500">
+				{remember
+					? m.import_columns_remember_sentence()
+					: m.import_columns_remember_opt_in_explanation()}
+			</p>
+			<div class="mt-1 flex h-12 items-center">
+				<TapLink onclick={() => (remember = !remember)}>
+					{remember ? m.import_columns_remember_opt_out() : m.import_columns_remember_opt_in()}
+				</TapLink>
+			</div>
+		</div>
+	{/if}
+{/snippet}
+
+{#snippet bannerBlock()}
+	{#if !recap}
 		<ConditionBanner
 			label={banner.label}
 			count={banner.count}
@@ -444,49 +441,174 @@
 			complete={banner.complete}
 		/>
 	{/if}
+{/snippet}
 
-	<!-- 88 = 12 top padding + 48 controls + 28 home indicator area. -->
-	<footer class="flex items-stretch gap-3 px-5 pt-3 pb-7" data-testid="designation-footer">
-		<button
-			type="button"
-			class="h-12 flex-1 rounded-[14px] border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-700"
-			onclick={onCancel}
-		>
-			{pageState === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
-		</button>
-		{#if recap}
-			<!-- One way out and no primary: the recap changes nothing, so there is nothing to confirm.
-			     The single action it does offer, « Modifier les colonnes », is in the body beside the
-			     rows it acts on rather than in the footer beside the way out. -->
-		{:else}
-			<!--
+{#snippet actions()}
+	<button
+		type="button"
+		class="h-12 flex-1 rounded-[14px] border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-700"
+		onclick={onCancel}
+	>
+		{pageState === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
+	</button>
+	{#if !recap}
+		<!--
 			`aria-disabled`, NEVER the `disabled` attribute, and `aria-describedby` pointing at the
 			banner's second line. One reason location per disabled control: the cause is a count, the
 			count is in the banner, so the explanation lives beside the count and never in a line
 			under this button. A natively disabled button is unreachable by keyboard and therefore
 			mute about its own reason.
 		-->
-			<button
-				type="button"
-				class="h-12 flex-[1.4] rounded-[14px] text-[15px] font-semibold {importable
-					? 'bg-zinc-900 text-white'
-					: 'bg-zinc-200 text-zinc-400'}"
-				aria-disabled={importable ? undefined : 'true'}
-				aria-describedby={importable ? undefined : CONSEQUENCE_ID}
-				aria-busy={submitting ? 'true' : undefined}
-				onclick={() => importable && onSubmit?.({ assignment, remember })}
-			>
-				{#if submitting}
-					{m.import_columns_submitting()}
-				{:else if importable}
-					{m.import_columns_submit({ rows: file.rowCount })}
-				{:else}
-					{m.import_columns_submit_blocked()}
-				{/if}
-			</button>
+		<button
+			type="button"
+			class="h-12 flex-[1.4] rounded-[14px] text-[15px] font-semibold {importable
+				? 'bg-zinc-900 text-white'
+				: 'bg-zinc-200 text-zinc-400'}"
+			aria-disabled={importable ? undefined : 'true'}
+			aria-describedby={importable ? undefined : CONSEQUENCE_ID}
+			aria-busy={submitting ? 'true' : undefined}
+			onclick={() => importable && onSubmit?.({ assignment, remember })}
+		>
+			{#if submitting}
+				{m.import_columns_submitting()}
+			{:else if importable}
+				{m.import_columns_submit({ rows: file.rowCount })}
+			{:else}
+				{m.import_columns_submit_blocked()}
+			{/if}
+		</button>
+	{/if}
+{/snippet}
+
+{#if wide}
+	<!--
+		1280x800. The frame's OWN width is asserted by the spec, absolutely, because the plate records
+		a desktop frame capped to its window rendering 802 px while the document claimed six visible
+		columns against 2.2 actually visible. A compressed desktop frame must never pass silently
+		again, and the only assertion that can see it is one on the frame itself.
+
+		1230 of content = 1280 - 2 (frame border) - 2x24 (padding). Those figures INCLUDE every
+		border; do not round them up.
+	-->
+	<div
+		class="h-full w-full overflow-y-auto border border-zinc-200 bg-white px-6 text-zinc-900"
+		data-testid="designation-frame"
+	>
+		<div class="mx-auto w-full" data-testid="designation-content">
+			<div class="pt-6 pb-4">
+				<h1 class="text-[22px] leading-7 font-bold">{m.import_columns_page_title()}</h1>
+				<p class="mt-1 truncate text-[13px] text-zinc-500">
+					{file.name} ·
+					{m.import_columns_file_meta({
+						columns: columnCount,
+						rows: file.rowCount,
+						headers: file.hasHeaderRow
+							? m.import_columns_headers_detected()
+							: m.import_columns_headers_absent()
+					})}
+				</p>
+			</div>
+
+			<div class="flex items-start gap-6 pb-8">
+				<!--
+					The command column. 400 wide, and it is AUTHORITATIVE rather than a convenience:
+					it alone shows all four roles at once, and therefore it alone shows what is
+					missing. The preview beside it is a shortcut, which is why this chantier can ship
+					without the preview at all.
+				-->
+				<div class="flex w-[400px] shrink-0 flex-col gap-4" data-testid="designation-command">
+					{@render designationCard()}
+					{@render formatRow()}
+					{@render trailingBlock()}
+
+					<!--
+						The banner and the actions are ONE box and the box is what sticks, never the
+						page. The Repartition plate's amendment, same argument: what COMMANDS the
+						primary action travels with it, so the count explaining why the primary is off
+						can never be scrolled away from the primary it explains.
+					-->
+					<div
+						class="sticky bottom-6 overflow-hidden rounded-lg border border-zinc-200 bg-white"
+						data-testid="designation-command-foot"
+					>
+						{@render bannerBlock()}
+						<div class="flex items-stretch gap-3 p-4">
+							{@render actions()}
+						</div>
+					</div>
+				</div>
+
+				<!--
+					LACUNE B, deliberately empty. The `Apercu du fichier` table is not built here and
+					that is a scope decision rather than an omission: the referential contains no table
+					at all while three screens already ship one, so building it here would define the
+					component from its RAREST case. Filed as this screen's first consumer.
+
+					The desktop is therefore ruling D2 widened: the values are read in the picker
+					cards, exactly as at 390.
+				-->
+				<div class="min-w-0 flex-1" data-testid="designation-preview-slot"></div>
+			</div>
+		</div>
+	</div>
+{:else}
+	<!--
+		`grid-rows-[auto_minmax(0,1fr)_auto_auto]`. See the docstring: the two alternatives that look
+		equivalent, `position: sticky; bottom: 0` and a bare `1fr`, each fail in a way no offset fixes.
+	-->
+	<div
+		class="grid h-full w-full grid-rows-[auto_minmax(0,1fr)_auto_auto] bg-white text-zinc-900"
+		data-testid="designation-screen"
+	>
+		<header class="flex h-14 items-center gap-1 pr-4 pl-1" data-testid="designation-header">
+			<IconButton label={m.import_columns_back()} onclick={onCancel}>
+				<svg viewBox="0 0 20 20" class="h-5 w-5" fill="none" aria-hidden="true">
+					<path
+						d="M12 4l-6 6 6 6"
+						stroke="currentColor"
+						stroke-width="1.8"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+					/>
+				</svg>
+			</IconButton>
+			<h1 class="text-[16px] font-bold">{m.import_columns_page_title()}</h1>
+		</header>
+
+		<!-- The ONLY scrolling region, and in practice it never does: 511 of 636 in every state. -->
+		<div
+			class="flex flex-col gap-[14px] overflow-y-auto px-5 pt-4 pb-6"
+			data-testid="designation-body"
+		>
+			<!--
+				`shrink-0` on all three body children, and it is not decoration. A flex column shrinks
+				its items before it scrolls, so without this an overfull body SQUASHES the 355 px card
+				instead of scrolling, and the card's fixed height quietly stops being fixed. Found by
+				the overflow calibration in this component's spec.
+			-->
+			{@render fileBlock()}
+			{@render designationCard()}
+			{@render formatRow()}
+			{@render trailingBlock()}
+		</div>
+
+		{#if recap}
+			<!--
+				No condition banner and no primary in the recap. There is no condition: nothing is being
+				satisfied and nothing is blocked, so a banner would report the state of a question
+				nobody is being asked.
+			-->
+			<div></div>
+		{:else}
+			{@render bannerBlock()}
 		{/if}
-	</footer>
-</div>
+
+		<!-- 88 = 12 top padding + 48 controls + 28 home indicator area. -->
+		<footer class="flex items-stretch gap-3 px-5 pt-3 pb-7" data-testid="designation-footer">
+			{@render actions()}
+		</footer>
+	</div>
+{/if}
 
 {#if openRole}
 	<ColumnPicker
