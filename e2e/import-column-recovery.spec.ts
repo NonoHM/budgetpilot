@@ -139,6 +139,27 @@ test.describe('a memorised correspondance that is wrong can be corrected', () =>
 		await page.getByRole('button', { name: /^Importer/ }).click();
 		await expect(page).toHaveURL(/\/import$/, { timeout: 15_000 });
 
+		// 7b. THE GUARD FIRES, and this journey is the run it was built for: the same statement,
+		//     the same period, the same count and the same totals, with not one fingerprint in
+		//     common because the label moved to another column. Left alone it writes the whole
+		//     statement a second time.
+		//
+		//     The question is asked HERE and not on the designation screen. §5.5 of the handoff
+		//     lists ConfirmDialog among what that screen does not contain and §5.2 settles the
+		//     general case, so `/import/columns` keeps its designations and hands the question to
+		//     the screen that owns outcomes.
+		//
+		//     The correction is legitimate, so the journey answers « Importer quand même » and
+		//     carries on. What makes it a correction rather than a doubling is step 8, which
+		//     deletes the batch this one replaces. That order is the plate's own: correct first,
+		//     delete second, because deleting first removes the only route back to the columns.
+		await expect(onScreen(page, m.import_collision_title())).toBeVisible({ timeout: 15_000 });
+		await page.getByRole('button', { name: m.import_collision_confirm() }).click();
+		await expect(page.getByText(m.import_collision_title()).filter({ visible: true })).toHaveCount(
+			0,
+			{ timeout: 15_000 }
+		);
+
 		// 8. Delete the old import, second and not first. Found by ITS OWN id rather than by
 		//    position: this suite shares a database, so "the last row" is a fact about whichever
 		//    specs ran before this one.

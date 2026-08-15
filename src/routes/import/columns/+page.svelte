@@ -12,6 +12,8 @@
 		takePendingDesignation
 	} from '$lib/import/pendingDesignation.svelte';
 	import { setCompletedImport } from '$lib/import/completedImport.svelte';
+	import { setPendingCollision } from '$lib/import/pendingCollision.svelte';
+	import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
 	import { applyAction, deserialize } from '$app/forms';
 	import type { ActionData } from './$types';
@@ -108,7 +110,12 @@
 				// `/import` draws without anything failing.
 				const actionResult = deserialize<
 					{ importResult: ImportSummaryResult; capReached: boolean },
-					{ error?: string; keepDesignation?: boolean }
+					{
+						error?: string;
+						keepDesignation?: boolean;
+						collision?: CollidingBatchView;
+						incoming?: CollisionFigures;
+					}
 				>(await response.text());
 				// A REFUSAL IS APPLIED, NOT DISCARDED, and the response status is why this cannot be
 				// gated on `response.ok`. A `fail()` is HTTP 400, so an `ok` check returns before
@@ -133,6 +140,39 @@
 				// `applyAction` already knows all three: it writes `form` for a failure, navigates for a
 				// redirect, and renders the error boundary for an error. The fix is to stop narrowing the
 				// union, not to reimplement what it does.
+				/**
+				 * The run duplicates a statement already imported, and the question is asked on
+				 * `/import` rather than here.
+				 *
+				 * §5.5 of the design handoff lists `ConfirmDialog` among the things this screen does
+				 * not contain, and §5.2 gives the reason in general form: on a server refusal, this
+				 * screen does not own the outcome. It keeps the answers exactly as they were and the
+				 * report happens where reports happen. The designation is not what is being
+				 * questioned here, the resulting import is.
+				 *
+				 * Ahead of `applyAction`, because applying a failure would paint a banner on a screen
+				 * this branch is about to leave.
+				 */
+				if (
+					actionResult.type === 'failure' &&
+					actionResult.data?.collision &&
+					actionResult.data.incoming
+				) {
+					setPendingDesignation({ ...pending, initialAssignment: result.assignment });
+					setPendingCollision({
+						repost: {
+							file: pending.file,
+							assignment: result.assignment,
+							remember: result.remember,
+							hasHeaderRow: pending.view.hasHeaderRow
+						},
+						existing: actionResult.data.collision,
+						incoming: actionResult.data.incoming
+					});
+					await goto(resolve('/import'));
+					return;
+				}
+
 				if (actionResult.type !== 'success') {
 					await applyAction(actionResult);
 					return;

@@ -328,8 +328,12 @@ date,label,amount,category
 - Amounts are signed: negative is an expense, positive is income. A zero
   amount is rejected.
 
-Duplicates are detected, so re-importing an overlapping statement won't
-double your transactions.
+Duplicates are detected per transaction, so re-importing an overlapping
+statement creates only the rows that are new. The comparison uses the date,
+the label, the amount and the direction: if you later re-read the same
+statement through a different label or date column, those rows count as new,
+and BudgetPilot asks before writing them. See
+[duplicate detection](./reference/imports.md#duplicate-detection).
 
 **Or enter transactions by hand** from the Transactions page, if you just
 want to try it out.

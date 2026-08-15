@@ -12,13 +12,25 @@
 	import * as m from '$lib/paraglide/messages';
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
 	import { goto } from '$app/navigation';
-	import { enhance } from '$app/forms';
+	import { applyAction, deserialize, enhance } from '$app/forms';
+	import DuplicateStatementDialog from '$lib/components/import/DuplicateStatementDialog.svelte';
+	import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
+	import {
+		clearPendingCollision,
+		takePendingCollision,
+		type PendingCollision
+	} from '$lib/import/pendingCollision.svelte';
+	import { MAPPING_ROLES } from '$lib/domain/mappingRoles';
+	import type { ImportSummaryResult } from '$lib/domain/importSummary';
 	import {
 		EMPTY_ASSIGNMENT,
 		type DesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
-	import { setPendingDesignation } from '$lib/import/pendingDesignation.svelte';
+	import {
+		clearPendingDesignation,
+		setPendingDesignation
+	} from '$lib/import/pendingDesignation.svelte';
 	import { takeCompletedImport, type CompletedImport } from '$lib/import/completedImport.svelte';
 	import { onMount } from 'svelte';
 
@@ -186,6 +198,155 @@
 	async function copyErrorReport() {
 		if (!errorReport || !navigator.clipboard) return;
 		await navigator.clipboard.writeText(errorReport);
+	}
+
+	/**
+	 * The statement the server says this run appears to repeat, from either of its two sources.
+	 *
+	 * `/import`'s own action returns it as a `fail(409)` payload, read through the same `in` check as
+	 * `designation` above and for the same reason: `fail()` returns a union of payload shapes, and
+	 * widening every branch to carry every key destroys the narrowing the rest of this file depends on.
+	 *
+	 * `/import/columns` cannot ask the question itself (§5.5 of the handoff, and §5.2's general rule
+	 * that the designation screen does not own a server refusal), so it hands it here through
+	 * `pendingCollision` along with everything needed to answer it. Both sources draw one dialog.
+	 */
+	const formCollision = $derived(
+		form && 'collision' in form ? (form.collision as CollidingBatchView | undefined) : undefined
+	);
+	const formIncoming = $derived(
+		form && 'incoming' in form ? (form.incoming as CollisionFigures | undefined) : undefined
+	);
+
+	// Read in `onMount` for the reason `carriedImport` is: module state is shared between requests on
+	// the server, and a value present on the client but absent on the server is a hydration mismatch.
+	let carriedCollision = $state<PendingCollision | null>(null);
+	onMount(() => {
+		carriedCollision = takePendingCollision();
+	});
+
+	const collisionExisting = $derived(formCollision ?? carriedCollision?.existing);
+	const collisionIncoming = $derived(formIncoming ?? carriedCollision?.incoming);
+
+	/**
+	 * Answered per collision rather than with a bare boolean.
+	 *
+	 * A boolean would stay true across the next submit, so the second collision of a session would be
+	 * suppressed by the user's answer to the first. The key is the batch plus the file, which is
+	 * exactly what the question was about.
+	 */
+	let dismissedCollision = $state<string | null>(null);
+	let collisionError = $state<string | null>(null);
+	let confirmingCollision = $state(false);
+	const collisionKey = $derived(
+		collisionExisting && collisionIncoming
+			? `${collisionExisting.batchId}|${collisionIncoming.fileName}`
+			: null
+	);
+	const collisionOpen = $derived(collisionKey !== null && dismissedCollision !== collisionKey);
+
+	/**
+	 * « Ne pas importer ». Nothing was written, so there is nothing to undo.
+	 *
+	 * The carried collision is dropped as well as dismissed: leaving it in module state would have it
+	 * reappear behind the next upload, attached to a file the user has since replaced.
+	 */
+	function cancelCollision() {
+		dismissedCollision = collisionKey;
+		collisionError = null;
+		carriedCollision = null;
+		clearPendingCollision();
+	}
+
+	/**
+	 * « Importer quand même », re-posted with the answer to whichever action asked the question.
+	 *
+	 * The `/import` body is hand-assembled rather than a resubmit of the upload form, because this
+	 * page renders that form TWICE (`hidden lg:block` and `lg:hidden`) and only the visible mount
+	 * holds anything the browser would submit. Reading the shared `csvFiles` binding is the same fix
+	 * the file input itself already carries: one value, read the same way whichever chrome is on.
+	 *
+	 * `correctMappingId` is deliberately NOT carried. The correction path returns the designation
+	 * screen before the collision check can run, so a correction never reaches this dialog, and
+	 * posting the field would turn the confirmation into a second request to designate.
+	 */
+	async function confirmCollisionImport(event: SubmitEvent) {
+		event.preventDefault();
+		if (confirmingCollision) return;
+
+		const carried = carriedCollision;
+		const file = carried?.repost.file ?? csvFiles?.[0];
+		if (!file) return;
+
+		confirmingCollision = true;
+		// Cleared per attempt, so a retry that succeeds leaves no banner contradicting the summary and
+		// a retry that fails differently does not read as the first failure still standing.
+		collisionError = null;
+
+		const body = new FormData();
+		body.set('csvFile', file);
+		body.set('confirmCollision', '1');
+		if (carried) {
+			body.set('remember', String(carried.repost.remember));
+			body.set('hasHeaderRow', String(carried.repost.hasHeaderRow));
+			for (const role of MAPPING_ROLES) {
+				const index = carried.repost.assignment[role];
+				// Indices, never names. The server resolves them against ITS own header list.
+				if (index !== null) body.set(`${role}Index`, String(index));
+			}
+		} else {
+			body.set('netWorthAccountId', selectedNetWorthAccountId);
+		}
+
+		try {
+			// `x-sveltekit-action` is what makes the reply a serialised ActionResult rather than a
+			// rendered page. Without it there is nothing in the response worth reading and the summary
+			// the server just built is dropped, which is the defect #338 recorded next door.
+			const response = await fetch(carried ? resolve('/import/columns') : '', {
+				method: 'POST',
+				body,
+				headers: { 'x-sveltekit-action': 'true' }
+			});
+			const actionResult = deserialize<
+				{ importResult: ImportSummaryResult; capReached?: boolean },
+				{ error?: string }
+			>(await response.text());
+
+			// EVERY non-success is applied, not only `failure`: `redirect` is the expired session, and
+			// dropping it leaves the user pressing a button against a screen that does nothing.
+			if (actionResult.type !== 'success') {
+				await applyAction(actionResult);
+				return;
+			}
+			if (!actionResult.data?.importResult) {
+				collisionError = m.import_columns_error_unexpected();
+				return;
+			}
+
+			// The designated run's summary arrives as data rather than as this page's `form`, so it is
+			// written into the same state the columns screen hands its results through. `/import`'s own
+			// confirmation goes through `applyAction` instead, which sets `form`.
+			if (carried) {
+				clearPendingDesignation();
+				clearPendingCollision();
+				carriedCollision = null;
+				carriedImport = {
+					importResult: actionResult.data.importResult,
+					capReached: actionResult.data.capReached === true,
+					canRevisit: actionResult.data.importResult.invalidRows > 0
+				};
+			} else {
+				await applyAction(actionResult);
+			}
+		} catch {
+			// ASVS 5.0 V16.5.1: generic, and the caught value is never rendered. V16.5.3: it fails
+			// CLOSED, and the dialog deliberately stays OPEN. Dismissing it here would answer the
+			// user's question for them with the wrong answer, since nothing was imported, and a dialog
+			// that closes on failure is indistinguishable from one that closed on success.
+			collisionError = m.import_columns_error_unexpected();
+		} finally {
+			confirmingCollision = false;
+		}
 	}
 </script>
 
@@ -679,3 +840,25 @@
 		{/if}
 	</section>
 </main>
+
+<!--
+	The duplicate-statement question, for both paths that can raise it.
+
+	Outside the two upload sections rather than inside either: this page renders its form twice, one
+	chrome per breakpoint, and a dialog rendered per chrome would exist twice with two focus traps.
+	The `<form>` here owns nothing but the submit, which `ConfirmDialog`'s primary is; the handler
+	assembles the body itself, so the Enter key works and neither mount is involved.
+-->
+{#if collisionExisting && collisionIncoming}
+	<form onsubmit={confirmCollisionImport}>
+		<DuplicateStatementDialog
+			open={collisionOpen}
+			existing={collisionExisting}
+			incoming={collisionIncoming}
+			importedAt={collisionExisting.createdAt}
+			confirming={confirmingCollision}
+			error={collisionError}
+			onCancel={cancelCollision}
+		/>
+	</form>
+{/if}

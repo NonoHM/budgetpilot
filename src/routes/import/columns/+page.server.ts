@@ -18,6 +18,7 @@ import {
 	persistImportedTransactions,
 	resolveImportBucketAccount
 } from '$lib/server/import/persist';
+import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 
 const IMPORT_MAX_BYTES = 256_000;
 const CSV_ACCOUNT_NAME = 'Compte import CSV';
@@ -134,6 +135,40 @@ export const actions: Actions = {
 					: m.import_error_no_valid_transactions(),
 				keepDesignation: true
 			});
+		}
+
+		/**
+		 * The statement this designation appears to repeat.
+		 *
+		 * THIS route is where the blind usability session actually doubled its finances, and the
+		 * reason it needs its own call rather than being covered by the one on `/import`. The path
+		 * that doubled was not a correction: a file auto-detected and imported, then the SAME file
+		 * designated by hand because the first read had put the wrong column in `label`. Nothing in
+		 * that sequence sets `?correct=`, so a guard scoped to the correction path would leave the
+		 * observed defect open.
+		 *
+		 * Before `saveColumnMapping` and before every write below it, so a run the user abandons
+		 * leaves no batch, no memorised correspondance and no use counted against one.
+		 */
+		if (formData.get('confirmCollision') !== '1') {
+			const incoming = describeIncomingBatch(result.transactions, result.summary.period);
+			const collision = await findCollidingBatch(user.id, incoming);
+			if (collision) {
+				return fail(409, {
+					collision,
+					incoming: {
+						fileName: importFile.name,
+						periodStart: incoming.period.from,
+						periodEnd: incoming.period.to,
+						transactionCount: incoming.transactionCount,
+						debitCents: incoming.debitCents,
+						creditCents: incoming.creditCents
+					},
+					// The designations survive the question, exactly as they survive a refusal. The
+					// user is being asked whether to import, not asked to designate again.
+					keepDesignation: true
+				});
+			}
 		}
 
 		// Memorised by default, and only once the file actually produced transactions. A mapping
