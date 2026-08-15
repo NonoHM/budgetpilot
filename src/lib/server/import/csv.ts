@@ -60,6 +60,28 @@ export function importHeaderCells(rows: ParsedCsvRow[]): string[] {
 	return normalized.length === 0 ? [] : normalized[0].cells;
 }
 
+/**
+ * The first `count` DATA values of each column, for the designation screen's cards.
+ *
+ * Normalised through the same `normalizeParsedRows` as the header cells, deliberately: the screen
+ * shows the user their own file and then designates columns BY INDEX into it, so a preview built
+ * from a different normalisation would let someone designate a column whose values they never saw.
+ *
+ * Padded to `count` per column, and short rows are padded too. A column with two values must
+ * render three lines or the card stops being 107 px, and the plate's own answer for the missing
+ * one is « (vide) », which the card renders from an empty string. Returning a ragged array would
+ * push that decision out to every call site.
+ */
+export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] {
+	const normalized = normalizeParsedRows(rows);
+	const header = normalized.length === 0 ? [] : normalized[0].cells;
+	const dataRows = normalized.slice(1, 1 + count);
+
+	return header.map((_, column) =>
+		Array.from({ length: count }, (_, row) => dataRows[row]?.cells[column] ?? '')
+	);
+}
+
 export function parseImportRows(
 	rows: ParsedCsvRow[],
 	options: CsvImportOptions = {}

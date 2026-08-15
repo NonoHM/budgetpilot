@@ -2,7 +2,11 @@ import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
-import { importHeaderCells, parseCsvTransactionRows } from '$lib/server/import/csv';
+import {
+	importHeaderCells,
+	importSampleValues,
+	parseCsvTransactionRows
+} from '$lib/server/import/csv';
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
@@ -84,7 +88,10 @@ export const actions: Actions = {
 		const importFile = formData.get('csvFile');
 		const netWorthAccountId = await resolveNetWorthAccountId(user.id, formData);
 		if (netWorthAccountId === INVALID_NET_WORTH_ACCOUNT) {
-			return fail(400, { error: m.import_error_invalid_net_worth_account() });
+			return fail(400, {
+				error: m.import_error_invalid_net_worth_account(),
+				designation: undefined
+			});
 		}
 
 		if (!isUploadedFile(importFile) || importFile.size === 0) {
@@ -153,6 +160,20 @@ export const actions: Actions = {
 		if (result.transactions.length === 0) {
 			return fail(400, {
 				error: m.import_error_no_valid_transactions(),
+				// The file nothing recognised, offered to the designation screen rather than left as
+				// a refusal. Only when the refusal is ABOUT the columns: a file refused for a
+				// currency it cannot hold, or for amounts whose sign lives in another column, is not
+				// a file the user can repair by naming columns, and offering the screen there would
+				// send them to do work that cannot help.
+				designation: offersDesignation(result, headerCells)
+					? {
+							name: importFile.name,
+							headers: headerCells,
+							samples: importSampleValues(importData.rows),
+							rowCount: Math.max(0, result.summary.totalRows),
+							hasHeaderRow: true
+						}
+					: undefined,
 				importResult: buildImportResult(
 					result.summary.totalRows,
 					0,
@@ -263,6 +284,25 @@ function buildInvalidRowDetails(
 				? anonymizeCsvRowPreview(previewRowsByLine[row.scope.line] ?? [])
 				: ''
 	}));
+}
+
+/**
+ * Whether this refusal is one the designation screen can repair.
+ *
+ * The two states it separates: a file nothing recognised, and a file recognised and then refused on
+ * its CONTENT. Only the first is a column problem. Sending a user to name columns on a GBP file, or
+ * on one whose amounts are magnitudes beside a debit/credit indicator, is work that cannot succeed
+ * and ends with them believing the feature is broken.
+ *
+ * Read from the refusal CODE rather than from "the parse produced nothing", because nearly every
+ * refusal produces nothing.
+ */
+function offersDesignation(
+	result: ReturnType<typeof parseCsvTransactionRows>,
+	headerCells: string[]
+): boolean {
+	if (headerCells.length === 0) return false;
+	return result.invalidRows.some((row) => row.fact.code === 'missing-required-column');
 }
 
 function getHiddenInvalidRowsCount(invalidRows: number): number {

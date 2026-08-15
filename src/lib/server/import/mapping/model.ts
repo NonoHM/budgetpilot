@@ -1,22 +1,16 @@
 import { sanitizeImportedText } from '../utils/safety';
 
 /**
- * The closed role set. Four, by specification, and the closure is what makes the model's explicit
- * columns a schema property rather than a validation rule (ASVS 5.0 V2.2.1).
+ * The closed role set, DEFINED in `$lib/domain/mappingRoles` and re-exported here.
  *
- * Order matters: it is the order the roles are reported in, and the design plate requires a
- * missing-roles sentence to name them in row order rather than as a count.
+ * The closure is what makes the model's explicit columns a schema property rather than a validation
+ * rule (ASVS 5.0 V2.2.1), so there is exactly one definition of it. It sits outside `$lib/server`
+ * because the designation screen is built out of these four names and SvelteKit refuses a
+ * `$lib/server` import from browser code. Re-exported rather than moved-and-updated everywhere, so
+ * every server caller keeps importing the role set from the model that uses it.
  */
-export const MAPPING_ROLES = ['date', 'label', 'amount', 'category'] as const;
-
-export type MappingRole = (typeof MAPPING_ROLES)[number];
-
-/** The three a transaction cannot be built without. `category` is the optional fourth. */
-export const REQUIRED_MAPPING_ROLES = [
-	'date',
-	'label',
-	'amount'
-] as const satisfies readonly MappingRole[];
+export { MAPPING_ROLES, REQUIRED_MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
+import { MAPPING_ROLES, REQUIRED_MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
 
 export type ColumnMatchBy = 'name' | 'position';
 

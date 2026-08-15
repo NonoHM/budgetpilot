@@ -1,6 +1,6 @@
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
-	import type { MappingRole } from '$lib/server/import/mapping/model';
+	import type { MappingRole } from '$lib/domain/mappingRoles';
 	import { roleLabel, spokenExample } from '$lib/domain/columnMappingLabels';
 	import Badge from './Badge.svelte';
 
