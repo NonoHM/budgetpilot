@@ -96,6 +96,8 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			});
 		case 'amount-sign-in-separate-column':
 			return m.import_refusal_amount_sign_in_separate_column({ column: fact.column });
+		case 'amount-split-across-columns':
+			return m.import_refusal_amount_split_across_columns({ columns: fact.columns });
 		case 'mapping-columns-missing':
 			return m.import_refusal_mapping_columns_missing({ roles: fact.roles });
 		case 'mapping-invalid':

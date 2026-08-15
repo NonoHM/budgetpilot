@@ -3,6 +3,7 @@ import type { CsvRefusal } from '../refusals';
 import { addRefusal, buildSummary, getDuplicateHeaders } from '../utils/csv';
 import { refusalCellValue } from '../utils/safety';
 import { detectSignIndicatorColumn } from '../signIndicator';
+import { detectComplementAmountColumn } from '../splitAmount';
 import { applyColumnMapping } from '../mapping/apply';
 import {
 	MAPPING_ROLES,
@@ -78,6 +79,27 @@ export function parseMappedRows({
 				{ kind: 'header' },
 				{ code: 'amount-sign-in-separate-column', column: refusalCellValue(indicatorColumn) }
 			);
+
+		// The sibling shape #320's detector cannot see, for the reason its own first condition
+		// gives: a `Debit` column is ALREADY signed, so "every parsable amount is >= 0" is false
+		// and it returns null. The file was then read and its credit rows rejected one at a time,
+		// on the run that also MEMORISES the mapping, so a month of income went missing and kept
+		// going missing, unattended. Refusing does not let the file import; it makes the loss loud
+		// until the role set can express a pair. See #343.
+		const complementColumn = detectComplementAmountColumn(headers, rows, verdict.columns.amount);
+		if (complementColumn)
+			addRefusal(
+				headerRefusals,
+				{ kind: 'header' },
+				{
+					code: 'amount-split-across-columns',
+					// BOTH columns, in file order, in the file's OWN spelling. `headers` is folded for
+					// matching and quoting the folded form sent a user looking for « zone 10 » in a
+					// file whose header reads `Zone 10`: folding is an internal concern with no
+					// business in a sentence someone reads against their statement.
+					columns: namedPair(rows, headers, [verdict.columns.amount, complementColumn])
+				}
+			);
 	}
 
 	if (headerRefusals.length > 0 || !verdict) return refusedResult(rows, warnings, headerRefusals);
@@ -92,6 +114,20 @@ export function parseMappedRows({
 		warnings,
 		categorizationRules
 	});
+}
+
+/**
+ * Two columns named as the FILE writes them, in file order, quoted for a sentence.
+ *
+ * `headers` is folded for matching; a refusal that names a column is read by someone scanning their
+ * own statement for it, so the two must not be the same string. File order rather than designation
+ * order, so the sentence reads left to right the way the columns sit in the file.
+ */
+function namedPair(rows: ParsedCsvRow[], headers: string[], folded: [string, string]): string {
+	const indices = folded.map((name) => headers.indexOf(name)).sort((a, b) => a - b);
+	return indices
+		.map((index) => `« ${refusalCellValue((rows[0].cells[index] ?? '').trim())} »`)
+		.join(' et ');
 }
 
 /**

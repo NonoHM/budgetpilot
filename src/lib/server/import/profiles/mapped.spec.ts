@@ -113,6 +113,65 @@ describe('the direction this is NOT moving in: what must still be refused', () =
 		});
 	});
 
+	it('refuses a mapped file whose money is split across a debit and a credit column', () => {
+		// #343. The shape #320's detector cannot see: the debit column is ALREADY signed negative,
+		// so "every parsable amount is >= 0" is false and that guard returns null. The file was
+		// then read, the credit rows rejected one at a time as « montant invalide », and the
+		// mapping memorised, so the loss repeated on every later statement from the same bank,
+		// unattended.
+		//
+		// Refusing does not let this file import. It makes the loss loud, which is the honest
+		// answer available until the role set can express a pair.
+		const split =
+			'jour;intitule operation;debit;credit\n24/06/2026;CARREFOUR;-24,90;\n21/06/2026;SALAIRE;;1850,00\n';
+		const mapping: ColumnMappingInput = { ...MAPPING, amountColumn: 'debit', columnCount: 4 };
+
+		const result = importMapped(split, mapping);
+
+		expect(result.transactions).toStrictEqual([]);
+		expect(result.invalidRows[0].fact).toStrictEqual({
+			code: 'amount-split-across-columns',
+			columns: '« debit » et « credit »'
+		});
+	});
+
+	it('names the complement in the spelling the FILE uses, not the folded one', () => {
+		// The refusal is read by someone scanning their own statement for that column. Headers are
+		// folded to lowercase for matching, and quoting the folded form back sent a user looking for
+		// « credit » in a file that says `Credit`. Folding is an internal concern.
+		const split =
+			'Jour;Intitule;Debit;Credit\n24/06/2026;CARREFOUR;-24,90;\n21/06/2026;SALAIRE;;1850,00\n';
+		const mapping: ColumnMappingInput = {
+			...MAPPING,
+			dateColumn: 'jour',
+			labelColumn: 'intitule',
+			amountColumn: 'debit',
+			columnCount: 4
+		};
+
+		const result = importMapped(split, mapping);
+
+		// Both named, in FILE order, in the file's own spelling. The sentence is read against the
+		// statement, so `Debit` must not come back as `debit`.
+		expect(result.invalidRows[0].fact).toStrictEqual({
+			code: 'amount-split-across-columns',
+			columns: '« Debit » et « Credit »'
+		});
+	});
+
+	it('still imports a file whose single amount column is merely sparse', () => {
+		// The direction this must NOT move in. A gap no sibling covers is a row that is genuinely
+		// unreadable, and the per-row refusal already says so: refusing the whole file would throw
+		// away the rows that are fine, which is a worse outcome than the one being fixed.
+		const sparse =
+			'jour;intitule operation;somme\n24/06/2026;CARREFOUR;-24,90\n21/06/2026;LIGNE SANS MONTANT;\n03/06/2026;SNCF;-58,00\n';
+
+		const result = importMapped(sparse);
+
+		expect(result.transactions).toHaveLength(2);
+		expect(result.invalidRows.map((row) => row.fact.code)).toStrictEqual(['invalid-amount']);
+	});
+
 	it('refuses a mapped file that declares a currency it cannot hold', () => {
 		const gbp = 'jour;intitule operation;somme;currency\n24/06/2026;TESCO;-12,30;GBP\n';
 		const mapping: ColumnMappingInput = { ...MAPPING, columnCount: 4 };

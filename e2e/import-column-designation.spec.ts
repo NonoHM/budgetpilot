@@ -46,11 +46,26 @@ import * as m from '../src/lib/paraglide/messages';
  */
 test.describe.configure({ mode: 'serial' });
 
-const UNRECOGNISED_CSV = [
-	'Jour;Intitule operation;Somme',
-	'24/06/2026;E2E DESIGNATION CARREFOUR;-24,90',
-	'21/06/2026;E2E DESIGNATION SALAIRE;1850,00'
-].join('\n');
+/**
+ * Retry aware, and the retry is why.
+ *
+ * The suite runs with `retries: 2` and three tests share this file: one asserts the offer appears,
+ * one designates it, one re-uploads it and asserts the screen does NOT open because the shape is
+ * now memorised. Designating MEMORISES, so on a retry the first test uploaded a file the app had
+ * already learned, saw no offer, and failed on an absence that was correct. The sequence has to
+ * replay from a shape the app has not seen.
+ *
+ * Suffixing the header row per attempt gives every attempt its own shape while keeping the three
+ * tests on ONE shape within an attempt, which is what makes the third test meaningful at all.
+ */
+function unrecognisedCsv(attempt: number): string {
+	const suffix = attempt === 0 ? '' : ` r${attempt}`;
+	return [
+		`Jour${suffix};Intitule operation${suffix};Somme${suffix}`,
+		'24/06/2026;E2E DESIGNATION CARREFOUR;-24,90',
+		'21/06/2026;E2E DESIGNATION SALAIRE;1850,00'
+	].join('\n');
+}
 
 /**
  * Text that is actually ON SCREEN, not merely in the document.
@@ -142,7 +157,7 @@ async function expectPrimaryUnobstructed(page: import('@playwright/test').Page, 
 	}
 }
 
-async function uploadUnrecognised(page: import('@playwright/test').Page) {
+async function uploadUnrecognised(page: import('@playwright/test').Page, attempt: number) {
 	await page.goto('/import');
 	// `:visible`, not `.first()`. Both layouts render their own copy of this form and CSS hides one;
 	// `.first()` is the DESKTOP copy, which at 390 is the hidden one, and every interaction with it
@@ -151,7 +166,7 @@ async function uploadUnrecognised(page: import('@playwright/test').Page) {
 	await form.locator('input[name="csvFile"]').setInputFiles({
 		name: 'e2e-designation.csv',
 		mimeType: 'text/csv',
-		buffer: Buffer.from(UNRECOGNISED_CSV, 'utf-8')
+		buffer: Buffer.from(unrecognisedCsv(attempt), 'utf-8')
 	});
 	await form.getByRole('button', { name: m.import_submit() }).click();
 	return form;
@@ -162,12 +177,12 @@ test.describe('at 390x844', () => {
 
 	test('an unrecognised file is offered the designation screen rather than only refused', async ({
 		page
-	}) => {
+	}, testInfo) => {
 		// The two states this separates: a refusal that states the problem, and a refusal that offers
 		// the repair. Before this chantier the user was told their columns were not recognised and left
 		// there. The offer is the whole feature, and it must appear on the SAME response as the refusal
 		// rather than after another upload.
-		const form = await uploadUnrecognised(page);
+		const form = await uploadUnrecognised(page, testInfo.retry);
 
 		// Scoped to the VISIBLE form for the same reason the upload is: the hidden desktop copy carries
 		// the identical text, so an unscoped `.first()` resolves to an element that exists and can never
@@ -175,8 +190,10 @@ test.describe('at 390x844', () => {
 		await expect(form.getByText(m.import_columns_offer_explanation())).toBeVisible();
 	});
 
-	test('designating three columns imports the file with the right signs', async ({ page }) => {
-		const form = await uploadUnrecognised(page);
+	test('designating three columns imports the file with the right signs', async ({
+		page
+	}, testInfo) => {
+		const form = await uploadUnrecognised(page, testInfo.retry);
 		await form.getByRole('button', { name: m.import_columns_offer() }).click();
 
 		await expect(page).toHaveURL(/\/import\/columns$/);
@@ -186,9 +203,9 @@ test.describe('at 390x844', () => {
 		// screen reader hears, so a row whose visible text was right and whose name was wrong would
 		// fail here rather than pass.
 		for (const [rowName, column] of [
-			[/^Date, aucune colonne désignée/, /^Jour\./],
-			[/^Libellé, aucune colonne désignée/, /^Intitule operation\./],
-			[/^Montant, aucune colonne désignée/, /^Somme\./]
+			[/^Date, aucune colonne désignée/, /^Jour/],
+			[/^Libellé, aucune colonne désignée/, /^Intitule operation/],
+			[/^Montant, aucune colonne désignée/, /^Somme/]
 		] as const) {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
@@ -215,12 +232,12 @@ test.describe('at 390x844', () => {
 	 * THE RUN THAT DESIGNATES IS THE RUN THAT SAYS NOTHING, and that is #338.
 	 *
 	 * The test above proves the rows land and their signs are right. It cannot see that the user is
-	 * never TOLD, because it verifies the outcome from `/transactions` — which is precisely the
+	 * never TOLD, because it verifies the outcome from `/transactions`, which is precisely the
 	 * cross-check a person had to perform by hand to discover 9 of 66 rows had been rejected.
 	 *
 	 * The asymmetry is the defect. A file imported through `/import` reports; the same file imported
 	 * through the designation screen reports nothing; and the SECOND import of that same file, now
-	 * memorised, reports again. So the evidence does arrive — one run late, detached from the choice
+	 * memorised, reports again. So the evidence does arrive, one run late, detached from the choice
 	 * that caused it, on a screen the user cannot return to.
 	 *
 	 * A HEADING ALONE WOULD NOT DO. The counts are asserted because the summary panel is what makes a
@@ -235,7 +252,7 @@ test.describe('at 390x844', () => {
 	 * opens the designation screen: the retry then fails waiting for an offer that is correctly
 	 * absent, reporting a fixture problem as a product one. That happened on the first run of this
 	 * test and is the same class of mistake the comments above record five times, arriving by a new
-	 * route — through the retry rather than through a sibling test.
+	 * route: through the retry rather than through a sibling test.
 	 *
 	 * Suffixing the header row makes every attempt a genuinely unrecognised file, so attempt 2 tests
 	 * what attempt 1 tested.
@@ -257,7 +274,7 @@ test.describe('at 390x844', () => {
 	}, testInfo) => {
 		// ITS OWN HEADERS. A mapping is fingerprinted over the header row, so reusing this file's
 		// shape from an earlier test in this file would find that mapping, import straight through,
-		// and never open the screen — the fixture mistake this spec has recorded five times.
+		// and never open the screen. That is the fixture mistake this spec has recorded five times.
 		const PARTIAL_CSV = partialCsv(testInfo.retry);
 		await page.goto('/import');
 		const form = page.locator('form[method="POST"]:visible').first();
@@ -354,13 +371,122 @@ test.describe('at 390x844', () => {
 		await expect(page.getByRole('button', { name: /^Libellé, colonne désignée/ })).toBeVisible();
 	});
 
+	/**
+	 * THE SCREEN NEVER OPENS FOR A SHAPE IT CANNOT EXPRESS, and the plate puts the decision at
+	 * upload rather than after the work.
+	 *
+	 * §1q table B, « Montants sans signe »: « La détection doit refuser le fichier AVANT cet écran
+	 * et le nommer sur /imports. » Table E: « Aucun état d'erreur propre à l'écran — les échecs
+	 * vivent sur /imports. »
+	 *
+	 * A statement whose money sits in a debit column and a credit column cannot be expressed by
+	 * naming ONE amount column, so offering the designation screen would be asking the user to do
+	 * the work and telling them afterwards that it could not have helped. The pair is visible in the
+	 * bytes before anyone designates anything, so the file is refused where it is uploaded.
+	 *
+	 * The assertion that matters is the ABSENCE of the offer, checked against a presence the first
+	 * test in this file establishes with the same locator.
+	 */
+	test('a file whose money is split across two columns is refused at upload, not on the screen', async ({
+		page
+	}, testInfo) => {
+		const suffix = testInfo.retry === 0 ? '' : ` r${testInfo.retry}`;
+		const SPLIT_CSV = [
+			`Jour${suffix};Intitule${suffix};Debit${suffix};Credit${suffix}`,
+			'24/06/2026;E2E SPLIT CARREFOUR;-24,90;',
+			'21/06/2026;E2E SPLIT SALAIRE;;1850,00'
+		].join('\n');
+
+		await page.goto('/import');
+		const form = page.locator('form[method="POST"]:visible').first();
+		await form.locator('input[name="csvFile"]').setInputFiles({
+			name: 'e2e-split.csv',
+			mimeType: 'text/csv',
+			buffer: Buffer.from(SPLIT_CSV, 'utf-8')
+		});
+		await form.getByRole('button', { name: m.import_submit() }).click();
+
+		// Never offered. The user is not sent to designate columns on a file no designation can fix.
+		await expect(form.getByText(m.import_columns_offer_explanation())).toHaveCount(0);
+		await expect(page).toHaveURL(/\/import$/);
+
+		// And named, on /imports, with BOTH columns quoted so the sentence can be read against the
+		// statement itself.
+		await expect(
+			onScreen(
+				page,
+				m.import_refusal_amount_split_across_columns({
+					columns: `« Debit${suffix} » et « Credit${suffix} »`
+				})
+			)
+		).toBeVisible({ timeout: 15_000 });
+	});
+
+	/**
+	 * A submit that does nothing is not a designed state either.
+	 *
+	 * The client posts this action with a bare `fetch`, and a `fail()` is HTTP 400: an `ok` check
+	 * returned before reading the body, so a refused designation left the screen sitting there with
+	 * no message and no navigation. Found by screenshot, not by any test.
+	 *
+	 * The fixture designates cleanly and then fails on every ROW, which is the only way to reach a
+	 * refusal on this screen: a file refused for its columns, its currency or its split amounts is
+	 * refused at upload and the screen never opens for it. Unreadable dates do open it.
+	 *
+	 * Its headers are NOT the ones the revisit test above uses, and that is load bearing rather than
+	 * cosmetic. That test designates `Quand;Quoi;Combien` and imports rows successfully, which
+	 * MEMORISES the shape; a later upload of the same headers is recognised, parsed straight through
+	 * and never offered the screen, so this test would fail on a locator while the behaviour it
+	 * guards was intact. The two tests were written on branches that never saw each other, which is
+	 * exactly the seam a merge closes and neither branch's suite could see.
+	 */
+	test('a refusal from the designation screen is shown, not swallowed', async ({
+		page
+	}, testInfo) => {
+		const suffix = testInfo.retry === 0 ? '' : ` r${testInfo.retry}`;
+		const UNREADABLE_DATES = [
+			`Moment${suffix};Nature${suffix};Valeur${suffix}`,
+			'pas-une-date;E2E ROWS FAIL A;-12,30',
+			'non-plus;E2E ROWS FAIL B;-4,50'
+		].join('\n');
+
+		await page.goto('/import');
+		const form = page.locator('form[method="POST"]:visible').first();
+		await form.locator('input[name="csvFile"]').setInputFiles({
+			name: 'e2e-rows-fail.csv',
+			mimeType: 'text/csv',
+			buffer: Buffer.from(UNREADABLE_DATES, 'utf-8')
+		});
+		await form.getByRole('button', { name: m.import_submit() }).click();
+		await form.getByRole('button', { name: m.import_columns_offer() }).click();
+
+		await expect(page).toHaveURL(/\/import\/columns$/);
+		for (const [rowName, column] of [
+			[/^Date, aucune colonne désignée/, /^Moment/],
+			[/^Libellé, aucune colonne désignée/, /^Nature/],
+			[/^Montant, aucune colonne désignée/, /^Valeur/]
+		] as const) {
+			await page.getByRole('button', { name: rowName }).click();
+			await page.getByRole('option', { name: column }).click();
+		}
+		await page.getByRole('button', { name: /^Importer/ }).click();
+
+		await expect(page).toHaveURL(/\/import\/columns$/);
+		// The generic sentence, deliberately. Only a HEADER scoped refusal is a fact about the file
+		// worth putting in the banner; these are row refusals. What this test separates is silence
+		// from a message, which is the defect that existed.
+		await expect(onScreen(page, m.import_error_no_valid_transactions())).toBeVisible({
+			timeout: 15_000
+		});
+	});
+
 	test('the same file imports straight through the second time, without the screen opening', async ({
 		page
-	}) => {
+	}, testInfo) => {
 		// LAYER THREE, and the only end-to-end proof of it. Depends on the previous test having
 		// designated and imported: this suite runs `workers: 1` in declaration order and specs share one
 		// database, which is what makes a second upload meaningful at all.
-		const form = await uploadUnrecognised(page);
+		const form = await uploadUnrecognised(page, testInfo.retry);
 
 		// The offer must be ABSENT, and its absence is asserted against a presence established by the
 		// first test in this file: the same locator, scoped the same way, found it there, so not finding

@@ -13,7 +13,7 @@
 	} from '$lib/import/pendingDesignation.svelte';
 	import { setCompletedImport } from '$lib/import/completedImport.svelte';
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
-	import { deserialize } from '$app/forms';
+	import { applyAction, deserialize } from '$app/forms';
 	import type { ActionData } from './$types';
 
 	/**
@@ -85,7 +85,6 @@
 		})
 			.then(async (response) => {
 				submitting = false;
-				if (!response.ok) return;
 				// Typed at the call rather than cast after it: `deserialize` returns `unknown` data by
 				// default, and a cast downstream would let the action's payload drift from what
 				// `/import` draws without anything failing.
@@ -93,10 +92,21 @@
 					{ importResult: ImportSummaryResult; capReached: boolean },
 					{ error?: string; keepDesignation?: boolean }
 				>(await response.text());
-				// Only a success carries a summary. A `fail()` comes back as type 'failure' and is
-				// already handled by the server returning the user to this screen with their
-				// designations intact, so nothing is carried and nothing is cleared.
+				// A REFUSAL IS APPLIED, NOT DISCARDED, and the response status is why this cannot be
+				// gated on `response.ok`. A `fail()` is HTTP 400, so an `ok` check returns before
+				// reading the body and the screen sits there saying nothing: the user presses
+				// Import, the server refuses, and nothing at all happens. The `{#if form?.error}`
+				// banner on this page could only ever render on a full-page POST, which this flow
+				// never performs.
 				//
+				// Found by screenshot while verifying #343's guard, which refuses a file whose money
+				// is split across two columns. Every unit test of that guard passed: the refusal was
+				// produced correctly and never rendered.
+				if (actionResult.type === 'failure') {
+					await applyAction(actionResult);
+					return;
+				}
+
 				// `data` is optional on a success too, so the summary is checked rather than assumed:
 				// navigating with nothing to draw would land the user on the same silent screen this
 				// change exists to remove, and staying here at least leaves the designations intact.

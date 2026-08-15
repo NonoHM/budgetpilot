@@ -12,6 +12,7 @@ import {
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
+import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
 import {
 	buildInvalidRowDetails,
 	getHiddenInvalidRowsCount,
@@ -24,6 +25,7 @@ import {
 	persistImportedTransactions,
 	resolveImportBucketAccount
 } from '$lib/server/import/persist';
+import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { isLinkableNetWorthAccountType } from '$lib/domain/netWorth';
 import { readLinkableNetWorthAccounts, readNetWorthAccounts } from '$lib/server/net-worth/service';
 import type { PageServerLoad } from './$types';
@@ -139,24 +141,49 @@ export const actions: Actions = {
 		});
 
 		if (result.transactions.length === 0) {
+			// BEFORE the designation offer, because the plate puts it there and because the shape is
+			// knowable from the bytes. §1q table B: « La détection doit refuser le fichier AVANT cet
+			// écran et le nommer sur /imports. » A file whose money sits in two columns cannot be
+			// expressed by naming one of them, so opening the screen would be asking the user to do
+			// work and telling them afterwards that it could not have helped.
+			const splitPair = detectSplitAmountPair(headerCells, importData.rows);
+			const splitRefusal: ImportInvalidRowDetail[] = splitPair
+				? [
+						{
+							key: -1,
+							scope: { kind: 'header' },
+							fact: {
+								code: 'amount-split-across-columns',
+								columns: splitPair.map((name) => `« ${name} »`).join(' et ')
+							},
+							profile: result.summary.profile,
+							preview: ''
+						}
+					]
+				: [];
+
 			return fail(400, {
-				error: m.import_error_no_valid_transactions(),
+				error: splitPair
+					? refusalLabel(splitRefusal[0].fact)
+					: m.import_error_no_valid_transactions(),
 				// The file nothing recognised, offered to the designation screen rather than left as
 				// a refusal. Only when the refusal is ABOUT the columns: a file refused for a
 				// currency it cannot hold, or for amounts whose sign lives in another column, is not
 				// a file the user can repair by naming columns, and offering the screen there would
 				// send them to do work that cannot help.
-				designation: offersDesignation(result, headerCells)
-					? {
-							name: importFile.name,
-							headers: headerCells,
-							samples: importSampleValues(importData.rows),
-							coverage: importSampleCoverage(importData.rows),
-							firstRow: importFirstDataRow(importData.rows),
-							rowCount: Math.max(0, result.summary.totalRows),
-							hasHeaderRow: true
-						}
-					: undefined,
+				// `!splitPair` is the gate: everything else about the offer is unchanged.
+				designation:
+					!splitPair && offersDesignation(result, headerCells)
+						? {
+								name: importFile.name,
+								headers: headerCells,
+								samples: importSampleValues(importData.rows),
+								coverage: importSampleCoverage(importData.rows),
+								firstRow: importFirstDataRow(importData.rows),
+								rowCount: Math.max(0, result.summary.totalRows),
+								hasHeaderRow: true
+							}
+						: undefined,
 				importResult: buildImportResult(
 					result.summary.totalRows,
 					0,
@@ -164,7 +191,7 @@ export const actions: Actions = {
 					result.summary.invalidRows,
 					0,
 					0,
-					buildInvalidRowDetails(importData.previewRowsByLine, result),
+					[...splitRefusal, ...buildInvalidRowDetails(importData.previewRowsByLine, result)],
 					getHiddenInvalidRowsCount(result.summary.invalidRows)
 				)
 			});
