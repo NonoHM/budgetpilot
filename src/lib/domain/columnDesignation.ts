@@ -35,6 +35,15 @@ export interface DesignationFile {
 	 */
 	samples: readonly (readonly string[])[];
 	/**
+	 * The first data row, padded to the header's width.
+	 *
+	 * The four role rows read their example from HERE, not from `samples`: handoff §3.2 makes
+	 * "the four examples are one transaction, read vertically" load-bearing, because it is the
+	 * stated reason the screen carries no rows-preview at 390 (ruling D2). `samples` answers a
+	 * different question and is chosen to discriminate.
+	 */
+	firstRow?: readonly string[];
+	/**
 	 * Per column, how many data rows carry a value. Read against `rowCount`.
 	 *
 	 * Optional because a `DesignationFile` assembled by a test or an older client may not carry

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { importSampleCoverage, importSampleValues } from './csv';
+import { importFirstDataRow, importSampleCoverage, importSampleValues } from './csv';
 
 /**
  * The samples are the evidence the user decides against, so they are chosen to DISCRIMINATE
@@ -75,5 +75,43 @@ describe('importSampleCoverage', () => {
 		const rows = [row('Date', 'Blanc'), row('01/06/2026', '   '), row('02/06/2026', '')];
 
 		expect(importSampleCoverage(rows)).toEqual([2, 0]);
+	});
+});
+
+/**
+ * THE FOUR ROLE ROWS SHOW ONE TRANSACTION, READ VERTICALLY, and the handoff makes that
+ * load-bearing rather than decorative (§3.2): it is the stated reason the screen carries no
+ * rows-preview at 390 (ruling D2). « Do not source the examples from different rows per role —
+ * it would silently destroy the only line-level verification the screen offers. »
+ *
+ * So this is deliberately NOT `importSampleValues`. The picker's cards are chosen to
+ * discriminate; the row's example is positional; the two must not share a source. Sharing one is
+ * exactly what this change nearly shipped.
+ */
+describe('importFirstDataRow', () => {
+	let line = 0;
+	const row = (...cells: string[]) => ({ cells, line: ++line });
+
+	it('reads the first data row, even where that row is empty', () => {
+		const rows = [
+			row('Date', 'Debit', 'Credit'),
+			row('01/06/2026', '-620,00', ''),
+			row('03/06/2026', '', '1940,00')
+		];
+
+		// Credit is empty on row 1 and that is the honest answer: the row renders « (vide) » and the
+		// examples still describe one transaction. Showing 1940,00 would put a Montant from row 2
+		// beside a Date from row 1.
+		expect(importFirstDataRow(rows)).toEqual(['01/06/2026', '-620,00', '']);
+	});
+
+	it('pads to the header width, so a short row cannot shift the columns', () => {
+		const rows = [row('Date', 'Libelle', 'Montant'), row('01/06/2026', 'LOYER')];
+
+		expect(importFirstDataRow(rows)).toEqual(['01/06/2026', 'LOYER', '']);
+	});
+
+	it('is empty for a file with no data rows', () => {
+		expect(importFirstDataRow([row('Date', 'Montant')])).toEqual(['', '']);
 	});
 });

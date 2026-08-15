@@ -119,6 +119,34 @@ export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] 
 }
 
 /**
+ * The first DATA row, padded to the header's width, for the designation screen's role rows.
+ *
+ * ## Deliberately not `importSampleValues`, and the design handoff says why
+ *
+ * Handoff §3.2: « The four example values all come from the first data row. That is load-bearing:
+ * it is why there is no rows-preview at 390 (ruling D2). Do not source the examples from different
+ * rows per role — it would silently destroy the only line-level verification the screen offers. »
+ *
+ * The four role rows are one transaction read vertically, and that is the entire argument for the
+ * screen carrying no rows preview at 390: the line is already on it. The picker's cards answer a
+ * different question — « which column is this? » — and are chosen to discriminate. Two questions,
+ * two sources.
+ *
+ * Sharing one is what this chantier nearly shipped: once the samples became "first non-empty",
+ * designating a sparse column would have put a Montant from row 9 beside a Date from row 1, and
+ * the four rows would have described nothing. No test could see it; the plate could.
+ *
+ * An empty cell stays empty here. The row renders « (vide) », which is honest, and the rows still
+ * describe one line of the file.
+ */
+export function importFirstDataRow(rows: ParsedCsvRow[]): string[] {
+	const normalized = normalizeParsedRows(rows);
+	const header = normalized.length === 0 ? [] : normalized[0].cells;
+	const first = normalized[1]?.cells ?? [];
+	return header.map((_, column) => first[column] ?? '');
+}
+
+/**
  * How many DATA rows carry a value in each column.
  *
  * The other half of « chosen to discriminate ». The samples now show a sparse column its own
