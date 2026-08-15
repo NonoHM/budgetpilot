@@ -768,7 +768,6 @@
 								required
 								chooseLabel={m.settings_restore_choose_file()}
 								noFileLabel={m.settings_restore_no_file_selected()}
-								desktopInputClass="lg:w-full lg:text-sm lg:text-zinc-700 lg:file:mr-3 lg:file:rounded-md lg:file:border lg:file:border-zinc-300 lg:file:bg-white lg:file:px-3 lg:file:py-1.5 lg:file:text-sm lg:file:font-medium lg:file:text-zinc-700 lg:hover:file:bg-zinc-50"
 								bind:files={restoreFiles}
 							/>
 

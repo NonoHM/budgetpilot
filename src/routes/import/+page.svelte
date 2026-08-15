@@ -259,7 +259,6 @@
 					bind:files={csvFiles}
 					chooseLabel={m.common_file_dropzone_choose()}
 					noFileLabel={m.common_file_dropzone_no_file()}
-					desktopInputClass="lg:rounded-md lg:border lg:border-zinc-300 lg:bg-white lg:p-2 lg:text-sm lg:focus:border-zinc-500 lg:focus:outline-none lg:focus:ring-2 lg:focus:ring-zinc-400"
 				/>
 
 				{#if data.hasAllImportBucketsExisting}
@@ -269,7 +268,7 @@
 				{:else if data.linkableNetWorthAccounts.length > 0}
 					<label class="block text-sm font-medium text-zinc-700">
 						{m.import_field_net_worth_account()}
-						<div class="mt-1.5">
+						<div class="mt-2">
 							<Combobox
 								name="netWorthAccountId"
 								bind:value={selectedNetWorthAccountId}
@@ -495,7 +494,7 @@
 			{:else if data.linkableNetWorthAccounts.length > 0}
 				<label class="block text-sm font-medium text-zinc-700">
 					{m.import_field_net_worth_account()}
-					<div class="mt-1.5">
+					<div class="mt-2">
 						<Combobox
 							name="netWorthAccountId"
 							bind:value={selectedNetWorthAccountId}
