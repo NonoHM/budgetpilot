@@ -498,3 +498,29 @@ function buildEvent(pathname: string, token: string | undefined) {
 		url: new URL(`http://localhost${pathname}`)
 	};
 }
+
+describe('originStartupMessage', () => {
+	it('warns when ORIGIN is unset, naming the failure it predicts', async () => {
+		const { originStartupMessage } = await import('./hooks.server');
+		const message = originStartupMessage(undefined);
+		expect(message).toMatch(/ORIGIN is unset/);
+		expect(message).toMatch(/Cross-site POST form submissions are forbidden/);
+		// The remedy belongs in the message, not only in the docs: this is the one variable whose
+		// absence produced a user-visible failure with no boot signal at all.
+		expect(message).toMatch(/Set ORIGIN to the exact URL you type/);
+	});
+
+	it('treats a blank ORIGIN as unset', async () => {
+		const { originStartupMessage } = await import('./hooks.server');
+		expect(originStartupMessage('   ')).toMatch(/ORIGIN is unset/);
+	});
+
+	it('reports the configured value, and still says what a wrong one costs', async () => {
+		const { originStartupMessage } = await import('./hooks.server');
+		const message = originStartupMessage('http://localhost:3999');
+		expect(message).toContain('ORIGIN=http://localhost:3999');
+		// Set-but-wrong is the likelier failure than unset: docker-compose.yml defaults ORIGIN to
+		// http://localhost:3000, so moving APP_PORT alone produces exactly this state.
+		expect(message).toMatch(/refused as cross-site/);
+	});
+});
