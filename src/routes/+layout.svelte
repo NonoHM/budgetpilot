@@ -2,6 +2,7 @@
 	import { chromeFor } from '$lib/domain/appChrome';
 	import { page } from '$app/state';
 	import AppHeader from '$lib/components/AppHeader.svelte';
+	import OriginMismatchProbe from '$lib/components/OriginMismatchProbe.svelte';
 	import './layout.css';
 	import favicon from '$lib/assets/favicon.svg';
 	import * as m from '$lib/paraglide/messages';
@@ -83,4 +84,10 @@
 	>
 		{@render children()}
 	</div>
+	<!--
+		Renders nothing. It makes the one comparison the server cannot: whether the origin the
+		browser is on is the origin SvelteKit will compare its Origin header against on the next
+		form submission. Diagnostic, never a control — see the component.
+	-->
+	<OriginMismatchProbe />
 </div>

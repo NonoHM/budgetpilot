@@ -64,8 +64,14 @@ async function findFreePort(startPort, { limit = 50 } = {}) {
 	return null;
 }
 
+// The optional leading `#` is for keys the template ships COMMENTED OUT, which is how a variable
+// says "leave me absent unless you know you need me". ORIGIN is the one: absent, docker-compose
+// derives it from APP_PORT, so remapping the published port fixes it by itself; a value written
+// into .env would win over that default and re-create the mismatch it exists to prevent. Setup
+// still writes a real value, because it has just asked for the port. The "template out of date"
+// guard is unchanged — a key missing in BOTH forms is still an error, not a silent no-op.
 function setEnvValue(content, key, value) {
-	const pattern = new RegExp(`^${key}=.*$`, 'm');
+	const pattern = new RegExp(`^#?${key}=.*$`, 'm');
 	if (!pattern.test(content)) {
 		throw new Error(`${key} not found in .env.example. Is the template out of date?`);
 	}

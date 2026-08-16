@@ -138,19 +138,23 @@ jobs:
         run: npm run build
         env:
           # SvelteKit's postbuild analysis step imports every server module to find
-          # prerendering candidates, which runs each module's top-level validation — so this
-          # must cover every env var any src/lib/server/**/*.ts throws on at import time if
-          # unset, not just the ones the app touches at request time. Currently that's
-          # db.ts (DATABASE_URL), crypto.ts (TOTP_ENCRYPTION_KEY), and rateLimit.ts
-          # (RATE_LIMIT_HASH_SECRET) — grep `is required` under src/lib/server for the
-          # current list if this ever needs updating. Checks that need the database live
-          # in hooks.server.ts's `init` hook instead, which this step never runs. All three
-          # values below are throwaway, CI-only fakes, never copied from a real .env.
+          # prerendering candidates, which runs any module's top-level validation. Only
+          # db.ts (DATABASE_URL) still validates at import time — crypto.ts and rateLimit.ts
+          # moved to the boot collector (src/lib/server/env/assertConfigured.ts) and read
+          # their keys lazily, so `npm run build` no longer needs their values at all. Grep
+          # `is required` under src/lib/server for the current list if this needs updating.
+          # Every check the collector runs lives in hooks.server.ts's `init` hook, which this
+          # step never runs. All three values below are throwaway CI-only fakes, never copied
+          # from a real .env, and the two key-shaped ones are kept anyway: the e2e run below
+          # boots the app for real, where the collector DOES run and both are validated.
           DATABASE_URL: file:./dev.db
-          # Must be valid 64-hex-char (32-byte) input for crypto.ts's decode check; the
-          # repeating pattern signals "obviously not a real key" rather than looking random.
+          # Both must be 64 hex characters, which the app now enforces for each: they are used
+          # as an AES-256 key and an HMAC-SHA256 key respectively, so the length IS the key
+          # strength. The repeating patterns signal "obviously not a real key" rather than
+          # looking random. RATE_LIMIT_HASH_SECRET was a readable sentence until the format
+          # check landed, and a readable sentence is precisely what that check refuses.
           TOTP_ENCRYPTION_KEY: 'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1'
-          RATE_LIMIT_HASH_SECRET: 'ci-only-fake-rate-limit-hash-secret-do-not-reuse'
+          RATE_LIMIT_HASH_SECRET: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
 
       - name: E2E tests
         run: npm run test:e2e
@@ -211,8 +215,9 @@ jobs:
       DATABASE_PROVIDER: ${{ matrix.provider }}
       DATABASE_URL: ${{ matrix.url }}
       # Same throwaway CI-only fakes as the build step above, for the modules the suite imports.
+      # Both are 64 hex because the app enforces that format for both keys.
       TOTP_ENCRYPTION_KEY: 'c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1'
-      RATE_LIMIT_HASH_SECRET: 'ci-only-fake-rate-limit-hash-secret-do-not-reuse'
+      RATE_LIMIT_HASH_SECRET: 'deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef'
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

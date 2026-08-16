@@ -25,7 +25,15 @@ services:
       NODE_ENV: production
       PORT: 3000
       HOST: 0.0.0.0
-      ORIGIN: ${ORIGIN:-http://localhost:3000}
+      # The default READS APP_PORT rather than restating 3000, so remapping the published port
+      # fixes ORIGIN by itself. That mattered: APP_PORT sat two lines below a hardcoded
+      # http://localhost:3000, so changing only the port — the one choice a first install actually
+      # makes — produced a set-but-wrong ORIGIN and a 403 on every form, with nothing at boot
+      # naming it. Compose interpolates nested defaults (verified: unset -> :3000, APP_PORT=3999 ->
+      # :3999, an explicit ORIGIN still wins). Anyone reaching this at a LAN address, a hostname or
+      # through a reverse proxy still has to set ORIGIN explicitly: compose knows the port because
+      # the operator just typed it, and it cannot know the host.
+      ORIGIN: ${ORIGIN:-http://localhost:${APP_PORT:-3000}}
       BOOTSTRAP_TOKEN: ${BOOTSTRAP_TOKEN}
       BODY_SIZE_LIMIT: 21000000
     ports:

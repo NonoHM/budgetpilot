@@ -4,6 +4,15 @@
 		<meta charset="utf-8" />
 		<meta name="viewport" content="width=device-width, initial-scale=1" />
 		<meta name="text-scale" content="scale" />
+		<!--
+			The origin the SERVER computed for this request, which is what SvelteKit's CSRF check will
+			compare the browser's Origin header against on the next form submission. Carried here
+			rather than through layout data on purpose: it is a diagnostic, not part of the app's
+			behaviour, and a required field on LayoutData would tax every page spec forever. Read by
+			lib/components/OriginMismatchProbe.svelte. Not a secret — it is the URL of the page it is
+			being sent to, give or take the scheme that is in dispute.
+		-->
+		<meta name="budgetpilot:server-origin" content="%budgetpilot.serverOrigin%" />
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">

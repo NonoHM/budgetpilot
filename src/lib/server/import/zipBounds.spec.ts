@@ -321,25 +321,28 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 	});
 
 	it('the boot check is actually wired into the init hook', () => {
-		expect.assertions(3);
+		expect.assertions(4);
 
 		// WITHOUT THIS THE CEILING IS DECORATION. Every other test here calls the resolver or the
-		// asserter directly, so all of them pass on a build where `hooks.server.ts` never invokes it,
-		// and a ceiling that never runs at boot refuses nothing: an operator's out-of-range value
-		// would simply throw on their first import instead, months later, as a 500.
+		// asserter directly, so all of them pass on a build where boot never invokes it, and a
+		// ceiling that never runs at boot refuses nothing: an operator's out-of-range value would
+		// simply throw on their first import instead, months later, as a 500.
 		//
-		// A source scan rather than an `init()` call, because `init` also backfills against a live
-		// database. Structural, and therefore a proxy, so it is calibrated below rather than trusted.
+		// The wiring is now two links — init calls the boot collector, the collector calls this —
+		// so both are asserted. Still a source scan rather than an import of the collector: that
+		// pulls in the Prisma client through bootstrapToken and rateLimit, which costs seconds in
+		// the full parallel run for a fact that is textual. Structural, therefore a proxy, so it
+		// is calibrated below rather than trusted.
 		const hooks = readFileSync(new URL('../../../hooks.server.ts', import.meta.url), 'utf8');
-		const callsBootCheck = (source: string) => /\bassertXlsxBoundConfigured\(\)/.test(source);
+		const collector = readFileSync(new URL('../env/assertConfigured.ts', import.meta.url), 'utf8');
+		const callsBootCheck = (source: string) => /\bassertXlsxBoundConfigured\b/.test(source);
 
-		expect(hooks).toContain("from '$lib/server/import/zipBounds'");
-		expect(callsBootCheck(hooks)).toBe(true);
-		// The calibration: the same predicate must report FALSE on a source that does not call it,
+		expect(collector).toContain("from '$lib/server/import/zipBounds'");
+		expect(callsBootCheck(collector)).toBe(true);
+		expect(/await assertEnvironmentConfigured\(\)/.test(hooks)).toBe(true);
+		// The calibration: the same predicate must report FALSE on a source that does not name it,
 		// or "it is wired" is a statement about a regex that matches anything.
-		expect(callsBootCheck('export const init = async () => { await somethingElse(); };')).toBe(
-			false
-		);
+		expect(callsBootCheck('export const CHECKS = [somethingElse];')).toBe(false);
 	});
 
 	it('the configured value is what the import path actually enforces', () => {
