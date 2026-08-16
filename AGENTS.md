@@ -48,6 +48,30 @@ Two traps, both measured:
 - `src/routes/` thin: parse, authorize, delegate. Logic that can be a pure function is one.
 - `e2e/` Playwright. Shares one database, `workers: 1`, declaration order matters.
 - `prisma/migrations/<provider>/` one history per engine; the same change is different SQL.
+- `scripts/synthetic/` the generators for bank-statement fixtures. Their OUTPUT belongs under
+  `scr/`, which is gitignored; the generators are tracked so the rule below has a substitute
+  that survives a clone.
+
+## Never publish anything derived from a real statement
+
+Issues, PRs, tests, commit messages and screenshots. A public repository keeps the EDIT HISTORY
+of an issue body, so redacting afterwards removes the text and not the record.
+
+Re-identification does not need an amount or a counterparty name: **a date paired with an
+amount, a row count unusual enough to fingerprint a file, a period, a balance or an account
+label is enough.** Write the STRUCTURE instead, which is what carries the engineering meaning
+anyway — "9 of 66 rows carried a credit", "the debit column is pre-signed".
+
+**And use the substitute, because a rule that forbids without offering a replacement gets broken
+the first day somebody is in a hurry:**
+
+```
+node scripts/synthetic/make-synthetic.mjs scr/synthetic/out
+node scripts/synthetic/make-opaque.mjs    scr/synthetic/opaque 4
+```
+
+Deterministic — no `Math.random`, no `Date.now` — so a test can pin a byte. Holder Paul Mercier,
+who does not exist. Only the header SHAPES are taken from reality, and those identify nobody.
 
 ## Security boundaries
 

@@ -20,6 +20,8 @@ const ACCEPTED_CURRENCY = 'EUR';
 
 export interface MappedParseInput extends CsvProfileParseInput {
 	columnMapping: UntrustedColumnMapping | undefined;
+	/** False when row 0 is a transaction rather than a title row. Defaults to true. */
+	hasHeaderRow?: boolean;
 }
 
 /**
@@ -50,20 +52,31 @@ export function parseMappedRows({
 	rows,
 	warnings,
 	categorizationRules,
-	columnMapping
+	columnMapping,
+	hasHeaderRow
 }: MappedParseInput): CsvImportResult {
 	const headerRefusals: CsvRefusal[] = [];
 	const headers = rows[0].cells.map(foldExactHeader);
+	// The user's answer, not a guess. A header row of plausible values is indistinguishable from a
+	// data row, so nothing here can work it out; `false` arrives from « la première ligne contient
+	// des données ».
+	const headerRow = hasHeaderRow !== false;
 
 	// A duplicated header is STILL a refusal, for the reason `generic` records: `toRecord` assigns
 	// `record[header] = row[index]`, so a later duplicate OVERWRITES an earlier one and the last
 	// column silently wins. It matters MORE here, because a mapping resolves by name.
-	for (const header of getDuplicateHeaders(headers))
-		addRefusal(
-			headerRefusals,
-			{ kind: 'header' },
-			{ code: 'duplicate-column', column: refusalCellValue(header) }
-		);
+	//
+	// Only when there IS a header row. Run against a headerless file this reads a TRANSACTION, so
+	// a statement whose first line happens to repeat a value in two columns — an amount equal to a
+	// balance, two blank cells — would be refused whole, for a header defect the file does not
+	// have. A positional mapping resolves by index and never consults these names anyway.
+	if (headerRow)
+		for (const header of getDuplicateHeaders(headers))
+			addRefusal(
+				headerRefusals,
+				{ kind: 'header' },
+				{ code: 'duplicate-column', column: refusalCellValue(header) }
+			);
 
 	const verdict = resolveMappedColumns(columnMapping, rows[0].cells, headerRefusals);
 
@@ -107,6 +120,7 @@ export function parseMappedRows({
 
 	return parseResolvedRows({
 		rows,
+		hasHeaderRow,
 		headers,
 		columns: verdict.columns,
 		currencyColumn: CURRENCY_COLUMNS.find((name) => headers.includes(name)),
