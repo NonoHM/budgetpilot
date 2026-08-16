@@ -1,5 +1,45 @@
 # Changelog
 
+## [0.12.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.12.0...budgetpilot-v0.12.1) (2026-08-16)
+
+**One screen, finished.** 0.12.0 made a bank statement BudgetPilot does not recognise importable.
+This release makes the screen that does it usable on a desktop.
+
+### The column designation screen shows your file
+
+At 1280 it was a narrow column of role pickers with two thirds of the window empty: you chose
+which column held the date from three sample values, with no view of the statement itself. It now
+draws the file beside the pickers — real consecutive rows, columns in the file's own order, the
+role you assigned printed above each column's own header, and the columns you ignored dimmed
+rather than hidden. A wide statement scrolls sideways and says how much of it you are seeing.
+
+**The rows are your file's real rows.** The values in the pickers are chosen to be
+*distinguishing* — a sparse column shows you its own three values rather than three blanks — which
+means they do not line up into rows. Laid out as a grid they would have shown you a transaction
+your statement does not contain, so the preview reads the file again instead.
+
+### The screen has its navigation back
+
+It was showing without the header or the main navigation, so the only way off it was its own
+« Annuler » — while the same screen reached from `Imports → Voir les colonnes` had both. They
+agree now.
+
+On a phone the screen still takes the whole window, deliberately: the bottom tab bar used to be
+painted over the import button.
+
+### Upgrading
+
+Nothing to do. No schema change, no configuration change.
+
+### Bug Fixes
+
+* **import:** the designation screen draws its file at 1280 and keeps the desktop chrome ([#367](https://github.com/NonoHM/budgetpilot/issues/367)) ([a3e289f](https://github.com/NonoHM/budgetpilot/commit/a3e289fa7bcda6e9c200279ad61c7be906ba6c3a)), closes [#350](https://github.com/NonoHM/budgetpilot/issues/350)
+
+
+### Maintenance
+
+* release as 0.12.1 rather than 0.13.0 ([#369](https://github.com/NonoHM/budgetpilot/issues/369)) ([112fcfb](https://github.com/NonoHM/budgetpilot/commit/112fcfbfbfd3b4db87cc2ca52948f0ba85e1e56a))
+
 ## [0.12.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.11.2...budgetpilot-v0.12.0) (2026-08-16)
 
 **This release is about one thing: importing a bank statement BudgetPilot does not recognise.**
