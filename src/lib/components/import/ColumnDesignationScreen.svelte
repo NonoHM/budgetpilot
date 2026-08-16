@@ -158,7 +158,20 @@
 		 * Default preserved, so the upload path and the three specs written against it are unchanged.
 		 */
 		onModify?: () => void;
-		onSubmit?: (result: { assignment: RoleAssignment; remember: boolean }) => void;
+		/**
+		 * `hasHeaderRow` is part of the RESULT, not only of the props.
+		 *
+		 * It used to be absent, and the answer to « la première ligne contient des données » could
+		 * therefore not leave this component: the parent went on posting the detection it had
+		 * guessed on arrival. A four-line headerless file then imported three rows, ate the first
+		 * transaction without a word, and stored a mapping whose column names were that row's own
+		 * values — a fingerprint no later file can match. See `header-row-toggle.svelte.spec.ts`.
+		 */
+		onSubmit?: (result: {
+			assignment: RoleAssignment;
+			remember: boolean;
+			hasHeaderRow: boolean;
+		}) => void;
 	} = $props();
 
 	// Capturing only the INITIAL value is the whole point, so the warning is suppressed rather than
@@ -345,7 +358,9 @@
 			{fileMetaLine({
 				columns: columnCount,
 				rows: file.rowCount,
-				headers: file.hasHeaderRow
+				// The live state, never `file.hasHeaderRow`: the prop is what DETECTION guessed and
+				// this line has to follow what the USER said.
+				headers: hasHeaderRow
 					? m.import_columns_headers_detected()
 					: m.import_columns_headers_absent()
 			})}
@@ -521,7 +536,7 @@
 			aria-disabled={importable ? undefined : 'true'}
 			aria-describedby={importable ? undefined : CONSEQUENCE_ID}
 			aria-busy={submitting ? 'true' : undefined}
-			onclick={() => importable && onSubmit?.({ assignment, remember })}
+			onclick={() => importable && onSubmit?.({ assignment, remember, hasHeaderRow })}
 		>
 			{#if submitting}
 				{m.import_columns_submitting()}
@@ -556,7 +571,8 @@
 					{fileMetaLine({
 						columns: columnCount,
 						rows: file.rowCount,
-						headers: file.hasHeaderRow
+						// The live state, never `file.hasHeaderRow`. Same reason as the 390 copy above.
+						headers: hasHeaderRow
 							? m.import_columns_headers_detected()
 							: m.import_columns_headers_absent()
 					})}
