@@ -106,16 +106,22 @@ describe('the import profile that reached it unguarded', () => {
 		// produce a refusal at all, and any assertion phrased as "no transactions" would have
 		// been satisfied by the RangeError never being caught in the first place.
 		//
-		// The wording is « date ISO invalide » and not « date invalide » because this profile has
-		// no pre-check of its own: the refusal arrives from `validateTransaction` rather than from
-		// the profile, which is the same absence that let the throw escape. The other four
-		// profiles say « date invalide ». Not reconciled here, and noted so the difference reads
-		// as a measurement rather than a typo. Carried into the contract as two distinct codes:
-		// the domain's `invalid-iso-date`, inside a `transaction-invalid` fact, versus a profile's
-		// own `invalid-date`.
+		// **RECONCILED.** This assertion used to expect `transaction-invalid` carrying
+		// `invalid-iso-date`, and the comment here recorded that `banque-populaire` alone said
+		// « date ISO invalide » where the other four say « date invalide » — "not reconciled
+		// here, and noted so the difference reads as a measurement rather than a typo".
+		//
+		// It is reconciled now, and the note is what made it findable. The profile had no
+		// pre-check of its own, so an unreadable date fell all the way to `validateTransaction`
+		// and surfaced as a violation code with no column, no field and no expected form. That
+		// is the sentence a blind usability session actually met, on the one profile whose files
+		// cannot be rescued by designating columns. `banque-populaire.ts` now guards its date
+		// like the other four, and `server/import/dateRefusal.spec.ts` holds all five together
+		// so the divergence cannot come back one profile at a time.
 		expect(result.invalidRows[0]?.fact).toEqual({
-			code: 'transaction-invalid',
-			violations: ['invalid-iso-date']
+			code: 'invalid-date',
+			column: 'Date operation',
+			value: '2026-13-45'
 		});
 		expect(result.invalidRows[0]?.scope).toEqual({ kind: 'row', line: 2 });
 	});

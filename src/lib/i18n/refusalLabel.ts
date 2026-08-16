@@ -106,7 +106,7 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			// stays on the fact for the designation screen to use.
 			return m.import_refusal_mapping_invalid();
 		case 'invalid-date':
-			return m.import_refusal_invalid_date();
+			return m.import_refusal_invalid_date({ value: fact.value });
 		case 'invalid-amount':
 			return m.import_refusal_invalid_amount();
 		case 'zero-amount':

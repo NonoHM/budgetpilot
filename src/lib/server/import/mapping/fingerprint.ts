@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { foldExactHeader } from '../utils/encoding';
 
 /**
  * How a remembered mapping finds its columns again in a later file.
@@ -74,7 +75,7 @@ export type ColumnMatchBy = 'name' | 'position';
  * column count before applying indices.
  */
 export function fingerprintFor(headers: string[], matchBy: ColumnMatchBy): string {
-	const cells = headers.map((header) => header.trim().toLowerCase());
+	const cells = headers.map(foldExactHeader);
 	const canonical = matchBy === 'name' ? [...cells].sort() : cells;
 
 	// LENGTH PREFIXED, with no separator character at all. See the docstring section above for

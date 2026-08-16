@@ -73,7 +73,7 @@ describe('the import invalid rows table', () => {
 				detail(
 					0,
 					{ kind: 'row', line: 7 },
-					{ code: 'invalid-date', column: 'date' },
+					{ code: 'invalid-date', column: 'date', value: '01.06.2026' },
 					{
 						field: 'date',
 						preview: 'AUCHAN'
@@ -89,7 +89,9 @@ describe('the import invalid rows table', () => {
 		// date forms: a test that retypes what it checks asserts the copy, not the behaviour, and
 		// the behaviour under test is that a row scoped refusal reaches the table with its reason.
 		await expect
-			.element(table.getByText(refusalLabel({ code: 'invalid-date', column: 'date' })))
+			.element(
+				table.getByText(refusalLabel({ code: 'invalid-date', column: 'date', value: '01.06.2026' }))
+			)
 			.toBeInTheDocument();
 	});
 
@@ -142,6 +144,105 @@ describe('the import invalid rows table', () => {
 		// The absolute figure: three refusals in, three body rows out. A collision would drop rows
 		// silently, and asserting only that some text is present would not notice.
 		expect(table.getByRole('row').elements()).toHaveLength(4); // one header row plus three
+	});
+
+	/**
+	 * The wall the blind session actually met: twenty-five rows carrying one sentence.
+	 *
+	 * Eight here rather than twenty-five, because the count is what is asserted and eight is
+	 * enough to distinguish "collapsed" from "not". The figures are absolute on purpose: a
+	 * grouping that silently dropped its members would satisfy "fewer rows than before".
+	 */
+	it('collapses rows refused for one reason into a single row carrying the count', async () => {
+		expect.assertions(4);
+		await page.viewport(1280, 800);
+		render(Page, {
+			data: DATA,
+			form: formWith(
+				Array.from({ length: 8 }, (_, index) =>
+					detail(
+						index,
+						{ kind: 'row', line: index + 2 },
+						{ code: 'invalid-date', column: 'date', value: `0${index + 1}.06.2026` },
+						{ field: 'date', preview: `0${index + 1}.06.2026 | Mercerie Lafayette` }
+					)
+				)
+			)
+		});
+
+		const table = page.getByRole('table');
+		// One header row plus ONE body row, where eight refusals went in.
+		expect(table.getByRole('row').elements()).toHaveLength(2);
+		await expect.element(table.getByText('8 lignes', { exact: true })).toBeInTheDocument();
+		// The reason is still said, once, through the production label.
+		await expect
+			.element(
+				table.getByText(refusalLabel({ code: 'invalid-date', column: 'date', value: '01.06.2026' }))
+			)
+			.toBeInTheDocument();
+		// And every line is still REACHABLE: the reveal names how many it holds. A collapse that
+		// discarded its members would pass every assertion above this one.
+		await expect.element(table.getByText('Voir les 8 lignes')).toBeInTheDocument();
+	});
+
+	it('leaves a lone refusal exactly as it was, with its line number and no reveal', async () => {
+		expect.assertions(3);
+		await page.viewport(1280, 800);
+		render(Page, {
+			data: DATA,
+			form: formWith([
+				detail(
+					0,
+					{ kind: 'row', line: 4 },
+					{ code: 'invalid-date', column: 'date', value: '01.06.2026' },
+					{ field: 'date', preview: '01.06.2026 | Mercerie Lafayette' }
+				)
+			])
+		});
+
+		const table = page.getByRole('table');
+		await expect.element(table.getByText('4', { exact: true })).toBeInTheDocument();
+		await expect.element(table.getByText('01.06.2026 | Mercerie Lafayette')).toBeInTheDocument();
+		// The direction this change is not moving in: a single refusal must not acquire a
+		// disclosure it has nothing to disclose.
+		expect(table.getByText('Voir la ligne').elements()).toHaveLength(0);
+	});
+
+	/**
+	 * The same collapse at 390, where this screen is a card list rather than a table.
+	 *
+	 * It is a separate assertion because it was a separate DEFECT: the first version of the
+	 * collapse changed only the `<table>`, every test above passed, and the 390 copy went on
+	 * rendering eight identical cards. Measured through the route at 390 — eight cards, the offer
+	 * to designate the columns pushed above them.
+	 *
+	 * Both breakpoint copies are in the DOM at once on this page, so the assertion counts the
+	 * rendered sentence across the whole document rather than scoping to one of them: the figure
+	 * is 2 for a collapsed pair of copies and 16 for an uncollapsed one, which are far enough
+	 * apart that the count says which happened.
+	 */
+	it('collapses the 390 card list too, not only the 1280 table', async () => {
+		expect.assertions(2);
+		await page.viewport(390, 844);
+		render(Page, {
+			data: DATA,
+			form: formWith(
+				Array.from({ length: 8 }, (_, index) =>
+					detail(
+						index,
+						{ kind: 'row', line: index + 2 },
+						{ code: 'invalid-date', column: 'date', value: `0${index + 1}/06/26` },
+						{ field: 'date', preview: `0${index + 1}/06/26 | Mercerie Lafayette` }
+					)
+				)
+			)
+		});
+
+		const sentence = refusalLabel({ code: 'invalid-date', column: 'date', value: '01/06/26' });
+		// One per breakpoint copy, not one per rejected row. `exact` on the count marker because
+		// a substring match also finds every ancestor that contains it.
+		expect(page.getByText(sentence).elements()).toHaveLength(2);
+		expect(page.getByText('8 lignes', { exact: true }).elements()).toHaveLength(2);
 	});
 
 	it('leaves the field cell empty rather than inventing a value for it', async () => {

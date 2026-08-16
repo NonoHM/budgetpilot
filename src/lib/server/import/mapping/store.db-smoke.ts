@@ -1,10 +1,13 @@
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import { fingerprintFor } from './fingerprint';
 import type { ColumnMappingInput } from './model';
 import {
 	COLUMN_MAPPINGS_PER_USER_ENV,
 	countColumnMappings,
+	deleteColumnMapping,
+	listColumnMappings,
 	readColumnMapping,
 	recordColumnMappingUse,
 	saveColumnMapping
@@ -196,5 +199,154 @@ describe('the cascade, which is where engines have diverged before', () => {
 		expect(await countColumnMappings(doomed.id)).toBe(0);
 		// And the other users' mappings are untouched, which is the presence half.
 		expect(await countColumnMappings(alice)).toBeGreaterThan(0);
+	});
+});
+
+/**
+ * Forgetting a correspondance, which is #326's whole point, and the two things it must not do.
+ *
+ * Both assertions here need a real database. The nulling is performed by the FOREIGN KEY
+ * (`onDelete: SetNull`), not by any code we could unit test, and this repository has already
+ * measured referential behaviour diverging between engines where the schema did not — which is
+ * why this file exists rather than a mock.
+ */
+describe('forgetting a correspondance', () => {
+	it('removes the answer and leaves every transaction it ever produced in place', async () => {
+		const stamp = `${Date.now()}-forget`;
+		const saved = await saveColumnMapping(alice, fingerprintFor([stamp], 'name'), MAPPING);
+		expect(saved.ok).toBe(true);
+		const mappingId = saved.ok ? saved.id : '';
+
+		const batch = await prisma.importBatch.create({
+			data: {
+				userId: alice,
+				fileName: `${stamp}.csv`,
+				source: 'csv',
+				rowCount: 1,
+				columnMappingId: mappingId
+			}
+		});
+		const account = await prisma.account.create({
+			data: { userId: alice, name: `Compte ${stamp}`, nameKey: computeNameKey(`Compte ${stamp}`) },
+			select: { id: true }
+		});
+		const category = await prisma.category.create({
+			data: { userId: alice, name: `Cat ${stamp}`, nameKey: computeNameKey(`Cat ${stamp}`) },
+			select: { id: true }
+		});
+		const transaction = await prisma.transaction.create({
+			data: {
+				userId: alice,
+				accountId: account.id,
+				importBatchId: batch.id,
+				categoryId: category.id,
+				date: new Date('2026-06-01'),
+				label: 'Mercerie Lafayette',
+				amountCents: -4520,
+				source: 'csv'
+			}
+		});
+
+		expect(await deleteColumnMapping(alice, mappingId)).toBe('deleted');
+
+		// The answer is gone.
+		expect(await prisma.columnMapping.findUnique({ where: { id: mappingId } })).toBeNull();
+		// The history is NOT. The batch survives, its transaction survives, and only the link is
+		// nulled — which is exactly what the confirmation dialog promises the user.
+		const survivingBatch = await prisma.importBatch.findUnique({ where: { id: batch.id } });
+		expect(survivingBatch).not.toBeNull();
+		expect(survivingBatch?.columnMappingId).toBeNull();
+		expect(await prisma.transaction.findUnique({ where: { id: transaction.id } })).not.toBeNull();
+	});
+
+	/**
+	 * ASVS 5.0 V8.1.1, asserted rather than described.
+	 *
+	 * `deleteColumnMapping` filters on `(id, userId)` in the statement the database executes. Bob
+	 * naming Alice's id is the case that would succeed under `delete({ where: { id } })`, which is
+	 * the shape this deliberately is not.
+	 */
+	it("refuses to delete another user's correspondance, and says only not-found", async () => {
+		const stamp = `${Date.now()}-scope`;
+		const saved = await saveColumnMapping(alice, fingerprintFor([stamp], 'name'), MAPPING);
+		expect(saved.ok).toBe(true);
+		const mappingId = saved.ok ? saved.id : '';
+
+		// Bob, holding Alice's real id.
+		expect(await deleteColumnMapping(bob, mappingId)).toBe('not-found');
+		// Still there, which is the presence half: a "not-found" returned by a function that had
+		// already deleted the row would satisfy the assertion above on its own.
+		expect(await prisma.columnMapping.findUnique({ where: { id: mappingId } })).not.toBeNull();
+
+		// And an id that never existed is reported IDENTICALLY, so the answer is not an oracle for
+		// whether someone else's id is real.
+		expect(await deleteColumnMapping(bob, 'ckzzzzzzzzzzzzzzzzzzzzzzz')).toBe('not-found');
+
+		expect(await deleteColumnMapping(alice, mappingId)).toBe('deleted');
+	});
+
+	it('lists a user their own correspondances and nobody else s, with the batch count', async () => {
+		const stamp = `${Date.now()}-list`;
+		const saved = await saveColumnMapping(alice, fingerprintFor([stamp], 'name'), MAPPING);
+		expect(saved.ok).toBe(true);
+		const mappingId = saved.ok ? saved.id : '';
+		await prisma.importBatch.create({
+			data: {
+				userId: alice,
+				fileName: `${stamp}.csv`,
+				source: 'csv',
+				rowCount: 1,
+				columnMappingId: mappingId
+			}
+		});
+
+		const mine = await listColumnMappings(alice);
+		const theirs = await listColumnMappings(bob);
+
+		const row = mine.find((entry) => entry.id === mappingId);
+		expect(row).toBeDefined();
+		expect(row?._count.importBatches).toBe(1);
+		expect(theirs.some((entry) => entry.id === mappingId)).toBe(false);
+	});
+});
+
+/**
+ * The accent fold, against an engine whose default collation folds accents ITSELF.
+ *
+ * `generic` now folds diacritics before matching its alias table, so `Libellé` resolves where it
+ * used to be refused. The mapping path deliberately does NOT: `foldExactHeader` folds case only,
+ * because the fingerprint it feeds is WRITTEN TO THIS DATABASE and a changed fold changes every
+ * stored fingerprint at once.
+ *
+ * That argument is about application code, and it is only half the story. MariaDB's default
+ * collation is accent- and case-insensitive, so a comparison this repository performs in SQL can
+ * fold what the application deliberately kept apart — and it would do it on one engine only,
+ * silently, which is the failure mode no local sqlite run can show. Hence this test, here.
+ */
+describe('two correspondances that differ only by an accent', () => {
+	it('stay two rows, each found by its own fingerprint, on every engine', async () => {
+		const stamp = `${Date.now()}-accent`;
+		const accented = [`libellé-${stamp}`, 'montant'];
+		const plain = [`libelle-${stamp}`, 'montant'];
+
+		// Distinct in the application, by construction: `foldExactHeader` keeps the accent.
+		expect(fingerprintFor(accented, 'name')).not.toBe(fingerprintFor(plain, 'name'));
+
+		const a = await saveColumnMapping(alice, fingerprintFor(accented, 'name'), MAPPING);
+		const b = await saveColumnMapping(alice, fingerprintFor(plain, 'name'), MAPPING);
+		expect(a.ok).toBe(true);
+		expect(b.ok).toBe(true);
+		// Two rows, not one. `@@unique([userId, fingerprint])` under an accent-insensitive
+		// collation would have made the second an upsert over the first.
+		expect(a.ok && b.ok && a.id).not.toBe(b.ok && b.id);
+
+		// And each is FOUND by its own headers rather than by the other's. This is the assertion
+		// that would go red on an engine that folded the two together in SQL: the lookup would
+		// return whichever row it hit first, and a user's July statement would be read through
+		// their June bank's columns.
+		const foundAccented = await readColumnMapping(alice, accented);
+		const foundPlain = await readColumnMapping(alice, plain);
+		expect(foundAccented?.id).toBe(a.ok ? a.id : '');
+		expect(foundPlain?.id).toBe(b.ok ? b.id : '');
 	});
 });

@@ -56,9 +56,20 @@ const DATA: PageData = {
 	hasAllImportBucketsExisting: true
 };
 
-/** The notice as each chrome draws it. Desktop is declared first in the document. */
-const desktopNotice = () => page.getByText(m.import_columns_cap_reached()).first();
-const mobileNotice = () => page.getByText(m.import_columns_cap_reached()).last();
+/**
+ * The notice as each chrome draws it. Desktop is declared first in the document.
+ *
+ * Located by the BANNER, then filtered on its sentence, rather than by the sentence alone.
+ * `getByText` returns the innermost element whose text matches, and the banner stopped being a
+ * single text node the day it gained its « Supprimez-en une dans Paramètres » action (#326): the
+ * sentence and the link are now two children of one alert. Matching on the text alone therefore
+ * resolved to whichever node the retry loop happened to observe mid-render, which passed locally
+ * six runs out of six and failed twice under CI's load. The alert is one element, present from
+ * the first paint, and it is what the user sees as « the notice ».
+ */
+const notices = () => page.getByRole('alert').filter({ hasText: m.import_columns_cap_reached() });
+const desktopNotice = () => notices().first();
+const mobileNotice = () => notices().last();
 
 beforeEach(() => {
 	// The module is read-once by design, so a value left by a previous test would leak into the

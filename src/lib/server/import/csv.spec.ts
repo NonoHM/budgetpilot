@@ -336,7 +336,7 @@ describe('parseCsvTransactions', () => {
 		expect(result.transactions).toHaveLength(0);
 		expect(result.invalidRows[0]).toEqual({
 			scope: { kind: 'row', line: 2 },
-			fact: { code: 'invalid-date', column: 'date' },
+			fact: { code: 'invalid-date', column: 'date', value: '2026-99-99' },
 			field: 'date'
 		});
 	});

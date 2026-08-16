@@ -16,6 +16,7 @@
 	import ColorSwatchGroup from '$lib/components/ui/ColorSwatchGroup.svelte';
 	import { cardBase, inputBase } from '$lib/styles';
 	import Badge from '$lib/components/ui/Badge.svelte';
+	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
 	import { TAG_COLOR_TOKENS } from '$lib/domain/tags';
 	import { tagColorBgClass } from '$lib/domain/colors';
 	import * as m from '$lib/paraglide/messages';
@@ -198,6 +199,51 @@
 	// visible ring at all, which is exactly the arrival state this exists to provide. Because the
 	// heading is tabindex="-1" it can never be reached by Tab, so `focus:` fires here and nowhere
 	// else; there is no over-application to trade against.
+
+	// #326 — the remembered column correspondances.
+	type MappingRow = PageProps['data']['columnMappings'][number];
+	let forgettingMapping = $state<MappingRow | null>(null);
+	let forgetMappingSubmitting = $state(false);
+
+	// Count strings with their singular, every one of them. #353 records fourteen that have none;
+	// this section adds none to that list.
+	const mappingCount = (n: number, max: number) =>
+		n > 1
+			? m.settings_mappings_count({ count: n, max })
+			: m.settings_mappings_count_one({ count: n, max });
+	const mappingColumns = (n: number) =>
+		n > 1
+			? m.settings_mappings_columns({ count: n })
+			: m.settings_mappings_columns_one({ count: n });
+	const mappingUsed = (n: number) =>
+		n > 1 ? m.settings_mappings_used({ count: n }) : m.settings_mappings_used_one({ count: n });
+	const mappingBatches = (n: number) =>
+		n > 1
+			? m.settings_mappings_confirm_batches({ count: n })
+			: m.settings_mappings_confirm_batches_one({ count: n });
+
+	const roleLabel = (role: MappingRole) =>
+		role === 'date'
+			? m.import_columns_role_date()
+			: role === 'label'
+				? m.import_columns_role_label()
+				: role === 'amount'
+					? m.import_columns_role_amount()
+					: m.import_columns_role_category();
+
+	/**
+	 * What the accessible name of the Oublier button says.
+	 *
+	 * The label column when there is one, because that is the name a user recognises their own
+	 * bank by. A positional mapping has none, so it announces itself as positional rather than
+	 * being given an invented name.
+	 */
+	const mappingName = (mapping: MappingRow) =>
+		mapping.columns.label ?? mapping.columns.date ?? m.settings_mappings_by_position();
+
+	const formatDay = (value: Date | string) =>
+		new Date(value).toLocaleDateString(getLocale(), { day: 'numeric', month: 'long' });
+
 	let tagsHeadingEl = $state<HTMLHeadingElement | undefined>(undefined);
 
 	function focusTagsHeadingIfHashed() {
@@ -985,6 +1031,104 @@
 			{/if}
 		</div>
 
+		<!--
+		#326. A cap with no way to free a row is a permanent block, and the refusal that enforces it
+		now links here. Same shape as the tags section above deliberately: a card, a list of rows,
+		one destructive action per row behind a ConfirmDialog. Reused rather than redrawn, because
+		this is the second place in Settings that removes an account-wide record and the two should
+		not read as different features.
+		-->
+		<div id="column-mappings" class={card}>
+			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+				{m.settings_mappings_heading()}
+			</h2>
+			<p class="mt-1 text-sm text-zinc-500">{m.settings_mappings_subtitle()}</p>
+
+			{#if form?.columnMappingError}
+				<AlertBanner variant="error" class="mt-3">{form.columnMappingError}</AlertBanner>
+			{/if}
+			{#if form?.columnMappingSuccess}
+				<AlertBanner variant="success" class="mt-3">{form.columnMappingSuccess}</AlertBanner>
+			{/if}
+
+			{#if data.columnMappings.length === 0}
+				<EmptyState card={false} description={m.settings_mappings_empty()} />
+			{:else}
+				<p class="mt-3 text-xs text-zinc-500">
+					{mappingCount(data.columnMappings.length, data.columnMappingCap)}
+				</p>
+				<ul class="mt-3 space-y-2.5">
+					{#each data.columnMappings as mapping (mapping.id)}
+						<li class="rounded-xl border border-zinc-200 p-3.5">
+							<div class="flex flex-wrap items-start justify-between gap-3">
+								<div class="min-w-0">
+									{#if mapping.matchBy === 'position'}
+										<!--
+										The state #326 names as the riskiest, drawn rather than deferred. A
+										positional mapping has NO column names to show, so a row that reused the
+										name presentation would render four blanks and read as empty — on exactly
+										the correspondance made by someone who could not read their own headers.
+										It announces what it is, and says what that costs.
+										-->
+										<p class="flex flex-wrap items-center gap-2">
+											<Badge tone="warning">{m.settings_mappings_by_position()}</Badge>
+											<span class="text-xs text-zinc-500"
+												>{mappingColumns(mapping.columnCount)}</span
+											>
+										</p>
+										<p class="mt-1.5 text-xs text-zinc-500">
+											{m.settings_mappings_by_position_note()}
+										</p>
+										<ul class="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+											{#each MAPPING_ROLES as role (role)}
+												{#if mapping.indices[role] !== undefined}
+													<li class="text-xs text-zinc-600">
+														<span class="text-zinc-400">{roleLabel(role)}</span>
+														{m.settings_mappings_column_position({
+															index: mapping.indices[role]! + 1
+														})}
+													</li>
+												{/if}
+											{/each}
+										</ul>
+									{:else}
+										<ul class="flex flex-wrap gap-x-4 gap-y-1">
+											{#each MAPPING_ROLES as role (role)}
+												{#if mapping.columns[role]}
+													<li class="text-sm text-zinc-700">
+														<span class="text-xs text-zinc-400">{roleLabel(role)}</span>
+														<span class="font-medium">{mapping.columns[role]}</span>
+													</li>
+												{/if}
+											{/each}
+										</ul>
+										<p class="mt-1 text-xs text-zinc-500">
+											{mappingColumns(mapping.columnCount)}
+										</p>
+									{/if}
+									<p class="mt-1.5 text-xs text-zinc-400">
+										{m.settings_mappings_remembered_on({
+											date: formatDay(mapping.createdAt)
+										})} · {mappingUsed(mapping.useCount)}
+									</p>
+								</div>
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									class="shrink-0"
+									aria-label={m.settings_mappings_forget_aria({ name: mappingName(mapping) })}
+									onclick={() => (forgettingMapping = mapping)}
+								>
+									{m.settings_mappings_forget()}
+								</Button>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+
 		<!-- ZONE DANGER -->
 		<div>
 			<div class="flex items-center gap-2">
@@ -1386,6 +1530,45 @@
 			</p>
 		{:else}
 			<p class="text-sm text-zinc-600">{m.tags_delete_confirm_irreversible()}</p>
+		{/if}
+	</ConfirmDialog>
+</form>
+
+<!--
+#326's confirmation. The ConfirmDialog brique, as the issue requires: the deletion is immediate
+and account-wide, unlike anything on the designation screen itself.
+
+The body says what a deletion REMOVES FROM PAST IMPORTS, which is the half a user cannot guess:
+the transactions stay, and an `/imports` row that used to offer « Voir les colonnes » silently
+stops offering it. A confirmation that only promised « vos transactions ne bougent pas » would be
+true and would still surprise them.
+-->
+<form
+	method="POST"
+	action="?/deleteColumnMapping"
+	use:enhance={() => {
+		forgetMappingSubmitting = true;
+		return async ({ result, update }) => {
+			await update();
+			forgetMappingSubmitting = false;
+			if (result.type === 'success') forgettingMapping = null;
+		};
+	}}
+>
+	<input type="hidden" name="id" value={forgettingMapping?.id ?? ''} />
+	<ConfirmDialog
+		open={forgettingMapping !== null}
+		title={m.settings_mappings_confirm_title()}
+		confirmLabel={m.settings_mappings_confirm_action()}
+		tone="danger"
+		confirmLoading={forgetMappingSubmitting}
+		onClose={() => (forgettingMapping = null)}
+	>
+		<p class="text-sm text-zinc-600">{m.settings_mappings_confirm_body()}</p>
+		{#if (forgettingMapping?.importBatchCount ?? 0) > 0}
+			<p class="mt-2 text-sm text-zinc-600">
+				{mappingBatches(forgettingMapping!.importBatchCount)}
+			</p>
 		{/if}
 	</ConfirmDialog>
 </form>

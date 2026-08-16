@@ -74,7 +74,11 @@
 		if (!pending) void goto(resolve('/import'));
 	});
 
-	function submit(result: { assignment: RoleAssignment; remember: boolean }) {
+	function submit(result: {
+		assignment: RoleAssignment;
+		remember: boolean;
+		hasHeaderRow: boolean;
+	}) {
 		if (!pending || !formEl) return;
 		submitting = true;
 		// Cleared per attempt, so a retry that fails differently does not read as the first failure
@@ -86,7 +90,11 @@
 		// asset with a lifetime, an expiry and a key to protect.
 		data.set('csvFile', pending.file);
 		data.set('remember', String(result.remember));
-		data.set('hasHeaderRow', String(pending.view.hasHeaderRow));
+		// The USER's answer, out of the screen, never `pending.view.hasHeaderRow` — which is what
+		// detection guessed on arrival and is exactly what this used to post. A user who told the
+		// screen their file had no header row was overruled in silence, losing their first
+		// transaction to a header that was never there.
+		data.set('hasHeaderRow', String(result.hasHeaderRow));
 		for (const role of MAPPING_ROLES) {
 			const index = result.assignment[role];
 			// Indices, never names. The server resolves them against ITS own header list, so a name

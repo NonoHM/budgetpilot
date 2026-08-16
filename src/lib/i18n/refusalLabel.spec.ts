@@ -44,7 +44,7 @@ const FACTS: { [C in CsvRefusalFact['code']]: Extract<CsvRefusalFact, { code: C 
 	},
 	'mapping-columns-missing': { code: 'mapping-columns-missing', roles: 'label, amount' },
 	'mapping-invalid': { code: 'mapping-invalid', reason: 'roles-share-a-column' },
-	'invalid-date': { code: 'invalid-date', column: 'date' },
+	'invalid-date': { code: 'invalid-date', column: 'date', value: '01.06.2026' },
 	'invalid-amount': { code: 'invalid-amount', column: 'montant' },
 	'zero-amount': { code: 'zero-amount', column: 'montant' },
 	'invalid-total-amount': { code: 'invalid-total-amount', column: 'montant_total' },
@@ -98,12 +98,21 @@ describe('refusalLabel', () => {
 		expect(new Set(rendered).size).toBe(39);
 	});
 
-	it('renders the payload of the three facts whose sentence names a value', () => {
+	it('renders the payload of the four facts whose sentence names a value', () => {
 		expect(refusalLabel({ code: 'unknown-column', column: 'wibble' })).toBe(
 			'Colonne non autorisée: wibble'
 		);
 		expect(refusalLabel({ code: 'duplicate-column', column: 'date' })).toContain('date');
 		expect(refusalLabel({ code: 'missing-required-column', column: 'amount' })).toContain('amount');
+		// The fourth, and the reason this assertion is not merely symmetrical: a break that made
+		// the catalogue stop interpolating `{value}` left the whole of `dateRefusal.spec.ts`
+		// green, because that file asserts the FACT and this one is the only thing that reads the
+		// SENTENCE. The expected form and the rejected value have to be in it together — naming
+		// what the app wants without echoing what it read is the wall the user already met.
+		const date = refusalLabel({ code: 'invalid-date', column: 'date', value: '01.06.2026' });
+		expect(date).toContain('01.06.2026');
+		expect(date).toContain('JJ/MM/AAAA');
+		expect(date).toContain('AAAA-MM-JJ');
 	});
 
 	it('joins a domain verdict in the order the validator pushed it', () => {

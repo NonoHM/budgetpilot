@@ -68,7 +68,10 @@ export type CsvRefusalFact =
 	// cannot act on `roles-share-a-column`, and a future screen can.
 	| { code: 'mapping-invalid'; reason: string }
 	// row level
-	| { code: 'invalid-date'; column: string }
+	// `value` IS rendered, unlike the unrendered payloads this file documents above. It is the
+	// cell the parser could not read, and it is in the sentence because the expected form alone
+	// does not tell someone looking at `01.06.2026` which of their columns the app was reading.
+	| { code: 'invalid-date'; column: string; value: string }
 	| { code: 'invalid-amount'; column: string }
 	| { code: 'zero-amount'; column: string }
 	| { code: 'invalid-total-amount'; column: string }

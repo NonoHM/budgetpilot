@@ -1,6 +1,7 @@
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 import { MAPPING_ROLES, type MappingRole, type UntrustedColumnMapping } from './model';
 import { candidateFingerprints } from './fingerprint';
+import { foldExactHeader } from '../utils/encoding';
 
 /**
  * A memorised correspondance, drawn on the designation screen with no file in hand.
@@ -38,7 +39,7 @@ export interface RecapDesignation {
 
 /** Trim and lowercase, the fold `fingerprintFor` and `applyColumnMapping` both apply. */
 function fold(header: string): string {
-	return header.trim().toLowerCase();
+	return foldExactHeader(header);
 }
 
 function columnOf(mapping: UntrustedColumnMapping, role: MappingRole): string | null {

@@ -5,6 +5,7 @@ import { REQUIRED_ROLES, resolveRequiredColumns } from './columnAliases';
 import { parseResolvedRows } from './resolvedRows';
 import { detectSignIndicatorColumn } from '../signIndicator';
 import { refusalCellValue } from '../utils/safety';
+import { foldComparableHeader } from '../utils/encoding';
 
 /** The one column that is optional and still matched by its exact name: it has no role in
  *  building a transaction, so an absent or unrecognised category simply falls back to the
@@ -56,7 +57,11 @@ export function parseGenericRows({
 	warnings,
 	categorizationRules
 }: CsvProfileParseInput): CsvImportResult {
-	const headers = rows[0].cells.map((header) => header.trim().toLowerCase());
+	// Accents folded as well as case. ONE array feeds the duplicate check, the alias resolution
+	// and `toRecord`, so folding here is what keeps the three agreeing: a file whose label column
+	// reads `Libellé` resolves through the `libelle` alias, and a file carrying BOTH spellings is
+	// caught by the duplicate check below rather than silently letting the later column win.
+	const headers = rows[0].cells.map((header) => foldComparableHeader(header));
 	const headerRefusals: CsvRefusal[] = [];
 
 	// A duplicated header is STILL a refusal, and the reason is sharper than "it is ambiguous":

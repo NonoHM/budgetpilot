@@ -32,6 +32,12 @@ import {
 	deleteTag as deleteTagService
 } from '$lib/server/tags/service';
 import { normalizeId } from '$lib/server/transactions/where';
+import {
+	deleteColumnMapping,
+	listColumnMappings,
+	resolveColumnMappingsPerUser
+} from '$lib/server/import/mapping/store';
+import { rememberedMappingView } from '$lib/domain/rememberedMapping';
 import type { PageServerLoad } from './$types';
 
 const TOTP_CODE_PATTERN = /^[0-9]{6}$/;
@@ -43,7 +49,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 	const currentToken = cookies.get(SESSION_COOKIE);
 	const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
-	const [account, sessions, tags] = await Promise.all([
+	const [account, sessions, tags, columnMappings] = await Promise.all([
 		prisma.user.findUniqueOrThrow({
 			where: { id: user.id },
 			select: {
@@ -65,7 +71,8 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 			},
 			orderBy: { createdAt: 'desc' }
 		}),
-		listTagsWithCounts(user.id)
+		listTagsWithCounts(user.id),
+		listColumnMappings(user.id)
 	]);
 
 	const mappedSessions = sessions.map((session) => ({
@@ -96,6 +103,13 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 		},
 		sessions: mappedSessions,
 		tags,
+		// Shaped HERE rather than in the markup: whether a row can name its columns is a property
+		// of the stored record, and a positional mapping has none to name. See
+		// `domain/rememberedMapping.ts` for why that decision is not an `{#if}` in a template.
+		columnMappings: columnMappings.map((mapping) =>
+			rememberedMappingView({ ...mapping, importBatchCount: mapping._count.importBatches })
+		),
+		columnMappingCap: resolveColumnMappingsPerUser(),
 		aiSettings: {
 			insightsEnabled: account.aiInsightsEnabled,
 			includeLabels: account.aiIncludeLabels,
@@ -563,6 +577,31 @@ export const actions: Actions = {
 		}
 
 		return { tagsSuccess: m.tags_success_deleted() };
+	},
+
+	/**
+	 * Forgets one remembered correspondance.
+	 *
+	 * The id arrives from the client and is authorised against the caller inside the statement
+	 * (ASVS 5.0 V8.1.1) — see `deleteColumnMapping`, which filters on `(id, userId)` rather than
+	 * looking the row up and checking afterwards.
+	 *
+	 * A row belonging to someone else answers `not-found`, identically to one that never existed,
+	 * so the response is not an oracle for whether another user's id is real.
+	 */
+	deleteColumnMapping: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+
+		if (!id) return fail(400, { columnMappingError: m.settings_mappings_error_invalid() });
+
+		const result = await deleteColumnMapping(user.id, id);
+		if (result === 'not-found') {
+			return fail(404, { columnMappingError: m.settings_mappings_error_not_found() });
+		}
+
+		return { columnMappingSuccess: m.settings_mappings_success_deleted() };
 	}
 };
 

@@ -1465,7 +1465,7 @@ describe('/import actions', () => {
 		// Headers a profile READS (`date`, `label`, `amount`), values it cannot: dots are not one of
 		// the three accepted date forms. This is the blind session's own file, reduced.
 		const RECOGNISED_HEADERS_UNREADABLE_DATES =
-			'date,label,amount\n01.06.2026,CARREFOUR MARKET,-24.90\n02.06.2026,SALAIRE,2140.00';
+			'date,label,amount\n01/06/26,CARREFOUR MARKET,-24.90\n02/06/26,SALAIRE,2140.00';
 
 		it('is offered when the headers matched and every value failed', async () => {
 			const result = (await runImportWithFile(RECOGNISED_HEADERS_UNREADABLE_DATES)) as unknown as {
@@ -1513,7 +1513,7 @@ describe('/import actions', () => {
 			// still a file naming a column might rescue, and the earlier reading would have refused
 			// the offer on the strength of the single row.
 			const mixed =
-				'date,label,amount,currency\n2026-06-01,TESCO,-24.90,GBP\n01.06.2026,CARREFOUR,-11.00,EUR';
+				'date,label,amount,currency\n2026-06-01,TESCO,-24.90,GBP\n01/06/26,CARREFOUR,-11.00,EUR';
 
 			const result = (await runImportWithFile(mixed)) as unknown as {
 				data: { designation?: unknown };

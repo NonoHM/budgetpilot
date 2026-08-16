@@ -18,6 +18,7 @@ import {
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
 import { createOccurrenceCounter } from '../occurrence';
+import { foldExactHeader } from '../utils/encoding';
 
 const MAISON_HEADERS = [
 	'date',
@@ -31,7 +32,7 @@ const MAISON_HEADERS = [
 const MAX_CATEGORY_LENGTH = 80;
 
 export function matchesMaisonHeader(headers: string[]): boolean {
-	const normalizedHeaders = headers.map((header) => header.trim().toLowerCase());
+	const normalizedHeaders = headers.map(foldExactHeader);
 	return (
 		normalizedHeaders.length === MAISON_HEADERS.length &&
 		normalizedHeaders.every((header, index) => header === MAISON_HEADERS[index])
@@ -39,7 +40,7 @@ export function matchesMaisonHeader(headers: string[]): boolean {
 }
 
 export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvImportResult {
-	const headers = rows[0].cells.map((header) => header.trim().toLowerCase());
+	const headers = rows[0].cells.map(foldExactHeader);
 	if (!matchesMaisonHeader(headers)) {
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: 'maison' }],
@@ -77,7 +78,12 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 
 		const date = normalizeDate(record.date ?? '');
 		if (!isValidIsoDate(date)) {
-			addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-date', column: 'date' }, 'date');
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'invalid-date', column: 'date', value: refusalCellValue(record.date ?? '') },
+				'date'
+			);
 			return;
 		}
 

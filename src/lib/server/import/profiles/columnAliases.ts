@@ -1,3 +1,4 @@
+import { foldComparableHeader } from '../utils/encoding';
 /**
  * Ordered aliases for the three columns a transaction cannot be built without.
  *
@@ -70,7 +71,10 @@ export type ColumnResolution =
  * ambiguous roles has the same answer either way.
  */
 export function resolveRequiredColumns(headers: string[]): ColumnResolution {
-	const normalized = headers.map((header) => header.trim().toLowerCase());
+	// The same fold `generic` applies before calling here, so a caller that passes raw headers
+	// gets the same answer as one that passes folded ones. Accents included: the aliases below
+	// are written unaccented and `Libellé` has to reach `libelle`.
+	const normalized = headers.map((header) => foldComparableHeader(header));
 	const columns: Record<RequiredRole, string | undefined> = {
 		date: undefined,
 		label: undefined,
