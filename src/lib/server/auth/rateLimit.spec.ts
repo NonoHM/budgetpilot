@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.hoisted(() => {
-	process.env.RATE_LIMIT_HASH_SECRET ??= 'test-only-rate-limit-hash-secret';
+	// 64 hex, because that is now enforced (assertRateLimitSecretConfigured). The previous literal
+	// was a readable sentence, which is exactly the value the production check refuses.
+	process.env.RATE_LIMIT_HASH_SECRET ??= 'a1'.repeat(32);
 });
 
 const db = vi.hoisted(() => ({
@@ -28,7 +30,8 @@ const {
 	isBankSyncStartRateLimited,
 	recordBankSyncStartAttempt,
 	isReauthRateLimited,
-	recordReauthAttempt
+	recordReauthAttempt,
+	assertRateLimitSecretConfigured
 } = await import('./rateLimit');
 
 const HEX_SHA256 = /^[0-9a-f]{64}$/;
@@ -588,5 +591,40 @@ describe('isReauthRateLimited / recordReauthAttempt (shared settings re-auth lim
 		expect(createArgs.data.kind).toBe('REAUTH');
 		expect(createArgs.data.emailHash).toMatch(HEX_SHA256);
 		expect(createArgs.data.ipHash).toMatch(HEX_SHA256);
+	});
+});
+
+describe('assertRateLimitSecretConfigured', () => {
+	// The 64-hex contract is stated at docs/getting-started.md:388 and produced by
+	// `openssl rand -hex 32` at :66-67. Until this check existed, rateLimit.ts accepted any
+	// non-empty string and fed it straight to createHmac as the key.
+	it('refuses a secret that is too short', () => {
+		expect(() => assertRateLimitSecretConfigured({ RATE_LIMIT_HASH_SECRET: 'abc123' })).toThrow(
+			/64 hex characters/
+		);
+	});
+
+	it('refuses a 64-character value that is not hex', () => {
+		expect(() =>
+			assertRateLimitSecretConfigured({ RATE_LIMIT_HASH_SECRET: 'z'.repeat(64) })
+		).toThrow(/64 hex characters/);
+	});
+
+	it('refuses a missing secret and names the generation command', () => {
+		expect(() => assertRateLimitSecretConfigured({})).toThrow(/openssl rand -hex 32/);
+	});
+
+	// The boundary, tested ON the boundary: 63 and 65 are the two values where a length
+	// comparison and a range comparison would disagree.
+	it.each([63, 65])('refuses %i hex characters', (length) => {
+		expect(() =>
+			assertRateLimitSecretConfigured({ RATE_LIMIT_HASH_SECRET: 'a'.repeat(length) })
+		).toThrow(/64 hex characters/);
+	});
+
+	it('accepts exactly 64 hex characters in either case', () => {
+		expect(() =>
+			assertRateLimitSecretConfigured({ RATE_LIMIT_HASH_SECRET: 'A'.repeat(32) + 'f'.repeat(32) })
+		).not.toThrow();
 	});
 });
