@@ -319,9 +319,29 @@ mapfile -t BUILD_ONLY_ENV < <(
 	' Dockerfile
 )
 
-if [ "${#BUILD_ONLY_ENV[@]}" -lt 3 ]; then
-	echo "FAIL: expected at least 3 ENV lines in the builder stage, found ${#BUILD_ONLY_ENV[@]}." >&2
-	echo "      The Dockerfile moved them; update this assertion rather than deleting it." >&2
+# Pinned as an EXACT SET, where this used to be "at least 3".
+#
+# The builder stage also carried TOTP_ENCRYPTION_KEY and RATE_LIMIT_HASH_SECRET placeholders,
+# because those modules validated at module load and `npm run build` could not run without them.
+# They now validate through the boot collector (src/lib/server/env/assertConfigured.ts) and read
+# their keys lazily, so nothing evaluates a secret at build time, and both lines were deleted.
+# Measured rather than assumed: a full `docker build` with them gone exits 0.
+#
+# The floor's job was to stop the leak loop below from silently iterating over an empty list once
+# the Dockerfile moved things. An exact set does that AND fails when an ENV is ADDED back, which
+# is the direction that matters now: the file-wide `# check=skip=` directive in the Dockerfile
+# means BuildKit will no longer warn about a secret-looking name, so this assertion is what is
+# left watching. Keep them together.
+if [ "${#BUILD_ONLY_ENV[@]}" -ne 1 ]; then
+	echo "FAIL: expected exactly 1 ENV line in the builder stage, found ${#BUILD_ONLY_ENV[@]}." >&2
+	echo "      Added one? Add it here too, and make sure it is not a secret: the Dockerfile's" >&2
+	echo "      check=skip directive means BuildKit will not warn you about the name." >&2
+	echo "      Removed one? Update this assertion rather than deleting it." >&2
+	exit 1
+fi
+
+if [ "${BUILD_ONLY_ENV[0]%%=*}" != "DATABASE_URL" ]; then
+	echo "FAIL: expected the builder's only ENV to be DATABASE_URL, found ${BUILD_ONLY_ENV[0]%%=*}." >&2
 	exit 1
 fi
 
