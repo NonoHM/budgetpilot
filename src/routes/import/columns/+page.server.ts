@@ -109,6 +109,10 @@ export const actions: Actions = {
 			maxBytes: IMPORT_MAX_BYTES,
 			profile: 'mapped',
 			columnMapping: resolved.mapping,
+			// The user's answer, carried into the PARSE and not only into the mapping. Without it
+			// the parser consumed row 0 as a header on a file that has none, losing one
+			// transaction per import in silence. See `server/import/headerlessFile.spec.ts`.
+			hasHeaderRow,
 			sourceName: importFile.name || importData.kind,
 			categorizationRules: categorizationRules.map((rule) => ({
 				...rule,
@@ -174,9 +178,28 @@ export const actions: Actions = {
 		// Memorised by default, and only once the file actually produced transactions. A mapping
 		// remembered from a parse that yielded nothing is a promise about a shape we have not
 		// actually read successfully.
+		/**
+		 * A headerless file is designated every time and is NEVER memorised.
+		 *
+		 * There is nothing stable to fingerprint. The digest is taken over the cells of row 0, and
+		 * for this file row 0 is a TRANSACTION: measured, the same statement in June and in July
+		 * produces different digests, so a correspondance written here could never be found again.
+		 * It would sit in a capped table forever, counting against a limit whose only escape is
+		 * deleting it by hand.
+		 *
+		 * The distinction the design plate did not draw, and the one that made this look decided:
+		 * a file whose headers are merely UNREADABLE has a header row that repeats identically
+		 * every month, so its positional fingerprint IS stable and it is memorised by position, as
+		 * the plate rules. A file with no header row at all is the other state.
+		 *
+		 * The fallbacks are worse rather than merely absent. Hashing the column count would
+		 * collide every headerless statement of the same width into one correspondance, so a
+		 * second bank's file would be read through the first's columns — which is exactly the
+		 * « montants dans la colonne des dates » the plate warns about, made automatic.
+		 */
 		let capReached = false;
 		let columnMappingId: string | null = null;
-		if (formData.get('remember') !== 'false') {
+		if (hasHeaderRow && formData.get('remember') !== 'false') {
 			const saved = await saveColumnMapping(
 				user.id,
 				fingerprintFor(headers, resolved.mapping.matchBy),

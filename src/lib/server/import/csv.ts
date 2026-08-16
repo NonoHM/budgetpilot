@@ -204,7 +204,8 @@ export function parseImportRows(
 			warnings,
 			sourceName: options.sourceName,
 			categorizationRules: options.categorizationRules ?? [],
-			columnMapping: options.columnMapping
+			columnMapping: options.columnMapping,
+			hasHeaderRow: options.hasHeaderRow
 		});
 	}
 

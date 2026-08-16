@@ -20,6 +20,17 @@ export interface CsvImportOptions {
 	 * database stays at the route and the parser stays pure.
 	 */
 	columnMapping?: UntrustedColumnMapping;
+	/**
+	 * Whether row 0 is a HEADER row. Defaults to true, which is every file this parser saw
+	 * before the designation screen existed.
+	 *
+	 * `false` says the file has no title row and row 0 is a transaction. It is not a claim the
+	 * parser can make for itself — a header row of plausible-looking values is indistinguishable
+	 * from a data row — so it comes from the user, through « la première ligne contient des
+	 * données ». Ignoring it consumed one transaction per import, silently, on a file that is
+	 * perfectly well formed. See `headerlessFile.spec.ts`.
+	 */
+	hasHeaderRow?: boolean;
 }
 
 /**

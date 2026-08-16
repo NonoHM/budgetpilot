@@ -44,6 +44,8 @@ export interface ResolvedRowsInput {
 	rows: ParsedCsvRow[];
 	/** The folded header line, as used to build each row record. */
 	headers: string[];
+	/** False when row 0 is a transaction rather than a title row. Defaults to true. */
+	hasHeaderRow?: boolean;
 	columns: ResolvedColumnNames;
 	/** The folded header declaring a currency, when the file has one. */
 	currencyColumn: string | undefined;
@@ -73,6 +75,7 @@ export interface ResolvedRowsInput {
 export function parseResolvedRows({
 	rows,
 	headers,
+	hasHeaderRow,
 	columns,
 	currencyColumn,
 	acceptedCurrency,
@@ -95,7 +98,10 @@ export function parseResolvedRows({
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
 
-	rows.slice(1).forEach((parsedRow) => {
+	// Row 0 is skipped only when it IS a header. A headerless file's first line is a transaction,
+	// and slicing it away unconditionally is what ate one row per import.
+	const dataRows = hasHeaderRow === false ? rows : rows.slice(1);
+	dataRows.forEach((parsedRow) => {
 		const row = parsedRow.cells;
 		const line = parsedRow.line;
 		if (row.length !== headers.length) {
@@ -231,7 +237,8 @@ export function parseResolvedRows({
 		invalidRows: refusals,
 		summary: buildSummary({
 			profile,
-			totalRows: rows.length - 1,
+			// The rows the parser actually READ, which is every row when there is no header.
+			totalRows: dataRows.length,
 			validRows: transactions.length,
 			invalidRows: refusals.length,
 			duplicateRows,
