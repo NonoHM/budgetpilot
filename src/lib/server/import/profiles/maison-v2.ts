@@ -236,7 +236,12 @@ function parseAllocationLine(
 
 	const date = normalizeDate(record.date ?? '');
 	if (!isValidIsoDate(date)) {
-		addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-date', column: 'date' }, 'date');
+		addRefusal(
+			refusals,
+			{ kind: 'row', line },
+			{ code: 'invalid-date', column: 'date', value: refusalCellValue(record.date ?? '') },
+			'date'
+		);
 		return null;
 	}
 

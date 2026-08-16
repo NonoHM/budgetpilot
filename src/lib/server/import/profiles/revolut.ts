@@ -175,7 +175,13 @@ export function parseRevolutRows({
 			addRefusal(
 				refusals,
 				{ kind: 'row', line },
-				{ code: 'invalid-date', column: 'Date de fin' },
+				{
+					code: 'invalid-date',
+					column: 'Date de fin',
+					// What `normalizeFirstValidDate` fell back to, in its own order, so the value
+					// shown is the one it last tried to read rather than a column it skipped.
+					value: refusalCellValue(firstPresent(record['Date de fin'], record['Date de début']))
+				},
 				'Date de fin'
 			);
 			return;

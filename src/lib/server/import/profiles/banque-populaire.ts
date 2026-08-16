@@ -1,4 +1,4 @@
-import { validateTransaction } from '$lib/domain/transaction';
+import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
 import { applyCategorizationRules } from '$lib/server/categorization/rules';
 import type {
 	CsvImportResult,
@@ -24,6 +24,7 @@ import {
 	buildNotes,
 	firstPresent,
 	hashFingerprint,
+	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
@@ -103,6 +104,43 @@ export function parseBanquePopulaireRows({
 			record['Date de comptabilisation'],
 			record['Date de valeur']
 		);
+		/**
+		 * The date, checked HERE rather than left to `validateTransaction` at the bottom.
+		 *
+		 * It used to fall through. `normalizeFirstValidDate` returns its best effort whatever
+		 * happens, so an unreadable date reached the validator and came back as
+		 * `transaction-invalid` carrying `invalid-iso-date` — a violation with no column, no
+		 * field and no expected form, rendered as « date ISO invalide ». The other three profiles
+		 * all guarded their date and emitted `invalid-date`, so this profile alone said something
+		 * different for the same event, and it is the profile whose files can least afford it:
+		 * a Banque Populaire statement splits money across two columns, so a run that imports
+		 * nothing also trips the split guard at the route, which suppresses the designation
+		 * offer. Every other rescue is legitimately unavailable and the sentence is all there is.
+		 *
+		 * Measured through the route at 1280 before this guard: eight rows, eight identical
+		 * « date ISO invalide », the « Champ » column empty, and no next action on the screen.
+		 */
+		if (!isValidIsoDate(date)) {
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{
+					code: 'invalid-date',
+					column: 'Date operation',
+					// The value the fallback last tried, in its own order, so the sentence shows
+					// the cell that was read rather than one of the two columns it skipped.
+					value: refusalCellValue(
+						firstPresent(
+							record['Date operation'],
+							record['Date de comptabilisation'],
+							record['Date de valeur']
+						)
+					)
+				},
+				'Date operation'
+			);
+			return;
+		}
 		const label = sanitizeImportedText(
 			firstPresent(
 				record['Libelle simplifie'],

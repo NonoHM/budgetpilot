@@ -364,7 +364,7 @@
 	"import_refusal_amount_split_across_columns": "Les montants de ce relevé sont répartis sur deux colonnes, {columns}. BudgetPilot ne sait pas encore lire cette forme : n'en désigner qu'une laisserait de côté toutes les lignes portées par l'autre.",
 	"import_refusal_mapping_columns_missing": "Les colonnes mémorisées ne sont plus dans ce fichier : {roles}. Redésignez-les.",
 	"import_refusal_mapping_invalid": "La correspondance de colonnes mémorisée n'est pas utilisable. Redésignez les colonnes de ce fichier.",
-	"import_refusal_invalid_date": "date non reconnue (attendu : JJ/MM/AAAA ou AAAA-MM-JJ)",
+	"import_refusal_invalid_date": "date non reconnue : « {value} » (attendu : JJ/MM/AAAA ou AAAA-MM-JJ)",
 	"import_refusal_invalid_amount": "montant invalide",
 	"import_refusal_zero_amount": "montant à zéro refusé",
 	"import_refusal_invalid_total_amount": "montant total invalide",

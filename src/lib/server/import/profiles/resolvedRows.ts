@@ -139,7 +139,19 @@ export function parseResolvedRows({
 		}
 
 		if (!isValidIsoDate(date)) {
-			addRefusal(refusals, { kind: 'row', line }, { code: 'invalid-date', column: 'date' }, 'date');
+			// The RESOLVED column, like every other read in this loop. A Boursorama file names
+			// `dateop` and a mapped one names whatever the user designated, so a hardcoded `date`
+			// would point at a column their file does not contain.
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{
+					code: 'invalid-date',
+					column: columns.date,
+					value: refusalCellValue(record[columns.date] ?? '')
+				},
+				columns.date
+			);
 			return;
 		}
 

@@ -365,7 +365,7 @@
 	"import_refusal_mapping_columns_missing": "The remembered columns are no longer in this file: {roles}. Designate them again.",
 	"import_refusal_mapping_invalid": "The remembered column mapping cannot be used. Designate this file's columns again.",
 	"import_refusal_footer_ignored": "row skipped: bank footer",
-	"import_refusal_invalid_date": "unrecognised date (expected: DD/MM/YYYY or YYYY-MM-DD)",
+	"import_refusal_invalid_date": "unrecognised date: “{value}” (expected: DD/MM/YYYY or YYYY-MM-DD)",
 	"import_refusal_invalid_amount": "invalid amount",
 	"import_refusal_zero_amount": "zero amount rejected",
 	"import_refusal_invalid_total_amount": "invalid total amount",

@@ -73,7 +73,7 @@ describe('the import invalid rows table', () => {
 				detail(
 					0,
 					{ kind: 'row', line: 7 },
-					{ code: 'invalid-date', column: 'date' },
+					{ code: 'invalid-date', column: 'date', value: '01.06.2026' },
 					{
 						field: 'date',
 						preview: 'AUCHAN'
@@ -89,7 +89,9 @@ describe('the import invalid rows table', () => {
 		// date forms: a test that retypes what it checks asserts the copy, not the behaviour, and
 		// the behaviour under test is that a row scoped refusal reaches the table with its reason.
 		await expect
-			.element(table.getByText(refusalLabel({ code: 'invalid-date', column: 'date' })))
+			.element(
+				table.getByText(refusalLabel({ code: 'invalid-date', column: 'date', value: '01.06.2026' }))
+			)
 			.toBeInTheDocument();
 	});
 

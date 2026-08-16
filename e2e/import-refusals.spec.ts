@@ -98,7 +98,13 @@ test('the reason is rendered from the catalogue in the pinned locale', async ({ 
 	await upload(page, 'e2e-deux-lignes.csv', TWO_BAD_ROWS_CSV);
 
 	expect(E2E_LOCALE).toBe('fr');
-	await expect(page.getByText(m.import_refusal_invalid_date()).first()).toBeVisible();
+	// The value comes from the fixture's own first column, so this asserts the round trip the
+	// sentence now makes: the parser reads a cell, puts it on the fact, and the catalogue prints
+	// it back. Passing a different value here would go red, which is the point — a message that
+	// interpolated nothing would match a sentence built from any value at all.
+	await expect(
+		page.getByText(m.import_refusal_invalid_date({ value: 'PAS-UNE-DATE' })).first()
+	).toBeVisible();
 	await expect(page.getByText(m.import_refusal_invalid_amount()).first()).toBeVisible();
 });
 
