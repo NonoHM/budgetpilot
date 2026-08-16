@@ -3,6 +3,8 @@ import { render } from 'vitest-browser-svelte';
 import './layout.css';
 import * as m from '$lib/paraglide/messages';
 import { formatCents } from '$lib/domain/budget';
+import { formatShortDate } from '$lib/domain/dateFormat';
+import { getLocale } from '$lib/paraglide/runtime';
 import Page from './+page.svelte';
 import type { ActionData, PageData } from './$types';
 
@@ -64,6 +66,13 @@ const EMPTY_FORECAST: PageData['cashFlowForecast'] = {
 	emptyState: 'none-detected'
 };
 
+/** A genuinely empty account: no transaction has ever existed, so the onboarding copy is true. */
+const EMPTY_ACCOUNT_SPAN: PageData['accountSpan'] = {
+	count: 0,
+	firstDate: null,
+	lastDate: null
+};
+
 /**
  * Typed factory rather than an object literal per test: TypeScript narrows a literal's array
  * fields precisely, so a spec that later relies on a wider type only fails `npm run check`, not
@@ -79,6 +88,10 @@ function buildData(
 		 *  on its own; left `null` by default like the ordinary populated case. */
 		upcomingBillsEmptyState?: PageData['upcomingBills']['emptyState'];
 		cashFlowForecast?: PageData['cashFlowForecast'];
+		/** Account-level, period-independent (see `readAccountTransactionSpan`). Defaults to the
+		 *  EMPTY account, so every test written before this field existed keeps asserting exactly the
+		 *  state it always asserted: the first-run onboarding copy. */
+		accountSpan?: PageData['accountSpan'];
 	} = {}
 ): PageData {
 	const {
@@ -87,7 +100,8 @@ function buildData(
 		savingsGoals = [],
 		upcomingBillsHasStreams = false,
 		upcomingBillsEmptyState = null,
-		cashFlowForecast = EMPTY_FORECAST
+		cashFlowForecast = EMPTY_FORECAST,
+		accountSpan = EMPTY_ACCOUNT_SPAN
 	} = overrides;
 
 	return {
@@ -125,7 +139,8 @@ function buildData(
 			hasStreams: upcomingBillsHasStreams,
 			emptyState: upcomingBillsEmptyState,
 			todayIso: TODAY_ISO
-		}
+		},
+		accountSpan
 	} as PageData;
 }
 
@@ -232,6 +247,169 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 
 		await expect.element(screen.getByText('Échéances à venir')).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain('Importez votre premier relevé');
+	});
+});
+
+/**
+ * Wave 2, finding A7. Every flag feeding `showDashboardBody` is period-scoped or lookback-scoped,
+ * so before `accountSpan` the page could not tell "this account has never had data" from "this
+ * account has data, just not in the period you are looking at" — and rendered the first-run
+ * onboarding copy over both. A tester with 56 transactions freshly imported read it and concluded
+ * the import had failed.
+ *
+ * The three states below are the whole fix. The first-run state is asserted UNCHANGED on purpose:
+ * the new condition narrows the onboarding branch rather than replacing it, so a red here means
+ * the branch went the wrong way round.
+ */
+describe('/ dashboard — empty state keys on the ACCOUNT, not the period (A7)', () => {
+	const SPAN_SAME_YEAR: PageData['accountSpan'] = {
+		count: 56,
+		firstDate: '2026-03-03',
+		lastDate: '2026-04-27'
+	};
+
+	it('shows the period-mismatch state, not the first-run copy, when the account has data elsewhere', async () => {
+		expect.assertions(2);
+		const screen = render(Page, {
+			data: buildData({ accountSpan: SPAN_SAME_YEAR }),
+			form: null as ActionData
+		});
+
+		await expect.element(screen.getByText(m.dashboard_other_period_heading())).toBeInTheDocument();
+		expect(screen.container.textContent).not.toContain(m.dashboard_empty_heading());
+	});
+
+	it('leaves the first-run copy exactly as it was on an account that has never had data', async () => {
+		expect.assertions(2);
+		const screen = render(Page, { data: buildData(), form: null as ActionData });
+
+		await expect.element(screen.getByText(m.dashboard_empty_heading())).toBeInTheDocument();
+		expect(screen.container.textContent).not.toContain(m.dashboard_other_period_heading());
+	});
+
+	it('shows neither empty state once the period itself has data', async () => {
+		expect.assertions(2);
+		const screen = render(Page, {
+			data: buildData({
+				accountSpan: SPAN_SAME_YEAR,
+				transactions: [
+					{
+						id: 't1',
+						date: '2026-07-15',
+						label: 'Salaire',
+						amountCents: 250_000,
+						category: 'Revenus',
+						source: 'manual'
+					}
+				]
+			}),
+			form: null as ActionData
+		});
+
+		expect(screen.container.textContent).not.toContain(m.dashboard_other_period_heading());
+		expect(screen.container.textContent).not.toContain(m.dashboard_empty_heading());
+	});
+
+	/**
+	 * The acceptance criterion this wave was given: a sentence saying "your data covers another
+	 * period" without saying WHICH is the same silence one layer down. The oracle calls the
+	 * production formatter rather than retyping "3 mars" — a hand-typed literal would assert this
+	 * spec's idea of French date formatting, not the app's, and would rot the moment the year rule
+	 * changed. The two sides still come from different places: the component renders whatever it
+	 * pulled off `accountSpan`, and this side formats the fixture's known dates.
+	 */
+	it('names the real range rather than a placeholder', async () => {
+		expect.assertions(3);
+		const screen = render(Page, {
+			data: buildData({ accountSpan: SPAN_SAME_YEAR }),
+			form: null as ActionData
+		});
+
+		const locale = getLocale();
+		const text = screen.container.textContent ?? '';
+		expect(text).toContain(formatShortDate(SPAN_SAME_YEAR.firstDate!, locale));
+		expect(text).toContain(formatShortDate(SPAN_SAME_YEAR.lastDate!, locale));
+		// The raw ISO must never reach the screen — that is what "forgot to format" looks like.
+		expect(text).not.toContain('2026-03-03');
+	});
+
+	/**
+	 * The count is carried rather than dropped because the state exists to refute "the import
+	 * failed", and 56 refutes that where a date range does not. Asserted as an absolute figure
+	 * beside the emptiness assertions above, per CLAUDE.md.
+	 */
+	it('states how many transactions are on record', async () => {
+		expect.assertions(1);
+		const screen = render(Page, {
+			data: buildData({ accountSpan: SPAN_SAME_YEAR }),
+			form: null as ActionData
+		});
+
+		expect(screen.container.textContent).toContain('56');
+	});
+
+	it('uses the singular description for an account holding exactly one transaction', async () => {
+		expect.assertions(2);
+		const screen = render(Page, {
+			data: buildData({
+				accountSpan: { count: 1, firstDate: '2026-03-03', lastDate: '2026-03-03' }
+			}),
+			form: null as ActionData
+		});
+
+		const locale = getLocale();
+		const args = {
+			count: 1,
+			from: formatShortDate('2026-03-03', locale),
+			to: formatShortDate('2026-03-03', locale)
+		};
+		await expect
+			.element(screen.getByText(m.dashboard_other_period_description_one(args)))
+			.toBeInTheDocument();
+		// And the plural form is genuinely absent, not merely also present.
+		expect(screen.container.textContent).not.toContain(
+			m.dashboard_other_period_description_many(args)
+		);
+	});
+
+	/**
+	 * A span crossing a year boundary must name at least one year, or "du 3 déc. au 12 janv." is
+	 * ambiguous and arguably false. `formatShortDate` decides the year per date against the CURRENT
+	 * year, which makes the ambiguous form unreachable: two dates that both omit the year are both
+	 * in the current year and cannot span a boundary. Asserted with a bare four-digit-year regex
+	 * rather than by calling the formatter again, so this stays a real cross-check on the rendered
+	 * sentence instead of an identity.
+	 */
+	it('names a year when the span crosses a year boundary', async () => {
+		expect.assertions(2);
+		const screen = render(Page, {
+			data: buildData({
+				accountSpan: { count: 120, firstDate: '2025-12-03', lastDate: '2026-01-12' }
+			}),
+			form: null as ActionData
+		});
+
+		// Scoped to the description paragraph, never the whole container: the period selector and
+		// the page heading both print "2026" on their own, so a container-wide regex would pass
+		// whatever the description said. Calibrated by breaking it — see the boundary probe.
+		const description = Array.from(screen.container.querySelectorAll('p'))
+			.map((paragraph) => paragraph.textContent ?? '')
+			.find((text) => text.includes('120'));
+		expect(description).toBeDefined();
+		expect(description).toMatch(/\b20\d{2}\b/);
+	});
+
+	it('offers the way out and keeps an import entry point reachable', async () => {
+		expect.assertions(2);
+		const screen = render(Page, {
+			data: buildData({ accountSpan: SPAN_SAME_YEAR }),
+			form: null as ActionData
+		});
+
+		// `all-time` is an existing `parseDateRange` key and an existing option in the period
+		// selector above — the way out is the period the user could already have picked by hand.
+		expect(screen.container.querySelector('a[href="/?period=all-time"]')).not.toBeNull();
+		expect(screen.container.querySelector('a[href="/import"]')).not.toBeNull();
 	});
 });
 

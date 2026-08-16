@@ -74,6 +74,15 @@ export interface DashboardData {
 	categoryNatureMappings: CategoryNatureMappingRecord[];
 }
 
+/** Account-level transaction facts, period-independent. See readAccountTransactionSpan. */
+export interface AccountTransactionSpan {
+	count: number;
+	/** ISO `yyyy-mm-dd`, null exactly when count is 0. */
+	firstDate: string | null;
+	/** ISO `yyyy-mm-dd`, null exactly when count is 0. */
+	lastDate: string | null;
+}
+
 export interface CreateTransactionInput {
 	date: string;
 	label: string;
@@ -121,6 +130,42 @@ export function parseMonth(value: string | null): string {
 	if (!value) return getCurrentMonth();
 	if (!isValidMonth(value)) throw error(400, 'Mois invalide');
 	return value;
+}
+
+/**
+ * What the account holds, independent of any period: how many transactions exist at all, and the
+ * first and last dates they span. `count === 0` is the only thing that means "this account has
+ * never had data" — every other read on the dashboard is period-scoped or lookback-scoped and
+ * cannot answer it.
+ *
+ * Sourced from Transaction and deliberately NOT from ImportBatch.periodStart/periodEnd: a manually
+ * entered transaction carries no batch, so a batch-derived span reports an empty account for
+ * someone whose only data was typed in.
+ *
+ * `firstDate`/`lastDate` are ISO `yyyy-mm-dd`, matching how Transaction.date is rendered everywhere
+ * else on this page; both are null exactly when `count` is 0.
+ *
+ * One query. `_min`/`_max` under a leading `userId` equality are endpoint reads on the existing
+ * `@@index([userId, date])`; `_count` is a counted range over the same index. The count is carried
+ * rather than dropped because the state it feeds exists to refute "the import failed", and a row
+ * count refutes that where a date range does not.
+ */
+export async function readAccountTransactionSpan(userId: string): Promise<AccountTransactionSpan> {
+	const aggregate = await prisma.transaction.aggregate({
+		where: { userId },
+		_count: { _all: true },
+		_min: { date: true },
+		_max: { date: true }
+	});
+	return {
+		count: aggregate._count._all,
+		firstDate: toIsoDate(aggregate._min.date),
+		lastDate: toIsoDate(aggregate._max.date)
+	};
+}
+
+function toIsoDate(value: Date | null): string | null {
+	return value ? value.toISOString().slice(0, 10) : null;
 }
 
 export async function readDashboardData(userId: string, month: string): Promise<DashboardData> {

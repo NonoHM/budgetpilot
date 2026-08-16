@@ -63,6 +63,32 @@
 			data.upcomingBills.hasStreams ||
 			data.upcomingBills.emptyState === 'all-stale'
 	);
+	// Every flag above is period-scoped or lookback-scoped, so none of them can tell "this account
+	// has never had data" from "this account has data, just not in the period you are looking at".
+	// Rendering the first-run copy over the second case is what made a user who had just imported 56
+	// transactions conclude the import had failed (blind session, finding A7). `accountSpan` is the
+	// only account-level fact on this payload, and it narrows the onboarding branch rather than
+	// replacing it: on a genuinely empty account `count` is 0 and the copy below is untouched.
+	const hasAccountHistory = $derived(data.accountSpan.count > 0);
+	// `formatShortDate` decides the year PER DATE against the current year, which is what keeps this
+	// unambiguous across a year boundary at no extra cost: two dates that both omit the year are
+	// both in the current year and therefore cannot span one. Measured across six boundary cases,
+	// including "du 3 déc. 2025 au 12 janv." and "du 1 mars 2024 au 27 avr." — asymmetric, and the
+	// asymmetry is exactly what carries the information. Kept rather than forcing the year on both
+	// sides, which would only add noise to the common single-year case.
+	const accountSpanDescription = $derived.by(() => {
+		const { count, firstDate, lastDate } = data.accountSpan;
+		if (!firstDate || !lastDate) return '';
+		const locale = getLocale();
+		const args = {
+			count,
+			from: formatShortDate(firstDate, locale),
+			to: formatShortDate(lastDate, locale)
+		};
+		return count !== 1
+			? m.dashboard_other_period_description_many(args)
+			: m.dashboard_other_period_description_one(args);
+	});
 	// Delta = projected balance at the end of the horizon minus today's known balance (the ledger's
 	// realized/projected boundary, see CashFlowLedger.todayIndex) — colored per the app's standard
 	// monetary convention (emerald positive / rose negative), unlike the chart's own monochrome
@@ -323,19 +349,65 @@
 					<path d="M5 21h14" />
 				</svg>
 			{/snippet}
-			<EmptyState
-				class="mt-6"
-				icon={emptyIcon}
-				title={m.dashboard_empty_heading()}
-				description={m.dashboard_empty_description()}
-				ctaLabel={m.dashboard_empty_cta()}
-				ctaHref="/import"
-				secondaryLabel={m.dashboard_empty_manual_cta()}
-				onSecondaryClick={() => (showManualModal = true)}
-			/>
-			<p class="mt-3 text-center text-xs text-zinc-400">
-				{m.dashboard_empty_footer()}
-			</p>
+			{#if hasAccountHistory}
+				<!-- The account HAS data, this period does not. Reached by landing on `/` (default
+				     `this-month`) after importing a statement dated outside the current month. The
+				     description names the real span rather than saying "another period" and stopping,
+				     and it leads with the row count because the state exists to refute "the import
+				     failed" — a count refutes that where a date range does not.
+				     The action pair is EmptyState's documented `action` snippet, the same two-button
+				     shape /reports already uses for its own import + change-period pair. The import
+				     link stays reachable here for the reason the header gate above records: this panel
+				     is the page's only other "/import" entry point while the body is hidden. -->
+				{#snippet otherPeriodIcon()}
+					<svg
+						class="h-5 w-5 text-zinc-400"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.6"
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						aria-hidden="true"
+					>
+						<rect x="3" y="5" width="18" height="16" rx="2" />
+						<path d="M3 10h18" />
+						<path d="M8 3v4" />
+						<path d="M16 3v4" />
+					</svg>
+				{/snippet}
+				{#snippet otherPeriodAction()}
+					<div class="mt-1 flex w-full flex-col items-center gap-2 sm:w-auto sm:flex-row">
+						<Button href="/?period=all-time" class="w-full sm:w-auto">
+							{m.dashboard_other_period_cta()}
+						</Button>
+						<Button href="/import" variant="secondary" class="w-full sm:w-auto">
+							{m.dashboard_other_period_import_cta()}
+						</Button>
+					</div>
+				{/snippet}
+				<EmptyState
+					class="mt-6"
+					icon={otherPeriodIcon}
+					title={m.dashboard_other_period_heading()}
+					description={accountSpanDescription}
+					action={otherPeriodAction}
+				/>
+			{:else}
+				<EmptyState
+					class="mt-6"
+					icon={emptyIcon}
+					title={m.dashboard_empty_heading()}
+					description={m.dashboard_empty_description()}
+					ctaLabel={m.dashboard_empty_cta()}
+					ctaHref="/import"
+					secondaryLabel={m.dashboard_empty_manual_cta()}
+					onSecondaryClick={() => (showManualModal = true)}
+				/>
+				<p class="mt-3 text-center text-xs text-zinc-400">
+					{m.dashboard_empty_footer()}
+				</p>
+			{/if}
 		{:else}
 			<!-- STATE WITH DATA -->
 			<!-- Explicit two-column flex layout, wrapped — never CSS grid auto-placement (the root
