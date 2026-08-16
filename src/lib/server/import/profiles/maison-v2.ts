@@ -20,6 +20,7 @@ import {
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
 import { createOccurrenceCounter } from '../occurrence';
+import { foldExactHeader } from '../utils/encoding';
 
 /**
  * « maison » version 2 — the export's own format once a transaction can be répartie (OD-2, option b).
@@ -54,7 +55,7 @@ const MAX_CATEGORY_LENGTH = 80;
 const PART_PATTERN = /^(\d{1,3})\/(\d{1,3})$/;
 
 export function matchesMaisonV2Header(headers: string[]): boolean {
-	const normalizedHeaders = headers.map((header) => header.trim().toLowerCase());
+	const normalizedHeaders = headers.map(foldExactHeader);
 	return (
 		normalizedHeaders.length === MAISON_V2_HEADERS.length &&
 		normalizedHeaders.every((header, index) => header === MAISON_V2_HEADERS[index])
@@ -77,7 +78,7 @@ interface AllocationLine {
 }
 
 export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): CsvImportResult {
-	const headers = rows[0].cells.map((header) => header.trim().toLowerCase());
+	const headers = rows[0].cells.map(foldExactHeader);
 
 	if (!matchesMaisonV2Header(headers)) {
 		return emptyResult(

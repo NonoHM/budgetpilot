@@ -1,4 +1,5 @@
 import { MAPPING_ROLES, type MappingRole, type UntrustedColumnMapping } from './model';
+import { foldExactHeader } from '../utils/encoding';
 
 /**
  * Which header of THIS file fills each role, or null where the role was never mapped.
@@ -20,7 +21,7 @@ export type MappingVerdict =
 
 /** Trim and lowercase, the same fold `fingerprintFor` applies, so the two never disagree. */
 function fold(header: string): string {
-	return header.trim().toLowerCase();
+	return foldExactHeader(header);
 }
 
 /**

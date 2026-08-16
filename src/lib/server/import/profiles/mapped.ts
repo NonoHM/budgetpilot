@@ -12,6 +12,7 @@ import {
 	type MappingRole
 } from '../mapping/model';
 import { parseResolvedRows } from './resolvedRows';
+import { foldExactHeader } from '../utils/encoding';
 
 /** The currency columns and the accepted value, shared with `generic` for the same reason. */
 const CURRENCY_COLUMNS = ['currency', 'devise'];
@@ -52,7 +53,7 @@ export function parseMappedRows({
 	columnMapping
 }: MappedParseInput): CsvImportResult {
 	const headerRefusals: CsvRefusal[] = [];
-	const headers = rows[0].cells.map((header) => header.trim().toLowerCase());
+	const headers = rows[0].cells.map(foldExactHeader);
 
 	// A duplicated header is STILL a refusal, for the reason `generic` records: `toRecord` assigns
 	// `record[header] = row[index]`, so a later duplicate OVERWRITES an earlier one and the last
@@ -180,10 +181,10 @@ function resolveMappedColumns(
 	// whenever any mapped role is missing.
 	return {
 		columns: {
-			date: (date as string).trim().toLowerCase(),
-			label: (label as string).trim().toLowerCase(),
-			amount: (amount as string).trim().toLowerCase(),
-			category: category === null ? null : category.trim().toLowerCase()
+			date: foldExactHeader(date as string),
+			label: foldExactHeader(label as string),
+			amount: foldExactHeader(amount as string),
+			category: category === null ? null : foldExactHeader(category)
 		}
 	};
 }

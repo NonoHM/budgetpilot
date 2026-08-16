@@ -198,3 +198,44 @@ describe('the cascade, which is where engines have diverged before', () => {
 		expect(await countColumnMappings(alice)).toBeGreaterThan(0);
 	});
 });
+
+/**
+ * The accent fold, against an engine whose default collation folds accents ITSELF.
+ *
+ * `generic` now folds diacritics before matching its alias table, so `Libellé` resolves where it
+ * used to be refused. The mapping path deliberately does NOT: `foldExactHeader` folds case only,
+ * because the fingerprint it feeds is WRITTEN TO THIS DATABASE and a changed fold changes every
+ * stored fingerprint at once.
+ *
+ * That argument is about application code, and it is only half the story. MariaDB's default
+ * collation is accent- and case-insensitive, so a comparison this repository performs in SQL can
+ * fold what the application deliberately kept apart — and it would do it on one engine only,
+ * silently, which is the failure mode no local sqlite run can show. Hence this test, here.
+ */
+describe('two correspondances that differ only by an accent', () => {
+	it('stay two rows, each found by its own fingerprint, on every engine', async () => {
+		const stamp = `${Date.now()}-accent`;
+		const accented = [`libellé-${stamp}`, 'montant'];
+		const plain = [`libelle-${stamp}`, 'montant'];
+
+		// Distinct in the application, by construction: `foldExactHeader` keeps the accent.
+		expect(fingerprintFor(accented, 'name')).not.toBe(fingerprintFor(plain, 'name'));
+
+		const a = await saveColumnMapping(alice, fingerprintFor(accented, 'name'), MAPPING);
+		const b = await saveColumnMapping(alice, fingerprintFor(plain, 'name'), MAPPING);
+		expect(a.ok).toBe(true);
+		expect(b.ok).toBe(true);
+		// Two rows, not one. `@@unique([userId, fingerprint])` under an accent-insensitive
+		// collation would have made the second an upsert over the first.
+		expect(a.ok && b.ok && a.id).not.toBe(b.ok && b.id);
+
+		// And each is FOUND by its own headers rather than by the other's. This is the assertion
+		// that would go red on an engine that folded the two together in SQL: the lookup would
+		// return whichever row it hit first, and a user's July statement would be read through
+		// their June bank's columns.
+		const foundAccented = await readColumnMapping(alice, accented);
+		const foundPlain = await readColumnMapping(alice, plain);
+		expect(foundAccented?.id).toBe(a.ok ? a.id : '');
+		expect(foundPlain?.id).toBe(b.ok ? b.id : '');
+	});
+});

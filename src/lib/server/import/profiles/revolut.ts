@@ -28,6 +28,7 @@ import {
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
 import { createOccurrenceCounter } from '../occurrence';
+import { foldComparableHeader } from '../utils/encoding';
 
 /**
  * Revolut's ten columns, in the spellings this profile accepts.
@@ -63,7 +64,7 @@ export const REVOLUT_HEADERS = REVOLUT_COLUMNS.map((column) => column.canonical)
 /** Every accepted spelling, folded, to the canonical name it stands for. */
 const SPELLING_TO_CANONICAL = new Map(
 	REVOLUT_COLUMNS.flatMap((column) =>
-		column.spellings.map((spelling) => [normalizeComparableHeader(spelling), column.canonical])
+		column.spellings.map((spelling) => [foldComparableHeader(spelling), column.canonical])
 	)
 );
 
@@ -94,7 +95,7 @@ const REVOLUT_METADATA_FIELDS = [
  * format, not a reordering, and it needs a stated sign rule. It is out of scope here.
  */
 export function matchesRevolutHeader(headers: string[]): boolean {
-	const normalizedHeaders = normalizeHeaderCells(headers).map(normalizeComparableHeader);
+	const normalizedHeaders = normalizeHeaderCells(headers).map(foldComparableHeader);
 	if (normalizedHeaders.length !== REVOLUT_COLUMNS.length) return false;
 	const canonicals = new Set(
 		normalizedHeaders
@@ -304,20 +305,12 @@ export function parseRevolutRows({
 	};
 }
 
-function normalizeComparableHeader(value: string): string {
-	return value
-		.trim()
-		.normalize('NFD')
-		.replace(/\p{Diacritic}/gu, '')
-		.toLowerCase();
-}
-
 function normalizeRevolutRecord(record: Record<string, string>): Record<string, string> {
 	const normalized: Record<string, string> = {};
 	for (const [key, value] of Object.entries(record)) {
 		// Any accepted spelling, French or English, becomes the canonical French key, so every
 		// read below this line is unchanged by the widening.
-		const canonical = SPELLING_TO_CANONICAL.get(normalizeComparableHeader(key));
+		const canonical = SPELLING_TO_CANONICAL.get(foldComparableHeader(key));
 		normalized[canonical ?? key] = value;
 	}
 	return normalized;
@@ -331,11 +324,11 @@ function normalizeRevolutRecord(record: Record<string, string>): Record<string, 
  * independently and are therefore break checked independently.
  *
  * An allow list of two values, not a pattern: anything else is still refused, which is the
- * point of the column. `normalizeComparableHeader` folds case and diacritics, so `Terminé`,
+ * point of the column. `foldComparableHeader` folds case and diacritics, so `Terminé`,
  * `TERMINE`, `Completed` and `COMPLETED` all land here.
  */
 const COMPLETED_STATES = new Set(['termine', 'completed']);
 
 function isCompletedState(value: string): boolean {
-	return COMPLETED_STATES.has(normalizeComparableHeader(value));
+	return COMPLETED_STATES.has(foldComparableHeader(value));
 }
