@@ -74,7 +74,13 @@ export function normalizeDate(value: string): string {
 	const isoDateTime = /^(\d{4}-\d{2}-\d{2})[ T]/.exec(trimmed);
 	if (isoDateTime && isValidIsoDate(isoDateTime[1])) return isoDateTime[1];
 
-	const frenchDate = /^(\d{2})[/-](\d{2})[/-](\d{4})/.exec(trimmed);
+	// `.` joins `/` and `-` as a separator, never as a new ORDERING. `dd.mm.yyyy` is the German,
+	// Swiss and Austrian form and those are day-first without exception, while the month-first
+	// convention this file already refuses to accommodate (see `CHASE` in realHeaders.fixture.ts)
+	// is written with slashes. So the dot is strictly safer than the two separators beside it.
+	// A blind session met a statement written this way and could only import it by replacing
+	// twenty-five dots in a text editor. See `dottedDate.spec.ts`.
+	const frenchDate = /^(\d{2})[/.-](\d{2})[/.-](\d{4})/.exec(trimmed);
 	if (!frenchDate) return trimmed;
 
 	const [, day, month, year] = frenchDate;
