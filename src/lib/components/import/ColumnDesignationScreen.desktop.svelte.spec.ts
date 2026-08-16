@@ -146,19 +146,99 @@ describe('the banner and the actions are one box, and the box is what sticks', (
 	});
 });
 
-describe('Lacune B: the preview table is not built, and its absence is deliberate', () => {
-	it('reserves the room and renders no table', () => {
-		// Recorded as a test rather than as a comment because "for completeness" is exactly how a
-		// table gets added here. The referential contains no table at all while three screens ship
-		// one, so building it here would define the component from its rarest case.
-		//
-		// Two states separated: a slot that exists and is empty, against a screen that simply forgot
-		// the region. The first is a scope decision and the second is an omission.
+describe('Lacune B: the preview table is drawn, and only when there are real rows to draw', () => {
+	/**
+	 * This block used to assert the slot was EMPTY, and that was right while the argument was about
+	 * the referential. It is now about what the file carries.
+	 *
+	 * The slot stayed empty in production for a measurable cost: at 1280 it was 806 px wide and
+	 * 0 px tall, so the screen was a 400 px column with 855 px of blank beside it. The table is
+	 * built locally and unregistered — #332 still owns the shared brique and this is its first
+	 * consumer to absorb, never its source.
+	 *
+	 * What survives from the old assertion is the discipline: the slot must not draw a table it has
+	 * no rows for. `samples` are chosen per column and would fabricate transactions, so a screen
+	 * without `previewRows` draws nothing rather than drawing something plausible.
+	 */
+	it('reserves the room and renders no table when the file carries no preview rows', () => {
 		const { previewSlot, container } = mount();
 
 		expect(previewSlot).not.toBeNull();
 		expect(previewSlot.children.length).toBe(0);
 		expect(container.querySelectorAll('table').length).toBe(0);
+	});
+
+	it('draws the table once the file carries real rows, with a header cell per column', () => {
+		const { container } = mount({
+			file: {
+				...FILE,
+				previewRows: [
+					HEADERS.map((_, index) => `r0c${index}`),
+					HEADERS.map((_, index) => `r1c${index}`)
+				]
+			}
+		});
+
+		const table = container.querySelector('table');
+		expect(table).not.toBeNull();
+		// One `<th>` per column of the file, and every one scoped — #363 measures 0 of 66 across
+		// the product and new markup must not add to that figure.
+		expect(table!.querySelectorAll('thead th').length).toBe(HEADERS.length);
+		expect(table!.querySelectorAll('thead th[scope="col"]').length).toBe(HEADERS.length);
+		// Two rows in, two rows out. The absolute figure, because a table that rendered one row
+		// would satisfy "a table exists".
+		expect(table!.querySelectorAll('tbody tr').length).toBe(2);
+	});
+
+	/**
+	 * The plate's own arithmetic, pinned.
+	 *
+	 * « Tableau 806 = 1 230 − 400 − 24, puis 772 de contenu une fois sa propre bordure et ses
+	 * 16 px de marge retirés. Colonne à 132 px, sauf le libellé désigné à 200 [...] 132 × 4 + 200
+	 * = 728 dans 772 », header row 40, data rows 44 — « les 44 px viennent de la densité, pas de
+	 * la règle tactile ».
+	 *
+	 * Every one of these was wrong on the first build: `table-layout: fixed` on a table with no
+	 * stated width lays out against its CONTAINER, so the declared widths became proportions and
+	 * a 13-column file drew nine columns in 774 px while the indicator beside them said five. The
+	 * figures are asserted because they were briefly plausible and false together.
+	 */
+	it('lays the columns out at the plate figures rather than at whatever fitted', () => {
+		const { container } = mount({
+			file: { ...FILE, previewRows: [HEADERS.map((_, index) => `r0c${index}`)] },
+			initialAssignment: { date: 0, label: 1, amount: 2, category: null }
+		});
+
+		const ths = [...container.querySelectorAll('thead th')] as HTMLElement[];
+		// Widths are declared inline, so they are readable without a layout pass — which is what
+		// makes this assertion possible in jsdom at all.
+		const widthOf = (el: HTMLElement) => el.style.width;
+		expect(widthOf(ths[0])).toBe('132px');
+		// The column carrying the Libellé role, and only it, gets 200.
+		expect(widthOf(ths[1])).toBe('200px');
+		expect(widthOf(ths[2])).toBe('132px');
+		// The table states its own width, which is the whole reason the widths above are absolute
+		// rather than proportional.
+		const table = container.querySelector('table') as HTMLElement;
+		expect(table.style.width).toBe(`${132 * (HEADERS.length - 1) + 200}px`);
+	});
+
+	/**
+	 * The direction this change is NOT moving in.
+	 *
+	 * The plate decided that designated columns are not pulled to the left: reordered, the preview
+	 * becomes a second source of truth that contradicts the same file opened in a spreadsheet.
+	 */
+	it('leaves the columns in the file order rather than pulling designated ones left', () => {
+		const { container } = mount({
+			file: { ...FILE, previewRows: [HEADERS.map((_, index) => `r0c${index}`)] },
+			initialAssignment: { date: 3, label: 1, amount: 5, category: null }
+		});
+
+		const cells = [...container.querySelectorAll('tbody tr:first-child td')].map((td) =>
+			(td.textContent ?? '').trim()
+		);
+		expect(cells).toEqual(HEADERS.map((_, index) => `r0c${index}`));
 	});
 
 	it('still shows every value through the picker, which is why the table can wait', () => {

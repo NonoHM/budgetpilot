@@ -1521,5 +1521,10 @@
 	"settings_mappings_error_invalid": "Invalid correspondence.",
 	"settings_mappings_error_not_found": "Correspondence not found.",
 	"settings_mappings_success_deleted": "Correspondence forgotten.",
-	"import_columns_cap_reached_action": "Remove one in Settings"
+	"import_columns_cap_reached_action": "Remove one in Settings",
+	"import_columns_preview_heading": "File preview",
+	"import_columns_preview_caption": "Preview of the first rows of {name}, column by column.",
+	"import_columns_preview_range": "{shown} of {total} columns visible",
+	"import_columns_preview_range_one": "{shown} of {total} columns visible",
+	"import_columns_header_absent_short": "Column {index}"
 }

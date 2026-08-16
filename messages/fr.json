@@ -1521,5 +1521,10 @@
 	"settings_mappings_error_invalid": "Correspondance invalide.",
 	"settings_mappings_error_not_found": "Correspondance introuvable.",
 	"settings_mappings_success_deleted": "Correspondance oubliée.",
-	"import_columns_cap_reached_action": "Supprimez-en une dans Paramètres"
+	"import_columns_cap_reached_action": "Supprimez-en une dans Paramètres",
+	"import_columns_preview_heading": "Aperçu du fichier",
+	"import_columns_preview_caption": "Aperçu des premières lignes de {name}, colonne par colonne.",
+	"import_columns_preview_range": "{shown} colonnes sur {total} visibles",
+	"import_columns_preview_range_one": "{shown} colonne sur {total} visible",
+	"import_columns_header_absent_short": "Colonne {index}"
 }

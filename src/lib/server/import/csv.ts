@@ -147,6 +147,34 @@ export function importFirstDataRow(rows: ParsedCsvRow[]): string[] {
 }
 
 /**
+ * The file's first `count` DATA rows, in file order, each padded to the header's width.
+ *
+ * ## Why this exists when `importSampleValues` already returns values
+ *
+ * They answer different questions and only one of them can be drawn as a TABLE. Samples are
+ * chosen per column because they discriminate — a sparse column shows its own three values
+ * rather than three blanks — so `samples[0][0]` and `samples[1][0]` routinely come from
+ * different rows of the file. Laying them out as a grid would invent rows that do not exist in
+ * the user's statement, and the plate's own reason for the preview is that it shows the file:
+ * reordered or fabricated, it becomes a second source of truth that contradicts the same file
+ * opened in a spreadsheet.
+ *
+ * So the preview reads REAL consecutive rows, in the file's own order, and the samples go on
+ * answering the question the picker cards ask.
+ *
+ * Padded to the header width for the same reason `importFirstDataRow` is: a short row must draw
+ * empty cells under the right columns rather than shifting every value one to the left.
+ */
+export function importPreviewRows(rows: ParsedCsvRow[], count = 5): string[][] {
+	const normalized = normalizeParsedRows(rows);
+	if (normalized.length === 0) return [];
+	const header = normalized[0].cells;
+	return normalized
+		.slice(1, 1 + Math.max(0, count))
+		.map((row) => header.map((_, column) => row.cells[column] ?? ''));
+}
+
+/**
  * How many DATA rows carry a value in each column.
  *
  * The other half of « chosen to discriminate ». The samples now show a sparse column its own

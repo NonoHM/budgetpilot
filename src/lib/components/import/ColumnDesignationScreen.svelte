@@ -11,6 +11,7 @@
 	} from '$lib/domain/columnDesignation';
 	import { bannerFor, fileMetaLine, submitLabel } from '$lib/domain/columnDesignationBanner';
 	import { roleLabel } from '$lib/domain/columnMappingLabels';
+	import FilePreviewTable from './FilePreviewTable.svelte';
 	import ConditionBanner from '$lib/components/ui/ConditionBanner.svelte';
 	import RoleRow from '$lib/components/ui/RoleRow.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -609,15 +610,19 @@
 				</div>
 
 				<!--
-					LACUNE B, deliberately empty. The `Apercu du fichier` table is not built here and
-					that is a scope decision rather than an omission: the referential contains no table
-					at all while three screens already ship one, so building it here would define the
-					component from its RAREST case. Filed as this screen's first consumer.
+					LACUNE B, now drawn. It stayed empty while the argument was about the REFERENTIAL:
+					registering the shared table from this screen would define it from its rarest case,
+					and #332 still owns that ordering. What changed is the measurement — at 1280 this
+					slot was 806 px wide and 0 px tall, so the screen was a 400 px column with 855 px of
+					blank beside it, on the one screen a user reaches when the application has already
+					failed to read their statement.
 
-					The desktop is therefore ruling D2 widened: the values are read in the picker
-					cards, exactly as at 390.
+					`FilePreviewTable` is therefore LOCAL and unregistered, and it is #332's first
+					consumer to absorb rather than its source. Its measurements come from the plate.
 				-->
-				<div class="min-w-0 flex-1" data-testid="designation-preview-slot"></div>
+				<div class="flex min-w-0 flex-1" data-testid="designation-preview-slot">
+					<FilePreviewTable file={effectiveFile} {assignment} />
+				</div>
 			</div>
 		</div>
 	</div>
