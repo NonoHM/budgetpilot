@@ -6,6 +6,7 @@ import {
 	importFirstDataRow,
 	importHeaderCells,
 	importSampleCoverage,
+	importPreviewRows,
 	importSampleValues,
 	parseCsvTransactionRows
 } from '$lib/server/import/csv';
@@ -169,6 +170,7 @@ export const actions: Actions = {
 					name: importFile.name,
 					headers: headerCells,
 					samples: importSampleValues(importData.rows),
+					previewRows: importPreviewRows(importData.rows),
 					coverage: importSampleCoverage(importData.rows),
 					firstRow: importFirstDataRow(importData.rows),
 					rowCount: Math.max(0, importData.rows.length - 1),
@@ -235,6 +237,7 @@ export const actions: Actions = {
 								name: importFile.name,
 								headers: headerCells,
 								samples: importSampleValues(importData.rows),
+								previewRows: importPreviewRows(importData.rows),
 								coverage: importSampleCoverage(importData.rows),
 								firstRow: importFirstDataRow(importData.rows),
 								rowCount: Math.max(0, result.summary.totalRows),

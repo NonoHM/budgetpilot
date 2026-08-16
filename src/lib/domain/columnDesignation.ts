@@ -44,6 +44,18 @@ export interface DesignationFile {
 	 */
 	firstRow?: readonly string[];
 	/**
+	 * The file's first rows, REAL and consecutive, for the desktop preview table.
+	 *
+	 * Not `samples`, and the distinction is load-bearing: samples are chosen per column because
+	 * they discriminate, so two of them on the same index routinely come from different rows.
+	 * Drawn as a grid they would invent a transaction the statement does not contain, and the
+	 * preview's whole justification is that it shows the file.
+	 *
+	 * Absent on the recap route, which has no file in hand: the correspondance survives, the
+	 * upload does not, so there are no rows to draw and the table is not rendered.
+	 */
+	previewRows?: readonly (readonly string[])[];
+	/**
 	 * Per column, how many data rows carry a value. Read against `rowCount`.
 	 *
 	 * Optional because a `DesignationFile` assembled by a test or an older client may not carry

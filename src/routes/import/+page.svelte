@@ -172,6 +172,10 @@
 				name: designation.name,
 				headers: designation.headers,
 				samples: designation.samples,
+				// The preview table's rows. Listed explicitly like every other field: this object is
+				// rebuilt key by key rather than spread, so a field added to the payload and not
+				// added here reaches the screen as `undefined` and the table silently draws nothing.
+				previewRows: designation.previewRows,
 				coverage: designation.coverage,
 				firstRow: designation.firstRow,
 				rowCount: designation.rowCount,
