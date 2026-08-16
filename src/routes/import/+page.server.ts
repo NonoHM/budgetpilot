@@ -370,22 +370,52 @@ function buildImportResult(
 }
 
 /**
- * Whether this refusal is one the designation screen can repair.
+ * Refusals naming a column cannot address, so the designation screen would be work that cannot
+ * succeed.
  *
- * The two states it separates: a file nothing recognised, and a file recognised and then refused on
- * its CONTENT. Only the first is a column problem. Sending a user to name columns on a GBP file, or
- * on one whose amounts are magnitudes beside a debit/credit indicator, is work that cannot succeed
- * and ends with them believing the feature is broken.
+ * A currency the app does not hold is a fact about the money, not about which column carries it.
+ * Amounts whose sign lives in a separate column, or whose value is split across two, are shapes the
+ * four closed roles cannot express: there is no column to name that would make either importable.
+ * Sending a user to designate on any of these ends with them believing the feature is broken.
+ */
+const DESIGNATION_CANNOT_REPAIR = new Set<string>([
+	'unsupported-currency',
+	'amount-sign-in-separate-column',
+	'amount-split-across-columns'
+]);
+
+/**
+ * Whether a file that produced nothing is offered the designation screen.
  *
- * Read from the refusal CODE rather than from "the parse produced nothing", because nearly every
- * refusal produces nothing.
+ * ## What this used to be, and what it cost
+ *
+ * It used to require a `missing-required-column` refusal, which means it only ever fired for a file
+ * NOTHING recognised. A file whose headers matched a profile and whose VALUES then failed got no
+ * offer at all, and the two are indistinguishable from the outside: both end on « Aucune
+ * transaction valide à importer », one with a way forward and one without.
+ *
+ * The blind usability session ran into exactly that. Dates written `01.06.2026` were rejected on
+ * all 25 rows, the headers had matched, so the rescue that exists was routed away from the file
+ * that needed it. The tester abandoned the task and hand-edited the statement in a text editor.
+ *
+ * ## The rule now
+ *
+ * Offered to any import that produced no transaction, minus what it provably cannot repair. Read
+ * from `every` rather than `some`: a file where one row failed on an unusable currency and the rest
+ * on their dates is still a file naming a column might rescue, and it is only when EVERY refusal is
+ * outside the screen's reach that the offer would be a dead end.
+ *
+ * A file with no data row is excluded for a different reason: the screen rests on the preview
+ * (handoff §6), so there is nothing for it to show. `every` over an empty list is true, which
+ * closes the no-refusal case by the same expression.
  */
 function offersDesignation(
 	result: ReturnType<typeof parseCsvTransactionRows>,
 	headerCells: string[]
 ): boolean {
 	if (headerCells.length === 0) return false;
-	return result.invalidRows.some((row) => row.fact.code === 'missing-required-column');
+	if (result.summary.totalRows === 0) return false;
+	return !result.invalidRows.every((row) => DESIGNATION_CANNOT_REPAIR.has(row.fact.code));
 }
 
 const INVALID_NET_WORTH_ACCOUNT = Symbol('invalid-net-worth-account');
