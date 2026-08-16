@@ -2,6 +2,62 @@
 
 ## [0.12.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.11.2...budgetpilot-v0.12.0) (2026-08-16)
 
+**This release is about one thing: importing a bank statement BudgetPilot does not recognise.**
+The list below is thirty-odd commits; four of them change what happens to your money, and those
+four are worth reading before you upgrade.
+
+### If you import statements, read this
+
+**A statement re-imported through different columns used to double your figures silently. It now
+warns.** Duplicate detection compares the columns you designated, so the same statement read a
+second time under a different label column produced a second set of transactions, reported as an
+ordinary success. If two of your imports already overlap, the app now names them instead of
+adding to the pile. Check `/imports` for two runs of the same file if you imported anything twice
+since 0.11.
+
+**Remembered column choices can now be removed.** BudgetPilot remembers one answer per header
+shape, and until now nothing deleted one — with a cap on how many you may hold, that meant a user
+who reached it could never import a new bank again. `Paramètres` has the list, one row per
+correspondance, with a `Oublier` action. Removing one leaves every transaction it ever produced
+in place; it removes the answer, not the history.
+
+**A statement with no header row no longer loses its first transaction.** If your export starts
+straight into data, tick « la première ligne contient des données » on the designation screen.
+Before this release that answer never reached the parser, so the first row was read as a title and
+silently dropped, on every import of that file.
+
+**Dates written `01.06.2026` now import.** Day first, as the German, Swiss and Austrian convention
+writes them. And when a date still cannot be read, the refusal says what it read and what it
+wanted — « date non reconnue : « 01/06/26 » (attendu : JJ/MM/AAAA ou AAAA-MM-JJ) » — on all four
+profiles rather than three.
+
+### Also worth knowing
+
+- **`Libellé` resolves.** The alias table folds accents, so the commonest French label header is
+  no longer refused.
+- **A file that refuses every row now offers the designation screen**, not just a file whose
+  headers were unrecognised. Those two look identical from the outside and only one used to come
+  with a way forward.
+- **A page of identical refusals is one line and a count**, with the lines behind a reveal. The
+  offer to fix your columns is no longer pushed below twenty-five copies of one sentence.
+- **Revolut reads its English export**, and a statement declaring a non-euro currency is refused
+  rather than relabelled.
+
+### Known, and not fixed here
+
+A date cell carrying two dates — `01/01/2026-01/01/2025`, as a « période » column might — imports
+as the first of them without complaint (#366). Every impossible date is still refused; it is only
+a cell holding more than one date that slips through. Filed with its measurement rather than
+patched at the last moment, because the narrow fix risks the timestamp suffix that Revolut and
+others legitimately write.
+
+### Upgrading
+
+No migration decision to make and no configuration change. The schema gains the column-mapping
+table's link, applied by `prisma migrate deploy` as usual, and verified on SQLite, PostgreSQL 17
+and MariaDB 11.
+
+
 
 ### Features
 
