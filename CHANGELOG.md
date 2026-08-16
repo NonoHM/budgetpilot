@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.12.0...budgetpilot-v0.12.1) (2026-08-16)
+
+
+### Features
+
+* **import:** the designation screen draws its file at 1280 and keeps the desktop chrome ([#367](https://github.com/NonoHM/budgetpilot/issues/367)) ([a3e289f](https://github.com/NonoHM/budgetpilot/commit/a3e289fa7bcda6e9c200279ad61c7be906ba6c3a))
+
+
+### Maintenance
+
+* release as 0.12.1 rather than 0.13.0 ([#369](https://github.com/NonoHM/budgetpilot/issues/369)) ([112fcfb](https://github.com/NonoHM/budgetpilot/commit/112fcfbfbfd3b4db87cc2ca52948f0ba85e1e56a))
+
 ## [0.12.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.11.2...budgetpilot-v0.12.0) (2026-08-16)
 
 **This release is about one thing: importing a bank statement BudgetPilot does not recognise.**
