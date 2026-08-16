@@ -22,6 +22,7 @@
 	} from '$lib/import/pendingCollision.svelte';
 	import { MAPPING_ROLES } from '$lib/domain/mappingRoles';
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
+	import { groupInvalidRows } from '$lib/domain/groupInvalidRows';
 	import {
 		EMPTY_ASSIGNMENT,
 		type DesignationFile,
@@ -93,6 +94,15 @@
 		...data.linkableNetWorthAccounts.map((account) => ({ value: account.id, label: account.name }))
 	]);
 	let selectedNetWorthAccountId = $state('');
+
+	/**
+	 * The table's rows, folded onto the reason each was refused for.
+	 *
+	 * Derived for the TABLE only. `errorReport` below still walks `invalidRowDetails`, so the
+	 * report a user copies into a support request keeps one line per rejected row: the grouping
+	 * is a reading aid on the screen, never a reduction of what the run actually reported.
+	 */
+	const invalidRowGroups = $derived(groupInvalidRows(importResult?.invalidRowDetails ?? []));
 
 	const errorReport = $derived(
 		importResult?.invalidRowDetails
@@ -575,12 +585,53 @@
 									</tr>
 								</thead>
 								<tbody>
-									{#each importResult.invalidRowDetails as row (row.key)}
+									<!--
+									One row per REASON, not per line. Twenty-five rows carrying one sentence
+									twenty-five times pushed the offer to designate the columns off the fold,
+									which is the action the reader needed. A group of one renders exactly as
+									it always did — same line number, same preview, no disclosure — so the
+									ordinary single-refusal case is untouched.
+									-->
+									{#each invalidRowGroups as group (group.key)}
 										<tr class="border-t border-zinc-100">
-											<td class="px-3 py-2 font-medium">{scopeLabel(row.scope)}</td>
-											<td class="px-3 py-2 text-rose-700">{refusalLabel(row.fact)}</td>
-											<td class="px-3 py-2">{row.field ?? ''}</td>
-											<td class="px-3 py-2 text-zinc-600">{row.preview}</td>
+											<td class="px-3 py-2 font-medium">
+												{#if group.count === 1}
+													{scopeLabel(group.head.scope)}
+												{:else}
+													{m.import_invalid_group_lines({ count: group.count })}
+												{/if}
+											</td>
+											<td class="px-3 py-2 text-rose-700">{refusalLabel(group.head.fact)}</td>
+											<td class="px-3 py-2">{group.head.field ?? ''}</td>
+											<td class="px-3 py-2 text-zinc-600">
+												{#if group.count === 1}
+													{group.head.preview}
+												{:else}
+													<!--
+													A native <details>. The referential has no disclosure brique and
+													#332 is the issue that decides what the table ones become, so
+													inventing a fourth here would define a shared component from the
+													rarest case — the ordering that issue exists to prevent.
+													-->
+													<details class="group/reveal">
+														<summary
+															class="cursor-pointer list-none text-zinc-700 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none"
+														>
+															{m.import_invalid_group_reveal({ count: group.count })}
+														</summary>
+														<ul class="mt-2 space-y-1">
+															{#each group.rows as row (row.key)}
+																<li class="flex gap-2">
+																	<span class="shrink-0 font-medium text-zinc-500"
+																		>{scopeLabel(row.scope)}</span
+																	>
+																	<span>{row.preview}</span>
+																</li>
+															{/each}
+														</ul>
+													</details>
+												{/if}
+											</td>
 										</tr>
 									{/each}
 								</tbody>
@@ -791,28 +842,59 @@
 					<p class="mt-1 text-sm text-zinc-500">{m.import_invalid_description()}</p>
 
 					<div class="mt-4 space-y-3">
-						{#each importResult.invalidRowDetails as row (row.key)}
+						<!--
+						The SAME grouping as the 1280 table, over the same derived value. This list is a
+						second copy of one screen rather than a second screen, and collapsing only the
+						table left the width where the repetition costs most — eight cards of one
+						sentence, on 390 px — exactly as it was. Measured at 390 before this: the offer
+						to designate the columns sat above eight identical cards.
+						-->
+						{#each invalidRowGroups as group (group.key)}
 							<div class="rounded-xl border border-zinc-100 bg-zinc-50/60 p-3">
 								<p class="text-xs text-zinc-400">
-									{m.import_invalid_table_line()}
-									{scopeLabel(row.scope)}
+									{#if group.count === 1}
+										{m.import_invalid_table_line()}
+										{scopeLabel(group.head.scope)}
+									{:else}
+										{m.import_invalid_group_lines({ count: group.count })}
+									{/if}
 								</p>
-								<p class="mt-0.5 font-semibold text-rose-600">{refusalLabel(row.fact)}</p>
+								<p class="mt-0.5 font-semibold text-rose-600">{refusalLabel(group.head.fact)}</p>
 								<!-- Both of these are omitted rather than rendered empty: a field prefix with
 								     nothing after it, or an empty preview box, each state something the refusal
 								     does not say. A header scoped refusal names no field and previews no row. -->
-								{#if row.field}
+								{#if group.head.field}
 									<p class="mt-1 text-xs text-zinc-500">
 										{m.import_invalid_field_prefix()}
-										{row.field}
+										{group.head.field}
 									</p>
 								{/if}
-								{#if row.preview}
-									<p
-										class="mt-2 rounded-lg bg-zinc-100 px-2.5 py-2 font-mono text-xs break-words whitespace-pre-wrap text-zinc-600"
-									>
-										{row.preview}
-									</p>
+								{#if group.count === 1}
+									{#if group.head.preview}
+										<p
+											class="mt-2 rounded-lg bg-zinc-100 px-2.5 py-2 font-mono text-xs break-words whitespace-pre-wrap text-zinc-600"
+										>
+											{group.head.preview}
+										</p>
+									{/if}
+								{:else}
+									<details class="mt-2">
+										<summary
+											class="cursor-pointer list-none text-xs text-zinc-600 underline underline-offset-2 focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:outline-none"
+										>
+											{m.import_invalid_group_reveal({ count: group.count })}
+										</summary>
+										<div class="mt-2 space-y-2">
+											{#each group.rows as row (row.key)}
+												<p
+													class="rounded-lg bg-zinc-100 px-2.5 py-2 font-mono text-xs break-words whitespace-pre-wrap text-zinc-600"
+												>
+													<span class="text-zinc-400">{scopeLabel(row.scope)}</span>
+													{row.preview}
+												</p>
+											{/each}
+										</div>
+									</details>
 								{/if}
 							</div>
 						{/each}
