@@ -251,7 +251,12 @@
 		`[auto_minmax(0,1fr)_auto_auto]`, so the loss lands on the body, which is the only region
 		designed to give and which carries 125 px of air in every state.
 	-->
-	<main class="flex h-dvh w-full flex-col bg-zinc-50">
+	<!--
+		`h-dvh` at mobile, `h-full` from `lg`. The screen owns the whole viewport at 390, where it
+		carries no chrome at all; from `lg` the layout gives it the space left under the header, and
+		a hardcoded viewport height there can only push its own bottom 87 px out of sight.
+	-->
+	<main class="flex h-dvh w-full flex-col bg-zinc-50 lg:h-full">
 		{#if shownError}
 			<div class="shrink-0">
 				<AlertBanner variant="error">{shownError}</AlertBanner>
