@@ -165,14 +165,52 @@ Settings, and the model in `LLM_MODEL` actually pulled.
 
 ## My CSV import is rejected
 
-The Generic profile only accepts the columns `date`, `label`, `amount` and
-optionally `category`. Any other column is refused rather than guessed at.
-Dates are `YYYY-MM-DD` or `DD/MM/YYYY`, amounts are signed, zero amounts are
-rejected. Full format in
-[getting started](./getting-started.md#first-steps-in-the-app).
+**You don't have to reshape your file.** If BudgetPilot can't read it, the
+import summary offers **Designate the columns**, and you tell it which column
+holds the date, the label, and the amount. It remembers your answer, so the
+next statement from that bank imports without asking.
 
-If your bank's export doesn't map onto that, a new import profile is a very
-welcome contribution, see [CONTRIBUTING.md](../CONTRIBUTING.md).
+Extra columns are fine. BudgetPilot ignores what it doesn't recognise and
+imports the rest, so a bank export with fifteen columns works when three of
+them are the ones it needs.
+
+### Why this works
+
+```csv
+Date,Libellé,Montant,Solde,Référence
+01/06/2026,MERCERIE LAFAYETTE,-45.20,1204.80,REF000101
+```
+
+Three columns are recognised by name, `Solde` and `Référence` are ignored, and
+the file imports. Accented spellings work too.
+
+### Why this doesn't
+
+```csv
+Date,Libellé,Débit,Crédit
+01/06/2026,MERCERIE LAFAYETTE,45.20,
+```
+
+The amount is split across two columns. Designating one of them would drop
+every row carried by the other, so BudgetPilot refuses the file instead of
+importing half your statement. Combine the two into one signed column, where
+an expense is negative.
+
+Two more refusals you can act on:
+
+- **A date it can't read.** The message shows the value it read and the forms
+  it accepts, for example `date non reconnue : « 01/06/26 » (attendu :
+JJ/MM/AAAA ou AAAA-MM-JJ)`. Accepted forms are listed in the
+  [import reference](./reference/imports.md#accepted-date-formats).
+- **A currency that isn't euros.** BudgetPilot stores euros only, so a file
+  declaring `GBP` is refused rather than relabelled.
+
+If your statement has no header row at all, open **Designate the columns** and
+turn on **The first row contains data**. Without it, BudgetPilot reads your
+first transaction as a title and you lose it.
+
+Still stuck? A new import profile is a welcome contribution, see
+[CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## I lost my two-factor device
 

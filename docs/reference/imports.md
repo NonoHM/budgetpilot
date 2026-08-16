@@ -36,7 +36,31 @@ spelling. A **category** column is used when present and is optional.
 | Label  | `label`, `libelle`, `Description`, `Partner Name`                  |
 | Amount | `amount`, `montant`, `Amount (EUR)`                                |
 
-Case and surrounding spaces do not matter.
+Case, surrounding spaces, and accents do not matter: `Libellé`, `libelle`, and
+`LIBELLE` all fill the label role.
+
+If **two** columns claim the same role, the file is refused and the message
+names both. BudgetPilot does not pick one, because picking silently decides
+which column holds your money.
+
+### Accepted date formats
+
+| Written as   | Example      | Read as    |
+| ------------ | ------------ | ---------- |
+| `YYYY-MM-DD` | `2026-01-15` | 15 January |
+| `DD/MM/YYYY` | `15/01/2026` | 15 January |
+| `DD.MM.YYYY` | `15.01.2026` | 15 January |
+| `DD-MM-YYYY` | `15-01-2026` | 15 January |
+
+**The day always comes first**, never the month. A file written `MM/DD/YYYY`
+imports on the wrong date rather than being refused, because nothing in the
+file says which convention it uses. This is the one case designating columns
+cannot repair: convert those dates before importing.
+
+A time after the date is ignored, so `2026-01-15 10:30:00` reads as 15 January.
+
+Anything else is refused per row, and the message shows the value it read
+beside the forms it accepts.
 
 **Any column it does not recognise is ignored**, and the rest of the file
 imports. Ignoring is not the same as understanding: the column's values are

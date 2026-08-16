@@ -33,6 +33,27 @@ Unlike the other groups, this arrangement is **not** created by
 form actions rather than files. Import the file above by hand, twice, before
 capturing.
 
+## The designation shots need their own arrangement
+
+`columns-offer-desktop`, `columns-designation-mobile`, `columns-picker-mobile` and
+`columns-designation-desktop` are the `import-columns` group, not `imports`. They
+need no seeded history: the harness uploads a statement no profile recognises,
+because a seeded import is by definition one that WAS recognised.
+
+```bash
+BASE_URL=http://localhost:4175 node scripts/doc-screenshots.mjs import-columns
+```
+
+The desktop shot uses its own **thirteen-column** file. The preview's whole
+desktop behaviour is what it does with a file wider than the region — it draws
+the columns that fit and counts the rest — and a three-column file photographs a
+table with nothing to scroll.
+
+Both fixtures are invented: holder Paul Mercier, made-up merchants, made-up
+amounts and references. Only the SHAPE comes from a real statement — opaque
+column names, the amount far from the date. **Nothing in these images comes from
+anyone's bank**, and nothing that goes in them should.
+
 ## Language
 
 English, with the browser locale pinned as well as the app's. See
