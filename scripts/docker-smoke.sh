@@ -44,8 +44,14 @@ BOOT_TIMEOUT=${BOOT_TIMEOUT:-90}
 DB_USER=budgetpilot
 DB_PASSWORD=smoke-only-not-a-real-password
 DB_NAME=budgetpilot
+# Both key-shaped values are 64 hex characters because the app now REFUSES anything else, and
+# this script boots the real image. RATE_LIMIT_HASH_SECRET used to be the readable sentence
+# "docker-smoke-only-fake-rate-limit-hash-secret", which was legible and is exactly what the
+# check refuses: the value is used directly as an HMAC-SHA256 key, so its length is the key
+# strength. `deadbeef` repeated is the compromise — valid hex, and nobody mistakes it for real.
+# BOOTSTRAP_TOKEN stays a sentence: it is an opaque shared secret with no format, not a key.
 TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
-RATE_LIMIT_HASH_SECRET=docker-smoke-only-fake-rate-limit-hash-secret
+RATE_LIMIT_HASH_SECRET=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
 BOOTSTRAP_TOKEN=docker-smoke-only-fake-bootstrap-token
 
 # The runtime posture docker-compose.yml and docker-compose.prebuilt.yml declare, applied to
