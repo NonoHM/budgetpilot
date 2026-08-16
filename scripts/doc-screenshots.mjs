@@ -51,6 +51,53 @@ async function uploadUnrecognisedStatement(page) {
 	await page.waitForTimeout(600);
 }
 
+/**
+ * The same unrecognised statement, WIDE, for the desktop preview table.
+ *
+ * Thirteen columns because the preview's whole desktop behaviour is what it does with a file
+ * wider than the region: it draws five and a fragment, and says `5 of 13 columns visible`. A
+ * three-column file photographs a table with nothing to scroll and documents nothing.
+ *
+ * The cast is `scripts/synthetic/`'s: holder Paul Mercier, invented merchants, invented amounts.
+ * Only the SHAPE is taken from a real statement — opaque column names, the money far from the
+ * date — and that identifies nobody. Nothing here comes from anyone's bank.
+ */
+async function uploadWideUnrecognisedStatement(page) {
+	const rows = [
+		['01/06/2026', 'MERCERIE LAFAYETTE', '-45.20'],
+		['02/06/2026', 'PHARMACIE DU PONT', '-18.90'],
+		['03/06/2026', 'SALAIRE', '2450.00'],
+		['05/06/2026', 'TRANSPORTS URBAINS', '-62.00'],
+		['09/06/2026', 'LIBRAIRIE DU MARCHE', '-23.45']
+	];
+	const header = Array.from({ length: 13 }, (_, index) => `zone_${index + 1}`).join(',');
+	const body = rows.map(([date, label, amount], index) => {
+		const cells = new Array(13).fill('');
+		cells[0] = date;
+		cells[1] = label;
+		cells[2] = `REF${100 + index}`;
+		cells[3] = 'CARTE 4512';
+		cells[4] = 'Carte';
+		cells[5] = 'Alimentation';
+		cells[6] = 'Courses';
+		cells[7] = date;
+		// The amount sits at index 8 on purpose: designated, it stays where the file puts it, and
+		// the shot shows that the preview does not pull designated columns to the left.
+		cells[8] = amount;
+		cells[10] = date;
+		cells[11] = 'O';
+		return cells.join(',');
+	});
+	const form = page.locator('form[method="POST"]:visible').first();
+	await form.locator('input[name="csvFile"]').setInputFiles({
+		name: 'releve.csv',
+		mimeType: 'text/csv',
+		buffer: Buffer.from([header, ...body].join('\n'), 'utf-8')
+	});
+	await form.getByRole('button', { name: 'Import' }).click();
+	await page.waitForTimeout(600);
+}
+
 const DESKTOP = { width: 1920, height: 1080 };
 const MOBILE = { width: 393, height: 852 };
 
@@ -293,6 +340,26 @@ const GROUPS = {
 					[/^Date, no column designated/, /^Jour\./],
 					[/^Label, no column designated/, /^Intitule operation\./],
 					[/^Amount, no column designated/, /^Somme\./]
+				]) {
+					await page.getByRole('button', { name: row }).click();
+					await page.getByRole('option', { name: column }).click();
+					await page.waitForTimeout(200);
+				}
+			}
+		},
+		{
+			// The desktop half, which the prose describes and no image showed. Its own fixture,
+			// because the three-column one has nothing to scroll.
+			file: 'imports/columns-designation-desktop.png',
+			url: '/import',
+			before: async (page) => {
+				await uploadWideUnrecognisedStatement(page);
+				await page.getByRole('button', { name: 'Designate the columns' }).click();
+				await page.waitForURL(/\/import\/columns$/);
+				for (const [row, column] of [
+					[/^Date, no column designated/, /^zone_1\./],
+					[/^Label, no column designated/, /^zone_2\./],
+					[/^Amount, no column designated/, /^zone_9\./]
 				]) {
 					await page.getByRole('button', { name: row }).click();
 					await page.getByRole('option', { name: column }).click();

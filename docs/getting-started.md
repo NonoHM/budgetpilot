@@ -274,15 +274,20 @@ A fresh account is empty apart from 14 default categories. Two ways to fill
 it:
 
 **Import a statement** (Imports > Import statement). CSV and XLSX are
-accepted, with these profiles:
+accepted.
 
-| Profile          | What it is                                                    |
+**You don't pick a profile.** BudgetPilot reads the file's header row and works
+out the format itself. These are the ones it knows:
+
+| Format           | What it is                                                    |
 | ---------------- | ------------------------------------------------------------- |
-| Auto             | Detects one of the below from the file's header row           |
 | Banque Populaire | Their statement export                                        |
-| Revolut          | Their statement export                                        |
+| Revolut          | Their statement export, French or English                     |
 | Home             | BudgetPilot's own CSV export, so an export re-imports cleanly |
-| Generic          | Any CSV you can shape yourself, see below                     |
+| Generic          | Any other CSV, matched by column name                         |
+
+If it recognises none of them, it asks you which column is which. See
+[importing a statement](./using/imports.md) for that screen.
 
 **Home** recognises two shapes: the seven-column header older exports wrote,
 and the ten-column one exports write today. A file you exported months ago
@@ -305,8 +310,9 @@ as several separate transactions. Two limits worth knowing:
   order, and the category the transaction returns to if you remove the
   split.
 
-Your bank isn't listed? Use **Generic**. Reshape your export to exactly
-these columns:
+Your bank isn't listed? You usually don't have to do anything. BudgetPilot
+matches columns by name, so most exports import as they are. This is the
+shape it understands without help:
 
 ```csv
 date,label,amount,category
@@ -322,9 +328,14 @@ date,label,amount,category
   categories are created under French names, which is what the sample above
   uses; if you accepted the offer to rename them into your own language, use
   the new names instead.
-- No other column is allowed, the import refuses the file rather than
-  guessing.
-- Dates are `YYYY-MM-DD` or `DD/MM/YYYY`.
+- **Extra columns are ignored, not refused.** A bank export with a balance
+  and a reference column imports fine; BudgetPilot uses what it recognises.
+- Column names are matched loosely: `Libellé`, `libelle`, and `Description`
+  all fill the label. Accents and capitals don't matter.
+- Dates can be `2026-01-15`, `15/01/2026`, `15.01.2026`, or `15-01-2026`. The
+  day comes first, never the month.
+- If nothing matches, BudgetPilot asks you to designate the columns rather
+  than refusing the file.
 - Amounts are signed: negative is an expense, positive is income. A zero
   amount is rejected.
 

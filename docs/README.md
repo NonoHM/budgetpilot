@@ -103,6 +103,11 @@ Rules, limits and exact values, in [reference](./reference/README.md):
 Why the app behaves as it does, in [explanation](./explanation/README.md):
 
 - [Why a split row shows two amounts under a filter](./explanation/filtered-row-amounts.md).
+- [What this does not do, and why](./explanation/what-this-does-not-do.md) — the
+  absences that are decisions rather than gaps.
+- [Where this differs from other budgeting apps](./explanation/where-this-differs.md).
+- [How the security claims were verified](./explanation/security-verification.md) —
+  what was tested, by whom, and what isn't covered.
 
 ---
 

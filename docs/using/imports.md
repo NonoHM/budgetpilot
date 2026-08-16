@@ -52,6 +52,23 @@ Three columns are enough. **Category is optional**, and leaving it empty means
 the transactions arrive uncategorised, where [categorization
 rules](./rules.md) can still pick them up.
 
+#### On a wide screen
+
+The same four rows sit on the left, and your file is drawn beside them: the
+first rows of the statement, columns in the order the file writes them, with
+the role you assigned printed above each column's own name. Columns you have
+not designated are greyed, not hidden, so you can still see what's in them.
+
+A wide statement scrolls sideways and says how much of it you're seeing, for
+example `5 of 13 columns visible`.
+
+The rows you see are your file's actual rows. The values inside the column
+cards are picked to be _distinguishing_ — a mostly-empty column shows you its
+own few values rather than three blanks — so they don't line up into rows. The
+preview reads the file again instead of arranging those.
+
+![The designation screen on a wide display: the four role rows on the left with Date, Label and Amount filled from the file's own column names, and the file preview on the right showing five statement rows across thirteen columns, the designated ones labelled DATE, LABEL and AMOUNT above their column names, the rest greyed, and a counter reading 10 of 13 columns visible](../screenshots/imports/columns-designation-desktop.png)
+
 ![The import summary offering to designate the columns, under the heading Designate the columns](../screenshots/imports/columns-offer-desktop.png)
 
 ### 3. It is remembered, so you are only asked once
@@ -66,6 +83,33 @@ be redesignated and the others keep their answers.
 
 Memorisation is on by default, stated on the screen, with a link to decline it
 for a file you do not expect to see again.
+
+### Forget a remembered answer
+
+Go to **Settings > Remembered columns**. Each row shows the columns it names,
+when it was remembered, and how many imports have used it. **Forget** removes
+it.
+
+Forgetting removes the answer, not the history. Your imported transactions stay
+exactly where they are. What you lose is the **View the columns** link on those
+past imports, so you can no longer reopen them from the Imports page.
+
+You'd forget one when a bank changes its export and the old answer now reads
+the wrong columns, or when you've reached the limit on how many BudgetPilot
+keeps and want the room for a new bank.
+
+### A statement with no header row
+
+Some exports start straight into transactions, with no titles at the top. On
+the designation screen, turn on **The first row contains data**.
+
+Turn it on and BudgetPilot reads every line as a transaction. Leave it off and
+it treats your first transaction as a title row and skips it, which is one
+transaction missing from every import of that file.
+
+A file like this is designated **every time**. There are no column names to
+remember it by, and its first line changes with every statement, so there is
+nothing stable for BudgetPilot to recognise it by later.
 
 **Destination account** is optional, and the form says the one thing about
 it that is easy to get wrong: it applies only to the **very first** import
@@ -194,12 +238,6 @@ For the columns and what each count includes, see the
 
 Named with their issues rather than promised, so each reads as a decision:
 
-- **No preview table at 1280** ([#332](https://github.com/NonoHM/budgetpilot/issues/332)).
-  The values are read in the column cards at both widths. The referential has no table
-  component yet, and building one here would define it from its rarest case.
-- **No list of remembered correspondences** ([#326](https://github.com/NonoHM/budgetpilot/issues/326)).
-  You cannot yet review or remove one from settings. There is a cap of 50 per account, and
-  reaching it says so.
 - **No date format, decimal separator or delimiter control.** The screen reserves room for
   them and does not draw them. BudgetPilot reads dates as day/month and the comma as a
   decimal separator; a file written the other way imports on the wrong date rather than
