@@ -30,18 +30,31 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	if (inviteToken && !invitation) throw error(410, m.register_error_invitation_invalid());
 
 	if (getRegistrationMode() === 'open' || invitation) {
-		return { canRegister: true, inviteEmail: invitation?.email ?? null };
+		return {
+			canRegister: true,
+			inviteEmail: invitation?.email ?? null,
+			requiresBootstrapToken: false
+		};
 	}
 
 	const canClaimBackfillUser = await isOnlyBackfillUser();
 	const userCount = canClaimBackfillUser ? 0 : await prisma.user.count();
 	const canRegister = userCount === 0 || locals.user?.role === 'ADMIN';
-	if (!canRegister && !locals.user) throw redirect(303, '/login');
+	// Say why. This used to be a bare 303 to /login, and a bare bounce reads as a broken link
+	// rather than as a policy: nothing on either screen named the invitation path, which is the
+	// documented way a second person gets an account.
+	if (!canRegister && !locals.user) throw redirect(303, '/login?notice=registration_closed');
 	if (!canRegister) throw error(403, m.register_error_admin_only());
 
 	return {
 		canRegister,
-		inviteEmail: null
+		inviteEmail: null,
+		// Mirrors the condition on the token check in the action below, which is gated on
+		// `!locals.user`. An authenticated admin has never been asked for BOOTSTRAP_TOKEN by the
+		// server, and the form asked anyway: a field for the DEPLOYMENT secret, on the screen an
+		// admin reaches from /admin's own "create a user" button, that the server was always going
+		// to ignore. Accurate about the screen, wrong about the enforcement.
+		requiresBootstrapToken: !locals.user
 	};
 };
 

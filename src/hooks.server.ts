@@ -7,50 +7,21 @@ import {
 	readSessionUser,
 	SESSION_COOKIE
 } from '$lib/server/auth';
-import { assertBootstrapTokenConfigured } from '$lib/server/auth/bootstrapToken';
 import { resolveDatabaseProvider } from '$lib/server/database/provider';
 import { warnIfDatabaseRoleIsOverprivileged } from '$lib/server/database/privileges';
+import { assertEnvironmentConfigured } from '$lib/server/env/assertConfigured';
 import { ensureNameKeysBackfilled } from '$lib/server/naming/boot';
 import { ensureDedupeKeyHashesBackfilled } from '$lib/server/import/dedupeBoot';
-import { assertForwardingConfigSafe, parseTrustedProxies } from '$lib/server/net/clientAddress';
-import { assertXlsxBoundConfigured } from '$lib/server/import/zipBounds';
-import { assertBackupBoundConfigured } from '$lib/server/backup/parseBounds';
-import { assertCsvColumnBoundConfigured } from '$lib/server/import/columnBounds';
-import { assertColumnMappingCapConfigured } from '$lib/server/import/mapping/store';
-// Side-effect imports only: each module throws at load time if its required secret
-// (RATE_LIMIT_HASH_SECRET, TOTP_ENCRYPTION_KEY) is missing/malformed. hooks.server.ts is
-// the one module SvelteKit always loads at boot, so importing them here turns a missing
-// secret into a loud crash-on-startup instead of a generic 500 on the first /login or
-// /register request that happens to touch these route-specific server chunks.
-import '$lib/server/auth/rateLimit';
-import '$lib/server/crypto';
+import { parseTrustedProxies } from '$lib/server/net/clientAddress';
 
-// Boot checks that need the database, and therefore can't be module-level: module code
-// also runs during SvelteKit's postbuild analysis, where no database exists. `init` runs
-// once per server start and adapter-node awaits it before listening, so throwing here is
-// still a crash-at-startup rather than a failure on some later request.
+// One gate, one throw, every problem — see server/env/assertConfigured.ts for why this replaced
+// nine fail-fast checks and two module-load throws. It has to live in `init` rather than at module
+// level for two reasons: BOOTSTRAP_TOKEN's check needs the database, and module code also runs
+// during SvelteKit's postbuild analysis where no database exists. `init` runs once per server
+// start and adapter-node awaits it before listening, so throwing here is still a
+// crash-at-startup rather than a failure on some later request.
 export const init: ServerInit = async () => {
-	// Refuses to start if ADDRESS_HEADER/XFF_DEPTH are set: the app validates X-Forwarded-For
-	// against TRUSTED_PROXIES itself, and ADDRESS_HEADER would make the framework trust the header
-	// blindly (#219). Env-only, so it could be module-level, but keeping it beside the other boot
-	// assertions makes the ordering obvious.
-	assertForwardingConfigSafe();
-	// Refuses to start on an IMPORT_XLSX_MAX_UNCOMPRESSED_MB above its hard ceiling, and warns on any
-	// departure from the default. Refused rather than clamped on purpose: a clamp would honour the
-	// limit while discarding the operator's intent, leaving their import failing for a reason their
-	// own configuration says should not apply. Env-only, so it sits with the other boot assertions.
-	assertXlsxBoundConfigured();
-	// Same contract as the line above, on the backup restore path (#276): refused above its hard
-	// ceiling rather than clamped, and any departure from the default named in the log.
-	assertBackupBoundConfigured();
-	// Same contract again, on the import path: this one bounds how many columns a file may
-	// declare, and it exists for the designation screen rather than for the parser. See
-	// server/import/columnBounds.ts, which states the measurement saying the parser is fine.
-	assertCsvColumnBoundConfigured();
-	// And the third: how many remembered column mappings one user may hold. Nothing deletes one
-	// yet (#326), so this cap is the only thing bounding a table an upload can grow.
-	assertColumnMappingCapConfigured();
-	await assertBootstrapTokenConfigured();
+	await assertEnvironmentConfigured();
 	// Reports, never gates: see the module for why an over-privileged role is a loud warning
 	// rather than a refusal to start.
 	await warnIfDatabaseRoleIsOverprivileged();
@@ -58,7 +29,15 @@ export const init: ServerInit = async () => {
 	await ensureDedupeKeyHashesBackfilled();
 };
 
-const PUBLIC_ROUTES = new Set(['/login', '/register', '/login/verify-totp']);
+// /setup/origin-mismatch is public because the operator it exists for has no account yet: an auth
+// redirect would send them to /login, which is the screen the misconfiguration has them stuck on.
+// It carries nothing but the origin of the page it is being served from and static instructions.
+const PUBLIC_ROUTES = new Set([
+	'/login',
+	'/register',
+	'/login/verify-totp',
+	'/setup/origin-mismatch'
+]);
 
 // Defense in depth: the real mechanism is areSecureCookiesEnabled() (via
 // PUBLIC_INSTANCE), but this log makes the security state visible on every
@@ -87,10 +66,38 @@ if (trustedProxyRanges.length > 0) {
 		'[budgetpilot] startup: TRUSTED_PROXIES is unset, so X-Forwarded-For is NOT trusted and rate limiting keys on the socket peer. Correct when the app is reached directly. If it sits behind a reverse proxy, set TRUSTED_PROXIES to the proxy IP or CIDR (docker inspect its container, or your LAN/Docker-network range): otherwise every visitor shares the proxy address and one attacker can rate-limit them all. See docs/reverse-proxy.md.'
 	);
 }
+// ORIGIN is the only variable printed here that the app itself never reads: adapter-node consumes
+// it, and its parse_origin returns undefined for an absent value with no throw and no warning.
+// That silence IS the defect. With ORIGIN unset, handler.js builds the request URL from the Host
+// header and DEFAULTS THE PROTOCOL TO https, so on a plain-http deployment url.origin is
+// https://host while the browser sends Origin: http://host, and SvelteKit's CSRF check refuses
+// every form submission. Every GET still renders and the healthcheck still passes, so the failure
+// waits for the first account creation — which is why it needs to be said at startup rather than
+// discovered. Exported for its spec.
+export function originStartupMessage(origin: string | undefined): string {
+	const configured = origin?.trim();
+	if (configured) {
+		return `[budgetpilot] startup: ORIGIN=${configured}. Form submissions are accepted only from this exact origin — if that is not the URL you type in the browser, protocol and port included, every login and registration will be refused as cross-site.`;
+	}
+	return '[budgetpilot] startup: ORIGIN is unset, so the request URL is built from the Host header with the protocol defaulting to https. On a plain-http deployment that makes every form submission — login and account creation included — fail with "Cross-site POST form submissions are forbidden", while every page still loads and the healthcheck still passes. Set ORIGIN to the exact URL you type in the browser, protocol and port included and no trailing slash (e.g. http://localhost:3000). See docs/troubleshooting.md.';
+}
+console.log(originStartupMessage(process.env.ORIGIN));
 if (!secureCookies) {
 	console.warn(
 		'[budgetpilot] ⚠️ SECURITY: PUBLIC_INSTANCE=false, LAN mode: session cookies are sent WITHOUT the Secure flag. This is correct for a private instance reached over plain http:// on a trusted network, and unsafe anywhere else. If this instance is reachable from the Internet, remove PUBLIC_INSTANCE=false and serve it over HTTPS.'
 	);
+}
+
+// The value this escapes is NOT trusted. With ORIGIN unset, adapter-node builds the request URL
+// from the Host header, so `url.origin` carries a request header, and a request header is whatever
+// the client sent. Interpolated raw into `content=""` a crafted Host would close the attribute and
+// open a tag. `encodeURIComponent` is the wrong tool here — it leaves `&` alone in some positions
+// and mangles the `//` and `:` that make the value readable — so the three characters that matter
+// inside a double-quoted attribute are replaced explicitly, `&` first so it cannot double-encode
+// the entities the later replacements introduce.
+// Exported for hooks.server.spec.ts.
+export function escapeHtmlAttribute(value: string): string {
+	return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
 }
 
 // Per-request locale via AsyncLocalStorage: essential so that server-side
@@ -99,7 +106,12 @@ const handleParaglide: Handle = ({ event, resolve }) =>
 	paraglideMiddleware(event.request, async ({ request, locale }) => {
 		event.request = request;
 		const response = await resolve(event, {
-			transformPageChunk: ({ html }) => html.replace('%paraglide.lang%', locale)
+			transformPageChunk: ({ html }) =>
+				html
+					.replace('%paraglide.lang%', locale)
+					// See app.html: the origin SvelteKit's CSRF check will compare the browser's Origin
+					// header against, transported for the client probe.
+					.replace('%budgetpilot.serverOrigin%', escapeHtmlAttribute(event.url.origin))
 		});
 
 		// The rendered body genuinely depends on Accept-Language: with no PARAGLIDE_LOCALE

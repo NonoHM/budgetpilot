@@ -502,7 +502,7 @@ jobs:
         run: |
           docker run -d --name verify-arm64 -p 127.0.0.1:3000:3000 \
             -e TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1 \
-            -e RATE_LIMIT_HASH_SECRET=publish-check-only-fake-secret \
+            -e RATE_LIMIT_HASH_SECRET=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef \
             -e BOOTSTRAP_TOKEN=publish-check-only-fake-token \
             -e ORIGIN=http://127.0.0.1:3000 \
             "$IMAGE:$VERSION"

@@ -3,6 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 const db = vi.hoisted(() => ({
 	prisma: {
 		user: {
+			// `load` calls isSelfRegistrationOpen(), which counts users. Non-zero so these cases
+			// exercise an ordinary claimed instance rather than the bootstrap state.
+			count: vi.fn(async () => 1),
 			findUnique: vi.fn(),
 			updateMany: vi.fn()
 		},
@@ -34,7 +37,7 @@ vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
 vi.mock('$lib/server/auth/mfaChallenge', () => mfaChallenge);
 
 const { hashPassword } = await import('$lib/server/auth');
-const { actions } = await import('./+page.server');
+const { actions, load } = await import('./+page.server');
 
 describe('/login action', () => {
 	it('connecte avec un mot de passe valide sans retourner passwordHash', async () => {
@@ -186,4 +189,42 @@ async function runLogin(cookies: { set: ReturnType<typeof vi.fn> }, input: Recor
 		}),
 		url: new URL('http://localhost/login')
 	})) as { status: number; data: { error: string } };
+}
+
+describe('/login load: the closed-registration notice', () => {
+	// /register bounced here with nothing, and a silent bounce reads as a broken link rather than
+	// as a policy. The reason travels in the query string now.
+	it('surfaces the notice /register redirected with', async () => {
+		expect.assertions(1);
+		const result = await runLoad('http://localhost/login?notice=registration_closed');
+		expect(result.notice).toBe('registration_closed');
+	});
+
+	it('is null when there is no notice', async () => {
+		expect.assertions(1);
+		const result = await runLoad('http://localhost/login');
+		expect(result.notice).toBeNull();
+	});
+
+	// ALLOWLISTED, not reflected. The parameter selects a catalogue message and its value is never
+	// rendered, because a reflected parameter above a real password field is how a phishing link
+	// puts its own sentence on a page the visitor trusts.
+	it.each([
+		'<script>alert(1)</script>',
+		'Your session expired, re-enter your card number',
+		'registration_closed_extra'
+	])('refuses an unknown notice value: %s', async (value) => {
+		expect.assertions(1);
+		const result = await runLoad(`http://localhost/login?notice=${encodeURIComponent(value)}`);
+		expect(result.notice).toBeNull();
+	});
+});
+
+async function runLoad(url: string): Promise<{ notice: string | null }> {
+	return (await (
+		load as unknown as (event: {
+			locals: { user: null };
+			url: URL;
+		}) => Promise<{ notice: string | null }>
+	)({ locals: { user: null }, url: new URL(url) })) as { notice: string | null };
 }

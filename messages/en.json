@@ -1531,5 +1531,14 @@
 	"import_columns_preview_caption": "Preview of the first rows of {name}, column by column.",
 	"import_columns_preview_range": "{shown} of {total} columns visible",
 	"import_columns_preview_range_one": "{shown} of {total} columns visible",
-	"import_columns_header_absent_short": "Column {index}"
+	"import_columns_header_absent_short": "Column {index}",
+	"origin_mismatch_title": "This address is not the one BudgetPilot was configured with",
+	"origin_mismatch_lede": "Pages load, but every form, including creating your account, will be refused until these two match.",
+	"origin_mismatch_arrived_label": "You opened",
+	"origin_mismatch_expected_label": "BudgetPilot expects",
+	"origin_mismatch_remedy_heading": "Set this in your .env, then restart",
+	"origin_mismatch_remedy_note": "If you reach BudgetPilot at localhost, changing APP_PORT is enough and ORIGIN follows it. Set ORIGIN yourself for a LAN address, a hostname, or anything behind a reverse proxy.",
+	"origin_mismatch_back": "Reload",
+	"register_bootstrap_token_hint": "Set by whoever installed this instance, in their .env file. If someone invited you, use their invitation link instead: it needs no token.",
+	"register_notice_closed": "Registration is closed on this instance. Ask an administrator for an invitation link."
 }

@@ -87,9 +87,22 @@ RUN npx svelte-kit sync \
 #      of it. `docker inspect --format '{{json .Config.Env}}'`, `docker history --no-trunc` and
 #      a recursive grep of /app in the built image all come back empty for both values and for
 #      this stage's placeholder DATABASE_URL.
-#   3. They are not removable, which is the tempting "fix". Deleting both was tried: the build
-#      dies at `npm run build` with `Error: TOTP_ENCRYPTION_KEY is required (set it in your
-#      environment)`, thrown from crypto.ts inside the `analyse` step described above.
+#   3. TWO OF THE THREE ARE GONE, and the reason they could not go before is worth keeping.
+#      This block used to carry TOTP_ENCRYPTION_KEY and RATE_LIMIT_HASH_SECRET as well, and
+#      said they were not removable: deleting both had been tried and the build died with
+#      `TOTP_ENCRYPTION_KEY is required`, thrown from crypto.ts inside the `analyse` step.
+#      That was true while those modules threw from their top-level bodies. They now validate
+#      through the boot collector (src/lib/server/env/assertConfigured.ts) and read their key
+#      lazily, so nothing evaluates a secret at build time. Re-measured 2026-08-16 rather than
+#      reasoned about: a full `docker build` with both lines deleted exits 0.
+#
+#      Deleting them was not tidying. The wave that moved these checks also gave
+#      RATE_LIMIT_HASH_SECRET the 64-hex format check the docs had promised since it existed,
+#      and the placeholder above was `docker-build-only-fake-rate-limit-hash-secret-do-not-reuse`
+#      — not hex, not 64 characters. Had the check stayed at module level, this build would have
+#      failed and the obvious fix would have been to replace that placeholder with something
+#      that LOOKS like a real key, in a tracked file, which is exactly what the last line of this
+#      comment tells the next person not to do.
 #   4. The generated Prisma clients carry no credential either. The datasource block in every
 #      schema has no `url` field, so the `inlineSchema` baked into each client holds no
 #      connection string.
@@ -100,11 +113,14 @@ RUN npx svelte-kit sync \
 # checks the artefact instead of the instruction and runs in CI on every change. Keep them
 # together: dropping the assertion turns the skip into an actual blind spot.
 #
-# So: nothing to fix here, only to document. Do not "solve" this by moving these to build ARGs
-# (same warning, same non-problem) or by deleting them (see 3).
+# With both secret-named ENVs gone, the `# check=skip=` directive at the top of this file may now
+# be unnecessary — DATABASE_URL below does not match BuildKit's secret-name patterns. NOT
+# measured, so it stays: removing it is a separate claim and needs its own build to confirm the
+# warning does not come back.
+#
+# Do not "solve" the remaining line by moving it to a build ARG (same warning, same non-problem),
+# and do not add a secret back here.
 ENV DATABASE_URL=file:/tmp/build-placeholder.db
-ENV TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
-ENV RATE_LIMIT_HASH_SECRET=docker-build-only-fake-rate-limit-hash-secret-do-not-reuse
 
 RUN npm run build
 

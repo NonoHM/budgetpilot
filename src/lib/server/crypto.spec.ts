@@ -5,7 +5,7 @@ vi.hoisted(() => {
 		'0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef'.slice(0, 64);
 });
 
-const { encryptSecret, decryptSecret } = await import('./crypto');
+const { encryptSecret, decryptSecret, assertEncryptionKeyConfigured } = await import('./crypto');
 const { encryptTotpSecret, decryptTotpSecret } = await import('./auth/totp');
 
 /**
@@ -95,5 +95,30 @@ describe('compatibilité entre crypto.ts et les alias historiques de totp.ts', (
 		const plaintext = 'JBSWY3DPEHPK3PXP';
 		const encrypted = encryptTotpSecret(plaintext);
 		expect(decryptSecret(encrypted)).toBe(plaintext);
+	});
+});
+
+describe('assertEncryptionKeyConfigured', () => {
+	// The two-boot sequence a first user walked: the presence check did not state the format, so a
+	// base64 value passed it and failed on the next boot. One message now carries both.
+	it('names the format in the missing-value message, not only in the malformed one', () => {
+		expect(() => assertEncryptionKeyConfigured({})).toThrow(/64 hex characters/);
+		expect(() => assertEncryptionKeyConfigured({})).toThrow(/openssl rand -hex 32/);
+	});
+
+	it('refuses a base64 value of the right byte length', () => {
+		// 32 random bytes in base64 is 44 characters — the shape `openssl rand -base64 32` prints,
+		// which is what the neighbouring BOOTSTRAP_TOKEN asks for.
+		const base64Key = Buffer.alloc(32, 7).toString('base64');
+		expect(base64Key).toHaveLength(44);
+		expect(() => assertEncryptionKeyConfigured({ TOTP_ENCRYPTION_KEY: base64Key })).toThrow(
+			/64 hex characters/
+		);
+	});
+
+	it('accepts exactly 64 hex characters', () => {
+		expect(() =>
+			assertEncryptionKeyConfigured({ TOTP_ENCRYPTION_KEY: 'c1'.repeat(32) })
+		).not.toThrow();
 	});
 });

@@ -32,8 +32,12 @@ set -euo pipefail
 # would have printed a secret. Hence redact() below, applied to every Compose error this script
 # echoes.
 export BOOTSTRAP_TOKEN=compose-check-only
-export RATE_LIMIT_HASH_SECRET=compose-check-only
-export TOTP_ENCRYPTION_KEY=compose-check-only
+# The two key-shaped values are 64 hex, which the app enforces for both. INERT TODAY: this script
+# only runs `docker compose config`, so nothing here ever reaches a booting app and neither value
+# has ever been validated. They are valid anyway so that the day this script does boot something,
+# it fails on whatever it was actually testing rather than on a fixture nobody had reason to look at.
+export RATE_LIMIT_HASH_SECRET=deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef
+export TOTP_ENCRYPTION_KEY=c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1c1
 # The two database overlays declare DATABASE_PASSWORD with `:?`, so an unset value is a hard
 # Compose error rather than a database published with a blank password. That is the behaviour
 # an operator gets, and it means this script has to supply one like any other caller.

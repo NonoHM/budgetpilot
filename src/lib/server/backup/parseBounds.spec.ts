@@ -237,25 +237,37 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 	});
 
 	it('the boot check is wired into the init hook, and the bound into the restore action', () => {
-		expect.assertions(4);
+		expect.assertions(6);
 
 		// WITHOUT THIS THE CEILING IS DECORATION, and the bound with it. Every other test here calls
 		// the module directly, so all of them pass on a build where nothing invokes it.
+		//
+		// The boot wiring is now two links — init calls the boot collector, the collector calls
+		// this — so both are asserted. A source scan rather than an import of the collector, which
+		// would pull in the Prisma client through bootstrapToken for a fact that is textual.
 		const hooks = readFileSync(new URL('../../../hooks.server.ts', import.meta.url), 'utf8');
+		const collector = readFileSync(new URL('../env/assertConfigured.ts', import.meta.url), 'utf8');
 		const settings = readFileSync(
 			new URL('../../../routes/settings/+page.server.ts', import.meta.url),
 			'utf8'
 		);
-		const calls = (source: string, name: string) => new RegExp(`\\b${name}\\(`).test(source);
+		const calls = (source: string, name: string) => new RegExp(`\\b${name}\\b`).test(source);
 
-		expect(calls(hooks, 'assertBackupBoundConfigured')).toBe(true);
+		expect(calls(collector, 'assertBackupBoundConfigured')).toBe(true);
+		expect(/await assertEnvironmentConfigured\(\)/.test(hooks)).toBe(true);
 		expect(calls(settings, 'countJsonNodes')).toBe(true);
 		// The ORDER is the fix, not the presence: after `JSON.parse` the bound guards nothing,
 		// which is the entire defect #276 describes.
 		expect(settings.indexOf('countJsonNodes(rawText)')).toBeLessThan(
 			settings.indexOf('JSON.parse(rawText)')
 		);
-		// Calibration: the same predicate must report false on a source that does not call it.
-		expect(calls('export const init = async () => {};', 'assertBackupBoundConfigured')).toBe(false);
+		// Calibration, both halves: the same predicate must report false on a source that does not
+		// name the thing.
+		expect(calls('export const CHECKS = [somethingElse];', 'assertBackupBoundConfigured')).toBe(
+			false
+		);
+		expect(
+			/await assertEnvironmentConfigured\(\)/.test('export const init = async () => {};')
+		).toBe(false);
 	});
 });
