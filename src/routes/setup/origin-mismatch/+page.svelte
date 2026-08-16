@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { PageData } from './$types';
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import { cardBase } from '$lib/styles';
@@ -19,7 +20,7 @@
 		// cannot tell a healthy instance from a broken one, so this is the only place the route can
 		// be guarded: linked or typed at an instance whose origins agree, it goes away.
 		if (here === data.expected) {
-			void goto('/');
+			void goto(resolve('/'));
 			return;
 		}
 		arrived = here;

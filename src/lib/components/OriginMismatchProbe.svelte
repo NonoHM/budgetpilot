@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 	import { page } from '$app/state';
 	import { readServerOrigin, ORIGIN_MISMATCH_ROUTE } from '$lib/originProbe';
 
@@ -31,6 +32,9 @@
 		// nothing rather than send everyone to a diagnostic page over a missing meta tag.
 		if (!expected) return;
 		if (window.location.origin === expected) return;
-		void goto(ORIGIN_MISMATCH_ROUTE);
+		// The literal, not ORIGIN_MISMATCH_ROUTE: resolve() takes a route id and is typed against
+		// the generated route union, so it will not accept a string variable. The constant still
+		// governs the pathname comparison above, which is the half that has to agree with the route.
+		void goto(resolve('/setup/origin-mismatch'));
 	});
 </script>
