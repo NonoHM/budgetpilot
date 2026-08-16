@@ -22,6 +22,11 @@ const budgetDashboard = vi.hoisted(() => ({
 		budgets: []
 	})),
 	readDashboardData: vi.fn(async () => ({ transactions: [], allocations: [], budgets: [] })),
+	// Models the EMPTY account faithfully rather than throwing: this spec is about AI gating, and an
+	// account-level span of zero is a real, coherent state for every case it exercises (all of which
+	// already return no transactions above). A fake that refused to answer here would fail these
+	// tests for a reason none of them is about.
+	readAccountTransactionSpan: vi.fn(async () => ({ count: 0, firstDate: null, lastDate: null })),
 	saveBudget: vi.fn()
 }));
 

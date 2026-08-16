@@ -6,6 +6,7 @@ import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import {
 	createManualTransaction,
+	readAccountTransactionSpan,
 	readDashboardDataForRange,
 	readDashboardData
 } from '$lib/server/budget/dashboard';
@@ -50,29 +51,42 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					previousPeriod?.label ?? m.dashboard_previous_period_fallback()
 				)
 			: undefined;
-	const [aiPreferences, insights, categories, savingsGoals, cashFlowForecast, upcomingBills] =
-		await Promise.all([
-			prisma.user.findUniqueOrThrow({
-				where: { id: user.id },
-				select: { aiInsightsEnabled: true, aiIncludeLabels: true }
-			}),
-			loadDashboardInsights(user.id),
-			prisma.category.findMany({
-				where: { userId: user.id },
-				orderBy: { name: 'asc' },
-				select: { name: true }
-			}),
-			readSavingsGoals(user.id),
-			loadCashFlowForecast(user.id, getRemainingDaysInMonthUtc(new Date())).then(
-				toDisplayCashFlowForecast
-			),
-			// Its OWN `readDashboardDataForRange` over a 12-month lookback — the widget does NOT ride
-			// the forecast's query, as the plan's note S3 claimed. This is the third independent
-			// full-year transaction read of a dashboard load. All three run concurrently here, so
-			// latency and correctness are unaffected; the sharing simply does not exist, and a future
-			// consolidation starts by knowing that.
-			loadUpcomingBillsWidget(user.id)
-		]);
+	const [
+		aiPreferences,
+		insights,
+		categories,
+		savingsGoals,
+		cashFlowForecast,
+		upcomingBills,
+		accountSpan
+	] = await Promise.all([
+		prisma.user.findUniqueOrThrow({
+			where: { id: user.id },
+			select: { aiInsightsEnabled: true, aiIncludeLabels: true }
+		}),
+		loadDashboardInsights(user.id),
+		prisma.category.findMany({
+			where: { userId: user.id },
+			orderBy: { name: 'asc' },
+			select: { name: true }
+		}),
+		readSavingsGoals(user.id),
+		loadCashFlowForecast(user.id, getRemainingDaysInMonthUtc(new Date())).then(
+			toDisplayCashFlowForecast
+		),
+		// Its OWN `readDashboardDataForRange` over a 12-month lookback — the widget does NOT ride
+		// the forecast's query, as the plan's note S3 claimed. This is the third independent
+		// full-year transaction read of a dashboard load. All three run concurrently here, so
+		// latency and correctness are unaffected; the sharing simply does not exist, and a future
+		// consolidation starts by knowing that.
+		loadUpcomingBillsWidget(user.id),
+		// UNCONDITIONAL, and that is the decision worth defending rather than re-deriving: it
+		// joins six already-concurrent queries here at no serial cost, whereas running it only
+		// when the period turned out empty would add a second round trip to exactly the case
+		// that needs it. Nothing else on this payload can answer "does this account have any
+		// transactions at all" — every other read is period-scoped or lookback-scoped.
+		readAccountTransactionSpan(user.id)
+	]);
 	const aiAllowed = isLocalLlmEnabled(process.env) && aiPreferences.aiInsightsEnabled;
 	// Deliberately NOT awaited: a local model generating a few hundred tokens takes seconds
 	// to tens of seconds, and awaiting it here held the whole dashboard hostage for exactly
@@ -123,7 +137,8 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		savingsGoals: savingsGoals.slice(0, MAX_DASHBOARD_GOALS),
 		savingsGoalsOverflowCount: Math.max(0, savingsGoals.length - MAX_DASHBOARD_GOALS),
 		cashFlowForecast,
-		upcomingBills
+		upcomingBills,
+		accountSpan
 	};
 };
 
