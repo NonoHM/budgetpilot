@@ -2,17 +2,17 @@ import { expect, test } from '@playwright/test';
 import { E2E_BASE_URL, E2E_LOCALE } from './config';
 
 /**
- * The CSRF control had no running check behind it.
+ * CSRF refusal, asserted rather than assumed.
  *
- * `scripts/security/asvs-5.0-l1-mapping.md` gives V3.5.1 an `A` verdict — "covered by attack: a
- * request was fired and the outcome observed" — carried across from the #184 pentest's 4.0.3 row
- * 4.2.2. That attack was real and it was manual, so the verdict describes something that happened
- * once rather than something that runs, and the map has overstated the coverage ever since. Grep
- * found no assertion of a CSRF 403 anywhere under e2e/ or src/ before this file.
+ * Before this file, nothing under `e2e/` or `src/` asserted that a cross-origin form POST is
+ * refused. The control itself is SvelteKit's and has always been on (`csrf.checkOrigin` defaults
+ * to true and `svelte.config.js` sets no `csrf` option) — what was missing is anything that would
+ * notice if that stopped being true.
  *
- * It matters more now than it did: the origin diagnostic added alongside this deliberately does
- * NOT touch the check (SvelteKit refuses above every hook, and taking that over to improve an
- * error message was rejected), so the thing this wave leans on is the thing nothing was watching.
+ * It matters more now than it did. The origin diagnostic added alongside this deliberately does
+ * NOT touch the check: SvelteKit refuses above every hook, and taking that over merely to improve
+ * an error message was rejected. So the thing this wave leans on is the thing nothing was
+ * watching.
  *
  * The check is compiled out under `vite dev` (`respond.js` guards it with `!__SVELTEKIT_DEV__`),
  * which is why this can only live in e2e: the suite serves a production build via

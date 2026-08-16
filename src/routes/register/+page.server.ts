@@ -30,7 +30,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	if (inviteToken && !invitation) throw error(410, m.register_error_invitation_invalid());
 
 	if (getRegistrationMode() === 'open' || invitation) {
-		return { canRegister: true, inviteEmail: invitation?.email ?? null, requiresBootstrapToken: false };
+		return {
+			canRegister: true,
+			inviteEmail: invitation?.email ?? null,
+			requiresBootstrapToken: false
+		};
 	}
 
 	const canClaimBackfillUser = await isOnlyBackfillUser();

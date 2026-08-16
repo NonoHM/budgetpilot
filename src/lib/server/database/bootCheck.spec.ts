@@ -4,7 +4,9 @@ import { assertDatabaseConfigured } from './bootCheck';
 describe('assertDatabaseConfigured', () => {
 	it('refuses a missing DATABASE_URL in production and names the value to set', () => {
 		expect(() => assertDatabaseConfigured({ NODE_ENV: 'production' })).toThrow(/DATABASE_URL/);
-		expect(() => assertDatabaseConfigured({ NODE_ENV: 'production' })).toThrow(/file:\/data\/dev\.db/);
+		expect(() => assertDatabaseConfigured({ NODE_ENV: 'production' })).toThrow(
+			/file:\/data\/dev\.db/
+		);
 	});
 
 	// Outside production a missing URL is legal: db.ts falls back to a local dev file, and

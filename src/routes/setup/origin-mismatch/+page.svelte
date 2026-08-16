@@ -8,7 +8,6 @@
 
 	let { data }: { data: PageData } = $props();
 
-
 	// The browser's own origin, byte-identical to what it will send as the Origin header on the
 	// first form submission. Empty during SSR, filled on mount: the server cannot know it, which is
 	// the entire reason this page exists.

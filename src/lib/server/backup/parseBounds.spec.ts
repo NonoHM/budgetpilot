@@ -266,8 +266,8 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 		expect(calls('export const CHECKS = [somethingElse];', 'assertBackupBoundConfigured')).toBe(
 			false
 		);
-		expect(/await assertEnvironmentConfigured\(\)/.test('export const init = async () => {};')).toBe(
-			false
-		);
+		expect(
+			/await assertEnvironmentConfigured\(\)/.test('export const init = async () => {};')
+		).toBe(false);
 	});
 });

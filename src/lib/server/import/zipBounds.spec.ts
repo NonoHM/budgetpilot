@@ -334,10 +334,7 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 		// the full parallel run for a fact that is textual. Structural, therefore a proxy, so it
 		// is calibrated below rather than trusted.
 		const hooks = readFileSync(new URL('../../../hooks.server.ts', import.meta.url), 'utf8');
-		const collector = readFileSync(
-			new URL('../env/assertConfigured.ts', import.meta.url),
-			'utf8'
-		);
+		const collector = readFileSync(new URL('../env/assertConfigured.ts', import.meta.url), 'utf8');
 		const callsBootCheck = (source: string) => /\bassertXlsxBoundConfigured\b/.test(source);
 
 		expect(collector).toContain("from '$lib/server/import/zipBounds'");

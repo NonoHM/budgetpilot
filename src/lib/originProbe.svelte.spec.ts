@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { readServerOrigin, SERVER_ORIGIN_META } from './originProbe';
 
 function docWith(metaHtml: string): Document {
-	return new DOMParser().parseFromString(`<html><head>${metaHtml}</head><body></body></html>`, 'text/html');
+	return new DOMParser().parseFromString(
+		`<html><head>${metaHtml}</head><body></body></html>`,
+		'text/html'
+	);
 }
 
 describe('readServerOrigin', () => {
@@ -19,11 +22,15 @@ describe('readServerOrigin', () => {
 	});
 
 	it('returns null when the value is empty', () => {
-		expect(readServerOrigin(docWith(`<meta name="${SERVER_ORIGIN_META}" content="" />`))).toBeNull();
+		expect(
+			readServerOrigin(docWith(`<meta name="${SERVER_ORIGIN_META}" content="" />`))
+		).toBeNull();
 	});
 
 	it('returns null when the placeholder was never replaced', () => {
-		const doc = docWith(`<meta name="${SERVER_ORIGIN_META}" content="%budgetpilot.serverOrigin%" />`);
+		const doc = docWith(
+			`<meta name="${SERVER_ORIGIN_META}" content="%budgetpilot.serverOrigin%" />`
+		);
 		expect(readServerOrigin(doc)).toBeNull();
 	});
 

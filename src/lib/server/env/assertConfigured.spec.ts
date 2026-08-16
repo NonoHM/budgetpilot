@@ -43,7 +43,12 @@ describe('collectEnvironmentProblems', () => {
 	});
 
 	it('returns nothing when every check passes', async () => {
-		expect(await collectEnvironmentProblems([['A', passing], ['B', passing]])).toEqual([]);
+		expect(
+			await collectEnvironmentProblems([
+				['A', passing],
+				['B', passing]
+			])
+		).toEqual([]);
 	});
 });
 
