@@ -1,5 +1,54 @@
 # Changelog
 
+## [0.12.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.11.2...budgetpilot-v0.12.0) (2026-08-16)
+
+
+### Features
+
+* **import:** 1280, as one control surface wearing a second chrome ([#333](https://github.com/NonoHM/budgetpilot/issues/333)) ([9ab1fce](https://github.com/NonoHM/budgetpilot/commit/9ab1fceb9e4b745f35a3a4967c725ef8a4d7bf8a))
+* **import:** a file may declare at most 512 columns, for the screen rather than the parser ([#325](https://github.com/NonoHM/budgetpilot/issues/325)) ([1bda99c](https://github.com/NonoHM/budgetpilot/commit/1bda99cc017098d60ff320905be789e107d68f50))
+* **import:** a file nothing recognises imports through the columns the user designated ([#328](https://github.com/NonoHM/budgetpilot/issues/328)) ([70de4cb](https://github.com/NonoHM/budgetpilot/commit/70de4cba10c9f92f9e9a426b8a9314fdb41a7b70))
+* **import:** generic resolves its columns by alias, so real bank statements import ([#309](https://github.com/NonoHM/budgetpilot/issues/309)) ([9cb1daf](https://github.com/NonoHM/budgetpilot/commit/9cb1dafc56b4eaf4f553c0fd755fafebaab25cd0))
+* **import:** the 390 designation screen, its picker, and the action that re-derives its own header list ([#330](https://github.com/NonoHM/budgetpilot/issues/330)) ([09e2368](https://github.com/NonoHM/budgetpilot/commit/09e2368b5d3149179c8bf87b705370cb1527da68))
+* **import:** the column mapping model, on three migration histories, with both write paths guarded ([#327](https://github.com/NonoHM/budgetpilot/issues/327)) ([b366370](https://github.com/NonoHM/budgetpilot/commit/b3663702c018420133e2e61fc22ee56757cb8829))
+* **import:** the duplicate-detection key stops depending on columns a file may not carry ([#323](https://github.com/NonoHM/budgetpilot/issues/323)) ([e528df2](https://github.com/NonoHM/budgetpilot/commit/e528df2fc0c184bec1b60defd3c359682d529499))
+* **import:** the invalid-rows summary offers the way back to the columns ([#345](https://github.com/NonoHM/budgetpilot/issues/345)) ([3ac286e](https://github.com/NonoHM/budgetpilot/commit/3ac286efc2db2db289ea0f926f8b9406ec10cc7a)), closes [#342](https://github.com/NonoHM/budgetpilot/issues/342)
+* **import:** the memorised columns are reachable and correctable from /imports ([#347](https://github.com/NonoHM/budgetpilot/issues/347)) ([8e45277](https://github.com/NonoHM/budgetpilot/commit/8e45277b6f1a11fd479c9eaabbd440cf5aa069da))
+* **import:** the three components the column-designation screen needs, registered before anything consumes them ([#329](https://github.com/NonoHM/budgetpilot/issues/329)) ([eb1aa79](https://github.com/NonoHM/budgetpilot/commit/eb1aa79317f467b66d4f22ee5da2fb6e0a4b586a))
+
+
+### Bug Fixes
+
+* **import:** a debit/credit indicator column no longer makes every row income ([#321](https://github.com/NonoHM/budgetpilot/issues/321)) ([ddaf9f0](https://github.com/NonoHM/budgetpilot/commit/ddaf9f0cf4dfd1e259b50a90f88c6bf1e0d53771))
+* **import:** a designated import reports its summary, on the run that designated it ([#341](https://github.com/NonoHM/budgetpilot/issues/341)) ([4bd10ec](https://github.com/NonoHM/budgetpilot/commit/4bd10ec17efe83105768b83b9de59791dc82b333)), closes [#338](https://github.com/NonoHM/budgetpilot/issues/338)
+* **import:** a file that declares a non euro currency is refused, not relabelled ([#314](https://github.com/NonoHM/budgetpilot/issues/314)) ([d0ec79a](https://github.com/NonoHM/budgetpilot/commit/d0ec79aabfcca08e7a2769262015594c0f216232))
+* **import:** a headerless file keeps its first transaction, and the fixture generator becomes tracked ([#365](https://github.com/NonoHM/budgetpilot/issues/365)) ([e53bd1c](https://github.com/NonoHM/budgetpilot/commit/e53bd1cf028e46e7572520f813b6f1f6bc6abf0f))
+* **import:** a refusal is a structured fact, and header complaints lose their invented line numbers ([#305](https://github.com/NonoHM/budgetpilot/issues/305)) ([31697a5](https://github.com/NonoHM/budgetpilot/commit/31697a5c0e2aeffe86578472f528fbdb2303731d))
+* **import:** refuse a split debit/credit statement at upload, before the screen opens ([#346](https://github.com/NonoHM/budgetpilot/issues/346)) ([ff1613f](https://github.com/NonoHM/budgetpilot/commit/ff1613f471e6627e82106678fe3f2b685e874150)), closes [#343](https://github.com/NonoHM/budgetpilot/issues/343)
+* **import:** Revolut reads its English export, and its column order stops mattering ([#310](https://github.com/NonoHM/budgetpilot/issues/310)) ([14f055a](https://github.com/NonoHM/budgetpilot/commit/14f055ac9cf0c018366c7597f5fb523e64f6717b))
+* **import:** the column picker's samples are chosen to discriminate, not taken from the top ([#344](https://github.com/NonoHM/budgetpilot/issues/344)) ([d57801d](https://github.com/NonoHM/budgetpilot/commit/d57801d04168f50de52115ea2322c550ce516e20))
+* **import:** the date wall on the fourth profile, the columns you can forget, and the row that was being eaten ([#364](https://github.com/NonoHM/budgetpilot/issues/364)) ([062fde3](https://github.com/NonoHM/budgetpilot/commit/062fde3cbcc2861e37b93c0175d72bf88cfbc15b))
+* **import:** the designation picker opens at 1280, anchored under the row that opened it ([#336](https://github.com/NonoHM/budgetpilot/issues/336)) ([f48990d](https://github.com/NonoHM/budgetpilot/commit/f48990d6823900a9b8b237a8ec440520ba834099))
+* **import:** the duplicate-detection key stops depending on the file's name ([#317](https://github.com/NonoHM/budgetpilot/issues/317)) ([2dc895a](https://github.com/NonoHM/budgetpilot/commit/2dc895a19c5db916d7972fe04f4aa872b930b52d))
+* **import:** the four blocking defects on the import path, and the copy that repeated itself ([#355](https://github.com/NonoHM/budgetpilot/issues/355)) ([6592256](https://github.com/NonoHM/budgetpilot/commit/659225652e447eb991de3b4cd923661d8c7a64f5))
+* **import:** the page stops claiming five profiles are offered, because none is ([#311](https://github.com/NonoHM/budgetpilot/issues/311)) ([21a85bc](https://github.com/NonoHM/budgetpilot/commit/21a85bc86474419593eb20eb65211734049f0fd6))
+* **import:** the rescue reaches the file whose values failed, and the date says what it wants ([#362](https://github.com/NonoHM/budgetpilot/issues/362)) ([d5fe138](https://github.com/NonoHM/budgetpilot/commit/d5fe13868980f18e1494e0af04e70a6ea395bf44))
+* **import:** the silent double import, and the two it already made ([#359](https://github.com/NonoHM/budgetpilot/issues/359)) ([88262b5](https://github.com/NonoHM/budgetpilot/commit/88262b59aaad94eca78466e1c071c5a424277153))
+
+
+### Documentation
+
+* **contributing:** a break patch is undone in a finally, not on the next line ([#361](https://github.com/NonoHM/budgetpilot/issues/361)) ([f47cc30](https://github.com/NonoHM/budgetpilot/commit/f47cc30088cdde62eee5579cc6d283289cd36245))
+* **import:** the manual describes designation, and stops promising it in the future tense ([#337](https://github.com/NonoHM/budgetpilot/issues/337)) ([43514f3](https://github.com/NonoHM/budgetpilot/commit/43514f3ef96b780d7b18de3bda9aecfd98fbaa9b))
+
+
+### Maintenance
+
+* bump distroless/nodejs24-debian13 from `af85d11` to `fbbdda8` ([#295](https://github.com/NonoHM/budgetpilot/issues/295)) ([2ff18f9](https://github.com/NonoHM/budgetpilot/commit/2ff18f96c785ace30930046a34bc101de6cacf84))
+* bump the actions-patch-minor group with 2 updates ([#297](https://github.com/NonoHM/budgetpilot/issues/297)) ([e9bf2ef](https://github.com/NonoHM/budgetpilot/commit/e9bf2ef6dcb21aa53ba45ace565757f693ae2b8c))
+* bump the npm-lint-tooling group across 1 directory with 2 updates ([#293](https://github.com/NonoHM/budgetpilot/issues/293)) ([c3e7093](https://github.com/NonoHM/budgetpilot/commit/c3e7093cf2c1c079bb0e026b56ddf136b2090ceb))
+* bump the npm-patch-minor group with 8 updates ([#296](https://github.com/NonoHM/budgetpilot/issues/296)) ([226d8ff](https://github.com/NonoHM/budgetpilot/commit/226d8ff3da8a4f867a10763de01032aceb54c392))
+
 ## [0.11.2](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.11.1...budgetpilot-v0.11.2) (2026-08-13)
 
 
