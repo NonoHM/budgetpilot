@@ -91,17 +91,30 @@
 	);
 
 	/**
-	 * How many columns fit whole in 772 px, for the « 1-5 / 15 » indicator.
+	 * The width actually available to the table, bound from the element rather than assumed.
 	 *
-	 * Computed from the same widths the cells use rather than measured from the DOM: a figure read
-	 * back from layout would be right and untestable, and this one is asserted.
+	 * The plate's figure is 772 px, which is correct AT 1280 — and the application runs at any
+	 * width. Hardcoded, the indicator read « 5 of 13 columns visible » on a 1920 screen showing
+	 * nine, which is the same class of plausible-and-false figure the stated table width already
+	 * cost once. Measured on a screenshot for the manual, not by reasoning.
+	 *
+	 * `PLATE_CONTENT_WIDTH` is the fallback for the first paint, before the binding reports.
 	 */
+	const PLATE_CONTENT_WIDTH = 772;
+	/** `p-4` on the scroller, both sides. `clientWidth` includes padding, so it comes back off. */
+	const SCROLLER_PADDING = 32;
+	let scrollerWidth = $state(0);
+	const availableWidth = $derived(
+		scrollerWidth > 0 ? Math.max(0, scrollerWidth - SCROLLER_PADDING) : PLATE_CONTENT_WIDTH
+	);
+
+	/** How many columns fit WHOLE, for the « 5 of 13 » indicator. */
 	const visibleColumns = $derived.by(() => {
 		let used = 0;
 		let fitted = 0;
 		for (let index = 0; index < columnCount; index += 1) {
 			used += roleAt[index] === 'label' ? LABEL_COLUMN_WIDTH : COLUMN_WIDTH;
-			if (used > 772) break;
+			if (used > availableWidth) break;
 			fitted += 1;
 		}
 		return Math.max(1, fitted);
@@ -140,6 +153,7 @@
 		<div
 			class="overflow-x-auto overflow-y-hidden rounded-xl border border-zinc-200 bg-white p-4"
 			data-testid="designation-preview-scroller"
+			bind:clientWidth={scrollerWidth}
 		>
 			<table
 				class="border-separate border-spacing-0 text-left"
