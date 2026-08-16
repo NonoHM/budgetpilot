@@ -15,10 +15,22 @@ import { ensureDefaultRulesSeeded } from '$lib/server/categorization/defaultRule
 import { prisma } from '$lib/server/db';
 import type { PageServerLoad } from './$types';
 
+/**
+ * Notices this screen will show, ALLOWLISTED rather than reflected. The parameter selects a
+ * catalogue message; its value is never rendered. A reflected query parameter above a real
+ * password field is how a phishing link puts its own sentence on a page the visitor trusts, and
+ * "it is only ever set by our own redirect" is a fact about our links, not about the ones a
+ * visitor clicks.
+ */
+const NOTICES = ['registration_closed'] as const;
+type Notice = (typeof NOTICES)[number];
+
 export const load: PageServerLoad = async ({ locals, url }) => {
 	if (locals.user) throw redirect(303, getSafeRedirect(url.searchParams.get('redirectTo')));
+	const requested = url.searchParams.get('notice');
 	return {
-		canRegister: await isSelfRegistrationOpen()
+		canRegister: await isSelfRegistrationOpen(),
+		notice: NOTICES.includes(requested as Notice) ? (requested as Notice) : null
 	};
 };
 

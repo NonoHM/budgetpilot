@@ -43,10 +43,13 @@
 			{m.register_password_label()}
 			<PasswordInput name="password" autocomplete="new-password" minlength={12} required />
 		</label>
-		{#if !data.inviteEmail}
+		{#if data.requiresBootstrapToken}
 			<label class="grid gap-1 text-sm font-medium">
 				{m.register_bootstrap_token_label()}
 				<input class={inputBase} name="bootstrapToken" type="password" autocomplete="off" />
+				<span class="mt-1 block text-xs font-normal text-zinc-500"
+					>{m.register_bootstrap_token_hint()}</span
+				>
 			</label>
 		{/if}
 

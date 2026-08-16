@@ -524,3 +524,26 @@ describe('originStartupMessage', () => {
 		expect(message).toMatch(/refused as cross-site/);
 	});
 });
+
+describe('escapeHtmlAttribute', () => {
+	it('leaves an ordinary origin readable', async () => {
+		const { escapeHtmlAttribute } = await import('./hooks.server');
+		expect(escapeHtmlAttribute('http://localhost:3999')).toBe('http://localhost:3999');
+	});
+
+	// With ORIGIN unset the origin is built from the Host header, so this value is whatever the
+	// client sent. Raw, a crafted Host closes content="" and opens a tag.
+	it('cannot break out of a double-quoted attribute', async () => {
+		const { escapeHtmlAttribute } = await import('./hooks.server');
+		const escaped = escapeHtmlAttribute('https://a"><script>alert(1)</script>');
+		expect(escaped).not.toContain('"');
+		expect(escaped).not.toContain('<');
+	});
+
+	// & first, or the entities the later replacements introduce get their own & re-encoded.
+	it('does not double-encode', async () => {
+		const { escapeHtmlAttribute } = await import('./hooks.server');
+		expect(escapeHtmlAttribute('https://a&b')).toBe('https://a&amp;b');
+		expect(escapeHtmlAttribute('https://a"b')).toBe('https://a&quot;b');
+	});
+});

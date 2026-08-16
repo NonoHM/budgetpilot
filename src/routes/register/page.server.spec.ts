@@ -758,26 +758,82 @@ describe('/register load', () => {
 
 		await expect(runLoad({ user: null }, 'expired-token')).rejects.toMatchObject({ status: 410 });
 	});
+
+	// The bounce to /login used to carry nothing, so a closed instance read as a broken link. The
+	// reason travels in the redirect now, and /login allowlists the value rather than printing it.
+	it('a closed instance says why it bounced you, in the redirect', async () => {
+		expect.assertions(1);
+
+		db.prisma.user.count.mockResolvedValue(2);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+
+		await expect(runLoad({ user: null })).rejects.toMatchObject({
+			status: 303,
+			location: '/login?notice=registration_closed'
+		});
+	});
+
+	// The server has NEVER asked an authenticated admin for BOOTSTRAP_TOKEN: the check in the
+	// action is gated on `!locals.user`. The form asked anyway, so an admin arriving from /admin's
+	// own "create a user" button was shown a field for the DEPLOYMENT secret that the server was
+	// always going to ignore.
+	it('does not ask an authenticated admin for the bootstrap token', async () => {
+		expect.assertions(2);
+
+		db.prisma.user.count.mockResolvedValue(2);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+
+		const result = await runLoad({ user: { role: 'ADMIN' } });
+
+		expect(result.canRegister).toBe(true);
+		expect(result.requiresBootstrapToken).toBe(false);
+	});
+
+	it('asks for it on the first, unauthenticated account', async () => {
+		expect.assertions(2);
+
+		db.prisma.user.count.mockResolvedValue(0);
+		db.prisma.user.findUnique.mockResolvedValue(null);
+
+		const result = await runLoad({ user: null });
+
+		expect(result.canRegister).toBe(true);
+		expect(result.requiresBootstrapToken).toBe(true);
+	});
+
+	// Open mode never checks the token at all, so a field for it would be pure noise.
+	it('does not ask for it in open mode', async () => {
+		expect.assertions(1);
+
+		privateEnv.env.REGISTRATION_MODE = 'open';
+
+		const result = await runLoad({ user: null });
+
+		expect(result.requiresBootstrapToken).toBe(false);
+	});
 });
 
 async function runLoad(
 	locals: { user: null | { role: string } },
 	inviteToken?: string
-): Promise<{ canRegister: boolean; inviteEmail: string | null }> {
+): Promise<LoadResult> {
 	const requestUrl = inviteToken
 		? `http://localhost/register?invite=${inviteToken}`
 		: 'http://localhost/register';
 
 	return (await (
-		load as unknown as (event: {
-			locals: typeof locals;
-			url: URL;
-		}) => Promise<{ canRegister: boolean; inviteEmail: string | null }>
+		load as unknown as (event: { locals: typeof locals; url: URL }) => Promise<LoadResult>
 	)({
 		locals,
 		url: new URL(requestUrl)
-	})) as { canRegister: boolean; inviteEmail: string | null };
+	})) as LoadResult;
 }
+
+type LoadResult = {
+	canRegister: boolean;
+	inviteEmail: string | null;
+	requiresBootstrapToken: boolean;
+};
 
 async function runRegister(
 	cookies: { set: ReturnType<typeof vi.fn> },

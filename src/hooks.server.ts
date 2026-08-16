@@ -29,7 +29,15 @@ export const init: ServerInit = async () => {
 	await ensureDedupeKeyHashesBackfilled();
 };
 
-const PUBLIC_ROUTES = new Set(['/login', '/register', '/login/verify-totp']);
+// /setup/origin-mismatch is public because the operator it exists for has no account yet: an auth
+// redirect would send them to /login, which is the screen the misconfiguration has them stuck on.
+// It carries nothing but the origin of the page it is being served from and static instructions.
+const PUBLIC_ROUTES = new Set([
+	'/login',
+	'/register',
+	'/login/verify-totp',
+	'/setup/origin-mismatch'
+]);
 
 // Defense in depth: the real mechanism is areSecureCookiesEnabled() (via
 // PUBLIC_INSTANCE), but this log makes the security state visible on every
@@ -80,13 +88,30 @@ if (!secureCookies) {
 	);
 }
 
+// The value this escapes is NOT trusted. With ORIGIN unset, adapter-node builds the request URL
+// from the Host header, so `url.origin` carries a request header, and a request header is whatever
+// the client sent. Interpolated raw into `content=""` a crafted Host would close the attribute and
+// open a tag. `encodeURIComponent` is the wrong tool here — it leaves `&` alone in some positions
+// and mangles the `//` and `:` that make the value readable — so the three characters that matter
+// inside a double-quoted attribute are replaced explicitly, `&` first so it cannot double-encode
+// the entities the later replacements introduce.
+// Exported for hooks.server.spec.ts.
+export function escapeHtmlAttribute(value: string): string {
+	return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
+}
+
 // Per-request locale via AsyncLocalStorage: essential so that server-side
 // getLocale() never leaks from one concurrent request to another.
 const handleParaglide: Handle = ({ event, resolve }) =>
 	paraglideMiddleware(event.request, async ({ request, locale }) => {
 		event.request = request;
 		const response = await resolve(event, {
-			transformPageChunk: ({ html }) => html.replace('%paraglide.lang%', locale)
+			transformPageChunk: ({ html }) =>
+				html
+					.replace('%paraglide.lang%', locale)
+					// See app.html: the origin SvelteKit's CSRF check will compare the browser's Origin
+					// header against, transported for the client probe.
+					.replace('%budgetpilot.serverOrigin%', escapeHtmlAttribute(event.url.origin))
 		});
 
 		// The rendered body genuinely depends on Accept-Language: with no PARAGLIDE_LOCALE
