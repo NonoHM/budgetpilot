@@ -67,6 +67,19 @@ const tagsService = vi.hoisted(() => ({
 	deleteTag: vi.fn()
 }));
 
+// Same boundary, same reasoning: `store.db-smoke.ts` covers the userId scoping of
+// `deleteColumnMapping` and `listColumnMappings` against a real database on all three engines,
+// including a user naming another user's id. This file proves only that the ACTION maps each
+// outcome to the right response and that the LOAD shapes the rows for the page.
+const mappingStore = vi.hoisted(() => ({
+	// Typed WIDE on purpose. `vi.fn(async () => [])` infers `never[]`, so a test that supplied a
+	// realistic row would fail to compile against its own fixture, and the usual repair is to cast
+	// the fixture — which is how a spec stops asserting the shape the page actually receives.
+	listColumnMappings: vi.fn<() => Promise<Record<string, unknown>[]>>(async () => []),
+	deleteColumnMapping: vi.fn<() => Promise<'deleted' | 'not-found'>>(async () => 'deleted'),
+	resolveColumnMappingsPerUser: vi.fn<() => number>(() => 50)
+}));
+
 // The shared re-auth limiter is mocked here so this file tests the ORCHESTRATION (does each
 // sensitive action check the limiter and record on a wrong secret), not the limiter's SQL, which
 // lives in rateLimit.spec.ts. Default: never limited. Tests that need a tripped counter override
@@ -81,6 +94,7 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 vi.mock('$lib/server/backup/import', () => backupImport);
 vi.mock('$lib/server/tags/service', () => tagsService);
 vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
+vi.mock('$lib/server/import/mapping/store', () => mappingStore);
 
 const { hashPassword, hashSessionToken, SESSION_COOKIE } = await import('$lib/server/auth');
 const { actions, load } = await import('./+page.server');
@@ -99,6 +113,9 @@ describe('/settings', () => {
 		rateLimit.isReauthRateLimited.mockResolvedValue(false);
 		rateLimit.recordReauthAttempt.mockReset();
 		rateLimit.recordReauthAttempt.mockResolvedValue(undefined);
+		mappingStore.listColumnMappings.mockResolvedValue([]);
+		mappingStore.deleteColumnMapping.mockResolvedValue('deleted');
+		mappingStore.resolveColumnMappingsPerUser.mockReturnValue(50);
 	});
 
 	it('charge uniquement les sessions du user connecté sans exposer token hash ni passwordHash', async () => {
@@ -1354,6 +1371,129 @@ describe('/settings', () => {
 
 				expect(belongsToSomeoneElse).toEqual(neverExisted);
 			});
+		});
+	});
+
+	/**
+	 * #326 — the remembered correspondances, and the escape hatch the cap owes.
+	 *
+	 * The store's userId scoping is asserted against a REAL database in `store.db-smoke.ts`
+	 * (including Bob naming Alice's id, on all three engines). What only this level can show is
+	 * that the route hands the store the CALLER's id rather than one from the request, and that
+	 * each outcome becomes the right response.
+	 */
+	describe('remembered column mappings', () => {
+		it('loads them scoped to the current user, shaped for the page', async () => {
+			expect.assertions(3);
+
+			mappingStore.listColumnMappings.mockResolvedValue([
+				{
+					id: 'm1',
+					matchBy: 'name',
+					dateColumn: 'date operation',
+					labelColumn: 'libelle',
+					amountColumn: 'montant',
+					categoryColumn: null,
+					dateIndex: null,
+					labelIndex: null,
+					amountIndex: null,
+					categoryIndex: null,
+					columnCount: 4,
+					useCount: 3,
+					lastUsedAt: new Date('2026-08-15T10:00:00Z'),
+					createdAt: new Date('2026-08-01T10:00:00Z'),
+					_count: { importBatches: 2 }
+				}
+			]);
+
+			db.prisma.user.findUniqueOrThrow.mockResolvedValue({
+				email: 'user-a@example.test',
+				role: 'USER'
+			});
+			db.prisma.session.findMany.mockResolvedValue([]);
+			tagsService.listTagsWithCounts.mockResolvedValue([]);
+
+			const result = (await load(buildLoadEvent({ token: 'session-courante' }) as never)) as {
+				columnMappings: Array<Record<string, unknown>>;
+			};
+
+			// The CALLER's id, never one read off the request.
+			expect(mappingStore.listColumnMappings).toHaveBeenCalledWith('user-a');
+			expect(result.columnMappings).toHaveLength(1);
+			// `_count.importBatches` flattened onto the view the confirmation reads.
+			expect(result.columnMappings[0]).toMatchObject({
+				id: 'm1',
+				matchBy: 'name',
+				columns: { date: 'date operation', label: 'libelle', amount: 'montant' },
+				importBatchCount: 2
+			});
+		});
+
+		it('carries the cap so the list can say how many of how many', async () => {
+			expect.assertions(1);
+
+			mappingStore.resolveColumnMappingsPerUser.mockReturnValue(50);
+			db.prisma.user.findUniqueOrThrow.mockResolvedValue({
+				email: 'user-a@example.test',
+				role: 'USER'
+			});
+			db.prisma.session.findMany.mockResolvedValue([]);
+			tagsService.listTagsWithCounts.mockResolvedValue([]);
+
+			const result = (await load(buildLoadEvent({ token: 'session-courante' }) as never)) as {
+				columnMappingCap: number;
+			};
+
+			expect(result.columnMappingCap).toBe(50);
+		});
+
+		it('forgets one, passing the caller id and not a client-supplied one', async () => {
+			expect.assertions(2);
+
+			const result = await runAction('deleteColumnMapping', {
+				token: 'session-courante',
+				input: { id: 'mapping-1' }
+			});
+
+			expect(mappingStore.deleteColumnMapping).toHaveBeenCalledWith('user-a', 'mapping-1');
+			expect(result).toMatchObject({ columnMappingSuccess: expect.any(String) });
+		});
+
+		it('refuses an empty id before it reaches the store', async () => {
+			expect.assertions(2);
+
+			const result = await runAction('deleteColumnMapping', {
+				token: 'session-courante',
+				input: { id: '  ' }
+			});
+
+			expect(mappingStore.deleteColumnMapping).not.toHaveBeenCalled();
+			expect(result.status).toBe(400);
+		});
+
+		/**
+		 * The direction this change is NOT moving in.
+		 *
+		 * A mapping that is not the caller's must be indistinguishable from one that never
+		 * existed, or the response answers "does this id exist" for an id the caller does not own.
+		 * The store returns `not-found` for both; this asserts the route does not then invent a
+		 * difference in its own reply.
+		 */
+		it("answers the same for another user's mapping as for one that never existed", async () => {
+			expect.assertions(1);
+
+			mappingStore.deleteColumnMapping.mockResolvedValue('not-found');
+
+			const neverExisted = await runAction('deleteColumnMapping', {
+				token: 'session-courante',
+				input: { id: 'mapping-never-existed' }
+			});
+			const belongsToSomeoneElse = await runAction('deleteColumnMapping', {
+				token: 'session-courante',
+				input: { id: 'mapping-owned-by-user-b' }
+			});
+
+			expect(belongsToSomeoneElse).toEqual(neverExisted);
 		});
 	});
 });

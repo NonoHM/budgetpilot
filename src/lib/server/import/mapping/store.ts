@@ -160,3 +160,73 @@ export async function recordColumnMappingUse(userId: string, id: string): Promis
 		data: { useCount: { increment: 1 }, lastUsedAt: new Date() }
 	});
 }
+
+/**
+ * Every correspondance one user holds, newest first, with how many imports still point at each.
+ *
+ * `_count.importBatches` is what the confirmation needs: deleting a mapping sets those batches'
+ * `columnMappingId` to NULL (`onDelete: SetNull`), so their « Voir les colonnes » row on
+ * `/imports` stops being offered. The transactions are untouched and the batch is untouched — but
+ * an old row shows LESS than it did, and a confirmation that does not say so is a surprise the
+ * user cannot undo.
+ *
+ * Ordered by `createdAt` rather than `lastUsedAt`: a mapping that has never been used has a null
+ * `lastUsedAt`, and the row a user most wants to delete is often exactly that one.
+ */
+export async function listColumnMappings(userId: string) {
+	return prisma.columnMapping.findMany({
+		where: { userId },
+		orderBy: { createdAt: 'desc' },
+		select: {
+			id: true,
+			matchBy: true,
+			dateColumn: true,
+			labelColumn: true,
+			amountColumn: true,
+			categoryColumn: true,
+			dateIndex: true,
+			labelIndex: true,
+			amountIndex: true,
+			categoryIndex: true,
+			columnCount: true,
+			useCount: true,
+			lastUsedAt: true,
+			createdAt: true,
+			_count: { select: { importBatches: true } }
+		}
+	});
+}
+
+export type DeleteColumnMappingResult = 'deleted' | 'not-found';
+
+/**
+ * Forgets one correspondance. The user's own, or nothing at all.
+ *
+ * ## The scoping is the security control, and it is a `deleteMany` for that reason
+ *
+ * ASVS 5.0 V8.1.1: an object reference arriving from a client is authorised against the caller,
+ * never trusted. `delete({ where: { id } })` would delete BY PRIMARY KEY ALONE — any user's row,
+ * for anyone who can guess or observe a cuid. `deleteMany` takes a composite filter, so `userId`
+ * is part of the statement the database executes rather than a check performed beside it, and
+ * there is no window between the two.
+ *
+ * A row belonging to someone else is reported as `not-found`, identically to a row that never
+ * existed. Distinguishing them would answer "does this id exist" for an id the caller does not
+ * own, which is the enumeration oracle the scoping exists to close. `recordColumnMappingUse`
+ * above already uses the same `updateMany` shape for the same reason.
+ *
+ * ## What this deliberately does NOT touch
+ *
+ * Transactions imported through the mapping, and the batches that produced them. The relation is
+ * `onDelete: SetNull` precisely so that forgetting an answer cannot delete the history — the
+ * acceptance in #326 names it: « Removing a mapping leaves every transaction it ever produced in
+ * place, asserted rather than assumed. » The database performs the nulling; no code here does it,
+ * and `store.db-smoke.ts` asserts the outcome on every engine rather than trusting the schema.
+ */
+export async function deleteColumnMapping(
+	userId: string,
+	id: string
+): Promise<DeleteColumnMappingResult> {
+	const { count } = await prisma.columnMapping.deleteMany({ where: { id, userId } });
+	return count > 0 ? 'deleted' : 'not-found';
+}

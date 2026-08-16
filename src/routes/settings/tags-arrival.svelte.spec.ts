@@ -28,6 +28,11 @@ function baseData(overrides: Partial<PageData> = {}): PageData {
 		sessions: [],
 		tags: [{ id: 't1', name: 'Voyage', colorToken: 'ochre', transactionCount: 3 }],
 		aiSettings: { insightsEnabled: false, includeLabels: false, llmGloballyEnabled: false },
+		// #326's section renders from these two. Present and empty rather than absent: the page
+		// reads `data.columnMappings.length`, so an omitted key is a render crash rather than an
+		// empty section, and this file is about the tags section arriving intact beside it.
+		columnMappings: [],
+		columnMappingCap: 50,
 		...overrides
 	} as PageData;
 }

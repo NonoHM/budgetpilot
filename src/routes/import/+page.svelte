@@ -485,7 +485,24 @@
 		     that the user asked for, the import landed, and only the convenience attached to it was
 		     declined. -->
 		{#if capReached}
-			<AlertBanner variant="warning">{m.import_columns_cap_reached()}</AlertBanner>
+			<!--
+			#326. The cap is REFUSED rather than evicted, so without a way to free a row it is a
+			permanent block: a user at the maximum can never import a new bank again. The refusal
+			said so and named no screen, no issue and no next step — `store.ts` claimed otherwise in
+			a comment for a whole release. The action snippet is the one the bulk-tag banner already
+			uses; the destination is the list that now exists.
+			-->
+			<AlertBanner variant="warning">
+				{m.import_columns_cap_reached()}
+				{#snippet action()}
+					<a
+						href={resolve('/settings')}
+						class="shrink-0 self-center font-semibold text-amber-900 underline underline-offset-2"
+					>
+						{m.import_columns_cap_reached_action()}
+					</a>
+				{/snippet}
+			</AlertBanner>
 		{/if}
 
 		{#if importResult}
@@ -749,7 +766,24 @@
 
 		<!-- Same placement and same reason as the desktop chrome: it qualifies the counts below it. -->
 		{#if capReached}
-			<AlertBanner variant="warning">{m.import_columns_cap_reached()}</AlertBanner>
+			<!--
+			#326. The cap is REFUSED rather than evicted, so without a way to free a row it is a
+			permanent block: a user at the maximum can never import a new bank again. The refusal
+			said so and named no screen, no issue and no next step — `store.ts` claimed otherwise in
+			a comment for a whole release. The action snippet is the one the bulk-tag banner already
+			uses; the destination is the list that now exists.
+			-->
+			<AlertBanner variant="warning">
+				{m.import_columns_cap_reached()}
+				{#snippet action()}
+					<a
+						href={resolve('/settings')}
+						class="shrink-0 self-center font-semibold text-amber-900 underline underline-offset-2"
+					>
+						{m.import_columns_cap_reached_action()}
+					</a>
+				{/snippet}
+			</AlertBanner>
 		{/if}
 
 		{#if importResult}
