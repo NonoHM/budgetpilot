@@ -17,6 +17,9 @@
 	import RoleRow from '$lib/components/ui/RoleRow.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
+	// The recap's one action. Brique 4's affordance clause is why it is not a TapLink there; see the
+	// note at the call site.
+	import Button from '$lib/components/Button.svelte';
 	import ColumnPicker from './ColumnPicker.svelte';
 
 	/**
@@ -528,8 +531,29 @@
 					{m.import_columns_recap_modify_note()}
 				</p>
 			{/if}
-			<div class="flex h-12 items-center">
-				<TapLink onclick={onModify ?? (() => (recap = false))}>{m.import_columns_modify()}</TapLink>
+			<!--
+				A BUTTON, and the referential is what settles it rather than a preference.
+
+				§3.7 enumerates « la même carte, des rangées de 44 px, un TapLink », so the plate names
+				this brick. But brique 4's own accessibility clause says a TapLink's affordance « comes
+				from colour and font-weight and from sitting in an already-interactive context (list row,
+				card, under an action title) » — and §3.7's rows are NON-FOCUSABLE by the same ruling. So
+				the plate places a brick whose affordance depends on a context the same section removes,
+				and the two statements cannot both be honoured here.
+
+				Measured, and this is the cost of resolving it the other way: the blind tester read the
+				bordered « Annuler » in the footer as the only control on the screen and recorded that they
+				had hit a dead end. « Modifier les colonnes » is the only reason to be on this page.
+
+				§3.7 drew this block on the UPLOAD screen, where `Importer le relevé` is the primary and a
+				TapLink beside it is correctly subordinate. Ruling A1 deleted that moment, so the recap
+				lives on `/imports/[batchId]/columns` where no primary exists — the inversion is a
+				consequence of moving the block to a surface the plate does not draw, not of the brick.
+
+				Recorded as a plate deviation for the design brief rather than settled unilaterally.
+			-->
+			<div class="flex items-center">
+				<Button onclick={onModify ?? (() => (recap = false))}>{m.import_columns_modify()}</Button>
 			</div>
 		</div>
 	{:else if pageState === 'complete' || pageState === 'submitting'}
@@ -569,13 +593,29 @@
 {/snippet}
 
 {#snippet actions()}
-	<button
-		type="button"
-		class="h-12 flex-1 rounded-[14px] border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-700"
-		onclick={onCancel}
-	>
-		{pageState === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
-	</button>
+	{#if recap}
+		<!--
+			THE ESCAPE, and it is a TapLink because it is now the secondary on this screen.
+
+			It also stops saying « Annuler ». On a read-only page nothing is in progress and nothing can
+			be abandoned, so that word named no action — A14's phantom. What the control does is go back
+			to the list this recap was opened from, and it now says so.
+
+			The swap is the whole of the affordance repair: the bordered box was carrying all the visual
+			weight on the screen for the one control that changes nothing.
+		-->
+		<div class="flex flex-1 items-center">
+			<TapLink onclick={onCancel}>{m.import_columns_recap_back()}</TapLink>
+		</div>
+	{:else}
+		<button
+			type="button"
+			class="h-12 flex-1 rounded-[14px] border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-700"
+			onclick={onCancel}
+		>
+			{pageState === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
+		</button>
+	{/if}
 	{#if !recap}
 		<!--
 			`aria-disabled`, NEVER the `disabled` attribute, and `aria-describedby` pointing at the
@@ -652,13 +692,21 @@
 						page. The Repartition plate's amendment, same argument: what COMMANDS the
 						primary action travels with it, so the count explaining why the primary is off
 						can never be scrolled away from the primary it explains.
+
+						NO BOX IN THE RECAP, and it is the same rule rather than an exception to it. The box
+						exists to bind a count to the primary it explains; the recap has neither. Once the
+						escape became a TapLink, the border was a bordered white card drawn around a text
+						link — a control-shaped surface containing no control, which is the false affordance
+						this wave keeps removing. Seen on the journey immediately after the swap.
 					-->
 					<div
-						class="sticky bottom-6 overflow-hidden rounded-lg border border-zinc-200 bg-white"
+						class="sticky bottom-6 overflow-hidden {recap
+							? ''
+							: 'rounded-lg border border-zinc-200 bg-white'}"
 						data-testid="designation-command-foot"
 					>
 						{@render bannerBlock()}
-						<div class="flex items-stretch gap-3 p-4">
+						<div class="flex items-stretch gap-3 {recap ? 'pt-1' : 'p-4'}">
 							{@render actions()}
 						</div>
 					</div>

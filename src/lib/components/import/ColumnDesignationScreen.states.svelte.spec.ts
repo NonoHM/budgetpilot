@@ -513,4 +513,74 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		expect(card.getBoundingClientRect().height).toBe(355);
 		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(4);
 	});
+
+	/**
+	 * THE AFFORDANCE, and the reason it needed tests at all: it shipped inverted and every test in this
+	 * file stayed green over it.
+	 *
+	 * A blind session recorded « my honest first read was that Annuler was the only control on this
+	 * screen and that I had hit a dead end ». « Modifier les colonnes » — the only reason to be on the
+	 * page — rendered as flat text with no border while « Annuler » sat in a bordered box and cancelled
+	 * nothing on a read-only screen.
+	 *
+	 * Asserted on the RENDERED weight, compared between the two controls in one document rather than
+	 * against a literal colour, so a palette change cannot silently invert it again. A class-name
+	 * assertion would have passed on the inverted version too, since both controls have classes.
+	 */
+	/**
+	 * Whether a control draws a BOX around itself: a fill that is not transparent, or a border.
+	 *
+	 * Asserted as a count rather than as a comparison, and the difference was measured. A first version
+	 * compared the two controls' darkness and passed when BOTH were boxed — which is not the shipped
+	 * defect but is not « one control that reads as one » either, so the test did not cover its own
+	 * title. Counting boxes answers the claim directly.
+	 */
+	function boxed(element: Element): boolean {
+		const style = getComputedStyle(element);
+		const transparent =
+			style.backgroundColor === 'rgba(0, 0, 0, 0)' || style.backgroundColor === 'transparent';
+		return !transparent || style.borderTopWidth !== '0px';
+	}
+
+	it('gives the recap exactly ONE control that reads as one, and it is the modify', async () => {
+		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		const modify = container.querySelector(
+			'[data-testid="designation-modify"] button'
+		) as HTMLElement;
+		const escape = container.querySelector(
+			'[data-testid="designation-footer"] button'
+		) as HTMLElement;
+
+		expect(boxed(modify)).toBe(true);
+		expect(boxed(escape)).toBe(false);
+	});
+
+	it('names the escape after what it does, and never « Annuler », in the recap', async () => {
+		// A14's phantom. Nothing is in progress on a read-only page, so nothing can be cancelled: the
+		// control goes back to the list the recap was opened from. Both assertions, because renaming it
+		// to a third thing would pass a presence check alone.
+		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		const escape = container.querySelector(
+			'[data-testid="designation-footer"] button'
+		) as HTMLElement;
+
+		expect(escape.textContent?.trim()).toBe(m.import_columns_recap_back());
+		expect(escape.textContent).not.toContain(m.import_columns_cancel());
+	});
+
+	it('keeps « Annuler » as the bordered control on the designation FORM', async () => {
+		// The direction this change is not moving in, and the one a careless fix takes with it. On the
+		// control form something IS in progress and abandoning it is exactly what that button does, so
+		// the word and the box are both right there.
+		const { container } = mount({ initialAssignment: COMPLETE });
+
+		const escape = container.querySelector(
+			'[data-testid="designation-footer"] button'
+		) as HTMLElement;
+
+		expect(escape.textContent?.trim()).toBe(m.import_columns_cancel());
+		expect(getComputedStyle(escape).borderTopWidth).not.toBe('0px');
+	});
 });

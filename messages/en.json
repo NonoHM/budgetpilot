@@ -1497,6 +1497,7 @@
 	"import_columns_revisit": "Review the columns",
 	"import_columns_offer_explanation": "No row could be imported. Say which column carries the date, the label and the amount.",
 	"import_columns_modify": "Change the columns",
+	"import_columns_recap_back": "Back to imports",
 	"import_columns_recognised": "Recognised columns",
 	"import_columns_memorised_one": "Correspondence memorised on {date}, used {count} time.",
 	"import_columns_memorised_many": "Correspondence memorised on {date}, used {count} times.",

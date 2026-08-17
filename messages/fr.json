@@ -1497,6 +1497,7 @@
 	"import_columns_revisit": "Revoir les colonnes",
 	"import_columns_offer_explanation": "Aucune ligne n'a pu être importée. Indiquez quelle colonne porte la date, le libellé et le montant.",
 	"import_columns_modify": "Modifier les colonnes",
+	"import_columns_recap_back": "Retour aux imports",
 	"import_columns_recognised": "Colonnes reconnues",
 	"import_columns_memorised_one": "Correspondance mémorisée le {date}, utilisée {count} fois.",
 	"import_columns_memorised_many": "Correspondance mémorisée le {date}, utilisée {count} fois.",
