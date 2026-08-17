@@ -19,13 +19,43 @@
 	const collisionPair = $derived(data.collisions[0] ?? null);
 	const otherCollisions = $derived(Math.max(0, data.collisions.length - 1));
 
-	let pendingCancel = $state<{ id: string; fileName: string | null; importedRows: number } | null>(
-		null
-	);
+	/**
+	 * The import the confirmation is about to destroy, named by the one attribute two candidates do
+	 * not share.
+	 *
+	 * `createdAt` is here for the title. After a correction `/imports` holds two rows agreeing on
+	 * file name, profile, period and all four counts, because that is what a re-import of the same
+	 * statement produces, and the withheld case of the replace leaves exactly that pair behind on
+	 * purpose. A confirmation naming the file name would state an identity both satisfy while
+	 * calling itself irreversible.
+	 */
+	let pendingCancel = $state<{
+		id: string;
+		fileName: string | null;
+		importedRows: number;
+		createdAt: string;
+	} | null>(null);
 	let cancelSubmitting = $state(false);
 
+	/**
+	 * The timestamp this page identifies an import BY, so it is rendered to the second.
+	 *
+	 * MEASURED, and it is why this is not `timeStyle: 'short'` like everywhere else. Running the
+	 * correction journey end to end produced two rows both reading « 17 août 2026 à 14:10 »: a
+	 * repair happens minutes after the import that went wrong, so the two land in the same minute
+	 * often enough that it cannot be called an edge. A discriminant that is not unique identifies
+	 * nothing, and a confirmation naming both candidates while calling itself irreversible is worse
+	 * than one naming neither, because it reads as precise.
+	 *
+	 * This deviates from the plate, which writes the title as « Supprimer l'import du 1 juillet 2026
+	 * à 10:59 ? ». The deviation is forced by the plate's own rule that the discriminant be unique,
+	 * so the rule is kept and the example is not.
+	 *
+	 * One function for the row and for the dialog title, deliberately: they are two renderings of
+	 * one identity and a second formatter is how they start disagreeing.
+	 */
 	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleString(getLocale(), { dateStyle: 'long', timeStyle: 'short' });
+		return new Date(iso).toLocaleString(getLocale(), { dateStyle: 'long', timeStyle: 'medium' });
 	}
 
 	function formatDateOnly(iso: string): string {
@@ -310,7 +340,8 @@
 													(pendingCancel = {
 														id: batch.id,
 														fileName: batch.fileName,
-														importedRows: batch.importedRows
+														importedRows: batch.importedRows,
+														createdAt: batch.createdAt
 													})}>{m.common_delete()}</Button
 											>
 										</div>
@@ -397,7 +428,8 @@
 											(pendingCancel = {
 												id: batch.id,
 												fileName: batch.fileName,
-												importedRows: batch.importedRows
+												importedRows: batch.importedRows,
+												createdAt: batch.createdAt
 											})}
 									>
 										<svg
@@ -440,9 +472,34 @@
 		}}
 	>
 		<input type="hidden" name="batchId" value={pendingCancel.id} />
+		<!--
+			The plate's §2g. The title is the dialog's `aria-labelledby` target, so the name a screen
+			reader announces and the sentence on screen are one node and cannot diverge.
+
+			`formatDate` rather than a second formatter: it is what the row above already shows for
+			this import, so the user is comparing two renderings of the same string rather than a
+			timestamp against a date. That is also why the date is written in words. `01/07/2026
+			10:59` is read out as digits and slashes, which is not comparable button to button.
+
+			The confirm is short because the dialog is already named. Repeating the object in the
+			button, « Supprimer l'import », says less than « Supprimer » does under a title that has
+			just said WHICH import.
+
+			TWO DEVIATIONS FROM THE PLATE, both deliberate and recorded rather than rounded away.
+
+			The dismiss keeps « Garder l'import » where the plate writes « Annuler ». Settled by the
+			owner: this change exists partly to stop « Annuler » naming a deletion, so adopting the
+			plate's value here would work against the change it is making. A dismiss that says what it
+			PRESERVES also beats one that says what it abandons.
+
+			And the plate's drawn body claims « Les transactions déjà importées ne seront pas
+			supprimées », which is the opposite of what this action does and contradicts the plate's
+			own description of the existing copy. Treated as a transcription slip and not
+			implemented; the cost note below is what ships.
+		-->
 		<ConfirmDialog
 			open={true}
-			title={m.imports_cancel_confirm_title()}
+			title={m.imports_cancel_confirm_title({ date: formatDate(pendingCancel.createdAt) })}
 			description={cancelConfirmDescription(pendingCancel.importedRows)}
 			confirmLabel={m.imports_cancel_confirm_label()}
 			cancelLabel={m.imports_cancel_keep_label()}
