@@ -101,6 +101,12 @@
 			// posted from here would be a string it has to re-derive anyway.
 			if (index !== null) data.set(`${role}Index`, String(index));
 		}
+		// The batch this correction replaces. Posted only when the choice is still ticked, and
+		// re-resolved server side against this user's own batches: a client-held id decides a delete,
+		// so it travels as a request and never as an authorisation.
+		if (pending.correction?.deleteOldImport) {
+			data.set('replaceBatchId', pending.correction.batchId);
+		}
 
 		// `x-sveltekit-action`, and the whole defect was its absence. Without it the action's reply
 		// is a rendered page rather than a serialised ActionResult, so there was nothing in the
@@ -172,7 +178,13 @@
 							file: pending.file,
 							assignment: result.assignment,
 							remember: result.remember,
-							hasHeaderRow: pending.view.hasHeaderRow
+							hasHeaderRow: pending.view.hasHeaderRow,
+							// Carried through the question, because answering it re-posts to this same
+							// action and a correction that lost its batch id here would import beside the
+							// import it came to replace.
+							replaceBatchId: pending.correction?.deleteOldImport
+								? pending.correction.batchId
+								: null
 						},
 						existing: actionResult.data.collision,
 						incoming: actionResult.data.incoming

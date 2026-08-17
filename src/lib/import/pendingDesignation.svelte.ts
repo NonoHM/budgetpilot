@@ -35,6 +35,19 @@ export interface PendingDesignation {
 	initialAssignment: RoleAssignment;
 	/** Per role, the column indices detection proposes when it will not pick between equals. */
 	candidates: Partial<Record<string, number[]>>;
+	/**
+	 * The correction this designation belongs to, when it is one.
+	 *
+	 * Carried because the designation request is the one that DELETES, and until this field existed
+	 * nothing survived the navigation to tell it so. That absence is why the collision guard fired
+	 * against the very batch the user came to fix, and why a correction left two identical imports
+	 * behind.
+	 *
+	 * Not trusted, exactly like the rest of this module. The id is resolved again, server side,
+	 * against this user's own batches and against the correspondance being corrected, in the request
+	 * that acts on it. Tampering with it from a console selects a batch that is already yours.
+	 */
+	correction: { batchId: string; deleteOldImport: boolean } | null;
 }
 
 let pending: PendingDesignation | null = null;

@@ -48,7 +48,15 @@
 		{wide}
 		onCancel={() => goto(resolve('/imports'))}
 		onModify={() =>
-			goto(resolve(`/import?correct=${encodeURIComponent(data.mappingId)}` as `/import?${string}`))}
+			goto(
+				resolve(
+					// BOTH ids. The correspondance says which designation reopens; the batch says which
+					// import the correction replaces, and without it the corrected rows land beside the
+					// wrong ones and every total counts twice until the user finds the old import and
+					// deletes it by hand.
+					`/import?correct=${encodeURIComponent(data.mappingId)}&batch=${encodeURIComponent(data.batchId)}` as `/import?${string}`
+				)
+			)}
 	/>
 	<!--
 		Under the card rather than above it, so the screen's own heading is the first thing read. The

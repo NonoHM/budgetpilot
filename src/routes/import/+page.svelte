@@ -140,6 +140,20 @@
 	);
 
 	/**
+	 * The batch this correction replaces, read through the same `in` check.
+	 *
+	 * Taken from the ACTION's payload rather than from `data.correction`, and the difference matters:
+	 * the load's value says an address bar asked for a correction, the action's says the server
+	 * resolved the batch, checked it belongs to this user and checked it was read through the very
+	 * correspondance being corrected. Only the second one may travel to a request that deletes.
+	 */
+	const correctionState = $derived(
+		form && 'correction' in form
+			? (form.correction as { batchId: string; deleteOldImport: boolean } | null)
+			: null
+	);
+
+	/**
 	 * Hands the file to the designation screen and navigates.
 	 *
 	 * The FILE goes with it, in memory, because owner ruling 2 keeps it in the browser: storing the
@@ -182,7 +196,8 @@
 				hasHeaderRow: designation.hasHeaderRow
 			},
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
-			candidates: {}
+			candidates: {},
+			correction: correctionState
 		});
 		await goto(resolve('/import/columns'));
 	}
@@ -280,9 +295,15 @@
 	 * holds anything the browser would submit. Reading the shared `csvFiles` binding is the same fix
 	 * the file input itself already carries: one value, read the same way whichever chrome is on.
 	 *
-	 * `correctMappingId` is deliberately NOT carried. The correction path returns the designation
-	 * screen before the collision check can run, so a correction never reaches this dialog, and
-	 * posting the field would turn the confirmation into a second request to designate.
+	 * `correctMappingId` is deliberately NOT carried. That field asks `/import` to REOPEN the
+	 * designation screen, and posting it here would turn a confirmation into a second request to
+	 * designate.
+	 *
+	 * `replaceBatchId` IS carried, and the two are not the same field wearing different names. This
+	 * comment used to say a correction never reaches this dialog, and that stopped being true when
+	 * the guard learned to exclude the batch being replaced: what fires now is a third batch that
+	 * also matches. Dropping the id here would import the corrected rows and leave the batch they
+	 * were meant to replace in place, on the one screen that had just warned about doubling.
 	 */
 	async function confirmCollisionImport(event: SubmitEvent) {
 		event.preventDefault();
@@ -307,6 +328,9 @@
 				const index = carried.repost.assignment[role];
 				// Indices, never names. The server resolves them against ITS own header list.
 				if (index !== null) body.set(`${role}Index`, String(index));
+			}
+			if (carried.repost.replaceBatchId) {
+				body.set('replaceBatchId', carried.repost.replaceBatchId);
 			}
 		} else {
 			body.set('netWorthAccountId', selectedNetWorthAccountId);
@@ -387,8 +411,19 @@
 	through the same wrong correspondance. Correct first, delete second.
 -->
 {#snippet correctionNotice()}
-	{#if data.correctMappingId}
-		<input type="hidden" name="correctMappingId" value={data.correctMappingId} />
+	{#if data.correction}
+		<input type="hidden" name="correctMappingId" value={data.correction.mappingId} />
+		<!--
+			The batch, posted beside the correspondance. Both are re-resolved server side and the
+			PAIRING is re-resolved with them, so this is a carried value rather than a claim.
+
+			Absent when the batch did not resolve, which is a link from before this shipped or one
+			whose import has since been deleted. The correction still reopens the designation screen;
+			it simply replaces nothing.
+		-->
+		{#if data.correction.batchId}
+			<input type="hidden" name="correctBatchId" value={data.correction.batchId} />
+		{/if}
 		<div class="rounded-xl border border-zinc-200 bg-white p-3">
 			<p class="text-sm font-semibold text-zinc-900">{m.import_columns_correct_heading()}</p>
 			<p class="mt-1 text-xs text-zinc-600">{m.import_columns_correct_explanation()}</p>
@@ -473,7 +508,7 @@
 							statement IS recognised, and that is precisely why the user is here. The block
 							above already says what this upload is for.
 						-->
-						{#if !data.correctMappingId}
+						{#if !data.correction}
 							<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
 						{/if}
 						<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>
@@ -758,7 +793,7 @@
 							statement IS recognised, and that is precisely why the user is here. The block
 							above already says what this upload is for.
 						-->
-					{#if !data.correctMappingId}
+					{#if !data.correction}
 						<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
 					{/if}
 					<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>

@@ -33,6 +33,16 @@ export interface PendingCollision {
 		assignment: RoleAssignment;
 		remember: boolean;
 		hasHeaderRow: boolean;
+		/**
+		 * The batch a correction replaces, when this run is one.
+		 *
+		 * A correction CAN reach this dialog, and only since the guard learned to exclude the batch
+		 * being replaced: what fires now is a THIRD batch that also matches, a genuine earlier import
+		 * of the same statement. Without this field the confirmation would import the corrected rows
+		 * and leave the batch it was launched from in place, which is the doubled state the whole
+		 * wave exists to remove, reached through the one screen that had just warned about doubling.
+		 */
+		replaceBatchId: string | null;
 	};
 	/** The already-imported batch this run appears to repeat. */
 	existing: CollidingBatchView;

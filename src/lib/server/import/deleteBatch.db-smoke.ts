@@ -179,6 +179,36 @@ describe('deleteImportBatch against a real engine', () => {
 		expect(await prisma.transaction.count({ where: { importBatchId: batchId } })).toBe(2);
 	});
 
+	it('holds a live row count that diverges from the batch importedRows column', async () => {
+		expect.assertions(2);
+
+		// The premise the replace guard rests on, pinned here rather than asserted from a mock.
+		// `/import/columns` decides whether to withhold the delete by comparing the corrected run
+		// against the LIVE count of the batch it would destroy, never against `importedRows`. That
+		// column is a fact about the past import and this proves the two really do separate: one
+		// row deleted by hand, and the column still says two.
+		const seed = await seedUser();
+		const batchId = await seedBatch(seed, 'releve-aout.csv');
+		await prisma.importBatch.update({ where: { id: batchId }, data: { importedRows: 2 } });
+
+		const [victim] = await prisma.transaction.findMany({
+			where: { importBatchId: batchId },
+			orderBy: { date: 'asc' },
+			select: { id: true },
+			take: 1
+		});
+		await prisma.transaction.delete({ where: { id: victim.id } });
+
+		const batch = await prisma.importBatch.findUniqueOrThrow({
+			where: { id: batchId },
+			select: { importedRows: true }
+		});
+		expect(batch.importedRows).toBe(2);
+		expect(await prisma.transaction.count({ where: { importBatchId: batchId } })).toBe(1);
+		// Two absolute figures rather than a third assertion comparing them. `1 < 2` written as an
+		// expectation reads as a check and is an identity: it would pass with no database at all.
+	});
+
 	it('leaves the corrected batch alone when the batch it replaces is deleted', async () => {
 		expect.assertions(4);
 
