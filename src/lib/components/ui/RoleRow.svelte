@@ -33,9 +33,15 @@
 	 * line with air around them. The figure that has to be respected is the touch-target floor, and
 	 * 68 exceeds it by 20. The V2 44 px precedence clause is satisfied with no per-screen exception.
 	 *
-	 * The recapitulatif is a third height, 44, and it is a different thing: one line, no chevron,
-	 * **neither a button nor focusable**, because it opens nothing. A row that looks interactive and
-	 * is not is worse than a row that looks inert.
+	 * The recapitulatif is a third height, 64, and it is a different thing: no chevron, **neither a
+	 * button nor focusable**, because it opens nothing. A row that looks interactive and is not is
+	 * worse than a row that looks inert.
+	 *
+	 * **§3.7 sizes that row at 44 and this is a recorded deviation, not a drift.** 44 holds one line,
+	 * and the one line it held was `column · value`, which asserts a relation between a live fact and
+	 * a historical one. The recap branch below says why that pairing is false; the height is the
+	 * consequence of stating the two facts separately, and the plate's figure was measured against
+	 * copy that no longer exists.
 	 *
 	 * ## Press and open are visually identical, and that is deliberate
 	 *
@@ -215,25 +221,58 @@
 	</div>
 {:else if state === 'recap'}
 	<!--
-		Read only. Neither a button nor focusable, because it opens nothing. The role name sits in a
-		fixed 74 px column so the four values line up as a column of answers.
+		Read only. Neither a button nor focusable, because it opens nothing.
+
+		## TWO FACTS, never one pairing, and that is what makes this 64 px rather than the plate's 44
+
+		The plate draws one line, `Date operation · 24/06/2026`, and the middot in it asserts that the
+		column named produced the value shown. It does not. The column is read LIVE from the
+		correspondance and the value comes from the transactions one import left behind, so the moment
+		a correspondance is corrected the two halves belong to different readings and the row states a
+		relation that never held. Finding A8, and it lands on the one screen a user opens to work out
+		which of two identical import rows to delete.
+
+		The repair is not a caption. A caption sits under the card and the pairing is inside it, so the
+		sentence would deny what the row above it still draws. Each fact carries its own label instead,
+		on its own line, which costs one line and makes the row 64.
+
+		The labels are per row rather than stated once as column headings, and that is a decision about
+		the reading order as much as the geometry. These rows are `div`s with no accessible name of
+		their own, so a screen reader reads them linearly: column headings would need real table
+		semantics to reach it, and this repository already carries one unregistered table (#332). A
+		labelled sentence per line is correct in both channels with no new pattern.
+
+		**The value fact is stated only when there is a value.** A batch whose transactions are gone
+		gives every role an empty sample, and « Valeur lue par cet import : » with nothing after it is
+		a label doing a fact's job.
 	-->
-	<div class="flex h-11 items-center gap-2 text-[13px]">
-		<span class="w-[74px] shrink-0 font-semibold text-zinc-900">{name}</span>
-		<span class="min-w-0 flex-1 overflow-hidden overflow-ellipsis whitespace-nowrap text-zinc-600">
-			{#if columnIndex === undefined}
-				<!--
-					A role that holds NO column, in a read only recap. `designatedName` falls back to
-					`Colonne N` when there is no header, which is right for a designated column with an
-					unreadable one and a lie here: it would tell the user their categories were read from
-					column 1 of a file that never had a category column. Catégorie says so in its own
-					words; a required role with no column says nothing rather than something false.
-				-->
-				{role === 'category' ? m.import_columns_row_category_empty() : ''}
-			{:else}
-				{designatedName} · {sampleValue}
-			{/if}
+	<div class="flex h-16 flex-col justify-center gap-[3px]">
+		<span class="h-[18px] truncate text-[13px] leading-[18px] font-semibold text-zinc-900">
+			{name}
 		</span>
+		{#if columnIndex === undefined}
+			<!--
+				A role that holds NO column, in a read only recap. `designatedName` falls back to
+				`Colonne N` when there is no header, which is right for a designated column with an
+				unreadable one and a lie here: it would tell the user their categories were read from
+				column 1 of a file that never had a category column. Catégorie says so in its own
+				words; a required role with no column says nothing rather than something false.
+			-->
+			{#if role === 'category'}
+				<span class="h-4 truncate text-[12.5px] leading-4 text-zinc-500">
+					{m.import_columns_row_category_empty()}
+				</span>
+			{/if}
+		{:else}
+			<span class="h-4 truncate text-[12.5px] leading-4 text-zinc-600">
+				{m.import_columns_recap_column_fact({ column: designatedName })}
+			</span>
+			{#if sampleValue}
+				<span class="h-4 truncate text-[12.5px] leading-4 text-zinc-600">
+					{m.import_columns_recap_value_fact({ value: sampleValue })}
+				</span>
+			{/if}
+		{/if}
 	</div>
 {:else}
 	<button

@@ -40,11 +40,44 @@
 	<title>{m.import_columns_recap_page_title()}</title>
 </svelte:head>
 
+<!--
+	Under the card rather than above it, so the screen's own heading is the first thing read, and
+	INSIDE the screen rather than after it: measured on the journey, a paragraph rendered after this
+	component lands below the frame's border at 1280, on a different centring axis from the card it
+	qualifies, and behind the tab bar at 390. A sentence about the four rows is read with them.
+
+	The memorisation line is the plate's, and it is repeated here from `/imports` because this is the
+	screen where the user decides whether the correspondance is right: how long it has been repeating
+	is part of that decision.
+
+	The sentence under it is NOT the plate's any more. It read « Ce que chaque rôle a lu, et la valeur
+	que cet import en a tirée », which is a claim about the past made from a row that only knows the
+	present: `+page.server.ts` reaches the mapping through `batch.columnMapping`, so a correspondance
+	corrected since draws the NEW column names on the OLD import's page while its transactions still
+	hold what the old reading produced. Finding A8.
+
+	The caption is only half the repair and it is the half that could not have been enough alone: the
+	pairing it would have denied is inside the card, one line above it, so the rows state the two
+	facts separately and this sentence says which of them is current. **The snapshot is #379** and it
+	stays the only thing that would make an old batch's page truthful rather than merely honest about
+	what it does not know. `updatedAt` cannot stand in for it: `recordColumnMappingUse` bumps it on
+	every USE, so it cannot separate a correspondance that was edited from one that was merely used
+	again.
+-->
+{#snippet caption()}
+	<p class="text-[12.5px] leading-[17px] text-zinc-500">{memorised}</p>
+	<p class="mt-1 text-[12.5px] leading-[17px] text-zinc-500">
+		{m.import_columns_recap_explanation()}
+	</p>
+{/snippet}
+
 <main class="min-h-dvh w-full bg-zinc-50">
 	<ColumnDesignationScreen
 		file={data.file}
 		initialAssignment={data.assignment}
 		readOnly
+		modifyAsksForFile
+		recapCaption={caption}
 		{wide}
 		onCancel={() => goto(resolve('/imports'))}
 		onModify={() =>
@@ -58,14 +91,4 @@
 				)
 			)}
 	/>
-	<!--
-		Under the card rather than above it, so the screen's own heading is the first thing read. The
-		sentence is the plate's, and it is repeated here from `/imports` because this is the screen
-		where the user decides whether the correspondance is right: how long it has been repeating is
-		part of that decision.
-	-->
-	<div class="mx-auto max-w-3xl px-4 pb-8 lg:px-8">
-		<p class="text-[12.5px] text-zinc-500">{memorised}</p>
-		<p class="mt-1 text-[12.5px] text-zinc-500">{m.import_columns_recap_explanation()}</p>
-	</div>
 </main>

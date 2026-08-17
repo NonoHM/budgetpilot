@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
 	import {
@@ -89,6 +90,8 @@
 		signatureLostDate = null,
 		announceDelayMs = 150,
 		readOnly = false,
+		modifyAsksForFile = false,
+		recapCaption,
 		wide = false,
 		onCancel,
 		onModify,
@@ -133,6 +136,34 @@
 		 * detail that matters, and nothing would go red.
 		 */
 		readOnly?: boolean;
+		/**
+		 * Whether « Modifier les colonnes » will ask for the statement again, said BEFORE the press.
+		 *
+		 * Question 5 of the design project's own issue list, and the answer is that the order cannot
+		 * change: the picker chooses a column on its VALUES, and a stored correspondance holds four
+		 * column names out of N with no values at all. So the file has to come back before anything
+		 * can be chosen, and the only thing left to repair is the surprise. A surprise is repaired by
+		 * naming the cost before the press, with its reason, since a cost with no reason reads as an
+		 * apology.
+		 *
+		 * **A prop and not a consequence of `readOnly`, because the same recap has two callers.** The
+		 * one opened from an upload still holds the file and flips the rows back to their controls in
+		 * place; there the note would promise a re-ask that does not happen. Only the route that
+		 * navigates away knows, so only the route says so.
+		 */
+		modifyAsksForFile?: boolean;
+		/**
+		 * Whatever the caller has to say ABOUT the correspondance, drawn under the card in recap mode.
+		 *
+		 * A snippet rather than a string, because the route's copy is two paragraphs today and one of
+		 * them is parameterised by a date it formats itself. What the component owns is the PLACE, and
+		 * the place is the only thing a route cannot get right from outside: below this component its
+		 * paragraphs fall outside the frame at 1280 and behind the tab bar at 390.
+		 *
+		 * Recap only. The control form's equivalent region is the memorisation block, which is about
+		 * a decision being taken rather than about an answer being read.
+		 */
+		recapCaption?: Snippet;
 		/**
 		 * The 1280 layout: a 400 px command column beside the room the preview table will occupy.
 		 *
@@ -474,8 +505,32 @@
 			MODE of this screen rather than a second screen: the same rows, resolved the same way,
 			drawn differently.
 		-->
-		<div class="flex h-12 shrink-0 items-center" data-testid="designation-modify">
-			<TapLink onclick={onModify ?? (() => (recap = false))}>{m.import_columns_modify()}</TapLink>
+		<!--
+			What the CALLER has to say about the correspondance, inside the column that draws it.
+
+			A route's own paragraphs under this component land outside its frame: at 1280 that is below
+			the card's border and centred on a different axis, and at 390 it is under the action footer
+			and behind the tab bar. Measured on the journey, at both widths. A sentence qualifying the
+			four rows has to be read with them, so the caller hands it in and the screen places it in
+			the one column that exists at either width.
+		-->
+		{#if recapCaption}
+			<div class="shrink-0" data-testid="designation-recap-caption">{@render recapCaption()}</div>
+		{/if}
+		<div class="shrink-0" data-testid="designation-modify">
+			<!--
+				ABOVE the link, which is the whole of what this sentence is for. Under it, it would
+				explain a cost the user has already paid. The shape is the memorisation block's, a
+				sentence at 12.5 then a 48 px TapLink, so nothing new is introduced for it.
+			-->
+			{#if modifyAsksForFile}
+				<p class="text-[12.5px] leading-[17px] text-zinc-500">
+					{m.import_columns_recap_modify_note()}
+				</p>
+			{/if}
+			<div class="flex h-12 items-center">
+				<TapLink onclick={onModify ?? (() => (recap = false))}>{m.import_columns_modify()}</TapLink>
+			</div>
 		</div>
 	{:else if pageState === 'complete' || pageState === 'submitting'}
 		<!--
