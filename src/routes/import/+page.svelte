@@ -140,13 +140,47 @@
 	const withheldReasonsHidden = $derived(
 		Math.max(0, invalidRowGroups.length - WITHHELD_REASON_LIMIT)
 	);
-	const replacedOn = $derived(
-		replaced.kind === 'none'
-			? ''
-			: new Intl.DateTimeFormat(getLocale(), { dateStyle: 'long', timeStyle: 'short' }).format(
-					new Date(replaced.replacedAt)
-				)
+	/**
+	 * One formatter for every surface that names an import, so the control, the retraction and the
+	 * confirmation cannot describe the same import three ways.
+	 *
+	 * The user has to match the name on the control they ticked against the name in whatever the run
+	 * reports afterwards. Two formats would make that a puzzle on the one screen whose job is to say
+	 * which import was destroyed.
+	 */
+	function namedImport(iso: string): string {
+		return new Intl.DateTimeFormat(getLocale(), {
+			dateStyle: 'long',
+			timeStyle: 'short'
+		}).format(new Date(iso));
+	}
+
+	const replacedOn = $derived(replaced.kind === 'none' ? '' : namedImport(replaced.replacedAt));
+
+	/**
+	 * The period the withheld import covers, for the retraction that names a wrong file.
+	 *
+	 * Read from the REPLACED batch rather than from the run: the summary below already prints the
+	 * period of the file just imported, so repeating it here would restate what is on screen while
+	 * leaving out the one period the user cannot see.
+	 *
+	 * The two bounds are interpolated SEPARATELY rather than through `import_collision_period`, which
+	 * renders « Du 1 juillet au 24 juillet » with a capital: that message is written to stand alone on
+	 * its own line in the collision dialog's cards, and dropped mid-sentence it produced « il couvre
+	 * Du 1 juillet ». Seen on the journey. One phrase cannot be both a line and a clause.
+	 */
+	const replacedPeriodBounds = $derived(
+		replaced.kind === 'withheldOtherPeriod' && replaced.replacedPeriod.from
+			? {
+					from: shortDate(replaced.replacedPeriod.from),
+					to: shortDate(replaced.replacedPeriod.to ?? replaced.replacedPeriod.from)
+				}
+			: { from: '', to: '' }
 	);
+
+	function shortDate(iso: string): string {
+		return new Intl.DateTimeFormat(getLocale(), { dateStyle: 'long' }).format(new Date(iso));
+	}
 
 	const errorReport = $derived(
 		importResult?.invalidRowDetails
@@ -534,7 +568,10 @@
 	user is reading is the only import of that statement. The other two states each say one thing.
 
 	`deleted` names the import by its date rather than saying « done », because the user chose this on
-	a control that named no date and they are owed the confirmation that it was the right one.
+	a control that names one, and a confirmation naming the same import in the same format is what
+	lets them check the two agree. That reason CHANGED with the control: this used to read « the user
+	chose this on a control that named no date », which was true when written and was falsified by
+	naming it. Both surfaces now go through one formatter so they cannot drift apart again.
 
 	`withheld` RETRACTS a promise, and that is a different job from explaining the figures. Two
 	screens announce the replacement before any row is counted, so a run that then withholds has told
@@ -606,6 +643,35 @@
 				</a>
 			</span>
 		</AlertBanner>
+	{:else if replaced.kind === 'withheldOtherPeriod'}
+		<!--
+			The file handed back was a DIFFERENT STATEMENT, so nothing was deleted.
+
+			`warning` and not `info`, which is the one place this outcome differs in tone from its
+			sibling above. That one reports a judgement the user still has to make about rows they may
+			not have wanted; this one reports that the app was handed the wrong file, and the corrected
+			rows it has just imported are a second copy of a statement already held. Something IS wrong
+			and it is worth a tint — but not `error`, because nothing failed and nothing was lost.
+
+			One sentence and the same route link. It names the withheld import by the same timestamp the
+			control named, and its PERIOD, which is the fact the summary below cannot show: that panel
+			prints the period of the file just imported, so repeating that would restate what is on
+			screen and leave out the comparison.
+		-->
+		<AlertBanner variant="warning">
+			<span class="flex flex-col gap-1">
+				<span>
+					{m.import_correct_delete_withheld_period({
+						date: replacedOn,
+						from: replacedPeriodBounds.from,
+						to: replacedPeriodBounds.to
+					})}
+				</span>
+				<a href={resolve('/imports')} class="mt-1 font-semibold underline underline-offset-2">
+					{m.import_correct_delete_withheld_action()}
+				</a>
+			</span>
+		</AlertBanner>
 	{/if}
 {/snippet}
 
@@ -641,11 +707,24 @@
 				choose, and a ticked box promising a deletion that cannot happen is the defect this
 				wave exists to remove.
 			-->
-			{#if data.correction.batchId}
+			{#if data.correction.batchId && data.correction.replacedAt}
 				<div class="mt-2">
+					<!--
+						The label NAMES the import it destroys. « Supprimer l'ancien import » names nothing
+						once a user holds several, and this flow's ordinary shape is two imports of one
+						statement minutes apart: the blind session ended in exactly that state, unable to
+						tell the two rows apart.
+
+						The same timestamp the delete confirmation and the withheld retraction use, to the
+						minute, so the control the user ticks and whatever the run reports afterwards name
+						one import identically. A shorter form here would make matching them a puzzle on the
+						screen whose whole job is to say which import went.
+					-->
 					<CheckboxField
 						name="deleteOldImport"
-						label={m.import_correct_delete_old_label()}
+						label={m.import_correct_delete_old_label({
+							date: namedImport(data.correction.replacedAt)
+						})}
 						note={data.correction.hasUserWork ? m.imports_cancel_cost_note() : undefined}
 						bind:checked={deleteOldImport}
 					/>

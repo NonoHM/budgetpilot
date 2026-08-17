@@ -49,10 +49,23 @@ const db = vi.hoisted(() => ({
 	prisma: {
 		categorizationRule: { findMany: vi.fn(async () => []) },
 		importBatch: {
-			findFirst: vi.fn(async (): Promise<{ id: string; createdAt: Date } | null> => ({
-				id: 'batch-old',
-				createdAt: new Date('2026-06-30T10:00:00.000Z')
-			}))
+			findFirst: vi.fn(
+				async (): Promise<{
+					id: string;
+					createdAt: Date;
+					periodStart: Date | null;
+					periodEnd: Date | null;
+				} | null> => ({
+					id: 'batch-old',
+					createdAt: new Date('2026-06-30T10:00:00.000Z'),
+					// The SAME days the fixture parses to, so the ordinary tests exercise the delete path.
+					// Left null, the overlap check answers "unknown, do not withhold" and every test here
+					// would pass without the route ever consulting the period — which is a mock deciding
+					// the outcome rather than the code.
+					periodStart: new Date('2026-06-01T00:00:00.000Z'),
+					periodEnd: new Date('2026-06-07T00:00:00.000Z')
+				})
+			)
 		},
 		transaction: { count: vi.fn(async () => 0) }
 	}
@@ -98,10 +111,11 @@ async function submit(csv: string, hasHeaderRow: boolean, extra: Record<string, 
 	} as any)) as unknown as {
 		status?: number;
 		replaced?: {
-			kind: 'none' | 'deleted' | 'withheld';
+			kind: 'none' | 'deleted' | 'withheld' | 'withheldOtherPeriod';
 			replacedAt?: string;
 			replacedRows?: number;
 			importedRows?: number;
+			replacedPeriod?: { from: string | null; to: string | null };
 		};
 	};
 }
@@ -194,7 +208,9 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		persist.createImportBatch.mockResolvedValue('batch-new');
 		db.prisma.importBatch.findFirst.mockResolvedValue({
 			id: 'batch-old',
-			createdAt: new Date('2026-06-30T10:00:00.000Z')
+			createdAt: new Date('2026-06-30T10:00:00.000Z'),
+			periodStart: new Date('2026-06-01T00:00:00.000Z'),
+			periodEnd: new Date('2026-06-07T00:00:00.000Z')
 		});
 		// Zero by default, so the ordinary tests below exercise the DELETE path rather than the
 		// withholding one. The withholding tests set their own figure.
@@ -285,6 +301,75 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		expect(result.replaced).toEqual({ kind: 'deleted', replacedAt: '2026-06-30T10:00:00.000Z' });
 	});
 
+	it('withholds the delete when the file handed back covers another period', async () => {
+		expect.assertions(2);
+
+		// THE WRONG STATEMENT. `correctionMatchesFile` on `/import` compares the header SHAPE, and two
+		// statements from one bank have identical headers by construction, so it passes on precisely
+		// the file that must not be accepted. Walked in a browser before this guard existed: correcting
+		// a July import with June's file deleted July and left two copies of June, with the summary
+		// reporting the deletion as a success.
+		//
+		// The counts are left EQUAL, which is what makes this test about the period rather than about
+		// the fewer-rows guard: 4 imported against 4 replaced, so that guard cannot fire and this one
+		// is the only thing standing between the user and the loss.
+		db.prisma.transaction.count.mockResolvedValue(4);
+		db.prisma.importBatch.findFirst.mockResolvedValue({
+			id: 'batch-old',
+			createdAt: new Date('2026-06-30T10:00:00.000Z'),
+			periodStart: new Date('2026-07-01T00:00:00.000Z'),
+			periodEnd: new Date('2026-07-31T00:00:00.000Z')
+		});
+
+		const result = await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+
+		// Asserted on the delete not happening, never only on the returned figure: a version that
+		// reports the mismatch and deletes anyway would pass a figure-only assertion.
+		expect(deleteBatch.deleteImportBatch).not.toHaveBeenCalled();
+		expect(result.replaced).toEqual({
+			kind: 'withheldOtherPeriod',
+			replacedAt: '2026-06-30T10:00:00.000Z',
+			replacedPeriod: { from: '2026-07-01T00:00:00.000Z', to: '2026-07-31T00:00:00.000Z' }
+		});
+	});
+
+	it('deletes when the periods merely touch, which is the boundary', async () => {
+		expect.assertions(1);
+
+		// The single day where `<=` and `<` disagree. The fixture parses to 1–7 June, so a batch ending
+		// on 1 June shares exactly one day with it. `periodOverlap.spec.ts` tests the function on this
+		// boundary; this asserts the ROUTE is asking it, and asking it the right way round.
+		db.prisma.importBatch.findFirst.mockResolvedValue({
+			id: 'batch-old',
+			createdAt: new Date('2026-06-30T10:00:00.000Z'),
+			periodStart: new Date('2026-05-01T00:00:00.000Z'),
+			periodEnd: new Date('2026-06-01T00:00:00.000Z')
+		});
+
+		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+
+		expect(deleteBatch.deleteImportBatch).toHaveBeenCalledWith('user-a', 'batch-old');
+	});
+
+	it('deletes an undated batch rather than withholding on what it cannot know', async () => {
+		expect.assertions(1);
+
+		// The direction this guard must not take. A batch with no recorded period holds no dated
+		// transaction, so the delete destroys nothing, and withholding there would cost the user the
+		// thirteen-step tail to protect an empty batch. The collision check makes the same call on the
+		// same input for the same reason: this mechanism only speaks when it is certain.
+		db.prisma.importBatch.findFirst.mockResolvedValue({
+			id: 'batch-old',
+			createdAt: new Date('2026-06-30T10:00:00.000Z'),
+			periodStart: null,
+			periodEnd: null
+		});
+
+		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+
+		expect(deleteBatch.deleteImportBatch).toHaveBeenCalledWith('user-a', 'batch-old');
+	});
+
 	it('counts the replaced batch live rather than reading its importedRows column', async () => {
 		expect.assertions(1);
 
@@ -307,10 +392,19 @@ describe('a corrected import replaces the batch it was launched from', () => {
 
 		await submit(WITH_HEADER, true, { replaceBatchId: 'batch-of-user-b' });
 
-		expect(db.prisma.importBatch.findFirst).toHaveBeenCalledWith({
-			where: { id: 'batch-of-user-b', userId: 'user-a' },
-			select: { id: true, createdAt: true }
-		});
+		// The WHERE clause and nothing else, which is what this test is named for and the reason it was
+		// written: the plan's own tenancy test cannot fail, because it mocks this call to return null
+		// and the mock therefore decides the outcome. Dropping `userId` from the production query
+		// leaves that one green and reddens this one.
+		//
+		// Narrowed from asserting the whole call, which also pinned `select`. That coupling made the
+		// one test standing between this route and an IDOR redden whenever a field was added to the
+		// selection — twice now — and a test that cries wolf on unrelated changes is a test somebody
+		// eventually edits without reading. `select` is not a security property and has its own
+		// coverage in the period tests above, which fail outright if the period stops being selected.
+		expect(db.prisma.importBatch.findFirst).toHaveBeenCalledWith(
+			expect.objectContaining({ where: { id: 'batch-of-user-b', userId: 'user-a' } })
+		);
 		expect(deleteBatch.deleteImportBatch).not.toHaveBeenCalled();
 	});
 

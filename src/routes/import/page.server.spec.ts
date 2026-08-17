@@ -575,6 +575,9 @@ describe('/import load', () => {
 	 * any of their own batches and have the correction delete the wrong import, which is a data-loss
 	 * bug rather than a tenancy one, and no amount of `userId` scoping catches it.
 	 */
+	/** The batch's own creation instant, which the control that deletes it now names. */
+	const SEEDED_AT = new Date('2026-08-16T08:59:00.000Z');
+
 	describe('the correction pair', () => {
 		function seedCorrection() {
 			db.state.columnMappings.push({
@@ -591,6 +594,11 @@ describe('/import load', () => {
 				importedRows: 3,
 				duplicateRows: 0,
 				invalidRows: 0,
+				// The load reads this to NAME the batch on the control that deletes it, so a fixture
+				// without one models a row Prisma cannot return: `createdAt` is non-nullable in the
+				// schema. Left absent, every test in this block failed on `undefined.toISOString()`,
+				// which is the mock's shape drifting from the route rather than a defect in either.
+				createdAt: SEEDED_AT,
 				columnMappingId: 'mapping-1'
 			} as (typeof db.state.batches)[number]);
 		}
@@ -600,7 +608,12 @@ describe('/import load', () => {
 				locals: { user: testUser },
 				url: new URL(`http://localhost/import${search}`)
 			} as never)) as {
-				correction: { mappingId: string; batchId: string | null; hasUserWork: boolean } | null;
+				correction: {
+					mappingId: string;
+					batchId: string | null;
+					replacedAt: string | null;
+					hasUserWork: boolean;
+				} | null;
 			};
 		}
 
@@ -612,6 +625,24 @@ describe('/import load', () => {
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
 				batchId: 'batch-1',
+				replacedAt: SEEDED_AT.toISOString(),
+				hasUserWork: false
+			});
+		});
+
+		it('carries no timestamp when no batch resolved, so the control cannot half-render', async () => {
+			// `replacedAt` and `batchId` are separate fields of one payload and the page gates the
+			// control on both. Asserted together rather than trusting them to move together: a load that
+			// returned a timestamp beside a null id would render « Supprimer l'import du 16 août » for an
+			// import it cannot name, or nothing at all, depending on which field the page happened to read.
+			seedCorrection();
+
+			const result = await loadWith('?correct=mapping-1&batch=batch-of-nobody');
+
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: null,
+				replacedAt: null,
 				hasUserWork: false
 			});
 		});
@@ -628,6 +659,7 @@ describe('/import load', () => {
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
 				batchId: null,
+				replacedAt: null,
 				hasUserWork: false
 			});
 		});
@@ -644,6 +676,7 @@ describe('/import load', () => {
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
 				batchId: null,
+				replacedAt: null,
 				hasUserWork: false
 			});
 		});
@@ -657,6 +690,7 @@ describe('/import load', () => {
 			expect(result.correction).toEqual({
 				mappingId: 'mapping-1',
 				batchId: null,
+				replacedAt: null,
 				hasUserWork: false
 			});
 		});

@@ -72,7 +72,14 @@ const ASSIGNMENT = { date: 0, label: 1, amount: 2, category: null } as unknown a
 
 const DATA: PageData = {
 	user: null,
-	correction: { mappingId: 'mapping-1', batchId: REQUESTED_BATCH, hasUserWork: false },
+	correction: {
+		mappingId: 'mapping-1',
+		batchId: REQUESTED_BATCH,
+		// The control is gated on this too, since a label naming no import is the defect it exists to
+		// remove. Present here so these tests are about the CONSENT and not about the gate.
+		replacedAt: '2026-08-16T08:59:00.000Z',
+		hasUserWork: false
+	},
 	linkableNetWorthAccounts: [],
 	hasAllImportBucketsExisting: true
 } as unknown as PageData;

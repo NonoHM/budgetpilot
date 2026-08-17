@@ -20,6 +20,7 @@ import {
 } from '$lib/server/import/persist';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
+import { periodsOverlap } from '$lib/domain/periodOverlap';
 import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
 
 const IMPORT_MAX_BYTES = 256_000;
@@ -156,7 +157,15 @@ export const actions: Actions = {
 			replaceParam && replaceParam.length > 0
 				? await prisma.importBatch.findFirst({
 						where: { id: replaceParam, userId: user.id },
-						select: { id: true, createdAt: true }
+						// The PERIOD comes back with the id, because nothing else on this request can tell
+						// whether the file handed back is the statement being corrected. See the withhold
+						// block below.
+						select: {
+							id: true,
+							createdAt: true,
+							periodStart: true,
+							periodEnd: true
+						}
 					})
 				: null;
 
@@ -317,7 +326,29 @@ export const actions: Actions = {
 				where: { userId: user.id, importBatchId: replacing.id }
 			});
 			const replacedAt = replacing.createdAt.toISOString();
-			if (persisted.importedRows < replacedRows) {
+			const replacedPeriod = {
+				from: replacing.periodStart?.toISOString() ?? null,
+				to: replacing.periodEnd?.toISOString() ?? null
+			};
+			if (!periodsOverlap(replacedPeriod, result.summary.period)) {
+				// THE WRONG STATEMENT, handed back. Withheld for the same reason and by the same
+				// mechanism as the fewer-rows case, and it is the more dangerous of the two: that one
+				// costs rows the user may not have wanted, this one costs a whole statement they never
+				// touched.
+				//
+				// `correctionMatchesFile` on `/import` cannot see it. It compares the header SHAPE, and
+				// two statements from one bank have identical headers by construction, so the check that
+				// exists passes on precisely the file that must not be accepted. Walked in a browser
+				// before this guard existed: correcting a July import with June's file deleted July and
+				// left two copies of June, with the summary reporting the deletion as a success.
+				//
+				// A WARNING RATHER THAN A REFUSAL, and the asymmetry is the argument. Refusing would send
+				// a user whose file is merely oddly dated back through the thirteen-step tail this wave
+				// exists to remove; withholding leaves both imports and a named route to finish by hand.
+				// Two statements of the same month always overlap however their dates are read, so this
+				// fires on a wrong file and essentially nothing else.
+				replaced = { kind: 'withheldOtherPeriod', replacedAt, replacedPeriod };
+			} else if (persisted.importedRows < replacedRows) {
 				replaced = {
 					kind: 'withheld',
 					replacedAt,

@@ -187,10 +187,73 @@ describe('the withheld replacement, at both widths', () => {
 	});
 });
 
+describe('the withholding that reports a wrong file, at both widths', () => {
+	/**
+	 * The guard's own retraction. The other withholding is about how many rows arrived; this one is
+	 * about WHICH STATEMENT arrived, and the two must not read as one message.
+	 *
+	 * Walked in a browser before the guard existed: correcting a July import with June's file deleted
+	 * July's transactions and left two copies of June, and the summary reported the deletion as a
+	 * success. Every existing check passed — the headers matched, and the counts were equal so the
+	 * fewer-rows guard stayed silent.
+	 */
+	const OTHER_PERIOD = {
+		kind: 'withheldOtherPeriod',
+		replacedAt: REPLACED_AT,
+		replacedPeriod: { from: '2026-07-01T00:00:00.000Z', to: '2026-07-31T00:00:00.000Z' }
+	} as const;
+
+	function mountOtherPeriod() {
+		setCompletedImport({
+			importResult: summary([]),
+			capReached: false,
+			canRevisit: false,
+			replaced: OTHER_PERIOD
+		});
+		render(Page, { data: DATA, form: null });
+	}
+
+	const periodNotices = () =>
+		page
+			.getByRole('status')
+			.filter({ hasText: 'couvre' })
+			.or(page.getByRole('alert').filter({ hasText: 'couvre' }));
+
+	it('names the import it did not delete, at 1280', async () => {
+		await page.viewport(1280, 800);
+		mountOtherPeriod();
+
+		await expect.element(periodNotices().first()).toBeVisible();
+		await expect.element(periodNotices().first()).toHaveTextContent('16 août 2026');
+	});
+
+	it('names the withheld import PERIOD, not the one the summary already prints', async () => {
+		// The fact the user cannot otherwise see. The panel below prints the period of the file just
+		// imported, so restating that would leave out the only comparison that explains the notice.
+		// The fixture's two periods are deliberately different months, which is the whole input.
+		await page.viewport(390, 844);
+		mountOtherPeriod();
+
+		await expect.element(periodNotices().last()).toHaveTextContent('juillet 2026');
+	});
+
+	it('does not report it as a row shortfall', async () => {
+		// Separates the two withholdings. Folding them into one message, or one `kind` with a reason
+		// flag, would send a user hunting for refused rows on a run where every row landed and the
+		// file was simply the wrong statement.
+		await page.viewport(390, 844);
+		mountOtherPeriod();
+
+		expect(await withheldNotices().all()).toHaveLength(0);
+		expect(await deletedNotices().all()).toHaveLength(0);
+	});
+});
+
 describe('the two states that are not a withholding', () => {
 	it('confirms the deletion by name when it went through', async () => {
-		// The user chose this on a control that named no date, so they are owed the confirmation
-		// that it was the right import.
+		// The control names the import now, so this confirmation's job changed with it: it is no longer
+		// supplying a date the user was never shown, it is letting them check that the import named
+		// here is the one they ticked. Same formatter, so the two cannot say it differently.
 		await page.viewport(390, 844);
 		setCompletedImport({
 			importResult: summary([]),
@@ -234,7 +297,12 @@ describe('the two states that are not a withholding', () => {
  * block is what that break reddens.
  */
 describe('the control that says what it costs, at both widths', () => {
-	const CORRECTION = { mappingId: 'mapping-1', batchId: 'batch-old', hasUserWork: false };
+	const CORRECTION = {
+		mappingId: 'mapping-1',
+		batchId: 'batch-old',
+		replacedAt: REPLACED_AT,
+		hasUserWork: false
+	};
 
 	function mountCorrection(correction: PageData['correction']) {
 		render(Page, { data: { ...DATA, correction }, form: null });
@@ -293,7 +361,33 @@ describe('the control that says what it costs, at both widths', () => {
 		// choose, and a ticked box promising a deletion that cannot happen is the defect this wave
 		// exists to remove.
 		await page.viewport(390, 844);
-		mountCorrection({ ...CORRECTION, batchId: null });
+		mountCorrection({ ...CORRECTION, batchId: null, replacedAt: null });
+
+		expect(await controls().all()).toHaveLength(0);
+	});
+
+	it('names the import it will delete, at both widths', async () => {
+		// Separates "a control is offered" from "the control says WHICH import". « Supprimer l'ancien
+		// import » passes every other test in this block: it renders, it is pre-ticked, it carries the
+		// cost note. It simply names nothing, on a screen reached from a list where two rows differ
+		// only by their timestamp.
+		//
+		// The date is taken from the fixture and the label half from the catalogue, so the two sides of
+		// this comparison come from different places. Asserting the whole rendered sentence against a
+		// retyped French literal would assert a string an English locale never renders.
+		await page.viewport(1280, 800);
+		mountCorrection(CORRECTION);
+
+		const named = m.import_correct_delete_old_label({ date: '16 août 2026 à 10:59' });
+		await expect.element(page.getByText(named).first()).toBeVisible();
+	});
+
+	it('offers no control when a batch resolved but its timestamp did not', async () => {
+		// The state that would render « Supprimer l'import du undefined ». Not reachable from the load,
+		// which sets both fields from one batch or neither, and asserted anyway: the two fields are
+		// separate properties of one payload, so nothing but this stops a later change from setting one.
+		await page.viewport(390, 844);
+		mountCorrection({ ...CORRECTION, replacedAt: null });
 
 		expect(await controls().all()).toHaveLength(0);
 	});

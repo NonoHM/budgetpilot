@@ -68,7 +68,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		correcting && batchParam
 			? await prisma.importBatch.findFirst({
 					where: { id: batchParam, userId: user.id, columnMappingId: correcting.id },
-					select: { id: true }
+					// `createdAt` so the CONTROL can name what it destroys. « Supprimer l'ancien import »
+					// names nothing once a user holds several, and this flow produces two imports of one
+					// statement minutes apart as its ordinary shape. The same discriminant the delete
+					// confirmation and the withheld retraction already use, so all three name one import
+					// identically rather than describing it three ways.
+					select: { id: true, createdAt: true }
 				})
 			: null;
 	// What the replacement destroys BEYOND the rows, so the control can name it and can stay SILENT
@@ -101,6 +106,9 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			? {
 					mappingId: correcting.id,
 					batchId: correctingBatch?.id ?? null,
+					// Formatted on the page, where the negotiated locale is known. Null exactly when
+					// `batchId` is, so the label and the control appear and disappear together.
+					replacedAt: correctingBatch?.createdAt.toISOString() ?? null,
 					hasUserWork: userWorkCount > 0
 				}
 			: null,
