@@ -324,7 +324,17 @@
 			// (`v5.0.0-2.2.1`, `v5.0.0-8.2.2`). So the object is rebuilt from two sources on purpose,
 			// and `correction-consent.svelte.spec.ts` asserts each half against a fixture where the
 			// two ids differ.
-			correction: correctionState ? { batchId: correctionState.batchId, deleteOldImport } : null
+			correction:
+				correctionState && data.correction
+					? {
+							// From the LOAD, and only for the way back. See the field's own docstring: this one
+							// names a page to return to, `batchId` names an import to destroy, and they are
+							// allowed to come from different places for exactly that reason.
+							mappingId: data.correction.mappingId,
+							batchId: correctionState.batchId,
+							deleteOldImport
+						}
+					: null
 		});
 		await goto(resolve('/import/columns'));
 	}

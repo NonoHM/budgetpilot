@@ -74,6 +74,41 @@
 		if (!pending) void goto(resolve('/import'));
 	});
 
+	/**
+	 * The way out, which has to land where the user came from rather than on a bare upload form.
+	 *
+	 * Reached by « Annuler » and by the header's back chevron. On an ordinary import `/import` IS where
+	 * they came from. On a CORRECTION it is not: they arrived from « Modifier les colonnes » on an
+	 * import's recap, and the address that reopens that state carries both ids.
+	 *
+	 * Measured before this existed: abandoning here landed on `/import` with no correction notice and
+	 * no checkbox, so the obvious next action — pick the file, press Import — re-read the statement
+	 * through the very correspondance the user came to fix and imported it a second time, silently.
+	 *
+	 * ONE CONSEQUENCE, stated rather than hidden. The consent checkbox is re-rendered at its default,
+	 * so a user who had unticked it and then abandoned the screen returns to a ticked box. That is a
+	 * reset rather than a reversal — nothing is submitted on the way — and carrying the answer would
+	 * mean putting a consent in a URL, which is the shape this wave has just spent a commit removing.
+	 * The alternative on offer is today's behaviour, which loses the whole correction instead.
+	 *
+	 * Reload and browser-back are NOT covered and are filed: the pending designation is read-once, so
+	 * by the time either lands there is nothing left to rebuild an address from. Fixing those means
+	 * putting the two ids in this route's own URL and resolving them here, which is a second
+	 * resolution site rather than carrying a query string.
+	 */
+	function leaveDesignation() {
+		const correction = pending?.correction;
+		if (!correction) {
+			void goto(resolve('/import'));
+			return;
+		}
+		void goto(
+			resolve(
+				`/import?correct=${encodeURIComponent(correction.mappingId)}&batch=${encodeURIComponent(correction.batchId)}` as `/import?${string}`
+			)
+		);
+	}
+
 	function submit(result: {
 		assignment: RoleAssignment;
 		remember: boolean;
@@ -291,7 +326,7 @@
 				candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
 				{submitting}
 				{wide}
-				onCancel={() => goto(resolve('/import'))}
+				onCancel={leaveDesignation}
 				onSubmit={submit}
 			/>
 		</div>

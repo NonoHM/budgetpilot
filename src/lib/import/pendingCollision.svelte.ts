@@ -1,5 +1,6 @@
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
+import type { PendingDesignation } from './pendingDesignation.svelte';
 
 /**
  * A designated run the server refused to write until the user answers for it, carried back to
@@ -61,7 +62,13 @@ export interface PendingCollision {
 		 * screen has to reopen knowing it is still a correction, or the next attempt loses the
 		 * replacement.
 		 */
-		correction: { batchId: string; deleteOldImport: boolean } | null;
+		/**
+		 * Typed FROM the designation store rather than restated, because this value is carried through
+		 * the dialog and handed straight back to it. Two hand-written copies of one shape drift the
+		 * moment a field is added to either, and the field just added — the correspondance id the way
+		 * out needs — is exactly the kind that would have been added to one of them.
+		 */
+		correction: PendingDesignation['correction'];
 	};
 	/** The already-imported batch this run appears to repeat. */
 	existing: CollidingBatchView;

@@ -175,6 +175,32 @@ describe('the consent that travels to the deleting request', () => {
 		expect(takePendingDesignation()?.correction?.batchId).toBe(RESOLVED_BATCH);
 	});
 
+	it('carries the correspondance id, which is the only thing the way out can rebuild from', async () => {
+		// THE SEAM for the way out. `/import/columns` has no address of its own to return to: on a
+		// correction the user arrived from `?correct=<mapping>&batch=<batch>`, and until this field
+		// travelled, abandoning that screen landed on a bare `/import` with the notice and the checkbox
+		// gone — where the obvious next action re-imported the statement through the very correspondance
+		// they came to fix.
+		//
+		// The two ids are asserted TOGETHER and they come from DIFFERENT sources on purpose: `batchId`
+		// is the server-resolved one that travels to a delete, `mappingId` is the load's and only names
+		// a page to return to. The fixture gives them values that could not be confused, so a repair
+		// taking both from one place reddens here rather than passing on either alone.
+		await page.viewport(1280, 800);
+		const section = mount(1280);
+		await chooseFile(section);
+
+		await userEvent.click(
+			page.getByRole('button', { name: m.import_columns_offer() }).first().element() as HTMLElement
+		);
+
+		expect(takePendingDesignation()?.correction).toEqual({
+			mappingId: 'mapping-1',
+			batchId: RESOLVED_BATCH,
+			deleteOldImport: true
+		});
+	});
+
 	it('carries the untick from the mobile chrome too', async () => {
 		// A fix applied to one mount and not the other is invisible to every test that does not
 		// choose a width, and this page has shipped exactly that defect before: `csvFiles` exists

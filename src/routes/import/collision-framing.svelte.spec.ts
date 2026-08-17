@@ -80,6 +80,8 @@ const DATA: PageData = {
 };
 
 function carry(correction: { batchId: string; deleteOldImport: boolean } | null) {
+	// `mappingId` is the way BACK rather than anything these tests assert, so it is supplied once here
+	// instead of in every fixture: varying it would suggest it separates cases, and it separates none.
 	setPendingCollision({
 		repost: {
 			file: new File(['x'], 'releve (1).csv', { type: 'text/csv' }),
@@ -87,7 +89,7 @@ function carry(correction: { batchId: string; deleteOldImport: boolean } | null)
 			assignment: ASSIGNMENT,
 			remember: true,
 			hasHeaderRow: true,
-			correction
+			correction: correction ? { mappingId: 'mapping-1', ...correction } : null
 		},
 		existing: EXISTING,
 		incoming: INCOMING
@@ -198,8 +200,14 @@ describe('declining keeps the designation work', () => {
 		expect(kept?.file.name).toBe('releve (1).csv');
 		expect(kept?.view.headers).toEqual(VIEW.headers);
 		// The field a second attempt cannot do without: losing it would import beside the batch the
-		// first attempt was going to replace.
-		expect(kept?.correction).toEqual({ batchId: 'batch-old', deleteOldImport: false });
+		// first attempt was going to replace. Asserted WHOLE rather than field by field, so a value
+		// dropped on the way through the dialog reddens here — `mappingId` was added to this object for
+		// the way out and is carried through the same journey, which is what makes it worth checking.
+		expect(kept?.correction).toEqual({
+			mappingId: 'mapping-1',
+			batchId: 'batch-old',
+			deleteOldImport: false
+		});
 		// And the screen is actually reopened. Seeding the state without navigating would leave the
 		// user on a blank upload form holding a designation they cannot see, which is the defect
 		// with an extra step rather than the fix.
