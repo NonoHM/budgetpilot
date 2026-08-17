@@ -167,6 +167,24 @@
 	}
 </script>
 
+<!--
+	NO `tone`, in any framing, so `ConfirmDialog`'s neutral default applies.
+
+	The two correction framings lost the danger tint when they were added, on the argument below. The
+	`none` case kept it, and walking the flow is what showed the argument covers this case too:
+	NOTHING HERE DELETES ANYTHING. This dialog fires before the first write, and every button on it
+	either imports or abandons. The red was spent on the risk of a DUPLICATE, which the app then
+	repairs with a delete the user can see.
+
+	This application spends red on irreversible deletion and on the invalid-rows counter, both facts.
+	The plate's doctrine, from the import-deletion sheet: « le glyphe porte le sens, pas la couleur »,
+	and a red spent where it is not data « affaiblirait celui qui informe au profit de celui qui
+	décore ». A red here is exactly that, and it makes the red on the delete confirmation worth less.
+
+	The WORD was always doing the work: `import_collision_consequence` states the doubling in bold in
+	all three framings, and the `none` label still reads « Importer quand même », which carries the
+	override in its own words. Colour never travelled alone here; it travelled where it was not needed.
+-->
 <ConfirmDialog
 	{open}
 	{title}
@@ -174,7 +192,6 @@
 		? m.import_collision_correction_confirm()
 		: m.import_collision_confirm()}
 	cancelLabel={m.import_collision_cancel()}
-	tone={isCorrection ? 'default' : 'danger'}
 	confirmLoading={confirming}
 	onClose={onCancel}
 >

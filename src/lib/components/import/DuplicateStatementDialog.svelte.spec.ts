@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import DuplicateStatementDialog from './DuplicateStatementDialog.svelte';
+// Imported to CALIBRATE the tint detector, not to test it: this file asserts an absence of danger
+// colour in every framing, and a real tinted control is the only honest proof the measurement can
+// see one. `Button` is what `ConfirmDialog` renders for its tinted confirm.
+import Button from '$lib/components/Button.svelte';
+import { createRawSnippet } from 'svelte';
 import type { CollisionFigures } from '$lib/domain/importCollision';
 import type { CorrectionContext } from '$lib/domain/importCollision';
 import * as m from '$lib/paraglide/messages';
@@ -211,29 +216,50 @@ describe('the collision guard reframed for a correction', () => {
 		expect(new Set(titles).size).toBe(3);
 	});
 
-	it('tints the confirm in the none case and NOT in either correction case', async () => {
+	it('tints the confirm in NO framing, and the detector is calibrated elsewhere', async () => {
 		// The plate's own doctrine, from the import-deletion sheet: « le glyphe porte le sens, pas la
 		// couleur », and a red spent where it is not data « affaiblirait celui qui informe au profit
-		// de celui qui décore ». Confirming a correction destroys nothing at the moment it is
-		// pressed, so the danger tint is decoration here.
+		// de celui qui décore ». NOTHING on this dialog deletes: it fires before the first write, and
+		// both buttons either import or abandon. The red was spent on the risk of a duplicate.
 		//
-		// Asserted on the RENDERED colour rather than on a class name, and calibrated: the `none`
-		// case is the real tint, measured in the same document, so an absence is only believed after
-		// the detector has been shown to detect.
+		// ## The calibration had to move, and that is the interesting half
+		//
+		// This test used to read the `none` case's own red as its detector proof: measure a real tint
+		// here, then believe an absence there. Removing the last tint from this component takes that
+		// proof away, and an absence assertion with no calibration is the shape that passes over a
+		// stylesheet that failed to load.
+		//
+		// So the calibration is now a `ConfirmDialog` mounted with `tone="danger"` in the same
+		// document. That is a better calibration than the old one rather than a substitute for it: it
+		// measures the tint on the component that OWNS it, so it keeps detecting if this file's own
+		// framings all go neutral, which is exactly what just happened.
 		const chroma = (element: Element) => {
 			const parsed = getComputedStyle(element).backgroundColor.match(
 				/oklch\(([\d.]+)\s+([\d.]+)\s+([\d.]+)/
 			);
 			return parsed ? Number(parsed[2]) : 0;
 		};
-		const confirmOf = (screen: ReturnType<typeof mount>) =>
-			screen.container.querySelector('button[type="submit"]') as HTMLElement;
+		const submitOf = (container: Element) =>
+			container.querySelector('button[type="submit"]') as HTMLElement;
 
-		const danger = chroma(confirmOf(mount({ correctionContext: 'none' })));
-		expect(danger).toBeGreaterThan(0.05);
+		// THE DETECTOR, proved against a real tint before any absence below is believed.
+		//
+		// `Button variant="danger"` and not `ConfirmDialog tone="danger"`, because that component
+		// requires a children snippet and mounting it bare throws `invalid_snippet` — which would have
+		// made this calibration a test of the harness. `Button` is the element `ConfirmDialog` renders
+		// for its tinted confirm (`variant={tone === 'danger' ? 'danger' : 'primary'}`), so this
+		// measures the same rose through the same stylesheet, one component closer to the paint.
+		const calibration = render(Button, {
+			variant: 'danger' as const,
+			children: createRawSnippet(() => ({ render: () => '<span>calibration</span>' }))
+		});
+		const calibrated = calibration.container.querySelector('button') as HTMLElement;
+		expect(chroma(calibrated)).toBeGreaterThan(0.05);
+		calibration.container.remove();
 
-		for (const context of ['keeping', 'replacing'] as const) {
-			expect(chroma(confirmOf(mount({ correctionContext: context })))).toBeLessThan(0.05);
+		for (const context of ['none', 'keeping', 'replacing'] as const) {
+			const { container } = mount({ correctionContext: context });
+			expect(chroma(submitOf(container))).toBeLessThan(0.05);
 		}
 	});
 
