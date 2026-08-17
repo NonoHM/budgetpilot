@@ -241,7 +241,22 @@
 			},
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
 			candidates: {},
-			correction: correctionState
+			// The ID from the SERVER, the CONSENT from the control, and the split is the whole point.
+			//
+			// `correctionState` is the action's reply to the FIRST press, so its `deleteOldImport` is
+			// the consent as it stood at that press. The control is still on screen after it and still
+			// interactive, so reading the echo made it a dead affordance: measured in a browser, a user
+			// who arrived with the box ticked, pressed « Importer le relevé », then unticked it, lost
+			// the old import anyway and was shown « L'ancien import du ... a été supprimé. » as a
+			// confirmation. The batch it destroyed was the one they had just chosen to keep.
+			//
+			// The id must NOT come from the same place. `data.correction.batchId` is what the address
+			// bar asked for; this one is what the server resolved against this user AND against the
+			// pairing with the correspondance, which is the only version that may reach a delete
+			// (`v5.0.0-2.2.1`, `v5.0.0-8.2.2`). So the object is rebuilt from two sources on purpose,
+			// and `correction-consent.svelte.spec.ts` asserts each half against a fixture where the
+			// two ids differ.
+			correction: correctionState ? { batchId: correctionState.batchId, deleteOldImport } : null
 		});
 		await goto(resolve('/import/columns'));
 	}
