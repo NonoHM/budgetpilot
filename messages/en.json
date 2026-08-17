@@ -1435,7 +1435,6 @@
 	"import_columns_file_meta_rows_many": "{count} rows",
 	"import_columns_headers_detected": "headers detected",
 	"import_columns_headers_absent": "no header row",
-	"import_columns_file_format_row": "File format",
 	"import_columns_cancel": "Cancel",
 	"import_columns_other_file": "Another file",
 	"import_columns_submit_one": "Import {count} row",

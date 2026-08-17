@@ -125,7 +125,7 @@ describe('the four regions, and their sum is the screen', () => {
 		// A `1fr` track has `min-height: auto`, refuses to shrink below its content, and the cap is
 		// then silently ignored: the page grows and the banner leaves the screen, in exactly the
 		// states with the most content. Measured under BREAK 1: the body reads 636 either way in
-		// these states because the content is only 511, so this assertion is NOT what catches it.
+		// these states because the content is only 449, so this assertion is NOT what catches it.
 		// The one that does is the overflow test below, run against a deliberately overfull body.
 		const { body } = mount();
 
@@ -134,36 +134,46 @@ describe('the four regions, and their sum is the screen', () => {
 	});
 });
 
-describe("the body's 511 of 636, which is the plate's promise", () => {
+describe("the body's 449 of 636, which is the plate's promise", () => {
 	const contentHeight = (body: HTMLElement) => {
 		const last = body.lastElementChild as HTMLElement;
 		const paddingBottom = parseFloat(getComputedStyle(body).paddingBottom);
 		return last.getBoundingClientRect().bottom - body.getBoundingClientRect().top + paddingBottom;
 	};
 
-	it('is 511 in state 0, leaving 125 px of air', () => {
-		// 16 padding + 40 file block + 14 gap + 355 card + 14 gap + 48 reserved slot + 24 padding.
+	it('is 449 in state 0, leaving 187 px of air', () => {
+		// 16 padding + 40 file block + 14 gap + 355 card + 24 padding.
+		//
+		// WAS 511 with 125 px of air, and the 62 px difference is the « Format du fichier » row plus
+		// its gap: a grey heading with nothing under it, in every state and at both widths, deleted
+		// because a visible empty affordance is a promise. The figure is restated rather than relaxed
+		// to a range — a bound would stop this test noticing the next thing that grows.
 		const { body } = mount();
 
-		expect(contentHeight(body)).toBe(511);
-		expect(636 - contentHeight(body)).toBe(125);
+		expect(contentHeight(body)).toBe(449);
+		expect(636 - contentHeight(body)).toBe(187);
 	});
 
-	it('is still 511 in state 1, because designating a row does not move anything', () => {
+	it('is still 449 in state 1, because designating a row does not move anything', () => {
 		// The promise is that nothing shifts as answers arrive. State 2 is excluded on purpose and
 		// gets its own figure below: it is the one state that legitimately adds content.
 		const { body } = mount({ initialAssignment: PARTIAL });
 
-		expect(contentHeight(body)).toBe(511);
+		expect(contentHeight(body)).toBe(449);
 	});
 
-	it('is 611 in state 2, which is the 100 px the memorisation block adds', () => {
-		// 86 for the sentence and its opt-out link, plus the 14 px gap. The plate carries this
-		// figure separately from the 511 precisely because it is the one state that grows, and the
-		// point of stating it is that 611 is still under 636: the screen does not begin to scroll.
+	it('is 549 in state 2, which is the 100 px the memorisation block adds', () => {
+		// 86 for the sentence and its opt-out link, plus the 14 px gap. The plate carries this figure
+		// separately from the 449 precisely because it is the one state that grows, and the point of
+		// stating it is that it stays under 636: the screen does not begin to scroll.
+		//
+		// THE STATE THE DESIGN BRIEF NEEDS THIS NUMBER FOR. It used to be 611 of 636, so state 2 carried
+		// 25 px of air and a 44 px checkbox row could not be added without the screen beginning to
+		// scroll. At 549 it carries 87, which is where the correction control's placement question
+		// stops being blocked by geometry.
 		const { body } = mount({ initialAssignment: COMPLETE });
 
-		expect(contentHeight(body)).toBe(611);
+		expect(contentHeight(body)).toBe(549);
 		expect(body.scrollHeight).toBe(body.clientHeight);
 	});
 

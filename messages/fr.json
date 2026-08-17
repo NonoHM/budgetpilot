@@ -1435,7 +1435,6 @@
 	"import_columns_file_meta_rows_many": "{count} lignes",
 	"import_columns_headers_detected": "en-têtes détectés",
 	"import_columns_headers_absent": "aucun en-tête",
-	"import_columns_file_format_row": "Format du fichier",
 	"import_columns_cancel": "Annuler",
 	"import_columns_other_file": "Autre fichier",
 	"import_columns_submit_one": "Importer {count} ligne",

@@ -51,21 +51,28 @@
 	 * stops being redundant the day somebody removes the overflow. What must not be claimed is that
 	 * a test guards it. None does, and none can while the body scrolls.
 	 *
-	 * ## The body's 511 of 636, which is the plate's promise
+	 * ## The body's 449 of 636, which is the plate's promise
 	 *
 	 *     16   padding-top
 	 *     40   file block      (60 in state 3c, which adds a third line)
 	 *     14   gap
 	 *    355   designation card
-	 *     14   gap
-	 *     48   « Format du fichier », a RESERVED SLOT with no content today
 	 *     24   padding-bottom
 	 *    ---
-	 *    511, leaving 125 px of air, and THE SCREEN DOES NOT SCROLL IN ANY STATE.
+	 *    449, leaving 187 px of air, and THE SCREEN DOES NOT SCROLL IN ANY STATE.
 	 *
-	 * The card ends at 425 of 636 (16 + 40 + 14 + 355). Both figures are asserted, and the 125 px is
-	 * the room the out-of-scope trio (date format, decimal separator, delimiter) moves into without
-	 * any measurement here being redone.
+	 * The card ends at 425 of 636 (16 + 40 + 14 + 355). Both figures are asserted.
+	 *
+	 * **Was 511**, with a 48 px « Format du fichier » row and its 14 px gap. That row was a grey
+	 * heading with nothing under it, at both widths, in every state, since the screen shipped: a
+	 * visible empty affordance is a promise, and it had been making one for months. Deleted rather
+	 * than kept warm. The date format, the decimal separator and the delimiter are still designed and
+	 * still out of scope; when one is built it arrives with its own layout rather than inheriting a
+	 * slot sized for nothing.
+	 *
+	 * The 62 px it frees are the ones the correction checkbox needs at 390, where the body carries
+	 * only 25 px of air in state 2. That placement is the design brief's question rather than this
+	 * change's — what this does is make the space measurable instead of occupied.
 	 *
 	 * ## No text input anywhere
 	 *
@@ -479,28 +486,6 @@
 	</div>
 {/snippet}
 
-{#snippet formatRow()}
-	<!--
-		RESERVED SLOT, deliberately empty today. The date format, the decimal separator and the
-		delimiter each belong to a role or to the file and are designed but out of scope; there
-		are 125 px of air below this row at 390, so all three can arrive without the page beginning
-		to scroll and without any figure in this file being recomputed.
-
-		Not in the recap. §3.7 enumerates what that mode carries — the same card, rows at 44 px, one
-		TapLink — and a slot reserved for controls is a label with nothing under it on a screen where
-		nothing can be controlled. The 390 geometry it was sized against is the designation form's,
-		which is untouched.
-	-->
-	{#if !recap}
-		<div
-			class="flex h-12 shrink-0 items-center text-[13px] text-zinc-400"
-			data-testid="designation-format-row"
-		>
-			{m.import_columns_file_format_row()}
-		</div>
-	{/if}
-{/snippet}
-
 {#snippet trailingBlock()}
 	{#if recap}
 		<!--
@@ -684,7 +669,6 @@
 				-->
 				<div class="flex w-[400px] shrink-0 flex-col gap-4" data-testid="designation-command">
 					{@render designationCard()}
-					{@render formatRow()}
 					{@render trailingBlock()}
 
 					<!--
@@ -759,14 +743,13 @@
 			data-testid="designation-body"
 		>
 			<!--
-				`shrink-0` on all three body children, and it is not decoration. A flex column shrinks
-				its items before it scrolls, so without this an overfull body SQUASHES the 355 px card
+				`shrink-0` on every body child, and it is not decoration. A flex column shrinks its
+				items before it scrolls, so without this an overfull body SQUASHES the 355 px card
 				instead of scrolling, and the card's fixed height quietly stops being fixed. Found by
 				the overflow calibration in this component's spec.
 			-->
 			{@render fileBlock()}
 			{@render designationCard()}
-			{@render formatRow()}
 			{@render trailingBlock()}
 		</div>
 
