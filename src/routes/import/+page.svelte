@@ -206,6 +206,35 @@
 	);
 
 	/**
+	 * The exact `File` the last submit carried, so the offer can tell whether it still describes the
+	 * file in hand.
+	 *
+	 * ## The defect this closes, walked in a browser on 2026-08-17
+	 *
+	 * A refusal offers the designation screen and describes the refused file: its name, its headers,
+	 * its sample values. The file picker stays live underneath. Choose a DIFFERENT statement and press
+	 * on, and the screen opened on the OLD file's columns while carrying the NEW file's bytes —
+	 * measured: it said « opaque-02.csv · 3 colonnes » and listed `zone_2a/b/c` with their values,
+	 * and the server then refused naming « beta » et « gamma », which are the other file's headers.
+	 *
+	 * The user designates against one statement and the indices are resolved against another. Where
+	 * the two files order their columns differently, that imports amounts as labels with nothing
+	 * saying so. It was only survivable in the measured case because the split-amount guard happened
+	 * to catch the shape.
+	 *
+	 * ## Identity, not the name
+	 *
+	 * Compared by object identity rather than by `File.name`, which two different statements can
+	 * share — a bank that exports `releve.csv` every month is the ordinary case, not the exotic one.
+	 * Picking a file always produces a fresh `File`, so identity answers exactly the question being
+	 * asked: is this the same choice the server described?
+	 */
+	let submittedFile = $state<File | undefined>(undefined);
+	const offersDesignation = $derived(
+		designation !== undefined && csvFiles?.[0] !== undefined && csvFiles[0] === submittedFile
+	);
+
+	/**
 	 * The designations to reopen the screen WITH, when this upload is a correction.
 	 *
 	 * Read through the same `in` check and for the same reason. Absent on the ordinary offer, where
@@ -241,7 +270,7 @@
 	 * The headers and samples travel too, but only so the screen can DRAW the file. The server never
 	 * reads them back: the submit re-posts the file and re-derives its own header list.
 	 */
-	async function designateColumns(event: SubmitEvent) {
+	async function designateColumns() {
 		// **The form is `use:enhance`d and that is what makes this reachable at all.** Without it the
 		// refusal arrives through a full page POST, the document is replaced, and the `<input
 		// type="file">` the user chose comes back EMPTY. The offer button would then read no file and
@@ -250,13 +279,18 @@
 		//
 		// Found by the e2e in `import-column-designation.spec.ts`, which is the only level that can
 		// see it: the defect is entirely about what survives a navigation.
-		event.preventDefault();
+		//
+		// NO LONGER THE FORM'S `onsubmit`, and that is the whole of item 4. While it was, every submit
+		// button in the form ran this once a designation existed, so « Importer le relevé » navigated
+		// to the designation screen instead of importing. Now the offer's own button is the only
+		// control that opens that screen, and the form's primary does what it says.
+		//
 		// Read from the SHARED binding rather than by querying the submitted form for its own input.
 		// The DOM query worked only because the submitted form happened to be the one the user chose
 		// in, which is the same per-mount coupling that lost the file across a resize. One value, read
 		// the same way whichever chrome is on screen.
 		const file = csvFiles?.[0];
-		if (!file || !designation) return;
+		if (!file || !designation || !offersDesignation) return;
 
 		setPendingDesignation({
 			file,
@@ -755,7 +789,7 @@
 				method="POST"
 				enctype="multipart/form-data"
 				use:enhance
-				onsubmit={designation ? designateColumns : undefined}
+				onsubmit={() => (submittedFile = csvFiles?.[0])}
 			>
 				{@render correctionNotice()}
 				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
@@ -799,7 +833,7 @@
 					<AlertBanner variant="error">{form.error}</AlertBanner>
 				{/if}
 
-				{#if designation}
+				{#if offersDesignation}
 					<!-- The file nothing recognised. A refusal that offers the repair rather than
 					     stating the problem: the user's next step is naming three columns, and the
 					     screen that does it is one tap away. -->
@@ -813,11 +847,15 @@
 						{#if !data.correction}
 							<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
 						{/if}
-						<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>
+						<Button type="button" class="mt-3" onclick={designateColumns}
+							>{m.import_columns_offer()}</Button
+						>
 					</div>
 				{/if}
 
-				<Button type="submit">{m.import_submit()}</Button>
+				<Button type="submit" variant={offersDesignation ? 'secondary' : 'primary'}
+					>{m.import_submit()}</Button
+				>
 			</form>
 		</div>
 
@@ -1047,7 +1085,7 @@
 			method="POST"
 			enctype="multipart/form-data"
 			use:enhance
-			onsubmit={designation ? designateColumns : undefined}
+			onsubmit={() => (submittedFile = csvFiles?.[0])}
 		>
 			{@render correctionNotice()}
 			<FileDropZone
@@ -1086,7 +1124,7 @@
 				<AlertBanner variant="error">{form.error}</AlertBanner>
 			{/if}
 
-			{#if designation}
+			{#if offersDesignation}
 				<!-- The file nothing recognised. A refusal that offers the repair rather than
 				     stating the problem: the user's next step is naming three columns, and the
 				     screen that does it is one tap away. -->
@@ -1100,11 +1138,17 @@
 					{#if !data.correction}
 						<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
 					{/if}
-					<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>
+					<Button type="button" class="mt-3" onclick={designateColumns}
+						>{m.import_columns_offer()}</Button
+					>
 				</div>
 			{/if}
 
-			<Button type="submit" class="h-11 w-full !rounded-xl">{m.import_submit()}</Button>
+			<Button
+				type="submit"
+				variant={offersDesignation ? 'secondary' : 'primary'}
+				class="h-11 w-full !rounded-xl">{m.import_submit()}</Button
+			>
 		</form>
 
 		<!-- Same placement and same reason as the desktop chrome: it qualifies the counts below it. -->

@@ -104,10 +104,20 @@ function mount(width: number) {
 	return (desktop ? section[0] : section[1]) as HTMLElement;
 }
 
-/** The file the run carries. `designateColumns` returns early without one, so this is not optional. */
+/**
+ * The file the run carries, chosen AND submitted.
+ *
+ * The submit is not decoration. The offer is withdrawn unless the chosen file is the very file the
+ * server described, compared by identity, so a helper that only uploaded left no offer to press and
+ * every test here failed at the locator rather than on its claim. That guard exists because the
+ * designation screen otherwise opened on one file's headers while carrying another's bytes.
+ *
+ * `designateColumns` also returns early with no file, so both halves are needed.
+ */
 async function chooseFile(section: HTMLElement) {
 	const input = section.querySelector('input[type=file]') as HTMLInputElement;
 	await userEvent.upload(input, new File(['Jour;Intitule;Somme\n'], 'releve.csv'));
+	await userEvent.click(section.querySelector('button[type=submit]') as HTMLElement);
 }
 
 beforeEach(() => {
