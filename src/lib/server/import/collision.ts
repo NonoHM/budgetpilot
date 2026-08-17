@@ -98,10 +98,18 @@ export function describeIncomingBatch(
  * The check both import routes run between the parse and the first write.
  *
  * Returns the batch this run appears to repeat, or null when there is nothing to say.
+ *
+ * `excludeBatchId` names one batch this run is REPLACING rather than repeating, and it is scoped to
+ * a single id on purpose. A correction re-reads the same statement, so the batch it corrects
+ * matches on all three terms by construction and would otherwise raise the one dialog that can only
+ * be wrong. Suppressing the whole rule for the correction path instead would hide the case that
+ * still matters there: a genuine earlier import of the same statement, which the correction is not
+ * replacing and which will double the money exactly as before.
  */
 export async function findCollidingBatch(
 	userId: string,
-	incoming: IncomingBatchShape
+	incoming: IncomingBatchShape,
+	options: { excludeBatchId?: string } = {}
 ): Promise<CollidingBatch | null> {
 	// A run with no dated row has no period to overlap and nothing to compare against. Neither
 	// route can produce one today, since a row without a usable date is refused rather than
@@ -126,6 +134,10 @@ export async function findCollidingBatch(
 	const candidates = await prisma.importBatch.findMany({
 		where: {
 			userId,
+			// Spread rather than written as `id: { not: options.excludeBatchId }`, because that form
+			// sends `{ not: undefined }` on every ordinary import: a clause nobody asked for, whose
+			// behaviour is the query planner's business rather than this rule's.
+			...(options.excludeBatchId ? { id: { not: options.excludeBatchId } } : {}),
 			periodStart: { not: null, lte: toUtcDate(incoming.period.to) },
 			periodEnd: { not: null, gte: toUtcDate(incoming.period.from) }
 		},
