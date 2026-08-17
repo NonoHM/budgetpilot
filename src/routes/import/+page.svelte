@@ -5,11 +5,13 @@
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
+	import CheckboxField from '$lib/components/ui/CheckboxField.svelte';
 	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
 	import { goto } from '$app/navigation';
 	import { applyAction, deserialize, enhance } from '$app/forms';
@@ -32,7 +34,11 @@
 		clearPendingDesignation,
 		setPendingDesignation
 	} from '$lib/import/pendingDesignation.svelte';
-	import { takeCompletedImport, type CompletedImport } from '$lib/import/completedImport.svelte';
+	import {
+		takeCompletedImport,
+		type CompletedImport,
+		type ReplaceOutcome
+	} from '$lib/import/completedImport.svelte';
 	import { onMount } from 'svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -75,6 +81,18 @@
 	let csvFiles = $state<FileList | undefined>(undefined);
 
 	/**
+	 * Whether the correction replaces the import it was launched from.
+	 *
+	 * Read from ONE binding, for the reason `csvFiles` above records at length: this page renders its
+	 * form twice and only the visible mount submits, so a per-mount value is lost across a resize.
+	 *
+	 * PRE-TICKED, because the default should be the repair the user came for. They arrived from
+	 * « Modifier les colonnes » on an import they have decided is wrong, and a default of « keep it
+	 * beside the corrected one » would be the doubled state chosen for them.
+	 */
+	let deleteOldImport = $state(true);
+
+	/**
 	 * And `required` came off both inputs, which is a separate decision from the binding above.
 	 *
 	 * A native `required` file input refuses in the BROWSER's language, not the page's, so a French
@@ -103,6 +121,28 @@
 	 * is a reading aid on the screen, never a reduction of what the run actually reported.
 	 */
 	const invalidRowGroups = $derived(groupInvalidRows(importResult?.invalidRowDetails ?? []));
+
+	/**
+	 * What became of the batch a correction was replacing, and the reasons the rows went.
+	 *
+	 * `WITHHELD_REASON_LIMIT` caps the list because groups are already folded per reason and the
+	 * remainder is one line away in the table below. Uncapped, a file refused for twenty distinct
+	 * reasons would draw a twenty line notice on a 390 px screen, which is the defect
+	 * `groupInvalidRows` was built to remove, reintroduced one panel up.
+	 */
+	const replaced: ReplaceOutcome = $derived(carriedImport?.replaced ?? { kind: 'none' });
+	const WITHHELD_REASON_LIMIT = 3;
+	const withheldReasons = $derived(invalidRowGroups.slice(0, WITHHELD_REASON_LIMIT));
+	const withheldReasonsHidden = $derived(
+		Math.max(0, invalidRowGroups.length - WITHHELD_REASON_LIMIT)
+	);
+	const replacedOn = $derived(
+		replaced.kind === 'none'
+			? ''
+			: new Intl.DateTimeFormat(getLocale(), { dateStyle: 'long', timeStyle: 'short' }).format(
+					new Date(replaced.replacedAt)
+				)
+	);
 
 	const errorReport = $derived(
 		importResult?.invalidRowDetails
@@ -346,7 +386,7 @@
 				headers: { 'x-sveltekit-action': 'true' }
 			});
 			const actionResult = deserialize<
-				{ importResult: ImportSummaryResult; capReached?: boolean },
+				{ importResult: ImportSummaryResult; capReached?: boolean; replaced?: ReplaceOutcome },
 				{ error?: string }
 			>(await response.text());
 
@@ -371,7 +411,11 @@
 				carriedImport = {
 					importResult: actionResult.data.importResult,
 					capReached: actionResult.data.capReached === true,
-					canRevisit: actionResult.data.importResult.invalidRows > 0
+					canRevisit: actionResult.data.importResult.invalidRows > 0,
+					// The confirmation path replaces too. A correction CAN reach this dialog since the
+					// guard learned to exclude the batch being replaced, and the outcome it reports has
+					// to arrive with the summary or the promise made two screens ago goes unanswered.
+					replaced: actionResult.data.replaced ?? { kind: 'none' }
 				};
 			} else {
 				await applyAction(actionResult);
@@ -410,6 +454,88 @@
 	deleting it removes the only route back to the columns, and the user's next upload is read
 	through the same wrong correspondance. Correct first, delete second.
 -->
+<!--
+	What became of the import this correction replaced.
+
+	SILENT in the common case, which is the whole win: the replacement happened and the summary the
+	user is reading is the only import of that statement. The other two states each say one thing.
+
+	`deleted` names the import by its date rather than saying « done », because the user chose this on
+	a control that named no date and they are owed the confirmation that it was the right one.
+
+	`withheld` RETRACTS a promise, and that is a different job from explaining the figures. Two
+	screens announce the replacement before any row is counted, so a run that then withholds has told
+	the user something that did not happen. It names the import, states both counts, names WHY the
+	rows went, and carries the route to finish it by hand.
+
+	The reasons are `groupInvalidRows` and `refusalLabel`, which is what the table below already
+	renders. A second wording for a refusal reason is how two parts of one screen start disagreeing
+	about the same rows.
+
+	NEUTRAL, not a danger tint. The correction worked; this is a report about it, and the user did
+	nothing wrong.
+
+	No fragment anchor on the old batch's row: `/imports` renders every batch twice, desktop table
+	and mobile card, so one id cannot address both and a duplicate sends the fragment to whichever
+	copy is hidden. The two rows are the newest two and adjacent, and the confirmation there now
+	names the timestamp, which is what makes them tellable apart.
+-->
+{#snippet replaceOutcome()}
+	{#if replaced.kind === 'deleted'}
+		<AlertBanner variant="info">
+			{m.import_correct_delete_old_done({ date: replacedOn })}
+		</AlertBanner>
+	{:else if replaced.kind === 'withheld'}
+		<AlertBanner variant="info">
+			<span class="flex flex-col gap-1">
+				<span>
+					{m.import_correct_delete_withheld({
+						date: replacedOn,
+						importedRows: replaced.importedRows,
+						replacedRows: replaced.replacedRows
+					})}
+				</span>
+				{#each withheldReasons as group (group.key)}
+					<span data-testid="withheld-reason">
+						{group.count === 1
+							? m.import_correct_delete_withheld_reason_one({
+									count: group.count,
+									reason: refusalLabel(group.head.fact)
+								})
+							: m.import_correct_delete_withheld_reason({
+									count: group.count,
+									reason: refusalLabel(group.head.fact)
+								})}
+					</span>
+				{/each}
+				{#if withheldReasonsHidden > 0}
+					<span>
+						{withheldReasonsHidden === 1
+							? m.import_correct_delete_withheld_reasons_more_one({
+									count: withheldReasonsHidden
+								})
+							: m.import_correct_delete_withheld_reasons_more({
+									count: withheldReasonsHidden
+								})}
+					</span>
+				{/if}
+				<!--
+					The route sits IN the body rather than in `AlertBanner`'s `action` snippet, and the
+					reason is a measurement rather than a preference. That snippet renders its child as
+					a `shrink-0` sibling of the message on one flex row, which suits the short labels
+					it was built for. This label is long, and at 390 it took the row's whole width and
+					squeezed the message, whose container is `flex-1 min-w-0`, down to about one word
+					per line. Seen in a screenshot; the same collapse is why an individual reason span
+					reported no box to a visibility check while carrying its text.
+				-->
+				<a href={resolve('/imports')} class="mt-1 font-semibold underline underline-offset-2">
+					{m.import_correct_delete_withheld_action()}
+				</a>
+			</span>
+		</AlertBanner>
+	{/if}
+{/snippet}
+
 {#snippet correctionNotice()}
 	{#if data.correction}
 		<input type="hidden" name="correctMappingId" value={data.correction.mappingId} />
@@ -427,7 +553,31 @@
 		<div class="rounded-xl border border-zinc-200 bg-white p-3">
 			<p class="text-sm font-semibold text-zinc-900">{m.import_columns_correct_heading()}</p>
 			<p class="mt-1 text-xs text-zinc-600">{m.import_columns_correct_explanation()}</p>
-			<p class="mt-2 text-xs text-zinc-500">{m.import_columns_correct_duplicate_note()}</p>
+			<!--
+				The sentence that used to sit here told the user to go and delete the old import
+				themselves, which is the 13 step journey this wave removes. It is replaced by the
+				control that does it, and the control NAMES WHAT IT COSTS: `imports_cancel_cost_note`
+				is reused rather than restated, because it is the sentence the explicit delete already
+				shows and a second wording for one fact is how two screens start disagreeing.
+
+				The note is absent when the batch carries no split and no tag. A warning about a loss
+				that cannot occur is discounted every time after, and then it is not read on the one
+				run where it was true.
+
+				Only when a batch actually resolved: with nothing to replace there is nothing to
+				choose, and a ticked box promising a deletion that cannot happen is the defect this
+				wave exists to remove.
+			-->
+			{#if data.correction.batchId}
+				<div class="mt-2">
+					<CheckboxField
+						name="deleteOldImport"
+						label={m.import_correct_delete_old_label()}
+						note={data.correction.hasUserWork ? m.imports_cancel_cost_note() : undefined}
+						bind:checked={deleteOldImport}
+					/>
+				</div>
+			{/if}
 		</div>
 	{/if}
 {/snippet}
@@ -543,6 +693,8 @@
 				{/snippet}
 			</AlertBanner>
 		{/if}
+
+		{@render replaceOutcome()}
 
 		{#if importResult}
 			<div class="rounded-lg border border-zinc-200 bg-white p-5">
@@ -824,6 +976,8 @@
 				{/snippet}
 			</AlertBanner>
 		{/if}
+
+		{@render replaceOutcome()}
 
 		{#if importResult}
 			<div class="{cardBase} p-5">

@@ -11,7 +11,7 @@
 		setPendingDesignation,
 		takePendingDesignation
 	} from '$lib/import/pendingDesignation.svelte';
-	import { setCompletedImport } from '$lib/import/completedImport.svelte';
+	import { setCompletedImport, type ReplaceOutcome } from '$lib/import/completedImport.svelte';
 	import { setPendingCollision } from '$lib/import/pendingCollision.svelte';
 	import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
@@ -123,7 +123,7 @@
 				// default, and a cast downstream would let the action's payload drift from what
 				// `/import` draws without anything failing.
 				const actionResult = deserialize<
-					{ importResult: ImportSummaryResult; capReached: boolean },
+					{ importResult: ImportSummaryResult; capReached: boolean; replaced?: ReplaceOutcome },
 					{
 						error?: string;
 						keepDesignation?: boolean;
@@ -216,7 +216,11 @@
 				setCompletedImport({
 					importResult: carried.importResult,
 					capReached: carried.capReached === true,
-					canRevisit: failed
+					canRevisit: failed,
+					// Defaulted rather than asserted. This is the only field of the four whose absence
+					// is a legitimate state of the payload, since a run that was not a correction has
+					// nothing to report about a replacement.
+					replaced: carried.replaced ?? { kind: 'none' }
 				});
 				if (failed) {
 					setPendingDesignation({ ...pending, initialAssignment: result.assignment });

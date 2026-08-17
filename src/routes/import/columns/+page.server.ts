@@ -20,6 +20,7 @@ import {
 } from '$lib/server/import/persist';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
+import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
 
 const IMPORT_MAX_BYTES = 256_000;
 const CSV_ACCOUNT_NAME = 'Compte import CSV';
@@ -155,7 +156,7 @@ export const actions: Actions = {
 			replaceParam && replaceParam.length > 0
 				? await prisma.importBatch.findFirst({
 						where: { id: replaceParam, userId: user.id },
-						select: { id: true }
+						select: { id: true, createdAt: true }
 					})
 				: null;
 
@@ -305,16 +306,26 @@ export const actions: Actions = {
 		 * the totals by design, so a totals check fires on every correct repair, and a check that
 		 * fires on the good case is discounted within a week and then removed.
 		 */
-		let replacedBatchDeleted = false;
-		let replaceWithheld: { replacedRows: number; importedRows: number } | null = null;
+		// ONE field with three states rather than two booleans. "Nothing was replaced" and "the
+		// replacement was withheld" are different things to say, and the second has to RETRACT a
+		// promise: two screens announce the replacement before any row is counted, so a run that
+		// then withholds owes the user the NAME of the import it did not delete. `replacedAt` is
+		// that name, and it doubles as the identifier they need on `/imports`.
+		let replaced: ReplaceOutcome = { kind: 'none' };
 		if (replacing) {
 			const replacedRows = await prisma.transaction.count({
 				where: { userId: user.id, importBatchId: replacing.id }
 			});
+			const replacedAt = replacing.createdAt.toISOString();
 			if (persisted.importedRows < replacedRows) {
-				replaceWithheld = { replacedRows, importedRows: persisted.importedRows };
-			} else {
-				replacedBatchDeleted = await deleteImportBatch(user.id, replacing.id);
+				replaced = {
+					kind: 'withheld',
+					replacedAt,
+					replacedRows,
+					importedRows: persisted.importedRows
+				};
+			} else if (await deleteImportBatch(user.id, replacing.id)) {
+				replaced = { kind: 'deleted', replacedAt };
 			}
 		}
 
@@ -341,8 +352,7 @@ export const actions: Actions = {
 				netWorthLinkStatus: null
 			},
 			capReached,
-			replacedBatchDeleted,
-			replaceWithheld
+			replaced
 		};
 	}
 };

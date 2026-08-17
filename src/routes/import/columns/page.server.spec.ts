@@ -49,7 +49,10 @@ const db = vi.hoisted(() => ({
 	prisma: {
 		categorizationRule: { findMany: vi.fn(async () => []) },
 		importBatch: {
-			findFirst: vi.fn(async (): Promise<{ id: string } | null> => ({ id: 'batch-old' }))
+			findFirst: vi.fn(async (): Promise<{ id: string; createdAt: Date } | null> => ({
+				id: 'batch-old',
+				createdAt: new Date('2026-06-30T10:00:00.000Z')
+			}))
 		},
 		transaction: { count: vi.fn(async () => 0) }
 	}
@@ -94,8 +97,12 @@ async function submit(csv: string, hasHeaderRow: boolean, extra: Record<string, 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any)) as unknown as {
 		status?: number;
-		replacedBatchDeleted?: boolean;
-		replaceWithheld?: { replacedRows: number; importedRows: number } | null;
+		replaced?: {
+			kind: 'none' | 'deleted' | 'withheld';
+			replacedAt?: string;
+			replacedRows?: number;
+			importedRows?: number;
+		};
 	};
 }
 
@@ -185,7 +192,10 @@ describe('a corrected import replaces the batch it was launched from', () => {
 			created: false
 		});
 		persist.createImportBatch.mockResolvedValue('batch-new');
-		db.prisma.importBatch.findFirst.mockResolvedValue({ id: 'batch-old' });
+		db.prisma.importBatch.findFirst.mockResolvedValue({
+			id: 'batch-old',
+			createdAt: new Date('2026-06-30T10:00:00.000Z')
+		});
 		// Zero by default, so the ordinary tests below exercise the DELETE path rather than the
 		// withholding one. The withholding tests set their own figure.
 		db.prisma.transaction.count.mockResolvedValue(0);
@@ -248,7 +258,12 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		const result = await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
 
 		expect(deleteBatch.deleteImportBatch).not.toHaveBeenCalled();
-		expect(result.replaceWithheld).toEqual({ replacedRows: 30, importedRows: 28 });
+		expect(result.replaced).toEqual({
+			kind: 'withheld',
+			replacedAt: '2026-06-30T10:00:00.000Z',
+			replacedRows: 30,
+			importedRows: 28
+		});
 	});
 
 	it('deletes when the corrected run imports the same number, which is the boundary', async () => {
@@ -267,7 +282,7 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		const result = await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
 
 		expect(deleteBatch.deleteImportBatch).toHaveBeenCalledWith('user-a', 'batch-old');
-		expect(result.replaceWithheld).toBeNull();
+		expect(result.replaced).toEqual({ kind: 'deleted', replacedAt: '2026-06-30T10:00:00.000Z' });
 	});
 
 	it('counts the replaced batch live rather than reading its importedRows column', async () => {
@@ -294,7 +309,7 @@ describe('a corrected import replaces the batch it was launched from', () => {
 
 		expect(db.prisma.importBatch.findFirst).toHaveBeenCalledWith({
 			where: { id: 'batch-of-user-b', userId: 'user-a' },
-			select: { id: true }
+			select: { id: true, createdAt: true }
 		});
 		expect(deleteBatch.deleteImportBatch).not.toHaveBeenCalled();
 	});

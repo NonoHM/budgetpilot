@@ -44,7 +44,29 @@ export interface CompletedImport {
 	 * that just worked.
 	 */
 	canRevisit: boolean;
+	/**
+	 * What became of the batch this run was correcting, when it was correcting one.
+	 *
+	 * Three states rather than a boolean, because « nothing was replaced » and « the replacement was
+	 * withheld » are different things to say and the second one has to RETRACT a promise: two
+	 * screens announce the replacement before any row is counted, so a run that then withholds owes
+	 * the user the name of the import it did not delete.
+	 *
+	 * `replacedAt` is that name, the same timestamp discriminant the delete confirmation uses.
+	 */
+	replaced: ReplaceOutcome;
 }
+
+/**
+ * What became of the batch a correction was replacing.
+ *
+ * Declared here rather than beside the action, because both the action that produces it and the page
+ * that draws it name this type, and a page cannot import from `$lib/server`.
+ */
+export type ReplaceOutcome =
+	| { kind: 'none' }
+	| { kind: 'deleted'; replacedAt: string }
+	| { kind: 'withheld'; replacedAt: string; replacedRows: number; importedRows: number };
 
 let completed: CompletedImport | null = null;
 

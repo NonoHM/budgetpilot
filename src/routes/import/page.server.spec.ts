@@ -112,7 +112,12 @@ const db = vi.hoisted(() => {
 	};
 	type TransactionFindFirstArgs = { where: { userId: string; dedupeKeyHash: string } };
 	type TransactionCountArgs = {
-		where: { userId: string; dedupeKeyHash?: { in: string[] } };
+		where: {
+			userId: string;
+			dedupeKeyHash?: { in: string[] };
+			importBatchId?: string;
+			OR?: unknown[];
+		};
 	};
 	type TransactionGroupByArgs = {
 		where: { userId: string; importBatchId?: { in: string[] } };
@@ -139,6 +144,9 @@ const db = vi.hoisted(() => {
 		transactions: [] as Transaction[],
 		netWorthAccounts: [] as NetWorthAccount[],
 		columnMappings: [] as ColumnMappingRow[],
+		// How many rows of the batch being corrected carry a split or a tag. Set per test rather
+		// than derived, because this fake models neither table.
+		userWorkCount: 0,
 		nextId: 1
 	};
 
@@ -159,7 +167,12 @@ const db = vi.hoisted(() => {
 			for (const value of Object.values(state)) {
 				if (Array.isArray(value)) value.length = 0;
 			}
+			// The loop covers TABLES. Scalars are not arrays, so each one has to be named here, and
+			// the comment above is exactly the failure that applies to them: a scalar added to
+			// `state` and forgotten here survives into the next test and reads as a guard that
+			// failed to fire. Both defaults are stated rather than inferred.
 			state.nextId = 1;
+			state.userWorkCount = 0;
 		},
 		prisma: {
 			netWorthAccount: {
@@ -429,6 +442,18 @@ const db = vi.hoisted(() => {
 				 * decide the term it is supposed to observe.
 				 */
 				count: vi.fn(async ({ where }: TransactionCountArgs) => {
+					// TWO callers with two different WHEREs, and this fake models both rather than
+					// approximating either. T3 counts recognised fingerprints; the correction load
+					// counts the rows of one batch that carry a split or a tag, to decide whether the
+					// control names a loss.
+					//
+					// The split-and-tag count is modelled as ZERO rather than thrown on, and that is a
+					// choice with a reason: this fake's state holds no splits and no tags, so zero is
+					// the faithful answer for every fixture it can build. `deleteBatch.db-smoke.ts` is
+					// where the cascade is proved, against three real engines.
+					if (where.OR) {
+						return state.userWorkCount;
+					}
 					const hashes = where.dedupeKeyHash?.in ?? [];
 					return state.transactions.filter(
 						(transaction) =>
@@ -574,7 +599,9 @@ describe('/import load', () => {
 			return (await load({
 				locals: { user: testUser },
 				url: new URL(`http://localhost/import${search}`)
-			} as never)) as { correction: { mappingId: string; batchId: string | null } | null };
+			} as never)) as {
+				correction: { mappingId: string; batchId: string | null; hasUserWork: boolean } | null;
+			};
 		}
 
 		it('resolves both ids when the batch really was read through that correspondance', async () => {
@@ -582,7 +609,11 @@ describe('/import load', () => {
 
 			const result = await loadWith('?correct=mapping-1&batch=batch-1');
 
-			expect(result.correction).toEqual({ mappingId: 'mapping-1', batchId: 'batch-1' });
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: 'batch-1',
+				hasUserWork: false
+			});
 		});
 
 		it('drops a batch that belongs to another user, and still corrects', async () => {
@@ -594,7 +625,11 @@ describe('/import load', () => {
 			// `batchId` null, and the correction itself survives. Refusing outright would fall through
 			// to an ordinary import, reading the file through the very correspondance the user has just
 			// declared wrong, which is a worse outcome than replacing nothing.
-			expect(result.correction).toEqual({ mappingId: 'mapping-1', batchId: null });
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: null,
+				hasUserWork: false
+			});
 		});
 
 		it('drops a batch of this user that was read through a DIFFERENT correspondance', async () => {
@@ -606,7 +641,11 @@ describe('/import load', () => {
 
 			const result = await loadWith('?correct=mapping-1&batch=batch-1');
 
-			expect(result.correction).toEqual({ mappingId: 'mapping-1', batchId: null });
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: null,
+				hasUserWork: false
+			});
 		});
 
 		it('corrects without replacing when the address bar names no batch', async () => {
@@ -615,7 +654,36 @@ describe('/import load', () => {
 
 			const result = await loadWith('?correct=mapping-1');
 
-			expect(result.correction).toEqual({ mappingId: 'mapping-1', batchId: null });
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: null,
+				hasUserWork: false
+			});
+		});
+
+		it('reports that the batch carries splits or tags, so the control can name the loss', async () => {
+			// The owner's condition on the control: say nothing when there is nothing to lose, and
+			// name it when there is. Counted server side, because the page cannot see the rows.
+			seedCorrection();
+			db.state.userWorkCount = 3;
+
+			const result = await loadWith('?correct=mapping-1&batch=batch-1');
+
+			expect(result.correction?.hasUserWork).toBe(true);
+		});
+
+		it('counts that work on the BATCH being replaced, scoped to this user', async () => {
+			// Asserted on the clause, because Prisma treats a missing clause as no filter: a count
+			// that dropped `importBatchId` would report another import's splits as this one's and the
+			// control would warn about a loss that cannot occur.
+			seedCorrection();
+
+			await loadWith('?correct=mapping-1&batch=batch-1');
+
+			const call = db.prisma.transaction.count.mock.calls.find(
+				([args]: [{ where: { OR?: unknown[] } }]) => args.where.OR
+			);
+			expect(call?.[0].where).toMatchObject({ userId: testUser.id, importBatchId: 'batch-1' });
 		});
 
 		it('is null when the correspondance itself belongs to another user', async () => {

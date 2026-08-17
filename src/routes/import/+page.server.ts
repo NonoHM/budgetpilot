@@ -71,6 +71,22 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					select: { id: true }
 				})
 			: null;
+	// What the replacement destroys BEYOND the rows, so the control can name it and can stay SILENT
+	// when there is nothing to name. A warning about a loss that cannot occur is discounted every
+	// time after, and then it is not read on the one run where it was true, so the app answers the
+	// question rather than hedging it.
+	//
+	// Counted rather than fetched: only the presence of any split or tag decides the sentence, and a
+	// count is what the index on `importBatchId` already serves.
+	const userWorkCount = correctingBatch
+		? await prisma.transaction.count({
+				where: {
+					userId: user.id,
+					importBatchId: correctingBatch.id,
+					OR: [{ splits: { some: {} } }, { tags: { some: {} } }]
+				}
+			})
+		: 0;
 	const [linkableNetWorthAccounts, existingImportBuckets] = await Promise.all([
 		readLinkableNetWorthAccounts(user.id),
 		prisma.account.findMany({
@@ -82,7 +98,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 
 	return {
 		correction: correcting
-			? { mappingId: correcting.id, batchId: correctingBatch?.id ?? null }
+			? {
+					mappingId: correcting.id,
+					batchId: correctingBatch?.id ?? null,
+					hasUserWork: userWorkCount > 0
+				}
 			: null,
 		linkableNetWorthAccounts,
 		// The destination-account selector only has an effect the very first time a given
@@ -213,9 +233,18 @@ export const actions: Actions = {
 				// Carried into the designation screen, which is the request that will delete. Until
 				// this field existed nothing survived the navigation to say the run was a correction
 				// at all, which is why the collision guard fired against the very batch the user came
-				// to fix. `deleteOldImport` is unconditional here and becomes the user's choice in
-				// the next task.
-				correction: correctingBatch ? { batchId: correctingBatch.id, deleteOldImport: true } : null
+				// to fix.
+				//
+				// `deleteOldImport` is the user's answer, read from the control's hidden companion.
+				// Compared against the string 'false' rather than for the string 'true', so the
+				// DEFAULT of an absent field is to replace: that is the repair the user came for, and
+				// a field lost in transit must not silently turn the wave off.
+				correction: correctingBatch
+					? {
+							batchId: correctingBatch.id,
+							deleteOldImport: formData.get('deleteOldImport') !== 'false'
+						}
+					: null
 			});
 		}
 
