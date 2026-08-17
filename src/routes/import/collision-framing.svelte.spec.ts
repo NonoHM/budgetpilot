@@ -136,6 +136,25 @@ describe('the page derives the dialog framing from the posted choice', () => {
 			.toBeInTheDocument();
 	});
 
+	it('titles that run as a replacement rather than as a keeping', async () => {
+		// THE SEAM for the title. `DuplicateStatementDialog.svelte.spec.ts` proves the component picks
+		// three headings from three values; this proves the PAGE hands over the value that makes it
+		// pick the third one. The two are separable and both were wrong at once: the page derived the
+		// value correctly from the day it was written, and the component collapsed it to a boolean.
+		//
+		// Asserted as an absence beside a presence, because the wrong heading and the right one are both
+		// plausible strings on this screen and only their exchange is the defect.
+		await page.viewport(390, 844);
+		carry({ batchId: 'batch-old', deleteOldImport: true });
+
+		render(Page, { data: DATA, form: null });
+
+		await expect
+			.element(page.getByText(m.import_collision_replacing_heading()).last())
+			.toBeInTheDocument();
+		expect(await page.getByText(m.import_collision_keeping_heading()).all()).toHaveLength(0);
+	});
+
 	it('states the DUPLICATION too on that same run, because both facts are true', async () => {
 		// The trap in this case. A test asserting the replacement passes having proved nothing about
 		// the duplication, and the statement drawn above really would be imported a second time.

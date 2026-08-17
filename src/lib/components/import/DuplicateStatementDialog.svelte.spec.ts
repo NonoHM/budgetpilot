@@ -163,6 +163,54 @@ describe('the collision guard reframed for a correction', () => {
 		expect(await screen.getByText(m.import_collision_replacing_body()).all()).toHaveLength(0);
 	});
 
+	/**
+	 * THE TITLE, one test per value, because the title is where the boolean survived.
+	 *
+	 * The body branched three ways from the day the prop was widened; the title kept reading it as
+	 * `isCorrection ? keeping : title`, so `replacing` announced « Vous avez choisi de garder l'ancien
+	 * import » over a body saying the opposite. Seen on a screenshot, invisible to every test above:
+	 * each of them asserts a BODY sentence, and the body was right.
+	 *
+	 * Asserted through the dialog's `aria-labelledby` target rather than by looking for the text
+	 * anywhere on screen. That is what the heading actually is, and it is the half that made the bug
+	 * worse than a cosmetic one: a screen reader named the dialog by the claim that was false.
+	 */
+	function heading(screen: ReturnType<typeof mount>): string {
+		const dialog = screen.container.querySelector('[role="dialog"]');
+		const id = dialog?.getAttribute('aria-labelledby') ?? '';
+		return (screen.container.querySelector(`#${id}`)?.textContent ?? '').trim();
+	}
+
+	it('names the keeping case by the choice the user made', async () => {
+		expect(heading(mount({ correctionContext: 'keeping' }))).toBe(
+			m.import_collision_keeping_heading()
+		);
+	});
+
+	it('does NOT name the replacing case as a keeping, which is what it used to do', async () => {
+		// Separates « the title changes for a correction » from « the title knows WHICH correction ».
+		// Both assertions, because the positive one alone would pass a title that printed both.
+		const title = heading(mount({ correctionContext: 'replacing' }));
+
+		expect(title).toBe(m.import_collision_replacing_heading());
+		expect(title).not.toBe(m.import_collision_keeping_heading());
+	});
+
+	it('keeps the original title when the run is not a correction', async () => {
+		expect(heading(mount({ correctionContext: 'none' }))).toBe(m.import_collision_title());
+	});
+
+	it('gives the three framings three DIFFERENT titles', async () => {
+		// The property that no per-value test can see on its own, and the one that was violated: two of
+		// the three were the same string. Asserted on the rendered headings rather than on the
+		// catalogue, so it is a claim about the component's branching and not about the copy.
+		const titles = (['none', 'keeping', 'replacing'] as const).map((correctionContext) =>
+			heading(mount({ correctionContext }))
+		);
+
+		expect(new Set(titles).size).toBe(3);
+	});
+
 	it('tints the confirm in the none case and NOT in either correction case', async () => {
 		// The plate's own doctrine, from the import-deletion sheet: « le glyphe porte le sens, pas la
 		// couleur », and a red spent where it is not data « affaiblirait celui qui informe au profit

@@ -96,6 +96,38 @@
 		onCancel: () => void;
 	} = $props();
 
+	/**
+	 * The TITLE branches on all three values, exactly as the body does.
+	 *
+	 * It used to read `isCorrection ? keeping : title`, a boolean over a three-valued prop, and the
+	 * `replacing` case therefore wore the `keeping` heading: « Vous avez choisi de garder l'ancien
+	 * import » over a body reading « L'import que vous corrigez sera remplacé. » Two sentences
+	 * contradicting each other about a delete, on one screen, with the false one as the
+	 * `aria-labelledby` target — so a screen reader announced the dialog by the claim that is wrong.
+	 *
+	 * That is the defect the three-valued prop was introduced to prevent, surviving one level up. The
+	 * spec's own words: « a boolean prop would produce the contradiction this design was caught on ».
+	 * The lesson is not "fix the title" but that a prop widened from a boolean has to be re-read at
+	 * EVERY site that consumed the boolean, and this one was missed because the body was the site
+	 * everyone was looking at.
+	 *
+	 * The `replacing` heading names the SITUATION rather than either fact, because both facts are
+	 * true and the body states both. A heading that picked one would be the same defect with the
+	 * other half showing.
+	 */
+	const title = $derived(
+		correctionContext === 'keeping'
+			? m.import_collision_keeping_heading()
+			: correctionContext === 'replacing'
+				? m.import_collision_replacing_heading()
+				: m.import_collision_title()
+	);
+
+	/**
+	 * Still a boolean, and only for the things that genuinely are binary: the confirm's label and its
+	 * tone are the same in both correction framings, because in both the user did nothing wrong and
+	 * in both the press imports rather than destroys.
+	 */
 	const isCorrection = $derived(correctionContext !== 'none');
 
 	// `ImportBatch.fileName` is nullable, and an empty line where a file name belongs reads as a
@@ -137,7 +169,7 @@
 
 <ConfirmDialog
 	{open}
-	title={isCorrection ? m.import_collision_keeping_heading() : m.import_collision_title()}
+	{title}
 	confirmLabel={isCorrection
 		? m.import_collision_correction_confirm()
 		: m.import_collision_confirm()}
