@@ -115,6 +115,35 @@ Tooling enforces formatting; do not restate it. What tooling cannot check:
 - Any number an operator might need to move is read from the environment: a default, a hard
   ceiling, refusal rather than clamping, and a boot warning when it differs.
 
+## Writing a sentence for the interface
+
+**Every finding gets closed by adding a sentence, and nobody reads the result as one page.**
+That is a structural pressure rather than carelessness: each sentence was right when it was
+written, and the screen it was written onto has changed since. So a sentence earns its place
+against four questions, and the fourth exists because the first three cannot see it.
+
+1. **Does the control it sits beside already say this?** « Choisissez de nouveau le relevé »
+   above a picker labelled « Choisir un fichier » is one sentence for one action.
+2. **Does it explain something the reader can already see?** A dialog stating that two runs
+   share a period, a count and totals, above two cards showing that period, that count and
+   those totals, narrates its own table.
+3. **Was it added to close a measured finding, and does the finding still exist?** This is the
+   question that PROTECTS text. The memorisation date, the splits-and-tags cost and the three
+   collision framings were all earned and none of them may be trimmed for length.
+4. **Does another sentence on this same screen already say it?** Questions 1 and 2 check a
+   sentence against a control and against visible data. Neither looks at the prose one block
+   up, which is where the repetition actually accumulates: a screen grows by one paragraph per
+   finding, and the paragraphs are never compared with each other.
+
+**A cut is not a deletion.** Two of the five sentences removed in the wave that produced this
+section left the survivor dangling: « Si **elle** a été corrigée » lost its antecedent, and
+« **Pourtant** aucune ligne » answered a claim that was no longer there. Read the survivor
+aloud on its own before believing the cut is done.
+
+Keep the sentence short enough to be read at 390 px. A string that wraps to four lines on a
+phone is one the reader skips, and skipped text is worse than absent text because it still
+takes the space.
+
 ## Writing an assertion
 
 **A green test says nothing until you know what it would have taken to make it red.** The

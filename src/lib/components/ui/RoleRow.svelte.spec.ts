@@ -8,7 +8,7 @@ import RoleRow from './RoleRow.svelte';
 /**
  * The LABEL half of each recap fact, taken from the message rather than retyped.
  *
- * Retyping « Colonne actuellement mémorisée » here would assert a French literal that an English
+ * Retyping « Aujourd’hui : » here would assert a French literal that an English
  * locale never renders, and it would put the catalogue and the test on two sources for one string.
  * Rendering the message with an empty argument leaves exactly its label half, which is the handle
  * these tests need: the value comes from the fixture, the label comes from the catalogue, and the
@@ -169,7 +169,7 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 	it('states no value fact when this import left no value to read', () => {
 		// Separates "the labels are printed" from "a fact is stated only when there is one". A batch
 		// whose transactions are gone gives every role an empty sample, and a row reading
-		// « Valeur lue par cet import : » with nothing after it is a label doing a fact's job.
+		// « Lu par cet import : » with nothing after it is a label doing a fact's job.
 		const { row } = mount({
 			state: 'recap',
 			columnHeader: 'Date operation',

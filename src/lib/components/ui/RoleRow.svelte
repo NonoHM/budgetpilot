@@ -243,8 +243,8 @@
 		labelled sentence per line is correct in both channels with no new pattern.
 
 		**The value fact is stated only when there is a value.** A batch whose transactions are gone
-		gives every role an empty sample, and « Valeur lue par cet import : » with nothing after it is
-		a label doing a fact's job.
+		gives every role an empty sample, and « Lu par cet import : » with nothing after it is a label
+		doing a fact's job.
 	-->
 	<div class="flex h-16 flex-col justify-center gap-[3px]">
 		<span class="h-[18px] truncate text-[13px] leading-[18px] font-semibold text-zinc-900">
