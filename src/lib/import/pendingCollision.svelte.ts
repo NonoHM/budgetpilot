@@ -1,4 +1,4 @@
-import type { RoleAssignment } from '$lib/domain/columnDesignation';
+import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
 
 /**
@@ -30,19 +30,38 @@ export interface PendingCollision {
 	/** Everything the `/import/columns` action needs to run the same import again, plus the answer. */
 	repost: {
 		file: File;
+		/**
+		 * What the designation screen DRAWS, carried so that declining can give it back.
+		 *
+		 * Not needed to re-post: the server re-reads the file and re-derives its own header list, and
+		 * nothing here is ever read back as evidence. It is needed to REOPEN the screen, because a
+		 * `DesignationFile` cannot be reconstructed from a file name and an assignment. Rebuilding it
+		 * would mean inventing headers, which is the one thing this screen must never do.
+		 */
+		view: DesignationFile;
 		assignment: RoleAssignment;
 		remember: boolean;
 		hasHeaderRow: boolean;
 		/**
-		 * The batch a correction replaces, when this run is one.
+		 * The correction this run belongs to, when it is one. Carried WHOLE rather than as a batch
+		 * id, and the difference is what the dialog reads.
 		 *
 		 * A correction CAN reach this dialog, and only since the guard learned to exclude the batch
 		 * being replaced: what fires now is a THIRD batch that also matches, a genuine earlier import
 		 * of the same statement. Without this field the confirmation would import the corrected rows
 		 * and leave the batch it was launched from in place, which is the doubled state the whole
 		 * wave exists to remove, reached through the one screen that had just warned about doubling.
+		 *
+		 * A BATCH ID ALONE CANNOT SAY WHAT THE DIALOG HAS TO SAY. It is only posted when the control
+		 * was left ticked, so "unticked correction" and "not a correction" would arrive here as the
+		 * same absence, and the dialog would tell a user who deliberately kept their old import that
+		 * this is an ordinary duplicate. The choice is part of the state, not a consequence of it.
+		 *
+		 * It is also what makes « Ne pas importer » able to give the designation screen back: the
+		 * screen has to reopen knowing it is still a correction, or the next attempt loses the
+		 * replacement.
 		 */
-		replaceBatchId: string | null;
+		correction: { batchId: string; deleteOldImport: boolean } | null;
 	};
 	/** The already-imported batch this run appears to repeat. */
 	existing: CollidingBatchView;

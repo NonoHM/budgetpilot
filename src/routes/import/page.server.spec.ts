@@ -837,6 +837,66 @@ describe('/import load', () => {
 });
 
 describe('/import actions', () => {
+	/**
+	 * THE CONSENT THAT DECIDES A DELETE, and what a request that never expressed it gets.
+	 *
+	 * The control posts its answer through a hidden companion, because an unchecked box is simply
+	 * absent from a submission. A hand crafted request can omit BOTH, and the question this asks is
+	 * what the server then derives. Same class as the profile test below and the same assertion is
+	 * owed: a hand crafted POST must not obtain a destructive default it never asked for.
+	 *
+	 * ASVS 5.0 **v5.0.0-2.2.1**, which asks for positive validation against an allow list of values
+	 * for input used to make a business or security decision. This field decides a delete, and the
+	 * fix is literally the row: test positively for 'true' rather than negatively against 'false'.
+	 */
+	it('does NOT consent to the delete when the answer is absent from the request', async () => {
+		expect.assertions(2);
+
+		const headers = ['Jour', 'Intitule operation', 'Somme', 'Detail'];
+		db.state.columnMappings.push({
+			id: 'mapping-consent',
+			userId: testUser.id,
+			fingerprint: fingerprintFor(headers, 'name'),
+			matchBy: 'name' as const,
+			dateColumn: 'jour',
+			labelColumn: 'detail',
+			amountColumn: 'somme',
+			categoryColumn: null,
+			dateIndex: null,
+			labelIndex: null,
+			amountIndex: null,
+			categoryIndex: null,
+			columnCount: 4,
+			useCount: 0,
+			lastUsedAt: null as Date | null
+		} as (typeof db.state.columnMappings)[number]);
+		db.state.batches.push({
+			id: 'batch-consent',
+			userId: testUser.id,
+			source: 'csv',
+			profile: 'generic',
+			rowCount: 1,
+			importedRows: 1,
+			duplicateRows: 0,
+			invalidRows: 0,
+			columnMappingId: 'mapping-consent'
+		} as (typeof db.state.batches)[number]);
+
+		const forged = await runImportWithFileAndFields(
+			`${headers.join(';')}\n24/06/2026;CARREFOUR MARKET;-24,90;PAIEMENT CB 22/06`,
+			{ correctMappingId: 'mapping-consent', correctBatchId: 'batch-consent' }
+		);
+
+		// The presence half: the correction really was recognised, so the assertion below is not two
+		// failures agreeing with each other.
+		expect(forged.data.correction?.batchId).toBe('batch-consent');
+		// And the answer it never gave is NO. The two failures are not symmetric: deriving "keep"
+		// from a lost field leaves the user with two imports and a way to repair it, while deriving
+		// "delete" destroys rows with no undo. Same degradation argument the write-then-delete
+		// ordering rests on.
+		expect(forged.data.correction?.deleteOldImport).toBe(false);
+	});
+
 	it('detects the format and ignores any profile the client tries to send', async () => {
 		expect.assertions(4);
 
@@ -1946,6 +2006,7 @@ async function runImport(formData: FormData) {
 		status?: number;
 		data: {
 			error: string;
+			correction?: { batchId: string; deleteOldImport: boolean } | null;
 			importResult?: {
 				fileName?: string;
 				profile?: string;

@@ -28,3 +28,18 @@ export interface CollidingBatchView extends CollisionFigures {
 	/** ISO instant the batch was created. */
 	createdAt: string;
 }
+
+/**
+ * What this run intends to do with the import it is correcting, when it is correcting one.
+ *
+ * THREE VALUES RATHER THAN A BOOLEAN, and that is the whole reason this type exists. The run
+ * carries the batch id whether or not the user left the control ticked, so a flag meaning "is this
+ * a correction" would tell the reader the old import is being replaced on a run that is going to
+ * delete nothing. The value is derived from the POSTED CHOICE, never from the presence of a
+ * correction.
+ *
+ * The fourth case is that no dialog is drawn at all: on the ordinary ticked correction the guard
+ * does not fire, because `findCollidingBatch` excludes the batch being replaced. That case is the
+ * wave's whole win and it has no value here because it has no dialog.
+ */
+export type CorrectionContext = 'none' | 'replacing' | 'keeping';

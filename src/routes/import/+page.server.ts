@@ -236,13 +236,25 @@ export const actions: Actions = {
 				// to fix.
 				//
 				// `deleteOldImport` is the user's answer, read from the control's hidden companion.
-				// Compared against the string 'false' rather than for the string 'true', so the
-				// DEFAULT of an absent field is to replace: that is the repair the user came for, and
-				// a field lost in transit must not silently turn the wave off.
+				//
+				// TESTED POSITIVELY FOR 'true', NEVER NEGATIVELY AGAINST 'false', and the difference
+				// is a delete. An unchecked box is absent from a submission, which is why the hidden
+				// companion exists at all; a hand crafted or truncated request can omit BOTH, and a
+				// `!== 'false'` test would then derive CONSENT from silence and destroy an import the
+				// user never agreed to lose. This shipped that way for one commit.
+				//
+				// The two failures are not symmetric, which is what settles the direction. Deriving
+				// "keep" from a lost field leaves two imports and a way to repair them; deriving
+				// "delete" destroys rows with no undo. That is the same degradation argument
+				// `deleteBatch.ts` uses to fix the write-then-delete ordering, applied to a default
+				// rather than to a sequence.
+				//
+				// The control is always rendered when a batch resolved, so the ordinary flow always
+				// posts a value and never relies on this default.
 				correction: correctingBatch
 					? {
 							batchId: correctingBatch.id,
-							deleteOldImport: formData.get('deleteOldImport') !== 'false'
+							deleteOldImport: formData.get('deleteOldImport') === 'true'
 						}
 					: null
 			});

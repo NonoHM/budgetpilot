@@ -4,7 +4,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { formatCents } from '$lib/domain/budget';
 	import { getLocale } from '$lib/paraglide/runtime';
-	import type { CollisionFigures } from '$lib/domain/importCollision';
+	import type { CollisionFigures, CorrectionContext } from '$lib/domain/importCollision';
 
 	/**
 	 * The question asked before a run that deduplication cannot see is written.
@@ -36,6 +36,29 @@
 	 * by the same branch of `/import/columns` (the run that designates by hand). Named here because a
 	 * prop no route sets is a draft, not a feature.
 	 *
+	 * `correctionContext` comes from the same two branches, derived on `/import` from the POSTED
+	 * CHOICE rather than from the presence of a correction. `none` is every collision that has
+	 * nothing to do with a correction; `keeping` is a correction whose control was unticked;
+	 * `replacing` is a correction whose control was ticked AND a third batch that also matches,
+	 * which needs a duplicate to exist already.
+	 *
+	 * ## Why the confirm loses its tint in the two correction framings
+	 *
+	 * The design plate for the import deletion settles this, and it settles it for the product
+	 * rather than for that screen: « le glyphe porte le sens, pas la couleur », and a red spent
+	 * where it is not data « affaiblirait celui qui informe au profit de celui qui décore ». This
+	 * application spends red on irreversible deletion and on the invalid-rows counter, both of which
+	 * are facts. Confirming a correction destroys nothing at the moment it is pressed: it imports.
+	 *
+	 * The blind session met the other version of this. The correction flow instructed the user to
+	 * import, and two clicks later the guard rendered that instructed action as a red button, in
+	 * the colour the application uses for irreversible deletion. The dialog's writing was good; it
+	 * simply did not know how the user had arrived at it.
+	 *
+	 * NOT a new tone. `ConfirmDialog`'s existing `default` is exactly a neutral confirmation, so
+	 * this reuses it rather than inventing a third value for one surface. Brique 15 is the modal and
+	 * it is unchanged.
+	 *
 	 * ## Confirming is the CALLER's form
 	 *
 	 * `ConfirmDialog`'s primary is a `type="submit"`, so this component renders no submit handler of
@@ -51,6 +74,7 @@
 		importedAt,
 		confirming = false,
 		error = null,
+		correctionContext = 'none',
 		onCancel
 	}: {
 		open?: boolean;
@@ -67,8 +91,12 @@
 		 * it generic (ASVS 5.0 V16.5.1); nothing caught is rendered here.
 		 */
 		error?: string | null;
+		/** What this run will do with the import it is correcting. Defaults to 'none'. */
+		correctionContext?: CorrectionContext;
 		onCancel: () => void;
 	} = $props();
+
+	const isCorrection = $derived(correctionContext !== 'none');
 
 	// `ImportBatch.fileName` is nullable, and an empty line where a file name belongs reads as a
 	// rendering fault rather than as an absence. Same substitution `/imports` already makes.
@@ -109,10 +137,12 @@
 
 <ConfirmDialog
 	{open}
-	title={m.import_collision_title()}
-	confirmLabel={m.import_collision_confirm()}
+	title={isCorrection ? m.import_collision_keeping_heading() : m.import_collision_title()}
+	confirmLabel={isCorrection
+		? m.import_collision_correction_confirm()
+		: m.import_collision_confirm()}
 	cancelLabel={m.import_collision_cancel()}
-	tone="danger"
+	tone={isCorrection ? 'default' : 'danger'}
 	confirmLoading={confirming}
 	onClose={onCancel}
 >
@@ -122,7 +152,24 @@
 		a column against its neighbour. A description list stacks without pretending otherwise, and
 		each figure keeps the heading that names which side it belongs to.
 	-->
-	<p class="text-sm text-zinc-700">{m.import_collision_explanation()}</p>
+	<!--
+		The frame, and only the frame, changes with the context. The two panels below and the
+		consequence line are FACTS about the two runs and they are true in all three framings, so
+		they are outside this branch: a reframing that replaced them would be a dialog that stopped
+		showing its evidence.
+	-->
+	{#if correctionContext === 'keeping'}
+		<p class="text-sm text-zinc-700">{m.import_collision_keeping_body()}</p>
+	{:else if correctionContext === 'replacing'}
+		<!--
+			BOTH facts, because both are true and saying one of them is the same defect one level
+			along: the import being corrected really is replaced, AND the statement drawn above is a
+			third import this run would duplicate.
+		-->
+		<p class="text-sm text-zinc-700">{m.import_collision_replacing_body()}</p>
+	{:else}
+		<p class="text-sm text-zinc-700">{m.import_collision_explanation()}</p>
+	{/if}
 
 	<dl class="mt-4 grid gap-3 text-left sm:grid-cols-2">
 		<div class="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">

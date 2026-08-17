@@ -176,15 +176,18 @@
 					setPendingCollision({
 						repost: {
 							file: pending.file,
+							// So that declining can reopen this very screen with its answers. See
+							// `pendingCollision.svelte.ts`: the view cannot be rebuilt from a file name.
+							view: pending.view,
 							assignment: result.assignment,
 							remember: result.remember,
 							hasHeaderRow: pending.view.hasHeaderRow,
-							// Carried through the question, because answering it re-posts to this same
+							// Carried through the question WHOLE, because answering it re-posts to this same
 							// action and a correction that lost its batch id here would import beside the
-							// import it came to replace.
-							replaceBatchId: pending.correction?.deleteOldImport
-								? pending.correction.batchId
-								: null
+							// import it came to replace. The choice travels with the id: the dialog has to
+							// tell a deliberate keep apart from an ordinary duplicate, and a batch id alone
+							// cannot, since it is absent in both.
+							correction: pending.correction
 						},
 						existing: actionResult.data.collision,
 						incoming: actionResult.data.incoming

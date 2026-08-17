@@ -16,7 +16,11 @@
 	import { goto } from '$app/navigation';
 	import { applyAction, deserialize, enhance } from '$app/forms';
 	import DuplicateStatementDialog from '$lib/components/import/DuplicateStatementDialog.svelte';
-	import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
+	import type {
+		CollidingBatchView,
+		CollisionFigures,
+		CorrectionContext
+	} from '$lib/domain/importCollision';
 	import {
 		clearPendingCollision,
 		takePendingCollision,
@@ -298,6 +302,26 @@
 	const collisionIncoming = $derived(formIncoming ?? carriedCollision?.incoming);
 
 	/**
+	 * What this run will do with the import it is correcting, derived from the POSTED CHOICE.
+	 *
+	 * NEVER from the presence of a correction, and that distinction is the whole reason this is not
+	 * a boolean. The run carries the batch id whether or not the control was left ticked, so a flag
+	 * meaning "is this a correction" would render « l'import que vous corrigez sera remplacé » on a
+	 * run that is going to delete nothing.
+	 *
+	 * `formCollision` is a collision raised by `/import`'s OWN action, which is never a correction:
+	 * the correction branch returns the designation screen before the guard can run. So only a
+	 * carried collision, handed over by `/import/columns`, can be anything but 'none'.
+	 */
+	const correctionContext: CorrectionContext = $derived(
+		!carriedCollision?.repost.correction
+			? 'none'
+			: carriedCollision.repost.correction.deleteOldImport
+				? 'replacing'
+				: 'keeping'
+	);
+
+	/**
 	 * Answered per collision rather than with a bare boolean.
 	 *
 	 * A boolean would stay true across the next submit, so the second collision of a session would be
@@ -319,12 +343,44 @@
 	 *
 	 * The carried collision is dropped as well as dismissed: leaving it in module state would have it
 	 * reappear behind the next upload, attached to a file the user has since replaced.
+	 *
+	 * ## Declining must not cost the designation
+	 *
+	 * Measured in the blind session: pressing « Ne pas importer » returned the user to a blank
+	 * import form. The page behind this modal has already reset to the upload state, and the carried
+	 * repost was the only place the answers still existed, so dismissing it destroyed the work the
+	 * user had just done. They had designated four columns, been told duplicates were expected,
+	 * been blocked, declined, and were then asked to start over from choosing the file.
+	 *
+	 * So a declined run that still has its file goes BACK TO THE DESIGNATION SCREEN with the
+	 * answers intact, which is the plate's state 2. The dialog is not moved onto that screen:
+	 * section 5.5 of the handoff keeps server refusals off it, and this is a way back rather than a
+	 * relocation.
+	 *
+	 * `view` is CARRIED rather than rebuilt. A `DesignationFile` holds the file's headers, its sample
+	 * values and its preview rows, and none of that can be reconstructed from a file name and an
+	 * assignment: rebuilding it would mean inventing headers. It costs nothing to carry, since it is
+	 * in memory at the moment the question is handed over.
+	 *
+	 * `correction` must survive too, or the second attempt would import beside the batch the first
+	 * one was going to replace.
 	 */
 	function cancelCollision() {
+		const carried = carriedCollision;
 		dismissedCollision = collisionKey;
 		collisionError = null;
 		carriedCollision = null;
 		clearPendingCollision();
+
+		if (!carried) return;
+		setPendingDesignation({
+			file: carried.repost.file,
+			view: carried.repost.view,
+			initialAssignment: carried.repost.assignment,
+			candidates: {},
+			correction: carried.repost.correction
+		});
+		void goto(resolve('/import/columns'));
 	}
 
 	/**
@@ -369,8 +425,10 @@
 				// Indices, never names. The server resolves them against ITS own header list.
 				if (index !== null) body.set(`${role}Index`, String(index));
 			}
-			if (carried.repost.replaceBatchId) {
-				body.set('replaceBatchId', carried.repost.replaceBatchId);
+			// Posted only when the choice is still ticked. The correction travels whole through the
+			// dialog; this is where it becomes a request again.
+			if (carried.repost.correction?.deleteOldImport) {
+				body.set('replaceBatchId', carried.repost.correction.batchId);
 			}
 		} else {
 			body.set('netWorthAccountId', selectedNetWorthAccountId);
@@ -1167,6 +1225,7 @@
 			importedAt={collisionExisting.createdAt}
 			confirming={confirmingCollision}
 			error={collisionError}
+			{correctionContext}
 			onCancel={cancelCollision}
 		/>
 	</form>

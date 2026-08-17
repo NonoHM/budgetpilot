@@ -3,6 +3,8 @@ import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import DuplicateStatementDialog from './DuplicateStatementDialog.svelte';
 import type { CollisionFigures } from '$lib/domain/importCollision';
+import type { CorrectionContext } from '$lib/domain/importCollision';
+import * as m from '$lib/paraglide/messages';
 
 /**
  * The dialog that stands between a re-read statement and the money it would duplicate.
@@ -37,13 +39,16 @@ const EXISTING = {
 // is exactly the shape this dialog meets most often.
 const INCOMING = { ...EXISTING, fileName: 'releve (1).csv' } satisfies CollisionFigures;
 
-function mount(overrides: Partial<{ error: string | null }> = {}) {
+function mount(
+	overrides: Partial<{ error: string | null; correctionContext: CorrectionContext }> = {}
+) {
 	return render(DuplicateStatementDialog, {
 		open: true,
 		existing: EXISTING,
 		incoming: INCOMING,
 		importedAt: '2026-08-15T21:50:00.000Z',
 		error: overrides.error ?? null,
+		correctionContext: overrides.correctionContext ?? 'none',
 		onCancel: () => {}
 	});
 }
@@ -104,5 +109,105 @@ describe('DuplicateStatementDialog', () => {
 		// Absence asserted with a figure beside it, per the house rule: the dialog has exactly one
 		// alert region when it fails and none when it does not.
 		expect(await screen.getByRole('alert').all()).toHaveLength(0);
+	});
+});
+
+/**
+ * THE THREE FRAMINGS, and why a boolean here would have shipped a lie.
+ *
+ * The run carries the batch id whether or not the control was left ticked, so a prop meaning "is
+ * this a correction" would render « l'import que vous corrigez sera remplacé » on a run that is
+ * going to delete nothing. The value is derived from the POSTED CHOICE, and the fourth case is
+ * that this dialog is not rendered at all: on the ordinary ticked correction the guard no longer
+ * fires, because `findCollidingBatch` excludes the batch being replaced.
+ *
+ * THE ROUTE THAT PRODUCES EACH VALUE, because a prop no route sets is a draft:
+ *  - `none`       — `/import`'s own 409, and `/import/columns`' 409 on a run that is not a
+ *                   correction. Today's copy, untouched.
+ *  - `keeping`    — a correction whose control was UNTICKED. The old import stays by choice, so the
+ *                   corrected rows land beside it.
+ *  - `replacing`  — a correction whose control was ticked AND a third batch also matches. Rare and
+ *                   reachable: it needs a duplicate to exist already, which is the state the blind
+ *                   session ended in.
+ */
+describe('the collision guard reframed for a correction', () => {
+	it('says the old import is being KEPT, and never that it is replaced, when the box was unticked', async () => {
+		// The hole this prop exists to close. The batch id is present in both correction cases, so a
+		// dialog keyed on the correction rather than on the choice says the opposite of what will
+		// happen.
+		const screen = mount({ correctionContext: 'keeping' });
+
+		await expect.element(screen.getByText(m.import_collision_keeping_body())).toBeInTheDocument();
+		expect(await screen.getByText(m.import_collision_replacing_body()).all()).toHaveLength(0);
+	});
+
+	it('states BOTH facts when a third import also matches and the old one is being replaced', async () => {
+		// The only case where a replacement and a duplication warning are both true. Saying one of
+		// them is the same defect one level along, so both are asserted in one test: a version that
+		// dropped either would pass a test asserting only the other.
+		const screen = mount({ correctionContext: 'replacing' });
+
+		await expect.element(screen.getByText(m.import_collision_replacing_body())).toBeInTheDocument();
+		// And the ordinary consequence line stays, because the statement above really would be
+		// duplicated. This is the assertion that catches a reframing which replaces rather than adds.
+		await expect.element(screen.getByText(m.import_collision_consequence())).toBeInTheDocument();
+	});
+
+	it("leaves today's copy alone when the run is not a correction", async () => {
+		// The direction this change is not moving in, and the common one: most collisions have
+		// nothing to do with a correction.
+		const screen = mount({ correctionContext: 'none' });
+
+		await expect.element(screen.getByText(m.import_collision_explanation())).toBeInTheDocument();
+		expect(await screen.getByText(m.import_collision_keeping_body()).all()).toHaveLength(0);
+		expect(await screen.getByText(m.import_collision_replacing_body()).all()).toHaveLength(0);
+	});
+
+	it('tints the confirm in the none case and NOT in either correction case', async () => {
+		// The plate's own doctrine, from the import-deletion sheet: « le glyphe porte le sens, pas la
+		// couleur », and a red spent where it is not data « affaiblirait celui qui informe au profit
+		// de celui qui décore ». Confirming a correction destroys nothing at the moment it is
+		// pressed, so the danger tint is decoration here.
+		//
+		// Asserted on the RENDERED colour rather than on a class name, and calibrated: the `none`
+		// case is the real tint, measured in the same document, so an absence is only believed after
+		// the detector has been shown to detect.
+		const chroma = (element: Element) => {
+			const parsed = getComputedStyle(element).backgroundColor.match(
+				/oklch\(([\d.]+)\s+([\d.]+)\s+([\d.]+)/
+			);
+			return parsed ? Number(parsed[2]) : 0;
+		};
+		const confirmOf = (screen: ReturnType<typeof mount>) =>
+			screen.container.querySelector('button[type="submit"]') as HTMLElement;
+
+		const danger = chroma(confirmOf(mount({ correctionContext: 'none' })));
+		expect(danger).toBeGreaterThan(0.05);
+
+		for (const context of ['keeping', 'replacing'] as const) {
+			expect(chroma(confirmOf(mount({ correctionContext: context })))).toBeLessThan(0.05);
+		}
+	});
+
+	it('carries a WORD in every framing, so nothing rests on the tint alone', async () => {
+		// The other half of the rule, and the one a tint removal can silently take with it. Removing
+		// the danger colour must not pass by having also removed the sentence that said why.
+		// Scoped to each mount's own container rather than to the page. Three mounts live in one
+		// test, because cleanup runs between TESTS, and a page-wide locator then resolves to three
+		// elements and fails on strictness rather than on the claim.
+		for (const context of ['none', 'keeping', 'replacing'] as const) {
+			const { container } = mount({ correctionContext: context });
+			expect(container.textContent).toContain(m.import_collision_consequence());
+		}
+	});
+
+	it('offers a confirm label that names what will happen in a correction', async () => {
+		// « Importer quand même » is the right words for an ordinary duplicate and the wrong ones
+		// here: nothing is being overridden, the user is completing the repair they came for.
+		const screen = mount({ correctionContext: 'keeping' });
+
+		await expect
+			.element(screen.getByRole('button', { name: m.import_collision_correction_confirm() }))
+			.toBeInTheDocument();
 	});
 });
