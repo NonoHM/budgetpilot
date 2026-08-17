@@ -96,9 +96,7 @@ describe('CheckboxField.svelte', () => {
 		// oklch(0.552 0.016 285.938). The zinc family is not chromatically zero, which is why the
 		// bound is 0.05 rather than 0, and rose sits four times above it.
 		const chromaOf = (element: Element) => {
-			const parsed = getComputedStyle(element).color.match(
-				/oklch\(([\d.]+)\s+([\d.]+)\s+([\d.]+)/
-			);
+			const parsed = getComputedStyle(element).color.match(/oklch\(([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
 			expect(parsed, 'the palette stopped computing to oklch, recalibrate').not.toBeNull();
 			return Number(parsed![2]);
 		};

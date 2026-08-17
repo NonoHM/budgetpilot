@@ -31,7 +31,10 @@ import type { PageData } from './$types';
  * is what checks the sentence.
  */
 
-const REFUSAL_FACT = { code: 'invalid-amount', value: '' } as unknown as ImportInvalidRowDetail['fact'];
+const REFUSAL_FACT = {
+	code: 'invalid-amount',
+	value: ''
+} as unknown as ImportInvalidRowDetail['fact'];
 const OTHER_FACTS = [
 	{ code: 'invalid-date', value: 'x' },
 	{ code: 'unknown-column', column: 'a' },
@@ -83,8 +86,7 @@ const REPLACED_AT = '2026-08-16T08:59:00.000Z';
  * whatever the reader is in the middle of, which is right for an error blocking their action and
  * wrong for a report about one that already happened. Located on the role the notice really has.
  */
-const withheldNotices = () =>
-	page.getByRole('status').filter({ hasText: "n’a pas été supprimé" });
+const withheldNotices = () => page.getByRole('status').filter({ hasText: 'n’a pas été supprimé' });
 const deletedNotices = () => page.getByRole('status').filter({ hasText: 'a été supprimé' });
 
 beforeEach(() => {
@@ -142,9 +144,7 @@ describe('the withheld replacement, at both widths', () => {
 		await page.viewport(390, 844);
 		mountWithheld();
 
-		await expect
-			.element(withheldNotices().last())
-			.toHaveTextContent(refusalLabel(REFUSAL_FACT));
+		await expect.element(withheldNotices().last()).toHaveTextContent(refusalLabel(REFUSAL_FACT));
 	});
 
 	it('offers the route rather than only the figures', async () => {
@@ -153,9 +153,7 @@ describe('the withheld replacement, at both widths', () => {
 		await page.viewport(390, 844);
 		mountWithheld();
 
-		const link = page
-			.getByRole('link', { name: m.import_correct_delete_withheld_action() })
-			.last();
+		const link = page.getByRole('link', { name: m.import_correct_delete_withheld_action() }).last();
 		await expect.element(link).toBeVisible();
 		await expect.element(link).toHaveAttribute('href', '/imports');
 	});
@@ -203,9 +201,7 @@ describe('the two states that are not a withholding', () => {
 
 		render(Page, { data: DATA, form: null });
 
-		await expect
-			.element(deletedNotices().last())
-			.toHaveTextContent('16 août 2026');
+		await expect.element(deletedNotices().last()).toHaveTextContent('16 août 2026');
 	});
 
 	it('says NOTHING at all when the run replaced nothing', async () => {
