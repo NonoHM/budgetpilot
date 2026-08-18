@@ -16,6 +16,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import { formatCents } from '$lib/domain/budget';
+	import { importProfileLabel } from '$lib/domain/importProfileLabel';
 	import type { CollidingBatchView } from '$lib/domain/importCollision';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -305,6 +306,16 @@
 		</div>
 
 		{#if data.cancelled}
+			<!--
+				« Import supprimé », not « Import annulé ». A label naming something other than what it
+				labels, and this one said the wrong thing about an irreversible act: nothing was
+				cancelled, an import was deleted, and every other control on this path already says
+				« Supprimer ». An action keeps the same name through the whole flow, so the button that
+				says Supprimer produces a message that says supprimé.
+
+				The route keeps `?/cancel` and `?cancelled=1`: those are internal names, and renaming
+				them is a change to an address for the sake of a caption.
+			-->
 			<AlertBanner variant="success">{m.imports_cancelled_notice()}</AlertBanner>
 		{/if}
 		{@render collisionNotice()}
@@ -373,7 +384,7 @@
 											</div>
 										{/if}
 									</td>
-									<td class="px-4 py-3 text-zinc-700">{batch.profile}</td>
+									<td class="px-4 py-3 text-zinc-700">{importProfileLabel(batch.profile)}</td>
 									<td class="px-4 py-3 text-zinc-500">
 										{batch.periodStart ? formatDateOnly(batch.periodStart) : 'n/a'} –
 										{batch.periodEnd ? formatDateOnly(batch.periodEnd) : 'n/a'}
@@ -453,7 +464,7 @@
 									{formatDate(batch.createdAt)}
 								</p>
 								<span class="shrink-0">
-									<Badge tone="neutral">{batch.profile}</Badge>
+									<Badge tone="neutral">{importProfileLabel(batch.profile)}</Badge>
 								</span>
 							</div>
 							<p class="mt-1 truncate text-sm text-zinc-500">
