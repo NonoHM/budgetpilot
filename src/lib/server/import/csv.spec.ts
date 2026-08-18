@@ -367,7 +367,7 @@ describe('parseCsvTransactions', () => {
 	});
 
 	it('marks a Banque Populaire footer as an ignored line', () => {
-		expect.assertions(3);
+		expect.assertions(4);
 
 		const result = parseCsvTransactions(`${BANQUE_POPULAIRE_HEADER}\nSolde au 24/06/2026;123,45`);
 
@@ -377,7 +377,11 @@ describe('parseCsvTransactions', () => {
 			fact: { code: 'footer-ignored' },
 			field: 'line'
 		});
-		expect(result.summary.invalidRows).toBe(1);
+		// ZERO, and the line is still listed above. A footer is a line the parser read correctly and
+		// had nothing to import from, so it is neither valid nor invalid: it leaves the partition by
+		// leaving `totalRows` rather than by being called a failure.
+		expect(result.summary.invalidRows).toBe(0);
+		expect(result.summary.totalRows).toBe(0);
 	});
 
 	it('prefers Date operation over Date de comptabilisation', () => {

@@ -1,6 +1,11 @@
 import type { CsvImportResult, CsvProfileParseInput } from '../types';
 import type { CsvRefusal } from '../refusals';
-import { addRefusal, buildSummary, getDuplicateHeaders } from '../utils/csv';
+import {
+	addRefusal,
+	buildSummary,
+	duplicatedHeaderSpellings,
+	getDuplicateHeaders
+} from '../utils/csv';
 import { REQUIRED_ROLES, resolveRequiredColumns } from './columnAliases';
 import { parseResolvedRows } from './resolvedRows';
 import { detectSignIndicatorColumn } from '../signIndicator';
@@ -73,7 +78,12 @@ export function parseGenericRows({
 		addRefusal(
 			headerRefusals,
 			{ kind: 'header' },
-			{ code: 'duplicate-column', column: refusalCellValue(header) }
+			{
+				code: 'duplicate-column',
+				column: duplicatedHeaderSpellings(rows[0].cells, headers, header)
+					.map(refusalCellValue)
+					.join(', ')
+			}
 		);
 
 	// An UNRECOGNISED column is no longer a refusal. It is dropped, and the file is parsed from
@@ -99,11 +109,7 @@ export function parseGenericRows({
 	if (resolution.ok) {
 		for (const role of REQUIRED_ROLES) {
 			if (!columns[role])
-				addRefusal(
-					headerRefusals,
-					{ kind: 'header' },
-					{ code: 'missing-required-column', column: role }
-				);
+				addRefusal(headerRefusals, { kind: 'header' }, { code: 'missing-required-column', role });
 		}
 	}
 
@@ -130,7 +136,11 @@ export function parseGenericRows({
 				profile: 'generic',
 				totalRows: rows.length - 1,
 				validRows: 0,
-				invalidRows: headerRefusals.length,
+				// Zero, and the complaints go beside it. Every refusal collected above is scoped to the
+				// header, and the header is not one of the rows `totalRows` counts. Three missing roles
+				// is three things wrong with ONE line, so no count of rows can carry it honestly.
+				invalidRows: 0,
+				fileLevelRefusals: headerRefusals.length,
 				duplicateRows: 0,
 				totalDebitCents: 0,
 				totalCreditCents: 0,

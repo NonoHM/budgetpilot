@@ -241,6 +241,9 @@ export function parseResolvedRows({
 			totalRows: dataRows.length,
 			validRows: transactions.length,
 			invalidRows: refusals.length,
+			// Every refusal this loop produces is scoped to a row and every row produces at most one,
+			// so there is nothing here that is not a row.
+			fileLevelRefusals: 0,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,

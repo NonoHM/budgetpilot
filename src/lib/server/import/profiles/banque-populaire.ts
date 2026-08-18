@@ -76,6 +76,15 @@ export function parseBanquePopulaireRows({
 	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
 	// saying so in the summary is what stops a reader inferring the counter was forgotten.
 	const duplicateRows = 0;
+	// Footer lines we RECOGNISED and skipped, tallied rather than derived from `refusals`
+	// afterwards, for the reason `maison-v2` gives about its own ungroupable lines: a count the
+	// loop keeps is a tally, a count reconstructed from a list is a guess about that list.
+	//
+	// A bank footer is not a row that failed. It is a line the parser read correctly and had
+	// nothing to import from, so it is neither a valid row nor an invalid one, and it leaves the
+	// partition by leaving `totalRows`. It stays in `refusals` so the summary can still LIST it:
+	// counting it as a defect and hiding it entirely are the two ways to be wrong about it.
+	let ignoredFooterRows = 0;
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
@@ -86,6 +95,7 @@ export function parseBanquePopulaireRows({
 		if (row.length !== headers.length) {
 			if (isIgnorableBankingRow(row)) {
 				addRefusal(refusals, { kind: 'row', line }, { code: 'footer-ignored' }, 'line');
+				ignoredFooterRows += 1;
 				return;
 			}
 
@@ -231,9 +241,12 @@ export function parseBanquePopulaireRows({
 		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'banque-populaire',
-			totalRows: rows.length - 1,
+			// The footers are out of both sides. A statement with thirty transactions and a balance
+			// line reads « 30 lignes lues », which is what the user counted in their spreadsheet.
+			totalRows: rows.length - 1 - ignoredFooterRows,
 			validRows: transactions.length,
-			invalidRows: refusals.length,
+			invalidRows: refusals.length - ignoredFooterRows,
+			fileLevelRefusals: 0,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,

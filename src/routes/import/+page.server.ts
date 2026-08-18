@@ -335,10 +335,13 @@ export const actions: Actions = {
 					0,
 					result.summary.duplicateRows,
 					result.summary.invalidRows,
+					// The synthesised split-amount refusal is a complaint about the file too, so it is
+					// counted with them rather than left out of every figure on the screen.
+					result.summary.fileLevelRefusals + splitRefusal.length,
 					0,
 					0,
 					[...splitRefusal, ...buildInvalidRowDetails(importData.previewRowsByLine, result)],
-					getHiddenInvalidRowsCount(result.summary.invalidRows)
+					getHiddenInvalidRowsCount(result.invalidRows.length)
 				)
 			});
 		}
@@ -423,13 +426,14 @@ export const actions: Actions = {
 				totalRows: result.summary.totalRows,
 				importedRows: persisted.importedRows,
 				invalidRows: result.summary.invalidRows,
+				fileLevelRefusals: result.summary.fileLevelRefusals,
 				duplicateRows: persisted.duplicateRows,
 				totalDebitCents: persisted.importedDebitCents,
 				totalCreditCents: persisted.importedCreditCents,
 				period: result.summary.period,
 				batchId,
 				invalidRowDetails: buildInvalidRowDetails(importData.previewRowsByLine, result),
-				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.summary.invalidRows),
+				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.invalidRows.length),
 				netWorthLinkStatus
 			}
 		};
@@ -441,6 +445,7 @@ function buildImportResult(
 	importedRows: number,
 	duplicateRows: number,
 	invalidRows: number,
+	fileLevelRefusals: number,
 	totalDebitCents: number,
 	totalCreditCents: number,
 	invalidRowDetails: ImportInvalidRowDetail[] = [],
@@ -451,6 +456,7 @@ function buildImportResult(
 		importedRows,
 		duplicateRows,
 		invalidRows,
+		fileLevelRefusals,
 		totalDebitCents,
 		totalCreditCents,
 		invalidRowDetails,

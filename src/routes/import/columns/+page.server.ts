@@ -367,6 +367,7 @@ export const actions: Actions = {
 				totalRows: result.summary.totalRows,
 				importedRows: persisted.importedRows,
 				invalidRows: result.summary.invalidRows,
+				fileLevelRefusals: result.summary.fileLevelRefusals,
 				duplicateRows: persisted.duplicateRows,
 				totalDebitCents: persisted.importedDebitCents,
 				totalCreditCents: persisted.importedCreditCents,
@@ -377,7 +378,7 @@ export const actions: Actions = {
 				// one run where the user had just chosen the columns and could still tell a wrong
 				// choice from a bad file. Same shape as `/import` so one panel draws both (#338).
 				invalidRowDetails: buildInvalidRowDetails(importData.previewRowsByLine, result),
-				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.summary.invalidRows),
+				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.invalidRows.length),
 				// Always null here: the destination-account choice belongs to the upload form, which
 				// this route does not carry. Present so the payload is one shape rather than two.
 				netWorthLinkStatus: null

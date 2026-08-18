@@ -1,6 +1,7 @@
 import * as m from '$lib/paraglide/messages';
 import type { TransactionValidationCode } from '$lib/domain/transaction';
 import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
+import { roleLabel } from '$lib/domain/columnMappingLabels';
 
 /**
  * The only place a CSV refusal becomes language.
@@ -86,12 +87,16 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 		case 'duplicate-column':
 			return m.import_refusal_duplicate_column({ column: fact.column });
 		case 'missing-required-column':
-			return m.import_refusal_missing_required_column({ column: fact.column });
+			// Through `roleLabel`, the same function the designation screen has always used for
+			// these four words. A user was reading « Colonne requise absente: date » on a French
+			// screen while the screen next door said « Date »: one vocabulary, two renderings, and
+			// the raw one was ours.
+			return m.import_refusal_missing_required_column({ role: roleLabel(fact.role) });
 		case 'bad-column-count':
 			return m.import_refusal_bad_column_count();
 		case 'ambiguous-column-mapping':
 			return m.import_refusal_ambiguous_column_mapping({
-				role: fact.role,
+				role: roleLabel(fact.role),
 				columns: fact.columns
 			});
 		case 'amount-sign-in-separate-column':
@@ -99,7 +104,13 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 		case 'amount-split-across-columns':
 			return m.import_refusal_amount_split_across_columns({ columns: fact.columns });
 		case 'mapping-columns-missing':
-			return m.import_refusal_mapping_columns_missing({ roles: fact.roles });
+			// Joined HERE rather than by the parser. A server side join decides a separator and a
+			// language before the catalogue is reached, which is how the role codes travelled into
+			// the sentence intact in the first place. A comma rather than a conjunction, because a
+			// conjunction is a word and would be the same defect one layer out.
+			return m.import_refusal_mapping_columns_missing({
+				roles: fact.roles.map(roleLabel).join(', ')
+			});
 		case 'mapping-invalid':
 			// `fact.reason` is deliberately not rendered: the user cannot act on
 			// `roles-share-a-column`, and the sentence tells them what they CAN do. The payload

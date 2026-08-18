@@ -209,15 +209,35 @@ export function parseImportRows(
 	const normalizedRows = normalizeParsedRows(rows);
 
 	if (normalizedRows.length < 2) return emptyResult([{ code: 'file-empty' }], warnings);
-	if (normalizedRows.length - 1 > maxRows)
-		return emptyResult([{ code: 'too-many-rows', max: maxRows }], warnings);
+
+	// The rows a refusal below is about, computed ONCE and used both to decide the cap and to
+	// report it. A file refused by a cap used to report zero rows read, which is a statement about
+	// the file rather than about the refusal, and the summary had nothing else to say instead. The
+	// user's own answer about a title row is honoured here for the same reason it is honoured in
+	// the row loop: a headerless file's first line is a transaction, and subtracting it reports a
+	// count the user cannot find in their spreadsheet.
+	const dataRowCount =
+		options.hasHeaderRow === false ? normalizedRows.length : normalizedRows.length - 1;
+
+	if (dataRowCount > maxRows)
+		return emptyResult(
+			[{ code: 'too-many-rows', max: maxRows }],
+			warnings,
+			'generic',
+			dataRowCount
+		);
 
 	// Beside the row cap and BEFORE profile resolution: the column count is a property of the
 	// file, so the answer must not depend on which profile happened to match. See
 	// columnBounds.ts for why the parser does not need this and the designation screen does.
 	const maxColumns = options.maxColumns ?? resolveCsvMaxColumns();
 	if (normalizedRows[0].cells.length > maxColumns)
-		return emptyResult([{ code: 'too-many-columns', max: maxColumns }], warnings);
+		return emptyResult(
+			[{ code: 'too-many-columns', max: maxColumns }],
+			warnings,
+			'generic',
+			dataRowCount
+		);
 
 	const requestedProfile = options.profile ?? 'auto';
 
@@ -243,7 +263,8 @@ export function parseImportRows(
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: profileLabel }],
 			warnings,
-			resultProfile(requestedProfile)
+			resultProfile(requestedProfile),
+			dataRowCount
 		);
 	}
 

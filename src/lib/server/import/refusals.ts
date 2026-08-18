@@ -1,4 +1,5 @@
 import type { TransactionValidationCode } from '$lib/domain/transaction';
+import type { MappingRole } from '$lib/domain/mappingRoles';
 
 /**
  * Where a refusal applies. A header level complaint has nowhere to put a line number,
@@ -29,9 +30,14 @@ export type CsvRefusalScope = { kind: 'file' } | { kind: 'header' } | { kind: 'r
  * text is a copy change for that later task to make, not a cleanup of this one.
  *
  * Only three members render their payload today, and they are the exception rather than the
- * rule: `unknown-column`, `duplicate-column` and `missing-required-column`, each through the
- * catalogue's `{column}` placeholder, because those three are the only ones whose existing
- * sentence already names the value.
+ * rule: `unknown-column` and `duplicate-column` through the catalogue's `{column}` placeholder,
+ * and `missing-required-column` through `{role}`, because those three are the only ones whose
+ * existing sentence already names the value.
+ *
+ * A role is NOT a column, and the two placeholders are named apart for that reason. `{column}`
+ * carries bytes lifted from the user's file and is shown as written; `{role}` carries one of our
+ * four role codes and is translated through `roleLabel` before it reaches a sentence, which is the
+ * same function the designation screen has always used for the same four words.
  */
 export type CsvRefusalFact =
 	// file level, always { kind: 'file' } scope except header-not-recognized, which is
@@ -43,13 +49,21 @@ export type CsvRefusalFact =
 	| { code: 'header-not-recognized'; profile: string }
 	// structural
 	| { code: 'unknown-column'; column: string }
+	// Every spelling the FILE uses for the folded name, joined, in file order. One name would be
+	// the wrong half of the answer: the fold is what creates the duplicate, so a file carrying
+	// `Libellé` and `libelle` is refused precisely because two headers the user can see are
+	// different are the same to us, and naming one sends them to a header that is not the problem.
 	| { code: 'duplicate-column'; column: string }
-	| { code: 'missing-required-column'; column: string }
+	// A ROLE of ours, not a column of theirs, which is why it is typed as one. It used to be
+	// `column: string` carrying `date`, `label` or `amount`, and it rendered through a placeholder
+	// named `{column}` that means a file header on the two facts either side of it. Same name, two
+	// meanings, and a French screen reading « Colonne requise absente: date ».
+	| { code: 'missing-required-column'; role: MappingRole }
 	| { code: 'bad-column-count'; expected: number; actual: number }
 	// Two distinct headers claiming the same required role. Carries BOTH, because naming
 	// only one would tell the user to look at half the problem. See columnAliases.ts for why
 	// this refuses rather than picking.
-	| { code: 'ambiguous-column-mapping'; role: string; columns: string }
+	| { code: 'ambiguous-column-mapping'; role: MappingRole; columns: string }
 	// The amount column holds magnitudes and a sibling column holds the direction, so every
 	// row would import as income. Carries the offending column so the user can look at it: a
 	// refusal saying "your amounts have no sign" leaves them nowhere to go.
@@ -59,7 +73,10 @@ export type CsvRefusalFact =
 	// A remembered column mapping no longer fits the file in front of it: the plate's states 3b
 	// and 3c reaching the parser. Carries the ROLES rather than a count, because "your mapping no
 	// longer fits" leaves the user nowhere to go and "the label column is gone" does not.
-	| { code: 'mapping-columns-missing'; roles: string }
+	// The roles themselves, never a joined string. A server side `join(', ')` decides a separator
+	// and a language before the catalogue is reached, so the list could not be translated and the
+	// role codes travelled into the sentence intact.
+	| { code: 'mapping-columns-missing'; roles: MappingRole[] }
 	// A stored mapping that fails the validator, or is absent where one was required. Unreachable
 	// through the route, which checks both first, and kept because a mapping is a stored record
 	// that outlives the code that wrote it: a restore from before the validator, or a row edited

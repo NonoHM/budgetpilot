@@ -37,6 +37,7 @@ const SUMMARY: ImportSummaryResult = {
 	totalRows: 12,
 	importedRows: 12,
 	invalidRows: 0,
+	fileLevelRefusals: 0,
 	duplicateRows: 0,
 	totalDebitCents: 4200,
 	totalCreditCents: 0,

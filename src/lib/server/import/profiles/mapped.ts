@@ -1,6 +1,11 @@
 import type { CsvImportResult, CsvProfileParseInput, ParsedCsvRow } from '../types';
 import type { CsvRefusal } from '../refusals';
-import { addRefusal, buildSummary, getDuplicateHeaders } from '../utils/csv';
+import {
+	addRefusal,
+	buildSummary,
+	duplicatedHeaderSpellings,
+	getDuplicateHeaders
+} from '../utils/csv';
 import { refusalCellValue } from '../utils/safety';
 import { detectSignIndicatorColumn } from '../signIndicator';
 import { detectComplementAmountColumn } from '../splitAmount';
@@ -75,7 +80,12 @@ export function parseMappedRows({
 			addRefusal(
 				headerRefusals,
 				{ kind: 'header' },
-				{ code: 'duplicate-column', column: refusalCellValue(header) }
+				{
+					code: 'duplicate-column',
+					column: duplicatedHeaderSpellings(rows[0].cells, headers, header)
+						.map(refusalCellValue)
+						.join(', ')
+				}
 			);
 
 	const verdict = resolveMappedColumns(columnMapping, rows[0].cells, headerRefusals);
@@ -116,7 +126,8 @@ export function parseMappedRows({
 			);
 	}
 
-	if (headerRefusals.length > 0 || !verdict) return refusedResult(rows, warnings, headerRefusals);
+	if (headerRefusals.length > 0 || !verdict)
+		return refusedResult(rows, warnings, headerRefusals, headerRow);
 
 	return parseResolvedRows({
 		rows,
@@ -181,11 +192,7 @@ function resolveMappedColumns(
 		// mapping with no category must not claim a category column disappeared.
 		const mappedRoles = MAPPING_ROLES.filter((role) => mappedRoleIsSet(mapping, role));
 		const lost = applied.kind === 'partial' ? applied.lostRoles : mappedRoles;
-		addRefusal(
-			refusals,
-			{ kind: 'header' },
-			{ code: 'mapping-columns-missing', roles: lost.join(', ') }
-		);
+		addRefusal(refusals, { kind: 'header' }, { code: 'mapping-columns-missing', roles: [...lost] });
 		return null;
 	}
 
@@ -223,7 +230,8 @@ function mappedRoleIsSet(mapping: UntrustedColumnMapping, role: MappingRole): bo
 function refusedResult(
 	rows: ParsedCsvRow[],
 	warnings: string[],
-	refusals: CsvRefusal[]
+	refusals: CsvRefusal[],
+	headerRow: boolean
 ): CsvImportResult {
 	return {
 		transactions: [],
@@ -231,9 +239,15 @@ function refusedResult(
 		invalidRows: refusals,
 		summary: buildSummary({
 			profile: 'mapped',
-			totalRows: rows.length - 1,
+			// The user's answer, not a constant. `parseResolvedRows` already reads every line of a
+			// headerless file as data; this path subtracted a title row it had been told was not
+			// there, so a refused three-line statement reported two.
+			totalRows: headerRow ? rows.length - 1 : rows.length,
 			validRows: 0,
-			invalidRows: refusals.length,
+			// Scoped to the header or to the mapping, never to a row: this path returns before a
+			// single line is read.
+			invalidRows: 0,
+			fileLevelRefusals: refusals.length,
 			duplicateRows: 0,
 			totalDebitCents: 0,
 			totalCreditCents: 0,
