@@ -103,3 +103,77 @@ export function pressable(node: HTMLElement, options: { minMs?: number } = {}) {
 		}
 	};
 }
+
+/**
+ * The same rule, delegated: one listener on `node` marking whichever descendant matching `selector`
+ * the press landed in.
+ *
+ * Two reasons it exists rather than `pressable` repeated. A calendar month is 42 cells, so 42
+ * actions and 168 listeners is the wrong shape for one grid. And the cells are rendered by bits-ui
+ * rather than by our template, which takes a `class` but not a Svelte action: there is no node to
+ * attach to.
+ *
+ * `selector` is a static, caller-authored string; it never carries user input.
+ */
+export function pressableWithin(
+	node: HTMLElement,
+	selector: string,
+	options: { minMs?: number } = {}
+) {
+	const minMs = options.minMs ?? PRESS_MIN_MS;
+	let current: HTMLElement | null = null;
+	let shownAt = 0;
+	let releaseTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearTimer() {
+		if (releaseTimer !== null) {
+			clearTimeout(releaseTimer);
+			releaseTimer = null;
+		}
+	}
+
+	function hideNow() {
+		clearTimer();
+		if (current) delete current.dataset.pressed;
+		current = null;
+	}
+
+	function show(event: PointerEvent) {
+		const target = event.target;
+		if (!(target instanceof Element)) return;
+		const cell = target.closest<HTMLElement>(selector);
+		// A press landing between cells marks nothing. Returning here rather than falling through to
+		// `hideNow` is deliberate: it leaves a press already in progress alone.
+		if (!cell || !node.contains(cell)) return;
+		hideNow();
+		current = cell;
+		shownAt = Date.now();
+		cell.dataset.pressed = '';
+	}
+
+	function release() {
+		if (!current) return;
+		const remaining = minMs - (Date.now() - shownAt);
+		if (remaining <= 0) {
+			hideNow();
+			return;
+		}
+		clearTimer();
+		releaseTimer = setTimeout(hideNow, remaining);
+	}
+
+	node.addEventListener('pointerdown', show);
+	node.addEventListener('pointerup', release);
+	node.addEventListener('pointerleave', release);
+	node.addEventListener('pointercancel', hideNow);
+
+	return {
+		destroy() {
+			hideNow();
+			node.removeEventListener('pointerdown', show);
+			node.removeEventListener('pointerup', release);
+			node.removeEventListener('pointerleave', release);
+			node.removeEventListener('pointercancel', hideNow);
+		}
+	};
+}

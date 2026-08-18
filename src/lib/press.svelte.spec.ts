@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { PRESS_MIN_MS, pressable } from './press';
+import { PRESS_MIN_MS, pressable, pressableWithin } from './press';
 
 // Runs as a "client" (real Chromium) spec, not "server"/jsdom, for the same reason
 // `focus.svelte.spec.ts` does: this exercises real `PointerEvent`s and a real attribute on a real
@@ -164,5 +164,62 @@ describe('pressable, destroy', () => {
 
 		fire(el, 'pointerdown');
 		expect(el.dataset.pressed).toBeUndefined();
+	});
+});
+
+describe('pressableWithin', () => {
+	// One listener for a grid of 42 cells rather than 42 actions, and it is the only way to reach an
+	// element a third-party component renders: `RangeCalendar`'s days come from bits-ui, which takes
+	// a class but not a Svelte action.
+	function grid(): { root: HTMLElement; cells: HTMLElement[] } {
+		const root = document.createElement('div');
+		root.innerHTML = '<span data-cell>1</span><span data-cell>2</span><span>not a cell</span>';
+		document.body.appendChild(root);
+		node = root;
+		return { root, cells: [...root.querySelectorAll<HTMLElement>('[data-cell]')] };
+	}
+
+	// Separates "the pressed cell" from "any cell": a delegated listener that marked the container
+	// or every match would light the whole grid under one finger.
+	it('marks only the cell the press landed in', () => {
+		const { root, cells } = grid();
+		handle = pressableWithin(root, '[data-cell]');
+
+		cells[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+
+		expect(cells[0].dataset.pressed).toBe('');
+		expect(cells[1].dataset.pressed).toBeUndefined();
+		expect(root.dataset.pressed).toBeUndefined();
+	});
+
+	// A press that starts outside any cell marks nothing. Asserted with an absolute zero, because
+	// "nothing is marked" is satisfied by a selector that matches nothing: the test above is what
+	// proves the selector matches.
+	it('marks nothing when the press misses every cell', () => {
+		const { root } = grid();
+		handle = pressableWithin(root, '[data-cell]');
+
+		root.lastElementChild?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+
+		expect(root.querySelectorAll('[data-pressed]')).toHaveLength(0);
+	});
+
+	// The same floor and the same cancel path as the per-node action, because it is the same rule.
+	// A 90 ms press on a cell is the measured case.
+	it('holds the floor and cancels like the per-node action', () => {
+		const { root, cells } = grid();
+		handle = pressableWithin(root, '[data-cell]');
+
+		cells[0].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+		vi.advanceTimersByTime(90);
+		cells[0].dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+		expect(cells[0].dataset.pressed).toBe('');
+
+		vi.advanceTimersByTime(PRESS_MIN_MS);
+		expect(cells[0].dataset.pressed).toBeUndefined();
+
+		cells[1].dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+		cells[1].dispatchEvent(new PointerEvent('pointercancel', { bubbles: true }));
+		expect(cells[1].dataset.pressed).toBeUndefined();
 	});
 });

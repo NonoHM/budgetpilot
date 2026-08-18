@@ -1,6 +1,12 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { transitionHover } from '$lib/styles';
+	import { pressable } from '$lib/press';
+	import {
+		pressTransition,
+		pressUnderline,
+		pressUnderlineDanger,
+		transitionHover
+	} from '$lib/styles';
 
 	// Shared replacement for a permanently-underlined text link (component
 	// referential, brick 4): plain text, no chevron, no background/border, no
@@ -48,8 +54,18 @@
 			: 'text-zinc-700 focus-visible:ring-zinc-400'
 	);
 
+	/**
+	 * The pressed state, Planche 5a, and it is a STROKE rather than a surface.
+	 *
+	 * Brique 4 forbids this brick a background and a border, so its press cannot be one. It is the
+	 * underline the brick removed from the RESTING state, handed back at the press where it is
+	 * transient. The danger tone darkens with it, to rose-800 #9f1239, because an underline alone is
+	 * hard to see arriving under a finger on an already-rose word. 6.8:1 on white.
+	 */
+	const pressClasses = $derived(tone === 'danger' ? pressUnderlineDanger : pressUnderline);
+
 	const classes = $derived(
-		`inline-flex min-h-11 items-center text-sm font-semibold ${toneClasses} ${transitionHover} lg:hover:underline lg:hover:underline-offset-2 focus-visible:outline-none focus-visible:ring-2 rounded disabled:cursor-not-allowed disabled:opacity-40 ${
+		`inline-flex min-h-11 items-center text-sm font-semibold ${toneClasses} ${transitionHover} ${pressTransition} ${pressClasses} lg:hover:underline lg:hover:underline-offset-2 focus-visible:outline-none focus-visible:ring-2 rounded disabled:cursor-not-allowed disabled:opacity-40 ${
 			disabled ? 'pointer-events-none opacity-40' : ''
 		} ${extraClass}`
 	);
@@ -60,6 +76,7 @@
 	or external URL), not statically known here; the caller is responsible for resolving it -->
 	<!-- eslint-disable svelte/no-navigation-without-resolve -->
 	<a
+		use:pressable
 		{id}
 		href={disabled ? undefined : href}
 		class={classes}
@@ -70,7 +87,7 @@
 	</a>
 	<!-- eslint-enable svelte/no-navigation-without-resolve -->
 {:else}
-	<button {id} {type} class={classes} {onclick} {disabled}>
+	<button use:pressable {id} {type} class={classes} {onclick} {disabled}>
 		{@render children()}
 	</button>
 {/if}

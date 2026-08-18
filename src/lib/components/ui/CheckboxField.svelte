@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { pressable } from '$lib/press';
+	import { pressNeutral, pressTransition, transitionHover } from '$lib/styles';
+
 	// A labelled binary choice.
 	//
 	// ## Referential gap, named rather than invented around (#378)
@@ -46,7 +49,18 @@
 </script>
 
 <div class="flex flex-col gap-1">
-	<label class="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-zinc-900">
+	<!--
+		THE ROW PRESSES, NOT THE BOX (Planche 5a). The target is the whole 44 px row; sinking the
+		22 px box would flash an object smaller than the finger touching it. `use:pressable` therefore
+		sits on the label and never on the input, and the tone table asserts both halves.
+
+		`-mx-2 px-2` so the tint reaches past the text without moving it: a row whose fill stops at
+		the label's last letter reads as a highlight rather than as a pressed row.
+	-->
+	<label
+		use:pressable
+		class="-mx-2 flex min-h-11 cursor-pointer items-center gap-3 rounded-lg px-2 text-sm text-zinc-900 {transitionHover} {pressTransition} {pressNeutral}"
+	>
 		<!--
 			DELIBERATELY UNNAMED. An unchecked checkbox is simply absent from a form submission, which
 			reads server side as « the field was never added » rather than as « the user said no »,

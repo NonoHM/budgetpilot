@@ -2,7 +2,16 @@
 	import type { Snippet } from 'svelte';
 	import Spinner from './ui/Spinner.svelte';
 	import * as m from '$lib/paraglide/messages';
-	import { transitionHover } from '$lib/styles';
+	import { pressable } from '$lib/press';
+	import {
+		pressDanger,
+		pressFilled,
+		pressFilledRose,
+		pressInset,
+		pressNeutral,
+		pressTransition,
+		transitionHover
+	} from '$lib/styles';
 
 	let {
 		variant = 'primary',
@@ -70,7 +79,10 @@
 		[key: string]: unknown;
 	} = $props();
 
-	const base = `rounded-xl font-semibold ${transitionHover} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40`;
+	// `pressTransition` after `transitionHover`, so the pressed variant wins: entry with no
+	// transition, exit keeping the 120 ms ease-out. Planche 5a. The floor and the cancel path are in
+	// `$lib/press.ts`.
+	const base = `rounded-xl font-semibold ${transitionHover} ${pressTransition} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40`;
 
 	const sizes: Record<string, string> = {
 		sm: 'px-3 py-1.5 text-sm',
@@ -78,6 +90,26 @@
 		lg: 'px-5 py-2.5 text-sm',
 		field: 'h-11 px-4 text-sm',
 		bar: 'h-[34px] px-3.5 text-sm'
+	};
+
+	/**
+	 * The pressed pair per variant, Planche 5a.
+	 *
+	 * The two fills sink rather than lighten, because a fill cannot lighten without changing tone.
+	 * The bordered and text variants take brique 1's hover pair, moved onto the press.
+	 *
+	 * `positive` IS THE ONE VARIANT WITH NO REGISTERED PAIR: the plate names eight tones and emerald
+	 * is not among them. It sinks and keeps its hue rather than being handed an emerald-800 nobody
+	 * has measured for contrast. Registered as a gap rather than filled in silence, see
+	 * `docs/reference/design-referential.md`.
+	 */
+	const pressVariants: Record<string, string> = {
+		primary: pressFilled,
+		positive: pressInset,
+		danger: pressFilledRose,
+		secondary: pressNeutral,
+		ghost: pressNeutral,
+		'ghost-danger': pressDanger
 	};
 
 	const variants: Record<string, string> = {
@@ -96,12 +128,13 @@
 	or external URL), not statically known here; the caller is responsible for resolving it -->
 	<!-- eslint-disable svelte/no-navigation-without-resolve -->
 	<a
+		use:pressable
 		href={disabled ? undefined : href}
 		aria-disabled={disabled ? 'true' : undefined}
 		tabindex={disabled ? -1 : undefined}
 		class="inline-flex items-center justify-center {base} {sizes[size]} {variants[
 			variant
-		]} {disabled ? 'pointer-events-none opacity-40' : ''} {extraClass}"
+		]} {pressVariants[variant]} {disabled ? 'pointer-events-none opacity-40' : ''} {extraClass}"
 		{...rest}
 	>
 		{@render children()}
@@ -109,11 +142,12 @@
 	<!-- eslint-enable svelte/no-navigation-without-resolve -->
 {:else}
 	<button
+		use:pressable
 		{type}
 		disabled={disabled || loading}
 		aria-disabled={softDisabled ? 'true' : undefined}
 		aria-busy={loading}
-		class="{base} {sizes[size]} {variants[variant]} {softDisabled
+		class="{base} {sizes[size]} {variants[variant]} {pressVariants[variant]} {softDisabled
 			? 'cursor-default text-zinc-500'
 			: ''} {extraClass}"
 		{...rest}

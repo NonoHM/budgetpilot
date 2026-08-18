@@ -145,19 +145,40 @@ export const transitionHover =
 // it is.
 // ---------------------------------------------------------------------------
 
-/** Neutral fills, list rows, checkbox and switch rows: brique 1's hover pair moved onto the press. */
-export const pressNeutral = 'data-[pressed]:bg-zinc-100 data-[pressed]:text-zinc-900';
+/**
+ * The surface half alone: zinc-100 and nothing else.
+ *
+ * For a container whose children carry their own colours (a ListCard row, whose subline is
+ * explicitly zinc-500), where forcing an inherited zinc-900 would say something about the text
+ * rather than about the press.
+ */
+export const pressSurface = 'data-[pressed]:bg-zinc-100';
+
+/** Neutral fills, checkbox and switch rows: brique 1's hover pair moved onto the press. */
+export const pressNeutral = `${pressSurface} data-[pressed]:text-zinc-900`;
 
 /** IconButton danger. #be123c on #fff1f2 = 5.4:1, measured by brique 1 for its hover state. */
 export const pressDanger = 'data-[pressed]:bg-rose-50 data-[pressed]:text-rose-700';
 
-/** A neutral fill presses by sinking, because it cannot lighten without changing tone. 21:1. */
-export const pressFilled =
-	'data-[pressed]:bg-black data-[pressed]:shadow-[inset_0_2px_6px_rgba(0,0,0,0.35)]';
+/**
+ * The sinking, on its own.
+ *
+ * A fill cannot lighten without changing tone, so it presses by being pushed in. NOT a transform:
+ * `prefers-reduced-motion` neutralises transforms and does not neutralise a shadow, so this is the
+ * form that still answers a press for a reader who asked for less motion.
+ *
+ * Exported separately because one fill in the product has no registered pressed pair: the
+ * `positive` emerald button is not one of the plate's eight tones. It sinks and keeps its hue
+ * rather than being given an emerald-800 nobody has measured. See the gap table in
+ * `docs/reference/design-referential.md`.
+ */
+export const pressInset = 'data-[pressed]:shadow-[inset_0_2px_6px_rgba(0,0,0,0.35)]';
+
+/** A neutral fill presses by sinking to pure black. White on it is 21:1. */
+export const pressFilled = `data-[pressed]:bg-black ${pressInset}`;
 
 /** The only new tint of the plate: rose-800 #9f1239, the destructive confirmation's primary. */
-export const pressFilledRose =
-	'data-[pressed]:bg-[#9f1239] data-[pressed]:shadow-[inset_0_2px_6px_rgba(0,0,0,0.35)]';
+export const pressFilledRose = `data-[pressed]:bg-[#9f1239] ${pressInset}`;
 
 /**
  * Brique 4 forbids a TapLink any fill and any border, so its press cannot be a surface. It is the

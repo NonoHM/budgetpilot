@@ -1,6 +1,7 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
-	import { transitionHover } from '$lib/styles';
+	import { pressable } from '$lib/press';
+	import { pressDanger, pressNeutral, pressTransition, transitionHover } from '$lib/styles';
 
 	// Shared icon-only button. The icon itself is always supplied by the
 	// caller (Snippet) — this component only owns the container/behavior/style,
@@ -57,7 +58,17 @@
 	// 44x44 minimum touch target everywhere (not just mobile) — see project
 	// a11y conventions. Several pre-existing sites this component replaces
 	// were under that size; migrating to IconButton brings them up to it.
-	const base = `inline-flex min-h-11 min-w-11 items-center justify-center ${transitionHover} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40`;
+	// `pressTransition` composes AFTER `transitionHover` so the pressed variant wins the cascade:
+	// entry carries NO transition, exit keeps the 120 ms ease-out. That asymmetry is the finding of
+	// Planche 5a, not a detail. The referential's 120 ms is written for hover, where the pointer
+	// stays; applied symmetrically to a press it IS the defect, since a 90 ms tap shows almost
+	// nothing. The 120 ms minimum display and the pointercancel path cannot be expressed in CSS and
+	// live in `$lib/press.ts`, which is also where the three clauses are asserted.
+	//
+	// NO PROP FOR THE PRESSED STATE: it is internal. `pressed` above stays what it always was, the
+	// toggle role's `aria-pressed` VALUE, and press.ts's third clause (no `aria-*` carries the
+	// press) is what keeps the two from colliding.
+	const base = `inline-flex min-h-11 min-w-11 items-center justify-center ${transitionHover} ${pressTransition} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40`;
 
 	const shapeToneClasses = $derived.by(() => {
 		if (shape === 'box') {
@@ -85,9 +96,16 @@
 	const ringClasses = $derived(
 		tone === 'danger' ? 'focus-visible:ring-rose-500' : 'focus-visible:ring-zinc-400'
 	);
+
+	// The pressed pair, per tone. Brique 1's own hover pair moved onto the press in both cases, so
+	// neither contrast ratio needs revalidating: zinc-100 under a zinc-900 glyph, and rose-50 under
+	// #be123c at 5.4:1. The toggle shape keeps its own fill and takes no press pair: it is already
+	// a filled black surface at rest, which zinc-100 would lighten rather than darken.
+	const pressClasses = $derived(pressed ? '' : tone === 'danger' ? pressDanger : pressNeutral);
 </script>
 
 <button
+	use:pressable
 	{type}
 	{disabled}
 	aria-label={label}
@@ -106,7 +124,7 @@
 		}
 		onclick?.();
 	}}
-	class="{base} {shapeToneClasses} {ringClasses} {softDisabled
+	class="{base} {shapeToneClasses} {ringClasses} {pressClasses} {softDisabled
 		? 'cursor-default text-zinc-400'
 		: ''} {extraClass}"
 >
