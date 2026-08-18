@@ -1,5 +1,9 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { invalidateAll } from '$app/navigation';
+	import { navigating } from '$app/state';
+	import ImportCardSkeleton from '$lib/components/import/ImportCardSkeleton.svelte';
+	import { createDelayedFlag } from '$lib/delayedFlag.svelte';
 	import { resolve } from '$app/paths';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -35,7 +39,86 @@
 		importedRows: number;
 		createdAt: string;
 	} | null>(null);
-	let cancelSubmitting = $state(false);
+	/**
+	 * The three times of the delete (Planche 5f), and the rule that governs them is one sentence: the
+	 * modal does not close on the press, it closes on the answer.
+	 *
+	 * A dialog that closes on the press moves the answer out of the screen where the finger was and
+	 * where the focus is. The row is still there, nothing has changed, and it reads exactly like a
+	 * press that did nothing, which is the defect this wave exists to remove arriving AFTER the press
+	 * instead of during it.
+	 *
+	 * TWO FAILURE CLASSES, and they are told apart by their ACTION and not only by their sentence.
+	 * The server answered and refused: nothing was removed, so retrying is the right offer. Nothing
+	 * answered at all: the deletion may have gone through, so the offer is to refresh the list,
+	 * because retrying an irreversible action blind is the worst advice a banner can give.
+	 *
+	 * A THIRD CLASS THE PLATE DESCRIBES IS NOT BUILT, and that is a finding rather than an omission.
+	 * The delete plate's 2k models a permanent business refusal (« import verrouillé, droits
+	 * insuffisants ») whose destructive button DISAPPEARS. No route produces it: `deleteImportBatch`
+	 * answers 404 for a batch that is not this user's and 500 for a database failure, and there is no
+	 * locked-import rule anywhere. Building it would be a branch nothing can reach, which is the
+	 * shape this repository checks for by name.
+	 */
+	let deletePhase = $state<'idle' | 'busy' | 'error'>('idle');
+	let deleteFailure = $state<'refused' | 'noAnswer' | null>(null);
+
+	/** 20 s, from the plate: past it the answer is not late, it is absent. */
+	const DELETE_NO_ANSWER_MS = 20_000;
+	let noAnswerTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearNoAnswerTimer() {
+		if (noAnswerTimer !== null) {
+			clearTimeout(noAnswerTimer);
+			noAnswerTimer = null;
+		}
+	}
+
+	function closeCancelDialog() {
+		clearNoAnswerTimer();
+		pendingCancel = null;
+		deletePhase = 'idle';
+		deleteFailure = null;
+	}
+
+	const deleteError = $derived(
+		deleteFailure === null
+			? undefined
+			: deleteFailure === 'noAnswer'
+				? {
+						message: m.imports_delete_no_answer_message(),
+						actionLabel: m.imports_delete_no_answer_action(),
+						onAction: () => void invalidateAll().then(closeCancelDialog)
+					}
+				: {
+						message: m.imports_delete_failed_message(),
+						actionLabel: m.imports_delete_failed_action(),
+						onAction: () => {
+							deletePhase = 'idle';
+							deleteFailure = null;
+							cancelFormEl?.requestSubmit();
+						}
+					}
+	);
+
+	let cancelFormEl = $state<HTMLFormElement | null>(null);
+
+	/**
+	 * Brique 9's skeleton, at the destination Planche 5f moves it to.
+	 *
+	 * `/imports` on arrival is a server WRITE followed by a list re-read, two round trips one of
+	 * which writes the rows, so the 300 ms threshold is crossed even on a fast network. That is why
+	 * the plate calls this the place it was really missing, and why the designation screen, whose
+	 * cards exist because the file is already in memory, could never show one.
+	 *
+	 * Scoped to this route, following the pattern `/` and `/upcoming-bills` already use: navigating
+	 * away from this page must not paint a skeleton over the page being left.
+	 */
+	const listLoading = createDelayedFlag();
+	$effect(() => {
+		listLoading.set(navigating.to?.url.pathname === '/imports');
+	});
+	$effect(() => () => listLoading.destroy());
 
 	/**
 	 * The timestamp this page identifies an import BY, so it is rendered to the second.
@@ -233,7 +316,9 @@
 			<AlertBanner variant="error">{form.error}</AlertBanner>
 		{/if}
 
-		{#if data.batches.length === 0}
+		{#if listLoading.shown}
+			<ImportCardSkeleton />
+		{:else if data.batches.length === 0}
 			{#snippet emptyIcon()}
 				<svg
 					class="h-5 w-5 text-zinc-400"
@@ -458,14 +543,32 @@
 <!-- ConfirmDialog — supprimer un import -->
 {#if pendingCancel}
 	<form
+		bind:this={cancelFormEl}
 		method="POST"
 		action="?/cancel"
 		use:enhance={() => {
-			cancelSubmitting = true;
+			deletePhase = 'busy';
+			deleteFailure = null;
+			// The absence of an answer is a state of its own, so it is armed here rather than inferred
+			// from a rejection that may never come: a request that hangs produces no event at all.
+			clearNoAnswerTimer();
+			noAnswerTimer = setTimeout(() => {
+				deletePhase = 'error';
+				deleteFailure = 'noAnswer';
+			}, DELETE_NO_ANSWER_MS);
+
 			return async ({ result, update }) => {
+				clearNoAnswerTimer();
 				await update();
-				cancelSubmitting = false;
-				if (result.type === 'redirect') pendingCancel = null;
+				// CLOSES ON THE ANSWER, and only on the successful one. A redirect is what the action
+				// returns once the rows are gone; anything else leaves the dialog mounted with the
+				// failure inside it, where the press happened.
+				if (result.type === 'redirect') {
+					closeCancelDialog();
+					return;
+				}
+				deletePhase = 'error';
+				deleteFailure = 'refused';
 			};
 		}}
 	>
@@ -502,8 +605,10 @@
 			confirmLabel={m.imports_cancel_confirm_label()}
 			cancelLabel={m.imports_cancel_keep_label()}
 			tone="danger"
-			confirmLoading={cancelSubmitting}
-			onClose={() => (pendingCancel = null)}
+			phase={deletePhase}
+			busyLabel={m.imports_delete_busy()}
+			error={deleteError}
+			onClose={closeCancelDialog}
 		>
 			<p class="text-sm text-zinc-600">
 				{m.imports_cancel_file_prefix()}
@@ -517,9 +622,12 @@
 				confirmation that is not one.
 			-->
 			<p class="mt-2 text-sm text-zinc-600">{m.imports_cancel_cost_note()}</p>
-			{#if form?.error}
-				<AlertBanner variant="error" class="mt-2">{form.error}</AlertBanner>
-			{/if}
+			<!--
+				The failure is no longer rendered here. It is the dialog's own `error` slot now, which
+				puts it between the body and the actions, announces it with `role="alert"` AND moves the
+				focus onto it. A banner inside the body announced itself and left the reader on the
+				confirm button, which is where the focus already was.
+			-->
 		</ConfirmDialog>
 	</form>
 {/if}

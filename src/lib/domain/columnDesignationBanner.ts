@@ -132,16 +132,10 @@ export function bannerFor(input: {
 	const designated = designatedRequiredCount(input.assignment);
 	const count = m.import_columns_banner_count({ n: designated });
 
-	if (input.state === 'analysing') {
-		return {
-			label: m.import_columns_banner_analysing_label(),
-			// A bare placeholder glyph rather than a zero: no count has been read yet, and `0 sur 3`
-			// would be a measurement the screen has not taken.
-			count: m.import_columns_banner_analysing_count(),
-			consequence: m.import_columns_banner_analysing_consequence(),
-			complete: false
-		};
-	}
+	// THE `analysing` BRANCH IS GONE with the state that fed it (Planche 5f). It drew brique 9's
+	// skeleton on a screen whose cards exist because the file is already read in memory, so there is
+	// no instant at which the structure is known and the content absent, and no route ever set it.
+	// The skeleton now lives at `/imports` on arrival, which is a server write followed by a re-read.
 
 	if (input.state === 'tooFewColumns') {
 		return {

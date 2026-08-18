@@ -96,7 +96,6 @@
 		initialAssignment = EMPTY_ASSIGNMENT,
 		candidates = {},
 		lostHeaders = {},
-		analysing = false,
 		submitting = false,
 		signaturePartial = false,
 		signatureLostDate = null,
@@ -127,7 +126,6 @@
 		candidates?: Partial<Record<MappingRole, readonly number[]>>;
 		/** State 3b: per role, the remembered header that is gone from this file. */
 		lostHeaders?: Partial<Record<MappingRole, string>>;
-		analysing?: boolean;
 		submitting?: boolean;
 		signaturePartial?: boolean;
 		/** State 3c only: the date the lost correspondance was memorised, already formatted. */
@@ -295,7 +293,7 @@
 		) as Partial<Record<MappingRole, number>>
 	);
 	const pageState = $derived(
-		pageStateOf({ assignment, columnCount, analysing, submitting, signaturePartial })
+		pageStateOf({ assignment, columnCount, submitting, signaturePartial })
 	);
 	const banner = $derived(
 		bannerFor({
@@ -306,7 +304,7 @@
 			lostCount: Object.keys(lostHeaders).length
 		})
 	);
-	const importable = $derived(canImport(assignment, columnCount) && !analysing && !submitting);
+	const importable = $derived(canImport(assignment, columnCount) && !submitting);
 
 	/**
 	 * The announcement order is NORMATIVE, and this is the whole of it.
@@ -388,9 +386,8 @@
 	 */
 	function stateOf(
 		role: MappingRole
-	): 'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'skeleton' | 'recap' {
+	): 'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'recap' {
 		if (recap) return 'recap';
-		if (analysing) return 'skeleton';
 		if (lostHeaders[role]) return 'missingColumn';
 		if (vacated[role]) return 'vacated';
 		if (assignment[role] !== null) return 'designated';

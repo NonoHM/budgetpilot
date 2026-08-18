@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import '../layout.css';
@@ -306,5 +306,137 @@ describe('the destructive control on the import card', () => {
 		document.body.appendChild(probe);
 		expect(getComputedStyle(control).color).toBe(getComputedStyle(probe).color);
 		probe.remove();
+	});
+});
+
+/**
+ * THE RULE OF PLANCHE 5f, asserted at the route because that is where the behaviour lives.
+ *
+ * The plate states it as a test consequence rather than leaving it implied: « un test qui ferme la
+ * modale sur l'appui verrouille le défaut. L'assertion à écrire est que la modale est encore montée
+ * après une réponse d'erreur, et que la rangée est encore dans la liste. »
+ *
+ * `fetch` is stubbed because `use:enhance` posts through it, and what is asserted is what the page
+ * does with the answer. A mock's call count would assert the plumbing; the mounted dialog and the
+ * surviving row are what a user sees.
+ */
+describe('the delete that is refused', () => {
+	it('leaves the dialog mounted, with the row still in the list', async () => {
+		await page.viewport(390, 844);
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ type: 'failure', status: 500, data: '{"error":"boom"}' }), {
+						status: 500,
+						headers: { 'content-type': 'application/json' }
+					})
+			)
+		);
+		render(Page, { data: DATA, form: null });
+
+		const older = await shownDate(OLDER_AT);
+		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
+		// Scoped to the dialog and matched exactly: « Supprimer » is a SUBSTRING of every card
+		// control's name (« Supprimer l'import du ... »), so an unscoped match resolves to three.
+		await page
+			.getByRole('dialog')
+			.getByRole('button', { name: m.imports_cancel_confirm_label(), exact: true })
+			.click();
+
+		// Both halves, because either alone is satisfied by the defect: a dialog that closed would
+		// leave the row too, and a row that vanished optimistically would leave the dialog.
+		await expect.element(page.getByRole('alert')).toBeInTheDocument();
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+		expect(visibleDeleteControls()).toHaveLength(2);
+
+		vi.unstubAllGlobals();
+	});
+
+	// NO OPTIMISTIC REMOVAL, stated as its own assertion. Seeing a row disappear and come back is a
+	// more expensive lie than the wait, on financial data.
+	it('never removes the row before the answer', async () => {
+		await page.viewport(390, 844);
+		let resolveFetch: (value: Response) => void = () => {};
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => new Promise<Response>((resolve) => (resolveFetch = resolve)))
+		);
+		render(Page, { data: DATA, form: null });
+
+		const older = await shownDate(OLDER_AT);
+		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
+		(
+			[...document.querySelectorAll('[role="dialog"] button')].find((b) =>
+				b.textContent?.includes(m.imports_cancel_confirm_label())
+			) as HTMLElement
+		).click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		// In flight: the row is still there and the dialog is locked.
+		expect(visibleDeleteControls()).toHaveLength(2);
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+		// Settled before the test ends, and awaited: a promise left hanging is reported as an unhandled
+		// rejection at teardown, which is noise that reads like a defect in the page.
+		resolveFetch(
+			new Response(JSON.stringify({ type: 'failure', status: 500, data: '{}' }), {
+				status: 500,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		await new Promise((r) => setTimeout(r, 0));
+		vi.unstubAllGlobals();
+	});
+});
+
+/**
+ * THE SECOND FAILURE CLASS, and it exists because a break-check found nothing guarding it.
+ *
+ * Swapping the no-answer action label for the refusal one reddened NOTHING: the component spec
+ * asserts a dialog renders the label it is handed, and no test asserted which label this page hands
+ * it. That is the seam again, one wave after the last three instances.
+ *
+ * The branch is reachable only after 20 s, so the clock is controlled. What is asserted is the
+ * observable difference between the two classes: a refusal is retried, a silence is not, because
+ * retrying an irreversible action blind is the worst advice a banner can give.
+ */
+describe('the delete that gets no answer at all', () => {
+	it('offers a refresh rather than a retry, unlike a refusal', async () => {
+		vi.useFakeTimers();
+		await page.viewport(390, 844);
+		// A fetch that never settles is the whole fixture: the class under test is the ABSENCE of an
+		// answer, which no rejection and no status code can stand in for.
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => new Promise<Response>(() => {}))
+		);
+		render(Page, { data: DATA, form: null });
+
+		const control = visibleDeleteControls()[0];
+		control.click();
+		await vi.advanceTimersByTimeAsync(0);
+		(
+			[...document.querySelectorAll('[role="dialog"] button')].find(
+				(b) => b.textContent?.trim() === m.imports_cancel_confirm_label()
+			) as HTMLElement
+		).click();
+
+		await vi.advanceTimersByTimeAsync(19_000);
+		const beforeThreshold = [...document.querySelectorAll('[role="dialog"] button')].map((b) =>
+			b.textContent?.trim()
+		);
+		// Still in flight at 19 s: the threshold is a threshold, not a delay before giving up.
+		expect(beforeThreshold).not.toContain(m.imports_delete_no_answer_action());
+
+		await vi.advanceTimersByTimeAsync(2_000);
+		const afterThreshold = [...document.querySelectorAll('[role="dialog"] button')].map((b) =>
+			b.textContent?.trim()
+		);
+		expect(afterThreshold).toContain(m.imports_delete_no_answer_action());
+		expect(afterThreshold).not.toContain(m.imports_delete_failed_action());
+
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
 	});
 });

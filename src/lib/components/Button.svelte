@@ -22,6 +22,7 @@
 		softDisabled = false,
 		loading = false,
 		loadingLabel,
+		busyLabel,
 		class: extraClass = '',
 		onclick,
 		children,
@@ -73,6 +74,25 @@
 		// `submitting` state (wired to use:enhance's submit/settle lifecycle).
 		loading?: boolean;
 		loadingLabel?: string;
+		/**
+		 * THE OCCUPANCY CONTRACT, registered by Planche 5f as a clause of brique 9 rather than as a
+		 * component. Opt-in, so `loading` alone keeps every existing caller's behaviour.
+		 *
+		 * Three things differ from `loading` alone, and each is a rule rather than a preference:
+		 *
+		 * The verb is VISIBLE. « Suppression… » is the same action in its course; a bare spinner with
+		 * a generic sr-only fallback says nothing about what is running, and the measured state of
+		 * this button showed « En cours… ».
+		 *
+		 * `aria-busy` REPLACES the native `disabled`. A disabled button leaves the tab order and
+		 * announces nothing, which sends focus to the body at the exact moment the user is waiting for
+		 * an answer at the place they pressed. It stays focusable, keeps its name, and swallows the
+		 * activation instead, which is the same rule `softDisabled` already applies.
+		 *
+		 * The WIDTH IS FROZEN at the resting measurement, so a footer does not reorganise under the
+		 * finger while the label changes length.
+		 */
+		busyLabel?: string;
 		class?: string;
 		onclick?: (event: MouseEvent) => void;
 		children: Snippet;
@@ -83,6 +103,24 @@
 	// transition, exit keeping the 120 ms ease-out. Planche 5a. The floor and the cancel path are in
 	// `$lib/press.ts`.
 	const base = `rounded-xl font-semibold ${transitionHover} ${pressTransition} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40`;
+
+	/** True only for the occupancy contract above, never for the plain `loading` spinner. */
+	const busy = $derived(loading && busyLabel !== undefined);
+	/**
+	 * Measured while resting, applied while busy. `undefined` until the first measurement.
+	 *
+	 * Read from `getBoundingClientRect()` and NOT from `clientWidth`, which is integer-rounded: the
+	 * first version froze 98 against a resting 97.86, so the footer still moved by a fraction of a
+	 * pixel. Caught by asserting the two states against each other rather than against a figure.
+	 */
+	let restingWidth = $state<number | undefined>(undefined);
+	let buttonEl = $state<HTMLButtonElement | null>(null);
+
+	$effect(() => {
+		if (busy || !buttonEl) return;
+		const width = buttonEl.getBoundingClientRect().width;
+		if (width > 0) restingWidth = width;
+	});
 
 	const sizes: Record<string, string> = {
 		sm: 'px-3 py-1.5 text-sm',
@@ -143,10 +181,12 @@
 {:else}
 	<button
 		use:pressable
+		bind:this={buttonEl}
 		{type}
-		disabled={disabled || loading}
+		disabled={busy ? false : disabled || loading}
 		aria-disabled={softDisabled ? 'true' : undefined}
 		aria-busy={loading}
+		style:width={busy && restingWidth !== undefined ? `${restingWidth}px` : undefined}
 		class="{base} {sizes[size]} {variants[variant]} {pressVariants[variant]} {softDisabled
 			? 'cursor-default text-zinc-500'
 			: ''} {extraClass}"
@@ -155,7 +195,7 @@
 			// Composed rather than spread through `...rest`, and declared AFTER it, so a caller's own
 			// handler can never overwrite the swallow. A soft-disabled button is a real button: without
 			// this, a submit would still submit and a click handler would still fire.
-			if (softDisabled) {
+			if (softDisabled || busy) {
 				event.preventDefault();
 				event.stopImmediatePropagation();
 				return;
@@ -163,7 +203,12 @@
 			onclick?.(event);
 		}}
 	>
-		{#if loading}
+		{#if busy}
+			<span class="inline-flex items-center justify-center gap-2">
+				<Spinner size={16} speedMs={800} />
+				{busyLabel}
+			</span>
+		{:else if loading}
 			<span class="inline-flex items-center justify-center gap-2">
 				<Spinner size={14} speedMs={800} />
 				<span class="sr-only">{loadingLabel ?? m.common_loading()}</span>

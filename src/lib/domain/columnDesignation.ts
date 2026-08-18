@@ -69,11 +69,10 @@ export interface DesignationFile {
 }
 
 /**
- * The page states, from the plate's own inventory. `analysing` and `submitting` are the two that are
+ * The page states, from the plate's own inventory. `submitting` is the one that is
  * not a function of the assignment, which is why they are passed in rather than derived.
  */
 export type DesignationPageState =
-	| 'analysing'
 	| 'submitting'
 	| 'tooFewColumns'
 	| 'nothingDesignated'
@@ -182,12 +181,10 @@ export function designate(
 export function pageStateOf(input: {
 	assignment: RoleAssignment;
 	columnCount: number;
-	analysing?: boolean;
 	submitting?: boolean;
 	/** At least one remembered column was found by name and at least one was lost. Plate state 3b. */
 	signaturePartial?: boolean;
 }): DesignationPageState {
-	if (input.analysing) return 'analysing';
 	if (input.submitting) return 'submitting';
 	if (input.columnCount < REQUIRED_MAPPING_ROLES.length) return 'tooFewColumns';
 	if (input.signaturePartial) return 'signaturePartial';
