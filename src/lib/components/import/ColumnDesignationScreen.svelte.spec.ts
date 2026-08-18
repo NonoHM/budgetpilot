@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import ColumnDesignationScreen from './ColumnDesignationScreen.svelte';
+import * as m from '$lib/paraglide/messages';
 import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesignation';
 
 /**
@@ -265,5 +266,223 @@ describe('the banner does not move between states, which is a relational promise
 		expect(footer.getBoundingClientRect().top).toBeGreaterThanOrEqual(
 			banner.getBoundingClientRect().bottom
 		);
+	});
+});
+
+/**
+ * Planche 5c: the correction consent moves to the moment the question forms.
+ *
+ * Above the file picker it asked the fate of the old import BEFORE the file was chosen, before the
+ * correction, and before knowing the correction would succeed. In the designation footer it sits
+ * where the user has just changed the offending role, reads « Importer N lignes » and asks
+ * themselves the question. The order the deduplication key imposes does not change (correct first,
+ * delete second); the control finally expresses that order instead of contradicting it.
+ */
+describe('5c, the consent to replace and the confirmation that carries it', () => {
+	const REPLACES = {
+		batchId: 'batch-old',
+		namedAt: '1 juillet 2026 à 10:59',
+		replacedRows: 25,
+		hasUserWork: false
+	};
+
+	function withConsent(props: Record<string, unknown> = {}) {
+		return mount({ initialAssignment: COMPLETE, replaces: REPLACES, ...props });
+	}
+
+	// THE ROUTE-PRODUCES-IT CHECK, paid first. Absent a batch to replace there is nothing to choose,
+	// and a ticked box promising a deletion that cannot happen is the defect this wave removes.
+	it('renders no consent when nothing is being replaced', () => {
+		const { container } = mount({ initialAssignment: COMPLETE });
+
+		expect(container.querySelector('[data-testid="designation-replace-consent"]')).toBeNull();
+	});
+
+	// Owner ruling: PRE-TICKED. « No default pre-arms an irreversible » holds when nothing else
+	// consents; the destructive confirmation of this same section consents and names both facts, so
+	// the box proposes rather than arms. Asserted as the input's VALUE, not as an attribute string:
+	// `defaultChecked` and `checked` diverge the moment anything toggles it.
+	it('is ticked by default', () => {
+		const { container } = withConsent();
+		const box = container.querySelector<HTMLInputElement>(
+			'[data-testid="designation-replace-consent"] input[type="checkbox"]'
+		);
+
+		expect(box).not.toBeNull();
+		expect(box!.checked).toBe(true);
+	});
+
+	// THE SIBLING ASSERTION, and 5b is why it is written this way. Measuring the consent against the
+	// footer and the primary against the footer would both pass with the two in the wrong order.
+	// This compares the two elements the decision relates.
+	// THE ORDER IS THE MEANING: the box (an option), the count (a fact), the primary (the act), the
+	// exit. Asserted as three siblings compared against EACH OTHER rather than each against the
+	// screen, which is the shape 5b's misplaced heading taught: every figure can be right while two
+	// elements sit in the wrong order relative to one another.
+	//
+	// Built with the consent inside the footer first, which put the count above it. Nothing failed;
+	// the screenshot is what showed it.
+	it('sits above the count, which sits above the primary', () => {
+		const { container } = withConsent();
+		const consent = container.querySelector('[data-testid="designation-replace-consent"]')!;
+		const banner = container.querySelector('[data-testid="condition-banner"]')!;
+		const primary = container.querySelector('[data-testid="designation-primary"]')!;
+
+		const top = (el: Element) => el.getBoundingClientRect().top;
+		expect(top(consent)).toBeLessThan(top(banner));
+		expect(top(banner)).toBeLessThan(top(primary));
+	});
+
+	// The label NAMES the import it destroys. « Supprimer l'ancien import » names nothing once a
+	// user holds several, and this flow's ordinary shape is two imports of one statement minutes
+	// apart: the blind session ended in exactly that state, unable to tell the two rows apart.
+	it('names the import it would delete, by the timestamp', () => {
+		const { container } = withConsent();
+		const consent = container.querySelector('[data-testid="designation-replace-consent"]')!;
+
+		expect(consent.textContent).toContain('1 juillet 2026 à 10:59');
+	});
+
+	// The cost note appears only when there is a cost. A warning about a loss that cannot occur is
+	// discounted every time after, and then it is not read on the one run where it was true.
+	it('states the split-and-tag cost only when the batch carries user work', () => {
+		const without = withConsent();
+		const withWork = mount({
+			initialAssignment: COMPLETE,
+			replaces: { ...REPLACES, hasUserWork: true }
+		});
+		const noteOf = (c: { container: Element }) =>
+			c.container.querySelector('[data-testid="designation-replace-consent"] p')?.textContent ?? '';
+
+		expect(noteOf(without)).toBe('');
+		expect(noteOf(withWork).length).toBeGreaterThan(0);
+	});
+
+	// The note is the sentence the explicit delete ALREADY shows, not a second wording for one fact.
+	// Two wordings is how two screens start disagreeing about what a deletion costs, and this is the
+	// one figure the user has to match across them.
+	it('reuses the cost sentence the explicit delete already shows', () => {
+		const { container } = mount({
+			initialAssignment: COMPLETE,
+			replaces: { ...REPLACES, hasUserWork: true }
+		});
+		const note = container.querySelector('[data-testid="designation-replace-consent"] p');
+
+		expect(note?.textContent).toBe(m.imports_cancel_cost_note());
+	});
+
+	// BOTH CHROMES. A control wired into one mount and silently missing from the other is invisible
+	// to every test that does not choose a width, and this repository has shipped that shape more
+	// than once. At 1280 the consent lives in the sticky command foot rather than in a footer, so
+	// the assertion is that it sits inside the box that travels with the primary.
+	it('renders in the 1280 chrome too, inside the box that travels with the primary', () => {
+		const { container } = mount({ initialAssignment: COMPLETE, replaces: REPLACES, wide: true });
+		const consent = container.querySelector('[data-testid="designation-replace-consent"]');
+		const foot = container.querySelector('[data-testid="designation-command-foot"]');
+
+		expect(consent).not.toBeNull();
+		expect(foot!.contains(consent!)).toBe(true);
+	});
+
+	// Ticked, the press PROPOSES and the confirmation consents. A test that only presses the primary
+	// and checks onSubmit would lock in the defect where a tick alone destroys.
+	it('opens the destructive confirmation instead of submitting, when ticked', async () => {
+		let submitted: unknown = null;
+		const { container } = withConsent({ onSubmit: (r: unknown) => (submitted = r) });
+
+		(container.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		expect(submitted).toBeNull();
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+	});
+
+	// The mirror case, and it is what makes the pair meaningful: unticked, nothing irreversible is
+	// in play, so the press imports directly and no modal is mounted.
+	it('imports directly, with no confirmation, when unticked', async () => {
+		let submitted: { deleteOldImport?: boolean } | null = null;
+		const { container } = withConsent({
+			onSubmit: (r: { deleteOldImport?: boolean }) => (submitted = r)
+		});
+		const box = container.querySelector<HTMLInputElement>(
+			'[data-testid="designation-replace-consent"] input[type="checkbox"]'
+		)!;
+		box.click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		(container.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		expect(document.querySelector('[role="dialog"]')).toBeNull();
+		expect(submitted).not.toBeNull();
+		expect(submitted!.deleteOldImport).toBe(false);
+	});
+
+	// The title names BOTH facts, which is what a confirmation for a compound act owes the reader.
+	// Asserted positively on the title node: a negative assertion over the dialog's concatenated
+	// text cannot match.
+	it('the confirmation names the rows imported and the import deleted, in one title', async () => {
+		const { container } = withConsent();
+		(container.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		const title = document.querySelector('[role="dialog"] h2')!;
+		expect(title.textContent).toContain('132');
+		expect(title.textContent).toContain('1 juillet 2026 à 10:59');
+	});
+
+	// TWO DIFFERENT NUMBERS, and the break matrix is what showed the second was unasserted. The title
+	// counts the rows about to be IMPORTED, from the new file; the body counts the rows about to be
+	// REMOVED, from the old import. A fixture where both were 25, as the plate's example has them,
+	// could not tell the two apart, so this one makes them 132 and 25.
+	it('the body counts the old import rows, which is not the number in the title', async () => {
+		const { container } = withConsent({
+			replaces: { ...REPLACES, replacedRows: 25 }
+		});
+		(container.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		// The testid and not `[role="dialog"] p`: the dialog's own mobile header renders the TITLE in a
+		// paragraph, so the bare selector reads the title back and the test asserts nothing about the
+		// body. Found by this assertion failing against a title it was not about.
+		const body = document.querySelector('[data-testid="replace-confirm-body"]')!;
+		expect(body.textContent).toContain('25');
+		expect(body.textContent).not.toContain('132');
+	});
+
+	// Confirming is what reaches onSubmit, and it carries the consent.
+	it('confirming submits with the consent attached', async () => {
+		let submitted: { deleteOldImport?: boolean } | null = null;
+		const { container } = withConsent({
+			onSubmit: (r: { deleteOldImport?: boolean }) => (submitted = r)
+		});
+		(container.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		const confirm = [...document.querySelectorAll('[role="dialog"] button')].find((b) =>
+			b.textContent?.includes('Importer et supprimer')
+		) as HTMLElement;
+		confirm.click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		expect(submitted).not.toBeNull();
+		expect(submitted!.deleteOldImport).toBe(true);
+	});
+
+	// The primary keeps its words either way. « Importer et supprimer » on the footer would put two
+	// verbs on one action and make the label depend on a checkbox sitting above it.
+	it('the primary reads « Importer 132 lignes » ticked or unticked', async () => {
+		const { container } = withConsent();
+		const primary = container.querySelector('[data-testid="designation-primary"]')!;
+		const ticked = primary.textContent;
+
+		const box = container.querySelector<HTMLInputElement>(
+			'[data-testid="designation-replace-consent"] input[type="checkbox"]'
+		)!;
+		box.click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		expect(primary.textContent).toBe(ticked);
+		expect(primary.textContent).toContain('132');
 	});
 });

@@ -612,6 +612,7 @@ describe('/import load', () => {
 					mappingId: string;
 					batchId: string | null;
 					replacedAt: string | null;
+					replacedRows: number;
 					hasUserWork: boolean;
 				} | null;
 			};
@@ -626,6 +627,10 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: 'batch-1',
 				replacedAt: SEEDED_AT.toISOString(),
+				// 3, which is what the seed above writes as `importedRows`. The confirmation of
+				// Planche 5c names this number beside a different one, the rows about to be imported,
+				// so a fixture where the two agreed could not tell them apart.
+				replacedRows: 3,
 				hasUserWork: false
 			});
 		});
@@ -643,6 +648,7 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: null,
 				replacedAt: null,
+				replacedRows: 0,
 				hasUserWork: false
 			});
 		});
@@ -660,6 +666,7 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: null,
 				replacedAt: null,
+				replacedRows: 0,
 				hasUserWork: false
 			});
 		});
@@ -677,6 +684,7 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: null,
 				replacedAt: null,
+				replacedRows: 0,
 				hasUserWork: false
 			});
 		});
@@ -691,6 +699,7 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: null,
 				replacedAt: null,
+				replacedRows: 0,
 				hasUserWork: false
 			});
 		});

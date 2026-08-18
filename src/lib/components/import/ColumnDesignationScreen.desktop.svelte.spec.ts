@@ -135,7 +135,7 @@ describe('the command column', () => {
 	});
 });
 
-describe('the banner and the actions are one box, and the box is what sticks', () => {
+describe('the banner and the actions are one box', () => {
 	it('holds both in a single element', () => {
 		// What COMMANDS the primary action travels with it. If the banner and the actions were two
 		// boxes, the count explaining why the primary is off could be scrolled away from the primary
@@ -146,10 +146,23 @@ describe('the banner and the actions are one box, and the box is what sticks', (
 		expect(foot.querySelector('button[aria-disabled="true"]')).not.toBeNull();
 	});
 
-	it('sticks by its own box rather than by the page', () => {
+	/**
+	 * THIS ASSERTION REVERSED, and the reversal is the finding rather than a preference.
+	 *
+	 * It used to read `expect(position).toBe('sticky')`. A bottom-sticky element rises above its
+	 * static position the moment its column overflows, and what it rises over is whatever sits above
+	 * it. Planche 5c adds a storey to this column, which pushed it past the frame: measured on the
+	 * real page, the box then covered 29.5 px of the 44 px « Ne pas mémoriser » control.
+	 *
+	 * So the property worth asserting was never the stickiness. It is that the count and the primary
+	 * cannot be separated, which the test above already checks, and that nothing is covered, which
+	 * the overflow test further down now checks. What is asserted here is only that the box has
+	 * stopped being positioned, so a future edit reintroducing it meets this note first.
+	 */
+	it('is not positioned, because a bottom-sticky box cannot promise to cover nothing', () => {
 		const { foot } = mount();
 
-		expect(getComputedStyle(foot).position).toBe('sticky');
+		expect(getComputedStyle(foot).position).toBe('static');
 	});
 
 	it('points the blocked primary at the banner inside the same box', () => {
@@ -256,6 +269,40 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 
 		expect(command.getBoundingClientRect().width).toBe(400);
 		expect(previewSlot).not.toBeNull();
+	});
+
+	/**
+	 * THE SIBLING ASSERTION, and it exists because a measured occlusion got past every figure here.
+	 *
+	 * Planche 5c adds a storey to the command column, which pushes it past the frame. While the box
+	 * was `sticky bottom-6` it then rose over what sat above it: measured on the real page, it
+	 * covered 29.5 px of the 44 px « Ne pas mémoriser » control.
+	 *
+	 * Every geometry test in this file measures ONE box against the content box that holds it, and
+	 * all of them stayed green. This one compares the two elements the decision relates, which is the
+	 * only shape that can see it.
+	 */
+	it('never covers the memorisation control, in the state that overflows the column', () => {
+		const { container } = mount({
+			initialAssignment: COMPLETE,
+			replaces: {
+				batchId: 'batch-old',
+				namedAt: '19 août 2026 à 00:42',
+				replacedRows: 2,
+				hasUserWork: true
+			}
+		});
+		// Short enough that the column MUST overflow: the defect only exists while it does, so a
+		// fixture at the full 800 would assert nothing. This is the fixture that distinguishes.
+		container.style.height = '520px';
+
+		const remember = container.querySelector('[data-testid="designation-remember"]') as HTMLElement;
+		const foot = container.querySelector('[data-testid="designation-command-foot"]') as HTMLElement;
+
+		expect(remember).not.toBeNull();
+		expect(foot.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+			remember.getBoundingClientRect().bottom
+		);
 	});
 
 	it('draws the table once the file carries real rows, with a header cell per column', () => {

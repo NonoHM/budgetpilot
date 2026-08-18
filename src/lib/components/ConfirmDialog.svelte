@@ -13,6 +13,7 @@
 		cancelLabel = m.common_cancel(),
 		tone = 'default',
 		confirmLoading = false,
+		onConfirm,
 		onClose,
 		children
 	}: {
@@ -25,6 +26,18 @@
 		// Wired to the caller's use:enhance submission state so the confirm button shows a
 		// spinner instead of freezing with no feedback while the server call is in flight.
 		confirmLoading?: boolean;
+		/**
+		 * What the confirm does, when it is not submitting a form.
+		 *
+		 * The original callers wrap this dialog in a `<form method="POST">` and let the confirm be a
+		 * native submit, which is right for a server action. A caller with no form (the designation
+		 * screen's replace confirmation, which resolves into an in-page callback) has nothing to
+		 * submit, and a `type="submit"` outside a form is a button that does nothing at all.
+		 *
+		 * Passing this switches the confirm to `type="button"` and calls it. Omitting it leaves every
+		 * existing caller on the submit path unchanged.
+		 */
+		onConfirm?: () => void;
 		onClose: () => void;
 		children: Snippet;
 	} = $props();
@@ -77,10 +90,11 @@
 				disabled={confirmLoading}>{cancelLabel}</TapLink
 			>
 			<Button
-				type="submit"
+				type={onConfirm ? 'button' : 'submit'}
 				variant={tone === 'danger' ? 'danger' : 'primary'}
 				class="flex-1 lg:flex-none"
-				loading={confirmLoading}>{confirmLabel}</Button
+				loading={confirmLoading}
+				onclick={onConfirm}>{confirmLabel}</Button
 			>
 		</div>
 	</div>

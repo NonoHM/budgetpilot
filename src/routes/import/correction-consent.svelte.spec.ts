@@ -52,6 +52,20 @@ import type { PageData } from './$types';
  *    default that §7b argues for.
  *  - the batch id rebuilt from `data.correction`: **one red**, the id test, and both consent tests
  *    stay green.
+ *
+ * ## WHERE THE CONSENT WENT, and why the guards that used to live here are not simply deleted
+ *
+ * Planche 5c moved the question into the designation footer, so `/import` no longer asks it and the
+ * handoff no longer carries an answer. The defect the original tests caught, a consent read from
+ * the server's ECHO rather than from the control, is now impossible by construction: the control
+ * and the submit are on one screen and the answer is a local value handed straight to `onSubmit`.
+ *
+ * So the consent assertions move rather than vanish. The screen-level ones are in
+ * `ColumnDesignationScreen.svelte.spec.ts` under « 5c »; the route-level one, which is the seam that
+ * decides what is POSTED, is in `columns/replace-consent.svelte.spec.ts`. What stays here is the
+ * pair of id guards, which are about a different property and are unaffected by the move: the id
+ * that travels to a delete is the SERVER-resolved one, and the id that only rebuilds a URL is the
+ * load's.
  */
 
 const RESOLVED_BATCH = 'batch-resolved-by-the-server';
@@ -78,6 +92,7 @@ const DATA: PageData = {
 		// The control is gated on this too, since a label naming no import is the defect it exists to
 		// remove. Present here so these tests are about the CONSENT and not about the gate.
 		replacedAt: '2026-08-16T08:59:00.000Z',
+		replacedRows: 25,
 		hasUserWork: false
 	},
 	linkableNetWorthAccounts: [],
@@ -127,29 +142,29 @@ beforeEach(() => {
 });
 
 describe('the consent that travels to the deleting request', () => {
-	it('is the control as it stands at the handoff, not as it stood at the first press', async () => {
-		// Separates "the run carries a consent" from "the run carries the CURRENT consent". The
-		// fixture's echo says `true`, so a handoff reading the echo passes every other test here.
+	it('carries no consent at all, because the question is no longer asked here', async () => {
+		// Separates « the handoff carries the right answer » from « the handoff carries no answer ».
+		// After Planche 5c the second is the correct shape, and asserting the ABSENCE positively is
+		// what stops the old echo being reintroduced as a convenience field nothing reads.
 		await page.viewport(1280, 800);
 		const section = mount(1280);
 		await chooseFile(section);
 
-		const box = section.querySelector('input[type=checkbox]') as HTMLInputElement;
-		expect(box.checked).toBe(true);
-		await userEvent.click(box);
-		expect(box.checked).toBe(false);
+		// The control is gone from this screen too, which is the visible half of the same move.
+		expect(section.querySelector('input[type=checkbox]')).toBeNull();
 
 		await userEvent.click(
 			page.getByRole('button', { name: m.import_columns_offer() }).first().element() as HTMLElement
 		);
 
-		expect(takePendingDesignation()?.correction?.deleteOldImport).toBe(false);
+		expect(takePendingDesignation()?.correction).not.toHaveProperty('deleteOldImport');
 	});
 
-	it('stays true when the control is left as it arrives', async () => {
-		// The direction this change is NOT moving in. §7b argues the default is the repair the user
-		// came for, and a repair that read the control wrongly in the other direction would leave two
-		// imports on every correction with nothing saying so.
+	it('carries what the designation screen needs to ASK the question', async () => {
+		// The naming fields, and they are the reason the move is possible at all: the footer has to
+		// name the import it would delete and say what deleting it costs, and only the route that
+		// resolved the batch knows either. A handoff missing these leaves the screen with a batch to
+		// replace and no way to name it.
 		await page.viewport(1280, 800);
 		const section = mount(1280);
 		await chooseFile(section);
@@ -158,7 +173,13 @@ describe('the consent that travels to the deleting request', () => {
 			page.getByRole('button', { name: m.import_columns_offer() }).first().element() as HTMLElement
 		);
 
-		expect(takePendingDesignation()?.correction?.deleteOldImport).toBe(true);
+		const correction = takePendingDesignation()?.correction;
+		expect(correction?.replacedRows).toBe(25);
+		expect(correction?.hasUserWork).toBe(false);
+		// Formatted, not an ISO string: the screen renders it verbatim beside a control the user has
+		// to match against whatever the run reports afterwards.
+		expect(correction?.namedAt).not.toContain('T08:59');
+		expect(correction?.namedAt.length).toBeGreaterThan(0);
 	});
 
 	it('names the batch the SERVER resolved, never the one the address bar asked for', async () => {
@@ -197,11 +218,13 @@ describe('the consent that travels to the deleting request', () => {
 		expect(takePendingDesignation()?.correction).toEqual({
 			mappingId: 'mapping-1',
 			batchId: RESOLVED_BATCH,
-			deleteOldImport: true
+			namedAt: expect.any(String),
+			replacedRows: 25,
+			hasUserWork: false
 		});
 	});
 
-	it('carries the untick from the mobile chrome too', async () => {
+	it('carries the correction from the mobile chrome too', async () => {
 		// A fix applied to one mount and not the other is invisible to every test that does not
 		// choose a width, and this page has shipped exactly that defect before: `csvFiles` exists
 		// because each mount used to hold its own file.
@@ -209,13 +232,10 @@ describe('the consent that travels to the deleting request', () => {
 		const section = mount(390);
 		await chooseFile(section);
 
-		const box = section.querySelector('input[type=checkbox]') as HTMLInputElement;
-		await userEvent.click(box);
-
 		await userEvent.click(
 			page.getByRole('button', { name: m.import_columns_offer() }).last().element() as HTMLElement
 		);
 
-		expect(takePendingDesignation()?.correction?.deleteOldImport).toBe(false);
+		expect(takePendingDesignation()?.correction?.batchId).toBe(RESOLVED_BATCH);
 	});
 });

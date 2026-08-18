@@ -21,6 +21,8 @@
 	// note at the call site.
 	import Button from '$lib/components/Button.svelte';
 	import ColumnPicker from './ColumnPicker.svelte';
+	import CheckboxField from '$lib/components/ui/CheckboxField.svelte';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
 	/**
 	 * « Désigner les colonnes », the 390x844 screen, as four fixed regions.
@@ -102,6 +104,7 @@
 		readOnly = false,
 		modifyAsksForFile = false,
 		recapCaption,
+		replaces,
 		wide = false,
 		onCancel,
 		onModify,
@@ -175,6 +178,25 @@
 		 */
 		recapCaption?: Snippet;
 		/**
+		 * The import this correction would REPLACE, named by the one attribute two candidates do not
+		 * share.
+		 *
+		 * Absent on an ordinary import, and absent on a correction whose batch did not resolve. Then
+		 * no consent is rendered at all: with nothing to replace there is nothing to choose, and a
+		 * ticked box promising a deletion that cannot happen is the defect this wave exists to remove.
+		 *
+		 * `namedAt` arrives ALREADY FORMATTED, from the route that knows the negotiated locale, and it
+		 * is the same string the delete confirmation and the withheld retraction use. The user has to
+		 * match the name on the control they ticked against the name in whatever the run reports
+		 * afterwards; two formats would make that a puzzle on the one screen whose job is to say which
+		 * import was destroyed.
+		 *
+		 * `replacedRows` is the OLD import's count and the primary's own count is the NEW file's.
+		 * They are different numbers and the confirmation names both, which is what a confirmation for
+		 * a compound act owes its reader.
+		 */
+		replaces?: { batchId: string; namedAt: string; replacedRows: number; hasUserWork: boolean };
+		/**
 		 * The 1280 layout: a 400 px command column beside the room the preview table will occupy.
 		 *
 		 * ONE control surface, two chromes. Everything that decides anything is shared through snippets,
@@ -213,6 +235,14 @@
 			assignment: RoleAssignment;
 			remember: boolean;
 			hasHeaderRow: boolean;
+			/**
+			 * Whether the run replaces the import it was launched from.
+			 *
+			 * Always present, and `false` when nothing is being replaced, so the caller never has to
+			 * tell « the user said no » from « the screen never asked ». On a control that decides a
+			 * DELETE those two must not be the same value.
+			 */
+			deleteOldImport: boolean;
 		}) => void;
 	} = $props();
 
@@ -226,6 +256,16 @@
 	let vacated = $state<Partial<Record<MappingRole, MappingRole>>>({});
 	let openRole = $state<MappingRole | null>(null);
 	let remember = $state(true);
+	/**
+	 * Planche 5c, pre-ticked by owner ruling.
+	 *
+	 * « No default pre-arms an irreversible » holds when nothing else consents. Here the destructive
+	 * confirmation below consents and names both facts, so the box does not pre-arm: it PROPOSES.
+	 * Unticked it demanded a deliberate extra act to obtain exactly the repair the user came for, and
+	 * forgetting it left behind the duplicate the previous wave removed from this journey.
+	 */
+	let deleteOldImport = $state(true);
+	let confirmingReplace = $state(false);
 	// Same reasoning: the user can flip "the first line is data" from inside any picker, and that
 	// answer must outlive the parent's own guess about the file.
 	// svelte-ignore state_referenced_locally
@@ -378,6 +418,31 @@
 		// which is the stated reason this screen carries no rows-preview at 390. `samples` is chosen
 		// to discriminate and would put a Montant from row 9 beside a Date from row 1.
 		return file.firstRow?.[index] ?? file.samples[index]?.[0] ?? '';
+	}
+
+	/**
+	 * The primary's press, and the whole of 5c's ordering is in it.
+	 *
+	 * Ticked, the press PROPOSES and the confirmation consents: one deliberate intention for one
+	 * irreversible result, carried by the modal rather than by the box. Unticked, the user untied it
+	 * themselves, nothing irreversible is in play, and there is nothing to confirm.
+	 *
+	 * The label does not change either way. « Importer et supprimer » on the footer would put two
+	 * verbs on one action and make the primary's name depend on a checkbox sitting above it; the
+	 * import is the act and the deletion is its consequence.
+	 */
+	function pressPrimary() {
+		if (!importable) return;
+		if (replaces && deleteOldImport) {
+			confirmingReplace = true;
+			return;
+		}
+		onSubmit?.({ assignment, remember, hasHeaderRow, deleteOldImport: false });
+	}
+
+	function confirmReplace() {
+		confirmingReplace = false;
+		onSubmit?.({ assignment, remember, hasHeaderRow, deleteOldImport: true });
 	}
 
 	const CONSEQUENCE_ID = 'column-designation-consequence';
@@ -577,6 +642,39 @@
 	{/if}
 {/snippet}
 
+{#snippet replaceConsent()}
+	{#if replaces && !recap}
+		<!--
+			Planche 5c. It sits INSIDE the footer, which is the region that does not scroll, and above
+			the count and the primary. At 549 px of body for 580 the same control placed as the last
+			card is off screen at the moment of the press, and the user would be validating a deletion
+			they cannot see; placed among the role cards it reads as one more designation.
+
+			The order of the four storeys IS the meaning: the box (an option), the count (a fact), the
+			primary (the act), the exit. What the footer does not become is a second primary, so
+			« Annuler » stays a TapLink.
+
+			`CheckboxField` unextended, which is exactly its registered use (brique 6b, #378): a boolean
+			submitted with the form, labelled by its consequence, with a help line. That is also what
+			keeps it distinct from brique 6c in 5d, whose press reconfigures a list on the spot.
+
+			DEVIATION FROM THE PLATE'S DRAWING, recorded rather than resolved in silence: the footer
+			sketch draws a 22 px black rounded box with a white check, and 5g's own props table says
+			`CheckboxField` is used « inchangée ». The table governs the component and the sketch is a
+			composition study of the four storeys, so the registered brick ships and the difference is
+			written into the referential row.
+		-->
+		<div class="px-5 pt-3 pb-1 lg:px-0 lg:pt-0" data-testid="designation-replace-consent">
+			<CheckboxField
+				name="deleteOldImport"
+				label={m.import_correct_delete_old_label({ date: replaces.namedAt })}
+				note={replaces.hasUserWork ? m.imports_cancel_cost_note() : undefined}
+				bind:checked={deleteOldImport}
+			/>
+		</div>
+	{/if}
+{/snippet}
+
 {#snippet actions()}
 	{#if recap}
 		<!--
@@ -611,13 +709,14 @@
 		-->
 		<button
 			type="button"
+			data-testid="designation-primary"
 			class="h-12 flex-[1.4] rounded-[14px] text-[15px] font-semibold {importable
 				? 'bg-zinc-900 text-white'
 				: 'bg-zinc-200 text-zinc-400'}"
 			aria-disabled={importable ? undefined : 'true'}
 			aria-describedby={importable ? undefined : CONSEQUENCE_ID}
 			aria-busy={submitting ? 'true' : undefined}
-			onclick={() => importable && onSubmit?.({ assignment, remember, hasHeaderRow })}
+			onclick={pressPrimary}
 		>
 			{#if submitting}
 				{m.import_columns_submitting()}
@@ -687,10 +786,29 @@
 					{@render trailingBlock()}
 
 					<!--
-						The banner and the actions are ONE box and the box is what sticks, never the
-						page. The Repartition plate's amendment, same argument: what COMMANDS the
-						primary action travels with it, so the count explaining why the primary is off
-						can never be scrolled away from the primary it explains.
+						The banner and the actions are ONE box. The Repartition plate's amendment, same
+						argument: what COMMANDS the primary action travels with it, so the count
+						explaining why the primary is off is never separated from the primary it
+						explains.
+
+						NO LONGER `sticky bottom-6`, and it was measured rather than reasoned. A
+						bottom-sticky element rises above its static position as soon as its column
+						overflows, and what it rises over is whatever sits above it. Planche 5c adds a
+						storey to this column, which pushed it past the frame: on the real page the box
+						then covered 29.5 px of the 44 px « Ne pas mémoriser » control, the one control
+						governing whether the application remembers the user's bank format.
+
+						This repository already records the rule and had already paid for it once, on the
+						band whose whole purpose was to explain why Save was disabled, covering the rows
+						it was about: `position: sticky; bottom: 0` and « must not cover content » are not
+						jointly satisfiable, and no offset fixes it. The 390 chrome obeys the V2
+						sheet-footer rule instead, keeping its footer outside the scrolling region
+						entirely; here the column simply scrolls, which costs 56 px of scroll on the
+						tallest state and covers nothing.
+
+						The count and the primary stay welded, which is what the amendment actually asked
+						for. What is given up is the box following the viewport, which was never the
+						requirement.
 
 						NO BOX IN THE RECAP, and it is the same rule rather than an exception to it. The box
 						exists to bind a count to the primary it explains; the recap has neither. Once the
@@ -699,11 +817,12 @@
 						this wave keeps removing. Seen on the journey immediately after the swap.
 					-->
 					<div
-						class="sticky bottom-6 overflow-hidden {recap
-							? ''
-							: 'rounded-lg border border-zinc-200 bg-white'}"
+						class="overflow-hidden {recap ? '' : 'rounded-lg border border-zinc-200 bg-white'}"
 						data-testid="designation-command-foot"
 					>
+						{#if replaces && !recap}
+							<div class="px-4 pt-4">{@render replaceConsent()}</div>
+						{/if}
 						{@render bannerBlock()}
 						<div class="flex items-stretch gap-3 {recap ? 'pt-1' : 'p-4'}">
 							{@render actions()}
@@ -785,14 +904,53 @@
 			-->
 			<div></div>
 		{:else}
+			<!--
+				THE ORDER IS THE MEANING, and it is the plate's: the box (an option), the count (a fact),
+				the primary (the act), the exit. So the consent sits in this region, above the count, and
+				not inside the footer with the actions.
+				Built the other way first, and the screenshot is what caught it: the count read above the
+				consent, which puts the fact before the option it depends on.
+			-->
+			{@render replaceConsent()}
 			{@render bannerBlock()}
 		{/if}
 
-		<!-- 88 = 12 top padding + 48 controls + 28 home indicator area. -->
+		<!--
+			88 = 12 top padding + 48 controls + 28 home indicator area, and 5c adds one storey in front
+			of it when a correction is replacing something. The 87 px freed by deleting the
+			« Format du fichier » row are what pay for it: the body goes from 636 to 580 available for
+			549 used, and 31 px of air remain.
+		-->
 		<footer class="flex items-stretch gap-3 px-5 pt-3 pb-7" data-testid="designation-footer">
 			{@render actions()}
 		</footer>
 	</div>
+{/if}
+
+<!--
+	Brique 15's destructive variant, the one the delete plate already drew. No new modal: the title
+	names BOTH facts, the body states what the deletion costs, the primary is the filled rose that
+	only a destructive confirmation is allowed, and the dismiss is a TapLink.
+
+	« Annuler » here and not « Garder l'import » as on `/imports`: there the dismiss PRESERVES
+	something and says so, here it abandons a press that has not happened yet.
+-->
+{#if replaces && confirmingReplace}
+	<ConfirmDialog
+		open={true}
+		title={m.import_columns_replace_confirm_title({
+			count: file.rowCount,
+			date: replaces.namedAt
+		})}
+		confirmLabel={m.import_columns_replace_confirm_label()}
+		tone="danger"
+		onConfirm={confirmReplace}
+		onClose={() => (confirmingReplace = false)}
+	>
+		<p class="text-sm text-zinc-600" data-testid="replace-confirm-body">
+			{m.import_columns_replace_confirm_body({ count: replaces.replacedRows })}
+		</p>
+	</ConfirmDialog>
 {/if}
 
 {#if openRole && !wide}

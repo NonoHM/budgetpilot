@@ -57,13 +57,18 @@ const ASSIGNMENT = { date: 0, label: 1, amount: 2, category: null } as unknown a
 const MAPPING = 'mapping-being-corrected';
 const BATCH = 'batch-being-replaced';
 
-function seed(correction: { mappingId: string; batchId: string; deleteOldImport: boolean } | null) {
+function seed(correction: { mappingId: string; batchId: string } | null) {
+	// The naming fields are fixture noise here and are filled once: this file is about the WAY OUT,
+	// which reads only the two ids. Planche 5c added the other three so the footer can name what it
+	// would delete, and a test about navigation has nothing to say about them.
 	setPendingDesignation({
 		file: new File(['Jour;Intitule;Somme\n'], 'releve.csv', { type: 'text/csv' }),
 		view: VIEW,
 		initialAssignment: ASSIGNMENT,
 		candidates: {},
-		correction
+		correction: correction
+			? { ...correction, namedAt: '1 juillet 2026 à 10:59', replacedRows: 25, hasUserWork: false }
+			: null
 	});
 }
 
@@ -75,7 +80,7 @@ beforeEach(() => {
 describe('leaving the designation screen', () => {
 	it('returns to the correction it came from, with both ids', async () => {
 		await page.viewport(390, 844);
-		seed({ mappingId: MAPPING, batchId: BATCH, deleteOldImport: true });
+		seed({ mappingId: MAPPING, batchId: BATCH });
 		render(Page, { form: null } as never);
 
 		await userEvent.click(
@@ -109,7 +114,7 @@ describe('leaving the designation screen', () => {
 		// the header and « Annuler » is in the footer; wiring one and not the other is invisible to a
 		// test that only presses the other.
 		await page.viewport(390, 844);
-		seed({ mappingId: MAPPING, batchId: BATCH, deleteOldImport: true });
+		seed({ mappingId: MAPPING, batchId: BATCH });
 		render(Page, { form: null } as never);
 
 		await userEvent.click(
