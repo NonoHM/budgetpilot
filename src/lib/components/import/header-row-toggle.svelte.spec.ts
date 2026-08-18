@@ -60,10 +60,10 @@ async function clickToggle() {
 		.getByRole('button', { name: /^Date,/ })
 		.first()
 		.click();
-	await page
-		.getByRole('button', { name: m.import_columns_picker_first_row_is_data() })
-		.first()
-		.click();
+	// BY ROLE, since Planche 5d made it a switch (brique 6c). A role handle is stronger than the old
+	// label match anyway: the label was a sentence stating an action, which is precisely what that
+	// section replaced with a subject and a value.
+	await page.getByRole('switch').first().click();
 }
 
 describe('the first-line-is-data control', () => {
@@ -117,5 +117,58 @@ describe('the first-line-is-data control', () => {
 			.click();
 
 		expect(submissions[0]).toMatchObject({ hasHeaderRow: true });
+	});
+});
+
+/**
+ * Planche 5d's ARIA decision, asserted as THREE separate claims because they fail for three
+ * different reasons: a wrong role is a component bug, a wrong value state is a wiring bug, and
+ * membership of the listbox is a tree bug that neither of the first two can see.
+ *
+ * The fourth is the one that matters most and could not be written before: the listbox's option
+ * count. It was announcing one option too many, because a `<button>` that is not an `<option>` was
+ * still a child of a `role="listbox"`.
+ */
+describe('the header toggle is a switch, and it is not an option', () => {
+	async function openPicker() {
+		await page.viewport(1280, 900);
+		open();
+		await page
+			.getByRole('button', { name: /^Date,/ })
+			.first()
+			.click();
+	}
+
+	it('is a switch', async () => {
+		await openPicker();
+
+		await expect.element(page.getByRole('switch').first()).toBeInTheDocument();
+	});
+
+	it('carries the value state, which follows the file rather than a guess', async () => {
+		await openPicker();
+
+		const control = await page.getByRole('switch').first().element();
+		expect(control.getAttribute('aria-checked')).toBe('true');
+	});
+
+	it('is no longer a child of the listbox', async () => {
+		await openPicker();
+
+		const listbox = document.querySelector('[data-testid="column-listbox"]') as HTMLElement;
+		const control = await page.getByRole('switch').first().element();
+		// Structural and POSITIVE. Counting options at N rather than N+1 would also pass if the
+		// control had simply been deleted, which is not what is being asserted.
+		expect(listbox).not.toBeNull();
+		expect(listbox.contains(control)).toBe(false);
+	});
+
+	it('leaves the listbox announcing exactly one option per column', async () => {
+		await openPicker();
+
+		const listbox = document.querySelector('[data-testid="column-listbox"]') as HTMLElement;
+		// The absolute figure beside the claim: three headers, three options, and the control is not
+		// one of them. Before this it announced four.
+		expect(listbox.querySelectorAll('[role="option"]')).toHaveLength(FILE.headers.length);
 	});
 });
