@@ -18,12 +18,22 @@ import type { ColumnMappingInput } from './mapping/model';
  * rows, and the split is only ever introduced by a refusal that is ABOUT the file or the header,
  * which is not a row and has no business in a count of rows.
  *
- * ## The invariant asserted here, and where it deliberately is NOT asserted
+ * ## The invariant is REAL and it is CONDITIONAL, which is the finding rather than a caveat
  *
- * `totalRows === validRows + invalidRows` at the PARSER, which is where it holds by construction.
- * The screen does not restate it: the summary no longer presents the four as a row of tiles a
- * reader can subtract, so there is no user-facing sum for a test to defend. Pinning it here rather
- * than on the page is the point, not an omission.
+ * `totalRows === validRows + invalidRows`, **once the rows were read**. A file refused whole has
+ * real rows and classifies none of them, because the parser never examined one, so the sum over
+ * them is not merely unequal: there is nothing to sum. The first draft of the property test below
+ * asserted the unconditional form and went red on exactly that case. Nothing about the fixture was
+ * wrong; the statement was.
+ *
+ * That is also the argument for where it is pinned. A conditional identity presented as four tiles
+ * in a row is what invited the subtraction in the first place, so the invariant lives HERE, at the
+ * parser, where it holds and can be stated with its condition attached. The screen does not restate
+ * it and no longer offers a sum to defend: the rows read left the grid for a sentence, so there is
+ * no total among the tiles for a reader to subtract from and no test standing guard over one.
+ *
+ * Pinning it at the parser rather than on the page is what makes it defensible. A test defending an
+ * equation on a screen would be defending a reading the data does not support.
  */
 
 const REFUSED_HEADERS = 'Operation;Somme;Jour;Ref';

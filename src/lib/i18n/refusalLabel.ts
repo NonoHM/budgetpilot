@@ -87,10 +87,15 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 		case 'duplicate-column':
 			return m.import_refusal_duplicate_column({ column: fact.column });
 		case 'missing-required-column':
-			// Through `roleLabel`, the same function the designation screen has always used for
-			// these four words. A user was reading « Colonne requise absente: date » on a French
-			// screen while the screen next door said « Date »: one vocabulary, two renderings, and
-			// the raw one was ours.
+			// Through `roleLabel`, which ALREADY EXISTED: it is the function the designation screen
+			// has always used for these four words. A user was reading « Colonne requise absente:
+			// date » on a French screen while the screen next door said « Date », one vocabulary in
+			// two renderings, and the raw one was ours.
+			//
+			// Reusing it rather than adding four refusal-specific keys is the whole of the fix. Four
+			// new keys would render correctly today and be free to drift tomorrow, because nothing
+			// would tie « Montant » in a refusal to « Montant » on the screen the user is being sent
+			// back to. One function cannot disagree with itself.
 			return m.import_refusal_missing_required_column({ role: roleLabel(fact.role) });
 		case 'bad-column-count':
 			return m.import_refusal_bad_column_count();
