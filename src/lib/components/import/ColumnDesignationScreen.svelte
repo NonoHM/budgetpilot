@@ -645,7 +645,14 @@
 		data-testid="designation-frame"
 	>
 		<div class="mx-auto w-full" data-testid="designation-content">
-			<div class="pt-6 pb-4">
+			<!--
+				THE HEADING SHARES THE COLUMN'S AXIS IN RECAP MODE, and this was found by looking at the
+				screenshot rather than by a test. With the preview area gone the card centres at 560 and
+				the title stayed pinned to the left gutter, so the screen named its content from a
+				different axis than the content sat on. Every geometry assertion on this file was green
+				through it: they measure the column, and nothing measured the two against each other.
+			-->
+			<div class="pt-6 pb-4 {recap ? 'mx-auto w-[560px]' : ''}" data-testid="designation-heading">
 				<h1 class="text-[22px] leading-7 font-bold">{heading}</h1>
 				<p class="mt-1 truncate text-[13px] text-zinc-500">
 					{file.name} ·
@@ -660,14 +667,22 @@
 				</p>
 			</div>
 
-			<div class="flex items-start gap-6 pb-8">
+			<div class="flex items-start gap-6 pb-8 {recap ? 'justify-center' : ''}">
 				<!--
 					The command column. 400 wide, and it is AUTHORITATIVE rather than a convenience:
 					it alone shows all four roles at once, and therefore it alone shows what is
 					missing. The preview beside it is a shortcut, which is why this chantier can ship
 					without the preview at all.
+
+					560 IN THE RECAP, centred, and it is brique 15's tall-modal width rather than a
+					number chosen here: already a reading width of this product, so a screen with no
+					new data to show introduces nothing new to show it in. The recap is four rows and
+					a link; it has no content to spread, and spreading emptiness is what 5b repairs.
 				-->
-				<div class="flex w-[400px] shrink-0 flex-col gap-4" data-testid="designation-command">
+				<div
+					class="flex shrink-0 flex-col gap-4 {recap ? 'w-[560px]' : 'w-[400px]'}"
+					data-testid="designation-command"
+				>
 					{@render designationCard()}
 					{@render trailingBlock()}
 
@@ -699,17 +714,26 @@
 				<!--
 					LACUNE B, now drawn. It stayed empty while the argument was about the REFERENTIAL:
 					registering the shared table from this screen would define it from its rarest case,
-					and #332 still owns that ordering. What changed is the measurement — at 1280 this
+					and #332 still owns that ordering. What changed is the measurement: at 1280 this
 					slot was 806 px wide and 0 px tall, so the screen was a 400 px column with 855 px of
 					blank beside it, on the one screen a user reaches when the application has already
 					failed to read their statement.
 
 					`FilePreviewTable` is therefore LOCAL and unregistered, and it is #332's first
 					consumer to absorb rather than its source. Its measurements come from the plate.
+
+					NOT DECLARED IN RECAP MODE, and Planche 5b's whole point is that this is the repair
+					rather than a height correction. The table is guarded on `previewRows` and the recap
+					builds none, because without a file there is nothing to preview (owner arbitrage 2),
+					so the component is right and the defect is here: a grid declaring an area that
+					recap mode inherits and never fills. A `min-height` on this slot would reserve the
+					emptiness on purpose. The column stops being the left half of something instead.
 				-->
-				<div class="flex min-w-0 flex-1" data-testid="designation-preview-slot">
-					<FilePreviewTable file={effectiveFile} {assignment} />
-				</div>
+				{#if !recap}
+					<div class="flex min-w-0 flex-1" data-testid="designation-preview-slot">
+						<FilePreviewTable file={effectiveFile} {assignment} />
+					</div>
+				{/if}
 			</div>
 		</div>
 	</div>
