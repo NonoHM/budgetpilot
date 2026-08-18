@@ -5,6 +5,9 @@ import '../layout.css';
 import * as m from '$lib/paraglide/messages';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { setCompletedImport, takeCompletedImport } from '$lib/import/completedImport.svelte';
+// Used to format the fixture's instant the way the page does, so this file asserts no rendered
+// date it typed itself. See the naming test below for what that cost when it was skipped.
+import { getLocale } from '$lib/paraglide/runtime';
 import type { ImportSummaryResult, ImportInvalidRowDetail } from '$lib/domain/importSummary';
 import Page from './+page.svelte';
 import type { PageData } from './$types';
@@ -372,14 +375,33 @@ describe('the control that says what it costs, at both widths', () => {
 		// cost note. It simply names nothing, on a screen reached from a list where two rows differ
 		// only by their timestamp.
 		//
-		// The date is taken from the fixture and the label half from the catalogue, so the two sides of
-		// this comparison come from different places. Asserting the whole rendered sentence against a
-		// retyped French literal would assert a string an English locale never renders.
+		// The label half comes from the catalogue and the date is FORMATTED HERE from the fixture's own
+		// instant, so neither side of this comparison is a string this file typed.
+		//
+		// THE FIRST VERSION HARDCODED « 16 août 2026 à 10:59 » AND FAILED IN CI ONLY. That is 08:59Z
+		// rendered at UTC+2: the machine it was written on is in Paris and the runner is on UTC, where
+		// the same instant reads 08:59. The sibling assertions in this file dodge the trap by checking
+		// the day alone, which is stable either side of midnight for this fixture and says nothing
+		// about the time. Formatting from the instant is what makes the assertion independent of the
+		// clock the test happens to run under.
+		//
+		// The two Intl options are duplicated from the page on purpose. This wave's claim is that the
+		// control, the delete confirmation and the withheld retraction name one import IDENTICALLY, so
+		// pinning the format here is the anti-drift half of that claim rather than a stray coupling.
+		const named = m.import_correct_delete_old_label({
+			date: new Intl.DateTimeFormat(getLocale(), {
+				dateStyle: 'long',
+				timeStyle: 'short'
+			}).format(new Date(REPLACED_AT))
+		});
+
 		await page.viewport(1280, 800);
 		mountCorrection(CORRECTION);
-
-		const named = m.import_correct_delete_old_label({ date: '16 août 2026 à 10:59' });
 		await expect.element(page.getByText(named).first()).toBeVisible();
+
+		await page.viewport(390, 844);
+		mountCorrection(CORRECTION);
+		await expect.element(page.getByText(named).last()).toBeVisible();
 	});
 
 	it('offers no control when a batch resolved but its timestamp did not', async () => {
