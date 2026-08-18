@@ -3,7 +3,12 @@ import * as m from '../src/lib/paraglide/messages';
 import { E2E_LOCALE } from './config';
 
 /**
- * The invalid-rows table, in a real browser. Issue #302.
+ * How a refused import explains itself, in a real browser. Issue #302.
+ *
+ * Two surfaces since the counters were split: refused ROWS go to the invalid-rows table, and a
+ * complaint about the FILE or its HEADER is stated in words above the figures. The scenarios below
+ * are one of each, which is not a choice this file made: a header-scoped refusal short circuits the
+ * parse, so the two can never appear together (see below).
  *
  * ## What #302 asked for, and the one part of it that does not exist
  *
@@ -75,19 +80,23 @@ test('a header refusal is explained without being given a transaction row number
 	const reason = m.import_refusal_duplicate_column({ column: 'montant' });
 	await expect(page.getByText(reason).first()).toBeVisible();
 
-	// Asserted on the SCOPE CELL, positively, against the word the UI is supposed to show there.
+	// The complaint is stated above the counters, under a heading that says the file could not be
+	// read. It used to be a row of the invalid-rows table whose « Ligne » cell read « en-tête »,
+	// which is the reading that made a header complaint look like a refused transaction.
+	await expect(page.getByText(m.import_summary_refused_heading()).first()).toBeVisible();
+
+	// #291's guarantee, and it is now STRUCTURAL rather than asserted about a cell's contents. No
+	// row was refused here, so there is no rows table on the page at all, and the block that does
+	// carry the complaint has no line column to put a fabricated `index + 1` into.
 	//
-	// The first version asserted `not.toContainText(/\b\d+\b/)` over the whole row and was VACUOUS:
-	// restoring the pre-contract `index + 1` left it green. A row's `textContent` concatenates its
-	// cells with no separator, so the fabricated `1` ran straight into `Colonne dupliquee` and there
-	// was no word boundary for `\b` to find. The regex read exactly like what it was meant to say
-	// and could not match the thing it was written to catch.
-	//
-	// The positive form separates the two states cleanly: the cell says the word `en-tete`, or it
-	// says a number. Under the restored defect it says `1` and this goes red.
-	const complaint = page.locator('tr', { hasText: reason }).first();
-	await expect(complaint).toBeVisible();
-	await expect(complaint.locator('td').first()).toHaveText(m.import_invalid_scope_header());
+	// The previous form of this assertion is worth keeping in view because it was VACUOUS once:
+	// `not.toContainText(/\b\d+\b/)` over the whole row stayed green with the defect restored,
+	// because a row's `textContent` concatenates its cells with no separator and the fabricated `1`
+	// ran straight into `Colonne dupliquee`, leaving no word boundary for `\b` to find. An absence
+	// asserted over a concatenation cannot match. This form has no such hole: the count is absolute
+	// and it is about elements rather than about text.
+	await expect(page.locator('tr', { hasText: reason })).toHaveCount(0);
+	await expect(page.getByRole('table')).toHaveCount(0);
 });
 
 test('the reason is rendered from the catalogue in the pinned locale', async ({ page }) => {
