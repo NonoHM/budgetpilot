@@ -24,12 +24,26 @@ import { onScreen } from './screen-geometry';
  * the invalid-rows path that #345 gave a way back from never fires. The transactions simply say
  * `REC0001` where they should say a merchant, forever, on every statement of that shape.
  *
- * ## The order of the last two steps is load bearing
+ * ## The order is still load bearing, and the user no longer performs it
  *
  * Correct FIRST, delete second. The recap is reached from the bad import's own row on `/imports`,
  * so deleting that import first removes the only route back to the columns and the next upload is
  * read through the same wrong correspondance. The dedupe key carries the label, so the corrected
  * rows arrive BESIDE the old ones rather than as duplicates, and the old batch has to go.
+ *
+ * What changed is WHO does it. The run now carries the batch id and the user's consent, so the
+ * delete happens inside the import in that same order, and two steps of this spec went with it:
+ * the guard no longer fires (the batch being replaced is excluded from the collision search) and
+ * there is no manual delete to perform afterwards. Both are now asserted as ABSENCES, which is the
+ * shape that needs a figure beside it rather than a bare `toHaveCount(0)` on a page that might not
+ * have rendered at all.
+ *
+ * ## Thirteen steps to eight, and this is where the claim is checked
+ *
+ * The wave's headline number is a claim about a journey, and a journey is the only level that can
+ * hold it. Steps 9 to 13 of the old path lived in this file: dismiss a guard, return to `/imports`,
+ * work out which of two identical rows is the old one, delete it, confirm an irreversible delete.
+ * They are gone from the spec because they are gone from the product.
  */
 test.describe.configure({ mode: 'serial' });
 
@@ -41,13 +55,20 @@ test.describe.configure({ mode: 'serial' });
  * DATED 2019, well outside the seeded window. This suite shares one database in declaration order,
  * and a 2026 row left behind here once displaced the dashboard row `taplink-avatar.spec.ts`
  * asserts on, failing a spec that has nothing to do with imports.
+ *
+ * THE AMOUNTS CARRY THE ATTEMPT TOO, and that is the half this used to miss. The suffix varies the
+ * HEADERS, which is what the fingerprint is taken over, and left the rows byte for byte identical.
+ * So a retry designated a fresh correspondance and then deduplicated every row against the first
+ * attempt's transactions, importing zero and failing at step 2 on a page that was correctly empty.
+ * Measured: the first attempt failed at step 4 for an unrelated reason, and both retries then
+ * failed at step 2 instead, which reads as a different defect and is the same fixture.
  */
 function recoveryCsv(attempt: number): string {
 	const suffix = attempt === 0 ? '' : ` r${attempt}`;
 	return [
 		`Zone P${suffix};Zone Q${suffix};Zone R${suffix};Zone S${suffix}`,
-		'12/02/2019;E2E RECOVERY BOULANGERIE;REC0001;-6,40',
-		'13/02/2019;E2E RECOVERY LIBRAIRIE;REC0002;-22,00'
+		`12/02/2019;E2E RECOVERY BOULANGERIE;REC0001;-6,4${attempt}`,
+		`13/02/2019;E2E RECOVERY LIBRAIRIE;REC0002;-22,0${attempt}`
 	].join('\n');
 }
 
@@ -102,9 +123,17 @@ test.describe('a memorised correspondance that is wrong can be corrected', () =>
 		await onScreen(page, m.import_columns_view()).click();
 		await expect(page).toHaveURL(/\/imports\/[^/]+\/columns$/);
 
-		// 4. The recap names the column AND the value it produced. The value is the evidence: the
-		//    column name alone would not tell a user that `Zone R` was the wrong one.
-		await expect(onScreen(page, `Zone R${suffix} · REC0001`)).toBeVisible();
+		// 4. The recap states TWO FACTS rather than one pairing, and the change is not cosmetic. The
+		//    column is read live from the correspondance and the value comes from this batch's own
+		//    transactions, so a middot between them claimed a relation between a fact about now and a
+		//    fact about then (A8). The value is still the evidence: the column name alone would not
+		//    tell a user that `Zone R` was the wrong one.
+		await expect(
+			onScreen(page, m.import_columns_recap_column_fact({ column: `Zone R${suffix}` }))
+		).toBeVisible();
+		await expect(
+			onScreen(page, m.import_columns_recap_value_fact({ value: 'REC0001' }))
+		).toBeVisible();
 
 		// 5. « Modifier les colonnes ». The file is asked for again because nothing kept it.
 		await page.getByRole('button', { name: m.import_columns_modify() }).click();
@@ -139,38 +168,44 @@ test.describe('a memorised correspondance that is wrong can be corrected', () =>
 		await page.getByRole('button', { name: /^Importer/ }).click();
 		await expect(page).toHaveURL(/\/import$/, { timeout: 15_000 });
 
-		// 7b. THE GUARD FIRES, and this journey is the run it was built for: the same statement,
-		//     the same period, the same count and the same totals, with not one fingerprint in
-		//     common because the label moved to another column. Left alone it writes the whole
-		//     statement a second time.
+		// 7b. THE GUARD DOES NOT FIRE, and its silence is the win rather than an omission.
 		//
-		//     The question is asked HERE and not on the designation screen. §5.5 of the handoff
-		//     lists ConfirmDialog among what that screen does not contain and §5.2 settles the
-		//     general case, so `/import/columns` keeps its designations and hands the question to
-		//     the screen that owns outcomes.
+		//     This run re-reads the statement the batch it replaces was read from, so it matches that
+		//     batch on all three terms by construction: same period, same count, same totals, and no
+		//     fingerprint in common because the label moved to another column. Before
+		//     `excludeBatchId`, that raised the one dialog it could not usefully raise, against the
+		//     very import the user came to fix. This spec used to answer it and carry on.
 		//
-		//     The correction is legitimate, so the journey answers « Importer quand même » and
-		//     carries on. What makes it a correction rather than a doubling is step 8, which
-		//     deletes the batch this one replaces. That order is the plate's own: correct first,
-		//     delete second, because deleting first removes the only route back to the columns.
-		await expect(onScreen(page, m.import_collision_title())).toBeVisible({ timeout: 15_000 });
-		await page.getByRole('button', { name: m.import_collision_confirm() }).click();
+		//     Asserted as an absence WITH A FIGURE beside it: an absence on its own passes over a
+		//     dialog that failed to render for any other reason, so the summary is waited for first
+		//     and the count is taken once the page has settled.
+		await expect(onScreen(page, m.import_summary_heading())).toBeVisible({ timeout: 15_000 });
 		await expect(page.getByText(m.import_collision_title()).filter({ visible: true })).toHaveCount(
-			0,
-			{ timeout: 15_000 }
+			0
 		);
 
-		// 8. Delete the old import, second and not first. Found by ITS OWN id rather than by
-		//    position: this suite shares a database, so "the last row" is a fact about whichever
-		//    specs ran before this one.
+		// 8. NO MANUAL DELETE, and no dialog to dismiss before it. The control on the correction screen
+		//    was left ticked, which is its default, so the old import went with the write rather than
+		//    being left for the user to find among two identical rows.
+		//
+		//    The summary says so BY NAME, which is what the user is owed for a deletion consented to two
+		//    steps back on a screen that named the import it would destroy.
+		//
+		//    The old journey's steps 9 to 13 lived here: dismiss a guard, return to `/imports`, work out
+		//    which of two identical rows is the old one, delete it, confirm. All five are gone, and this
+		//    is where that is asserted rather than in a step count in a document.
+		//    Located by the message's INVARIANT half, obtained by rendering it around a sentinel and
+		//    keeping what follows. The date is this batch's own `createdAt` and the test cannot know it;
+		//    retyping « a été supprimé » instead would assert a French literal an English locale never
+		//    renders, and would put the catalogue and this spec on two sources for one string.
+		const DATE_SLOT = '@@';
+		const deletedTail = m
+			.import_correct_delete_old_done({ date: DATE_SLOT })
+			.split(DATE_SLOT)[1]
+			.trim();
+		await expect(onScreen(page, deletedTail)).toBeVisible();
 		await page.goto('/imports');
-		await page
-			.locator('tbody tr')
-			.filter({ has: page.locator(`a[href="${wrongBatchHref}"]`) })
-			.getByRole('button', { name: m.common_delete() })
-			.click();
-		await page.getByRole('button', { name: m.imports_cancel_confirm_label() }).click();
-		await expect(page).toHaveURL(/cancelled=1/);
+		await expect(page.locator(`tbody tr a[href="${wrongBatchHref}"]`)).toHaveCount(0);
 
 		// 9. What the user came for. The corrected batch carries the merchants, and the reference
 		//    codes are gone from the application entirely: the assertion that the corrected rows
@@ -180,6 +215,10 @@ test.describe('a memorised correspondance that is wrong can be corrected', () =>
 			.first()
 			.locator('a[href^="/transactions?importBatch="]')
 			.getAttribute('href');
+		// The corrected batch is a DIFFERENT batch, which is what makes the deletion above a replacement
+		// rather than an edit in place. Without this the two hrefs could be equal and every assertion
+		// below would still pass, over a journey that had done nothing.
+		expect(fixedBatchHref).not.toBe(wrongBatchHref);
 		await page.goto(fixedBatchHref!);
 		await expect(onScreen(page, 'E2E RECOVERY BOULANGERIE')).toBeVisible();
 		await expect(page.getByText('REC0001').filter({ visible: true })).toHaveCount(0);
