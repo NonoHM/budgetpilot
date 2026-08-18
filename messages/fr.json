@@ -1509,7 +1509,6 @@
 	"import_columns_correct_heading": "Corriger les colonnes mémorisées",
 	"import_columns_correct_wrong_file": "Ce relevé n’a pas les colonnes pour lesquelles la correspondance a été faite. Choisissez le fichier à corriger, ou importez celui-ci depuis la page d’import ordinaire.",
 	"import_columns_correct_explanation": "Les désignations mémorisées s’ouvrent pour être corrigées.",
-	"import_columns_correct_duplicate_note": "Cet import a déjà créé des transactions avec l’ancienne lecture. Les lignes corrigées s’ajoutent à côté plutôt que de les remplacer : supprimez l’ancien import depuis « Imports » une fois la correction importée.",
 	"import_correct_delete_old_label": "Supprimer l’import du {date} une fois la correction importée",
 	"import_correct_delete_old_done": "L’ancien import du {date} a été supprimé.",
 	"import_correct_delete_withheld": "L’ancien import du {date} n’a pas été supprimé : cette correction a importé {importedRows} lignes, contre {replacedRows} dans l’import d’origine.",
