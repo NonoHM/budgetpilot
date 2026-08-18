@@ -284,7 +284,7 @@
 	"imports_empty_description": "Import a CSV bank statement to start tracking your transactions.",
 	"imports_empty_cta": "Import a statement",
 	"imports_cancel_confirm_title": "Delete the import from {date}?",
-	"imports_cancel_expand_aria": "Delete {name}",
+	"imports_delete_aria": "Delete the import from {date}",
 	"imports_cancel_confirm_description_count_one": "This will delete the {count} transaction imported from this statement. This action is irreversible.",
 	"imports_cancel_confirm_description_count_many": "This will delete the {count} transactions imported from this statement. This action is irreversible.",
 	"imports_cancel_confirm_label": "Delete",

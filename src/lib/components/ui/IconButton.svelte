@@ -88,7 +88,20 @@
 			return 'rounded-full bg-zinc-900 text-white hover:bg-zinc-800';
 		}
 		if (tone === 'danger') {
-			return 'rounded-full text-rose-600 hover:bg-rose-50 hover:text-rose-700';
+			// NEUTRAL AT REST, rose only on hover, focus and press. This is brique 1's own clause
+			// (« tone danger (poubelle) : neutre au repos, rose seulement au hover/focus ») and the
+			// code was the deviation, not the referential.
+			//
+			// Planche 5e is what forced the correction and gives the stronger of its two arguments: a
+			// permanent red is a danger tint where the user has done nothing wrong, and on the import
+			// card it would be the THIRD red in one glance, 25 px from a « Doublons » counter in amber
+			// and an « Invalides » counter in rose. Those two reds are DATA. A red bin beside them
+			// weakens the one that informs in favour of the one that decorates.
+			//
+			// Six call sites move with this, all of them delete or remove controls in list rows, which
+			// is exactly the family brique 1's « Remplace » section claims: rules, net-worth, imports,
+			// categories, budgets, and the split part row.
+			return 'rounded-full text-zinc-700 hover:bg-rose-50 hover:text-rose-700';
 		}
 		return 'rounded-full text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700';
 	});

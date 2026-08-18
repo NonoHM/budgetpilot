@@ -5,7 +5,7 @@
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import type { ActionData, PageData } from './$types';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
+	import ImportDeleteButton from '$lib/components/import/ImportDeleteButton.svelte';
 	import ListCard from '$lib/components/ui/ListCard.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
@@ -332,18 +332,23 @@
 											>
 												{m.imports_view()}
 											</Button>
-											<Button
-												type="button"
-												variant="ghost-danger"
-												size="sm"
-												onclick={() =>
+											<!--
+												THE DESKTOP LOSES ITS WORD (Planche 5e). Brique 1's « Remplace » section
+												names imports, bin included, so the mobile chrome was applying the
+												referential and this surface had stayed on a drawing already replaced.
+												A divergence tolerated is a divergence that grows, and this one is the
+												documented origin of the chantier.
+											-->
+											<ImportDeleteButton
+												namedAt={formatDate(batch.createdAt)}
+												onPress={() =>
 													(pendingCancel = {
 														id: batch.id,
 														fileName: batch.fileName,
 														importedRows: batch.importedRows,
 														createdAt: batch.createdAt
-													})}>{m.common_delete()}</Button
-											>
+													})}
+											/>
 										</div>
 									</td>
 								</tr>
@@ -357,11 +362,7 @@
 			<div class="lg:hidden">
 				<div class="space-y-3">
 					{#each data.batches as batch (batch.id)}
-						<ListCard
-							expandAriaLabel={m.imports_cancel_expand_aria({
-								name: batch.fileName ?? m.imports_default_file_name()
-							})}
-						>
+						<ListCard>
 							<div class="flex items-start justify-between gap-3">
 								<p class="font-bold text-zinc-950" title={batch.createdAt}>
 									{formatDate(batch.createdAt)}
@@ -409,46 +410,43 @@
 									{@render recognisedColumns(batch.id, batch.columnMapping)}
 								</div>
 							{/if}
-							<div class="mt-3 border-t border-zinc-100 pt-3">
+							<!--
+								The action row of Planche 5e's anatomy. The destructive control joins the row
+								that already existed, to the right of « Voir », on the far side of the rule
+								that already separates the data from the actions: no new zone to invent, the
+								card had a foot and it changes contents.
+
+								12 px between the two targets and not 8, because one of them is irreversible:
+								that gap is the margin between a mistyped tap and a deletion. « Voir » rises to
+								48 so the row's two targets align rather than one sitting under the floor.
+
+								The 12 px optical overhang is what drops the glyph under the right edge of the
+								content, like the profile badge above it; without it a transparent 48 px box
+								leaves 15 px of air and the right column reads as broken. It bites into the
+								card's own 16 px padding and never past it, so the target stays inside the card.
+							-->
+							<div class="mt-3 flex items-center justify-end gap-3 border-t border-zinc-100 pt-3">
 								<a
 									href={resolve(
 										`/transactions?importBatch=${batch.id}` as `/transactions?${string}`
 									)}
-									class="flex min-h-[44px] items-center text-sm font-semibold text-zinc-900 hover:text-zinc-700"
+									class="flex min-h-12 items-center px-2 text-sm font-semibold text-zinc-700 hover:text-zinc-900"
 								>
 									{m.imports_view()}
 								</a>
-							</div>
-							{#snippet details()}
-								<div class="flex items-center justify-end">
-									<IconButton
-										tone="danger"
-										label={m.common_delete()}
-										onclick={() =>
+								<span class="-mr-3">
+									<ImportDeleteButton
+										namedAt={formatDate(batch.createdAt)}
+										onPress={() =>
 											(pendingCancel = {
 												id: batch.id,
 												fileName: batch.fileName,
 												importedRows: batch.importedRows,
 												createdAt: batch.createdAt
 											})}
-									>
-										<svg
-											class="h-4 w-4"
-											viewBox="0 0 20 20"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="1.6"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											aria-hidden="true"
-										>
-											<path
-												d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6M6 6v9.5A1.5 1.5 0 0 0 7.5 17h5A1.5 1.5 0 0 0 14 15.5V6"
-											/>
-										</svg>
-									</IconButton>
-								</div>
-							{/snippet}
+									/>
+								</span>
+							</div>
 						</ListCard>
 					{/each}
 				</div>
