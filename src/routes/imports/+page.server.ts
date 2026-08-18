@@ -95,7 +95,11 @@ export const actions: Actions = {
 		// launched from. The lookup moved inside it, so a database failure while resolving the batch
 		// now reports `cancel_failed` where it used to surface as an unhandled error; the two 404
 		// and 500 shapes the page renders are unchanged.
-		let deleted = false;
+		// DECLARED WITHOUT AN INITIALISER, because `false` here is never read: the try assigns before
+		// anything looks, and the catch returns. `no-useless-assignment` says so and it is right, and
+		// a placeholder that cannot be observed is worse than none, since it reads as a default the
+		// 404 branch below might fall back to.
+		let deleted: boolean;
 		try {
 			deleted = await deleteImportBatch(user.id, batchId);
 		} catch {
