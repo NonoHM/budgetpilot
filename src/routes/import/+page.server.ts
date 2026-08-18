@@ -44,16 +44,54 @@ const CSV_IMPORT_SOURCES = ['csv', 'revolut', 'banque_populaire'] as const;
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
-	// `?correct=<id>` arrives from « Modifier les colonnes » on the recap. Resolved against THIS
-	// user's mappings before it is echoed into the form: an id from the address bar decides which
-	// correspondance the next upload reopens, so it is verified rather than carried.
+	// `?correct=<id>&batch=<id>` arrives from « Modifier les colonnes » on the recap.
+	//
+	// Both are resolved against THIS user before either is echoed into the form, and the PAIRING is
+	// resolved too: the batch must be one this user owns AND one that was read through the
+	// correspondance it claims. Two ids from the address bar decide which designation reopens and
+	// which import a later request deletes, so an unrelated batch id must not be able to ride along
+	// to the delete on the strength of a correspondance id that is genuinely the user's.
 	const correctParam = url.searchParams.get('correct');
+	const batchParam = url.searchParams.get('batch');
 	const correcting = correctParam
 		? await prisma.columnMapping.findFirst({
 				where: { id: correctParam, userId: user.id },
 				select: { id: true }
 			})
 		: null;
+	// The batch is resolved SEPARATELY and may come back null while the correspondance resolves. A
+	// link from before this shipped, or one whose batch has since been deleted, must still reopen
+	// the designation screen: falling through to an ordinary import would read the file through the
+	// very correspondance the user has just declared wrong, which is the defect this path exists to
+	// prevent. It simply replaces nothing, which is exactly the behaviour that shipped before.
+	const correctingBatch =
+		correcting && batchParam
+			? await prisma.importBatch.findFirst({
+					where: { id: batchParam, userId: user.id, columnMappingId: correcting.id },
+					// `createdAt` so the CONTROL can name what it destroys. « Supprimer l'ancien import »
+					// names nothing once a user holds several, and this flow produces two imports of one
+					// statement minutes apart as its ordinary shape. The same discriminant the delete
+					// confirmation and the withheld retraction already use, so all three name one import
+					// identically rather than describing it three ways.
+					select: { id: true, createdAt: true }
+				})
+			: null;
+	// What the replacement destroys BEYOND the rows, so the control can name it and can stay SILENT
+	// when there is nothing to name. A warning about a loss that cannot occur is discounted every
+	// time after, and then it is not read on the one run where it was true, so the app answers the
+	// question rather than hedging it.
+	//
+	// Counted rather than fetched: only the presence of any split or tag decides the sentence, and a
+	// count is what the index on `importBatchId` already serves.
+	const userWorkCount = correctingBatch
+		? await prisma.transaction.count({
+				where: {
+					userId: user.id,
+					importBatchId: correctingBatch.id,
+					OR: [{ splits: { some: {} } }, { tags: { some: {} } }]
+				}
+			})
+		: 0;
 	const [linkableNetWorthAccounts, existingImportBuckets] = await Promise.all([
 		readLinkableNetWorthAccounts(user.id),
 		prisma.account.findMany({
@@ -64,7 +102,16 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const existingImportSources = existingImportBuckets.map((account) => account.source);
 
 	return {
-		correctMappingId: correcting?.id ?? null,
+		correction: correcting
+			? {
+					mappingId: correcting.id,
+					batchId: correctingBatch?.id ?? null,
+					// Formatted on the page, where the negotiated locale is known. Null exactly when
+					// `batchId` is, so the label and the control appear and disappear together.
+					replacedAt: correctingBatch?.createdAt.toISOString() ?? null,
+					hasUserWork: userWorkCount > 0
+				}
+			: null,
 		linkableNetWorthAccounts,
 		// The destination-account selector only has an effect the very first time a given
 		// profile's bucket is created (see the `update: {}` no-op below). Since the exact
@@ -151,10 +198,22 @@ export const actions: Actions = {
 		 * mappings, never trusted as an id.
 		 */
 		const correctMappingId = formData.get('correctMappingId');
+		const correctBatchId = formData.get('correctBatchId');
 		const correcting =
 			typeof correctMappingId === 'string' && correctMappingId.length > 0
 				? await prisma.columnMapping.findFirst({
 						where: { id: correctMappingId, userId: user.id }
+					})
+				: null;
+		// The batch the correction replaces, resolved the same way and against the same pairing the
+		// load used. Absent rather than refused when it does not resolve: a correction whose batch
+		// cannot be verified still designates, it simply does not replace anything, which is exactly
+		// today's behaviour and never a delete taken on a bad id.
+		const correctingBatch =
+			correcting && typeof correctBatchId === 'string' && correctBatchId.length > 0
+				? await prisma.importBatch.findFirst({
+						where: { id: correctBatchId, userId: user.id, columnMappingId: correcting.id },
+						select: { id: true }
 					})
 				: null;
 		// The wrong file, handed back. Refused rather than designated, and this is not fussiness: the
@@ -178,7 +237,34 @@ export const actions: Actions = {
 				},
 				// Null per role where the remembered column is not in this file. A neighbour picked by
 				// proximity would put the money column somewhere plausible and silent.
-				correctingAssignment: designationAssignment(correcting, headerCells)
+				correctingAssignment: designationAssignment(correcting, headerCells),
+				// Carried into the designation screen, which is the request that will delete. Until
+				// this field existed nothing survived the navigation to say the run was a correction
+				// at all, which is why the collision guard fired against the very batch the user came
+				// to fix.
+				//
+				// `deleteOldImport` is the user's answer, read from the control's hidden companion.
+				//
+				// TESTED POSITIVELY FOR 'true', NEVER NEGATIVELY AGAINST 'false', and the difference
+				// is a delete. An unchecked box is absent from a submission, which is why the hidden
+				// companion exists at all; a hand crafted or truncated request can omit BOTH, and a
+				// `!== 'false'` test would then derive CONSENT from silence and destroy an import the
+				// user never agreed to lose. This shipped that way for one commit.
+				//
+				// The two failures are not symmetric, which is what settles the direction. Deriving
+				// "keep" from a lost field leaves two imports and a way to repair them; deriving
+				// "delete" destroys rows with no undo. That is the same degradation argument
+				// `deleteBatch.ts` uses to fix the write-then-delete ordering, applied to a default
+				// rather than to a sequence.
+				//
+				// The control is always rendered when a batch resolved, so the ordinary flow always
+				// posts a value and never relies on this default.
+				correction: correctingBatch
+					? {
+							batchId: correctingBatch.id,
+							deleteOldImport: formData.get('deleteOldImport') === 'true'
+						}
+					: null
 			});
 		}
 

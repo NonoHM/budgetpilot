@@ -11,7 +11,7 @@
 		setPendingDesignation,
 		takePendingDesignation
 	} from '$lib/import/pendingDesignation.svelte';
-	import { setCompletedImport } from '$lib/import/completedImport.svelte';
+	import { setCompletedImport, type ReplaceOutcome } from '$lib/import/completedImport.svelte';
 	import { setPendingCollision } from '$lib/import/pendingCollision.svelte';
 	import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
@@ -74,6 +74,41 @@
 		if (!pending) void goto(resolve('/import'));
 	});
 
+	/**
+	 * The way out, which has to land where the user came from rather than on a bare upload form.
+	 *
+	 * Reached by « Annuler » and by the header's back chevron. On an ordinary import `/import` IS where
+	 * they came from. On a CORRECTION it is not: they arrived from « Modifier les colonnes » on an
+	 * import's recap, and the address that reopens that state carries both ids.
+	 *
+	 * Measured before this existed: abandoning here landed on `/import` with no correction notice and
+	 * no checkbox, so the obvious next action — pick the file, press Import — re-read the statement
+	 * through the very correspondance the user came to fix and imported it a second time, silently.
+	 *
+	 * ONE CONSEQUENCE, stated rather than hidden. The consent checkbox is re-rendered at its default,
+	 * so a user who had unticked it and then abandoned the screen returns to a ticked box. That is a
+	 * reset rather than a reversal — nothing is submitted on the way — and carrying the answer would
+	 * mean putting a consent in a URL, which is the shape this wave has just spent a commit removing.
+	 * The alternative on offer is today's behaviour, which loses the whole correction instead.
+	 *
+	 * Reload and browser-back are NOT covered and are filed: the pending designation is read-once, so
+	 * by the time either lands there is nothing left to rebuild an address from. Fixing those means
+	 * putting the two ids in this route's own URL and resolving them here, which is a second
+	 * resolution site rather than carrying a query string.
+	 */
+	function leaveDesignation() {
+		const correction = pending?.correction;
+		if (!correction) {
+			void goto(resolve('/import'));
+			return;
+		}
+		void goto(
+			resolve(
+				`/import?correct=${encodeURIComponent(correction.mappingId)}&batch=${encodeURIComponent(correction.batchId)}` as `/import?${string}`
+			)
+		);
+	}
+
 	function submit(result: {
 		assignment: RoleAssignment;
 		remember: boolean;
@@ -101,6 +136,12 @@
 			// posted from here would be a string it has to re-derive anyway.
 			if (index !== null) data.set(`${role}Index`, String(index));
 		}
+		// The batch this correction replaces. Posted only when the choice is still ticked, and
+		// re-resolved server side against this user's own batches: a client-held id decides a delete,
+		// so it travels as a request and never as an authorisation.
+		if (pending.correction?.deleteOldImport) {
+			data.set('replaceBatchId', pending.correction.batchId);
+		}
 
 		// `x-sveltekit-action`, and the whole defect was its absence. Without it the action's reply
 		// is a rendered page rather than a serialised ActionResult, so there was nothing in the
@@ -117,7 +158,7 @@
 				// default, and a cast downstream would let the action's payload drift from what
 				// `/import` draws without anything failing.
 				const actionResult = deserialize<
-					{ importResult: ImportSummaryResult; capReached: boolean },
+					{ importResult: ImportSummaryResult; capReached: boolean; replaced?: ReplaceOutcome },
 					{
 						error?: string;
 						keepDesignation?: boolean;
@@ -170,9 +211,18 @@
 					setPendingCollision({
 						repost: {
 							file: pending.file,
+							// So that declining can reopen this very screen with its answers. See
+							// `pendingCollision.svelte.ts`: the view cannot be rebuilt from a file name.
+							view: pending.view,
 							assignment: result.assignment,
 							remember: result.remember,
-							hasHeaderRow: pending.view.hasHeaderRow
+							hasHeaderRow: pending.view.hasHeaderRow,
+							// Carried through the question WHOLE, because answering it re-posts to this same
+							// action and a correction that lost its batch id here would import beside the
+							// import it came to replace. The choice travels with the id: the dialog has to
+							// tell a deliberate keep apart from an ordinary duplicate, and a batch id alone
+							// cannot, since it is absent in both.
+							correction: pending.correction
 						},
 						existing: actionResult.data.collision,
 						incoming: actionResult.data.incoming
@@ -204,7 +254,11 @@
 				setCompletedImport({
 					importResult: carried.importResult,
 					capReached: carried.capReached === true,
-					canRevisit: failed
+					canRevisit: failed,
+					// Defaulted rather than asserted. This is the only field of the four whose absence
+					// is a legitimate state of the payload, since a run that was not a correction has
+					// nothing to report about a replacement.
+					replaced: carried.replaced ?? { kind: 'none' }
 				});
 				if (failed) {
 					setPendingDesignation({ ...pending, initialAssignment: result.assignment });
@@ -272,7 +326,7 @@
 				candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
 				{submitting}
 				{wide}
-				onCancel={() => goto(resolve('/import'))}
+				onCancel={leaveDesignation}
 				onSubmit={submit}
 			/>
 		</div>

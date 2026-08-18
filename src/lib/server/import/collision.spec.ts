@@ -212,6 +212,80 @@ describe('findCollidingBatch', () => {
 	});
 });
 
+describe('findCollidingBatch with excludeBatchId', () => {
+	/**
+	 * The batches the query would return, with the ONE predicate these tests are about applied.
+	 *
+	 * The mock elsewhere in this file ignores the WHERE clause entirely, which is right for the
+	 * period terms because those tests assert the clause that was sent. It is wrong here: an
+	 * exclusion expressed as a clause and answered by a mock that ignores clauses is invisible, so
+	 * a test written on the return value alone would pass before the code existed.
+	 *
+	 * So this models `id: { not }` and nothing else. Modelling it faithfully includes modelling its
+	 * ABSENCE, which is the part that is easy to get wrong: Prisma treats a missing clause as no
+	 * filter, so no `id` clause must filter nothing rather than everything.
+	 */
+	function givenBatches(...rows: ReturnType<typeof batchRow>[]) {
+		prismaMock.importBatch.findMany.mockImplementation(
+			async ({ where }: { where: { id?: { not?: string } } }) =>
+				rows.filter((row) => row.id !== where.id?.not)
+		);
+	}
+
+	it('does not report the excluded batch even when every figure matches', async () => {
+		// The batch a correction is replacing. Its period, its count and its totals match by
+		// construction, because it is the same statement read a different way, so this is the one
+		// firing that says nothing and blocks the repair the user came for.
+		givenBatches(batchRow('batch-old', '2026-06-01', '2026-06-12'));
+		prismaMock.transaction.groupBy.mockResolvedValue(juneTotals('batch-old'));
+
+		const found = await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD), {
+			excludeBatchId: 'batch-old'
+		});
+
+		expect(found).toBeNull();
+	});
+
+	it('still reports a DIFFERENT batch that matches, so the exclusion is not a silencer', async () => {
+		// The case that must survive: a genuine earlier import of the same statement, which this
+		// correction is not replacing. The two fixtures differ ONLY in the batch id, because one
+		// that also moved the period would pass with the exclusion removed.
+		givenBatches(
+			batchRow('batch-old', '2026-06-01', '2026-06-12'),
+			batchRow('batch-other', '2026-06-01', '2026-06-12')
+		);
+		prismaMock.transaction.groupBy.mockResolvedValue([
+			...juneTotals('batch-old'),
+			...juneTotals('batch-other')
+		]);
+
+		const found = await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD), {
+			excludeBatchId: 'batch-old'
+		});
+
+		expect(found?.batchId).toBe('batch-other');
+	});
+
+	it('excludes in the QUERY, and sends no id clause when nothing is excluded', async () => {
+		// Asserted on the clause for the reason the T1 test states: the two tests above are answered
+		// by a mock that models this predicate, so they pass just as well against an exclusion
+		// applied in JavaScript after the query. Only the clause tells them apart. The second half
+		// is the direction that matters more: `id: { not: undefined }` sent on every ordinary import
+		// would be a filter nobody asked for.
+		givenBatches(batchRow('batch-old', '2026-06-01', '2026-06-12'));
+
+		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD), {
+			excludeBatchId: 'batch-old'
+		});
+		expect(prismaMock.importBatch.findMany.mock.calls[0][0].where.id).toEqual({
+			not: 'batch-old'
+		});
+
+		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD));
+		expect(prismaMock.importBatch.findMany.mock.calls[1][0].where).not.toHaveProperty('id');
+	});
+});
+
 describe('findCollidingPairs', () => {
 	it('pairs two stored batches that agree on period, count and both sums', async () => {
 		prismaMock.importBatch.findMany.mockResolvedValue([

@@ -2,7 +2,20 @@ import { page } from 'vitest/browser';
 import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
+import * as m from '$lib/paraglide/messages';
 import RoleRow from './RoleRow.svelte';
+
+/**
+ * The LABEL half of each recap fact, taken from the message rather than retyped.
+ *
+ * Retyping « Aujourd’hui : » here would assert a French literal that an English
+ * locale never renders, and it would put the catalogue and the test on two sources for one string.
+ * Rendering the message with an empty argument leaves exactly its label half, which is the handle
+ * these tests need: the value comes from the fixture, the label comes from the catalogue, and the
+ * two sides of every assertion below therefore come from different places.
+ */
+const COLUMN_LABEL = m.import_columns_recap_column_fact({ column: '' }).trim();
+const VALUE_LABEL = m.import_columns_recap_value_fact({ value: '' }).trim();
 
 /**
  * `layout.css` is imported because every height below is a real measurement. Without it these
@@ -21,6 +34,18 @@ import RoleRow from './RoleRow.svelte';
  *    That green is the reason the tab-order test exists as its own test.
  * 4. Drop `aria-hidden` from the chevron: **one red.** Nothing else moves, which is what makes the
  *    chevron test load bearing rather than decorative.
+ *
+ * A8's own breaks, run 2026-08-17, read per test:
+ *
+ * 5. The recap row pairs again, `{designatedName} · {sampleValue}` in one span: **four red**, two
+ *    here and two in the route's spec. The « names no column » test stays green, correctly: a role
+ *    holding nothing has nothing to pair.
+ * 6. The value fact rendered whether or not there is a value: **one red**, and only the test about
+ *    the empty sample. Nothing about the pairing moves, which is what separates « two facts » from
+ *    « two labels ».
+ * 7. The recap row back to 44: **three red**, the two heights here and the card figure in the
+ *    screen's spec. Recorded because the card's 315 is a consequence rather than an independent
+ *    measurement, and a break that reddens both proves the pair is not one assertion written twice.
  */
 const BASE = { role: 'amount', state: 'empty' } as const;
 
@@ -72,7 +97,11 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 		expect(row.getBoundingClientRect().height).toBe(56);
 	});
 
-	it('is 44 px as a recapitulatif, which is a third thing and not a smaller row', () => {
+	it('is 64 px as a recapitulatif, which is a third thing and not a smaller row', () => {
+		// 4 air + 18 role + 3 + 16 + 3 + 16 + 4. It was 44 while the row held ONE line, and the
+		// line it held is the arrow A8 is about. A row that states two facts cannot be one line,
+		// so the plate's 44 is deviated from deliberately and the deviation is recorded at the
+		// site rather than rounded away.
 		const { row } = mount({
 			state: 'recap',
 			columnHeader: 'Date operation',
@@ -82,9 +111,74 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 			sampleValue: '24/06/2026'
 		});
 
-		expect(row.getBoundingClientRect().height).toBe(44);
+		expect(row.getBoundingClientRect().height).toBe(64);
 		expect(row.textContent).toContain('Date operation');
 		expect(row.textContent).toContain('24/06/2026');
+	});
+
+	it('is 64 px whatever the recapitulatif row has to show', () => {
+		// The card is a fixed height because the four rows do not move, and a recap row shows one,
+		// two or three lines depending on what the role holds. Separates "the row is 64 when it is
+		// full" from "the row is 64", which is the property the card's own figure rests on.
+		const shapes = [
+			{ role: 'date', columnHeader: 'Date operation', columnIndex: 0, sampleValue: '24/06/2026' },
+			// Designated, and this import left no value to read: two lines.
+			{ role: 'date', columnHeader: 'Date operation', columnIndex: 0, sampleValue: '' },
+			// Optional role holding nothing: its own sentence, one line.
+			{ role: 'category' },
+			// Required role holding nothing: nothing false said, one line.
+			{ role: 'amount' }
+		];
+
+		for (const shape of shapes) {
+			const { row, container } = mount({ state: 'recap', ...shape });
+			expect(row.getBoundingClientRect().height, JSON.stringify(shape)).toBe(64);
+			container.remove();
+		}
+		expect(shapes.length).toBe(4);
+	});
+
+	it('states the column and the value as two facts, never as one pairing', () => {
+		// A8. Separates "the row shows a column name and a value" from "the row claims that column
+		// produced that value". The column is read LIVE from the correspondance and the value comes
+		// from this batch's transactions, so after a correction the two halves are from different
+		// readings and `Date operation · 24/06/2026` asserts they are not.
+		//
+		// Asserted by ORDER rather than by the absence of a separator glyph, because a middot swapped
+		// for a dash, an arrow or a slash is the same claim and would leave a `not.toContain('·')`
+		// green. What has to hold is that the value is introduced by its own label.
+		const { row } = mount({
+			state: 'recap',
+			columnHeader: 'Date operation',
+			columnIndex: 0,
+			sampleValue: '24/06/2026'
+		});
+
+		const text = (row.textContent ?? '').replace(/\s+/g, ' ');
+		const columnLabel = text.indexOf(COLUMN_LABEL);
+		const column = text.indexOf('Date operation');
+		const valueLabel = text.indexOf(VALUE_LABEL);
+		const value = text.indexOf('24/06/2026');
+
+		expect(columnLabel).toBeGreaterThanOrEqual(0);
+		expect(column).toBeGreaterThan(columnLabel);
+		expect(valueLabel).toBeGreaterThan(column);
+		expect(value).toBeGreaterThan(valueLabel);
+	});
+
+	it('states no value fact when this import left no value to read', () => {
+		// Separates "the labels are printed" from "a fact is stated only when there is one". A batch
+		// whose transactions are gone gives every role an empty sample, and a row reading
+		// « Lu par cet import : » with nothing after it is a label doing a fact's job.
+		const { row } = mount({
+			state: 'recap',
+			columnHeader: 'Date operation',
+			columnIndex: 0,
+			sampleValue: ''
+		});
+
+		expect(row.textContent).toContain(COLUMN_LABEL);
+		expect(row.textContent).not.toContain(VALUE_LABEL);
 	});
 
 	it('names no column in a recapitulatif when the role holds none', () => {
@@ -96,6 +190,9 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 
 		expect(row.textContent).not.toContain('Colonne 1');
 		expect(row.textContent).toContain('Aucune');
+		// And it states neither fact: there is no memorised column and there was no value.
+		expect(row.textContent).not.toContain(COLUMN_LABEL);
+		expect(row.textContent).not.toContain(VALUE_LABEL);
 	});
 });
 

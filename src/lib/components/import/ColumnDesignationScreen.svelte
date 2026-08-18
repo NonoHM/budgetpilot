@@ -1,4 +1,5 @@
 <script lang="ts">
+	import type { Snippet } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
 	import {
@@ -16,6 +17,9 @@
 	import RoleRow from '$lib/components/ui/RoleRow.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
+	// The recap's one action. Brique 4's affordance clause is why it is not a TapLink there; see the
+	// note at the call site.
+	import Button from '$lib/components/Button.svelte';
 	import ColumnPicker from './ColumnPicker.svelte';
 
 	/**
@@ -47,21 +51,28 @@
 	 * stops being redundant the day somebody removes the overflow. What must not be claimed is that
 	 * a test guards it. None does, and none can while the body scrolls.
 	 *
-	 * ## The body's 511 of 636, which is the plate's promise
+	 * ## The body's 449 of 636, which is the plate's promise
 	 *
 	 *     16   padding-top
 	 *     40   file block      (60 in state 3c, which adds a third line)
 	 *     14   gap
 	 *    355   designation card
-	 *     14   gap
-	 *     48   « Format du fichier », a RESERVED SLOT with no content today
 	 *     24   padding-bottom
 	 *    ---
-	 *    511, leaving 125 px of air, and THE SCREEN DOES NOT SCROLL IN ANY STATE.
+	 *    449, leaving 187 px of air, and THE SCREEN DOES NOT SCROLL IN ANY STATE.
 	 *
-	 * The card ends at 425 of 636 (16 + 40 + 14 + 355). Both figures are asserted, and the 125 px is
-	 * the room the out-of-scope trio (date format, decimal separator, delimiter) moves into without
-	 * any measurement here being redone.
+	 * The card ends at 425 of 636 (16 + 40 + 14 + 355). Both figures are asserted.
+	 *
+	 * **Was 511**, with a 48 px « Format du fichier » row and its 14 px gap. That row was a grey
+	 * heading with nothing under it, at both widths, in every state, since the screen shipped: a
+	 * visible empty affordance is a promise, and it had been making one for months. Deleted rather
+	 * than kept warm. The date format, the decimal separator and the delimiter are still designed and
+	 * still out of scope; when one is built it arrives with its own layout rather than inheriting a
+	 * slot sized for nothing.
+	 *
+	 * The 62 px it frees are the ones the correction checkbox needs at 390, where the body carries
+	 * only 25 px of air in state 2. That placement is the design brief's question rather than this
+	 * change's — what this does is make the space measurable instead of occupied.
 	 *
 	 * ## No text input anywhere
 	 *
@@ -89,6 +100,8 @@
 		signatureLostDate = null,
 		announceDelayMs = 150,
 		readOnly = false,
+		modifyAsksForFile = false,
+		recapCaption,
 		wide = false,
 		onCancel,
 		onModify,
@@ -133,6 +146,34 @@
 		 * detail that matters, and nothing would go red.
 		 */
 		readOnly?: boolean;
+		/**
+		 * Whether « Modifier les colonnes » will ask for the statement again, said BEFORE the press.
+		 *
+		 * Question 5 of the design project's own issue list, and the answer is that the order cannot
+		 * change: the picker chooses a column on its VALUES, and a stored correspondance holds four
+		 * column names out of N with no values at all. So the file has to come back before anything
+		 * can be chosen, and the only thing left to repair is the surprise. A surprise is repaired by
+		 * naming the cost before the press, with its reason, since a cost with no reason reads as an
+		 * apology.
+		 *
+		 * **A prop and not a consequence of `readOnly`, because the same recap has two callers.** The
+		 * one opened from an upload still holds the file and flips the rows back to their controls in
+		 * place; there the note would promise a re-ask that does not happen. Only the route that
+		 * navigates away knows, so only the route says so.
+		 */
+		modifyAsksForFile?: boolean;
+		/**
+		 * Whatever the caller has to say ABOUT the correspondance, drawn under the card in recap mode.
+		 *
+		 * A snippet rather than a string, because the route's copy is two paragraphs today and one of
+		 * them is parameterised by a date it formats itself. What the component owns is the PLACE, and
+		 * the place is the only thing a route cannot get right from outside: below this component its
+		 * paragraphs fall outside the frame at 1280 and behind the tab bar at 390.
+		 *
+		 * Recap only. The control form's equivalent region is the memorisation block, which is about
+		 * a decision being taken rather than about an answer being read.
+		 */
+		recapCaption?: Snippet;
 		/**
 		 * The 1280 layout: a 400 px command column beside the room the preview table will occupy.
 		 *
@@ -445,28 +486,6 @@
 	</div>
 {/snippet}
 
-{#snippet formatRow()}
-	<!--
-		RESERVED SLOT, deliberately empty today. The date format, the decimal separator and the
-		delimiter each belong to a role or to the file and are designed but out of scope; there
-		are 125 px of air below this row at 390, so all three can arrive without the page beginning
-		to scroll and without any figure in this file being recomputed.
-
-		Not in the recap. §3.7 enumerates what that mode carries — the same card, rows at 44 px, one
-		TapLink — and a slot reserved for controls is a label with nothing under it on a screen where
-		nothing can be controlled. The 390 geometry it was sized against is the designation form's,
-		which is untouched.
-	-->
-	{#if !recap}
-		<div
-			class="flex h-12 shrink-0 items-center text-[13px] text-zinc-400"
-			data-testid="designation-format-row"
-		>
-			{m.import_columns_file_format_row()}
-		</div>
-	{/if}
-{/snippet}
-
 {#snippet trailingBlock()}
 	{#if recap}
 		<!--
@@ -474,8 +493,53 @@
 			MODE of this screen rather than a second screen: the same rows, resolved the same way,
 			drawn differently.
 		-->
-		<div class="flex h-12 shrink-0 items-center" data-testid="designation-modify">
-			<TapLink onclick={onModify ?? (() => (recap = false))}>{m.import_columns_modify()}</TapLink>
+		<!--
+			What the CALLER has to say about the correspondance, inside the column that draws it.
+
+			A route's own paragraphs under this component land outside its frame: at 1280 that is below
+			the card's border and centred on a different axis, and at 390 it is under the action footer
+			and behind the tab bar. Measured on the journey, at both widths. A sentence qualifying the
+			four rows has to be read with them, so the caller hands it in and the screen places it in
+			the one column that exists at either width.
+		-->
+		{#if recapCaption}
+			<div class="shrink-0" data-testid="designation-recap-caption">{@render recapCaption()}</div>
+		{/if}
+		<div class="shrink-0" data-testid="designation-modify">
+			<!--
+				ABOVE the link, which is the whole of what this sentence is for. Under it, it would
+				explain a cost the user has already paid. The shape is the memorisation block's, a
+				sentence at 12.5 then a 48 px TapLink, so nothing new is introduced for it.
+			-->
+			{#if modifyAsksForFile}
+				<p class="text-[12.5px] leading-[17px] text-zinc-500">
+					{m.import_columns_recap_modify_note()}
+				</p>
+			{/if}
+			<!--
+				A BUTTON, and the referential is what settles it rather than a preference.
+
+				§3.7 enumerates « la même carte, des rangées de 44 px, un TapLink », so the plate names
+				this brick. But brique 4's own accessibility clause says a TapLink's affordance « comes
+				from colour and font-weight and from sitting in an already-interactive context (list row,
+				card, under an action title) » — and §3.7's rows are NON-FOCUSABLE by the same ruling. So
+				the plate places a brick whose affordance depends on a context the same section removes,
+				and the two statements cannot both be honoured here.
+
+				Measured, and this is the cost of resolving it the other way: the blind tester read the
+				bordered « Annuler » in the footer as the only control on the screen and recorded that they
+				had hit a dead end. « Modifier les colonnes » is the only reason to be on this page.
+
+				§3.7 drew this block on the UPLOAD screen, where `Importer le relevé` is the primary and a
+				TapLink beside it is correctly subordinate. Ruling A1 deleted that moment, so the recap
+				lives on `/imports/[batchId]/columns` where no primary exists — the inversion is a
+				consequence of moving the block to a surface the plate does not draw, not of the brick.
+
+				Recorded as a plate deviation for the design brief rather than settled unilaterally.
+			-->
+			<div class="flex items-center">
+				<Button onclick={onModify ?? (() => (recap = false))}>{m.import_columns_modify()}</Button>
+			</div>
 		</div>
 	{:else if pageState === 'complete' || pageState === 'submitting'}
 		<!--
@@ -514,13 +578,29 @@
 {/snippet}
 
 {#snippet actions()}
-	<button
-		type="button"
-		class="h-12 flex-1 rounded-[14px] border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-700"
-		onclick={onCancel}
-	>
-		{pageState === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
-	</button>
+	{#if recap}
+		<!--
+			THE ESCAPE, and it is a TapLink because it is now the secondary on this screen.
+
+			It also stops saying « Annuler ». On a read-only page nothing is in progress and nothing can
+			be abandoned, so that word named no action — A14's phantom. What the control does is go back
+			to the list this recap was opened from, and it now says so.
+
+			The swap is the whole of the affordance repair: the bordered box was carrying all the visual
+			weight on the screen for the one control that changes nothing.
+		-->
+		<div class="flex flex-1 items-center">
+			<TapLink onclick={onCancel}>{m.import_columns_recap_back()}</TapLink>
+		</div>
+	{:else}
+		<button
+			type="button"
+			class="h-12 flex-1 rounded-[14px] border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-700"
+			onclick={onCancel}
+		>
+			{pageState === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
+		</button>
+	{/if}
 	{#if !recap}
 		<!--
 			`aria-disabled`, NEVER the `disabled` attribute, and `aria-describedby` pointing at the
@@ -589,7 +669,6 @@
 				-->
 				<div class="flex w-[400px] shrink-0 flex-col gap-4" data-testid="designation-command">
 					{@render designationCard()}
-					{@render formatRow()}
 					{@render trailingBlock()}
 
 					<!--
@@ -597,13 +676,21 @@
 						page. The Repartition plate's amendment, same argument: what COMMANDS the
 						primary action travels with it, so the count explaining why the primary is off
 						can never be scrolled away from the primary it explains.
+
+						NO BOX IN THE RECAP, and it is the same rule rather than an exception to it. The box
+						exists to bind a count to the primary it explains; the recap has neither. Once the
+						escape became a TapLink, the border was a bordered white card drawn around a text
+						link — a control-shaped surface containing no control, which is the false affordance
+						this wave keeps removing. Seen on the journey immediately after the swap.
 					-->
 					<div
-						class="sticky bottom-6 overflow-hidden rounded-lg border border-zinc-200 bg-white"
+						class="sticky bottom-6 overflow-hidden {recap
+							? ''
+							: 'rounded-lg border border-zinc-200 bg-white'}"
 						data-testid="designation-command-foot"
 					>
 						{@render bannerBlock()}
-						<div class="flex items-stretch gap-3 p-4">
+						<div class="flex items-stretch gap-3 {recap ? 'pt-1' : 'p-4'}">
 							{@render actions()}
 						</div>
 					</div>
@@ -656,14 +743,13 @@
 			data-testid="designation-body"
 		>
 			<!--
-				`shrink-0` on all three body children, and it is not decoration. A flex column shrinks
-				its items before it scrolls, so without this an overfull body SQUASHES the 355 px card
+				`shrink-0` on every body child, and it is not decoration. A flex column shrinks its
+				items before it scrolls, so without this an overfull body SQUASHES the 355 px card
 				instead of scrolling, and the card's fixed height quietly stops being fixed. Found by
 				the overflow calibration in this component's spec.
 			-->
 			{@render fileBlock()}
 			{@render designationCard()}
-			{@render formatRow()}
 			{@render trailingBlock()}
 		</div>
 

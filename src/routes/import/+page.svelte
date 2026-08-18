@@ -5,16 +5,22 @@
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
+	import CheckboxField from '$lib/components/ui/CheckboxField.svelte';
 	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
 	import { goto } from '$app/navigation';
 	import { applyAction, deserialize, enhance } from '$app/forms';
 	import DuplicateStatementDialog from '$lib/components/import/DuplicateStatementDialog.svelte';
-	import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
+	import type {
+		CollidingBatchView,
+		CollisionFigures,
+		CorrectionContext
+	} from '$lib/domain/importCollision';
 	import {
 		clearPendingCollision,
 		takePendingCollision,
@@ -32,7 +38,11 @@
 		clearPendingDesignation,
 		setPendingDesignation
 	} from '$lib/import/pendingDesignation.svelte';
-	import { takeCompletedImport, type CompletedImport } from '$lib/import/completedImport.svelte';
+	import {
+		takeCompletedImport,
+		type CompletedImport,
+		type ReplaceOutcome
+	} from '$lib/import/completedImport.svelte';
 	import { onMount } from 'svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -75,6 +85,18 @@
 	let csvFiles = $state<FileList | undefined>(undefined);
 
 	/**
+	 * Whether the correction replaces the import it was launched from.
+	 *
+	 * Read from ONE binding, for the reason `csvFiles` above records at length: this page renders its
+	 * form twice and only the visible mount submits, so a per-mount value is lost across a resize.
+	 *
+	 * PRE-TICKED, because the default should be the repair the user came for. They arrived from
+	 * « Modifier les colonnes » on an import they have decided is wrong, and a default of « keep it
+	 * beside the corrected one » would be the doubled state chosen for them.
+	 */
+	let deleteOldImport = $state(true);
+
+	/**
 	 * And `required` came off both inputs, which is a separate decision from the binding above.
 	 *
 	 * A native `required` file input refuses in the BROWSER's language, not the page's, so a French
@@ -104,6 +126,62 @@
 	 */
 	const invalidRowGroups = $derived(groupInvalidRows(importResult?.invalidRowDetails ?? []));
 
+	/**
+	 * What became of the batch a correction was replacing, and the reasons the rows went.
+	 *
+	 * `WITHHELD_REASON_LIMIT` caps the list because groups are already folded per reason and the
+	 * remainder is one line away in the table below. Uncapped, a file refused for twenty distinct
+	 * reasons would draw a twenty line notice on a 390 px screen, which is the defect
+	 * `groupInvalidRows` was built to remove, reintroduced one panel up.
+	 */
+	const replaced: ReplaceOutcome = $derived(carriedImport?.replaced ?? { kind: 'none' });
+	const WITHHELD_REASON_LIMIT = 3;
+	const withheldReasons = $derived(invalidRowGroups.slice(0, WITHHELD_REASON_LIMIT));
+	const withheldReasonsHidden = $derived(
+		Math.max(0, invalidRowGroups.length - WITHHELD_REASON_LIMIT)
+	);
+	/**
+	 * One formatter for every surface that names an import, so the control, the retraction and the
+	 * confirmation cannot describe the same import three ways.
+	 *
+	 * The user has to match the name on the control they ticked against the name in whatever the run
+	 * reports afterwards. Two formats would make that a puzzle on the one screen whose job is to say
+	 * which import was destroyed.
+	 */
+	function namedImport(iso: string): string {
+		return new Intl.DateTimeFormat(getLocale(), {
+			dateStyle: 'long',
+			timeStyle: 'short'
+		}).format(new Date(iso));
+	}
+
+	const replacedOn = $derived(replaced.kind === 'none' ? '' : namedImport(replaced.replacedAt));
+
+	/**
+	 * The period the withheld import covers, for the retraction that names a wrong file.
+	 *
+	 * Read from the REPLACED batch rather than from the run: the summary below already prints the
+	 * period of the file just imported, so repeating it here would restate what is on screen while
+	 * leaving out the one period the user cannot see.
+	 *
+	 * The two bounds are interpolated SEPARATELY rather than through `import_collision_period`, which
+	 * renders « Du 1 juillet au 24 juillet » with a capital: that message is written to stand alone on
+	 * its own line in the collision dialog's cards, and dropped mid-sentence it produced « il couvre
+	 * Du 1 juillet ». Seen on the journey. One phrase cannot be both a line and a clause.
+	 */
+	const replacedPeriodBounds = $derived(
+		replaced.kind === 'withheldOtherPeriod' && replaced.replacedPeriod.from
+			? {
+					from: shortDate(replaced.replacedPeriod.from),
+					to: shortDate(replaced.replacedPeriod.to ?? replaced.replacedPeriod.from)
+				}
+			: { from: '', to: '' }
+	);
+
+	function shortDate(iso: string): string {
+		return new Intl.DateTimeFormat(getLocale(), { dateStyle: 'long' }).format(new Date(iso));
+	}
+
 	const errorReport = $derived(
 		importResult?.invalidRowDetails
 			?.map((row) =>
@@ -128,6 +206,35 @@
 	);
 
 	/**
+	 * The exact `File` the last submit carried, so the offer can tell whether it still describes the
+	 * file in hand.
+	 *
+	 * ## The defect this closes, walked in a browser on 2026-08-17
+	 *
+	 * A refusal offers the designation screen and describes the refused file: its name, its headers,
+	 * its sample values. The file picker stays live underneath. Choose a DIFFERENT statement and press
+	 * on, and the screen opened on the OLD file's columns while carrying the NEW file's bytes —
+	 * measured: it said « opaque-02.csv · 3 colonnes » and listed `zone_2a/b/c` with their values,
+	 * and the server then refused naming « beta » et « gamma », which are the other file's headers.
+	 *
+	 * The user designates against one statement and the indices are resolved against another. Where
+	 * the two files order their columns differently, that imports amounts as labels with nothing
+	 * saying so. It was only survivable in the measured case because the split-amount guard happened
+	 * to catch the shape.
+	 *
+	 * ## Identity, not the name
+	 *
+	 * Compared by object identity rather than by `File.name`, which two different statements can
+	 * share — a bank that exports `releve.csv` every month is the ordinary case, not the exotic one.
+	 * Picking a file always produces a fresh `File`, so identity answers exactly the question being
+	 * asked: is this the same choice the server described?
+	 */
+	let submittedFile = $state<File | undefined>(undefined);
+	const offersDesignation = $derived(
+		designation !== undefined && csvFiles?.[0] !== undefined && csvFiles[0] === submittedFile
+	);
+
+	/**
 	 * The designations to reopen the screen WITH, when this upload is a correction.
 	 *
 	 * Read through the same `in` check and for the same reason. Absent on the ordinary offer, where
@@ -140,6 +247,20 @@
 	);
 
 	/**
+	 * The batch this correction replaces, read through the same `in` check.
+	 *
+	 * Taken from the ACTION's payload rather than from `data.correction`, and the difference matters:
+	 * the load's value says an address bar asked for a correction, the action's says the server
+	 * resolved the batch, checked it belongs to this user and checked it was read through the very
+	 * correspondance being corrected. Only the second one may travel to a request that deletes.
+	 */
+	const correctionState = $derived(
+		form && 'correction' in form
+			? (form.correction as { batchId: string; deleteOldImport: boolean } | null)
+			: null
+	);
+
+	/**
 	 * Hands the file to the designation screen and navigates.
 	 *
 	 * The FILE goes with it, in memory, because owner ruling 2 keeps it in the browser: storing the
@@ -149,7 +270,7 @@
 	 * The headers and samples travel too, but only so the screen can DRAW the file. The server never
 	 * reads them back: the submit re-posts the file and re-derives its own header list.
 	 */
-	async function designateColumns(event: SubmitEvent) {
+	async function designateColumns() {
 		// **The form is `use:enhance`d and that is what makes this reachable at all.** Without it the
 		// refusal arrives through a full page POST, the document is replaced, and the `<input
 		// type="file">` the user chose comes back EMPTY. The offer button would then read no file and
@@ -158,13 +279,18 @@
 		//
 		// Found by the e2e in `import-column-designation.spec.ts`, which is the only level that can
 		// see it: the defect is entirely about what survives a navigation.
-		event.preventDefault();
+		//
+		// NO LONGER THE FORM'S `onsubmit`, and that is the whole of item 4. While it was, every submit
+		// button in the form ran this once a designation existed, so « Importer le relevé » navigated
+		// to the designation screen instead of importing. Now the offer's own button is the only
+		// control that opens that screen, and the form's primary does what it says.
+		//
 		// Read from the SHARED binding rather than by querying the submitted form for its own input.
 		// The DOM query worked only because the submitted form happened to be the one the user chose
 		// in, which is the same per-mount coupling that lost the file across a resize. One value, read
 		// the same way whichever chrome is on screen.
 		const file = csvFiles?.[0];
-		if (!file || !designation) return;
+		if (!file || !designation || !offersDesignation) return;
 
 		setPendingDesignation({
 			file,
@@ -182,7 +308,33 @@
 				hasHeaderRow: designation.hasHeaderRow
 			},
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
-			candidates: {}
+			candidates: {},
+			// The ID from the SERVER, the CONSENT from the control, and the split is the whole point.
+			//
+			// `correctionState` is the action's reply to the FIRST press, so its `deleteOldImport` is
+			// the consent as it stood at that press. The control is still on screen after it and still
+			// interactive, so reading the echo made it a dead affordance: measured in a browser, a user
+			// who arrived with the box ticked, pressed « Importer le relevé », then unticked it, lost
+			// the old import anyway and was shown « L'ancien import du ... a été supprimé. » as a
+			// confirmation. The batch it destroyed was the one they had just chosen to keep.
+			//
+			// The id must NOT come from the same place. `data.correction.batchId` is what the address
+			// bar asked for; this one is what the server resolved against this user AND against the
+			// pairing with the correspondance, which is the only version that may reach a delete
+			// (`v5.0.0-2.2.1`, `v5.0.0-8.2.2`). So the object is rebuilt from two sources on purpose,
+			// and `correction-consent.svelte.spec.ts` asserts each half against a fixture where the
+			// two ids differ.
+			correction:
+				correctionState && data.correction
+					? {
+							// From the LOAD, and only for the way back. See the field's own docstring: this one
+							// names a page to return to, `batchId` names an import to destroy, and they are
+							// allowed to come from different places for exactly that reason.
+							mappingId: data.correction.mappingId,
+							batchId: correctionState.batchId,
+							deleteOldImport
+						}
+					: null
 		});
 		await goto(resolve('/import/columns'));
 	}
@@ -243,6 +395,26 @@
 	const collisionIncoming = $derived(formIncoming ?? carriedCollision?.incoming);
 
 	/**
+	 * What this run will do with the import it is correcting, derived from the POSTED CHOICE.
+	 *
+	 * NEVER from the presence of a correction, and that distinction is the whole reason this is not
+	 * a boolean. The run carries the batch id whether or not the control was left ticked, so a flag
+	 * meaning "is this a correction" would render « l'import que vous corrigez sera remplacé » on a
+	 * run that is going to delete nothing.
+	 *
+	 * `formCollision` is a collision raised by `/import`'s OWN action, which is never a correction:
+	 * the correction branch returns the designation screen before the guard can run. So only a
+	 * carried collision, handed over by `/import/columns`, can be anything but 'none'.
+	 */
+	const correctionContext: CorrectionContext = $derived(
+		!carriedCollision?.repost.correction
+			? 'none'
+			: carriedCollision.repost.correction.deleteOldImport
+				? 'replacing'
+				: 'keeping'
+	);
+
+	/**
 	 * Answered per collision rather than with a bare boolean.
 	 *
 	 * A boolean would stay true across the next submit, so the second collision of a session would be
@@ -264,12 +436,44 @@
 	 *
 	 * The carried collision is dropped as well as dismissed: leaving it in module state would have it
 	 * reappear behind the next upload, attached to a file the user has since replaced.
+	 *
+	 * ## Declining must not cost the designation
+	 *
+	 * Measured in the blind session: pressing « Ne pas importer » returned the user to a blank
+	 * import form. The page behind this modal has already reset to the upload state, and the carried
+	 * repost was the only place the answers still existed, so dismissing it destroyed the work the
+	 * user had just done. They had designated four columns, been told duplicates were expected,
+	 * been blocked, declined, and were then asked to start over from choosing the file.
+	 *
+	 * So a declined run that still has its file goes BACK TO THE DESIGNATION SCREEN with the
+	 * answers intact, which is the plate's state 2. The dialog is not moved onto that screen:
+	 * section 5.5 of the handoff keeps server refusals off it, and this is a way back rather than a
+	 * relocation.
+	 *
+	 * `view` is CARRIED rather than rebuilt. A `DesignationFile` holds the file's headers, its sample
+	 * values and its preview rows, and none of that can be reconstructed from a file name and an
+	 * assignment: rebuilding it would mean inventing headers. It costs nothing to carry, since it is
+	 * in memory at the moment the question is handed over.
+	 *
+	 * `correction` must survive too, or the second attempt would import beside the batch the first
+	 * one was going to replace.
 	 */
 	function cancelCollision() {
+		const carried = carriedCollision;
 		dismissedCollision = collisionKey;
 		collisionError = null;
 		carriedCollision = null;
 		clearPendingCollision();
+
+		if (!carried) return;
+		setPendingDesignation({
+			file: carried.repost.file,
+			view: carried.repost.view,
+			initialAssignment: carried.repost.assignment,
+			candidates: {},
+			correction: carried.repost.correction
+		});
+		void goto(resolve('/import/columns'));
 	}
 
 	/**
@@ -280,9 +484,15 @@
 	 * holds anything the browser would submit. Reading the shared `csvFiles` binding is the same fix
 	 * the file input itself already carries: one value, read the same way whichever chrome is on.
 	 *
-	 * `correctMappingId` is deliberately NOT carried. The correction path returns the designation
-	 * screen before the collision check can run, so a correction never reaches this dialog, and
-	 * posting the field would turn the confirmation into a second request to designate.
+	 * `correctMappingId` is deliberately NOT carried. That field asks `/import` to REOPEN the
+	 * designation screen, and posting it here would turn a confirmation into a second request to
+	 * designate.
+	 *
+	 * `replaceBatchId` IS carried, and the two are not the same field wearing different names. This
+	 * comment used to say a correction never reaches this dialog, and that stopped being true when
+	 * the guard learned to exclude the batch being replaced: what fires now is a third batch that
+	 * also matches. Dropping the id here would import the corrected rows and leave the batch they
+	 * were meant to replace in place, on the one screen that had just warned about doubling.
 	 */
 	async function confirmCollisionImport(event: SubmitEvent) {
 		event.preventDefault();
@@ -308,6 +518,11 @@
 				// Indices, never names. The server resolves them against ITS own header list.
 				if (index !== null) body.set(`${role}Index`, String(index));
 			}
+			// Posted only when the choice is still ticked. The correction travels whole through the
+			// dialog; this is where it becomes a request again.
+			if (carried.repost.correction?.deleteOldImport) {
+				body.set('replaceBatchId', carried.repost.correction.batchId);
+			}
 		} else {
 			body.set('netWorthAccountId', selectedNetWorthAccountId);
 		}
@@ -322,7 +537,7 @@
 				headers: { 'x-sveltekit-action': 'true' }
 			});
 			const actionResult = deserialize<
-				{ importResult: ImportSummaryResult; capReached?: boolean },
+				{ importResult: ImportSummaryResult; capReached?: boolean; replaced?: ReplaceOutcome },
 				{ error?: string }
 			>(await response.text());
 
@@ -347,7 +562,11 @@
 				carriedImport = {
 					importResult: actionResult.data.importResult,
 					capReached: actionResult.data.capReached === true,
-					canRevisit: actionResult.data.importResult.invalidRows > 0
+					canRevisit: actionResult.data.importResult.invalidRows > 0,
+					// The confirmation path replaces too. A correction CAN reach this dialog since the
+					// guard learned to exclude the batch being replaced, and the outcome it reports has
+					// to arrive with the summary or the promise made two screens ago goes unanswered.
+					replaced: actionResult.data.replaced ?? { kind: 'none' }
 				};
 			} else {
 				await applyAction(actionResult);
@@ -386,13 +605,175 @@
 	deleting it removes the only route back to the columns, and the user's next upload is read
 	through the same wrong correspondance. Correct first, delete second.
 -->
+<!--
+	What became of the import this correction replaced.
+
+	SILENT in the common case, which is the whole win: the replacement happened and the summary the
+	user is reading is the only import of that statement. The other two states each say one thing.
+
+	`deleted` names the import by its date rather than saying « done », because the user chose this on
+	a control that names one, and a confirmation naming the same import in the same format is what
+	lets them check the two agree. That reason CHANGED with the control: this used to read « the user
+	chose this on a control that named no date », which was true when written and was falsified by
+	naming it. Both surfaces now go through one formatter so they cannot drift apart again.
+
+	`withheld` RETRACTS a promise, and that is a different job from explaining the figures. Two
+	screens announce the replacement before any row is counted, so a run that then withholds has told
+	the user something that did not happen. It names the import, states both counts, names WHY the
+	rows went, and carries the route to finish it by hand.
+
+	The reasons are `groupInvalidRows` and `refusalLabel`, which is what the table below already
+	renders. A second wording for a refusal reason is how two parts of one screen start disagreeing
+	about the same rows.
+
+	NEUTRAL, not a danger tint. The correction worked; this is a report about it, and the user did
+	nothing wrong.
+
+	No fragment anchor on the old batch's row: `/imports` renders every batch twice, desktop table
+	and mobile card, so one id cannot address both and a duplicate sends the fragment to whichever
+	copy is hidden. The two rows are the newest two and adjacent, and the confirmation there now
+	names the timestamp, which is what makes them tellable apart.
+-->
+{#snippet replaceOutcome()}
+	{#if replaced.kind === 'deleted'}
+		<AlertBanner variant="info">
+			{m.import_correct_delete_old_done({ date: replacedOn })}
+		</AlertBanner>
+	{:else if replaced.kind === 'withheld'}
+		<AlertBanner variant="info">
+			<span class="flex flex-col gap-1">
+				<span>
+					{m.import_correct_delete_withheld({
+						date: replacedOn,
+						importedRows: replaced.importedRows,
+						replacedRows: replaced.replacedRows
+					})}
+				</span>
+				{#each withheldReasons as group (group.key)}
+					<span data-testid="withheld-reason">
+						{group.count === 1
+							? m.import_correct_delete_withheld_reason_one({
+									count: group.count,
+									reason: refusalLabel(group.head.fact)
+								})
+							: m.import_correct_delete_withheld_reason({
+									count: group.count,
+									reason: refusalLabel(group.head.fact)
+								})}
+					</span>
+				{/each}
+				{#if withheldReasonsHidden > 0}
+					<span>
+						{withheldReasonsHidden === 1
+							? m.import_correct_delete_withheld_reasons_more_one({
+									count: withheldReasonsHidden
+								})
+							: m.import_correct_delete_withheld_reasons_more({
+									count: withheldReasonsHidden
+								})}
+					</span>
+				{/if}
+				<!--
+					The route sits IN the body rather than in `AlertBanner`'s `action` snippet, and the
+					reason is a measurement rather than a preference. That snippet renders its child as
+					a `shrink-0` sibling of the message on one flex row, which suits the short labels
+					it was built for. This label is long, and at 390 it took the row's whole width and
+					squeezed the message, whose container is `flex-1 min-w-0`, down to about one word
+					per line. Seen in a screenshot; the same collapse is why an individual reason span
+					reported no box to a visibility check while carrying its text.
+				-->
+				<a href={resolve('/imports')} class="mt-1 font-semibold underline underline-offset-2">
+					{m.import_correct_delete_withheld_action()}
+				</a>
+			</span>
+		</AlertBanner>
+	{:else if replaced.kind === 'withheldOtherPeriod'}
+		<!--
+			The file handed back was a DIFFERENT STATEMENT, so nothing was deleted.
+
+			`warning` and not `info`, which is the one place this outcome differs in tone from its
+			sibling above. That one reports a judgement the user still has to make about rows they may
+			not have wanted; this one reports that the app was handed the wrong file, and the corrected
+			rows it has just imported are a second copy of a statement already held. Something IS wrong
+			and it is worth a tint — but not `error`, because nothing failed and nothing was lost.
+
+			One sentence and the same route link. It names the withheld import by the same timestamp the
+			control named, and its PERIOD, which is the fact the summary below cannot show: that panel
+			prints the period of the file just imported, so repeating that would restate what is on
+			screen and leave out the comparison.
+		-->
+		<AlertBanner variant="warning">
+			<span class="flex flex-col gap-1">
+				<span>
+					{m.import_correct_delete_withheld_period({
+						date: replacedOn,
+						from: replacedPeriodBounds.from,
+						to: replacedPeriodBounds.to
+					})}
+				</span>
+				<a href={resolve('/imports')} class="mt-1 font-semibold underline underline-offset-2">
+					{m.import_correct_delete_withheld_action()}
+				</a>
+			</span>
+		</AlertBanner>
+	{/if}
+{/snippet}
+
 {#snippet correctionNotice()}
-	{#if data.correctMappingId}
-		<input type="hidden" name="correctMappingId" value={data.correctMappingId} />
+	{#if data.correction}
+		<input type="hidden" name="correctMappingId" value={data.correction.mappingId} />
+		<!--
+			The batch, posted beside the correspondance. Both are re-resolved server side and the
+			PAIRING is re-resolved with them, so this is a carried value rather than a claim.
+
+			Absent when the batch did not resolve, which is a link from before this shipped or one
+			whose import has since been deleted. The correction still reopens the designation screen;
+			it simply replaces nothing.
+		-->
+		{#if data.correction.batchId}
+			<input type="hidden" name="correctBatchId" value={data.correction.batchId} />
+		{/if}
 		<div class="rounded-xl border border-zinc-200 bg-white p-3">
 			<p class="text-sm font-semibold text-zinc-900">{m.import_columns_correct_heading()}</p>
 			<p class="mt-1 text-xs text-zinc-600">{m.import_columns_correct_explanation()}</p>
-			<p class="mt-2 text-xs text-zinc-500">{m.import_columns_correct_duplicate_note()}</p>
+			<!--
+				The sentence that used to sit here told the user to go and delete the old import
+				themselves, which is the 13 step journey this wave removes. It is replaced by the
+				control that does it, and the control NAMES WHAT IT COSTS: `imports_cancel_cost_note`
+				is reused rather than restated, because it is the sentence the explicit delete already
+				shows and a second wording for one fact is how two screens start disagreeing.
+
+				The note is absent when the batch carries no split and no tag. A warning about a loss
+				that cannot occur is discounted every time after, and then it is not read on the one
+				run where it was true.
+
+				Only when a batch actually resolved: with nothing to replace there is nothing to
+				choose, and a ticked box promising a deletion that cannot happen is the defect this
+				wave exists to remove.
+			-->
+			{#if data.correction.batchId && data.correction.replacedAt}
+				<div class="mt-2">
+					<!--
+						The label NAMES the import it destroys. « Supprimer l'ancien import » names nothing
+						once a user holds several, and this flow's ordinary shape is two imports of one
+						statement minutes apart: the blind session ended in exactly that state, unable to
+						tell the two rows apart.
+
+						The same timestamp the delete confirmation and the withheld retraction use, to the
+						minute, so the control the user ticks and whatever the run reports afterwards name
+						one import identically. A shorter form here would make matching them a puzzle on the
+						screen whose whole job is to say which import went.
+					-->
+					<CheckboxField
+						name="deleteOldImport"
+						label={m.import_correct_delete_old_label({
+							date: namedImport(data.correction.replacedAt)
+						})}
+						note={data.correction.hasUserWork ? m.imports_cancel_cost_note() : undefined}
+						bind:checked={deleteOldImport}
+					/>
+				</div>
+			{/if}
 		</div>
 	{/if}
 {/snippet}
@@ -418,7 +799,7 @@
 				method="POST"
 				enctype="multipart/form-data"
 				use:enhance
-				onsubmit={designation ? designateColumns : undefined}
+				onsubmit={() => (submittedFile = csvFiles?.[0])}
 			>
 				{@render correctionNotice()}
 				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
@@ -462,7 +843,7 @@
 					<AlertBanner variant="error">{form.error}</AlertBanner>
 				{/if}
 
-				{#if designation}
+				{#if offersDesignation}
 					<!-- The file nothing recognised. A refusal that offers the repair rather than
 					     stating the problem: the user's next step is naming three columns, and the
 					     screen that does it is one tap away. -->
@@ -473,14 +854,18 @@
 							statement IS recognised, and that is precisely why the user is here. The block
 							above already says what this upload is for.
 						-->
-						{#if !data.correctMappingId}
+						{#if !data.correction}
 							<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
 						{/if}
-						<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>
+						<Button type="button" class="mt-3" onclick={designateColumns}
+							>{m.import_columns_offer()}</Button
+						>
 					</div>
 				{/if}
 
-				<Button type="submit">{m.import_submit()}</Button>
+				<Button type="submit" variant={offersDesignation ? 'secondary' : 'primary'}
+					>{m.import_submit()}</Button
+				>
 			</form>
 		</div>
 
@@ -508,6 +893,8 @@
 				{/snippet}
 			</AlertBanner>
 		{/if}
+
+		{@render replaceOutcome()}
 
 		{#if importResult}
 			<div class="rounded-lg border border-zinc-200 bg-white p-5">
@@ -708,7 +1095,7 @@
 			method="POST"
 			enctype="multipart/form-data"
 			use:enhance
-			onsubmit={designation ? designateColumns : undefined}
+			onsubmit={() => (submittedFile = csvFiles?.[0])}
 		>
 			{@render correctionNotice()}
 			<FileDropZone
@@ -747,7 +1134,7 @@
 				<AlertBanner variant="error">{form.error}</AlertBanner>
 			{/if}
 
-			{#if designation}
+			{#if offersDesignation}
 				<!-- The file nothing recognised. A refusal that offers the repair rather than
 				     stating the problem: the user's next step is naming three columns, and the
 				     screen that does it is one tap away. -->
@@ -758,14 +1145,20 @@
 							statement IS recognised, and that is precisely why the user is here. The block
 							above already says what this upload is for.
 						-->
-					{#if !data.correctMappingId}
+					{#if !data.correction}
 						<p class="mt-1 text-xs text-zinc-500">{m.import_columns_offer_explanation()}</p>
 					{/if}
-					<Button type="submit" class="mt-3">{m.import_columns_offer()}</Button>
+					<Button type="button" class="mt-3" onclick={designateColumns}
+						>{m.import_columns_offer()}</Button
+					>
 				</div>
 			{/if}
 
-			<Button type="submit" class="h-11 w-full !rounded-xl">{m.import_submit()}</Button>
+			<Button
+				type="submit"
+				variant={offersDesignation ? 'secondary' : 'primary'}
+				class="h-11 w-full !rounded-xl">{m.import_submit()}</Button
+			>
 		</form>
 
 		<!-- Same placement and same reason as the desktop chrome: it qualifies the counts below it. -->
@@ -789,6 +1182,8 @@
 				{/snippet}
 			</AlertBanner>
 		{/if}
+
+		{@render replaceOutcome()}
 
 		{#if importResult}
 			<div class="{cardBase} p-5">
@@ -978,6 +1373,7 @@
 			importedAt={collisionExisting.createdAt}
 			confirming={confirmingCollision}
 			error={collisionError}
+			{correctionContext}
 			onCancel={cancelCollision}
 		/>
 	</form>

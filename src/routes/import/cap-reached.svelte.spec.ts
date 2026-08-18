@@ -51,7 +51,7 @@ const DATA: PageData = {
 	// Inherited from the layout load. Null is honest here: this component reads none of it, and a
 	// fabricated user would be a fixture detail that looks like a precondition of the assertion.
 	user: null,
-	correctMappingId: null,
+	correction: null,
 	linkableNetWorthAccounts: [],
 	hasAllImportBucketsExisting: true
 };
@@ -80,7 +80,12 @@ beforeEach(() => {
 describe('the memorisation cap is reported on the import it happened to', () => {
 	it('states at 1280 that the columns were not remembered', async () => {
 		await page.viewport(1280, 800);
-		setCompletedImport({ importResult: SUMMARY, capReached: true, canRevisit: false });
+		setCompletedImport({
+			importResult: SUMMARY,
+			capReached: true,
+			canRevisit: false,
+			replaced: { kind: 'none' }
+		});
 
 		render(Page, { data: DATA, form: null });
 
@@ -89,7 +94,12 @@ describe('the memorisation cap is reported on the import it happened to', () => 
 
 	it('states at 390 that the columns were not remembered', async () => {
 		await page.viewport(390, 844);
-		setCompletedImport({ importResult: SUMMARY, capReached: true, canRevisit: false });
+		setCompletedImport({
+			importResult: SUMMARY,
+			capReached: true,
+			canRevisit: false,
+			replaced: { kind: 'none' }
+		});
 
 		render(Page, { data: DATA, form: null });
 
@@ -110,7 +120,12 @@ describe('the memorisation cap is reported on the import it happened to', () => 
 	 */
 	it('says nothing at all when the correspondance was memorised', async () => {
 		await page.viewport(390, 844);
-		setCompletedImport({ importResult: SUMMARY, capReached: false, canRevisit: false });
+		setCompletedImport({
+			importResult: SUMMARY,
+			capReached: false,
+			canRevisit: false,
+			replaced: { kind: 'none' }
+		});
 
 		render(Page, { data: DATA, form: null });
 
@@ -125,7 +140,12 @@ describe('the memorisation cap is reported on the import it happened to', () => 
 	 */
 	it('leaves the summary counts standing beside the notice', async () => {
 		await page.viewport(390, 844);
-		setCompletedImport({ importResult: SUMMARY, capReached: true, canRevisit: false });
+		setCompletedImport({
+			importResult: SUMMARY,
+			capReached: true,
+			canRevisit: false,
+			replaced: { kind: 'none' }
+		});
 
 		render(Page, { data: DATA, form: null });
 

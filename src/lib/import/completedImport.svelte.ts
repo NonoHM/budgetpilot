@@ -1,4 +1,5 @@
 import type { ImportSummaryResult } from '$lib/domain/importSummary';
+import type { ImportPeriod } from '$lib/domain/periodOverlap';
 
 /**
  * The summary of an import that was performed on `/import/columns`, handed to `/import` to draw.
@@ -44,7 +45,44 @@ export interface CompletedImport {
 	 * that just worked.
 	 */
 	canRevisit: boolean;
+	/**
+	 * What became of the batch this run was correcting, when it was correcting one.
+	 *
+	 * Three states rather than a boolean, because « nothing was replaced » and « the replacement was
+	 * withheld » are different things to say and the second one has to RETRACT a promise: two
+	 * screens announce the replacement before any row is counted, so a run that then withholds owes
+	 * the user the name of the import it did not delete.
+	 *
+	 * `replacedAt` is that name, the same timestamp discriminant the delete confirmation uses.
+	 */
+	replaced: ReplaceOutcome;
 }
+
+/**
+ * What became of the batch a correction was replacing.
+ *
+ * Declared here rather than beside the action, because both the action that produces it and the page
+ * that draws it name this type, and a page cannot import from `$lib/server`.
+ */
+export type ReplaceOutcome =
+	| { kind: 'none' }
+	| { kind: 'deleted'; replacedAt: string }
+	/**
+	 * The corrected run landed fewer rows than the delete would destroy. The counts are BOTH
+	 * reported, because 28 against 30 is what makes the judgement possible and either figure alone
+	 * is a verdict dressed as a fact.
+	 */
+	| { kind: 'withheld'; replacedAt: string; replacedRows: number; importedRows: number }
+	/**
+	 * The file handed back covers days the replaced import does not, so it is a different statement.
+	 *
+	 * A SEPARATE kind rather than a `reason` field on `withheld`, because the two retractions have
+	 * nothing in common but the fact of withholding: one is about how many rows arrived and names
+	 * two counts, the other is about which statement arrived and names a period. Folding them into
+	 * one shape would give each branch fields the other never sets, and the page would have to ask
+	 * which of them it is looking at anyway.
+	 */
+	| { kind: 'withheldOtherPeriod'; replacedAt: string; replacedPeriod: ImportPeriod };
 
 let completed: CompletedImport | null = null;
 

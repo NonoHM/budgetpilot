@@ -129,6 +129,13 @@ project stands under the EU Cyber Resilience Act.
 [`f85b37f`](https://github.com/NonoHM/budgetpilot/commit/f85b37f), by the maintainer,
 unverified by any third party.**
 
+Verdicts that have moved since that commit are listed, dated, in
+[ASVS deltas](./docs/reference/asvs-deltas.md). **Those entries do not add up with the figure
+above**: it is a count over one commit and they are changes to individual rows on later ones, so
+the only way to a current count is the next full re-derivation. The list exists so that a
+movement is readable by whoever reads the claim, rather than living in a pull request body that
+stops being consulted once it merges.
+
 **This is not a claim of compliance, and no such claim exists to make.** OWASP certifies
 nobody against ASVS and warns specifically against trust marks that assert compliance
 with it. Anyone telling you a product is "ASVS certified" is describing something the

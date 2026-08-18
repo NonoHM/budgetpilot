@@ -2,6 +2,7 @@ import { page, userEvent } from 'vitest/browser';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
+import * as m from '$lib/paraglide/messages';
 import ColumnDesignationScreen from './ColumnDesignationScreen.svelte';
 import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesignation';
 
@@ -41,6 +42,20 @@ import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesigna
  * The lesson both greens carry is the same and it is not about these two tests: **an assertion read
  * synchronously after an interaction is an assertion about the framework's batching.** Anything
  * checking that something did NOT happen must first wait for the thing that DID.
+ *
+ * The modify note's own breaks, run 2026-08-17, read per test. Three tests, three separate breaks,
+ * because each guards a different direction and no single break could show that:
+ *
+ * D. The note rendered unconditionally instead of behind `modifyAsksForFile`: **one red**, the test
+ *    about the recap that re-asks for nothing. NOT the designation-form test, and that green is the
+ *    finding rather than a pass: the note lives inside `{#if recap}`, so the control form could not
+ *    have shown it whatever the prop said, and that test was guarding a direction this break does
+ *    not move in. Proven separately by E.
+ * E. The note also emitted from the memorisation block, which is the control form's own trailing
+ *    block: **one red**, and it is the designation-form test. That is the break the test exists for.
+ * F. The note moved BELOW the TapLink: **one red**, and only the ordering assertion. A sentence
+ *    explaining a cost the user has already paid is present, correct and useless, so presence alone
+ *    could never have seen it.
  */
 const HEADERS = ['Date operation', 'Date valeur', 'Libelle', 'Montant', 'Categorie'];
 
@@ -404,14 +419,59 @@ describe('above 20 columns the picker gains a search field, and below it does no
 });
 
 describe('the recapitulatif, which is a MODE of this screen and not a second screen', () => {
-	it('draws four 44 px rows in a 235 px card', async () => {
-		// 14 padding + 16 label + 10 gap + 4 rows of 44 + 3 hairlines + 14 padding + 2 border.
+	it('draws four 64 px rows in a 315 px card', async () => {
+		// 14 padding + 16 label + 10 gap + 4 rows of 64 + 3 hairlines + 14 padding + 2 border.
 		// Absolute, because the recap's whole job is to show the same resolution the control form
 		// shows, and a card that drifted by a row height would be showing something else.
+		//
+		// It was 235 over 44 px rows, and the plate sizes it there. The row grew because it stopped
+		// pairing a live column name with a historical value and started stating them as two facts,
+		// which is one line more; the deviation from §3.7 is recorded in `RoleRow`'s own docstring.
 		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		const card = container.querySelector('[data-testid="designation-card"]') as HTMLElement;
-		expect(card.getBoundingClientRect().height).toBe(235);
+		expect(card.getBoundingClientRect().height).toBe(315);
+	});
+
+	it('says the file will be asked for again, and says it before the control', async () => {
+		// Question 5 of the design project's own issue list. The order of the flow cannot change,
+		// because the picker chooses columns on their VALUES and the stored correspondance holds
+		// four column names out of N, so the only thing left to repair is the surprise.
+		//
+		// Separates "the note exists on the page" from "the note is read before the press it is
+		// about". A sentence under the link explains a cost the user has already paid.
+		const { container } = mount({
+			initialAssignment: COMPLETE,
+			readOnly: true,
+			modifyAsksForFile: true
+		});
+
+		const block = container.querySelector('[data-testid="designation-modify"]') as HTMLElement;
+		const text = (block.textContent ?? '').replace(/\s+/g, ' ');
+		expect(text).toContain(m.import_columns_recap_modify_note());
+		expect(text.indexOf(m.import_columns_recap_modify_note())).toBeLessThan(
+			text.indexOf(m.import_columns_modify())
+		);
+	});
+
+	it('does not say it when pressing the link re-asks for nothing', async () => {
+		// THE DIRECTION THIS CHANGE IS NOT MOVING IN, and the reason the note is a prop rather than
+		// a consequence of `readOnly`. This same recap opened over a file still in hand flips the
+		// rows back to their controls in place: nothing is re-asked, and a note promising the file
+		// will be asked for again would be false on exactly the path that has it.
+		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		const block = container.querySelector('[data-testid="designation-modify"]') as HTMLElement;
+		expect(block.textContent).toContain(m.import_columns_modify());
+		expect(block.textContent).not.toContain(m.import_columns_recap_modify_note());
+	});
+
+	it('never says it on the designation form, which asks for the file up front', async () => {
+		// The second half of the same separation, at the other mode. The control form was reached
+		// BY handing over a file, so there is nothing to re-ask and nothing to warn about.
+		const { container } = mount({ initialAssignment: COMPLETE });
+
+		expect(container.textContent).not.toContain(m.import_columns_recap_modify_note());
 	});
 
 	it('opens nothing: the rows are not buttons and do not take focus', async () => {
@@ -452,5 +512,75 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		const card = container.querySelector('[data-testid="designation-card"]') as HTMLElement;
 		expect(card.getBoundingClientRect().height).toBe(355);
 		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(4);
+	});
+
+	/**
+	 * THE AFFORDANCE, and the reason it needed tests at all: it shipped inverted and every test in this
+	 * file stayed green over it.
+	 *
+	 * A blind session recorded « my honest first read was that Annuler was the only control on this
+	 * screen and that I had hit a dead end ». « Modifier les colonnes » — the only reason to be on the
+	 * page — rendered as flat text with no border while « Annuler » sat in a bordered box and cancelled
+	 * nothing on a read-only screen.
+	 *
+	 * Asserted on the RENDERED weight, compared between the two controls in one document rather than
+	 * against a literal colour, so a palette change cannot silently invert it again. A class-name
+	 * assertion would have passed on the inverted version too, since both controls have classes.
+	 */
+	/**
+	 * Whether a control draws a BOX around itself: a fill that is not transparent, or a border.
+	 *
+	 * Asserted as a count rather than as a comparison, and the difference was measured. A first version
+	 * compared the two controls' darkness and passed when BOTH were boxed — which is not the shipped
+	 * defect but is not « one control that reads as one » either, so the test did not cover its own
+	 * title. Counting boxes answers the claim directly.
+	 */
+	function boxed(element: Element): boolean {
+		const style = getComputedStyle(element);
+		const transparent =
+			style.backgroundColor === 'rgba(0, 0, 0, 0)' || style.backgroundColor === 'transparent';
+		return !transparent || style.borderTopWidth !== '0px';
+	}
+
+	it('gives the recap exactly ONE control that reads as one, and it is the modify', async () => {
+		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		const modify = container.querySelector(
+			'[data-testid="designation-modify"] button'
+		) as HTMLElement;
+		const escape = container.querySelector(
+			'[data-testid="designation-footer"] button'
+		) as HTMLElement;
+
+		expect(boxed(modify)).toBe(true);
+		expect(boxed(escape)).toBe(false);
+	});
+
+	it('names the escape after what it does, and never « Annuler », in the recap', async () => {
+		// A14's phantom. Nothing is in progress on a read-only page, so nothing can be cancelled: the
+		// control goes back to the list the recap was opened from. Both assertions, because renaming it
+		// to a third thing would pass a presence check alone.
+		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		const escape = container.querySelector(
+			'[data-testid="designation-footer"] button'
+		) as HTMLElement;
+
+		expect(escape.textContent?.trim()).toBe(m.import_columns_recap_back());
+		expect(escape.textContent).not.toContain(m.import_columns_cancel());
+	});
+
+	it('keeps « Annuler » as the bordered control on the designation FORM', async () => {
+		// The direction this change is not moving in, and the one a careless fix takes with it. On the
+		// control form something IS in progress and abandoning it is exactly what that button does, so
+		// the word and the box are both right there.
+		const { container } = mount({ initialAssignment: COMPLETE });
+
+		const escape = container.querySelector(
+			'[data-testid="designation-footer"] button'
+		) as HTMLElement;
+
+		expect(escape.textContent?.trim()).toBe(m.import_columns_cancel());
+		expect(getComputedStyle(escape).borderTopWidth).not.toBe('0px');
 	});
 });

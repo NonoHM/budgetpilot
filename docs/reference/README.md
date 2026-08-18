@@ -39,6 +39,11 @@ Settings and environment variables are not here: those are in
 [configuration](../configuration.md), because they belong to the install
 rather than to the app.
 
+One page here is not about a feature: **[ASVS deltas](./asvs-deltas.md)** lists the
+security-assessment verdicts that have moved since the commit
+[SECURITY.md](../../SECURITY.md) pins, and is linked from there. It is a list of movements and
+not a current state, which is the first thing the page itself says.
+
 ## How these pages are written
 
 Every number, label and limit is read out of the code before it is written

@@ -4,6 +4,7 @@ import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
 import { findCollidingPairs } from '$lib/server/import/collision';
+import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import type { PageServerLoad } from './$types';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
@@ -90,20 +91,21 @@ export const actions: Actions = {
 			return fail(400, { error: m.imports_error_invalid() });
 		}
 
-		const batch = await prisma.importBatch.findFirst({
-			where: { id: batchId, userId: user.id },
-			select: { id: true }
-		});
-		if (!batch) return fail(404, { error: m.imports_error_not_found() });
-
+		// The same implementation the correction path calls when it replaces the batch it was
+		// launched from. The lookup moved inside it, so a database failure while resolving the batch
+		// now reports `cancel_failed` where it used to surface as an unhandled error; the two 404
+		// and 500 shapes the page renders are unchanged.
+		// DECLARED WITHOUT AN INITIALISER, because `false` here is never read: the try assigns before
+		// anything looks, and the catch returns. `no-useless-assignment` says so and it is right, and
+		// a placeholder that cannot be observed is worse than none, since it reads as a default the
+		// 404 branch below might fall back to.
+		let deleted: boolean;
 		try {
-			await prisma.$transaction([
-				prisma.transaction.deleteMany({ where: { userId: user.id, importBatchId: batch.id } }),
-				prisma.importBatch.delete({ where: { id: batch.id } })
-			]);
+			deleted = await deleteImportBatch(user.id, batchId);
 		} catch {
 			return fail(500, { error: m.imports_error_cancel_failed() });
 		}
+		if (!deleted) return fail(404, { error: m.imports_error_not_found() });
 
 		throw redirect(303, '/imports?cancelled=1');
 	}

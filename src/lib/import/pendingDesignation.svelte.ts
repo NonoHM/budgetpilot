@@ -35,6 +35,37 @@ export interface PendingDesignation {
 	initialAssignment: RoleAssignment;
 	/** Per role, the column indices detection proposes when it will not pick between equals. */
 	candidates: Partial<Record<string, number[]>>;
+	/**
+	 * The correction this designation belongs to, when it is one.
+	 *
+	 * Carried because the designation request is the one that DELETES, and until this field existed
+	 * nothing survived the navigation to tell it so. That absence is why the collision guard fired
+	 * against the very batch the user came to fix, and why a correction left two identical imports
+	 * behind.
+	 *
+	 * Not trusted, exactly like the rest of this module. The id is resolved again, server side,
+	 * against this user's own batches and against the correspondance being corrected, in the request
+	 * that acts on it. Tampering with it from a console selects a batch that is already yours.
+	 */
+	correction: {
+		/**
+		 * The correspondance being corrected, carried ONLY so the way out can rebuild the address it
+		 * came from.
+		 *
+		 * It decides nothing. `batchId` below travels to a request that deletes and is re-resolved
+		 * there; this one is a NAVIGATION target, and the page it navigates to resolves it again from
+		 * its own load before anything is echoed into a form. An id that only rebuilds a URL does not
+		 * need the treatment an id that names a delete does, and saying so here is what stops the two
+		 * being confused later.
+		 *
+		 * Without it, abandoning the designation screen landed on a bare `/import`: the correction
+		 * notice gone, the checkbox gone, and the obvious next action re-importing the statement
+		 * through the very correspondance the user came to fix.
+		 */
+		mappingId: string;
+		batchId: string;
+		deleteOldImport: boolean;
+	} | null;
 }
 
 let pending: PendingDesignation | null = null;

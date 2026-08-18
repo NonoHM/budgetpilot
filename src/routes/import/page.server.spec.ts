@@ -47,7 +47,7 @@ const db = vi.hoisted(() => {
 		useCount: number;
 		lastUsedAt: Date | null;
 	};
-	type ColumnMappingWhere = { userId?: string; fingerprint: { in: string[] } };
+	type ColumnMappingWhere = { id?: string; userId?: string; fingerprint?: { in: string[] } };
 	type ColumnMappingUpdateArgs = {
 		where: { id: string; userId: string };
 		data: { useCount: { increment: number }; lastUsedAt: Date };
@@ -68,6 +68,9 @@ const db = vi.hoisted(() => {
 		// collision payload reports WHEN the other import happened, so a batch without one would be
 		// a shape the page cannot draw.
 		createdAt?: Date;
+		// The correspondance this import was read through, which is what the correction pairing is
+		// resolved against.
+		columnMappingId?: string | null;
 	};
 	type Rule = {
 		id: string;
@@ -109,7 +112,12 @@ const db = vi.hoisted(() => {
 	};
 	type TransactionFindFirstArgs = { where: { userId: string; dedupeKeyHash: string } };
 	type TransactionCountArgs = {
-		where: { userId: string; dedupeKeyHash?: { in: string[] } };
+		where: {
+			userId: string;
+			dedupeKeyHash?: { in: string[] };
+			importBatchId?: string;
+			OR?: unknown[];
+		};
 	};
 	type TransactionGroupByArgs = {
 		where: { userId: string; importBatchId?: { in: string[] } };
@@ -118,6 +126,11 @@ const db = vi.hoisted(() => {
 		userId: string;
 		periodStart?: { lte?: Date };
 		periodEnd?: { gte?: Date };
+	};
+	type BatchFindFirstWhere = {
+		id?: string;
+		userId?: string;
+		columnMappingId?: string;
 	};
 	type TransactionCreateArgs = {
 		data: Omit<Transaction, 'id' | 'manualCategory'> & { manualCategory?: string | null };
@@ -131,6 +144,9 @@ const db = vi.hoisted(() => {
 		transactions: [] as Transaction[],
 		netWorthAccounts: [] as NetWorthAccount[],
 		columnMappings: [] as ColumnMappingRow[],
+		// How many rows of the batch being corrected carry a split or a tag. Set per test rather
+		// than derived, because this fake models neither table.
+		userWorkCount: 0,
 		nextId: 1
 	};
 
@@ -151,7 +167,12 @@ const db = vi.hoisted(() => {
 			for (const value of Object.values(state)) {
 				if (Array.isArray(value)) value.length = 0;
 			}
+			// The loop covers TABLES. Scalars are not arrays, so each one has to be named here, and
+			// the comment above is exactly the failure that applies to them: a scalar added to
+			// `state` and forgotten here survives into the next test and reads as a guard that
+			// failed to fire. Both defaults are stated rather than inferred.
 			state.nextId = 1;
+			state.userWorkCount = 0;
 		},
 		prisma: {
 			netWorthAccount: {
@@ -258,6 +279,32 @@ const db = vi.hoisted(() => {
 							periodEnd: new Date(batch.periodEnd as unknown as string)
 						}))
 				),
+				/**
+				 * The correction pairing, resolved by `/import`'s load and by its action.
+				 *
+				 * Modelled clause by clause, and FAITHFUL rather than strict, which is the same
+				 * distinction `columnMapping.findFirst` below records: an absent clause filters
+				 * nothing, exactly as Prisma does, so dropping `userId` from the production query
+				 * reddens the cross-user test rather than throwing "unmodelled where" in every test
+				 * in this file before reaching it. A clause this cannot express at all still throws.
+				 */
+				findFirst: vi.fn(async ({ where }: { where: BatchFindFirstWhere }) => {
+					const unmodelled = Object.keys(where).filter(
+						(key) => !['id', 'userId', 'columnMappingId'].includes(key)
+					);
+					if (unmodelled.length > 0) {
+						throw new Error(`importBatch.findFirst: unmodelled where ${unmodelled.join(',')}`);
+					}
+					return (
+						state.batches.find(
+							(batch) =>
+								(where.id === undefined || batch.id === where.id) &&
+								(where.userId === undefined || batch.userId === where.userId) &&
+								(where.columnMappingId === undefined ||
+									(batch.columnMappingId ?? null) === where.columnMappingId)
+						) ?? null
+					);
+				}),
 				create: vi.fn(async ({ data }: BatchCreateArgs) => {
 					const batch = {
 						id: id('batch'),
@@ -302,9 +349,22 @@ const db = vi.hoisted(() => {
 					// So an ABSENT clause is modelled as absent, which is what Prisma does, and the
 					// loud throw is kept for a clause this cannot express at all.
 					const keys = Object.keys(where).sort();
-					const unmodelled = keys.filter((key) => key !== 'userId' && key !== 'fingerprint');
-					if (unmodelled.length > 0 || where.fingerprint === undefined)
+					const unmodelled = keys.filter(
+						(key) => key !== 'userId' && key !== 'fingerprint' && key !== 'id'
+					);
+					if (unmodelled.length > 0)
 						throw new Error(`columnMapping.findFirst: unmodelled where ${keys.join(',')}`);
+					// The correction path looks a correspondance up BY ID rather than by fingerprint,
+					// so `id` is modelled here as its own clause instead of the lookup being one shape.
+					if (where.fingerprint === undefined) {
+						return (
+							state.columnMappings.find(
+								(row) =>
+									(where.userId === undefined || row.userId === where.userId) &&
+									(where.id === undefined || row.id === where.id)
+							) ?? null
+						);
+					}
 					const wanted = where.fingerprint.in;
 					return (
 						state.columnMappings.find(
@@ -382,6 +442,18 @@ const db = vi.hoisted(() => {
 				 * decide the term it is supposed to observe.
 				 */
 				count: vi.fn(async ({ where }: TransactionCountArgs) => {
+					// TWO callers with two different WHEREs, and this fake models both rather than
+					// approximating either. T3 counts recognised fingerprints; the correction load
+					// counts the rows of one batch that carry a split or a tag, to decide whether the
+					// control names a loss.
+					//
+					// The split-and-tag count is modelled as ZERO rather than thrown on, and that is a
+					// choice with a reason: this fake's state holds no splits and no tags, so zero is
+					// the faithful answer for every fixture it can build. `deleteBatch.db-smoke.ts` is
+					// where the cascade is proved, against three real engines.
+					if (where.OR) {
+						return state.userWorkCount;
+					}
 					const hashes = where.dedupeKeyHash?.in ?? [];
 					return state.transactions.filter(
 						(transaction) =>
@@ -492,6 +564,170 @@ describe('/import load', () => {
 	beforeEach(() => {
 		db.reset();
 		vi.clearAllMocks();
+	});
+
+	/**
+	 * `?correct=<mapping>&batch=<batch>`, which is the pair that decides a deletion.
+	 *
+	 * Both ids come from the address bar and both are resolved against this user, but the third
+	 * check is the one that is easy to leave out: the batch must be one that was READ THROUGH the
+	 * correspondance it arrives beside. Without it a user could pair their own correspondance with
+	 * any of their own batches and have the correction delete the wrong import, which is a data-loss
+	 * bug rather than a tenancy one, and no amount of `userId` scoping catches it.
+	 */
+	/** The batch's own creation instant, which the control that deletes it now names. */
+	const SEEDED_AT = new Date('2026-08-16T08:59:00.000Z');
+
+	describe('the correction pair', () => {
+		function seedCorrection() {
+			db.state.columnMappings.push({
+				id: 'mapping-1',
+				userId: testUser.id,
+				fingerprint: 'fp-1'
+			} as (typeof db.state.columnMappings)[number]);
+			db.state.batches.push({
+				id: 'batch-1',
+				userId: testUser.id,
+				source: 'csv',
+				profile: 'generic',
+				rowCount: 3,
+				importedRows: 3,
+				duplicateRows: 0,
+				invalidRows: 0,
+				// The load reads this to NAME the batch on the control that deletes it, so a fixture
+				// without one models a row Prisma cannot return: `createdAt` is non-nullable in the
+				// schema. Left absent, every test in this block failed on `undefined.toISOString()`,
+				// which is the mock's shape drifting from the route rather than a defect in either.
+				createdAt: SEEDED_AT,
+				columnMappingId: 'mapping-1'
+			} as (typeof db.state.batches)[number]);
+		}
+
+		async function loadWith(search: string) {
+			return (await load({
+				locals: { user: testUser },
+				url: new URL(`http://localhost/import${search}`)
+			} as never)) as {
+				correction: {
+					mappingId: string;
+					batchId: string | null;
+					replacedAt: string | null;
+					hasUserWork: boolean;
+				} | null;
+			};
+		}
+
+		it('resolves both ids when the batch really was read through that correspondance', async () => {
+			seedCorrection();
+
+			const result = await loadWith('?correct=mapping-1&batch=batch-1');
+
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: 'batch-1',
+				replacedAt: SEEDED_AT.toISOString(),
+				hasUserWork: false
+			});
+		});
+
+		it('carries no timestamp when no batch resolved, so the control cannot half-render', async () => {
+			// `replacedAt` and `batchId` are separate fields of one payload and the page gates the
+			// control on both. Asserted together rather than trusting them to move together: a load that
+			// returned a timestamp beside a null id would render « Supprimer l'import du 16 août » for an
+			// import it cannot name, or nothing at all, depending on which field the page happened to read.
+			seedCorrection();
+
+			const result = await loadWith('?correct=mapping-1&batch=batch-of-nobody');
+
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: null,
+				replacedAt: null,
+				hasUserWork: false
+			});
+		});
+
+		it('drops a batch that belongs to another user, and still corrects', async () => {
+			seedCorrection();
+			db.state.batches[0].userId = 'user-b';
+
+			const result = await loadWith('?correct=mapping-1&batch=batch-1');
+
+			// `batchId` null, and the correction itself survives. Refusing outright would fall through
+			// to an ordinary import, reading the file through the very correspondance the user has just
+			// declared wrong, which is a worse outcome than replacing nothing.
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: null,
+				replacedAt: null,
+				hasUserWork: false
+			});
+		});
+
+		it('drops a batch of this user that was read through a DIFFERENT correspondance', async () => {
+			// The fixture differs from the passing one in exactly the clause under test and in nothing
+			// else: same user, same batch id, same correspondance id in the address bar. No amount of
+			// userId scoping catches this one, and its consequence is a delete aimed at the wrong import.
+			seedCorrection();
+			db.state.batches[0].columnMappingId = 'mapping-2';
+
+			const result = await loadWith('?correct=mapping-1&batch=batch-1');
+
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: null,
+				replacedAt: null,
+				hasUserWork: false
+			});
+		});
+
+		it('corrects without replacing when the address bar names no batch', async () => {
+			// The link's shape before this shipped, which a bookmark or a history entry still holds.
+			seedCorrection();
+
+			const result = await loadWith('?correct=mapping-1');
+
+			expect(result.correction).toEqual({
+				mappingId: 'mapping-1',
+				batchId: null,
+				replacedAt: null,
+				hasUserWork: false
+			});
+		});
+
+		it('reports that the batch carries splits or tags, so the control can name the loss', async () => {
+			// The owner's condition on the control: say nothing when there is nothing to lose, and
+			// name it when there is. Counted server side, because the page cannot see the rows.
+			seedCorrection();
+			db.state.userWorkCount = 3;
+
+			const result = await loadWith('?correct=mapping-1&batch=batch-1');
+
+			expect(result.correction?.hasUserWork).toBe(true);
+		});
+
+		it('counts that work on the BATCH being replaced, scoped to this user', async () => {
+			// Asserted on the clause, because Prisma treats a missing clause as no filter: a count
+			// that dropped `importBatchId` would report another import's splits as this one's and the
+			// control would warn about a loss that cannot occur.
+			seedCorrection();
+
+			await loadWith('?correct=mapping-1&batch=batch-1');
+
+			const call = db.prisma.transaction.count.mock.calls.find(
+				([args]: [{ where: { OR?: unknown[] } }]) => args.where.OR
+			);
+			expect(call?.[0].where).toMatchObject({ userId: testUser.id, importBatchId: 'batch-1' });
+		});
+
+		it('is null when the correspondance itself belongs to another user', async () => {
+			seedCorrection();
+			db.state.columnMappings[0].userId = 'user-b';
+
+			const result = await loadWith('?correct=mapping-1&batch=batch-1');
+
+			expect(result.correction).toBeNull();
+		});
 	});
 
 	it('hasAllImportBucketsExisting: false quand aucun bucket CSV n’existe encore pour cet utilisateur', async () => {
@@ -635,6 +871,66 @@ describe('/import load', () => {
 });
 
 describe('/import actions', () => {
+	/**
+	 * THE CONSENT THAT DECIDES A DELETE, and what a request that never expressed it gets.
+	 *
+	 * The control posts its answer through a hidden companion, because an unchecked box is simply
+	 * absent from a submission. A hand crafted request can omit BOTH, and the question this asks is
+	 * what the server then derives. Same class as the profile test below and the same assertion is
+	 * owed: a hand crafted POST must not obtain a destructive default it never asked for.
+	 *
+	 * ASVS 5.0 **v5.0.0-2.2.1**, which asks for positive validation against an allow list of values
+	 * for input used to make a business or security decision. This field decides a delete, and the
+	 * fix is literally the row: test positively for 'true' rather than negatively against 'false'.
+	 */
+	it('does NOT consent to the delete when the answer is absent from the request', async () => {
+		expect.assertions(2);
+
+		const headers = ['Jour', 'Intitule operation', 'Somme', 'Detail'];
+		db.state.columnMappings.push({
+			id: 'mapping-consent',
+			userId: testUser.id,
+			fingerprint: fingerprintFor(headers, 'name'),
+			matchBy: 'name' as const,
+			dateColumn: 'jour',
+			labelColumn: 'detail',
+			amountColumn: 'somme',
+			categoryColumn: null,
+			dateIndex: null,
+			labelIndex: null,
+			amountIndex: null,
+			categoryIndex: null,
+			columnCount: 4,
+			useCount: 0,
+			lastUsedAt: null as Date | null
+		} as (typeof db.state.columnMappings)[number]);
+		db.state.batches.push({
+			id: 'batch-consent',
+			userId: testUser.id,
+			source: 'csv',
+			profile: 'generic',
+			rowCount: 1,
+			importedRows: 1,
+			duplicateRows: 0,
+			invalidRows: 0,
+			columnMappingId: 'mapping-consent'
+		} as (typeof db.state.batches)[number]);
+
+		const forged = await runImportWithFileAndFields(
+			`${headers.join(';')}\n24/06/2026;CARREFOUR MARKET;-24,90;PAIEMENT CB 22/06`,
+			{ correctMappingId: 'mapping-consent', correctBatchId: 'batch-consent' }
+		);
+
+		// The presence half: the correction really was recognised, so the assertion below is not two
+		// failures agreeing with each other.
+		expect(forged.data.correction?.batchId).toBe('batch-consent');
+		// And the answer it never gave is NO. The two failures are not symmetric: deriving "keep"
+		// from a lost field leaves the user with two imports and a way to repair it, while deriving
+		// "delete" destroys rows with no undo. Same degradation argument the write-then-delete
+		// ordering rests on.
+		expect(forged.data.correction?.deleteOldImport).toBe(false);
+	});
+
 	it('detects the format and ignores any profile the client tries to send', async () => {
 		expect.assertions(4);
 
@@ -1744,6 +2040,7 @@ async function runImport(formData: FormData) {
 		status?: number;
 		data: {
 			error: string;
+			correction?: { batchId: string; deleteOldImport: boolean } | null;
 			importResult?: {
 				fileName?: string;
 				profile?: string;

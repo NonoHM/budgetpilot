@@ -19,6 +19,9 @@ import {
 	resolveImportBucketAccount
 } from '$lib/server/import/persist';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
+import { deleteImportBatch } from '$lib/server/import/deleteBatch';
+import { periodsOverlap } from '$lib/domain/periodOverlap';
+import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
 
 const IMPORT_MAX_BYTES = 256_000;
 const CSV_ACCOUNT_NAME = 'Compte import CSV';
@@ -142,6 +145,31 @@ export const actions: Actions = {
 		}
 
 		/**
+		 * The batch this correction replaces, resolved before it can decide anything.
+		 *
+		 * The id crossed a navigation in the browser's own memory (`pendingDesignation`), so it
+		 * arrives here as an input and nothing more: it is re-resolved against this user's own
+		 * batches, exactly like the correspondance id on `/import`. An id that names a delete is
+		 * never carried on trust.
+		 */
+		const replaceParam = asString(formData.get('replaceBatchId'));
+		const replacing =
+			replaceParam && replaceParam.length > 0
+				? await prisma.importBatch.findFirst({
+						where: { id: replaceParam, userId: user.id },
+						// The PERIOD comes back with the id, because nothing else on this request can tell
+						// whether the file handed back is the statement being corrected. See the withhold
+						// block below.
+						select: {
+							id: true,
+							createdAt: true,
+							periodStart: true,
+							periodEnd: true
+						}
+					})
+				: null;
+
+		/**
 		 * The statement this designation appears to repeat.
 		 *
 		 * THIS route is where the blind usability session actually doubled its finances, and the
@@ -156,7 +184,15 @@ export const actions: Actions = {
 		 */
 		if (formData.get('confirmCollision') !== '1') {
 			const incoming = describeIncomingBatch(result.transactions, result.summary.period);
-			const collision = await findCollidingBatch(user.id, incoming);
+			// The batch being replaced is not a collision with itself: a correction re-reads the same
+			// statement, so it matches all three terms by construction. Scoped to that one id rather
+			// than to the correction path, because a genuine earlier import of the same statement
+			// still doubles the money and still has to raise the dialog.
+			const collision = await findCollidingBatch(
+				user.id,
+				incoming,
+				replacing ? { excludeBatchId: replacing.id } : {}
+			);
 			if (collision) {
 				return fail(409, {
 					collision,
@@ -243,6 +279,87 @@ export const actions: Actions = {
 			parseDuplicateRows: result.summary.duplicateRows
 		});
 
+		/**
+		 * The replace, and the one guard between it and a silent loss of transactions.
+		 *
+		 * ## AFTER the write, never before
+		 *
+		 * The full reasoning lives in `deleteBatch.ts` and it is not a preference. This route cannot
+		 * put the write and the delete in one transaction, because `persistImportedTransactions`
+		 * catches a unique violation and carries on, which PostgreSQL does not allow inside one. The
+		 * ordering is therefore the only control there is: write-then-delete degrades to a doubled
+		 * state the user already knows how to repair, delete-then-write degrades to data loss with
+		 * the file held only in the browser.
+		 *
+		 * ## AND THE DELETE IS WITHHELD WHEN THE CORRECTION LANDED FEWER ROWS THAN IT WOULD DESTROY
+		 *
+		 * The control the user ticked consented to replacing this batch, not to replacing it with
+		 * less. Moving the amount role onto a column with blanks produces exactly that: the blank
+		 * rows are refused, the new batch is smaller, and deleting the old one is a net loss of
+		 * transactions inside a flow called correction.
+		 *
+		 * Withheld rather than refused, because a smaller corrected batch is often CORRECT: rows
+		 * that only imported because a reference column happened to parse as a number are not data
+		 * worth keeping, and refusing outright would send the user back through the whole old
+		 * journey for a repair that worked. So the deliberate delete waits on `/imports`, behind the
+		 * confirmation that names the timestamp and the splits-and-tags cost.
+		 *
+		 * ## TWO DETAILS DECIDE WHETHER THIS CHECK IS ANY GOOD
+		 *
+		 * The count is LIVE and not the batch's `importedRows` column. That column is a fact about
+		 * the past import; this needs the verdict on the present, which is what the delete will
+		 * actually destroy. The two diverge as soon as the user has deleted a row by hand, and
+		 * getting it backwards lets the guard pass while real rows die.
+		 *
+		 * And it compares COUNTS, NEVER TOTALS. A correction that fixes the amount column changes
+		 * the totals by design, so a totals check fires on every correct repair, and a check that
+		 * fires on the good case is discounted within a week and then removed.
+		 */
+		// ONE field with three states rather than two booleans. "Nothing was replaced" and "the
+		// replacement was withheld" are different things to say, and the second has to RETRACT a
+		// promise: two screens announce the replacement before any row is counted, so a run that
+		// then withholds owes the user the NAME of the import it did not delete. `replacedAt` is
+		// that name, and it doubles as the identifier they need on `/imports`.
+		let replaced: ReplaceOutcome = { kind: 'none' };
+		if (replacing) {
+			const replacedRows = await prisma.transaction.count({
+				where: { userId: user.id, importBatchId: replacing.id }
+			});
+			const replacedAt = replacing.createdAt.toISOString();
+			const replacedPeriod = {
+				from: replacing.periodStart?.toISOString() ?? null,
+				to: replacing.periodEnd?.toISOString() ?? null
+			};
+			if (!periodsOverlap(replacedPeriod, result.summary.period)) {
+				// THE WRONG STATEMENT, handed back. Withheld for the same reason and by the same
+				// mechanism as the fewer-rows case, and it is the more dangerous of the two: that one
+				// costs rows the user may not have wanted, this one costs a whole statement they never
+				// touched.
+				//
+				// `correctionMatchesFile` on `/import` cannot see it. It compares the header SHAPE, and
+				// two statements from one bank have identical headers by construction, so the check that
+				// exists passes on precisely the file that must not be accepted. Walked in a browser
+				// before this guard existed: correcting a July import with June's file deleted July and
+				// left two copies of June, with the summary reporting the deletion as a success.
+				//
+				// A WARNING RATHER THAN A REFUSAL, and the asymmetry is the argument. Refusing would send
+				// a user whose file is merely oddly dated back through the thirteen-step tail this wave
+				// exists to remove; withholding leaves both imports and a named route to finish by hand.
+				// Two statements of the same month always overlap however their dates are read, so this
+				// fires on a wrong file and essentially nothing else.
+				replaced = { kind: 'withheldOtherPeriod', replacedAt, replacedPeriod };
+			} else if (persisted.importedRows < replacedRows) {
+				replaced = {
+					kind: 'withheld',
+					replacedAt,
+					replacedRows,
+					importedRows: persisted.importedRows
+				};
+			} else if (await deleteImportBatch(user.id, replacing.id)) {
+				replaced = { kind: 'deleted', replacedAt };
+			}
+		}
+
 		return {
 			importResult: {
 				fileName: importFile.name,
@@ -265,7 +382,8 @@ export const actions: Actions = {
 				// this route does not carry. Present so the payload is one shape rather than two.
 				netWorthLinkStatus: null
 			},
-			capReached
+			capReached,
+			replaced
 		};
 	}
 };
