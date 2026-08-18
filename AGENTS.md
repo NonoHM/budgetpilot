@@ -45,6 +45,8 @@ Two traps, both measured:
   without mounting a route.
 - `src/lib/server/` everything touching the database, auth, parsing or an external host.
 - `src/lib/components/ui/` registered shared components. Check here before writing one.
+  `docs/reference/design-referential.md` maps each referential brick to its file, records what
+  each wave has added to the referential, and names the gaps a plate flagged and did not fill.
 - `src/routes/` thin: parse, authorize, delegate. Logic that can be a pure function is one.
 - `e2e/` Playwright. Shares one database, `workers: 1`, declaration order matters.
 - `prisma/migrations/<provider>/` one history per engine; the same change is different SQL.

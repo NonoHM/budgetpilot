@@ -44,6 +44,12 @@ security-assessment verdicts that have moved since the commit
 [SECURITY.md](../../SECURITY.md) pins, and is linked from there. It is a list of movements and
 not a current state, which is the first thing the page itself says.
 
+Nor is **[the design referential index](./design-referential.md)**: it maps every brick of the
+component referential to the file in this repository that implements it, records the entries each
+wave has added to that referential, and names the gaps a plate flagged and did not fill. The
+referential itself is a Design deliverable and is not tracked here, so this index is how a later
+session finds a decision without going back to the plate that made it.
+
 ## How these pages are written
 
 Every number, label and limit is read out of the code before it is written
