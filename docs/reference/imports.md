@@ -192,14 +192,28 @@ than a reordering, and reading it needs a rule about which column is negative.
 
 ## The four counts
 
-| Count              | Meaning                                     |
-| ------------------ | ------------------------------------------- |
-| Rows read          | Lines found in the file                     |
-| Imported           | New transactions created                    |
-| Duplicates skipped | Already present, so not created again       |
-| Invalid rows       | Refused. The rest of the file still imports |
+| Count              | Meaning                                                                                   |
+| ------------------ | ----------------------------------------------------------------------------------------- |
+| Rows read          | Data rows found in the file. Excludes the header line and any bank footer the app skipped |
+| Imported           | New transactions created                                                                  |
+| Duplicates skipped | Already present, so not created again                                                     |
+| Invalid rows       | Rows refused, at most one refusal per row                                                 |
 
-`rows read = imported + duplicates skipped + invalid rows`.
+**The identity is conditional, and the condition is the interesting half:**
+
+`rows read = imported + duplicates skipped + invalid rows`, **when the rows were
+read at all**.
+
+A refusal about the FILE or its HEADER is not a row and is not counted as one.
+A missing required column, a header appearing twice, a file over the row or
+column cap: in each case the rows are counted, because the file has them, and
+none of them is classified, because the parser never examined one. The summary
+states those refusals in words above the figures, so a reader is never handed
+four boxes that look like an equation and are not.
+
+This is why the summary does not tile the rows read beside the other three. The
+identity above is real and worth relying on inside the parser, and it is not a
+property of the screen.
 
 **Total spending** and **total income** on the summary cover the **imported**
 rows only, so a run that skipped everything reports zero for both.

@@ -208,7 +208,7 @@ describe('a stored mapping that no longer fits, or never should have', () => {
 		expect(result.transactions).toStrictEqual([]);
 		expect(result.invalidRows[0].fact).toStrictEqual({
 			code: 'mapping-columns-missing',
-			roles: 'label'
+			roles: ['label']
 		});
 	});
 
@@ -217,7 +217,7 @@ describe('a stored mapping that no longer fits, or never should have', () => {
 
 		expect(importMapped(foreign).invalidRows[0].fact).toStrictEqual({
 			code: 'mapping-columns-missing',
-			roles: 'date, label, amount'
+			roles: ['date', 'label', 'amount']
 		});
 	});
 

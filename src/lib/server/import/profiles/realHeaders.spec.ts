@@ -50,7 +50,7 @@ describe('real bank headers', () => {
 		// sign rule, deliberately deferred, so `amount` really is missing and saying so is true.
 		expect(result.invalidRows[0].fact).toStrictEqual({
 			code: 'missing-required-column',
-			column: 'amount'
+			role: 'amount'
 		});
 	});
 
@@ -63,7 +63,7 @@ describe('real bank headers', () => {
 		expect(result.invalidRows).toHaveLength(1);
 		expect(result.invalidRows[0].fact).toStrictEqual({
 			code: 'missing-required-column',
-			column: 'date'
+			role: 'date'
 		});
 		// The distinction this test exists for: Chase carries ONE date column, so it is not
 		// ambiguous. It is refused because `posting date` is deliberately absent from the alias

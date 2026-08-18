@@ -160,14 +160,22 @@ The import reports what it did before you go anywhere.
 
 ![An import summary: file name, generic profile, 5 rows read, 5 imported, 0 duplicates skipped, 0 invalid rows, total spending €95.00, total income €2,850.00, and the period covered](../screenshots/imports/summary-desktop.png)
 
-| Figure                 | What it means                                       |
-| ---------------------- | --------------------------------------------------- |
-| **Rows read**          | Lines found in the file                             |
-| **Imported**           | New transactions created                            |
-| **Duplicates skipped** | Recognised as already present, so not created again |
-| **Invalid rows**       | Refused; the rest of the file still imported        |
+It opens with how many rows it read, then shows what became of them.
 
-The four add up: rows read is imported plus duplicates plus invalid.
+| Figure                 | What it means                                                                                                        |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Rows read**          | Data rows found in the file. The header line is not one, and neither is a bank footer the app recognised and skipped |
+| **Imported**           | New transactions created                                                                                             |
+| **Duplicates skipped** | Recognised as already present, so not created again                                                                  |
+| **Invalid rows**       | Rows refused, one per row. A row is refused for one reason, the first one found                                      |
+
+**A problem with the file itself is not a row.** If a required column is missing
+or a header appears twice, nothing was read at all, and the summary says so in
+words above the figures rather than counting it. That is why the figures are not
+presented as a sum: a file refused this way has rows and none of them were
+examined, so there is nothing to subtract.
+
+When the rows were read, imported plus duplicates plus invalid is all of them.
 
 **Total spending** and **total income** cover what was actually imported, so
 after an import that skipped everything they are both zero. That is the

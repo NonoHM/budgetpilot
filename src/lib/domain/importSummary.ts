@@ -39,7 +39,14 @@ export interface ImportSummaryResult {
 	profile: string;
 	totalRows: number;
 	importedRows: number;
+	/** ROWS refused, one per row. Never a complaint about the header, which is not a row. */
 	invalidRows: number;
+	/**
+	 * Complaints about the file or its header, stated in words above the counters rather than
+	 * drawn as a fifth number: three missing roles is three things wrong with one line, and that
+	 * line is not among the rows read.
+	 */
+	fileLevelRefusals: number;
 	duplicateRows: number;
 	totalDebitCents: number;
 	totalCreditCents: number;

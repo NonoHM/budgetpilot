@@ -297,6 +297,7 @@ export function parseRevolutRows({
 			totalRows: rows.length - 1,
 			validRows: transactions.length,
 			invalidRows: refusals.length,
+			fileLevelRefusals: 0,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,

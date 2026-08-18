@@ -85,7 +85,9 @@ export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): Csv
 			[{ code: 'header-not-recognized', profile: 'maison' }],
 			warnings,
 			'maison',
-			0
+			// The rows the file has, like its three sibling profiles. A zero here was the same false
+			// figure the row cap carried: a claim about the file rather than about the refusal.
+			rows.length - 1
 		);
 	}
 
@@ -209,6 +211,7 @@ export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): Csv
 			totalRows: groupOrder.length + ungroupableLines,
 			validRows: transactions.length,
 			invalidRows: refusals.length,
+			fileLevelRefusals: 0,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,

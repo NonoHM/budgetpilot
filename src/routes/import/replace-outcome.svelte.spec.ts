@@ -63,6 +63,7 @@ function summary(invalidRowDetails: ImportInvalidRowDetail[]): ImportSummaryResu
 		totalRows: 30,
 		importedRows: 28,
 		invalidRows: invalidRowDetails.length,
+		fileLevelRefusals: 0,
 		duplicateRows: 0,
 		totalDebitCents: 4200,
 		totalCreditCents: 0,

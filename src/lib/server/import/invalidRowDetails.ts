@@ -41,8 +41,16 @@ export function buildInvalidRowDetails(
 	}));
 }
 
-export function getHiddenInvalidRowsCount(invalidRows: number): number {
-	return Math.max(0, invalidRows - INVALID_ROW_DETAIL_LIMIT);
+/**
+ * How many refusals the list above dropped, counted from the LIST it was sliced from.
+ *
+ * It used to be computed from `summary.invalidRows`, which is now a count of refused ROWS while
+ * this list holds every refusal including the ones scoped to the file. Two populations, one
+ * subtraction: on a file refused for three missing roles the summary counter is zero and the
+ * remainder would have gone negative before the clamp hid it.
+ */
+export function getHiddenInvalidRowsCount(refusalCount: number): number {
+	return Math.max(0, refusalCount - INVALID_ROW_DETAIL_LIMIT);
 }
 
 function anonymizeCsvRowPreview(cells: string[]): string {

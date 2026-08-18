@@ -43,7 +43,10 @@ function formWith(invalidRowDetails: ReturnType<typeof detail>[]) {
 			profile: 'generic',
 			totalRows: 4,
 			importedRows: 0,
-			invalidRows: invalidRowDetails.length,
+			// Split the way the routes split it: a refusal scoped to the header or the file is not a
+			// row, and the page decides where to draw a refusal from exactly this distinction.
+			invalidRows: invalidRowDetails.filter((row) => row.scope.kind === 'row').length,
+			fileLevelRefusals: invalidRowDetails.filter((row) => row.scope.kind !== 'row').length,
 			duplicateRows: 0,
 			totalDebitCents: 0,
 			totalCreditCents: 0,
@@ -95,7 +98,18 @@ describe('the import invalid rows table', () => {
 			.toBeInTheDocument();
 	});
 
-	it('never prints a line number for a header scoped refusal (#291)', async () => {
+	/**
+	 * A header complaint no longer enters the rows table, and #291's guarantee moved with it.
+	 *
+	 * It used to render as a table row whose « Ligne » cell read « en-tête », three times over for
+	 * one header, which is the reading that made « 3 invalides » look like three bad rows. It is
+	 * stated above the counters now. The guarantee is unchanged and its enforcement is stronger:
+	 * the block has no line column to fill, so the invented `index + 1` is unrepresentable rather
+	 * than merely absent.
+	 *
+	 * Both breakpoint copies render on this page, so a figure of 2 is one per copy.
+	 */
+	it('states a header scoped refusal without giving it a line, and opens no rows table', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
 		render(Page, {
@@ -112,38 +126,50 @@ describe('the import invalid rows table', () => {
 			])
 		});
 
-		const table = page.getByRole('table');
-		// The reason must reach the user, which is the presence half: without it, an absence
-		// assertion below would pass on a table that rendered nothing at all.
-		await expect.element(table.getByText('Colonne non autorisée: wibble')).toBeInTheDocument();
-		await expect.element(table.getByText('en-tête', { exact: true })).toBeInTheDocument();
-		// The specific damage #291 did: the old page printed `1` here, pointing the user at a
-		// transaction row that was never examined, while the problem was in the header.
-		expect(table.getByText('1', { exact: true }).elements()).toHaveLength(0);
+		// The reason must reach the user, which is the presence half: without it the two absence
+		// assertions below would pass on a page that rendered nothing at all.
+		await expect
+			.element(page.getByText(refusalLabel({ code: 'unknown-column', column: 'wibble' })).first())
+			.toBeInTheDocument();
+		expect(
+			page.getByText(refusalLabel({ code: 'unknown-column', column: 'wibble' })).elements()
+		).toHaveLength(2);
+		// No rows were refused, so there is no rows table to draw. The old page drew one and put
+		// `1` in its line cell, pointing the user at a transaction row nothing had examined.
+		expect(page.getByRole('table').elements()).toHaveLength(0);
 	});
 
 	it('renders several header scoped refusals together without colliding', async () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
-		// Three header complaints have no line between them. Keyed on the line number, as this
-		// each block was, they would all share one key: a Svelte duplicate key crash at runtime,
-		// invisible to the typecheck because the dependency lives in markup.
+		// Three header complaints have no line between them. Keyed on the line number, as the
+		// table's each block was, they would all share one key: a Svelte duplicate key crash at
+		// runtime, invisible to the typecheck because the dependency lives in markup. The block
+		// they moved to is keyed the same way and inherits the same hazard.
 		render(Page, {
 			data: DATA,
 			form: formWith([
 				detail(0, { kind: 'header' }, { code: 'unknown-column', column: 'alpha' }),
 				detail(1, { kind: 'header' }, { code: 'unknown-column', column: 'beta' }),
-				detail(2, { kind: 'header' }, { code: 'missing-required-column', column: 'date' })
+				detail(2, { kind: 'header' }, { code: 'missing-required-column', role: 'date' })
 			])
 		});
 
-		const table = page.getByRole('table');
-		await expect.element(table.getByText('Colonne non autorisée: alpha')).toBeInTheDocument();
-		await expect.element(table.getByText('Colonne non autorisée: beta')).toBeInTheDocument();
-		await expect.element(table.getByText('Colonne requise absente: date')).toBeInTheDocument();
-		// The absolute figure: three refusals in, three body rows out. A collision would drop rows
-		// silently, and asserting only that some text is present would not notice.
-		expect(table.getByRole('row').elements()).toHaveLength(4); // one header row plus three
+		await expect
+			.element(page.getByText(refusalLabel({ code: 'unknown-column', column: 'alpha' })).first())
+			.toBeInTheDocument();
+		await expect
+			.element(page.getByText(refusalLabel({ code: 'unknown-column', column: 'beta' })).first())
+			.toBeInTheDocument();
+		// The role reaches the user TRANSLATED. Asserting the raw code would assert the defect.
+		await expect
+			.element(
+				page.getByText(refusalLabel({ code: 'missing-required-column', role: 'date' })).first()
+			)
+			.toBeInTheDocument();
+		// The absolute figure: three refusals in, three list items out per breakpoint copy. A key
+		// collision would drop items silently, and asserting only presence would not notice.
+		expect(page.getByRole('listitem').elements()).toHaveLength(6);
 	});
 
 	/**
@@ -248,13 +274,16 @@ describe('the import invalid rows table', () => {
 	it('leaves the field cell empty rather than inventing a value for it', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
+		// A ROW scoped refusal carrying no field, which is the case that still reaches this table:
+		// the file and header scopes moved out of it, and with them the only other way in. The
+		// guarantee is the same one, asserted where it can still be violated.
 		render(Page, {
 			data: DATA,
-			form: formWith([detail(0, { kind: 'file' }, { code: 'file-empty' })])
+			form: formWith([detail(0, { kind: 'row', line: 4 }, { code: 'type-amount-mismatch' })])
 		});
 
 		const table = page.getByRole('table');
-		await expect.element(table.getByText('fichier', { exact: true })).toBeInTheDocument();
+		await expect.element(table.getByText('4', { exact: true })).toBeInTheDocument();
 		// `field ?? 'ligne'` used to fill this cell with a word that named no field at all.
 		expect(table.getByText('ligne', { exact: true }).elements()).toHaveLength(0);
 	});

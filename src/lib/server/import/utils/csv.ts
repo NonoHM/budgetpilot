@@ -115,7 +115,11 @@ export function emptyResult(
 			profile,
 			totalRows,
 			validRows: 0,
-			invalidRows: facts.length,
+			// Not `facts.length`. Every fact reaching here is scoped to the file or to the header, so
+			// none of them is a row, and counting them as rows is what made a refused import report
+			// « 8 lignes lues, 3 invalides » with five rows unaccounted for.
+			invalidRows: 0,
+			fileLevelRefusals: facts.length,
 			duplicateRows: 0,
 			totalDebitCents: 0,
 			totalCreditCents: 0,
@@ -144,6 +148,7 @@ export function buildSummary(input: {
 	totalRows: number;
 	validRows: number;
 	invalidRows: number;
+	fileLevelRefusals: number;
 	duplicateRows: number;
 	totalDebitCents: number;
 	totalCreditCents: number;
@@ -155,6 +160,7 @@ export function buildSummary(input: {
 		totalRows: input.totalRows,
 		validRows: input.validRows,
 		invalidRows: input.invalidRows,
+		fileLevelRefusals: input.fileLevelRefusals,
 		duplicateRows: input.duplicateRows,
 		totalDebitCents: input.totalDebitCents,
 		totalCreditCents: input.totalCreditCents,
@@ -163,6 +169,35 @@ export function buildSummary(input: {
 			to: sortedDates.at(-1) ?? null
 		}
 	};
+}
+
+/**
+ * Every spelling the FILE uses for one folded header name, distinct, in file order.
+ *
+ * The fold is what creates a duplicate, so the folded name is exactly the wrong thing to put in
+ * the refusal: a file carrying `Libellé` and `libelle` is refused because two headers the user can
+ * see are different are the same to us, and « Colonne dupliquée : libelle » sends them looking for
+ * a string their file does not contain. `mapped.ts` learned this on `amount-split-across-columns`,
+ * where quoting the folded form sent a user hunting for « zone 10 » in a file reading `Zone 10`.
+ *
+ * Distinct rather than one per column, because the ordinary case is two columns spelled the same
+ * way and « Libellé, Libellé » says nothing the singular does not.
+ */
+export function duplicatedHeaderSpellings(
+	rawCells: string[],
+	folded: string[],
+	foldedName: string
+): string[] {
+	const seen = new Set<string>();
+	const spellings: string[] = [];
+	folded.forEach((name, index) => {
+		if (name !== foldedName) return;
+		const original = (rawCells[index] ?? '').trim();
+		if (seen.has(original)) return;
+		seen.add(original);
+		spellings.push(original);
+	});
+	return spellings;
 }
 
 export function getDuplicateHeaders(headers: string[]): string[] {

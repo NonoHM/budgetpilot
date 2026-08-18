@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { refusalLabel, scopeLabel, violationLabel } from './refusalLabel';
+import { roleLabel } from '$lib/domain/columnMappingLabels';
 import { CSV_REFUSAL_CODES, type CsvRefusalFact } from '$lib/server/import/refusals';
 import { TRANSACTION_VALIDATION_CODES } from '$lib/domain/transaction';
 
@@ -30,7 +31,7 @@ const FACTS: { [C in CsvRefusalFact['code']]: Extract<CsvRefusalFact, { code: C 
 	'header-not-recognized': { code: 'header-not-recognized', profile: 'Revolut' },
 	'unknown-column': { code: 'unknown-column', column: 'wibble' },
 	'duplicate-column': { code: 'duplicate-column', column: 'date' },
-	'missing-required-column': { code: 'missing-required-column', column: 'amount' },
+	'missing-required-column': { code: 'missing-required-column', role: 'amount' },
 	'bad-column-count': { code: 'bad-column-count', expected: 5, actual: 4 },
 	'ambiguous-column-mapping': {
 		code: 'ambiguous-column-mapping',
@@ -42,7 +43,7 @@ const FACTS: { [C in CsvRefusalFact['code']]: Extract<CsvRefusalFact, { code: C 
 		code: 'amount-split-across-columns',
 		columns: '« Debit » et « Credit »'
 	},
-	'mapping-columns-missing': { code: 'mapping-columns-missing', roles: 'label, amount' },
+	'mapping-columns-missing': { code: 'mapping-columns-missing', roles: ['label', 'amount'] },
 	'mapping-invalid': { code: 'mapping-invalid', reason: 'roles-share-a-column' },
 	'invalid-date': { code: 'invalid-date', column: 'date', value: '01.06.2026' },
 	'invalid-amount': { code: 'invalid-amount', column: 'montant' },
@@ -100,10 +101,18 @@ describe('refusalLabel', () => {
 
 	it('renders the payload of the four facts whose sentence names a value', () => {
 		expect(refusalLabel({ code: 'unknown-column', column: 'wibble' })).toBe(
-			'Colonne non autorisée: wibble'
+			'Colonne non autorisée : wibble'
 		);
 		expect(refusalLabel({ code: 'duplicate-column', column: 'date' })).toContain('date');
-		expect(refusalLabel({ code: 'missing-required-column', column: 'amount' })).toContain('amount');
+		// The ROLE, translated, never the code. `amount` is ours and « Montant » is the word the
+		// designation screen has always shown for the same thing, so this asserts the two agree
+		// rather than asserting a second spelling of one of them.
+		expect(refusalLabel({ code: 'missing-required-column', role: 'amount' })).toBe(
+			`Colonne requise absente : ${roleLabel('amount')}`
+		);
+		expect(refusalLabel({ code: 'missing-required-column', role: 'amount' })).not.toContain(
+			'amount'
+		);
 		// The fourth, and the reason this assertion is not merely symmetrical: a break that made
 		// the catalogue stop interpolating `{value}` left the whole of `dateRefusal.spec.ts`
 		// green, because that file asserts the FACT and this one is the only thing that reads the

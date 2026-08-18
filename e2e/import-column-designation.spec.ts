@@ -209,7 +209,10 @@ test.describe('at 390x844', () => {
 		await page.getByRole('button', { name: /^Importer/ }).click();
 
 		await expect(onScreen(page, m.import_summary_heading())).toBeVisible({ timeout: 15_000 });
-		await expect(onScreen(page, m.import_stat_rows_read())).toBeVisible();
+		// The rows read are a SENTENCE now rather than a tile, and this asserts the figure rather
+		// than the label it used to sit under: the fixture has three data rows, so a summary that
+		// counted the header, or dropped the row with no amount, says a different number and fails.
+		await expect(onScreen(page, m.import_summary_rows_read_line_many({ count: 3 }))).toBeVisible();
 		await expect(onScreen(page, m.import_stat_imported())).toBeVisible();
 		await expect(onScreen(page, m.import_stat_invalid())).toBeVisible();
 

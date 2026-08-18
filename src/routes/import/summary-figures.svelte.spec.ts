@@ -1,0 +1,132 @@
+import { page } from 'vitest/browser';
+import { describe, expect, it } from 'vitest';
+import { render } from 'vitest-browser-svelte';
+import Page from './+page.svelte';
+import * as m from '$lib/paraglide/messages';
+
+/**
+ * How the summary PRESENTS its figures, which is a decision the parser cannot make and no server
+ * spec can see.
+ *
+ * The four counters used to sit in one row of tiles with « Lignes lues » first, and two files of
+ * documentation stated that the four added up. They do not, and cannot: a file refused for its
+ * header has rows and classifies none of them, so there is a real invariant and it is conditional.
+ * Rather than defend a sum on the screen, the screen stopped offering one. The rows read left the
+ * grid and became a sentence, and there is no total among the tiles to subtract from.
+ *
+ * **This is the test for the direction the change is NOT moving in.** The wave makes the app count
+ * differently, so its parser tests assert new figures; what could be lost here is the figure
+ * itself, so every assertion below is that a number still reaches the user, in a place a reader
+ * cannot mistake for a summand.
+ *
+ * Both breakpoint copies render simultaneously on this page, the shape CLAUDE.md records for
+ * /reports and /upcoming-bills, so a figure of 2 below is one per copy.
+ */
+
+const DATA = {
+	linkableNetWorthAccounts: [],
+	rememberedMappings: [],
+	batches: []
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+} as any;
+
+function formWith(overrides: Record<string, unknown> = {}) {
+	return {
+		importResult: {
+			fileName: 'releve.csv',
+			profile: 'generic',
+			totalRows: 8,
+			importedRows: 5,
+			invalidRows: 3,
+			fileLevelRefusals: 0,
+			duplicateRows: 0,
+			totalDebitCents: 4200,
+			totalCreditCents: 0,
+			period: null,
+			batchId: 'batch-1',
+			invalidRowDetails: [],
+			hiddenInvalidRowsCount: 0,
+			netWorthLinkStatus: null,
+			...overrides
+		}
+		// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	} as any;
+}
+
+describe('the import summary states its rows read rather than tiling it', () => {
+	it('says how many rows it read, in words, in both breakpoint copies', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 800);
+		render(Page, { data: DATA, form: formWith() });
+
+		// Built from the fixture's own figure through the catalogue, never typed as a string here:
+		// a hardcoded « 8 lignes lues » asserts this test's spelling of the sentence rather than
+		// the page's, and would go on passing if the page interpolated the wrong number.
+		const sentence = m.import_summary_rows_read_line_many({ count: 8 });
+
+		await expect.element(page.getByText(sentence).first()).toBeInTheDocument();
+		expect(page.getByText(sentence).elements()).toHaveLength(2);
+	});
+
+	it('agrees with itself on one row, where the plural would be wrong', async () => {
+		expect.assertions(1);
+		await page.viewport(1280, 800);
+		render(Page, { data: DATA, form: formWith({ totalRows: 1, importedRows: 1, invalidRows: 0 }) });
+
+		// The boundary: one is the single value where the two catalogue keys disagree.
+		expect(
+			page.getByText(m.import_summary_rows_read_line_one({ count: 1 })).elements()
+		).toHaveLength(2);
+	});
+
+	it('draws five outcome tiles, none of which is a total', async () => {
+		expect.assertions(3);
+		await page.viewport(1280, 800);
+		render(Page, { data: DATA, form: formWith() });
+
+		// Structural rather than by label, because the property is about what the GRID contains: a
+		// reader subtracts from a total that sits beside the parts, and the fix was to take the
+		// total out of the row rather than to rename it. An assertion on the missing label would
+		// also pass on a grid that kept the tile and renamed its heading.
+		const grids = Array.from(document.querySelectorAll('[data-testid="import-summary-figures"]'));
+
+		expect(grids).toHaveLength(2); // one per breakpoint copy
+		expect(grids.map((grid) => grid.children.length)).toStrictEqual([5, 5]);
+		// The presence half, so the count above cannot pass on a page that drew five of something
+		// else: the outcome labels are still there and still tiled.
+		expect(page.getByText(m.import_stat_imported(), { exact: true }).elements()).toHaveLength(2);
+	});
+});
+
+describe('a file refused whole says so above the figures', () => {
+	it('draws the refusal block only when there is a file level refusal', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 800);
+		render(Page, { data: DATA, form: formWith() });
+
+		expect(page.getByText(m.import_summary_refused_heading()).elements()).toHaveLength(0);
+
+		render(Page, {
+			data: DATA,
+			form: formWith({
+				totalRows: 8,
+				importedRows: 0,
+				invalidRows: 0,
+				fileLevelRefusals: 3,
+				invalidRowDetails: [
+					{
+						key: 0,
+						scope: { kind: 'header' },
+						fact: { code: 'missing-required-column', role: 'date' },
+						profile: 'generic',
+						preview: ''
+					}
+				]
+			})
+		});
+
+		await expect
+			.element(page.getByText(m.import_summary_refused_heading()).first())
+			.toBeInTheDocument();
+	});
+});

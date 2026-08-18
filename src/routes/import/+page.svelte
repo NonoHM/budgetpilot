@@ -127,6 +127,37 @@
 	const invalidRowGroups = $derived(groupInvalidRows(importResult?.invalidRowDetails ?? []));
 
 	/**
+	 * The refusals split by what they are ABOUT, because the screen says the two in different places.
+	 *
+	 * A complaint scoped to the header or to the file is not a row, so it has no line to print and
+	 * nothing to preview: it used to sit in the rows table under a « Ligne » column reading
+	 * « en-tête », three times over for one header. It is stated in words above the counters now,
+	 * and the table is left to the rows it can actually describe.
+	 */
+	const fileLevelDetails = $derived(
+		importResult?.invalidRowDetails?.filter((row) => row.scope.kind !== 'row') ?? []
+	);
+	const rowLevelGroups = $derived(
+		groupInvalidRows(
+			importResult?.invalidRowDetails?.filter((row) => row.scope.kind === 'row') ?? []
+		)
+	);
+
+	/**
+	 * How many rows the file has, as a sentence rather than as a tile.
+	 *
+	 * It left the grid deliberately. Beside four outcome figures it read as their total, and the
+	 * four are not a partition of it: a file refused for its header has rows and classifies none of
+	 * them, so no arrangement of tiles could be subtracted honestly. Out of the grid there is no sum
+	 * to read off, which is cheaper than a screen that keeps inviting one and a test defending it.
+	 */
+	const rowsReadLine = $derived(
+		(importResult?.totalRows ?? 0) === 1
+			? m.import_summary_rows_read_line_one({ count: importResult?.totalRows ?? 0 })
+			: m.import_summary_rows_read_line_many({ count: importResult?.totalRows ?? 0 })
+	);
+
+	/**
 	 * What became of the batch a correction was replacing, and the reasons the rows went.
 	 *
 	 * `WITHHELD_REASON_LIMIT` caps the list because groups are already folded per reason and the
@@ -932,11 +963,24 @@
 					</p>
 				{/if}
 
-				<div class="mt-4 grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_rows_read()}</p>
-						<p class="mt-1 text-xl font-semibold">{importResult.totalRows}</p>
+				{#if importResult.fileLevelRefusals > 0}
+					<div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
+						<p class="text-sm font-semibold text-rose-900">{m.import_summary_refused_heading()}</p>
+						<p class="mt-1 text-sm text-rose-800">{m.import_summary_refused_description()}</p>
+						<ul class="mt-2 list-disc space-y-1 pl-5 text-sm text-rose-800">
+							{#each fileLevelDetails as detail (detail.key)}
+								<li>{refusalLabel(detail.fact)}</li>
+							{/each}
+						</ul>
 					</div>
+				{/if}
+
+				<p class="mt-4 text-sm text-zinc-600">{rowsReadLine}</p>
+
+				<div
+					class="mt-3 grid gap-3 md:grid-cols-3 lg:grid-cols-5"
+					data-testid="import-summary-figures"
+				>
 					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
 						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_imported()}</p>
 						<p class="mt-1 text-xl font-semibold text-emerald-700">{importResult.importedRows}</p>
@@ -968,7 +1012,7 @@
 					</p>
 				{/if}
 
-				{#if importResult.invalidRowDetails?.length > 0}
+				{#if rowLevelGroups.length > 0}
 					<section class="mt-6 border-t border-zinc-200 pt-5">
 						<div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
 							<div>
@@ -1000,7 +1044,7 @@
 									it always did — same line number, same preview, no disclosure — so the
 									ordinary single-refusal case is untouched.
 									-->
-									{#each invalidRowGroups as group (group.key)}
+									{#each rowLevelGroups as group (group.key)}
 										<tr class="border-t border-zinc-100">
 											<td class="px-3 py-2 font-medium">
 												{#if group.count === 1}
@@ -1219,11 +1263,21 @@
 					</p>
 				{/if}
 
-				<div class="mt-4 grid grid-cols-2 gap-3">
-					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_rows_read()}</p>
-						<p class="mt-1 text-lg font-bold">{importResult.totalRows}</p>
+				{#if importResult.fileLevelRefusals > 0}
+					<div class="mt-3 rounded-xl bg-rose-50 p-3">
+						<p class="text-sm font-semibold text-rose-900">{m.import_summary_refused_heading()}</p>
+						<p class="mt-1 text-xs text-rose-800">{m.import_summary_refused_description()}</p>
+						<ul class="mt-2 list-disc space-y-1 pl-4 text-xs text-rose-800">
+							{#each fileLevelDetails as detail (detail.key)}
+								<li>{refusalLabel(detail.fact)}</li>
+							{/each}
+						</ul>
 					</div>
+				{/if}
+
+				<p class="mt-3 text-sm text-zinc-600">{rowsReadLine}</p>
+
+				<div class="mt-3 grid grid-cols-2 gap-3" data-testid="import-summary-figures">
 					<div class="rounded-xl bg-zinc-50 p-3">
 						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_imported()}</p>
 						<p class="mt-1 text-lg font-bold text-emerald-700">{importResult.importedRows}</p>
@@ -1264,7 +1318,7 @@
 				</Button>
 			</div>
 
-			{#if importResult.invalidRowDetails?.length > 0}
+			{#if rowLevelGroups.length > 0}
 				<div class="{cardBase} p-5">
 					<div class="flex items-center justify-between gap-3">
 						<h3 class="font-bold text-zinc-950">{m.import_invalid_heading()}</h3>
@@ -1282,7 +1336,7 @@
 						sentence, on 390 px — exactly as it was. Measured at 390 before this: the offer
 						to designate the columns sat above eight identical cards.
 						-->
-						{#each invalidRowGroups as group (group.key)}
+						{#each rowLevelGroups as group (group.key)}
 							<div class="rounded-xl border border-zinc-100 bg-zinc-50/60 p-3">
 								<p class="text-xs text-zinc-400">
 									{#if group.count === 1}

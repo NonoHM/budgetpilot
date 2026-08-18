@@ -93,9 +93,33 @@ export interface ImportedTransaction extends Transaction {
 
 export interface CsvImportSummary {
 	profile: ResolvedCsvImportProfile;
+	/**
+	 * The DATA rows this parse read, which is every row a refusal can be about.
+	 *
+	 * A file the parser refused before reading a row still reports the rows it has: a statement over
+	 * the row cap used to report zero, which reads as a claim about the file rather than about the
+	 * refusal, and nothing on the screen contradicted it.
+	 */
 	totalRows: number;
 	validRows: number;
+	/**
+	 * ROWS refused, one per row, never more.
+	 *
+	 * Every row loop refuses a row and returns, so a row cannot appear here twice. What used to
+	 * inflate this was the other kind of refusal: a complaint about the header or about the file,
+	 * counted once per missing role against a total that counts data rows. Those live in
+	 * `fileLevelRefusals` now, and `totalRows === validRows + invalidRows` holds at every writer.
+	 */
 	invalidRows: number;
+	/**
+	 * Complaints about the FILE or its header, which are not rows and do not partition anything.
+	 *
+	 * Three missing required roles is three things wrong with one line, and that line is not a data
+	 * row. Kept as its own figure rather than folded into `invalidRows` at one and rather than
+	 * dropped: the summary states it in words above the counters, so the number is what the screen
+	 * decides whether to draw, not what it has to invent.
+	 */
+	fileLevelRefusals: number;
 	duplicateRows: number;
 	totalDebitCents: number;
 	totalCreditCents: number;

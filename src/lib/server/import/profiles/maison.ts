@@ -191,6 +191,7 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 			totalRows: rows.length - 1,
 			validRows: transactions.length,
 			invalidRows: refusals.length,
+			fileLevelRefusals: 0,
 			duplicateRows,
 			totalDebitCents,
 			totalCreditCents,
