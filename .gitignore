@@ -104,8 +104,13 @@ e2e/.audit390/
 
 # Serena MCP local project state. project.yml is meant to be versioned with the project
 # (per Serena's own docs); cache, memories and project.local.yml are local-only.
-.serena/*
-!.serena/project.yml
+.serena/
+# Serena's own project config was tracked until 0.13.0, on the theory that a shared
+# `project_name` was worth one file. It is not: the MCP server REWRITES it on session start,
+# stripping its comment block, so every session that touched this repository produced a
+# modified working tree and a prettier warning nobody introduced. Local tool configuration
+# that regenerates itself belongs to the machine, not to the clone. A fresh clone simply
+# re-onboards, which costs one prompt and nothing else.
 
 # Golden master harness and its captures. Same rule as e2e/.audit390 above: a harness that writes
 # into the repo gets swept in by `git add -A`, and a capture is hundreds of kilobytes of generated
