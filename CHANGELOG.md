@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.13.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.12.1...budgetpilot-v0.13.0) (2026-08-19)
+
+
+### Features
+
+* **boot:** validate the install once, and reach the operator before the CSRF wall ([#374](https://github.com/NonoHM/budgetpilot/issues/374)) ([af71ec8](https://github.com/NonoHM/budgetpilot/commit/af71ec88d9af44816bc6ef16d0b14e6f81933606))
+* **import:** a corrected import replaces the batch it was launched from ([#384](https://github.com/NonoHM/budgetpilot/issues/384)) ([5b55efd](https://github.com/NonoHM/budgetpilot/commit/5b55efd984a597049c6a4d89b4188d1915b598fc))
+* **import:** the import path's remaining visual debt, and the state the referential never wrote ([#393](https://github.com/NonoHM/budgetpilot/issues/393)) ([3e4c538](https://github.com/NonoHM/budgetpilot/commit/3e4c538df9ce34762f9e2a288d7cb5d200d90d07))
+
+
+### Bug Fixes
+
+* **dashboard:** key the empty state on the account, not on the period ([#376](https://github.com/NonoHM/budgetpilot/issues/376)) ([5caf53c](https://github.com/NonoHM/budgetpilot/commit/5caf53c2681fc5c1a0454f643336f3c047738e73))
+* **import:** the summary counts refused rows and stops implying a sum ([#386](https://github.com/NonoHM/budgetpilot/issues/386)) ([41be7ab](https://github.com/NonoHM/budgetpilot/commit/41be7ab5047b0665ff968506b4c27f4722eb6731))
+
+
+### Documentation
+
+* **import:** correct what the import pages claim, and say what 0.12 added ([#370](https://github.com/NonoHM/budgetpilot/issues/370)) ([32cbb59](https://github.com/NonoHM/budgetpilot/commit/32cbb5942d06cd691beed3662c7cbc9426a9012b))
+* **import:** the summary screenshot gets a capture step, and the referential stops disagreeing with itself ([#397](https://github.com/NonoHM/budgetpilot/issues/397)) ([8e596d4](https://github.com/NonoHM/budgetpilot/commit/8e596d40aac96529ba47486f9a2257b9da689611)), closes [#387](https://github.com/NonoHM/budgetpilot/issues/387)
+
 ## [0.12.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.12.0...budgetpilot-v0.12.1) (2026-08-16)
 
 **One screen, finished.** 0.12.0 made a bank statement BudgetPilot does not recognise importable.
