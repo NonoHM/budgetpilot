@@ -165,6 +165,18 @@
 				<thead>
 					<tr>
 						{#each file.headers as header, index (index)}
+							<!--
+								THE COLUMN'S NAME FOLLOWS THE USER'S ANSWER, not detection's guess.
+
+								While this read `header` unconditionally, saying « the first line is data » made
+								the picker relabel its cards to « Colonne 1…4 » while this table went on printing
+								« Zone A…D » three hundred pixels away, and the switch's own sentence said the
+								columns were now called Colonne 1, Colonne 2. The screen contradicted itself in
+								two places and its own explanation in a third.
+							-->
+							{@const columnName = file.hasHeaderRow
+								? header || m.import_columns_header_absent_short({ index: index + 1 })
+								: m.import_columns_positional_name({ index: index + 1 })}
 							{@const role = roleAt[index]}
 							<th
 								scope="col"
@@ -182,7 +194,7 @@
 										>{roleLabel(role)}</span
 									>
 									<span class="block truncate text-[11.5px] leading-[16px] text-zinc-500"
-										>{header || m.import_columns_header_absent_short({ index: index + 1 })}</span
+										>{columnName}</span
 									>
 								{:else}
 									<!--
@@ -192,7 +204,7 @@
 										not designate is exactly what they scan for when a value is missing.
 									-->
 									<span class="block truncate text-[11.5px] leading-[16px] text-zinc-400"
-										>{header || m.import_columns_header_absent_short({ index: index + 1 })}</span
+										>{columnName}</span
 									>
 								{/if}
 							</th>

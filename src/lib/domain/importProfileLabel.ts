@@ -39,6 +39,14 @@ export function importProfileLabel(profile: string): string {
 		case 'maison-v2':
 			return m.imports_profile_maison();
 		case 'mapped':
+			// « Sur mesure » and not « Colonnes désignées », which is what this said first. The badge is
+			// a pill beside the card's timestamp and eighteen uppercase characters wrapped that
+			// timestamp onto two lines: measured in a browser, invisible to every test, and the card
+			// heads itself with that timestamp precisely because it is what tells two imports apart.
+			//
+			// It also stopped repeating the « Colonnes reconnues » block twelve pixels below it. What
+			// the badge names is the FORMAT the file was read as, and for this profile the format is
+			// the one the user designated themselves.
 			return m.imports_profile_mapped();
 		case 'generic':
 			return m.imports_profile_generic();

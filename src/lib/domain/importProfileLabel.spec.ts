@@ -13,7 +13,12 @@ describe('importProfileLabel', () => {
 	// mapping that returned the token unchanged would satisfy « returns a string ».
 	it('never shows the mapped token', () => {
 		expect(importProfileLabel('mapped')).not.toBe('mapped');
-		expect(importProfileLabel('mapped')).toBe('Colonnes désignées');
+		expect(importProfileLabel('mapped')).toBe('Sur mesure');
+		// SHORT ENOUGH FOR THE BADGE IT RENDERS IN, and the figure is the finding: at eighteen
+		// uppercase characters this label wrapped the card's own timestamp onto two lines, and that
+		// timestamp is what tells two lookalike imports apart. Sixteen fits, as « Banque Populaire »
+		// already demonstrates on the same card.
+		expect(importProfileLabel('mapped').length).toBeLessThanOrEqual(16);
 	});
 
 	it('names the bank profiles as their banks', () => {

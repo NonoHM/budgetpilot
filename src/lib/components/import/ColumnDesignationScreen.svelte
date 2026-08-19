@@ -12,6 +12,7 @@
 	} from '$lib/domain/columnDesignation';
 	import { bannerFor, fileMetaLine, submitLabel } from '$lib/domain/columnDesignationBanner';
 	import { roleLabel } from '$lib/domain/columnMappingLabels';
+	import { readWithHeaderRow } from '$lib/domain/headerRowReading';
 	import FilePreviewTable from './FilePreviewTable.svelte';
 	import ConditionBanner from '$lib/components/ui/ConditionBanner.svelte';
 	import RoleRow from '$lib/components/ui/RoleRow.svelte';
@@ -285,7 +286,16 @@
 		recap ? m.import_columns_recap_page_title() : m.import_columns_page_title()
 	);
 
-	const effectiveFile = $derived({ ...file, hasHeaderRow });
+	/**
+	 * The file AS THE USER HAS DECLARED IT, which is not the same object as the one detection sent.
+	 *
+	 * This used to be `{ ...file, hasHeaderRow }`, which carried the answer and none of its
+	 * consequences: the picker relabelled its cards and the screen went on saying « 2 lignes »,
+	 * previewing the header line as a heading, and promising « Importer 2 lignes » to a server that
+	 * read three. Measured on the real journey. A count the primary repeats is a figure, and it was
+	 * false.
+	 */
+	const effectiveFile = $derived(readWithHeaderRow(file, hasHeaderRow));
 	const columnCount = $derived(file.headers.length);
 	const candidateCounts = $derived(
 		Object.fromEntries(
@@ -461,7 +471,7 @@
 		<p class="h-[18px] truncate text-[12.5px] leading-[18px] text-zinc-500">
 			{fileMetaLine({
 				columns: columnCount,
-				rows: file.rowCount,
+				rows: effectiveFile.rowCount,
 				// The live state, never `file.hasHeaderRow`: the prop is what DETECTION guessed and
 				// this line has to follow what the USER said.
 				headers: hasHeaderRow
@@ -718,7 +728,7 @@
 			{#if submitting}
 				{m.import_columns_submitting()}
 			{:else if importable}
-				{submitLabel(file.rowCount)}
+				{submitLabel(effectiveFile.rowCount)}
 			{:else}
 				{m.import_columns_submit_blocked()}
 			{/if}
@@ -754,7 +764,7 @@
 					{file.name} ·
 					{fileMetaLine({
 						columns: columnCount,
-						rows: file.rowCount,
+						rows: effectiveFile.rowCount,
 						// The live state, never `file.hasHeaderRow`. Same reason as the 390 copy above.
 						headers: hasHeaderRow
 							? m.import_columns_headers_detected()
@@ -936,7 +946,7 @@
 	<ConfirmDialog
 		open={true}
 		title={m.import_columns_replace_confirm_title({
-			count: file.rowCount,
+			count: effectiveFile.rowCount,
 			date: replaces.namedAt
 		})}
 		confirmLabel={m.import_columns_replace_confirm_label()}

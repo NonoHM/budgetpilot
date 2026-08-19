@@ -73,8 +73,13 @@ describe('the first-line-is-data control', () => {
 
 		const submissions = open();
 		await clickToggle();
+		// `rowCount + 1`, and the +1 IS the repair. Declaring the first line data makes it a
+		// transaction, so the primary counts it. This locator read `FILE.rowCount` and started timing
+		// out the moment the screen stopped promising a figure the server would not honour: measured
+		// on the real journey, the button said « Importer 2 lignes » and the summary reported
+		// « 3 lignes lues dans ce fichier ».
 		await page
-			.getByRole('button', { name: m.import_columns_submit_many({ count: FILE.rowCount }) })
+			.getByRole('button', { name: m.import_columns_submit_many({ count: FILE.rowCount + 1 }) })
 			.first()
 			.click();
 
@@ -170,5 +175,46 @@ describe('the header toggle is a switch, and it is not an option', () => {
 		// The absolute figure beside the claim: three headers, three options, and the control is not
 		// one of them. Before this it announced four.
 		expect(listbox.querySelectorAll('[role="option"]')).toHaveLength(FILE.headers.length);
+	});
+});
+
+/**
+ * THE FALSE FIGURE THE CONTROL USED TO LEAVE ON THE PRIMARY, measured in a browser before this.
+ *
+ * The button promised « Importer 2 lignes » on a file the server then read as three, because the
+ * screen carried the user's answer and none of its consequences. A count the primary repeats is a
+ * figure, and it was wrong by exactly the line the user had just reclassified.
+ */
+describe('the count follows the answer', () => {
+	it('adds the header line to the primary once it is declared data', async () => {
+		await page.viewport(1280, 900);
+		open();
+
+		const before = await page
+			.getByRole('button', { name: m.import_columns_submit_many({ count: FILE.rowCount }) })
+			.first()
+			.element();
+		expect(before).toBeTruthy();
+
+		await clickToggle();
+
+		await expect
+			.element(
+				page
+					.getByRole('button', { name: m.import_columns_submit_many({ count: FILE.rowCount + 1 }) })
+					.first()
+			)
+			.toBeInTheDocument();
+	});
+
+	it('says how many lines the file holds under that reading', async () => {
+		await page.viewport(1280, 900);
+		open();
+		await clickToggle();
+
+		// The meta line and the primary are two renderings of ONE count, so they are asserted
+		// together: a repair reaching only the button would leave the screen disagreeing with itself.
+		const meta = document.body.textContent?.replace(/\s+/g, ' ') ?? '';
+		expect(meta).toContain(`${FILE.rowCount + 1} lignes`);
 	});
 });

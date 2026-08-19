@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
-	import { invalidateAll } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { navigating } from '$app/state';
 	import ImportCardSkeleton from '$lib/components/import/ImportCardSkeleton.svelte';
 	import { createDelayedFlag } from '$lib/delayedFlag.svelte';
@@ -576,6 +576,18 @@
 				// failure inside it, where the press happened.
 				if (result.type === 'redirect') {
 					closeCancelDialog();
+					// NAVIGATED EXPLICITLY, with the load invalidated, and it is a repair rather than a
+					// flourish. Measured in a browser: after the enhanced delete the address bar read
+					// `/imports?cancelled=1` and the success banner was ABSENT, while a fresh navigation
+					// to that same address rendered it. The load reads the flag off the query string, so
+					// the run that produced the redirect was the only one not to re-read it, and the
+					// delete finished in silence on the one screen whose whole job is to report it.
+					//
+					// That is A3's family, and Planche 5f's success row requires the banner by name.
+					// The location comes from the server action's own redirect, so it is already a
+					// resolved address rather than a route id this file could pass through `resolve()`.
+					// eslint-disable-next-line svelte/no-navigation-without-resolve
+					await goto(result.location, { invalidateAll: true });
 					return;
 				}
 				deletePhase = 'error';
