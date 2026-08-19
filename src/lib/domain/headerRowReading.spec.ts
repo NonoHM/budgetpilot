@@ -17,12 +17,22 @@ const FILE = {
 		['04/03/2019', 'LIBRAIRIE', 'W002', '-15,50']
 	],
 	rowCount: 2,
-	hasHeaderRow: true
+	detectedHeaderRow: true
 } as DesignationFile;
 
 describe('readWithHeaderRow', () => {
+	// The RESOLVED shape, which is not the same type as what went in: the guess is replaced by the
+	// answer rather than sitting beside it, so no consumer can read the wrong one.
 	it('leaves the file alone while the user agrees with detection', () => {
-		expect(readWithHeaderRow(FILE, true)).toStrictEqual({ ...FILE, hasHeaderRow: true });
+		const { detectedHeaderRow: _guess, ...rest } = FILE;
+
+		expect(readWithHeaderRow(FILE, true)).toStrictEqual({ ...rest, hasHeaderRow: true });
+	});
+
+	// THE FIELD IS GONE, not merely ignored. This is what makes reading the guess downstream a
+	// compile error rather than a comment somebody has to notice, which is the whole repair.
+	it('carries no detection guess at all on the way out', () => {
+		expect(readWithHeaderRow(FILE, false)).not.toHaveProperty('detectedHeaderRow');
 	});
 
 	// THE FALSE FIGURE. The primary reads this count, and the server read three where it promised

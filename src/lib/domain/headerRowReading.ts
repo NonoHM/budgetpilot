@@ -1,4 +1,4 @@
-import type { DesignationFile } from './columnDesignation';
+import type { DesignationFile, ResolvedDesignationFile } from './columnDesignation';
 
 /**
  * The file AS THE USER HAS DECLARED IT, rather than as detection guessed it.
@@ -26,15 +26,21 @@ import type { DesignationFile } from './columnDesignation';
  * the top of the preview and counting it. Nothing has to be re-read from the server, which matters:
  * the file lives in the browser for the length of one import and there is no second request to make.
  */
-export function readWithHeaderRow(file: DesignationFile, hasHeaderRow: boolean): DesignationFile {
-	if (hasHeaderRow === file.hasHeaderRow) return { ...file, hasHeaderRow };
+export function readWithHeaderRow(
+	file: DesignationFile,
+	hasHeaderRow: boolean
+): ResolvedDesignationFile {
+	const { detectedHeaderRow, ...rest } = file;
+	if (hasHeaderRow === detectedHeaderRow) return { ...rest, hasHeaderRow };
 	if (hasHeaderRow) {
-		// Unreachable from `/import`, which always declares a header row. Returned unchanged rather
-		// than guessed at: a branch no route produces is not built here.
-		return { ...file, hasHeaderRow };
+		// Unreachable from `/import`, which always declares a header row, and the invariant is
+		// ASSERTED in that route's own spec rather than trusted here: the day the payload sends
+		// `false`, the test that names the precondition reddens where the cause is, instead of this
+		// branch silently returning a reading that is wrong in the other direction.
+		return { ...rest, hasHeaderRow };
 	}
 	return {
-		...file,
+		...rest,
 		hasHeaderRow,
 		rowCount: file.rowCount + 1,
 		previewRows: [file.headers, ...(file.previewRows ?? [])]

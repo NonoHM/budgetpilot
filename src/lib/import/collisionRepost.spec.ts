@@ -20,7 +20,7 @@ const PENDING = {
 		samples: [['1'], ['2'], ['3']],
 		rowCount: 2,
 		// DETECTION's guess, and `/import`'s action always sends this as `true`.
-		hasHeaderRow: true
+		detectedHeaderRow: true
 	},
 	initialAssignment: ASSIGNMENT,
 	candidates: {},
@@ -52,7 +52,7 @@ describe('buildCollisionRepost', () => {
 	// way it was guessed. Asserted separately: the two fields are read by different consumers, the
 	// repost by the confirm and the view by the decline.
 	it('hands the same answer to the view the decline reopens', () => {
-		expect(buildCollisionRepost(PENDING, ANSWER).view.hasHeaderRow).toBe(false);
+		expect(buildCollisionRepost(PENDING, ANSWER).view.detectedHeaderRow).toBe(false);
 	});
 
 	// The consent travels because answering re-posts the run. Without it a correction imports beside

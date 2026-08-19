@@ -136,12 +136,17 @@
 
 {#if !dismissed}
 	<!--
-		svelte-ignore a11y_no_noninteractive_tabindex
-		The rule reads « nonnegative tabIndex », and this one is -1, which is exactly the value that
-		makes an element a programmatic focus target WITHOUT adding it to the tab order. The analyser
-		cannot narrow the ternary, so it sees `number | undefined` and assumes the worst. Suppressed
-		with the reason rather than by weakening the attribute, which would be the actual defect.
+		The rule below reads « nonnegative tabIndex », and this one is -1, which is exactly the value
+		that makes an element a programmatic focus target WITHOUT adding it to the tab order. The
+		analyser cannot narrow the ternary, so it sees `number | undefined` and assumes the worst.
+		Suppressed with its reason rather than by weakening the attribute, which would be the defect.
+
+		THE PROSE IS A SEPARATE COMMENT, and that is not style. Everything after `svelte-ignore` in one
+		comment is parsed as a LIST OF RULE CODES, so an explanation written inside it becomes one
+		bogus code per word and `svelte/no-unused-svelte-ignore` reports every one of them. Measured:
+		eighteen errors on two lines, in CI only, because `eslint .` cannot run in this working tree.
 	-->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<p
 		bind:this={bannerEl}
 		class="flex items-start gap-2.5 border font-medium {variantClasses[variant]} {sizeClasses[

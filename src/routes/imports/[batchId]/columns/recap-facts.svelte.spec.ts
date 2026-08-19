@@ -73,7 +73,7 @@ const DATA = {
 		samples: [['17/06/2026'], [IMPORTED_VALUE], ['-6,40 €'], ['']],
 		firstRow: ['17/06/2026', IMPORTED_VALUE, '-6,40 €', ''],
 		rowCount: 30,
-		hasHeaderRow: true
+		detectedHeaderRow: true
 	},
 	assignment: { date: 0, label: 1, amount: 2, category: null }
 } as unknown as PageData;

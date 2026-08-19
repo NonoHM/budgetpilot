@@ -242,7 +242,7 @@ export const actions: Actions = {
 					coverage: importSampleCoverage(importData.rows),
 					firstRow: importFirstDataRow(importData.rows),
 					rowCount: Math.max(0, importData.rows.length - 1),
-					hasHeaderRow: true
+					detectedHeaderRow: true
 				},
 				// Null per role where the remembered column is not in this file. A neighbour picked by
 				// proximity would put the money column somewhere plausible and silent.
@@ -336,7 +336,7 @@ export const actions: Actions = {
 								coverage: importSampleCoverage(importData.rows),
 								firstRow: importFirstDataRow(importData.rows),
 								rowCount: Math.max(0, result.summary.totalRows),
-								hasHeaderRow: true
+								detectedHeaderRow: true
 							}
 						: undefined,
 				importResult: buildImportResult(

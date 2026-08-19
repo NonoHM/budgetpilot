@@ -79,7 +79,7 @@ const VIEW: DesignationFile = {
 	coverage: [1, 1, 1],
 	firstRow: ['24/06/2026', 'MERCERIE', '-24,90'],
 	rowCount: 1,
-	hasHeaderRow: true
+	detectedHeaderRow: true
 } as DesignationFile;
 
 const ASSIGNMENT = { date: 0, label: 1, amount: 2, category: null } as unknown as RoleAssignment;

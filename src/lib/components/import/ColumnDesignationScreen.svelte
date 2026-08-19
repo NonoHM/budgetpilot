@@ -268,7 +268,8 @@
 	// Same reasoning: the user can flip "the first line is data" from inside any picker, and that
 	// answer must outlive the parent's own guess about the file.
 	// svelte-ignore state_referenced_locally
-	let hasHeaderRow = $state(file.hasHeaderRow);
+	// THE ONLY READ OF THE GUESS in this component, and from here on the state is the DECLARATION.
+	let hasHeaderRow = $state(file.detectedHeaderRow);
 	// svelte-ignore state_referenced_locally
 	let recap = $state(readOnly);
 	let announcement = $state('');
@@ -675,7 +676,7 @@
 			<CheckboxField
 				name="deleteOldImport"
 				label={m.import_correct_delete_old_label({ date: replaces.namedAt })}
-				note={replaces.hasUserWork ? m.imports_cancel_cost_note() : undefined}
+				note={replaces.hasUserWork ? m.imports_delete_cost_note() : undefined}
 				bind:checked={deleteOldImport}
 			/>
 		</div>

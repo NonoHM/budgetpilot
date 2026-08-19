@@ -39,6 +39,13 @@ Two traps, both measured:
 - **Never gate a commit on a piped command.** `npm run check | tail` exits with `tail`'s
   status. Redirect to a file and read `$?`.
 
+## The words
+
+`CONTEXT.md` is the glossary. It carries only terms that were AMBIGUOUS IN THE CODE at some point,
+and each entry says what confusing them cost, because that is the part a reader acts on. One of them
+ate a transaction. Read it before naming a field that means nearly the same thing as one that
+already exists.
+
 ## Directory responsibilities
 
 - `src/lib/domain/` pure logic, no `$lib/server`, `$app/*` or Prisma imports. Testable

@@ -14,6 +14,21 @@ import { MAPPING_ROLES, REQUIRED_MAPPING_ROLES, type MappingRole } from './mappi
  * three-column one.
  */
 
+/**
+ * The file AS THE USER HAS DECLARED IT: everything `DesignationFile` carries, with the guess
+ * replaced by the answer.
+ *
+ * A separate type rather than a flag on the same one, because the two are not interchangeable and
+ * the bug that produced this was an assignment between them. Every component that DRAWS a file
+ * takes this, so `file.hasHeaderRow` at a call site is always the declaration and reading the guess
+ * there is a compile error rather than a comment somebody has to notice.
+ *
+ * Built by `readWithHeaderRow`, which is also where the row count and the preview follow the answer.
+ */
+export type ResolvedDesignationFile = Omit<DesignationFile, 'detectedHeaderRow'> & {
+	hasHeaderRow: boolean;
+};
+
 /** Which column index, if any, each role currently holds. */
 export type RoleAssignment = Readonly<Record<MappingRole, number | null>>;
 
@@ -64,8 +79,20 @@ export interface DesignationFile {
 	coverage?: readonly number[];
 	/** Data rows, excluding the header row. Displayed, and used in the primary's label. */
 	rowCount: number;
-	/** False when the first line is data rather than headers. Card titles become positions. */
-	hasHeaderRow: boolean;
+	/**
+	 * WHAT DETECTION GUESSED, and the name says so because the guess and the user's answer are two
+	 * different facts that used to share one word.
+	 *
+	 * They sat two lines apart in the collision repost, `pending.view.hasHeaderRow` beside
+	 * `result.hasHeaderRow`, and reading the wrong one hard-coded a header row back in: the server
+	 * then ate the first line of a file the user had declared headerless. `/import`'s action always
+	 * sends this as `true`, so the wrong read was not merely stale, it was constant.
+	 *
+	 * Nothing draws from this field. What every consumer renders is the RESOLVED file, whose
+	 * `hasHeaderRow` is the declaration, so a component reading the guess by accident no longer
+	 * type-checks.
+	 */
+	detectedHeaderRow: boolean;
 }
 
 /**

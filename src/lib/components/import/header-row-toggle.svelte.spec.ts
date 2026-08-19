@@ -37,7 +37,7 @@ const FILE: DesignationFile = {
 	firstRow: ['2026-06-01', 'Mercerie Lafayette', '-45.20'],
 	rowCount: 3,
 	// What DETECTION guessed. The whole point is that the user disagrees with it.
-	hasHeaderRow: true
+	detectedHeaderRow: true
 };
 
 const ASSIGNMENT: RoleAssignment = { date: 0, label: 1, amount: 2, category: null };

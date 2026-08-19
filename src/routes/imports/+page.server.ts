@@ -103,7 +103,7 @@ export const actions: Actions = {
 		try {
 			deleted = await deleteImportBatch(user.id, batchId);
 		} catch {
-			return fail(500, { error: m.imports_error_cancel_failed() });
+			return fail(500, { error: m.imports_error_delete_failed() });
 		}
 		if (!deleted) return fail(404, { error: m.imports_error_not_found() });
 

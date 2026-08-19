@@ -76,7 +76,7 @@ const FILE = {
 	headers: HEADERS,
 	samples: HEADERS.map((_, index) => [`v${index}a`, `v${index}b`, `v${index}c`]),
 	rowCount: 132,
-	hasHeaderRow: true
+	detectedHeaderRow: true
 };
 
 const PARTIAL: RoleAssignment = { date: 0, label: null, amount: null, category: null };
@@ -368,7 +368,7 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 		});
 		const note = container.querySelector('[data-testid="designation-replace-consent"] p');
 
-		expect(note?.textContent).toBe(m.imports_cancel_cost_note());
+		expect(note?.textContent).toBe(m.imports_delete_cost_note());
 	});
 
 	// BOTH CHROMES. A control wired into one mount and silently missing from the other is invisible

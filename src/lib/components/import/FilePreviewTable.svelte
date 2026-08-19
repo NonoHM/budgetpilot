@@ -2,7 +2,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
 	import { roleLabel } from '$lib/domain/columnMappingLabels';
-	import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
+	import type { ResolvedDesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 
 	/**
 	 * « Aperçu du fichier » — the desktop half of the designation screen.
@@ -50,7 +50,7 @@
 		file,
 		assignment
 	}: {
-		file: DesignationFile;
+		file: ResolvedDesignationFile;
 		assignment: RoleAssignment;
 	} = $props();
 

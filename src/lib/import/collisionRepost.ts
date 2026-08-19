@@ -33,7 +33,7 @@ export function buildCollisionRepost(
 		file: pending.file,
 		// The view carries the USER's answer, not detection's, so declining the dialog reopens the
 		// designation screen the way they left it rather than the way it was guessed.
-		view: { ...pending.view, hasHeaderRow: result.hasHeaderRow },
+		view: { ...pending.view, detectedHeaderRow: result.hasHeaderRow },
 		assignment: result.assignment,
 		remember: result.remember,
 		hasHeaderRow: result.hasHeaderRow,

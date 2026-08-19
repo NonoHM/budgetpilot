@@ -59,13 +59,13 @@ test('imports mobile ListCard: view is visible without expanding; cancel is behi
 	await deleteButton.click();
 
 	const dialog = page.getByRole('dialog', {
-		name: m.imports_cancel_confirm_title({ date: shownDate })
+		name: m.imports_delete_confirm_title({ date: shownDate })
 	});
 	await expect(dialog).toBeVisible();
 	// The confirm copy must state how many transactions will actually be deleted (1 in this
 	// case), not a generic "transactions will be deleted" — cancelling an import can remove
 	// many rows at once, so the count is the real safety signal here.
 	await expect(
-		dialog.getByText(m.imports_cancel_confirm_description_count_one({ count: 1 })).first()
+		dialog.getByText(m.imports_delete_confirm_description_count_one({ count: 1 })).first()
 	).toBeVisible();
 });

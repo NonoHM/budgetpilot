@@ -172,8 +172,8 @@
 
 	function cancelConfirmDescription(importedRows: number): string {
 		return importedRows > 1
-			? m.imports_cancel_confirm_description_count_many({ count: importedRows })
-			: m.imports_cancel_confirm_description_count_one({ count: importedRows });
+			? m.imports_delete_confirm_description_count_many({ count: importedRows })
+			: m.imports_delete_confirm_description_count_one({ count: importedRows });
 	}
 
 	/**
@@ -320,7 +320,7 @@
 				The route keeps `?/cancel` and `?cancelled=1`: those are internal names, and renaming
 				them is a change to an address for the sake of a caption.
 			-->
-			<AlertBanner variant="success">{m.imports_cancelled_notice()}</AlertBanner>
+			<AlertBanner variant="success">{m.imports_deleted_notice()}</AlertBanner>
 		{/if}
 		{@render collisionNotice()}
 		<!-- Gated to skip while the cancel-import ConfirmDialog is open: it already shows its own
@@ -627,10 +627,10 @@
 		-->
 		<ConfirmDialog
 			open={true}
-			title={m.imports_cancel_confirm_title({ date: formatDate(pendingCancel.createdAt) })}
+			title={m.imports_delete_confirm_title({ date: formatDate(pendingCancel.createdAt) })}
 			description={cancelConfirmDescription(pendingCancel.importedRows)}
-			confirmLabel={m.imports_cancel_confirm_label()}
-			cancelLabel={m.imports_cancel_keep_label()}
+			confirmLabel={m.imports_delete_confirm_label()}
+			cancelLabel={m.imports_delete_keep_label()}
 			tone="danger"
 			phase={deletePhase}
 			busyLabel={m.imports_delete_busy()}
@@ -638,7 +638,7 @@
 			onClose={closeCancelDialog}
 		>
 			<p class="text-sm text-zinc-600">
-				{m.imports_cancel_file_prefix()}
+				{m.imports_delete_file_prefix()}
 				<span class="font-medium">{pendingCancel.fileName ?? m.imports_default_file_name()}</span>
 			</p>
 			<!--
@@ -648,7 +648,7 @@
 				across four categories cannot. A destructive action stating only half its cost is a
 				confirmation that is not one.
 			-->
-			<p class="mt-2 text-sm text-zinc-600">{m.imports_cancel_cost_note()}</p>
+			<p class="mt-2 text-sm text-zinc-600">{m.imports_delete_cost_note()}</p>
 			<!--
 				The failure is no longer rendered here. It is the dialog's own `error` slot now, which
 				puts it between the body and the actions, announces it with `role="alert"` AND moves the

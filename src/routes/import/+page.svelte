@@ -323,7 +323,7 @@
 				coverage: designation.coverage,
 				firstRow: designation.firstRow,
 				rowCount: designation.rowCount,
-				hasHeaderRow: designation.hasHeaderRow
+				detectedHeaderRow: designation.detectedHeaderRow
 			},
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
 			candidates: {},
@@ -774,7 +774,7 @@
 			<!--
 				The sentence that used to sit here told the user to go and delete the old import
 				themselves, which is the 13 step journey this wave removes. It is replaced by the
-				control that does it, and the control NAMES WHAT IT COSTS: `imports_cancel_cost_note`
+				control that does it, and the control NAMES WHAT IT COSTS: `imports_delete_cost_note`
 				is reused rather than restated, because it is the sentence the explicit delete already
 				shows and a second wording for one fact is how two screens start disagreeing.
 

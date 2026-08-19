@@ -45,7 +45,7 @@ import type { PageData } from './$types';
  * Measured, because a green says nothing until that is known, and because only ONE of the five was
  * red before the change: the other four could not see the defect they exist for. A message that
  * takes no parameter still accepts one and ignores it, so every assertion comparing the title
- * against `imports_cancel_confirm_title({ date })` agreed with the un-parameterised constant on
+ * against `imports_delete_confirm_title({ date })` agreed with the un-parameterised constant on
  * both sides. Their meaning starts at this change, and their green before it is worth nothing.
  *
  *  - title reverted to a constant: 3 red, this file's whole point.
@@ -154,7 +154,7 @@ describe('the delete confirmation on the desktop chrome', () => {
 
 		await page.getByRole('button', { name: m.common_delete() }).nth(1).click();
 
-		expect(dialogName()).toBe(m.imports_cancel_confirm_title({ date: await shownDate(OLDER_AT) }));
+		expect(dialogName()).toBe(m.imports_delete_confirm_title({ date: await shownDate(OLDER_AT) }));
 	});
 
 	it('offers no control that calls the deletion an annulation', async () => {
@@ -171,8 +171,8 @@ describe('the delete confirmation on the desktop chrome', () => {
 		const labels = [...(dialog?.querySelectorAll('button') ?? [])].map((b) =>
 			(b.textContent ?? '').trim()
 		);
-		expect(labels).toContain(m.imports_cancel_confirm_label());
-		expect(labels).toContain(m.imports_cancel_keep_label());
+		expect(labels).toContain(m.imports_delete_confirm_label());
+		expect(labels).toContain(m.imports_delete_keep_label());
 		expect(labels).not.toContain(m.common_cancel());
 	});
 });
@@ -193,7 +193,7 @@ describe('the delete confirmation on the mobile chrome', () => {
 		const older = await shownDate(OLDER_AT);
 		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
 
-		expect(dialogName()).toBe(m.imports_cancel_confirm_title({ date: await shownDate(OLDER_AT) }));
+		expect(dialogName()).toBe(m.imports_delete_confirm_title({ date: await shownDate(OLDER_AT) }));
 	});
 });
 
@@ -341,7 +341,7 @@ describe('the delete that is refused', () => {
 		// control's name (« Supprimer l'import du ... »), so an unscoped match resolves to three.
 		await page
 			.getByRole('dialog')
-			.getByRole('button', { name: m.imports_cancel_confirm_label(), exact: true })
+			.getByRole('button', { name: m.imports_delete_confirm_label(), exact: true })
 			.click();
 
 		// Both halves, because either alone is satisfied by the defect: a dialog that closed would
@@ -368,7 +368,7 @@ describe('the delete that is refused', () => {
 		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
 		(
 			[...document.querySelectorAll('[role="dialog"] button')].find((b) =>
-				b.textContent?.includes(m.imports_cancel_confirm_label())
+				b.textContent?.includes(m.imports_delete_confirm_label())
 			) as HTMLElement
 		).click();
 		await new Promise((r) => setTimeout(r, 0));
@@ -418,7 +418,7 @@ describe('the delete that gets no answer at all', () => {
 		await vi.advanceTimersByTimeAsync(0);
 		(
 			[...document.querySelectorAll('[role="dialog"] button')].find(
-				(b) => b.textContent?.trim() === m.imports_cancel_confirm_label()
+				(b) => b.textContent?.trim() === m.imports_delete_confirm_label()
 			) as HTMLElement
 		).click();
 

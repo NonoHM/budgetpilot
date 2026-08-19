@@ -4,7 +4,7 @@
 	import {
 		isUnavailableFor,
 		roleHolding,
-		type DesignationFile,
+		type ResolvedDesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
@@ -77,7 +77,7 @@
 		 */
 		variant?: 'sheet' | 'anchored';
 		role: MappingRole;
-		file: DesignationFile;
+		file: ResolvedDesignationFile;
 		assignment: RoleAssignment;
 		/** Column indices detection proposes for this role. Never includes the designated one. */
 		candidates?: readonly number[];
