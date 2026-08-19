@@ -19,7 +19,14 @@ const fakeCatalog = vi.hoisted(() => [
 ]);
 
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
-vi.mock('./default-rules/catalog', () => ({ loadDefaultRuleCatalog: () => fakeCatalog }));
+// Partial: the catalogue CONTENT is faked so these tests own their fixture, but
+// `displayNameForDefaultRule` is the real one. Faking it too would let the name written to the
+// database and the name asserted here come from the same place, which is the shape of a test that
+// cannot fail.
+vi.mock('./default-rules/catalog', async (importOriginal) => ({
+	...(await importOriginal<typeof import('./default-rules/catalog')>()),
+	loadDefaultRuleCatalog: () => fakeCatalog
+}));
 
 const { ensureDefaultRulesSeeded, restoreMissingDefaultRules } = await import('./defaultRules');
 

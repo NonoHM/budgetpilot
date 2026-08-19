@@ -93,6 +93,7 @@
 	{
 		"key": "food_cora",
 		"match": "\\bcora\\b",
+		"name": "Cora",
 		"isRegex": true,
 		"targetCategoryKey": "food",
 		"targetNature": null
@@ -135,6 +136,7 @@
 	{
 		"key": "food_spar",
 		"match": "\\bspar\\b",
+		"name": "Spar",
 		"isRegex": true,
 		"targetCategoryKey": "food",
 		"targetNature": null
@@ -226,6 +228,7 @@
 	{
 		"key": "dining_dominos",
 		"match": "domino's|dominos",
+		"name": "Domino's",
 		"isRegex": true,
 		"targetCategoryKey": "dining",
 		"targetNature": null

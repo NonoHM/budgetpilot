@@ -20,6 +20,16 @@ const MAX_RULE_FIELD_LENGTH = 80;
 const defaultRuleEntrySchema = z.object({
 	key: z.string().min(1).max(60),
 	match: z.string().min(2).max(MAX_RULE_FIELD_LENGTH),
+	/**
+	 * What the user READS on /rules, when the match expression is not fit to be read.
+	 *
+	 * Optional, and absent for most of the catalogue on purpose: « leclerc » upper-cased is exactly
+	 * the right name for the Leclerc rule, and 156 hand-written names would be 156 chances to
+	 * disagree with the pattern beside them. It is set only where `match` is a regex, because there
+	 * the derived name is the expression itself — /rules listed a rule called
+	 * `\bpea\b|plan.{0,4}[ée]pargne.{0,4}actions?`.
+	 */
+	name: z.string().min(1).max(60).optional(),
 	isRegex: z.boolean(),
 	targetCategoryKey: z.enum(DEFAULT_CATEGORY_KEYS),
 	targetNature: z.enum(TRANSACTION_NATURES).nullable()
@@ -92,4 +102,15 @@ export function loadDefaultRuleCatalog(): DefaultRuleEntry[] {
 
 	cachedCatalog = catalog;
 	return catalog;
+}
+
+/**
+ * The name a seeded rule carries on /rules: the entry's own when it has one, otherwise the match
+ * with its first character upper-cased.
+ *
+ * Lives here rather than in `defaultRules.ts` so the catalogue's spec can assert what a user will
+ * read without going through Prisma. `defaultRules.ts` calls it, so the two cannot drift.
+ */
+export function displayNameForDefaultRule(entry: DefaultRuleEntry): string {
+	return entry.name ?? entry.match.charAt(0).toUpperCase() + entry.match.slice(1);
 }

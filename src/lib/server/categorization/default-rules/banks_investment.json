@@ -44,6 +44,7 @@
 	{
 		"key": "savings_pea",
 		"match": "\\bpea\\b|plan.{0,4}[ée]pargne.{0,4}actions?",
+		"name": "PEA",
 		"isRegex": true,
 		"targetCategoryKey": "savings",
 		"targetNature": null
@@ -58,6 +59,7 @@
 	{
 		"key": "income_caf",
 		"match": "\\bcaf\\b|caisse.{0,4}allocations",
+		"name": "CAF",
 		"isRegex": true,
 		"targetCategoryKey": "income",
 		"targetNature": null
@@ -65,6 +67,7 @@
 	{
 		"key": "income_france_travail",
 		"match": "p[oô]le emploi|france travail",
+		"name": "France Travail",
 		"isRegex": true,
 		"targetCategoryKey": "income",
 		"targetNature": null

@@ -58,6 +58,7 @@
 	{
 		"key": "subscriptions_canal_plus",
 		"match": "canal\\+|canal plus",
+		"name": "Canal+",
 		"isRegex": true,
 		"targetCategoryKey": "subscriptions",
 		"targetNature": null

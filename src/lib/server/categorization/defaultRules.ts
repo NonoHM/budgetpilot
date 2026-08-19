@@ -1,6 +1,6 @@
 import { prisma } from '$lib/server/db';
 import { DEFAULT_CATEGORIES } from '$lib/server/categories/defaults';
-import { loadDefaultRuleCatalog } from './default-rules/catalog';
+import { displayNameForDefaultRule, loadDefaultRuleCatalog } from './default-rules/catalog';
 
 /**
  * Seeds the predefined categorization rules for a user, exactly once.
@@ -50,7 +50,7 @@ async function createMissingDefaultRules(userId: string): Promise<number> {
 		.filter((entry) => !existingKeys.has(entry.key))
 		.map((entry) => ({
 			userId,
-			name: deriveRuleName(entry.match),
+			name: displayNameForDefaultRule(entry),
 			matchText: entry.match,
 			targetCategory: categoryNameByKey.get(entry.targetCategoryKey) ?? entry.targetCategoryKey,
 			targetNature: entry.targetNature,
@@ -69,8 +69,4 @@ async function createMissingDefaultRules(userId: string): Promise<number> {
 	}
 
 	return rulesToCreate.length;
-}
-
-function deriveRuleName(match: string): string {
-	return match.charAt(0).toUpperCase() + match.slice(1);
 }

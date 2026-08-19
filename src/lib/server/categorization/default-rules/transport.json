@@ -72,6 +72,7 @@
 	{
 		"key": "transport_esso",
 		"match": "\\besso\\b",
+		"name": "Esso",
 		"isRegex": true,
 		"targetCategoryKey": "transport",
 		"targetNature": null
@@ -86,6 +87,7 @@
 	{
 		"key": "transport_bp",
 		"match": "bp station|bp fuel",
+		"name": "BP",
 		"isRegex": true,
 		"targetCategoryKey": "transport",
 		"targetNature": null
@@ -114,6 +116,7 @@
 	{
 		"key": "transport_indigo_parking",
 		"match": "indigo park|parking indigo",
+		"name": "Indigo",
 		"isRegex": true,
 		"targetCategoryKey": "transport",
 		"targetNature": null
