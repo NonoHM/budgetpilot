@@ -1130,26 +1130,48 @@
 		data.selectedTransaction?.id === id ? buildDeselectedHref() : buildSelectedHref(id);
 
 	/**
-	 * The split form's action, carrying the CURRENT selection and filters through the POST.
+	 * The action URL for every POST form inside the detail panel, carrying the CURRENT selection and
+	 * filters through the submit.
 	 *
 	 * A bare `action="?/saveSplits"` posts to `/transactions?/saveSplits`, and that query string is
 	 * the WHOLE query string — `selected` goes with it, so the panel the form lives in is gone by the
-	 * time the response renders. Measured, not reasoned: the first e2e run of this flow saved the
+	 * time the response renders. Measured, not reasoned: the first e2e run of the split flow saved the
 	 * répartition correctly (the Répartition filter appeared, which only happens once the user owns a
 	 * part) and then found no success banner, because there was no panel left to hold one. SvelteKit
 	 * reads the action from the search param whose key starts with `/`, so every other param riding
 	 * along is preserved rather than parsed.
 	 *
-	 * The three sibling forms in this panel — manual category, manual nature, étiquettes — have the
-	 * same shape and all close the panel on save. That is pre-existing and is left alone here; it
-	 * matters more for this one because 1j-B's edit state and 1i's success message are both things
-	 * the user is meant to SEE after saving.
+	 * ONE builder for all four forms in this panel rather than one derived each. The répartition
+	 * carried the selection while manual category, manual nature and étiquettes did not, and four
+	 * sibling forms behaving two different ways is the drift this repository keeps finding: the fix
+	 * lands on the site that was noticed and the others go on shipping the defect.
 	 */
-	const splitFormAction = $derived(
+	const panelFormAction = (actionName: string) =>
 		data.selectedTransaction
-			? `${buildSelectedHref(data.selectedTransaction.id)}&/saveSplits`
-			: '?/saveSplits'
-	);
+			? `${buildSelectedHref(data.selectedTransaction.id)}&/${actionName}`
+			: `?/${actionName}`;
+
+	const splitFormAction = $derived(panelFormAction('saveSplits'));
+
+	/**
+	 * The submit handler the panel's manual-category, manual-nature and étiquettes forms share.
+	 *
+	 * The action URL above is what a submit WITHOUT javascript needs; this is what a submit with it
+	 * needs, and the two are not substitutes. A native submit NAVIGATES: even carrying the selection
+	 * it is a full page load, so the open sections close, the scroll resets, and the refusal lands on
+	 * a freshly rendered page rather than in the form the user just pressed Enregistrer in. `enhance`
+	 * fetches the action and re-runs the load in place. Every other POST form on this route already
+	 * does this; these three were the only ones that did not.
+	 *
+	 * `reset: false` because all three are state-driven, not value-driven: the submitted value lives
+	 * in a `$state` mirrored into a hidden input, so a native form reset would blank that input under
+	 * a component that is not reading it. Same reason `enhanceSplitForm` passes it.
+	 */
+	const enhancePanelForm: SubmitFunction = () => {
+		return async ({ update }) => {
+			await update({ reset: false });
+		};
+	};
 
 	/**
 	 * The ONE way the detail closes, whichever gesture asked for it: the header cross, Escape, a
@@ -3085,7 +3107,12 @@
 											})}
 										</AlertBanner>
 									{/if}
-									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualCategory">
+									<form
+										class="mt-3 grid gap-2"
+										method="POST"
+										action={panelFormAction('saveManualCategory')}
+										use:enhance={enhancePanelForm}
+									>
 										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 										<input type="hidden" name="manualCategory" value={manualCategoryValue} />
 										<label class="grid gap-1 text-sm font-medium text-zinc-600">
@@ -3113,8 +3140,29 @@
 												}}
 											/>
 										</label>
+										<!--
+											THE REFUSAL, and where it appears is a decision rather than wiring.
+
+											It stays INSIDE this form, between the control it is about and the button that
+											submitted it: this panel holds four forms, so a shared banner at its top could
+											not say which one refused. That is the rule the répartition editor already
+											states for itself — « l'échec appartient à ce formulaire » — and this is the
+											same class of event, so it gets the same treatment rather than a second one.
+
+											`AlertBanner variant="error"` rather than the bare rose line that was here:
+											it carries `role="alert"`, and the announcement is the whole point now that the
+											panel survives. The refusal arrives with nothing else on screen changing, so a
+											reader looking anywhere but this corner has no other signal. It also brings an
+											icon, so "this is a refusal" is not carried by colour alone.
+
+											NOT the treatment /settings uses for its two rose lines. Those validate as the
+											user types; an assertive announcement per keystroke would be noise. This one
+											answers a submit the user has already made.
+										-->
 										{#if form?.manualCategoryError}
-											<p class="text-xs text-rose-600">{form.manualCategoryError}</p>
+											<AlertBanner variant="error" size="sm">
+												{form.manualCategoryError}
+											</AlertBanner>
 										{/if}
 										<div class="flex flex-wrap gap-2">
 											<Button type="submit" size="sm" disabled={!categoryIsDirty}
@@ -4002,7 +4050,8 @@
 					bind:this={mobileCategoryFormEl}
 					class="flex flex-col gap-2"
 					method="POST"
-					action="?/saveManualCategory"
+					action={panelFormAction('saveManualCategory')}
+					use:enhance={enhancePanelForm}
 				>
 					<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 					<input type="hidden" name="manualCategory" value={manualCategoryValue} />
@@ -4022,8 +4071,9 @@
 						class="w-full"
 						triggerClass="!bg-zinc-50"
 					/>
+					<!-- Same banner as the desktop panel's, for the reasons written out there. -->
 					{#if form?.manualCategoryError}
-						<p class="text-xs text-rose-600">{form.manualCategoryError}</p>
+						<AlertBanner variant="error" size="sm">{form.manualCategoryError}</AlertBanner>
 					{/if}
 					<Button
 						type="submit"
