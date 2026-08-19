@@ -21,7 +21,8 @@ npm run setup                # first run: .env, DB, seed
 npm run dev                  # dev server
 npm run build                # production build. Catches what check and vitest cannot.
 npm run check                # svelte-check over the whole tree
-npm run lint                 # prettier --check . && eslint .
+npm run lint                 # prettier --check . && eslint .  (CI only, see below)
+npm run lint:tracked         # the same two legs over tracked files. Use this one locally.
 npm run test:unit -- --run   # vitest, unit + component
 npm run test:db              # db-smoke against a real engine (sqlite locally; CI does pg + mysql)
 npm run test:e2e             # playwright, full suite
@@ -29,13 +30,16 @@ npm run db:generate          # all three Prisma clients. Nothing type-checks unt
 npm run db:schemas           # regenerate pg/mysql schemas from schema.prisma; CI fails if stale
 ```
 
-Before pushing: `npm run db:generate && npm run check && npm run test:unit -- --run && npm run build`.
+Before pushing: `npm run db:generate && npm run check && npm run lint:tracked && npm run test:unit -- --run && npm run build`.
 
 Two traps, both measured:
 
-- **Project-wide globs do not work here.** Registered worktrees make eslint emit ~1720
-  parse errors and prettier walk generated files. Use per-file paths, or
-  `git ls-files -z | xargs -0 npx prettier --check`.
+- **Project-wide globs do not work here, so `npm run lint` is a CI-only command.** Registered
+  worktrees under `.claude/worktrees/` make eslint emit ~1720 parse errors and prettier walk
+  generated files. They are other branches' checkouts and are not deleted to make a command
+  convenient. Run `npm run lint:tracked` instead: the same two legs over `git ls-files`, which is
+  the file set a fresh clone has, so it is what CI sees. It refuses to report a clean run over an
+  empty file list.
 - **Never gate a commit on a piped command.** `npm run check | tail` exits with `tail`'s
   status. Redirect to a file and read `$?`.
 
@@ -45,6 +49,11 @@ Two traps, both measured:
 and each entry says what confusing them cost, because that is the part a reader acts on. One of them
 ate a transaction. Read it before naming a field that means nearly the same thing as one that
 already exists.
+
+**A change that renames, splits or retires a domain term updates `CONTEXT.md` in the same PR**,
+with what confusing the two cost rather than a definition. Same reason the referential index above
+is updated by the wave that adds a brick: a page nobody is required to touch records nothing, and
+the cost is only knowable by whoever just paid it.
 
 ## Directory responsibilities
 
