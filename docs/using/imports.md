@@ -158,7 +158,7 @@ columns: see [Importing the same file twice](#importing-the-same-file-twice).
 
 The import reports what it did before you go anywhere.
 
-![An import summary: file name, generic profile, 5 rows read, 5 imported, 0 duplicates skipped, 0 invalid rows, total spending €95.00, total income €2,850.00, and the period covered](../screenshots/imports/summary-desktop.png)
+![An import summary: the file releve-juin-2026.csv, read by the generic profile. A line above the figures reads "8 rows read from this file", then five tiles: 8 imported, 0 duplicates skipped, 0 invalid rows, €367.35 total spending, €2,524.30 total income. Below them, the period 2026-06-01 to 2026-06-24](../screenshots/imports/summary-desktop.png)
 
 It opens with how many rows it read, then shows what became of them.
 
