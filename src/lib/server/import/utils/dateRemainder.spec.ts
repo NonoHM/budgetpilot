@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeDate } from './csv';
-import { parseCsvTransactions } from '../csv';
 
 /**
  * A date cell is a date and then, at most, a TIME. #366.
@@ -46,7 +45,7 @@ describe('the date cells real statements actually carry', () => {
 		expect(normalizeDate('2026-08-01')).toBe('2026-08-01');
 		// Boursorama, `:29` — bare ISO in two columns.
 		expect(normalizeDate('2026-08-01')).toBe('2026-08-01');
-		// Banque Populaire, `:41` — day-first with slashes.
+		// Crédit Agricole, `:41` — day-first with slashes, in a Debit/Credit file.
 		expect(normalizeDate('01/08/2026')).toBe('2026-08-01');
 		// Chase, `:57`. 8 January, NOT 1 August: this file reads `dd/mm` and the alias table
 		// deliberately refuses `posting date` because of it. Pinned so the fix cannot quietly
