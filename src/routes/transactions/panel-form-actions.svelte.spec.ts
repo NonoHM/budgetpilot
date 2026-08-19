@@ -178,4 +178,34 @@ describe('the detail panel posts without discarding the panel', () => {
 			expect(alert?.textContent).toContain(m.transactions_error_category_locked_by_split());
 		}
 	});
+
+	it('manual nature: both mounts carry the selection and every active filter', async () => {
+		await page.viewport(1280, 900);
+		const { container } = render(Page, { data: baseData(), form: null });
+
+		const forms = container.querySelectorAll('form[action$="/saveManualNature"]');
+		expect(forms.length).toBe(2);
+
+		for (const form of forms) expectCarriesSelectionAndFilters(form, 'saveManualNature');
+	});
+
+	it('manual nature: a refusal is announced, in the form it belongs to', async () => {
+		await page.viewport(1280, 900);
+		// The refusal this form can actually produce: the Select offers only valid natures, so the
+		// reachable answer is the row having gone (deleted in another tab) between the selection and
+		// the submit.
+		const { container } = render(Page, {
+			data: baseData(),
+			form: { manualNatureError: m.transactions_error_transaction_not_found() }
+		});
+
+		const forms = container.querySelectorAll('form[action$="/saveManualNature"]');
+		expect(forms.length).toBe(2);
+
+		for (const form of forms) {
+			const alert = form.querySelector('[role="alert"]');
+			expect(alert).not.toBeNull();
+			expect(alert?.textContent).toContain(m.transactions_error_transaction_not_found());
+		}
+	});
 });

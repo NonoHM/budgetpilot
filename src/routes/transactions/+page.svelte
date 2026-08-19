@@ -3247,7 +3247,12 @@
 								<!-- Nature manuelle -->
 								<section class="rounded-xl border border-zinc-200 p-3">
 									<h3 class="text-sm font-semibold">{m.transactions_manual_nature_heading()}</h3>
-									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualNature">
+									<form
+										class="mt-3 grid gap-2"
+										method="POST"
+										action={panelFormAction('saveManualNature')}
+										use:enhance={enhancePanelForm}
+									>
 										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 										<input type="hidden" name="manualNature" value={manualNatureValue} />
 										<label class="grid gap-1 text-sm font-medium text-zinc-600">
@@ -3267,8 +3272,11 @@
 												}}
 											/>
 										</label>
+										<!-- Same banner as the manual category form's, for the reasons written out there. -->
 										{#if form?.manualNatureError}
-											<p class="text-xs text-rose-600">{form.manualNatureError}</p>
+											<AlertBanner variant="error" size="sm">
+												{form.manualNatureError}
+											</AlertBanner>
 										{/if}
 										<div class="flex flex-wrap gap-2">
 											<Button type="submit" size="sm" disabled={!natureIsDirty}
@@ -4156,7 +4164,8 @@
 					bind:this={mobileNatureFormEl}
 					class="flex flex-col gap-2"
 					method="POST"
-					action="?/saveManualNature"
+					action={panelFormAction('saveManualNature')}
+					use:enhance={enhancePanelForm}
 				>
 					<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 					<input type="hidden" name="manualNature" value={manualNatureValue} />
@@ -4172,8 +4181,9 @@
 						}}
 						class="h-11 w-full !rounded-xl !border-zinc-200 !bg-zinc-50 px-3.5"
 					/>
+					<!-- Same banner as the manual category form's, for the reasons written out there. -->
 					{#if form?.manualNatureError}
-						<p class="text-xs text-rose-600">{form.manualNatureError}</p>
+						<AlertBanner variant="error" size="sm">{form.manualNatureError}</AlertBanner>
 					{/if}
 					<Button
 						type="submit"
