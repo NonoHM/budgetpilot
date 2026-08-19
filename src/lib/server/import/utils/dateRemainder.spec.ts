@@ -1,0 +1,215 @@
+import { describe, expect, it } from 'vitest';
+import { normalizeDate, normalizeFirstValidDate } from './csv';
+import { parseCsvTransactions } from '../csv';
+
+/**
+ * A date cell is a date and then, at most, a TIME. #366.
+ *
+ * ## The defect
+ *
+ * Both date branches in `normalizeDate` are anchored at `^` and not at `$`, so each takes a
+ * PREFIX and discards whatever follows. That is deliberate and load-bearing — Revolut writes
+ * `2026-08-01 10:00:00` in its date column and every bank that stamps a time relies on it — and
+ * the same looseness silently swallows a second date. A `période` column reading
+ * `01/01/2026 au 31/01/2026`, which is exactly the column a user designates by mistake on the
+ * designation screen, imported EVERY row under 1 January. No refusal, no warning: every monthly
+ * total wrong and nothing on screen saying so.
+ *
+ * ## Why the rule is about the REMAINDER rather than the pattern
+ *
+ * Anchoring at `$` fixes the defect and breaks Revolut, which would be a far larger regression
+ * than the defect. So the date match stays a prefix, and a second, separate rule decides whether
+ * what FOLLOWS it is admissible. Only a time is.
+ *
+ * ## Why an over-tight remainder rule fails SAFE, and a loose one does not
+ *
+ * A time format no bank in the fixtures writes — `10:00 CET`, say — is refused by this rule.
+ * That is a refusal the user can read and act on. The defect it replaces is a wrong date the user
+ * cannot see at all. The repository already decides this direction, in the sentence keeping
+ * `posting date` out of the alias table: *a file that imports with a wrong date is worse than the
+ * refusal it replaces*. Widen the pattern when a real statement demands it, never pre-emptively.
+ *
+ * ## This block is the calibration and it PASSES BEFORE THE FIX
+ *
+ * Every value below is a real bank's real date cell, taken from `realHeaders.fixture.ts`, or the
+ * timestamp forms #366 names as must-not-break. They are asserted first, with a stated count, so
+ * that a fix which over-tightens reddens here rather than being reported as a success elsewhere.
+ */
+describe('the date cells real statements actually carry', () => {
+	it('reads every date form the real header fixtures contain', () => {
+		expect.assertions(6);
+
+		// Revolut, `realHeaders.fixture.ts:19` — a space-separated time, the case #366 names as
+		// the reason the pattern cannot simply be anchored at `$`.
+		expect(normalizeDate('2026-08-01 10:00:00')).toBe('2026-08-01');
+		// N26, `:24` — bare ISO, quoted in the file, unquoted by the time it reaches here.
+		expect(normalizeDate('2026-08-01')).toBe('2026-08-01');
+		// Boursorama, `:29` — bare ISO in two columns.
+		expect(normalizeDate('2026-08-01')).toBe('2026-08-01');
+		// Crédit Agricole, `:41` — day-first with slashes, in a Debit/Credit file.
+		expect(normalizeDate('01/08/2026')).toBe('2026-08-01');
+		// Chase, `:57`. 8 January, NOT 1 August: this file reads `dd/mm` and the alias table
+		// deliberately refuses `posting date` because of it. Pinned so the fix cannot quietly
+		// change the ORDERING while changing the remainder rule.
+		expect(normalizeDate('08/01/2026')).toBe('2026-01-08');
+		expect(normalizeDate('08/01/2026')).not.toBe('2026-08-01');
+	});
+
+	it('reads the timestamp forms the fix must not break', () => {
+		expect.assertions(5);
+
+		expect(normalizeDate('01/01/2026 12:00')).toBe('2026-01-01');
+		expect(normalizeDate('01/01/2026 12:00:00')).toBe('2026-01-01');
+		expect(normalizeDate('2026-01-01T10:00:00Z')).toBe('2026-01-01');
+		expect(normalizeDate('2026-01-01T10:00:00.500Z')).toBe('2026-01-01');
+		expect(normalizeDate('2026-01-01 10:00:00+02:00')).toBe('2026-01-01');
+	});
+
+	it('still produces an impossible date rather than refusing it here', () => {
+		expect.assertions(2);
+
+		// `31/02/2026` must go on normalising to `2026-02-31` so the DOWNSTREAM `isValidIsoDate`
+		// refuses it as `invalid-date`. Moving that refusal into this function would change which
+		// code the user is shown, which is a contract change (#290) and not this issue.
+		expect(normalizeDate('31/02/2026')).toBe('2026-02-31');
+		expect(normalizeDate('13/13/2026')).toBe('2026-13-13');
+	});
+});
+
+describe('a date cell carrying more than a date', () => {
+	it('refuses a second date rather than importing under the first', () => {
+		expect.assertions(6);
+
+		// Returned UNCHANGED, which is what makes `isValidIsoDate` downstream produce the
+		// ordinary `invalid-date` refusal. The alternative — refusing inside this function —
+		// would need a new code and a catalogue entry for a case the existing code describes.
+		expect(normalizeDate('01/01/2026-01/01/2025')).toBe('01/01/2026-01/01/2025');
+		expect(normalizeDate('01/01/2026 - 01/01/2025')).toBe('01/01/2026 - 01/01/2025');
+		// « au » is how a French `période` column is written, and a `période` column is exactly
+		// what a user designates as the date by mistake on the designation screen. This is the
+		// realistic instance of #366 rather than the constructed one.
+		expect(normalizeDate('01/01/2026 au 31/01/2026')).toBe('01/01/2026 au 31/01/2026');
+		expect(normalizeDate('01/01/2026xyz')).toBe('01/01/2026xyz');
+		// A bare `T` with no time following it. `TIME_AFTER_DATE` requires at least `\d{1,2}:\d{2}`
+		// after the separator, so an empty time is not a time-only remainder and the cell is
+		// refused rather than silently trimmed to the date. Pinned rather than changed.
+		expect(normalizeDate('2026-01-01T')).toBe('2026-01-01T');
+		// A DOUBLE space before the time. `TIME_AFTER_DATE` is anchored on a single `[ T]`
+		// separator, so the second space is part of the remainder and fails the match — refused,
+		// not silently trimmed. Pinned rather than changed.
+		expect(normalizeDate('01/01/2026  10:00')).toBe('01/01/2026  10:00');
+	});
+
+	it('applies the same rule to the ISO branch, which #366 does not cover', () => {
+		expect.assertions(3);
+
+		// #366 blames the French branch alone and tests the ISO range only in its slash-joined
+		// form, which the `[ T]` separator happens to refuse already. Space-joined, the ISO
+		// branch had the identical defect and imported silently. Fixing one branch and citing
+		// #366's table would have read as proof the whole thing was fixed.
+		expect(normalizeDate('2026-01-01 2026-02-01')).toBe('2026-01-01 2026-02-01');
+		expect(normalizeDate('2026-01-01 xyz')).toBe('2026-01-01 xyz');
+		// Already refused before this change; asserted so the fix cannot regress it.
+		expect(normalizeDate('2026-01-01/2026-02-01')).toBe('2026-01-01/2026-02-01');
+	});
+});
+
+describe('what the user meets when they designate a période column as the date', () => {
+	it('refuses the row and names the column and the value', () => {
+		expect.assertions(3);
+
+		const result = parseCsvTransactions(
+			'date,label,amount\n01/01/2026 au 31/01/2026,Mercerie Lafayette,-45.20'
+		);
+
+		expect(result.transactions).toHaveLength(0);
+		expect(result.invalidRows).toHaveLength(1);
+		// A code, not a sentence (#290). The value is echoed back so the user can see WHICH cell
+		// was refused without opening the file.
+		expect(result.invalidRows[0].fact).toEqual({
+			code: 'invalid-date',
+			column: 'date',
+			value: '01/01/2026 au 31/01/2026'
+		});
+	});
+
+	it('refuses every row rather than importing some of them', () => {
+		expect.assertions(2);
+
+		// The shape of the defect was a SILENT PARTIAL, which is the failure this repository
+		// treats as worse than a refusal: a file where some rows land under a wrong date and
+		// the summary reports a successful import. All three rows carry the same bad column,
+		// so all three must be refused.
+		const result = parseCsvTransactions(
+			'date,label,amount\n' +
+				'01/01/2026 au 31/01/2026,Mercerie Lafayette,-45.20\n' +
+				'01/01/2026-31/01/2026,Boulangerie Pain Doré,-8.40\n' +
+				'01/01/2026xyz,Salaire,2450.00'
+		);
+
+		expect(result.transactions).toHaveLength(0);
+		expect(result.invalidRows).toHaveLength(3);
+	});
+
+	it('imports the same file once the date column is a date column', () => {
+		expect.assertions(3);
+
+		// The control. Without it, a fix that refused EVERYTHING would pass both tests above.
+		const result = parseCsvTransactions(
+			'date,label,amount\n' +
+				'01/01/2026,Mercerie Lafayette,-45.20\n' +
+				'15/01/2026 12:00,Boulangerie Pain Doré,-8.40'
+		);
+
+		expect(result.invalidRows).toHaveLength(0);
+		expect(result.transactions).toHaveLength(2);
+		expect(result.summary.period).toEqual({ from: '2026-01-01', to: '2026-01-15' });
+	});
+});
+
+/**
+ * `normalizeFirstValidDate` loops over candidate date columns and returns the first that
+ * normalises to a VALID ISO date. The narrowing above is a narrowing of `normalizeDate`, but not
+ * of this function: growing the set of values `normalizeDate` refuses grows the set that FALLS
+ * THROUGH to the next candidate here. A row whose first date column just became unreadable does
+ * not stop importing — it imports under a LATER column's date instead, silently. Two production
+ * callers rely on exactly this: `revolut.ts` (`Date de fin`, `Date de début`) and
+ * `banque-populaire.ts` (`Date operation`, `Date de comptabilisation`, `Date de valeur`), where
+ * the three Banque Populaire columns are genuinely different dates on a real statement. The
+ * fall-through is what the function is FOR, and this block exists so a regression in it is
+ * visible here rather than discovered on a real file.
+ */
+describe('normalizeFirstValidDate falls through to the next valid column', () => {
+	it('skips a candidate refused by the remainder rule and uses the next one', () => {
+		expect.assertions(1);
+
+		// Before this branch, `normalizeDate('01/01/2026 au 31/01/2026')` prefix-matched and won
+		// with `2026-01-01`: the first candidate was accepted even though it carried a second
+		// date. After the narrowing, that candidate is refused (returned unchanged, which is not
+		// a valid ISO date), so the loop moves on and the SECOND candidate wins instead. This is
+		// therefore a deliberate VALUE CHANGE for this input, not merely a new refusal.
+		expect(normalizeFirstValidDate('01/01/2026 au 31/01/2026', '15/01/2026')).toBe('2026-01-15');
+	});
+
+	it('still prefers the first candidate when it is readable', () => {
+		expect.assertions(1);
+
+		// Revolut's real two-column shape, both carrying a timestamp remainder. The first
+		// candidate is valid, so it wins and the second is never consulted.
+		expect(normalizeFirstValidDate('2026-08-02 10:00:00', '2026-08-01 09:00:00')).toBe(
+			'2026-08-02'
+		);
+	});
+
+	it('returns an invalid best effort when every candidate is unreadable', () => {
+		expect.assertions(2);
+
+		const result = normalizeFirstValidDate('01/01/2026 au 31/01/2026', '01/01/2026-31/01/2026');
+
+		// Neither candidate normalises to a valid ISO date, so the loop exhausts itself and falls
+		// back to `normalizeDate` on the first present value — itself refused, unchanged. The
+		// caller's own `isValidIsoDate` check is what turns this into a refusal.
+		expect(result).toBe('01/01/2026 au 31/01/2026');
+		expect(result.length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(result)).toBe(false);
+	});
+});
