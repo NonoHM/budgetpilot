@@ -181,23 +181,35 @@ test.describe('a correction that replaces one import and would duplicate another
 		await page.getByRole('button', { name: m.import_columns_modify() }).click();
 		await expect(page).toHaveURL(/\/import\?correct=[^&]+&batch=/);
 
-		// 3b. THE CONTROL NAMES THE IMPORT IT WILL DELETE, and it arrives ticked. Both are asserted
-		//     here rather than taken on trust: the default is what makes step 4 a replacement, and the
-		//     name is what the user is consenting against. Located by the message's invariant half so
-		//     the assertion and the catalogue are not two sources for one string.
-		const DATE_SLOT = '@@';
-		const [labelHead] = m.import_correct_delete_old_label({ date: DATE_SLOT }).split(DATE_SLOT);
-		const consent = page.locator('section:visible input[type="checkbox"]').first();
-		await expect(consent).toBeChecked();
-		await expect(onScreen(page, labelHead.trim())).toBeVisible();
-
 		// 4. The correction: label moves to the DETAIL column, which neither A nor B ever used.
 		await uploadTo('e2e-replace-opaque.csv', opaque);
 		await page.getByRole('button', { name: m.import_columns_offer() }).click();
 		await expect(page).toHaveURL(/\/import\/columns$/);
+
+		// 4b. THE CONTROL NAMES THE IMPORT IT WILL DELETE, and it arrives ticked. Both are asserted
+		//     rather than taken on trust: the default is what makes this a replacement, and the name is
+		//     what the user is consenting against. Located by the message's invariant half so the
+		//     assertion and the catalogue are not two sources for one string.
+		//
+		//     ASSERTED HERE AND NOT ON `/import`, which is Planche 5c: the question moved to the moment
+		//     it forms, after the offending role has been changed and beside the count of what will be
+		//     imported. Above the file picker it asked the fate of the old import before the file was
+		//     chosen and before knowing the correction would succeed.
+		const DATE_SLOT = '@@';
+		const [labelHead] = m.import_correct_delete_old_label({ date: DATE_SLOT }).split(DATE_SLOT);
+		const consent = page.locator('input[type="checkbox"]:visible').first();
+		await expect(consent).toBeChecked();
+		await expect(onScreen(page, labelHead.trim())).toBeVisible();
 		await page.getByRole('button', { name: /^Libellé, colonne désignée/ }).click();
 		await page.getByRole('option', { name: new RegExp(`^Bloc Y${suffix}\\.`) }).click();
+		// PLANCHE 5c: the consent moved into this footer, pre-ticked, so the press PROPOSES and the
+		// confirmation consents. One deliberate intention for one irreversible result, and it is the
+		// step that took this journey from 8 to 9.
 		await page.getByRole('button', { name: /^Importer/ }).click();
+		await page
+			.getByRole('dialog')
+			.getByRole('button', { name: m.import_columns_replace_confirm_label() })
+			.click();
 
 		// 5. THE REPLACING FRAMING, and BOTH facts. B is excluded from the collision search because it
 		//    is being replaced, so what fires is A: a third import this run really would duplicate.

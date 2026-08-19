@@ -165,7 +165,14 @@ test.describe('a memorised correspondance that is wrong can be corrected', () =>
 		// 7. The correction itself.
 		await page.getByRole('button', { name: /^Libellé, colonne désignée/ }).click();
 		await page.getByRole('option', { name: new RegExp(`^Zone Q${suffix}\\.`) }).click();
+		// PLANCHE 5c: the consent moved into this footer, pre-ticked, so the press PROPOSES and the
+		// confirmation consents. One deliberate intention for one irreversible result, and it is the
+		// step that took this journey from 8 to 9.
 		await page.getByRole('button', { name: /^Importer/ }).click();
+		await page
+			.getByRole('dialog')
+			.getByRole('button', { name: m.import_columns_replace_confirm_label() })
+			.click();
 		await expect(page).toHaveURL(/\/import$/, { timeout: 15_000 });
 
 		// 7b. THE GUARD DOES NOT FIRE, and its silence is the win rather than an omission.
