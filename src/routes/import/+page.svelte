@@ -1015,11 +1015,26 @@
 						</div>
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
 							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_duplicates()}</p>
-							<p class="mt-1 text-xl font-semibold">{importResult.duplicateRows}</p>
+							<p
+								class="mt-1 text-xl font-semibold"
+								class:text-amber-600={importResult.duplicateRows > 0}
+							>
+								{importResult.duplicateRows}
+							</p>
 						</div>
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
 							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_invalid()}</p>
-							<p class="mt-1 text-xl font-semibold text-rose-700">{importResult.invalidRows}</p>
+							<!--
+								Gated, like the mobile chrome forty lines below, which always was. Hardcoded
+								rose painted « Lignes invalides 0 » — the best news this panel carries — in
+								the colour it uses for a refusal, beside a red banner.
+							-->
+							<p
+								class="mt-1 text-xl font-semibold"
+								class:text-rose-700={importResult.invalidRows > 0}
+							>
+								{importResult.invalidRows}
+							</p>
 						</div>
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
 							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_total_debit()}</p>
