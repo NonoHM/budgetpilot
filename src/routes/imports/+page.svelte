@@ -120,6 +120,10 @@
 		listLoading.set(navigating.to?.url.pathname === '/imports');
 	});
 	$effect(() => () => listLoading.destroy());
+	// The no-answer timer follows the same discipline as the skeleton's, and it was the one timer in
+	// this file that did not. Navigating away with a delete still in flight left it armed to fire
+	// twenty seconds later into state nothing was reading.
+	$effect(() => () => clearNoAnswerTimer());
 
 	/**
 	 * The timestamp this page identifies an import BY, so it is rendered to the second.

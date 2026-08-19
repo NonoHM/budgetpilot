@@ -276,7 +276,7 @@
 	"imports_profile_banque_populaire": "Banque Populaire",
 	"imports_profile_revolut": "Revolut",
 	"imports_profile_maison": "In-house format",
-	"imports_profile_mapped": "Designated columns",
+	"imports_profile_mapped": "Custom",
 	"imports_table_period": "Period",
 	"imports_table_read": "Read",
 	"imports_table_imported": "Imported",

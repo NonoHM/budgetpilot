@@ -3,6 +3,7 @@ import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import '../../layout.css';
 import { setPendingDesignation } from '$lib/import/pendingDesignation.svelte';
+import { clearPendingCollision } from '$lib/import/pendingCollision.svelte';
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 
 const navigation = vi.hoisted(() => ({ goto: vi.fn(async () => {}) }));
@@ -75,6 +76,7 @@ function seed() {
 
 beforeEach(() => {
 	posted = null;
+	clearPendingCollision();
 	vi.clearAllMocks();
 	vi.stubGlobal(
 		'fetch',
@@ -142,3 +144,21 @@ describe('what the correction posts, and what decides it', () => {
 		expect(posted!.get('replaceBatchId')).toBeNull();
 	});
 });
+
+/**
+ * THE COLLISION BRANCH IS ASSERTED ELSEWHERE, and where it went is the finding.
+ *
+ * A run that collides hands the dialog a repost, and that mapping carried
+ * `pending.view.hasHeaderRow` — DETECTION'S GUESS — where it should have carried the user's answer.
+ * `/import`'s action always sends the first as `true`, so answering « Importer quand même » re-posted
+ * a header row against a file the user had declared headerless and the server ate its first line.
+ *
+ * A test was written here first and could not reach the branch: it is entered only through a
+ * serialised `ActionResult`, and a hand-built payload does not survive `deserialize`, so the route
+ * landed in its own catch and the assertion read `undefined` for a reason that had nothing to do
+ * with its claim. The TRANSPORT was what made the seam untestable, not the mapping.
+ *
+ * So the mapping moved out into `$lib/import/collisionRepost.ts`, where it is a pure function with
+ * a fixture whose two `hasHeaderRow` values DIFFER. Every collision fixture in this repository kept
+ * them equal, which is why a mapping reading the wrong one agreed with the right one.
+ */

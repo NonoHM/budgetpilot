@@ -13,6 +13,7 @@
 	} from '$lib/import/pendingDesignation.svelte';
 	import { setCompletedImport, type ReplaceOutcome } from '$lib/import/completedImport.svelte';
 	import { setPendingCollision } from '$lib/import/pendingCollision.svelte';
+	import { buildCollisionRepost } from '$lib/import/collisionRepost';
 	import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
 	import { applyAction, deserialize } from '$app/forms';
@@ -218,26 +219,11 @@
 				) {
 					setPendingDesignation({ ...pending, initialAssignment: result.assignment });
 					setPendingCollision({
-						repost: {
-							file: pending.file,
-							// So that declining can reopen this very screen with its answers. See
-							// `pendingCollision.svelte.ts`: the view cannot be rebuilt from a file name.
-							view: pending.view,
-							assignment: result.assignment,
-							remember: result.remember,
-							hasHeaderRow: pending.view.hasHeaderRow,
-							// Carried through the question WHOLE, because answering it re-posts to this same
-							// action and a correction that lost its batch id here would import beside the
-							// import it came to replace. The choice travels with the id: the dialog has to
-							// tell a deliberate keep apart from an ordinary duplicate, and a batch id alone
-							// cannot, since it is absent in both.
-							// The pending correction WHOLE, plus the answer just given. The three naming
-							// fields travel so that declining can reopen this screen able to ask again;
-							// `deleteOldImport` travels because answering re-posts the same run.
-							correction: pending.correction
-								? { ...pending.correction, deleteOldImport: result.deleteOldImport }
-								: null
-						},
+						// Built by `buildCollisionRepost`, which is where the mapping is asserted: this
+						// branch is reachable only through a serialised `ActionResult`, which a component
+						// test cannot construct faithfully, so the transport was what made the seam
+						// untestable rather than the mapping.
+						repost: buildCollisionRepost(pending, result),
 						existing: actionResult.data.collision,
 						incoming: actionResult.data.incoming
 					});

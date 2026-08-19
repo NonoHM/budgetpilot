@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { cardBase } from '$lib/styles';
+	import * as m from '$lib/paraglide/messages';
 
 	/**
 	 * Brique 9's skeleton, AT THE DESTINATION THAT CAN SHOW ONE (Planche 5f).
@@ -28,7 +29,7 @@
 	let { rows = 3 }: { rows?: number } = $props();
 </script>
 
-<div class="space-y-3" role="status" aria-label="Chargement en cours" data-testid="imports-skeleton">
+<div class="space-y-3" role="status" aria-label={m.common_loading()} data-testid="imports-skeleton">
 	{#each Array.from({ length: rows }, (_, i) => i) as row (row)}
 		<div class="{cardBase} p-4" aria-hidden="true">
 			<div class="flex items-start justify-between gap-3">
