@@ -22,8 +22,8 @@
 	},
 	{
 		"key": "bills_orange",
-		"match": "orange",
-		"isRegex": false,
+		"match": "\\borange\\b",
+		"isRegex": true,
 		"targetCategoryKey": "bills_energy",
 		"targetNature": null
 	},

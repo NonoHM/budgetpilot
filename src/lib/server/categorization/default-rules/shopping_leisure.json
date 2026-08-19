@@ -99,8 +99,8 @@
 	},
 	{
 		"key": "shopping_boulanger",
-		"match": "boulanger",
-		"isRegex": false,
+		"match": "\\bboulanger\\b",
+		"isRegex": true,
 		"targetCategoryKey": "shopping",
 		"targetNature": null
 	},

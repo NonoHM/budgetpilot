@@ -71,8 +71,8 @@
 	},
 	{
 		"key": "transport_esso",
-		"match": "esso",
-		"isRegex": false,
+		"match": "\\besso\\b",
+		"isRegex": true,
 		"targetCategoryKey": "transport",
 		"targetNature": null
 	},

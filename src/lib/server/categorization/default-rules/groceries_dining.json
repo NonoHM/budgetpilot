@@ -92,8 +92,8 @@
 	},
 	{
 		"key": "food_cora",
-		"match": "cora",
-		"isRegex": false,
+		"match": "\\bcora\\b",
+		"isRegex": true,
 		"targetCategoryKey": "food",
 		"targetNature": null
 	},
@@ -134,8 +134,8 @@
 	},
 	{
 		"key": "food_spar",
-		"match": "spar",
-		"isRegex": false,
+		"match": "\\bspar\\b",
+		"isRegex": true,
 		"targetCategoryKey": "food",
 		"targetNature": null
 	},
@@ -149,6 +149,13 @@
 	{
 		"key": "food_metro_cc",
 		"match": "metro cash",
+		"isRegex": false,
+		"targetCategoryKey": "food",
+		"targetNature": null
+	},
+	{
+		"key": "food_boulangerie",
+		"match": "boulangerie",
 		"isRegex": false,
 		"targetCategoryKey": "food",
 		"targetNature": null
