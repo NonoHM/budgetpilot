@@ -164,31 +164,28 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	});
 
 	/**
-	 * Fix round 1, IMPORTANT #1: the CTA (`reports_forecast_empty_cta`, linking to
-	 * `#annexe-recurrences`) is not a remedy — it's "here is what was detected" — so both empty
-	 * branches keep it. It is NOT proven to have anything to scroll to: the annexe table is
-	 * `report.recurringPayments`, built from the selected period's expenses only, unrelated to the
-	 * 12-month detector `emptyState` is computed from — see the CTA's own comment in `+page.svelte`
-	 * for the full reasoning and the dead-anchor case this does not fix.
+	 * #202, and this REPLACES a pair of tests that pinned the opposite. See the twin block in
+	 * `src/routes/page.svelte.spec.ts` for the full argument; in short, `#annexe-recurrences`
+	 * renders behind `{#if report.recurringPayments.length > 0}` and that list is anti-correlated
+	 * with the state offering the link, so the empty state's one action did nothing.
 	 */
-	it("renders the annexe-recurrences CTA in the 'none-detected' branch", async () => {
+	it("offers no dead anchor in the 'none-detected' branch", async () => {
 		expect.assertions(2);
 
 		const screen = render(Page, { data: buildData('none-detected') });
 
-		const cta = screen.container.querySelector('a[href="#annexe-recurrences"]');
-		expect(cta).not.toBeNull();
-		expect(cta?.textContent).toBe(m.reports_forecast_empty_cta());
+		expect(screen.container.querySelector('a[href="#annexe-recurrences"]')).toBeNull();
+		// The control beside the emptiness assertion.
+		expect(screen.container.textContent).toContain(m.reports_forecast_empty_title());
 	});
 
-	it("renders the same annexe-recurrences CTA in the 'all-stale' branch", async () => {
+	it("offers no dead anchor in the 'all-stale' branch either", async () => {
 		expect.assertions(2);
 
 		const screen = render(Page, { data: buildData('all-stale') });
 
-		const cta = screen.container.querySelector('a[href="#annexe-recurrences"]');
-		expect(cta).not.toBeNull();
-		expect(cta?.textContent).toBe(m.reports_forecast_empty_cta());
+		expect(screen.container.querySelector('a[href="#annexe-recurrences"]')).toBeNull();
+		expect(screen.container.textContent).toContain(m.reports_forecast_stale_title());
 	});
 
 	/**

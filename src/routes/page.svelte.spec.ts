@@ -507,14 +507,22 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 	});
 
 	/**
-	 * Fix round 1, IMPORTANT #1: the CTA (`dashboard_forecast_empty_cta`, linking to
-	 * `/reports#annexe-recurrences`) is not a remedy — it's "here is what was detected" — so both
-	 * empty branches keep it. It is NOT proven to have anything to scroll to on /reports: that
-	 * page's annexe table is `report.recurringPayments`, built from the selected period's expenses
-	 * only, unrelated to the 12-month detector `emptyState` is computed from — see the CTA's own
-	 * comment in `/+page.svelte` for the full reasoning and the dead-anchor case this does not fix.
+	 * #202, and this REPLACES a pair of tests that pinned the opposite.
+	 *
+	 * Both empty branches used to offer `/reports#annexe-recurrences`, and that anchor is
+	 * frequently absent: /reports renders it behind `{#if report.recurringPayments.length > 0}`,
+	 * and that list is the SELECTED PERIOD's expenses with a ">= 2 occurrences" gate — unrelated to
+	 * the 12-month detector `emptyState` comes from. In `all-stale` the two are close to
+	 * anti-correlated: a stale stream is by definition silent longer than one cycle, so it cannot
+	 * reach the annexe's own gate. An empty state exists to say what to do when there is nothing to
+	 * show; it offered exactly one action and that action did nothing.
+	 *
+	 * Giving the anchor a stable target was considered and REFUSED: the link would then resolve and
+	 * land on an empty section, which moves a dead end rather than removing one. The copy stands on
+	 * its own instead — the `none-detected` description already names the condition to reach, and
+	 * the `all-stale` one now says the projection returns by itself.
 	 */
-	it("renders the annexe-recurrences CTA in the 'none-detected' branch", async () => {
+	it("offers no dead anchor in the 'none-detected' branch", async () => {
 		const screen = render(Page, {
 			data: buildData({
 				upcomingBillsHasStreams: true,
@@ -523,12 +531,13 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 			form: null as ActionData
 		});
 
-		const cta = screen.container.querySelector('a[href="/reports#annexe-recurrences"]');
-		expect(cta).not.toBeNull();
-		expect(cta?.textContent).toBe(m.dashboard_forecast_empty_cta());
+		expect(screen.container.querySelector('a[href="/reports#annexe-recurrences"]')).toBeNull();
+		// The control beside the emptiness assertion: the empty state itself must still be there,
+		// or deleting the whole branch would pass the line above.
+		expect(screen.container.textContent).toContain(m.dashboard_forecast_empty_title());
 	});
 
-	it("renders the same annexe-recurrences CTA in the 'all-stale' branch", async () => {
+	it("offers no dead anchor in the 'all-stale' branch either", async () => {
 		const screen = render(Page, {
 			data: buildData({
 				upcomingBillsHasStreams: true,
@@ -537,9 +546,8 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 			form: null as ActionData
 		});
 
-		const cta = screen.container.querySelector('a[href="/reports#annexe-recurrences"]');
-		expect(cta).not.toBeNull();
-		expect(cta?.textContent).toBe(m.dashboard_forecast_empty_cta());
+		expect(screen.container.querySelector('a[href="/reports#annexe-recurrences"]')).toBeNull();
+		expect(screen.container.textContent).toContain(m.dashboard_forecast_stale_title());
 	});
 
 	/**
