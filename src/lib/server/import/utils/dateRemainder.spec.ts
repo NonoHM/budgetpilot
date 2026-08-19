@@ -188,9 +188,7 @@ describe('normalizeFirstValidDate falls through to the next valid column', () =>
 		// date. After the narrowing, that candidate is refused (returned unchanged, which is not
 		// a valid ISO date), so the loop moves on and the SECOND candidate wins instead. This is
 		// therefore a deliberate VALUE CHANGE for this input, not merely a new refusal.
-		expect(normalizeFirstValidDate('01/01/2026 au 31/01/2026', '15/01/2026')).toBe(
-			'2026-01-15'
-		);
+		expect(normalizeFirstValidDate('01/01/2026 au 31/01/2026', '15/01/2026')).toBe('2026-01-15');
 	});
 
 	it('still prefers the first candidate when it is readable', () => {
@@ -198,18 +196,15 @@ describe('normalizeFirstValidDate falls through to the next valid column', () =>
 
 		// Revolut's real two-column shape, both carrying a timestamp remainder. The first
 		// candidate is valid, so it wins and the second is never consulted.
-		expect(
-			normalizeFirstValidDate('2026-08-02 10:00:00', '2026-08-01 09:00:00')
-		).toBe('2026-08-02');
+		expect(normalizeFirstValidDate('2026-08-02 10:00:00', '2026-08-01 09:00:00')).toBe(
+			'2026-08-02'
+		);
 	});
 
 	it('returns an invalid best effort when every candidate is unreadable', () => {
 		expect.assertions(2);
 
-		const result = normalizeFirstValidDate(
-			'01/01/2026 au 31/01/2026',
-			'01/01/2026-31/01/2026'
-		);
+		const result = normalizeFirstValidDate('01/01/2026 au 31/01/2026', '01/01/2026-31/01/2026');
 
 		// Neither candidate normalises to a valid ISO date, so the loop exhausts itself and falls
 		// back to `normalizeDate` on the first present value — itself refused, unchanged. The
