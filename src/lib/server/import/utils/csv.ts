@@ -129,6 +129,25 @@ export function normalizeDate(value: string): string {
 	return `${year}-${month}-${day}`;
 }
 
+/**
+ * Returns the first candidate that normalises to a valid ISO date, falling back to the first
+ * PRESENT value's best effort so the caller still has something to refuse on.
+ *
+ * **`normalizeDate`'s narrowing does not survive this loop, and this is the shape that shows it.**
+ * `normalizeDate` alone only ever moves a value from normalised to refused, so nothing that
+ * imported correctly can import DIFFERENTLY. Here it can: growing the unreadable set grows the
+ * fall-through set, so a row whose first column stops being readable lands on a LATER column's
+ * date rather than on a wrong one. That is a value change, not a refusal, and it is silent.
+ *
+ * `banque-populaire.ts:112` is the case to reason about, because it passes THREE candidates —
+ * `Date operation`, then `Date de comptabilisation`, then `Date de valeur` — and on a real
+ * statement those are three genuinely different dates. A two-candidate fixture whose second
+ * column is obviously the right answer cannot distinguish "fell through correctly" from
+ * "fell through at all"; that fixture was chosen once for legibility and it is why the
+ * property above was first recorded as strictly safe, which it is not. `dateFallThrough.spec.ts`
+ * pins the fall-through against a control where the first column IS readable, and the two
+ * columns carry different dates on purpose.
+ */
 export function normalizeFirstValidDate(...values: Array<string | undefined>): string {
 	for (const value of values) {
 		const normalized = normalizeDate(value ?? '');
