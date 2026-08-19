@@ -3146,7 +3146,7 @@
 											It stays INSIDE this form, between the control it is about and the button that
 											submitted it: this panel holds four forms, so a shared banner at its top could
 											not say which one refused. That is the rule the répartition editor already
-											states for itself — « l'échec appartient à ce formulaire » — and this is the
+											states for itself, « l'échec appartient à ce formulaire », and this is the
 											same class of event, so it gets the same treatment rather than a second one.
 
 											`AlertBanner variant="error"` rather than the bare rose line that was here:
@@ -3300,6 +3300,8 @@
 									transactionId={data.selectedTransaction.id}
 									tags={data.selectedTransaction.tags}
 									allTags={allTagOptions}
+									action={panelFormAction('saveTags')}
+									enhanceSubmit={enhancePanelForm}
 									error={form?.tagsError}
 									bind:dirty={tagsDirtyDesktop}
 								/>
@@ -4201,6 +4203,8 @@
 				transactionId={data.selectedTransaction.id}
 				tags={data.selectedTransaction.tags}
 				allTags={allTagOptions}
+				action={panelFormAction('saveTags')}
+				enhanceSubmit={enhancePanelForm}
 				error={form?.tagsError}
 				bind:dirty={tagsDirtyMobile}
 			/>

@@ -6,6 +6,7 @@ import Page from './+page.svelte';
 import type { PageData } from './$types';
 import { TRANSACTION_NATURES, type TransactionNature } from '$lib/domain/transaction';
 import * as m from '$lib/paraglide/messages';
+import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 
 const SPENDING: TransactionNature = 'spending';
 
@@ -18,8 +19,8 @@ const SPENDING: TransactionNature = 'spending';
  * carries the selection for exactly this reason (+page.svelte's `splitFormAction` docstring); this
  * asserts its three siblings in the same panel do too.
  *
- * The action is parsed the way SvelteKit parses it — the param whose key starts with `/` names the
- * action, every other param rides along — rather than compared against a rebuilt string, so this
+ * The action is parsed the way SvelteKit parses it (the param whose key starts with `/` names the
+ * action, every other param rides along) rather than compared against a rebuilt string, so this
  * test shares no source with the builder it is checking.
  */
 function baseData(overrides: Record<string, unknown> = {}): PageData {
@@ -206,6 +207,75 @@ describe('the detail panel posts without discarding the panel', () => {
 			const alert = form.querySelector('[role="alert"]');
 			expect(alert).not.toBeNull();
 			expect(alert?.textContent).toContain(m.transactions_error_transaction_not_found());
+		}
+	});
+
+	it('étiquettes: both mounts carry the selection and every active filter', async () => {
+		await page.viewport(1280, 900);
+		const { container } = render(Page, { data: baseData(), form: null });
+
+		const forms = container.querySelectorAll('form[action$="/saveTags"]');
+		expect(forms.length).toBe(2);
+
+		for (const form of forms) expectCarriesSelectionAndFilters(form, 'saveTags');
+	});
+
+	it('étiquettes: a refusal is announced, in the form it belongs to', async () => {
+		await page.viewport(1280, 900);
+		// The cap sentence, asserted at this level ON PURPOSE and not in the e2e journey: TagPicker
+		// refuses the eleventh selection itself (`atMax`), so no browser path reaches this refusal
+		// and a journey claiming to exercise it would be claiming something false. What is asserted
+		// here is narrower and true: when the server does answer with it, the panel renders it.
+		const { container } = render(Page, {
+			data: baseData(),
+			form: { tagsError: m.tags_error_too_many({ max: MAX_TAGS_PER_TRANSACTION }) }
+		});
+
+		const forms = container.querySelectorAll('form[action$="/saveTags"]');
+		expect(forms.length).toBe(2);
+
+		for (const form of forms) {
+			const alert = form.querySelector('[role="alert"]');
+			expect(alert).not.toBeNull();
+			expect(alert?.textContent).toContain(
+				m.tags_error_too_many({ max: MAX_TAGS_PER_TRANSACTION })
+			);
+		}
+	});
+
+	/**
+	 * The enumeration made executable, and the reason this file is not four assertions about four
+	 * known sites.
+	 *
+	 * #200 exists because a defect reported at one form was present at five, so a test naming the
+	 * five would repeat the mistake it is fixing. This one asks the panel what forms it has and
+	 * holds every one of them to the rule, so a NEW form added with a bare `action="?/..."` goes red
+	 * without anyone remembering to extend a list. The absolute count is beside it because "every
+	 * form carries the selection" is satisfied by a panel with no forms at all.
+	 */
+	it('every POST form in the panel carries the selection, at both mounts', async () => {
+		await page.viewport(1280, 900);
+		const { container } = render(Page, { data: baseData(), form: null });
+
+		const aside = container.querySelector('aside');
+		const sheet = container.querySelector('[role="dialog"]');
+		expect(aside).not.toBeNull();
+		expect(sheet).not.toBeNull();
+
+		for (const [surface, root] of [
+			['desktop panel', aside as Element],
+			['mobile sheet', sheet as Element]
+		] as const) {
+			const forms = [...root.querySelectorAll('form[method="POST"]')];
+			// Manual category, manual nature, étiquettes. The répartition editor is the fourth and is
+			// absent here because this fixture owns no parts; it is covered by its own specs and by
+			// this count going red if it ever renders unconditionally.
+			expect(forms.length, surface).toBe(3);
+
+			for (const form of forms) {
+				const where = `${surface}: ${form.getAttribute('action')}`;
+				expect(actionParams(form).get('selected'), where).toBe('tx-1');
+			}
 		}
 	});
 });

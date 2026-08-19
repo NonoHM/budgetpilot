@@ -3,19 +3,47 @@ import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../routes/layout.css';
 import TransactionTagsEditor from './TransactionTagsEditor.svelte';
+import type { ComponentProps } from 'svelte';
+import type { SubmitFunction } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
+import { MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 
 const allTags = [
 	{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const },
 	{ id: 'tag-2', name: 'Travaux', colorToken: 'ochre' as const }
 ];
 
+/**
+ * Where this editor posts is the PAGE's decision, not this component's, so every case supplies one.
+ *
+ * It used to write its own `action="?/saveTags"`, which resolves to `/transactions?/saveTags` and
+ * is therefore the whole query string: the selection and the filters went with it and the panel
+ * holding this editor was gone by the time the response rendered. The value below is deliberately
+ * NOT the old literal, so a regression that reinstates a hard-coded action fails here rather than
+ * agreeing with the fixture by coincidence.
+ */
+const ACTION = '/transactions?q=carrefour&selected=tx-42&/saveTags';
+const SUBMIT: SubmitFunction =
+	() =>
+	async ({ update }) =>
+		update({ reset: false });
+
+type EditorProps = ComponentProps<typeof TransactionTagsEditor>;
+
+function renderEditor(props: Omit<EditorProps, 'allTags' | 'action' | 'enhanceSubmit'>) {
+	return render(TransactionTagsEditor, {
+		allTags,
+		action: ACTION,
+		enhanceSubmit: SUBMIT,
+		...props
+	});
+}
+
 describe('TransactionTagsEditor.svelte', () => {
 	it('pre-selects the transaction current tags as removable chips', async () => {
-		render(TransactionTagsEditor, {
+		renderEditor({
 			transactionId: 'tx-1',
-			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
-			allTags
+			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
 		});
 
 		await expect
@@ -23,24 +51,22 @@ describe('TransactionTagsEditor.svelte', () => {
 			.toBeInTheDocument();
 	});
 
-	it('carries the transaction id as a hidden field for the saveTags action', async () => {
-		const { container } = render(TransactionTagsEditor, {
-			transactionId: 'tx-42',
-			tags: [],
-			allTags
-		});
+	it('carries the transaction id as a hidden field, and posts where the page says', async () => {
+		const { container } = renderEditor({ transactionId: 'tx-42', tags: [] });
 
 		const hidden = container.querySelector('input[name="transactionId"]') as HTMLInputElement;
 		expect(hidden.value).toBe('tx-42');
+		// Passed through unchanged. That the URL it is given actually carries the selection is the
+		// page's claim and is asserted where the page builds it, in
+		// routes/transactions/panel-form-actions.svelte.spec.ts.
 		const form = container.querySelector('form') as HTMLFormElement;
-		expect(form.getAttribute('action')).toBe('?/saveTags');
+		expect(form.getAttribute('action')).toBe(ACTION);
 	});
 
 	it('disables Save until the selection actually changes from what is saved', async () => {
-		render(TransactionTagsEditor, {
+		renderEditor({
 			transactionId: 'tx-1',
-			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
-			allTags
+			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
 		});
 
 		const save = page.getByRole('button', { name: 'Enregistrer' });
@@ -53,10 +79,9 @@ describe('TransactionTagsEditor.svelte', () => {
 	});
 
 	it('re-disables Save once the selection reverts back to what is saved', async () => {
-		render(TransactionTagsEditor, {
+		renderEditor({
 			transactionId: 'tx-1',
-			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
-			allTags
+			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
 		});
 
 		const save = page.getByRole('button', { name: 'Enregistrer' });
@@ -70,25 +95,23 @@ describe('TransactionTagsEditor.svelte', () => {
 		await expect.element(save).toBeDisabled();
 	});
 
-	it('shows the server error message when the action refuses', async () => {
-		render(TransactionTagsEditor, {
-			transactionId: 'tx-1',
-			tags: [],
-			allTags,
-			error: 'Maximum 10 étiquettes par transaction.'
-		});
+	it('announces the server error when the action refuses, rather than only colouring it', async () => {
+		// The catalogue's own sentence, called rather than retyped: a hard-coded copy asserts the
+		// copy. `max` is the production constant for the same reason.
+		const refusal = m.tags_error_too_many({ max: MAX_TAGS_PER_TRANSACTION });
+		const { container } = renderEditor({ transactionId: 'tx-1', tags: [], error: refusal });
 
-		await expect
-			.element(page.getByText('Maximum 10 étiquettes par transaction.'))
-			.toBeInTheDocument();
+		await expect.element(page.getByText(refusal)).toBeInTheDocument();
+		// `role="alert"`: the panel survives the submit now, so a refused save changes nothing else
+		// on screen and this is the only thing separating it from one that worked.
+		expect(container.querySelector('[role="alert"]')?.textContent).toContain(refusal);
 	});
 
 	it('renders the static help line under the chip group when at least one chip is present', async () => {
 		expect.assertions(2);
-		render(TransactionTagsEditor, {
+		renderEditor({
 			transactionId: 'tx-1',
-			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
-			allTags
+			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
 		});
 
 		const help = page.getByText(m.tags_chips_help_remove());
@@ -100,7 +123,7 @@ describe('TransactionTagsEditor.svelte', () => {
 
 	it('renders no help line when there are no chips, symmetrically with the group itself', async () => {
 		expect.assertions(1);
-		render(TransactionTagsEditor, { transactionId: 'tx-1', tags: [], allTags });
+		renderEditor({ transactionId: 'tx-1', tags: [] });
 
 		expect(page.getByText(m.tags_chips_help_remove()).elements().length).toBe(0);
 	});

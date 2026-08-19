@@ -1,6 +1,9 @@
 <script lang="ts">
+	import { enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import Button from './Button.svelte';
 	import TagPicker from './ui/TagPicker.svelte';
+	import AlertBanner from './AlertBanner.svelte';
 	import type { TagColorToken } from '$lib/domain/tags';
 	import * as m from '$lib/paraglide/messages';
 
@@ -22,12 +25,30 @@
 		transactionId,
 		tags,
 		allTags,
+		action,
+		enhanceSubmit,
 		error,
 		dirty = $bindable()
 	}: {
 		transactionId: string;
 		tags: Array<{ id: string; name: string; colorToken: string }>;
 		allTags: Array<{ id: string; name: string; colorToken: TagColorToken }>;
+		/**
+		 * Where this form posts, supplied by the page rather than written here, and REQUIRED so that
+		 * a future caller has to answer the question rather than inherit an answer.
+		 *
+		 * A bare `action="?/saveTags"` posts to `/transactions?/saveTags`, and that query string is
+		 * the whole query string: `selected` goes with it, so the panel this editor lives in is gone
+		 * by the time the response renders, taking the refusal below with it. The page builds this
+		 * through the one builder its four panel forms share.
+		 */
+		action: string;
+		/**
+		 * What the page does with the answer. Also the page's decision rather than this component's:
+		 * without it the browser submits natively and navigates, which is a full page load even when
+		 * the action URL carries the selection.
+		 */
+		enhanceSubmit: SubmitFunction;
 		error?: string;
 		/**
 		 * Whether this editor holds an unsaved change, mirrored out for the page's navigation guard.
@@ -45,11 +66,17 @@
 	const instanceId = $props.id();
 	const hintId = `tags-save-hint-${instanceId}`;
 
-	// Writable $derived, not $state + $effect: this stays live off `tags` (a different row
-	// selected, or a full-page POST reload of the SAME transaction after Save or after a bulk
-	// action elsewhere always hands down a fresh array reference) while TagPicker's `bind:selected`
-	// can still reassign it locally as the user picks and removes tags, the same reset behaviour
+	// Writable $derived, not $state + $effect: this stays live off `tags` (a different row selected,
+	// or the load re-running for the SAME transaction after Save or after a bulk action elsewhere
+	// always hands down a fresh array reference) while TagPicker's `bind:selected` can still
+	// reassign it locally as the user picks and removes tags, the same reset behaviour
 	// manualCategoryValue/manualNatureValue get from +page.svelte's own $effect.
+	//
+	// The refresh used to be a full-page POST reload. It is `enhance`'s `invalidateAll` now, and the
+	// difference matters in the direction that helps: that call only runs on SUCCESS
+	// (@sveltejs/kit's own fallback_callback), so a REFUSED save leaves `tags` untouched and the
+	// selection the user was refused for survives beside the sentence explaining the refusal. Under
+	// the reload it was discarded, and the sentence was discarded with it.
 	let selected = $derived(tags.map((t) => t.name));
 
 	// Order-independent: TagPicker's own selected-chip row does not promise to preserve the order
@@ -71,7 +98,7 @@
 	});
 </script>
 
-<form class="grid" method="POST" action="?/saveTags">
+<form class="grid" method="POST" {action} use:enhance={enhanceSubmit}>
 	<!-- fieldset + legend rather than section + heading: this is a group of form controls, and the
 	     design names the structure explicitly. The legend is what ties the group to its name for a
 	     screen reader; a heading beside the controls does not. -->
@@ -87,8 +114,23 @@
 				     this line disappear together, silently, when the last chip goes. -->
 				<p class="text-xs text-zinc-500">{m.tags_chips_help_remove()}</p>
 			{/if}
+			<!--
+				The refusal, in the form it belongs to and beside the picker it is about, matching the
+				three sibling sections in this panel. `AlertBanner variant="error"` rather than a rose
+				line because it carries `role="alert"`: the panel now survives the submit, so a refused
+				save changes nothing else on screen and the announcement is the only thing separating it
+				from one that worked.
+
+				What can arrive here is ONE sentence in practice, and not the one it looks like.
+				`saveTags` refuses on the tag cap and on a missing row; the cap is unreachable from
+				this editor, because TagPicker's own `atMax` stops the eleventh selection before a
+				submit exists (ui/TagPicker.svelte:114,162,171,178). So the reachable answer is the
+				row having gone between the panel rendering and the submit, which is a second tab or
+				a stale panel, which is precisely the refusal a user cannot predict and therefore the
+				worst one to discard.
+			-->
 			{#if error}
-				<p class="text-xs text-rose-600">{error}</p>
+				<AlertBanner variant="error" size="sm">{error}</AlertBanner>
 			{/if}
 			<div class="flex flex-wrap gap-2">
 				<!-- softDisabled, not disabled. The reason Save is inactive ("nothing has changed") is
