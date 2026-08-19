@@ -142,12 +142,13 @@ async function seedUser(categoryNames: string[]): Promise<Seed> {
  * It used to be required: `readCurrentMonthSpending` filtered `type: 'expense'` directly while
  * every other money read fell back to the sign, so a fixture leaving `type` null was invisible to
  * exactly one of the sites swept below and this suite reported the divergence as a double-count
- * defect it was not. #201 moved that read onto `transactionKindWhere`, so every site now agrees
- * on a null-typed row too.
+ * defect it was not. #201 moved that read onto `transactionKindWhere`, the predicate every other
+ * site already used.
  *
  * Written explicitly all the same, because this suite is about the ANTI-DOUBLE-COUNT guard and an
- * ambiguous direction would be a second variable in it. The null-typed case has its own suite:
- * `budget/currentMonthKind.db-smoke.ts`.
+ * ambiguous direction would be a second variable in it. The null-typed case is covered by
+ * `budget/currentMonthKind.db-smoke.ts`, not by this suite: nothing here asserts that every site
+ * agrees on a null-typed row, only that `readCurrentMonthSpending` no longer double-counts.
  */
 async function createTransaction(
 	seed: Seed,
