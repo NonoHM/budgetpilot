@@ -86,6 +86,11 @@ export function normalizeParsedRows(rows: ParsedCsvRow[]): ParsedCsvRow[] {
 const TIME_AFTER_DATE =
 	/^[ T]\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?\s*(?:Z|[+-]\d{2}:?\d{2}|[AP]\.?M\.?)?$/i;
 
+/**
+ * The empty-remainder branch is live only on the French `dd/mm/yyyy` path: on the ISO path,
+ * `isValidIsoDate(trimmed)` already returns for a bare ISO date before this function is ever
+ * called, so `remainder === ''` never reaches here through that path.
+ */
 function isTimeOnlyRemainder(remainder: string): boolean {
 	return remainder === '' || TIME_AFTER_DATE.test(remainder);
 }
