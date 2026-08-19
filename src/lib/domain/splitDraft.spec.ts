@@ -89,6 +89,17 @@ describe('resolveRemainder — completeness is not the same question as the rema
 		);
 	});
 
+	it('a minus moves the band nowhere and marks the part, rather than doubling the remainder', () => {
+		// The measured defect, at the level it was met. Before #199 this returned
+		// magnitudeCents 12_000 with invalidPositions [] — 120,00 € remaining on an 80,00 €
+		// transaction, with nothing on screen saying which field caused it.
+		const state = resolveRemainder(['-60,00', '20,00'], EXPENSE_TOTAL);
+		expect(state.magnitudeCents).toBe(6_000);
+		expect(state.kind).toBe('positive');
+		expect(state.invalidPositions).toEqual([0]);
+		expect(state.complete).toBe(false);
+	});
+
 	it('counts an unparseable amount as nothing placed, so the band still reads', () => {
 		// « abc » must not make the whole band go blank or NaN — the user is mid-typing and the
 		// remainder is still a true statement about what HAS been placed.
@@ -105,6 +116,25 @@ describe('parseDraftAmountCents', () => {
 		// displayable. It is the save gate that refuses it, not the parser.
 		expect(parseDraftAmountCents('0,00')).toBe(0);
 		expect(parseDraftAmountCents('0')).toBe(0);
+	});
+
+	it('refuses a leading minus, which the editor has no way to mean (#199)', () => {
+		// Every part's stored sign is the PARENT's; a part is typed as a magnitude. A field that
+		// accepts « -60,00 » does not produce a negative part, it produces a part that SUBTRACTS
+		// from the placed total — so on an 80,00 € expense with a 20,00 € second part the band
+		// read « 120,00 € » and flagged nothing, because the parser returned a non-null non-zero
+		// number. The refusal has to happen in the parser: `resolveRemainder` cannot distinguish
+		// a deliberate negative from a typo once it holds an integer.
+		expect(parseDraftAmountCents('-60,00')).toBeNull();
+		expect(parseDraftAmountCents('-0,01')).toBeNull();
+		expect(parseDraftAmountCents('-60.00')).toBeNull();
+	});
+
+	it('still accepts a plain magnitude, so the refusal above is not a blanket one', () => {
+		// The control for the case above. A parser that returned null for everything would pass
+		// the previous test and break the feature.
+		expect(parseDraftAmountCents('60,00')).toBe(6_000);
+		expect(parseDraftAmountCents('0,00')).toBe(0);
 	});
 
 	it('takes a comma or a dot, and rejects what the server would reject', () => {
