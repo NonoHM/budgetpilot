@@ -268,26 +268,35 @@ function parseAllocationLine(
 		return null;
 	}
 
-	const amountCents = parseSignedAmount(record.montant ?? '');
-	if (amountCents === null) {
+	// Each refusal names the CELL that caused it, which is why the two zero branches carry their
+	// own column instead of both pointing at `montant`: a user handed a refusal has to know which
+	// of the two amount columns to go and look at.
+	const amount = parseSignedAmount(record.montant ?? '');
+	if (!amount.ok) {
 		addRefusal(
 			refusals,
 			{ kind: 'row', line },
-			{ code: 'invalid-amount', column: 'montant' },
+			amount.why === 'zero'
+				? { code: 'zero-amount', column: 'montant' }
+				: { code: 'invalid-amount', column: 'montant' },
 			'amount'
 		);
 		return null;
 	}
-	const totalCents = parseSignedAmount(record.montant_total ?? '');
-	if (totalCents === null) {
+	const amountCents = amount.cents;
+	const parsedTotal = parseSignedAmount(record.montant_total ?? '');
+	if (!parsedTotal.ok) {
 		addRefusal(
 			refusals,
 			{ kind: 'row', line },
-			{ code: 'invalid-total-amount', column: 'montant_total' },
+			parsedTotal.why === 'zero'
+				? { code: 'zero-amount', column: 'montant_total' }
+				: { code: 'invalid-total-amount', column: 'montant_total' },
 			'amount'
 		);
 		return null;
 	}
+	const totalCents = parsedTotal.cents;
 
 	const type: ImportedTransactionType = amountCents >= 0 ? 'income' : 'expense';
 	const rawType = (record.type ?? '').trim().toLowerCase();
@@ -375,19 +384,12 @@ function validateGroupShape(
 		return { fact: { code: 'split-reserved-category-on-part' }, field: 'category' };
 	}
 
-	// BOTH OF THE NEXT TWO BRANCHES ARE UNREACHABLE TODAY, and they are left in place on purpose:
-	// see #303. `parseSignedAmount` is the only source of `amountCents` and `totalCents`, it folds
-	// its zero check into its `null` return, and both call sites (:255, :265) refuse a `null` before
-	// the line can join a group. So no group can contain a zero, and a zero amount is reported to
-	// the user as « montant invalide » rather than as the zero it is. That sentence is false, and
-	// `maison` v1 does say the right thing for the same input, which is the divergence #303 tracks.
-	// Deleting these would treat the symptom: the fix is upstream, in `parseSignedAmount`, and it
-	// changes a user-visible string, which is why it is not in the refusal-contract PR.
+	// The two zero branches that used to sit here are DELETED rather than kept (#303). They were
+	// unreachable then and they would be unreachable now, but for the opposite reason: the refusal
+	// moved UPSTREAM into `parseSignedAmount`'s call sites, where the line and the column are still
+	// in hand. Keeping a second copy against the day the upstream check moves is how two places
+	// that agree today start disagreeing, and an unreachable branch cannot be the one that notices.
 	const total = group[0].totalCents;
-	if (total === 0) return { fact: { code: 'zero-amount', column: 'montant' }, field: 'amount' };
-	if (group.some((part) => part.amountCents === 0)) {
-		return { fact: { code: 'zero-amount', column: 'montant' }, field: 'amount' };
-	}
 	// Same sign as the parent, for the same reason `replaceSplits` refuses the opposite one: a part
 	// pointing the other way is a refund or a transfer, not an allocation, and no per-category total
 	// can interpret it. Checked here too so the refusal carries a line number.
@@ -401,12 +403,26 @@ function validateGroupShape(
 	return null;
 }
 
-function parseSignedAmount(raw: string): number | null {
+/**
+ * A parse failure and a zero are two different refusals, and this used to fold them into one
+ * `null` (#303). The caller could not tell them apart, so it reported `invalid-amount` for both —
+ * and that sentence is FALSE for a zero: the cell parsed correctly and was refused by a rule the
+ * application applies on purpose. `maison` v1 says « montant à zéro refusé » for the same input,
+ * and these are two versions of ONE export format, so a user moving between them saw the reason
+ * change for no reason they could see.
+ *
+ * Discriminated rather than a sentinel number, because every sentinel available here is a legal
+ * amount somewhere else in the file.
+ */
+type SignedAmount = { ok: true; cents: number } | { ok: false; why: 'unparseable' | 'zero' };
+
+function parseSignedAmount(raw: string): SignedAmount {
 	// The export prefixes a leading apostrophe onto anything a spreadsheet would evaluate, which
 	// every negative amount is. v1 strips it in the same place and for the same reason.
 	const amountCents = parseAmountCents(raw.trim().replace(/^'/, ''));
-	if (amountCents === null || amountCents === 0) return null;
-	return amountCents;
+	if (amountCents === null) return { ok: false, why: 'unparseable' };
+	if (amountCents === 0) return { ok: false, why: 'zero' };
+	return { ok: true, cents: amountCents };
 }
 
 function resolveV2Category(rawValue: string): { ok: true; value: string } | { ok: false } {

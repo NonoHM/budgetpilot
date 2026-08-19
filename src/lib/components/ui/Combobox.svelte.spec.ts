@@ -64,6 +64,29 @@ describe('Combobox.svelte — softDisabled (1j, 1q)', () => {
 		return page.getByLabelText(name).element() as HTMLInputElement;
 	}
 
+	it('renders on an EMPTY options list, which is how /import uses it (#372)', async () => {
+		// The import page neutralises this field when the user has no Net worth account to link, so
+		// it passes `options={[]}` — a combination no other caller produces. It is safe by
+		// construction (`selectedLabel` is `options.find(...)?.label ?? ''`, and the locked branch
+		// renders no list at all), and "safe by construction" is exactly the claim worth pinning:
+		// the day someone gives the locked branch a list, this is what says /import broke.
+		render(Combobox, {
+			options: [],
+			ariaLabel: 'Compte de destination',
+			placeholder: 'Aucun',
+			softDisabled: true,
+			'aria-describedby': 'why-locked'
+		});
+
+		const field = lockedEl('Compte de destination');
+		expect(field.getAttribute('aria-disabled')).toBe('true');
+		// The prop that makes the neutralisation explainable. Combobox's own docstring calls
+		// `softDisabled` without it a half-applied rule, so it is asserted rather than assumed.
+		expect(field.getAttribute('aria-describedby')).toBe('why-locked');
+		expect(field.value).toBe('');
+		expect(field.placeholder).toBe('Aucun');
+	});
+
 	it('cannot open its list — proven by opening it FIRST, then locking it', async () => {
 		// A negative assertion that has never seen the thing appear proves nothing: it passes while
 		// the portal is still empty, while bits-ui has not mounted, while nothing has flushed. So the

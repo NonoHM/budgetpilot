@@ -720,32 +720,19 @@
 								/>
 							</div>
 						{:else}
-							<!-- Same CTA on both empty states. Kept for what the copy asks, not for a row-count
-							     guarantee: it answers "which recurrences?", the question `all-stale`/
-							     `none-detected` naturally raises. It is NOT proven to have anything to scroll
-							     to on /reports — that page's annexe table is `report.recurringPayments`
-							     (getRecurringPayments, server/reports/monthly.ts), built from the SELECTED
-							     PERIOD's expenses only (>=2 occurrences within that period, income excluded,
-							     unrelated to the 12-month detector `cashFlowForecast` runs on). In `all-stale`
-							     the two are close to anti-correlated: a stale stream is by definition silent
-							     longer than one tolerated cycle, so within the current period it has 0 or 1
-							     occurrence and cannot reach recurringPayments' own >= 2 gate — a subscription
-							     cancelled last month can show `all-stale` here while /reports' annexe table is
-							     empty, so `#annexe-recurrences` doesn't exist there and the link scrolls
-							     nowhere. Pre-existing, same dead anchor on `none-detected`; not fixed in this
-							     wave (tracked separately). -->
-							{#snippet forecastEmptyAction()}
-								<TapLink href="/reports#annexe-recurrences"
-									>{m.dashboard_forecast_empty_cta()}</TapLink
-								>
-							{/snippet}
+							<!-- NO ACTION on either empty state, and that is the fix rather than an omission
+							     (#202). See the twin comment in `src/routes/reports/+page.svelte`: both used to
+							     offer `/reports#annexe-recurrences`, which renders behind
+							     `{#if report.recurringPayments.length > 0}` on that page, from a list
+							     anti-correlated with the state offering the link. The one action an empty state
+							     offered did nothing, and giving the anchor a stable target would move the dead
+							     end rather than remove it. The copy carries it instead. -->
 							{#if data.cashFlowForecast.emptyState === 'all-stale'}
 								<EmptyState
 									class="mt-3"
 									card={false}
 									title={m.dashboard_forecast_stale_title()}
 									description={m.dashboard_forecast_stale_description()}
-									action={forecastEmptyAction}
 								/>
 							{:else}
 								<EmptyState
@@ -753,7 +740,6 @@
 									card={false}
 									title={m.dashboard_forecast_empty_title()}
 									description={m.dashboard_forecast_empty_description()}
-									action={forecastEmptyAction}
 								/>
 							{/if}
 						{/if}

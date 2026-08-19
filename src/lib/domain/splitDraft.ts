@@ -10,8 +10,8 @@ import { MAX_MANUAL_AMOUNT_CENTS, parseMoneyCents } from './money';
  * (`$lib/announce.ts`) decides when the sentence is allowed to be heard.
  *
  * Everything is expressed relative to the PARENT's sign. A user splitting an 80,00 € expense types
- * « 60,00 » and « 20,00 », never « -60,00 » — the field itself refuses a minus by default — so a
- * part's magnitude is what is typed and its stored sign is the parent's. That is also why the three
+ * « 60,00 » and « 20,00 », never « -60,00 » — `parseDraftAmountCents` refuses a minus, see there —
+ * so a part's magnitude is what is typed and its stored sign is the parent's. That is also why the three
  * states cannot be read off the raw sign of `total - placed`: on an expense (total −8000) a part
  * short of the total leaves a NEGATIVE difference that means "money still to place", and a part
  * over it leaves a positive one that means "dépassement". Reading the sign directly gets both
@@ -44,10 +44,20 @@ export interface RemainderState {
  * Parses one part's amount field. `allowZero` is TRUE here and false in `parseManualAmountCents`,
  * and that is the whole difference: 1j-A opens the editor with both parts showing « 0,00 », so zero
  * must be DISPLAYABLE while never being SAVABLE. The save gate is `complete` below, not the parser.
+ *
+ * `minCents: 0` is the OTHER gate and it belongs here rather than downstream (#199). A part is
+ * typed as a magnitude and its stored sign is the parent's, so a minus has no meaning the editor
+ * can act on — but `parseMoneyCents` never gated `-` (only `+`, behind `allowPlusSign`), so
+ * « -60,00 » parsed to -6000 and was ADDED to the placed total. On an 80,00 € expense with a
+ * 20,00 € second part the band moved to « 120,00 € » — twice the amount, in the wrong direction —
+ * and flagged nothing, because a non-null non-zero number is what `resolveRemainder` treats as a
+ * usable part. It has to be refused here: one integer later, a deliberate negative and a typo are
+ * the same value.
  */
 export function parseDraftAmountCents(raw: string): number | null {
 	return parseMoneyCents(raw, {
 		allowZero: true,
+		minCents: 0,
 		maxAbsCents: MAX_MANUAL_AMOUNT_CENTS,
 		requireSafeInteger: true
 	});

@@ -888,6 +888,38 @@
 							>{m.import_field_net_worth_account_hint()}</span
 						>
 					</label>
+				{:else}
+					<!-- #372 (1). With zero Net worth accounts BOTH earlier branches are false, so nothing rendered
+					     at all — not even a notice — and the control was invisible until the user had independently
+					     created an account on a page they had no reason to visit. The gate failed SILENTLY, which is
+					     the worst way for a prerequisite to fail.
+					     Neutralised on the spot rather than hidden, per design 1q: a control that is switched off
+					     stays reachable and states its own reason, so `softDisabled` travels with an
+					     `aria-describedby` — Combobox's own docstring calls the pair without one a half-applied
+					     rule. The reason carries the route that removes it.
+					     `ariaLabel` rather than a wrapping <label>, because the reason holds a link and a link
+					     inside a label is an interactive element sitting in another one's activation area.
+					     This makes the control DISCOVERABLE. It does not make it answer the question it appears to
+					     answer — see #372 (2) and (3): the designation path discards the choice, and the bucket is
+					     per profile rather than per bank, so two banks that both read as Generic still share one. -->
+					<div>
+						<span class="block text-sm font-medium text-zinc-700"
+							>{m.import_field_net_worth_account()}</span
+						>
+						<div class="mt-2">
+							<Combobox
+								options={[]}
+								softDisabled
+								aria-describedby="net-worth-empty-hint-desktop"
+								placeholder={m.import_field_net_worth_account_placeholder()}
+								ariaLabel={m.import_field_net_worth_account()}
+							/>
+						</div>
+						<p id="net-worth-empty-hint-desktop" class="mt-1 text-xs font-normal text-zinc-500">
+							{m.import_field_net_worth_account_none()}
+							<TapLink href="/net-worth">{m.import_field_net_worth_account_none_cta()}</TapLink>
+						</p>
+					</div>
 				{/if}
 
 				{#if form?.error}
@@ -1231,6 +1263,39 @@
 						>{m.import_field_net_worth_account_hint()}</span
 					>
 				</label>
+			{:else}
+				<!-- #372 (1). With zero Net worth accounts BOTH earlier branches are false, so nothing rendered
+				     at all — not even a notice — and the control was invisible until the user had independently
+				     created an account on a page they had no reason to visit. The gate failed SILENTLY, which is
+				     the worst way for a prerequisite to fail.
+				     Neutralised on the spot rather than hidden, per design 1q: a control that is switched off
+				     stays reachable and states its own reason, so `softDisabled` travels with an
+				     `aria-describedby` — Combobox's own docstring calls the pair without one a half-applied
+				     rule. The reason carries the route that removes it.
+				     `ariaLabel` rather than a wrapping <label>, because the reason holds a link and a link
+				     inside a label is an interactive element sitting in another one's activation area.
+				     This makes the control DISCOVERABLE. It does not make it answer the question it appears to
+				     answer — see #372 (2) and (3): the designation path discards the choice, and the bucket is
+				     per profile rather than per bank, so two banks that both read as Generic still share one. -->
+				<div>
+					<span class="block text-sm font-medium text-zinc-700"
+						>{m.import_field_net_worth_account()}</span
+					>
+					<div class="mt-2">
+						<Combobox
+							options={[]}
+							softDisabled
+							aria-describedby="net-worth-empty-hint-mobile"
+							placeholder={m.import_field_net_worth_account_placeholder()}
+							ariaLabel={m.import_field_net_worth_account()}
+							triggerClass="!bg-zinc-50"
+						/>
+					</div>
+					<p id="net-worth-empty-hint-mobile" class="mt-1 text-xs font-normal text-zinc-500">
+						{m.import_field_net_worth_account_none()}
+						<TapLink href="/net-worth">{m.import_field_net_worth_account_none_cta()}</TapLink>
+					</p>
+				</div>
 			{/if}
 
 			{#if form?.error}

@@ -15,13 +15,28 @@
 	// crypto.randomUUID() avoids gradient id collisions if several charts render at once.
 	const gradientId = `net-worth-gradient-${crypto.randomUUID().slice(0, 8)}`;
 
+	/**
+	 * The DAY, never a time (#204). Used by all four readings of a point: the sr-only table, the
+	 * point's `aria-label`, the SVG `<title>` and the visible hover card.
+	 *
+	 * `capturedAt` is a `DateTime` and its time half is not trustworthy. A BACKDATED snapshot is
+	 * written at noon UTC as a sentinel meaning "no time" (`net-worth/service.ts:373` parses a
+	 * plain `YYYY-MM-DD` into `T12:00:00.000Z`), while a snapshot saved without a date carries
+	 * `new Date()` and a synced one carries the provider's instant — both real moments. Rendering
+	 * an hour therefore announced « 14:00 » on a balance whose input was a day, indistinguishably
+	 * from an hour that was true.
+	 *
+	 * Not fixed with a test against the sentinel instant: noon UTC is a legal real moment, and a
+	 * magic-value check is wrong the day the sentinel moves. The unit of this screen is the day —
+	 * the axis labels below are already date-only — so the day is what every reading shows. Two
+	 * snapshots on one date produce two rows with the same label and different amounts, which is a
+	 * legibility cost and not a false statement, and that is the trade this takes.
+	 */
 	function formatFullDate(capturedAt: string): string {
-		return new Date(capturedAt).toLocaleString(getLocale(), {
+		return new Date(capturedAt).toLocaleDateString(getLocale(), {
 			day: 'numeric',
 			month: 'short',
-			year: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit'
+			year: 'numeric'
 		});
 	}
 

@@ -1,3 +1,4 @@
+import { userFacingErrorMessage } from '$lib/server/errors';
 import { fail, isHttpError, redirect } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import type { StreamActionKind } from '$lib/domain/upcomingBills';
@@ -164,7 +165,10 @@ function parseAnchorIds(raw: string): string[] | null {
  * which can hold connection or query detail.
  */
 function getErrorMessage(caught: unknown): string {
-	return isHttpError(caught) ? caught.body.message : m.upcoming_bills_error_invalid_action();
+	// This one was already correct, written independently and never leaking. It moves to the shared
+	// helper anyway: four copies that agree are four copies free to drift, and this is the copy that
+	// proves the rule was known.
+	return userFacingErrorMessage(caught, m.upcoming_bills_error_invalid_action());
 }
 
 function getErrorStatus(caught: unknown): number {

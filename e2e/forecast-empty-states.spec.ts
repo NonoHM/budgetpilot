@@ -53,18 +53,18 @@ async function createForecastTransaction(
 }
 
 test.describe('Cash-flow forecast — state 1: no detection at all (desktop)', () => {
-	test('dashboard shows the empty state with a TapLink to the reports annex', async ({ page }) => {
+	test('dashboard shows the empty state and offers no dead anchor (#202)', async ({ page }) => {
 		await page.goto('/');
 
 		await expect(page.getByText(m.dashboard_forecast_empty_title())).toBeVisible();
-		const link = page.getByRole('link', { name: m.dashboard_forecast_empty_cta() });
-		await expect(link).toBeVisible();
-		await expect(link).toHaveAttribute('href', '/reports#annexe-recurrences');
+		// The CTA this used to assert pointed at `/reports#annexe-recurrences`, which renders only
+		// when that page's annexe table has rows — a list unrelated to the detector this state comes
+		// from. The empty state offered one action and it did nothing. Asserted at the seam that
+		// matters, the rendered DOM of a real page, not just in the component spec.
+		await expect(page.locator('a[href="/reports#annexe-recurrences"]')).toHaveCount(0);
 	});
 
-	test('/reports shows the empty state with a TapLink to its own annex anchor', async ({
-		page
-	}) => {
+	test('/reports shows the empty state and offers no dead anchor (#202)', async ({ page }) => {
 		// last-90-days (not the this-month default): the seeded base transactions are dated
 		// 2026-06-05/12 (e2e/seed.ts) — /reports' own !hasData empty state (unrelated to the
 		// forecast) would otherwise hide this whole section if the selected period has zero
@@ -73,9 +73,7 @@ test.describe('Cash-flow forecast — state 1: no detection at all (desktop)', (
 
 		await expect(page.getByRole('heading', { name: m.reports_forecast_heading() })).toBeVisible();
 		await expect(page.getByText(m.reports_forecast_empty_title())).toBeVisible();
-		const link = page.getByRole('link', { name: m.reports_forecast_empty_cta() });
-		await expect(link).toBeVisible();
-		await expect(link).toHaveAttribute('href', '#annexe-recurrences');
+		await expect(page.locator('a[href="#annexe-recurrences"]')).toHaveCount(0);
 	});
 });
 
