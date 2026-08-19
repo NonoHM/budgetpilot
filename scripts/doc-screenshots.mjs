@@ -98,6 +98,94 @@ async function uploadWideUnrecognisedStatement(page) {
 	await page.waitForTimeout(600);
 }
 
+/**
+ * A statement the GENERIC profile recognises, so it imports straight through and the summary
+ * panel renders. The other two uploaders above deliberately use headers no profile knows, because
+ * their subject is the designation screen; this one's subject is what an import REPORTS, which
+ * only exists on the path where nothing had to be designated.
+ *
+ * The rows are `scripts/synthetic/make-synthetic.mjs`'s ledger, byte for byte, so the image and
+ * the generator cannot drift into disagreeing about what a statement looks like. Holder Paul
+ * Mercier, who does not exist; every merchant and every amount invented; nothing here comes from
+ * anyone's bank. It is inlined rather than read from `scr/synthetic/` for the same reason the two
+ * uploaders above are: a capture must not depend on somebody having run the generator first.
+ *
+ * Eight movements: six debits totalling 367,35 and two credits totalling 2 524,30, over
+ * 2026-06-01 to 2026-06-24. Those are the figures `assertDepictsImportSummary` pins.
+ *
+ * No `category` column, though the generic profile accepts one. The summary names no category, so
+ * carrying one would put French category names into an English instance's database to document a
+ * panel that never shows them.
+ */
+async function uploadSyntheticStatement(page) {
+	const form = page.locator('form[method="POST"]:visible').first();
+	await form.locator('input[name="csvFile"]').setInputFiles({
+		name: 'releve-juin-2026.csv',
+		mimeType: 'text/csv',
+		buffer: Buffer.from(
+			[
+				'date,label,amount',
+				'2026-06-01,Mercerie Lafayette,-45.20',
+				'2026-06-02,Pharmacie du Pont,-18.90',
+				'2026-06-03,Salaire,2450.00',
+				'2026-06-05,Transports Urbains,-62.00',
+				'2026-06-09,Librairie du Marche,-23.45',
+				'2026-06-12,Remboursement mutuelle,74.30',
+				'2026-06-17,Garage Saint Pierre,-210.00',
+				'2026-06-24,Boulangerie Mercier,-7.80'
+			].join('\n'),
+			'utf-8'
+		)
+	});
+	await form.getByRole('button', { name: 'Import' }).click();
+	await page.waitForTimeout(800);
+}
+
+/**
+ * WHAT THE IMAGE IS SUPPOSED TO SHOW, asserted before the file is written.
+ *
+ * This shot is the reason the `assert` hook exists. `summary-desktop.png` was captured by hand,
+ * had no step in this harness, and went stale when #386 took the rows read out of the grid: the
+ * manual showed six tiles for two days and nothing could notice (#387). A capture that cannot
+ * fail always succeeds at producing something, and « something » is what shipped.
+ *
+ * Each line below names the state it protects rather than the pixels it expects:
+ * five tiles, because the sixth is what #386 removed; the rows read as a SENTENCE above them,
+ * because that is where it went; and the two totals, because a summary whose figures are wrong is
+ * the class this whole chantier existed to remove.
+ */
+async function assertDepictsImportSummary(page) {
+	// `:visible`, and it is not defensive. `/import` renders BOTH chromes into the DOM — one
+	// `hidden lg:block`, one `lg:hidden` — so every figure on this panel exists twice and an
+	// unscoped count returns 10 tiles for a five-tile grid. The first run of this assertion found
+	// exactly that, which is the calibration: it reported a number nobody expected rather than
+	// passing quietly. (The doubled mount itself is #357 and #209; this only has to photograph the
+	// half the reader sees.)
+	const grid = page.locator('[data-testid="import-summary-figures"]:visible').first();
+	const tiles = await grid.locator('> div').count();
+	if (tiles !== 5) {
+		throw new Error(`[docs] summary-desktop: expected 5 stat tiles, found ${tiles}`);
+	}
+	for (const expected of [
+		'8 rows read from this file.',
+		'Imported file: releve-juin-2026.csv',
+		'Period: 2026-06-01 - 2026-06-24'
+	]) {
+		if ((await page.getByText(expected, { exact: false }).locator('visible=true').count()) === 0) {
+			throw new Error(`[docs] summary-desktop: "${expected}" is not on the page`);
+		}
+	}
+	// The grid reads left to right: imported, duplicates, invalid, spending, income.
+	const figures = await grid.locator('> div p:nth-child(2)').allInnerTexts();
+	const normalised = figures.map((f) => f.replace(/\u00a0|\u202f/g, ' ').trim());
+	const expected = ['8', '0', '0', '€367.35', '€2,524.30'];
+	if (normalised.join(' | ') !== expected.join(' | ')) {
+		throw new Error(
+			`[docs] summary-desktop: figures are ${normalised.join(' | ')}, expected ${expected.join(' | ')}`
+		);
+	}
+}
+
 const DESKTOP = { width: 1920, height: 1080 };
 const MOBILE = { width: 393, height: 852 };
 
@@ -317,6 +405,23 @@ const GROUPS = {
 				await page.waitForTimeout(400);
 			},
 			element: '[role="dialog"], [role="alertdialog"]'
+		}
+	],
+	// Its own group for the reason stated on `import-columns` below: a group is the unit somebody
+	// re-captures, and this one's arrangement is a THIRD one — a file the generic profile reads, on
+	// an account with no history to collide with. `imports` needs a two-import history and
+	// `import-columns` needs a file no profile knows; neither can produce this panel.
+	//
+	// This group is what #387 was missing. The image existed with no capture path at all, which is
+	// why it could go stale and why nothing noticed.
+	'import-summary': [
+		{
+			file: 'imports/summary-desktop.png',
+			url: '/import',
+			before: uploadSyntheticStatement,
+			assert: assertDepictsImportSummary,
+			clipAround: 'Import summary',
+			clipMinHeight: 320
 		}
 	],
 	// Its own group, not part of `imports`, because its ARRANGEMENT is different: these need no
@@ -697,6 +802,11 @@ async function capture(browser, storageState, shot) {
 		if (lang !== 'en') throw new Error(`[docs] ${shot.file} rendered with lang="${lang}"`);
 
 		if (shot.before) await shot.before(page, { email: EMAIL, password: PASSWORD });
+
+		// Runs after `before` and BEFORE the file is written, so a capture whose premise is false
+		// fails instead of overwriting a good image with a wrong one. Optional: most shots document a
+		// page whose content is the seed's business, and only pin what they are actually about.
+		if (shot.assert) await shot.assert(page);
 
 		const file = path.join(SHOTS, shot.file);
 		if (shot.element) {
