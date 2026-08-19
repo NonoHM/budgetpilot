@@ -22,8 +22,9 @@
 	},
 	{
 		"key": "bills_orange",
-		"match": "orange",
-		"isRegex": false,
+		"match": "\\borange\\b",
+		"name": "Orange",
+		"isRegex": true,
 		"targetCategoryKey": "bills_energy",
 		"targetNature": null
 	},
@@ -128,6 +129,7 @@
 	{
 		"key": "bills_totalenergies_energie",
 		"match": "totalenergies.*(elec|gaz)",
+		"name": "TotalEnergies",
 		"isRegex": true,
 		"targetCategoryKey": "bills_energy",
 		"targetNature": null

@@ -71,8 +71,11 @@ exact: same protocol, same host, same port, no trailing slash.
 | `http://192.168.1.42:3000`   | `http://192.168.1.42:3000`   |
 | `https://budget.example.com` | `https://budget.example.com` |
 
-If you changed the port, remember `APP_PORT` and `ORIGIN` both have to move.
-Restart after editing.
+If you changed the port and your `.env` has **no** `ORIGIN` line, there is
+nothing else to do: compose builds `ORIGIN` from `APP_PORT`, so the two cannot
+drift apart. If your `.env` **does** set `ORIGIN`, that line wins over the
+default and both values have to move together — or delete the line and let the
+default do it. Restart after editing.
 
 ## Login succeeds then bounces me straight back to the login page
 
@@ -119,8 +122,9 @@ Something else on the machine owns that port. Find what:
 lsof -i :3000
 ```
 
-Then either stop it, or move BudgetPilot: set `APP_PORT` **and** `ORIGIN` to
-a free port in `.env` and start again.
+Then either stop it, or move BudgetPilot: set `APP_PORT` to a free port in
+`.env` and start again. `ORIGIN` follows on its own unless your `.env` sets it
+explicitly, in which case move that too.
 
 ## `docker compose up` says the .env file is missing
 

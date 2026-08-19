@@ -65,8 +65,8 @@ cat > .env <<EOF
 BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
 RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
 TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
+BUDGETPILOT_VERSION=0.13.0
 APP_PORT=3000
-ORIGIN=http://localhost:3000
 EOF
 ```
 
@@ -76,25 +76,50 @@ Check it worked:
 cat .env
 ```
 
-You should see five lines, each with a long random value after the `=`. If
-any value is empty, `openssl` isn't installed. Install it, or see
-[generating secrets without openssl](#generating-secrets-without-openssl)
+You should see five lines. The first three carry a long random value after
+the `=`. If any of the three is empty, `openssl` isn't installed. Install it,
+or see [generating secrets without openssl](#generating-secrets-without-openssl)
 below.
+
+`BUDGETPILOT_VERSION` is the version you will be running. It is not optional
+housekeeping: without it the compose file falls back to `latest`, and `up -d`
+starts whatever `latest` your machine already holds rather than fetching the
+release you meant to install. Pinning it is what makes "which version am I on"
+answerable.
+
+Nothing bumps the number written above when a release ships, so treat it as an
+example rather than as the current version: take that from
+[Releases](https://github.com/NonoHM/budgetpilot/releases/latest). Installing an
+older version on purpose is fine and is what a pin is for; installing one by
+accident, which is what no pin gives you, is the thing being fixed here.
+
+There is no `ORIGIN` line here, and that is deliberate. The compose file
+derives `ORIGIN` from `APP_PORT`, so a `.env` that stays quiet about it always
+agrees with the port you published. Writing `ORIGIN` by hand opts you out of
+that, and the two then drift apart the first time you change the port.
 
 Values ending in `=`, or containing `+` and `/`, are normal. That's what
 base64 looks like, not a broken copy-paste.
 
 > **Port 3000 already used** by something else on your machine? Change
-> **both** `APP_PORT` and `ORIGIN` to the same new port before starting, for
-> example `APP_PORT=3001` and `ORIGIN=http://localhost:3001`. Changing only
-> one of them breaks every form in the app. See
+> `APP_PORT` to a free port, for example `APP_PORT=3001`, and open that port
+> in your browser. There is nothing else to change: `ORIGIN` follows
+> `APP_PORT` on its own as long as you have not written an `ORIGIN` line of
+> your own. If you have, the two must name the same port, or every form in the
+> app is refused. See
 > [troubleshooting](./troubleshooting.md#every-form-fails-with-cross-site-post-form-submissions-are-forbidden).
 
 ### 3. Start it
 
 ```bash
+docker compose -f docker-compose.prebuilt.yml pull
 docker compose -f docker-compose.prebuilt.yml up -d
 ```
+
+The `pull` is the step that fetches the version you pinned. `up -d` on its own
+starts the image already in your local Docker cache and reports success either
+way, so skipping the pull is how you end up running an older build than the one
+in your `.env` with nothing on screen saying so.
 
 First run downloads the image, which takes a minute or two. `-d` means it
 keeps running in the background after the command returns.

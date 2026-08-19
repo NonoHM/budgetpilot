@@ -170,10 +170,19 @@
 		});
 	}
 
+	/**
+	 * Three branches, because zero is not a small plural.
+	 *
+	 * The selector was `> 1`, so an import that created nothing fell to the singular string and
+	 * rendered « Ceci supprimera la 0 transaction importée par ce relevé ». Zero has its own
+	 * sentence now, and the singular no longer interpolates a count it does not need: « la
+	 * transaction » is what French says once there is exactly one of them.
+	 */
 	function cancelConfirmDescription(importedRows: number): string {
+		if (importedRows === 0) return m.imports_delete_confirm_description_count_zero();
 		return importedRows > 1
 			? m.imports_delete_confirm_description_count_many({ count: importedRows })
-			: m.imports_delete_confirm_description_count_one({ count: importedRows });
+			: m.imports_delete_confirm_description_count_one();
 	}
 
 	/**
@@ -648,7 +657,16 @@
 				across four categories cannot. A destructive action stating only half its cost is a
 				confirmation that is not one.
 			-->
-			<p class="mt-2 text-sm text-zinc-600">{m.imports_delete_cost_note()}</p>
+			<!--
+				Suppressed at zero, and only at zero. An import that created no transaction has no
+				répartition and no étiquette hanging off one, so the note threatens work that cannot
+				exist — on the screen whose whole job is to state the cost of an irreversible act
+				accurately. At one it is the sentence that stops a user losing an evening of splitting,
+				which is why it is gated on the count rather than deleted.
+			-->
+			{#if pendingCancel.importedRows > 0}
+				<p class="mt-2 text-sm text-zinc-600">{m.imports_delete_cost_note()}</p>
+			{/if}
 			<!--
 				The failure is no longer rendered here. It is the dialog's own `error` slot now, which
 				puts it between the body and the actions, announces it with `role="alert"` AND moves the

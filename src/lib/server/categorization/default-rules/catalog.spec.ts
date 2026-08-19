@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_CATEGORY_KEYS } from '$lib/domain/categories';
 import { isSafeRegexPattern } from '$lib/server/matching/regex';
-import { loadDefaultRuleCatalog, defaultRuleFileSchema } from './catalog';
+import {
+	loadDefaultRuleCatalog,
+	defaultRuleFileSchema,
+	displayNameForDefaultRule
+} from './catalog';
 
 describe('loadDefaultRuleCatalog', () => {
 	it('charge un catalogue non vide avec des clés uniques', () => {
@@ -86,5 +90,50 @@ describe('defaultRuleFileSchema', () => {
 		]);
 
 		expect(result.success).toBe(true);
+	});
+});
+
+/**
+ * What the user READS on /rules for a predefined rule.
+ *
+ * A catalogue entry's `match` is a matching expression, and `deriveRuleName` was building the
+ * displayed name out of it by upper-casing the first character. For a plain brand that is exactly
+ * right — « leclerc » becomes « Leclerc ». For a regex entry it produces the expression itself, so
+ * /rules listed rules called « \bpea\b|plan.{0,4}[ée]pargne.{0,4}actions? » and « Domino's|dominos ».
+ *
+ * That was already true of eleven entries before the over-matching fix, and converting five brand
+ * rules to word-boundary patterns would have made it sixteen — which is what turned a wart into
+ * something worth closing rather than inheriting.
+ *
+ * The assertion is on the metacharacters rather than on a list of expected names: a list would be
+ * this test retyping the catalogue, and would go red on every entry added rather than on the
+ * property being broken.
+ */
+describe('a predefined rule is named for a person to read, never for a matcher', () => {
+	it('shows no regex syntax in any seeded name', () => {
+		expect.assertions(1);
+
+		const offenders = loadDefaultRuleCatalog()
+			.map((entry) => ({ key: entry.key, name: displayNameForDefaultRule(entry) }))
+			// `+` is deliberately NOT in this class. It is a regex quantifier and it is also a
+			// character in real brand names — Canal+, Disney+ — so flagging it would force the
+			// catalogue to misspell a brand to satisfy a test about spelling brands.
+			.filter(({ name }) => /[\\|(){}[\]*?^$]/.test(name));
+
+		expect(offenders).toEqual([]);
+	});
+
+	it('still derives a name for the plain entries, which are most of them', () => {
+		// The calibration: satisfying the test above by giving every entry an explicit name would be
+		// 156 hand-written strings, and dropping the derivation would leave them all unnamed.
+		expect.assertions(2);
+
+		const catalog = loadDefaultRuleCatalog();
+		const derived = catalog.filter((entry) => !entry.name);
+
+		expect(derived.length).toBeGreaterThan(100);
+		expect(displayNameForDefaultRule(derived.find((entry) => entry.key === 'food_leclerc')!)).toBe(
+			'Leclerc'
+		);
 	});
 });

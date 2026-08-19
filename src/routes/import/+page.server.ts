@@ -437,6 +437,7 @@ export const actions: Actions = {
 				invalidRows: result.summary.invalidRows,
 				fileLevelRefusals: result.summary.fileLevelRefusals,
 				duplicateRows: persisted.duplicateRows,
+				autoCategorizedRows: persisted.autoCategorizedRows,
 				totalDebitCents: persisted.importedDebitCents,
 				totalCreditCents: persisted.importedCreditCents,
 				period: result.summary.period,
@@ -466,6 +467,9 @@ function buildImportResult(
 		duplicateRows,
 		invalidRows,
 		fileLevelRefusals,
+		// Nothing was written, so no rule ran. Stated rather than left undefined: this object and the
+		// one the success path builds are read by the same panel.
+		autoCategorizedRows: 0,
 		totalDebitCents,
 		totalCreditCents,
 		invalidRowDetails,

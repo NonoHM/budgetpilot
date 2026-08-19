@@ -98,6 +98,96 @@ describe('the import summary states its rows read rather than tiling it', () => 
 	});
 });
 
+/**
+ * What a file refused WHOLE is allowed to assert about its rows.
+ *
+ * ## The defect these reproduce
+ *
+ * A blind walk uploaded a statement with unnamed columns. The panel said « 8 lignes lues dans ce
+ * fichier », then « Importées 0 · Doublons ignorés 0 · Lignes invalides 0 · Total dépenses 0,00 € ·
+ * Total revenus 0,00 € », above a red banner reading « Aucune transaction valide à importer ».
+ *
+ * Two statements on one screen that cannot both be true of those eight rows. « Lignes invalides :
+ * 0 » says nothing was wrong with them; the banner says none of them was usable. And the eight
+ * fall into no bucket at all, so a reader looking for their rows finds five zeroes and no account
+ * of where the rows went.
+ *
+ * ## Suppressed rather than given a sixth tile
+ *
+ * `summaryCounts.spec.ts` proves the invariant this rests on: `fileLevelRefusals > 0` implies the
+ * parser classified NO row, because it never examined one. A « Refusées : 8 » tile would put a
+ * number in a row of outcomes for rows that have no outcome, and would re-offer the arithmetic the
+ * grid was deliberately stripped of. The rows are accounted for in words instead, which is the
+ * same move the rows-read line already made.
+ *
+ * The diagnosis above the figures is untouched: « Colonne requise absente : Date » is the one part
+ * of this panel that told the user something they could act on.
+ */
+describe('a file refused whole states what became of its rows instead of tiling zeroes', () => {
+	const REFUSED = {
+		totalRows: 8,
+		importedRows: 0,
+		invalidRows: 0,
+		duplicateRows: 0,
+		fileLevelRefusals: 3,
+		totalDebitCents: 0,
+		totalCreditCents: 0,
+		invalidRowDetails: [
+			{
+				key: 0,
+				scope: { kind: 'header' },
+				fact: { code: 'missing-required-column', role: 'date' },
+				profile: 'generic',
+				preview: ''
+			}
+		]
+	};
+
+	it('draws no outcome grid, because every tile in it would be a zero about an unexamined row', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 800);
+		render(Page, { data: DATA, form: formWith(REFUSED) });
+
+		// Structural, for the same reason the five-tile assertion above is: the defect is what the
+		// GRID asserts, and a fix that renamed « Lignes invalides » while leaving the row of zeroes
+		// would pass a label-based test.
+		expect(document.querySelectorAll('[data-testid="import-summary-figures"]')).toHaveLength(0);
+		// The half that stops this passing on a panel that renders nothing at all.
+		expect(page.getByText(m.import_summary_refused_heading()).elements()).toHaveLength(2);
+	});
+
+	it('says the rows were not examined, rather than that they were read', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 800);
+		render(Page, { data: DATA, form: formWith(REFUSED) });
+
+		// Built through the catalogue from the fixture's own figure, so a page interpolating the
+		// wrong count still reddens.
+		expect(
+			page.getByText(m.import_summary_rows_not_examined_many({ count: 8 })).elements()
+		).toHaveLength(2);
+		// And the sentence it replaces is gone: « 8 lignes lues » beside a refusal is the claim
+		// that produced the contradiction.
+		expect(
+			page.getByText(m.import_summary_rows_read_line_many({ count: 8 })).elements()
+		).toHaveLength(0);
+	});
+
+	it('still tiles the outcomes when the rows WERE read, refusals and all', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 800);
+		// Three bad rows out of eight is not a refused file: the parser read every one of them and
+		// classified it, so the tiles are about real outcomes and must stay. Without this, the
+		// suppression above is satisfiable by deleting the grid outright.
+		render(Page, { data: DATA, form: formWith({ invalidRows: 3, fileLevelRefusals: 0 }) });
+
+		expect(document.querySelectorAll('[data-testid="import-summary-figures"]')).toHaveLength(2);
+		expect(
+			page.getByText(m.import_summary_rows_read_line_many({ count: 8 })).elements()
+		).toHaveLength(2);
+	});
+});
+
 describe('a file refused whole says so above the figures', () => {
 	it('draws the refusal block only when there is a file level refusal', async () => {
 		expect.assertions(2);

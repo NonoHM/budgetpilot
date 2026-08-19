@@ -58,6 +58,7 @@
 	{
 		"key": "shopping_hm",
 		"match": "h&m|h & m",
+		"name": "H&M",
 		"isRegex": true,
 		"targetCategoryKey": "shopping",
 		"targetNature": null
@@ -99,8 +100,9 @@
 	},
 	{
 		"key": "shopping_boulanger",
-		"match": "boulanger",
-		"isRegex": false,
+		"match": "\\bboulanger\\b",
+		"name": "Boulanger",
+		"isRegex": true,
 		"targetCategoryKey": "shopping",
 		"targetNature": null
 	},
@@ -177,6 +179,7 @@
 	{
 		"key": "leisure_basic_fit",
 		"match": "basic fit|basic-fit",
+		"name": "Basic-Fit",
 		"isRegex": true,
 		"targetCategoryKey": "leisure",
 		"targetNature": null
@@ -219,6 +222,7 @@
 	{
 		"key": "leisure_steam",
 		"match": "steam games|steampowered",
+		"name": "Steam",
 		"isRegex": true,
 		"targetCategoryKey": "leisure",
 		"targetNature": null

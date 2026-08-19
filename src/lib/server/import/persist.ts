@@ -232,6 +232,12 @@ export interface PersistImportedTransactionsResult {
 	importedDebitCents: number;
 	importedCreditCents: number;
 	importedTransactionIds: string[];
+	/**
+	 * How many of the rows just written were immediately rewritten by the user's own categorization
+	 * rules. Reported to the user on the import summary: the rules are wanted, but a category the
+	 * application chose is a statement about their money that the file did not make.
+	 */
+	autoCategorizedRows: number;
 }
 
 /**
@@ -270,7 +276,12 @@ export async function persistImportedTransactions(
 			importedCreditCents += Math.abs(transaction.amountCents);
 	}
 
-	await applyCategoryRules(input.userId, { transactionIds: importedTransactionIds });
+	// The figure the import summary discloses. `applyCategoryRules` has always returned how many
+	// rows it rewrote and the count was always dropped here, so the one screen that reports what an
+	// import did to the user's money could not mention the part of it the user did not ask for.
+	const autoCategorizedRows = await applyCategoryRules(input.userId, {
+		transactionIds: importedTransactionIds
+	});
 	await prisma.importBatch.update({
 		where: { id: input.importBatchId },
 		data: { importedRows, duplicateRows }
@@ -281,7 +292,8 @@ export async function persistImportedTransactions(
 		duplicateRows,
 		importedDebitCents,
 		importedCreditCents,
-		importedTransactionIds
+		importedTransactionIds,
+		autoCategorizedRows
 	};
 }
 

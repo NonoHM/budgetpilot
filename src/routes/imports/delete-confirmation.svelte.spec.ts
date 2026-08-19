@@ -440,3 +440,80 @@ describe('the delete that gets no answer at all', () => {
 		vi.useRealTimers();
 	});
 });
+
+/**
+ * The zero case, which is the one branch that had no copy of its own.
+ *
+ * ## The defect this reproduces
+ *
+ * A blind walk imported a statement that produced no transactions, then deleted the import. The
+ * confirmation read « Ceci supprimera **la 0 transaction** importée par ce relevé », followed by
+ * « Les répartitions et les étiquettes ajoutées à ces transactions seront supprimées avec elles ».
+ *
+ * Neither sentence is French and neither is true. The count selector was `importedRows > 1`, so
+ * zero fell to the singular string and interpolated itself into it, and the cost note — which is
+ * load-bearing when there ARE transactions, because splits and tags are the user's own work rather
+ * than the import's — threatened work that cannot exist for an import that created nothing.
+ *
+ * A destructive confirmation is exactly where copy carries weight: it is the last screen before an
+ * irreversible act, and a reader who catches it saying something false about the small case has no
+ * reason to trust it about the large one.
+ *
+ * ## One is asserted beside zero, and that is the boundary
+ *
+ * `> 1` and `> 0` disagree on exactly one value, and the singular string is the one both selectors
+ * can reach. So the pair below names the single value where the old and new predicates differ, and
+ * a fix that merely moved the threshold without giving zero its own sentence fails the first.
+ */
+describe('the delete confirmation on an import that created nothing', () => {
+	function batchWith(importedRows: number) {
+		return {
+			...batch('batch-empty', OLDER_AT),
+			rowCount: 8,
+			importedRows,
+			transactionCount: importedRows
+		};
+	}
+
+	function dialogBody(): string {
+		return document.querySelector('[role="dialog"]')?.textContent ?? '';
+	}
+
+	async function openDeleteFor(importedRows: number) {
+		await page.viewport(1280, 900);
+		render(Page, {
+			data: { ...DATA, batches: [batchWith(importedRows)] } as unknown as PageData,
+			form: null
+		});
+		await page.getByRole('button', { name: m.common_delete() }).first().click();
+	}
+
+	it('says the import created nothing, rather than counting to zero in the singular', async () => {
+		expect.assertions(2);
+		await openDeleteFor(0);
+
+		expect(dialogBody()).toContain(m.imports_delete_confirm_description_count_zero());
+		// The measured string, and the reason this is not merely a wording preference: the singular
+		// sentence with a zero in it is what shipped.
+		expect(dialogBody()).not.toContain(
+			m.imports_delete_confirm_description_count_one({ count: 0 })
+		);
+	});
+
+	it('does not threaten splits and tags that an empty import cannot have', async () => {
+		expect.assertions(1);
+		await openDeleteFor(0);
+
+		expect(dialogBody()).not.toContain(m.imports_delete_cost_note());
+	});
+
+	it('still warns about them at one, which is the value the two selectors disagree on', async () => {
+		// The calibration. Suppressing the cost note is a one-character change away from suppressing
+		// it everywhere, and it is the sentence that stops a user losing an evening of splitting.
+		expect.assertions(2);
+		await openDeleteFor(1);
+
+		expect(dialogBody()).toContain(m.imports_delete_cost_note());
+		expect(dialogBody()).toContain(m.imports_delete_confirm_description_count_one());
+	});
+});

@@ -48,6 +48,14 @@ export interface ImportSummaryResult {
 	 */
 	fileLevelRefusals: number;
 	duplicateRows: number;
+	/**
+	 * Rows the user's own categorization rules rewrote immediately after the import, which is a
+	 * thing the application did to their money that nothing on the file asked for.
+	 *
+	 * Zero is the ordinary case and renders nothing. It is deliberately not folded into
+	 * `importedRows`: those rows WERE imported, and this says what happened to them next.
+	 */
+	autoCategorizedRows: number;
 	totalDebitCents: number;
 	totalCreditCents: number;
 	period: { from: string | null; to: string | null };

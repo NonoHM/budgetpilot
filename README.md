@@ -64,20 +64,27 @@ cat > .env <<EOF
 BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
 RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
 TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
+BUDGETPILOT_VERSION=0.13.0
 APP_PORT=3000
-ORIGIN=http://localhost:3000
 EOF
 ```
 
-Start it:
+`BUDGETPILOT_VERSION` pins what you install. Without it you get whatever `latest` your machine already holds, which can be an older image and never says so. The number above is a starting point, not a claim about what is current — take the current one from [Releases](https://github.com/NonoHM/budgetpilot/releases/latest), and raise it the same way to upgrade later ([running it day to day](docs/operations.md)).
+
+There is no `ORIGIN` line, and that is deliberate: the compose file derives it from `APP_PORT`, so changing the port here is enough. You only set `ORIGIN` yourself for a LAN address, a hostname, or a reverse proxy — see [configuration](docs/configuration.md).
+
+Pull the image, then start it:
 
 ```bash
+docker compose -f docker-compose.prebuilt.yml pull
 docker compose -f docker-compose.prebuilt.yml up -d
 ```
 
+`up -d` starts what you already have; it does not fetch a new version. The `pull` is what makes the version above the one you actually run.
+
 Open **http://localhost:3000** and create your account. Registration is closed by default, so the form asks for a token: it's the `BOOTSTRAP_TOKEN` you just generated (`grep BOOTSTRAP_TOKEN .env`). The first account created becomes the admin. The interface starts in French, switch to English from Settings.
 
-On Windows, run all of this from Git Bash or WSL. Port 3000 already taken, or want to run it from a source checkout instead? The [full walkthrough](docs/getting-started.md) covers both, plus running it without Docker.
+On Windows, run all of this from Git Bash or WSL. **Port 3000 already taken?** Change `APP_PORT` in `.env` to a free port, then `docker compose -f docker-compose.prebuilt.yml up -d` again, and open the new port — nothing else to change. Want to run it from a source checkout instead? The [full walkthrough](docs/getting-started.md) covers that, plus running it without Docker.
 
 Reaching it from another device on your LAN takes two extra lines in `.env` (`ORIGIN` and `PUBLIC_INSTANCE=false`), and a real domain with automatic HTTPS takes an optional [Caddy overlay](docs/reverse-proxy.md).
 
