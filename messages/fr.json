@@ -379,6 +379,8 @@
 	"import_field_net_worth_account": "Compte de destination",
 	"import_field_net_worth_account_placeholder": "Aucun (regroupement technique uniquement)",
 	"import_field_net_worth_account_hint": "Uniquement au premier import de ce profil. Ignoré ensuite.",
+	"import_field_net_worth_account_none": "Aucun compte Patrimoine à relier pour l’instant. Créez-en un pour choisir une destination.",
+	"import_field_net_worth_account_none_cta": "Ouvrir Patrimoine",
 	"import_existing_bucket_notice": "Chaque profil a déjà son compte d’import : le lien au patrimoine a été fixé à sa création.",
 	"import_link_applied_notice": "Compte de patrimoine lié avec succès à ce nouvel import.",
 	"import_link_ignored_notice": "Un compte technique existait déjà pour ce profil : le compte de patrimoine sélectionné n'a pas été appliqué.",

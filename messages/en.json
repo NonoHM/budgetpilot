@@ -379,6 +379,8 @@
 	"import_field_net_worth_account": "Destination account",
 	"import_field_net_worth_account_placeholder": "None (technical grouping only)",
 	"import_field_net_worth_account_hint": "First import of this profile only. Ignored afterwards.",
+	"import_field_net_worth_account_none": "No Net worth account to link yet. Create one to choose a destination.",
+	"import_field_net_worth_account_none_cta": "Open Net worth",
 	"import_existing_bucket_notice": "Each profile already has its import account: the net worth link was fixed when it was created.",
 	"import_link_applied_notice": "Successfully linked to the selected net worth account.",
 	"import_link_ignored_notice": "A technical account already existed for this profile: the selected net worth account link was not applied.",
