@@ -1011,7 +1011,18 @@
 					>
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
 							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_imported()}</p>
-							<p class="mt-1 text-xl font-semibold text-emerald-700">{importResult.importedRows}</p>
+							<!--
+								Gated for the same reason the refusal count below it is: a colour on a summary
+								figure is a verdict about that figure, and zero is the one value where no
+								verdict is available. « Importées 0 » in emerald is the headline fact of a
+								failed import, drawn as good news.
+							-->
+							<p
+								class="mt-1 text-xl font-semibold"
+								class:text-emerald-700={importResult.importedRows > 0}
+							>
+								{importResult.importedRows}
+							</p>
 						</div>
 						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
 							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_duplicates()}</p>
@@ -1329,7 +1340,12 @@
 					<div class="mt-3 grid grid-cols-2 gap-3" data-testid="import-summary-figures">
 						<div class="rounded-xl bg-zinc-50 p-3">
 							<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_imported()}</p>
-							<p class="mt-1 text-lg font-bold text-emerald-700">{importResult.importedRows}</p>
+							<p
+								class="mt-1 text-lg font-bold"
+								class:text-emerald-700={importResult.importedRows > 0}
+							>
+								{importResult.importedRows}
+							</p>
 						</div>
 						<div class="rounded-xl bg-zinc-50 p-3">
 							<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_duplicates()}</p>

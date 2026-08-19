@@ -59,6 +59,14 @@ function formWith(overrides: Record<string, unknown> = {}) {
 	} as any;
 }
 
+/**
+ * The three tiles that COUNT rows, in the order both chromes draw them. The two money totals
+ * follow and are deliberately excluded below: they are sums, not outcomes, and 0,00 € carries no
+ * verdict to get wrong.
+ */
+type CountKey = 'importedRows' | 'duplicateRows' | 'invalidRows';
+const COUNT_KEYS: CountKey[] = ['importedRows', 'duplicateRows', 'invalidRows'];
+
 /** The semantic colour carried by each tile's VALUE, one array per chrome, in tile order. */
 function tonesPerChrome(): string[][] {
 	const grids = Array.from(document.querySelectorAll('[data-testid="import-summary-figures"]'));
@@ -95,6 +103,39 @@ describe('the two chromes of the summary agree on what each figure means', () =>
 		// were BOTH unconditionally rose would satisfy that one.
 		for (const chrome of tonesPerChrome()) {
 			expect(chrome.filter((tone) => tone.startsWith('text-rose'))).toEqual([]);
+		}
+	});
+
+	const ZERO_CASES: Array<[string, Partial<Record<CountKey, number>>]> = [
+		['nothing imported', { importedRows: 0, duplicateRows: 8 }],
+		['a clean import', {}],
+		['rows refused', { invalidRows: 3, importedRows: 5 }]
+	];
+
+	it.each(ZERO_CASES)('%s: no figure of zero carries a colour', async (_name, overrides) => {
+		// The general property the rose case is one instance of, and the reason it is stated
+		// separately: the agreement test above cannot see this one. Both chromes hardcode emerald on
+		// « Importées », so they AGREE while both are wrong — « Importées 0 » in the colour of
+		// success, on the screen whose headline fact is that nothing was imported.
+		//
+		// A colour on a summary figure is a verdict about that figure. Zero is the one value where
+		// no verdict is available: nothing was imported, nothing was skipped, nothing was refused.
+		expect.assertions(2);
+		await page.viewport(1280, 800);
+		render(Page, { data: DATA, form: formWith(overrides) });
+
+		const defaults: Record<CountKey, number> = {
+			importedRows: 8,
+			duplicateRows: 0,
+			invalidRows: 0
+		};
+		const values = COUNT_KEYS.map((key) => overrides[key] ?? defaults[key]);
+		for (const chrome of tonesPerChrome()) {
+			// Only the three COUNT tiles: the two money totals are not outcomes and carry no tone.
+			const colouredZeroes = chrome
+				.slice(0, COUNT_KEYS.length)
+				.filter((tone, index) => tone !== 'none' && values[index] === 0);
+			expect(colouredZeroes).toEqual([]);
 		}
 	});
 
