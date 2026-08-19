@@ -42,12 +42,20 @@ of every form submission as CSRF protection. If it doesn't match, login,
 registration and every other form fail with `403 Cross-site POST form
 submissions are forbidden`, while the pages themselves load fine.
 
-Different port on the same machine, both values move together:
+Different port on the same machine: change `APP_PORT` and stop there.
 
 ```dotenv
 APP_PORT=3001
-ORIGIN=http://localhost:3001
 ```
+
+The compose file computes `ORIGIN: ${ORIGIN:-http://localhost:${APP_PORT:-3000}}`,
+so an unset `ORIGIN` follows the port you published and the two cannot drift
+apart. This is why `.env.example` ships that line commented out.
+
+Writing `ORIGIN` by hand opts you out of that — your line wins over the default
+— and the two must then move together, which is the mismatch this section
+exists to explain. Set it only when localhost is not what you type: a LAN
+address, a hostname, or anything behind a reverse proxy.
 
 `APP_PORT` is the host-side port Docker publishes. The container always
 listens on 3000 internally, that never changes.
