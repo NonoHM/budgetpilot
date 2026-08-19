@@ -84,8 +84,7 @@
 		onOpen
 	}: {
 		role: MappingRole;
-		state:
-			'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'skeleton' | 'recap';
+		state: 'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'recap';
 		/** Renders the `Optionnel` badge. Required-ness is marked BY EXCEPTION: no asterisks anywhere. */
 		optional?: boolean;
 		/** The picker for this row is open. Sets `aria-expanded` and the zinc-100 surface. */
@@ -209,17 +208,18 @@
 	{/if}
 {/snippet}
 
-{#if state === 'skeleton'}
-	<!--
-		68 px and the separators around it stay visible: the card is already 355 whatever is inside
-		it, so the skeleton is exact rather than approximate. Not a button and outside the tab order
-		during analysis. Nothing to announce here: the page announces.
-	-->
-	<div class="flex {heightClass} flex-col justify-center gap-1" aria-hidden="true">
-		<div class="skeleton-pulse h-3 w-24 rounded bg-zinc-100"></div>
-		<div class="skeleton-pulse h-2.5 w-[180px] rounded bg-zinc-100"></div>
-	</div>
-{:else if state === 'recap'}
+<!--
+	THE SKELETON STATE IS GONE, and its removal is a finding rather than a tidy-up (Planche 5f).
+
+	It was built here, on a screen that structurally cannot show it: these rows exist because the file
+	is already read in memory, so there is no instant at which the structure is known and the content
+	absent. Its `analysing` prop was set by NO ROUTE, which is this repository's own check on any
+	state, prop or branch: name the route that produces it, or it is drafted rather than built.
+
+	Brique 9's skeleton now lives where that instant does exist, at `/imports` on arrival from an
+	import, which is a server write followed by a list re-read. See `ImportCardSkeleton.svelte`.
+-->
+{#if state === 'recap'}
 	<!--
 		Read only. Neither a button nor focusable, because it opens nothing.
 

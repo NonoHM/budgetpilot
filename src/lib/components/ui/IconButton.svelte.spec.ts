@@ -25,11 +25,25 @@ describe('IconButton.svelte', () => {
 		expect(button.className).not.toContain('text-rose-600');
 	});
 
-	it('applies the danger tone color classes', async () => {
+	/**
+	 * NEUTRAL AT REST, and this assertion was reversed by Planche 5e rather than relaxed.
+	 *
+	 * It read `toContain('text-rose-600')`. Brique 1's own clause says « tone danger (poubelle) :
+	 * neutre au repos, rose seulement au hover/focus », so the resting rose was the code deviating
+	 * from the brick it is registered under, and the test was pinning the deviation.
+	 *
+	 * Both halves are asserted, because the change is a pair: the rest loses the tint and the hover
+	 * keeps it. Asserting only the first would pass on a control that had lost its danger tone
+	 * entirely.
+	 */
+	it('rests neutral and reserves rose for hover, focus and press', async () => {
 		render(IconButton, { label: 'Supprimer', tone: 'danger', children: iconSnippet() });
 
 		const button = page.getByRole('button', { name: 'Supprimer' }).element();
-		expect(button.className).toContain('text-rose-600');
+		expect(button.className).toContain('text-zinc-700');
+		expect(button.className).not.toContain('text-rose-600');
+		expect(button.className).toContain('hover:text-rose-700');
+		expect(button.className).toContain('data-[pressed]:text-rose-700');
 	});
 
 	it('sets aria-pressed=true and the active visual state when pressed=true', async () => {

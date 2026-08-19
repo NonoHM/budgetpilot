@@ -73,7 +73,15 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// statement minutes apart as its ordinary shape. The same discriminant the delete
 					// confirmation and the withheld retraction already use, so all three name one import
 					// identically rather than describing it three ways.
-					select: { id: true, createdAt: true }
+					// `importedRows` so the destructive confirmation of Planche 5c can say what it
+					// removes. The primary's own count is the NEW file's rows and this is the OLD
+					// import's: two different numbers, and the confirmation names both because that is
+					// what a confirmation for a compound act owes its reader.
+					//
+					// ASVS 5.0 v5.0.0-2.2.1: the widening is a SELECTED COLUMN and not a widened where
+					// clause. The lookup is still scoped by `userId` and by `columnMappingId`, so this
+					// reads one more field of a batch the caller already owns.
+					select: { id: true, createdAt: true, importedRows: true }
 				})
 			: null;
 	// What the replacement destroys BEYOND the rows, so the control can name it and can stay SILENT
@@ -109,6 +117,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// Formatted on the page, where the negotiated locale is known. Null exactly when
 					// `batchId` is, so the label and the control appear and disappear together.
 					replacedAt: correctingBatch?.createdAt.toISOString() ?? null,
+					replacedRows: correctingBatch?.importedRows ?? 0,
 					hasUserWork: userWorkCount > 0
 				}
 			: null,
@@ -233,7 +242,7 @@ export const actions: Actions = {
 					coverage: importSampleCoverage(importData.rows),
 					firstRow: importFirstDataRow(importData.rows),
 					rowCount: Math.max(0, importData.rows.length - 1),
-					hasHeaderRow: true
+					detectedHeaderRow: true
 				},
 				// Null per role where the remembered column is not in this file. A neighbour picked by
 				// proximity would put the money column somewhere plausible and silent.
@@ -327,7 +336,7 @@ export const actions: Actions = {
 								coverage: importSampleCoverage(importData.rows),
 								firstRow: importFirstDataRow(importData.rows),
 								rowCount: Math.max(0, result.summary.totalRows),
-								hasHeaderRow: true
+								detectedHeaderRow: true
 							}
 						: undefined,
 				importResult: buildImportResult(

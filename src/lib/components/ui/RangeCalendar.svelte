@@ -10,6 +10,7 @@
 
 <script lang="ts">
 	import { untrack } from 'svelte';
+	import { pressableWithin } from '$lib/press';
 	import { RangeCalendar as Bits } from 'bits-ui';
 	import { CalendarDate, type DateValue } from '@internationalized/date';
 	import type { locales } from '$lib/paraglide/runtime';
@@ -180,6 +181,7 @@
 </script>
 
 <div
+	use:pressableWithin={'[data-bits-day]'}
 	class="rc-root flex flex-col"
 	style:--rc-cell="{metrics.cell}px"
 	style:--rc-radius={radius}
@@ -442,6 +444,18 @@
 	.rc-root :global([data-bits-day][data-range-middle]) {
 		background: #f4f4f5;
 		color: #18181b;
+	}
+
+	/* Pressé — zinc-200, Planche 5a.
+	   THE ONE TONE WHERE zinc-100 IS ALREADY TAKEN: it is « dans la plage » directly above. The press
+	   therefore descends one step so it stays distinct from the eleven states registered in the V2
+	   additions, rather than making a pressed cell indistinguishable from a banded one.
+	   Placed here on purpose, after the band and before the bounds: a bound is black and stays black
+	   under the finger, because a 15.8:1 fill lightening to zinc-200 would read as a deselection.
+	   The state is set by `pressableWithin` on the root rather than by an action per cell: a month is
+	   42 cells, and these are rendered by bits-ui, which takes a class and not a Svelte action. */
+	.rc-root :global([data-bits-day][data-pressed]) {
+		background: #e4e4e7;
 	}
 
 	/* Début / Fin — solid black, white on top (15.8:1), radius on the outer side only. Two

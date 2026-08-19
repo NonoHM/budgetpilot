@@ -95,3 +95,107 @@ export const transitionHover =
 //    half: a smaller desktop value is not a precedent, it is a value that has
 //    not been brought down yet.
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Planche 5a — the pressed state, for the eight tones, plus its timing rule.
+//
+// Registered here for the same reason the V2 clauses above are: this file is where the
+// referential's rules already live in tracked code. The rule itself and the three clauses that
+// keep it from becoming "one more state" are in `$lib/press.ts`, next to the mechanism that
+// enforces them. `docs/reference/design-referential.md` is the index that points at both.
+//
+// **The referential defines a pressed state for NO tone**, having never written a surface without
+// hover. On such a surface a control that does not light up under the finger is presumed dead.
+//
+// TWO NEW TINTS AND ONE NEW RULE. Everything else already existed and is moved from hover onto the
+// press rather than revalidated:
+//
+//   press-neutral   #f4f4f5   EXISTS (zinc-100)          neutral fills, list rows, checkbox rows
+//   press-danger    #fff1f2 / #be123c
+//                             EXISTS (brique 1's hover pair, 5.4:1, already measured)
+//   rose-800        #9f1239   ADDITION                   filled-rose pressed, TapLink danger
+//                                                        pressed. White on it 7.6:1, it on
+//                                                        white 6.8:1.
+//   press-inset     inset 0 2px 6px rgba(0,0,0,.35)
+//                             ADDITION                   a fill cannot lighten without changing
+//                                                        tone, so it presses by sinking. NO
+//                                                        transform: this survives
+//                                                        prefers-reduced-motion, which neutralises
+//                                                        transforms but not a colour.
+//   press-timing    0 ms in / 120 ms out / 120 ms floor
+//                             ADDITION (a rule)          replaces the symmetric 120 ms on press.
+//
+// CONSIDERED AND REJECTED, both recorded because both are one line and will be proposed again:
+//
+//   A universal `opacity: .7`. One line for the whole product, and that is its only merit. On a
+//   zinc-700 glyph it cuts contrast at the exact moment the user is looking for a confirmation, so
+//   the acknowledgement would be paid for in legibility; on a black fill it is invisible.
+//
+//   `scale(.97)` on press. Kept for nothing except, in spirit, the fills. On a full-width row a
+//   scale shifts text by a readable amount, which reads as a rendering fault. On the fills the
+//   inset shadow does the same job without moving a pixel of text, and it survives
+//   prefers-reduced-motion.
+//
+// THE CALENDAR CELL IS THE ONE TONE WHERE zinc-100 IS ALREADY TAKEN ("in range"), so its press
+// drops one step to zinc-200 to stay distinct from the eleven states already registered in the V2
+// additions above.
+//
+// WHERE IT APPLIES: every activable control in the product, mobile and desktop. The press is not a
+// compensation for touch, it is the return of a press, and a mouse presses too. Hover stays what
+// it is.
+// ---------------------------------------------------------------------------
+
+/**
+ * The surface half alone: zinc-100 and nothing else.
+ *
+ * For a container whose children carry their own colours (a ListCard row, whose subline is
+ * explicitly zinc-500), where forcing an inherited zinc-900 would say something about the text
+ * rather than about the press.
+ */
+export const pressSurface = 'data-[pressed]:bg-zinc-100';
+
+/** Neutral fills, checkbox and switch rows: brique 1's hover pair moved onto the press. */
+export const pressNeutral = `${pressSurface} data-[pressed]:text-zinc-900`;
+
+/** IconButton danger. #be123c on #fff1f2 = 5.4:1, measured by brique 1 for its hover state. */
+export const pressDanger = 'data-[pressed]:bg-rose-50 data-[pressed]:text-rose-700';
+
+/**
+ * The sinking, on its own.
+ *
+ * A fill cannot lighten without changing tone, so it presses by being pushed in. NOT a transform:
+ * `prefers-reduced-motion` neutralises transforms and does not neutralise a shadow, so this is the
+ * form that still answers a press for a reader who asked for less motion.
+ *
+ * Exported separately because one fill in the product has no registered pressed pair: the
+ * `positive` emerald button is not one of the plate's eight tones. It sinks and keeps its hue
+ * rather than being given an emerald-800 nobody has measured. See the gap table in
+ * `docs/reference/design-referential.md`.
+ */
+export const pressInset = 'data-[pressed]:shadow-[inset_0_2px_6px_rgba(0,0,0,0.35)]';
+
+/** A neutral fill presses by sinking to pure black. White on it is 21:1. */
+export const pressFilled = `data-[pressed]:bg-black ${pressInset}`;
+
+/** The only new tint of the plate: rose-800 #9f1239, the destructive confirmation's primary. */
+export const pressFilledRose = `data-[pressed]:bg-[#9f1239] ${pressInset}`;
+
+/**
+ * Brique 4 forbids a TapLink any fill and any border, so its press cannot be a surface. It is the
+ * underline the brick removed from the resting state, handed back on the press where it is
+ * transient. A stroke, not a tint.
+ */
+export const pressUnderline = 'data-[pressed]:underline data-[pressed]:underline-offset-2';
+
+/** The same stroke in rose-800, so the darkening is perceptible against rose-700. 6.8:1 on white. */
+export const pressUnderlineDanger = `${pressUnderline} data-[pressed]:text-[#9f1239]`;
+
+/** The calendar cell, one step down because zinc-100 already means "in range". */
+export const pressCalendarCell = 'data-[pressed]:bg-zinc-200';
+
+/**
+ * The timing rule in CSS: entry carries NO transition, exit keeps `transitionHover`'s 120 ms
+ * ease-out. Compose AFTER `transitionHover` so the pressed variant wins the cascade. The 120 ms
+ * minimum display and the pointercancel path cannot be expressed here and live in `$lib/press.ts`.
+ */
+export const pressTransition = 'data-[pressed]:transition-none';

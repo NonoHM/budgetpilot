@@ -29,7 +29,7 @@ function fileWith(columns: number, rows: number) {
 		headers,
 		samples: headers.map((_, index) => [`v${index}a`]),
 		rowCount: rows,
-		hasHeaderRow: true
+		detectedHeaderRow: true
 	};
 }
 

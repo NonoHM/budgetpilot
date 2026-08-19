@@ -67,7 +67,7 @@ const VIEW: DesignationFile = {
 	coverage: [1, 1, 1],
 	firstRow: ['24/06/2026', 'CARREFOUR', '-24,90'],
 	rowCount: 1,
-	hasHeaderRow: true
+	detectedHeaderRow: true
 } as DesignationFile;
 
 const ASSIGNMENT = { date: 0, label: 1, amount: 2, category: null } as unknown as RoleAssignment;
@@ -89,7 +89,15 @@ function carry(correction: { batchId: string; deleteOldImport: boolean } | null)
 			assignment: ASSIGNMENT,
 			remember: true,
 			hasHeaderRow: true,
-			correction: correction ? { mappingId: 'mapping-1', ...correction } : null
+			correction: correction
+				? {
+						mappingId: 'mapping-1',
+						namedAt: '1 juillet 2026 à 10:59',
+						replacedRows: 25,
+						hasUserWork: false,
+						...correction
+					}
+				: null
 		},
 		existing: EXISTING,
 		incoming: INCOMING
@@ -203,10 +211,16 @@ describe('declining keeps the designation work', () => {
 		// first attempt was going to replace. Asserted WHOLE rather than field by field, so a value
 		// dropped on the way through the dialog reddens here — `mappingId` was added to this object for
 		// the way out and is carried through the same journey, which is what makes it worth checking.
+		// THE ANSWER IS DELIBERATELY ABSENT from what is handed back (Planche 5c). The designation
+		// screen asks the question again, at its default, because carrying the answer would re-tick a
+		// box the user is about to be re-shown. What must survive is everything needed to ASK: the two
+		// ids and the three fields that let the footer name the import it would delete.
 		expect(kept?.correction).toEqual({
 			mappingId: 'mapping-1',
 			batchId: 'batch-old',
-			deleteOldImport: false
+			namedAt: '1 juillet 2026 à 10:59',
+			replacedRows: 25,
+			hasUserWork: false
 		});
 		// And the screen is actually reopened. Seeding the state without navigating would leave the
 		// user on a blank upload form holding a designation they cannot see, which is the defect

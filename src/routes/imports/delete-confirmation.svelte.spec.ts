@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import { page } from 'vitest/browser';
 import '../layout.css';
@@ -45,7 +45,7 @@ import type { PageData } from './$types';
  * Measured, because a green says nothing until that is known, and because only ONE of the five was
  * red before the change: the other four could not see the defect they exist for. A message that
  * takes no parameter still accepts one and ignores it, so every assertion comparing the title
- * against `imports_cancel_confirm_title({ date })` agreed with the un-parameterised constant on
+ * against `imports_delete_confirm_title({ date })` agreed with the un-parameterised constant on
  * both sides. Their meaning starts at this change, and their green before it is worth nothing.
  *
  *  - title reverted to a constant: 3 red, this file's whole point.
@@ -154,7 +154,7 @@ describe('the delete confirmation on the desktop chrome', () => {
 
 		await page.getByRole('button', { name: m.common_delete() }).nth(1).click();
 
-		expect(dialogName()).toBe(m.imports_cancel_confirm_title({ date: await shownDate(OLDER_AT) }));
+		expect(dialogName()).toBe(m.imports_delete_confirm_title({ date: await shownDate(OLDER_AT) }));
 	});
 
 	it('offers no control that calls the deletion an annulation', async () => {
@@ -171,8 +171,8 @@ describe('the delete confirmation on the desktop chrome', () => {
 		const labels = [...(dialog?.querySelectorAll('button') ?? [])].map((b) =>
 			(b.textContent ?? '').trim()
 		);
-		expect(labels).toContain(m.imports_cancel_confirm_label());
-		expect(labels).toContain(m.imports_cancel_keep_label());
+		expect(labels).toContain(m.imports_delete_confirm_label());
+		expect(labels).toContain(m.imports_delete_keep_label());
 		expect(labels).not.toContain(m.common_cancel());
 	});
 });
@@ -182,19 +182,261 @@ describe('the delete confirmation on the mobile chrome', () => {
 		// THE SEAM, at the second call site. The dialog is one component and the two chromes each
 		// build the object it reads, so this is the width at which a forgotten field ships.
 		//
-		// Reached by index rather than by name, which is a defect this test is standing next to
-		// rather than one it fixes: the expand control is labelled with the file name, so the two
-		// cards have the SAME accessible name, and there is no non-positional handle. Filed
-		// separately.
+		// REACHED BY NAME, and that is #380 closing rather than a style change. This used to read
+		// `.nth(1)`, because the only handle was a disclosure labelled with the FILE NAME, which both
+		// cards share: there was no non-positional way to say which row was meant. A selector that has
+		// to count is usually reporting something about the page, and it was. Planche 5e removes the
+		// disclosure and names the control by the timestamp, so the row can be named.
 		await page.viewport(390, 844);
 		render(Page, { data: DATA, form: null });
 
-		await page
-			.getByRole('button', { name: m.imports_cancel_expand_aria({ name: SHARED_FILE }) })
-			.nth(1)
-			.click();
-		await page.getByRole('button', { name: m.common_delete() }).last().click();
+		const older = await shownDate(OLDER_AT);
+		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
 
-		expect(dialogName()).toBe(m.imports_cancel_confirm_title({ date: await shownDate(OLDER_AT) }));
+		expect(dialogName()).toBe(m.imports_delete_confirm_title({ date: await shownDate(OLDER_AT) }));
+	});
+});
+
+/**
+ * Planche 5e, reported from the delete plate without reopening it.
+ *
+ * Three states circulated for one action: red words on desktop, a « ··· » disclosure in the tested
+ * build, and a 32 px bordered red bin in the design file. Brique 1's own « Remplace » section names
+ * imports, bin included, so the mobile chrome was applying the referential and it is the desktop
+ * and its word that diverged.
+ *
+ * The fixture is the same pair as above, and it is the argument here too: two cards agreeing on
+ * every visible attribute except the timestamp is what `/imports` holds after a correction.
+ */
+/**
+ * Both chromes are mounted at once (`hidden lg:block` and `lg:hidden`), so a bare document query
+ * returns FOUR controls for two imports and every count assertion below would be about the markup
+ * rather than about what a user can reach. `offsetParent` is null for a `display:none` subtree, so
+ * this returns exactly the chrome the viewport is showing.
+ *
+ * Measured: the first version of these tests read four and asserted two, which reads like a
+ * duplicate-rendering defect and is a fact about the test's scope.
+ */
+function visibleDeleteControls(): HTMLElement[] {
+	return [
+		...document.querySelectorAll<HTMLElement>('button[aria-label^="Supprimer l\'import"]')
+	].filter((el) => el.offsetParent !== null);
+}
+
+describe('the destructive control on the import card', () => {
+	// THE ASSERTION IS THAT THE NAMES DIFFER, not that each card has one. « Each has a name » is
+	// satisfied by the measured defect, where both disclosures were called « Supprimer releve.csv ».
+	// The absolute count sits beside the uniqueness claim so a selector matching nothing cannot pass.
+	it('gives two lookalike cards two different names', async () => {
+		await page.viewport(390, 844);
+		render(Page, { data: DATA, form: null });
+
+		const names = visibleDeleteControls().map((b) => b.getAttribute('aria-label'));
+
+		expect(names).toHaveLength(2);
+		expect(new Set(names).size).toBe(2);
+	});
+
+	// The discriminant is the TIMESTAMP, which is the attribute the two candidates do not share, and
+	// it is the same string the row and the confirmation use. The file name stays out of the name:
+	// it is what both satisfy.
+	it('names each card by the timestamp its row already shows', async () => {
+		await page.viewport(390, 844);
+		render(Page, { data: DATA, form: null });
+
+		const older = await shownDate(OLDER_AT);
+		const control = visibleDeleteControls().find(
+			(b) => b.getAttribute('aria-label') === `Supprimer l'import du ${older}`
+		);
+
+		expect(control).toBeDefined();
+		expect(control!.getAttribute('aria-label')).not.toContain(SHARED_FILE);
+	});
+
+	// The disclosure is gone, and with it the name that lied: it was called « Supprimer <file> » and
+	// deleted nothing. An absolute zero, because « no disclosure » is satisfied by a selector that
+	// matches nothing, so the count above is what proves the query works.
+	it('leaves no expand disclosure on any card', async () => {
+		await page.viewport(390, 844);
+		render(Page, { data: DATA, form: null });
+
+		expect(document.querySelectorAll('button[aria-expanded]')).toHaveLength(0);
+	});
+
+	// The control opens the confirmation directly. Two presses for a rare action protect nothing,
+	// they hide; and the plate's acceptance of an icon-only control is CONDITIONAL on this modal
+	// carrying the words.
+	it('opens the confirmation in one press', async () => {
+		await page.viewport(390, 844);
+		render(Page, { data: DATA, form: null });
+
+		const older = await shownDate(OLDER_AT);
+		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
+
+		expect(dialogName()).toContain(older);
+	});
+
+	// The desktop loses its word and takes the same component. A divergence tolerated is a
+	// divergence that grows, and this one is the documented origin of the whole chantier.
+	it('is the same icon control at 1280, with no text label and no tooltip', async () => {
+		await page.viewport(1280, 900);
+		render(Page, { data: DATA, form: null });
+
+		const controls = visibleDeleteControls();
+		expect(controls).toHaveLength(2);
+		for (const control of controls) {
+			expect(control.textContent?.trim()).toBe('');
+			// No tooltip: information reserved to the desktop is a new divergence born the same way
+			// the first one was.
+			expect(control.hasAttribute('title')).toBe(false);
+		}
+	});
+
+	// Neutral at rest, and the plate's second reason is the stronger one: this card already spends
+	// red 25 px away, on the « Invalides » counter when it is non-zero. A third red in one glance
+	// weakens the one that informs in favour of the one that decorates.
+	it('rests neutral rather than red', async () => {
+		await page.viewport(390, 844);
+		render(Page, { data: DATA, form: null });
+
+		const control = visibleDeleteControls()[0];
+
+		const probe = document.createElement('div');
+		probe.className = 'text-zinc-700';
+		document.body.appendChild(probe);
+		expect(getComputedStyle(control).color).toBe(getComputedStyle(probe).color);
+		probe.remove();
+	});
+});
+
+/**
+ * THE RULE OF PLANCHE 5f, asserted at the route because that is where the behaviour lives.
+ *
+ * The plate states it as a test consequence rather than leaving it implied: « un test qui ferme la
+ * modale sur l'appui verrouille le défaut. L'assertion à écrire est que la modale est encore montée
+ * après une réponse d'erreur, et que la rangée est encore dans la liste. »
+ *
+ * `fetch` is stubbed because `use:enhance` posts through it, and what is asserted is what the page
+ * does with the answer. A mock's call count would assert the plumbing; the mounted dialog and the
+ * surviving row are what a user sees.
+ */
+describe('the delete that is refused', () => {
+	it('leaves the dialog mounted, with the row still in the list', async () => {
+		await page.viewport(390, 844);
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ type: 'failure', status: 500, data: '{"error":"boom"}' }), {
+						status: 500,
+						headers: { 'content-type': 'application/json' }
+					})
+			)
+		);
+		render(Page, { data: DATA, form: null });
+
+		const older = await shownDate(OLDER_AT);
+		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
+		// Scoped to the dialog and matched exactly: « Supprimer » is a SUBSTRING of every card
+		// control's name (« Supprimer l'import du ... »), so an unscoped match resolves to three.
+		await page
+			.getByRole('dialog')
+			.getByRole('button', { name: m.imports_delete_confirm_label(), exact: true })
+			.click();
+
+		// Both halves, because either alone is satisfied by the defect: a dialog that closed would
+		// leave the row too, and a row that vanished optimistically would leave the dialog.
+		await expect.element(page.getByRole('alert')).toBeInTheDocument();
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+		expect(visibleDeleteControls()).toHaveLength(2);
+
+		vi.unstubAllGlobals();
+	});
+
+	// NO OPTIMISTIC REMOVAL, stated as its own assertion. Seeing a row disappear and come back is a
+	// more expensive lie than the wait, on financial data.
+	it('never removes the row before the answer', async () => {
+		await page.viewport(390, 844);
+		let resolveFetch: (value: Response) => void = () => {};
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => new Promise<Response>((resolve) => (resolveFetch = resolve)))
+		);
+		render(Page, { data: DATA, form: null });
+
+		const older = await shownDate(OLDER_AT);
+		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
+		(
+			[...document.querySelectorAll('[role="dialog"] button')].find((b) =>
+				b.textContent?.includes(m.imports_delete_confirm_label())
+			) as HTMLElement
+		).click();
+		await new Promise((r) => setTimeout(r, 0));
+
+		// In flight: the row is still there and the dialog is locked.
+		expect(visibleDeleteControls()).toHaveLength(2);
+		expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+
+		// Settled before the test ends, and awaited: a promise left hanging is reported as an unhandled
+		// rejection at teardown, which is noise that reads like a defect in the page.
+		resolveFetch(
+			new Response(JSON.stringify({ type: 'failure', status: 500, data: '{}' }), {
+				status: 500,
+				headers: { 'content-type': 'application/json' }
+			})
+		);
+		await new Promise((r) => setTimeout(r, 0));
+		vi.unstubAllGlobals();
+	});
+});
+
+/**
+ * THE SECOND FAILURE CLASS, and it exists because a break-check found nothing guarding it.
+ *
+ * Swapping the no-answer action label for the refusal one reddened NOTHING: the component spec
+ * asserts a dialog renders the label it is handed, and no test asserted which label this page hands
+ * it. That is the seam again, one wave after the last three instances.
+ *
+ * The branch is reachable only after 20 s, so the clock is controlled. What is asserted is the
+ * observable difference between the two classes: a refusal is retried, a silence is not, because
+ * retrying an irreversible action blind is the worst advice a banner can give.
+ */
+describe('the delete that gets no answer at all', () => {
+	it('offers a refresh rather than a retry, unlike a refusal', async () => {
+		vi.useFakeTimers();
+		await page.viewport(390, 844);
+		// A fetch that never settles is the whole fixture: the class under test is the ABSENCE of an
+		// answer, which no rejection and no status code can stand in for.
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(() => new Promise<Response>(() => {}))
+		);
+		render(Page, { data: DATA, form: null });
+
+		const control = visibleDeleteControls()[0];
+		control.click();
+		await vi.advanceTimersByTimeAsync(0);
+		(
+			[...document.querySelectorAll('[role="dialog"] button')].find(
+				(b) => b.textContent?.trim() === m.imports_delete_confirm_label()
+			) as HTMLElement
+		).click();
+
+		await vi.advanceTimersByTimeAsync(19_000);
+		const beforeThreshold = [...document.querySelectorAll('[role="dialog"] button')].map((b) =>
+			b.textContent?.trim()
+		);
+		// Still in flight at 19 s: the threshold is a threshold, not a delay before giving up.
+		expect(beforeThreshold).not.toContain(m.imports_delete_no_answer_action());
+
+		await vi.advanceTimersByTimeAsync(2_000);
+		const afterThreshold = [...document.querySelectorAll('[role="dialog"] button')].map((b) =>
+			b.textContent?.trim()
+		);
+		expect(afterThreshold).toContain(m.imports_delete_no_answer_action());
+		expect(afterThreshold).not.toContain(m.imports_delete_failed_action());
+
+		vi.unstubAllGlobals();
+		vi.useRealTimers();
 	});
 });

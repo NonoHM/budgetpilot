@@ -4,13 +4,14 @@
 	import {
 		isUnavailableFor,
 		roleHolding,
-		type DesignationFile,
+		type ResolvedDesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
 	import BottomSheet from '$lib/components/BottomSheet.svelte';
 	import ColumnCard from '$lib/components/ui/ColumnCard.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
+	import SwitchRow from '$lib/components/ui/SwitchRow.svelte';
 
 	/**
 	 * The column chooser: a brique-15 bottom sheet holding a brique-10 listbox of `ColumnCard`s.
@@ -76,7 +77,7 @@
 		 */
 		variant?: 'sheet' | 'anchored';
 		role: MappingRole;
-		file: DesignationFile;
+		file: ResolvedDesignationFile;
 		assignment: RoleAssignment;
 		/** Column indices detection proposes for this role. Never includes the designated one. */
 		candidates?: readonly number[];
@@ -199,23 +200,46 @@
 		</div>
 	{/if}
 
+	<!--
+		OUT OF `role="listbox"`, and a sibling ABOVE it in the same scrolling container (Planche 5d).
+
+		A listbox's children must be options. A switch is not one, and the bare TapLink that used to
+		sit here was not one either: the listbox was announcing one option too many, and its count is
+		exact again. Not one picker item is redrawn.
+
+		Above, because the control does not modify one card but the TITLE OF ALL OF THEM. The Colonnes
+		plate had that right; what is corrected is the role and the place in the accessibility tree,
+		not the storey. Placing it under the list would make the user scroll past fifteen cards whose
+		titles are wrong to reach the control that fixes them.
+
+		The label lost its verb, which is the repair. « La première ligne contient des données » is a
+		sentence true or false according to a state it does not show: the reader sees an action and
+		gets a value. Brique 6c separates them and writes the consequence underneath, which is the only
+		protection against the silently eaten first transaction.
+	-->
+	<div class="px-5 pt-3.5">
+		<SwitchRow
+			label={m.import_columns_first_row_label()}
+			valueLabel={[
+				m.import_columns_first_row_value_data(),
+				m.import_columns_first_row_value_headers()
+			]}
+			checked={file.hasHeaderRow}
+			consequence={file.hasHeaderRow
+				? m.import_columns_first_row_consequence_headers()
+				: m.import_columns_first_row_consequence_data()}
+			lockedReason={file.rowCount <= 1 ? m.import_columns_first_row_locked() : undefined}
+			onChange={() => onToggleHeaderRow?.()}
+		/>
+	</div>
+	<div class="mx-5 mt-3 mb-3 h-px bg-zinc-200" aria-hidden="true"></div>
+
 	<div
 		role="listbox"
 		aria-label={title}
-		class="flex flex-col gap-2 px-5 pt-3.5"
+		class="flex flex-col gap-2 px-5"
 		data-testid="column-listbox"
 	>
-		<!--
-			Above the cards, because it redefines the TITLE of every card below it. Accepted cost:
-			48 px in every picker. Placing it under the list would make the user scroll past fifteen
-			cards whose titles are wrong to find the control that fixes them.
-		-->
-		<TapLink onclick={() => onToggleHeaderRow?.()}>
-			{file.hasHeaderRow
-				? m.import_columns_picker_first_row_is_data()
-				: m.import_columns_picker_first_row_is_header()}
-		</TapLink>
-
 		{#if designatedIndex !== null}
 			<p class="pt-1 text-[11px] font-bold tracking-[0.03em] text-zinc-500 uppercase">
 				{m.import_columns_group_designated()}

@@ -7,7 +7,6 @@ import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { setCompletedImport, takeCompletedImport } from '$lib/import/completedImport.svelte';
 // Used to format the fixture's instant the way the page does, so this file asserts no rendered
 // date it typed itself. See the naming test below for what that cost when it was skipped.
-import { getLocale } from '$lib/paraglide/runtime';
 import type { ImportSummaryResult, ImportInvalidRowDetail } from '$lib/domain/importSummary';
 import Page from './+page.svelte';
 import type { PageData } from './$types';
@@ -300,125 +299,21 @@ describe('the two states that are not a withholding', () => {
  * pass the note unconditionally left all fifteen tests of the component and the notice GREEN. This
  * block is what that break reddens.
  */
-describe('the control that says what it costs, at both widths', () => {
-	const CORRECTION = {
-		mappingId: 'mapping-1',
-		batchId: 'batch-old',
-		replacedAt: REPLACED_AT,
-		hasUserWork: false
-	};
-
-	function mountCorrection(correction: PageData['correction']) {
-		render(Page, { data: { ...DATA, correction }, form: null });
-	}
-
-	const controls = () => page.getByRole('checkbox');
-	const costNotes = () => page.getByText(m.imports_cancel_cost_note());
-
-	it('is offered, pre-ticked, at 1280', async () => {
-		// Pre-ticked because the default should be the repair the user came for: they arrived from
-		// « Modifier les colonnes » on an import they have already decided is wrong.
-		await page.viewport(1280, 800);
-		mountCorrection(CORRECTION);
-
-		await expect.element(controls().first()).toBeChecked();
-	});
-
-	it('is offered, pre-ticked, at 390', async () => {
-		await page.viewport(390, 844);
-		mountCorrection(CORRECTION);
-
-		await expect.element(controls().last()).toBeChecked();
-	});
-
-	it('says NOTHING about splits and tags when the batch carries none', async () => {
-		// The owner's one condition on shipping this control. A warning about a loss that cannot
-		// occur is discounted every time after, and then it is not read on the run where it is true.
-		await page.viewport(390, 844);
-		mountCorrection(CORRECTION);
-
-		expect(await costNotes().all()).toHaveLength(0);
-	});
-
-	it('names the splits and tags when the batch carries some', async () => {
-		// The direction the test above cannot see on its own. Same fixture, one flag different, so
-		// the only thing separating the two cases is the flag itself.
-		await page.viewport(390, 844);
-		mountCorrection({ ...CORRECTION, hasUserWork: true });
-
-		// Two chromes.
-		expect(await costNotes().all()).toHaveLength(2);
-	});
-
-	it('reuses the sentence the explicit delete already shows', async () => {
-		// Located BY that catalogue key rather than by a literal, which is what makes this an
-		// anti-drift assertion: a second wording invented here for the same fact would not match,
-		// and two screens disagreeing about what a delete costs is the defect it guards.
-		await page.viewport(390, 844);
-		mountCorrection({ ...CORRECTION, hasUserWork: true });
-
-		await expect.element(costNotes().last()).toBeVisible();
-	});
-
-	it('offers no control at all when there is no batch to replace', async () => {
-		// A link carrying `?correct=` with no batch, from a bookmark or history. There is nothing to
-		// choose, and a ticked box promising a deletion that cannot happen is the defect this wave
-		// exists to remove.
-		await page.viewport(390, 844);
-		mountCorrection({ ...CORRECTION, batchId: null, replacedAt: null });
-
-		expect(await controls().all()).toHaveLength(0);
-	});
-
-	it('names the import it will delete, at both widths', async () => {
-		// Separates "a control is offered" from "the control says WHICH import". « Supprimer l'ancien
-		// import » passes every other test in this block: it renders, it is pre-ticked, it carries the
-		// cost note. It simply names nothing, on a screen reached from a list where two rows differ
-		// only by their timestamp.
-		//
-		// The label half comes from the catalogue and the date is FORMATTED HERE from the fixture's own
-		// instant, so neither side of this comparison is a string this file typed.
-		//
-		// THE FIRST VERSION HARDCODED « 16 août 2026 à 10:59 » AND FAILED IN CI ONLY. That is 08:59Z
-		// rendered at UTC+2: the machine it was written on is in Paris and the runner is on UTC, where
-		// the same instant reads 08:59. The sibling assertions in this file dodge the trap by checking
-		// the day alone, which is stable either side of midnight for this fixture and says nothing
-		// about the time. Formatting from the instant is what makes the assertion independent of the
-		// clock the test happens to run under.
-		//
-		// The two Intl options are duplicated from the page on purpose. This wave's claim is that the
-		// control, the delete confirmation and the withheld retraction name one import IDENTICALLY, so
-		// pinning the format here is the anti-drift half of that claim rather than a stray coupling.
-		const named = m.import_correct_delete_old_label({
-			date: new Intl.DateTimeFormat(getLocale(), {
-				dateStyle: 'long',
-				timeStyle: 'short'
-			}).format(new Date(REPLACED_AT))
-		});
-
-		await page.viewport(1280, 800);
-		mountCorrection(CORRECTION);
-		await expect.element(page.getByText(named).first()).toBeVisible();
-
-		await page.viewport(390, 844);
-		mountCorrection(CORRECTION);
-		await expect.element(page.getByText(named).last()).toBeVisible();
-	});
-
-	it('offers no control when a batch resolved but its timestamp did not', async () => {
-		// The state that would render « Supprimer l'import du undefined ». Not reachable from the load,
-		// which sets both fields from one batch or neither, and asserted anyway: the two fields are
-		// separate properties of one payload, so nothing but this stops a later change from setting one.
-		await page.viewport(390, 844);
-		mountCorrection({ ...CORRECTION, replacedAt: null });
-
-		expect(await controls().all()).toHaveLength(0);
-	});
-
-	it('offers no control on an ordinary import', async () => {
-		await page.viewport(390, 844);
-		mountCorrection(null);
-
-		expect(await controls().all()).toHaveLength(0);
-	});
-});
+/**
+ * THE CONSENT MOVED, and the block that used to stand here moved with it (Planche 5c).
+ *
+ * `/import` asked the fate of the old import above the file picker: before the file was chosen,
+ * before the correction, and before knowing the correction would succeed. It now sits in the
+ * designation footer, at the moment the user has just changed the offending role and reads
+ * « Importer N lignes ». So there is no control on this page to test.
+ *
+ * The eight assertions that lived here are not deleted, they are re-sited:
+ *
+ *  - pre-ticked, named by timestamp, cost note present and absent, no control without a batch, no
+ *    control without a name, and both chromes: `ColumnDesignationScreen.svelte.spec.ts`, « 5c ».
+ *  - what is actually POSTED, which is the property the whole family exists for:
+ *    `columns/replace-consent.svelte.spec.ts`.
+ *
+ * What remains in this file is the OUTCOME reporting above, which is about what the run did and is
+ * unaffected by where the question was asked.
+ */

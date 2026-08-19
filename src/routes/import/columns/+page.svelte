@@ -13,6 +13,7 @@
 	} from '$lib/import/pendingDesignation.svelte';
 	import { setCompletedImport, type ReplaceOutcome } from '$lib/import/completedImport.svelte';
 	import { setPendingCollision } from '$lib/import/pendingCollision.svelte';
+	import { buildCollisionRepost } from '$lib/import/collisionRepost';
 	import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
 	import { applyAction, deserialize } from '$app/forms';
@@ -113,6 +114,7 @@
 		assignment: RoleAssignment;
 		remember: boolean;
 		hasHeaderRow: boolean;
+		deleteOldImport: boolean;
 	}) {
 		if (!pending || !formEl) return;
 		submitting = true;
@@ -136,10 +138,18 @@
 			// posted from here would be a string it has to re-derive anyway.
 			if (index !== null) data.set(`${role}Index`, String(index));
 		}
-		// The batch this correction replaces. Posted only when the choice is still ticked, and
-		// re-resolved server side against this user's own batches: a client-held id decides a delete,
-		// so it travels as a request and never as an authorisation.
-		if (pending.correction?.deleteOldImport) {
+		// The batch this correction replaces, posted only when the user consented on the screen that
+		// is submitting. `result.deleteOldImport` and NOT a field of `pending`: Planche 5c moved the
+		// question into the designation footer, so the answer is the one just given rather than an
+		// echo of a choice made two screens ago. That echo was the measured defect on the previous
+		// placement, where unticking after the first press lost the import anyway.
+		//
+		// The ID still comes from `pending`, which is the id the SERVER resolved against this user and
+		// against the correspondance being corrected. The two halves come from different places on
+		// purpose: one is a consent, the other is a subject, and only the second may name a delete.
+		// ASVS 5.0 v5.0.0-2.2.1 and v5.0.0-8.2.2: it travels as a request and is re-resolved there,
+		// never as an authorisation.
+		if (pending.correction && result.deleteOldImport) {
 			data.set('replaceBatchId', pending.correction.batchId);
 		}
 
@@ -209,21 +219,11 @@
 				) {
 					setPendingDesignation({ ...pending, initialAssignment: result.assignment });
 					setPendingCollision({
-						repost: {
-							file: pending.file,
-							// So that declining can reopen this very screen with its answers. See
-							// `pendingCollision.svelte.ts`: the view cannot be rebuilt from a file name.
-							view: pending.view,
-							assignment: result.assignment,
-							remember: result.remember,
-							hasHeaderRow: pending.view.hasHeaderRow,
-							// Carried through the question WHOLE, because answering it re-posts to this same
-							// action and a correction that lost its batch id here would import beside the
-							// import it came to replace. The choice travels with the id: the dialog has to
-							// tell a deliberate keep apart from an ordinary duplicate, and a batch id alone
-							// cannot, since it is absent in both.
-							correction: pending.correction
-						},
+						// Built by `buildCollisionRepost`, which is where the mapping is asserted: this
+						// branch is reachable only through a serialised `ActionResult`, which a component
+						// test cannot construct faithfully, so the transport was what made the seam
+						// untestable rather than the mapping.
+						repost: buildCollisionRepost(pending, result),
 						existing: actionResult.data.collision,
 						incoming: actionResult.data.incoming
 					});
@@ -320,12 +320,26 @@
 		     form's own fields, so the form element exists only to own the action URL. -->
 		<form bind:this={formEl} method="POST" enctype="multipart/form-data" class="contents"></form>
 		<div class="min-h-0 flex-1">
+			<!--
+				`replaces` is GATED ON THE NAME, not only on the batch. A batch can resolve while its
+				timestamp does not, and a consent labelled « Supprimer l'import du  » names nothing: the
+				control exists to say WHICH import it destroys, so with no name there is no control to
+				offer. Carried over from the gate the previous placement had on `/import`.
+			-->
 			<ColumnDesignationScreen
 				file={pending.view}
 				initialAssignment={pending.initialAssignment}
 				candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
 				{submitting}
 				{wide}
+				replaces={pending.correction && pending.correction.namedAt !== ''
+					? {
+							batchId: pending.correction.batchId,
+							namedAt: pending.correction.namedAt,
+							replacedRows: pending.correction.replacedRows,
+							hasUserWork: pending.correction.hasUserWork
+						}
+					: undefined}
 				onCancel={leaveDesignation}
 				onSubmit={submit}
 			/>

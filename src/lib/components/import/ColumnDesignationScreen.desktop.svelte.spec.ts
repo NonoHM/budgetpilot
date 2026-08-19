@@ -24,6 +24,25 @@ import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesigna
  *
  * Two of those three predictions were wrong before the runs. Recorded rather than corrected
  * silently: predicting a break's result is the same habit as choosing a fixture for how it reads.
+ *
+ * BREAK MATRIX for Planche 5b, run 2026-08-19, on the three recap assertions below.
+ *
+ * 4. `{#if !recap}` to `{#if true}` on the preview slot: **two red**, the slot assertion and the
+ *    centring one. The second is not a leak: with a second child in the row, `justify-center`
+ *    centres the PAIR, so the column's gutters stop being equal. The slot and the centring are one
+ *    layout decision and the matrix is what shows it.
+ * 5. `w-[560px]` back to `w-[400px]` in recap: **one red**, the 560 assertion alone.
+ * 6. `justify-center` dropped: **one red**, the centring assertion alone.
+ * 7. The slot condition INVERTED, so the control form loses its preview: **seven red**, including
+ *    all three pre-existing preview tests. That is the assertion that the condition sits on the
+ *    right branch, paid by the tests that were already here.
+ *
+ * A HARNESS FINDING, worth more than the matrix. Runs 4 and 7 were first written against the bare
+ * string `{#if !recap}`, which occurs THREE times in the component, and `String.replace` rewrites
+ * the first. Both patches silently broke the condition banner instead and reddened two sticky-box
+ * tests, which reads like a real result about the preview slot and is a result about something
+ * else. **A break patch must assert its target is UNIQUE, not merely present**: asserting presence
+ * catches a stale patch and cannot catch a misaimed one.
  */
 const HEADERS = ['Date operation', 'Date valeur', 'Libelle', 'Montant', 'Categorie'];
 
@@ -32,7 +51,7 @@ const FILE = {
 	headers: HEADERS,
 	samples: HEADERS.map((_, index) => [`v${index}a`, `v${index}b`, `v${index}c`]),
 	rowCount: 132,
-	hasHeaderRow: true
+	detectedHeaderRow: true
 };
 
 const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4 };
@@ -116,7 +135,7 @@ describe('the command column', () => {
 	});
 });
 
-describe('the banner and the actions are one box, and the box is what sticks', () => {
+describe('the banner and the actions are one box', () => {
 	it('holds both in a single element', () => {
 		// What COMMANDS the primary action travels with it. If the banner and the actions were two
 		// boxes, the count explaining why the primary is off could be scrolled away from the primary
@@ -127,10 +146,23 @@ describe('the banner and the actions are one box, and the box is what sticks', (
 		expect(foot.querySelector('button[aria-disabled="true"]')).not.toBeNull();
 	});
 
-	it('sticks by its own box rather than by the page', () => {
+	/**
+	 * THIS ASSERTION REVERSED, and the reversal is the finding rather than a preference.
+	 *
+	 * It used to read `expect(position).toBe('sticky')`. A bottom-sticky element rises above its
+	 * static position the moment its column overflows, and what it rises over is whatever sits above
+	 * it. Planche 5c adds a storey to this column, which pushed it past the frame: measured on the
+	 * real page, the box then covered 29.5 px of the 44 px « Ne pas mémoriser » control.
+	 *
+	 * So the property worth asserting was never the stickiness. It is that the count and the primary
+	 * cannot be separated, which the test above already checks, and that nothing is covered, which
+	 * the overflow test further down now checks. What is asserted here is only that the box has
+	 * stopped being positioned, so a future edit reintroducing it meets this note first.
+	 */
+	it('is not positioned, because a bottom-sticky box cannot promise to cover nothing', () => {
 		const { foot } = mount();
 
-		expect(getComputedStyle(foot).position).toBe('sticky');
+		expect(getComputedStyle(foot).position).toBe('static');
 	});
 
 	it('points the blocked primary at the banner inside the same box', () => {
@@ -166,6 +198,111 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 		expect(previewSlot).not.toBeNull();
 		expect(previewSlot.children.length).toBe(0);
 		expect(container.querySelectorAll('table').length).toBe(0);
+	});
+
+	/**
+	 * Planche 5b, and the whole of it is that the slot is NOT DECLARED rather than corrected.
+	 *
+	 * `FilePreviewTable` is guarded on `previewRows` and `recapDesignation` builds none, because
+	 * without a file there is nothing to preview (owner arbitrage 2). The component is right. What
+	 * was wrong is upstream: the upload screen's grid declares a preview area that recap mode
+	 * inherits and never fills, measured at 806 x 0, leaving 855 px of blank beside a four-row card.
+	 *
+	 * A `min-height` on that slot would reserve the emptiness ON PURPOSE, which is the repair this
+	 * refuses. The column stops being the left half of something instead.
+	 */
+	it('declares no preview area at all in recap mode', () => {
+		const { previewSlot, container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		// The SLOT, not the table. A query for the table alone cannot separate "draws no preview"
+		// from "draws an empty preview", and the second is the defect that shipped.
+		expect(previewSlot).toBeNull();
+		expect(container.querySelectorAll('table').length).toBe(0);
+	});
+
+	/**
+	 * 560 is brique 15's tall-modal width, already a reading width of this product, so nothing new is
+	 * introduced for a screen that has no new data to show. Asserted absolutely, like every other
+	 * figure here.
+	 */
+	it('is a single 560 px column, centred, in recap mode', () => {
+		const { command, content } = mount({ initialAssignment: COMPLETE, readOnly: true });
+
+		expect(command.getBoundingClientRect().width).toBe(560);
+
+		// Centred, and measured as equal gutters rather than by reading a class: `justify-center` on
+		// a flex row with one child is what produces this, and a class assertion could not tell it
+		// from `justify-start` on a column that happens to be wide.
+		const left = command.getBoundingClientRect().left - content.getBoundingClientRect().left;
+		const right = content.getBoundingClientRect().right - command.getBoundingClientRect().right;
+		expect(Math.round(left)).toBe(Math.round(right));
+	});
+
+	/**
+	 * THE SEAM THE SCREENSHOT FOUND AND NO FIGURE DID.
+	 *
+	 * Every geometry assertion in this file measures ONE box against the content box that holds it.
+	 * None measured two siblings against each other, so with the preview area gone the card centred
+	 * at 560 while the heading stayed pinned to the left gutter, and the screen named its content
+	 * from an axis the content was not on. Green throughout, and obvious in the first screenshot.
+	 *
+	 * Asserted as EQUAL LEFT EDGES rather than as a class, because `mx-auto` on a fixed width is
+	 * what produces it and a class assertion could not tell that from a margin that happens to look
+	 * right at this one viewport.
+	 */
+	it('puts the heading on the same axis as the column it names, in recap mode', () => {
+		const { command, container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+		const heading = container.querySelector('[data-testid="designation-heading"]') as HTMLElement;
+
+		expect(Math.round(heading.getBoundingClientRect().left)).toBe(
+			Math.round(command.getBoundingClientRect().left)
+		);
+		expect(Math.round(heading.getBoundingClientRect().width)).toBe(560);
+	});
+
+	/**
+	 * THE CONTROL FORM IS UNTOUCHED, and this is the assertion that says the condition was put on
+	 * the right branch. The same two figures, on the same component, in the mode 5b does not govern.
+	 */
+	it('keeps the 400 px column and the declared preview area outside recap mode', () => {
+		const { command, previewSlot } = mount();
+
+		expect(command.getBoundingClientRect().width).toBe(400);
+		expect(previewSlot).not.toBeNull();
+	});
+
+	/**
+	 * THE SIBLING ASSERTION, and it exists because a measured occlusion got past every figure here.
+	 *
+	 * Planche 5c adds a storey to the command column, which pushes it past the frame. While the box
+	 * was `sticky bottom-6` it then rose over what sat above it: measured on the real page, it
+	 * covered 29.5 px of the 44 px « Ne pas mémoriser » control.
+	 *
+	 * Every geometry test in this file measures ONE box against the content box that holds it, and
+	 * all of them stayed green. This one compares the two elements the decision relates, which is the
+	 * only shape that can see it.
+	 */
+	it('never covers the memorisation control, in the state that overflows the column', () => {
+		const { container } = mount({
+			initialAssignment: COMPLETE,
+			replaces: {
+				batchId: 'batch-old',
+				namedAt: '19 août 2026 à 00:42',
+				replacedRows: 2,
+				hasUserWork: true
+			}
+		});
+		// Short enough that the column MUST overflow: the defect only exists while it does, so a
+		// fixture at the full 800 would assert nothing. This is the fixture that distinguishes.
+		container.style.height = '520px';
+
+		const remember = container.querySelector('[data-testid="designation-remember"]') as HTMLElement;
+		const foot = container.querySelector('[data-testid="designation-command-foot"]') as HTMLElement;
+
+		expect(remember).not.toBeNull();
+		expect(foot.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+			remember.getBoundingClientRect().bottom
+		);
 	});
 
 	it('draws the table once the file carries real rows, with a header cell per column', () => {

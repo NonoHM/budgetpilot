@@ -1,6 +1,5 @@
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
-import type { PendingDesignation } from './pendingDesignation.svelte';
 
 /**
  * A designated run the server refused to write until the user answers for it, carried back to
@@ -68,7 +67,31 @@ export interface PendingCollision {
 		 * moment a field is added to either, and the field just added — the correspondance id the way
 		 * out needs — is exactly the kind that would have been added to one of them.
 		 */
-		correction: PendingDesignation['correction'];
+		correction: {
+			mappingId: string;
+			batchId: string;
+			/**
+			 * The three naming fields, carried so DECLINING can reopen the designation screen able to
+			 * ASK the question again. Without them the reopened screen has a batch to replace and no
+			 * way to name it, which is the state Planche 5c exists to remove.
+			 */
+			namedAt: string;
+			replacedRows: number;
+			hasUserWork: boolean;
+			/**
+			 * The consent AS IT STOOD AT THE PRESS, and this is now the only place it travels.
+			 *
+			 * Planche 5c moved the question into the designation footer, so the answer is born on the
+			 * screen that submits. It still has to survive THIS dialog, because answering it re-posts
+			 * the same run: a correction that lost its answer here would import beside the import it
+			 * came to replace, or delete one the user had chosen to keep.
+			 *
+			 * Its own shape rather than `PendingDesignation['correction']`, because the two now differ
+			 * on purpose. The pending designation carries what the screen needs to ASK; this carries
+			 * what the user ANSWERED.
+			 */
+			deleteOldImport: boolean;
+		} | null;
 	};
 	/** The already-imported batch this run appears to repeat. */
 	existing: CollidingBatchView;

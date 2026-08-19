@@ -612,6 +612,7 @@ describe('/import load', () => {
 					mappingId: string;
 					batchId: string | null;
 					replacedAt: string | null;
+					replacedRows: number;
 					hasUserWork: boolean;
 				} | null;
 			};
@@ -626,6 +627,10 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: 'batch-1',
 				replacedAt: SEEDED_AT.toISOString(),
+				// 3, which is what the seed above writes as `importedRows`. The confirmation of
+				// Planche 5c names this number beside a different one, the rows about to be imported,
+				// so a fixture where the two agreed could not tell them apart.
+				replacedRows: 3,
 				hasUserWork: false
 			});
 		});
@@ -643,6 +648,7 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: null,
 				replacedAt: null,
+				replacedRows: 0,
 				hasUserWork: false
 			});
 		});
@@ -660,6 +666,7 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: null,
 				replacedAt: null,
+				replacedRows: 0,
 				hasUserWork: false
 			});
 		});
@@ -677,6 +684,7 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: null,
 				replacedAt: null,
+				replacedRows: 0,
 				hasUserWork: false
 			});
 		});
@@ -691,6 +699,7 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: null,
 				replacedAt: null,
+				replacedRows: 0,
 				hasUserWork: false
 			});
 		});
@@ -884,7 +893,7 @@ describe('/import actions', () => {
 	 * fix is literally the row: test positively for 'true' rather than negatively against 'false'.
 	 */
 	it('does NOT consent to the delete when the answer is absent from the request', async () => {
-		expect.assertions(2);
+		expect.assertions(3);
 
 		const headers = ['Jour', 'Intitule operation', 'Somme', 'Detail'];
 		db.state.columnMappings.push({
@@ -929,6 +938,22 @@ describe('/import actions', () => {
 		// "delete" destroys rows with no undo. Same degradation argument the write-then-delete
 		// ordering rests on.
 		expect(forged.data.correction?.deleteOldImport).toBe(false);
+		/**
+		 * THE SAME PRECONDITION, on the OTHER producer, and it needed its own assertion.
+		 *
+		 * There are two places that hand the screen a designation: the ordinary offer and this
+		 * correction branch. A break-check on the first reddened nothing, because the offer test does
+		 * not reach it, and a break on the second reddened one test: two producers, one guard, and the
+		 * unguarded one is the branch the correction journey uses, which is where the header answer
+		 * was lost in the first place.
+		 *
+		 * `readWithHeaderRow` resolves one direction because BOTH producers declare a header row. Both
+		 * therefore say so here.
+		 */
+		expect(
+			(forged as unknown as { data: { designation?: { detectedHeaderRow: boolean } } }).data
+				.designation?.detectedHeaderRow
+		).toBe(true);
 	});
 
 	it('detects the format and ignores any profile the client tries to send', async () => {
@@ -1771,6 +1796,33 @@ describe('/import actions', () => {
 			expect(result.data.designation).toBeDefined();
 			expect(result.data.designation?.headers).toEqual(['date', 'label', 'amount']);
 			// The screen rests on the preview, so it is handed the rows it will draw.
+			expect(result.data.designation?.rowCount).toBe(2);
+		});
+
+		/**
+		 * THE PRECONDITION `readWithHeaderRow` LEANS ON, asserted where its cause would be.
+		 *
+		 * That function resolves one direction only, and the reason is this action: the payload always
+		 * declares a header row, and `rowCount` is already reduced by that line, so the user can only
+		 * ever flip the answer to « data ». The opposite flip is unrepresentable from here.
+		 *
+		 * Nothing checked that. The day this payload sends `false`, the function would silently return
+		 * a reading wrong in the other direction, and the symptom is the eaten transaction again, three
+		 * files away from the change that caused it. This is the cheap half of « name the route that
+		 * produces it » applied to a precondition rather than to a state: the guard fails here, at the
+		 * line that would break it.
+		 *
+		 * If this ever legitimately becomes `false`, the fix is to build the second direction in
+		 * `readWithHeaderRow`, not to relax this.
+		 */
+		it('always declares a header row, which is what lets the reader resolve one direction', async () => {
+			const result = (await runImportWithFile(RECOGNISED_HEADERS_UNREADABLE_DATES)) as unknown as {
+				data: { designation?: { detectedHeaderRow: boolean; rowCount: number } };
+			};
+
+			expect(result.data.designation?.detectedHeaderRow).toBe(true);
+			// Asserted beside it, because the two are one claim: the count excludes the line the flag
+			// says is a header, which is exactly what the +1 on the other side restores.
 			expect(result.data.designation?.rowCount).toBe(2);
 		});
 

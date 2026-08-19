@@ -1,17 +1,22 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
+	import { goto, invalidateAll } from '$app/navigation';
+	import { navigating } from '$app/state';
+	import ImportCardSkeleton from '$lib/components/import/ImportCardSkeleton.svelte';
+	import { createDelayedFlag } from '$lib/delayedFlag.svelte';
 	import { resolve } from '$app/paths';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import type { ActionData, PageData } from './$types';
-	import IconButton from '$lib/components/ui/IconButton.svelte';
+	import ImportDeleteButton from '$lib/components/import/ImportDeleteButton.svelte';
 	import ListCard from '$lib/components/ui/ListCard.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import { formatCents } from '$lib/domain/budget';
+	import { importProfileLabel } from '$lib/domain/importProfileLabel';
 	import type { CollidingBatchView } from '$lib/domain/importCollision';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
@@ -35,7 +40,90 @@
 		importedRows: number;
 		createdAt: string;
 	} | null>(null);
-	let cancelSubmitting = $state(false);
+	/**
+	 * The three times of the delete (Planche 5f), and the rule that governs them is one sentence: the
+	 * modal does not close on the press, it closes on the answer.
+	 *
+	 * A dialog that closes on the press moves the answer out of the screen where the finger was and
+	 * where the focus is. The row is still there, nothing has changed, and it reads exactly like a
+	 * press that did nothing, which is the defect this wave exists to remove arriving AFTER the press
+	 * instead of during it.
+	 *
+	 * TWO FAILURE CLASSES, and they are told apart by their ACTION and not only by their sentence.
+	 * The server answered and refused: nothing was removed, so retrying is the right offer. Nothing
+	 * answered at all: the deletion may have gone through, so the offer is to refresh the list,
+	 * because retrying an irreversible action blind is the worst advice a banner can give.
+	 *
+	 * A THIRD CLASS THE PLATE DESCRIBES IS NOT BUILT, and that is a finding rather than an omission.
+	 * The delete plate's 2k models a permanent business refusal (« import verrouillé, droits
+	 * insuffisants ») whose destructive button DISAPPEARS. No route produces it: `deleteImportBatch`
+	 * answers 404 for a batch that is not this user's and 500 for a database failure, and there is no
+	 * locked-import rule anywhere. Building it would be a branch nothing can reach, which is the
+	 * shape this repository checks for by name.
+	 */
+	let deletePhase = $state<'idle' | 'busy' | 'error'>('idle');
+	let deleteFailure = $state<'refused' | 'noAnswer' | null>(null);
+
+	/** 20 s, from the plate: past it the answer is not late, it is absent. */
+	const DELETE_NO_ANSWER_MS = 20_000;
+	let noAnswerTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearNoAnswerTimer() {
+		if (noAnswerTimer !== null) {
+			clearTimeout(noAnswerTimer);
+			noAnswerTimer = null;
+		}
+	}
+
+	function closeCancelDialog() {
+		clearNoAnswerTimer();
+		pendingCancel = null;
+		deletePhase = 'idle';
+		deleteFailure = null;
+	}
+
+	const deleteError = $derived(
+		deleteFailure === null
+			? undefined
+			: deleteFailure === 'noAnswer'
+				? {
+						message: m.imports_delete_no_answer_message(),
+						actionLabel: m.imports_delete_no_answer_action(),
+						onAction: () => void invalidateAll().then(closeCancelDialog)
+					}
+				: {
+						message: m.imports_delete_failed_message(),
+						actionLabel: m.imports_delete_failed_action(),
+						onAction: () => {
+							deletePhase = 'idle';
+							deleteFailure = null;
+							cancelFormEl?.requestSubmit();
+						}
+					}
+	);
+
+	let cancelFormEl = $state<HTMLFormElement | null>(null);
+
+	/**
+	 * Brique 9's skeleton, at the destination Planche 5f moves it to.
+	 *
+	 * `/imports` on arrival is a server WRITE followed by a list re-read, two round trips one of
+	 * which writes the rows, so the 300 ms threshold is crossed even on a fast network. That is why
+	 * the plate calls this the place it was really missing, and why the designation screen, whose
+	 * cards exist because the file is already in memory, could never show one.
+	 *
+	 * Scoped to this route, following the pattern `/` and `/upcoming-bills` already use: navigating
+	 * away from this page must not paint a skeleton over the page being left.
+	 */
+	const listLoading = createDelayedFlag();
+	$effect(() => {
+		listLoading.set(navigating.to?.url.pathname === '/imports');
+	});
+	$effect(() => () => listLoading.destroy());
+	// The no-answer timer follows the same discipline as the skeleton's, and it was the one timer in
+	// this file that did not. Navigating away with a delete still in flight left it armed to fire
+	// twenty seconds later into state nothing was reading.
+	$effect(() => () => clearNoAnswerTimer());
 
 	/**
 	 * The timestamp this page identifies an import BY, so it is rendered to the second.
@@ -84,8 +172,8 @@
 
 	function cancelConfirmDescription(importedRows: number): string {
 		return importedRows > 1
-			? m.imports_cancel_confirm_description_count_many({ count: importedRows })
-			: m.imports_cancel_confirm_description_count_one({ count: importedRows });
+			? m.imports_delete_confirm_description_count_many({ count: importedRows })
+			: m.imports_delete_confirm_description_count_one({ count: importedRows });
 	}
 
 	/**
@@ -222,7 +310,17 @@
 		</div>
 
 		{#if data.cancelled}
-			<AlertBanner variant="success">{m.imports_cancelled_notice()}</AlertBanner>
+			<!--
+				« Import supprimé », not « Import annulé ». A label naming something other than what it
+				labels, and this one said the wrong thing about an irreversible act: nothing was
+				cancelled, an import was deleted, and every other control on this path already says
+				« Supprimer ». An action keeps the same name through the whole flow, so the button that
+				says Supprimer produces a message that says supprimé.
+
+				The route keeps `?/cancel` and `?cancelled=1`: those are internal names, and renaming
+				them is a change to an address for the sake of a caption.
+			-->
+			<AlertBanner variant="success">{m.imports_deleted_notice()}</AlertBanner>
 		{/if}
 		{@render collisionNotice()}
 		<!-- Gated to skip while the cancel-import ConfirmDialog is open: it already shows its own
@@ -233,7 +331,9 @@
 			<AlertBanner variant="error">{form.error}</AlertBanner>
 		{/if}
 
-		{#if data.batches.length === 0}
+		{#if listLoading.shown}
+			<ImportCardSkeleton />
+		{:else if data.batches.length === 0}
 			{#snippet emptyIcon()}
 				<svg
 					class="h-5 w-5 text-zinc-400"
@@ -288,7 +388,7 @@
 											</div>
 										{/if}
 									</td>
-									<td class="px-4 py-3 text-zinc-700">{batch.profile}</td>
+									<td class="px-4 py-3 text-zinc-700">{importProfileLabel(batch.profile)}</td>
 									<td class="px-4 py-3 text-zinc-500">
 										{batch.periodStart ? formatDateOnly(batch.periodStart) : 'n/a'} –
 										{batch.periodEnd ? formatDateOnly(batch.periodEnd) : 'n/a'}
@@ -332,18 +432,23 @@
 											>
 												{m.imports_view()}
 											</Button>
-											<Button
-												type="button"
-												variant="ghost-danger"
-												size="sm"
-												onclick={() =>
+											<!--
+												THE DESKTOP LOSES ITS WORD (Planche 5e). Brique 1's « Remplace » section
+												names imports, bin included, so the mobile chrome was applying the
+												referential and this surface had stayed on a drawing already replaced.
+												A divergence tolerated is a divergence that grows, and this one is the
+												documented origin of the chantier.
+											-->
+											<ImportDeleteButton
+												namedAt={formatDate(batch.createdAt)}
+												onPress={() =>
 													(pendingCancel = {
 														id: batch.id,
 														fileName: batch.fileName,
 														importedRows: batch.importedRows,
 														createdAt: batch.createdAt
-													})}>{m.common_delete()}</Button
-											>
+													})}
+											/>
 										</div>
 									</td>
 								</tr>
@@ -357,17 +462,13 @@
 			<div class="lg:hidden">
 				<div class="space-y-3">
 					{#each data.batches as batch (batch.id)}
-						<ListCard
-							expandAriaLabel={m.imports_cancel_expand_aria({
-								name: batch.fileName ?? m.imports_default_file_name()
-							})}
-						>
+						<ListCard>
 							<div class="flex items-start justify-between gap-3">
 								<p class="font-bold text-zinc-950" title={batch.createdAt}>
 									{formatDate(batch.createdAt)}
 								</p>
 								<span class="shrink-0">
-									<Badge tone="neutral">{batch.profile}</Badge>
+									<Badge tone="neutral">{importProfileLabel(batch.profile)}</Badge>
 								</span>
 							</div>
 							<p class="mt-1 truncate text-sm text-zinc-500">
@@ -409,46 +510,43 @@
 									{@render recognisedColumns(batch.id, batch.columnMapping)}
 								</div>
 							{/if}
-							<div class="mt-3 border-t border-zinc-100 pt-3">
+							<!--
+								The action row of Planche 5e's anatomy. The destructive control joins the row
+								that already existed, to the right of « Voir », on the far side of the rule
+								that already separates the data from the actions: no new zone to invent, the
+								card had a foot and it changes contents.
+
+								12 px between the two targets and not 8, because one of them is irreversible:
+								that gap is the margin between a mistyped tap and a deletion. « Voir » rises to
+								48 so the row's two targets align rather than one sitting under the floor.
+
+								The 12 px optical overhang is what drops the glyph under the right edge of the
+								content, like the profile badge above it; without it a transparent 48 px box
+								leaves 15 px of air and the right column reads as broken. It bites into the
+								card's own 16 px padding and never past it, so the target stays inside the card.
+							-->
+							<div class="mt-3 flex items-center justify-end gap-3 border-t border-zinc-100 pt-3">
 								<a
 									href={resolve(
 										`/transactions?importBatch=${batch.id}` as `/transactions?${string}`
 									)}
-									class="flex min-h-[44px] items-center text-sm font-semibold text-zinc-900 hover:text-zinc-700"
+									class="flex min-h-12 items-center px-2 text-sm font-semibold text-zinc-700 hover:text-zinc-900"
 								>
 									{m.imports_view()}
 								</a>
-							</div>
-							{#snippet details()}
-								<div class="flex items-center justify-end">
-									<IconButton
-										tone="danger"
-										label={m.common_delete()}
-										onclick={() =>
+								<span class="-mr-3">
+									<ImportDeleteButton
+										namedAt={formatDate(batch.createdAt)}
+										onPress={() =>
 											(pendingCancel = {
 												id: batch.id,
 												fileName: batch.fileName,
 												importedRows: batch.importedRows,
 												createdAt: batch.createdAt
 											})}
-									>
-										<svg
-											class="h-4 w-4"
-											viewBox="0 0 20 20"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="1.6"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											aria-hidden="true"
-										>
-											<path
-												d="M4 6h12M8 6V4.5A1.5 1.5 0 0 1 9.5 3h1A1.5 1.5 0 0 1 12 4.5V6M6 6v9.5A1.5 1.5 0 0 0 7.5 17h5A1.5 1.5 0 0 0 14 15.5V6"
-											/>
-										</svg>
-									</IconButton>
-								</div>
-							{/snippet}
+									/>
+								</span>
+							</div>
 						</ListCard>
 					{/each}
 				</div>
@@ -460,14 +558,44 @@
 <!-- ConfirmDialog — supprimer un import -->
 {#if pendingCancel}
 	<form
+		bind:this={cancelFormEl}
 		method="POST"
 		action="?/cancel"
 		use:enhance={() => {
-			cancelSubmitting = true;
+			deletePhase = 'busy';
+			deleteFailure = null;
+			// The absence of an answer is a state of its own, so it is armed here rather than inferred
+			// from a rejection that may never come: a request that hangs produces no event at all.
+			clearNoAnswerTimer();
+			noAnswerTimer = setTimeout(() => {
+				deletePhase = 'error';
+				deleteFailure = 'noAnswer';
+			}, DELETE_NO_ANSWER_MS);
+
 			return async ({ result, update }) => {
+				clearNoAnswerTimer();
 				await update();
-				cancelSubmitting = false;
-				if (result.type === 'redirect') pendingCancel = null;
+				// CLOSES ON THE ANSWER, and only on the successful one. A redirect is what the action
+				// returns once the rows are gone; anything else leaves the dialog mounted with the
+				// failure inside it, where the press happened.
+				if (result.type === 'redirect') {
+					closeCancelDialog();
+					// NAVIGATED EXPLICITLY, with the load invalidated, and it is a repair rather than a
+					// flourish. Measured in a browser: after the enhanced delete the address bar read
+					// `/imports?cancelled=1` and the success banner was ABSENT, while a fresh navigation
+					// to that same address rendered it. The load reads the flag off the query string, so
+					// the run that produced the redirect was the only one not to re-read it, and the
+					// delete finished in silence on the one screen whose whole job is to report it.
+					//
+					// That is A3's family, and Planche 5f's success row requires the banner by name.
+					// The location comes from the server action's own redirect, so it is already a
+					// resolved address rather than a route id this file could pass through `resolve()`.
+					// eslint-disable-next-line svelte/no-navigation-without-resolve
+					await goto(result.location, { invalidateAll: true });
+					return;
+				}
+				deletePhase = 'error';
+				deleteFailure = 'refused';
 			};
 		}}
 	>
@@ -499,16 +627,18 @@
 		-->
 		<ConfirmDialog
 			open={true}
-			title={m.imports_cancel_confirm_title({ date: formatDate(pendingCancel.createdAt) })}
+			title={m.imports_delete_confirm_title({ date: formatDate(pendingCancel.createdAt) })}
 			description={cancelConfirmDescription(pendingCancel.importedRows)}
-			confirmLabel={m.imports_cancel_confirm_label()}
-			cancelLabel={m.imports_cancel_keep_label()}
+			confirmLabel={m.imports_delete_confirm_label()}
+			cancelLabel={m.imports_delete_keep_label()}
 			tone="danger"
-			confirmLoading={cancelSubmitting}
-			onClose={() => (pendingCancel = null)}
+			phase={deletePhase}
+			busyLabel={m.imports_delete_busy()}
+			error={deleteError}
+			onClose={closeCancelDialog}
 		>
 			<p class="text-sm text-zinc-600">
-				{m.imports_cancel_file_prefix()}
+				{m.imports_delete_file_prefix()}
 				<span class="font-medium">{pendingCancel.fileName ?? m.imports_default_file_name()}</span>
 			</p>
 			<!--
@@ -518,10 +648,13 @@
 				across four categories cannot. A destructive action stating only half its cost is a
 				confirmation that is not one.
 			-->
-			<p class="mt-2 text-sm text-zinc-600">{m.imports_cancel_cost_note()}</p>
-			{#if form?.error}
-				<AlertBanner variant="error" class="mt-2">{form.error}</AlertBanner>
-			{/if}
+			<p class="mt-2 text-sm text-zinc-600">{m.imports_delete_cost_note()}</p>
+			<!--
+				The failure is no longer rendered here. It is the dialog's own `error` slot now, which
+				puts it between the body and the actions, announces it with `role="alert"` AND moves the
+				focus onto it. A banner inside the body announced itself and left the reader on the
+				confirm button, which is where the focus already was.
+			-->
 		</ConfirmDialog>
 	</form>
 {/if}

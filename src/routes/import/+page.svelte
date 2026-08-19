@@ -5,7 +5,6 @@
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
-	import CheckboxField from '$lib/components/ui/CheckboxField.svelte';
 	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
@@ -83,18 +82,6 @@
 	 * paint. That is an architecture decision and it is filed rather than taken here.
 	 */
 	let csvFiles = $state<FileList | undefined>(undefined);
-
-	/**
-	 * Whether the correction replaces the import it was launched from.
-	 *
-	 * Read from ONE binding, for the reason `csvFiles` above records at length: this page renders its
-	 * form twice and only the visible mount submits, so a per-mount value is lost across a resize.
-	 *
-	 * PRE-TICKED, because the default should be the repair the user came for. They arrived from
-	 * « Modifier les colonnes » on an import they have decided is wrong, and a default of « keep it
-	 * beside the corrected one » would be the doubled state chosen for them.
-	 */
-	let deleteOldImport = $state(true);
 
 	/**
 	 * And `required` came off both inputs, which is a separate decision from the binding above.
@@ -336,7 +323,7 @@
 				coverage: designation.coverage,
 				firstRow: designation.firstRow,
 				rowCount: designation.rowCount,
-				hasHeaderRow: designation.hasHeaderRow
+				detectedHeaderRow: designation.detectedHeaderRow
 			},
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
 			candidates: {},
@@ -363,7 +350,13 @@
 							// allowed to come from different places for exactly that reason.
 							mappingId: data.correction.mappingId,
 							batchId: correctionState.batchId,
-							deleteOldImport
+							// Formatted HERE, where the negotiated locale is known, and by the one
+							// formatter every surface naming an import already uses. The designation
+							// screen renders it verbatim, so the control the user ticks and whatever the
+							// run reports afterwards cannot describe the same import two ways.
+							namedAt: data.correction.replacedAt ? namedImport(data.correction.replacedAt) : '',
+							replacedRows: data.correction.replacedRows,
+							hasUserWork: data.correction.hasUserWork
 						}
 					: null
 		});
@@ -502,7 +495,18 @@
 			view: carried.repost.view,
 			initialAssignment: carried.repost.assignment,
 			candidates: {},
+			// The answer is DROPPED on the way back, and that is the point: the screen asks again.
+			// Carrying it would re-tick a box the user is about to be re-shown, which is the echo
+			// Planche 5c removed from the previous placement.
 			correction: carried.repost.correction
+				? {
+						mappingId: carried.repost.correction.mappingId,
+						batchId: carried.repost.correction.batchId,
+						namedAt: carried.repost.correction.namedAt,
+						replacedRows: carried.repost.correction.replacedRows,
+						hasUserWork: carried.repost.correction.hasUserWork
+					}
+				: null
 		});
 		void goto(resolve('/import/columns'));
 	}
@@ -770,7 +774,7 @@
 			<!--
 				The sentence that used to sit here told the user to go and delete the old import
 				themselves, which is the 13 step journey this wave removes. It is replaced by the
-				control that does it, and the control NAMES WHAT IT COSTS: `imports_cancel_cost_note`
+				control that does it, and the control NAMES WHAT IT COSTS: `imports_delete_cost_note`
 				is reused rather than restated, because it is the sentence the explicit delete already
 				shows and a second wording for one fact is how two screens start disagreeing.
 
@@ -782,29 +786,6 @@
 				choose, and a ticked box promising a deletion that cannot happen is the defect this
 				wave exists to remove.
 			-->
-			{#if data.correction.batchId && data.correction.replacedAt}
-				<div class="mt-2">
-					<!--
-						The label NAMES the import it destroys. « Supprimer l'ancien import » names nothing
-						once a user holds several, and this flow's ordinary shape is two imports of one
-						statement minutes apart: the blind session ended in exactly that state, unable to
-						tell the two rows apart.
-
-						The same timestamp the delete confirmation and the withheld retraction use, to the
-						minute, so the control the user ticks and whatever the run reports afterwards name
-						one import identically. A shorter form here would make matching them a puzzle on the
-						screen whose whole job is to say which import went.
-					-->
-					<CheckboxField
-						name="deleteOldImport"
-						label={m.import_correct_delete_old_label({
-							date: namedImport(data.correction.replacedAt)
-						})}
-						note={data.correction.hasUserWork ? m.imports_cancel_cost_note() : undefined}
-						bind:checked={deleteOldImport}
-					/>
-				</div>
-			{/if}
 		</div>
 	{/if}
 {/snippet}

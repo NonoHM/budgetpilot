@@ -14,6 +14,7 @@
 		variant = 'default',
 		hideHeader = false,
 		mobileFullscreen = false,
+		busy = false,
 		onClose,
 		children
 	}: {
@@ -37,6 +38,21 @@
 		// instead of floating as a centered card — for flows like TransactionFocusOverlay
 		// that need every pixel on mobile. Desktop is unaffected (still the compact card).
 		mobileFullscreen?: boolean;
+		/**
+		 * A request is in flight, so the dialog OWNS ITS ACTION until the answer (Planche 5f).
+		 *
+		 * Escape is neutralised, a backdrop click is neutralised, and the close control is inert. A
+		 * modal that closes on the press moves the answer out of the screen where the finger just was
+		 * and where the focus is: the row is still there, nothing has changed, and it reads exactly
+		 * like a press that did nothing. On an irreversible action that is the worst reading there is.
+		 *
+		 * Measured before this existed, in a real browser: Escape closed a delete mid-flight, and so
+		 * did a backdrop click. Nothing was cancelled by either, because the request was already out.
+		 * A dismissal that cannot cancel anything and hides the answer is not a dismissal.
+		 *
+		 * The dialog does not close on the press. It closes on the answer.
+		 */
+		busy?: boolean;
 		onClose: () => void;
 		children: Snippet;
 	} = $props();
@@ -76,6 +92,9 @@
 		if (!open) return;
 		if (event.key === 'Escape') {
 			event.preventDefault();
+			// Swallowed rather than ignored: the press is answered by nothing happening, which is the
+			// honest outcome while a request the user cannot recall is still out.
+			if (busy) return;
 			onClose();
 		}
 	}
@@ -86,6 +105,7 @@
 	}
 
 	function handleBackdropClick(event: MouseEvent) {
+		if (busy) return;
 		if (event.target === event.currentTarget) onClose();
 	}
 </script>
@@ -134,7 +154,12 @@
 
 				<!-- -my-2 centers the 44px close button's glyph on the text-lg title
 				     line (28px) without inflating the header row. -->
-				<IconButton class="-my-2" label={m.common_modal_close_aria()} onclick={onClose}>
+				<IconButton
+					class="-my-2"
+					label={m.common_modal_close_aria()}
+					softDisabled={busy}
+					onclick={onClose}
+				>
 					✕
 				</IconButton>
 			</div>

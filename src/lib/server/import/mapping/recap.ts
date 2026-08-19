@@ -112,7 +112,7 @@ function recapByName(
 			samples: firstRow.map((value) => [value]),
 			firstRow,
 			rowCount,
-			hasHeaderRow: true
+			detectedHeaderRow: true
 		}
 	};
 }
@@ -158,7 +158,7 @@ function recapByPosition(
 			firstRow,
 			rowCount,
 			// Named by position on the rows, which is what a mapping « mémorisée par position » is.
-			hasHeaderRow: false
+			detectedHeaderRow: false
 		}
 	};
 }

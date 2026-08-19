@@ -64,7 +64,7 @@ const FILE = {
 	headers: HEADERS,
 	samples: HEADERS.map((_, index) => [`v${index}a`, `v${index}b`, `v${index}c`]),
 	rowCount: 132,
-	hasHeaderRow: true
+	detectedHeaderRow: true
 };
 
 const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4 };
@@ -373,7 +373,7 @@ describe('above 20 columns the picker gains a search field, and below it does no
 			headers,
 			samples: headers.map(() => ['a', 'b', 'c']),
 			rowCount: 10,
-			hasHeaderRow: true
+			detectedHeaderRow: true
 		};
 	};
 

@@ -38,7 +38,7 @@ describe('the recap of a mapping remembered by name', () => {
 
 		expect(view.file.headers).toStrictEqual(['Champ A', 'Champ C', 'Champ D', '']);
 		expect(view.assignment).toStrictEqual({ date: 0, label: 1, amount: 2, category: null });
-		expect(view.file.hasHeaderRow).toBe(true);
+		expect(view.file.detectedHeaderRow).toBe(true);
 	});
 
 	it('pads to the file’s real width, because the screen prints “{columns} colonnes” from it', () => {
@@ -119,7 +119,7 @@ describe('the recap of a mapping remembered by position', () => {
 	});
 
 	it('says the file had no readable headers, so the rows are named by position', () => {
-		expect(recapDesignation(POSITIONAL, base()).file.hasHeaderRow).toBe(false);
+		expect(recapDesignation(POSITIONAL, base()).file.detectedHeaderRow).toBe(false);
 	});
 });
 

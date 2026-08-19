@@ -1,7 +1,8 @@
 <script lang="ts">
 	import type { Snippet } from 'svelte';
 	import * as m from '$lib/paraglide/messages';
-	import { cardBase, transitionHover } from '$lib/styles';
+	import { pressable } from '$lib/press';
+	import { cardBase, pressSurface, pressTransition, transitionHover } from '$lib/styles';
 
 	// Generic mobile replacement for a table row (< lg). Primary content is
 	// always visible (the columns you'd scan in a table); details is revealed
@@ -58,11 +59,22 @@
 		<!-- generic reusable component: `href` is an arbitrary caller-supplied string (internal route
 		or external URL), not statically known here; the caller is responsible for resolving it -->
 		<!-- eslint-disable svelte/no-navigation-without-resolve -->
+		<!--
+			The ROW presses, full width, in zinc-100 (Planche 5a). zinc-50 was tried and set aside: at
+			2% difference it is not perceptible in daylight on a phone screen, which is the surface
+			this state exists for.
+
+			`pressSurface` rather than `pressNeutral`: this is a container whose children carry their
+			own colours, and forcing an inherited zinc-900 would say something about the text rather
+			than about the press. `active:bg-zinc-100` stays as the keyboard-activation fallback,
+			which `:active` still covers and a pointer action does not.
+		-->
 		<a
+			use:pressable
 			{href}
 			id={linkId}
 			aria-current={active ? 'true' : undefined}
-			class="block p-4 hover:bg-zinc-50 active:bg-zinc-100 {transitionHover} focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none focus-visible:ring-inset"
+			class="block p-4 hover:bg-zinc-50 active:bg-zinc-100 {transitionHover} {pressTransition} {pressSurface} focus-visible:ring-2 focus-visible:ring-zinc-400 focus-visible:outline-none focus-visible:ring-inset"
 		>
 			{@render children()}
 		</a>

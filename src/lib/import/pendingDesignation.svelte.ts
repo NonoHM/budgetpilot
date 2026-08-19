@@ -64,7 +64,21 @@ export interface PendingDesignation {
 		 */
 		mappingId: string;
 		batchId: string;
-		deleteOldImport: boolean;
+		/**
+		 * What the designation screen needs to NAME the import it would replace, and to say what
+		 * deleting it costs.
+		 *
+		 * Formatted upstream, by the route that knows the negotiated locale, so the control the user
+		 * ticks and whatever the run reports afterwards name one import identically.
+		 *
+		 * THE CONSENT ITSELF IS NO LONGER CARRIED HERE (Planche 5c). It used to be, because the
+		 * checkbox lived on `/import` and its answer had to survive the navigation. The question is
+		 * now asked in the designation footer, at the moment it forms, so the answer is born on the
+		 * screen that submits and never travels.
+		 */
+		namedAt: string;
+		replacedRows: number;
+		hasUserWork: boolean;
 	} | null;
 }
 

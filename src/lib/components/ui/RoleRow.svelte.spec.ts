@@ -345,17 +345,19 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 	});
 });
 
-describe('RoleRow.svelte: the two states that are not buttons', () => {
-	it('skeleton: outside the tab order and silent, because the page announces', () => {
-		const { row, container } = mount({ state: 'skeleton' });
-
-		expect(container.querySelectorAll('button').length).toBe(0);
-		expect(row.getAttribute('aria-hidden')).toBe('true');
-		// Still 68, so the card is already its final 355 and the skeleton is exact rather than
-		// approximate. Asserted here as well as in the sweep above: this is the reason for the sweep.
-		expect(row.getBoundingClientRect().height).toBe(68);
-	});
-
+/**
+ * ONE state rather than two, since Planche 5f removed the skeleton.
+ *
+ * The test that stood here asserted the skeleton row was silent, out of the tab order and exactly
+ * 68 px, and all three were true. What no test could say is that NO ROUTE EVER SET IT: the screen's
+ * cards exist because the file is already read in memory, so there is no instant at which the
+ * structure is known and the content absent. The state was internally consistent and unreachable,
+ * which is the class this repository checks for by naming the route that produces a state.
+ *
+ * Brique 9's skeleton lives at `/imports` on arrival now, where the instant does exist, and it has
+ * its own component and its own threshold tests.
+ */
+describe('RoleRow.svelte: the state that is not a button', () => {
 	it('recap: not a button, not focusable, and it receives no focus when tabbed to', () => {
 		const { row, container } = mount({
 			state: 'recap',

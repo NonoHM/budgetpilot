@@ -21,6 +21,7 @@
 		"check": "svelte-kit sync && npm run paraglide:compile && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
 		"lint": "prettier --check . && eslint .",
+		"lint:tracked": "node scripts/lint-tracked.mjs",
 		"format": "prettier --write .",
 		"test:unit": "vitest",
 		"test:sandbox": "vitest run --config vitest.sandbox.config.ts",

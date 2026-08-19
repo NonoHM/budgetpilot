@@ -143,14 +143,11 @@ describe('the page state is derived, so it cannot disagree with the assignment',
 		expect(pageStateOf({ assignment: FULL, columnCount: 2 })).toBe('tooFewColumns');
 	});
 
-	it('puts analysing and submitting ahead of the assignment, since neither derives from it', () => {
-		expect(pageStateOf({ assignment: FULL, columnCount: 15, analysing: true })).toBe('analysing');
+	// `analysing` USED TO SHARE THIS TEST and is gone with the state itself (Planche 5f): it drew a
+	// skeleton on a screen that structurally cannot show one, and no route ever set it. What remains
+	// is the half that still has a producer, and its precedence still matters for the same reason.
+	it('puts submitting ahead of the assignment, since it does not derive from it', () => {
 		expect(pageStateOf({ assignment: FULL, columnCount: 15, submitting: true })).toBe('submitting');
-		// And analysing wins over submitting, which cannot both be true but would be a silent
-		// coin flip if the order were left to chance.
-		expect(
-			pageStateOf({ assignment: FULL, columnCount: 15, analysing: true, submitting: true })
-		).toBe('analysing');
 	});
 
 	it('reports signaturePartial ahead of the count, because 3b is not a partial designation', () => {

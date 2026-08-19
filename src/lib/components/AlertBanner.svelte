@@ -10,6 +10,7 @@
 		size = 'md',
 		class: className = '',
 		autoDismissMs = 6000,
+		focusOnShow = false,
 		onDismiss,
 		dismissLabel,
 		action,
@@ -31,6 +32,19 @@
 		// past ~24.8 days (the 32-bit signed int delay limit), so a large-but-finite value would
 		// silently misbehave instead of meaning "never".
 		autoDismissMs?: number;
+		/**
+		 * Takes the focus when it appears, and only then.
+		 *
+		 * For a banner that arrives where the focus IS NOT: a failure inside a dialog appears above a
+		 * confirm button the user is already on, and `role="alert"` announces it without moving anyone
+		 * to it. The two are different mechanisms and they fail separately, so the announcement alone
+		 * leaves a keyboard or screen-reader user reading a message they cannot reach the actions of
+		 * without hunting.
+		 *
+		 * Off by default: a page-level banner reporting what just happened must NOT steal the focus,
+		 * which is the whole reason brique 8 specifies `role="status"` for the polite variants.
+		 */
+		focusOnShow?: boolean;
 		// Optional side effect fired when the banner is dismissed (manually or via
 		// auto-dismiss) — e.g. persisting the dismissal server-side so it doesn't
 		// reappear on the next load. Purely additive: existing callers that don't pass
@@ -99,18 +113,48 @@
 	// `info` is polite for the same reason `success` is: it reports rather than interrupts. An
 	// assertive region cuts across whatever the reader is in the middle of, which is right for an
 	// error blocking their action and wrong for an offer they can take at any time.
+	let bannerEl = $state<HTMLElement | null>(null);
+
+	/**
+	 * Focused once it is on screen, and AFTER the effect flush rather than inside it.
+	 *
+	 * `queueMicrotask` is not a delay, it is an ordering. A child's effects run before its parent's,
+	 * so a banner focusing itself inside a modal loses to that modal's own open-focus, which runs
+	 * afterwards and puts the reader back on the close control. Measured: the focus landed on
+	 * « Fermer ». The microtask runs after the whole flush, so the last write is this one.
+	 */
+	$effect(() => {
+		if (!focusOnShow) return;
+		const el = bannerEl;
+		queueMicrotask(() => el?.focus());
+	});
+
 	const politeVariants = ['success', 'info'];
 	const role = $derived(politeVariants.includes(variant) ? 'status' : 'alert');
 	const ariaLive = $derived(politeVariants.includes(variant) ? 'polite' : 'assertive');
 </script>
 
 {#if !dismissed}
+	<!--
+		The rule below reads « nonnegative tabIndex », and this one is -1, which is exactly the value
+		that makes an element a programmatic focus target WITHOUT adding it to the tab order. The
+		analyser cannot narrow the ternary, so it sees `number | undefined` and assumes the worst.
+		Suppressed with its reason rather than by weakening the attribute, which would be the defect.
+
+		THE PROSE IS A SEPARATE COMMENT, and that is not style. Everything after `svelte-ignore` in one
+		comment is parsed as a LIST OF RULE CODES, so an explanation written inside it becomes one
+		bogus code per word and `svelte/no-unused-svelte-ignore` reports every one of them. Measured:
+		eighteen errors on two lines, in CI only, because `eslint .` cannot run in this working tree.
+	-->
+	<!-- svelte-ignore a11y_no_noninteractive_tabindex -->
 	<p
+		bind:this={bannerEl}
 		class="flex items-start gap-2.5 border font-medium {variantClasses[variant]} {sizeClasses[
 			size
-		]} {className}"
+		]} {className} focus-visible:outline-none"
 		{role}
 		aria-live={ariaLive}
+		tabindex={focusOnShow ? -1 : undefined}
 		in:fly={{ y: -4, duration: motionDuration(MOTION.overlayInMs), easing: easeOut }}
 		out:fly={{ y: -4, duration: motionDuration(MOTION.overlayOutMs), easing: easeIn }}
 	>
