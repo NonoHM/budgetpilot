@@ -18,6 +18,85 @@ function parse(...lines: string[]) {
 	return parseCsvTransactions([MAISON_V2_HEADER, ...lines].join('\n'));
 }
 
+/**
+ * A zero amount is refused by every profile, deliberately. What #303 measured is that the two
+ * `maison` versions disagreed about WHY, and they are two versions of ONE export format — so a
+ * user moving from a file exported last month to one exported today saw the reason change.
+ *
+ * v1 refused a zero as « montant à zéro refusé ». v2 folded its zero check into
+ * `parseSignedAmount`'s `null` return, so the caller could not tell the two cases apart and
+ * reported « montant invalide ». **That sentence is false**: the amount is not invalid, it parsed
+ * correctly and was refused by a rule the application applies on purpose. A user handed « montant
+ * invalide » goes looking for a typo in a cell that has none.
+ *
+ * The parity assertion is the one that must not be deleted as redundant: it is the whole claim.
+ */
+describe('a zero amount is refused as a ZERO, and both maison versions say so identically', () => {
+	function parseV1(line: string) {
+		return parseCsvTransactions([MAISON_V1_HEADER, line].join('\n'));
+	}
+
+	it('v2 names a zero montant as zero-amount, not invalid-amount', () => {
+		expect.assertions(2);
+
+		const result = parse(
+			"2026-06-12;Leroy Merlin;Maison;'0.00;expense;spending;csv;'0.00;1/1;Maison"
+		);
+
+		expect(result.invalidRows).toHaveLength(1);
+		expect(result.invalidRows[0]).toMatchObject({
+			field: 'amount',
+			fact: { code: 'zero-amount', column: 'montant' }
+		});
+	});
+
+	it('v2 names a zero montant_total on its own column, not as invalid-total-amount', () => {
+		expect.assertions(2);
+
+		// `montant` parses to a real value, so this isolates the total. The column named is
+		// `montant_total` rather than `montant`: the refusal points at the cell that caused it,
+		// which is what the user has to go and look at.
+		const result = parse(
+			"2026-06-12;Leroy Merlin;Maison;'-80.00;expense;spending;csv;'0.00;1/1;Maison"
+		);
+
+		expect(result.invalidRows).toHaveLength(1);
+		expect(result.invalidRows[0]).toMatchObject({
+			field: 'amount',
+			fact: { code: 'zero-amount', column: 'montant_total' }
+		});
+	});
+
+	it('v1 and v2 give the SAME refusal for the same zero amount', () => {
+		expect.assertions(3);
+
+		const v1 = parseV1('2026-06-12;Leroy Merlin;Maison;0.00;expense;spending;csv');
+		const v2 = parse("2026-06-12;Leroy Merlin;Maison;'0.00;expense;spending;csv;'0.00;1/1;Maison");
+
+		expect(v1.invalidRows).toHaveLength(1);
+		expect(v2.invalidRows).toHaveLength(1);
+		// Compared rather than each asserted against a literal: the claim is that they AGREE, and
+		// two literals that happen to match assert two things instead of the one that matters.
+		expect(v2.invalidRows[0].fact).toStrictEqual(v1.invalidRows[0].fact);
+	});
+
+	it('the control: an amount that genuinely cannot be parsed is still invalid-amount', () => {
+		expect.assertions(2);
+
+		// Without this, a fix that reported every refusal as `zero-amount` would pass everything
+		// above. The two codes have to remain distinguishable, which is the point of splitting them.
+		const result = parse(
+			"2026-06-12;Leroy Merlin;Maison;'abc;expense;spending;csv;'-80.00;1/1;Maison"
+		);
+
+		expect(result.invalidRows).toHaveLength(1);
+		expect(result.invalidRows[0]).toMatchObject({
+			field: 'amount',
+			fact: { code: 'invalid-amount', column: 'montant' }
+		});
+	});
+});
+
 describe('profil maison v2', () => {
 	// The coupling stated once, explicitly, instead of implicitly in every fixture below. If a
 	// future chantier adds a column to the export, this is what says the parser has not been told.
