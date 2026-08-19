@@ -597,7 +597,7 @@ describe('readCurrentMonthSpending + spentCentsFor — the /budgets under-report
 		db.prisma.transaction.findMany.mockResolvedValue([]);
 		await readCurrentMonthSpending(userId);
 
-		expect(db.prisma.transaction.findMany.mock.calls[0][0].where.date).toEqual({
+		expect(db.prisma.transaction.findMany.mock.calls[0][0].where.AND[0].date).toEqual({
 			gte: new Date('2026-08-01T00:00:00.000Z'),
 			lt: new Date('2026-09-01T00:00:00.000Z')
 		});

@@ -14,6 +14,7 @@ import type { DateRange } from '$lib/server/date-range';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
 import { collectAllTransactions } from '$lib/server/transactions/batch';
+import { transactionKindWhere } from '$lib/server/transactions/totals';
 import {
 	buildCategoryNatureMap,
 	EFFECTIVE_CATEGORY_SELECT,
@@ -510,9 +511,14 @@ function isValidMonth(value: string): boolean {
  *  - It reads the WALL CLOCK, so it is the one aggregate here that cannot be pinned by passing a
  *    range. Anything measuring this function (a golden master, a fixture) has to seed against the
  *    real current month or accept that its output moves.
- *  - It selects `type: 'expense'` in SQL, where every other money read resolves the kind through
- *    getTransactionKind and falls back to the SIGN when `type` is null. So a negative transaction
- *    with no stored type counts as an expense everywhere else and is invisible here.
+ *  - It asks for the kind through `transactionKindWhere`, the same predicate /transactions uses.
+ *    It used to select `type: 'expense'` directly, and it was the only money read in the app that
+ *    did: every other one resolves the kind through getTransactionKind and falls back to the SIGN
+ *    when `type` is null, so a negative transaction with no stored type counted as an expense
+ *    everywhere else and was invisible here (#201). The predicate stays in SQL rather than moving
+ *    to a JS filter, because `transactionKindWhere` already expresses the fallback as a
+ *    where-clause and totals.db-smoke.ts asserts it agrees with the JS resolution over the full
+ *    type x sign matrix on all three engines.
  *
  * It attributes through `allocateByCategory` rather than through `allocationsOf`, and that is the
  * one place in the app where the two differ. It asks only WHERE THE MONEY WENT: it selects neither
@@ -530,9 +536,14 @@ export async function readCurrentMonthSpending(userId: string): Promise<Category
 	// Map — so the default direction is left unspecified.
 	const transactions = await collectAllTransactions(
 		{
-			userId,
-			type: 'expense',
-			date: { gte: firstOfMonth, lt: firstOfNextMonth }
+			AND: [
+				{ userId, date: { gte: firstOfMonth, lt: firstOfNextMonth } },
+				// The kind is a function of `type` AND `amountCents`, not a predicate on one
+				// column, which is why it cannot be written inline here. `transactionKindWhere` is
+				// the proven SQL twin of the JS resolution (totals.ts), and ANDing it rather than
+				// spreading it keeps its `OR` from colliding with anything beside it.
+				transactionKindWhere('expense')
+			]
 		},
 		{
 			amountCents: true,
