@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeDate } from './csv';
+import { normalizeDate, normalizeFirstValidDate } from './csv';
 import { parseCsvTransactions } from '../csv';
 
 /**
@@ -78,7 +78,7 @@ describe('the date cells real statements actually carry', () => {
 
 describe('a date cell carrying more than a date', () => {
 	it('refuses a second date rather than importing under the first', () => {
-		expect.assertions(4);
+		expect.assertions(6);
 
 		// Returned UNCHANGED, which is what makes `isValidIsoDate` downstream produce the
 		// ordinary `invalid-date` refusal. The alternative — refusing inside this function —
@@ -90,6 +90,14 @@ describe('a date cell carrying more than a date', () => {
 		// realistic instance of #366 rather than the constructed one.
 		expect(normalizeDate('01/01/2026 au 31/01/2026')).toBe('01/01/2026 au 31/01/2026');
 		expect(normalizeDate('01/01/2026xyz')).toBe('01/01/2026xyz');
+		// A bare `T` with no time following it. `TIME_AFTER_DATE` requires at least `\d{1,2}:\d{2}`
+		// after the separator, so an empty time is not a time-only remainder and the cell is
+		// refused rather than silently trimmed to the date. Pinned rather than changed.
+		expect(normalizeDate('2026-01-01T')).toBe('2026-01-01T');
+		// A DOUBLE space before the time. `TIME_AFTER_DATE` is anchored on a single `[ T]`
+		// separator, so the second space is part of the remainder and fails the match — refused,
+		// not silently trimmed. Pinned rather than changed.
+		expect(normalizeDate('01/01/2026  10:00')).toBe('01/01/2026  10:00');
 	});
 
 	it('applies the same rule to the ISO branch, which #366 does not cover', () => {
@@ -156,5 +164,57 @@ describe('what the user meets when they designate a période column as the date'
 		expect(result.invalidRows).toHaveLength(0);
 		expect(result.transactions).toHaveLength(2);
 		expect(result.summary.period).toEqual({ from: '2026-01-01', to: '2026-01-15' });
+	});
+});
+
+/**
+ * `normalizeFirstValidDate` loops over candidate date columns and returns the first that
+ * normalises to a VALID ISO date. The narrowing above is a narrowing of `normalizeDate`, but not
+ * of this function: growing the set of values `normalizeDate` refuses grows the set that FALLS
+ * THROUGH to the next candidate here. A row whose first date column just became unreadable does
+ * not stop importing — it imports under a LATER column's date instead, silently. Two production
+ * callers rely on exactly this: `revolut.ts` (`Date de fin`, `Date de début`) and
+ * `banque-populaire.ts` (`Date operation`, `Date de comptabilisation`, `Date de valeur`), where
+ * the three Banque Populaire columns are genuinely different dates on a real statement. The
+ * fall-through is what the function is FOR, and this block exists so a regression in it is
+ * visible here rather than discovered on a real file.
+ */
+describe('normalizeFirstValidDate falls through to the next valid column', () => {
+	it('skips a candidate refused by the remainder rule and uses the next one', () => {
+		expect.assertions(1);
+
+		// Before this branch, `normalizeDate('01/01/2026 au 31/01/2026')` prefix-matched and won
+		// with `2026-01-01`: the first candidate was accepted even though it carried a second
+		// date. After the narrowing, that candidate is refused (returned unchanged, which is not
+		// a valid ISO date), so the loop moves on and the SECOND candidate wins instead. This is
+		// therefore a deliberate VALUE CHANGE for this input, not merely a new refusal.
+		expect(normalizeFirstValidDate('01/01/2026 au 31/01/2026', '15/01/2026')).toBe(
+			'2026-01-15'
+		);
+	});
+
+	it('still prefers the first candidate when it is readable', () => {
+		expect.assertions(1);
+
+		// Revolut's real two-column shape, both carrying a timestamp remainder. The first
+		// candidate is valid, so it wins and the second is never consulted.
+		expect(
+			normalizeFirstValidDate('2026-08-02 10:00:00', '2026-08-01 09:00:00')
+		).toBe('2026-08-02');
+	});
+
+	it('returns an invalid best effort when every candidate is unreadable', () => {
+		expect.assertions(2);
+
+		const result = normalizeFirstValidDate(
+			'01/01/2026 au 31/01/2026',
+			'01/01/2026-31/01/2026'
+		);
+
+		// Neither candidate normalises to a valid ISO date, so the loop exhausts itself and falls
+		// back to `normalizeDate` on the first present value — itself refused, unchanged. The
+		// caller's own `isValidIsoDate` check is what turns this into a refusal.
+		expect(result).toBe('01/01/2026 au 31/01/2026');
+		expect(result.length > 0 && /^\d{4}-\d{2}-\d{2}$/.test(result)).toBe(false);
 	});
 });
