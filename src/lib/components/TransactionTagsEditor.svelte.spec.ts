@@ -127,4 +127,86 @@ describe('TransactionTagsEditor.svelte', () => {
 
 		expect(page.getByText(m.tags_chips_help_remove()).elements().length).toBe(0);
 	});
+
+	/**
+	 * The load re-running is not the same event as a different row being selected, and it stopped
+	 * being the same event when the panel's forms gained `use:enhance`.
+	 *
+	 * A save in a SIBLING form (manual category, manual nature, répartition) now re-runs the load
+	 * while this editor stays mounted, and hands it a fresh `tags` array saying exactly what the old
+	 * one said. Re-deriving there discards a chip the user picked and has not saved, with no dialog
+	 * and no banner, and flips `dirty` back to false so the page's own unsaved-changes guard no
+	 * longer knows anything was lost. Measured at 1280 before this: chip present, save the nature in
+	 * the section above, chip gone.
+	 */
+	it('keeps an unsaved selection when the load re-runs and says the same thing', async () => {
+		const tags = [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }];
+		const { rerender } = renderEditor({ transactionId: 'tx-1', tags });
+
+		await userEvent.click(page.getByRole('combobox'));
+		await userEvent.click(page.getByRole('option', { name: 'Travaux' }));
+		const chip = page.getByRole('button', { name: m.tags_remove_aria({ name: 'Travaux' }) });
+		await expect.element(chip).toBeInTheDocument();
+
+		// A FRESH array carrying the same names, which is what the load hands down: equal by value,
+		// different by identity, and identity is what the old derivation keyed on.
+		await rerender({
+			transactionId: 'tx-1',
+			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
+			allTags,
+			action: ACTION,
+			enhanceSubmit: SUBMIT
+		});
+
+		await expect.element(chip).toBeInTheDocument();
+	});
+
+	it('takes the new tags when the load says something different', async () => {
+		const { rerender } = renderEditor({
+			transactionId: 'tx-1',
+			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
+		});
+
+		// The other half, and the reason the case above is not simply "never re-derive": a save that
+		// succeeded, or another tab, must reach this editor.
+		await rerender({
+			transactionId: 'tx-1',
+			tags: [{ id: 'tag-2', name: 'Travaux', colorToken: 'ochre' as const }],
+			allTags,
+			action: ACTION,
+			enhanceSubmit: SUBMIT
+		});
+
+		await expect
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Travaux' }) }))
+			.toBeInTheDocument();
+		expect(
+			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }).elements()
+		).toHaveLength(0);
+	});
+
+	it('resets when a different row is selected, even if that row carries the same tags', async () => {
+		const tags = [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }];
+		const { rerender } = renderEditor({ transactionId: 'tx-1', tags });
+
+		await userEvent.click(page.getByRole('combobox'));
+		await userEvent.click(page.getByRole('option', { name: 'Travaux' }));
+		await expect
+			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Travaux' }) }))
+			.toBeInTheDocument();
+
+		// Same tag set, different transaction. An editor opened on one row must not be found open on
+		// the next, which is the rule the identity check used to enforce by accident.
+		await rerender({
+			transactionId: 'tx-2',
+			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }],
+			allTags,
+			action: ACTION,
+			enhanceSubmit: SUBMIT
+		});
+
+		expect(
+			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Travaux' }) }).elements()
+		).toHaveLength(0);
+	});
 });

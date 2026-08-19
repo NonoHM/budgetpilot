@@ -15,13 +15,16 @@
 import { request, type APIRequestContext } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { E2E_API_HEADERS, E2E_BASE_URL } from './config';
-import { createTransaction, loginE2eUser, submitForm } from './seed';
+import { assertOk, createTransaction, loginE2eUser, submitForm } from './seed';
 import * as m from '../src/lib/paraglide/messages';
 
 const STATE_LABEL = 'E2E PANEL STATE';
 const REFUSAL_LABEL = 'E2E PANEL REFUSAL';
 const DATE = '2026-09-14';
 const CATEGORY = 'Alimentation';
+/** A category the seed owns that the fixture row is NOT in, so picking it is a real change. */
+const OTHER_CATEGORY = 'Transport';
+const PENDING_TAG = 'E2E PANEL PENDING';
 
 let api: APIRequestContext;
 const ids = new Map<string, string>();
@@ -45,7 +48,13 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
 	for (const id of ids.values()) {
-		await submitForm(api, '/transactions?/deleteTransaction', { transactionId: id });
+		// `assertOk`, like every other caller of `submitForm` in this suite. A cleanup that fails
+		// silently leaves rows in a database `workers: 1` shares with every later spec file, and the
+		// failure then surfaces somewhere else entirely as a count that is off by two.
+		assertOk(
+			'deleteTransaction cleanup',
+			await submitForm(api, '/transactions?/deleteTransaction', { transactionId: id })
+		);
 	}
 	await api.dispose();
 });
@@ -125,7 +134,10 @@ test('a refused save says why, in the panel it was refused in', async ({ page })
 	// second session rather than simulated, because a panel left open in one tab while the row is
 	// deleted in another is exactly the situation.
 	const id = ids.get(REFUSAL_LABEL) as string;
-	await submitForm(api, '/transactions?/deleteTransaction', { transactionId: id });
+	assertOk(
+		'deleteTransaction from the second session',
+		await submitForm(api, '/transactions?/deleteTransaction', { transactionId: id })
+	);
 	ids.delete(REFUSAL_LABEL);
 
 	await chooseNature(page, m.nature_transfer());
@@ -137,4 +149,49 @@ test('a refused save says why, in the panel it was refused in', async ({ page })
 	// and rendered nowhere, because the only place that renders it is the panel the submit removed.
 	await expect(visibleNatureForm(page)).toHaveCount(1);
 	expect(new URL(page.url()).searchParams.get('selected')).toBe(id);
+});
+
+test('a save does not discard the editor beside it', async ({ page }) => {
+	await page.setViewportSize({ width: 1280, height: 900 });
+	await openFilteredSelection(page, STATE_LABEL);
+
+	// Three kinds of work in the panel, none of them saved, none of them belonging to the form that
+	// is about to be submitted. Before this they all went: `use:enhance` re-runs the load, and every
+	// editor on the page reset itself off the fresh object as if a different row had been selected.
+	const categoryForm = page
+		.locator('form[action*="/saveManualCategory"]')
+		.filter({ visible: true });
+	await categoryForm.locator(`button[aria-label="${m.common_combobox_open_list_aria()}"]`).click();
+	await page.getByRole('option', { name: OTHER_CATEGORY, exact: true }).first().click();
+	// Read off the hidden input, which is the value a submit would actually carry, and asserted here
+	// as well as at the end: an assertion that only checks the after cannot tell "it survived" from
+	// "it was never picked".
+	const pendingCategory = categoryForm.locator('input[name="manualCategory"]');
+	await expect(pendingCategory).toHaveValue(OTHER_CATEGORY);
+
+	const tagsForm = page.locator('form[action*="/saveTags"]').filter({ visible: true });
+	await tagsForm.getByRole('combobox').click();
+	await page.keyboard.type(PENDING_TAG);
+	const createRow = page.getByRole('option').filter({ hasText: PENDING_TAG }).first();
+	await expect(createRow).toBeVisible();
+	await createRow.click();
+	const chip = tagsForm.getByRole('button', { name: m.tags_remove_aria({ name: PENDING_TAG }) });
+	await expect(chip).toBeVisible();
+
+	const accordion = page
+		.getByRole('button', { name: m.transactions_bank_details_heading() })
+		.first();
+	await accordion.click();
+	await expect(accordion).toHaveAttribute('aria-expanded', 'true');
+
+	// Now save a FOURTH thing: the nature.
+	await chooseNature(page, m.nature_transfer());
+	await expect(
+		visibleNatureForm(page).getByRole('button', { name: m.common_save(), exact: true })
+	).toBeDisabled();
+
+	// All three survive. The saved form re-baselined; the three beside it were not touched.
+	await expect(chip).toBeVisible();
+	await expect(accordion).toHaveAttribute('aria-expanded', 'true');
+	await expect(pendingCategory).toHaveValue(OTHER_CATEGORY);
 });

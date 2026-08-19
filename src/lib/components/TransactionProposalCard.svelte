@@ -165,6 +165,14 @@
 				{m.transactions_create_rule()}
 			</Button>
 		</div>
+		<!--
+			Still a rose line rather than the `AlertBanner` its three sibling forms in the detail panel
+			now use for the same two sentences (`category_locked_by_split`, `transaction_not_found`).
+			Not an oversight and not a decision this component gets to make alone: it is mounted on
+			THREE surfaces, the two panel mounts and TransactionFocusOverlay, and the overlay is
+			classification triage where an assertive banner is a different question. Recorded here so
+			the next reader finds the reason rather than the difference.
+		-->
 		{#if acceptError}
 			<p class="text-xs text-rose-600">{acceptError}</p>
 		{/if}

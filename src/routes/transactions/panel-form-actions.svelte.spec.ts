@@ -123,6 +123,24 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 	};
 }
 
+/**
+ * The two surfaces that render the detail, both mounted at every width with one hidden by CSS.
+ *
+ * The sheet is found by its `aria-modal` rather than by `[role="dialog"]` alone: the page also
+ * renders `Modal` and `ConfirmDialog`, so the looser selector is right only for as long as no
+ * fixture opens one, which is a coincidence rather than a property.
+ */
+function panelSurfaces(container: HTMLElement): Array<readonly [string, Element]> {
+	const aside = container.querySelector('aside');
+	const sheet = container.querySelector('[role="dialog"][aria-modal="true"]');
+	expect(aside, 'desktop panel').not.toBeNull();
+	expect(sheet, 'mobile sheet').not.toBeNull();
+	return [
+		['desktop panel', aside as Element],
+		['mobile sheet', sheet as Element]
+	] as const;
+}
+
 /** The action's query string, parsed as SvelteKit's own action resolution parses it. */
 function actionParams(form: Element): URLSearchParams {
 	const action = form.getAttribute('action') ?? '';
@@ -257,15 +275,7 @@ describe('the detail panel posts without discarding the panel', () => {
 		await page.viewport(1280, 900);
 		const { container } = render(Page, { data: baseData(), form: null });
 
-		const aside = container.querySelector('aside');
-		const sheet = container.querySelector('[role="dialog"]');
-		expect(aside).not.toBeNull();
-		expect(sheet).not.toBeNull();
-
-		for (const [surface, root] of [
-			['desktop panel', aside as Element],
-			['mobile sheet', sheet as Element]
-		] as const) {
+		for (const [surface, root] of panelSurfaces(container)) {
 			const forms = [...root.querySelectorAll('form[method="POST"]')];
 			// Manual category, manual nature, étiquettes. The répartition editor is the fourth and is
 			// absent here because this fixture owns no parts; it is covered by its own specs and by
@@ -275,6 +285,49 @@ describe('the detail panel posts without discarding the panel', () => {
 			for (const form of forms) {
 				const where = `${surface}: ${form.getAttribute('action')}`;
 				expect(actionParams(form).get('selected'), where).toBe('tx-1');
+			}
+		}
+	});
+
+	/**
+	 * The classify tab, and the reason the case above is not the whole sweep.
+	 *
+	 * `/transactions?type=classify` mounts `TransactionProposalCard` INSIDE this panel, which brings a
+	 * fifth form the default fixture never renders. A test whose fixture cannot reach a state is
+	 * silent about that state while reading as though it covered everything, which is the failure
+	 * #200 was filed about, one level up.
+	 *
+	 * `?/acceptSuggestion` is asserted as it IS, bare, rather than fixed here, and the verdict is
+	 * written down instead: it is `use:enhance`d, so it never navigates and loses nothing that a
+	 * reader would see. It is the one form on this route where the no-javascript argument used for
+	 * its three siblings applies and was not acted on, because its component is mounted outside this
+	 * panel too and that is a fourth decision rather than this one. The day it changes, this case
+	 * goes red and says so.
+	 */
+	it('the classify tab adds a fifth form, and its verdict is recorded rather than assumed', async () => {
+		await page.viewport(1280, 900);
+		const { container } = render(Page, {
+			data: baseData({
+				filters: { ...baseData().filters, type: 'classify' },
+				uncategorizedCount: 1,
+				classifiableCount: 1,
+				classifyStackIds: ['tx-1']
+			}),
+			form: null
+		});
+
+		for (const [surface, root] of panelSurfaces(container)) {
+			const actions = [...root.querySelectorAll('form[method="POST"]')].map((form) =>
+				form.getAttribute('action')
+			);
+			expect(actions.length, surface).toBe(4);
+
+			const bare = actions.filter((action) => action?.startsWith('?/'));
+			expect(bare, surface).toEqual(['?/acceptSuggestion']);
+
+			for (const action of actions.filter((candidate) => !candidate?.startsWith('?/'))) {
+				const params = new URLSearchParams((action ?? '').slice((action ?? '').indexOf('?') + 1));
+				expect(params.get('selected'), `${surface}: ${action}`).toBe('tx-1');
 			}
 		}
 	});
