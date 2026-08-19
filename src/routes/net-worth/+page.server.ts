@@ -1,3 +1,4 @@
+import { userFacingErrorMessage } from '$lib/server/errors';
 import { fail, isHttpError, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
@@ -200,8 +201,8 @@ function shouldConnectToTransactions(formData: FormData, type: string): boolean 
 }
 
 function getErrorMessage(caught: unknown): string {
-	if (isHttpError(caught)) return caught.body.message;
-	return caught instanceof Error ? caught.message : 'Validation invalide';
+	// See the note in budgets/+page.server.ts: this was the same hardcoded French literal.
+	return userFacingErrorMessage(caught, m.net_worth_error_generic());
 }
 
 function getErrorStatus(caught: unknown): number {

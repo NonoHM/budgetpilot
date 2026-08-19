@@ -1,4 +1,5 @@
-import { fail, isHttpError, type Actions } from '@sveltejs/kit';
+import { userFacingErrorMessage } from '$lib/server/errors';
+import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { summarizeBudgetAllocations } from '$lib/domain/budget';
 import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
@@ -168,8 +169,7 @@ function getFormValue(formData: FormData, key: string): string {
 }
 
 function getErrorMessage(caught: unknown): string {
-	if (isHttpError(caught)) return caught.body.message;
-	return caught instanceof Error ? caught.message : m.dashboard_error_generic();
+	return userFacingErrorMessage(caught, m.dashboard_error_generic());
 }
 
 function isWholeMonthPeriod(from: Date, to: Date): boolean {

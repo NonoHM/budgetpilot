@@ -1,3 +1,4 @@
+import { userFacingErrorMessage } from '$lib/server/errors';
 import { fail, isHttpError, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
@@ -92,8 +93,10 @@ function getFormValue(formData: FormData, key: string): string {
 }
 
 function getErrorMessage(caught: unknown): string {
-	if (isHttpError(caught)) return caught.body.message;
-	return caught instanceof Error ? caught.message : 'Validation invalide';
+	// Was the literal 'Validation invalide', byte-identical to the catalogue's own
+	// `budgets_error_generic` — so an English user was shown French on the one path that reached
+	// it. Same class as the import layer's rendered French (#304), found by the same sweep.
+	return userFacingErrorMessage(caught, m.budgets_error_generic());
 }
 
 function getErrorStatus(caught: unknown): number {
