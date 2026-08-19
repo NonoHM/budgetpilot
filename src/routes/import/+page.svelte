@@ -10,6 +10,7 @@
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import { cardBase } from '$lib/styles';
 	import * as m from '$lib/paraglide/messages';
+	import { importProfileLabel } from '$lib/domain/importProfileLabel';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
 	import { goto } from '$app/navigation';
@@ -138,11 +139,49 @@
 	 * them, so no arrangement of tiles could be subtracted honestly. Out of the grid there is no sum
 	 * to read off, which is cheaper than a screen that keeps inviting one and a test defending it.
 	 */
-	const rowsReadLine = $derived(
-		(importResult?.totalRows ?? 0) === 1
-			? m.import_summary_rows_read_line_one({ count: importResult?.totalRows ?? 0 })
-			: m.import_summary_rows_read_line_many({ count: importResult?.totalRows ?? 0 })
-	);
+	/**
+	 * A file refused as a WHOLE, which is a different thing from a file with bad rows in it.
+	 *
+	 * `summaryCounts.spec.ts` proves what makes this one predicate enough: a file level refusal
+	 * implies the parser classified no row, because it never examined one. So `fileLevelRefusals`
+	 * alone separates « we read your rows and some were bad » from « we never got as far as your
+	 * rows », and the four outcome counters are meaningful in the first case and vacuous in the
+	 * second.
+	 */
+	const refusedWhole = $derived((importResult?.fileLevelRefusals ?? 0) > 0);
+
+	const rowsReadLine = $derived.by(() => {
+		const count = importResult?.totalRows ?? 0;
+		// « lues » is the wrong verb for a refused file and it was the load-bearing half of the
+		// contradiction: a panel saying « 8 lignes lues » above « Lignes invalides : 0 » tells the
+		// reader their eight rows were read and found sound, next to a banner saying none was
+		// usable. The rows are still COUNTED, because the file does have them and a user looking
+		// for their eight rows must find them accounted for somewhere.
+		if (refusedWhole) {
+			return count === 1
+				? m.import_summary_rows_not_examined_one({ count })
+				: m.import_summary_rows_not_examined_many({ count });
+		}
+		return count === 1
+			? m.import_summary_rows_read_line_one({ count })
+			: m.import_summary_rows_read_line_many({ count });
+	});
+
+	/**
+	 * « 2 transactions ont reçu une catégorie automatiquement », or nothing.
+	 *
+	 * Nothing is the ordinary case and it has to be: a line that always renders is furniture, and a
+	 * reader stops seeing it on the import where it changes their budget. The count comes from the
+	 * write rather than from a guess about the rules, so it says what happened rather than what
+	 * could have.
+	 */
+	const autoCategorizedLine = $derived.by(() => {
+		const count = importResult?.autoCategorizedRows ?? 0;
+		if (count === 0) return null;
+		return count === 1
+			? m.import_summary_auto_categorized_one({ count })
+			: m.import_summary_auto_categorized_many({ count });
+	});
 
 	/**
 	 * What became of the batch a correction was replacing, and the reasons the rows went.
@@ -923,7 +962,7 @@
 					</div>
 					{#if importResult.profile}
 						<span class="w-fit rounded-md border border-zinc-200 px-3 py-1 text-sm font-medium">
-							{importResult.profile}
+							{importProfileLabel(importResult.profile)}
 						</span>
 					{/if}
 				</div>
@@ -958,31 +997,44 @@
 
 				<p class="mt-4 text-sm text-zinc-600">{rowsReadLine}</p>
 
-				<div
-					class="mt-3 grid gap-3 md:grid-cols-3 lg:grid-cols-5"
-					data-testid="import-summary-figures"
-				>
-					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_imported()}</p>
-						<p class="mt-1 text-xl font-semibold text-emerald-700">{importResult.importedRows}</p>
+				<!--
+					Suppressed, not zeroed. Every one of these five is necessarily 0 when the file was
+					refused whole, and a row of zeroes reads as a finding about the user's rows: « Lignes
+					invalides : 0 » is how a reader concludes nothing was wrong with a file that imported
+					nothing. The rows are accounted for by the sentence above and diagnosed by the block
+					above that, which is the part of this panel that was already doing the work.
+				-->
+				{#if !refusedWhole}
+					<div
+						class="mt-3 grid gap-3 md:grid-cols-3 lg:grid-cols-5"
+						data-testid="import-summary-figures"
+					>
+						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_imported()}</p>
+							<p class="mt-1 text-xl font-semibold text-emerald-700">{importResult.importedRows}</p>
+						</div>
+						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_duplicates()}</p>
+							<p class="mt-1 text-xl font-semibold">{importResult.duplicateRows}</p>
+						</div>
+						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_invalid()}</p>
+							<p class="mt-1 text-xl font-semibold text-rose-700">{importResult.invalidRows}</p>
+						</div>
+						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_total_debit()}</p>
+							<p class="mt-1 text-xl font-semibold">{formatCents(importResult.totalDebitCents)}</p>
+						</div>
+						<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
+							<p class="text-xs text-zinc-500 uppercase">{m.import_stat_total_credit()}</p>
+							<p class="mt-1 text-xl font-semibold">{formatCents(importResult.totalCreditCents)}</p>
+						</div>
 					</div>
-					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_duplicates()}</p>
-						<p class="mt-1 text-xl font-semibold">{importResult.duplicateRows}</p>
-					</div>
-					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_invalid()}</p>
-						<p class="mt-1 text-xl font-semibold text-rose-700">{importResult.invalidRows}</p>
-					</div>
-					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_total_debit()}</p>
-						<p class="mt-1 text-xl font-semibold">{formatCents(importResult.totalDebitCents)}</p>
-					</div>
-					<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-						<p class="text-xs text-zinc-500 uppercase">{m.import_stat_total_credit()}</p>
-						<p class="mt-1 text-xl font-semibold">{formatCents(importResult.totalCreditCents)}</p>
-					</div>
-				</div>
+				{/if}
+
+				{#if autoCategorizedLine}
+					<p class="mt-3 text-sm text-zinc-600">{autoCategorizedLine}</p>
+				{/if}
 
 				{#if importResult.period}
 					<p class="mt-4 text-sm text-zinc-600">
@@ -1225,7 +1277,7 @@
 					</div>
 					{#if importResult.profile}
 						<span class="shrink-0">
-							<Badge tone="neutral">{importResult.profile}</Badge>
+							<Badge tone="neutral">{importProfileLabel(importResult.profile)}</Badge>
 						</span>
 					{/if}
 				</div>
@@ -1258,32 +1310,41 @@
 
 				<p class="mt-3 text-sm text-zinc-600">{rowsReadLine}</p>
 
-				<div class="mt-3 grid grid-cols-2 gap-3" data-testid="import-summary-figures">
-					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_imported()}</p>
-						<p class="mt-1 text-lg font-bold text-emerald-700">{importResult.importedRows}</p>
+				{#if !refusedWhole}
+					<div class="mt-3 grid grid-cols-2 gap-3" data-testid="import-summary-figures">
+						<div class="rounded-xl bg-zinc-50 p-3">
+							<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_imported()}</p>
+							<p class="mt-1 text-lg font-bold text-emerald-700">{importResult.importedRows}</p>
+						</div>
+						<div class="rounded-xl bg-zinc-50 p-3">
+							<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_duplicates()}</p>
+							<p
+								class="mt-1 text-lg font-bold"
+								class:text-amber-600={importResult.duplicateRows > 0}
+							>
+								{importResult.duplicateRows}
+							</p>
+						</div>
+						<div class="rounded-xl bg-zinc-50 p-3">
+							<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_invalid()}</p>
+							<p class="mt-1 text-lg font-bold" class:text-rose-700={importResult.invalidRows > 0}>
+								{importResult.invalidRows}
+							</p>
+						</div>
+						<div class="rounded-xl bg-zinc-50 p-3">
+							<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_total_debit()}</p>
+							<p class="mt-1 text-lg font-bold">{formatCents(importResult.totalDebitCents)}</p>
+						</div>
+						<div class="rounded-xl bg-zinc-50 p-3">
+							<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_total_credit()}</p>
+							<p class="mt-1 text-lg font-bold">{formatCents(importResult.totalCreditCents)}</p>
+						</div>
 					</div>
-					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_duplicates()}</p>
-						<p class="mt-1 text-lg font-bold" class:text-amber-600={importResult.duplicateRows > 0}>
-							{importResult.duplicateRows}
-						</p>
-					</div>
-					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_invalid()}</p>
-						<p class="mt-1 text-lg font-bold" class:text-rose-700={importResult.invalidRows > 0}>
-							{importResult.invalidRows}
-						</p>
-					</div>
-					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_total_debit()}</p>
-						<p class="mt-1 text-lg font-bold">{formatCents(importResult.totalDebitCents)}</p>
-					</div>
-					<div class="rounded-xl bg-zinc-50 p-3">
-						<p class="text-[11px] text-zinc-400 uppercase">{m.import_stat_total_credit()}</p>
-						<p class="mt-1 text-lg font-bold">{formatCents(importResult.totalCreditCents)}</p>
-					</div>
-				</div>
+				{/if}
+
+				{#if autoCategorizedLine}
+					<p class="mt-3 text-xs text-zinc-600">{autoCategorizedLine}</p>
+				{/if}
 
 				{#if importResult.period}
 					<p class="mt-4 text-xs text-zinc-500">

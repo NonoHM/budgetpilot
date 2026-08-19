@@ -369,6 +369,7 @@ export const actions: Actions = {
 				invalidRows: result.summary.invalidRows,
 				fileLevelRefusals: result.summary.fileLevelRefusals,
 				duplicateRows: persisted.duplicateRows,
+				autoCategorizedRows: persisted.autoCategorizedRows,
 				totalDebitCents: persisted.importedDebitCents,
 				totalCreditCents: persisted.importedCreditCents,
 				period: result.summary.period,
