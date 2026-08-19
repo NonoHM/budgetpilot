@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { normalizeDate } from './csv';
+import { parseCsvTransactions } from '../csv';
 
 /**
  * A date cell is a date and then, at most, a TIME. #366.
@@ -102,5 +103,58 @@ describe('a date cell carrying more than a date', () => {
 		expect(normalizeDate('2026-01-01 xyz')).toBe('2026-01-01 xyz');
 		// Already refused before this change; asserted so the fix cannot regress it.
 		expect(normalizeDate('2026-01-01/2026-02-01')).toBe('2026-01-01/2026-02-01');
+	});
+});
+
+describe('what the user meets when they designate a période column as the date', () => {
+	it('refuses the row and names the column and the value', () => {
+		expect.assertions(3);
+
+		const result = parseCsvTransactions(
+			'date,label,amount\n01/01/2026 au 31/01/2026,Mercerie Lafayette,-45.20'
+		);
+
+		expect(result.transactions).toHaveLength(0);
+		expect(result.invalidRows).toHaveLength(1);
+		// A code, not a sentence (#290). The value is echoed back so the user can see WHICH cell
+		// was refused without opening the file.
+		expect(result.invalidRows[0].fact).toEqual({
+			code: 'invalid-date',
+			column: 'date',
+			value: '01/01/2026 au 31/01/2026'
+		});
+	});
+
+	it('refuses every row rather than importing some of them', () => {
+		expect.assertions(2);
+
+		// The shape of the defect was a SILENT PARTIAL, which is the failure this repository
+		// treats as worse than a refusal: a file where some rows land under a wrong date and
+		// the summary reports a successful import. All three rows carry the same bad column,
+		// so all three must be refused.
+		const result = parseCsvTransactions(
+			'date,label,amount\n' +
+				'01/01/2026 au 31/01/2026,Mercerie Lafayette,-45.20\n' +
+				'01/01/2026-31/01/2026,Boulangerie Pain Doré,-8.40\n' +
+				'01/01/2026xyz,Salaire,2450.00'
+		);
+
+		expect(result.transactions).toHaveLength(0);
+		expect(result.invalidRows).toHaveLength(3);
+	});
+
+	it('imports the same file once the date column is a date column', () => {
+		expect.assertions(3);
+
+		// The control. Without it, a fix that refused EVERYTHING would pass both tests above.
+		const result = parseCsvTransactions(
+			'date,label,amount\n' +
+				'01/01/2026,Mercerie Lafayette,-45.20\n' +
+				'15/01/2026 12:00,Boulangerie Pain Doré,-8.40'
+		);
+
+		expect(result.invalidRows).toHaveLength(0);
+		expect(result.transactions).toHaveLength(2);
+		expect(result.summary.period).toEqual({ from: '2026-01-01', to: '2026-01-15' });
 	});
 });
