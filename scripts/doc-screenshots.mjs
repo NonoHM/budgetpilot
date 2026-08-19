@@ -306,7 +306,14 @@ const GROUPS = {
 			file: 'imports/cancel-import-desktop.png',
 			url: '/imports',
 			before: async (page) => {
-				await page.getByRole('row').nth(2).getByRole('button', { name: 'Delete' }).click();
+				// NAMED, not positional, since wave 5 gave the control a unique accessible name built
+				// from the import's timestamp: « Delete the import from ... ». It used to be a row index
+				// plus the bare verb, which is what the product itself had to stop doing, because two
+				// imports of one statement share every other attribute.
+				await page
+					.getByRole('button', { name: /^Delete the import from/ })
+					.first()
+					.click();
 				await page.waitForTimeout(400);
 			},
 			element: '[role="dialog"], [role="alertdialog"]'
