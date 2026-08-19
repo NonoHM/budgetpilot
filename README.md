@@ -69,7 +69,7 @@ APP_PORT=3000
 EOF
 ```
 
-`BUDGETPILOT_VERSION` pins what you install. Without it you get whatever `latest` your machine already holds, which can be an older image and never says so. Raise it to upgrade; [running it day to day](docs/operations.md) covers that.
+`BUDGETPILOT_VERSION` pins what you install. Without it you get whatever `latest` your machine already holds, which can be an older image and never says so. The number above is a starting point, not a claim about what is current — take the current one from [Releases](https://github.com/NonoHM/budgetpilot/releases/latest), and raise it the same way to upgrade later ([running it day to day](docs/operations.md)).
 
 There is no `ORIGIN` line, and that is deliberate: the compose file derives it from `APP_PORT`, so changing the port here is enough. You only set `ORIGIN` yourself for a LAN address, a hostname, or a reverse proxy — see [configuration](docs/configuration.md).
 

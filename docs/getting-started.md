@@ -87,6 +87,12 @@ starts whatever `latest` your machine already holds rather than fetching the
 release you meant to install. Pinning it is what makes "which version am I on"
 answerable.
 
+Nothing bumps the number written above when a release ships, so treat it as an
+example rather than as the current version: take that from
+[Releases](https://github.com/NonoHM/budgetpilot/releases/latest). Installing an
+older version on purpose is fine and is what a pin is for; installing one by
+accident, which is what no pin gives you, is the thing being fixed here.
+
 There is no `ORIGIN` line here, and that is deliberate. The compose file
 derives `ORIGIN` from `APP_PORT`, so a `.env` that stays quiet about it always
 agrees with the port you published. Writing `ORIGIN` by hand opts you out of
