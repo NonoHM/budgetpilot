@@ -74,3 +74,33 @@ describe('the date cells real statements actually carry', () => {
 		expect(normalizeDate('13/13/2026')).toBe('2026-13-13');
 	});
 });
+
+describe('a date cell carrying more than a date', () => {
+	it('refuses a second date rather than importing under the first', () => {
+		expect.assertions(4);
+
+		// Returned UNCHANGED, which is what makes `isValidIsoDate` downstream produce the
+		// ordinary `invalid-date` refusal. The alternative — refusing inside this function —
+		// would need a new code and a catalogue entry for a case the existing code describes.
+		expect(normalizeDate('01/01/2026-01/01/2025')).toBe('01/01/2026-01/01/2025');
+		expect(normalizeDate('01/01/2026 - 01/01/2025')).toBe('01/01/2026 - 01/01/2025');
+		// « au » is how a French `période` column is written, and a `période` column is exactly
+		// what a user designates as the date by mistake on the designation screen. This is the
+		// realistic instance of #366 rather than the constructed one.
+		expect(normalizeDate('01/01/2026 au 31/01/2026')).toBe('01/01/2026 au 31/01/2026');
+		expect(normalizeDate('01/01/2026xyz')).toBe('01/01/2026xyz');
+	});
+
+	it('applies the same rule to the ISO branch, which #366 does not cover', () => {
+		expect.assertions(3);
+
+		// #366 blames the French branch alone and tests the ISO range only in its slash-joined
+		// form, which the `[ T]` separator happens to refuse already. Space-joined, the ISO
+		// branch had the identical defect and imported silently. Fixing one branch and citing
+		// #366's table would have read as proof the whole thing was fixed.
+		expect(normalizeDate('2026-01-01 2026-02-01')).toBe('2026-01-01 2026-02-01');
+		expect(normalizeDate('2026-01-01 xyz')).toBe('2026-01-01 xyz');
+		// Already refused before this change; asserted so the fix cannot regress it.
+		expect(normalizeDate('2026-01-01/2026-02-01')).toBe('2026-01-01/2026-02-01');
+	});
+});

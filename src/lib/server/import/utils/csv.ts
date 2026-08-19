@@ -67,12 +67,48 @@ export function normalizeParsedRows(rows: ParsedCsvRow[]): ParsedCsvRow[] {
 	}));
 }
 
+/**
+ * What a bank may write AFTER the date in the same cell, and nothing else. #366.
+ *
+ * Both date patterns below match a PREFIX deliberately: Revolut writes `2026-08-01 10:00:00` in
+ * its date column and anchoring at `$` would refuse it. The prefix match is therefore kept and
+ * paired with this rule, which decides whether the part that was NOT matched is admissible.
+ *
+ * Only a time is. A second date is not, and neither is arbitrary text: both mean the cell is not
+ * a date column, and the user pointed the date role at the wrong column — which is a thing to
+ * SAY rather than to guess past.
+ *
+ * Deliberately narrow, and it fails in the safe direction. A form no fixture carries (`10:00 CET`)
+ * is refused, and a refusal is a thing the user can read and act on; the defect it replaces was a
+ * wrong date they could not see. Widen it when a real statement demands it — never pre-emptively,
+ * because every widening here is a widening of what imports SILENTLY.
+ */
+const TIME_AFTER_DATE =
+	/^[ T]\d{1,2}:\d{2}(?::\d{2})?(?:[.,]\d+)?\s*(?:Z|[+-]\d{2}:?\d{2}|[AP]\.?M\.?)?$/i;
+
+function isTimeOnlyRemainder(remainder: string): boolean {
+	return remainder === '' || TIME_AFTER_DATE.test(remainder);
+}
+
+/**
+ * A date cell to an ISO `yyyy-mm-dd`, or the value UNCHANGED when it is not one.
+ *
+ * Returning the input unchanged is the refusal mechanism: every caller passes the result to
+ * `isValidIsoDate`, which produces the ordinary `invalid-date` fact naming the column and the
+ * value. Refusing inside this function would need a new refusal code (#290) for a case the
+ * existing one already describes accurately.
+ *
+ * An IMPOSSIBLE date is still normalised — `31/02/2026` becomes `2026-02-31` — so that the same
+ * downstream check refuses it. Only an UNACCOUNTED-FOR remainder is returned as-is.
+ */
 export function normalizeDate(value: string): string {
 	const trimmed = value.trim();
 	if (isValidIsoDate(trimmed)) return trimmed;
 
-	const isoDateTime = /^(\d{4}-\d{2}-\d{2})[ T]/.exec(trimmed);
-	if (isoDateTime && isValidIsoDate(isoDateTime[1])) return isoDateTime[1];
+	const isoDateTime = /^(\d{4}-\d{2}-\d{2})([\s\S]*)$/.exec(trimmed);
+	if (isoDateTime && isValidIsoDate(isoDateTime[1])) {
+		return isTimeOnlyRemainder(isoDateTime[2]) ? isoDateTime[1] : trimmed;
+	}
 
 	// `.` joins `/` and `-` as a separator, never as a new ORDERING. `dd.mm.yyyy` is the German,
 	// Swiss and Austrian form and those are day-first without exception, while the month-first
@@ -80,10 +116,11 @@ export function normalizeDate(value: string): string {
 	// is written with slashes. So the dot is strictly safer than the two separators beside it.
 	// A blind session met a statement written this way and could only import it by replacing
 	// twenty-five dots in a text editor. See `dottedDate.spec.ts`.
-	const frenchDate = /^(\d{2})[/.-](\d{2})[/.-](\d{4})/.exec(trimmed);
+	const frenchDate = /^(\d{2})[/.-](\d{2})[/.-](\d{4})([\s\S]*)$/.exec(trimmed);
 	if (!frenchDate) return trimmed;
 
-	const [, day, month, year] = frenchDate;
+	const [, day, month, year, remainder] = frenchDate;
+	if (!isTimeOnlyRemainder(remainder)) return trimmed;
 	return `${year}-${month}-${day}`;
 }
 
