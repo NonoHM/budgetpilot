@@ -61,11 +61,14 @@ secrets at rest. This block generates all three and writes the file for you.
 Paste it whole:
 
 ```bash
+BUDGETPILOT_VERSION=$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
+  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')
+
 cat > .env <<EOF
 BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
 RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
 TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
-BUDGETPILOT_VERSION=0.13.0
+BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION:?Could not reach the Releases API. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest and run BUDGETPILOT_VERSION=x.y.z, then paste this block again.}
 APP_PORT=3000
 EOF
 ```
@@ -77,26 +80,36 @@ cat .env
 ```
 
 You should see five lines. The first three carry a long random value after
-the `=`. If any of the three is empty, `openssl` isn't installed. Install it,
+the `=`, and `BUDGETPILOT_VERSION` carries a version number like `0.13.1`. If
+any of the three secrets is empty, `openssl` isn't installed. Install it,
 or see [generating secrets without openssl](#generating-secrets-without-openssl)
 below.
 
-`BUDGETPILOT_VERSION` is the version you will be running. It is not optional
-housekeeping: without it the compose file falls back to `latest`, and `up -d`
-starts whatever `latest` your machine already holds rather than fetching the
-release you meant to install. Pinning it is what makes "which version am I on"
-answerable.
+### Why the version line matters
 
-Nothing bumps the number written above when a release ships, so treat it as an
-example rather than as the current version: take that from
-[Releases](https://github.com/NonoHM/budgetpilot/releases/latest). Installing an
-older version on purpose is fine and is what a pin is for; installing one by
-accident, which is what no pin gives you, is the thing being fixed here.
+`BUDGETPILOT_VERSION` is the version you will be running, and it is worth one
+paragraph because getting it wrong is quiet rather than loud.
 
-There is no `ORIGIN` line here, and that is deliberate. The compose file
-derives `ORIGIN` from `APP_PORT`, so a `.env` that stays quiet about it always
-agrees with the port you published. Writing `ORIGIN` by hand opts you out of
-that, and the two then drift apart the first time you change the port.
+Leave it out and the compose file uses `latest`. That sounds like "always
+current" and is not: `up -d` starts whatever image your machine downloaded last
+time, which may be months old, and nothing tells you. Pin it and you can always
+answer "which version am I on". The app shows the same number on its
+**Settings** screen once you are in.
+
+The block looks the version up rather than printing one on this page, because a
+number written here would be wrong the day after the next release and nobody
+would notice. **If the lookup cannot reach GitHub, no `.env` is written.** The
+block stops and tells you where to find the number by hand. That is on purpose:
+an empty value would silently go back to `latest`, which is the exact problem
+the pin is here to prevent.
+
+Choosing an older version on purpose is fine, and is what a pin is for. Running
+one by accident is not, and that is what this avoids.
+
+There is no `ORIGIN` line here, on purpose. The compose file works `ORIGIN` out
+from `APP_PORT`, so a `.env` that says nothing about it always agrees with the
+port you published. Write `ORIGIN` by hand and you opt out of that, and the two
+drift apart the first time you change the port.
 
 Values ending in `=`, or containing `+` and `/`, are normal. That's what
 base64 looks like, not a broken copy-paste.

@@ -789,6 +789,7 @@
 	"settings_llm_local_label": "LLM local",
 	"settings_llm_enabled": "Activé",
 	"settings_llm_disabled": "Désactivé",
+	"settings_version_label": "Version",
 	"settings_environment_label": "Environnement",
 	"settings_environment_docker": "Docker",
 	"settings_environment_local": "Local",

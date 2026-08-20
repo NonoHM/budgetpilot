@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import tailwindcss from '@tailwindcss/vite';
 import { defineConfig } from 'vitest/config';
 import { loadEnv } from 'vite';
@@ -25,10 +26,25 @@ function loadDotEnvIntoProcessEnv(mode: string) {
 	}
 }
 
+/**
+ * The app displays its own version, so it has to carry one. Read here and injected as a constant
+ * rather than read at runtime: the production image ships `build/` with no guarantee of a
+ * `package.json` beside the server bundle, so a runtime read would work in dev and return nothing
+ * in the one environment where "which version am I running" is actually asked.
+ *
+ * `package.json` is what release-please bumps, so this cannot drift from the published tag.
+ */
+const APP_VERSION = (
+	JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
+		version: string;
+	}
+).version;
+
 export default defineConfig(({ mode }) => {
 	loadDotEnvIntoProcessEnv(mode);
 
 	return {
+		define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
 		plugins: [
 			tailwindcss(),
 			sveltekit(),

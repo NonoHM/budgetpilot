@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { APP_VERSION } from '$lib/server/appVersion';
 import { fail, redirect, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
@@ -99,6 +100,7 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 			authMode: 'locale',
 			llmEnabled: process.env.LLM_ENABLED === 'true',
 			runtime: detectRuntime(),
+			version: APP_VERSION,
 			latestSessionCreatedAt: latestSession?.createdAt ?? null
 		},
 		sessions: mappedSessions,

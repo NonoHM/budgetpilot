@@ -248,6 +248,11 @@ describe('/settings', () => {
 			authMode: 'locale',
 			llmEnabled: true,
 			runtime: 'docker',
+			// The build's own version, from package.json through a Vite define. Asserted by shape
+			// rather than by a literal: pinning the number here would redden on every release and be
+			// bumped mechanically, which is a rubber stamp rather than a check. That it equals
+			// package.json's version is asserted once, in appVersion.spec.ts.
+			version: expect.stringMatching(/^\d+\.\d+\.\d+/),
 			latestSessionCreatedAt: new Date('2026-06-21T10:00:00.000Z')
 		});
 		expect(result.sessions).toEqual([
