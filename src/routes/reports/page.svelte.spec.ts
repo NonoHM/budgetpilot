@@ -200,6 +200,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 		const data = buildData(null);
 		data.cashFlowForecast.flows = [
 			{
+				id: 'tx-netflix',
 				category: 'Abonnements',
 				direction: 'expense',
 				cadence: 'monthly',
@@ -364,5 +365,98 @@ describe('/reports donut centre — formatCents, and whether it still fits', () 
 		expect(value.textContent?.replace(/[\u00a0\u202f\u2009]/g, ' ').trim()).toBe(
 			'1 005 002 785,00 €'
 		);
+	});
+});
+
+/**
+ * The forecast's "flows included in the calculation" table keyed its `#each` on
+ * `label:category:direction`, and `detectRecurringFlows` can legitimately emit SEVERAL flows
+ * carrying all three: `getSimilarAmountGroups` splits one merchant+category group into one flow
+ * per amount band, and every flow born of that split inherits the same label, category and
+ * direction from the same group. A duplicate key is a RUNTIME THROW in Svelte 5, retained in
+ * production builds, and it tears down the whole hydrated tree — the measured symptom was a blank
+ * white page at /reports, not a mis-ordered row.
+ *
+ * The trigger is ordinary: a merchant paid recurrently at two amount levels in one category (a
+ * weekly shop plus a mid-week top-up at the same supermarket). Nothing on the route recovers,
+ * because the collision does not depend on the selected period.
+ *
+ * Two flows, deliberately identical in every field the OLD key read and different in the one it
+ * did not, so this fails on the key and on nothing else.
+ */
+describe('/reports forecast flows — two amount bands of one merchant (#audit-1.0)', () => {
+	function bandedFlow(averageAmountCents: number): PageData['cashFlowForecast']['flows'][number] {
+		return {
+			id: `tx-${averageAmountCents}`,
+			category: 'Alimentation',
+			direction: 'expense',
+			cadence: 'weekly',
+			status: 'confirmed',
+			confidence: 'high',
+			label: 'Carrefour Market - Alimentation',
+			averageAmountCents,
+			lastDate: '2026-07-28',
+			feedsProjection: true
+		};
+	}
+
+	it('renders one row per band instead of throwing on a duplicate key', async () => {
+		expect.assertions(2);
+
+		const data = buildData(null);
+		data.cashFlowForecast = {
+			...data.cashFlowForecast,
+			flows: [bandedFlow(8_000), bandedFlow(2_500)]
+		};
+
+		render(Page, { data });
+
+		// The two bands' amounts are what distinguishes the rows; the desktop table and the mobile
+		// card list both render every flow, so each amount appears twice on the page.
+		await expect
+			.element(page.getByText(formatCents(8_000), { exact: false }).first())
+			.toBeInTheDocument();
+		await expect
+			.element(page.getByText(formatCents(2_500), { exact: false }).first())
+			.toBeInTheDocument();
+	});
+});
+
+/**
+ * Sibling of the forecast-flows collision above, on the same route: `report.recurringPayments`
+ * is keyed on `label:category:amountCents`, and `getRecurringPayments` can emit two entries
+ * carrying all three — see `getRecurringPayments — stream identity` in monthly.spec.ts, which
+ * proves two gym branches at one price group apart and display identically. Same runtime throw,
+ * same blank page.
+ */
+describe('/reports recurring payments — two streams that display identically (#audit-1.0)', () => {
+	function twinStream(id: string): MonthlyReport['recurringPayments'][number] {
+		return {
+			id,
+			label: 'Salle De Sport Basic Fit Par',
+			amountCents: 2_990,
+			totalAmountCents: 5_980,
+			count: 2,
+			category: 'Loisirs',
+			lastDate: '2026-06-16',
+			confidence: 'moyenne'
+		};
+	}
+
+	it('renders both streams instead of throwing on a duplicate key', async () => {
+		expect.assertions(1);
+
+		const data = buildData('none-detected');
+		data.report = {
+			...buildReport(),
+			transactionCount: 4,
+			recurringPayments: [twinStream('sub-nation-1'), twinStream('sub-bercy-1')]
+		};
+
+		render(Page, { data });
+
+		await expect
+			.element(page.getByText('Salle De Sport Basic Fit Par').first())
+			.toBeInTheDocument();
 	});
 });

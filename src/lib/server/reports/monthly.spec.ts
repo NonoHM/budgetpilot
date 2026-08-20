@@ -403,3 +403,45 @@ describe('anonymizeMerchant / anonymizeLabel', () => {
 		expect(anonymizeMerchant('FR7630006000011234567890189')).toBe('Dépense');
 	});
 });
+
+/**
+ * Sibling of the /reports forecast-flows collision (`toDisplayCashFlowForecast — flow identity`):
+ * `report.recurringPayments` is rendered by a keyed `#each` too, and nothing in a
+ * `RecurringPayment` identifies it. Two DIFFERENT groups can produce an identical
+ * (label, category, amountCents) triple, because grouping and display use two different
+ * normalizers: `normalizeRecurringLabel` decides which transactions form a group and keeps the
+ * whole label, while `anonymizeMerchant` truncates the displayed one at 28 characters. Two
+ * branches of one chain, priced the same, therefore group apart and display identically — and a
+ * duplicate `#each` key is a Svelte 5 runtime throw that blanks the route.
+ */
+describe('getRecurringPayments — stream identity', () => {
+	function branchSubscription(branch: string, index: number): Transaction {
+		return {
+			id: `sub-${branch}-${index}`,
+			date: `2026-06-${String(2 + index * 14).padStart(2, '0')}`,
+			label: `ABONNEMENT SALLE DE SPORT BASIC FIT PARIS ${branch}`,
+			amountCents: -2_990,
+			type: 'expense',
+			category: 'Loisirs',
+			source: 'csv'
+		};
+	}
+
+	it('gives each detected stream a distinct id, even when two display identically', () => {
+		expect.assertions(3);
+
+		const payments = getRecurringPayments([
+			branchSubscription('NATION', 0),
+			branchSubscription('NATION', 1),
+			branchSubscription('BERCY', 0),
+			branchSubscription('BERCY', 1)
+		]);
+
+		// The premise: two separate streams that the rendered key cannot tell apart. Without these
+		// two assertions the uniqueness check below would hold vacuously.
+		expect(payments).toHaveLength(2);
+		expect(new Set(payments.map((p) => `${p.label}:${p.category}:${p.amountCents}`)).size).toBe(1);
+
+		expect(new Set(payments.map((p) => p.id)).size).toBe(2);
+	});
+});

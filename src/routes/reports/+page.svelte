@@ -840,7 +840,7 @@
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-zinc-100">
-									{#each includedForecastFlows as flow (`${flow.label}:${flow.category}:${flow.direction}`)}
+									{#each includedForecastFlows as flow (flow.id)}
 										<tr>
 											<td class="px-5 py-3 font-medium text-zinc-700">{flow.label}</td>
 											<td class="px-5 py-3 text-zinc-500">{categoryDisplayName(flow.category)}</td>
@@ -874,7 +874,7 @@
 						</h3>
 						<p class="mt-1 px-1 text-xs text-zinc-500">{m.reports_forecast_flows_intro()}</p>
 						<div class="mt-3 space-y-2.5">
-							{#each includedForecastFlows as flow (`${flow.label}:${flow.category}:${flow.direction}`)}
+							{#each includedForecastFlows as flow (flow.id)}
 								<div class="{cardBase} p-4">
 									<div class="flex items-start justify-between gap-3">
 										<div class="min-w-0">
@@ -979,7 +979,7 @@
 									</tr>
 								</thead>
 								<tbody class="divide-y divide-zinc-100">
-									{#each report.recurringPayments as rec (`${rec.label}:${rec.category}:${rec.amountCents}`)}
+									{#each report.recurringPayments as rec (rec.id)}
 										<tr>
 											<td class="px-5 py-3 font-medium text-zinc-700">{rec.label}</td>
 											<td class="px-5 py-3 text-zinc-500">{categoryDisplayName(rec.category)}</td>
@@ -1009,7 +1009,7 @@
 						</h3>
 						<p class="mt-1 px-1 text-xs text-zinc-500">{m.reports_recurring_subtitle()}</p>
 						<div class="mt-3 space-y-2.5">
-							{#each report.recurringPayments as rec (`${rec.label}:${rec.category}:${rec.amountCents}`)}
+							{#each report.recurringPayments as rec (rec.id)}
 								<div class="{cardBase} p-4">
 									<div class="flex items-start justify-between gap-3">
 										<div class="min-w-0">

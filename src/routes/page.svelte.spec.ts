@@ -569,6 +569,7 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 					],
 					flows: [
 						{
+							id: 'tx-netflix',
 							category: 'Abonnements',
 							direction: 'expense',
 							cadence: 'monthly',

@@ -1029,3 +1029,65 @@ describe('feedsProjection matches the projected ledger — anti-drift', () => {
 		vi.useRealTimers();
 	});
 });
+
+/**
+ * `detectRecurringFlows` splits one merchant+category group into one flow per amount band
+ * (`getSimilarAmountGroups`), and every flow born of that split inherits label, category and
+ * direction from the same group — so those three fields cannot identify a flow. /reports keyed its
+ * "included in the calculation" table on exactly that triple and died with `each_key_duplicate`,
+ * a Svelte 5 runtime throw retained in production builds, taking the whole route down to a blank
+ * page.
+ *
+ * Built by running the real detector rather than hand-assembling two colliding flows: the point in
+ * dispute is whether ordinary data PRODUCES the collision, and a hand-built pair asserts only that
+ * the view copies fields (CLAUDE.md — the test and the thing under test must not share a source).
+ */
+describe('toDisplayCashFlowForecast — flow identity', () => {
+	/** One merchant, one category, weekly, at two amount levels ~5x apart: far outside
+	 *  `getAmountTolerance`, so the detector is certain to emit two bands. */
+	function twoBandTransactions() {
+		const rows = [];
+		for (let week = 0; week < 5; week++) {
+			const day = 1 + week * 7;
+			rows.push({
+				id: `big-${week}`,
+				date: `2026-06-${String(day).padStart(2, '0')}`,
+				label: 'CARREFOUR MARKET 4471',
+				amountCents: -8_000,
+				category: 'Alimentation',
+				type: 'expense' as const
+			});
+			rows.push({
+				id: `small-${week}`,
+				date: `2026-06-${String(day + 3).padStart(2, '0')}`,
+				label: 'CARREFOUR MARKET 4471',
+				amountCents: -2_500,
+				category: 'Alimentation',
+				type: 'expense' as const
+			});
+		}
+		return rows;
+	}
+
+	it('gives each detected flow a distinct id, even when several share label, category and direction', () => {
+		expect.assertions(3);
+
+		const flows = detectRecurringFlows(twoBandTransactions());
+		const view = toDisplayCashFlowForecast({
+			flows,
+			ledger: ledger([{ date: '2026-07-06', balanceCents: 0, events: [] }]),
+			hasBalanceAnchor: true,
+			todayIso: '2026-07-06'
+		});
+
+		// The premise: ordinary data really does produce several flows the old key could not tell
+		// apart. Without this the uniqueness assertion below would hold vacuously.
+		const collidingTriples = new Set(
+			view.flows.map((f) => `${f.label}:${f.category}:${f.direction}`)
+		);
+		expect(view.flows.length).toBeGreaterThan(1);
+		expect(collidingTriples.size).toBe(1);
+
+		expect(new Set(view.flows.map((f) => f.id)).size).toBe(view.flows.length);
+	});
+});
