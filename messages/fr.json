@@ -1251,6 +1251,7 @@
 	"tags_picker_already_selected_live": "{name} déjà sélectionnée",
 	"tags_picker_added_live": "{name} ajoutée",
 	"tags_picker_created_live": "{name} ajoutée",
+	"tags_picker_removed_live": "{name} retirée",
 	"tags_picker_selected_live": "{name} sélectionnée",
 	"tags_picker_loading_aria": "Chargement des étiquettes",
 	"tags_settings_heading": "Étiquettes",
