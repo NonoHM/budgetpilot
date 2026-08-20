@@ -78,7 +78,7 @@ of an issue body, so redacting afterwards removes the text and not the record.
 Re-identification does not need an amount or a counterparty name: **a date paired with an
 amount, a row count unusual enough to fingerprint a file, a period, a balance or an account
 label is enough.** Write the STRUCTURE instead, which is what carries the engineering meaning
-anyway — "9 of 66 rows carried a credit", "the debit column is pre-signed".
+anyway: "9 of 66 rows carried a credit", "the debit column is pre-signed".
 
 **And use the substitute, because a rule that forbids without offering a replacement gets broken
 the first day somebody is in a hurry:**
@@ -88,7 +88,7 @@ node scripts/synthetic/make-synthetic.mjs scr/synthetic/out
 node scripts/synthetic/make-opaque.mjs    scr/synthetic/opaque 4
 ```
 
-Deterministic — no `Math.random`, no `Date.now` — so a test can pin a byte. Holder Paul Mercier,
+Deterministic, with no `Math.random` and no `Date.now`, so a test can pin a byte. Holder Paul Mercier,
 who does not exist. Only the header SHAPES are taken from reality, and those identify nobody.
 
 ## Security boundaries
@@ -123,9 +123,21 @@ Tooling enforces formatting; do not restate it. What tooling cannot check:
 
 - **Code, comments, docstrings, test names and commit messages in English.** UI strings in
   French through Paraglide, both catalogues moved together.
-- **No em dashes in anything we write.** Documentation, commits, PR bodies, issues,
-  comments, headings. A string the DESIGN specifies is quoted verbatim and is the one
-  exception; the rule governs sentences we author.
+- **No em dashes in prose a reader meets**: UI strings, documentation, commit messages, PR
+  and issue bodies. They make text read as generated, and that is a fact about prose, not
+  about code. **Code comments are out of scope**, deliberately: the rule used to cover them,
+  and the tree carries 2 403 em dashes across 348 source files against 18 across 8 prose
+  files. A factor of 45 in one direction is not a rule being broken, it is a rule that was
+  never about that surface. Narrowing it here makes it true rather than weaker.
+  A string the DESIGN specifies is quoted verbatim and stays as drawn.
+  **Two of the four surfaces are gated and two are not, and which is which is stated on
+  purpose.** UI strings and documentation are files, so `emDashesInProse.spec.ts` reads them
+  and fails; the six deliberate catalogue strings are allowlisted there by key. Commit
+  messages and PR bodies are not files and no check in this repository sees them, so they are
+  a convention and nothing more. Saying so is the point: a rule that claims an enforcement it
+  does not have is the defect this repository spent a release removing from its own screens,
+  and an unenforced half that pretends otherwise is how the whole rule drifts back to a
+  preference.
 - **Never write about future work in the present tense of a promise.** "This will do X"
   fails exactly when the work succeeds, and nobody re-reads a page when a feature ships.
   Name the issue instead.

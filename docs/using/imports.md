@@ -63,8 +63,8 @@ A wide statement scrolls sideways and says how much of it you're seeing, for
 example `5 of 13 columns visible`.
 
 The rows you see are your file's actual rows. The values inside the column
-cards are picked to be _distinguishing_ — a mostly-empty column shows you its
-own few values rather than three blanks — so they don't line up into rows. The
+cards are picked to be _distinguishing_, so a mostly-empty column shows you its
+own few values rather than three blanks. They therefore do not line up into rows. The
 preview reads the file again instead of arranging those.
 
 ![The designation screen on a wide display: the four role rows on the left with Date, Label and Amount filled from the file's own column names, and the file preview on the right showing five statement rows across thirteen columns, the designated ones labelled DATE, LABEL and AMOUNT above their column names, the rest greyed, and a counter reading 10 of 13 columns visible](../screenshots/imports/columns-designation-desktop.png)
