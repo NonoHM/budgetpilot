@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { computeNetWorthTotal } from '$lib/domain/netWorth';
 import {
@@ -146,6 +146,60 @@ describe('/net-worth — the headline and the curve are the same number', () => 
 		expect(await curvePresentCents()).toBe(await headlineCents());
 
 		void kept;
+	});
+
+	/**
+	 * #441. "As of today" and "no date" describe the same thing, so two saves on one day must be
+	 * settled by which was written last. They were settled by NOON instead: `parseAsOfDate` pinned
+	 * an explicit date to `T12:00:00.000Z`, an arbitrary instant inside the day, while every other
+	 * writer stamps the real clock. Which write won was then decided by which side of noon the other
+	 * one happened to land on.
+	 *
+	 * THE CLOCK IS PINNED, and that is not tidiness. Run at any moment after 12:00 UTC, the two
+	 * behaviours agree and this test passes against the defect: an explicit save at 15:00 is later
+	 * than noon either way. The first version of this test did exactly that, and was green on the
+	 * broken code. Only a morning reproduces it, so the morning is supplied rather than waited for.
+	 *
+	 * `toFake: ['Date']` only. Faking timers wholesale would stop Prisma's own I/O from ever
+	 * resolving, which reads as a hang rather than as a wrong clock.
+	 */
+	it('lets the later of two same-day writes win, on a morning', async () => {
+		expect.assertions(3);
+
+		const morning = new Date('2026-08-20T09:00:00.000Z');
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(morning);
+
+		try {
+			const { id } = await createNetWorthAccount(userId, {
+				name: 'Compte courant',
+				type: 'checking',
+				balance: '100,00',
+				asOfDate: '2026-01-01'
+			});
+
+			// Saved "as of today" at 09:00. Under the sentinel this was stamped 12:00Z, three hours
+			// into the future of the moment the user pressed the button.
+			await updateNetWorthAccount(userId, id, {
+				name: 'Compte courant',
+				type: 'checking',
+				balance: '9200,00',
+				asOfDate: '2026-08-20'
+			});
+
+			// Calibration: the explicit save landed, so a wrong figure below is evidence about
+			// ordering rather than about a save that never happened.
+			expect(await headlineCents()).toBe(920_000);
+
+			// A sync five minutes later, carrying what the bank says. It is newer information and
+			// must win. Under the sentinel it lost to a timestamp that had not happened yet.
+			await recordSyncedBalance(userId, id, 850_000, new Date('2026-08-20T09:05:00.000Z'));
+
+			expect(await headlineCents()).toBe(850_000);
+			expect(await curvePresentCents()).toBe(await headlineCents());
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	/**
