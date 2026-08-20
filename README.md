@@ -35,24 +35,31 @@ All screenshots use fake demo data, not a real user's finances.
 
 ## Known limitations
 
-Real, and named here rather than discovered later. Each one has an issue.
+Better to read these now than find them later. Every one has an open issue, so
+you can follow or fix any of them.
 
-- **A statement written in a non-European date format imports on the wrong date** rather than
-  being refused. Day/month order and a comma decimal separator are assumed, and `01/06` is a valid
-  date under both conventions, so nothing in the file settles it. This is the one limitation you
-  cannot see on screen. ([#433](https://github.com/NonoHM/budgetpilot/issues/433))
-- **The budgets summary counts only the categories you have budgeted**, and the strip does not say
-  so. ([#434](https://github.com/NonoHM/budgetpilot/issues/434))
-- **Reports compare month-to-date against a full previous month.** Early in a month the comparison
-  flatters. ([#435](https://github.com/NonoHM/budgetpilot/issues/435))
-- **Net worth history cannot be viewed, corrected or deleted.** A mistyped past balance is
-  permanent. ([#436](https://github.com/NonoHM/budgetpilot/issues/436))
-- **Rules have no ordering.** 157 ship enabled, mostly substring matches, so two rules matching one
-  transaction is ordinary and nothing shows you which won.
-  ([#437](https://github.com/NonoHM/budgetpilot/issues/437))
-- **One admin, forever.** The first account created is the admin and there is no promotion or
-  demotion. ([#438](https://github.com/NonoHM/budgetpilot/issues/438))
-- **Account emails have to be ASCII**, on every database engine. See
+**Read this one first.** If your bank writes dates the American way (month
+first) or uses a dot for decimals, your statement will import on the wrong
+dates instead of being refused. `01/06` is a valid date either way round, and
+nothing in the file says which was meant. It is the only limitation here that
+you cannot spot on screen. [#433](https://github.com/NonoHM/budgetpilot/issues/433)
+
+The rest are visible, and none of them costs you data:
+
+- The budgets page shows what you spent **in the categories you have
+  budgeted**, not everything you spent. The screen does not say so yet.
+  [#434](https://github.com/NonoHM/budgetpilot/issues/434)
+- Reports compare part of this month against **all** of last month, so early in
+  a month the comparison looks better than it is.
+  [#435](https://github.com/NonoHM/budgetpilot/issues/435)
+- Net worth history cannot be edited or deleted, so a mistyped past balance
+  stays on the curve. [#436](https://github.com/NonoHM/budgetpilot/issues/436)
+- Rules cannot be reordered. 157 ship switched on, so two of them will often
+  match the same transaction and nothing tells you which one won.
+  [#437](https://github.com/NonoHM/budgetpilot/issues/437)
+- The first account created is the admin, and there is no way to make anyone
+  else one. [#438](https://github.com/NonoHM/budgetpilot/issues/438)
+- Account email addresses have to be plain ASCII on every database engine. See
   [configuration](docs/configuration.md#database).
 
 ## Quick start
@@ -64,7 +71,7 @@ mkdir budgetpilot && cd budgetpilot
 curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose.prebuilt.yml
 ```
 
-Create your `.env` with three freshly generated secrets. Paste this whole block:
+Create your `.env`. This block generates three secrets and looks up the current release for you. Paste it whole:
 
 ```bash
 BUDGETPILOT_VERSION=$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
@@ -79,11 +86,11 @@ APP_PORT=3000
 EOF
 ```
 
-The first line looks up the current release and the rest pins it. `BUDGETPILOT_VERSION` is what decides which image you run: without it the compose file falls back to `latest`, and `up -d` starts whatever `latest` your machine already holds — an older image, silently. Pinning is also what makes "which version am I on" answerable, and the same number is shown in **Settings**.
+`BUDGETPILOT_VERSION` decides which image you run. Pin it and you know what you are on, and the app shows the same number in **Settings**. Leave it out and Docker quietly reuses whatever it downloaded last time, which is how people end up running a version they never chose.
 
-If the lookup fails, nothing is written and the message tells you what to do: it never falls back to `latest` behind your back. Upgrade later by re-running the same block ([running it day to day](docs/operations.md)).
+If the lookup cannot reach GitHub, no `.env` is written and the message tells you what to do instead. It will not fall back to an unpinned image behind your back. To upgrade later, run the same block again. See [running it day to day](docs/operations.md).
 
-There is no `ORIGIN` line, and that is deliberate: the compose file derives it from `APP_PORT`, so changing the port here is enough. You only set `ORIGIN` yourself for a LAN address, a hostname, or a reverse proxy — see [configuration](docs/configuration.md).
+You will not find an `ORIGIN` line, on purpose. The compose file works it out from `APP_PORT`, so changing the port here is all you need. Set `ORIGIN` yourself only for a LAN address, a hostname, or a reverse proxy. See [configuration](docs/configuration.md).
 
 Pull the image, then start it:
 

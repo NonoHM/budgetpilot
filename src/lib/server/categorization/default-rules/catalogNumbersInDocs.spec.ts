@@ -52,6 +52,12 @@ const CLAIMS: { file: string; match: RegExp; expected: () => number; about: stri
 		about: 'how many rules ship'
 	},
 	{
+		file: 'README.md',
+		match: /^.*ship switched on.*$/m,
+		expected: () => TOTAL,
+		about: 'how many rules ship, in the known limitations list'
+	},
+	{
 		file: 'docs/using/rules.md',
 		match: /^.*BudgetPilot ships.*$/m,
 		expected: () => TOTAL,
