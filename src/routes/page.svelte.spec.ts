@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
+import { page, userEvent } from 'vitest/browser';
 import './layout.css';
 import * as m from '$lib/paraglide/messages';
 import { formatCents } from '$lib/domain/budget';
@@ -592,5 +593,37 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 			.toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.dashboard_forecast_empty_title());
 		expect(screen.container.textContent).not.toContain(m.dashboard_forecast_stale_title());
+	});
+});
+
+/**
+ * The manual-add modal is the app's only hand-entry path and the first thing a new user touches.
+ * Its category field used to install an unreportable native `required` constraint that aborted the
+ * submit with nothing on screen (see `Combobox.svelte.spec.ts`); the refusal now comes from the
+ * server, which is the only side that is authoritative about it.
+ *
+ * A refusal a screen-reader user cannot perceive is the same defect one layer up, so the message
+ * has to be announced rather than merely rendered. `AlertBanner variant="error"` is the app's own
+ * component for exactly this and carries `aria-live="assertive"`; the hand-rolled
+ * `<p class="text-sm font-medium text-rose-700">` it replaces carried nothing.
+ */
+describe('/ manual-add modal — a refused save says why, audibly (#audit-1.0)', () => {
+	it('announces the server refusal instead of only colouring it red', async () => {
+		expect.assertions(2);
+
+		render(Page, {
+			data: buildData({ upcomingBillsHasStreams: true }),
+			form: { createTransactionError: 'Choisissez une catégorie.' } as ActionData
+		});
+
+		await userEvent.click(page.getByRole('button', { name: m.dashboard_manual_entry() }).first());
+
+		const message = page.getByText('Choisissez une catégorie.').first();
+		await expect.element(message).toBeInTheDocument();
+
+		// The live region is the assertion, not the colour: assertive, because a refused save is not
+		// something to mention at the next convenient pause.
+		const liveRegion = message.element().closest('[aria-live]');
+		expect(liveRegion?.getAttribute('aria-live')).toBe('assertive');
 	});
 });

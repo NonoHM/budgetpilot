@@ -46,6 +46,27 @@
 		 */
 		softDisabled?: boolean;
 		'aria-describedby'?: string;
+		/**
+		 * Announces the field as required (`aria-required` on the visible input). It deliberately does
+		 * NOT install a native `required` constraint, and that is a fix rather than a shortcut.
+		 *
+		 * Forwarded to `Combobox.Root`, `required` lands on bits-ui's hidden mirror input — which
+		 * carries `srOnlyStyles` (`transform: translateX(-100%)`, 1x1px, clipped), `aria-hidden="true"`
+		 * and `tabindex="-1"`. Chrome finds that input invalid, cannot focus it to report the problem,
+		 * and ABORTS THE SUBMIT: no message on screen, nothing in the accessibility tree, only
+		 * `An invalid form control with name='...' is not focusable` on a console no user reads. The
+		 * button simply does nothing. Measured on the manual-add modal (the app's only hand-entry
+		 * path), the new-budget dialog and the linked savings-goal form.
+		 *
+		 * The refusal belongs to the server, which already owns it: every action behind these forms
+		 * returns `fail(400)` with a localised message and every call site renders it. The defect was
+		 * that the server was never asked.
+		 *
+		 * Not solvable by moving `required` onto the visible `Combobox.Input` either: that input holds
+		 * the SEARCH TEXT, not the selected value. It is cleared on open while a value is still
+		 * selected (see the `$effect` below), and it is non-empty after typing a search that matched
+		 * nothing — so it would refuse a valid field and accept an empty one, in that order.
+		 */
 		required?: boolean;
 		/**
 		 * Field height. `'md'` is 44px, the app-wide touch-target floor and every existing caller's
@@ -147,7 +168,6 @@
 		type="single"
 		{name}
 		{disabled}
-		{required}
 		{value}
 		bind:open
 		{inputValue}
@@ -161,6 +181,7 @@
 				class={fieldClass}
 				aria-describedby={ariaDescribedby}
 				aria-label={ariaLabel ?? placeholder}
+				aria-required={required ? 'true' : undefined}
 				placeholder={open ? m.common_combobox_search_placeholder() : placeholder}
 				oninput={(e) => {
 					inputValue = e.currentTarget.value;
