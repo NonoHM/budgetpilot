@@ -432,6 +432,29 @@ function validateInput(input: SaveNetWorthAccountInput): {
  * already-known history. Compared as plain YYYY-MM-DD strings (not parsed Dates) to sidestep
  * timezone edge cases entirely: "today" always compares consistently regardless of the
  * server's local offset.
+ *
+ * TODAY IS NOW, not noon, and that is #441. A PAST date has no instant of its own, so it is pinned
+ * to midday and any position inside the day would do. Today does: every other writer in this module
+ * stamps the real clock, so pinning an explicit "as of today" to `T12:00:00.000Z` made the winner
+ * of two same-day writes depend on which side of noon the other one landed. Measured, with the same
+ * two user actions in the same order and only the clock moved:
+ *
+ *   explicit today (9 200), then a real-clock write at 09:00Z (8 500)  ->  9 200, the later one lost
+ *   explicit today (9 200), then a real-clock write at 14:00Z (8 500)  ->  8 500, correct
+ *
+ * Returning `undefined` rather than `new Date()` reuses the path that already exists: `undefined`
+ * is what "no date given" returns, `validateInput` already resolves it with `?? new Date()`, and
+ * "as of today" and "no date" describe the same thing anyway.
+ *
+ * NOT solved by moving the sentinel to the end of the day, which is the obvious-looking answer.
+ * That fixes the symptom and inverts the freshness ordering: a bank sync at 14:00 carrying data the
+ * user does not have would lose to a figure typed by hand at 09:00.
+ *
+ * NOT solved by ordering same-day snapshots by insertion either. Day truncation differs across the
+ * three supported engines so it would have to be folded in JS, which turns the sync path's
+ * `findFirst` into "read every snapshot for this account and pick"; it silently changes which
+ * snapshot is current for any account already holding two on one day; and it puts the
+ * headline-versus-curve invariant back at risk, since the curve draws one point per instant.
  */
 function parseAsOfDate(raw: string | undefined): Date | null | undefined {
 	if (!raw) return undefined;
@@ -439,6 +462,7 @@ function parseAsOfDate(raw: string | undefined): Date | null | undefined {
 
 	const todayIso = new Date().toISOString().slice(0, 10);
 	if (raw > todayIso) return null;
+	if (raw === todayIso) return undefined;
 
 	const parsed = new Date(`${raw}T12:00:00.000Z`);
 	if (Number.isNaN(parsed.getTime())) return null;
