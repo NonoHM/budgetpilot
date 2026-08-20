@@ -9,21 +9,6 @@
 
 A local-first, privacy-first personal budgeting app. Think Monarch or YNAB, but self-hosted, and your bank data never leaves your own machine.
 
-## Why this exists
-
-Honest answer: my personal finances were kind of a mess, and I wanted an excuse to test agentic AI coding on something real, not just a toy script. Something with an actual UI, actual users (well, me), and enough moving parts to be a genuine test of whether "vibe coding" with an AI assistant could produce something solid, not just something that looks fine in a demo.
-
-I'm not a professional developer. I built this over several months with Claude, trying to hold myself to real standards anyway: proper security reviews, a real test suite, a design system that's actually consistent instead of every page inventing its own button style. Whether I pulled that off is for you to judge by reading the code, not by trusting this README.
-
-This isn't trying to replace Monarch, YNAB, or the other well-established players in this space. Open source alternatives exist too (Firefly III, Actual Budget, to name two), and they're more mature and, in some areas, better built than this. BudgetPilot is just my take on it, local-first and privacy-first by default, and I'm putting it out there in case it's useful to someone else too.
-
-The weakest part right now is honestly CSV import: only a handful of bank profiles are supported, and the parser system needs more work to cover more banks and formats. Contributions there especially welcome.
-
-**Known limitations:**
-
-- CSV import covers a limited set of bank profiles; unlisted banks need a new parser.
-- Account emails have to be ASCII, on every database engine. See [configuration](docs/configuration.md#database).
-
 ![Dashboard](docs/screenshots/dashboard-desktop.png)
 
 <p align="center">
@@ -41,12 +26,34 @@ All screenshots use fake demo data, not a real user's finances.
 - **[Net worth tracking](docs/using/net-worth.md)** across multiple accounts, with history over time.
 - **[Savings goals](docs/using/savings-goals.md)**, with pace tracking and an optional link to a real account.
 - **[Cash flow forecasting](docs/using/cash-flow-forecast.md)**: a deterministic projection of your upcoming balance, based on recurring income and expenses it actually detects from your history. No machine learning involved, nothing sent anywhere.
-- **[Categorization rules](docs/using/rules.md)** (text or regex), applied automatically on import, never overriding something you fixed by hand. 156 ship with the app.
+- **[Categorization rules](docs/using/rules.md)** (text or regex), applied automatically on import, never overriding something you fixed by hand. 157 ship with the app.
 - **[Split transactions](docs/using/split-transactions.md)**: one payment across several categories, so an 80 € supermarket trip can be 50 € Groceries and 30 € Shopping. Budgets and reports count the parts, your totals stay exactly the same, and the CSV export carries the split back out and in again.
 - **Tags**: free labels that cut across categories, so "Portugal 2026" can hold a train, a restaurant and a hotel while each keeps its own category. Filter the list by one, tag a whole filtered set at once, and undo that in a click.
 - **Optional local AI advice** via Ollama. By default, only anonymized aggregates reach the model. An opt-in setting can add the labels of your largest expenses, never your full transaction history.
 - **Backup and restore**: a full export of your own data, nothing held hostage.
 - French and English, out of the box.
+
+## Known limitations
+
+Real, and named here rather than discovered later. Each one has an issue.
+
+- **A statement written in a non-European date format imports on the wrong date** rather than
+  being refused. Day/month order and a comma decimal separator are assumed, and `01/06` is a valid
+  date under both conventions, so nothing in the file settles it. This is the one limitation you
+  cannot see on screen. ([#433](https://github.com/NonoHM/budgetpilot/issues/433))
+- **The budgets summary counts only the categories you have budgeted**, and the strip does not say
+  so. ([#434](https://github.com/NonoHM/budgetpilot/issues/434))
+- **Reports compare month-to-date against a full previous month.** Early in a month the comparison
+  flatters. ([#435](https://github.com/NonoHM/budgetpilot/issues/435))
+- **Net worth history cannot be viewed, corrected or deleted.** A mistyped past balance is
+  permanent. ([#436](https://github.com/NonoHM/budgetpilot/issues/436))
+- **Rules have no ordering.** 157 ship enabled, mostly substring matches, so two rules matching one
+  transaction is ordinary and nothing shows you which won.
+  ([#437](https://github.com/NonoHM/budgetpilot/issues/437))
+- **One admin, forever.** The first account created is the admin and there is no promotion or
+  demotion. ([#438](https://github.com/NonoHM/budgetpilot/issues/438))
+- **Account emails have to be ASCII**, on every database engine. See
+  [configuration](docs/configuration.md#database).
 
 ## Quick start
 
@@ -60,16 +67,21 @@ curl -O https://raw.githubusercontent.com/NonoHM/budgetpilot/main/docker-compose
 Create your `.env` with three freshly generated secrets. Paste this whole block:
 
 ```bash
+BUDGETPILOT_VERSION=$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
+  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')
+
 cat > .env <<EOF
 BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
 RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
 TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
-BUDGETPILOT_VERSION=0.13.0
+BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION:?Could not reach the Releases API. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest and run BUDGETPILOT_VERSION=x.y.z, then paste this block again.}
 APP_PORT=3000
 EOF
 ```
 
-`BUDGETPILOT_VERSION` pins what you install. Without it you get whatever `latest` your machine already holds, which can be an older image and never says so. The number above is a starting point, not a claim about what is current — take the current one from [Releases](https://github.com/NonoHM/budgetpilot/releases/latest), and raise it the same way to upgrade later ([running it day to day](docs/operations.md)).
+The first line looks up the current release and the rest pins it. `BUDGETPILOT_VERSION` is what decides which image you run: without it the compose file falls back to `latest`, and `up -d` starts whatever `latest` your machine already holds — an older image, silently. Pinning is also what makes "which version am I on" answerable, and the same number is shown in **Settings**.
+
+If the lookup fails, nothing is written and the message tells you what to do: it never falls back to `latest` behind your back. Upgrade later by re-running the same block ([running it day to day](docs/operations.md)).
 
 There is no `ORIGIN` line, and that is deliberate: the compose file derives it from `APP_PORT`, so changing the port here is enough. You only set `ORIGIN` yourself for a LAN address, a hostname, or a reverse proxy — see [configuration](docs/configuration.md).
 
@@ -99,6 +111,16 @@ Reaching it from another device on your LAN takes two extra lines in `.env` (`OR
 - **[Running it day to day](docs/operations.md)**: updating, backups, moving machines.
 - **[Local AI advice](docs/ai-insights.md)** and **[bank sync](docs/bank-sync.md)**: the two optional features.
 - **[Troubleshooting](docs/troubleshooting.md)**: when something's broken.
+
+## Why this exists
+
+Honest answer: my personal finances were kind of a mess, and I wanted an excuse to test agentic AI coding on something real, not just a toy script. Something with an actual UI, actual users (well, me), and enough moving parts to be a genuine test of whether "vibe coding" with an AI assistant could produce something solid, not just something that looks fine in a demo.
+
+I'm not a professional developer. I built this over several months with Claude, trying to hold myself to real standards anyway: proper security reviews, a real test suite, a design system that's actually consistent instead of every page inventing its own button style. Whether I pulled that off is for you to judge by reading the code, not by trusting this README.
+
+This isn't trying to replace Monarch, YNAB, or the other well-established players in this space. Open source alternatives exist too (Firefly III, Actual Budget, to name two), and they're more mature and, in some areas, better built than this. BudgetPilot is just my take on it, local-first and privacy-first by default, and I'm putting it out there in case it's useful to someone else too.
+
+CSV import is still where most of the remaining work is. Four bank profiles are recognised automatically and any other bank is imported by telling the app what its columns mean, but the format coverage below is real and contributions there are especially welcome.
 
 ## Tech stack
 

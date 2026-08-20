@@ -5,7 +5,7 @@ Checked against a running instance, not recalled. For the steps, see
 
 ## What ships
 
-**156 predefined rules**, of which **11 use a regular expression**. They are
+**157 predefined rules**, of which **16 use a regular expression**. They are
 marked **Predefined** in the list and can be edited, deactivated or deleted
 like any other. **Restore suggested rules** puts the set back.
 

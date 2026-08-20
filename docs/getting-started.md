@@ -61,11 +61,14 @@ secrets at rest. This block generates all three and writes the file for you.
 Paste it whole:
 
 ```bash
+BUDGETPILOT_VERSION=$(curl -fsSL https://api.github.com/repos/NonoHM/budgetpilot/releases/latest \
+  | grep -o '"tag_name": *"[^"]*"' | cut -d'"' -f4 | sed 's/.*v//')
+
 cat > .env <<EOF
 BOOTSTRAP_TOKEN=$(openssl rand -base64 32)
 RATE_LIMIT_HASH_SECRET=$(openssl rand -hex 32)
 TOTP_ENCRYPTION_KEY=$(openssl rand -hex 32)
-BUDGETPILOT_VERSION=0.13.0
+BUDGETPILOT_VERSION=${BUDGETPILOT_VERSION:?Could not reach the Releases API. Take the number from https://github.com/NonoHM/budgetpilot/releases/latest and run BUDGETPILOT_VERSION=x.y.z, then paste this block again.}
 APP_PORT=3000
 EOF
 ```
@@ -77,7 +80,8 @@ cat .env
 ```
 
 You should see five lines. The first three carry a long random value after
-the `=`. If any of the three is empty, `openssl` isn't installed. Install it,
+the `=`, and `BUDGETPILOT_VERSION` carries a version number like `0.13.1`. If
+any of the three secrets is empty, `openssl` isn't installed. Install it,
 or see [generating secrets without openssl](#generating-secrets-without-openssl)
 below.
 
@@ -85,13 +89,19 @@ below.
 housekeeping: without it the compose file falls back to `latest`, and `up -d`
 starts whatever `latest` your machine already holds rather than fetching the
 release you meant to install. Pinning it is what makes "which version am I on"
-answerable.
+answerable, and the same number is shown on the **Settings** screen once you
+are in.
 
-Nothing bumps the number written above when a release ships, so treat it as an
-example rather than as the current version: take that from
-[Releases](https://github.com/NonoHM/budgetpilot/releases/latest). Installing an
-older version on purpose is fine and is what a pin is for; installing one by
-accident, which is what no pin gives you, is the thing being fixed here.
+The first line of the block resolves the current release rather than carrying a
+number in this page, because a number written here goes stale the day after the
+next release and nothing can notice. **If that lookup fails, no `.env` is
+written at all** — the block stops and prints where to get the number by hand.
+That is deliberate: an empty value would fall back to `latest`, which is the
+exact failure the pin exists to prevent, and it would do it silently.
+
+Installing an older version on purpose is fine and is what a pin is for;
+installing one by accident, which is what no pin gives you, is the thing being
+fixed here.
 
 There is no `ORIGIN` line here, and that is deliberate. The compose file
 derives `ORIGIN` from `APP_PORT`, so a `.env` that stays quiet about it always

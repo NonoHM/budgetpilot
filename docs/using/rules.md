@@ -7,7 +7,7 @@ category". Rules run on import, so a bank file arrives already sorted.
 
 ## The rule that already exists
 
-BudgetPilot ships **156 rules**, ready to use. They cover the merchants a
+BudgetPilot ships **157 rules**, ready to use. They cover the merchants a
 French account meets most often, and they are marked **Predefined** in the
 list. You do not have to create anything to benefit from them.
 
@@ -33,7 +33,7 @@ Matching **ignores case and accents**, so `carrefour` matches
 the text has to appear somewhere in the label, not be the whole of it.
 
 The small **r** beside the field turns the text into a regular expression
-instead. Eleven of the predefined rules use one, which is how a single rule
+instead. Sixteen of the predefined rules use one, which is how a single rule
 covers several spellings of the same thing.
 
 ## See what a rule would do before it does it
