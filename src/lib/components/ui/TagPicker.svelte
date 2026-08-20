@@ -166,6 +166,7 @@
 	function toggleOption(option: TagPickerOption): void {
 		if (selected.includes(option.name)) {
 			selected = selected.filter((n) => n !== option.name);
+			announceRemoved(option.name);
 			return;
 		}
 		if (atMax) return;
@@ -191,8 +192,24 @@
 		commitSelection();
 	}
 
+	/**
+	 * The removal's own sentence, into the SAME region the additions use.
+	 *
+	 * Not a second live region: two regions competing over one selection is how a screen reader
+	 * ends up hearing the wrong half. And not silence, which is what this was: a polite region is
+	 * only read when its content CHANGES, so a removal that announced nothing left « {name}
+	 * ajoutée » standing — a reader arriving there was told the opposite of what had just happened.
+	 *
+	 * Both removal paths call it, because there are two and they are easy to fix one at a time:
+	 * the chip's own ✕, and re-clicking an already-selected row in the panel.
+	 */
+	function announceRemoved(tagName: string): void {
+		liveAnnouncement = m.tags_picker_removed_live({ name: tagName });
+	}
+
 	function removeChip(tagName: string): void {
 		selected = selected.filter((n) => n !== tagName);
+		announceRemoved(tagName);
 	}
 
 	function activate(index: number): void {

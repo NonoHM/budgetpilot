@@ -1251,6 +1251,7 @@
 	"tags_picker_already_selected_live": "{name} already selected",
 	"tags_picker_added_live": "{name} added",
 	"tags_picker_created_live": "{name} added",
+	"tags_picker_removed_live": "{name} removed",
 	"tags_picker_selected_live": "{name} selected",
 	"tags_picker_loading_aria": "Loading tags",
 	"tags_settings_heading": "Tags",

@@ -90,7 +90,13 @@ describe('TagPicker.svelte', () => {
 			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
 		);
 
-		expect(page.getByText('Portugal').elements().length).toBe(0);
+		// The CHIP is gone, asserted through its own control rather than by searching the page for
+		// the bare name. The name still occurs on the page, legitimately: the removal is announced
+		// as « Portugal retirée » in a live region, so `getByText('Portugal')` now answers a
+		// question this test is not asking and reports a working removal as a failure.
+		expect(
+			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }).elements().length
+		).toBe(0);
 	});
 
 	it('serializes the selection into the hidden input, newline separated', async () => {
@@ -358,6 +364,57 @@ describe('TagPicker.svelte', () => {
 		const controls = fieldInput().element().getAttribute('aria-controls');
 		expect(controls).toBeTruthy();
 		expect(document.getElementById(controls!)).not.toBeNull();
+	});
+
+	/**
+	 * WHAT A SCREEN READER IS TOLD, not which node changed.
+	 *
+	 * The picker announces through polite live regions, and reading them by ROLE rather than by
+	 * selector is the whole point: the claim is about the announcement, and a test written against
+	 * the markup of a particular `<div>` would go green on a component that renders the right
+	 * element and says the wrong thing. It also leaves the picker free to move the sentence between
+	 * its two regions without a test having an opinion about it.
+	 *
+	 * The sentences come from the message functions rather than being retyped, so the test and the
+	 * component cannot disagree about the copy while both being "right".
+	 */
+	function announced(): string {
+		return page
+			.getByRole('status')
+			.elements()
+			.map((el) => (el.textContent ?? '').trim())
+			.filter(Boolean)
+			.join(' | ');
+	}
+
+	it('tells a screen reader the tag was removed, not that it was added', async () => {
+		render(TagPicker, { options, selected: [] });
+
+		await userEvent.click(fieldInput());
+		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
+		// The addition is asserted first because an assertion that only reads the AFTER cannot tell
+		// "the removal was announced" from "nothing was ever announced at all".
+		expect(announced()).toContain(m.tags_picker_added_live({ name: 'Portugal' }));
+
+		await userEvent.click(
+			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
+		);
+
+		expect(announced()).toContain(m.tags_picker_removed_live({ name: 'Portugal' }));
+		// The defect, stated as its own assertion: the removal used to leave the addition standing,
+		// so a reader arriving at the region was told the opposite of what had just happened.
+		expect(announced()).not.toContain(m.tags_picker_added_live({ name: 'Portugal' }));
+	});
+
+	it('tells a screen reader the tag was removed when the list row is toggled off', async () => {
+		// The second removal path, and it is the one no chip is involved in: re-clicking a selected
+		// option in the panel deselects it. Same silence, same stale sentence.
+		render(TagPicker, { options, selected: ['Portugal'] });
+
+		await userEvent.click(fieldInput());
+		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
+
+		expect(announced()).toContain(m.tags_picker_removed_live({ name: 'Portugal' }));
 	});
 
 	it('carries the "Gérer dans Paramètres" footer even when the user owns no tag at all', async () => {
