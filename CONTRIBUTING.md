@@ -82,7 +82,7 @@ Never run `prisma migrate reset` against a database you care about.
 - **Comments**: only when the _why_ isn't obvious from the code itself (a
   non-obvious constraint, a workaround, a subtle invariant), not a
   restatement of what the code does.
-- **No em dashes (`—`)** in anything written for a reader: documentation,
+- **No em dashes (`U+2014`)** in anything written for a reader: documentation,
   comments, commit messages, PR and issue titles and bodies. Use a colon,
   a comma, parentheses, or a full stop, whichever the sentence wants, and
   not a hyphen standing in for the same construction. Quoted material (a
