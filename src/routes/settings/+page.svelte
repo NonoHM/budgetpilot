@@ -332,6 +332,14 @@
 							</div>
 						</div>
 					</div>
+					<!-- Version : informatif, pas de dot. À côté de l'environnement parce que ce bloc
+					     répond déjà à « quelle instance est-ce », et une version est la même question.
+					     L'app ne l'affichait nulle part, ce qui rendait « quelle version je fais
+					     tourner » sans réponse depuis l'intérieur du produit. -->
+					<div>
+						<div class="text-sm font-medium text-zinc-900">{m.settings_version_label()}</div>
+						<div class="text-xs text-zinc-500 tabular-nums">{data.security.version}</div>
+					</div>
 					<!-- Environnement : informatif, pas de dot -->
 					<div>
 						<div class="text-sm font-medium text-zinc-900">{m.settings_environment_label()}</div>
