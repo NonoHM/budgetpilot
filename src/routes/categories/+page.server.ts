@@ -43,7 +43,7 @@ export type CategoryRow = {
 export const load: PageServerLoad = async ({ locals }) => {
 	const user = requireUser(locals.user);
 
-	const [categories, mappings, rules, dismissal] = await Promise.all([
+	const [categories, mappings, rules, dismissal, effectiveCounts] = await Promise.all([
 		prisma.category.findMany({
 			where: { userId: user.id },
 			orderBy: { name: 'asc' },
@@ -71,7 +71,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 		prisma.user.findUnique({
 			where: { id: user.id },
 			select: { categoryRenamePromptDismissedAt: true }
-		})
+		}),
+		// Neither of its two groupBy queries depends on the category list — only the final mapping
+		// does — so it joins the fan-out rather than waiting for it.
+		readEffectiveCategoryCounts(user.id)
 	]);
 
 	const mappingByName = new Map(mappings.map((m) => [m.categoryName, m]));
@@ -84,8 +87,6 @@ export const load: PageServerLoad = async ({ locals }) => {
 		const key = computeNameKey(rule.targetCategory);
 		ruleCountByKey.set(key, (ruleCountByKey.get(key) ?? 0) + 1);
 	}
-
-	const effectiveCounts = await readEffectiveCategoryCounts(user.id, categories);
 
 	const categoryRows: CategoryRow[] = categories.map((cat) => {
 		const mapping = mappingByName.get(cat.name) ?? null;
@@ -341,7 +342,7 @@ export const actions: Actions = {
 		// This used to be `count({ categoryId: id })` while the transaction below ALSO cleared every
 		// `manualCategoryKey` row — so it destroyed exactly what it had not counted, and then
 		// reported the count. Measured: eleven categorisations gone under « Catégorie supprimée. »
-		const txCount = await countTransactionsInCategory(user.id, { id: cat.id, name: cat.name });
+		const txCount = await countTransactionsInCategory(user.id, cat.id);
 
 		const fallback = await resolveCategoryByName(user.id, UNCLASSIFIED_CATEGORY);
 		const deletedKey = computeNameKey(cat.name);
@@ -366,10 +367,17 @@ export const actions: Actions = {
 			prisma.category.delete({ where: { id } })
 		]);
 
+		// The message says the transactions are no longer in this category, and deliberately does NOT
+		// name where each one landed: there are TWO populations and they do not go to the same place.
+		// A row that pointed here through `categoryId` is repointed to "Non categorise"; a row that
+		// was PINNED here through `manualCategory` has its pin cleared and falls back to its own
+		// `categoryId`, which is whatever the import assigned and is usually a different category
+		// entirely. The old wording named "Non categorise" for both, which sent the user looking for
+		// rows that are not there.
 		return {
 			success:
 				txCount > 0
-					? m.categories_success_deleted_moved({ count: txCount })
+					? m.categories_success_deleted_detached({ count: txCount })
 					: m.categories_success_deleted()
 		};
 	},

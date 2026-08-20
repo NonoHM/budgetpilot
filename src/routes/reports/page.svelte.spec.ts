@@ -444,7 +444,7 @@ describe('/reports recurring payments — two streams that display identically (
 	}
 
 	it('renders both streams instead of throwing on a duplicate key', async () => {
-		expect.assertions(1);
+		expect.assertions(2);
 
 		const data = buildData('none-detected');
 		data.report = {
@@ -453,10 +453,20 @@ describe('/reports recurring payments — two streams that display identically (
 			recurringPayments: [twinStream('sub-nation-1'), twinStream('sub-bercy-1')]
 		};
 
-		render(Page, { data });
+		const screen = render(Page, { data });
 
 		await expect
 			.element(page.getByText('Salle De Sport Basic Fit Par').first())
 			.toBeInTheDocument();
+
+		// COUNTED, not merely present. The two streams are identical in every displayed field, so a
+		// presence assertion passes just as happily on one row as on two — it would stay green if a
+		// later change deduplicated them away, which is the other way to lose a stream. Counted off
+		// the rendered text rather than a test-only attribute, so nothing test-shaped enters the
+		// markup. Four, because this page renders both breakpoint trees at once (see #209), which
+		// the forecast-flows case above documents too.
+		const occurrences =
+			(screen.container.textContent ?? '').split('Salle De Sport Basic Fit Par').length - 1;
+		expect(occurrences).toBe(4);
 	});
 });

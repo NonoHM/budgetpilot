@@ -749,10 +749,6 @@ describe('recordSyncedBalance', () => {
 
 		await recordSyncedBalance(userId, netWorthAccountId, 250_00, capturedAt);
 
-		expect(tx.netWorthAccount.update).toHaveBeenCalledWith({
-			where: { id: netWorthAccountId },
-			data: { balanceCents: 250_00 }
-		});
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
 				userId,
@@ -761,6 +757,15 @@ describe('recordSyncedBalance', () => {
 				balanceCents: 250_00,
 				capturedAt
 			}
+		});
+		// The account's balance is DERIVED from the newest snapshot rather than written from the
+		// connector's figure, through the same helper the manual edit uses. Writing it directly is
+		// what let a sync landing behind a same-day manual balance put a superseded figure in the
+		// headline while the curve kept the user's, which is the disagreement this release closes.
+		// Scoped by userId as well as by id, which the direct `update` was not.
+		expect(tx.netWorthAccount.updateMany).toHaveBeenCalledWith({
+			where: { id: netWorthAccountId, userId },
+			data: { balanceCents: 250_00 }
 		});
 	});
 
@@ -773,7 +778,7 @@ describe('recordSyncedBalance', () => {
 
 		await recordSyncedBalance(userId, netWorthAccountId, 250_00, capturedAt);
 
-		expect(tx.netWorthAccount.update).not.toHaveBeenCalled();
+		expect(tx.netWorthAccount.updateMany).not.toHaveBeenCalled();
 		expect(tx.netWorthSnapshot.create).not.toHaveBeenCalled();
 	});
 
@@ -796,7 +801,7 @@ describe('recordSyncedBalance', () => {
 		await recordSyncedBalance(userId, netWorthAccountId, 250_00, capturedAt);
 
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledTimes(1);
-		expect(tx.netWorthAccount.update).toHaveBeenCalledTimes(1);
+		expect(tx.netWorthAccount.updateMany).toHaveBeenCalledTimes(1);
 	});
 
 	it('is a silent no-op when the netWorthAccountId does not belong to userId', async () => {
@@ -810,7 +815,7 @@ describe('recordSyncedBalance', () => {
 			where: { id: netWorthAccountId, userId: 'other-user', deletedAt: null },
 			select: { id: true, type: true, balanceCents: true }
 		});
-		expect(tx.netWorthAccount.update).not.toHaveBeenCalled();
+		expect(tx.netWorthAccount.updateMany).not.toHaveBeenCalled();
 		expect(tx.netWorthSnapshot.create).not.toHaveBeenCalled();
 	});
 
@@ -823,7 +828,7 @@ describe('recordSyncedBalance', () => {
 			recordSyncedBalance(userId, netWorthAccountId, 250_00, capturedAt)
 		).resolves.toBeUndefined();
 
-		expect(tx.netWorthAccount.update).not.toHaveBeenCalled();
+		expect(tx.netWorthAccount.updateMany).not.toHaveBeenCalled();
 		expect(tx.netWorthSnapshot.create).not.toHaveBeenCalled();
 	});
 

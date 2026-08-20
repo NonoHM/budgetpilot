@@ -191,7 +191,7 @@
 	"categories_success_created": "Category created.",
 	"categories_success_renamed": "Category renamed.",
 	"categories_success_deleted": "Category deleted.",
-	"categories_success_deleted_moved": "Category deleted. {count} transaction(s) moved to “Uncategorized”.",
+	"categories_success_deleted_detached": "Category deleted. {count} transaction(s) are no longer in this category.",
 	"categories_success_nature_reset": "Nature reset.",
 	"categories_success_nature_updated": "Nature updated.",
 	"categories_success_defaults_restored": "{count} default category(ies) restored.",

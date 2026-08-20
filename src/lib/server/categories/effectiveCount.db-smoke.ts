@@ -22,9 +22,10 @@ import { actions, load } from '../../../routes/categories/+page.server';
  * no-transactions variant), and ELEVEN categorisations were destroyed — the effective count went
  * 11 -> 0, uncategorised 12 -> 13, and a neighbouring category 11 -> 21. Nothing on screen said so.
  *
- * A real engine rather than a mocked Prisma, and on all three providers: the fix turns one `where`
- * into an `OR` over a folded key column, and `computeNameKey` folding is precisely what the three
- * engines disagree about when a comparison is left to SQL (CLAUDE.md).
+ * A real engine rather than a mocked Prisma, and on all three providers: the fix reads the count
+ * through two `groupBy` queries joined on `computeNameKey`'s folded key, and folding is precisely
+ * what the three engines disagree about when a comparison is left to SQL (CLAUDE.md). A mocked
+ * Prisma would be asserting against the mock's chosen grouping semantics.
  */
 
 if (!process.env.DATABASE_URL) {
@@ -181,7 +182,7 @@ describe('/categories — deleting says what it destroyed', () => {
 
 		const result = (await remove(facturesId)) as { success: string };
 
-		expect(result.success).toBe(m.categories_success_deleted_moved({ count: 2 }));
+		expect(result.success).toBe(m.categories_success_deleted_detached({ count: 2 }));
 		expect(result.success).not.toBe(m.categories_success_deleted());
 
 		// And the destruction the message is now honest about really happened.
@@ -189,5 +190,29 @@ describe('/categories — deleting says what it destroyed', () => {
 			where: { userId, manualCategoryKey: computeNameKey('Factures') }
 		});
 		expect(stillPinned).toBe(0);
+	});
+
+	/**
+	 * Why the message names no destination. The two populations it counts do NOT land in the same
+	 * place, and the previous wording ("{count} transaction(s) deplacee(s) vers Non categorise")
+	 * was true for one of them and false for the other, which sent the user looking for rows that
+	 * were never there.
+	 */
+	it('sends the inherited rows to Non categorise and the pinned rows back to their own category', async () => {
+		expect.assertions(2);
+
+		await makeTransaction({ label: 'EDF', categoryId: facturesId });
+		await makeTransaction({ label: 'ORANGE', categoryId: loisirsId, manualCategory: 'Factures' });
+
+		await remove(facturesId);
+
+		const rows = await prisma.transaction.findMany({
+			where: { userId },
+			select: { label: true, category: { select: { name: true } } }
+		});
+		const categoryOf = new Map(rows.map((row) => [row.label, row.category?.name]));
+
+		expect(categoryOf.get('EDF')).toBe(UNCLASSIFIED_CATEGORY);
+		expect(categoryOf.get('ORANGE')).toBe('Loisirs');
 	});
 });

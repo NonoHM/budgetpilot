@@ -191,7 +191,7 @@
 	"categories_success_created": "Catégorie créée.",
 	"categories_success_renamed": "Catégorie renommée.",
 	"categories_success_deleted": "Catégorie supprimée.",
-	"categories_success_deleted_moved": "Catégorie supprimée. {count} transaction(s) déplacée(s) vers « Non catégorisé ».",
+	"categories_success_deleted_detached": "Catégorie supprimée. {count} transaction(s) ne sont plus classées dans cette catégorie.",
 	"categories_success_nature_reset": "Nature réinitialisée.",
 	"categories_success_nature_updated": "Nature mise à jour.",
 	"categories_success_defaults_restored": "{count} catégorie(s) par défaut restaurée(s).",

@@ -6,6 +6,7 @@ import {
 	deleteNetWorthAccount,
 	readNetWorthAccounts,
 	readNetWorthSeries,
+	recordSyncedBalance,
 	updateNetWorthAccount
 } from './service';
 
@@ -145,5 +146,74 @@ describe('/net-worth — the headline and the curve are the same number', () => 
 		expect(await curvePresentCents()).toBe(await headlineCents());
 
 		void kept;
+	});
+
+	/**
+	 * The tie-break both readers share, exercised rather than argued for. `parseAsOfDate` pins a
+	 * given YYYY-MM-DD to 12:00:00Z, so correcting a backdated balance to the SAME day writes a
+	 * second snapshot at the identical instant. Nothing in `capturedAt` separates them, and the two
+	 * figures on the card would each be free to pick a defensible different row.
+	 */
+	it('agrees when two snapshots carry the identical captured instant', async () => {
+		expect.assertions(3);
+
+		const { id } = await createNetWorthAccount(userId, {
+			name: 'Livret A',
+			type: 'savings',
+			balance: '8500,00',
+			asOfDate: '2026-01-31'
+		});
+
+		// Calibration: one snapshot, no tie, and the pair already agrees.
+		expect(await headlineCents()).toBe(850_000);
+
+		// The correction, same day: `capturedAt` is byte-identical to the row above.
+		await updateNetWorthAccount(userId, id, {
+			name: 'Livret A',
+			type: 'savings',
+			balance: '8600,00',
+			asOfDate: '2026-01-31'
+		});
+
+		expect(await headlineCents()).toBe(860_000);
+		expect(await curvePresentCents()).toBe(await headlineCents());
+	});
+
+	/**
+	 * `updateNetWorthAccount` is not the only writer of `NetWorthAccount.balanceCents`: a bank sync
+	 * writes it too. An invariant enforced in "the" write path is only enforced if every path is
+	 * that one (CLAUDE.md), and this one was not.
+	 *
+	 * The two collide on an ordinary morning. `parseAsOfDate` pins an explicit as-of date to
+	 * 12:00:00Z, while a sync stamps its snapshot with the real time — so a sync completing before
+	 * noon UTC on a day the user also saved a balance "as of today" writes the OLDER snapshot last
+	 * and, before the fix, pushed its value into the headline while the curve kept the user's.
+	 */
+	it('agrees after a bank sync that lands behind a same-day manual balance', async () => {
+		expect.assertions(3);
+
+		const { id } = await createNetWorthAccount(userId, {
+			name: 'Compte courant',
+			type: 'checking',
+			balance: '2400,00',
+			asOfDate: '2026-01-31'
+		});
+
+		// The user's own reading, saved "as of today": pinned to 12:00:00Z by `parseAsOfDate`.
+		const todayIso = new Date().toISOString().slice(0, 10);
+		await updateNetWorthAccount(userId, id, {
+			name: 'Compte courant',
+			type: 'checking',
+			balance: '9200,00',
+			asOfDate: todayIso
+		});
+		expect(await headlineCents()).toBe(920_000);
+
+		// The sync, stamped 09:05Z the same day: real, and OLDER than the manual entry above.
+		await recordSyncedBalance(userId, id, 850_000, new Date(`${todayIso}T09:05:00.000Z`));
+
+		// The newest snapshot is still the user's, so it is still what the headline says.
+		expect(await headlineCents()).toBe(920_000);
+		expect(await curvePresentCents()).toBe(await headlineCents());
 	});
 });

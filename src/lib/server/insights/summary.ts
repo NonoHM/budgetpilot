@@ -46,12 +46,19 @@ export function buildTransactionSummary(
 		largestExpenses: options.includeLabels
 			? report.largestExpenses
 			: report.largestExpenses.map((expense) => ({ ...expense, label: ANONYMIZED_EXPENSE_LABEL })),
-		recurringPayments: options.includeLabels
-			? report.recurringPayments
-			: report.recurringPayments.map((payment) => ({
-					...payment,
-					label: ANONYMIZED_RECURRING_LABEL
-				})),
+		// Fields are named rather than spread, in BOTH branches. A spread is how
+		// `RecurringPayment.id` — a raw transaction id — reached the model's payload without anyone
+		// editing this file, and naming them means the next field added to `RecurringPayment` has to
+		// be chosen rather than inherited. See `TransactionSummary.recurringPayments`.
+		recurringPayments: report.recurringPayments.map((payment) => ({
+			label: options.includeLabels ? payment.label : ANONYMIZED_RECURRING_LABEL,
+			amountCents: payment.amountCents,
+			totalAmountCents: payment.totalAmountCents,
+			count: payment.count,
+			category: payment.category,
+			lastDate: payment.lastDate,
+			confidence: payment.confidence
+		})),
 		previousMonth: report.previousMonth,
 		flaggedCategoryLabels
 	};

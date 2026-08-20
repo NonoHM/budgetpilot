@@ -145,25 +145,7 @@ export async function updateNetWorthAccount(
 		// That is not an edge case: `docs/using/net-worth.md` recommends filling in past balances as
 		// the way to get a curve on day one, so it is the documented onboarding path.
 		//
-		// `capturedAt` first, then `id`. Two snapshots can legitimately carry the SAME captured
-		// instant — `parseAsOfDate` pins a given YYYY-MM-DD to 12:00:00Z, so correcting a backdated
-		// balance to the same day writes a second row at the same moment. The tie-break has to exist
-		// and, more importantly, has to be THE SAME ONE the curve uses (see `readNetWorthSeries`'s
-		// `orderBy`), or these two figures can disagree on a tie while both being defensible.
-		// `NetWorthSnapshot` has no `createdAt` column; `id` is a `cuid()`, whose prefix is the
-		// creation timestamp, so descending id is both stable and chronologically right here.
-		const newest = await tx.netWorthSnapshot.findFirst({
-			where: { userId, accountId },
-			orderBy: [{ capturedAt: 'desc' }, { id: 'desc' }],
-			select: { balanceCents: true }
-		});
-		await tx.netWorthAccount.updateMany({
-			where: { id: accountId, userId },
-			// `?? balanceCents` is unreachable through the UI — `createNetWorthAccount` always writes
-			// the first snapshot — and is here so a row that somehow has none still ends up with the
-			// value the user just typed rather than silently keeping the old one.
-			data: { balanceCents: newest?.balanceCents ?? balanceCents }
-		});
+		await syncBalanceToNewestSnapshot(tx, userId, accountId, balanceCents);
 
 		// A type change to a non-linkable type (real_estate/other) invalidates the "transactional
 		// types only" restriction from the linking UI: unlink every technical Account pointing here
@@ -347,17 +329,56 @@ export async function recordSyncedBalance(
 		if (!existing) return;
 		if (existing.balanceCents === balanceCents) return;
 
-		await tx.netWorthAccount.update({
-			where: { id: existing.id },
-			data: { balanceCents }
-		});
 		await tx.netWorthSnapshot.create({
 			data: { userId, accountId: existing.id, type: existing.type, balanceCents, capturedAt }
 		});
+		// Through the SAME derivation the manual edit uses, not a direct write. An invariant enforced
+		// in "the" write path is only enforced if every path is that one (CLAUDE.md), and this was the
+		// other path. `parseAsOfDate` pins a manual as-of date to 12:00:00Z while a sync stamps the
+		// real time, so a sync completing before noon UTC on a day the user also saved a balance
+		// "as of today" arrives with an OLDER `capturedAt` — writing it straight to the column put a
+		// superseded figure in the headline while the curve kept the user's.
+		await syncBalanceToNewestSnapshot(tx, userId, existing.id, balanceCents);
 	});
 }
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Points `NetWorthAccount.balanceCents` at the account's NEWEST snapshot.
+ *
+ * The column is a VERDICT ON THE PRESENT, not a copy of whatever the last writer happened to hold
+ * (CLAUDE.md: a verdict recomputed cannot disagree with its data; one frozen in a column can). It
+ * is what `/net-worth`'s headline sums, while the curve is built from the snapshots — so any writer
+ * that sets the column directly can put the two figures out of step, and both writers did.
+ *
+ * `capturedAt` first, then `id`. Two snapshots can carry the SAME captured instant: `parseAsOfDate`
+ * pins a given YYYY-MM-DD to 12:00:00Z, so correcting a backdated balance to the same day writes a
+ * second row at the same moment. The tie-break has to exist and, more importantly, has to be THE
+ * SAME ONE the curve uses (see `readNetWorthSeries`'s `orderBy`), or the two figures can disagree
+ * on a tie while both being defensible. `NetWorthSnapshot` has no `createdAt`; `id` is a `cuid()`,
+ * whose prefix is the creation timestamp, so descending id is both stable and chronologically right.
+ *
+ * `fallbackCents` is unreachable through either caller — both write a snapshot immediately before
+ * calling this, and `createNetWorthAccount` writes the first one — and exists so a row that somehow
+ * has no snapshot ends up with the value just supplied rather than silently keeping the old one.
+ */
+async function syncBalanceToNewestSnapshot(
+	tx: Tx,
+	userId: string,
+	accountId: string,
+	fallbackCents: number
+): Promise<void> {
+	const newest = await tx.netWorthSnapshot.findFirst({
+		where: { userId, accountId },
+		orderBy: [{ capturedAt: 'desc' }, { id: 'desc' }],
+		select: { balanceCents: true }
+	});
+	await tx.netWorthAccount.updateMany({
+		where: { id: accountId, userId },
+		data: { balanceCents: newest?.balanceCents ?? fallbackCents }
+	});
+}
 
 /**
  * Uniqueness of (userId, name) enforced here against ACTIVE accounts only (see

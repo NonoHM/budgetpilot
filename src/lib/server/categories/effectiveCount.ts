@@ -36,11 +36,14 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
  * the screen says and what the delete moves; a part's category is guarded separately, and deleting
  * a category referenced by a part is refused outright rather than repointed.
  */
-export async function readEffectiveCategoryCounts(
-	userId: string,
-	categories: readonly { id: string; name: string }[]
-): Promise<Map<string, number>> {
-	const [pinned, inherited] = await Promise.all([
+export async function readEffectiveCategoryCounts(userId: string): Promise<Map<string, number>> {
+	const [categories, pinned, inherited] = await Promise.all([
+		// Read here rather than taken as a parameter, so this function is one await for a caller and
+		// can join its existing fan-out instead of waiting behind it. `Category` is small and already
+		// indexed by `userId`; `/categories`' own load reading it twice costs less than the round trip
+		// this saves, and far less than letting the page and the delete message combine the two halves
+		// independently.
+		prisma.category.findMany({ where: { userId }, select: { id: true, name: true } }),
 		prisma.transaction.groupBy({
 			by: ['manualCategoryKey'],
 			where: { userId, manualCategoryKey: { not: null } },
@@ -75,8 +78,8 @@ export async function readEffectiveCategoryCounts(
  */
 export async function countTransactionsInCategory(
 	userId: string,
-	category: { id: string; name: string }
+	categoryId: string
 ): Promise<number> {
-	const counts = await readEffectiveCategoryCounts(userId, [category]);
-	return counts.get(category.id) ?? 0;
+	const counts = await readEffectiveCategoryCounts(userId);
+	return counts.get(categoryId) ?? 0;
 }

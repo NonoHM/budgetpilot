@@ -16,7 +16,6 @@ const summary: TransactionSummary = {
 	],
 	recurringPayments: [
 		{
-			id: 'tx-spotify-2',
 			label: 'Spotify',
 			amountCents: -1_099,
 			totalAmountCents: -2_198,
