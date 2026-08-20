@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.13.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.13.0...budgetpilot-v0.13.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* five small defects and the half of [#372](https://github.com/NonoHM/budgetpilot/issues/372) that does not wait on an account model ([#412](https://github.com/NonoHM/budgetpilot/issues/412)) ([0e0cb56](https://github.com/NonoHM/budgetpilot/commit/0e0cb56ee826253056b6f9c9f790139970a9d180))
+* **import,budget:** a two-date cell is refused, and budget spending agrees with every other money read ([#411](https://github.com/NonoHM/budgetpilot/issues/411)) ([296e204](https://github.com/NonoHM/budgetpilot/commit/296e204e3b9e3722df9b2bda807c3df73d567d5d))
+* **tags:** removing a tag says so, instead of leaving « ajoutée » standing ([#421](https://github.com/NonoHM/budgetpilot/issues/421)) ([49b55ad](https://github.com/NonoHM/budgetpilot/commit/49b55ada36f6161424ac1999fef5072accb234b5))
+* the six things a blind walk of 0.13.0 found, two of which change your numbers ([#409](https://github.com/NonoHM/budgetpilot/issues/409)) ([f4e7cfc](https://github.com/NonoHM/budgetpilot/commit/f4e7cfc1ddeb15abdd112075b12e8208e16e34e9))
+* **transactions:** a refused save in the detail panel now says why ([#420](https://github.com/NonoHM/budgetpilot/issues/420)) ([bc9838e](https://github.com/NonoHM/budgetpilot/commit/bc9838e4696e405ca106ce4dc016e2ccce5a7797))
+
+
+### Maintenance
+
+* stop tracking Serena's project config, which rewrites itself ([#398](https://github.com/NonoHM/budgetpilot/issues/398)) ([1c68f50](https://github.com/NonoHM/budgetpilot/commit/1c68f50d6dcc0f82a81c3410fe36e73bcc79c7e3))
+
 ## [0.13.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.12.1...budgetpilot-v0.13.0) (2026-08-19)
 
 
