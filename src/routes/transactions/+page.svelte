@@ -247,6 +247,12 @@
 	 * navigation by definition. Before this, switching rows silently discarded pending edits — the
 	 * `$effect` further down resets `manualCategoryValue`/`manualNatureValue` on every selection
 	 * change with nothing asked.
+	 *
+	 * There is a seventh way to lose an edit and it is NOT a navigation, so it is not here: saving
+	 * one form in this panel re-runs the load while its siblings stay mounted. It is answered where
+	 * it happens, by the selection `$effect` below and by `TransactionTagsEditor`, both of which
+	 * reset on the row and on what the server says rather than on every fresh object. Routing it
+	 * through this guard would mean asking « Abandonner les modifications ? » about a save.
 	 */
 	let tagsDirtyDesktop = $state(false);
 	let tagsDirtyMobile = $state(false);
@@ -1022,15 +1028,57 @@
 		if (bulkTagResult || bulkTagEmpty) bulkTagOpen = false;
 	});
 
+	/**
+	 * The panel's editors are reset from the load, and the question this answers is WHEN.
+	 *
+	 * "Every fresh `data`" was the answer, and it was the right one for as long as a submit in this
+	 * panel was a NAVIGATION: a fresh `data` and a new screen were the same event, so resetting on
+	 * one was resetting on the other. `use:enhance` on this panel's forms split them apart. A save in
+	 * one form now re-runs the load while its three siblings stay mounted, and resetting them there
+	 * discards work in progress with no dialog and no banner. Measured at 1280: a category picked and
+	 * not saved, a tag chip picked and not saved, and an open accordion, all three gone after saving
+	 * the nature in the section between them.
+	 *
+	 * So each line below now names the event it actually cares about. `handleTabReturn` states the
+	 * same rule from the other side and answers it by refusing to refresh at all while any editor is
+	 * dirty; this is that rule made local, so the refresh no longer has to choose between being
+	 * correct and being safe. `TransactionTagsEditor` owns the same decision for its own selection.
+	 *
+	 * The trackers are plain `let`: they are this effect's memory of what it last acted on, read and
+	 * written nowhere else and rendered by nothing, and making them `$state` would feed the effect's
+	 * own writes back into its dependencies.
+	 */
+	let lastSelectedId: string | null = null;
+	let lastServerCategory: string | null = null;
+	let lastServerNature: string | null = null;
+	let lastSplitPartsSignature: string | null = null;
+
 	$effect(() => {
 		const tx = data.selectedTransaction;
-		openSections = new Set();
-		manualCategoryValue = tx?.manualCategory ?? '';
-		manualNatureValue = tx?.manualNature ?? '';
-		// Same reset as the two above, and for the same reason: an editor opened on one transaction
-		// must not be found open on the next one. After a save the load re-runs and `splitParts` is
-		// what keeps the editor on screen, so this closes the DRAFT only — never a real répartition.
-		splitDraftOpen = false;
+		const serverCategory = tx?.manualCategory ?? '';
+		const serverNature = tx?.manualNature ?? '';
+		const partsSignature = splitPartsSignature;
+		const rowChanged = (tx?.id ?? null) !== lastSelectedId;
+
+		// A value the user has changed and not saved is overwritten only when the SERVER's value for
+		// it moved: a save landing, « Réinitialiser » clearing it, or another tab. Both of those still
+		// have to reach here, which is why this is not simply "never reset" — « Réinitialiser »
+		// submits an empty value and leaves the local one untouched, so without this line the field
+		// would go on showing the category the server no longer holds.
+		if (rowChanged || serverCategory !== lastServerCategory) manualCategoryValue = serverCategory;
+		if (rowChanged || serverNature !== lastServerNature) manualNatureValue = serverNature;
+		// An editor opened on one transaction must not be found open on the next one. The same one
+		// reloading is not the next one.
+		if (rowChanged) openSections = new Set();
+		// The DRAFT only, never a real répartition: `splitParts` is what keeps a saved one on screen.
+		// Keyed on the parts rather than on the row so that REMOVING a répartition still collapses the
+		// editor, which is what closing it on every load used to do by accident.
+		if (rowChanged || partsSignature !== lastSplitPartsSignature) splitDraftOpen = false;
+
+		lastSelectedId = tx?.id ?? null;
+		lastServerCategory = serverCategory;
+		lastServerNature = serverNature;
+		lastSplitPartsSignature = partsSignature;
 		// Only dismiss a pending delete confirmation when the user actively switches to a
 		// *different* transaction (desktop: clicking another row). Deselecting to null — which
 		// is exactly what the mobile flow does to close the sheet behind the dialog — must not
@@ -1130,26 +1178,76 @@
 		data.selectedTransaction?.id === id ? buildDeselectedHref() : buildSelectedHref(id);
 
 	/**
-	 * The split form's action, carrying the CURRENT selection and filters through the POST.
+	 * The action URL for every POST form inside the detail panel, carrying the CURRENT selection and
+	 * filters through the submit.
 	 *
 	 * A bare `action="?/saveSplits"` posts to `/transactions?/saveSplits`, and that query string is
 	 * the WHOLE query string — `selected` goes with it, so the panel the form lives in is gone by the
-	 * time the response renders. Measured, not reasoned: the first e2e run of this flow saved the
+	 * time the response renders. Measured, not reasoned: the first e2e run of the split flow saved the
 	 * répartition correctly (the Répartition filter appeared, which only happens once the user owns a
 	 * part) and then found no success banner, because there was no panel left to hold one. SvelteKit
 	 * reads the action from the search param whose key starts with `/`, so every other param riding
 	 * along is preserved rather than parsed.
 	 *
-	 * The three sibling forms in this panel — manual category, manual nature, étiquettes — have the
-	 * same shape and all close the panel on save. That is pre-existing and is left alone here; it
-	 * matters more for this one because 1j-B's edit state and 1i's success message are both things
-	 * the user is meant to SEE after saving.
+	 * ONE builder for the panel's forms rather than one derived each. The répartition carried the
+	 * selection while manual category, manual nature and étiquettes did not, and sibling forms
+	 * behaving two different ways is the drift this repository keeps finding: the fix lands on the
+	 * site that was noticed and the others go on shipping the defect.
+	 *
+	 * THE VERDICT FOR THE FORMS THAT DO NOT USE THIS, recorded here because #200 asked for it and
+	 * because this is where the next person adding a form will be looking. `classifyAll`,
+	 * `deleteTransaction`, `undoBulkTag`, `createRule` and `acceptSuggestion` all keep a bare
+	 * `action="?/..."`. Every one of them is `use:enhance`d, so no navigation happens and nothing a
+	 * reader can see is lost; without javascript they would drop the filters, and that is a decision
+	 * rather than an oversight. `bulkTag` is the exception in the other direction and its own comment
+	 * says why: it is the only action that READS `url.searchParams`, so a bare action changes what
+	 * gets written rather than what gets shown, and `enhance` does not rescue it.
+	 *
+	 * `acceptSuggestion` is the one where the argument is closest, since it is mounted inside this
+	 * panel in classify mode. Left bare deliberately: its component is mounted outside the panel too,
+	 * so giving it a panel-shaped action is a decision about a different surface.
+	 * `panel-form-actions.svelte.spec.ts` asserts it stays exactly that, so this paragraph cannot
+	 * quietly go stale.
 	 */
-	const splitFormAction = $derived(
+	const panelFormAction = (actionName: string) =>
 		data.selectedTransaction
-			? `${buildSelectedHref(data.selectedTransaction.id)}&/saveSplits`
-			: '?/saveSplits'
-	);
+			? `${buildSelectedHref(data.selectedTransaction.id)}&/${actionName}`
+			: `?/${actionName}`;
+
+	const splitFormAction = $derived(panelFormAction('saveSplits'));
+
+	/**
+	 * The submit handler the panel's manual-category, manual-nature and étiquettes forms share.
+	 *
+	 * The action URL above is what a submit WITHOUT javascript needs; this is what a submit with it
+	 * needs, and the two are not substitutes. A native submit NAVIGATES: even carrying the selection
+	 * it is a full page load, so the open sections close, the scroll resets, and the refusal lands on
+	 * a freshly rendered page rather than in the form the user just pressed Enregistrer in. `enhance`
+	 * fetches the action and re-runs the load in place. Every other POST form on this route already
+	 * does this; these three were the only ones that did not.
+	 *
+	 * `reset: false` because all three are state-driven, not value-driven: the submitted value lives
+	 * in a `$state` mirrored into a hidden input, so a native form reset would blank that input under
+	 * a component that is not reading it. Same reason `enhanceSplitForm` passes it.
+	 *
+	 * A flag per form rather than one for the panel, and a flag at all rather than none: the six
+	 * other enhanced POST forms on this route all carry one, and a request in flight with the button
+	 * unchanged is both a screen that says nothing and a second POST one double-click away. One flag
+	 * for the panel would light three sections for a save in one of them.
+	 */
+	let categorySaving = $state(false);
+	let natureSaving = $state(false);
+	let tagsSaving = $state(false);
+
+	const enhancePanelForm =
+		(setSaving: (value: boolean) => void): SubmitFunction =>
+		() => {
+			setSaving(true);
+			return async ({ update }) => {
+				await update({ reset: false });
+				setSaving(false);
+			};
+		};
 
 	/**
 	 * The ONE way the detail closes, whichever gesture asked for it: the header cross, Escape, a
@@ -3085,7 +3183,12 @@
 											})}
 										</AlertBanner>
 									{/if}
-									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualCategory">
+									<form
+										class="mt-3 grid gap-2"
+										method="POST"
+										action={panelFormAction('saveManualCategory')}
+										use:enhance={enhancePanelForm((value) => (categorySaving = value))}
+									>
 										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 										<input type="hidden" name="manualCategory" value={manualCategoryValue} />
 										<label class="grid gap-1 text-sm font-medium text-zinc-600">
@@ -3113,12 +3216,36 @@
 												}}
 											/>
 										</label>
+										<!--
+											THE REFUSAL, and where it appears is a decision rather than wiring.
+
+											It stays INSIDE this form, between the control it is about and the button that
+											submitted it: this panel holds four forms, so a shared banner at its top could
+											not say which one refused. That is the rule the répartition editor already
+											states for itself, « l'échec appartient à ce formulaire », and this is the
+											same class of event, so it gets the same treatment rather than a second one.
+
+											`AlertBanner variant="error"` rather than the bare rose line that was here:
+											it carries `role="alert"`, and the announcement is the whole point now that the
+											panel survives. The refusal arrives with nothing else on screen changing, so a
+											reader looking anywhere but this corner has no other signal. It also brings an
+											icon, so "this is a refusal" is not carried by colour alone.
+
+											NOT the treatment /settings uses for its two rose lines. Those validate as the
+											user types; an assertive announcement per keystroke would be noise. This one
+											answers a submit the user has already made.
+										-->
 										{#if form?.manualCategoryError}
-											<p class="text-xs text-rose-600">{form.manualCategoryError}</p>
+											<AlertBanner variant="error" size="sm">
+												{form.manualCategoryError}
+											</AlertBanner>
 										{/if}
 										<div class="flex flex-wrap gap-2">
-											<Button type="submit" size="sm" disabled={!categoryIsDirty}
-												>{m.common_save()}</Button
+											<Button
+												type="submit"
+												size="sm"
+												loading={categorySaving}
+												disabled={!categoryIsDirty}>{m.common_save()}</Button
 											>
 											<!--
 												Withheld while the editor is open, and this is not cosmetic: this button
@@ -3199,7 +3326,12 @@
 								<!-- Nature manuelle -->
 								<section class="rounded-xl border border-zinc-200 p-3">
 									<h3 class="text-sm font-semibold">{m.transactions_manual_nature_heading()}</h3>
-									<form class="mt-3 grid gap-2" method="POST" action="?/saveManualNature">
+									<form
+										class="mt-3 grid gap-2"
+										method="POST"
+										action={panelFormAction('saveManualNature')}
+										use:enhance={enhancePanelForm((value) => (natureSaving = value))}
+									>
 										<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 										<input type="hidden" name="manualNature" value={manualNatureValue} />
 										<label class="grid gap-1 text-sm font-medium text-zinc-600">
@@ -3219,12 +3351,18 @@
 												}}
 											/>
 										</label>
+										<!-- Same banner as the manual category form's, for the reasons written out there. -->
 										{#if form?.manualNatureError}
-											<p class="text-xs text-rose-600">{form.manualNatureError}</p>
+											<AlertBanner variant="error" size="sm">
+												{form.manualNatureError}
+											</AlertBanner>
 										{/if}
 										<div class="flex flex-wrap gap-2">
-											<Button type="submit" size="sm" disabled={!natureIsDirty}
-												>{m.common_save()}</Button
+											<Button
+												type="submit"
+												size="sm"
+												loading={natureSaving}
+												disabled={!natureIsDirty}>{m.common_save()}</Button
 											>
 											{#if data.selectedTransaction.manualNature}
 												<Button
@@ -3244,6 +3382,9 @@
 									transactionId={data.selectedTransaction.id}
 									tags={data.selectedTransaction.tags}
 									allTags={allTagOptions}
+									action={panelFormAction('saveTags')}
+									enhanceSubmit={enhancePanelForm((value) => (tagsSaving = value))}
+									saving={tagsSaving}
 									error={form?.tagsError}
 									bind:dirty={tagsDirtyDesktop}
 								/>
@@ -3813,9 +3954,13 @@
 	{/if}
 
 	{#if bulkTagOpen}
-		<!-- The action URL, not the ambient "?/bulkTag" shorthand every other form action on this
-		     page uses: see bulkTagActionHref's own comment. The GET filter form and this dialog's
-		     form are otherwise identical in shape to the delete confirmation just above. -->
+		<!-- The action URL, not the ambient "?/bulkTag" shorthand: see bulkTagActionHref's own
+		     comment. It carries the filters for a different reason from the panel's forms, which now
+		     build theirs too, and the difference is the point. Those carry the selection so the PANEL
+		     survives the response; this one carries the filters because `?/bulkTag` is the only action
+		     that reads `url.searchParams`, so dropping them changes the set that gets TAGGED. The GET
+		     filter form and this dialog's form are otherwise identical in shape to the delete
+		     confirmation just above. -->
 		<form
 			method="POST"
 			action={bulkTagActionHref}
@@ -4002,7 +4147,8 @@
 					bind:this={mobileCategoryFormEl}
 					class="flex flex-col gap-2"
 					method="POST"
-					action="?/saveManualCategory"
+					action={panelFormAction('saveManualCategory')}
+					use:enhance={enhancePanelForm((value) => (categorySaving = value))}
 				>
 					<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 					<input type="hidden" name="manualCategory" value={manualCategoryValue} />
@@ -4022,12 +4168,14 @@
 						class="w-full"
 						triggerClass="!bg-zinc-50"
 					/>
+					<!-- Same banner as the desktop panel's, for the reasons written out there. -->
 					{#if form?.manualCategoryError}
-						<p class="text-xs text-rose-600">{form.manualCategoryError}</p>
+						<AlertBanner variant="error" size="sm">{form.manualCategoryError}</AlertBanner>
 					{/if}
 					<Button
 						type="submit"
 						size="sm"
+						loading={categorySaving}
 						disabled={!categoryIsDirty}
 						class="!flex min-h-[38px] items-center justify-center self-end px-4"
 					>
@@ -4106,7 +4254,8 @@
 					bind:this={mobileNatureFormEl}
 					class="flex flex-col gap-2"
 					method="POST"
-					action="?/saveManualNature"
+					action={panelFormAction('saveManualNature')}
+					use:enhance={enhancePanelForm((value) => (natureSaving = value))}
 				>
 					<input type="hidden" name="transactionId" value={data.selectedTransaction.id} />
 					<input type="hidden" name="manualNature" value={manualNatureValue} />
@@ -4122,12 +4271,14 @@
 						}}
 						class="h-11 w-full !rounded-xl !border-zinc-200 !bg-zinc-50 px-3.5"
 					/>
+					<!-- Same banner as the manual category form's, for the reasons written out there. -->
 					{#if form?.manualNatureError}
-						<p class="text-xs text-rose-600">{form.manualNatureError}</p>
+						<AlertBanner variant="error" size="sm">{form.manualNatureError}</AlertBanner>
 					{/if}
 					<Button
 						type="submit"
 						size="sm"
+						loading={natureSaving}
 						disabled={!natureIsDirty}
 						class="!flex min-h-[38px] items-center justify-center self-end px-4"
 					>
@@ -4141,6 +4292,9 @@
 				transactionId={data.selectedTransaction.id}
 				tags={data.selectedTransaction.tags}
 				allTags={allTagOptions}
+				action={panelFormAction('saveTags')}
+				enhanceSubmit={enhancePanelForm((value) => (tagsSaving = value))}
+				saving={tagsSaving}
 				error={form?.tagsError}
 				bind:dirty={tagsDirtyMobile}
 			/>

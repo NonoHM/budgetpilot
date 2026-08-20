@@ -15,6 +15,13 @@ import * as m from '$lib/paraglide/messages';
  * row, a nav link, and the browser's Back button — are covered by ONE `beforeNavigate`, because
  * every one of them is a navigation: the selection lives in `?selected=`.
  *
+ * A SEVENTH way to lose an edit exists and is deliberately not one of these, because it is not a
+ * navigation: saving one form in the panel re-runs the load while its siblings stay mounted. It is
+ * answered by not losing anything rather than by asking, in the page's own selection `$effect` and
+ * in `TransactionTagsEditor`, both of which now reset on the row and on what the server says rather
+ * than on every fresh object. Adding it to this guard would have meant asking « Abandonner les
+ * modifications ? » at the moment the user pressed Enregistrer.
+ *
  * `beforeNavigate` is mocked to capture the callback rather than driving a real router: a
  * component render has no SvelteKit navigation lifecycle, so a real link click here would be a
  * full page load the harness cannot observe. What is asserted is exactly the contract the page
