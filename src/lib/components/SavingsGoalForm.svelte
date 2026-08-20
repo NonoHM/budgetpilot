@@ -3,6 +3,7 @@
 	import { untrack } from 'svelte';
 	import Combobox from './ui/Combobox.svelte';
 	import Button from './Button.svelte';
+	import AlertBanner from './AlertBanner.svelte';
 	import MoneyInput from './ui/MoneyInput.svelte';
 	import TapLink from './ui/TapLink.svelte';
 	import { inputBase } from '$lib/styles';
@@ -158,7 +159,8 @@
 	{/if}
 
 	{#if error}
-		<p class="text-sm text-rose-600">{error}</p>
+		<!-- Announced, not merely coloured — same reason as the dashboard's manual-add modal. -->
+		<AlertBanner variant="error">{error}</AlertBanner>
 	{/if}
 
 	<div

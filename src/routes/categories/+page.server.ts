@@ -17,6 +17,10 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { findCategoryByTypedName, isReservedCategoryName } from '$lib/server/categories/nameMatch';
 import { renameCategoryReferences } from '$lib/server/categories/references';
+import {
+	countTransactionsInCategory,
+	readEffectiveCategoryCounts
+} from '$lib/server/categories/effectiveCount';
 import { planDefaultCategoryRenames } from '$lib/server/categories/renamePrompt';
 import type { PageServerLoad } from './$types';
 
@@ -39,14 +43,15 @@ export type CategoryRow = {
 export const load: PageServerLoad = async ({ locals }) => {
 	const user = requireUser(locals.user);
 
-	const [categories, mappings, rules, dismissal] = await Promise.all([
+	const [categories, mappings, rules, dismissal, effectiveCounts] = await Promise.all([
 		prisma.category.findMany({
 			where: { userId: user.id },
 			orderBy: { name: 'asc' },
+			// No `_count.transactions`: the count is the EFFECTIVE category, which needs the folded
+			// key of the NAME to resolve `manualCategory` — see readEffectiveCategoryCounts.
 			select: {
 				id: true,
-				name: true,
-				_count: { select: { transactions: true } }
+				name: true
 			}
 		}),
 		readCategoryNatureMappings(user.id),
@@ -66,7 +71,10 @@ export const load: PageServerLoad = async ({ locals }) => {
 		prisma.user.findUnique({
 			where: { id: user.id },
 			select: { categoryRenamePromptDismissedAt: true }
-		})
+		}),
+		// Neither of its two groupBy queries depends on the category list — only the final mapping
+		// does — so it joins the fan-out rather than waiting for it.
+		readEffectiveCategoryCounts(user.id)
 	]);
 
 	const mappingByName = new Map(mappings.map((m) => [m.categoryName, m]));
@@ -85,7 +93,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		return {
 			id: cat.id,
 			name: cat.name,
-			transactionCount: cat._count.transactions,
+			transactionCount: effectiveCounts.get(cat.id) ?? 0,
 			pausedRuleCount: ruleCountByKey.get(computeNameKey(cat.name)) ?? 0,
 			nature: mapping ? mapping.nature : null,
 			mappingId: mapping ? mapping.id : null
@@ -330,7 +338,11 @@ export const actions: Actions = {
 			});
 		}
 
-		const txCount = await prisma.transaction.count({ where: { categoryId: id, userId: user.id } });
+		// The same read the page's count comes from, so the message and the screen cannot disagree.
+		// This used to be `count({ categoryId: id })` while the transaction below ALSO cleared every
+		// `manualCategoryKey` row — so it destroyed exactly what it had not counted, and then
+		// reported the count. Measured: eleven categorisations gone under « Catégorie supprimée. »
+		const txCount = await countTransactionsInCategory(user.id, cat.id);
 
 		const fallback = await resolveCategoryByName(user.id, UNCLASSIFIED_CATEGORY);
 		const deletedKey = computeNameKey(cat.name);
@@ -355,10 +367,17 @@ export const actions: Actions = {
 			prisma.category.delete({ where: { id } })
 		]);
 
+		// The message says the transactions are no longer in this category, and deliberately does NOT
+		// name where each one landed: there are TWO populations and they do not go to the same place.
+		// A row that pointed here through `categoryId` is repointed to "Non categorise"; a row that
+		// was PINNED here through `manualCategory` has its pin cleared and falls back to its own
+		// `categoryId`, which is whatever the import assigned and is usually a different category
+		// entirely. The old wording named "Non categorise" for both, which sent the user looking for
+		// rows that are not there.
 		return {
 			success:
 				txCount > 0
-					? m.categories_success_deleted_moved({ count: txCount })
+					? m.categories_success_deleted_detached({ count: txCount })
 					: m.categories_success_deleted()
 		};
 	},

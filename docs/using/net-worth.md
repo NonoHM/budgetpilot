@@ -39,6 +39,21 @@ This is also why the **Value as of** field matters: entering three past
 balances gives you a curve immediately, instead of waiting three months for
 one.
 
+Filling in a past balance only adds to the history. It never changes the
+total at the top of the page, which always shows your most recent balance.
+So you can enter old balances in any order you like.
+
+## Remove an account
+
+Deleting an account does two things.
+
+Its past stays on the curve. The months it was open still show what you were
+worth at the time, which is what you want: closing an account today did not
+make you poorer last year.
+
+From the day you delete it, it stops counting. Your total drops by whatever
+that account held, and the curve shows the step on that date.
+
 ## The two views
 
 The button pair above the chart switches between them.

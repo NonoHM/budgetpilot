@@ -9,6 +9,7 @@
 	import { navigating } from '$app/state';
 	import { enhance } from '$app/forms';
 	import Modal from '$lib/components/Modal.svelte';
+	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import DashboardInsights from '$lib/components/DashboardInsights.svelte';
 	import Avatar from '$lib/components/Avatar.svelte';
@@ -820,7 +821,11 @@
 			/>
 		</label>
 		{#if form?.createTransactionError}
-			<p class="text-sm font-medium text-rose-700">{form.createTransactionError}</p>
+			<!-- `AlertBanner variant="error"` rather than a red paragraph, because a refused save that
+			     only changes colour is not perceivable to a screen-reader user: the banner carries
+			     `aria-live="assertive"`, a hand-rolled `<p>` carries nothing. This is the surface the
+			     category field's refusal now arrives on — see `Combobox.svelte`'s `required`. -->
+			<AlertBanner variant="error">{form.createTransactionError}</AlertBanner>
 		{/if}
 		<div class="flex gap-2 border-t border-zinc-100 pt-3 lg:justify-end">
 			<TapLink

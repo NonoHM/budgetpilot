@@ -2,6 +2,7 @@ import { page, userEvent } from 'vitest/browser';
 import { describe, expect, it } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import Combobox from './Combobox.svelte';
+import ComboboxInForm from './__fixtures__/ComboboxInForm.svelte';
 import '../../../routes/layout.css';
 
 /**
@@ -155,5 +156,58 @@ describe('Combobox.svelte — softDisabled (1j, 1q)', () => {
 		expect(locked.value).toBe('Maison');
 		expect(locked.getBoundingClientRect().height).toBe(live.height);
 		expect(locked.getBoundingClientRect().width).toBe(live.width);
+	});
+});
+
+/**
+ * `required` used to be forwarded to `Combobox.Root`, which hands it to bits-ui's hidden mirror
+ * input. That input carries `srOnlyStyles` (`transform: translateX(-100%)`, 1x1px, clipped),
+ * `aria-hidden="true"` and `tabindex="-1"`, so Chrome finds it invalid, CANNOT FOCUS IT TO REPORT,
+ * and aborts the submit with nothing on screen and nothing in the accessibility tree — only
+ * `An invalid form control with name='category' is not focusable` on the console, which no user
+ * reads. Measured on three pages, one of them the manual-add modal that is the app's only
+ * hand-entry path and the first thing a new user touches.
+ *
+ * The fix is not a wider client-side guard. The server already refuses every one of these actions
+ * with a localised message and a `fail(400)` — every call site renders it — so the defect was that
+ * the server was NEVER ASKED. `required` now expresses the semantic (`aria-required`, which a
+ * screen reader announces) without installing an unreportable native constraint, and the refusal
+ * arrives from the one place that is authoritative about it.
+ */
+describe('Combobox.svelte — required does not silently abort a submit', () => {
+	const options = [
+		{ value: 'alimentation', label: 'Alimentation' },
+		{ value: 'maison', label: 'Maison' }
+	];
+
+	it('submits an empty required combobox so the server can refuse it', async () => {
+		expect.assertions(2);
+
+		let submitted = 0;
+
+		// Calibration FIRST: the identical form with `required` unset submits, so the assertion that
+		// follows is evidence about `required` and not about the harness. Ordered this way on
+		// purpose — a calibration that only runs when the real assertion already passed calibrates
+		// nothing (CLAUDE.md: prove the detector can detect).
+		render(ComboboxInForm, { options, required: false, onsubmitted: () => (submitted += 1) });
+		await userEvent.click(page.getByRole('button', { name: 'Enregistrer' }));
+		expect(submitted).toBe(1);
+
+		render(ComboboxInForm, { options, required: true, onsubmitted: () => (submitted += 1) });
+		await userEvent.click(page.getByRole('button', { name: 'Enregistrer' }).last());
+		expect(submitted).toBe(2);
+	});
+
+	it('still tells assistive technology the field is required', async () => {
+		expect.assertions(2);
+
+		render(Combobox, { options, ariaLabel: 'Catégorie', required: true });
+		const input = page.getByRole('combobox', { name: 'Catégorie' }).element();
+		expect(input.getAttribute('aria-required')).toBe('true');
+
+		render(Combobox, { options, ariaLabel: 'Montant', required: false });
+		expect(
+			page.getByRole('combobox', { name: 'Montant' }).element().getAttribute('aria-required')
+		).toBeNull();
 	});
 });

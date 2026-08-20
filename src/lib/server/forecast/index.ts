@@ -187,6 +187,18 @@ async function resolveStartingBalance(
 // directly for display.
 
 export interface CashFlowForecastFlowView {
+	/** Stable per-flow identity for the client — the flow's most recent occurrence id, the same
+	 *  anchor `RecurringStreamAction.anchorTransactionIds` and `resolveLastOccurrence` already use.
+	 *
+	 *  NOT `RecurringFlow.key`, and that distinction is the whole reason this field exists: `key` is
+	 *  direction + normalized merchant + category, and `getSimilarAmountGroups` splits ONE such group
+	 *  into one flow per amount band, so several flows legitimately share a key — along with `label`,
+	 *  `category` and `direction`, which they all inherit from the same group. A route keying an
+	 *  `#each` on any combination of those renders a duplicate key, which Svelte 5 throws on at
+	 *  runtime IN PRODUCTION BUILDS and which tears down the hydrated tree: /reports went blank.
+	 *  `occurrenceIds` are disjoint across flows by construction (the split partitions the group), so
+	 *  this is unique without needing a positional index. */
+	id: string;
 	category: string;
 	direction: FlowDirection;
 	cadence: FlowCadence;
@@ -246,6 +258,7 @@ export interface CashFlowForecastView {
 
 export function toDisplayCashFlowForecast(forecast: CashFlowForecast): CashFlowForecastView {
 	const flows = forecast.flows.map((flow) => ({
+		id: flow.occurrenceIds[flow.occurrenceIds.length - 1],
 		category: flow.category,
 		direction: flow.direction,
 		cadence: flow.cadence,

@@ -187,6 +187,23 @@ const db = vi.hoisted(() => {
 			},
 			transaction: {
 				count: vi.fn(async () => 0),
+				// The effective-category count (`readEffectiveCategoryCounts`) groups twice, once per
+				// half of the `manualCategory ?? category` precedence. This fake holds no transactions
+				// at all — `count` above already returns 0 for every query in this file — so both
+				// halves are empty, and every category here legitimately reports zero.
+				//
+				// It THROWS on a grouping it does not model rather than returning `[]` for it, because
+				// an empty array is indistinguishable from "no rows matched" and would make a wrong
+				// query look like a correct one with no data (CLAUDE.md: a fake must fail loudly on a
+				// predicate it cannot model). The real behaviour lives in
+				// `categories/effectiveCount.db-smoke.ts`, against all three engines.
+				groupBy: vi.fn(async ({ by }: { by: string[] }) => {
+					const modelled = [['manualCategoryKey'], ['categoryId']];
+					if (!modelled.some((shape) => shape.join() === by.join())) {
+						throw new Error(`transaction.groupBy: unmodelled grouping ${by.join(', ')}`);
+					}
+					return [];
+				}),
 				updateMany: vi.fn(async () => ({ count: 0 }))
 			},
 			transactionSplit: {

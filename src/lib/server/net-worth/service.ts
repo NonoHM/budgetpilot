@@ -49,15 +49,34 @@ export async function readNetWorthAccounts(userId: string): Promise<NetWorthAcco
  * Every snapshot for this user, including snapshots of soft-deleted accounts: the timeline
  * must keep showing historically-correct past points even after an account is "removed"
  * from the current list (see buildNetWorthTimeline's doc comment).
+ *
+ * And every CLOSURE, which is the other half of the same sentence. Reading the snapshots alone
+ * left each account's last balance carried forward past the moment the user removed it, so the
+ * curve's present point disagreed with the headline above it by exactly the accounts that had
+ * been closed.
  */
 export async function readNetWorthSeries(userId: string): Promise<NetWorthTimelinePoint[]> {
-	const snapshots = await prisma.netWorthSnapshot.findMany({
-		where: { userId },
-		select: { accountId: true, type: true, balanceCents: true, capturedAt: true }
-	});
+	const [snapshots, closed] = await Promise.all([
+		prisma.netWorthSnapshot.findMany({
+			where: { userId },
+			// Ordered, and the order is load-bearing: `buildNetWorthTimeline` sorts by `capturedAt`
+			// with a stable sort, so two snapshots at the SAME instant keep the order they arrive in
+			// and the last one wins the point. Unordered, that was whatever the engine returned.
+			// This is the same tie-break `updateNetWorthAccount` uses to decide the account's current
+			// balance, which is what makes the headline and the curve agree on a tie rather than
+			// each picking a defensible different row.
+			orderBy: [{ capturedAt: 'asc' }, { id: 'asc' }],
+			select: { accountId: true, type: true, balanceCents: true, capturedAt: true }
+		}),
+		prisma.netWorthAccount.findMany({
+			where: { userId, deletedAt: { not: null } },
+			select: { id: true, deletedAt: true }
+		})
+	]);
 
 	return buildNetWorthTimeline(
-		snapshots.map((snapshot) => ({ ...snapshot, type: snapshot.type as NetWorthAccountType }))
+		snapshots.map((snapshot) => ({ ...snapshot, type: snapshot.type as NetWorthAccountType })),
+		new Map(closed.map((account) => [account.id, account.deletedAt as Date]))
 	);
 }
 
@@ -103,7 +122,7 @@ export async function updateNetWorthAccount(
 
 		await tx.netWorthAccount.updateMany({
 			where: { id: accountId, userId },
-			data: { name, nameKey: computeNameKey(name), type, balanceCents }
+			data: { name, nameKey: computeNameKey(name), type }
 		});
 
 		// A snapshot is written on any change that affects the signed value shown on the
@@ -115,6 +134,18 @@ export async function updateNetWorthAccount(
 				data: { userId, accountId, type, balanceCents, capturedAt }
 			});
 		}
+
+		// `NetWorthAccount.balanceCents` is a VERDICT ON THE PRESENT, not a copy of whatever the
+		// form last said, so it is derived from the newest snapshot rather than written from the
+		// input (CLAUDE.md: a verdict recomputed cannot disagree with its data; one frozen in a
+		// column can). It had been written from the input, and a BACKDATED edit therefore pushed a
+		// past balance into "now" while leaving the newer snapshot in place — the headline read
+		// 9 200 € above a curve reading 8 500 €, sloping DOWN after an increase.
+		//
+		// That is not an edge case: `docs/using/net-worth.md` recommends filling in past balances as
+		// the way to get a curve on day one, so it is the documented onboarding path.
+		//
+		await syncBalanceToNewestSnapshot(tx, userId, accountId, balanceCents);
 
 		// A type change to a non-linkable type (real_estate/other) invalidates the "transactional
 		// types only" restriction from the linking UI: unlink every technical Account pointing here
@@ -298,17 +329,56 @@ export async function recordSyncedBalance(
 		if (!existing) return;
 		if (existing.balanceCents === balanceCents) return;
 
-		await tx.netWorthAccount.update({
-			where: { id: existing.id },
-			data: { balanceCents }
-		});
 		await tx.netWorthSnapshot.create({
 			data: { userId, accountId: existing.id, type: existing.type, balanceCents, capturedAt }
 		});
+		// Through the SAME derivation the manual edit uses, not a direct write. An invariant enforced
+		// in "the" write path is only enforced if every path is that one (CLAUDE.md), and this was the
+		// other path. `parseAsOfDate` pins a manual as-of date to 12:00:00Z while a sync stamps the
+		// real time, so a sync completing before noon UTC on a day the user also saved a balance
+		// "as of today" arrives with an OLDER `capturedAt` — writing it straight to the column put a
+		// superseded figure in the headline while the curve kept the user's.
+		await syncBalanceToNewestSnapshot(tx, userId, existing.id, balanceCents);
 	});
 }
 
 type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+
+/**
+ * Points `NetWorthAccount.balanceCents` at the account's NEWEST snapshot.
+ *
+ * The column is a VERDICT ON THE PRESENT, not a copy of whatever the last writer happened to hold
+ * (CLAUDE.md: a verdict recomputed cannot disagree with its data; one frozen in a column can). It
+ * is what `/net-worth`'s headline sums, while the curve is built from the snapshots — so any writer
+ * that sets the column directly can put the two figures out of step, and both writers did.
+ *
+ * `capturedAt` first, then `id`. Two snapshots can carry the SAME captured instant: `parseAsOfDate`
+ * pins a given YYYY-MM-DD to 12:00:00Z, so correcting a backdated balance to the same day writes a
+ * second row at the same moment. The tie-break has to exist and, more importantly, has to be THE
+ * SAME ONE the curve uses (see `readNetWorthSeries`'s `orderBy`), or the two figures can disagree
+ * on a tie while both being defensible. `NetWorthSnapshot` has no `createdAt`; `id` is a `cuid()`,
+ * whose prefix is the creation timestamp, so descending id is both stable and chronologically right.
+ *
+ * `fallbackCents` is unreachable through either caller — both write a snapshot immediately before
+ * calling this, and `createNetWorthAccount` writes the first one — and exists so a row that somehow
+ * has no snapshot ends up with the value just supplied rather than silently keeping the old one.
+ */
+async function syncBalanceToNewestSnapshot(
+	tx: Tx,
+	userId: string,
+	accountId: string,
+	fallbackCents: number
+): Promise<void> {
+	const newest = await tx.netWorthSnapshot.findFirst({
+		where: { userId, accountId },
+		orderBy: [{ capturedAt: 'desc' }, { id: 'desc' }],
+		select: { balanceCents: true }
+	});
+	await tx.netWorthAccount.updateMany({
+		where: { id: accountId, userId },
+		data: { balanceCents: newest?.balanceCents ?? fallbackCents }
+	});
+}
 
 /**
  * Uniqueness of (userId, name) enforced here against ACTIVE accounts only (see

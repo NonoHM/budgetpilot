@@ -33,6 +33,18 @@ export interface AnonymizedExpense {
 }
 
 export interface RecurringPayment {
+	/** Stable per-stream identity for the client — the stream's most recent transaction id, the same
+	 *  anchor the forecast view's `CashFlowForecastFlowView.id` uses.
+	 *
+	 *  None of the DISPLAYED fields identifies a stream, and that is not an oversight to work around
+	 *  with a composite key: grouping and display run through two different normalizers.
+	 *  `normalizeRecurringLabel` decides which transactions form a group and keeps the whole label,
+	 *  while `anonymizeMerchant` truncates the displayed one at 28 characters — so two branches of
+	 *  one chain at one price group APART and display IDENTICALLY. `getSimilarAmountGroups` supplies
+	 *  a second source of near-collisions on the same triple. A route keying an `#each` on any of
+	 *  them renders a duplicate key, which Svelte 5 throws on at runtime in production builds and
+	 *  which blanks the whole route. */
+	id: string;
 	label: string;
 	amountCents: number;
 	totalAmountCents: number;
@@ -268,6 +280,7 @@ export function getRecurringPayments(expenses: Transaction[]): RecurringPayment[
 			const spreadCents = Math.max(...amounts) - Math.min(...amounts);
 
 			return {
+				id: sortedGroup[sortedGroup.length - 1].id,
 				label: anonymizeLabel(sortedGroup[0].label, sortedGroup[0].category),
 				amountCents,
 				totalAmountCents,

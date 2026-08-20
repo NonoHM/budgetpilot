@@ -400,3 +400,76 @@ describe('buildTransactionSummary - includeLabels', () => {
 		expect(summary.flaggedCategoryLabels).toEqual([]);
 	});
 });
+
+/**
+ * `TransactionSummary` is the payload handed to the local model, and the prompt declares it as
+ * "Aggregated data, no raw transactions" whenever the user has not opted into sharing labels.
+ * #216's comment above that constant says in so many words that the sentence has to stay true to
+ * what is actually sent.
+ *
+ * It stopped being true through a SPREAD rather than through an edit. `RecurringPayment` gained an
+ * `id` (the stream's most recent transaction id, so /reports can key an `#each` on something
+ * unique), `buildTransactionSummary` copies each payment with `...payment`, and a raw transaction
+ * identifier reached the prompt, including in the privacy-preserving mode whose whole purpose is
+ * that it does not.
+ *
+ * ASVS 5.0.0 `v5.0.0-14.2.3` (L2), quoted from the standard: "Verify that defined sensitive data is
+ * not sent to untrusted parties (e.g., user trackers) to prevent unwanted collection of data
+ * outside of the application's control." The local model is a component outside this app's control,
+ * and `includeLabels: false` is the user saying which data may cross that boundary. `v5.0.0-14.2.6`
+ * states the same minimum-data principle and is L3, so it is outside this project's declared scope;
+ * it is named because it is the row the fix actually satisfies.
+ *
+ * The assertion is over the SERIALISED payload rather than over named fields, so a field added to
+ * `RecurringPayment` later fails here instead of travelling silently the way `id` did.
+ */
+describe('buildTransactionSummary carries nothing that identifies a transaction', () => {
+	/** Two matching debits a month apart: the smallest input `getRecurringPayments` accepts. */
+	function recurringTransactions(): Transaction[] {
+		return [
+			{
+				id: 'clz9rawidtransaction001',
+				date: '2026-05-10',
+				label: 'ABONNEMENT SPOTIFY 998877',
+				amountCents: -1_099,
+				type: 'expense',
+				category: 'Loisirs',
+				source: 'csv'
+			},
+			{
+				id: 'clz9rawidtransaction002',
+				date: '2026-06-10',
+				label: 'ABONNEMENT SPOTIFY 998877',
+				amountCents: -1_099,
+				type: 'expense',
+				category: 'Loisirs',
+				source: 'csv'
+			}
+		];
+	}
+
+	it.each([
+		{ includeLabels: false, mode: 'the privacy-preserving mode' },
+		{ includeLabels: true, mode: 'the opt-in mode' }
+	])('carries no transaction id in $mode', ({ includeLabels }) => {
+		expect.assertions(3);
+
+		const transactions = recurringTransactions();
+		const summary = buildTransactionSummary(
+			transactions,
+			toAllocations(transactions),
+			summarizeBudgetAllocations(toAllocations(transactions), [], '2026-06'),
+			undefined,
+			{ includeLabels }
+		);
+
+		// Calibration: the stream really is in the payload, so an absent id below is evidence about
+		// the id and not about the fixture failing to produce a recurring payment at all.
+		expect(summary.recurringPayments).toHaveLength(1);
+
+		const serialized = JSON.stringify(summary);
+		for (const transaction of transactions) {
+			expect(serialized).not.toContain(transaction.id);
+		}
+	});
+});

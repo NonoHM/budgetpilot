@@ -31,7 +31,22 @@ export interface TransactionSummary {
 	transactionCount: number;
 	topCategories: CategoryTotal[];
 	largestExpenses: AnonymizedExpense[];
-	recurringPayments: RecurringPayment[];
+	/**
+	 * `Omit<..., 'id'>`, and the omission is a control rather than tidiness. `RecurringPayment.id`
+	 * is the stream's most recent TRANSACTION id, added so /reports can key an `#each` on something
+	 * unique. This payload is handed to the local model, and the prompt declares it as "Aggregated
+	 * data, no raw transactions" when the user has not opted into sharing labels (see #216's comment
+	 * in prompt.ts) — a raw transaction identifier makes that sentence false.
+	 *
+	 * ASVS 5.0.0 `v5.0.0-14.2.3` (L2): "Verify that defined sensitive data is not sent to untrusted
+	 * parties (e.g., user trackers) to prevent unwanted collection of data outside of the
+	 * application's control."
+	 *
+	 * Typed here rather than only stripped at the call site, so the compiler is what refuses the
+	 * field. It arrived through a `...payment` SPREAD rather than through an edit, which is a shape
+	 * no reviewer catches by reading the diff.
+	 */
+	recurringPayments: Omit<RecurringPayment, 'id'>[];
 	previousMonth?: MonthlyReportComparison;
 	flaggedCategoryLabels?: FlaggedCategoryLabels[];
 }
