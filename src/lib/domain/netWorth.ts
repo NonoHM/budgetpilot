@@ -217,13 +217,29 @@ export interface NetWorthTimelinePoint {
  * (or before), summed — never the latest snapshot across all rows, which would give a
  * wrong total as soon as accounts are updated at different times.
  * An account with no snapshot yet at a given timestamp is simply excluded from that
- * point's total. The account list itself isn't needed here (unlike a prior version of
- * this function): every snapshot already carries its own type, so a soft-deleted account's
- * past snapshots keep contributing their historically-correct sign to the timeline even
- * after the account no longer appears in the live accounts list.
+ * point's total. Every snapshot carries its own type, so a soft-deleted account's PAST
+ * snapshots keep contributing their historically-correct sign to the points before it
+ * was closed.
+ *
+ * `deletedAtByAccount` is what stops that carrying-forward from running past the closure,
+ * and it is required rather than optional on purpose. Without it an account's last known
+ * balance was carried forward at EVERY later timestamp, including the rightmost one — so a
+ * closed account went on contributing to « today » forever and the curve's present point
+ * overstated by whatever the user had removed. Measured on the real screen: headline
+ * 2 400,00 € above a curve reading 10 900,00 €, same card, same render.
+ *
+ * A deletion is also a POINT, not only a cutoff. Soft-deleting writes no snapshot, so
+ * without its own timestamp the change would not appear on the curve at all until the next
+ * unrelated edit — the total would step down retroactively at whatever moment came next,
+ * which is a different (and later) date than the one the user acted on.
+ *
+ * Deliberately NOT solved by writing a zero-balance closing snapshot: that would record a
+ * balance the account never had, and it would be indistinguishable afterwards from an
+ * account the user really did empty.
  */
 export function buildNetWorthTimeline(
-	snapshots: readonly NetWorthSnapshotPoint[]
+	snapshots: readonly NetWorthSnapshotPoint[],
+	deletedAtByAccount: ReadonlyMap<string, Date>
 ): NetWorthTimelinePoint[] {
 	if (snapshots.length === 0) return [];
 
@@ -237,13 +253,30 @@ export function buildNetWorthTimeline(
 		list.sort((a, b) => a.capturedAt.getTime() - b.capturedAt.getTime());
 	}
 
-	const timestamps = [...new Set(snapshots.map((s) => s.capturedAt.getTime()))].sort(
-		(a, b) => a - b
-	);
+	const deletionTimes = new Map<string, number>();
+	for (const [accountId, deletedAt] of deletedAtByAccount) {
+		deletionTimes.set(accountId, deletedAt.getTime());
+	}
+
+	const timestamps = [
+		...new Set([
+			...snapshots.map((s) => s.capturedAt.getTime()),
+			// Only closures of accounts this series actually knows about: a deletion with no snapshot
+			// behind it would add a point at which nothing changed.
+			...[...deletionTimes.entries()]
+				.filter(([accountId]) => snapshotsByAccount.has(accountId))
+				.map(([, time]) => time)
+		])
+	].sort((a, b) => a - b);
 
 	return timestamps.map((ts) => {
 		let totalCents = 0;
-		for (const list of snapshotsByAccount.values()) {
+		for (const [accountId, list] of snapshotsByAccount) {
+			// `<=`, so the deletion's own point already shows the total WITHOUT the closed account —
+			// that point exists to say what changed, and it would say nothing if it still counted it.
+			const deletedAt = deletionTimes.get(accountId);
+			if (deletedAt !== undefined && deletedAt <= ts) continue;
+
 			let lastKnown: NetWorthSnapshotPoint | undefined;
 			for (const point of list) {
 				if (point.capturedAt.getTime() > ts) break;

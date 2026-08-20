@@ -39,6 +39,16 @@ This is also why the **Value as of** field matters: entering three past
 balances gives you a curve immediately, instead of waiting three months for
 one.
 
+Backdating only adds history. The figure at the top of the page is always
+your most recent balance, whatever order you enter the past ones in.
+
+## Remove an account
+
+Deleting an account keeps its past on the curve — the months it was open
+still show what you were worth then — and stops it counting from the day you
+remove it. Your total drops by that account's balance on that date, and the
+curve shows the step.
+
 ## The two views
 
 The button pair above the chart switches between them.

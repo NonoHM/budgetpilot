@@ -21,6 +21,15 @@ Every balance saved against a new date is kept, and the curve is drawn
 through those points, so history is a record of what you entered rather than
 a reconstruction.
 
+An account's **current** balance is its newest snapshot, not the last one you
+typed. Saving a backdated balance therefore adds a point to the past and
+leaves the total at the top of the page alone.
+
+Between two points, an account is carried forward at its last known balance —
+until it is deleted. A deleted account keeps every point it contributed
+before that date and contributes nothing after it, so the curve's rightmost
+point and the total at the top of the page are always the same figure.
+
 ## The two views
 
 | View          | Shows                                                   |

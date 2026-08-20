@@ -9,7 +9,22 @@ const tx = vi.hoisted(() => ({
 		findFirst: vi.fn()
 	},
 	netWorthSnapshot: {
-		create: vi.fn()
+		create: vi.fn(),
+		/**
+		 * `updateNetWorthAccount` derives the account's CURRENT balance from the newest snapshot
+		 * rather than from the form, so a backdated edit adds history instead of rewriting the
+		 * present. That read is modelled here as "the snapshots written in this call, newest last",
+		 * which is enough for every case in this file — none of them backdates.
+		 *
+		 * It cannot be modelled further, and the boundary matters: a mock cannot honour
+		 * `orderBy: [{ capturedAt: 'desc' }, { id: 'desc' }]` against rows it does not store, so the
+		 * behaviour that actually depends on the ordering — a backdated balance leaving the headline
+		 * alone, and the headline agreeing with the curve — is asserted in
+		 * `headlineAgreesWithCurve.db-smoke.ts` against all three real engines. Returning `null` here
+		 * instead would be worse than useless: the `?? balanceCents` fallback would then reproduce
+		 * exactly the OLD behaviour, and every test in this file would pass against the defect.
+		 */
+		findFirst: vi.fn()
 	},
 	account: {
 		updateMany: vi.fn(),
@@ -65,6 +80,13 @@ beforeEach(() => {
 	db.prisma.$transaction.mockImplementation(async (cb: (tx: TxMock) => Promise<void>) => cb(tx));
 	// No name conflict by default; individual tests override for the duplicate-name case.
 	tx.netWorthAccount.findFirst.mockResolvedValue(null);
+	// "The newest snapshot" = the last one this call wrote. See the fake's own comment for why
+	// returning `null` here would make every test in this file pass against the old defect.
+	tx.netWorthSnapshot.findFirst.mockImplementation(async () => {
+		const writes = tx.netWorthSnapshot.create.mock.calls;
+		if (writes.length === 0) return null;
+		return { balanceCents: writes[writes.length - 1][0].data.balanceCents };
+	});
 });
 
 describe('readNetWorthAccounts', () => {
@@ -128,16 +150,31 @@ describe('readNetWorthAccounts', () => {
 });
 
 describe('readNetWorthSeries', () => {
-	it('lit tous les snapshots filtrés par userId, y compris ceux de comptes supprimés', async () => {
+	/**
+	 * This test used to assert `netWorthAccount.findMany` was NOT called, on the reasoning that every
+	 * snapshot carries its own type so the account list adds nothing. That reasoning was right about
+	 * TYPE and wrong about CLOSURE: without the deletion dates, each account's last balance was
+	 * carried forward at every later timestamp including the rightmost one, so a closed account kept
+	 * contributing to « today » forever and the curve disagreed with the headline above it (measured:
+	 * 10 900,00 € against 2 400,00 €). The assertion is inverted deliberately, not relaxed.
+	 */
+	it('lit tous les snapshots ET les dates de clôture, ordonnés, y compris pour les comptes supprimés', async () => {
 		db.prisma.netWorthSnapshot.findMany.mockResolvedValue([]);
+		db.prisma.netWorthAccount.findMany.mockResolvedValue([]);
 
 		await readNetWorthSeries(userId);
 
 		expect(db.prisma.netWorthSnapshot.findMany).toHaveBeenCalledWith({
 			where: { userId },
+			// The order is load-bearing, not cosmetic: `buildNetWorthTimeline` sorts stably, so two
+			// snapshots at the same instant keep the order they arrive in and the last one wins.
+			orderBy: [{ capturedAt: 'asc' }, { id: 'asc' }],
 			select: { accountId: true, type: true, balanceCents: true, capturedAt: true }
 		});
-		expect(db.prisma.netWorthAccount.findMany).not.toHaveBeenCalled();
+		expect(db.prisma.netWorthAccount.findMany).toHaveBeenCalledWith({
+			where: { userId, deletedAt: { not: null } },
+			select: { id: true, deletedAt: true }
+		});
 	});
 });
 
@@ -270,14 +307,21 @@ describe('updateNetWorthAccount', () => {
 			balance: '700'
 		});
 
+		// Two writes, and the split is the fix: `name` and `type` are what the account IS and are
+		// written from the form, while `balanceCents` is a VERDICT ON THE PRESENT and is derived from
+		// the newest snapshot. Written from the form, a backdated edit pushed a past balance into
+		// "now" and the headline disagreed with the curve below it.
 		expect(tx.netWorthAccount.updateMany).toHaveBeenCalledWith({
 			where: { id: 'acc-00000001', userId },
 			data: {
 				name: 'Livret A',
 				nameKey: computeNameKey('Livret A'),
-				type: 'savings',
-				balanceCents: 70_000
+				type: 'savings'
 			}
+		});
+		expect(tx.netWorthAccount.updateMany).toHaveBeenCalledWith({
+			where: { id: 'acc-00000001', userId },
+			data: { balanceCents: 70_000 }
 		});
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {

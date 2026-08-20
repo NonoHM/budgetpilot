@@ -11,6 +11,10 @@ import {
 	suggestNetWorthAccountType
 } from './netWorth';
 
+/** Named rather than an inline `new Map()`: every case in this file is about accounts that are
+ *  still open, and the argument is what says so. */
+const NO_CLOSURES = new Map<string, Date>();
+
 describe('isNetWorthAccountType', () => {
 	it('accepts the 6 known types', () => {
 		expect(isNetWorthAccountType('checking')).toBe(true);
@@ -250,7 +254,7 @@ describe('negativeBalanceDisplayCents', () => {
 
 describe('buildNetWorthTimeline', () => {
 	it('returns an empty array with no snapshot', () => {
-		expect(buildNetWorthTimeline([])).toEqual([]);
+		expect(buildNetWorthTimeline([], NO_CLOSURES)).toEqual([]);
 	});
 
 	it('aggregates PER ACCOUNT the last known snapshot of each account, never the latest snapshot across all rows', () => {
@@ -278,7 +282,7 @@ describe('buildNetWorthTimeline', () => {
 			}
 		];
 
-		const series = buildNetWorthTimeline(snapshots);
+		const series = buildNetWorthTimeline(snapshots, NO_CLOSURES);
 		const byTimestamp = new Map(series.map((point) => [point.capturedAt, point.totalCents]));
 
 		// A's Jan snapshot: only A exists yet. B doesn't exist until Feb.
@@ -288,6 +292,61 @@ describe('buildNetWorthTimeline', () => {
 		// A's Mar snapshot: A moves to 300, B still carries forward its last known balance (500).
 		expect(byTimestamp.get('2026-03-05T00:00:00.000Z')).toBe(300_00 + 500_00);
 		expect(series).toHaveLength(3);
+	});
+
+	/**
+	 * The carrying-forward above is right for an OPEN account and wrong for a closed one: it ran
+	 * past the moment the user removed the account, so a closed account went on contributing to
+	 * « today » forever and the curve's present point disagreed with the headline above it.
+	 * Measured on the real screen at 2 400,00 € against 10 900,00 €.
+	 */
+	it('stops carrying a closed account forward, and marks the closure as its own point', () => {
+		const snapshots = [
+			{
+				accountId: 'kept',
+				type: 'checking' as const,
+				balanceCents: 100_00,
+				capturedAt: new Date('2026-01-10T00:00:00Z')
+			},
+			{
+				accountId: 'closed',
+				type: 'savings' as const,
+				balanceCents: 500_00,
+				capturedAt: new Date('2026-02-15T00:00:00Z')
+			}
+		];
+		const closures = new Map([['closed', new Date('2026-03-05T00:00:00Z')]]);
+
+		const series = buildNetWorthTimeline(snapshots, closures);
+		const byTimestamp = new Map(series.map((point) => [point.capturedAt, point.totalCents]));
+
+		// Calibration: BEFORE the closure the closed account still counts, so the figure after it is
+		// evidence about the cutoff and not about the fixture having lost a snapshot.
+		expect(byTimestamp.get('2026-02-15T00:00:00.000Z')).toBe(100_00 + 500_00);
+
+		// Soft-deleting writes no snapshot, so without a point of its own the change would not
+		// appear until the next unrelated edit — at a later date than the one the user acted on.
+		expect(byTimestamp.get('2026-03-05T00:00:00.000Z')).toBe(100_00);
+		expect(series).toHaveLength(3);
+	});
+
+	it('adds no point for a closure of an account the series never knew', () => {
+		const snapshots = [
+			{
+				accountId: 'kept',
+				type: 'checking' as const,
+				balanceCents: 100_00,
+				capturedAt: new Date('2026-01-10T00:00:00Z')
+			}
+		];
+
+		// A point at which nothing changed is noise on the curve, and it would read as an event.
+		const series = buildNetWorthTimeline(
+			snapshots,
+			new Map([['never-snapshotted', new Date('2026-03-05T00:00:00Z')]])
+		);
+
+		expect(series).toEqual([{ capturedAt: '2026-01-10T00:00:00.000Z', totalCents: 100_00 }]);
 	});
 
 	it("applies the debt's negative sign in the aggregated series", () => {
@@ -306,7 +365,7 @@ describe('buildNetWorthTimeline', () => {
 			}
 		];
 
-		const series = buildNetWorthTimeline(snapshots);
+		const series = buildNetWorthTimeline(snapshots, NO_CLOSURES);
 		expect(
 			series.every(
 				(point) => point.totalCents === 1_000_00 - 400_00 || point.totalCents === 1_000_00
@@ -326,7 +385,7 @@ describe('buildNetWorthTimeline', () => {
 			}
 		];
 
-		const series = buildNetWorthTimeline(snapshots);
+		const series = buildNetWorthTimeline(snapshots, NO_CLOSURES);
 		expect(series.every((point) => point.totalCents === 100_00)).toBe(true);
 	});
 
@@ -354,7 +413,7 @@ describe('buildNetWorthTimeline', () => {
 			}
 		];
 
-		const series = buildNetWorthTimeline(snapshots);
+		const series = buildNetWorthTimeline(snapshots, NO_CLOSURES);
 
 		expect(series).toHaveLength(3);
 		expect(series.map((point) => point.totalCents)).toEqual([2_800_00, 2_000_00, 3_000_00]);
@@ -379,7 +438,7 @@ describe('buildNetWorthTimeline', () => {
 			}
 		];
 
-		const series = buildNetWorthTimeline(snapshots);
+		const series = buildNetWorthTimeline(snapshots, NO_CLOSURES);
 
 		expect(series[0].totalCents).toBe(1_000_00);
 		expect(series[1].totalCents).toBe(-1_000_00);
@@ -398,7 +457,7 @@ describe('buildNetWorthTimeline', () => {
 			}
 		];
 
-		expect(buildNetWorthTimeline(snapshots)[0].totalCents).toBe(500_00);
+		expect(buildNetWorthTimeline(snapshots, NO_CLOSURES)[0].totalCents).toBe(500_00);
 	});
 });
 
