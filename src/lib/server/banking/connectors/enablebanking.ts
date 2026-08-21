@@ -3,6 +3,7 @@ import { constantTimeEquals } from '$lib/server/banking/constantTime';
 import { normalizeForMatch } from '$lib/domain/normalize';
 import { filterBalancesByCurrency, selectPreferredBalance } from '$lib/domain/bankBalance';
 import type { ImportedTransaction, ImportedTransactionType } from '$lib/server/import/types';
+import { parseMoney } from '$lib/domain/money';
 import {
 	buildDeduplicationGroupKey,
 	buildDeduplicationKey,
@@ -402,15 +403,19 @@ function parseProviderDate(value: string | null | undefined): Date | null {
 	return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-/** Parses the API's decimal string amounts ("12.34") into absolute cents; null on bad input. */
+/**
+ * Parses the API's decimal string amounts ("12.34") into absolute cents; null on bad input.
+ *
+ * The grammar lives in `domain/money.ts` rather than in a regex here, which is what stops this
+ * file's idea of an acceptable amount drifting from the four CSV profiles'. One deliberate
+ * widening comes with that: the shared grammar also accepts inner whitespace and a comma decimal
+ * separator, which this regex refused. The refusal was not a protection, it was an ABORT (see
+ * `fetchAccountTransactions`), so accepting more here can only turn a failed fetch into a parsed
+ * amount. What is still refused is the case that matters: more fraction digits than the exponent.
+ */
 function parseDecimalAmountCents(value: string): number | null {
-	const match = /^-?(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim());
-	if (!match) return null;
-	const units = Number.parseInt(match[1], 10);
-	const decimals = match[2] ?? '';
-	const cents = Number.parseInt(decimals.padEnd(2, '0') || '0', 10);
-	if (!Number.isSafeInteger(units * 100 + cents)) return null;
-	return units * 100 + cents;
+	const parsed = parseMoney(value, { requireSafeInteger: true });
+	return parsed === null ? null : Math.abs(parsed.minorUnits);
 }
 
 /**
@@ -421,13 +426,5 @@ function parseDecimalAmountCents(value: string): number | null {
  * signedness again (see fetchAccountBalance's doc comment / security review finding).
  */
 function parseSignedDecimalAmountCents(value: string): number | null {
-	const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim());
-	if (!match) return null;
-	const sign = match[1] === '-' ? -1 : 1;
-	const units = Number.parseInt(match[2], 10);
-	const decimals = match[3] ?? '';
-	const cents = Number.parseInt(decimals.padEnd(2, '0') || '0', 10);
-	const total = sign * (units * 100 + cents);
-	if (!Number.isSafeInteger(total)) return null;
-	return total;
+	return parseMoney(value, { requireSafeInteger: true })?.minorUnits ?? null;
 }

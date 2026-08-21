@@ -1,5 +1,6 @@
 import { getLocale } from '$lib/paraglide/runtime';
 import type { TransactionSummary } from './types';
+import { money, toMajorUnitNumber } from '$lib/domain/money';
 
 const PROMPT_CURRENCY = 'EUR';
 
@@ -58,7 +59,7 @@ export function toPromptPayload(value: unknown): unknown {
 	return Object.fromEntries(
 		Object.entries(value as Record<string, unknown>).map(([key, entry]) => {
 			if (key.endsWith('Cents') && typeof entry === 'number') {
-				return [key.slice(0, -'Cents'.length), Math.round(entry) / 100];
+				return [key.slice(0, -'Cents'.length), toMajorUnitNumber(money(Math.round(entry)))];
 			}
 			return [key, toPromptPayload(entry)];
 		})

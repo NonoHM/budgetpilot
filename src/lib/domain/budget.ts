@@ -1,5 +1,6 @@
 import type { CategoryAllocation } from './allocation';
 import { normalizeForMatch } from './normalize';
+import { formatMoney, money } from './money';
 import { getLocale } from '$lib/paraglide/runtime';
 import * as m from '$lib/paraglide/messages';
 
@@ -164,9 +165,5 @@ export function formatCents(
 	 */
 	signDisplay: Intl.NumberFormatOptions['signDisplay'] = 'auto'
 ): string {
-	return new Intl.NumberFormat(locale, {
-		style: 'currency',
-		currency,
-		signDisplay
-	}).format(amountCents / 100);
+	return formatMoney(money(amountCents, currency), { locale, signDisplay });
 }

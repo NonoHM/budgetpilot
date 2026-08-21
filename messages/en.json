@@ -585,7 +585,7 @@
 	"insight_expenses_above_income_title": "Expenses above income",
 	"insight_expenses_above_income_message": "Reduce the highest categories first to return to balance.",
 	"insight_over_budget_title": "{category} budget exceeded",
-	"insight_over_budget_message": "The {category} item exceeds its envelope by {amount} EUR.",
+	"insight_over_budget_message": "The {category} item exceeds its envelope by {amount}.",
 	"insight_top_category_title": "Main item: {category}",
 	"insight_top_category_message": "This category accounts for a significant share of this month's expenses.",
 	"insight_expenses_increased_title": "Rising expenses",

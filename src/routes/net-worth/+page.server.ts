@@ -4,6 +4,8 @@ import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { isLinkableNetWorthAccountType, isNetWorthAccountType } from '$lib/domain/netWorth';
 import { isSavingsGoalLinkableAccountType } from '$lib/domain/savingsGoal';
+import { money, toInputValue } from '$lib/domain/money';
+import { getLocale } from '$lib/paraglide/runtime';
 import {
 	createNetWorthAccount,
 	deleteNetWorthAccount,
@@ -210,5 +212,5 @@ function getErrorStatus(caught: unknown): number {
 }
 
 function formatBalanceInput(balanceCents: number): string {
-	return (balanceCents / 100).toFixed(2).replace('.', ',');
+	return toInputValue(money(balanceCents), getLocale());
 }
