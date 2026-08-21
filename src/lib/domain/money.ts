@@ -324,6 +324,22 @@ function decimalSeparator(locale: string): string {
  * misread raw minor units as dollars, and `Intl`, which takes one). It is a `number`, so it is
  * subject to binary floating point and is not a storage or an interchange format. Anything written
  * to a file or read by another tool goes through `toDecimalString`.
+ *
+ * ## Why the display door still goes through here, which looks like a mistake and is not
+ *
+ * `Intl.NumberFormat.prototype.format` accepts a decimal STRING and keeps precision past the float
+ * range (measured on Node 24.18, and in the spec since ES2023), so the human door could consume
+ * `toDecimalString` and have no float on its path at all. Two measurements say not to.
+ *
+ * The float only diverges from the exact decimal above roughly 9e13 MAJOR units, swept
+ * deterministically over exponents 2 to 4; this application's own caps are 1e6 for a manual entry
+ * and 1e7 for a net worth balance, so no reachable amount differs. And the string path is NOT
+ * behaviour-preserving: `format(-0)` renders "-0,00" while `format('0.00')` renders "0,00", and
+ * `domain/netWorth.ts` carries a guard that exists precisely because of the first. Swapping them
+ * would quietly retire that guard's reason while the guard stayed in the tree.
+ *
+ * So the exactness belongs where a wrong digit is read by a machine, which is `toDecimalString`,
+ * and it is already there.
  */
 export function toMajorUnitNumber(amount: Money): number {
 	return amount.minorUnits / 10 ** amount.exponent;

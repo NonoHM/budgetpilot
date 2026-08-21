@@ -477,6 +477,42 @@ below.
 **The rule on `Account.currency` is unchanged and is now better supported than when it was
 written.** A currency field and an exponent field must arrive in the same change.
 
+### What the prior art says, including where it does not support us
+
+**RESEARCHED** (`docs/audits/research/money-module-prior-art.md`), four codebases read at pinned
+commits rather than documentation about them.
+
+**The strongest corroboration is `dinero.js` v2, which answers the per-amount question with both
+names.** `currency.exponent` is the default and `scale` is per amount, always present in the
+snapshot, with mixed scales normalising upward before arithmetic and a separately named `trimScale`
+as the inverse. That is this design's stored form, arrived at independently, and it is worth more
+than an argument because it is a library that had to live with the consequences.
+
+**And the honest half: no standard mandates a per-row exponent, and this note does not claim one.**
+ISO 20022 carries the currency as a required attribute of the amount and derives the exponent from
+ISO 4217 by a named rule; Fowler's Money pattern declines the question explicitly. Recorded as
+UNVERIFIED rather than filled in. What the sources do support is the reconstructibility argument,
+which is the one this note actually rests on, and not a precision argument, which it does not make.
+
+**One interface question the research REOPENED, and it belongs to the migration rather than here.**
+Firefly III's display path sets ICU's minimum AND maximum fraction digits both to the currency's
+stored `decimal_places`, overriding the locale's own data. This design does the opposite: the
+display digits are the currency's and the storage exponent is the row's, allowed to differ. The two
+disagree on exactly the fifteen codes where CLDR and ISO diverge, and Firefly's choice is probably
+right for this application: showing an amount stored at three digits rounded to zero puts a number
+on screen that is not the number stored, which is the failure this repository spent a release
+removing. **Not decided here, because today every row is a euro at exponent 2 and the two agree.**
+It is decided when the exponent column lands, and it is written down now so that it is decided
+rather than defaulted.
+
+**Two smaller findings, kept because they are cheap warnings.** Firefly does not validate precision
+on write, so a JPY amount of `100.55` is storable in it: a per-row precision with no gate on the
+write path records a lie rather than a value, which is why `parseMoney` refuses rather than rounds.
+And Actual Budget's CSV export returns a JavaScript `number`, with a pinned test asserting that
+`-2500` minor units export as `-25` rather than `-25.00`. **A machine door that returns a number is
+not a machine door**, which is why `toDecimalString` returns a string and is asserted by round
+trip.
+
 ## What is stored
 
 Per amount: **minor units as an integer, the currency code, and the exponent that says what the
