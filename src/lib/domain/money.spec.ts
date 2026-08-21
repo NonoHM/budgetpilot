@@ -10,7 +10,8 @@ import {
 	parseMoney,
 	toDecimalString,
 	toInputValue,
-	toMajorUnitNumber
+	toMajorUnitNumber,
+	currencySymbol
 } from './money';
 
 /**
@@ -279,5 +280,23 @@ describe('the doors agree with each other', () => {
 		);
 
 		expect(broken).toEqual([]);
+	});
+});
+
+describe('currencySymbol', () => {
+	it('gives the locale\'s symbol for a currency, not the code', () => {
+		expect.assertions(2);
+
+		expect(currencySymbol('EUR', 'fr')).toBe('€');
+		expect(currencySymbol('USD', 'en')).toBe('$');
+	});
+
+	// The suffix on an amount field is decoration, and decoration must not be able to throw the
+	// form that carries it. `Intl` never rejects an unknown code (it renders the code itself), so
+	// this pins the shape a caller can rely on rather than a value.
+	it('falls back to the code itself rather than throwing on something Intl does not know', () => {
+		expect.assertions(1);
+
+		expect(currencySymbol('ZZZ', 'fr')).toBe('ZZZ');
 	});
 });

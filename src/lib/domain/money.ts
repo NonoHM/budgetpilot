@@ -410,3 +410,25 @@ export function parseManualAmountCents(value: string): number | null {
 		})?.minorUnits ?? null
 	);
 }
+
+/**
+ * The symbol a locale uses for a currency, for a field's decorative suffix.
+ *
+ * Derived rather than written down, because a hardcoded `€` is one of the three literals this
+ * design set out to remove and because the symbol is a LOCALE's opinion, not a property of the
+ * amount: a French reader sees `€` where an American sees `US$` for the same stored row.
+ *
+ * `Intl.NumberFormat` never throws on an unknown code, it renders the code itself, so an unknown
+ * or mistyped currency degrades to `ZZZ` beside the field rather than taking the form down with
+ * it. That is deliberate for a suffix and would be wrong for a stored value: `money.ts` refuses
+ * nothing here because nothing here is stored.
+ */
+export function currencySymbol(currency: string, locale: string): string {
+	const parts = new Intl.NumberFormat(locale, {
+		style: 'currency',
+		currency,
+		minimumFractionDigits: 0,
+		maximumFractionDigits: 0
+	}).formatToParts(0);
+	return parts.find((part) => part.type === 'currency')?.value ?? currency;
+}
