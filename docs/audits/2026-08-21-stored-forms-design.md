@@ -852,6 +852,68 @@ nothing today would.
 
 ---
 
+# What the migration measured, and the two corrections it forced
+
+Added when the columns landed, because a design note whose claims were never executed is a
+proposal. Everything below was run.
+
+**The widening forces `bigint` into TypeScript, and there is no schema-level escape.** **MEASURED**:
+`Int @db.BigInt` is refused on all three connectors. Reads, aggregates and inputs on a `BigInt`
+field are `bigint`, `bigint | null` and `bigint | number` respectively, so writes and filters need
+nothing and only reads do. One `result` extension at `createPrismaClient` narrows the eight columns
+back to `number`, which is sound because a `number` holds every integer to 2^53 exactly, about nine
+million times the largest amount this application allows. The 64 bits are for the column, not for
+the language.
+
+**The extension seam holds, and it was verified rather than asserted.** Zero `new *PrismaClient(`
+outside `client.ts`, and zero imports of a generated client anywhere else in the tree, so nothing
+else CAN build one. **MEASURED**: the extension survives `findMany`, a narrow `select`, and an
+interactive `$transaction` callback's `tx`. It does NOT survive `$queryRaw`, which returns a
+`bigint` and typechecks as whatever the caller declares.
+
+**The aggregate is a type lie, and it is the sharpest thing this piece found.** **MEASURED both
+ways**: under the extension, `aggregate({ _sum: { amountCents: true } })` typechecks as
+`number | null` and returns a `bigint`. The compile-time answer is the one that is wrong, so
+`npm run check` reports clean over five sites that throw. They were found by reading and are gated
+by a source scan calibrated on real instances, because the typechecker cannot be the detector for
+a defect whose whole shape is that the typechecker is wrong.
+
+**"A default is a value with no author" is literal on PostgreSQL.** **MEASURED on 17.10**:
+`ADD COLUMN NOT NULL DEFAULT 2` leaves `pg_attribute.atthasmissing` true with `attmissingval = {2}`
+and rewrites no row, so the value is synthesised on read and there is nothing in the row to correct.
+The three-step used instead leaves `atthasmissing` false on all twelve new columns, and no column
+default survives the migration on any engine.
+
+**What a halfway failure leaves, per engine, and the correction.** **MEASURED on PostgreSQL 17.10**
+with a unique-violation poison after the `Transaction` block: earlier statements stay committed,
+`_prisma_migrations` records `finished_at` NULL, `rolled_back_at` NULL, `applied_steps_count` 0.
+**The migration is NOT restartable**, which the first draft of its own header claimed it was:
+`migrate resolve --rolled-back` then `migrate deploy` fails with 42701, "column already exists",
+because `ADD COLUMN` is idempotent on no engine and SQLite's leg is a table rebuild. What the
+`WHERE ... IS NULL` on each UPDATE buys is hand recovery without double-stamping, not re-running.
+63 statements on SQLite, 37 on PostgreSQL, 27 on MySQL.
+
+**The MariaDB shadow database, read rather than inferred from an exit code.** The ordinary user
+fails with `P3014` wrapping `P1010`, exactly as recorded. Generated as root: five databases before,
+the same five after, zero `prisma_migrate%` left behind.
+
+**A security gap this piece opened and closed in the same change.** `Intl.NumberFormat` raises a
+`RangeError` on any currency code that is not three ASCII letters. **MEASURED**: `AB`, `ABCD`, the
+empty string, `ABC DEF` and `<script>` all throw; `ZZZ` and `BTC` do not. Threading a stored
+currency into a display made that reachable, and the backup schema validated length only, which
+break-checking shows caught 1 of 6 malformed codes. The grammar is now checked where untrusted
+input crosses in and again in `money()`. Whether a code is KNOWN is deliberately still not checked:
+that would need the list this design refuses to consult, and an unknown but well-formed code is
+accepted, which is the calibration that keeps the six refusals meaningful.
+
+**One deviation from "per amount", recorded rather than rounded away.** `TransactionSplit` carries
+neither column. A part is denominated by its parent, and `sum(parts) = parent.amountCents` is a
+conservation theorem a second currency would falsify. `NetWorthSnapshot` carries both even though
+it always agrees with its account today, because a snapshot is a fact about the past and an account
+is a verdict on the present.
+
+---
+
 # Corrections to the record
 
 Collected so they are actionable rather than buried.
