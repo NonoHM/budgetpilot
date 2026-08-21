@@ -115,6 +115,53 @@ describe('backupExportSchema', () => {
 		expect(result.success).toBe(true);
 	});
 
+	// The boundary is SHOWN to refuse rather than assumed to. MEASURED: each of these codes makes
+	// `new Intl.NumberFormat(l, { style: 'currency', currency })` raise a RangeError, so a row
+	// carrying one takes down every screen that renders it, persistently, from an uploaded file.
+	it.each(['AB', 'ABCD', '', 'ABC DEF', '<script>', 'eur'])(
+		'rejette un code devise malformé (%s) sur un compte',
+		(currency) => {
+			expect.assertions(1);
+
+			const payload = buildValidPayload();
+			const result = backupExportSchema.safeParse({
+				...payload,
+				accounts: payload.accounts.map((account) => ({ ...account, currency }))
+			});
+
+			expect(result.success).toBe(false);
+		}
+	);
+
+	// The calibration for the refusals above: a well-formed code the app has never seen is
+	// ACCEPTED, because "known" is a question this design refuses to answer from a list. Without
+	// this, a validator that rejected everything would pass the six cases above.
+	it("accepte un code devise bien formé que l'application ne connaît pas", () => {
+		expect.assertions(1);
+
+		const payload = buildValidPayload();
+		const result = backupExportSchema.safeParse({
+			...payload,
+			accounts: payload.accounts.map((account) => ({ ...account, currency: 'ZZZ' }))
+		});
+
+		expect(result.success).toBe(true);
+	});
+
+	// An exponent from an uploaded file is a scaling factor on money. Bounded to what ISO 4217
+	// actually uses, so a crafted backup cannot restore rows a hundred million times their size.
+	it.each([-1, 5, 100, 1.5])('rejette un exposant hors de la plage ISO 4217 (%s)', (exponent) => {
+		expect.assertions(1);
+
+		const payload = buildValidPayload();
+		const result = backupExportSchema.safeParse({
+			...payload,
+			transactions: payload.transactions.map((transaction) => ({ ...transaction, exponent }))
+		});
+
+		expect(result.success).toBe(false);
+	});
+
 	it('rejette un formatVersion différent de 1', () => {
 		expect.assertions(1);
 

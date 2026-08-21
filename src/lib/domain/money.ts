@@ -103,11 +103,48 @@ export const DEFAULT_DENOMINATION = {
  * own currency and exponent, a call site becomes `money(row.amountCents, row.currency, row.exponent)`
  * and nothing else about it changes.
  */
+/**
+ * ISO 4217's own shape: exactly three uppercase ASCII letters.
+ *
+ * A literal, never `new RegExp`: `injection-sinks.spec.ts` holds the repository to zero constructed
+ * patterns in production code.
+ */
+const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/;
+
+/**
+ * Whether a string is a code any formatter can render. NOT whether the code exists.
+ *
+ * The two questions are deliberately separate. Whether a code is KNOWN would need a list, and this
+ * design refuses to consult one at read time: an unknown-but-well-formed code (`ZZZ`, a crypto
+ * ticker) renders as itself and is stored honestly. Whether a code is WELL FORMED is answered by
+ * ISO 4217's own grammar and has to be, because `Intl.NumberFormat` raises a `RangeError` on
+ * anything else. MEASURED: `AB`, `ABCD`, `''`, `ABC DEF` and `<script>` all throw; `ZZZ` and `BTC`
+ * do not.
+ *
+ * That RangeError is why this is a validation concern and not a formatting preference. A malformed
+ * code reaching a money column takes down every screen that renders the row, the failure persists
+ * because it is stored, and the user cannot repair it through a UI that will not render. So the
+ * grammar is checked where untrusted input crosses into the application (server/backup/schema.ts
+ * validates an uploaded file against it) and again here, where a `Money` is built.
+ */
+export function isValidCurrencyCode(value: string): boolean {
+	return CURRENCY_CODE_PATTERN.test(value);
+}
+
 export function money(
 	minorUnits: number,
 	currency: string = DEFAULT_CURRENCY,
 	exponent: number = DEFAULT_EXPONENT
 ): Money {
+	// Loud, in one place, and at construction. The alternative is a `RangeError: Invalid currency
+	// code` thrown from inside `Intl` on whichever screen renders the row first, which names
+	// neither the row nor the column and reads as a rendering bug rather than as bad data.
+	if (!isValidCurrencyCode(currency)) {
+		throw new Error(
+			`${currency} is not a well-formed ISO 4217 currency code (three uppercase letters). ` +
+				'No formatter can render an amount denominated in it.'
+		);
+	}
 	return { minorUnits, currency, exponent };
 }
 

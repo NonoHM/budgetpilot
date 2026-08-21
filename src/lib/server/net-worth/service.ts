@@ -29,6 +29,13 @@ export interface NetWorthAccountRecord {
 	name: string;
 	type: NetWorthAccountType;
 	balanceCents: number;
+	/**
+	 * What `balanceCents` is denominated in, carried on the record rather than assumed by whoever
+	 * renders it. The pair travels together for the reason on `Account.currency` in
+	 * prisma/schema.prisma: a magnitude without an exponent does not identify an amount.
+	 */
+	currency: string;
+	exponent: number;
 	createdAt: string;
 	updatedAt: string;
 	/** True when at least one technical Account (manual entry or CSV import bucket) links here. */
@@ -499,6 +506,8 @@ function toRecord(account: {
 	name: string;
 	type: string;
 	balanceCents: number;
+	currency: string;
+	exponent: number;
 	createdAt: Date;
 	updatedAt: Date;
 	_count?: { accounts: number };
@@ -508,6 +517,8 @@ function toRecord(account: {
 		name: account.name,
 		type: account.type as NetWorthAccountType,
 		balanceCents: account.balanceCents,
+		currency: account.currency,
+		exponent: account.exponent,
 		createdAt: account.createdAt.toISOString(),
 		updatedAt: account.updatedAt.toISOString(),
 		connected: (account._count?.accounts ?? 0) > 0

@@ -7,6 +7,7 @@ import { render } from 'vitest-browser-svelte';
 // the locked branch a different height class is invisible without this import and named with it.
 import '../../../routes/layout.css';
 import MoneyInput from './MoneyInput.svelte';
+import { money, toInputValue } from '$lib/domain/money';
 
 describe('MoneyInput.svelte', () => {
 	it('renders a real associated label for the amount field', async () => {
@@ -24,6 +25,48 @@ describe('MoneyInput.svelte', () => {
 		);
 		expect(suffix).not.toBeUndefined();
 		expect(suffix?.getAttribute('aria-hidden')).toBe('true');
+	});
+
+	// THE ON-SCREEN CHECK for the ruling that display precision follows the STORED exponent rather
+	// than locale data. Nothing in the application is non-euro today, which is exactly why this is
+	// looked at rather than reasoned about: the fifteen codes where CLDR and ISO disagree render
+	// differently under the two rules, and CLDR renders HUF with no decimals at all.
+	//
+	// A real browser render, not a formatter unit test one layer down: the suffix, the value and
+	// the locale meet here and nowhere else.
+	it('renders a non-euro suffix and the stored precision, not the locale default', async () => {
+		const { container } = render(MoneyInput, {
+			name: 'balance',
+			label: 'Solde',
+			currency: 'HUF',
+			// What `toInputValue(money(123456, 'HUF', 2), 'fr')` produces: two fraction digits,
+			// because the row says exponent 2. CLDR would render HUF with none.
+			value: toInputValue(money(123_456, 'HUF', 2), 'fr')
+		});
+
+		const suffix = Array.from(container.querySelectorAll('span')).find(
+			(el) => el.getAttribute('aria-hidden') === 'true'
+		);
+		expect(suffix?.textContent?.trim()).toBe('HUF');
+		// Ungrouped, because `toInputValue` feeds an editable field and a group separator there is
+		// something the parser would have to accept back. The claim under test is the DECIMALS: two,
+		// from the row's exponent, where CLDR would give HUF none.
+		expect((container.querySelector('input') as HTMLInputElement).value).toBe('1234,56');
+	});
+
+	it('renders a three-decimal currency with three, for the same reason', async () => {
+		const { container } = render(MoneyInput, {
+			name: 'balance',
+			label: 'Solde',
+			currency: 'KWD',
+			value: toInputValue(money(1_234_567, 'KWD', 3), 'fr')
+		});
+
+		const suffix = Array.from(container.querySelectorAll('span')).find(
+			(el) => el.getAttribute('aria-hidden') === 'true'
+		);
+		expect(suffix?.textContent?.trim()).toBe('KWD');
+		expect((container.querySelector('input') as HTMLInputElement).value).toBe('1234,567');
 	});
 
 	it('uses inputmode="decimal" and type="text" (never type="number")', async () => {

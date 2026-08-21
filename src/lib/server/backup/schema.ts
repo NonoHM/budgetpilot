@@ -1,3 +1,4 @@
+import { isValidCurrencyCode } from '$lib/domain/money';
 import { z } from 'zod';
 import { TRANSACTION_NATURES } from '$lib/domain/transaction';
 import { DEFAULT_CATEGORY_KEYS } from '$lib/domain/categories';
@@ -132,7 +133,14 @@ const defaultCategoryKey = z.enum(DEFAULT_CATEGORY_KEYS);
  * all, which is the rule this pair exists to enforce.
  */
 const denomination = {
-	currency: z.string().min(1).max(10).optional(),
+	// The GRAMMAR, not just a length. An uploaded backup is untrusted input, and a currency code
+	// that is not three uppercase letters makes `Intl.NumberFormat` raise a `RangeError` on every
+	// screen that renders the row it lands on. Stored, that is a persistent failure the user cannot
+	// repair through a UI that will not render. `min(1).max(10)` accepted all of it.
+	currency: z
+		.string()
+		.refine(isValidCurrencyCode, { message: 'must be a three-letter ISO 4217 code' })
+		.optional(),
 	// Bounded rather than any integer: ISO 4217 uses 0, 2, 3 and 4, and an unbounded exponent in a
 	// restored row is a scaling factor an uploaded file gets to choose.
 	exponent: z.number().int().min(0).max(4).optional()
@@ -148,7 +156,9 @@ const backupAccountSchema = z
 		// second declaration site and moves with it. This comment used to say every `amountCents`
 		// and `balanceCents` below was exponent-2 by assumption and recorded nothing about it; the
 		// change that added `denomination` to those entities is the change that corrected it.
-		currency: z.string().min(1).max(10),
+		currency: z.string().refine(isValidCurrencyCode, {
+			message: 'must be a three-letter ISO 4217 code'
+		}),
 		exponent: z.number().int().min(0).max(4).optional(),
 		source: z.string().min(1).max(MAX_PORTABLE_STRING),
 		// Absent from exports predating this link: treated as null (no net worth account

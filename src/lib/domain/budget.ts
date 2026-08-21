@@ -1,6 +1,6 @@
 import type { CategoryAllocation } from './allocation';
 import { normalizeForMatch } from './normalize';
-import {formatMoney, money, DEFAULT_CURRENCY } from './money';
+import { formatMoney, money, DEFAULT_CURRENCY } from './money';
 import { getLocale } from '$lib/paraglide/runtime';
 import * as m from '$lib/paraglide/messages';
 
