@@ -13,7 +13,14 @@ import { fileURLToPath } from 'node:url';
  * any of those modules without adding the file there breaks the command silently, because nothing
  * else in the image loads them.
  *
- * **Both halves were broken by one commit, in sequence, and each cost a container build to find.**
+ * **This has now cost three container builds, and the third is the one worth reading.** The first
+ * two were a `$lib` specifier and a relative path at a file the image does not copy. The third was
+ * this spec itself: it walked from `report.ts`, the module that had failed, so it reproduced that
+ * failure's shape rather than the property. `report.ts` reaches four modules and the client is not
+ * among them, so two new modules beside `client.ts` were reachable from the shipped command,
+ * absent from the image, and green here. The entry point is now the SCRIPT.
+ *
+ * **The first two, in sequence, and each cost a container build to find.**
  * First a `$lib` specifier, which Vite resolves and Node does not: `ERR_MODULE_NOT_FOUND` on the
  * alias. Then the relative path that replaced it, pointing at a file the image does not copy:
  * `ERR_MODULE_NOT_FOUND` on the path. `npm run check`, 4000 unit tests, `lint:tracked` and a full
@@ -29,7 +36,22 @@ import { fileURLToPath } from 'node:url';
  */
 
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
-const ENTRY = 'src/lib/server/naming/report.ts';
+
+/**
+ * The SCRIPT, not a module it happens to import.
+ *
+ * This used to be `src/lib/server/naming/report.ts`, and that was the whole defect: the gate was
+ * written the day `report.ts` broke and it reproduced THAT failure's shape rather than the general
+ * property. `report.ts` reaches four modules and none of them is the client, so the walk missed
+ * everything `createPrismaClient` pulls in, which is most of what the image copies. MEASURED: two
+ * modules added beside `client.ts` were reachable from the shipped command, absent from the image,
+ * green on `check`, green on 4013 unit tests, green on this very spec, and caught by
+ * `docker-smoke.sh` alone.
+ *
+ * **A gate pointed at the module that failed last time tests the last failure.** The entry point is
+ * whatever the operator actually runs, so that is what is named here.
+ */
+const ENTRY = 'scripts/normalize-names.mjs';
 
 /**
  * Every `from '...'` specifier, type-only imports included. A type import is erased at run time and
