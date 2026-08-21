@@ -125,6 +125,11 @@ const backupAccountSchema = z
 	.object({
 		id: z.string().min(1),
 		name: z.string().min(1).max(200),
+		// A currency field and an EXPONENT field must arrive in the same change, never currency
+		// alone: every `amountCents`/`balanceCents` below is exponent-2 by assumption and records
+		// nothing about it, so a row restored under a non-euro currency with no exponent beside it
+		// is ambiguous forever. The rule and its reasoning are on `Account.currency` in
+		// prisma/schema.prisma; this is the second declaration site and has to move with it.
 		currency: z.string().min(1).max(10),
 		source: z.string().min(1).max(MAX_PORTABLE_STRING),
 		// Absent from exports predating this link: treated as null (no net worth account

@@ -167,6 +167,24 @@ model Account {
   id                      String           @id @default(cuid())
   userId                  String
   name                    String
+  /// ISO 4217 code for every amount on this bucket, and the ONLY currency column in this schema:
+  /// no transaction, split, budget, snapshot or goal carries one. Not a constant either. It is
+  /// written from the provider at connection time (banking/sync/service.ts passes the connector
+  /// account's currency into resolveImportBucketAccount), so a non-EUR value is reachable today
+  /// with no code change.
+  ///
+  /// THE RULE, and it is the one thing here that cannot be repaired after the fact: A CURRENCY
+  /// FIELD AND AN EXPONENT FIELD MUST ARRIVE IN THE SAME CHANGE, NEVER CURRENCY ALONE. Every
+  /// money column in this file is `Int` and exponent-2 by assumption, and records nothing about
+  /// that assumption. A row written under a non-euro currency with no exponent beside it is
+  /// ambiguous forever: 1000 under JOD is either 10.00 or 1.000, and no later migration can
+  /// decide which, because the information was never stored. Everything else about multi-currency
+  /// (#313) is a 1.x feature over rows that stay correct; this is the only part of it that turns
+  /// existing rows into a 2.0.
+  ///
+  /// The same change must reach `src/lib/server/backup/schema.ts`, which carries `currency` in
+  /// the backup contract without an exponent. See docs/audits/2026-08-21-interface-audit.md,
+  /// Part 7.
   currency                String           @default("EUR")
   source                  String           @default("manual")
   /// Optional link to the net worth account this technical/import bucket belongs to.

@@ -814,6 +814,18 @@ existing rows", is what separates a 1.1 from a 2.0.
 transaction, split, budget, snapshot or goal carries a currency. Every amount inherits its
 account's, and the aggregates inherit nothing at all.
 
+**MEASURED, and added after the audit's first pass because it changes the register of everything
+below: `Account.currency` is not a constant.** `establishBankConnection`
+(`src/lib/server/banking/sync/service.ts:295-303`) passes the connector account's currency into
+`resolveImportBucketAccount`, which writes it on create
+(`src/lib/server/import/persist.ts:167`, `currency: input.currency ?? 'EUR'`), and the Enable
+Banking connector takes it straight from the provider resource
+(`connectors/enablebanking.ts:312`, `currency: account.currency ?? 'EUR'`). The backup contract
+accepts any string of 1 to 10 characters in that position
+(`src/lib/server/backup/schema.ts`). So the window described at the end of this section as a
+thing to avoid opening is **already open**: a non-euro `Account.currency` needs no code change
+and no schema change, only a bank whose accounts are denominated in something else.
+
 ### Is the assumption documented?
 
 **Partially, and in the wrong register. READ.**
@@ -854,6 +866,34 @@ the dedupe key v3 from Part 3. That is a large 1.x feature, not a breaking chang
 the exponent is introduced alongside the currency rather than after it.** If a currency column is
 added without an exponent and a non-euro currency is allowed in, the rows written in that window
 are the ones that cannot be reinterpreted later, because nothing records what they meant.
+
+### The rule, and it is the only irreversible thing in this audit
+
+**A CURRENCY FIELD AND AN EXPONENT FIELD MUST ARRIVE IN THE SAME CHANGE, NEVER CURRENCY ALONE.**
+
+That is the whole of it, and it is written into `prisma/schema.prisma` on `Account.currency` and
+into `src/lib/server/backup/schema.ts` beside the same field, rather than only here, because the
+place it has to be read is the diff that adds the second currency column and not a document
+somebody would have to remember to open.
+
+The reason it outranks everything else in this audit: **a row written under a non-euro currency
+with no exponent beside it is ambiguous forever.** `1000` under `JOD` is either 10.00 or 1.000,
+and no later migration can decide which, because the deciding information was never stored. Every
+other finding here is a thing that can be fixed later at some cost. This one is a window during
+which rows become unrecoverable, and the cost of missing it is paid by the user, in their own
+figures, permanently.
+
+It is worth being precise about what is and is not at risk, because the two are easy to merge:
+
+|                                                         | Recoverable later?                                      |
+| ------------------------------------------------------- | ------------------------------------------------------- |
+| Existing euro rows, once an exponent column arrives     | **Yes.** They are exponent-2 and a backfill can say so. |
+| The 19 division sites, once an exponent is available    | **Yes.** Wrong rendering is visible and fixable.        |
+| Rows written under a non-euro currency with no exponent | **No.** Nothing recorded what they meant.               |
+
+Only the third row is a 2.0, and it exists only for as long as the window is open. So the rule is
+not "do multi-currency carefully"; it is a single ordering constraint on one change, and honouring
+it costs one column.
 
 **One more bound, noted rather than raised as a finding**: `Int` is 32-bit on PostgreSQL and
 MySQL, so the largest representable amount is 21,474,836.47 in the currency's major unit. SQLite
@@ -1018,6 +1058,15 @@ are right.
 
 # PART 4: THE VERDICT
 
+**One item in this audit is irreversible and the rest are not, so it is stated before the three
+lists rather than inside one of them: A CURRENCY FIELD AND AN EXPONENT FIELD MUST ARRIVE IN THE
+SAME CHANGE, NEVER CURRENCY ALONE** (Part 7). Everything in the three tables below is a thing that
+can be done later at a known cost. That one is a window during which rows become unrecoverable,
+because a row written under a non-euro currency with no exponent beside it records nothing about
+what its integer meant. It is recorded on `Account.currency` in `prisma/schema.prisma` and beside
+the same field in `src/lib/server/backup/schema.ts`, which is where the change will actually be
+written.
+
 ## Freeze as is
 
 Correct, and 1.0 commits to it.
@@ -1060,17 +1109,17 @@ genuinely improves, not a preference.
 Things we will want to change and cannot do quietly. Naming them now means the 2.0 conversation
 starts from a list.
 
-| Item                                                  | Part | Why it needs a major                                                                                                                                                                                          |
-| ----------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Renaming any backup collection or field               | 1    | `.strict()` makes every rename break every installed file in both directions. Only a `formatVersion` bump with a translation step can do it                                                                   |
-| Making restore tolerant of unknown keys               | 1    | Would allow downgrade-restore, and would weaken the control that rejects smuggled credentials. If ever wanted, it needs a design that keeps the rejection and relaxes only unknown **collections**            |
-| Editing the CSV header shape                          | 3    | The rule is to version the profile instead. Editing the shape breaks files users already hold                                                                                                                 |
-| The four id-carrying query parameters                 | 2    | Not worth changing, but if URLs ever need to survive a restore, `selected`, `importBatch`, `tag` and `ids` are the four to reconsider                                                                         |
-| `.github/workflows/docker-publish.yml` as a path      | 2    | Embedded in every published `cosign verify` command. Moving it makes verification fail in the way that reads as "not authentic"                                                                               |
-| Money as exponent-2 integers                          | 7    | Existing euro rows stay correct, so #313 is a 1.x feature **only if** the exponent arrives with the currency. Rows written with a non-euro currency and no exponent are the ones that cannot be reinterpreted |
-| bcrypt's 72-byte truncation, if argon2 lands          | 7    | The algorithm change itself is internal and needs no major. Reconciling the 256-character promise with 72 effective bytes can lock out a small population                                                     |
-| Turning any soft delete hard, or any hard delete soft | 7    | Rewrites what a user's existing history means. Documented for net worth as a promise                                                                                                                          |
-| Skipping versions, if ever promised as supported      | 6    | Requires a job that upgrades a populated database first. Until then the policy says "untested"                                                                                                                |
+| Item                                                  | Part | Why it needs a major                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Renaming any backup collection or field               | 1    | `.strict()` makes every rename break every installed file in both directions. Only a `formatVersion` bump with a translation step can do it                                                                                                                                                                                                                                                                  |
+| Making restore tolerant of unknown keys               | 1    | Would allow downgrade-restore, and would weaken the control that rejects smuggled credentials. If ever wanted, it needs a design that keeps the rejection and relaxes only unknown **collections**                                                                                                                                                                                                           |
+| Editing the CSV header shape                          | 3    | The rule is to version the profile instead. Editing the shape breaks files users already hold                                                                                                                                                                                                                                                                                                                |
+| The four id-carrying query parameters                 | 2    | Not worth changing, but if URLs ever need to survive a restore, `selected`, `importBatch`, `tag` and `ids` are the four to reconsider                                                                                                                                                                                                                                                                        |
+| `.github/workflows/docker-publish.yml` as a path      | 2    | Embedded in every published `cosign verify` command. Moving it makes verification fail in the way that reads as "not authentic"                                                                                                                                                                                                                                                                              |
+| Money as exponent-2 integers                          | 7    | Existing euro rows stay correct, so #313 is a 1.x feature **only if** the exponent arrives with the currency. Rows written with a non-euro currency and no exponent are the ones that cannot be reinterpreted. **The window is already open**: `Account.currency` is written from provider data at bank-connection time, so a non-euro value needs no code change. The rule is recorded in the schema itself |
+| bcrypt's 72-byte truncation, if argon2 lands          | 7    | The algorithm change itself is internal and needs no major. Reconciling the 256-character promise with 72 effective bytes can lock out a small population                                                                                                                                                                                                                                                    |
+| Turning any soft delete hard, or any hard delete soft | 7    | Rewrites what a user's existing history means. Documented for net worth as a promise                                                                                                                                                                                                                                                                                                                         |
+| Skipping versions, if ever promised as supported      | 6    | Requires a job that upgrades a populated database first. Until then the policy says "untested"                                                                                                                                                                                                                                                                                                               |
 
 ## What is explicitly NOT public
 
