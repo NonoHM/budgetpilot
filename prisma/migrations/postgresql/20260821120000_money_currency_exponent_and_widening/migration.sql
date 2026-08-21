@@ -37,9 +37,27 @@
 -- `{ type: null }` branch. So this migration touches every row, and the key recompute that
 -- follows it must PRESERVE a NULL key rather than invent a type.
 --
--- RESTARTABILITY. `prisma migrate deploy` wraps nothing in a transaction on any engine, measured
--- on all three, so a failure partway leaves the earlier statements committed. Every UPDATE below
--- is written `WHERE "currency" IS NULL` so re-running it is a no-op rather than a second pass.
+-- WHAT A FAILURE PARTWAY LEAVES, MEASURED RATHER THAN REASONED. `prisma migrate deploy` wraps
+-- nothing in a transaction on ANY engine, PostgreSQL included. Measured here on PostgreSQL 17.10
+-- by the documented method: a poison statement raising a UNIQUE violation (never a reference to a
+-- missing table, which could be raised while preparing the script and would look identical to a
+-- rollback) placed after the Transaction block. Result: `Transaction` kept both new columns and its
+-- widened `amountCents`, `SavingsGoal` had neither, and `_prisma_migrations` recorded
+-- `finished_at` NULL, `rolled_back_at` NULL, `applied_steps_count` 0.
+--
+-- THIS MIGRATION IS NOT RESTARTABLE, and the first draft of this comment claimed it was. MEASURED:
+-- `migrate resolve --rolled-back` followed by `migrate deploy` fails with PostgreSQL 42701,
+-- "column already exists", because ADD COLUMN is not idempotent on any of the three engines and
+-- SQLite's leg is a table rebuild whose CREATE TABLE is not either. Recovery is by hand, from the
+-- statement that failed onward.
+--
+-- What the `WHERE "currency" IS NULL` on every UPDATE actually buys is that hand recovery: an
+-- operator running the remaining statements cannot double-stamp, and can re-run an UPDATE safely
+-- while working out where the failure landed. It does not make the file re-runnable, and saying so
+-- would be worse than saying nothing.
+--
+-- Statement counts, so the blast radius of a failure is a number rather than a feeling: 63 on
+-- SQLite (a table rebuild per affected table), 37 on PostgreSQL, 27 on MySQL and MariaDB.
 
 -- 1. Widen the eight money columns. Value-preserving on every engine: BIGINT holds every INT.
 ALTER TABLE "TransactionSplit" ALTER COLUMN "amountCents" SET DATA TYPE BIGINT;
