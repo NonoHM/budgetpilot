@@ -3,6 +3,7 @@ import { mapTransactionAllocations, getEffectiveCategory } from './nature';
 import type { TransactionRowForMapping } from './nature';
 import { resolveTransactionType } from './totals';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { money, toDecimalString } from '$lib/domain/money';
 
 /**
  * The CSV a user downloads from /transactions, built from ALLOCATIONS rather than from parent rows.
@@ -99,7 +100,7 @@ export function buildTransactionsCsv(
 }
 
 function formatAmount(amountCents: number): string {
-	return (amountCents / 100).toFixed(2);
+	return toDecimalString(money(amountCents));
 }
 
 function escapeCsvField(value: string): string {

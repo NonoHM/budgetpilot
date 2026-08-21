@@ -173,10 +173,10 @@ and it is not the one this design started from.
 ## What v3 stores
 
 ```
-v3 | date | folded label | magnitude | type | occurrence | accountId | currency
+v3 | date | folded label | magnitude | exponent | type | occurrence | accountId | currency
 ```
 
-Seven fields behind a version marker. Each is here because something breaks without it, and the
+Eight fields behind a version marker. Each is here because something breaks without it, and the
 justification is per-field rather than per-key.
 
 **`v3`: a literal prefix inside the hashed string.** **MEASURED: no version marker exists
@@ -234,6 +234,19 @@ whole history re-imports. **A row's own currency never changes after it is writt
 one that belongs in the key.** This is also the interlock between the two halves of this note:
 Part A can only take this field because Part B stores it per amount.
 
+**`exponent`: ruled in, and the argument is the money form's own premise.** If the currency
+determined the exponent we would not be storing it per row. We are storing it per row precisely
+because it does not, and the two facts cannot both be true of one design: **magnitude plus currency
+does not identify an amount.** `1000 EUR` is ten euros at exponent 2 and one euro at exponent 3, so
+two rows written that way produce one key for two different sums, and the unique constraint drops
+one of them.
+
+**This was ruled rather than measured, and the reason is worth keeping.** Measuring reachability
+would have measured whether the ambiguity happens to occur in today's data, which is a fact about
+the data and not about the key. The design already says the ambiguity CAN occur, since a per-row
+exponent is the whole point of Part B. **A key that identifies an amount carries everything that
+determines the amount**, and reachability is not the test.
+
 ## What actually closes #449
 
 Not this key. **MEASURED** above: the fee collides because both statements carry the same
@@ -245,6 +258,14 @@ has a destination selector, and **READ, `routes/import/+page.server.ts:129-133`,
 `NetWorthAccount` to link, not the `Account` the rows land on**, and only on first creation, which
 the code's own comment says out loud. So the model has a place for the concept and the import path
 does not use it.
+
+**The ordering rule this produces, stated as a rule because it will outlive this issue.** _A
+visible fix over an invisible defect is the worst order available._ Landing the bucket change first
+puts two accounts on the screen while the account-keeping fee is still silently deduplicated away,
+so the screen becomes right and the drop stays invisible, and every later report reads as a new bug
+rather than the old one. Landing the key first leaves #449 open and honest. **Order the change that
+makes a defect visible before the change that makes the screen look right**, whenever the two are
+separable.
 
 That is a model change and a UI change, and it is deliberately not designed here. What this note
 fixes is the ordering: **the key must be able to carry the account before the account exists to be
@@ -381,8 +402,11 @@ sees.
 - **Re-bucketing.** When #449's real fix moves rows to per-account buckets, those rows' keys change,
   and the recompute rebuilds them with no duplication event, by the same mechanism measured here.
   This is why the recompute must be a **permanent capability of the schema rather than a one-shot
-  migration**: three callers need it (the v2→v3 backfill, the backup restore, and any future
-  re-bucketing), which is what makes it a seam rather than a script.
+  migration**: three callers need it, the v2→v3 backfill, the backup restore, and the
+  re-bucketing #372 performs. **The third caller has to be known while the key work is being done,
+  not discovered afterwards.** Known in advance it is one module with an entry point; discovered
+  afterwards it is a script inside a migration that a later chantier has to rewrite, and the rewrite
+  is where the two copies of the folding rule stop agreeing.
 - **A v4.** The prefix means the next version costs a recompute and no collision risk, provided v4's
   inputs stay recoverable from the row, which is now a stated property to preserve rather than an
   accident to rediscover.
@@ -463,6 +487,14 @@ published exponent anywhere.
 **What the exponent is, precisely: a property of the amount as written, not of the currency as it
 stands today.** It records how to read this integer. That is what makes an old row's meaning
 independent of any list, and it is the whole of the irreversibility argument.
+
+**Existing rows are stamped with exponent 2 explicitly, never left to a column default.** They are
+exponent-2 by construction, so a default reads identically today and the difference only appears
+later: a value that was never written is a value nobody can correct. The key carries the magnitude,
+so correcting a row's exponent afterwards changes what its key means without changing the key, and
+the row silently stops matching the statement it came from. **A default is a value with no author**,
+and this is the class of column where that is fatal rather than tidy. The stamping precedes the key
+recompute, so every key is computed over an exponent somebody wrote.
 
 **A constraint the audit does not record, and it lands inside this window.** **MEASURED**: all 8
 money columns are `Int`, which is 32-bit on PostgreSQL and MySQL. **READ**, `domain/netWorth.ts:70`
@@ -784,6 +816,7 @@ the reasoning a later session will produce again:
 | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | "a v3 key can be rebuilt for **every** imported row" | Rebuilt for every **CSV** row (five profiles read); `enablebanking.ts:363` stores a different label from the one it keys on, so the recompute is source-conditional                     |
 | "0 imported rows carry a NULL `type`"                | A fact about a fixture the probe had just created. The migration must **count** them on a real database first                                                                           |
+| The key carries `currency` but not the exponent      | **Ruled in.** Magnitude plus currency does not identify an amount, because the exponent is stored per row precisely because the currency does not determine it                          |
 | The exponent must be stored, "on four reasons"       | **One** reason: a stored row must not depend on a mutable list, and a withdrawn code has no published exponent. The other three constrain how a list is used and do not require storage |
 | "no rounding mode is needed"                         | No rounding mode belongs in the **stored** form. `savingsGoal.ts:105` and `insights.ts:147` already produce fractional minor units for display                                          |
 

@@ -1,5 +1,6 @@
 import type { NameKeyBackfillReport, UserNameKeyReport } from './backfill.ts';
 import type { AccountMergeBlockReason } from './mergePlan.ts';
+import { money, toDecimalString } from '$lib/domain/money';
 
 /**
  * Renders a backfill plan as plain text for an operator to read before upgrading.
@@ -182,5 +183,6 @@ function renderNetWorth(user: UserNameKeyReport, lines: string[]): void {
 }
 
 function formatCents(cents: number): string {
-	return `${(cents / 100).toFixed(2)} EUR`;
+	const amount = money(cents);
+	return `${toDecimalString(amount)} ${amount.currency}`;
 }

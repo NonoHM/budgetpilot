@@ -3,6 +3,7 @@ import { fail, isHttpError, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
+import { money, toInputValue } from '$lib/domain/money';
 import {
 	deleteBudget,
 	getCurrentMonth,
@@ -104,5 +105,5 @@ function getErrorStatus(caught: unknown): number {
 }
 
 function formatBudgetInput(amountCents: number): string {
-	return (amountCents / 100).toFixed(2).replace('.', ',');
+	return toInputValue(money(amountCents));
 }

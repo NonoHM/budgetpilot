@@ -65,7 +65,7 @@ export function suggestNetWorthAccountType(
 	}
 }
 
-import { parseMoneyCents } from './money';
+import { parseMoney } from './money';
 
 // 10M€, raised from the original 1M€ cap: too low for a real estate or a sizable
 // investment/debt account (see net-worth audit finding #6).
@@ -74,15 +74,17 @@ const MAX_NET_WORTH_BALANCE_CENTS = 1_000_000_000;
 /**
  * Unlike parseManualAmountCents (transaction amounts), 0 is a valid value here — a fresh,
  * empty account is a legitimate declared balance. Supports both European thousands-separator
- * conventions (see parseMoneyCents' allowThousandsSeparator doc). Delegates to the shared
- * parseMoneyCents core; see domain/money.ts for the single source of truth.
+ * conventions (see parseMoney's allowThousandsSeparator doc). The grammar itself lives in
+ * domain/money.ts, which is the only place that knows an amount is scaled by a power of ten.
  */
 export function parseNetWorthBalanceCents(value: string): number | null {
-	return parseMoneyCents(value, {
-		allowThousandsSeparator: true,
-		maxAbsCents: MAX_NET_WORTH_BALANCE_CENTS,
-		requireSafeInteger: true
-	});
+	return (
+		parseMoney(value, {
+			allowThousandsSeparator: true,
+			maxAbsMinorUnits: MAX_NET_WORTH_BALANCE_CENTS,
+			requireSafeInteger: true
+		})?.minorUnits ?? null
+	);
 }
 
 export interface NetWorthAccountBalance {

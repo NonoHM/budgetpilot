@@ -12,6 +12,7 @@ import {
 	wholeDaysBetween
 } from './forecast';
 import { getSimilarAmountGroups, normalizeStoredRecurringLabel } from './recurrence';
+import { formatMoney, formatMoneyToParts, formatMoneyWithoutSymbol, money } from './money';
 
 /**
  * Upcoming-bills schedule: turns the detected recurring flows into dated occurrences carrying a
@@ -388,21 +389,15 @@ export function formatAmountRangeBounds(
 	sign: string,
 	locale: string
 ): { min: string; max: string } {
-	const formatter = new Intl.NumberFormat(locale, {
-		style: 'currency',
-		currency: 'EUR',
-		maximumFractionDigits: 0
-	});
-	const withSymbol = (magnitudeCents: number) => `${sign}${formatter.format(magnitudeCents / 100)}`;
+	const options = { locale, maximumFractionDigits: 0 };
+	const withSymbol = (magnitudeCents: number) =>
+		`${sign}${formatMoney(money(magnitudeCents), options)}`;
+	// The symbol and the separating space that only exists for it both go, which is the module's
+	// no-symbol door rather than a filter written twice.
 	const withoutSymbol = (magnitudeCents: number) =>
-		`${sign}${formatter
-			.formatToParts(magnitudeCents / 100)
-			// `literal` goes too: it is the separating space that only exists for the symbol.
-			.filter((part) => part.type !== 'currency' && part.type !== 'literal')
-			.map((part) => part.value)
-			.join('')}`;
+		`${sign}${formatMoneyWithoutSymbol(money(magnitudeCents), options)}`;
 
-	const parts = formatter.formatToParts(1);
+	const parts = formatMoneyToParts(money(100), options);
 	const symbolLast = parts[parts.length - 1]?.type === 'currency';
 	return symbolLast
 		? { min: withoutSymbol(minMagnitudeCents), max: withSymbol(maxMagnitudeCents) }

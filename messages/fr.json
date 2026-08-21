@@ -585,7 +585,7 @@
 	"insight_expenses_above_income_title": "Dépenses supérieures aux revenus",
 	"insight_expenses_above_income_message": "Réduis d'abord les catégories les plus élevées pour revenir à l'équilibre.",
 	"insight_over_budget_title": "Budget {category} dépassé",
-	"insight_over_budget_message": "Le poste {category} dépasse son enveloppe de {amount} EUR.",
+	"insight_over_budget_message": "Le poste {category} dépasse son enveloppe de {amount}.",
 	"insight_top_category_title": "Poste principal : {category}",
 	"insight_top_category_message": "Cette catégorie concentre une part importante des dépenses du mois.",
 	"insight_expenses_increased_title": "Dépenses en hausse",
