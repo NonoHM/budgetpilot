@@ -3,7 +3,7 @@ import { constantTimeEquals } from '$lib/server/banking/constantTime';
 import { normalizeForMatch } from '$lib/domain/normalize';
 import { filterBalancesByCurrency, selectPreferredBalance } from '$lib/domain/bankBalance';
 import type { ImportedTransaction, ImportedTransactionType } from '$lib/server/import/types';
-import { parseMoney } from '$lib/domain/money';
+import { parseMoney, DEFAULT_CURRENCY, isValidCurrencyCode } from '$lib/domain/money';
 import {
 	buildDeduplicationGroupKey,
 	buildDeduplicationKey,
@@ -310,10 +310,31 @@ function toConnectorAccount(account: EnableBankingAccountResource): BankConnecto
 		// IBAN fallback is masked to its last 4 characters (security review L2): a full
 		// IBAN must never become a displayed/persisted account name.
 		name: explicitName || maskIbanTail(account.account_id?.iban) || 'Compte bancaire',
-		currency: account.currency ?? 'EUR',
+		currency: normalizeProviderCurrency(account.currency),
 		cashAccountType: account.cash_account_type ?? null,
 		hasCreditLimit: account.credit_limit != null
 	};
+}
+
+/**
+ * A provider's currency code, normalised to the one shape the rest of the application accepts.
+ *
+ * This is a trust boundary and it had nothing on it. The value went straight onto
+ * `Account.currency`, a NOT NULL column with no validation, and the failure it produces is
+ * asymmetric in the direction that hurts most: the BACKUP boundary does enforce ISO 4217's
+ * grammar, so a malformed code stored from here would come back as
+ * "must be a three-letter ISO 4217 code" when the user tried to restore THEIR OWN export. The only
+ * repair would be hand-editing JSON.
+ *
+ * Uppercased before checking rather than refused outright, because lowercase is the realistic
+ * provider deviation and `EUR` is what `eur` means. Anything still malformed falls back to the
+ * application default: a bucket denominated in a code no formatter can render is worse than a
+ * bucket denominated in the wrong one, because the wrong one is visible and correctable and the
+ * unrenderable one takes the screen down.
+ */
+function normalizeProviderCurrency(currency: string | null | undefined): string {
+	const normalized = currency?.trim().toUpperCase() ?? '';
+	return isValidCurrencyCode(normalized) ? normalized : DEFAULT_CURRENCY;
 }
 
 function maskIbanTail(iban: string | null | undefined): string | null {

@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { applyCategoryRules } from '$lib/server/categorization/rules';
 import { prisma } from '$lib/server/db';
 import { hashFingerprint } from '$lib/server/import/utils/safety';
@@ -43,7 +44,16 @@ export interface ImportBucketInput {
 	userId: string;
 	name: string;
 	source: string;
-	currency?: string;
+	/**
+	 * What this bucket's amounts are denominated in, as a PAIR.
+	 *
+	 * One field and not two, so a caller cannot pass a currency without an exponent. That is the
+	 * whole rule the columns exist for: a bucket created under a non-euro currency with no exponent
+	 * beside it is ambiguous forever, and an optional `currency?: string` beside an optional
+	 * `exponent?: number` is exactly the shape that lets somebody supply one. Omitted entirely means
+	 * the application default (`DEFAULT_DENOMINATION`).
+	 */
+	denomination?: { currency: string; exponent: number };
 	/** Applied only when the bucket is first created — an existing bucket's link is never silently changed by a later import. */
 	netWorthAccountId?: string | null;
 	/** Same create-only semantics; set by the bank-sync service (step 4), never by CSV imports. */
@@ -162,11 +172,11 @@ export async function resolveImportBucketAccount(
 			where: { userId_name_source: { userId: input.userId, name, source: input.source } },
 			update: {},
 			create: {
+				...(input.denomination ?? DEFAULT_DENOMINATION),
 				userId: input.userId,
 				name,
 				nameKey: computeNameKey(name),
 				source: input.source,
-				currency: input.currency ?? 'EUR',
 				netWorthAccountId: input.netWorthAccountId ?? null,
 				bankConnectionId: input.bankConnectionId ?? null,
 				providerAccountId: input.providerAccountId ?? null,
@@ -255,13 +265,23 @@ export async function persistImportedTransactions(
 	let importedCreditCents = 0;
 	const importedTransactionIds: string[] = [];
 
+	// Read ONCE, before the loop, and passed down: every row of an import lands in one bucket, and
+	// a transaction is denominated by the bucket it lands in. `DEFAULT_DENOMINATION` here would
+	// make every row of a non-euro bucket positively assert something false, which is exactly what
+	// the migration goes out of its way to avoid for the rows that already exist.
+	const bucket = await prisma.account.findUniqueOrThrow({
+		where: { id: input.accountId },
+		select: { currency: true, exponent: true }
+	});
+
 	for (const transaction of input.transactions) {
 		const importedTransactionId = await persistTransaction(
 			input.userId,
 			transaction,
 			input.accountId,
 			input.importBatchId,
-			input.source
+			input.source,
+			bucket
 		);
 		if (!importedTransactionId) {
 			duplicateRows += 1;
@@ -310,7 +330,8 @@ async function persistTransaction(
 	transaction: ImportedTransaction,
 	accountId: string,
 	importBatchId: string,
-	source: string
+	source: string,
+	denomination: { currency: string; exponent: number }
 ): Promise<string | null> {
 	const dedupeKey = transaction.metadata.deduplicationKey;
 	if (dedupeKey) {
@@ -329,6 +350,7 @@ async function persistTransaction(
 	try {
 		const created = await prisma.transaction.create({
 			data: {
+				...denomination,
 				userId,
 				accountId,
 				categoryId: category.id,

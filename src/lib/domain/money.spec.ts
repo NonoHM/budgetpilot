@@ -10,7 +10,9 @@ import {
 	parseMoney,
 	toDecimalString,
 	toInputValue,
-	toMajorUnitNumber
+	toMajorUnitNumber,
+	currencySymbol,
+	isValidCurrencyCode
 } from './money';
 
 /**
@@ -279,5 +281,75 @@ describe('the doors agree with each other', () => {
 		);
 
 		expect(broken).toEqual([]);
+	});
+});
+
+describe('currencySymbol', () => {
+	it("gives the locale's symbol for a currency, not the code", () => {
+		expect.assertions(2);
+
+		expect(currencySymbol('EUR', 'fr')).toBe('€');
+		expect(currencySymbol('USD', 'en')).toBe('$');
+	});
+
+	// The suffix on an amount field is decoration, and decoration must not be able to throw the
+	// form that carries it. The two cases fail DIFFERENTLY inside `Intl`, which is why both are
+	// here: an unknown but well-formed code renders as itself, and a mistyped one raises a
+	// `RangeError`. Testing only the first reads as verification of a claim that covers both.
+	it('falls back to the code itself for a well-formed code Intl does not know', () => {
+		expect.assertions(1);
+
+		expect(currencySymbol('ZZZ', 'fr')).toBe('ZZZ');
+	});
+
+	it.each(['EU', 'EURO', 'ABC DEF', '<script>', ''])(
+		'returns %s rather than throwing, where Intl raises a RangeError',
+		(malformed) => {
+			expect.assertions(1);
+
+			expect(currencySymbol(malformed, 'fr')).toBe(malformed);
+		}
+	);
+});
+
+describe('the currency code grammar', () => {
+	it('accepts a well-formed ISO 4217 alpha-3 code, known or not', () => {
+		expect.assertions(2);
+
+		expect(isValidCurrencyCode('EUR')).toBe(true);
+		// Unknown but well formed. The design refuses to consult a list at read time, so "known"
+		// is not a question this grammar answers or should.
+		expect(isValidCurrencyCode('ZZZ')).toBe(true);
+	});
+
+	it('refuses every shape Intl raises a RangeError on', () => {
+		expect.assertions(6);
+
+		// MEASURED: each of these makes `new Intl.NumberFormat(l, { style: 'currency', currency })`
+		// throw `RangeError: Invalid currency code`. Unvalidated, such a value stored on a row takes
+		// down every screen that renders it, and the user cannot repair it through the UI.
+		expect(isValidCurrencyCode('AB')).toBe(false);
+		expect(isValidCurrencyCode('ABCD')).toBe(false);
+		expect(isValidCurrencyCode('')).toBe(false);
+		expect(isValidCurrencyCode('ABC DEF')).toBe(false);
+		expect(isValidCurrencyCode('<script>')).toBe(false);
+		// Lowercase is accepted by Intl and is not ISO 4217. Refused at the boundary so a stored
+		// code is one spelling, which is what makes `currency = 'EUR'` a usable comparison.
+		expect(isValidCurrencyCode('eur')).toBe(false);
+	});
+
+	it('refuses to build a Money around a code no formatter could render', () => {
+		expect.assertions(2);
+
+		// Loud at CONSTRUCTION, in one place, rather than as a RangeError from inside Intl on
+		// whichever screen happens to render it first.
+		expect(() => money(100, 'AB')).toThrow(/AB/);
+		expect(() => money(100, '<script>')).toThrow(/currency/i);
+	});
+
+	it('still formats a well-formed unknown code without throwing', () => {
+		expect.assertions(1);
+
+		expect(formatMoney(money(100, 'ZZZ'), { locale: 'fr' })).toContain('ZZZ');
 	});
 });

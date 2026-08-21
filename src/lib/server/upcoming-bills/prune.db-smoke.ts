@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { resolveDatabaseProvider } from '$lib/server/database/provider';
@@ -139,6 +140,7 @@ describe(`upcoming-bills inert-decision prune (${provider})`, () => {
 
 		const account = await prisma.account.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				name: 'Compte courant',
 				nameKey: computeNameKey('Compte courant'),
@@ -152,6 +154,7 @@ describe(`upcoming-bills inert-decision prune (${provider})`, () => {
 		});
 		const transaction = await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: account.id,
 				categoryId: category.id,

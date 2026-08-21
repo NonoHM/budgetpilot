@@ -1,3 +1,4 @@
+import { DEFAULT_EXPONENT } from '$lib/domain/money';
 import { createHash } from 'node:crypto';
 import { prisma } from '$lib/server/db';
 import { decryptSecret, encryptSecret } from '$lib/server/crypto';
@@ -296,7 +297,12 @@ export async function completeBankAuthorization(
 			userId: input.userId,
 			name: account.name,
 			source,
-			currency: account.currency,
+			// The provider names a currency and never an exponent, so the exponent is stated HERE
+			// rather than defaulted inside `resolveImportBucketAccount`: this is the one line where
+			// somebody can see that a JOD account would be stamped as if it had two decimals, and
+			// it is greppable. Correcting it needs a validated code list, which is the next piece;
+			// until then the assumption is visible instead of buried.
+			denomination: { currency: account.currency, exponent: DEFAULT_EXPONENT },
 			bankConnectionId: connectionId,
 			providerAccountId: account.id,
 			providerCashAccountType: account.cashAccountType ?? null

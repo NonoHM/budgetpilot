@@ -1,6 +1,6 @@
 import type { CategoryAllocation } from './allocation';
 import { normalizeForMatch } from './normalize';
-import { formatMoney, money } from './money';
+import { formatMoney, money, DEFAULT_CURRENCY } from './money';
 import { getLocale } from '$lib/paraglide/runtime';
 import * as m from '$lib/paraglide/messages';
 
@@ -151,7 +151,7 @@ export function formatSpentOfLimit(spentCents: number, limitCents: number): stri
 export function formatCents(
 	amountCents: number,
 	locale = getLocale(),
-	currency = 'EUR',
+	currency = DEFAULT_CURRENCY,
 	/**
 	 * Passed straight to `Intl.NumberFormat`. Default `'auto'` is the existing behaviour: a minus on
 	 * negatives, nothing on positives.

@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { afterAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
@@ -67,7 +68,7 @@ async function seedUser(): Promise<Seed> {
 	createdUserIds.push(user.id);
 
 	const account = await prisma.account.create({
-		data: { userId: user.id, name: 'Compte courant', source: 'manual' },
+		data: { ...DEFAULT_DENOMINATION, userId: user.id, name: 'Compte courant', source: 'manual' },
 		select: { id: true }
 	});
 	const [food, home, sentinel] = await Promise.all([
@@ -101,6 +102,7 @@ async function seedUser(): Promise<Seed> {
 async function seedTransaction(seed: Seed, amountCents = PARENT_CENTS): Promise<string> {
 	const transaction = await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId: seed.userId,
 			accountId: seed.accountId,
 			categoryId: seed.foodCategoryId,
@@ -114,12 +116,31 @@ async function seedTransaction(seed: Seed, amountCents = PARENT_CENTS): Promise<
 	return transaction.id;
 }
 
+/**
+ * The parts as PLAIN objects, which is what the deep-equality assertions below are about.
+ *
+ * A row from a client carrying a `result` extension is not a plain object: the money column is a
+ * computed field, and Prisma hangs a `Symbol(nodejs.util.inspect.custom)` on the result so the
+ * computed value prints. `toEqual` compares own symbol keys, so asserting against an object
+ * literal fails on a difference that is not about the data. Mapping here keeps the assertions
+ * about the répartition rather than about how Prisma decorates a row.
+ *
+ * Cosmetic, and checked rather than assumed: the symbol is an own key, so `JSON.stringify` (the
+ * backup export) and devalue (SvelteKit's load serialisation) both skip it, since both walk string
+ * keys.
+ */
 async function storedParts(transactionId: string) {
-	return prisma.transactionSplit.findMany({
+	const parts = await prisma.transactionSplit.findMany({
 		where: { transactionId },
 		orderBy: { position: 'asc' },
 		select: { categoryId: true, amountCents: true, position: true, note: true }
 	});
+	return parts.map((part) => ({
+		categoryId: part.categoryId,
+		amountCents: part.amountCents,
+		position: part.position,
+		note: part.note
+	}));
 }
 
 afterAll(async () => {
@@ -418,7 +439,10 @@ describe('clearSplits', () => {
 			where: { id: transactionId },
 			select: { categoryId: true, amountCents: true }
 		});
-		expect(parent).toEqual({ categoryId: seed.foodCategoryId, amountCents: PARENT_CENTS });
+		// `toMatchObject` rather than `toEqual`: a row from the extended client carries a
+		// `Symbol(nodejs.util.inspect.custom)` for its computed money column, and `toEqual` compares own
+		// symbol keys. The claim here is about the two selected fields. See storedParts above.
+		expect(parent).toMatchObject({ categoryId: seed.foodCategoryId, amountCents: PARENT_CENTS });
 	});
 
 	it('is idempotent on a transaction that has no parts', async () => {
@@ -545,6 +569,7 @@ describe('the identity-side guards, against a real engine', () => {
 		const unsplitId = await prisma.transaction
 			.create({
 				data: {
+					...DEFAULT_DENOMINATION,
 					userId: seed.userId,
 					accountId: seed.accountId,
 					categoryId: seed.sentinelCategoryId,
@@ -559,6 +584,7 @@ describe('the identity-side guards, against a real engine', () => {
 		const splitId = await prisma.transaction
 			.create({
 				data: {
+					...DEFAULT_DENOMINATION,
 					userId: seed.userId,
 					accountId: seed.accountId,
 					categoryId: seed.sentinelCategoryId,

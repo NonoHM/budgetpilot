@@ -852,6 +852,104 @@ nothing today would.
 
 ---
 
+# What the migration measured, and the two corrections it forced
+
+Added when the columns landed, because a design note whose claims were never executed is a
+proposal. Everything below was run.
+
+**The widening forces `bigint` into TypeScript, and there is no schema-level escape.** **MEASURED**:
+`Int @db.BigInt` is refused on all three connectors. Reads, aggregates and inputs on a `BigInt`
+field are `bigint`, `bigint | null` and `bigint | number` respectively, so writes and filters need
+nothing and only reads do. One `result` extension at `createPrismaClient` narrows the eight columns
+back to `number`, which is sound because a `number` holds every integer to 2^53 exactly, about nine
+million times the largest amount this application allows. The 64 bits are for the column, not for
+the language.
+
+**The extension seam holds, and it was verified rather than asserted.** Zero `new *PrismaClient(`
+outside `client.ts`, and zero imports of a generated client anywhere else in the tree, so nothing
+else CAN build one. **MEASURED**: the extension survives `findMany`, a narrow `select`, and an
+interactive `$transaction` callback's `tx`. It does NOT survive `$queryRaw`, which returns a
+`bigint` and typechecks as whatever the caller declares.
+
+**The aggregate is a type lie, and it is the sharpest thing this piece found.** **MEASURED both
+ways**: under the extension, `aggregate({ _sum: { amountCents: true } })` typechecks as
+`number | null` and returns a `bigint`. The compile-time answer is the one that is wrong, so
+`npm run check` reports clean over five sites that throw. They were found by reading and are gated
+by a source scan calibrated on real instances, because the typechecker cannot be the detector for
+a defect whose whole shape is that the typechecker is wrong.
+
+**"A default is a value with no author" is literal on PostgreSQL.** **MEASURED on 17.10**:
+`ADD COLUMN NOT NULL DEFAULT 2` leaves `pg_attribute.atthasmissing` true with `attmissingval = {2}`
+and rewrites no row, so the value is synthesised on read and there is nothing in the row to correct.
+The three-step used instead leaves `atthasmissing` false on all twelve new columns, and no column
+default survives the migration on any engine.
+
+**What a halfway failure leaves, per engine, and the correction.** **MEASURED on PostgreSQL 17.10**
+with a unique-violation poison after the `Transaction` block: earlier statements stay committed,
+`_prisma_migrations` records `finished_at` NULL, `rolled_back_at` NULL, `applied_steps_count` 0.
+**The migration is NOT restartable**, which the first draft of its own header claimed it was:
+`migrate resolve --rolled-back` then `migrate deploy` fails with 42701, "column already exists",
+because `ADD COLUMN` is idempotent on no engine and SQLite's leg is a table rebuild. What the
+`WHERE ... IS NULL` on each UPDATE buys is hand recovery without double-stamping, not re-running.
+63 statements on SQLite, 37 on PostgreSQL, 27 on MySQL.
+
+**The MariaDB shadow database, read rather than inferred from an exit code.** The ordinary user
+fails with `P3014` wrapping `P1010`, exactly as recorded. Generated as root: five databases before,
+the same five after, zero `prisma_migrate%` left behind.
+
+**A security gap this piece opened and closed in the same change.** `Intl.NumberFormat` raises a
+`RangeError` on any currency code that is not three ASCII letters. **MEASURED**: `AB`, `ABCD`, the
+empty string, `ABC DEF` and `<script>` all throw; `ZZZ` and `BTC` do not. Threading a stored
+currency into a display made that reachable, and the backup schema validated length only, which
+break-checking shows caught 1 of 6 malformed codes. The grammar is now checked where untrusted
+input crosses in and again in `money()`. Whether a code is KNOWN is deliberately still not checked:
+that would need the list this design refuses to consult, and an unknown but well-formed code is
+accepted, which is the calibration that keeps the six refusals meaningful.
+
+**Two things a review caught that the first implementation got wrong, and both were about the same
+mistake: treating "everything is euros today" as true when it already was not.**
+
+The first: **the migration stamped every transaction `EUR`, and `Account.currency` has been
+writable to a non-euro value since bank sync existed.** `banking/connectors/enablebanking.ts`
+stores whatever the provider names. So an install with a sterling account would have had every one
+of its transactions stamped with a currency it is not, where before the migration those rows
+asserted nothing at all. Making a row newly WRONG is worse than leaving it silent, and the
+information needed for the right answer was sitting in the account. All three legs now read it, and
+`persistImportedTransactions` reads the bucket once before its loop so future writes agree.
+**MEASURED on all three engines** with a populated database holding one euro bucket and one
+sterling bucket: the sterling account's transaction is stamped `GBP`.
+
+**The exponent is the honest limit and is stated rather than hidden.** No pre-existing row records
+one and no list is consulted, so 2 is stamped for everything. Every currency this application has
+actually seen has two decimals; a pre-change account in one of the seven 3-decimal currencies is
+the one case the migration cannot recover, and nothing else could recover it either, because the
+information was never written down.
+
+The second: **the backup contract accepted a currency with no exponent beside it, which is exactly
+the ambiguity this whole design exists to prevent**, and the comment beside it claimed `.strict()`
+already forbade that. It does not: `.strict()` rejects unknown keys and says nothing about two
+optional fields being independent. **MEASURED before the rule existed**: a payload naming `JOD` with
+no exponent parsed successfully and the restore stamped it 2, so a row meaning 1.000 JOD came back
+meaning 10.00 JOD, under a contract 1.0 freezes. Both-or-neither is now enforced on the five
+money-bearing entities. `Account` is the exception and cannot be otherwise: its `currency` predates
+the exponent column, so "currency present, exponent absent" is the shape of every backup ever
+exported, and refusing it would make them all unrestorable.
+
+**A third, smaller, in the same family.** The provider's currency was the one trust boundary left
+without a check, and the asymmetry pointed the wrong way: the backup boundary enforces ISO 4217's
+grammar, so a malformed code stored from a provider would surface as the user's OWN export refusing
+to restore. It is now uppercased and validated at the connector, falling back to the default,
+because a bucket denominated in the wrong currency is visible and correctable while one denominated
+in a code no formatter can render takes the screen down.
+
+**One deviation from "per amount", recorded rather than rounded away.** `TransactionSplit` carries
+neither column. A part is denominated by its parent, and `sum(parts) = parent.amountCents` is a
+conservation theorem a second currency would falsify. `NetWorthSnapshot` carries both even though
+it always agrees with its account today, because a snapshot is a fact about the past and an account
+is a verdict on the present.
+
+---
+
 # Corrections to the record
 
 Collected so they are actionable rather than buried.

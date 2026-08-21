@@ -1113,6 +1113,48 @@ describe('restoreBackup', () => {
 		expect(category?.defaultKey).toBeUndefined();
 	});
 
+	// THE STAMP, which nothing asserted. Replacing `restoredDenomination(row)` with
+	// `DEFAULT_DENOMINATION` at all seven sites was green across the whole suite: the columns are
+	// required, so `npm run check` catches a MISSING spread and nothing catches a WRONG one. The
+	// failure that hides behind that is silent, because every fixture in this file is euros.
+	//
+	// So the fixture is deliberately not euros. A KWD account at exponent 3 is the case where
+	// "took the file's value" and "took the application default" produce different rows.
+	it("writes the file's own denomination, not the application default", async () => {
+		expect.assertions(4);
+
+		const payload = buildValidPayload();
+		payload.accounts[0].currency = 'KWD';
+		(payload.accounts[0] as { exponent?: number }).exponent = 3;
+		(payload.transactions[0] as { currency?: string }).currency = 'KWD';
+		(payload.transactions[0] as { exponent?: number }).exponent = 3;
+
+		await restoreBackup('user-a', payload);
+
+		const account = db.store.accounts.find((entry) => entry.userId === 'user-a');
+		expect(account?.currency).toBe('KWD');
+		expect(account?.exponent).toBe(3);
+		const transaction = db.store.transactions.find((entry) => entry.userId === 'user-a');
+		expect(transaction?.currency).toBe('KWD');
+		expect(transaction?.exponent).toBe(3);
+	});
+
+	// The other half of the same stamp, and the reason the `??` in `restoredDenomination` is a fact
+	// rather than a guess: a file written before the columns existed could only have held euros at
+	// exponent 2, because that is the only thing the schema of the day could express.
+	it('stamps a file written before the columns existed as euros at exponent 2', async () => {
+		expect.assertions(3);
+
+		const payload = buildValidPayload();
+		expect(payload.transactions[0]).not.toHaveProperty('currency');
+
+		await restoreBackup('user-a', payload);
+
+		const transaction = db.store.transactions.find((entry) => entry.userId === 'user-a');
+		expect(transaction?.currency).toBe('EUR');
+		expect(transaction?.exponent).toBe(2);
+	});
+
 	it('rejects a transaction referencing an accountId absent from the file, before any write', async () => {
 		expect.assertions(3);
 

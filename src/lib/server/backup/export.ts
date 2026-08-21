@@ -44,6 +44,7 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				id: true,
 				name: true,
 				currency: true,
+				exponent: true,
 				source: true,
 				netWorthAccountId: true,
 				bankConnectionId: true,
@@ -97,6 +98,8 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				date: true,
 				label: true,
 				amountCents: true,
+				currency: true,
+				exponent: true,
 				type: true,
 				source: true,
 				notes: true,
@@ -109,7 +112,7 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		}),
 		prisma.monthlyBudget.findMany({
 			where: { userId },
-			select: { id: true, categoryName: true, amountCents: true }
+			select: { id: true, categoryName: true, amountCents: true, currency: true, exponent: true }
 		}),
 		prisma.categoryRule.findMany({
 			where: { userId },
@@ -134,11 +137,27 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		// a restore rather than being silently dropped.
 		prisma.netWorthAccount.findMany({
 			where: { userId },
-			select: { id: true, name: true, type: true, balanceCents: true, deletedAt: true }
+			select: {
+				id: true,
+				name: true,
+				type: true,
+				balanceCents: true,
+				currency: true,
+				exponent: true,
+				deletedAt: true
+			}
 		}),
 		prisma.netWorthSnapshot.findMany({
 			where: { userId },
-			select: { id: true, accountId: true, type: true, balanceCents: true, capturedAt: true }
+			select: {
+				id: true,
+				accountId: true,
+				type: true,
+				balanceCents: true,
+				currency: true,
+				exponent: true,
+				capturedAt: true
+			}
 		}),
 		// Includes soft-deleted goals? No — deleted goals are intentionally dropped, consistent
 		// with every other soft-deletable model except NetWorthAccount (whose deletion must
@@ -152,6 +171,8 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				netWorthAccountId: true,
 				currentAmountCents: true,
 				startingBalanceCents: true,
+				currency: true,
+				exponent: true,
 				targetDate: true,
 				reachedAt: true,
 				reachedBannerDismissedAt: true

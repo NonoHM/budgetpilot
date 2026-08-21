@@ -1,5 +1,5 @@
 import { prisma } from '$lib/server/db';
-import type { Prisma } from '../database/types.ts';
+import type { Prisma, TransactionPayload } from '../database/types.ts';
 
 /**
  * Bounds how many parent rows one `findMany` may fetch when its `select` can carry a to-many
@@ -58,7 +58,7 @@ export interface ForEachTransactionBatchOptions {
 export async function forEachTransactionBatch<Select extends Prisma.TransactionSelect>(
 	where: Prisma.TransactionWhereInput,
 	select: Select,
-	onBatch: (rows: Array<Prisma.TransactionGetPayload<{ select: Select }>>) => void | false,
+	onBatch: (rows: Array<TransactionPayload<Select>>) => void | false,
 	options: number | ForEachTransactionBatchOptions = {}
 ): Promise<void> {
 	const { batchSize = DEFAULT_BATCH_SIZE, order = 'desc' } =
@@ -81,7 +81,7 @@ export async function forEachTransactionBatch<Select extends Prisma.TransactionS
 
 		if (rows.length === 0) return;
 
-		const result = onBatch(rows as Array<Prisma.TransactionGetPayload<{ select: Select }>>);
+		const result = onBatch(rows as Array<TransactionPayload<Select>>);
 		if (result === false) return;
 
 		if (rows.length < batchSize) return;
@@ -106,8 +106,8 @@ export async function collectAllTransactions<Select extends Prisma.TransactionSe
 	where: Prisma.TransactionWhereInput,
 	select: Select,
 	options: ForEachTransactionBatchOptions = {}
-): Promise<Array<Prisma.TransactionGetPayload<{ select: Select }>>> {
-	const rows: Array<Prisma.TransactionGetPayload<{ select: Select }>> = [];
+): Promise<Array<TransactionPayload<Select>>> {
+	const rows: Array<TransactionPayload<Select>> = [];
 	await forEachTransactionBatch(
 		where,
 		select,

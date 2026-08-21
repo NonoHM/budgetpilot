@@ -1,3 +1,4 @@
+import { isValidCurrencyCode } from '$lib/domain/money';
 import { z } from 'zod';
 import { TRANSACTION_NATURES } from '$lib/domain/transaction';
 import { DEFAULT_CATEGORY_KEYS } from '$lib/domain/categories';
@@ -121,16 +122,80 @@ export const MAX_IMPORTED_RECURRING_STREAM_ACTIONS = MAX_RECURRING_STREAM_ACTION
 const transactionNature = z.enum(TRANSACTION_NATURES);
 const defaultCategoryKey = z.enum(DEFAULT_CATEGORY_KEYS);
 
+/**
+ * The denomination a money-bearing row carries: its ISO 4217 code and the power of ten that scales
+ * its integer minor units.
+ *
+ * OPTIONAL, and only because a backup written before the columns existed has neither. Such a file
+ * is exponent-2 euros BY CONSTRUCTION, since that is the only thing the schema could express at the
+ * time, so the restore stamps it rather than guessing: see server/backup/import.ts.
+ *
+ * BOTH OR NEITHER, enforced below. An earlier version of this comment claimed `.strict()` already
+ * did that. It does not: `.strict()` rejects UNKNOWN keys and says nothing about two optional ones
+ * being independent. MEASURED before the check existed: a payload carrying `currency: 'JOD'` with
+ * no `exponent` parsed successfully, and the restore then stamped it 2, so a row meaning 1.000 JOD
+ * came back meaning 10.00 JOD. That is the exact ambiguity this whole pair exists to prevent, and
+ * it would have been permitted by the contract 1.0 freezes.
+ */
+const CURRENCY_CODE_MESSAGE = 'must be a three-letter ISO 4217 code';
+
+const denomination = {
+	// The GRAMMAR, not just a length. An uploaded backup is untrusted input, and a currency code
+	// that is not three uppercase letters makes `Intl.NumberFormat` raise a `RangeError` on every
+	// screen that renders the row it lands on. Stored, that is a persistent failure the user cannot
+	// repair through a UI that will not render. `min(1).max(10)` accepted all of it.
+	currency: z.string().refine(isValidCurrencyCode, { message: CURRENCY_CODE_MESSAGE }).optional(),
+	// Bounded rather than any integer: ISO 4217 uses 0, 2, 3 and 4, and an unbounded exponent in a
+	// restored row is a scaling factor an uploaded file gets to choose.
+	exponent: z.number().int().min(0).max(4).optional()
+};
+
+/**
+ * Applies the both-or-neither rule to an entity that carries `denomination`.
+ *
+ * A file that names a currency on one of these rows was written by a version that had the exponent
+ * column too, so it can and must carry both. Absent means "written before the columns existed",
+ * which the restore stamps.
+ */
+function requireDenominationPair<T extends z.ZodTypeAny>(schema: T) {
+	return schema.superRefine((parsed, context) => {
+		// Narrowed inside rather than in the signature, so the wrapper keeps the schema's own
+		// inferred output type. Typing the parameter instead widens every wrapped entity to these
+		// two fields and takes the rest of the payload's types with it.
+		const value = parsed as { currency?: string; exponent?: number };
+		if ((value.currency === undefined) === (value.exponent === undefined)) return;
+		context.addIssue({
+			code: 'custom',
+			path: [value.currency === undefined ? 'currency' : 'exponent'],
+			message:
+				'currency and exponent travel together: a currency with no exponent beside it does not ' +
+				'say what its integer amounts mean'
+		});
+	});
+}
+
 const backupAccountSchema = z
 	.object({
 		id: z.string().min(1),
 		name: z.string().min(1).max(200),
-		// A currency field and an EXPONENT field must arrive in the same change, never currency
-		// alone: every `amountCents`/`balanceCents` below is exponent-2 by assumption and records
-		// nothing about it, so a row restored under a non-euro currency with no exponent beside it
-		// is ambiguous forever. The rule and its reasoning are on `Account.currency` in
-		// prisma/schema.prisma; this is the second declaration site and has to move with it.
-		currency: z.string().min(1).max(10),
+		// A currency field and an EXPONENT field arrive in the same change, never currency alone: a
+		// row restored under a non-euro currency with no exponent beside it is ambiguous forever.
+		// The rule and its reasoning are on `Account.currency` in prisma/schema.prisma; this is the
+		// second declaration site and moves with it. This comment used to say every `amountCents`
+		// and `balanceCents` below was exponent-2 by assumption and recorded nothing about it; the
+		// change that added `denomination` to those entities is the change that corrected it.
+		currency: z.string().refine(isValidCurrencyCode, { message: CURRENCY_CODE_MESSAGE }),
+		// NOT subject to the both-or-neither rule the five money-bearing entities carry, and this is
+		// the one place the rule cannot apply: `currency` here PREDATES the exponent column, so it is
+		// required while `exponent` is optional, and "currency present, exponent absent" is the shape
+		// of every backup ever exported before this change. Refusing it would make them all
+		// unrestorable.
+		//
+		// The cost is stated rather than hidden: a pre-change file naming a 3-decimal currency on an
+		// account restores at exponent 2, because no pre-change file records one and this design
+		// consults no list. It is the same limit the migration has for the same reason, and it is
+		// not recoverable by any other means, because the information was never written down.
+		exponent: denomination.exponent,
 		source: z.string().min(1).max(MAX_PORTABLE_STRING),
 		// Absent from exports predating this link: treated as null (no net worth account
 		// connected) rather than required, so an older backup file still restores.
@@ -273,33 +338,39 @@ const backupImportBatchSchema = z
 	})
 	.strict();
 
-const backupTransactionSchema = z
-	.object({
-		id: z.string().min(1),
-		accountId: z.string().min(1),
-		categoryId: z.string().min(1),
-		importBatchId: z.string().min(1).nullable(),
-		date: isoDateString,
-		label: z.string().min(1).max(2000),
-		amountCents: z.number().int(),
-		type: transactionKind.nullable(),
-		source: z.string().min(1).max(MAX_PORTABLE_STRING),
-		notes: z.string().max(10_000).nullable(),
-		bankOperationType: z.string().max(500).nullable(),
-		manualCategory: z.string().max(MAX_PORTABLE_STRING).nullable(),
-		natureManual: transactionNature.nullable(),
-		dedupeKey: z.string().max(500).nullable(),
-		metadataJson: z.string().max(100_000).nullable()
-	})
-	.strict();
+const backupTransactionSchema = requireDenominationPair(
+	z
+		.object({
+			...denomination,
+			id: z.string().min(1),
+			accountId: z.string().min(1),
+			categoryId: z.string().min(1),
+			importBatchId: z.string().min(1).nullable(),
+			date: isoDateString,
+			label: z.string().min(1).max(2000),
+			amountCents: z.number().int(),
+			type: transactionKind.nullable(),
+			source: z.string().min(1).max(MAX_PORTABLE_STRING),
+			notes: z.string().max(10_000).nullable(),
+			bankOperationType: z.string().max(500).nullable(),
+			manualCategory: z.string().max(MAX_PORTABLE_STRING).nullable(),
+			natureManual: transactionNature.nullable(),
+			dedupeKey: z.string().max(500).nullable(),
+			metadataJson: z.string().max(100_000).nullable()
+		})
+		.strict()
+);
 
-const backupMonthlyBudgetSchema = z
-	.object({
-		id: z.string().min(1),
-		categoryName: z.string().min(1).max(MAX_PORTABLE_STRING),
-		amountCents: z.number().int()
-	})
-	.strict();
+const backupMonthlyBudgetSchema = requireDenominationPair(
+	z
+		.object({
+			...denomination,
+			id: z.string().min(1),
+			categoryName: z.string().min(1).max(MAX_PORTABLE_STRING),
+			amountCents: z.number().int()
+		})
+		.strict()
+);
 
 const backupCategoryRuleSchema = z
 	.object({
@@ -332,39 +403,48 @@ const backupCategoryNatureMappingSchema = z
 
 const netWorthAccountType = z.enum(NET_WORTH_ACCOUNT_TYPES);
 
-const backupNetWorthAccountSchema = z
-	.object({
-		id: z.string().min(1),
-		name: z.string().min(1).max(MAX_PORTABLE_STRING),
-		type: netWorthAccountType,
-		balanceCents: z.number().int(),
-		deletedAt: isoDateString.nullable()
-	})
-	.strict();
+const backupNetWorthAccountSchema = requireDenominationPair(
+	z
+		.object({
+			...denomination,
+			id: z.string().min(1),
+			name: z.string().min(1).max(MAX_PORTABLE_STRING),
+			type: netWorthAccountType,
+			balanceCents: z.number().int(),
+			deletedAt: isoDateString.nullable()
+		})
+		.strict()
+);
 
-const backupNetWorthSnapshotSchema = z
-	.object({
-		id: z.string().min(1),
-		accountId: z.string().min(1),
-		type: netWorthAccountType,
-		balanceCents: z.number().int(),
-		capturedAt: isoDateString
-	})
-	.strict();
+const backupNetWorthSnapshotSchema = requireDenominationPair(
+	z
+		.object({
+			...denomination,
+			id: z.string().min(1),
+			accountId: z.string().min(1),
+			type: netWorthAccountType,
+			balanceCents: z.number().int(),
+			capturedAt: isoDateString
+		})
+		.strict()
+);
 
-const backupSavingsGoalSchema = z
-	.object({
-		id: z.string().min(1),
-		name: z.string().min(1).max(MAX_PORTABLE_STRING),
-		targetAmountCents: z.number().int(),
-		netWorthAccountId: z.string().min(1).nullable(),
-		currentAmountCents: z.number().int(),
-		startingBalanceCents: z.number().int(),
-		targetDate: isoDateString.nullable(),
-		reachedAt: isoDateString.nullable(),
-		reachedBannerDismissedAt: isoDateString.nullable()
-	})
-	.strict();
+const backupSavingsGoalSchema = requireDenominationPair(
+	z
+		.object({
+			...denomination,
+			id: z.string().min(1),
+			name: z.string().min(1).max(MAX_PORTABLE_STRING),
+			targetAmountCents: z.number().int(),
+			netWorthAccountId: z.string().min(1).nullable(),
+			currentAmountCents: z.number().int(),
+			startingBalanceCents: z.number().int(),
+			targetDate: isoDateString.nullable(),
+			reachedAt: isoDateString.nullable(),
+			reachedBannerDismissedAt: isoDateString.nullable()
+		})
+		.strict()
+);
 
 const backupRecurringStreamActionSchema = z
 	.object({

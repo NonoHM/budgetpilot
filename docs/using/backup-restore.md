@@ -24,6 +24,15 @@ codes, or your sessions. Verified on a real export: none of those appear in
 the file. So the export cannot be used to sign in as you, and restoring it
 somewhere else does not carry your password with it.
 
+Each amount in the file also records which currency it is in. You will see
+`EUR` everywhere today, because that is the only currency the app uses so far.
+It is written down anyway so that a file exported now still means the same
+thing years from now, whatever the app supports by then.
+
+**An older backup still restores.** A file you exported before this was added
+has no currency written in it, so restoring it reads every amount as euros,
+which is what it was. Nothing to do on your side.
+
 Nothing is sent anywhere. The file is produced by your own instance and
 downloaded straight to your machine.
 
@@ -74,6 +83,7 @@ from a stranger.
 | From a newer format version        | _Unsupported backup format._        |
 | Missing a section, or a bad field  | _Invalid or corrupted backup file._ |
 | Holding two categories of one name | _...contains a duplicate category._ |
+| Holding an invalid currency code   | _Invalid or corrupted backup file._ |
 | Larger than 20 MB                  | _...file is too large..._           |
 | Holding over 2 million entries     | _...too many separate entries..._   |
 | Nothing chosen                     | _No file selected._                 |

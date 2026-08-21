@@ -6,9 +6,11 @@
  * Before it, sixteen sites across thirteen files divided or multiplied by a literal `100`, four
  * regexes accepted a literal one-or-two fraction digits, and two of those refused a third digit in
  * OPPOSITE directions (one threw and aborted a whole account fetch, the other filtered the row out
- * silently). None of that is wrong today, because every stored amount is a euro at exponent 2. All
- * of it becomes wrong on the day an amount carries its own exponent, and it becomes wrong twenty
- * three times, in twenty three places, each of which has to be found first.
+ * silently). This paragraph used to end "none of that is wrong today, because every stored amount
+ * is a euro at exponent 2", and name the day an amount would carry its own exponent as a future
+ * one. That day was the migration after this module landed: every money-bearing row now carries a
+ * `currency` and an `exponent` column. All twenty three sites would be wrong now, which is why this
+ * module had to come first.
  *
  * The deletion test says the same thing from the other side: delete this module and the exponent
  * reappears at every call site rather than the complexity vanishing.
@@ -23,9 +25,16 @@
  * **Aggregation.** Adding two integers of one currency is exact and needs no exponent, so sums stay
  * where they are rather than moving behind an interface that would add nothing.
  *
- * **Policy.** Nothing here throws. A malformed amount comes back as `null` and the caller decides
- * whether that is a refusal, a filtered row or an abort, which is how two callers can keep two
- * different reactions to one grammar.
+ * **Policy on an AMOUNT.** A malformed amount comes back as `null` and the caller decides whether
+ * that is a refusal, a filtered row or an abort, which is how two callers can keep two different
+ * reactions to one grammar.
+ *
+ * This used to read "nothing here throws", and that is no longer true: `money()` throws on a
+ * malformed CURRENCY CODE. The distinction is deliberate rather than an erosion. An amount is
+ * user input and being wrong about one is ordinary, so the caller decides. A currency code that
+ * is not three letters cannot be rendered by any formatter at all, so there is no `null` a caller
+ * could usefully do anything with, and letting it through means a `RangeError` from inside `Intl`
+ * on whichever screen reaches the row first. See `isValidCurrencyCode`.
  *
  * **Rounding at the inbound door.** More fraction digits than the exponent is REFUSED, never
  * rounded, and the prior art is why it is stated as a refusal rather than left implicit: Firefly
@@ -69,14 +78,32 @@ export interface Money {
 }
 
 /**
- * What every amount in the database is today, and the only two constants a future migration has to
- * replace with a column read.
+ * The denomination this application gives a row when nothing else names one.
  *
- * They are exported so a call site that constructs a `Money` from a bare integer says which
- * assumption it is making, greppably, instead of the assumption being invisible.
+ * This docstring used to say these were "what every amount in the database is today, and the only
+ * two constants a future migration has to replace with a column read". That migration has now
+ * happened: every money-bearing row carries its own `currency` and `exponent`, so these are no
+ * longer a description of the stored data. They are the APPLICATION's default, and the only place
+ * it has a name. There is deliberately no database default (see prisma/schema.prisma), so a write
+ * path that does not state a denomination fails rather than silently becoming euros.
+ *
+ * Exported so a call site that constructs a `Money` from a bare integer says which assumption it
+ * is making, greppably, instead of the assumption being invisible.
  */
 export const DEFAULT_CURRENCY = 'EUR';
 export const DEFAULT_EXPONENT = 2;
+
+/**
+ * The same pair, shaped for a Prisma `data` object: `{ ...DEFAULT_DENOMINATION }`.
+ *
+ * One name rather than two loose fields, because the two are meaningless apart: a currency with no
+ * exponent beside it is the ambiguity this whole design exists to prevent, and a spread makes
+ * "somebody forgot the exponent" unwriteable rather than merely discouraged.
+ */
+export const DEFAULT_DENOMINATION = {
+	currency: DEFAULT_CURRENCY,
+	exponent: DEFAULT_EXPONENT
+} as const;
 
 /**
  * Builds an amount from an integer of minor units.
@@ -85,11 +112,48 @@ export const DEFAULT_EXPONENT = 2;
  * own currency and exponent, a call site becomes `money(row.amountCents, row.currency, row.exponent)`
  * and nothing else about it changes.
  */
+/**
+ * ISO 4217's own shape: exactly three uppercase ASCII letters.
+ *
+ * A literal, never `new RegExp`: `injection-sinks.spec.ts` holds the repository to zero constructed
+ * patterns in production code.
+ */
+const CURRENCY_CODE_PATTERN = /^[A-Z]{3}$/;
+
+/**
+ * Whether a string is a code any formatter can render. NOT whether the code exists.
+ *
+ * The two questions are deliberately separate. Whether a code is KNOWN would need a list, and this
+ * design refuses to consult one at read time: an unknown-but-well-formed code (`ZZZ`, a crypto
+ * ticker) renders as itself and is stored honestly. Whether a code is WELL FORMED is answered by
+ * ISO 4217's own grammar and has to be, because `Intl.NumberFormat` raises a `RangeError` on
+ * anything else. MEASURED: `AB`, `ABCD`, `''`, `ABC DEF` and `<script>` all throw; `ZZZ` and `BTC`
+ * do not.
+ *
+ * That RangeError is why this is a validation concern and not a formatting preference. A malformed
+ * code reaching a money column takes down every screen that renders the row, the failure persists
+ * because it is stored, and the user cannot repair it through a UI that will not render. So the
+ * grammar is checked where untrusted input crosses into the application (server/backup/schema.ts
+ * validates an uploaded file against it) and again here, where a `Money` is built.
+ */
+export function isValidCurrencyCode(value: string): boolean {
+	return CURRENCY_CODE_PATTERN.test(value);
+}
+
 export function money(
 	minorUnits: number,
 	currency: string = DEFAULT_CURRENCY,
 	exponent: number = DEFAULT_EXPONENT
 ): Money {
+	// Loud, in one place, and at construction. The alternative is a `RangeError: Invalid currency
+	// code` thrown from inside `Intl` on whichever screen renders the row first, which names
+	// neither the row nor the column and reads as a rendering bug rather than as bad data.
+	if (!isValidCurrencyCode(currency)) {
+		throw new Error(
+			`${currency} is not a well-formed ISO 4217 currency code (three uppercase letters). ` +
+				'No formatter can render an amount denominated in it.'
+		);
+	}
 	return { minorUnits, currency, exponent };
 }
 
@@ -173,7 +237,10 @@ const NO_PLUS_AMOUNT_PATTERN = /^-?\d+(?:\.(\d+))?$/;
 /**
  * The inbound door: free text plus a currency and an exponent becomes an amount, or nothing.
  *
- * Returns null on any malformed or out-of-bounds input and never throws. More fraction digits than
+ * Returns null on any malformed or out-of-bounds AMOUNT. It can still throw, on one input and only
+ * one: a `currency` option that is not a well-formed ISO 4217 code, because the `Money` it returns
+ * is built through `money()`. Every caller today passes a default or a code from a stored row, so
+ * this is a contract statement rather than a live hazard. More fraction digits than
  * the exponent allows is a refusal rather than a rounding: rounding at the door would decide, in
  * this file, a question that belongs to whoever owns the data.
  */
@@ -391,4 +458,36 @@ export function parseManualAmountCents(value: string): number | null {
 			requireSafeInteger: true
 		})?.minorUnits ?? null
 	);
+}
+
+/**
+ * The symbol a locale uses for a currency, for a field's decorative suffix.
+ *
+ * Derived rather than written down, because a hardcoded `€` is one of the three literals this
+ * design set out to remove and because the symbol is a LOCALE's opinion, not a property of the
+ * amount: a French reader sees `€` where an American sees `US$` for the same stored row.
+ *
+ * Degrades rather than throwing, and the degradation is done by hand because `Intl` does not do
+ * all of it. MEASURED: an UNKNOWN but well-formed code renders as itself (`ZZZ` gives `"ZZZ"`),
+ * while a MISTYPED one raises a `RangeError` (`EU`, `EURO`, `ABC DEF` all throw). An earlier
+ * version of this comment claimed `Intl` never throws and that a mistyped code would degrade too;
+ * only the first half was true, and the test covered only the input where it was.
+ *
+ * The `catch` is what makes the sentence true. A currency suffix is decoration, and decoration
+ * must not be able to take down the form it sits beside; `money()` refuses a malformed code on the
+ * way IN, so anything reaching here has either been stored before that refusal existed or is a
+ * caller passing a literal.
+ */
+export function currencySymbol(currency: string, locale: string): string {
+	try {
+		const parts = new Intl.NumberFormat(locale, {
+			style: 'currency',
+			currency,
+			minimumFractionDigits: 0,
+			maximumFractionDigits: 0
+		}).formatToParts(0);
+		return parts.find((part) => part.type === 'currency')?.value ?? currency;
+	} catch {
+		return currency;
+	}
 }

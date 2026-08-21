@@ -7,7 +7,10 @@
 </script>
 
 <script lang="ts">
-	// Shared euro-amount text field: € suffix, right-aligned tabular-nums,
+	import { getLocale } from '$lib/paraglide/runtime';
+	import { currencySymbol, DEFAULT_CURRENCY } from '$lib/domain/money';
+
+	// Shared amount text field: currency suffix, right-aligned tabular-nums,
 	// 44px touch target everywhere (not just mobile — see IconButton's
 	// min-h-11 convention). Purely presentational + accessibility: parsing
 	// (parseManualAmountCents / parseNetWorthBalanceCents / parseBudgetAmountCents)
@@ -41,6 +44,7 @@
 		allowZero = true,
 		allowNegative = false,
 		hint,
+		currency = DEFAULT_CURRENCY,
 		wrapperClass = '',
 		inputClass = ''
 	}: {
@@ -89,6 +93,13 @@
 		allowZero?: boolean;
 		allowNegative?: boolean;
 		hint?: string;
+		/**
+		 * ISO 4217 code for the suffix beside the field. Defaults to the application default rather
+		 * than to a literal `€`, which is what this used to render: every money-bearing row now
+		 * carries its own currency, so a multi-currency form passes the row's code here and nothing
+		 * else in this component changes.
+		 */
+		currency?: string;
 		wrapperClass?: string;
 		inputClass?: string;
 	} = $props();
@@ -125,7 +136,7 @@
 			class="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-sm text-zinc-400"
 			aria-hidden="true"
 		>
-			€
+			{currencySymbol(currency, getLocale())}
 		</span>
 	</div>
 	{#if hint}

@@ -1,8 +1,18 @@
 import { getLocale } from '$lib/paraglide/runtime';
 import type { TransactionSummary } from './types';
-import { money, toMajorUnitNumber } from '$lib/domain/money';
+import { DEFAULT_CURRENCY, money, toMajorUnitNumber } from '$lib/domain/money';
 
-const PROMPT_CURRENCY = 'EUR';
+/**
+ * The currency the prompt tells the model the figures are in.
+ *
+ * The application default rather than a literal, and this is now the ONLY thing standing between
+ * this prompt and a per-row currency: every transaction carries `currency` and `exponent`, so a
+ * multi-currency dashboard replaces this constant with a read and nothing else here changes. Left
+ * as the default deliberately: a prompt that mixed currencies without saying so would hand the
+ * model figures it cannot compare, and refusing cross-currency aggregation is the design's
+ * load-bearing refusal. See docs/audits/2026-08-21-stored-forms-design.md, Part B.
+ */
+const PROMPT_CURRENCY = DEFAULT_CURRENCY;
 
 // The advice is rendered straight into the dashboard card, so it has to come back in the
 // language the rest of the page is in. The prompt used to hardcode "réponds en français",

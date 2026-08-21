@@ -22,10 +22,18 @@ const CATEGORY_COLUMN = 'category';
  *
  * ## Why this exists, and why it REFUSES rather than converts
  *
- * This application holds euros. Every amount is stored as a bare `amountCents` with no currency
- * beside it, and `formatCents` puts a euro symbol on all 121 of its call sites. So a file whose
- * amounts are pounds has nowhere honest to go: importing it writes the right number under the
- * wrong unit, and the user reads « -12,30 € » for a charge that was £12.30.
+ * A file whose amounts are pounds has nowhere honest to go on the import path: nothing here asks
+ * the user which currency the file is in, so importing it writes the right number under whatever
+ * unit the destination bucket happens to carry, and the user reads « -12,30 € » for a charge that
+ * was £12.30.
+ *
+ * **The reason used to be "this application holds euros: every amount is stored as a bare
+ * `amountCents` with no currency beside it". That is no longer true**, and the change that gave
+ * every money-bearing row its own `currency` and `exponent` is the change that corrected this
+ * paragraph. The refusal stands, and the reason moved: there is now somewhere to store a currency,
+ * and still no moment in this flow where the user says which one the file is in. A CSV declaring
+ * GBP would have to reach a GBP bucket, and choosing that bucket is the import destination feature
+ * (#449), not this file.
  *
  * `revolut.ts` has refused a non EUR row since long before this, and it is the MODEL here rather
  * than the outlier. This gives `generic` the same honesty, with the same refusal code, so the two
@@ -40,8 +48,8 @@ const CATEGORY_COLUMN = 'category';
  *
  * **What that costs, stated rather than left to be discovered: a user whose bank emits no currency
  * column and is not in euros is still silently wrong, and this cannot fix them.** There is nothing
- * to detect. Closing that needs somewhere to store a currency, or asking the user, and both belong
- * to the aggregation issue rather than here.
+ * to detect. Somewhere to store a currency now exists; what is still missing is a moment where the
+ * user says which one, and that belongs to the import destination feature rather than here.
  *
  * ## Only this profile can see it
  *

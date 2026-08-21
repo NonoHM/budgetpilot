@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { resolveDatabaseProvider } from '$lib/server/database/provider';
@@ -321,6 +322,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 			const dedupeKey = '2026-03-05|direct|-100';
 
 			const data = {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: account.accountId,
 				categoryId: category.id,
@@ -374,6 +376,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 
 			const created = await prisma.transaction.create({
 				data: {
+					...DEFAULT_DENOMINATION,
 					userId,
 					accountId,
 					categoryId,
@@ -446,6 +449,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 				const nameKey = computeNameKey('Compte joint');
 				const older = await prisma.account.create({
 					data: {
+						...DEFAULT_DENOMINATION,
 						userId,
 						name: 'Compte joint',
 						nameKey,
@@ -456,6 +460,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 				});
 				await prisma.account.create({
 					data: {
+						...DEFAULT_DENOMINATION,
 						userId,
 						name: 'COMPTE JOINT',
 						nameKey,
@@ -481,6 +486,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 			async () => {
 				await prisma.account.create({
 					data: {
+						...DEFAULT_DENOMINATION,
 						userId,
 						name: 'Compte joint',
 						nameKey: computeNameKey('Compte joint'),
@@ -494,6 +500,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 				await expect(
 					prisma.account.create({
 						data: {
+							...DEFAULT_DENOMINATION,
 							userId,
 							name: 'COMPTE JOINT',
 							nameKey: computeNameKey('COMPTE JOINT'),
@@ -558,6 +565,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 
 			await prisma.transaction.create({
 				data: {
+					...DEFAULT_DENOMINATION,
 					userId,
 					accountId: account.accountId,
 					categoryId: category.id,

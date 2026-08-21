@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { overwriteGetLocale } from '$lib/paraglide/runtime';
@@ -94,7 +95,7 @@ beforeEach(async () => {
 	locals = { user: { id: userId, email: 'prompt@budgetpilot.invalid', role: 'USER' } };
 
 	const account = await prisma.account.create({
-		data: { userId, name: 'Compte', nameKey: computeNameKey('Compte') },
+		data: { ...DEFAULT_DENOMINATION, userId, name: 'Compte', nameKey: computeNameKey('Compte') },
 		select: { id: true }
 	});
 
@@ -112,6 +113,7 @@ beforeEach(async () => {
 	// compared raw text would leave them behind and this fixture is what proves it does not.
 	await prisma.monthlyBudget.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId,
 			categoryName: 'Alimentation',
 			categoryNameKey: computeNameKey('Alimentation'),
@@ -138,6 +140,7 @@ beforeEach(async () => {
 	});
 	await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId,
 			accountId: account.id,
 			categoryId: food.id,

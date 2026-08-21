@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { describe, it, expect, beforeAll } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { load } from '../../../routes/transactions/+page.server';
@@ -63,7 +64,7 @@ beforeAll(async () => {
 	});
 	userId = user.id;
 	const account = await prisma.account.create({
-		data: { userId, name: 'Paging smoke account' },
+		data: { ...DEFAULT_DENOMINATION, userId, name: 'Paging smoke account' },
 		select: { id: true }
 	});
 	const category = await prisma.category.create({
@@ -75,6 +76,7 @@ beforeAll(async () => {
 	await prisma.transaction.deleteMany({ where: { id: { startsWith: 'paging-fixture-' } } });
 	await prisma.transaction.createMany({
 		data: Array.from({ length: ROW_COUNT }, (_, index) => ({
+			...DEFAULT_DENOMINATION,
 			id: `paging-fixture-${String(index).padStart(4, '0')}`,
 			userId,
 			accountId: account.id,
