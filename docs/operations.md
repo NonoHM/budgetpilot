@@ -220,11 +220,14 @@ MySQL rather than assumed:
   statement. The migration that adds the `ColumnMapping` table is **two**
   statements on MySQL, **three** on SQLite and **four** on PostgreSQL, because
   MySQL declares both indexes inside `CREATE TABLE` while PostgreSQL adds the
-  foreign key afterwards. So a mid-file failure on PostgreSQL can leave a table
-  with its indexes and no foreign key, where the same failure on MySQL leaves
-  either no table or a complete one. Read the migration file for **your**
-  engine, under `prisma/migrations/<engine>/`, before deciding at step 3 below
-  what actually landed.
+  foreign key afterwards. The one that adds a currency and an exponent to every
+  amount is much larger: **27** statements on MySQL, **37** on PostgreSQL and
+  **63** on SQLite, which rebuilds seven tables because it cannot change a
+  column in place. So a mid-file failure on PostgreSQL can leave a table with
+  its indexes and no foreign key, where the same failure on MySQL leaves either
+  no table or a complete one. Read the migration file for **your** engine, under
+  `prisma/migrations/<engine>/`, before deciding at step 3 below what actually
+  landed.
 - **Nothing further will run until you clear the failure.** Every later start
   fails with `P3009` and names the migration. This is a feature: the app
   cannot skip past a broken migration and quietly serve the wrong schema.
@@ -256,9 +259,31 @@ The recovery, in order:
 
 **Re-running restarts the migration file from the top.** After
 `--rolled-back`, the whole file runs again, including any statement that had
-already succeeded before the failure. That is safe for a migration written to
-be idempotent and is the reason to inspect at step 3 rather than reaching for
-`--rolled-back` reflexively.
+already succeeded before the failure. That is the reason to inspect at step 3
+rather than reaching for `--rolled-back` reflexively.
+
+#### When re-running will not work
+
+Some migrations cannot be run twice. Adding a column is the common case: the
+second attempt says the column already exists and stops, so you end up back
+where you started with one more error in the log.
+
+The migration that adds a currency and an exponent to every amount is one of
+these. If it fails partway, `--rolled-back` followed by a restart fails again.
+Measured on PostgreSQL, the second attempt stops with error `42701`, "column
+already exists". The other two engines stop for the same reason with their own
+wording.
+
+**What to do instead.** Restore the backup you took at step 1 onto the previous
+version of the image, so you are on a database you understand, then work out why
+the upgrade failed before trying it again. The usual causes are the boring ones:
+the disk filled up, the database connection dropped, or the container was
+stopped mid-upgrade.
+
+You can tell the two situations apart before you touch anything. Open the
+migration file for your engine and look at the statements. If they are all
+`ALTER TABLE ... ADD COLUMN`, `CREATE TABLE` or `CREATE INDEX`, re-running will
+not work. If they are updates to existing rows, it will.
 
 If you cannot tell what state the database is in, restore the backup from
 step 1 onto the previous version of the image and ask on the issue tracker

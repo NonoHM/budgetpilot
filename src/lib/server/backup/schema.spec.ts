@@ -119,7 +119,7 @@ describe('backupExportSchema', () => {
 	// `new Intl.NumberFormat(l, { style: 'currency', currency })` raise a RangeError, so a row
 	// carrying one takes down every screen that renders it, persistently, from an uploaded file.
 	it.each(['AB', 'ABCD', '', 'ABC DEF', '<script>', 'eur'])(
-		'rejette un code devise malformé (%s) sur un compte',
+		'rejects a malformed currency code (%s) on an account',
 		(currency) => {
 			expect.assertions(1);
 
@@ -136,7 +136,36 @@ describe('backupExportSchema', () => {
 	// The calibration for the refusals above: a well-formed code the app has never seen is
 	// ACCEPTED, because "known" is a question this design refuses to answer from a list. Without
 	// this, a validator that rejected everything would pass the six cases above.
-	it("accepte un code devise bien formé que l'application ne connaît pas", () => {
+	// THE AMBIGUITY THE WHOLE PAIR EXISTS TO PREVENT, at the one boundary that can still admit it.
+	// A file naming JOD with no exponent beside it is a row whose integer means either 10.00 or
+	// 1.000, and the restore would have to guess. Measured before the rule existed: it parsed.
+	it.each([
+		['currency without exponent', { currency: 'JOD' }],
+		['exponent without currency', { exponent: 3 }]
+	])('rejects a %s on a transaction', (_name, partial) => {
+		expect.assertions(1);
+
+		const payload = buildValidPayload();
+		const result = backupExportSchema.safeParse({
+			...payload,
+			transactions: payload.transactions.map((transaction) => ({ ...transaction, ...partial }))
+		});
+
+		expect(result.success).toBe(false);
+	});
+
+	it('still accepts a file written before the exponent column existed', () => {
+		expect.assertions(2);
+
+		// No `exponent` anywhere, which is every backup taken before this change. The restore
+		// stamps it, so refusing here would make every existing file unrestorable.
+		const result = backupExportSchema.safeParse(buildValidPayload());
+
+		expect(result.success).toBe(true);
+		expect(buildValidPayload().transactions[0]).not.toHaveProperty('exponent');
+	});
+
+	it('accepts a well-formed currency code the application has never heard of', () => {
 		expect.assertions(1);
 
 		const payload = buildValidPayload();
@@ -150,17 +179,20 @@ describe('backupExportSchema', () => {
 
 	// An exponent from an uploaded file is a scaling factor on money. Bounded to what ISO 4217
 	// actually uses, so a crafted backup cannot restore rows a hundred million times their size.
-	it.each([-1, 5, 100, 1.5])('rejette un exposant hors de la plage ISO 4217 (%s)', (exponent) => {
-		expect.assertions(1);
+	it.each([-1, 5, 100, 1.5])(
+		'rejects an exponent outside the range ISO 4217 uses (%s)',
+		(exponent) => {
+			expect.assertions(1);
 
-		const payload = buildValidPayload();
-		const result = backupExportSchema.safeParse({
-			...payload,
-			transactions: payload.transactions.map((transaction) => ({ ...transaction, exponent }))
-		});
+			const payload = buildValidPayload();
+			const result = backupExportSchema.safeParse({
+				...payload,
+				transactions: payload.transactions.map((transaction) => ({ ...transaction, exponent }))
+			});
 
-		expect(result.success).toBe(false);
-	});
+			expect(result.success).toBe(false);
+		}
+	);
 
 	it('rejette un formatVersion différent de 1', () => {
 		expect.assertions(1);

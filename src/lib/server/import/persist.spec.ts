@@ -14,6 +14,7 @@ import type { ImportedTransaction } from './types';
 const prismaMock = vi.hoisted(() => ({
 	account: {
 		findUnique: vi.fn(),
+		findUniqueOrThrow: vi.fn(),
 		findFirst: vi.fn(),
 		update: vi.fn(),
 		upsert: vi.fn()
@@ -358,6 +359,10 @@ describe('createImportBatch', () => {
 describe('persistImportedTransactions', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// The bucket every row of an import lands in. Deliberately NOT the application default: a
+		// transaction takes its denomination from the account it lands in, and a euro-at-2 bucket
+		// cannot tell that apart from the default.
+		prismaMock.account.findUniqueOrThrow.mockResolvedValue({ currency: 'GBP', exponent: 2 });
 		prismaMock.category.findFirst.mockResolvedValue(null);
 		prismaMock.transaction.findFirst.mockResolvedValue(null);
 		// resolveCategoryByName is one upsert keyed on the folded name.
@@ -409,6 +414,43 @@ describe('persistImportedTransactions', () => {
 		expect(result.importedDebitCents).toBe(4210);
 		expect(result.importedCreditCents).toBe(250050);
 		expect(result.importedTransactionIds).toEqual(['tx-Courses', 'tx-Salaire']);
+	});
+
+	// The bucket's denomination, not the application default. `Account.currency` has been writable
+	// to a non-euro value since bank sync existed, so stamping every imported row EUR would make
+	// them positively assert something false, which is the defect the migration goes out of its way
+	// to avoid for rows that already exist.
+	it('denominates an imported row by the bucket it lands in', async () => {
+		expect.assertions(2);
+
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'csv',
+			transactions: [
+				baseTransaction({
+					label: 'Corner Shop',
+					amountCents: -1234,
+					metadata: {
+						reference: '',
+						notes: '',
+						type: 'expense',
+						deduplicationKey: 'dedupe-corner-shop'
+					}
+				})
+			]
+		});
+
+		expect(prismaMock.account.findUniqueOrThrow).toHaveBeenCalledWith({
+			where: { id: 'account-1' },
+			select: { currency: true, exponent: true }
+		});
+		expect(prismaMock.transaction.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				data: expect.objectContaining({ currency: 'GBP', exponent: 2 })
+			})
+		);
 	});
 
 	it('looks the duplicate up by hash and writes both deduplication columns', async () => {

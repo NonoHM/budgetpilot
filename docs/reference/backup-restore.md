@@ -68,6 +68,7 @@ PostgreSQL for any account that has ever split a transaction.
 | `formatVersion` is exactly 1             | that the file came from your instance        |
 | Every required section is present        | that `userEmail` matches you                 |
 | Field types and string lengths           | that identifiers are unique within a section |
+| **Currency codes and exponents**         | that a currency code is one that exists      |
 | References resolve between sections      |                                              |
 | **Each split's parts sum to its parent** |                                              |
 | Part counts stay within bounds           |                                              |
@@ -83,6 +84,24 @@ after.
 String bounds are 191 characters, MySQL's `varchar` default, on every
 engine, so a value one engine could not store is refused everywhere rather
 than reaching an insert on one.
+
+Currency codes are checked for **shape**, not for existence. A code must be
+three uppercase letters, which is what ISO 4217 uses. `EUR` passes. `ZZZ`
+passes too, because deciding whether a code is real would mean shipping and
+maintaining a list of every currency in the world, and the app deliberately
+does not.
+
+The shape check is not cosmetic. The browser's own number formatter refuses
+anything that is not three letters, and it refuses by raising an error rather
+than by printing something odd. A code like `AB` or `<script>` stored on a row
+would therefore break every screen that shows that row, and it would keep
+breaking them, with no working screen left to fix it from. Refusing the file is
+the only moment where that is cheap.
+
+The exponent is the number of decimal places an amount has, and it is checked
+against the range ISO 4217 actually uses, which is 0 to 4. It is bounded
+because it is a multiplier: an exponent nobody checked would let a hand-edited
+file restore amounts a hundred million times their real size.
 
 **Duplicate identifiers within a section are not detected.** A section
 carrying two entries with the same `id` creates both, and the last one wins

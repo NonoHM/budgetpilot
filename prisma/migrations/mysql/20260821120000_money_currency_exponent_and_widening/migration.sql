@@ -82,7 +82,20 @@ ALTER TABLE `Account` ALTER COLUMN `currency` DROP DEFAULT;
 --    denominated by its parent, and a second currency is what would let the conservation rule
 --    `sum(parts) = parent.amountCents` become false.
 ALTER TABLE `Transaction` ADD COLUMN `currency` VARCHAR(191) NULL, ADD COLUMN `exponent` INTEGER NULL;
-UPDATE `Transaction` SET `currency` = 'EUR', `exponent` = 2 WHERE `currency` IS NULL;
+-- A transaction is denominated by the bucket it belongs to, and `Account.currency` has been
+-- writable to a non-euro value since bank sync existed: `banking/connectors/enablebanking.ts`
+-- stores whatever the provider names. Stamping every transaction 'EUR' would make those rows
+-- positively assert something false, where before this migration they asserted nothing. The
+-- account's own value is the only better answer that exists, and it exists, so it is used.
+--
+-- The EXPONENT cannot be better than 2 and this is the honest limit of the migration: no
+-- pre-existing row records one, and no list is consulted (see the design note). Every currency
+-- BudgetPilot has actually seen has two decimals, so 2 is right for them; a pre-change account in
+-- one of the seven 3-decimal currencies is the one case this migration cannot recover, and it
+-- could not be recovered by any other means either, because the information was never stored.
+UPDATE `Transaction` t JOIN `Account` a ON a.`id` = t.`accountId`
+   SET t.`currency` = a.`currency`, t.`exponent` = 2
+ WHERE t.`currency` IS NULL;
 ALTER TABLE `Transaction` MODIFY `currency` VARCHAR(191) NOT NULL, MODIFY `exponent` INTEGER NOT NULL;
 
 ALTER TABLE `MonthlyBudget` ADD COLUMN `currency` VARCHAR(191) NULL, ADD COLUMN `exponent` INTEGER NULL;

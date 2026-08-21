@@ -430,8 +430,7 @@ export async function ensureManualAccount(userId: string) {
 				userId,
 				name: MANUAL_ACCOUNT_NAME,
 				nameKey: computeNameKey(MANUAL_ACCOUNT_NAME),
-				source: 'manual',
-				currency: 'EUR'
+				source: 'manual'
 			}
 		})
 	);

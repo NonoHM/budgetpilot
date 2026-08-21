@@ -293,13 +293,23 @@ describe('currencySymbol', () => {
 	});
 
 	// The suffix on an amount field is decoration, and decoration must not be able to throw the
-	// form that carries it. `Intl` never rejects an unknown code (it renders the code itself), so
-	// this pins the shape a caller can rely on rather than a value.
-	it('falls back to the code itself rather than throwing on something Intl does not know', () => {
+	// form that carries it. The two cases fail DIFFERENTLY inside `Intl`, which is why both are
+	// here: an unknown but well-formed code renders as itself, and a mistyped one raises a
+	// `RangeError`. Testing only the first reads as verification of a claim that covers both.
+	it('falls back to the code itself for a well-formed code Intl does not know', () => {
 		expect.assertions(1);
 
 		expect(currencySymbol('ZZZ', 'fr')).toBe('ZZZ');
 	});
+
+	it.each(['EU', 'EURO', 'ABC DEF', '<script>', ''])(
+		'returns %s rather than throwing, where Intl raises a RangeError',
+		(malformed) => {
+			expect.assertions(1);
+
+			expect(currencySymbol(malformed, 'fr')).toBe(malformed);
+		}
+	);
 });
 
 describe('the currency code grammar', () => {

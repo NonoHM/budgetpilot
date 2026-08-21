@@ -265,13 +265,23 @@ export async function persistImportedTransactions(
 	let importedCreditCents = 0;
 	const importedTransactionIds: string[] = [];
 
+	// Read ONCE, before the loop, and passed down: every row of an import lands in one bucket, and
+	// a transaction is denominated by the bucket it lands in. `DEFAULT_DENOMINATION` here would
+	// make every row of a non-euro bucket positively assert something false, which is exactly what
+	// the migration goes out of its way to avoid for the rows that already exist.
+	const bucket = await prisma.account.findUniqueOrThrow({
+		where: { id: input.accountId },
+		select: { currency: true, exponent: true }
+	});
+
 	for (const transaction of input.transactions) {
 		const importedTransactionId = await persistTransaction(
 			input.userId,
 			transaction,
 			input.accountId,
 			input.importBatchId,
-			input.source
+			input.source,
+			bucket
 		);
 		if (!importedTransactionId) {
 			duplicateRows += 1;
@@ -320,7 +330,8 @@ async function persistTransaction(
 	transaction: ImportedTransaction,
 	accountId: string,
 	importBatchId: string,
-	source: string
+	source: string,
+	denomination: { currency: string; exponent: number }
 ): Promise<string | null> {
 	const dedupeKey = transaction.metadata.deduplicationKey;
 	if (dedupeKey) {
@@ -339,7 +350,7 @@ async function persistTransaction(
 	try {
 		const created = await prisma.transaction.create({
 			data: {
-				...DEFAULT_DENOMINATION,
+				...denomination,
 				userId,
 				accountId,
 				categoryId: category.id,

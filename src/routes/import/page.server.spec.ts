@@ -221,6 +221,14 @@ const db = vi.hoisted(() => {
 								account.source === where.userId_name_source.source
 						) ?? null
 				),
+				// The bucket a persisted row is denominated by. Real rather than stubbed, because it
+				// reads back a row this fake's own `upsert` created: a stub returning a constant
+				// would assert the stub rather than that the bucket's pair reaches the transaction.
+				findUniqueOrThrow: vi.fn(async ({ where }: { where: { id: string } }) => {
+					const account = state.accounts.find((entry) => entry.id === where.id);
+					if (!account) throw new Error(`no account ${where.id}`);
+					return account;
+				}),
 				// Two distinct lookups share findFirst: the bank-sync one keyed on
 				// providerAccountId, and the bucket-name one keyed on the folded nameKey.
 				findFirst: vi.fn(

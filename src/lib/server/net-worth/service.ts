@@ -153,7 +153,18 @@ export async function updateNetWorthAccount(
 		// silently absorbed into the next unrelated balance edit.
 		if (balanceCents !== existing.balanceCents || type !== existing.type) {
 			await tx.netWorthSnapshot.create({
-				data: { ...DEFAULT_DENOMINATION, userId, accountId, type, balanceCents, capturedAt }
+				// The account's own pair, for the reason on `recordSyncedBalance` below: a snapshot
+				// that disagreed with its account would make the curve and the headline mean
+				// different things by the same integer.
+				data: {
+					currency: existing.currency,
+					exponent: existing.exponent,
+					userId,
+					accountId,
+					type,
+					balanceCents,
+					capturedAt
+				}
 			});
 		}
 
@@ -346,14 +357,19 @@ export async function recordSyncedBalance(
 	await prisma.$transaction(async (tx) => {
 		const existing = await tx.netWorthAccount.findFirst({
 			where: { id: netWorthAccountId, userId, deletedAt: null },
-			select: { id: true, type: true, balanceCents: true }
+			select: { id: true, type: true, balanceCents: true, currency: true, exponent: true }
 		});
 		if (!existing) return;
 		if (existing.balanceCents === balanceCents) return;
 
 		await tx.netWorthSnapshot.create({
 			data: {
-				...DEFAULT_DENOMINATION,
+				// The ACCOUNT's pair, never the application default. A snapshot is a fact about the
+				// past and an account is a verdict on the present, so the two carry the pair
+				// separately; but a snapshot that disagreed with the account it was taken from would
+				// make the timeline and the headline mean different things by the same integer.
+				currency: existing.currency,
+				exponent: existing.exponent,
 				userId,
 				accountId: existing.id,
 				type: existing.type,

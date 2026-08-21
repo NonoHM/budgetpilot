@@ -272,6 +272,35 @@ describe('EnableBankingConnector — completeAuthorization', () => {
 		]);
 	});
 
+	// The currency a provider names is untrusted input on a NOT NULL column, and the backup
+	// boundary enforces ISO 4217's grammar. Left unchecked here, a malformed code would be stored,
+	// exported, and then make the user's OWN backup refuse to restore, with hand-editing JSON as
+	// the only repair.
+	it.each([
+		['lowercase, the realistic provider deviation', 'gbp', 'GBP'],
+		['padded', '  SEK  ', 'SEK'],
+		['two letters, which Intl cannot render', 'AB', 'EUR'],
+		['four letters', 'EURO', 'EUR'],
+		['not a code at all', '<script>', 'EUR'],
+		['absent', null, 'EUR']
+	])('normalises a provider currency that is %s', async (_name, provided, expected) => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			jsonResponse({
+				session_id: 'sess-123',
+				access: { valid_until: '2027-01-14T00:00:00.000Z' },
+				accounts: [{ uid: 'acc-1', name: 'Compte', currency: provided }]
+			})
+		);
+		const { connector } = makeConnector({ fetchImpl });
+
+		const established = await connector.completeAuthorization({
+			params: { state: 'match', code: 'auth-code' },
+			expectedState: 'match'
+		});
+
+		expect(established.accounts?.[0].currency).toBe(expected);
+	});
+
 	it('propage cash_account_type et hasCreditLimit (credit_limit présent) depuis la ressource compte', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(
 			jsonResponse({
