@@ -5,7 +5,7 @@ describe('assertDatabaseConfigured', () => {
 	it('refuses a missing DATABASE_URL in production and names the value to set', () => {
 		expect(() => assertDatabaseConfigured({ NODE_ENV: 'production' })).toThrow(/DATABASE_URL/);
 		expect(() => assertDatabaseConfigured({ NODE_ENV: 'production' })).toThrow(
-			/file:\/data\/dev\.db/
+			/file:\/data\/budgetpilot\.db/
 		);
 	});
 
@@ -31,7 +31,7 @@ describe('assertDatabaseConfigured', () => {
 		expect(() =>
 			assertDatabaseConfigured({
 				NODE_ENV: 'production',
-				DATABASE_URL: 'file:/data/dev.db',
+				DATABASE_URL: 'file:/data/budgetpilot.db',
 				DATABASE_PROVIDER: 'oracle'
 			})
 		).toThrow(/not a supported database/);
@@ -39,7 +39,10 @@ describe('assertDatabaseConfigured', () => {
 
 	it('accepts a consistent pair', () => {
 		expect(() =>
-			assertDatabaseConfigured({ NODE_ENV: 'production', DATABASE_URL: 'file:/data/dev.db' })
+			assertDatabaseConfigured({
+				NODE_ENV: 'production',
+				DATABASE_URL: 'file:/data/budgetpilot.db'
+			})
 		).not.toThrow();
 	});
 });

@@ -23,7 +23,7 @@ export function assertDatabaseConfigured(source: NodeJS.ProcessEnv = process.env
 		throw new Error(
 			'DATABASE_URL is required in production: without it the app would silently open a fresh, ' +
 				'empty SQLite file instead of your data. In the shipped container it is ' +
-				'`file:/data/dev.db`, which is on the mounted volume — a path outside /data is on the ' +
+				'`file:/data/budgetpilot.db`, which is on the mounted volume — a path outside /data is on the ' +
 				'read-only layer and will not survive a restart. For PostgreSQL or MySQL/MariaDB, use ' +
 				"your server's connection URL and set DATABASE_PROVIDER to match it."
 		);

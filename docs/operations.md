@@ -29,12 +29,31 @@ Ollama models. Nothing undoes it.
 
 ## Updating
 
+**Take a backup first.** Settings, then Export, which downloads a JSON file of
+your account. The rollback below needs it: migrations are not reversible, so
+if a release goes wrong the way back is the backup, not the old image. It
+takes a few seconds and it is the difference between a bad release costing you
+an afternoon and costing you your data.
+
 **Published image:**
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
+
+`docker compose pull` follows whichever tag you pinned. On `latest` that
+includes the next major version, which is allowed to break compatibility. To
+stay on a major and still receive fixes, pin the floating major tag in your
+`.env`:
+
+```dotenv
+BUDGETPILOT_VERSION=1
+```
+
+That tag moves with every 1.x release and never onto 2.0. Pinning an exact
+version instead (`1.2.3`) is also fine, and means you never receive a fix
+until you change it.
 
 ### Checking the image is really ours
 
@@ -459,18 +478,23 @@ This is the real backup: every user, every setting, every transaction.
 
 ```bash
 docker compose stop
-docker compose cp budgetpilot:/data/dev.db ./budgetpilot-backup.db
+docker compose cp budgetpilot:/data/budgetpilot.db ./budgetpilot-backup.db
 docker compose start
 ```
 
 Stopping first matters. Copying a SQLite file while the app is writing to it
 can hand you a truncated database that looks fine until you need it.
 
+**If you installed before the file was renamed, yours is `/data/dev.db`** and
+the command above will report that it does not exist. Use that name instead.
+Nothing needs migrating: the app opens whichever of the two is there, says so
+in its startup log, and keeps working either way.
+
 Restoring is the same move in reverse:
 
 ```bash
 docker compose stop
-docker compose cp ./budgetpilot-backup.db budgetpilot:/data/dev.db
+docker compose cp ./budgetpilot-backup.db budgetpilot:/data/budgetpilot.db
 docker compose start
 ```
 
@@ -688,13 +712,13 @@ better served by the volume or by `docker compose logs`.
 
 ## Where your data actually is
 
-|                          | Docker                                               | No Docker                      |
-| ------------------------ | ---------------------------------------------------- | ------------------------------ |
-| Database (SQLite)        | `budgetpilot_data` volume, mounted at `/data/dev.db` | `./dev.db` in the checkout     |
-| Database (PostgreSQL)    | `postgres_data` volume, or your own server           | your own server                |
-| Database (MySQL)         | `mysql_data` volume, or your own server              | your own server                |
-| Secrets and settings     | `.env` next to your compose file                     | `.env` in the checkout         |
-| Ollama models (if AI on) | `ollama_data` volume                                 | wherever Ollama installed them |
+|                          | Docker                                                       | No Docker                      |
+| ------------------------ | ------------------------------------------------------------ | ------------------------------ |
+| Database (SQLite)        | `budgetpilot_data` volume, mounted at `/data/budgetpilot.db` | `./dev.db` in the checkout     |
+| Database (PostgreSQL)    | `postgres_data` volume, or your own server                   | your own server                |
+| Database (MySQL)         | `mysql_data` volume, or your own server                      | your own server                |
+| Secrets and settings     | `.env` next to your compose file                             | `.env` in the checkout         |
+| Ollama models (if AI on) | `ollama_data` volume                                         | wherever Ollama installed them |
 
 Nothing else leaves the machine: no telemetry, no phone-home, no account on
 anyone's server.

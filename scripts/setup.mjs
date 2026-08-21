@@ -150,13 +150,13 @@ if (useDocker) {
 	content = setEnvValue(content, 'ORIGIN', `http://localhost:${appPort}`);
 	// Without this the documented Docker install does not boot at all, and the reason is invisible
 	// from either file alone. .env.example ships DATABASE_URL="file:./dev.db", which is right for
-	// the no-Docker path; docker-compose.yml writes `${DATABASE_URL:-file:/data/dev.db}`, a DEFAULT
+	// the no-Docker path; docker-compose.yml writes `${DATABASE_URL:-file:/data/budgetpilot.db}`, a DEFAULT
 	// deliberately left overridable so a PostgreSQL or MySQL URL in .env wins. So the .env this
 	// script writes won that fallback with a relative path, `.` inside the container is /app, /app
 	// is read-only by design, and the container crash-looped on "the SQLite database cannot be
 	// written" from the first boot onward. `npm run setup && docker compose up -d --build` is
 	// exactly what docs/getting-started.md option B prescribes.
-	content = setEnvValue(content, 'DATABASE_URL', 'file:/data/dev.db');
+	content = setEnvValue(content, 'DATABASE_URL', 'file:/data/budgetpilot.db');
 }
 
 await writeFile(envPath, content, 'utf8');
