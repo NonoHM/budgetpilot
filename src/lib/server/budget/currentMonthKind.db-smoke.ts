@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { afterAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -65,7 +66,7 @@ async function seedUser(): Promise<{ userId: string; accountId: string; category
 	createdUserIds.push(user.id);
 
 	const account = await prisma.account.create({
-		data: { userId: user.id, name: 'Compte courant', source: 'manual' },
+		data: { ...DEFAULT_DENOMINATION, userId: user.id, name: 'Compte courant', source: 'manual' },
 		select: { id: true }
 	});
 	const category = await prisma.category.create({
@@ -96,6 +97,7 @@ describe('current-month spending resolves the kind the way every other read does
 		const seed = await seedUser();
 		await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId: seed.userId,
 				accountId: seed.accountId,
 				categoryId: seed.categoryId,
@@ -123,6 +125,7 @@ describe('current-month spending resolves the kind the way every other read does
 		await prisma.transaction.createMany({
 			data: [
 				{
+					...DEFAULT_DENOMINATION,
 					userId: seed.userId,
 					accountId: seed.accountId,
 					categoryId: seed.categoryId,
@@ -136,6 +139,7 @@ describe('current-month spending resolves the kind the way every other read does
 					source: 'import'
 				},
 				{
+					...DEFAULT_DENOMINATION,
 					userId: seed.userId,
 					accountId: seed.accountId,
 					categoryId: seed.categoryId,

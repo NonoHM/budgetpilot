@@ -1,4 +1,5 @@
 import type { Prisma } from '../database/types.ts';
+import { toNullableMinorUnits } from '../database/minorUnits.ts';
 import { getTransactionKind, type TransactionKind } from '$lib/domain/transaction';
 import { allocateByCategory } from '$lib/domain/allocation';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -106,7 +107,13 @@ async function sumTransactionMagnitudes(where: Prisma.TransactionWhereInput): Pr
 		})
 	]);
 
-	return (positive._sum.amountCents ?? 0) - (negative._sum.amountCents ?? 0);
+	// `toNullableMinorUnits` and not a plain read: an aggregate is one of the two shapes the
+	// money-column extension does not reach, and it typechecks as `number` while returning a
+	// `bigint`. Without this the subtraction throws "Cannot mix BigInt and other types" at run
+	// time under a green `npm run check`. See server/database/moneyColumns.ts.
+	const sumPositive = toNullableMinorUnits(positive._sum.amountCents, 'Transaction.amountCents') ?? 0;
+	const sumNegative = toNullableMinorUnits(negative._sum.amountCents, 'Transaction.amountCents') ?? 0;
+	return sumPositive - sumNegative;
 }
 
 /** `sumTransactionMagnitudes` over the parts table. Parts carry the PARENT ROW's stored sign
@@ -124,7 +131,13 @@ async function sumSplitMagnitudes(where: Prisma.TransactionSplitWhereInput): Pro
 		})
 	]);
 
-	return (positive._sum.amountCents ?? 0) - (negative._sum.amountCents ?? 0);
+	// `toNullableMinorUnits` and not a plain read: an aggregate is one of the two shapes the
+	// money-column extension does not reach, and it typechecks as `number` while returning a
+	// `bigint`. Without this the subtraction throws "Cannot mix BigInt and other types" at run
+	// time under a green `npm run check`. See server/database/moneyColumns.ts.
+	const sumPositive = toNullableMinorUnits(positive._sum.amountCents, 'TransactionSplit.amountCents') ?? 0;
+	const sumNegative = toNullableMinorUnits(negative._sum.amountCents, 'TransactionSplit.amountCents') ?? 0;
+	return sumPositive - sumNegative;
 }
 
 /**

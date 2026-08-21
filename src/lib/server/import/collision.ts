@@ -1,3 +1,4 @@
+import { toNullableMinorUnits } from '../database/minorUnits.ts';
 import { prisma } from '$lib/server/db';
 import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import type { CollidingBatchView } from '$lib/domain/importCollision';
@@ -293,7 +294,11 @@ async function readBatchTotals(
 			creditCents: 0
 		};
 		total.transactionCount += row._count._all;
-		const sum = row._sum.amountCents ?? 0;
+		// `toNullableMinorUnits` and not a plain read: a groupBy aggregate is one of the two shapes
+		// the money-column extension does not reach, and it typechecks as `number` while returning
+		// a `bigint`. Without this `total.debitCents += sum` throws at run time under a green
+		// `npm run check`. See server/database/moneyColumns.ts.
+		const sum = toNullableMinorUnits(row._sum.amountCents, 'Transaction.amountCents') ?? 0;
 		if (row.type === 'expense') total.debitCents += sum;
 		if (row.type === 'income') total.creditCents += sum;
 		totals.set(row.importBatchId, total);

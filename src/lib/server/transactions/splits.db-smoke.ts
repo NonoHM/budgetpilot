@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { afterAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
@@ -67,7 +68,7 @@ async function seedUser(): Promise<Seed> {
 	createdUserIds.push(user.id);
 
 	const account = await prisma.account.create({
-		data: { userId: user.id, name: 'Compte courant', source: 'manual' },
+		data: { ...DEFAULT_DENOMINATION, userId: user.id, name: 'Compte courant', source: 'manual' },
 		select: { id: true }
 	});
 	const [food, home, sentinel] = await Promise.all([
@@ -101,6 +102,7 @@ async function seedUser(): Promise<Seed> {
 async function seedTransaction(seed: Seed, amountCents = PARENT_CENTS): Promise<string> {
 	const transaction = await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId: seed.userId,
 			accountId: seed.accountId,
 			categoryId: seed.foodCategoryId,
@@ -545,6 +547,7 @@ describe('the identity-side guards, against a real engine', () => {
 		const unsplitId = await prisma.transaction
 			.create({
 				data: {
+					...DEFAULT_DENOMINATION,
 					userId: seed.userId,
 					accountId: seed.accountId,
 					categoryId: seed.sentinelCategoryId,
@@ -559,6 +562,7 @@ describe('the identity-side guards, against a real engine', () => {
 		const splitId = await prisma.transaction
 			.create({
 				data: {
+					...DEFAULT_DENOMINATION,
 					userId: seed.userId,
 					accountId: seed.accountId,
 					categoryId: seed.sentinelCategoryId,

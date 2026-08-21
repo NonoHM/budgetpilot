@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { afterAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -120,7 +121,7 @@ async function seedUser(categoryNames: string[]): Promise<Seed> {
 	createdUserIds.push(user.id);
 
 	const account = await prisma.account.create({
-		data: { userId: user.id, name: 'Compte courant', source: 'manual' },
+		data: { ...DEFAULT_DENOMINATION, userId: user.id, name: 'Compte courant', source: 'manual' },
 		select: { id: true }
 	});
 
@@ -157,6 +158,7 @@ async function createTransaction(
 	const month = currentMonthRange();
 	const transaction = await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId: seed.userId,
 			accountId: seed.accountId,
 			categoryId: seed.categoryIds[input.category],

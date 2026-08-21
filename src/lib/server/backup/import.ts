@@ -1,3 +1,4 @@
+import { DEFAULT_CURRENCY, DEFAULT_EXPONENT } from '$lib/domain/money';
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
 import { LONG_TRANSACTION_OPTIONS } from '$lib/server/dbTransaction';
@@ -43,6 +44,31 @@ function normalizeCategoryName(name: string): string {
  * the round trips add up on any database reached over a socket. See that module for why
  * the default budget only ever fitted a local SQLite file.
  */
+/**
+ * The denomination a restored row is written with: the file's own, or the application default when
+ * the file predates the columns.
+ *
+ * This is the SECOND call site of the stamp the migration performs, and it exists for the same
+ * reason: a backup taken before `currency` and `exponent` were columns is exponent-2 euros BY
+ * CONSTRUCTION, because that is the only thing the schema of the day could express. So the `??` is
+ * a fact rather than a guess, and writing it here means every restored row has a denomination
+ * somebody wrote, exactly as every migrated row does. There is no database default to fall back on
+ * (see prisma/schema.prisma), which is what makes the absence of this call a compile error rather
+ * than a silent euro.
+ *
+ * It is NOT applied to `TransactionSplit`: a part is denominated by its parent, and giving a part
+ * its own currency is what would let `sum(parts) === parent.amountCents` become false.
+ */
+function restoredDenomination(row: { currency?: string; exponent?: number }): {
+	currency: string;
+	exponent: number;
+} {
+	return {
+		currency: row.currency ?? DEFAULT_CURRENCY,
+		exponent: row.exponent ?? DEFAULT_EXPONENT
+	};
+}
+
 export async function restoreBackup(userId: string, payload: BackupExport): Promise<void> {
 	assertReferentialIntegrity(payload);
 
@@ -88,6 +114,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		for (const account of payload.netWorthAccounts) {
 			const created = await tx.netWorthAccount.create({
 				data: {
+					...restoredDenomination(account),
 					userId,
 					name: account.name,
 					nameKey: computeNameKey(account.name),
@@ -105,6 +132,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		if (payload.savingsGoals.length > 0) {
 			await tx.savingsGoal.createMany({
 				data: payload.savingsGoals.map((goal) => ({
+					...restoredDenomination(goal),
 					userId,
 					name: goal.name,
 					targetAmountCents: goal.targetAmountCents,
@@ -163,9 +191,9 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 
 			const created = await tx.account.create({
 				data: {
+					...restoredDenomination(account),
 					userId,
 					name: account.name,
-					currency: account.currency,
 					source: account.source,
 					netWorthAccountId: account.netWorthAccountId
 						? (netWorthAccountIdMap.get(account.netWorthAccountId) ?? null)
@@ -307,6 +335,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		const transactionData = payload.transactions.map((transaction) => ({
 			oldId: transaction.id,
 			data: {
+				...restoredDenomination(transaction),
 				userId,
 				accountId: accountIdMap.get(transaction.accountId)!,
 				categoryId: categoryIdMap.get(transaction.categoryId)!,
@@ -468,6 +497,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			await tx.monthlyBudget.createMany({
 				data: dedupeByNameKey(
 					payload.monthlyBudgets.map((budget) => ({
+						...restoredDenomination(budget),
 						userId,
 						categoryName: normalizeCategoryName(budget.categoryName),
 						categoryNameKey: computeNameKey(normalizeCategoryName(budget.categoryName)),
@@ -522,6 +552,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		if (payload.netWorthSnapshots.length > 0) {
 			await tx.netWorthSnapshot.createMany({
 				data: payload.netWorthSnapshots.map((snapshot) => ({
+					...restoredDenomination(snapshot),
 					userId,
 					accountId: netWorthAccountIdMap.get(snapshot.accountId)!,
 					type: snapshot.type,

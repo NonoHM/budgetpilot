@@ -69,14 +69,32 @@ export interface Money {
 }
 
 /**
- * What every amount in the database is today, and the only two constants a future migration has to
- * replace with a column read.
+ * The denomination this application gives a row when nothing else names one.
  *
- * They are exported so a call site that constructs a `Money` from a bare integer says which
- * assumption it is making, greppably, instead of the assumption being invisible.
+ * This docstring used to say these were "what every amount in the database is today, and the only
+ * two constants a future migration has to replace with a column read". That migration has now
+ * happened: every money-bearing row carries its own `currency` and `exponent`, so these are no
+ * longer a description of the stored data. They are the APPLICATION's default, and the only place
+ * it has a name. There is deliberately no database default (see prisma/schema.prisma), so a write
+ * path that does not state a denomination fails rather than silently becoming euros.
+ *
+ * Exported so a call site that constructs a `Money` from a bare integer says which assumption it
+ * is making, greppably, instead of the assumption being invisible.
  */
 export const DEFAULT_CURRENCY = 'EUR';
 export const DEFAULT_EXPONENT = 2;
+
+/**
+ * The same pair, shaped for a Prisma `data` object: `{ ...DEFAULT_DENOMINATION }`.
+ *
+ * One name rather than two loose fields, because the two are meaningless apart: a currency with no
+ * exponent beside it is the ambiguity this whole design exists to prevent, and a spread makes
+ * "somebody forgot the exponent" unwriteable rather than merely discouraged.
+ */
+export const DEFAULT_DENOMINATION = {
+	currency: DEFAULT_CURRENCY,
+	exponent: DEFAULT_EXPONENT
+} as const;
 
 /**
  * Builds an amount from an integer of minor units.

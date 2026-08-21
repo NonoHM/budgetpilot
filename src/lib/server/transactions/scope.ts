@@ -1,4 +1,4 @@
-import type { Prisma } from '../database/types.ts';
+import type { Prisma, TransactionPayload } from '../database/types.ts';
 import {
 	buildTransactionWhere,
 	normalizeId,
@@ -117,7 +117,7 @@ export type TransactionScope =
 			collect<S extends Prisma.TransactionSelect & { label: true }>(
 				select: S,
 				options?: { tagFree?: boolean }
-			): Promise<Array<Prisma.TransactionGetPayload<{ select: S }>>>;
+			): Promise<Array<TransactionPayload<S>>>;
 	  };
 
 /**

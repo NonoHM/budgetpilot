@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -84,6 +85,7 @@ async function makeTransaction(fields: {
 }) {
 	await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId,
 			accountId,
 			date: new Date('2026-06-15T00:00:00.000Z'),
@@ -109,7 +111,7 @@ beforeEach(async () => {
 	locals = { user: { id: userId, email: 'eff@budgetpilot.invalid', role: 'USER' } };
 
 	const account = await prisma.account.create({
-		data: { userId, name: 'Compte', nameKey: computeNameKey('Compte') },
+		data: { ...DEFAULT_DENOMINATION, userId, name: 'Compte', nameKey: computeNameKey('Compte') },
 		select: { id: true }
 	});
 	accountId = account.id;

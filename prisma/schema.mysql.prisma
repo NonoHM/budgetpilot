@@ -167,25 +167,29 @@ model Account {
   id                      String           @id @default(cuid())
   userId                  String
   name                    String @db.VarChar(255)
-  /// ISO 4217 code for every amount on this bucket, and the ONLY currency column in this schema:
-  /// no transaction, split, budget, snapshot or goal carries one. Not a constant either. It is
-  /// written from the provider at connection time (banking/sync/service.ts passes the connector
+  /// ISO 4217 code for the amounts this bucket holds, and the power of ten that scales them.
+  ///
+  /// THE RULE THIS PAIR EXISTS TO SATISFY, kept because it is the reason the pair is a pair: A
+  /// CURRENCY FIELD AND AN EXPONENT FIELD ARRIVE IN THE SAME CHANGE, NEVER CURRENCY ALONE. A row
+  /// written under a non-euro currency with no exponent beside it is ambiguous forever: 1000 under
+  /// JOD is either 10.00 or 1.000, and no later migration can decide which, because the
+  /// information was never stored. Everything else about multi-currency (#313) is a 1.x feature
+  /// over rows that stay correct; this was the only part of it that turned existing rows into a
+  /// 2.0, and it is closed.
+  ///
+  /// This comment used to say this was the ONLY currency column in the schema and that no
+  /// transaction, split, budget, snapshot or goal carried one. That was true when written and the
+  /// change that added those columns is the change that corrected it: five more models now carry
+  /// the pair, and TransactionSplit deliberately does not, because a part is denominated by its
+  /// parent and a second currency would falsify `sum(parts) == parent.amountCents`.
+  ///
+  /// Written from the provider at connection time (banking/sync/service.ts passes the connector
   /// account's currency into resolveImportBucketAccount), so a non-EUR value is reachable today
-  /// with no code change.
+  /// with no code change. No column default on either, for the reason the per-row pair gives.
   ///
-  /// THE RULE, and it is the one thing here that cannot be repaired after the fact: A CURRENCY
-  /// FIELD AND AN EXPONENT FIELD MUST ARRIVE IN THE SAME CHANGE, NEVER CURRENCY ALONE. Every
-  /// money column in this file is `Int` and exponent-2 by assumption, and records nothing about
-  /// that assumption. A row written under a non-euro currency with no exponent beside it is
-  /// ambiguous forever: 1000 under JOD is either 10.00 or 1.000, and no later migration can
-  /// decide which, because the information was never stored. Everything else about multi-currency
-  /// (#313) is a 1.x feature over rows that stay correct; this is the only part of it that turns
-  /// existing rows into a 2.0.
-  ///
-  /// The same change must reach `src/lib/server/backup/schema.ts`, which carries `currency` in
-  /// the backup contract without an exponent. See docs/audits/2026-08-21-interface-audit.md,
-  /// Part 7.
-  currency                String           @default("EUR")
+  /// The backup contract carries both: see src/lib/server/backup/schema.ts.
+  currency                String
+  exponent                Int
   source                  String           @default("manual")
   /// Optional link to the net worth account this technical/import bucket belongs to.
   /// Several Account rows (e.g. one manual bucket + one per import profile) can point to
@@ -473,7 +477,7 @@ model TransactionSplit {
   /// server/transactions/splits.ts validates against the parent row re-read inside its own
   /// transaction, never against a client-supplied total; server/backup/import.ts validates an
   /// uploaded payload before restoring it, because a restore bypasses that service entirely.
-  amountCents   Int
+  amountCents   BigInt
   /// 0-based display order. Load-bearing rather than cosmetic: the even-split helper gives the
   /// extra cent(s) to the FIRST r parts (domain/allocation.ts, distributeEvenly), so which part
   /// carries them is user-visible and must be stable across reads. It is also the tiebreak for
@@ -529,7 +533,21 @@ model Transaction {
   importBatchId     String?
   date              DateTime
   label             String @db.Text
-  amountCents       Int
+  amountCents       BigInt
+  /// The currency this amount is denominated in, and the power of ten that scales the integer
+  /// beside it. Both are stored per row rather than derived, and the exponent is stored for one
+  /// reason that no other reason supports: a code withdrawn from ISO 4217 has no published
+  /// exponent anywhere, so a row whose meaning depended on a list would stop being readable the
+  /// moment the list moved. See docs/audits/2026-08-21-stored-forms-design.md, Part B.
+  ///
+  /// NO COLUMN DEFAULT, deliberately. Existing rows were stamped explicitly by the migration that
+  /// added these columns, and a new row must state both. A default is a value with no author, and
+  /// on PostgreSQL that is literal rather than rhetorical: MEASURED on 17.10, ADD COLUMN NOT NULL
+  /// DEFAULT leaves `pg_attribute.atthasmissing` true and rewrites no row, so the value is
+  /// synthesised on read and there is nothing in the row to correct. The application-side defaults
+  /// live in domain/money.ts, where they have one home and a name.
+  currency          String
+  exponent          Int
   type              String?
   source            String
   notes             String? @db.Text
@@ -756,7 +774,21 @@ model MonthlyBudget {
   /// contract as Category.nameKey: nullable so the boot-time backfill can fill it after
   /// `migrate deploy`, and NULLs are distinct in a unique index on all three providers.
   categoryNameKey String?
-  amountCents     Int
+  amountCents     BigInt
+  /// The currency this amount is denominated in, and the power of ten that scales the integer
+  /// beside it. Both are stored per row rather than derived, and the exponent is stored for one
+  /// reason that no other reason supports: a code withdrawn from ISO 4217 has no published
+  /// exponent anywhere, so a row whose meaning depended on a list would stop being readable the
+  /// moment the list moved. See docs/audits/2026-08-21-stored-forms-design.md, Part B.
+  ///
+  /// NO COLUMN DEFAULT, deliberately. Existing rows were stamped explicitly by the migration that
+  /// added these columns, and a new row must state both. A default is a value with no author, and
+  /// on PostgreSQL that is literal rather than rhetorical: MEASURED on 17.10, ADD COLUMN NOT NULL
+  /// DEFAULT leaves `pg_attribute.atthasmissing` true and rewrites no row, so the value is
+  /// synthesised on read and there is nothing in the row to correct. The application-side defaults
+  /// live in domain/money.ts, where they have one home and a name.
+  currency        String
+  exponent        Int
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -804,7 +836,21 @@ model NetWorthAccount {
   userId       String
   name         String
   type         NetWorthAccountType
-  balanceCents Int
+  balanceCents BigInt
+  /// The currency this amount is denominated in, and the power of ten that scales the integer
+  /// beside it. Both are stored per row rather than derived, and the exponent is stored for one
+  /// reason that no other reason supports: a code withdrawn from ISO 4217 has no published
+  /// exponent anywhere, so a row whose meaning depended on a list would stop being readable the
+  /// moment the list moved. See docs/audits/2026-08-21-stored-forms-design.md, Part B.
+  ///
+  /// NO COLUMN DEFAULT, deliberately. Existing rows were stamped explicitly by the migration that
+  /// added these columns, and a new row must state both. A default is a value with no author, and
+  /// on PostgreSQL that is literal rather than rhetorical: MEASURED on 17.10, ADD COLUMN NOT NULL
+  /// DEFAULT leaves `pg_attribute.atthasmissing` true and rewrites no row, so the value is
+  /// synthesised on read and there is nothing in the row to correct. The application-side defaults
+  /// live in domain/money.ts, where they have one home and a name.
+  currency     String
+  exponent     Int
   /// Soft delete: keeps historical snapshots alive in the timeline after the account is
   /// "removed" from the current list/donut. Uniqueness of (userId, name) is therefore
   /// enforced in application code (service.ts) against active accounts only, not here.
@@ -836,7 +882,21 @@ model NetWorthSnapshot {
   /// Frozen at capture time (never re-derived from the live account): a later change to
   /// the account's type must not retroactively flip the sign of past points on the curve.
   type         NetWorthAccountType
-  balanceCents Int
+  balanceCents BigInt
+  /// The currency this amount is denominated in, and the power of ten that scales the integer
+  /// beside it. Both are stored per row rather than derived, and the exponent is stored for one
+  /// reason that no other reason supports: a code withdrawn from ISO 4217 has no published
+  /// exponent anywhere, so a row whose meaning depended on a list would stop being readable the
+  /// moment the list moved. See docs/audits/2026-08-21-stored-forms-design.md, Part B.
+  ///
+  /// NO COLUMN DEFAULT, deliberately. Existing rows were stamped explicitly by the migration that
+  /// added these columns, and a new row must state both. A default is a value with no author, and
+  /// on PostgreSQL that is literal rather than rhetorical: MEASURED on 17.10, ADD COLUMN NOT NULL
+  /// DEFAULT leaves `pg_attribute.atthasmissing` true and rewrites no row, so the value is
+  /// synthesised on read and there is nothing in the row to correct. The application-side defaults
+  /// live in domain/money.ts, where they have one home and a name.
+  currency     String
+  exponent     Int
   capturedAt   DateTime            @default(now())
   account      NetWorthAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade)
 
@@ -848,18 +908,32 @@ model SavingsGoal {
   id                       String           @id @default(cuid())
   userId                   String
   name                     String
-  targetAmountCents        Int
+  targetAmountCents        BigInt
   /// Optional link to a NetWorthAccount: when set, progress is read live from the account's
   /// balance instead of currentAmountCents. Several goals can point to the same account (no
   /// uniqueness constraint), and no attempt is made to reconcile the sum of goals against the
   /// account's real balance — that's left to the user.
   netWorthAccountId        String?
   /// Declarative, used only when not linked to an account (manual tracking).
-  currentAmountCents       Int              @default(0)
+  currentAmountCents       BigInt           @default(0)
   /// Informational only (e.g. "since €X" display) — never used in the progress calculation,
   /// which always stays an absolute value vs the target. Used as the starting point to estimate
   /// the real saving pace (vs the pace required to hit targetDate).
-  startingBalanceCents     Int              @default(0)
+  startingBalanceCents     BigInt           @default(0)
+  /// The currency this amount is denominated in, and the power of ten that scales the integer
+  /// beside it. Both are stored per row rather than derived, and the exponent is stored for one
+  /// reason that no other reason supports: a code withdrawn from ISO 4217 has no published
+  /// exponent anywhere, so a row whose meaning depended on a list would stop being readable the
+  /// moment the list moved. See docs/audits/2026-08-21-stored-forms-design.md, Part B.
+  ///
+  /// NO COLUMN DEFAULT, deliberately. Existing rows were stamped explicitly by the migration that
+  /// added these columns, and a new row must state both. A default is a value with no author, and
+  /// on PostgreSQL that is literal rather than rhetorical: MEASURED on 17.10, ADD COLUMN NOT NULL
+  /// DEFAULT leaves `pg_attribute.atthasmissing` true and rewrites no row, so the value is
+  /// synthesised on read and there is nothing in the row to correct. The application-side defaults
+  /// live in domain/money.ts, where they have one home and a name.
+  currency                 String
+  exponent                 Int
   targetDate               DateTime?
   /// Written once, lazily, the first time a load detects live progress reaching the target —
   /// never rewritten afterwards. The status badge stays always live-recomputed and independent

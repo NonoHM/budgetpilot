@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { applyCategoryRules } from '$lib/server/categorization/rules';
 import { prisma } from '$lib/server/db';
 import { hashFingerprint } from '$lib/server/import/utils/safety';
@@ -162,6 +163,7 @@ export async function resolveImportBucketAccount(
 			where: { userId_name_source: { userId: input.userId, name, source: input.source } },
 			update: {},
 			create: {
+				...DEFAULT_DENOMINATION,
 				userId: input.userId,
 				name,
 				nameKey: computeNameKey(name),
@@ -329,6 +331,7 @@ async function persistTransaction(
 	try {
 		const created = await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId,
 				categoryId: category.id,

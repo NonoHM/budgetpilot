@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
@@ -90,10 +91,10 @@ export async function createNetWorthAccount(
 		await assertNameAvailable(tx, userId, name, null);
 
 		const created = await tx.netWorthAccount.create({
-			data: { userId, name, nameKey: computeNameKey(name), type, balanceCents }
+			data: { ...DEFAULT_DENOMINATION, userId, name, nameKey: computeNameKey(name), type, balanceCents }
 		});
 		await tx.netWorthSnapshot.create({
-			data: { userId, accountId: created.id, type, balanceCents, capturedAt }
+			data: { ...DEFAULT_DENOMINATION, userId, accountId: created.id, type, balanceCents, capturedAt }
 		});
 
 		return { id: created.id };
@@ -131,7 +132,7 @@ export async function updateNetWorthAccount(
 		// silently absorbed into the next unrelated balance edit.
 		if (balanceCents !== existing.balanceCents || type !== existing.type) {
 			await tx.netWorthSnapshot.create({
-				data: { userId, accountId, type, balanceCents, capturedAt }
+				data: { ...DEFAULT_DENOMINATION, userId, accountId, type, balanceCents, capturedAt }
 			});
 		}
 
@@ -330,7 +331,7 @@ export async function recordSyncedBalance(
 		if (existing.balanceCents === balanceCents) return;
 
 		await tx.netWorthSnapshot.create({
-			data: { userId, accountId: existing.id, type: existing.type, balanceCents, capturedAt }
+			data: { ...DEFAULT_DENOMINATION, userId, accountId: existing.id, type: existing.type, balanceCents, capturedAt }
 		});
 		// Through the SAME derivation the manual edit uses, not a direct write. An invariant enforced
 		// in "the" write path is only enforced if every path is that one (CLAUDE.md), and this was the

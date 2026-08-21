@@ -2,6 +2,7 @@
 // imported by the maintenance scripts under scripts/, which plain Node runs with no Vite
 // resolution and no `$lib` alias.
 import { createDatabaseAdapter, type DatabaseAdapterOptions } from './adapter.ts';
+import { moneyColumnsExtension } from './moneyColumns.ts';
 import {
 	assertDatabaseUrlMatchesProvider,
 	DEFAULT_SQLITE_URL,
@@ -19,7 +20,7 @@ import { PrismaClient as SqlitePrismaClient } from './generated/sqlite/client.ts
 // All three clients are derived from one authored schema by schemaGenerator.ts, which varies
 // only the datasource block and the native column types, so they are structurally identical and
 // any one of them can name the type.
-type PrismaClientType = SqlitePrismaClient;
+type BasePrismaClient = SqlitePrismaClient;
 
 /**
  * Builds a Prisma client for the configured provider.
@@ -33,11 +34,17 @@ type PrismaClientType = SqlitePrismaClient;
  * `db.ts` keeps what is specific to the running server (the production DATABASE_URL
  * requirement, the hot-reload singleton); everything about which engine and which URL lives
  * here.
+ *
+ * The return type is INFERRED rather than written out, and that is deliberate: naming Prisma's
+ * extended-client type means naming a generated type that changes shape with the extension, and
+ * every consumer already derives from this one (`db.ts` uses `ReturnType<typeof
+ * createPrismaClient>`, and `database/types.ts` re-exports it), so the inference reaches all of
+ * them with no signature to keep in step.
  */
 export function createPrismaClient(
 	env: DatabaseEnv = process.env,
 	options: DatabaseAdapterOptions = {}
-): PrismaClientType {
+) {
 	const provider = resolveDatabaseProvider(env);
 	// Normalised once, here, and everything downstream uses the result. Validating one string
 	// and connecting with another is how a stray leading space used to reach the driver's
@@ -56,12 +63,25 @@ export function createPrismaClient(
 
 	// A generated client embeds the schema it came from and refuses an adapter that does not
 	// match it, so the client and the adapter have to be chosen from the same provider.
+	//
+	// Every branch goes through the same `$extends`, and that is the point rather than a tidiness:
+	// this function is the ONLY place a client is built (verified: no `new *PrismaClient(` and no
+	// import of a generated client exists anywhere else in the tree), so a caller cannot obtain one
+	// whose money columns are still `bigint`. See moneyColumns.ts for what the extension does not
+	// reach.
+	return selectClient(provider, adapter).$extends(moneyColumnsExtension);
+}
+
+function selectClient(
+	provider: ReturnType<typeof resolveDatabaseProvider>,
+	adapter: ReturnType<typeof createDatabaseAdapter>
+): BasePrismaClient {
 	switch (provider) {
 		case 'sqlite':
 			return new SqlitePrismaClient({ adapter });
 		case 'postgresql':
-			return new PostgresqlPrismaClient({ adapter }) as PrismaClientType;
+			return new PostgresqlPrismaClient({ adapter }) as BasePrismaClient;
 		case 'mysql':
-			return new MysqlPrismaClient({ adapter }) as PrismaClientType;
+			return new MysqlPrismaClient({ adapter }) as BasePrismaClient;
 	}
 }

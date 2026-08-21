@@ -1,4 +1,4 @@
-import type { Prisma } from '../database/types.ts';
+import type { Prisma, TransactionPayload } from '../database/types.ts';
 import { normalizeForMatch } from '$lib/domain/normalize';
 import { isSafeRegexPattern, safeRegexTest } from '$lib/server/matching/regex';
 import { forEachTransactionBatch } from '$lib/server/transactions/batch';
@@ -43,8 +43,8 @@ export async function collectTransactionsMatchingQuery<
 	select: Select,
 	query: string,
 	mode: QueryMode
-): Promise<Array<Prisma.TransactionGetPayload<{ select: Select }>>> {
-	type Row = Prisma.TransactionGetPayload<{ select: Select }> & { label: string };
+): Promise<Array<TransactionPayload<Select>>> {
+	type Row = TransactionPayload<Select> & { label: string };
 	const matches: Row[] = [];
 	await forEachTransactionBatch(where, select, (rows) => {
 		matches.push(...filterTransactionsByQuery(rows as Row[], query, mode));

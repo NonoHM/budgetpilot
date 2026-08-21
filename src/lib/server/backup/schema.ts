@@ -121,16 +121,35 @@ export const MAX_IMPORTED_RECURRING_STREAM_ACTIONS = MAX_RECURRING_STREAM_ACTION
 const transactionNature = z.enum(TRANSACTION_NATURES);
 const defaultCategoryKey = z.enum(DEFAULT_CATEGORY_KEYS);
 
+/**
+ * The denomination a money-bearing row carries: its ISO 4217 code and the power of ten that scales
+ * its integer minor units.
+ *
+ * OPTIONAL, and only because a backup written before the columns existed has neither. Such a file
+ * is exponent-2 euros BY CONSTRUCTION, since that is the only thing the schema could express at the
+ * time, so the restore stamps it rather than guessing: see server/backup/import.ts. A file written
+ * after the columns exist carries both, and `.strict()` means it carries them together or not at
+ * all, which is the rule this pair exists to enforce.
+ */
+const denomination = {
+	currency: z.string().min(1).max(10).optional(),
+	// Bounded rather than any integer: ISO 4217 uses 0, 2, 3 and 4, and an unbounded exponent in a
+	// restored row is a scaling factor an uploaded file gets to choose.
+	exponent: z.number().int().min(0).max(4).optional()
+};
+
 const backupAccountSchema = z
 	.object({
 		id: z.string().min(1),
 		name: z.string().min(1).max(200),
-		// A currency field and an EXPONENT field must arrive in the same change, never currency
-		// alone: every `amountCents`/`balanceCents` below is exponent-2 by assumption and records
-		// nothing about it, so a row restored under a non-euro currency with no exponent beside it
-		// is ambiguous forever. The rule and its reasoning are on `Account.currency` in
-		// prisma/schema.prisma; this is the second declaration site and has to move with it.
+		// A currency field and an EXPONENT field arrive in the same change, never currency alone: a
+		// row restored under a non-euro currency with no exponent beside it is ambiguous forever.
+		// The rule and its reasoning are on `Account.currency` in prisma/schema.prisma; this is the
+		// second declaration site and moves with it. This comment used to say every `amountCents`
+		// and `balanceCents` below was exponent-2 by assumption and recorded nothing about it; the
+		// change that added `denomination` to those entities is the change that corrected it.
 		currency: z.string().min(1).max(10),
+		exponent: z.number().int().min(0).max(4).optional(),
 		source: z.string().min(1).max(MAX_PORTABLE_STRING),
 		// Absent from exports predating this link: treated as null (no net worth account
 		// connected) rather than required, so an older backup file still restores.
@@ -275,6 +294,7 @@ const backupImportBatchSchema = z
 
 const backupTransactionSchema = z
 	.object({
+		...denomination,
 		id: z.string().min(1),
 		accountId: z.string().min(1),
 		categoryId: z.string().min(1),
@@ -295,6 +315,7 @@ const backupTransactionSchema = z
 
 const backupMonthlyBudgetSchema = z
 	.object({
+		...denomination,
 		id: z.string().min(1),
 		categoryName: z.string().min(1).max(MAX_PORTABLE_STRING),
 		amountCents: z.number().int()
@@ -334,6 +355,7 @@ const netWorthAccountType = z.enum(NET_WORTH_ACCOUNT_TYPES);
 
 const backupNetWorthAccountSchema = z
 	.object({
+		...denomination,
 		id: z.string().min(1),
 		name: z.string().min(1).max(MAX_PORTABLE_STRING),
 		type: netWorthAccountType,
@@ -344,6 +366,7 @@ const backupNetWorthAccountSchema = z
 
 const backupNetWorthSnapshotSchema = z
 	.object({
+		...denomination,
 		id: z.string().min(1),
 		accountId: z.string().min(1),
 		type: netWorthAccountType,
@@ -354,6 +377,7 @@ const backupNetWorthSnapshotSchema = z
 
 const backupSavingsGoalSchema = z
 	.object({
+		...denomination,
 		id: z.string().min(1),
 		name: z.string().min(1).max(MAX_PORTABLE_STRING),
 		targetAmountCents: z.number().int(),
