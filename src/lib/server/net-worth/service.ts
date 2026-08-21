@@ -334,10 +334,12 @@ export async function recordSyncedBalance(
 		});
 		// Through the SAME derivation the manual edit uses, not a direct write. An invariant enforced
 		// in "the" write path is only enforced if every path is that one (CLAUDE.md), and this was the
-		// other path. `parseAsOfDate` pins a manual as-of date to 12:00:00Z while a sync stamps the
-		// real time, so a sync completing before noon UTC on a day the user also saved a balance
-		// "as of today" arrives with an OLDER `capturedAt` — writing it straight to the column put a
-		// superseded figure in the headline while the curve kept the user's.
+		// other path. A sync does not stamp the clock here: `capturedAt` is the caller's `currentTime`,
+		// taken ONCE at the start of `syncBankConnection` and passed in only after the transactions have
+		// been fetched and persisted. So a manual save landing while a sync is in flight is genuinely
+		// newer than the snapshot that sync is about to write, and writing straight to the column would
+		// put the superseded figure in the headline while the curve, built from the snapshots, kept the
+		// user's.
 		await syncBalanceToNewestSnapshot(tx, userId, existing.id, balanceCents);
 	});
 }
