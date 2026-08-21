@@ -906,6 +906,42 @@ input crosses in and again in `money()`. Whether a code is KNOWN is deliberately
 that would need the list this design refuses to consult, and an unknown but well-formed code is
 accepted, which is the calibration that keeps the six refusals meaningful.
 
+**Two things a review caught that the first implementation got wrong, and both were about the same
+mistake: treating "everything is euros today" as true when it already was not.**
+
+The first: **the migration stamped every transaction `EUR`, and `Account.currency` has been
+writable to a non-euro value since bank sync existed.** `banking/connectors/enablebanking.ts`
+stores whatever the provider names. So an install with a sterling account would have had every one
+of its transactions stamped with a currency it is not, where before the migration those rows
+asserted nothing at all. Making a row newly WRONG is worse than leaving it silent, and the
+information needed for the right answer was sitting in the account. All three legs now read it, and
+`persistImportedTransactions` reads the bucket once before its loop so future writes agree.
+**MEASURED on all three engines** with a populated database holding one euro bucket and one
+sterling bucket: the sterling account's transaction is stamped `GBP`.
+
+**The exponent is the honest limit and is stated rather than hidden.** No pre-existing row records
+one and no list is consulted, so 2 is stamped for everything. Every currency this application has
+actually seen has two decimals; a pre-change account in one of the seven 3-decimal currencies is
+the one case the migration cannot recover, and nothing else could recover it either, because the
+information was never written down.
+
+The second: **the backup contract accepted a currency with no exponent beside it, which is exactly
+the ambiguity this whole design exists to prevent**, and the comment beside it claimed `.strict()`
+already forbade that. It does not: `.strict()` rejects unknown keys and says nothing about two
+optional fields being independent. **MEASURED before the rule existed**: a payload naming `JOD` with
+no exponent parsed successfully and the restore stamped it 2, so a row meaning 1.000 JOD came back
+meaning 10.00 JOD, under a contract 1.0 freezes. Both-or-neither is now enforced on the five
+money-bearing entities. `Account` is the exception and cannot be otherwise: its `currency` predates
+the exponent column, so "currency present, exponent absent" is the shape of every backup ever
+exported, and refusing it would make them all unrestorable.
+
+**A third, smaller, in the same family.** The provider's currency was the one trust boundary left
+without a check, and the asymmetry pointed the wrong way: the backup boundary enforces ISO 4217's
+grammar, so a malformed code stored from a provider would surface as the user's OWN export refusing
+to restore. It is now uppercased and validated at the connector, falling back to the default,
+because a bucket denominated in the wrong currency is visible and correctable while one denominated
+in a code no formatter can render takes the screen down.
+
 **One deviation from "per amount", recorded rather than rounded away.** `TransactionSplit` carries
 neither column. A part is denominated by its parent, and `sum(parts) = parent.amountCents` is a
 conservation theorem a second currency would falsify. `NetWorthSnapshot` carries both even though
