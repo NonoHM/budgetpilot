@@ -54,6 +54,31 @@ because that is the claim you already believe.
 
 None of the five would have been caught by re-reading. Each was caught by re-running.
 
+**A sixth arrived while this document was being committed, and it is the one that closes the
+argument.** The claim above is that the report contains no em dashes, so it can be tracked without
+reddening `emDashesInProse.spec.ts`. Both the formatter and the check were run against it and both
+reported success, so it was committed. CI then failed on `lint`.
+
+The file had been at `docs/superpowers/` at the time, which is gitignored, and Prettier honours
+`.gitignore` by default. So `prettier --write` formatted nothing and `prettier --check` checked
+nothing, and the message Prettier prints when it matches no files is
+**"All matched files use Prettier code style!"**, which is the message it prints on success.
+
+That is this repository's oldest recorded trap, in a new place: an absence of matched files and an
+absence of failures are the same string, and only the exit code tells them apart, and here the exit
+code was 0 for both. It was walked into while committing the document that records it.
+
+**The fix is the entry, and it generalises past Prettier**: pipe the formatter's output through
+`diff` against the file.
+
+```
+npx prettier <file> | diff - <file>
+```
+
+An empty diff proves two things at once, where `--check` proves at most one: the file is formatted,
+AND the formatter actually read it. A tool that skipped the file produces no output and the diff is
+loud rather than quiet. Prefer the form whose success case requires the tool to have done work.
+
 ## The frame, and what it excludes
 
 IADA: Identifiers, API, Data, Architecture, in decreasing order of difficulty to change. This
@@ -285,20 +310,37 @@ every `docker-compose*.yml`, and all 60 tracked docs plus `README.md`.
 The docs column was calibrated with a positive control before being trusted: `DATABASE_URL`
 resolves in 2 doc files, so a "no" in that column is an absence and not a broken matcher.
 
-**Four variables are read by the application and absent from `.env.example`:**
+**Four variables are read by the application and absent from `.env.example`. TWO OF THEM ARE
+ABSENT CORRECTLY, and this finding was wrong when first written.**
 
-| Variable                   | In docs | What it does                                           |
-| -------------------------- | ------- | ------------------------------------------------------ |
-| `ADDRESS_HEADER`           | yes     | which header carries the client address behind a proxy |
-| `XFF_DEPTH`                | yes     | how many hops to trust in that header                  |
-| `CSV_MAX_COLUMNS`          | yes     | upload bound                                           |
-| `COLUMN_MAPPINGS_PER_USER` | yes     | per-user cap                                           |
+| Variable                   | Absent from `.env.example` because                                   |
+| -------------------------- | -------------------------------------------------------------------- |
+| `CSV_MAX_COLUMNS`          | a real gap: tunable, documented in a dotenv block, never in the file |
+| `COLUMN_MAPPINGS_PER_USER` | the same                                                             |
+| `ADDRESS_HEADER`           | **by design: setting it stops the app at boot**                      |
+| `XFF_DEPTH`                | **by design, the same**                                              |
 
-All four appear in `docs/configuration.md`, two of them inside a dotenv block an operator is
-meant to copy. The first two are the pair the boot gate validates through
-`assertForwardingConfigSafe`, and they are the ones an operator behind a reverse proxy must set
-correctly or the rate limiter keys on the wrong address. An operator who configures from
-`.env.example` alone never sees them.
+The first version of this section listed all four as a gap and called the last two "the pair a
+proxied install must get right", which is backwards. **MEASURED**, from
+`assertForwardingConfigSafe` at `src/lib/server/net/clientAddress.ts:227-238`: both are read only
+in order to be REFUSED, and the app throws at startup if either carries a value. They are not
+configuration; they are settings this application forbids, because it validates `X-Forwarded-For`
+against `TRUSTED_PROXIES` itself and `ADDRESS_HEADER` would make the framework trust the header
+blindly (#219).
+
+And `.env.example` already names both, in the `TRUSTED_PROXIES` comment: _"Do NOT set
+ADDRESS_HEADER/XFF_DEPTH: the app validates the header itself and refuses to start if
+ADDRESS_HEADER is set."_ So a proxied operator reading only that file is told exactly the right
+thing.
+
+**The lesson is about the method, not the two variables.** The cross-reference was a set
+difference: read by the app, absent from the example file. That is a mechanical relation and it is
+correct. What it cannot see is INTENT, and two of its four hits were variables whose absence was
+the documented decision. A table produced by a script needs its rows read before they become
+findings, and the tell was available in the file the script had already opened.
+
+What a proxied install must get right is `TRUSTED_PROXIES`, which is present, documented and
+carries the warning.
 
 **Five variables are in `.env.example` and read by no application source**: `APP_PORT`,
 `BODY_SIZE_LIMIT`, `DATABASE_PASSWORD`, `HOST`, `NODE_ENV`. None is a defect. They are consumed
@@ -1000,18 +1042,18 @@ Correct, and 1.0 commits to it.
 Wrong, and cheaper now than ever again. Strict list: each of these is a rename or reshape that
 genuinely improves, not a preference.
 
-| Item                                                   | Part | Cost now                                                                                   | Cost after 1.0                                                                                                                          |
-| ------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
-| **The production database file is named `dev.db`**     | 2    | A default change plus a boot compatibility shim, 11 files                                  | A rename of persisted state inside every volume. An installation that never set `DATABASE_URL` boots empty with its real data beside it |
-| **No floating major tag**                              | 2    | One line in `docker/metadata-action`                                                       | `:1` cannot exist for versions that predate it, and `latest` silently carries unattended installs into 2.0                              |
-| **`## Updating` never says to take a backup**          | 6    | One sentence, in the section operators read before `docker compose pull`                   | The rollback path keeps presupposing a backup nobody was told to take                                                                   |
-| **The dedupe key has no `accountScope` on CSV (#449)** | 3    | A v3 key, once                                                                             | A second duplication event if done separately from the currency change                                                                  |
-| **The dedupe key has no currency field**               | 3, 7 | Same v3, same change                                                                       | As above. Do both at once                                                                                                               |
-| **`IMPORT_MAX_BYTES` declared twice**                  | 2    | One shared constant                                                                        | Two screens refusing different files with the same message                                                                              |
-| **Four env vars missing from `.env.example`**          | 2    | Four lines. `ADDRESS_HEADER` and `XFF_DEPTH` are the pair a proxied install must get right | An operator configuring from the example file alone keys the rate limiter on the wrong address                                          |
-| **The export/restore seam has no test**                | 1    | One assertion: a real export parses and restores                                           | The bounds drift from the exporter and only a user finds out                                                                            |
-| **The admin guard is not enumerated**                  | 5    | 30 to 40 lines, enumerating `Object.keys(actions)`                                         | The N+1 admin action ships unguarded and nothing turns red                                                                              |
-| **Three documentation defects**                        | 1, 7 | Three edits                                                                                | See the filings section                                                                                                                 |
+| Item                                                   | Part | Cost now                                                                                                                                                           | Cost after 1.0                                                                                                                          |
+| ------------------------------------------------------ | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **The production database file is named `dev.db`**     | 2    | A default change plus a boot compatibility shim, 11 files                                                                                                          | A rename of persisted state inside every volume. An installation that never set `DATABASE_URL` boots empty with its real data beside it |
+| **No floating major tag**                              | 2    | One line in `docker/metadata-action`                                                                                                                               | `:1` cannot exist for versions that predate it, and `latest` silently carries unattended installs into 2.0                              |
+| **`## Updating` never says to take a backup**          | 6    | One sentence, in the section operators read before `docker compose pull`                                                                                           | The rollback path keeps presupposing a backup nobody was told to take                                                                   |
+| **The dedupe key has no `accountScope` on CSV (#449)** | 3    | A v3 key, once                                                                                                                                                     | A second duplication event if done separately from the currency change                                                                  |
+| **The dedupe key has no currency field**               | 3, 7 | Same v3, same change                                                                                                                                               | As above. Do both at once                                                                                                               |
+| **`IMPORT_MAX_BYTES` declared twice**                  | 2    | One shared constant                                                                                                                                                | Two screens refusing different files with the same message                                                                              |
+| **Two env vars missing from `.env.example`**           | 2    | `CSV_MAX_COLUMNS` and `COLUMN_MAPPINGS_PER_USER`, both tunable and both documented only in a dotenv block. The other two of the original four are absent by design | An operator configuring from the example file alone cannot see two bounds that decide whether their upload is refused                   |
+| **The export/restore seam has no test**                | 1    | One assertion: a real export parses and restores                                                                                                                   | The bounds drift from the exporter and only a user finds out                                                                            |
+| **The admin guard is not enumerated**                  | 5    | 30 to 40 lines, enumerating `Object.keys(actions)`                                                                                                                 | The N+1 admin action ships unguarded and nothing turns red                                                                              |
+| **Three documentation defects**                        | 1, 7 | Three edits                                                                                                                                                        | See the filings section                                                                                                                 |
 
 ## Change after, with a major
 

@@ -14,13 +14,17 @@ Checked against a running instance, not recalled. For the steps, see
 
 ## What it contains
 
-Nineteen top-level keys, read off a real export:
+Twenty top-level keys:
 
 `formatVersion`, `exportedAt`, `userEmail`, `accounts`, `categories`,
-`importBatches`, `transactions`, `monthlyBudgets`, `categoryRules`,
-`categorizationRules`, `categoryNatureMappings`, `netWorthAccounts`,
-`netWorthSnapshots`, `savingsGoals`, `bankConnections`,
+`importBatches`, `columnMappings`, `transactions`, `monthlyBudgets`,
+`categoryRules`, `categorizationRules`, `categoryNatureMappings`,
+`netWorthAccounts`, `netWorthSnapshots`, `savingsGoals`, `bankConnections`,
 `recurringStreamActions`, `tags`, `transactionTags`, `transactionSplits`.
+
+This list is checked against the export's own schema by a test, so it cannot
+drift from what the file actually contains. It said nineteen for a while, and
+was wrong by one.
 
 ## What it does not contain
 
@@ -90,16 +94,30 @@ by accident.
 
 ## Refusal messages
 
-| Cause                     | Message                             |
-| ------------------------- | ----------------------------------- |
-| No file chosen            | _No file selected._                 |
-| Over 20 MB                | _...file is too large..._           |
-| Unreadable upload         | _...could not be read..._           |
-| Not JSON                  | _Unsupported backup format._        |
-| `formatVersion` is not 1  | _Unsupported backup format._        |
-| Fails schema or integrity | _Invalid or corrupted backup file._ |
+All eight, in the order the checks run. The order matters: each one bounds the
+work the next is allowed to do, so a file is refused by the first thing wrong
+with it and not necessarily by the worst.
 
-Each was produced on a running instance rather than read off the catalogue.
+| Cause                                      | Message                             |
+| ------------------------------------------ | ----------------------------------- |
+| No file chosen                             | _No file selected._                 |
+| Over 20 MB                                 | _...file is too large..._           |
+| Unreadable upload                          | _...could not be read..._           |
+| More separate entries than the node limit  | _...too many separate entries..._   |
+| Not JSON                                   | _The file is not valid JSON._       |
+| Not an object, or `formatVersion` is not 1 | _Unsupported backup format._        |
+| Fails schema or integrity                  | _Invalid or corrupted backup file._ |
+| Two categories with the same name          | _...contains a duplicate category._ |
+
+**Damaged and unsupported are deliberately different messages**, and the
+distinction is worth knowing when you read one. _The file is not valid JSON_
+means the file is truncated or corrupted, so re-export it. _Unsupported backup
+format_ means the file is intact but came from a version this one does not
+accept, so the thing to go looking for is which version wrote it.
+
+The entry-count check runs **before** the file is parsed, which is why it can
+refuse a file that would otherwise be rejected a moment later for not being a
+backup at all: parsing is what the check exists to bound.
 
 ## Related
 

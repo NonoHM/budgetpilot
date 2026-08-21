@@ -5,17 +5,33 @@ does, see [your account and settings](../using/account.md).
 
 ## Password
 
-|                               |                   |
-| ----------------------------- | ----------------- |
-| Minimum length                | **12 characters** |
-| Maximum length                | 256 characters    |
-| Requires the current one      | yes               |
-| Other sessions after a change | **all revoked**   |
-| The session you are using     | kept              |
+|                               |                        |
+| ----------------------------- | ---------------------- |
+| Minimum length                | **12 characters**      |
+| Maximum length accepted       | 256 characters         |
+| Length that affects the hash  | **the first 72 bytes** |
+| Requires the current one      | yes                    |
+| Other sessions after a change | **all revoked**        |
+| The session you are using     | kept                   |
 
-No character-class rule: length is the whole requirement. The card in
-Settings states the session consequence itself, so it is not a hidden
-effect.
+No character-class rule: length is the whole requirement.
+
+**Only the first 72 bytes of a password do any work.** The form accepts up to
+256 characters, and the hashing algorithm this app uses, bcrypt, reads no
+further than 72 bytes. A 200-character passphrase is stored as though it were
+its first 72 bytes, and two passwords that share those bytes open the same
+account.
+
+Bytes, not characters: an accented or non-Latin passphrase reaches 72 bytes in
+fewer than 72 characters.
+
+This costs you nothing at ordinary lengths, and the reason to state it is that
+a longer password is a reasonable thing to believe is a stronger one. Past 72
+bytes it is not. Twelve to seventy-two bytes of something unguessable is the
+whole of the advice.
+
+The card in Settings states the session consequence itself, so it is not a
+hidden effect.
 
 A wrong current password, a mismatch between the two new fields and a
 too-short password all return the same message. That is deliberate for the

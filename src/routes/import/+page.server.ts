@@ -13,7 +13,12 @@ import {
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
-import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
+import {
+	ImportFileError,
+	IMPORT_FILE_MAX_BYTES,
+	isSupportedImportFile,
+	readImportFile
+} from '$lib/server/import/file';
 import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
 import {
 	buildInvalidRowDetails,
@@ -33,7 +38,6 @@ import { isLinkableNetWorthAccountType } from '$lib/domain/netWorth';
 import { readLinkableNetWorthAccounts, readNetWorthAccounts } from '$lib/server/net-worth/service';
 import type { PageServerLoad } from './$types';
 
-const IMPORT_MAX_BYTES = 256_000;
 const CSV_ACCOUNT_NAME = 'Compte import CSV';
 /**
  * Sources an import CSV row can land on, based on the auto-detected profile (see
@@ -155,9 +159,9 @@ export const actions: Actions = {
 			return fail(400, { error: m.import_error_bad_extension() });
 		}
 
-		if (importFile.size > IMPORT_MAX_BYTES) {
+		if (importFile.size > IMPORT_FILE_MAX_BYTES) {
 			return fail(400, {
-				error: m.import_error_too_large({ size: importFile.size, max: IMPORT_MAX_BYTES })
+				error: m.import_error_too_large({ size: importFile.size, max: IMPORT_FILE_MAX_BYTES })
 			});
 		}
 
@@ -284,7 +288,7 @@ export const actions: Actions = {
 		const useMapping = verdict?.kind === 'recognised';
 
 		const result = parseCsvTransactionRows(importData.rows, {
-			maxBytes: IMPORT_MAX_BYTES,
+			maxBytes: IMPORT_FILE_MAX_BYTES,
 			profile: useMapping ? 'mapped' : 'auto',
 			columnMapping: useMapping ? remembered! : undefined,
 			sourceName: importFile.name || importData.kind,
@@ -569,7 +573,7 @@ function isUploadedFile(value: FormDataEntryValue | null): value is File {
 
 async function readUploadedImportFile(file: File) {
 	try {
-		return await readImportFile(file, { maxBytes: IMPORT_MAX_BYTES });
+		return await readImportFile(file, { maxBytes: IMPORT_FILE_MAX_BYTES });
 	} catch (caught) {
 		if (caught instanceof ImportFileError) return { error: importFileErrorMessage(caught) };
 		throw caught;

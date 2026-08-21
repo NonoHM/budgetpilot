@@ -3,7 +3,12 @@ import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { importHeaderCells, parseCsvTransactionRows } from '$lib/server/import/csv';
-import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
+import {
+	ImportFileError,
+	IMPORT_FILE_MAX_BYTES,
+	isSupportedImportFile,
+	readImportFile
+} from '$lib/server/import/file';
 import { mappingFromPostedIndices } from '$lib/server/import/mapping/designation';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
@@ -23,7 +28,6 @@ import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
 import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
 
-const IMPORT_MAX_BYTES = 256_000;
 const CSV_ACCOUNT_NAME = 'Compte import CSV';
 
 /**
@@ -65,15 +69,15 @@ export const actions: Actions = {
 		if (!isSupportedImportFile(importFile.name)) {
 			return fail(400, { error: m.import_error_bad_extension() });
 		}
-		if (importFile.size > IMPORT_MAX_BYTES) {
+		if (importFile.size > IMPORT_FILE_MAX_BYTES) {
 			return fail(400, {
-				error: m.import_error_too_large({ size: importFile.size, max: IMPORT_MAX_BYTES })
+				error: m.import_error_too_large({ size: importFile.size, max: IMPORT_FILE_MAX_BYTES })
 			});
 		}
 
 		let importData;
 		try {
-			importData = await readImportFile(importFile, { maxBytes: IMPORT_MAX_BYTES });
+			importData = await readImportFile(importFile, { maxBytes: IMPORT_FILE_MAX_BYTES });
 		} catch (caught) {
 			if (caught instanceof ImportFileError)
 				return fail(400, { error: m.import_error_empty_file() });
@@ -109,7 +113,7 @@ export const actions: Actions = {
 		});
 
 		const result = parseCsvTransactionRows(importData.rows, {
-			maxBytes: IMPORT_MAX_BYTES,
+			maxBytes: IMPORT_FILE_MAX_BYTES,
 			profile: 'mapped',
 			columnMapping: resolved.mapping,
 			// The user's answer, carried into the PARSE and not only into the mapping. Without it
