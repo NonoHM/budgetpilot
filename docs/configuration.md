@@ -166,7 +166,7 @@ DATABASE_URL="file:./dev.db"
 `mysql` (or `mariadb`). Leave it unset and you get SQLite, which is the
 recommended setup: it needs no server, and the whole database is one file you
 can copy. Under Docker, both variables come from your `.env`. Set neither and
-the compose files default `DATABASE_URL` to `file:/data/dev.db`, which lives
+the compose files default `DATABASE_URL` to `file:/data/budgetpilot.db`, which lives
 in the `budgetpilot_data` volume.
 
 An unrecognized value stops the app at startup rather than falling back to

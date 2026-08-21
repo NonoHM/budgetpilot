@@ -31,8 +31,69 @@
 // The only window without a handler is the migrate phase below, which installs its own.
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, unlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+
+// The image default, and the one it replaced.
+//
+// The old name was `dev.db` in production, on every install, because the development filename was
+// what the first Dockerfile happened to carry. It is not cosmetic: the path is persisted state
+// inside the operator's volume, so changing the default without the adoption below would boot an
+// existing install against a new empty file, run migrations into it, and serve an empty app with
+// the real database sitting beside it on the same volume. That reads as total data loss at the
+// moment it happens, and it is recoverable only by someone who knows to set DATABASE_URL.
+//
+// Renaming before 1.0 costs this function. After 1.0 it would cost a major, because the default
+// path is part of what a major version promises not to move.
+const DEFAULT_DATABASE_URL = 'file:/data/budgetpilot.db';
+const LEGACY_DEFAULT_DATABASE_URL = 'file:/data/dev.db';
+
+/**
+ * Resolves the database URL, adopting the legacy default when this is an upgraded install.
+ *
+ * ADOPTS, never renames. Moving the file would have to move `-wal` and `-shm` with it, and a
+ * SIGKILL between the three leaves a database whose committed transactions are in an orphaned
+ * write-ahead log. An adoption cannot corrupt anything: it changes which path is opened and
+ * touches no bytes.
+ *
+ * The condition is deliberately narrow, and each conjunct closes a way this could take a database
+ * nobody asked it to take:
+ *
+ *   configured === DEFAULT   an operator who set DATABASE_URL explicitly gets exactly what they
+ *                            set. Without this, pointing at a fresh path on a volume that still
+ *                            holds a dev.db would silently reopen the old one.
+ *   target missing           if the new file already exists this install has already been through
+ *                            here, and the legacy file is stale history rather than the database.
+ *   legacy present           nothing to adopt otherwise, which is every new install.
+ *
+ * Announced on stdout rather than done quietly: an operator reading their own logs should be able
+ * to see which file the app opened, and the message is the only place that says so.
+ */
+function resolveDatabaseUrl(env) {
+	const configured = env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
+	if (configured !== DEFAULT_DATABASE_URL) return configured;
+
+	const target = configured.slice('file:'.length);
+	const legacy = LEGACY_DEFAULT_DATABASE_URL.slice('file:'.length);
+	if (existsSync(target) || !existsSync(legacy)) return configured;
+
+	console.log(
+		`Using ${legacy}, which is where this install's database already is.\n` +
+			`The default moved to ${target} because "dev.db" was never the right name for ` +
+			'production data. Your database is not moved and nothing is rewritten: this ' +
+			'message is what happens instead.\n' +
+			'To adopt the new name, stop the container and rename the file (and its -wal and ' +
+			'-shm siblings, if present) inside the volume. To keep the old one forever, set ' +
+			`DATABASE_URL=${LEGACY_DEFAULT_DATABASE_URL} explicitly and this message stops.`
+	);
+	return LEGACY_DEFAULT_DATABASE_URL;
+}
+
+// Written back, not merely read: `prisma migrate deploy` is spawned below and inherits this
+// environment, and the server imported after it reads the same variable. If the adoption above
+// fired and only this file knew, the migration and the app would open different databases.
+const databaseUrl = resolveDatabaseUrl(process.env);
+process.env.DATABASE_URL = databaseUrl;
 
 // SQLite is the only provider that writes to the container's own filesystem, and /data is the
 // only place it may write. This check exists for one upgrade in particular: images before the
@@ -48,7 +109,6 @@ import path from 'node:path';
 // same "no" for a directory owned by another uid and for one on a read-only mount — the second
 // of which was hit immediately once the container started running with --read-only and no
 // volume at /data, and the ownership advice it printed was useless there.
-const databaseUrl = process.env.DATABASE_URL ?? 'file:/data/dev.db';
 if (databaseUrl.startsWith('file:')) {
 	const directory = path.dirname(databaseUrl.slice('file:'.length));
 	// Three properties of this probe file, each closing a way the check itself could do harm:
@@ -62,7 +122,7 @@ if (databaseUrl.startsWith('file:')) {
 	//               and never truncates. With the default 'w', a symlink planted at this path by
 	//               anything able to write /data — which, with the root filesystem read-only, is
 	//               now the only place a dropped payload can live — would make the next boot
-	//               truncate whatever it pointed at. Pointed at dev.db, that is the database
+	//               truncate whatever it pointed at. Pointed at the database file, that is the database
 	//               emptied and then re-migrated into a clean schema, on a container that starts
 	//               and reports healthy.
 	//   finally     a SIGKILL between the write and the unlink otherwise leaves the file behind
@@ -92,7 +152,7 @@ if (databaseUrl.startsWith('file:')) {
 						? ''
 						: `\nNote that DATABASE_URL points at ${directory}, not at /data. Inside the ` +
 							'container the SQLite file has to live on the mounted volume: set ' +
-							'DATABASE_URL=file:/data/dev.db.')
+							`DATABASE_URL=${DEFAULT_DATABASE_URL}.`)
 			);
 		} else if (error.code === 'EACCES' || error.code === 'EPERM') {
 			console.error(

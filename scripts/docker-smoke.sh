@@ -83,6 +83,7 @@ CREATED_CONTAINERS=()
 WORK_DIR=$(mktemp -d)
 DRY_RUN_VOLUME=budgetpilot-smoke-dryrun
 UPGRADE_VOLUME=budgetpilot-smoke-upgrade
+RENAME_VOLUME=budgetpilot-smoke-rename
 # /data has to be a mounted volume now, not a directory in the image's own filesystem: the
 # containers below run --read-only, so the image's /data is read-only like everything else. That
 # is exactly how the Compose files run it (`budgetpilot_data:/data`), and it is the reason the
@@ -98,7 +99,8 @@ cleanup() {
 		[ -n "$container" ] && docker rm -f "$container" >/dev/null 2>&1 || true
 	done
 	docker network rm "$NETWORK" >/dev/null 2>&1 || true
-	docker volume rm -f "$DRY_RUN_VOLUME" "$UPGRADE_VOLUME" "$DATA_VOLUME" >/dev/null 2>&1 || true
+	docker volume rm -f "$DRY_RUN_VOLUME" "$UPGRADE_VOLUME" "$RENAME_VOLUME" "$DATA_VOLUME" \
+		>/dev/null 2>&1 || true
 	docker image rm -f "$IMAGE" "$BUILDER_IMAGE" >/dev/null 2>&1 || true
 	rm -rf "$WORK_DIR"
 	exit "$status"
@@ -435,7 +437,7 @@ wait_for_db smoke-mariadb healthcheck.sh --connect --innodb_initialized
 # app cleanly and then die at `prisma migrate deploy` with P1013, an error naming neither
 # variable. See toPrismaConnectionUrl in src/lib/server/database/provider.ts.
 LEGS=(
-	"sqlite||file:/data/dev.db"
+	"sqlite||file:/data/budgetpilot.db"
 	"postgresql|postgresql|postgresql://__USER__:__PASSWORD__@smoke-postgres:5432/__DB__"
 	"mysql|mysql|mysql://__USER__:__PASSWORD__@smoke-mariadb:3306/__DB__"
 	"mariadb|mariadb|mariadb://__USER__:__PASSWORD__@smoke-mariadb:3306/__DB__"
@@ -605,7 +607,7 @@ fresh_data_volume
 run_container "$probe_app" \
 	"${HARDENED[@]}" \
 	-v "$DATA_VOLUME:/data" \
-	-e DATABASE_URL="file:/data/dev.db" \
+	-e DATABASE_URL="file:/data/budgetpilot.db" \
 	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
 	-e PUBLIC_INSTANCE=false \
 	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
@@ -722,7 +724,7 @@ novolume_app=smoke-app-novolume
 CREATED_CONTAINERS+=("$novolume_app")
 set +e
 timeout 60 docker run --name "$novolume_app" "${HARDENED[@]}" \
-	-e DATABASE_URL="file:/data/dev.db" \
+	-e DATABASE_URL="file:/data/budgetpilot.db" \
 	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
 	-e PUBLIC_INSTANCE=false \
 	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
@@ -812,7 +814,7 @@ run_container "$upgrade_app" \
 	"${HARDENED[@]}" \
 	-p "127.0.0.1:$APP_PORT:3000" \
 	-v "$UPGRADE_VOLUME:/data" \
-	-e DATABASE_URL="file:/data/dev.db" \
+	-e DATABASE_URL="file:/data/budgetpilot.db" \
 	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
 	-e PUBLIC_INSTANCE=false \
 	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
@@ -843,6 +845,112 @@ echo "  ok: after the printed chown, migrations applied and /login served"
 docker rm -f "$upgrade_app" >/dev/null
 docker volume rm "$UPGRADE_VOLUME" >/dev/null
 
+# The database default moved from /data/dev.db to /data/budgetpilot.db, and boot.mjs adopts the
+# old file when it is the one that exists. Both directions are asserted here because only the
+# pair says anything: a shim that ALWAYS returned the legacy path would satisfy the upgrade case
+# on its own, and a shim that never fired would satisfy the new-install case on its own.
+#
+# Neither can be checked from inside the image, which has no shell: the assertions read the
+# volume through busybox, which is how every other volume assertion in this file works.
+#
+# DATABASE_URL is deliberately NOT passed to either container. That is the whole point: the
+# variable's absence is what makes the image's own ENV default apply, which is the path an
+# operator who never edited .env actually takes, and the path that would have silently produced
+# an empty database.
+echo
+echo "=== asserting the database default moved, and that an old install is adopted ==="
+
+docker volume rm -f "$RENAME_VOLUME" >/dev/null 2>&1 || true
+docker volume create "$RENAME_VOLUME" >/dev/null
+docker run --rm -v "$RENAME_VOLUME:/data" busybox:1.37 chown -R 65532:65532 /data >/dev/null
+
+# Boots the image once against $RENAME_VOLUME and stops it as soon as it serves.
+#
+# Readiness is /login answering, the same signal every other boot in this file waits on, and not
+# "a .db file appeared": the legacy leg starts with a dev.db already present, so a
+# file-existence poll would return before migrate deploy had done anything and the assertions
+# would be about the fixture rather than about the boot.
+boot_once_for_rename() {
+	local name=$1
+	run_container "$name" \
+		"${HARDENED[@]}" \
+		-p "127.0.0.1:$APP_PORT:3000" \
+		-v "$RENAME_VOLUME:/data" \
+		-e ORIGIN="http://127.0.0.1:$APP_PORT" \
+		-e PUBLIC_INSTANCE=false \
+		-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
+		-e RATE_LIMIT_HASH_SECRET="$RATE_LIMIT_HASH_SECRET" \
+		-e BOOTSTRAP_TOKEN="$BOOTSTRAP_TOKEN" \
+		"$IMAGE"
+	local ready=false
+	for _ in $(seq 1 "$BOOT_TIMEOUT"); do
+		if curl -fs -o /dev/null "http://127.0.0.1:$APP_PORT/login" 2>/dev/null; then
+			ready=true
+			break
+		fi
+		sleep 1
+	done
+	docker stop -t 10 "$name" >/dev/null 2>&1 || true
+	[ "$ready" = true ]
+}
+
+volume_has() {
+	docker run --rm -v "$RENAME_VOLUME:/data" busybox:1.37 test -f "/data/$1"
+}
+
+rename_new=smoke-app-rename-new
+if ! boot_once_for_rename "$rename_new"; then
+	docker logs "$rename_new" 2>&1 | redact || true
+	echo "FAIL: the image did not boot on a fresh volume with no DATABASE_URL set" >&2
+	exit 1
+fi
+rename_new_logs=$(docker logs "$rename_new" 2>&1 | redact || true)
+docker rm -f "$rename_new" >/dev/null 2>&1 || true
+
+# CALIBRATION, and it runs first on purpose. Without it, an adoption that fired unconditionally
+# would pass the upgrade case below and this whole section would certify the opposite of what it
+# claims.
+if ! volume_has budgetpilot.db; then
+	echo "$rename_new_logs"
+	echo "FAIL: a fresh volume did not get /data/budgetpilot.db, so the new default is not in use" >&2
+	exit 1
+fi
+if volume_has dev.db; then
+	echo "FAIL: a fresh volume got a dev.db, so the old default is still being written" >&2
+	exit 1
+fi
+echo "  ok: a new install creates /data/budgetpilot.db and no dev.db"
+
+# Now the upgrade direction, on a volume that holds only the legacy name.
+docker volume rm -f "$RENAME_VOLUME" >/dev/null 2>&1 || true
+docker volume create "$RENAME_VOLUME" >/dev/null
+docker run --rm -v "$RENAME_VOLUME:/data" busybox:1.37 \
+	sh -c 'touch /data/dev.db && chown -R 65532:65532 /data' >/dev/null
+
+rename_old=smoke-app-rename-legacy
+if ! boot_once_for_rename "$rename_old"; then
+	docker logs "$rename_old" 2>&1 | redact || true
+	echo "FAIL: the image did not boot on a volume holding only the legacy dev.db" >&2
+	exit 1
+fi
+rename_old_logs=$(docker logs "$rename_old" 2>&1 | redact || true)
+docker rm -f "$rename_old" >/dev/null 2>&1 || true
+
+if volume_has budgetpilot.db; then
+	echo "$rename_old_logs"
+	echo "FAIL: an install holding dev.db was given a second, empty budgetpilot.db" >&2
+	exit 1
+fi
+# The message, not merely the behaviour: an operator whose app quietly opened a different file
+# than the default says it opens has no way to find that out except from the log.
+if ! grep -q '/data/dev.db' <<<"$rename_old_logs"; then
+	echo "$rename_old_logs"
+	echo "FAIL: the adoption was silent, so nothing tells the operator which file is open" >&2
+	exit 1
+fi
+echo "  ok: an install holding dev.db keeps it, and says so"
+docker volume rm -f "$RENAME_VOLUME" >/dev/null 2>&1 || true
+
 # The container has to stop on SIGTERM by draining, not by being killed 10 seconds later.
 # `exec node build` gave that for free: node was PID 1 and adapter-node's own SIGTERM handler
 # ran. boot.mjs keeps node as PID 1 and starts the server by *importing* the build output, in
@@ -856,7 +964,7 @@ run_container "$term_app" \
 	"${HARDENED[@]}" \
 	-v "$DATA_VOLUME:/data" \
 	-p "127.0.0.1:$APP_PORT:3000" \
-	-e DATABASE_URL="file:/data/dev.db" \
+	-e DATABASE_URL="file:/data/budgetpilot.db" \
 	-e ORIGIN="http://127.0.0.1:$APP_PORT" \
 	-e PUBLIC_INSTANCE=false \
 	-e TOTP_ENCRYPTION_KEY="$TOTP_ENCRYPTION_KEY" \
