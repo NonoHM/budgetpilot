@@ -68,14 +68,20 @@ from a stranger.
 
 ## What is refused
 
-| The file                          | What you get                        |
-| --------------------------------- | ----------------------------------- |
-| Not JSON                          | _Unsupported backup format._        |
-| From a newer format version       | _Unsupported backup format._        |
-| Missing a section, or a bad field | _Invalid or corrupted backup file._ |
-| Larger than 20 MB                 | _...file is too large..._           |
-| Holding over 2 million entries    | _...too many separate entries..._   |
-| Nothing chosen                    | _No file selected._                 |
+| The file                           | What you get                        |
+| ---------------------------------- | ----------------------------------- |
+| Damaged, or not JSON at all        | _The file is not valid JSON._       |
+| From a newer format version        | _Unsupported backup format._        |
+| Missing a section, or a bad field  | _Invalid or corrupted backup file._ |
+| Holding two categories of one name | _...contains a duplicate category._ |
+| Larger than 20 MB                  | _...file is too large..._           |
+| Holding over 2 million entries     | _...too many separate entries..._   |
+| Nothing chosen                     | _No file selected._                 |
+
+The first two look similar and mean opposite things. _Not valid JSON_ means the
+file is damaged, so export a fresh one. _Unsupported backup format_ means the
+file is fine but was written by a version this one cannot read, so the question
+is which version wrote it.
 
 A refusal changes nothing. Your data is only touched once the file has
 passed every check.

@@ -512,3 +512,48 @@ async function invokeAction(
 		revokeInviteSuccess?: string;
 	};
 }
+
+/**
+ * Every action on this route refuses a non-admin, ENUMERATED FROM THE MODULE.
+ *
+ * Each action already has its own hand-written 403 test above, and all of them pass. This block
+ * is not for the actions that exist: it is for the one somebody adds next. `requireAdmin` is
+ * called per action rather than enforced by a hook (#246), so an action written without the call
+ * is open to any signed-in user, and nothing in the suite would redden.
+ *
+ * `Object.keys(actions)` is the whole point, and a literal list here would be the same manual
+ * maintenance one level up: it would need updating by exactly the person who just forgot the
+ * guard. An anti-drift test that has to be edited to cover a new case does not guard the new
+ * case.
+ *
+ * `load` is deliberately absent: it has its own 403 test in "/admin load" above, and it takes a
+ * different event shape (url, no request), so folding it in here would mean a second invocation
+ * path and a cast per branch for no coverage gain.
+ *
+ * Seen red before being trusted: with `requireAdmin` removed from `revokeInvitation`, this block
+ * fails on that action alone and every other case stays green.
+ */
+describe('/admin action guards, enumerated', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		db.prisma.$transaction.mockImplementation(async (callback) => callback(tx));
+	});
+
+	// The calibration, and it runs first. `it.each` over an empty array registers no cases and
+	// reports a green file, which is indistinguishable from every action being guarded.
+	it('finds the actions on the module rather than an empty object', () => {
+		expect(Object.keys(actions).length).toBeGreaterThanOrEqual(4);
+	});
+
+	it.each(Object.keys(actions))('%s refuses a non-admin with 403', async (name) => {
+		expect.assertions(1);
+
+		// Empty input on purpose: the guard must fire before anything reads the form, so a missing
+		// field must not be what produces the failure. An action that validated first would return
+		// a 400 here and fail this assertion, which is the correct outcome — the check belongs
+		// ahead of the parse.
+		await expect(invokeAction(name as keyof typeof actions, {}, USER)).rejects.toMatchObject({
+			status: 403
+		});
+	});
+});

@@ -308,7 +308,9 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
 const { buildBackupExport } = await import('./export');
 const { restoreBackup, BackupImportError } = await import('./import');
-const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS } = await import('./schema');
+// MAX_PORTABLE_STRING is deliberately NOT imported here: the seam fixture below uses the literal
+// 191, and importing the constant is what made an earlier version of that fixture unfalsifiable.
+const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS, backupExportSchema } = await import('./schema');
 const { computeNameKey } = await import('$lib/server/naming/nameKey');
 const { MAX_TAGS_PER_TRANSACTION } = await import('$lib/domain/tags');
 type TagColorToken = import('$lib/domain/tags').TagColorToken;
@@ -2471,5 +2473,302 @@ describe('transaction splits — the upper bound, which inspection alone had cov
 		const restored = db.store.transactionSplits.filter((row) => row.userId === 'user-a');
 		expect(restored).toHaveLength(20);
 		expect(restored.reduce((sum, row) => sum + (row.amountCents as number), 0)).toBe(-2000);
+	});
+});
+
+/**
+ * THE SEAM: a real export must satisfy the validator its own restore runs.
+ *
+ * `buildBackupExport` and `restoreBackup` are both heavily tested above, and neither test touches
+ * the other's half. Every restore test in this file, and the real-database one in
+ * `volume.db-smoke.ts`, builds its payload BY HAND; `schema-properties.spec.ts` seeds from
+ * `schema.spec.ts`'s fixture and says so. So the exporter's output has never been handed to the
+ * schema, and the schema has never been handed anything the exporter produced.
+ *
+ * The type system pins the SHAPE and cannot pin the VALUES. `BackupExport` is
+ * `z.infer<typeof backupExportSchema>` and `buildBackupExport` returns it, so a missing key or a
+ * wrong type fails `npm run check`. The bounds are not types: `.min(1)`, `.max(191)`,
+ * `.length(64)` on a fingerprint, and the two `superRefine` ceilings that read a sibling key are
+ * all runtime facts about values, and nothing compares them against what the write paths permit.
+ *
+ * The repository already knows this class. `MAX_ANCHOR_IDS` in schema.ts exists because a remapped
+ * anchor cell can grow past what was validated on the way in and "leave through an export that
+ * never runs this schema, and be rejected on the way back in, the user is told their own export is
+ * corrupt". That is one column, reasoned about by hand. This is the general case.
+ *
+ * Seeded AT the bounds rather than with tidy values, because a fixture of short strings would pass
+ * against a schema bounded at anything. 191 is MAX_PORTABLE_STRING, the narrowest width any
+ * provider gives a String column, and it is the number a write path would have to exceed for a
+ * user's own export to become unrestorable.
+ *
+ * SEEN RED BEFORE BEING TRUSTED, and the two attempts are both worth recording.
+ *
+ * With `MAX_PORTABLE_STRING` narrowed by one, to 190, this fails naming 18 fields `too_big`. That
+ * is the class it guards: the validator's bounds and the values a supported engine can legally
+ * store, disagreeing.
+ *
+ * The FIRST break attempt was dropping a `toISOString()` from export.ts, and it stayed green. That
+ * is correct rather than a gap in this test: `JSON.stringify` serializes a Date to an ISO string,
+ * the export route stringifies before the file is written, and the restore parses JSON, so the
+ * production path is genuinely immune to it. A break that reddens nothing because the defect
+ * cannot reach the user is a break aimed at the wrong thing.
+ */
+describe('the export and restore seam', () => {
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+	});
+
+	/**
+	 * 191 as a LITERAL, deliberately not `MAX_PORTABLE_STRING`.
+	 *
+	 * The first version of this helper derived its length from the schema's own constant, and was
+	 * unfalsifiable: narrowing the bound narrowed the fixture with it, so the test stayed green
+	 * through the exact change it exists to catch. Measured, not reasoned about: with the constant
+	 * lowered to 190 the suite reported 0 failed.
+	 *
+	 * 191 is a fact about MySQL, not about this schema. It is `varchar(191)`, the narrowest width
+	 * any supported provider gives a String column with no native-type override, so it is what a
+	 * row legally written on any engine may hold. The claim under test is that such a row survives
+	 * an export and is accepted on the way back in, which is a claim about the DATABASE and the
+	 * VALIDATOR agreeing. Expressing the fixture in the validator's own terms would have made it
+	 * agree with itself.
+	 */
+	const atBound = (prefix: string) => prefix + 'x'.repeat(191 - prefix.length);
+
+	function seedAccountAtTheBounds() {
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+		db.store.netWorthAccounts.push({
+			id: 'nwa-1',
+			userId: 'user-a',
+			name: atBound('patrimoine-'),
+			type: 'savings',
+			balanceCents: 250_000,
+			deletedAt: new Date('2026-03-01T12:00:00.000Z')
+		});
+		db.store.netWorthSnapshots.push({
+			id: 'snap-1',
+			userId: 'user-a',
+			accountId: 'nwa-1',
+			type: 'savings',
+			balanceCents: 240_000,
+			capturedAt: new Date('2026-05-01T12:00:00.000Z')
+		});
+		db.store.savingsGoals.push({
+			id: 'goal-1',
+			userId: 'user-a',
+			name: atBound('objectif-'),
+			targetAmountCents: 300_000,
+			netWorthAccountId: 'nwa-1',
+			currentAmountCents: 250_000,
+			startingBalanceCents: 100_000,
+			targetDate: new Date('2026-12-01T00:00:00.000Z'),
+			reachedAt: null,
+			reachedBannerDismissedAt: null,
+			deletedAt: null
+		});
+		db.store.bankConnections.push({
+			id: 'conn-1',
+			userId: 'user-a',
+			provider: atBound('provider-'),
+			status: 'active',
+			aspspName: 'Banque',
+			aspspCountry: 'FR',
+			consentExpiresAt: new Date('2026-09-01T00:00:00.000Z'),
+			lastSyncAt: new Date('2026-08-01T00:00:00.000Z')
+		});
+		db.store.accounts.push({
+			id: 'acc-1',
+			userId: 'user-a',
+			name: atBound('compte-'),
+			currency: 'EUR',
+			source: atBound('source-'),
+			netWorthAccountId: 'nwa-1',
+			bankConnectionId: 'conn-1',
+			providerAccountId: 'p'.repeat(500),
+			providerCashAccountType: 'CACC'
+		});
+		db.store.categories.push(
+			{ id: 'cat-1', userId: 'user-a', name: atBound('categorie-') },
+			{ id: 'cat-2', userId: 'user-a', name: 'Loisirs' }
+		);
+		db.store.importBatches.push({
+			id: 'batch-1',
+			userId: 'user-a',
+			source: atBound('src-'),
+			fileName: 'f'.repeat(500),
+			profile: atBound('profil-'),
+			rowCount: 2,
+			importedRows: 2,
+			duplicateRows: 0,
+			invalidRows: 0,
+			periodStart: new Date('2026-01-01T00:00:00.000Z'),
+			periodEnd: new Date('2026-01-31T00:00:00.000Z')
+		});
+		db.store.columnMappings.push({
+			id: 'map-1',
+			userId: 'user-a',
+			fingerprint: 'a'.repeat(64),
+			matchBy: 'name',
+			dateColumn: 'd'.repeat(120),
+			labelColumn: 'libelle',
+			amountColumn: 'montant',
+			categoryColumn: null,
+			dateIndex: null,
+			labelIndex: null,
+			amountIndex: null,
+			categoryIndex: null,
+			columnCount: 4,
+			useCount: 3
+		});
+		db.store.transactions.push({
+			id: 'tx-1',
+			userId: 'user-a',
+			accountId: 'acc-1',
+			categoryId: 'cat-1',
+			importBatchId: 'batch-1',
+			date: new Date('2026-01-15T00:00:00.000Z'),
+			label: 'l'.repeat(2000),
+			amountCents: -1_037,
+			type: 'expense',
+			source: atBound('src-'),
+			notes: 'n'.repeat(10_000),
+			bankOperationType: 'b'.repeat(500),
+			manualCategory: atBound('manuelle-'),
+			natureManual: 'spending',
+			dedupeKey: 'd'.repeat(500),
+			metadataJson: '{}'
+		});
+		// `userId` and `categoryOwnerId` are the fake's stand-ins for the two relation filters the
+		// export scopes through (`transaction: { userId }` and `category: { userId }`). A row
+		// without them is invisible to the export, which reads as "no parts" rather than as a
+		// broken fixture.
+		db.store.transactionSplits.push(
+			{
+				id: 'split-1',
+				userId: 'user-a',
+				categoryOwnerId: 'user-a',
+				transactionId: 'tx-1',
+				categoryId: 'cat-1',
+				amountCents: -600,
+				position: 0,
+				note: atBound('note-')
+			},
+			{
+				id: 'split-2',
+				userId: 'user-a',
+				categoryOwnerId: 'user-a',
+				transactionId: 'tx-1',
+				categoryId: 'cat-2',
+				amountCents: -437,
+				position: 1,
+				note: null
+			}
+		);
+		db.store.tags.push({
+			id: 'tag-1',
+			userId: 'user-a',
+			name: atBound('tag-'),
+			colorToken: 'clay' as TagColorToken
+		});
+		db.store.transactionTags.push({
+			id: 'link-1',
+			userId: 'user-a',
+			transactionId: 'tx-1',
+			tagId: 'tag-1'
+		});
+		db.store.monthlyBudgets.push({
+			id: 'budget-1',
+			userId: 'user-a',
+			categoryName: atBound('categorie-'),
+			amountCents: 30_000
+		});
+		db.store.categoryRules.push({
+			id: 'rule-1',
+			userId: 'user-a',
+			name: atBound('regle-'),
+			matchText: 'm'.repeat(500),
+			targetCategory: atBound('cible-'),
+			targetNature: 'spending',
+			enabled: true
+		});
+		db.store.categorizationRules.push({
+			id: 'legacy-1',
+			userId: 'user-a',
+			pattern: 'p'.repeat(500),
+			targetCategory: atBound('cible-'),
+			type: 'expense',
+			active: true
+		});
+		db.store.categoryNatureMappings.push({
+			id: 'nature-1',
+			userId: 'user-a',
+			categoryName: atBound('categorie-'),
+			nature: 'spending'
+		});
+		db.store.recurringStreamActions.push({
+			id: 'action-1',
+			userId: 'user-a',
+			kind: 'IGNORE',
+			direction: 'expense',
+			normalizedLabel: atBound('label-'),
+			label: atBound('Label-'),
+			anchorTransactionIds: JSON.stringify(['tx-1']),
+			dueDate: null,
+			createdAt: new Date('2026-01-01T00:00:00.000Z'),
+			updatedAt: new Date('2026-01-02T00:00:00.000Z')
+		});
+	}
+
+	it('produces an export that its own restore validator accepts', async () => {
+		expect.assertions(2);
+		seedAccountAtTheBounds();
+
+		const exported = await buildBackupExport('user-a');
+		// Through JSON, because that is what the file is. A Date surviving in memory and failing
+		// only once serialized is exactly the regression this guards.
+		const onTheWire = JSON.parse(JSON.stringify(exported));
+		const parsed = backupExportSchema.safeParse(onTheWire);
+
+		// The issues are in the message so a failure names the field rather than saying "false".
+		expect(
+			parsed.success ? [] : parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.code}`)
+		).toEqual([]);
+		expect(parsed.success).toBe(true);
+	});
+
+	it('restores the export it just produced into another account, intact', async () => {
+		expect.assertions(4);
+		seedAccountAtTheBounds();
+		// Restored into a DIFFERENT user, which is what a backup is actually for: moving an account
+		// to another instance. It also keeps the fake honest. Restoring over `user-a` would rely on
+		// the purge removing the seeded parts, and the real purge does not delete them directly at
+		// all: it has no `transactionSplit.deleteMany` because the rows cascade from Transaction,
+		// and the fake models no cascades. Asserting through that would be asserting the fake.
+		db.store.users.push({ id: 'user-b', email: 'b@example.test' });
+
+		const exported = await buildBackupExport('user-a');
+		const parsed = backupExportSchema.safeParse(JSON.parse(JSON.stringify(exported)));
+		if (!parsed.success) throw new Error('the export did not validate, see the test above');
+
+		await restoreBackup('user-b', parsed.data);
+		const reExported = await buildBackupExport('user-b');
+
+		// The seeded account is untouched, so a restore that wrote into the wrong user is visible
+		// here rather than only as a missing row over there.
+		expect((await buildBackupExport('user-a')).transactions).toHaveLength(1);
+
+		// ABSOLUTE figures, not `exported.length`. A relation the fake does not model would make
+		// both sides empty and `0 === 0` would report a round trip that carried nothing. That is
+		// not hypothetical: the first version of this test asserted the relative form, both sides
+		// were empty because the fixture omitted the fake's relation columns, and it passed.
+		expect(reExported.transactions).toHaveLength(1);
+		expect(reExported.transactionSplits).toHaveLength(2);
+		// The money invariant, which is the one a restore must never quietly break.
+		const partsTotal = reExported.transactionSplits.reduce(
+			(sum, part) => sum + part.amountCents,
+			0
+		);
+		expect(partsTotal).toBe(reExported.transactions[0].amountCents);
 	});
 });
