@@ -47,9 +47,6 @@ export function toMinorUnits(value: bigint | number, field: string): number {
 }
 
 /** The same, for the reads that can be absent: an aggregate over no rows is null, not zero. */
-export function toNullableMinorUnits(
-	value: bigint | number | null,
-	field: string
-): number | null {
+export function toNullableMinorUnits(value: bigint | number | null, field: string): number | null {
 	return value === null ? null : toMinorUnits(value, field);
 }

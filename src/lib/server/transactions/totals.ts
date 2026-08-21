@@ -111,8 +111,10 @@ async function sumTransactionMagnitudes(where: Prisma.TransactionWhereInput): Pr
 	// money-column extension does not reach, and it typechecks as `number` while returning a
 	// `bigint`. Without this the subtraction throws "Cannot mix BigInt and other types" at run
 	// time under a green `npm run check`. See server/database/moneyColumns.ts.
-	const sumPositive = toNullableMinorUnits(positive._sum.amountCents, 'Transaction.amountCents') ?? 0;
-	const sumNegative = toNullableMinorUnits(negative._sum.amountCents, 'Transaction.amountCents') ?? 0;
+	const sumPositive =
+		toNullableMinorUnits(positive._sum.amountCents, 'Transaction.amountCents') ?? 0;
+	const sumNegative =
+		toNullableMinorUnits(negative._sum.amountCents, 'Transaction.amountCents') ?? 0;
 	return sumPositive - sumNegative;
 }
 
@@ -135,8 +137,10 @@ async function sumSplitMagnitudes(where: Prisma.TransactionSplitWhereInput): Pro
 	// money-column extension does not reach, and it typechecks as `number` while returning a
 	// `bigint`. Without this the subtraction throws "Cannot mix BigInt and other types" at run
 	// time under a green `npm run check`. See server/database/moneyColumns.ts.
-	const sumPositive = toNullableMinorUnits(positive._sum.amountCents, 'TransactionSplit.amountCents') ?? 0;
-	const sumNegative = toNullableMinorUnits(negative._sum.amountCents, 'TransactionSplit.amountCents') ?? 0;
+	const sumPositive =
+		toNullableMinorUnits(positive._sum.amountCents, 'TransactionSplit.amountCents') ?? 0;
+	const sumNegative =
+		toNullableMinorUnits(negative._sum.amountCents, 'TransactionSplit.amountCents') ?? 0;
 	return sumPositive - sumNegative;
 }
 

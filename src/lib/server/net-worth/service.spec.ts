@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 
@@ -190,6 +191,7 @@ describe('createNetWorthAccount', () => {
 
 		expect(tx.netWorthAccount.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				name: 'Livret A',
 				nameKey: computeNameKey('Livret A'),
@@ -199,6 +201,7 @@ describe('createNetWorthAccount', () => {
 		});
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: 'acc-00000001',
 				type: 'savings',
@@ -243,6 +246,7 @@ describe('createNetWorthAccount', () => {
 
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: 'acc-00000001',
 				type: 'savings',
@@ -325,6 +329,7 @@ describe('updateNetWorthAccount', () => {
 		});
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: 'acc-00000001',
 				type: 'savings',
@@ -367,6 +372,7 @@ describe('updateNetWorthAccount', () => {
 
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: 'acc-00000001',
 				type: 'debt',
@@ -751,6 +757,7 @@ describe('recordSyncedBalance', () => {
 
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: netWorthAccountId,
 				type: 'checking',

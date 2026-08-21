@@ -228,7 +228,12 @@ describe('forgetting a correspondance', () => {
 			}
 		});
 		const account = await prisma.account.create({
-			data: { ...DEFAULT_DENOMINATION, userId: alice, name: `Compte ${stamp}`, nameKey: computeNameKey(`Compte ${stamp}`) },
+			data: {
+				...DEFAULT_DENOMINATION,
+				userId: alice,
+				name: `Compte ${stamp}`,
+				nameKey: computeNameKey(`Compte ${stamp}`)
+			},
 			select: { id: true }
 		});
 		const category = await prisma.category.create({

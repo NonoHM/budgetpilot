@@ -94,7 +94,12 @@ async function seedUser(): Promise<Seed> {
 	createdUserIds.push(user.id);
 
 	const account = await prisma.account.create({
-		data: { ...DEFAULT_DENOMINATION, userId: user.id, name: 'Param limit smoke account', source: 'manual' },
+		data: {
+			...DEFAULT_DENOMINATION,
+			userId: user.id,
+			name: 'Param limit smoke account',
+			source: 'manual'
+		},
 		select: { id: true }
 	});
 	const categoryName = 'ParamLimit';

@@ -106,7 +106,7 @@ describe('resolveImportBucketAccount', () => {
 		});
 	});
 
-	it('creates a new account with created: true, defaulting currency to EUR and links to null', async () => {
+	it('creates a new account with created: true, defaulting the denomination and links to null', async () => {
 		prismaMock.account.findFirst.mockResolvedValueOnce(null);
 		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-2' });
 
@@ -128,6 +128,7 @@ describe('resolveImportBucketAccount', () => {
 				nameKey: computeNameKey('Compte import CSV'),
 				source: 'csv',
 				currency: 'EUR',
+				exponent: 2,
 				netWorthAccountId: null,
 				bankConnectionId: null,
 				providerAccountId: null,
@@ -136,7 +137,7 @@ describe('resolveImportBucketAccount', () => {
 		});
 	});
 
-	it('applies netWorthAccountId/bankConnectionId/currency when provided on creation', async () => {
+	it('applies netWorthAccountId/bankConnectionId/denomination when provided on creation', async () => {
 		prismaMock.account.findFirst.mockResolvedValueOnce(null);
 		prismaMock.account.upsert.mockResolvedValueOnce({ id: 'account-3' });
 
@@ -144,7 +145,7 @@ describe('resolveImportBucketAccount', () => {
 			userId: 'user-1',
 			name: 'Compte import CSV',
 			source: 'mock_connector',
-			currency: 'USD',
+			denomination: { currency: 'USD', exponent: 2 },
 			netWorthAccountId: 'nwa-1',
 			bankConnectionId: 'conn-1'
 		});
@@ -153,6 +154,9 @@ describe('resolveImportBucketAccount', () => {
 			expect.objectContaining({
 				create: expect.objectContaining({
 					currency: 'USD',
+					// The pair travels together: a caller cannot supply one without the other, and
+					// this asserts the exponent lands rather than being dropped on the way through.
+					exponent: 2,
 					netWorthAccountId: 'nwa-1',
 					bankConnectionId: 'conn-1'
 				})

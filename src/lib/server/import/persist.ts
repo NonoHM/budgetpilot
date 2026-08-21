@@ -44,7 +44,16 @@ export interface ImportBucketInput {
 	userId: string;
 	name: string;
 	source: string;
-	currency?: string;
+	/**
+	 * What this bucket's amounts are denominated in, as a PAIR.
+	 *
+	 * One field and not two, so a caller cannot pass a currency without an exponent. That is the
+	 * whole rule the columns exist for: a bucket created under a non-euro currency with no exponent
+	 * beside it is ambiguous forever, and an optional `currency?: string` beside an optional
+	 * `exponent?: number` is exactly the shape that lets somebody supply one. Omitted entirely means
+	 * the application default (`DEFAULT_DENOMINATION`).
+	 */
+	denomination?: { currency: string; exponent: number };
 	/** Applied only when the bucket is first created — an existing bucket's link is never silently changed by a later import. */
 	netWorthAccountId?: string | null;
 	/** Same create-only semantics; set by the bank-sync service (step 4), never by CSV imports. */
@@ -163,12 +172,11 @@ export async function resolveImportBucketAccount(
 			where: { userId_name_source: { userId: input.userId, name, source: input.source } },
 			update: {},
 			create: {
-				...DEFAULT_DENOMINATION,
+				...(input.denomination ?? DEFAULT_DENOMINATION),
 				userId: input.userId,
 				name,
 				nameKey: computeNameKey(name),
 				source: input.source,
-				currency: input.currency ?? 'EUR',
 				netWorthAccountId: input.netWorthAccountId ?? null,
 				bankConnectionId: input.bankConnectionId ?? null,
 				providerAccountId: input.providerAccountId ?? null,
