@@ -52,9 +52,9 @@ The compose file computes `ORIGIN: ${ORIGIN:-http://localhost:${APP_PORT:-3000}}
 so an unset `ORIGIN` follows the port you published and the two cannot drift
 apart. This is why `.env.example` ships that line commented out.
 
-Writing `ORIGIN` by hand opts you out of that — your line wins over the default
-— and the two must then move together, which is the mismatch this section
-exists to explain. Set it only when localhost is not what you type: a LAN
+Writing `ORIGIN` by hand opts you out of that. Your line wins over the default,
+and the two must then move together, which is the mismatch this section exists
+to explain. Set it only when localhost is not what you type: a LAN
 address, a hostname, or anything behind a reverse proxy.
 
 `APP_PORT` is the host-side port Docker publishes. The container always

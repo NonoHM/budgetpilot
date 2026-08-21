@@ -43,7 +43,7 @@ BASE_URL=http://localhost:4175 node scripts/doc-screenshots.mjs import-summary
 ```
 
 The harness uploads the statement itself, so there is nothing to arrange by
-hand — but a **second run against the same account photographs the wrong
+hand, but a **second run against the same account photographs the wrong
 thing**, because duplicate detection is per transaction and the panel then
 reads 0 imported and 8 duplicates. That is a true summary of a different
 event. Capture it on a fresh instance, or delete the run from `/imports`
@@ -55,7 +55,7 @@ Mercier, who does not exist, invented merchants and invented amounts. Eight
 movements over June 2026, six debits totalling 367,35 and two credits
 totalling 2 524,30.
 
-**This shot asserts what it depicts before writing the file** — five tiles,
+**This shot asserts what it depicts before writing the file**: five tiles,
 the rows read as a sentence above them, and the two totals. It is the only
 image here that had no capture step at all: it was taken by hand, went stale
 when #386 changed the layout, and nothing could notice (#387). The assertion
@@ -75,12 +75,13 @@ BASE_URL=http://localhost:4175 node scripts/doc-screenshots.mjs import-columns
 ```
 
 The desktop shot uses its own **thirteen-column** file. The preview's whole
-desktop behaviour is what it does with a file wider than the region — it draws
-the columns that fit and counts the rest — and a three-column file photographs a
+desktop behaviour is what it does with a file wider than the region, where it
+draws the columns that fit and counts the rest, and a three-column file
+photographs a
 table with nothing to scroll.
 
 Both fixtures are invented: holder Paul Mercier, made-up merchants, made-up
-amounts and references. Only the SHAPE comes from a real statement — opaque
+amounts and references. Only the SHAPE comes from a real statement: opaque
 column names, the amount far from the date. **Nothing in these images comes from
 anyone's bank**, and nothing that goes in them should.
 
