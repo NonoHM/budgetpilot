@@ -1,6 +1,8 @@
 import type { NameKeyBackfillReport, UserNameKeyReport } from './backfill.ts';
 import type { AccountMergeBlockReason } from './mergePlan.ts';
-import { money, toDecimalString } from '$lib/domain/money';
+// Relative and with the extension, like every other import in this subtree: this file is read by
+// `scripts/normalize-names.mjs` under Node's type stripping, where `$lib` does not resolve.
+import { money, toDecimalString } from '../../domain/money.ts';
 
 /**
  * Renders a backfill plan as plain text for an operator to read before upgrading.

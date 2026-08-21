@@ -5,6 +5,7 @@ import { requireUser } from '$lib/server/auth';
 import { isLinkableNetWorthAccountType, isNetWorthAccountType } from '$lib/domain/netWorth';
 import { isSavingsGoalLinkableAccountType } from '$lib/domain/savingsGoal';
 import { money, toInputValue } from '$lib/domain/money';
+import { getLocale } from '$lib/paraglide/runtime';
 import {
 	createNetWorthAccount,
 	deleteNetWorthAccount,
@@ -211,5 +212,5 @@ function getErrorStatus(caught: unknown): number {
 }
 
 function formatBalanceInput(balanceCents: number): string {
-	return toInputValue(money(balanceCents));
+	return toInputValue(money(balanceCents), getLocale());
 }

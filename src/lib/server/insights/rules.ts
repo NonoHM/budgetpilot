@@ -2,6 +2,7 @@ import * as m from '$lib/paraglide/messages';
 import type { MonthlyBudgetSummary } from '$lib/domain/budget';
 import type { TransactionSummary, BudgetInsight } from './types';
 import { formatMoney, money } from '$lib/domain/money';
+import { getLocale } from '$lib/paraglide/runtime';
 
 export function generateRuleInsights(
 	summary: MonthlyBudgetSummary,
@@ -52,7 +53,7 @@ export function generateRuleInsights(
 				category: category.category,
 				// Formatted rather than divided: the raw quotient reached the message as "15.5",
 				// which is neither the locale's decimal separator nor the locale's currency.
-				amount: formatMoney(money(Math.abs(category.remainingCents)))
+				amount: formatMoney(money(Math.abs(category.remainingCents)), { locale: getLocale() })
 			})
 		});
 	}

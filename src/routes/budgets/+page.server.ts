@@ -4,6 +4,7 @@ import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { money, toInputValue } from '$lib/domain/money';
+import { getLocale } from '$lib/paraglide/runtime';
 import {
 	deleteBudget,
 	getCurrentMonth,
@@ -105,5 +106,5 @@ function getErrorStatus(caught: unknown): number {
 }
 
 function formatBudgetInput(amountCents: number): string {
-	return toInputValue(money(amountCents));
+	return toInputValue(money(amountCents), getLocale());
 }

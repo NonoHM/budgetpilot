@@ -1,5 +1,3 @@
-import { getLocale } from '$lib/paraglide/runtime';
-
 /**
  * The one place in this application that knows an amount is scaled by a power of ten.
  *
@@ -31,6 +29,12 @@ import { getLocale } from '$lib/paraglide/runtime';
  *
  * **Conversion between currencies.** Refused by omission and by design: a budget counts only its
  * own currency. That single refusal is what removes the rounding-mode question from this file.
+ *
+ * **The locale.** It belongs to the request, so every door that needs one takes it as an argument
+ * and this file imports nothing. That is not tidiness: `server/naming/report.ts` runs under Node's
+ * type stripping from `scripts/normalize-names.mjs`, outside Vite, where a `$lib` specifier does
+ * not resolve. A default of `getLocale()` here cost a container build to find, because no local
+ * gate runs that script. A module with no imports can be used by anything that can read a file.
  *
  * See `docs/audits/2026-08-21-stored-forms-design.md`, Part B, for the stored form this interface
  * is shaped around, and for why the exponent is stored per amount rather than derived from the
@@ -202,7 +206,8 @@ export function parseMoney(value: string, options: ParseMoneyOptions = {}): Mone
 }
 
 export interface FormatMoneyOptions {
-	locale?: string;
+	/** Required, never defaulted: the locale belongs to the request, not to this module. */
+	locale: string;
 	/** Passed straight to `Intl.NumberFormat`. Default 'auto': a minus on negatives, nothing else. */
 	signDisplay?: Intl.NumberFormatOptions['signDisplay'];
 	/**
@@ -214,7 +219,7 @@ export interface FormatMoneyOptions {
 }
 
 function humanFormatter(amount: Money, options: FormatMoneyOptions): Intl.NumberFormat {
-	const { locale = getLocale(), signDisplay = 'auto', maximumFractionDigits } = options;
+	const { locale, signDisplay = 'auto', maximumFractionDigits } = options;
 	return new Intl.NumberFormat(locale, {
 		style: 'currency',
 		currency: amount.currency,
@@ -233,7 +238,7 @@ function humanFormatter(amount: Money, options: FormatMoneyOptions): Intl.Number
  * formatter it replaces divided by a literal 100 whatever the currency, so an exponent-0 amount
  * displayed a hundred times too small.
  */
-export function formatMoney(amount: Money, options: FormatMoneyOptions = {}): string {
+export function formatMoney(amount: Money, options: FormatMoneyOptions): string {
 	return humanFormatter(amount, options).format(toMajorUnitNumber(amount));
 }
 
@@ -244,7 +249,7 @@ export function formatMoney(amount: Money, options: FormatMoneyOptions = {}): st
  */
 export function formatMoneyToParts(
 	amount: Money,
-	options: FormatMoneyOptions = {}
+	options: FormatMoneyOptions
 ): Intl.NumberFormatPart[] {
 	return humanFormatter(amount, options).formatToParts(toMajorUnitNumber(amount));
 }
@@ -263,7 +268,7 @@ export function formatMoneyToParts(
  * assumption this module exists to hold once. The `literal` part goes with the currency: it is the
  * separating space that only exists because the symbol does.
  */
-export function formatMoneyWithoutSymbol(amount: Money, options: FormatMoneyOptions = {}): string {
+export function formatMoneyWithoutSymbol(amount: Money, options: FormatMoneyOptions): string {
 	return formatMoneyToParts(amount, options)
 		.filter((part) => part.type !== 'currency' && part.type !== 'literal')
 		.map((part) => part.value)
@@ -304,7 +309,7 @@ export function toDecimalString(amount: Money): string {
  * The four sites this replaces hardcoded a French comma, so an English reader editing a budget was
  * handed "1234,50" to correct.
  */
-export function toInputValue(amount: Money, locale: string = getLocale()): string {
+export function toInputValue(amount: Money, locale: string): string {
 	const decimal = toDecimalString(amount);
 	if (amount.exponent <= 0) return decimal;
 	return decimal.replace('.', decimalSeparator(locale));

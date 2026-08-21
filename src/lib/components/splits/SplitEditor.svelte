@@ -6,6 +6,7 @@
 	import SplitPartRow from './SplitPartRow.svelte';
 	import SplitRemainderBand from './SplitRemainderBand.svelte';
 	import { money, toInputValue } from '$lib/domain/money';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import {
 		MAX_SPLITS_PER_TRANSACTION,
 		MIN_SPLITS_PER_TRANSACTION,
@@ -88,7 +89,7 @@
 	}
 
 	function magnitudeString(cents: number): string {
-		return toInputValue(money(Math.abs(cents)));
+		return toInputValue(money(Math.abs(cents)), getLocale());
 	}
 
 	function fromExisting(): DraftPart[] {
