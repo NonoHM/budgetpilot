@@ -27,6 +27,19 @@
  * whether that is a refusal, a filtered row or an abort, which is how two callers can keep two
  * different reactions to one grammar.
  *
+ * **Rounding at the inbound door.** More fraction digits than the exponent is REFUSED, never
+ * rounded, and the prior art is why it is stated as a refusal rather than left implicit: Firefly
+ * III stores a per-currency precision and does not validate it on write, so a JPY amount of
+ * `100.55` is storable there. **A per-row precision with no gate on the write path records a lie
+ * rather than a value**, and the gate has to be the parser because it is the only place that sees
+ * the text.
+ *
+ * **A number, from the machine door.** `toDecimalString` returns a string, and the convenience of
+ * returning a number will be proposed eventually. Actual Budget took it, and its CSV export carries
+ * a pinned test asserting that `-2500` minor units export as `-25` rather than `-25.00`: the
+ * trailing zeros are gone, the precision is gone with them, and a test now holds it that way. **A
+ * machine door that returns a number is not a machine door.**
+ *
  * **Conversion between currencies.** Refused by omission and by design: a budget counts only its
  * own currency. That single refusal is what removes the rounding-mode question from this file.
  *
@@ -34,7 +47,7 @@
  * and this file imports nothing. That is not tidiness: `server/naming/report.ts` runs under Node's
  * type stripping from `scripts/normalize-names.mjs`, outside Vite, where a `$lib` specifier does
  * not resolve. A default of `getLocale()` here cost a container build to find, because no local
- * gate runs that script. A module with no imports can be used by anything that can read a file.
+ * gate runs that script. A module with no imports can be read by anything that can read a file.
  *
  * See `docs/audits/2026-08-21-stored-forms-design.md`, Part B, for the stored form this interface
  * is shaped around, and for why the exponent is stored per amount rather than derived from the
@@ -224,19 +237,31 @@ function humanFormatter(amount: Money, options: FormatMoneyOptions): Intl.Number
 		style: 'currency',
 		currency: amount.currency,
 		signDisplay,
-		...(maximumFractionDigits === undefined ? {} : { maximumFractionDigits })
+		// An explicit override wins, and it travels ALONE: a minimum of 2 beside a maximum of 0 is a
+		// RangeError, not a rounded number, so the minimum is left to ICU to derive in that case.
+		...(maximumFractionDigits === undefined
+			? { minimumFractionDigits: amount.exponent, maximumFractionDigits: amount.exponent }
+			: { maximumFractionDigits })
 	});
 }
 
 /**
  * The outbound human door: an amount and a locale become the string a reader sees.
  *
- * **The display digits are the currency's own, and the storage exponent is the row's. They are
- * allowed to differ and that is the design**, not an oversight: CLDR and ISO disagree on fifteen
- * current codes, and an amount written at one precision can be shown at another without either
- * being wrong. What is NOT allowed is the scaling disagreeing, which is what this door fixes: the
- * formatter it replaces divided by a literal 100 whatever the currency, so an exponent-0 amount
- * displayed a hundred times too small.
+ * **The fraction digits are the amount's stored exponent, and that DELIBERATELY overrides the
+ * locale data.** `Intl` formats from CLDR, which is a deliberately divergent derivative of ISO 4217
+ * and disagrees with it on fifteen current codes, lower every time: AFN, ALL, COP, HUF, IDR, IRR,
+ * KPW, LAK, LBP, MGA, MMK, SOS, SYP and YER are ISO 2 against CLDR 0, and IQD is ISO 3 against CLDR
+ * 0, a factor of a thousand. Letting CLDR decide means a row stored as 123,45 HUF renders as 123,
+ * which is a number on screen that is not the number in storage. This repository spent a release
+ * removing that class, so the stored precision wins.
+ *
+ * A caller may still override with `maximumFractionDigits`, and one does: a forecast range rounds
+ * to the whole unit because a trailing ",00" would assert a precision the observation lacks. That
+ * is a caller saying what it means, which is different from a locale deciding it by default.
+ *
+ * The scaling is separate and was never negotiable: the formatter this replaces divided by a
+ * literal 100 whatever the currency, so an exponent-0 amount displayed a hundred times too small.
  */
 export function formatMoney(amount: Money, options: FormatMoneyOptions): string {
 	return humanFormatter(amount, options).format(toMajorUnitNumber(amount));

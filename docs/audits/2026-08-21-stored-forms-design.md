@@ -494,24 +494,45 @@ ISO 4217 by a named rule; Fowler's Money pattern declines the question explicitl
 UNVERIFIED rather than filled in. What the sources do support is the reconstructibility argument,
 which is the one this note actually rests on, and not a precision argument, which it does not make.
 
-**One interface question the research REOPENED, and it belongs to the migration rather than here.**
-Firefly III's display path sets ICU's minimum AND maximum fraction digits both to the currency's
-stored `decimal_places`, overriding the locale's own data. This design does the opposite: the
-display digits are the currency's and the storage exponent is the row's, allowed to differ. The two
-disagree on exactly the fifteen codes where CLDR and ISO diverge, and Firefly's choice is probably
-right for this application: showing an amount stored at three digits rounded to zero puts a number
-on screen that is not the number stored, which is the failure this repository spent a release
-removing. **Not decided here, because today every row is a euro at exponent 2 and the two agree.**
-It is decided when the exponent column lands, and it is written down now so that it is decided
-rather than defaulted.
+**One interface question the research reopened, and it is now RULED rather than left to the
+migration.** Firefly III's display path sets ICU's minimum AND maximum fraction digits both to the
+currency's stored precision, overriding the locale's own data. This note's first draft did the
+opposite, letting the currency decide the display digits and the row decide the storage exponent,
+allowed to differ. **The ruling is Firefly's: the stored precision wins, and it overrides the locale
+data deliberately.** Letting the locale decide puts a rounded number on screen beside a differently
+precise one in storage, which is the class this repository spent a release removing.
 
-**Two smaller findings, kept because they are cheap warnings.** Firefly does not validate precision
-on write, so a JPY amount of `100.55` is storable in it: a per-row precision with no gate on the
-write path records a lie rather than a value, which is why `parseMoney` refuses rather than rounds.
-And Actual Budget's CSV export returns a JavaScript `number`, with a pinned test asserting that
-`-2500` minor units export as `-25` rather than `-25.00`. **A machine door that returns a number is
-not a machine door**, which is why `toDecimalString` returns a string and is asserted by round
-trip.
+**The divergence is recorded so the decision is checkable rather than asserted.** `Intl` formats
+from CLDR, which UTS #35 defines as deliberately divergent from ISO 4217 ("may deviate ... where
+there is compelling evidence for different customary practice"). **RESEARCHED**, measured by joining
+CLDR's `digits` against ISO's `CcyMnrUnts` over all 178 current codes: they disagree on exactly 15,
+and CLDR is lower in every case.
+
+| Codes                                                                | ISO `CcyMnrUnts` | CLDR `digits` |
+| -------------------------------------------------------------------- | ---------------- | ------------- |
+| AFN, ALL, COP, HUF, IDR, IRR, KPW, LAK, LBP, MGA, MMK, SOS, SYP, YER | 2                | 0             |
+| IQD                                                                  | 3                | 0             |
+
+So a row stored as `12345` HUF at exponent 2 renders as `123 HUF` under the locale's own data and as
+`123,45 HUF` under the stored precision. IQD is the widest gap and the one that shows the size of
+it: a factor of a thousand. **MEASURED, and this is not a future problem: the defect was reproduced
+against the module before the ruling was applied and is now a test.** A caller may still override
+the digits explicitly, and one does, because a forecast range rounds to the whole unit on purpose:
+a caller saying what it means is a different thing from a locale deciding it by default.
+
+**Two smaller findings, promoted to REFUSALS with their evidence attached, because each is a
+convenience somebody will propose later.**
+
+- **The inbound door refuses rather than rounds.** Firefly stores a per-currency precision and does
+  not validate it on write, so a JPY amount of `100.55` is storable there. **A per-row precision
+  with no gate on the write path records a lie rather than a value**, and the gate has to be the
+  parser, because it is the only place that sees the text.
+- **The machine door returns a string, never a number.** Actual Budget's CSV export returns a
+  JavaScript `number`, and carries a pinned test asserting that `-2500` minor units export as `-25`
+  rather than `-25.00`. The trailing zeros are gone, the precision is gone with them, and a test now
+  holds it that way. **A machine door that returns a number is not a machine door**, and the quoted
+  test is the evidence, because the convenience reads as harmless right up until something parses
+  the file.
 
 ## What is stored
 

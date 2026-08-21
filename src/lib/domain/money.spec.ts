@@ -128,6 +128,30 @@ describe('formatMoney, the human door', () => {
 		expect(formatted.replace(/\D/g, '')).toBe('123456');
 	});
 
+	it('shows every digit the amount was stored with, overriding the locale data', () => {
+		expect.assertions(2);
+
+		// CLDR, which is what `Intl` formats from, disagrees with ISO on fifteen current codes and is
+		// lower every time. HUF is ISO 2 and CLDR 0, so the locale would round 123,45 away to 123 and
+		// put a number on screen that is not the number stored. IQD is the widest: ISO 3, CLDR 0.
+		expect(formatMoney(money(12345, 'HUF', 2), { locale: 'fr' }).replace(/\s/g, ' ')).toContain(
+			'123,45'
+		);
+		expect(formatMoney(money(12345, 'IQD', 3), { locale: 'fr' }).replace(/\s/g, ' ')).toContain(
+			'12,345'
+		);
+	});
+
+	it('still lets a caller round to the whole unit, without asking Intl for the impossible', () => {
+		expect.assertions(1);
+
+		// An explicit override has to win, and it has to travel alone: a minimum of 2 beside a maximum
+		// of 0 is a RangeError rather than a rounded number.
+		expect(
+			formatMoney(money(7400), { locale: 'fr', maximumFractionDigits: 0 }).replace(/\s/g, ' ')
+		).toBe('74 €');
+	});
+
 	it('passes signDisplay through for the screens that show both directions signed', () => {
 		expect.assertions(1);
 
