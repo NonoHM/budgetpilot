@@ -244,7 +244,9 @@ COPY --from=builder /app/src/lib/server/database/provider.ts ./src/lib/server/da
 # generated artifact, produced by the same `npm run db:generate` in the same stage, so they
 # cannot disagree.
 COPY --from=builder /app/scripts/normalize-names.mjs ./scripts/normalize-names.mjs
-COPY --from=builder /app/src/lib/domain/normalize.ts ./src/lib/domain/normalize.ts
+COPY --from=builder /app/src/lib/domain/normalize.ts \
+	/app/src/lib/domain/money.ts \
+	./src/lib/domain/
 COPY --from=builder /app/src/lib/server/dbTransaction.ts ./src/lib/server/dbTransaction.ts
 COPY --from=builder /app/src/lib/server/database/adapter.ts \
 	/app/src/lib/server/database/advisoryLock.ts \
