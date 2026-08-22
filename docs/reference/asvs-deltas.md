@@ -27,14 +27,22 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ## 2026-08-22, the account identifier fragment and the backup
 
+**Verdict letters below are quoted from `scripts/security/asvs-5.0-l2-report.md`, which describes
+commit `d9c116c` as assessed on 2026-08-13**, nine days and roughly fifteen commits before this
+branch. That report's own opening says a refactor the next morning can move any verdict and nothing
+in the file would notice, so these are letters AS OF THAT ASSESSMENT rather than a current state.
+Two rows the branch's design notes called L2 are in fact L1: `v5.0.0-14.2.1` and `v5.0.0-8.2.2`.
+
 Branch `feat/statement-account`. Reading a statement now keeps at most four characters from the
 end of the IBAN or account number it names (`Account.discriminant`), so a bucket can be shown as
 `···4417` and recognised again from the same file shape (`ImportSourceSignature.discriminant`).
 That is a new sensitive data class, and this entry is the backup half of it: the plaintext export
-does not carry it. Two rows move, one is a constraint the change had to satisfy, and one is named
-only to refuse it.
+does not carry it. **No row's letter moves.** Two rows gain evidence toward a future re-derivation
+and stay `X`, one is a constraint the change had to satisfy, and one is named only to refuse it.
+Stated that way deliberately: a delta whose entries all read as movements inflates the published
+figure by accumulation, which is the arithmetic this file's own header forbids.
 
-### `v5.0.0-14.1.1`: a new data class, classified in the change that created it
+### `v5.0.0-14.1.1`: a new data class, classified in the change that created it, row stays `X`
 
 > Verify that all sensitive data created and processed by the application has been identified and
 > classified into protection levels. This includes data that is only encoded and therefore easily
@@ -52,12 +60,26 @@ written at the column (`prisma/schema.prisma`), at the export contract
 (`src/lib/server/backup/schema.ts`) and on the user-facing page
 (`docs/reference/backup-restore.md`), rather than in one place a reader has to already know about.
 
-### `v5.0.0-14.2.4`: the control implemented at the export, `C` met by construction
+### `v5.0.0-14.2.4`: the control implemented at the export, and the row STAYS `X`
 
 > Verify that controls around sensitive data related to encryption, integrity verification,
 > retention, how the data is to be logged, access controls around sensitive data in logs, privacy
 > and privacy-enhancing technologies, are implemented as defined in the documentation for the
 > specific data's protection level.
+
+**CORRECTED before merge: this row does not move, and the reason is two rows away.** The first
+draft of this entry claimed `C`, met by construction. The assessment's own evidence for this row
+refuses that: it is marked `X` because « the requirement asks whether controls are implemented AS
+DEFINED IN the documentation for each protection level, and `v5.0.0-14.1.2` establishes there is no
+such documentation. The controls exist; the specification they should conform to does not. » This
+change writes a protection level for ONE class. It does not create the documented set of protection
+requirements `14.1.2` asks for, so the precondition that makes this row unevaluable is untouched and
+the row stays `X`. What follows is progress toward it, recorded as such, not a closure.
+
+**The same correction applies to `14.1.1` above: it stays `X` too.** That row asks that ALL
+sensitive data be identified and classified, and its recorded evidence is « No data classification
+exists ». One class now does. That is one item, not an inventory, and an entry that reads as a
+movement where the letter has not moved is the drift this file exists to prevent.
 
 **The measurement that decided the design, made before the design.** There is no encryption of any
 kind under `src/lib/server/backup/`: no cipher, no passphrase, no key derivation. The only
