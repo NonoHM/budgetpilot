@@ -4,6 +4,19 @@ import type { TransactionRowForMapping } from '$lib/server/transactions/nature';
 import type { TransactionNature } from '$lib/domain/transaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { parseCsvTransactions } from './csv';
+import { assignDedupeKeysForBatch } from './dedupeRecompute';
+
+/**
+ * The bucket these rows land in. The key is built by the write path now, so a spec that wants to
+ * talk about fingerprints asks that path what it would write, through the same function it calls.
+ */
+const CSV_BUCKET = {
+	accountId: 'account-1',
+	source: 'csv',
+	currency: 'EUR',
+	exponent: 2,
+	providerAccountId: null
+};
 
 /**
  * THE CONTRACT: a file BudgetPilot produced is a file BudgetPilot can read back.
@@ -126,13 +139,16 @@ describe('CSV round trip', () => {
 	it('fingerprints a v2 line exactly as v1 did, so an export re-imported twice adds nothing', () => {
 		expect.assertions(1);
 
-		const viaV2 = roundTrip([row()]).transactions[0].metadata.deduplicationKey;
-		const viaV1 = parseCsvTransactions(
-			[
-				'date;libelle;categorie;montant;type;nature;source_bancaire',
-				"2026-06-12;Leroy Merlin;Maison;'-80.00;expense;spending;csv"
-			].join('\r\n')
-		).transactions[0].metadata.deduplicationKey;
+		const viaV2 = assignDedupeKeysForBatch(roundTrip([row()]).transactions, CSV_BUCKET)[0];
+		const viaV1 = assignDedupeKeysForBatch(
+			parseCsvTransactions(
+				[
+					'date;libelle;categorie;montant;type;nature;source_bancaire',
+					"2026-06-12;Leroy Merlin;Maison;'-80.00;expense;spending;csv"
+				].join('\r\n')
+			).transactions,
+			CSV_BUCKET
+		)[0];
 
 		expect(viaV2).toBe(viaV1);
 	});
@@ -140,8 +156,8 @@ describe('CSV round trip', () => {
 	it('keeps a répartition’s fingerprint on the PARENT total, not on its first part', () => {
 		expect.assertions(1);
 
-		expect(roundTrip([SPLIT_ROW]).transactions[0].metadata.deduplicationKey).toBe(
-			roundTrip([row()]).transactions[0].metadata.deduplicationKey
+		expect(assignDedupeKeysForBatch(roundTrip([SPLIT_ROW]).transactions, CSV_BUCKET)[0]).toBe(
+			assignDedupeKeysForBatch(roundTrip([row()]).transactions, CSV_BUCKET)[0]
 		);
 	});
 

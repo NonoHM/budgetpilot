@@ -6,6 +6,7 @@ import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeDedupeKeyHash, dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
+import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
 import { isUniqueConstraintViolation, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import { replaceSplits } from '$lib/server/transactions/splits';
 import type { ImportedTransaction } from './types';
@@ -375,19 +376,44 @@ export async function persistImportedTransactions(
 	// a transaction is denominated by the bucket it lands in. `DEFAULT_DENOMINATION` here would
 	// make every row of a non-euro bucket positively assert something false, which is exactly what
 	// the migration goes out of its way to avoid for the rows that already exist.
+	//
+	// `providerAccountId` joins the read because the deduplication key needs it: a bank row keys on
+	// the provider's per-account entry reference, scoped by that account.
 	const bucket = await prisma.account.findUniqueOrThrow({
 		where: { id: input.accountId },
-		select: { currency: true, exponent: true }
+		select: { currency: true, exponent: true, providerAccountId: true }
 	});
 
-	for (const transaction of input.transactions) {
+	// Every key for this batch, computed HERE rather than at parse time, and the reasons are in
+	// `dedupeRecompute.ts`. The short version: the CSV path cannot know its `accountId` at parse
+	// time because the bucket's source comes from the detected profile, and the ordinal has to be
+	// handed out over the rows being WRITTEN or a row refused after its fingerprint was built
+	// leaves a gap that a later recompute closes by re-keying a stored row.
+	const dedupeKeys = assignDedupeKeysForBatch(input.transactions, {
+		accountId: input.accountId,
+		source: input.source,
+		currency: bucket.currency,
+		exponent: bucket.exponent,
+		providerAccountId: bucket.providerAccountId
+	});
+
+	// Narrowed EXPLICITLY, and not merely for tidiness. `persistTransaction` spreads this object
+	// into `prisma.transaction.create`, so every field on it becomes a column name. Passing the
+	// bucket row itself worked while the read was `{ currency, exponent }` and broke the moment
+	// `providerAccountId` joined it for the key: Prisma rejects an unknown argument at run time,
+	// the whole import dies, and neither `npm run check` nor a mocked suite can see it, because a
+	// mock has no column list to disagree with. An e2e import found it.
+	const denomination = { currency: bucket.currency, exponent: bucket.exponent };
+
+	for (const [index, transaction] of input.transactions.entries()) {
 		const importedTransactionId = await persistTransaction(
 			input.userId,
 			transaction,
 			input.accountId,
 			input.importBatchId,
 			input.source,
-			bucket
+			denomination,
+			dedupeKeys[index]
 		);
 		if (!importedTransactionId) {
 			duplicateRows += 1;
@@ -437,9 +463,9 @@ async function persistTransaction(
 	accountId: string,
 	importBatchId: string,
 	source: string,
-	denomination: { currency: string; exponent: number }
+	denomination: { currency: string; exponent: number },
+	dedupeKey: string | null
 ): Promise<string | null> {
-	const dedupeKey = transaction.metadata.deduplicationKey;
 	if (dedupeKey) {
 		// Matched on the hash, never on the raw key: the raw comparison is the database's
 		// opinion, and on an accent-insensitive collation it treats two different transactions

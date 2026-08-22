@@ -1,5 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { parseCsvTransactions } from '../csv';
+import { assignDedupeKeysForBatch } from '../dedupeRecompute';
+
+/**
+ * The bucket a CSV run lands on. The key is no longer built at parse time, so a spec that wants to
+ * talk about fingerprints asks the WRITE path what it would write, through the same function the
+ * write path calls. Retyping the key format here instead would assert the copy.
+ */
+const CSV_BUCKET = {
+	accountId: 'account-1',
+	source: 'csv',
+	currency: 'EUR',
+	exponent: 2,
+	providerAccountId: null
+};
 import { resolveRequiredColumns } from './columnAliases';
 import { fingerprintFor } from '../mapping/fingerprint';
 
@@ -60,8 +74,8 @@ describe('an accented French header', () => {
 		expect(accented.summary).toEqual(plain.summary);
 		// The dedupe key too, so the same statement exported twice by a bank that changed its
 		// header encoding does not import twice.
-		expect(accented.transactions[0].metadata.deduplicationKey).toBe(
-			plain.transactions[0].metadata.deduplicationKey
+		expect(assignDedupeKeysForBatch(accented.transactions, CSV_BUCKET)).toEqual(
+			assignDedupeKeysForBatch(plain.transactions, CSV_BUCKET)
 		);
 	});
 

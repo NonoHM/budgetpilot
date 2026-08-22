@@ -950,6 +950,74 @@ is a verdict on the present.
 
 ---
 
+# What the v3 key work measured, and the four corrections it forced
+
+Added when the key work started, for the same reason the migration section above exists: a design
+note whose claims were never executed is a proposal. **Corrections 1 and 4 are improvements to this
+note's own arguments rather than repairs to a defect**, and they are written that way because the
+weaker version reads as sufficient right up until somebody meets the case it does not cover.
+
+**1. THE RECOMPUTE IS EXACT ONLY IF THE ORDINAL IS A PROPERTY OF STORED ROWS, AND IT WAS NOT. This
+falsifies the central claim above as written, and it is MEASURED rather than argued.** This note
+says a v3 key rebuilds "from the row's own columns". One input is not a column and is not derived
+from one: every profile takes its ordinal from a per-parse counter at the moment the fingerprint is
+built, and validates the row AFTER that (`profiles/resolvedRows.ts:191` builds the key, `:215` runs
+`validateTransaction`). A row the parser reached and then refused CONSUMES an ordinal no stored row
+carries.
+
+**MEASURED 2026-08-22**, on a throwaway SQLite through the real `parseCsvTransactions` and
+`persistImportedTransactions`: three rows identical in date, label, amount and direction, the
+second carrying a category of 100 characters against a `MAX_CATEGORY_LENGTH` of 60
+(`domain/transaction.ts:77`), stores two rows with ordinals **{0, 2}**. `category` is the only
+refusal lever that leaves the group fields intact, which is why the fixture is built on it: a
+too-long label or a too-large amount moves the row into a different group and measures nothing.
+**The figure came out of a deliberately inverted assertion**, because the passing run printed a
+verdict and no figure. The remedy is that the ordinal is assigned over the rows being written
+rather than over the rows the parser reached, and the fixture is kept as
+`import/occurrenceGap.db-smoke.ts`.
+
+Why this note's own four-row probe could not see it: a fixture with no refused row measures an
+identity on exactly this property. That is the structurally-blind-fixture rule in the case where
+the blindness is total, which this note already states about the accent fold and did not apply to
+itself here.
+
+**2. « Every stored date is `T00:00:00.000Z`, because `persist.ts:334` writes it » is a measurement
+on ONE write path presented as a property of the column, and there are three.**
+`backup/schema.ts:18` defines `isoDateString` as `Date.parse` merely succeeding, so the restore
+accepts a full instant, and `backup/import.ts:344` writes it unchanged. A key-recompute walk paged
+on that column would have split one key group across two timestamps, numbered each half from zero,
+written two identical keys into `@@unique([userId, dedupeKeyHash])`, and taken the instance down at
+boot where the check is fatal by design. Found by attacking the plan, not by anything failing. The
+walk pages by the whole UTC day instead. Promoted to a `CLAUDE.md` rule on its second instance,
+beside the enforcement half this note already relied on.
+
+**3. MEASURED: v1 keys are live on real installs, so this is a v1-to-v3 recompute and not a
+v2-to-v3 one.** Read 2026-08-22 across the four Docker volumes, aggregate counts only: 66 v1 of 66,
+127 v1 of 132, 20 v1 of 20, and 69 v2 of 69. Group sizes under the v3 grouping: **286 groups of
+size one and one group of size two, over 287 rows**; NULL `type` was 0 everywhere and 0 of those
+keyed. **What the figures do not prove**: the renumbering cost has not occurred on these installs,
+not that it cannot. The largest is 132 rows, three of the four are verification installs, and a
+group above size one is two genuinely identical rows, which is the account-keeping fee and two
+coffees at one price. Same shape as the NULL-`type` answer above, and for the same reason.
+
+**4. The collision argument in "What this form already allows" covers v2 and says nothing about
+v1, and the replacement is stronger rather than narrower.** The argument here is that v3's group is
+v2's group plus a field, so groups can only shrink and two rows sharing a v3 group held distinct v2
+ordinals. **A v1 key has no ordinal at all**, so that reasoning is silent on most of what is
+actually stored. What holds for every version at once: within one pass the ordinal is dense-numbered
+over the members of a group, and a dense numbering of distinct members is injective, so two members
+cannot receive one key **whatever version they arrived on**. The shrinking argument is then only
+needed for the narrow case it was written for, a v3 key colliding with a not-yet-recomputed v2 one,
+and even that is settled by the prefix: a v3 key opens with `v3|` and every legacy key opens with a
+`YYYY-MM-DD` date.
+
+**And one branch marked impossible becomes reachable.** `utils/safety.ts:165` says of the v1-to-v2
+change: _"Backfill was rejected as impossible rather than expensive"_. It was impossible **from the
+old key**, whose filename could not be separated out again, and it is routine **from the row**. So
+the recompute performs it as a side effect, and a user on a v1 install stops re-importing rows they
+already hold. The comment is corrected in the change that falsifies it, per this repository's own
+rule about a why-comment outliving its reason.
+
 # Corrections to the record
 
 Collected so they are actionable rather than buried.

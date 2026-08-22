@@ -189,3 +189,25 @@ export function hashFingerprint(value: string): string {
 	}
 	return hash.toString(16);
 }
+
+/**
+ * The id a parsed row carries through the preview, before anything is stored.
+ *
+ * **Not a deduplication key and never used as one.** It exists for two small reasons:
+ * `validateTransaction` refuses a row with an empty id, and the preview has to tell two rows apart
+ * on screen. Nothing persists it, and nothing outside the parser reads it.
+ *
+ * It used to be derived from the deduplication key, which the parser no longer builds: the key
+ * carries the `Account.id` a row lands on, and on the CSV path that account is only resolved after
+ * the profile has been detected, which is after the parse. See `dedupeRecompute.ts`.
+ *
+ * The source position is the first field, so two byte-identical rows in one file still get two ids.
+ * Uniqueness is within one parse and nothing more.
+ */
+export function buildPreviewRowId(
+	prefix: string,
+	position: number,
+	...fields: Array<string | number>
+): string {
+	return `${prefix}-${hashFingerprint([position, ...fields].join('|'))}`;
+}

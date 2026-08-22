@@ -1,4 +1,9 @@
-import { normalizeForMatch } from '$lib/domain/normalize';
+// Relative and `.ts`-suffixed, like `dedupeBackfill.ts` next door: the boot-time recompute that
+// consumes this module is also importable by plain Node (no Vite, no `$lib` alias) so a backfill
+// can be run and inspected outside the app. The `ImportedTransaction` import is `import type`, so
+// it is erased and never resolved at run time.
+import { normalizeForMatch } from '../../domain/normalize.ts';
+import type { ImportedTransaction } from './types';
 
 /**
  * Rebuilding a transaction's deduplication key from the row itself.
@@ -24,6 +29,29 @@ import { normalizeForMatch } from '$lib/domain/normalize';
  * MEASURED (`occurrenceGap.db-smoke.ts`): three identical rows whose middle one is refused after
  * its fingerprint is built store ordinals {0, 2}, and a dense recompute would renumber the
  * survivor. That is why key construction moved to the write path.
+ *
+ * ## What the ordinal buys, and what it costs
+ *
+ * Carried here from `occurrence.ts`, which this module replaced. The dead scenario went with the
+ * file; the invariant did not, because the reason a design exists is the thing no reader can
+ * recover from the code.
+ *
+ * Two genuinely distinct transactions can share a date, a label, an amount and a direction: two
+ * coffees at the same price on the same day at the same merchant is ordinary, and so is a transport
+ * fare taken twice. Without something to tell them apart a key built from those four fields merges
+ * them, and the second is dropped with nothing to report it. Measured on the five profiles before
+ * the ordinal existed: a file carrying one row twice reported `validRows: 1, duplicateRows: 1` on
+ * every profile that accepted it. **A silently dropped transaction is the worse failure direction**,
+ * because a duplicate is visible on the screen and a missing row is not.
+ *
+ * **Scoped to the group rather than to the file**, which is what survives overlapping statements.
+ * Import January, then January to February: each January group's membership is unchanged, so its
+ * ordinals hold and those rows deduplicate against the first import. A file-wide ordinal would
+ * shift every row after the first new one and the whole overlap would import again.
+ *
+ * **The cost, stated rather than discovered:** a bank that reorders rows within one day can shift an
+ * ordinal and produce one duplicate. That is the VISIBLE direction, chosen deliberately over the
+ * invisible one above.
  *
  * ## Why two shapes, permanently
  *
@@ -135,7 +163,16 @@ export function buildRowGroupKey(row: KeyableRow): string | null {
  * delimiter assumption in a second place, which is where two copies of a rule stop agreeing.
  */
 function contentFieldsOf(row: KeyableRow): string | null {
-	if (!row.keyed || row.type === null) return null;
+	// An ALLOWLIST, not a null check, and the difference is a defect this caught. `type` is
+	// `string | null` in the database and typed as a union here, so a null check looks sufficient;
+	// it is not, because an untyped caller reaches this with `undefined` and an older row could
+	// hold any string. Both used to fall through and put the value straight into the key, so a
+	// missing direction produced a key reading `...|undefined` rather than no key at all, and that
+	// row would then deduplicate against every other row with a missing direction.
+	//
+	// The rule is the one the key exists for: a value that does not determine the transaction must
+	// not enter the string that identifies it.
+	if (!row.keyed || (row.type !== 'income' && row.type !== 'expense')) return null;
 	return [
 		row.date,
 		foldLabelForSource(row.source, row.label),
@@ -198,4 +235,68 @@ export function assignDedupeKeys(rows: KeyableRow[]): Map<string, string | null>
 	}
 
 	return keys;
+}
+
+/**
+ * The bucket a batch is about to be written into, in the terms the key needs.
+ *
+ * `source` is the value these rows will be STORED with, which is not always the one the parser put
+ * on them: a Revolut file parses into transactions carrying `source: 'csv'` while the batch stores
+ * them as `revolut`. The recompute reads the stored value, so the key must be built from it or the
+ * two would disagree on every Revolut row.
+ */
+export interface BatchDenomination {
+	accountId: string;
+	source: string;
+	currency: string;
+	exponent: number;
+	providerAccountId: string | null;
+}
+
+/**
+ * Keys for a batch about to be written, in the batch's own order.
+ *
+ * **The ordinal is handed out here rather than at parse time, and that is a deliberate behaviour
+ * change.** Every profile used to take its ordinal from a per-parse counter when it built the
+ * fingerprint, and `validateTransaction` runs afterwards, so a row the parser reached and then
+ * refused consumed an ordinal no stored row carried. MEASURED (`occurrenceGap.db-smoke.ts`): three
+ * identical rows whose middle one is refused for a too-long category stored ordinals {0, 2}. A
+ * recompute that numbers stored rows densely would then change an already-stored row's key, which
+ * is exactly what the restore and the migration must not do. Numbering the rows being WRITTEN
+ * closes that gap permanently.
+ *
+ * Called by the write path AND by the collision check, so the fingerprints a run is compared on are
+ * the fingerprints it would store.
+ *
+ * The counter is per call, which preserves the property the old per-parse counter had and for the
+ * same reason: sharing one across two files would number the second file's rows as continuations
+ * of the first, so the same statement uploaded twice would key differently the second time and
+ * import again. One provider fetch is one call even when it spans several pages, because the sync
+ * service collects every page before persisting.
+ */
+export function assignDedupeKeysForBatch(
+	transactions: ImportedTransaction[],
+	bucket: BatchDenomination
+): Array<string | null> {
+	const keys = assignDedupeKeys(
+		transactions.map((transaction, index) => ({
+			id: String(index),
+			source: bucket.source,
+			accountId: bucket.accountId,
+			date: transaction.date,
+			label: transaction.label,
+			amountCents: transaction.amountCents,
+			type: transaction.metadata.type,
+			currency: bucket.currency,
+			exponent: bucket.exponent,
+			providerAccountId: bucket.providerAccountId,
+			// The provider's per-account entry reference on the bank path. On the CSV path this
+			// field carries a statement's own reference (banque-populaire sets one), which is why
+			// the provider branch is gated on `providerAccountId` and not on this being present:
+			// a CSV bucket has no provider account, so a reference there can never build a key.
+			entryReference: transaction.metadata.reference || null,
+			keyed: true
+		}))
+	);
+	return transactions.map((_, index) => keys.get(String(index)) ?? null);
 }

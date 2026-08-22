@@ -76,6 +76,18 @@ describe('buildRowGroupKey', () => {
 		expect(buildRowGroupKey(csvRow({ type: null }))).toBe(null);
 	});
 
+	it('has nothing to key a row whose direction is absent or unrecognised', () => {
+		// An ALLOWLIST, not a null check, and the difference is a defect this caught. `type` is
+		// `string | null` in the database and a union here, so a null check reads as sufficient. It
+		// is not: an untyped caller reaches this with `undefined` and an older row could hold any
+		// string, and both used to fall through and put the value straight into the key. A missing
+		// direction then produced a key reading `...|undefined`, and every row with a missing
+		// direction deduplicated against every other one.
+		expect(buildRowGroupKey(csvRow({ type: undefined as unknown as null }))).toBe(null);
+		expect(buildRowGroupKey(csvRow({ type: 'transfer' as unknown as null }))).toBe(null);
+		expect(buildRowGroupKey(csvRow({ type: '' as unknown as null }))).toBe(null);
+	});
+
 	it('has nothing to key a row that was never keyed', () => {
 		// A manually entered transaction has no import fingerprint, and inventing one would make
 		// a row the user typed compete for identity with rows a file produced.
