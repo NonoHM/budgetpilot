@@ -1018,6 +1018,40 @@ the recompute performs it as a side effect, and a user on a v1 install stops re-
 already hold. The comment is corrected in the change that falsifies it, per this repository's own
 rule about a why-comment outliving its reason.
 
+## What the implementation measured, beyond the four corrections above
+
+**The ordering was not merely safer, it was the only one under which the oracle exists.** The plan
+put the restore's recompute BEFORE the version bump so the change would be a no-op with an exact
+oracle. That reads as caution and it is not: a v3 key names the `Account.id` a row lands on, and a
+restore regenerates every id, so byte-identity CANNOT survive the bump. Measured after it: the
+before and after key sets differ in that field and in nothing else. Had the restore landed second,
+there would have been no version of the system in which the no-op could be checked at all, and the
+change would have shipped on an argument.
+
+**A behaviour change this note did not predict, and it is user-visible.** v3 stops deduplicating
+across import profiles, because a CSV bucket is per profile and the key now carries the account.
+The path a user meets it on is not the one this note imagines: `TRANSACTION_CSV_HEADER` is
+byte-identical to `MAISON_V2_HEADER`, so BudgetPilot's own export is read back by a maison-family
+profile and buckets as `csv`. MEASURED, one bank row exported and re-imported:
+`imported=1 duplicate=0, buckets=2, rows=2`. Filed as #464, and #372 closes it for the same reason
+it closes #449.
+
+**The provider branch was not injective, and this note's shape is where that lived.** It writes the
+provider key as `v3|enablebanking:<providerAccountId>:<entryRef>`, joining two provider-supplied
+values with a character both can contain: `("a", "b:c")` and `("a:b", "c")` produce one string, so
+two real transactions become one and the loser is dropped silently. Pre-existing, since the v2 key
+has the same shape. The implementation encodes every field instead, so the format is injective by
+construction rather than by an argument nobody wrote down, and a `fast-check` property is calibrated
+against the old builder to prove the check can find it: seed 20260822, 5 000 runs, collision
+`enablebanking:a:b:c`.
+
+**Three tests written for this piece could not fail, and the pattern is the same each time.** A
+fixture separated its subject by something other than the field under test. Five v3 tests compared
+two rows in ONE call, so the ordinal separated them before the currency, exponent or account could;
+the time-of-day test put both timestamps in one batch, so the group was never split and the defect
+it was written for was unreachable; a privacy test looked for the raw label in a leak that carries
+the folded one. Each was found by break-checking rather than by review.
+
 # Corrections to the record
 
 Collected so they are actionable rather than buried.

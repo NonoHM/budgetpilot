@@ -25,6 +25,95 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-08-22, version 3 of the deduplication key
+
+Branch `feat/dedupe-key-v3`. The key that decides whether an imported transaction is one you
+already have gains the account it lands on and the currency and exponent its amount is in, and
+every field is now delimiter-encoded. Two rows move and one is a constraint restated.
+
+### `v5.0.0-1.3.3`: `X` an argued exception at one site, to `C` met by construction
+
+> Verify that data being passed to a potentially dangerous context is sanitized beforehand to
+> enforce safety measures, such as only allowing characters which are safe for this context and
+> trimming input which is too long.
+
+**Why it moves, and the honest half is that the site was worse than the previous assessment
+recorded.** The deduplication key is a delimited string whose structure decides identity, so a
+field that can contain the delimiter can change the structure. The content branch was safe by an
+argument: every field after the label was delimiter-free by its own grammar, so the boundaries were
+recoverable from the right. That argument was nowhere in the tree, and the provider branch did not
+satisfy it at all. `enablebanking:<providerAccountId>:<entryReference>` joined **two
+provider-supplied values** with a colon both can contain, so `("a", "b:c")` and `("a:b", "c")`
+produced one key. **Two real transactions then hold one identity and the second is dropped
+silently**, which is the failure direction this repository has refused twice in writing.
+
+Pre-existing rather than introduced: the v2 key had the same shape. Found by attacking the plan
+rather than by anything failing.
+
+**What closes it.** Every variable field is percent-encoded before it is joined, escape first, so
+the map from fields to key is injective by construction rather than by an argument that has to be
+re-derived each time a field is added. `import/dedupeKeyInjectivity.spec.ts` asserts it as a
+property, calibrated against the pre-fix builder so a clean run means something: seed 20260822,
+5 000 runs, the calibration finds `enablebanking:a:b:c` from `("a:b", "c")` against `("a", "b:c")`
+and the current format finds nothing.
+
+### `v5.0.0-2.2.1`: `C` met by construction, unchanged, at a site that did not meet it
+
+> Verify that input is validated to enforce business or functional expectations for that input.
+> This should either use positive validation against an allow list of values, patterns, and ranges,
+> or be based on comparing the input to an expected structure and logical limits according to
+> predefined rules.
+
+**Not a movement, a repair.** The guard deciding whether a row can be keyed tested `type === null`.
+`Transaction.type` is `string | null` in the database, so a null check reads as sufficient and is
+not: an untyped caller reaches it with `undefined` and an older row can hold any string, and both
+were interpolated straight into the key. A row with no direction produced a key reading
+`...|undefined`, and every such row deduplicated against every other one. It is an allowlist of
+`income | expense` now, and a row outside it is left unkeyed rather than wrongly matched. Caught by
+a test, not by review.
+
+### `v5.0.0-16.2.5`: a constraint the new boot pass had to satisfy
+
+> Verify that when logging sensitive data, the application enforces logging based on the data's
+> protection level. For example, it may not be allowed to log certain data, such as credentials or
+> payment details.
+
+A deduplication key contains the transaction's own label, which is a merchant name and therefore
+personal financial data. The boot recompute reports progress per batch, because a boot that takes a
+minute with no output is indistinguishable from a hung one and `docker compose up -d` gives an
+operator no other window onto it. It reports counts only.
+
+**The test asserting that could not fail when it was written**, and the correction is the entry: it
+looked for `Docteur` in a message that would have carried the FOLDED `docteur fictif`, so appending
+the whole key to the progress line gave 0 red across all sixteen tests. It folds both sides now and
+also refuses anything containing the version marker, which is the general form rather than a list
+of the strings one fixture happens to use.
+
+### `v5.0.0-1.5.2`: two new sites, both met by construction
+
+> Verify that deserialization of untrusted data enforces safe input handling, such as using an
+> allowlist of object types or restricting client-defined object types, to prevent deserialization
+> attacks.
+
+The recompute reads the provider's entry reference out of `metadataJson`, which is a free-form
+column a restore can fill from a file the user hands us, validated as a bounded string and never as
+a shape. Both readers (`backup/import.ts` and `import/dedupeRecomputeBackfill.ts`) parse it inside a
+`try`, refuse anything that is not a non-empty string, and fall back to the content branch. A throw
+in the boot reader would take the instance down over a cell nothing else reads.
+
+### The chapters checked with nothing to add
+
+Stated rather than left silent, because a change that rewrites a stored identifier and cites no row
+is indistinguishable from one that did not look. V3 web frontend, V4 API, V6 authentication, V7
+session management, V8 authorization, V11 cryptography and V14 data protection were read against
+this branch and none moves. Nothing here touches a session, a credential, a cipher or an
+authorization decision; the recompute is scoped by `Account`, which belongs to one user, and every
+entry point takes an explicit `userId` from `requireUser`.
+
+And plainly: ASVS has nothing to say about whether a re-imported export creates a second copy of a
+transaction. That is #464 and it is a correctness defect, not a security one. Dressing it in a row
+would devalue every other citation in the assessment.
+
 ## 2026-08-17, the import correction that replaces the batch it corrects
 
 Branch `feat/import-correction-replaces-batch`, at `a9f2a39` on that branch. A correction
