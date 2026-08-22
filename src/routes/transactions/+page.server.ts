@@ -36,6 +36,7 @@ import {
 	type SplitRow
 } from '$lib/server/transactions/nature';
 import { splitIndicatorOf } from '$lib/domain/allocation';
+import { isStatementAccount } from '$lib/domain/account';
 import {
 	buildTransactionWhere,
 	normalizeId,
@@ -1198,6 +1199,15 @@ function flattenTagLinks(links: TagLinkRow[]): Array<{
 	return links.map((link) => link.tag);
 }
 
+/** Rendering only, never storage: `ensureManualAccount` still resolves on the stored string. */
+export function projectAccountForDetail(account: { name: string; source: string }) {
+	const statement = isStatementAccount(account);
+	return {
+		displayName: statement ? account.name : m.accounts_manual_entry(),
+		showSource: statement
+	};
+}
+
 function mapTransactionDetail(
 	transaction: {
 		id: string;
@@ -1282,6 +1292,9 @@ function mapTransactionDetail(
 			? {
 					name: transaction.account.name,
 					source: transaction.account.source,
+					// The pair the panel renders. Both breakpoints read these rather than the two raw
+					// fields above, so they cannot drift apart.
+					...projectAccountForDetail(transaction.account),
 					netWorthAccountName: transaction.account.netWorthAccount?.name ?? null
 				}
 			: null,

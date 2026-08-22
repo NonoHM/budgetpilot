@@ -1584,5 +1584,6 @@
 	"origin_mismatch_remedy_note": "Sur localhost, ORIGIN suit APP_PORT tout seul — sauf si votre .env contient déjà une ligne ORIGIN : c’est elle qui l’emporte, retirez-la ou donnez-lui la même valeur. Définissez ORIGIN vous-même pour une adresse locale, un nom d’hôte, ou tout accès derrière un reverse proxy.",
 	"origin_mismatch_back": "Recharger",
 	"register_bootstrap_token_hint": "Défini par la personne qui a installé cette instance, dans son fichier .env. Si quelqu'un vous a invité, utilisez plutôt son lien d'invitation : aucun jeton n'est nécessaire.",
-	"register_notice_closed": "Les inscriptions sont fermées sur cette instance. Demandez un lien d'invitation à un administrateur."
+	"register_notice_closed": "Les inscriptions sont fermées sur cette instance. Demandez un lien d'invitation à un administrateur.",
+	"accounts_manual_entry": "Saisie manuelle"
 }

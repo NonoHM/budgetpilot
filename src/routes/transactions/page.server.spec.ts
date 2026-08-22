@@ -590,7 +590,7 @@ vi.mock('$lib/server/tags/bulk', async (importOriginal) => {
 });
 
 const { applyKindSign } = await import('$lib/domain/transaction');
-const { actions, load } = await import('./+page.server');
+const { actions, load, projectAccountForDetail } = await import('./+page.server');
 const { MAX_BULK_TAG_TRANSACTIONS } = await import('$lib/server/tags/bulk');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
@@ -2502,5 +2502,25 @@ describe('/transactions load — the sign a row is rendered with', () => {
 		// Not a restatement of the rule: `applyKindSign` is the function the export calls, so this
 		// asserts the two surfaces go through one definition rather than agreeing by coincidence.
 		expect(row?.amountCents).toBe(applyKindSign(3_000, 'expense'));
+	});
+});
+
+describe('projectAccountForDetail', () => {
+	it('names the manual bucket by a message rather than by its stored name and raw source', () => {
+		// Measured before this change: the detail panel rendered « Compte manuel · manual », which is
+		// the stored bucket name doing duty as a key plus the raw enum beside it. That is the defect
+		// importProfileLabel closed for the sibling column.
+		const projected = projectAccountForDetail({ name: 'Compte manuel', source: 'manual' });
+		expect(projected.displayName).toBe(m.accounts_manual_entry());
+		expect(projected.showSource).toBe(false);
+	});
+
+	it('leaves a statement account showing its own name', () => {
+		const projected = projectAccountForDetail({
+			name: 'Banque Populaire',
+			source: 'banque_populaire'
+		});
+		expect(projected.displayName).toBe('Banque Populaire');
+		expect(projected.showSource).toBe(true);
 	});
 });

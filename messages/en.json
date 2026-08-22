@@ -1584,5 +1584,6 @@
 	"origin_mismatch_remedy_note": "On localhost, ORIGIN follows APP_PORT on its own — unless your .env already has an ORIGIN line, which wins: remove it, or give it the same value. Set ORIGIN yourself for a LAN address, a hostname, or anything behind a reverse proxy.",
 	"origin_mismatch_back": "Reload",
 	"register_bootstrap_token_hint": "Set by whoever installed this instance, in their .env file. If someone invited you, use their invitation link instead: it needs no token.",
-	"register_notice_closed": "Registration is closed on this instance. Ask an administrator for an invitation link."
+	"register_notice_closed": "Registration is closed on this instance. Ask an administrator for an invitation link.",
+	"accounts_manual_entry": "Manual entry"
 }
