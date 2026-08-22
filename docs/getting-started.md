@@ -317,12 +317,12 @@ accepted.
 **You don't pick a profile.** BudgetPilot reads the file's header row and works
 out the format itself. These are the ones it knows:
 
-| Format           | What it is                                                    |
-| ---------------- | ------------------------------------------------------------- |
-| Banque Populaire | Their statement export                                        |
-| Revolut          | Their statement export, French or English                     |
-| Home             | BudgetPilot's own CSV export, so an export re-imports cleanly |
-| Generic          | Any other CSV, matched by column name                         |
+| Format           | What it is                                |
+| ---------------- | ----------------------------------------- |
+| Banque Populaire | Their statement export                    |
+| Revolut          | Their statement export, French or English |
+| Home             | BudgetPilot's own CSV export              |
+| Generic          | Any other CSV, matched by column name     |
 
 If it recognises none of them, it asks you which column is which. See
 [importing a statement](./using/imports.md) for that screen.
@@ -340,9 +340,22 @@ and `montant_total`, `part` (`1/2`, `2/2`, …) and `categorie_parent` are what
 put those lines back together as one transaction with its parts, rather than
 as several separate transactions. Two limits worth knowing:
 
-- Re-importing an export into the same instance adds nothing. Every line is
-  recognised as a transaction you already have, so it is reported as a
-  duplicate rather than imported twice.
+- Re-importing an export adds nothing **when those transactions came in
+  through Home or Generic**. Every line is recognised as one you already have,
+  so it is reported as a duplicate rather than imported twice.
+
+  **It does add a second copy when they came in through Banque Populaire or
+  Revolut.** BudgetPilot keeps each format's transactions separately, an export
+  is read back as a Home file, and rows filed under Home are not compared
+  against rows filed under Banque Populaire or Revolut. You will be warned
+  before it happens: the import screen recognises that the file repeats an
+  earlier import and asks you to confirm. If you confirm, you get both copies
+  and can delete the new import from **Imports**.
+
+  To move a statement between instances, or to keep a copy you can restore,
+  use **Settings, Backup** rather than the CSV export. A backup restores your
+  transactions exactly as they were, whichever format they arrived in.
+
 - A part's **note** is not exported. Everything else about a split comes
   back exactly as it went out: its parts' categories, their amounts, their
   order, and the category the transaction returns to if you remove the
