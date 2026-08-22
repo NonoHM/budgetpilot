@@ -112,6 +112,129 @@ function capBucketName(name: string): string {
 }
 
 /**
+ * What a caller learns about the bucket a run will land on, when it exists.
+ *
+ * Carries the denomination because the deduplication key does: an amount is identified by its
+ * magnitude AND what that magnitude is denominated in, so a reader of the key needs both.
+ * `bankConnectionId` is here for the resolver's relink rule and is ignored by everyone else.
+ */
+export interface ImportBucketAccount {
+	accountId: string;
+	currency: string;
+	exponent: number;
+	providerAccountId: string | null;
+	bankConnectionId: string | null;
+}
+
+/**
+ * One shape for both lookups, so a caller cannot get a bucket that answers fewer questions
+ * depending on which query happened to find it.
+ */
+const BUCKET_SELECT = {
+	id: true,
+	currency: true,
+	exponent: true,
+	providerAccountId: true,
+	bankConnectionId: true
+} as const;
+
+type BucketRow = {
+	id: string;
+	currency: string;
+	exponent: number;
+	providerAccountId: string | null;
+	bankConnectionId: string | null;
+};
+
+function toBucketAccount(row: BucketRow | null): ImportBucketAccount | null {
+	return row === null
+		? null
+		: {
+				accountId: row.id,
+				currency: row.currency,
+				exponent: row.exponent,
+				providerAccountId: row.providerAccountId,
+				bankConnectionId: row.bankConnectionId
+			};
+}
+
+/** The stable mapping: a provider account belongs to exactly one bucket, whatever it is called. */
+function findBucketByProviderAccount(
+	userId: string,
+	source: string,
+	providerAccountId: string
+): Promise<BucketRow | null> {
+	return prisma.account.findFirst({
+		where: { userId, source, providerAccountId },
+		select: BUCKET_SELECT
+	});
+}
+
+/**
+ * Folded match, like categories: a bucket named "Courses" and an import announcing "courses" are
+ * the same bucket, and creating a second one would split the history.
+ *
+ * Ordered, unlike the category lookup next door, because more than one row can match here.
+ * `Account` is the one name-keyed table with no unique constraint on its key: the name-key backfill
+ * deliberately refuses to merge two buckets carrying conflicting bank or net-worth links, and
+ * leaves both in place. An unordered `findFirst` would then be free to answer with a different
+ * bucket on each call, stable on SQLite and arbitrary on PostgreSQL, and the same import would
+ * scatter its rows. Oldest first, matching the survivor rule the merge plan uses, so both agree on
+ * which bucket is the real one.
+ *
+ * Takes the CAPPED name. A bucket created from a long provider name was stored capped, so its
+ * stored `nameKey` is the capped one, and folding the uncapped name would miss the bucket that
+ * exists.
+ */
+function findBucketByFoldedName(
+	userId: string,
+	cappedName: string,
+	source: string
+): Promise<BucketRow | null> {
+	return prisma.account.findFirst({
+		where: { userId, nameKey: computeNameKey(cappedName), source },
+		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+		select: BUCKET_SELECT
+	});
+}
+
+/**
+ * The bucket a run would land on, WITHOUT creating one. Null when it does not exist yet.
+ *
+ * Exists because the deduplication key carries the `Account.id` a row lands on, and
+ * `findCollidingBatch` compares keys against the database before anything is written. So the
+ * collision check needs the bucket, and it must not bring one into being: `resolveImportBucketAccount`
+ * reports whether it CREATED the bucket, the import summary turns that into "your destination
+ * account was applied" or "ignored", and creating the bucket during a check would make the next
+ * run report "ignored" about a run the user had cancelled.
+ *
+ * **Null is exact rather than lenient.** A bucket that does not exist holds no transactions, so no
+ * stored key can carry its id, so a fingerprint comparison against it has nothing to find. The
+ * caller passing an empty key list on this answer computes the same verdict as one passing keys
+ * that match nothing.
+ *
+ * Composed from the same two lookups the resolver uses, in the same order, which is what keeps the
+ * read path and the write path agreeing about which bucket a run lands on. Note the provider case:
+ * when a provider account has no bucket yet the answer is null EVEN IF the name is taken, because
+ * the resolver disambiguates that name into a new bucket rather than reusing the one holding it.
+ */
+export async function findImportBucketAccount(input: {
+	userId: string;
+	name: string;
+	source: string;
+	providerAccountId?: string | null;
+}): Promise<ImportBucketAccount | null> {
+	if (input.providerAccountId) {
+		return toBucketAccount(
+			await findBucketByProviderAccount(input.userId, input.source, input.providerAccountId)
+		);
+	}
+	return toBucketAccount(
+		await findBucketByFoldedName(input.userId, capBucketName(input.name), input.source)
+	);
+}
+
+/**
  * Resolves (or creates) the technical Account bucket a batch of imported transactions
  * lands on, keyed by the (userId, name, source) unique constraint.
  */
@@ -119,14 +242,11 @@ export async function resolveImportBucketAccount(
 	input: ImportBucketInput
 ): Promise<ImportBucketResult> {
 	if (input.providerAccountId) {
-		const byProviderAccount = await prisma.account.findFirst({
-			where: {
-				userId: input.userId,
-				source: input.source,
-				providerAccountId: input.providerAccountId
-			},
-			select: { id: true, bankConnectionId: true }
-		});
+		const byProviderAccount = await findBucketByProviderAccount(
+			input.userId,
+			input.source,
+			input.providerAccountId
+		);
 		if (byProviderAccount) {
 			// Exception to the create-only rule, and the ONLY allowed relink: a bucket
 			// orphaned by a connection deletion (onDelete: SetNull) is re-attached when the
@@ -143,21 +263,7 @@ export async function resolveImportBucketAccount(
 	}
 
 	let name = capBucketName(input.name);
-	// Folded match, like categories: a bucket named "Courses" and an import announcing
-	// "courses" are the same bucket, and creating a second one would split the history.
-	//
-	// Ordered, unlike the category lookup next door, because more than one row can match here.
-	// `Account` is the one name-keyed table with no unique constraint on its key: the name-key
-	// backfill deliberately refuses to merge two buckets carrying conflicting bank or net-worth
-	// links, and leaves both in place. An unordered `findFirst` would then be free to answer
-	// with a different bucket on each call — stable on SQLite, arbitrary on PostgreSQL — and
-	// the same import would scatter its rows. Oldest first, matching the survivor rule the
-	// merge plan uses, so both agree on which bucket is the real one.
-	const existing = await prisma.account.findFirst({
-		where: { userId: input.userId, nameKey: computeNameKey(name), source: input.source },
-		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-		select: { id: true }
-	});
+	const existing = await findBucketByFoldedName(input.userId, name, input.source);
 	if (existing) {
 		if (!input.providerAccountId) return { accountId: existing.id, created: false };
 		// The name is held by a bucket mapped to a DIFFERENT provider account (or none):

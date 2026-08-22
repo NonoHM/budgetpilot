@@ -50,6 +50,7 @@ vi.mock('$lib/server/transactions/splits', () => ({
 
 const {
 	anonymizeImportCell,
+	findImportBucketAccount,
 	resolveImportBucketAccount,
 	createImportBatch,
 	persistImportedTransactions
@@ -96,6 +97,12 @@ describe('resolveImportBucketAccount', () => {
 		// oldest-first because Account is the one name-keyed table with no unique constraint on
 		// its key, so more than one row can match and an unordered findFirst would be free to
 		// answer differently on each call under PostgreSQL.
+		//
+		// The select carries the denomination and the provider mapping as well as the id, and
+		// spelled out rather than compared against the constant the implementation uses, because
+		// a test importing that constant would assert it against itself. Dropping `currency` here
+		// would put an undefined into a deduplication key through the read-only lookup next door,
+		// and nothing else would notice.
 		expect(prismaMock.account.findFirst).toHaveBeenCalledWith({
 			where: {
 				userId: 'user-1',
@@ -103,7 +110,13 @@ describe('resolveImportBucketAccount', () => {
 				source: 'csv'
 			},
 			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-			select: { id: true }
+			select: {
+				id: true,
+				currency: true,
+				exponent: true,
+				providerAccountId: true,
+				bankConnectionId: true
+			}
 		});
 	});
 
@@ -181,7 +194,13 @@ describe('resolveImportBucketAccount', () => {
 		expect(result).toEqual({ accountId: 'account-by-provider', created: false });
 		expect(prismaMock.account.findFirst).toHaveBeenCalledWith({
 			where: { userId: 'user-1', source: 'enablebanking', providerAccountId: 'provider-acc-1' },
-			select: { id: true, bankConnectionId: true }
+			select: {
+				id: true,
+				currency: true,
+				exponent: true,
+				providerAccountId: true,
+				bankConnectionId: true
+			}
 		});
 		// The provider lookup is the only query: the name lookup never runs.
 		expect(prismaMock.account.findFirst).toHaveBeenCalledTimes(1);
@@ -286,6 +305,129 @@ describe('resolveImportBucketAccount', () => {
 			create: { name: string };
 		};
 		expect(createCall.create.name).not.toContain('provider-acc-secret-uid');
+	});
+});
+
+/**
+ * The read-only half of the bucket resolution.
+ *
+ * The deduplication key carries the `Account.id` a row lands on, and `findCollidingBatch` compares
+ * keys against the database BEFORE anything is written. So the collision check needs the bucket,
+ * and it must not bring one into being: creating it there would make the import summary report a
+ * destination-account choice as "ignored" on a run the user then cancelled, because that sentence
+ * is derived from whether the bucket was created.
+ *
+ * One definition of each lookup, composed the same way in both entry points. Two copies of the
+ * folded-name rule is how the read path and the write path quietly stop agreeing about which
+ * bucket a run lands on.
+ */
+describe('findImportBucketAccount', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('answers with the bucket resolveImportBucketAccount would have found, folded name and all', async () => {
+		prismaMock.account.findFirst.mockResolvedValueOnce({
+			id: 'account-1',
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
+		});
+
+		const found = await findImportBucketAccount({
+			userId: 'user-1',
+			name: 'compte import csv',
+			source: 'csv'
+		});
+
+		expect(found).toEqual({
+			accountId: 'account-1',
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
+		});
+		expect(prismaMock.account.findFirst).toHaveBeenCalledWith(
+			expect.objectContaining({
+				where: {
+					userId: 'user-1',
+					nameKey: computeNameKey('Compte import CSV'),
+					source: 'csv'
+				},
+				orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+			})
+		);
+	});
+
+	it('answers null for a bucket that does not exist, and creates nothing', async () => {
+		// The whole reason this is separable, and the reason the empty answer is EXACT rather
+		// than lenient: a bucket with no rows has no keys for the collision check to find.
+		prismaMock.account.findFirst.mockResolvedValueOnce(null);
+
+		const found = await findImportBucketAccount({
+			userId: 'user-1',
+			name: 'Compte import CSV',
+			source: 'csv'
+		});
+
+		expect(found).toBe(null);
+		expect(prismaMock.account.upsert).not.toHaveBeenCalled();
+		expect(prismaMock.account.update).not.toHaveBeenCalled();
+	});
+
+	it('caps the name before folding it, like the resolver does', async () => {
+		// A bucket created from a long provider name was stored capped, so its nameKey is the
+		// capped one. Folding the uncapped name here would miss the bucket that exists, and the
+		// collision check would then compare keys against an account id no row carries.
+		prismaMock.account.findFirst.mockResolvedValueOnce(null);
+		const longName = 'A'.repeat(200);
+
+		await findImportBucketAccount({ userId: 'user-1', name: longName, source: 'csv' });
+
+		expect(prismaMock.account.findFirst).toHaveBeenCalledWith(
+			expect.objectContaining({
+				where: expect.objectContaining({ nameKey: computeNameKey('A'.repeat(120)) })
+			})
+		);
+	});
+
+	it('prefers the provider account mapping over the name, like the resolver does', async () => {
+		prismaMock.account.findFirst.mockResolvedValueOnce({
+			id: 'account-by-provider',
+			currency: 'GBP',
+			exponent: 2,
+			providerAccountId: 'provider-acc-1',
+			bankConnectionId: 'conn-1'
+		});
+
+		const found = await findImportBucketAccount({
+			userId: 'user-1',
+			name: 'Compte courant',
+			source: 'enablebanking',
+			providerAccountId: 'provider-acc-1'
+		});
+
+		expect(found?.accountId).toBe('account-by-provider');
+		expect(found?.currency).toBe('GBP');
+		expect(prismaMock.account.findFirst).toHaveBeenCalledTimes(1);
+	});
+
+	it('answers null when a provider account has no bucket yet, even if the NAME is taken', async () => {
+		// The resolver disambiguates that name into a NEW bucket rather than reusing the one
+		// holding it, so the bucket this run lands on does not exist yet. Answering with the
+		// name-holder would point the collision check at another account's rows.
+		prismaMock.account.findFirst.mockResolvedValueOnce(null);
+
+		const found = await findImportBucketAccount({
+			userId: 'user-1',
+			name: 'Compte courant',
+			source: 'enablebanking',
+			providerAccountId: 'provider-acc-2'
+		});
+
+		expect(found).toBe(null);
+		expect(prismaMock.account.findFirst).toHaveBeenCalledTimes(1);
 	});
 
 	it('the CSV path (no providerAccountId) skips the provider lookup and resolves by name alone', async () => {
