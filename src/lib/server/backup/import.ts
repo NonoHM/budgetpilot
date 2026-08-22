@@ -76,6 +76,13 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 	await prisma.$transaction(async (tx) => {
 		// a. Full purge for this user, in dependency order.
 		await tx.transaction.deleteMany({ where: { userId } });
+		// Before the accounts it hangs off, and explicitly rather than through the cascade the
+		// foreign key would give. Two reasons, and the second is the one that matters: the rows
+		// this purge removes include the memories that carry an account identifier fragment, which
+		// the export does not carry and the payload therefore cannot put back. Leaning on a
+		// cascade would make that erasure a side effect of a relation somebody could later change
+		// to SetNull, and the fragment would then survive a restore attached to nothing.
+		await tx.importSourceSignature.deleteMany({ where: { userId } });
 		await tx.account.deleteMany({ where: { userId } });
 		await tx.category.deleteMany({ where: { userId } });
 		await tx.importBatch.deleteMany({ where: { userId } });
@@ -289,6 +296,31 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 					columnCount: mapping.columnCount,
 					useCount: mapping.useCount
 				}
+			});
+		}
+
+		// The import memory, written in bulk because nothing references a signature and no
+		// generated id has to be captured.
+		//
+		// `accountId` goes through `accountIdMap`, which is not an optimisation: this restore
+		// REGENERATES every account id, so the id the file carries names nothing here, and on a
+		// restore into a different account it would name a row belonging to somebody else. The map
+		// also already folds two file accounts whose names collapse onto one bucket, so a memory
+		// of the second follows its transactions rather than dangling.
+		//
+		// `discriminant` is written NULL explicitly rather than left to the column default, of
+		// which there is none. The payload has no such field, by design (see backup/schema.ts):
+		// only fragment-free memories travel, so every restored row is fragment-free by
+		// construction and this line says so at the write site.
+		if (payload.importSourceSignatures.length > 0) {
+			await tx.importSourceSignature.createMany({
+				data: payload.importSourceSignatures.map((signature) => ({
+					userId,
+					fingerprint: signature.fingerprint,
+					discriminant: null,
+					accountId: accountIdMap.get(signature.accountId)!,
+					useCount: signature.useCount
+				}))
 			});
 		}
 
@@ -699,6 +731,25 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 		if (account.bankConnectionId && !bankConnectionIds.has(account.bankConnectionId)) {
 			throw new BackupImportError(
 				m.settings_backup_error_unknown_bank_connection_link({ id: account.id })
+			);
+		}
+	}
+
+	// The import memory names an account, and `accountIdMap.get()` on an id the file does not carry
+	// would hand `createMany` an undefined foreign key: a constraint error mid-transaction, which
+	// on PostgreSQL aborts the enclosing transaction and takes the whole restore down with a
+	// message about an index. Refused by name here, before any write, exactly as the tag and split
+	// links are.
+	for (const signature of payload.importSourceSignatures) {
+		if (!accountIds.has(signature.accountId)) {
+			throw new BackupImportError(
+				m.settings_backup_error_unknown_signature_account({
+					// The fingerprint of a header row, truncated the way the duplicate-mapping
+					// message truncates it. It is a hash of a bank's PUBLIC column names, so it
+					// names a file shape rather than a person, and it is the only handle the row
+					// has: the payload deliberately carries no id.
+					fingerprint: signature.fingerprint.slice(0, 12)
+				})
 			);
 		}
 	}

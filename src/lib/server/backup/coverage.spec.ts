@@ -147,7 +147,13 @@ describe('the backup reference page', () => {
 
 	it('states a count that matches the list it gives', () => {
 		const page = readFileSync(REFERENCE, 'utf8');
-		const spelled = /\b(Nineteen|Twenty|Twenty-one|Twenty-two)\b/.exec(page);
+		// LONGEST ALTERNATIVE FIRST, and the order is the assertion rather than a tidiness.
+		// `-` is not a word character, so `\bTwenty\b` matches INSIDE "Twenty-one": written with
+		// `Twenty` before the hyphenated forms, this regex reads a page saying twenty-one as
+		// saying twenty, and the mismatch it then reports is the regex's own. Measured when the
+		// twenty-first key arrived: the page had been corrected and this test still failed,
+		// naming 20 against 21.
+		const spelled = /\b(Nineteen|Twenty-two|Twenty-one|Twenty)\b/.exec(page);
 		expect(spelled, `${REFERENCE} should spell its key count`).not.toBeNull();
 		const asNumber: Record<string, number> = {
 			Nineteen: 19,

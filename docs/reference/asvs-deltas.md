@@ -25,6 +25,89 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-08-22, the account identifier fragment and the backup
+
+Branch `feat/statement-account`. Reading a statement now keeps at most four characters from the
+end of the IBAN or account number it names (`Account.discriminant`), so a bucket can be shown as
+`···4417` and recognised again from the same file shape (`ImportSourceSignature.discriminant`).
+That is a new sensitive data class, and this entry is the backup half of it: the plaintext export
+does not carry it. Two rows move, one is a constraint the change had to satisfy, and one is named
+only to refuse it.
+
+### `v5.0.0-14.1.1`: a new data class, classified in the change that created it
+
+> Verify that all sensitive data created and processed by the application has been identified and
+> classified into protection levels. This includes data that is only encoded and therefore easily
+> decoded, such as Base64 strings or the plaintext payload inside a JWT. Protection levels need to
+> take into account any data protection and privacy regulations and standards which the
+> application is required to comply with.
+
+**Why it moves rather than staying still.** The row is about the inventory, so a class that arrives
+unclassified breaks it even though nothing about the old classes changed. Four characters are not a
+payment instrument and are not an account number; among ONE HOLDER'S OWN accounts they are exactly
+the attribute that tells two of them apart, which is the whole reason the app keeps them. The
+protection level assigned is: at rest and on screen in the single form `···4417`, never in a log
+line, a telemetry event, a crash breadcrumb or an error message, and never in an export. It is
+written at the column (`prisma/schema.prisma`), at the export contract
+(`src/lib/server/backup/schema.ts`) and on the user-facing page
+(`docs/reference/backup-restore.md`), rather than in one place a reader has to already know about.
+
+### `v5.0.0-14.2.4`: the control implemented at the export, `C` met by construction
+
+> Verify that controls around sensitive data related to encryption, integrity verification,
+> retention, how the data is to be logged, access controls around sensitive data in logs, privacy
+> and privacy-enhancing technologies, are implemented as defined in the documentation for the
+> specific data's protection level.
+
+**The measurement that decided the design, made before the design.** There is no encryption of any
+kind under `src/lib/server/backup/`: no cipher, no passphrase, no key derivation. The only
+occurrences of the word are `credentialsEncrypted`, a column the export already refuses to carry.
+So the export is plaintext JSON the user downloads and stores wherever they store files, and the
+protection level above cannot be honoured by anything except not writing the value.
+
+**What implements it.** `Account.discriminant` is absent from the export's account schema, and the
+memory table is filtered at the QUERY (`where: { userId, discriminant: null }`) rather than mapped
+afterwards, so a fragment is never read out of the database into this process at all. `.strict()`
+on both objects makes it an interdict in both directions: no export writes one, and a hand-edited
+file cannot smuggle one back in. Five break-checks, each reverted in a `finally`: adding
+`discriminant: true` to the account select reddens 4 of the 5 new tests, dropping the query filter
+reddens 3, and the calibration run before them is 0 failed / 5 passed.
+
+**The compromise that was available and is refused in writing, at the code.** Exporting every
+signature with its `discriminant` nulled out keeps the whole memory and none of the fragments, and
+it is unsafe for a reason that lives two models away: two rows of one user that share a fingerprint
+and differ only by fragment collapse onto one key, so a restore either violates
+`@@unique([userId, fingerprint, discriminant])` mid-transaction, which on PostgreSQL takes the
+whole restore with it, or lands two rows a later read cannot choose between and the memory then
+answers with an arbitrary account. A wrong answer replayed for ever, manufactured by the backup.
+
+### `v5.0.0-16.2.5`: a constraint the new refusal message had to satisfy
+
+> Verify that when logging sensitive data, the application enforces logging based on the data's
+> protection level. For example, it may not be allowed to log certain data, such as credentials or
+> payment details. Other data, such as session tokens, may only be logged by being hashed or
+> masked, either in full or partially.
+
+Not a movement. The restore gained one refusal, for a memory naming an account the file does not
+carry, and a refusal message is exactly the thing that travels: through a screenshot, a support
+ticket and a clipboard. It names the first 12 characters of the header FINGERPRINT, which is a hash
+of a bank's public column names and identifies a file shape rather than a person, the same handle
+the duplicate-mapping refusal already uses. The payload carries no fragment for it to name, which
+is the property above doing the work rather than a second rule.
+
+### The chapters checked with nothing to add, and one row refused by name
+
+Stated rather than left silent, because a change that touches an export and cites no row is
+indistinguishable from one that did not look. V6 authentication, V7 session management, V8
+authorization and V11 cryptography were read against this change: the export is still scoped by an
+explicit `userId` on every query and the restore still writes only into the account performing it,
+nothing here touches a session or a credential, and no cipher was added.
+
+`v5.0.0-14.2.3` ("Verify that defined sensitive data is not sent to untrusted parties (e.g., user
+trackers)...") is the row a reader might expect and it does NOT apply: a backup goes to the account
+that asked for it, which is not a third party. Citing it would make this change look larger than it
+is and devalue the citations that are real.
+
 ## 2026-08-22, version 3 of the deduplication key
 
 Branch `feat/dedupe-key-v3`. The key that decides whether an imported transaction is one you

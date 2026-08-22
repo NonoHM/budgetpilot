@@ -113,6 +113,9 @@ function buildVolumePayload(count: number): BackupExport {
 		// This fixture measures restore volume; a mapping is a fixed handful of rows and would
 		// not move the figure, so it stays empty rather than adding noise to a measurement.
 		columnMappings: [],
+		// Empty for the same reason as the mapping above: the import memory is a handful of rows
+		// and restores in one `createMany`, so it cannot move a volume figure.
+		importSourceSignatures: [],
 		transactions,
 		monthlyBudgets: [],
 		categoryRules: [],
