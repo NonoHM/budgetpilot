@@ -262,8 +262,8 @@ path reports 5000 clean refusals, which reads like a healthy run.
 - **Calibrate on the label of the thing you want to count**, not one that travels with it.
 - **A check reporting clean must say how many files it read.** Zero files reads as success.
 - **Search with Serena, not grep, when the question is « every site that does X ».** A text search
-  answers where you LOOKED, not where it IS, and it fails in the comfortable direction: a short
-  confident answer. Three in this repo — a `fetch(` sweep that would have reported zero, a grep
+  answers where you LOOKED, not where it IS, and it fails in the comfortable direction, as a short
+  confident answer. Three in this repo: a `fetch(` sweep that would have reported zero, a grep
   scoped to `profiles/` that found three of five call sites, and an `account.findMany` search that
   concluded no screen renders a bucket. Use grep for a literal whose spelling you know; use Serena
   for a question about the code.
