@@ -7,8 +7,23 @@
 			"Bash(npx prisma migrate reset*)",
 			"Bash(prisma migrate reset*)",
 			"Bash(docker compose down -v*)",
-			"Bash(docker-compose down -v*)"
+			"Bash(docker-compose down -v*)",
+			"Skill(superpowers:finishing-a-development-branch)",
+			"Skill(superpowers:using-git-worktrees)"
 		],
 		"ask": ["Bash(npx prisma migrate*)", "Bash(docker compose down*)"]
+	},
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "git diff --stat HEAD",
+						"statusMessage": "Checking the working tree"
+					}
+				]
+			}
+		]
 	}
 }
