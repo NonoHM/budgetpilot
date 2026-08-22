@@ -260,6 +260,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 			});
 			const batchId = await createImportBatch({
 				userId,
+				accountId: bucket.accountId,
 				source: 'csv',
 				fileName: 'db-smoke.csv',
 				profile: 'generic',

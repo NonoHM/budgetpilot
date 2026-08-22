@@ -294,6 +294,7 @@ export const actions: Actions = {
 		});
 		const batchId = await createImportBatch({
 			userId: user.id,
+			accountId: bucket.accountId,
 			source: 'csv',
 			fileName: importFile.name,
 			profile: result.summary.profile,

@@ -622,7 +622,23 @@ model ImportBatch {
   id              String         @id @default(cuid())
   userId          String
   /// The account this statement was filed into. Backfilled from the batch's own transactions.
-  accountId       String
+  ///
+  /// NULLABLE, AND IT MATCHES THE DATABASE ON PURPOSE. The migration adds this column to a table
+  /// that already holds rows on every existing install, with no value to give them and no DEFAULT
+  /// (a default would file every legacy batch into one invented account, silently). So a legacy
+  /// row genuinely carries NULL until the boot backfill reads its own transactions.
+  ///
+  /// Declaring it REQUIRED here while the column is nullable was tried and reverted, because it is
+  /// the exact shape this repository already records as its worst failure mode: the compile time
+  /// answer is the one that is wrong. Every read of a legacy batch would have been typed `string`
+  /// and returned `null`, and the backfill could not even express `where: { accountId: null }`,
+  /// which is the one query it exists to run.
+  ///
+  /// Losing the required field also loses the compiler enumerating every writer, so that
+  /// enforcement is replaced rather than dropped: `accountBackfill.spec.ts` asserts that every
+  /// caller of `createImportBatch` supplies one. The tightening to NOT NULL is a later migration
+  /// that flips the column and this line together, once no row is null.
+  accountId       String?
   source          String         @default("csv")
   fileName        String? @db.Text
   profile         String         @default("generic")
@@ -670,7 +686,7 @@ model ImportBatch {
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  account         Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  account         Account?       @relation(fields: [accountId], references: [id], onDelete: Cascade)
   columnMapping   ColumnMapping? @relation(fields: [columnMappingId], references: [id], onDelete: SetNull)
   transactions    Transaction[]
 

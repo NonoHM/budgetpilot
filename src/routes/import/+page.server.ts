@@ -436,6 +436,7 @@ export const actions: Actions = {
 			netWorthAccountId === null ? null : bucket.created ? 'applied' : 'ignored';
 		const batchId = await createImportBatch({
 			userId: user.id,
+			accountId: bucket.accountId,
 			source,
 			fileName: importFile.name,
 			profile: result.summary.profile,

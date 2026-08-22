@@ -36,7 +36,7 @@ import {
 	type SplitRow
 } from '$lib/server/transactions/nature';
 import { splitIndicatorOf } from '$lib/domain/allocation';
-import { isStatementAccount } from '$lib/domain/account';
+import { projectAccountForDetail } from '$lib/server/transactions/accountProjection';
 import {
 	buildTransactionWhere,
 	normalizeId,
@@ -1197,15 +1197,6 @@ function flattenTagLinks(links: TagLinkRow[]): Array<{
 	colorToken: string;
 }> {
 	return links.map((link) => link.tag);
-}
-
-/** Rendering only, never storage: `ensureManualAccount` still resolves on the stored string. */
-export function projectAccountForDetail(account: { name: string; source: string }) {
-	const statement = isStatementAccount(account);
-	return {
-		displayName: statement ? account.name : m.accounts_manual_entry(),
-		showSource: statement
-	};
 }
 
 function mapTransactionDetail(

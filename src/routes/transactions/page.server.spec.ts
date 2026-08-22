@@ -590,7 +590,11 @@ vi.mock('$lib/server/tags/bulk', async (importOriginal) => {
 });
 
 const { applyKindSign } = await import('$lib/domain/transaction');
-const { actions, load, projectAccountForDetail } = await import('./+page.server');
+const { actions, load } = await import('./+page.server');
+// Imported from its own module rather than from `+page.server`, and the move is the point: a page
+// server module may export only load/actions/prerender/csr/ssr/trailingSlash/config/entries, so
+// exporting a helper there broke `npm run build` while check, the unit suite and lint stayed green.
+const { projectAccountForDetail } = await import('$lib/server/transactions/accountProjection');
 const { MAX_BULK_TAG_TRANSACTIONS } = await import('$lib/server/tags/bulk');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 

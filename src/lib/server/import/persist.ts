@@ -301,6 +301,17 @@ export interface CreateImportBatchInput {
 	profile: string;
 	rowCount: number;
 	invalidRows: number;
+	/**
+	 * The account this statement is filed into. REQUIRED here while the column is nullable, and the
+	 * asymmetry is the point.
+	 *
+	 * The column has to accept null, because a batch imported before this shipped genuinely has no
+	 * account until the boot backfill reads its own transactions. This input does not, because the
+	 * application always knows which bucket it just resolved. So history may be null and nothing
+	 * new ever is, which is what makes the backfill a one-time pass rather than a permanent
+	 * cleanup running behind a writer that keeps producing more work for it.
+	 */
+	accountId: string;
 	/** ISO dates (YYYY-MM-DD) or null when the batch has no valid dated row. */
 	period: { from: string | null; to: string | null };
 	/**
@@ -318,6 +329,7 @@ export async function createImportBatch(input: CreateImportBatchInput): Promise<
 	const batch = await prisma.importBatch.create({
 		data: {
 			userId: input.userId,
+			accountId: input.accountId,
 			source: input.source,
 			fileName: input.fileName,
 			profile: input.profile,
