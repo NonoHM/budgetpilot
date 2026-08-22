@@ -4,7 +4,7 @@ import { parseCsvTransactions } from './csv';
 import { MAISON_V2_HEADER } from './profiles/maison-v2';
 import { BANQUE_POPULAIRE_HEADERS } from './profiles/banque-populaire';
 import { REVOLUT_HEADERS } from './profiles/revolut';
-import { buildDeduplicationGroupKey } from './utils/safety';
+import { buildRowGroupKey } from './dedupeRecompute';
 
 /**
  * Property-based coverage of the CSV import parser, which is the larger of the two attacker-facing
@@ -114,12 +114,23 @@ function inspect(content: string, parse = parseCsvTransactions): Outcome {
 	// than about the parser's verdict.
 	const groups = new Map<string, number>();
 	for (const transaction of result.transactions) {
-		const key = buildDeduplicationGroupKey({
+		// The GROUP, which is the key minus the ordinal, so a collision here means two rows the
+		// key would separate only by their ordinal. The account and denomination are constant
+		// across one parse, so any placeholder does: what varies is the content.
+		const key = buildRowGroupKey({
+			id: transaction.id,
+			source: 'csv',
+			accountId: 'one-parse',
 			date: transaction.date,
 			label: transaction.label,
 			amountCents: transaction.amountCents,
-			type: transaction.metadata.type
-		});
+			type: transaction.metadata.type ?? null,
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			entryReference: null,
+			keyed: true
+		})!;
 		groups.set(key, (groups.get(key) ?? 0) + 1);
 	}
 

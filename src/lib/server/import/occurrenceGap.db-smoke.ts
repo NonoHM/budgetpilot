@@ -39,13 +39,14 @@ beforeAll(async () => {
 
 /** The ordinal a stored key carries, read off the key rather than recomputed from the row. */
 function ordinalOf(dedupeKey: string): number {
-	// v2 shape: date|folded label|magnitude|type|occurrence|accountScope. Read from the RIGHT,
-	// because a label may legitimately contain the delimiter and the trailing fields cannot.
-	return Number(dedupeKey.split('|').at(-2));
+	// The ordinal is the LAST field, which is what makes the group a literal prefix of the key.
+	// Reading it positionally is safe now for a reason that used to be an argument and is now a
+	// property: every field is delimiter-encoded, so a label can never add a field boundary.
+	return Number(dedupeKey.split('|').at(-1));
 }
 
 describe('a row refused after the fingerprint consumes an ordinal', () => {
-	it('stores ordinals {0, 2} for three identical rows whose middle one is refused', async () => {
+	it('stores ordinals {0, 1}, because the ordinal is now handed out over the rows WRITTEN', async () => {
 		expect.assertions(5);
 
 		const parsed = parseCsvTransactions(`${HEADER}\n${ROW}\n${REFUSED_ROW}\n${ROW}\n`, {
@@ -93,9 +94,12 @@ describe('a row refused after the fingerprint consumes an ordinal', () => {
 			`[occurrence-gap] stored rows: ${stored.length}, ordinals: ${JSON.stringify(ordinals)}`
 		);
 
-		// The finding, stated as the assertion so it is falsifiable rather than illustrated.
-		// {0, 1} here would mean the ordinal is already a property of stored rows and the whole
-		// Task 4 through 7 chain needs rethinking before any of it is written.
-		expect(ordinals).toEqual([0, 2]);
+		// THIS ASSERTION WAS {0, 2} WHEN THIS FILE WAS WRITTEN, and the change to {0, 1} is the
+		// deliverable rather than an adjustment. It measured the defect: the profile took its
+		// ordinal from a per-parse counter when it built the fingerprint and validateTransaction
+		// ran afterwards, so the refused row consumed an ordinal no stored row carried and a
+		// recompute numbering stored rows densely would have re-keyed the survivor. The ordinal is
+		// now handed out over the rows being WRITTEN, so a refused row never reaches it.
+		expect(ordinals).toEqual([0, 1]);
 	});
 });

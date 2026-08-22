@@ -101,7 +101,7 @@ describe('parseCsvTransactions', () => {
 		// The ordinals are 0 and 1, in file order, rather than merely different. Read from the
 		// RIGHT: a label may contain the delimiter, so counting fields from the left measures
 		// whether this fixture's label happens to have one.
-		expect([first?.split('|').at(-2), second?.split('|').at(-2)]).toEqual(['0', '1']);
+		expect([first?.split('|').at(-1), second?.split('|').at(-1)]).toEqual(['0', '1']);
 	});
 
 	it('neutralizes labels compatible with a formula injection', () => {
@@ -458,7 +458,7 @@ describe('parseCsvTransactions', () => {
 		// imported. The two rows are now separated by their occurrence instead.
 		const keys = assignDedupeKeysForBatch(result.transactions, CSV_BUCKET);
 		expect(keys[0]).not.toContain('REFDUP');
-		expect(keys.map((key) => key?.split('|').at(-2))).toEqual(['0', '1']);
+		expect(keys.map((key) => key?.split('|').at(-1))).toEqual(['0', '1']);
 	});
 
 	it('importe l’exemple AUCHAN Banque Populaire complet', () => {

@@ -1128,7 +1128,7 @@ describe('persistImportedTransactions builds the deduplication key', () => {
 
 		const keys = writtenKeys();
 		expect(keys[0]).not.toBe(keys[1]);
-		expect(keys.map((key) => key?.split('|').at(-2))).toEqual(['0', '1']);
+		expect(keys.map((key) => key?.split('|').at(-1))).toEqual(['0', '1']);
 	});
 
 	it('does not let a row refused after parsing consume an ordinal', async () => {
@@ -1147,7 +1147,7 @@ describe('persistImportedTransactions builds the deduplication key', () => {
 			]
 		});
 
-		expect(writtenKeys().map((key) => key?.split('|').at(-2))).toEqual(['0', '1']);
+		expect(writtenKeys().map((key) => key?.split('|').at(-1))).toEqual(['0', '1']);
 	});
 
 	it('gives a bank row with an entry reference the provider key and no ordinal', async () => {
@@ -1171,7 +1171,7 @@ describe('persistImportedTransactions builds the deduplication key', () => {
 			]
 		});
 
-		expect(writtenKeys()).toEqual(['enablebanking:prov-1:E42']);
+		expect(writtenKeys()).toEqual(['v3|enablebanking|prov-1|E42']);
 	});
 
 	it('folds a bank row without an entry reference the way the connector folded it', async () => {

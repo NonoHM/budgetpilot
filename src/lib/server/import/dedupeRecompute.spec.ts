@@ -100,7 +100,7 @@ describe('buildProviderRowKey', () => {
 		// entry_reference is the provider's own stable per-account anchor. transaction_id is not
 		// used: the provider says it may change if the list is fetched again.
 		expect(buildProviderRowKey(bankRow({ entryReference: 'E42' }))).toBe(
-			'enablebanking:prov-1:E42'
+			'v3|enablebanking|prov-1|E42'
 		);
 	});
 
@@ -126,8 +126,8 @@ describe('assignDedupeKeys', () => {
 
 	it('numbers each group from zero, so a second group is not a continuation of the first', () => {
 		const keys = assignDedupeKeys([csvRow({ id: 'a' }), csvRow({ id: 'b', label: 'Boulangerie' })]);
-		expect(keys.get('a')).toBe('2026-06-24|carrefour market|2490|expense|0|');
-		expect(keys.get('b')).toBe('2026-06-24|boulangerie|2490|expense|0|');
+		expect(keys.get('a')).toBe('v3|2026-06-24|carrefour market|2490|expense|acc_csv|EUR|2|0');
+		expect(keys.get('b')).toBe('v3|2026-06-24|boulangerie|2490|expense|acc_csv|EUR|2|0');
 	});
 
 	it('is stable: the same rows in the same order give the same answer twice', () => {
@@ -145,7 +145,9 @@ describe('assignDedupeKeys', () => {
 		]);
 		expect(keys.get('manual')).toBe(null);
 		expect(keys.get('untyped')).toBe(null);
-		expect(keys.get('imported')).toBe('2026-06-24|carrefour market|2490|expense|0|');
+		expect(keys.get('imported')).toBe(
+			'v3|2026-06-24|carrefour market|2490|expense|acc_csv|EUR|2|0'
+		);
 	});
 
 	it('keys a provider-referenced row without an ordinal, and does not let it join a content group', () => {
@@ -153,54 +155,109 @@ describe('assignDedupeKeys', () => {
 			bankRow({ id: 'p', entryReference: 'E42' }),
 			bankRow({ id: 'c' })
 		]);
-		expect(keys.get('p')).toBe('enablebanking:prov-1:E42');
-		expect(keys.get('c')).toBe('2026-06-24|carrefour market|2490|expense|0|enablebanking:prov-1');
-	});
-
-	it('stays unambiguous when the label contains the field delimiter', () => {
-		// REPLACES safety.spec.ts's `split('|')).toHaveLength(6)`, which passes only because its
-		// fixture's label has no pipe: a label with one gives seven, on a key that is perfectly
-		// correct. That assertion reports on its own fixture.
-		//
-		// A pipe in a label is ordinary: sanitizeImportedText collapses whitespace and neutralises
-		// a leading formula character, and never touches a pipe.
-		//
-		// The property that actually holds is that the fields are recoverable FROM THE RIGHT,
-		// because every field after the label is delimiter-free by its own grammar: a magnitude is
-		// digits, a type is income or expense, an ordinal is digits and a scope is empty or an
-		// identifier. That is the step between "the numbering is injective" and "the keys are
-		// distinct", and it was never written down.
-		const key = assignDedupeKeys([csvRow({ label: 'SARL A|B' })]).get('r1')!;
-		const parts = key.split('|');
-		expect(parts.slice(-4)).toEqual(['2490', 'expense', '0', '']);
-		expect(parts.slice(1, -4).join('|')).toBe('sarl a|b');
+		expect(keys.get('p')).toBe('v3|enablebanking|prov-1|E42');
+		expect(keys.get('c')).toBe('v3|2026-06-24|carrefour market|2490|expense|acc_bank|EUR|2|0');
 	});
 });
 
-describe('the v2 shape this module reproduces before the version bump', () => {
-	// These three are what make the restore change a no-op with an exact oracle: the keys the
-	// recompute writes are byte-identical to the keys it replaces. The version bump rewrites them.
-
-	it('writes exactly the six fields a v2 key carries, in v2 order', () => {
+describe('the v3 key', () => {
+	it('carries the version marker, the group and the ordinal, in that order', () => {
 		expect(assignDedupeKeys([csvRow()]).get('r1')).toBe(
-			'2026-06-24|carrefour market|2490|expense|0|'
+			'v3|2026-06-24|carrefour market|2490|expense|acc_csv|EUR|2|0'
 		);
 	});
 
-	it('scopes an enablebanking row the way v2 scoped it', () => {
-		expect(assignDedupeKeys([bankRow({ label: 'Supérette Générale' })]).get('r1')).toBe(
-			'2026-06-24|superette generale|2490|expense|0|enablebanking:prov-1'
+	it('starts with its own group key, so the two cannot drift', () => {
+		// The reason the ordinal is LAST rather than in the middle as the design note draws it:
+		// the group becomes a literal prefix of the key, so there is exactly one expression for it
+		// and no second copy to disagree with.
+		const row = csvRow();
+		const key = assignDedupeKeys([row]).get('r1')!;
+		expect(key.startsWith(`${buildRowGroupKey(row)}|`)).toBe(true);
+	});
+
+	it('separates two amounts of one magnitude in different currencies', () => {
+		// SEPARATE calls, and that is the whole test. Passing both rows to one call puts them in
+		// one group and the ORDINAL separates them, so the assertion goes green on a key that
+		// carries no currency at all. Measured: this test passed against the previous key shape
+		// before the fixtures were split.
+		expect(assignDedupeKeys([csvRow({ currency: 'EUR' })]).get('r1')).not.toBe(
+			assignDedupeKeys([csvRow({ currency: 'GBP' })]).get('r1')
 		);
 	});
 
-	it('scopes a mock row with the bare provider id, which is what mock.ts passes', () => {
-		// mock.ts:129 passes `accountScope: accountId` with no `mock:` prefix, unlike
-		// enablebanking.ts:397. Reproduced rather than tidied, because tidying it here would
-		// re-key every mock row and the point of this phase is that nothing moves.
+	it('separates two amounts of one magnitude at different exponents', () => {
+		// Magnitude plus currency does not identify an amount. 1000 EUR is ten euros at exponent 2
+		// and one euro at exponent 3, so a key that merges them lets the unique constraint drop
+		// one. That is why the exponent is in the key at all: it is stored per row precisely
+		// because the currency does not determine it.
+		expect(assignDedupeKeys([csvRow({ exponent: 2 })]).get('r1')).not.toBe(
+			assignDedupeKeys([csvRow({ exponent: 3 })]).get('r1')
+		);
+	});
+
+	it('separates one transaction held by two accounts, which is what #449 asks for', () => {
+		// Separate calls again: this is the SAME transaction imported into two accounts, which is
+		// two runs, not one batch.
+		expect(assignDedupeKeys([csvRow({ accountId: 'acc_one' })]).get('r1')).not.toBe(
+			assignDedupeKeys([csvRow({ accountId: 'acc_two' })]).get('r1')
+		);
+	});
+
+	it('prefixes the provider branch too, so no key this build writes is unprefixed', () => {
+		// The prefix is what makes `NOT LIKE 'v3|%'` an exact pending predicate for the backfill.
+		// A provider-keyed row left unprefixed would be walked forever.
+		expect(assignDedupeKeys([bankRow({ entryReference: 'E42' })]).get('r1')).toBe(
+			'v3|enablebanking|prov-1|E42'
+		);
+	});
+
+	it('cannot be mistaken for a legacy key, because a legacy key opens with a date', () => {
+		const key = assignDedupeKeys([csvRow()]).get('r1')!;
+		expect(key.startsWith('v3|')).toBe(true);
+		expect(/^\d{4}-\d{2}-\d{2}\|/.test(key)).toBe(false);
+	});
+});
+
+describe('the format is injective BY CONSTRUCTION, not by an argument', () => {
+	// The delimiter question, settled rather than reasoned about. The previous key was unambiguous
+	// only because every field after the label happened to be delimiter-free by its own grammar,
+	// and that argument was never written down, so the next field added would have broken it
+	// silently. Encoding removes the argument.
+	//
+	// ASVS 5.0.0 1.3.3: "Verify that data being passed to a potentially dangerous context is
+	// sanitized beforehand to enforce safety measures, such as only allowing characters which are
+	// safe for this context".
+
+	it('encodes a delimiter inside a label rather than letting it become a field boundary', () => {
+		const key = assignDedupeKeys([csvRow({ label: 'SARL A|B' })]).get('r1')!;
+		expect(key).toBe('v3|2026-06-24|sarl a%7cb|2490|expense|acc_csv|EUR|2|0');
+		// Nine fields, whatever the label contains. The old assertion counted fields by splitting
+		// on the delimiter, which measures whether the fixture's label has one.
+		expect(key.split('|')).toHaveLength(9);
+	});
+
+	it('encodes the escape character itself, so the encoding is reversible', () => {
+		// Without escaping `%`, a label containing the literal escape sequence and one containing
+		// a real pipe encode to the same string, and two different merchants become one
+		// transaction. The escape is emitted in LOWERCASE so this test cannot pass by the accident
+		// of the fold having lowercased the label first.
+		expect(assignDedupeKeys([csvRow({ label: 'A|B' })]).get('r1')).not.toBe(
+			assignDedupeKeys([csvRow({ label: 'A%7CB' })]).get('r1')
+		);
+	});
+
+	it('separates two provider rows that the old colon-joined shape would have merged', () => {
+		// The gap this fixes, and it was live: `enablebanking:<account>:<reference>` joined two
+		// provider-supplied fields with a delimiter both can contain, so ("a", "b:c") and
+		// ("a:b", "c") produced one key and one of two real transactions was silently dropped.
+		// The colliding pair uses the OLD delimiter, `:`, because that is the pair the old shape
+		// merged. A pair chosen with the new delimiter would differ under both shapes and prove
+		// nothing.
 		expect(
-			assignDedupeKeys([
-				csvRow({ source: 'mock_connector', accountId: 'acc_mock', providerAccountId: 'Prov-Mock' })
-			]).get('r1')
-		).toBe('2026-06-24|carrefour market|2490|expense|0|prov-mock');
+			assignDedupeKeys([bankRow({ providerAccountId: 'a', entryReference: 'b:c' })]).get('r1')
+		).not.toBe(
+			assignDedupeKeys([bankRow({ providerAccountId: 'a:b', entryReference: 'c' })]).get('r1')
+		);
 	});
 });

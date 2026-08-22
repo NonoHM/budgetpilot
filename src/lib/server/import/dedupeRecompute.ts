@@ -4,6 +4,10 @@
 // it is erased and never resolved at run time.
 import { normalizeForMatch } from '../../domain/normalize.ts';
 import type { ImportedTransaction } from './types';
+import { DEDUPE_KEY_PREFIX } from './dedupeKeyVersion.ts';
+
+/** The marker as a FIELD, since the prefix constant carries its trailing separator. */
+const DEDUPE_KEY_MARKER = DEDUPE_KEY_PREFIX.slice(0, -1);
 
 /**
  * Rebuilding a transaction's deduplication key from the row itself.
@@ -121,21 +125,27 @@ export function foldLabelForSource(source: string, label: string): string {
 }
 
 /**
- * The v2 account scope, reproduced exactly rather than tidied.
+ * Makes a value safe to put between two delimiters, so the format is injective BY CONSTRUCTION.
  *
- * `enablebanking.ts` passes `enablebanking:<providerAccountId>` and `mock.ts` passes the bare
- * `<providerAccountId>`, and `buildDeduplicationKey` then lowercases and collapses whatever it
- * received. Both asymmetries are faithfully reproduced here, because this phase exists so that
- * recomputing a stored key returns the key it replaces: tidying either one would re-key rows that
- * nothing asked to move. Both disappear at the version bump, which carries `Account.id` instead.
+ * The previous key was unambiguous only by an argument: every field after the label happened to be
+ * delimiter-free by its own grammar, so the boundaries were recoverable from the right. That
+ * argument was never written down, it had to be re-derived to add a field, and it did NOT hold for
+ * the provider branch, which joined two provider-supplied values with a delimiter both can contain.
+ * Measured: `("a", "b:c")` and `("a:b", "c")` produced one key under the old shape, so two real
+ * transactions became one and the loser was dropped silently.
+ *
+ * Encoding removes the argument. Any field can now carry anything, and a field added later cannot
+ * quietly break the format.
+ *
+ * The escape itself is escaped FIRST, or a label containing the literal escape sequence and one
+ * containing a real delimiter would encode to the same string. Lowercase hex, deliberately: the
+ * label fold lowercases, and an uppercase escape would make that collision unreachable by accident
+ * rather than by design, which is the kind of luck this function exists to stop relying on.
+ *
+ * ASVS 5.0.0 1.3.3, on sanitizing data passed to a context where a character changes the structure.
  */
-function accountScopeOf(row: KeyableRow): string {
-	if (!row.providerAccountId) return '';
-	const scope =
-		row.source === 'enablebanking'
-			? `enablebanking:${row.providerAccountId}`
-			: row.providerAccountId;
-	return scope.trim().toLowerCase().replace(/\s+/g, ' ');
+function encodeKeyField(value: string): string {
+	return value.replaceAll('%', '%25').replaceAll('|', '%7c');
 }
 
 /**
@@ -150,8 +160,7 @@ function accountScopeOf(row: KeyableRow): string {
  * both numbered it 0, and numbering them 0 and 1 would not be a no-op.
  */
 export function buildRowGroupKey(row: KeyableRow): string | null {
-	const content = contentFieldsOf(row);
-	return content === null ? null : `${content}|${accountScopeOf(row)}`;
+	return contentFieldsOf(row);
 }
 
 /**
@@ -174,10 +183,14 @@ function contentFieldsOf(row: KeyableRow): string | null {
 	// not enter the string that identifies it.
 	if (!row.keyed || (row.type !== 'income' && row.type !== 'expense')) return null;
 	return [
+		DEDUPE_KEY_MARKER,
 		row.date,
-		foldLabelForSource(row.source, row.label),
+		encodeKeyField(foldLabelForSource(row.source, row.label)),
 		Math.abs(row.amountCents),
-		row.type
+		row.type,
+		encodeKeyField(row.accountId),
+		encodeKeyField(row.currency),
+		row.exponent
 	].join('|');
 }
 
@@ -192,7 +205,12 @@ export function buildProviderRowKey(row: KeyableRow): string | null {
 	if (!row.keyed) return null;
 	const reference = row.entryReference?.trim() ?? '';
 	if (!row.providerAccountId || !reference) return null;
-	return `${row.source}:${row.providerAccountId}:${reference}`;
+	return [
+		DEDUPE_KEY_MARKER,
+		encodeKeyField(row.source),
+		encodeKeyField(row.providerAccountId),
+		encodeKeyField(reference)
+	].join('|');
 }
 
 /**
@@ -224,14 +242,12 @@ export function assignDedupeKeys(rows: KeyableRow[]): Map<string, string | null>
 			continue;
 		}
 
-		// Numbered within the group, which is the key minus the ordinal. Under v2 the scope sits
-		// AFTER the ordinal in the key and before it in the group, so the group is not a prefix
-		// of the key here. The version bump moves the ordinal to the tail and makes it one, which
-		// is what lets the group have a single expression that cannot drift from the key.
-		const groupKey = buildRowGroupKey(row)!;
-		const occurrence = seenPerGroup.get(groupKey) ?? 0;
-		seenPerGroup.set(groupKey, occurrence + 1);
-		keys.set(row.id, `${content}|${occurrence}|${accountScopeOf(row)}`);
+		// Numbered within the group, which is the key minus the ordinal. The ordinal is LAST, so
+		// the group is a literal PREFIX of the key: one expression builds both and there is no
+		// second copy of the group to drift from it.
+		const occurrence = seenPerGroup.get(content) ?? 0;
+		seenPerGroup.set(content, occurrence + 1);
+		keys.set(row.id, `${content}|${occurrence}`);
 	}
 
 	return keys;

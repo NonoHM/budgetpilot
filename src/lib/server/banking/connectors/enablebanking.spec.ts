@@ -652,7 +652,7 @@ describe('EnableBankingConnector — fetchTransactions', () => {
 		// and the write path ignoring it fail the same way and only one of them is this file's.
 		expect(transactions[0].metadata.reference).toBe('stable-ref');
 		expect(assignDedupeKeysForBatch(transactions, EB_BUCKET)[0]).toBe(
-			'enablebanking:acc-1:stable-ref'
+			'v3|enablebanking|acc-1|stable-ref'
 		);
 	});
 

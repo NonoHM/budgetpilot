@@ -1872,7 +1872,7 @@ describe('restoreBackup', () => {
 
 			const keys = db.store.transactions.map((row) => row.dedupeKey as string);
 			expect(new Set(keys).size).toBe(2);
-			expect(keys.map((key) => key.split('|').at(-2))).toEqual(['0', '1']);
+			expect(keys.map((key) => key.split('|').at(-1))).toEqual(['0', '1']);
 		});
 	});
 });

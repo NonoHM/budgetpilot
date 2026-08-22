@@ -135,10 +135,19 @@ describe('LEG B: a v1-era key is rewritten to what a fresh import produces', () 
 	});
 });
 
-describe('LEG A: a key this build wrote survives a restore byte for byte', () => {
-	it('restores the same multiset of keys it exported', async () => {
-		// 3 here plus one from importStatement, which asserts its own fixture parsed.
-		expect.assertions(4);
+describe('LEG A: a key this build wrote is rebuilt against the restored account', () => {
+	it('changes ONLY the account id, and the restored keys still recognise a re-import', async () => {
+		// This leg asserted byte-identity while the key had no account in it, and that is exactly
+		// why the restore change landed BEFORE the version bump: it was a no-op with an exact
+		// oracle. It cannot be one now, and the reason is the feature: a v3 key names the
+		// `Account.id` a row lands on, and a restore regenerates every id. MEASURED, the before and
+		// after sets differ in that field and in nothing else.
+		//
+		// So the property that survives the bump is the one that mattered all along, and it is the
+		// same one leg B asserts: after a restore, re-importing the statement adds nothing.
+		// Byte-identity was a means of checking that, not the claim.
+		// 6 here plus two from importStatement, which asserts its own fixture parsed.
+		expect.assertions(8);
 
 		// A fresh user, so leg B's rows are not in view.
 		const user = await prisma.user.create({
@@ -154,10 +163,22 @@ describe('LEG A: a key this build wrote survives a restore byte for byte', () =>
 			await exportAndRestore();
 
 			const after = await storedKeys();
-			expect(after).toEqual(before);
-			// And the ordinals still separate the two identical rows, which is the property the
-			// multiset comparison alone would not distinguish from four copies of one key.
+			expect(after).not.toEqual(before);
+			// Differing in the account field ALONE. Blanking that one field on both sides is what
+			// turns "the keys changed" into "the keys changed in exactly the way the restore is
+			// supposed to change them", and it would catch a fold, an ordinal or a denomination
+			// moving at the same time.
+			const withoutAccount = (keys: string[]) =>
+				keys.map((key) => key.split('|').with(5, '<account>').join('|')).sort();
+			expect(withoutAccount(after)).toEqual(withoutAccount(before));
+			// The ordinals still separate the two identical rows, which a set comparison alone
+			// would not distinguish from four copies of one key.
 			expect(new Set(after).size).toBe(4);
+
+			// The property that actually matters, and the one that survives the version bump.
+			const again = await importStatement();
+			expect(again.imported).toBe(0);
+			expect(again.duplicates).toBe(4);
 		} finally {
 			userId = previous;
 		}
