@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { parseCsvTransactions } from '../csv';
+import { assignDedupeKeysForBatch } from '../dedupeRecompute';
+
+/**
+ * The bucket a CSV run lands on. The key is no longer built at parse time, so a spec that wants to
+ * talk about fingerprints asks the WRITE path what it would write, through the same function the
+ * write path calls. Retyping the key format here instead would assert the copy.
+ */
+const CSV_BUCKET = {
+	accountId: 'account-1',
+	source: 'csv',
+	currency: 'EUR',
+	exponent: 2,
+	providerAccountId: null
+};
 
 const MAISON_HEADER = 'date;libelle;categorie;montant;type;nature;source_bancaire';
 
@@ -173,8 +187,7 @@ describe('profil maison', () => {
 		expect(result.transactions).toHaveLength(2);
 		expect(result.invalidRows).toStrictEqual([]);
 		expect(result.summary.duplicateRows).toBe(0);
-		expect(result.transactions[0].metadata.deduplicationKey).not.toBe(
-			result.transactions[1].metadata.deduplicationKey
-		);
+		const [first, second] = assignDedupeKeysForBatch(result.transactions, CSV_BUCKET);
+		expect(first).not.toBe(second);
 	});
 });

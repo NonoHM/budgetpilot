@@ -1,4 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
+import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
+
+/**
+ * The bucket these rows land in. The key is built by the write path now, so a spec that wants to
+ * talk about fingerprints asks that path what it would write, through the same function it calls.
+ */
+const MOCK_BUCKET = {
+	accountId: 'account-1',
+	source: 'mock_connector',
+	currency: 'EUR',
+	exponent: 2,
+	providerAccountId: 'mock-checking'
+};
 
 vi.hoisted(() => {
 	process.env.TOTP_ENCRYPTION_KEY ??=
@@ -220,8 +233,10 @@ describe('MockBankConnector', () => {
 			const second = await connector.fetchTransactions(connection, 'mock-checking', range);
 
 			expect(first.map((tx) => tx.id)).toEqual(second.map((tx) => tx.id));
-			expect(first.map((tx) => tx.metadata.deduplicationKey)).toEqual(
-				second.map((tx) => tx.metadata.deduplicationKey)
+			// The key is built by the write path now, so stability is asserted there: two identical
+			// fetches must key identically or the second sync re-imports the first one's rows.
+			expect(assignDedupeKeysForBatch(first, MOCK_BUCKET)).toEqual(
+				assignDedupeKeysForBatch(second, MOCK_BUCKET)
 			);
 		});
 

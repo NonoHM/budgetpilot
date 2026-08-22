@@ -141,6 +141,17 @@ Tooling enforces formatting; do not restate it. What tooling cannot check:
 - **Never write about future work in the present tense of a promise.** "This will do X"
   fails exactly when the work succeeds, and nobody re-reads a page when a feature ships.
   Name the issue instead.
+- **Anything whose output is STORED and later RECOMPUTED must be a pure function of what is
+  stored.** Not a preference for pure functions generally: a narrow constraint on a small set,
+  and it is what makes three things possible at once, so losing it costs all three. A value that
+  reads the clock, a random source, an ambient locale or the network cannot be rebuilt from the
+  row that holds it, so the recompute stops working, a property test has nothing it can assert,
+  and the next version of the format costs a migration instead of a pass. Three instances today:
+  `domain/money.ts`, `import/dedupeRecompute.ts` and the boot recompute that consumes it. Money is
+  the clearest, because the fix was a design correction rather than a repair: its one `$lib` import
+  failed at container startup after `check`, the unit suite, lint and Playwright all passed, and
+  the import path was only the symptom. The cause was a module reaching for an AMBIENT LOCALE, and
+  it now imports nothing at all.
 - Prefer the existing component and the existing helper. Check before adding either.
 - Any number an operator might need to move is read from the environment: a default, a hard
   ceiling, refusal rather than clamping, and a boot warning when it differs.

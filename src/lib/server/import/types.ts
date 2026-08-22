@@ -61,7 +61,6 @@ export interface ImportedTransactionMetadata {
 	revolutBalanceCents?: number;
 	/** Explicit manual nature coming from the "maison" format — absent for other profiles. */
 	natureManual?: TransactionNature;
-	deduplicationKey: string;
 	csvFields?: Record<string, string>;
 }
 

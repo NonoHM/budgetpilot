@@ -1,6 +1,20 @@
 import { describe, expect, it } from 'vitest';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { parseCsvTransactions, sanitizeImportedText } from './csv';
+import { assignDedupeKeysForBatch } from './dedupeRecompute';
+
+/**
+ * The bucket a CSV run lands on. The key is no longer built at parse time, so a spec that wants to
+ * talk about fingerprints asks the WRITE path what it would write, through the same function the
+ * write path calls. Retyping the key format here instead would assert the copy.
+ */
+const CSV_BUCKET = {
+	accountId: 'account-1',
+	source: 'csv',
+	currency: 'EUR',
+	exponent: 2,
+	providerAccountId: null
+};
 
 const BANQUE_POPULAIRE_HEADER =
 	'Date de comptabilisation;Libelle simplifie;Libelle operation;Reference;Informations complementaires;Type operation;Categorie;Sous categorie;Debit;Credit;Date operation;Date de valeur;Pointage operation';
@@ -82,13 +96,12 @@ describe('parseCsvTransactions', () => {
 		// The keys differ, which is what lets the database keep both rather than rejecting the
 		// second on the unique constraint. Asserting only the count would pass on two rows sharing
 		// one key, and the loss would move from the parser to the insert.
-		const [first, second] = duplicates.transactions;
-		expect(first.metadata.deduplicationKey).not.toBe(second.metadata.deduplicationKey);
-		// The ordinals are 0 and 1, in file order, rather than merely different.
-		expect([
-			first.metadata.deduplicationKey.split('|')[4],
-			second.metadata.deduplicationKey.split('|')[4]
-		]).toEqual(['0', '1']);
+		const [first, second] = assignDedupeKeysForBatch(duplicates.transactions, CSV_BUCKET);
+		expect(first).not.toBe(second);
+		// The ordinals are 0 and 1, in file order, rather than merely different. Read from the
+		// RIGHT: a label may contain the delimiter, so counting fields from the left measures
+		// whether this fixture's label happens to have one.
+		expect([first?.split('|').at(-1), second?.split('|').at(-1)]).toEqual(['0', '1']);
 	});
 
 	it('neutralizes labels compatible with a formula injection', () => {
@@ -443,11 +456,9 @@ describe('parseCsvTransactions', () => {
 		// column the file may or may not carry: a bank that stops emitting the reference, or
 		// leaves it blank on one row, produced a different key for a transaction already
 		// imported. The two rows are now separated by their occurrence instead.
-		expect(result.transactions[0].metadata.deduplicationKey).not.toContain('REFDUP');
-		expect(result.transactions.map((t) => t.metadata.deduplicationKey.split('|')[4])).toEqual([
-			'0',
-			'1'
-		]);
+		const keys = assignDedupeKeysForBatch(result.transactions, CSV_BUCKET);
+		expect(keys[0]).not.toContain('REFDUP');
+		expect(keys.map((key) => key?.split('|').at(-1))).toEqual(['0', '1']);
 	});
 
 	it('importe l’exemple AUCHAN Banque Populaire complet', () => {

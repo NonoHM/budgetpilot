@@ -6,6 +6,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
+import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
 import { normalizeTagName, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 import {
 	isValidSplitPartAmount,
@@ -178,6 +179,12 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// and build the Maps oldId(file) → newId).
 		const accountIdMap = new Map<string, string>();
 		const accountKeyMap = new Map<string, string>();
+		// Keyed on the RESTORED account rather than on the file's, because two file accounts whose
+		// names fold together are merged into one bucket above and the second one's transactions
+		// follow the first. A map keyed on the file's id would hand a merged row the provider
+		// account of a bucket it does not live in, and the deduplication key would name a
+		// provider account that never held it.
+		const providerAccountIdByBucket = new Map<string, string | null>();
 		for (const account of payload.accounts) {
 			// First spelling wins: an older export can hold two buckets whose names fold
 			// together, and recreating both would rebuild the duplicate the app no longer
@@ -209,6 +216,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			});
 			accountIdMap.set(account.id, created.id);
 			accountKeyMap.set(accountKey, created.id);
+			providerAccountIdByBucket.set(created.id, account.providerAccountId ?? null);
 		}
 
 		const categoryIdMap = new Map<string, string>();
@@ -332,6 +340,42 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		]);
 		const transactionIdMap = new Map<string, string>();
 
+		// RECOMPUTED, never taken from the file, and this is a correction rather than a tidy-up.
+		//
+		// `dedupeKey` is an exported format as well as a stored one, and the key names the account
+		// a row lands on. A restore regenerates every id, so a key copied verbatim names an account
+		// that does not exist on this instance: the row then deduplicates against nothing, and the
+		// user's next import of the same statement doubles it with nothing to report it.
+		//
+		// The ordinal is assigned over the payload's rows in payload order, which is the same rule
+		// the write path uses over a batch. Two identical rows therefore get 0 and 1 rather than
+		// one key, which is what keeps the restore from failing on
+		// `@@unique([userId, dedupeKeyHash])` or, worse, losing one of them.
+		//
+		// `keyed` comes from whether the FILE carried a key. A manual transaction has none, and
+		// inventing one would let a row the user typed compete for identity with rows a file
+		// produced. A row with no direction cannot be keyed at all and `assignDedupeKeys` returns
+		// null for it, which leaves it invisible to deduplication rather than wrongly matched.
+		const restoredDedupeKeys = assignDedupeKeys(
+			payload.transactions.map((transaction) => ({
+				id: transaction.id,
+				source: transaction.source,
+				accountId: accountIdMap.get(transaction.accountId)!,
+				// The stored `DateTime` truncated, which is what the key carries. `transaction.date`
+				// is validated as parseable and NOT as date-only, so a file may legitimately carry a
+				// full instant here (`schema.ts`'s `isoDateString`).
+				date: new Date(transaction.date).toISOString().slice(0, 10),
+				label: transaction.label,
+				amountCents: transaction.amountCents,
+				type: transaction.type,
+				...restoredDenomination(transaction),
+				providerAccountId:
+					providerAccountIdByBucket.get(accountIdMap.get(transaction.accountId)!) ?? null,
+				entryReference: readEntryReference(transaction.metadataJson),
+				keyed: transaction.dedupeKey !== null
+			}))
+		);
+
 		const transactionData = payload.transactions.map((transaction) => ({
 			oldId: transaction.id,
 			data: {
@@ -353,9 +397,10 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 					transaction.manualCategory ? normalizeCategoryName(transaction.manualCategory) : null
 				),
 				natureManual: transaction.natureManual,
-				// Recomputed here, never read from the file: the hash is the app's own answer
-				// to "is this the same row", not something a backup gets to assert.
-				...dedupeKeyUpdate(transaction.dedupeKey),
+				// Recomputed here, never read from the file: the key names an account this restore
+				// has just regenerated, and the hash is the app's own answer to "is this the same
+				// row", not something a backup gets to assert.
+				...dedupeKeyUpdate(restoredDedupeKeys.get(transaction.id)),
 				metadataJson: transaction.metadataJson
 			}
 		}));
@@ -859,4 +904,31 @@ function dedupeByNameKey<T>(rows: T[], keyOf: (row: T) => string): T[] {
 		seen.add(key);
 		return true;
 	});
+}
+
+/**
+ * The provider's per-account entry reference, read out of a restored row's `metadataJson`.
+ *
+ * Defensive on every step, because this is an UNTRUSTED boundary: the payload is a file the user
+ * hands us, `metadataJson` is validated as a bounded string and never as a shape, and a hand-edited
+ * one can hold anything parseable. A throw here would abort the whole restore over a cell the
+ * restore does not otherwise read.
+ *
+ * Returning null on anything unexpected is the safe direction rather than the lenient one: the key
+ * then falls back to the content branch, which is what a row with no provider reference gets
+ * anyway. The opposite failure, trusting a non-string, would put an object's stringification into
+ * a stored identifier.
+ *
+ * ASVS 5.0.0 1.5.2, on deserialization of untrusted data enforcing safe input handling.
+ */
+function readEntryReference(metadataJson: string | null): string | null {
+	if (!metadataJson) return null;
+	try {
+		const parsed: unknown = JSON.parse(metadataJson);
+		if (typeof parsed !== 'object' || parsed === null) return null;
+		const reference = (parsed as Record<string, unknown>).reference;
+		return typeof reference === 'string' && reference.trim() ? reference : null;
+	} catch {
+		return null;
+	}
 }

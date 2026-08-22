@@ -20,6 +20,7 @@ import {
 } from '$lib/server/import/invalidRowDetails';
 import {
 	createImportBatch,
+	findImportBucketAccount,
 	persistImportedTransactions,
 	resolveImportBucketAccount
 } from '$lib/server/import/persist';
@@ -187,7 +188,34 @@ export const actions: Actions = {
 		 * leaves no batch, no memorised correspondance and no use counted against one.
 		 */
 		if (formData.get('confirmCollision') !== '1') {
-			const incoming = describeIncomingBatch(result.transactions, result.summary.period);
+			// The bucket this run will land on, looked up WITHOUT creating it. The deduplication
+			// key carries the Account.id a row lands on, so the fingerprints compared below have to
+			// be built against that account. Creating it here instead would report the user's
+			// destination-account choice as "ignored" on the next run, because that sentence comes
+			// from whether the bucket was created.
+			//
+			// Null when the bucket does not exist yet, and the empty key list that follows is exact
+			// rather than lenient: a bucket with no rows has no fingerprints to recognise.
+			//
+			// `'csv'` rather than a profile-derived source, and it must stay the same literal the
+			// write path below uses: the mapped path always lands in the csv bucket, and a
+			// different source here would look up a bucket this run will not write to.
+			const collisionBucket = await findImportBucketAccount({
+				userId: user.id,
+				name: CSV_ACCOUNT_NAME,
+				source: 'csv'
+			});
+			const incoming = describeIncomingBatch(
+				result.transactions,
+				result.summary.period,
+				collisionBucket && {
+					accountId: collisionBucket.accountId,
+					source: 'csv',
+					currency: collisionBucket.currency,
+					exponent: collisionBucket.exponent,
+					providerAccountId: collisionBucket.providerAccountId
+				}
+			);
 			// The batch being replaced is not a collision with itself: a correction re-reads the same
 			// statement, so it matches all three terms by construction. Scoped to that one id rather
 			// than to the correction path, because a genuine earlier import of the same statement

@@ -24,6 +24,7 @@ vi.mock('$lib/server/db', () => ({ prisma: prismaMock }));
 
 const { describeIncomingBatch, findCollidingBatch, findCollidingPairs } =
 	await import('./collision');
+const { assignDedupeKeysForBatch } = await import('./dedupeRecompute');
 
 const USER = 'user-1';
 
@@ -41,10 +42,9 @@ function transaction(
 		metadata: {
 			reference: '',
 			notes: '',
-			type,
-			deduplicationKey: `${date}|${label}|${Math.abs(amountCents)}|${type}|0|`
+			type
 		}
-	} as ImportedTransaction;
+	} as unknown as ImportedTransaction;
 }
 
 /** June, three rows: two debits and one credit. The shape every test below varies from. */
@@ -85,16 +85,57 @@ beforeEach(() => {
 	prismaMock.transaction.groupBy.mockResolvedValue([]);
 });
 
+/** The bucket a run lands on, as `findImportBucketAccount` answers it. */
+const BUCKET = {
+	accountId: 'account-1',
+	source: 'csv',
+	currency: 'EUR',
+	exponent: 2,
+	providerAccountId: null
+};
+
 describe('describeIncomingBatch', () => {
 	it('separates debits from credits as magnitudes, matching how persist.ts stores them', () => {
-		const shape = describeIncomingBatch(JUNE, JUNE_PERIOD);
+		const shape = describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET);
 		expect(shape.transactionCount).toBe(3);
 		expect(shape.debitCents).toBe(82185);
 		expect(shape.creditCents).toBe(214000);
 	});
 
 	it('carries every deduplication key, because T3 is answered from them', () => {
-		expect(describeIncomingBatch(JUNE, JUNE_PERIOD).dedupeKeys).toHaveLength(3);
+		expect(describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET).dedupeKeys).toHaveLength(3);
+	});
+
+	it('builds the keys the write path would build, from the bucket the run lands on', () => {
+		// The comparison this feeds asks "has this file already been through here", and it can
+		// only answer that if the fingerprints it compares are the fingerprints the run would
+		// store. Two constructions of the key is how the check and the write stop agreeing.
+		expect(describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET).dedupeKeys).toEqual(
+			assignDedupeKeysForBatch(JUNE, BUCKET)
+		);
+	});
+
+	it('carries NO keys when the bucket does not exist yet, and that is exact rather than lenient', () => {
+		// A bucket that does not exist holds no transactions, so no stored key can carry its id,
+		// so a fingerprint comparison against it has nothing to find. Passing an empty list
+		// computes the same verdict as passing keys that match nothing, which is what the T3 leg
+		// below asserts.
+		const shape = describeIncomingBatch(JUNE, JUNE_PERIOD, null);
+		expect(shape.dedupeKeys).toEqual([]);
+		// The other three terms are unchanged: the period and the totals do not depend on where
+		// the rows land, so T1 and T2 still speak.
+		expect(shape.transactionCount).toBe(3);
+		expect(shape.debitCents).toBe(82185);
+		expect(shape.creditCents).toBe(214000);
+	});
+
+	it('drops a row it cannot key rather than carrying a null into the comparison', () => {
+		// A null in this list would be hashed and compared like a key, and every unkeyable row
+		// would then look like the same row.
+		const untyped = [
+			{ ...JUNE[0], metadata: { ...JUNE[0].metadata, type: undefined } }
+		] as unknown as ImportedTransaction[];
+		expect(describeIncomingBatch(untyped, JUNE_PERIOD, BUCKET).dedupeKeys).toEqual([]);
 	});
 });
 
@@ -103,7 +144,7 @@ describe('findCollidingBatch', () => {
 		prismaMock.importBatch.findMany.mockResolvedValue([batchRow('b1', '2026-06-01', '2026-06-12')]);
 		prismaMock.transaction.groupBy.mockResolvedValue(juneTotals('b1'));
 
-		const found = await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD));
+		const found = await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET));
 
 		expect(found?.batchId).toBe('b1');
 		expect(found?.transactionCount).toBe(3);
@@ -119,18 +160,23 @@ describe('findCollidingBatch', () => {
 		prismaMock.importBatch.findMany.mockResolvedValue([batchRow('b1', '2026-06-01', '2026-06-12')]);
 		prismaMock.transaction.groupBy.mockResolvedValue(juneTotals('b1'));
 
-		expect(await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD))).toBeNull();
+		expect(
+			await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET))
+		).toBeNull();
 		// And it answered before aggregating anything, which is the reason it is checked first.
 		expect(prismaMock.importBatch.findMany).not.toHaveBeenCalled();
 	});
 
 	it('T3 compares HASHES, never the raw keys', async () => {
-		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD));
+		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET));
 
 		const where = prismaMock.transaction.count.mock.calls[0][0].where;
 		expect(where.userId).toBe(USER);
+		// Built from the same function the write path uses rather than from a field on the
+		// transaction: the key is no longer carried on the row, it is derived from the row and
+		// the bucket it is about to land in.
 		expect(where.dedupeKeyHash.in).toEqual(
-			JUNE.map((row) => computeDedupeKeyHash(row.metadata.deduplicationKey))
+			assignDedupeKeysForBatch(JUNE, BUCKET).map((key) => computeDedupeKeyHash(key!))
 		);
 	});
 
@@ -138,7 +184,7 @@ describe('findCollidingBatch', () => {
 		// Asserted on the CLAUSE rather than on the answer. Prisma treats a missing clause as no
 		// filter, so an implementation that dropped the period bounds would return the same answer
 		// here and pass a test written the other way round.
-		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD));
+		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET));
 
 		const where = prismaMock.importBatch.findMany.mock.calls[0][0].where;
 		expect(where.userId).toBe(USER);
@@ -153,7 +199,9 @@ describe('findCollidingBatch', () => {
 		prismaMock.importBatch.findMany.mockResolvedValue([batchRow('b1', '2026-06-02', '2026-06-13')]);
 		prismaMock.transaction.groupBy.mockResolvedValue(juneTotals('b1'));
 
-		expect(await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD))).not.toBeNull();
+		expect(
+			await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET))
+		).not.toBeNull();
 	});
 
 	it('T2: a monthly import with a few days of overlap does not fire', async () => {
@@ -165,7 +213,9 @@ describe('findCollidingBatch', () => {
 			{ importBatchId: 'b1', type: 'income', _count: { _all: 1 }, _sum: { amountCents: 223500 } }
 		]);
 
-		expect(await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD))).toBeNull();
+		expect(
+			await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET))
+		).toBeNull();
 	});
 
 	it('T2: both sums separately, so an equal NET is not accepted as equal money', async () => {
@@ -179,7 +229,9 @@ describe('findCollidingBatch', () => {
 			{ importBatchId: 'b1', type: 'income', _count: { _all: 1 }, _sum: { amountCents: 224000 } }
 		]);
 
-		expect(await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD))).toBeNull();
+		expect(
+			await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET))
+		).toBeNull();
 	});
 
 	it('T2: the COUNT is compared too, so equal sums over a different number of rows do not fire', async () => {
@@ -193,18 +245,22 @@ describe('findCollidingBatch', () => {
 			{ importBatchId: 'b1', type: 'income', _count: { _all: 1 }, _sum: { amountCents: 214000 } }
 		]);
 
-		expect(await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD))).toBeNull();
+		expect(
+			await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET))
+		).toBeNull();
 	});
 
 	it('a batch with no transactions of its own never matches', async () => {
 		prismaMock.importBatch.findMany.mockResolvedValue([batchRow('b1', '2026-06-01', '2026-06-12')]);
 		prismaMock.transaction.groupBy.mockResolvedValue([]);
 
-		expect(await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD))).toBeNull();
+		expect(
+			await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET))
+		).toBeNull();
 	});
 
 	it('a run with no period asks the database nothing at all', async () => {
-		const undated = describeIncomingBatch(JUNE, { from: null, to: null });
+		const undated = describeIncomingBatch(JUNE, { from: null, to: null }, BUCKET);
 
 		expect(await findCollidingBatch(USER, undated)).toBeNull();
 		expect(prismaMock.transaction.count).not.toHaveBeenCalled();
@@ -239,7 +295,7 @@ describe('findCollidingBatch with excludeBatchId', () => {
 		givenBatches(batchRow('batch-old', '2026-06-01', '2026-06-12'));
 		prismaMock.transaction.groupBy.mockResolvedValue(juneTotals('batch-old'));
 
-		const found = await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD), {
+		const found = await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET), {
 			excludeBatchId: 'batch-old'
 		});
 
@@ -259,7 +315,7 @@ describe('findCollidingBatch with excludeBatchId', () => {
 			...juneTotals('batch-other')
 		]);
 
-		const found = await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD), {
+		const found = await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET), {
 			excludeBatchId: 'batch-old'
 		});
 
@@ -274,14 +330,14 @@ describe('findCollidingBatch with excludeBatchId', () => {
 		// would be a filter nobody asked for.
 		givenBatches(batchRow('batch-old', '2026-06-01', '2026-06-12'));
 
-		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD), {
+		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET), {
 			excludeBatchId: 'batch-old'
 		});
 		expect(prismaMock.importBatch.findMany.mock.calls[0][0].where.id).toEqual({
 			not: 'batch-old'
 		});
 
-		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD));
+		await findCollidingBatch(USER, describeIncomingBatch(JUNE, JUNE_PERIOD, BUCKET));
 		expect(prismaMock.importBatch.findMany.mock.calls[1][0].where).not.toHaveProperty('id');
 	});
 });

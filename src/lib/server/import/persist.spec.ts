@@ -3,6 +3,7 @@ import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { hashFingerprint } from '$lib/server/import/utils/safety';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeDedupeKeyHash } from './dedupeKey';
+import { assignDedupeKeys } from './dedupeRecompute';
 import type { ImportedTransaction } from './types';
 
 /**
@@ -50,6 +51,7 @@ vi.mock('$lib/server/transactions/splits', () => ({
 
 const {
 	anonymizeImportCell,
+	findImportBucketAccount,
 	resolveImportBucketAccount,
 	createImportBatch,
 	persistImportedTransactions
@@ -66,8 +68,7 @@ function baseTransaction(overrides: Partial<ImportedTransaction> = {}): Imported
 		metadata: {
 			reference: 'REF001',
 			notes: '',
-			type: 'expense',
-			deduplicationKey: 'dedupe-1'
+			type: 'expense'
 		},
 		...overrides
 	} as ImportedTransaction;
@@ -96,6 +97,12 @@ describe('resolveImportBucketAccount', () => {
 		// oldest-first because Account is the one name-keyed table with no unique constraint on
 		// its key, so more than one row can match and an unordered findFirst would be free to
 		// answer differently on each call under PostgreSQL.
+		//
+		// The select carries the denomination and the provider mapping as well as the id, and
+		// spelled out rather than compared against the constant the implementation uses, because
+		// a test importing that constant would assert it against itself. Dropping `currency` here
+		// would put an undefined into a deduplication key through the read-only lookup next door,
+		// and nothing else would notice.
 		expect(prismaMock.account.findFirst).toHaveBeenCalledWith({
 			where: {
 				userId: 'user-1',
@@ -103,7 +110,13 @@ describe('resolveImportBucketAccount', () => {
 				source: 'csv'
 			},
 			orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-			select: { id: true }
+			select: {
+				id: true,
+				currency: true,
+				exponent: true,
+				providerAccountId: true,
+				bankConnectionId: true
+			}
 		});
 	});
 
@@ -181,7 +194,13 @@ describe('resolveImportBucketAccount', () => {
 		expect(result).toEqual({ accountId: 'account-by-provider', created: false });
 		expect(prismaMock.account.findFirst).toHaveBeenCalledWith({
 			where: { userId: 'user-1', source: 'enablebanking', providerAccountId: 'provider-acc-1' },
-			select: { id: true, bankConnectionId: true }
+			select: {
+				id: true,
+				currency: true,
+				exponent: true,
+				providerAccountId: true,
+				bankConnectionId: true
+			}
 		});
 		// The provider lookup is the only query: the name lookup never runs.
 		expect(prismaMock.account.findFirst).toHaveBeenCalledTimes(1);
@@ -286,6 +305,129 @@ describe('resolveImportBucketAccount', () => {
 			create: { name: string };
 		};
 		expect(createCall.create.name).not.toContain('provider-acc-secret-uid');
+	});
+});
+
+/**
+ * The read-only half of the bucket resolution.
+ *
+ * The deduplication key carries the `Account.id` a row lands on, and `findCollidingBatch` compares
+ * keys against the database BEFORE anything is written. So the collision check needs the bucket,
+ * and it must not bring one into being: creating it there would make the import summary report a
+ * destination-account choice as "ignored" on a run the user then cancelled, because that sentence
+ * is derived from whether the bucket was created.
+ *
+ * One definition of each lookup, composed the same way in both entry points. Two copies of the
+ * folded-name rule is how the read path and the write path quietly stop agreeing about which
+ * bucket a run lands on.
+ */
+describe('findImportBucketAccount', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('answers with the bucket resolveImportBucketAccount would have found, folded name and all', async () => {
+		prismaMock.account.findFirst.mockResolvedValueOnce({
+			id: 'account-1',
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
+		});
+
+		const found = await findImportBucketAccount({
+			userId: 'user-1',
+			name: 'compte import csv',
+			source: 'csv'
+		});
+
+		expect(found).toEqual({
+			accountId: 'account-1',
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
+		});
+		expect(prismaMock.account.findFirst).toHaveBeenCalledWith(
+			expect.objectContaining({
+				where: {
+					userId: 'user-1',
+					nameKey: computeNameKey('Compte import CSV'),
+					source: 'csv'
+				},
+				orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+			})
+		);
+	});
+
+	it('answers null for a bucket that does not exist, and creates nothing', async () => {
+		// The whole reason this is separable, and the reason the empty answer is EXACT rather
+		// than lenient: a bucket with no rows has no keys for the collision check to find.
+		prismaMock.account.findFirst.mockResolvedValueOnce(null);
+
+		const found = await findImportBucketAccount({
+			userId: 'user-1',
+			name: 'Compte import CSV',
+			source: 'csv'
+		});
+
+		expect(found).toBe(null);
+		expect(prismaMock.account.upsert).not.toHaveBeenCalled();
+		expect(prismaMock.account.update).not.toHaveBeenCalled();
+	});
+
+	it('caps the name before folding it, like the resolver does', async () => {
+		// A bucket created from a long provider name was stored capped, so its nameKey is the
+		// capped one. Folding the uncapped name here would miss the bucket that exists, and the
+		// collision check would then compare keys against an account id no row carries.
+		prismaMock.account.findFirst.mockResolvedValueOnce(null);
+		const longName = 'A'.repeat(200);
+
+		await findImportBucketAccount({ userId: 'user-1', name: longName, source: 'csv' });
+
+		expect(prismaMock.account.findFirst).toHaveBeenCalledWith(
+			expect.objectContaining({
+				where: expect.objectContaining({ nameKey: computeNameKey('A'.repeat(120)) })
+			})
+		);
+	});
+
+	it('prefers the provider account mapping over the name, like the resolver does', async () => {
+		prismaMock.account.findFirst.mockResolvedValueOnce({
+			id: 'account-by-provider',
+			currency: 'GBP',
+			exponent: 2,
+			providerAccountId: 'provider-acc-1',
+			bankConnectionId: 'conn-1'
+		});
+
+		const found = await findImportBucketAccount({
+			userId: 'user-1',
+			name: 'Compte courant',
+			source: 'enablebanking',
+			providerAccountId: 'provider-acc-1'
+		});
+
+		expect(found?.accountId).toBe('account-by-provider');
+		expect(found?.currency).toBe('GBP');
+		expect(prismaMock.account.findFirst).toHaveBeenCalledTimes(1);
+	});
+
+	it('answers null when a provider account has no bucket yet, even if the NAME is taken', async () => {
+		// The resolver disambiguates that name into a NEW bucket rather than reusing the one
+		// holding it, so the bucket this run lands on does not exist yet. Answering with the
+		// name-holder would point the collision check at another account's rows.
+		prismaMock.account.findFirst.mockResolvedValueOnce(null);
+
+		const found = await findImportBucketAccount({
+			userId: 'user-1',
+			name: 'Compte courant',
+			source: 'enablebanking',
+			providerAccountId: 'provider-acc-2'
+		});
+
+		expect(found).toBe(null);
+		expect(prismaMock.account.findFirst).toHaveBeenCalledTimes(1);
 	});
 
 	it('the CSV path (no providerAccountId) skips the provider lookup and resolves by name alone', async () => {
@@ -392,8 +534,7 @@ describe('persistImportedTransactions', () => {
 					metadata: {
 						reference: 'REF001',
 						notes: '',
-						type: 'expense',
-						deduplicationKey: 'dedupe-courses'
+						type: 'expense'
 					}
 				}),
 				baseTransaction({
@@ -402,8 +543,7 @@ describe('persistImportedTransactions', () => {
 					metadata: {
 						reference: 'REF002',
 						notes: '',
-						type: 'income',
-						deduplicationKey: 'dedupe-salaire'
+						type: 'income'
 					}
 				})
 			]
@@ -435,16 +575,18 @@ describe('persistImportedTransactions', () => {
 					metadata: {
 						reference: '',
 						notes: '',
-						type: 'expense',
-						deduplicationKey: 'dedupe-corner-shop'
+						type: 'expense'
 					}
 				})
 			]
 		});
 
+		// `providerAccountId` joined this read when key construction moved here: a bank row keys
+		// on the provider's per-account entry reference, scoped by that account, so the key
+		// cannot be built without it.
 		expect(prismaMock.account.findUniqueOrThrow).toHaveBeenCalledWith({
 			where: { id: 'account-1' },
-			select: { currency: true, exponent: true }
+			select: { currency: true, exponent: true, providerAccountId: true }
 		});
 		expect(prismaMock.transaction.create).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -462,16 +604,36 @@ describe('persistImportedTransactions', () => {
 			transactions: [baseTransaction({ label: 'Courses' })]
 		});
 
+		// The key is no longer handed in on the transaction: it is built here, from the row and
+		// the bucket. So the expectation is built by calling the same function rather than by
+		// naming a string, which is the only form that cannot drift from what was written.
+		const key = assignDedupeKeys([
+			{
+				id: 'only',
+				source: 'csv',
+				accountId: 'account-1',
+				date: '2026-06-01',
+				label: 'Courses',
+				amountCents: -4210,
+				type: 'expense',
+				currency: 'GBP',
+				exponent: 2,
+				providerAccountId: null,
+				entryReference: 'REF001',
+				keyed: true
+			}
+		]).get('only')!;
+
 		// The raw key is kept for traceability, but the comparison runs on the hash: on an
 		// accent-insensitive collation the raw one treats two different transactions as one.
 		expect(prismaMock.transaction.findFirst).toHaveBeenCalledWith({
-			where: { userId: 'user-1', dedupeKeyHash: computeDedupeKeyHash('dedupe-1') }
+			where: { userId: 'user-1', dedupeKeyHash: computeDedupeKeyHash(key) }
 		});
 		expect(prismaMock.transaction.create).toHaveBeenCalledWith(
 			expect.objectContaining({
 				data: expect.objectContaining({
-					dedupeKey: 'dedupe-1',
-					dedupeKeyHash: computeDedupeKeyHash('dedupe-1')
+					dedupeKey: key,
+					dedupeKeyHash: computeDedupeKeyHash(key)
 				})
 			})
 		);
@@ -492,7 +654,20 @@ describe('persistImportedTransactions', () => {
 		expect(prismaMock.transaction.create).not.toHaveBeenCalled();
 	});
 
-	it('leaves both deduplication columns null when the source provides no key', async () => {
+	it('leaves both deduplication columns null when the row cannot be keyed', async () => {
+		// This test's original premise is gone and the replacement is deliberate. It used to say
+		// "when the source provides no key", because a profile handed the key in and could hand in
+		// an empty one. Keys are built here now, so every imported row gets one and no profile can
+		// produce a keyless row by omission.
+		//
+		// What is still worth pinning is the invariant underneath: a row with no DIRECTION cannot
+		// be keyed, and the two columns must then go null TOGETHER. A raw key with no hash is
+		// invisible to every duplicate check, which is the import re-importing itself; a hash with
+		// no raw key loses the traceability the column exists for.
+		//
+		// The direction is required by the type, so this is reachable only from an untyped caller
+		// or a restored row. Reaching it by force is the point: the guard has to hold where the
+		// type system is not there to help.
 		await persistImportedTransactions({
 			userId: 'user-1',
 			accountId: 'account-1',
@@ -500,8 +675,8 @@ describe('persistImportedTransactions', () => {
 			source: 'csv',
 			transactions: [
 				baseTransaction({
-					label: 'Sans cle',
-					metadata: { reference: '', notes: '', type: 'expense', deduplicationKey: '' }
+					label: 'Sans direction',
+					metadata: { reference: '', notes: '', type: undefined as unknown as 'expense' }
 				})
 			]
 		});
@@ -512,6 +687,52 @@ describe('persistImportedTransactions', () => {
 				data: expect.objectContaining({ dedupeKey: null, dedupeKeyHash: null })
 			})
 		);
+	});
+
+	it('writes ONLY the denomination from the bucket, never the whole bucket row', async () => {
+		// A runtime failure the type checker and this mocked suite both missed, caught by an e2e
+		// import: the bucket read was widened to carry `providerAccountId` for the key, and
+		// `persistTransaction` spreads that object into `transaction.create`. Prisma rejects an
+		// unknown argument at run time and the whole import dies with
+		// "Unknown argument `providerAccountId`".
+		//
+		// A mock cannot model a predicate it does not have, so asserting "the create succeeded"
+		// is worth nothing here. The claim has to be about the KEYS of the payload.
+		prismaMock.account.findUniqueOrThrow.mockResolvedValue({
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: 'prov-1'
+		});
+
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-bank',
+			importBatchId: 'batch-1',
+			source: 'enablebanking',
+			transactions: [baseTransaction()]
+		});
+
+		const data = (prismaMock.transaction.create.mock.calls[0][0] as { data: object }).data;
+		expect(data).not.toHaveProperty('providerAccountId');
+		expect(data).toMatchObject({ currency: 'EUR', exponent: 2 });
+	});
+
+	it('keys every imported row, so a profile cannot produce a keyless one by omission', async () => {
+		// The counterpart to the test above, and the reason its premise was removed. Under the old
+		// contract a profile that forgot to set `deduplicationKey` wrote a row invisible to every
+		// duplicate check, which re-imports itself on the next upload with nothing to report it.
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'csv',
+			transactions: [baseTransaction({ label: 'Une' }), baseTransaction({ label: 'Deux' })]
+		});
+
+		const written = prismaMock.transaction.create.mock.calls.map(
+			(call) => (call[0] as { data: { dedupeKey: string | null } }).data.dedupeKey
+		);
+		expect(written.filter(Boolean)).toHaveLength(2);
 	});
 
 	it('calls applyCategoryRules with the userId and the imported ids', async () => {
@@ -635,7 +856,7 @@ describe('persistImportedTransactions', () => {
 				transactions: [
 					baseTransaction({
 						label: 'Sans cle',
-						metadata: { reference: '', notes: '', type: 'expense', deduplicationKey: '' }
+						metadata: { reference: '', notes: '', type: 'expense' }
 					})
 				]
 			})
@@ -692,7 +913,6 @@ describe('persistImportedTransactions', () => {
 						reference: 'REF001',
 						notes: '',
 						type: 'expense',
-						deduplicationKey: 'dedupe-courses',
 						csvFields: {
 							'Libelle simplifie': 'AUCHAN 0065 SC 78MAUREPAS',
 							'Not on the allowlist': 'super secret raw column'
@@ -816,5 +1036,204 @@ describe('anonymizeImportCell', () => {
 
 		expect(result).toBe('Restaurant du coi…');
 		expect(result.length).toBeLessThanOrEqual(18);
+	});
+});
+
+/**
+ * Key construction moved from the seven parse-time call sites to here, and this block is why.
+ *
+ * The CSV path cannot know its `accountId` at parse time: `routes/import/+page.server.ts` derives
+ * the bucket's `source` from the DETECTED profile, so the bucket is resolved after the parse and a
+ * parser cannot be handed the id the key needs.
+ *
+ * And the ordinal has to become a property of stored rows. MEASURED
+ * (`occurrenceGap.db-smoke.ts`): a profile builds its fingerprint before `validateTransaction`
+ * runs, so a row refused afterwards consumes an ordinal no stored row carries, and three identical
+ * rows whose middle one is refused store ordinals {0, 2}. A recompute numbering stored rows densely
+ * would then change an already-stored row's key, which is exactly what the restore and the
+ * migration must not do.
+ */
+describe('persistImportedTransactions builds the deduplication key', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		prismaMock.account.findUniqueOrThrow.mockResolvedValue({
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null
+		});
+		prismaMock.category.findFirst.mockResolvedValue(null);
+		prismaMock.transaction.findFirst.mockResolvedValue(null);
+		prismaMock.category.upsert.mockImplementation(
+			async ({ create }: { create: { name: string } }) => ({ id: `category-${create.name}` })
+		);
+		prismaMock.transaction.create.mockImplementation(
+			async ({ data }: { data: { label: string } }) => ({ id: `tx-${data.label}` })
+		);
+		prismaMock.importBatch.update.mockResolvedValue({});
+		applyCategoryRulesMock.mockResolvedValue(0);
+		replaceSplitsMock.mockResolvedValue({ ok: true });
+	});
+
+	/** Every `dedupeKey` this run wrote, in the order the rows were written. */
+	function writtenKeys(): Array<string | null> {
+		return prismaMock.transaction.create.mock.calls.map(
+			(call) => (call[0] as { data: { dedupeKey: string | null } }).data.dedupeKey
+		);
+	}
+
+	it('writes the key the recompute would give the row it just wrote', async () => {
+		// The single claim that makes the migration and the restore affordable: import and
+		// recompute are the same function, so they cannot disagree. The expectation is BUILT by
+		// calling the recompute over the row as stored, never by retyping the string: a retyped
+		// oracle asserts the copy.
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'csv',
+			transactions: [baseTransaction({ label: 'Café Fictif', amountCents: -250 })]
+		});
+
+		const expected = assignDedupeKeys([
+			{
+				id: 'only',
+				source: 'csv',
+				accountId: 'account-1',
+				date: '2026-06-01',
+				label: 'Café Fictif',
+				amountCents: -250,
+				type: 'expense',
+				currency: 'EUR',
+				exponent: 2,
+				providerAccountId: null,
+				entryReference: null,
+				keyed: true
+			}
+		]).get('only');
+
+		expect(writtenKeys()).toEqual([expected]);
+	});
+
+	it('numbers two identical rows in one file 0 and 1', async () => {
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'csv',
+			transactions: [
+				baseTransaction({ label: 'Café Fictif', amountCents: -250 }),
+				baseTransaction({ label: 'Café Fictif', amountCents: -250 })
+			]
+		});
+
+		const keys = writtenKeys();
+		expect(keys[0]).not.toBe(keys[1]);
+		expect(keys.map((key) => key?.split('|').at(-1))).toEqual(['0', '1']);
+	});
+
+	it('does not let a row refused after parsing consume an ordinal', async () => {
+		// The ordinal is now handed out over the rows BEING WRITTEN, so a row the parser reached
+		// and refused is simply not here and cannot shift the row beside it. Refused rows never
+		// reach this function, so the fixture is the two survivors, and the claim is that the
+		// second is ordinal 1 rather than the 2 the parse-time counter gave it.
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'csv',
+			transactions: [
+				baseTransaction({ label: 'Café Fictif', amountCents: -250 }),
+				baseTransaction({ label: 'Café Fictif', amountCents: -250 })
+			]
+		});
+
+		expect(writtenKeys().map((key) => key?.split('|').at(-1))).toEqual(['0', '1']);
+	});
+
+	it('gives a bank row with an entry reference the provider key and no ordinal', async () => {
+		prismaMock.account.findUniqueOrThrow.mockResolvedValue({
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: 'prov-1'
+		});
+
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-bank',
+			importBatchId: 'batch-1',
+			source: 'enablebanking',
+			transactions: [
+				baseTransaction({
+					label: 'Supérette Générale',
+					amountCents: -250,
+					metadata: { reference: 'E42', notes: '', type: 'expense' }
+				})
+			]
+		});
+
+		expect(writtenKeys()).toEqual(['v3|enablebanking|prov-1|E42']);
+	});
+
+	it('folds a bank row without an entry reference the way the connector folded it', async () => {
+		// The source-conditional fold, at the write path. enablebanking strips accents before
+		// keying while storing the raw label, so a recompute of this row must reach the same
+		// string. A CSV-only fixture measures an identity here and can never fail.
+		prismaMock.account.findUniqueOrThrow.mockResolvedValue({
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: 'prov-1'
+		});
+
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-bank',
+			importBatchId: 'batch-1',
+			source: 'enablebanking',
+			transactions: [
+				baseTransaction({
+					label: 'Supérette Générale',
+					amountCents: -250,
+					metadata: { reference: '', notes: '', type: 'expense' }
+				})
+			]
+		});
+
+		expect(writtenKeys()[0]).toContain('superette generale');
+	});
+
+	it('takes the source the rows will be STORED with, not the one the parser put on them', async () => {
+		// A Revolut file parses into transactions carrying `source: 'csv'` while the batch stores
+		// them as 'revolut'. The recompute reads the STORED value, so the key must be built from
+		// it or the two would disagree on every Revolut row.
+		await persistImportedTransactions({
+			userId: 'user-1',
+			accountId: 'account-1',
+			importBatchId: 'batch-1',
+			source: 'revolut',
+			transactions: [baseTransaction({ label: 'Tesco', amountCents: -1230, source: 'csv' })]
+		});
+
+		const created = prismaMock.transaction.create.mock.calls[0][0] as {
+			data: { source: string; dedupeKey: string };
+		};
+		expect(created.data.source).toBe('revolut');
+		expect(created.data.dedupeKey).toBe(
+			assignDedupeKeys([
+				{
+					id: 'only',
+					source: 'revolut',
+					accountId: 'account-1',
+					date: '2026-06-01',
+					label: 'Tesco',
+					amountCents: -1230,
+					type: 'expense',
+					currency: 'EUR',
+					exponent: 2,
+					providerAccountId: null,
+					entryReference: null,
+					keyed: true
+				}
+			]).get('only')
+		);
 	});
 });

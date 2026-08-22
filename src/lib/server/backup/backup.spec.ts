@@ -312,6 +312,8 @@ const { restoreBackup, BackupImportError } = await import('./import');
 // 191, and importing the constant is what made an earlier version of that fixture unfalsifiable.
 const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS, backupExportSchema } = await import('./schema');
 const { computeNameKey } = await import('$lib/server/naming/nameKey');
+const { assignDedupeKeys } = await import('$lib/server/import/dedupeRecompute');
+const { computeDedupeKeyHash } = await import('$lib/server/import/dedupeKey');
 const { MAX_TAGS_PER_TRANSACTION } = await import('$lib/domain/tags');
 type TagColorToken = import('$lib/domain/tags').TagColorToken;
 const { UNCLASSIFIED_CATEGORY } = await import('$lib/domain/categories');
@@ -1766,6 +1768,112 @@ describe('restoreBackup', () => {
 		const written = db.store.recurringStreamActions[0].anchorTransactionIds as string;
 		expect(JSON.parse(written)).toHaveLength(MAX_ANCHOR_IDS);
 		expect(written.length).toBeLessThanOrEqual(MAX_ANCHOR_CELL_CHARS);
+	});
+
+	/**
+	 * The restore RECOMPUTES the deduplication key instead of writing the file's back verbatim.
+	 *
+	 * `dedupeKey` is an exported format as well as a stored one, and a key names the account a row
+	 * lands on. Every id in a backup is regenerated on the way in, so a key copied verbatim names
+	 * an account that does not exist here and the row deduplicates against nothing: the user's next
+	 * import of the same statement doubles it, silently.
+	 *
+	 * This lands BEFORE the key version changes, on purpose. While the recompute still produces the
+	 * shape the current importer writes, the change is a no-op with an exact oracle, and the version
+	 * bump then carries the restore along for free. Landing it after the bump would leave a
+	 * corruption window for anyone who restores in between.
+	 */
+	describe('the deduplication key it writes', () => {
+		/** The valid payload above, with its transactions replaced by the rows a test needs. */
+		function payloadWithTransactions(rows: Array<Record<string, unknown>>) {
+			const payload = buildValidPayload();
+			const base = payload.transactions[0];
+			payload.transactions = rows.map((row, index) => ({
+				...base,
+				id: `file-tx-${index + 1}`,
+				...row
+			})) as typeof payload.transactions;
+			return payload;
+		}
+
+		it('names the NEW account id, not the one the file carried', async () => {
+			// A restore regenerates every id. A key built against the file's account id would match
+			// nothing a later import produces on this instance.
+			await restoreBackup(
+				'user-a',
+				payloadWithTransactions([{ dedupeKey: 'whatever-the-file-said' }])
+			);
+
+			const [written] = db.store.transactions;
+			const restoredAccountId = db.store.accounts[0].id;
+			expect(written.dedupeKey).not.toBe('whatever-the-file-said');
+			expect(written.dedupeKey).toBe(
+				assignDedupeKeys([
+					{
+						id: 'only',
+						source: written.source as string,
+						accountId: restoredAccountId,
+						// Read off the row as STORED, never retyped from the fixture: the claim is that the
+						// key inverts the row, so every input has to come from the row.
+						date: new Date(written.date as Date).toISOString().slice(0, 10),
+						label: written.label as string,
+						amountCents: written.amountCents as number,
+						type: 'expense',
+						currency: 'EUR',
+						exponent: 2,
+						providerAccountId: null,
+						entryReference: null,
+						keyed: true
+					}
+				]).get('only')
+			);
+		});
+
+		it('carries the hash of the key it computed, never of the one in the file', async () => {
+			// The pair must not come apart: a raw key with the wrong hash is invisible to every
+			// duplicate check, which is the import re-importing itself.
+			await restoreBackup('user-a', payloadWithTransactions([{ dedupeKey: 'stale' }]));
+
+			const [written] = db.store.transactions;
+			expect(written.dedupeKeyHash).toBe(computeDedupeKeyHash(written.dedupeKey as string));
+		});
+
+		it('leaves a manual transaction unkeyed, because it never had a fingerprint', async () => {
+			// Inventing one would let a row the user typed compete for identity with rows a file
+			// produced, so a manual entry could swallow an imported one.
+			await restoreBackup('user-a', payloadWithTransactions([{ dedupeKey: null }]));
+
+			const [written] = db.store.transactions;
+			expect(written.dedupeKey).toBe(null);
+			expect(written.dedupeKeyHash).toBe(null);
+		});
+
+		it('leaves a row with no direction unkeyed rather than guessing one', async () => {
+			// `type` is nullable in the backup contract. A row with no direction cannot be keyed,
+			// and a null key leaves it invisible to deduplication rather than wrongly matched.
+			await restoreBackup(
+				'user-a',
+				payloadWithTransactions([{ dedupeKey: 'was-keyed-once', type: null }])
+			);
+
+			const [written] = db.store.transactions;
+			expect(written.dedupeKey).toBe(null);
+			expect(written.dedupeKeyHash).toBe(null);
+		});
+
+		it('numbers two identical rows 0 and 1 rather than giving them one key', async () => {
+			// Two coffees at one price on one day are ordinary. Without the ordinal the second row
+			// collides with the first on @@unique([userId, dedupeKeyHash]): the restore either
+			// fails outright or loses one of them.
+			await restoreBackup(
+				'user-a',
+				payloadWithTransactions([{ dedupeKey: 'a' }, { dedupeKey: 'b' }])
+			);
+
+			const keys = db.store.transactions.map((row) => row.dedupeKey as string);
+			expect(new Set(keys).size).toBe(2);
+			expect(keys.map((key) => key.split('|').at(-1))).toEqual(['0', '1']);
+		});
 	});
 });
 

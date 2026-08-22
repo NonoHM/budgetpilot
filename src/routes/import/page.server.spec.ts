@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
-import { buildDeduplicationKey } from '$lib/server/import/utils/safety';
+import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
@@ -1718,25 +1718,45 @@ describe('/import actions', () => {
 		expect(importResult?.netWorthLinkStatus).toBe('ignored');
 	});
 
-	it('universal deduplication: a maison line identical to a transaction already imported via another profile is ignored', async () => {
+	it('no longer deduplicates across import profiles, because v3 keys carry the account', async () => {
 		expect.assertions(3);
 
-		// Transaction already in the database, previously imported through banque-populaire, seeded
-		// with the key the CURRENT builder produces.
+		// THIS TEST ASSERTED THE OPPOSITE, and the inversion is a deliberate consequence of the v3
+		// key rather than a regression that slipped through. It used to claim "universal
+		// deduplication": a transaction imported through banque-populaire was recognised when the
+		// same row arrived through maison, because the v2 key carried nothing about where the row
+		// landed.
 		//
-		// This test's name claimed cross-profile deduplication and could not deliver it before the
-		// key was unified: `maison` built `date|amount|label` while every other profile built
-		// `date|label|amount|type|<category or reference>|scope`, so two profiles never produced the
-		// same key for the same transaction and this only ever exercised maison against maison. One
-		// builder for all five is what makes the claim true, and seeding through that builder is
-		// what keeps this test honest about which claim it is making.
-		const existingFingerprint = buildDeduplicationKey({
-			date: '2026-06-01',
-			label: 'Courses Auchan',
-			amountCents: 4_210,
-			type: 'expense',
-			occurrence: 0
-		});
+		// v3 carries the `Account.id`, which is what lets two accounts hold the same transaction
+		// without one of them silently vanishing (#449). On the CSV path a bucket is per PROFILE,
+		// so two profiles are two accounts and the same row read twice is now imported twice.
+		//
+		// That trade is deliberate and the loss is covered, not absorbed. A duplicate is on the
+		// screen and a dropped transaction is not, which is the direction this repository has
+		// chosen twice in writing. And the case is now LOUDER rather than quieter: `findCollidingBatch`
+		// compares period and totals across batches regardless of bucket, and its T3 term used to
+		// SUPPRESS the dialog precisely because these fingerprints matched. They no longer match,
+		// so the user gets the explicit "this file appears to repeat an earlier import" dialog
+		// instead of a silent absorption they were never told about.
+		//
+		// What actually removes the doubling is #372, which gives the import a real destination
+		// account so two reads of one statement land in one bucket.
+		const existingFingerprint = assignDedupeKeys([
+			{
+				id: 'seed',
+				source: 'banque_populaire',
+				accountId: 'account-existing',
+				date: '2026-06-01',
+				label: 'Courses Auchan',
+				amountCents: 4_210,
+				type: 'expense',
+				currency: 'EUR',
+				exponent: 2,
+				providerAccountId: null,
+				entryReference: null,
+				keyed: true
+			}
+		]).get('seed')!;
 		db.state.transactions.push({
 			id: 'transaction-existing',
 			accountId: 'account-existing',
@@ -1760,9 +1780,9 @@ describe('/import actions', () => {
 			`${MAISON_HEADER}\n2026-06-01;Courses Auchan;Alimentation;-42.10;expense;spending;csv`
 		);
 
-		expect(db.state.transactions).toHaveLength(1);
-		expect(result.importResult.importedRows).toBe(0);
-		expect(result.importResult.duplicateRows).toBe(1);
+		expect(db.state.transactions).toHaveLength(2);
+		expect(result.importResult.importedRows).toBe(1);
+		expect(result.importResult.duplicateRows).toBe(0);
 	});
 
 	/**

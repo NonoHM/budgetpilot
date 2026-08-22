@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildDeduplicationKey } from './utils/safety';
+import { assignDedupeKeys } from './dedupeRecompute';
 import { computeDedupeKeyHash, computeNullableDedupeKeyHash, dedupeKeyUpdate } from './dedupeKey';
 
 describe('computeDedupeKeyHash', () => {
@@ -39,20 +39,21 @@ describe('computeDedupeKeyHash', () => {
 
 		// Built through the real generator, so the guarantee is asserted end to end rather
 		// than on hand-written strings.
-		const left = buildDeduplicationKey({
+		const row = {
+			id: 'r',
+			source: 'csv',
+			accountId: 'acc',
 			date: '2026-06-01',
-			label: 'Café de la Gare',
 			amountCents: -350,
-			type: 'expense',
-			occurrence: 0
-		});
-		const right = buildDeduplicationKey({
-			date: '2026-06-01',
-			label: 'Cafe de la Gare',
-			amountCents: -350,
-			type: 'expense',
-			occurrence: 0
-		});
+			type: 'expense' as const,
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			entryReference: null,
+			keyed: true
+		};
+		const left = assignDedupeKeys([{ ...row, label: 'Café de la Gare' }]).get('r')!;
+		const right = assignDedupeKeys([{ ...row, label: 'Cafe de la Gare' }]).get('r')!;
 
 		expect(computeDedupeKeyHash(left)).not.toBe(computeDedupeKeyHash(right));
 	});

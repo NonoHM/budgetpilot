@@ -82,10 +82,15 @@ async function createUser(): Promise<string> {
 	return user.id;
 }
 
-function importedTransaction(
-	overrides: Partial<ImportedTransaction> & { dedupeKey?: string }
-): ImportedTransaction {
-	const { dedupeKey, ...rest } = overrides;
+/**
+ * No `dedupeKey` override any more, and the tests below are stronger for it. The key is derived
+ * from the row by the write path, so a fixture that wants two identities has to differ in a field
+ * the key actually carries. The accent test in particular used to hand in two hand-written keys,
+ * which asserted the hash over strings the fixture chose; it now differs only in its LABEL and the
+ * fold decides, which is the thing that was being claimed all along.
+ */
+function importedTransaction(overrides: Partial<ImportedTransaction>): ImportedTransaction {
+	const rest = overrides;
 	return {
 		id: '',
 		date: '2026-03-01',
@@ -99,7 +104,6 @@ function importedTransaction(
 			reference: '',
 			notes: '',
 			type: 'expense',
-			deduplicationKey: dedupeKey ?? '',
 			...rest.metadata
 		}
 	};
@@ -276,14 +280,8 @@ describe(`cross-provider database behavior (${provider})`, () => {
 			// The bug this whole hash exists for. On a MySQL default collation the raw keys
 			// compare equal, and one of two genuine payments is swallowed as a duplicate.
 			const result = await importRows([
-				importedTransaction({
-					label: 'CAFÉ DE LA GARE',
-					dedupeKey: '2026-03-01|café de la gare|-1250'
-				}),
-				importedTransaction({
-					label: 'CAFE DE LA GARE',
-					dedupeKey: '2026-03-01|cafe de la gare|-1250'
-				})
+				importedTransaction({ label: 'CAFÉ DE LA GARE' }),
+				importedTransaction({ label: 'CAFE DE LA GARE' })
 			]);
 
 			expect(result.importedRows).toBe(2);
@@ -291,7 +289,7 @@ describe(`cross-provider database behavior (${provider})`, () => {
 		});
 
 		it('skips a row whose fingerprint was already imported', async () => {
-			const row = importedTransaction({ dedupeKey: '2026-03-01|carrefour market|-1250' });
+			const row = importedTransaction({ label: 'CARREFOUR MARKET' });
 
 			const first = await importRows([row]);
 			expect(first.importedRows).toBe(1);
@@ -304,13 +302,13 @@ describe(`cross-provider database behavior (${provider})`, () => {
 			// PostgreSQL aborts the enclosing transaction when a constraint fires, so a caught
 			// unique violation only survives if persistTransaction runs outside one. The rows
 			// after the duplicate are what proves it does.
-			const duplicate = importedTransaction({ dedupeKey: '2026-03-02|loyer|-70000' });
+			const duplicate = importedTransaction({ label: 'LOYER', amountCents: -70000 });
 			await importRows([duplicate]);
 
 			const result = await importRows([
 				duplicate,
-				importedTransaction({ label: 'SNCF', dedupeKey: '2026-03-03|sncf|-4500' }),
-				importedTransaction({ label: 'EDF', dedupeKey: '2026-03-04|edf|-8900' })
+				importedTransaction({ label: 'SNCF', amountCents: -4500 }),
+				importedTransaction({ label: 'EDF', amountCents: -8900 })
 			]);
 
 			expect(result).toMatchObject({ importedRows: 2, duplicateRows: 1 });

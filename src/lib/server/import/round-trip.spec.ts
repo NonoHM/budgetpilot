@@ -4,6 +4,19 @@ import type { TransactionRowForMapping } from '$lib/server/transactions/nature';
 import type { TransactionNature } from '$lib/domain/transaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { parseCsvTransactions } from './csv';
+import { assignDedupeKeysForBatch } from './dedupeRecompute';
+
+/**
+ * The bucket these rows land in. The key is built by the write path now, so a spec that wants to
+ * talk about fingerprints asks that path what it would write, through the same function it calls.
+ */
+const CSV_BUCKET = {
+	accountId: 'account-1',
+	source: 'csv',
+	currency: 'EUR',
+	exponent: 2,
+	providerAccountId: null
+};
 
 /**
  * THE CONTRACT: a file BudgetPilot produced is a file BudgetPilot can read back.
@@ -118,21 +131,38 @@ describe('CSV round trip', () => {
 	});
 
 	/**
-	 * Re-importing your own export into the SAME instance must be a no-op, not a second copy of your
+	 * Re-importing your own export into the SAME BUCKET is a no-op, not a second copy of your
 	 * history. That works only if the v2 fingerprint of an unsplit transaction is byte-identical to
-	 * the v1 one — the fingerprint is (date, |amount|, label), so it is the PARENT total that has to
-	 * go into it, never a part.
+	 * the v1 one — the fingerprint carries the parent total, so it is that total which has to go
+	 * into it, never a part.
+	 *
+	 * **THE QUALIFIER IS NEW AND IT IS A CORRECTION.** This said "into the SAME INSTANCE", which was
+	 * true while the key carried nothing about where a row landed and is not true now: the v3 key
+	 * carries the `Account.id`, a CSV bucket is per import PROFILE, and BudgetPilot's own export
+	 * header is byte-identical to the maison-v2 one, so an export of rows that arrived through
+	 * `banque-populaire` reads back as a maison file into the `csv` bucket. MEASURED
+	 * (`roundTripBuckets.db-smoke.ts`): one bank row, exported and re-imported, gives
+	 * `imported=1 duplicate=0, buckets=2, rows=2`.
+	 *
+	 * This spec never covered that case and does not now: both sides here are maison-family files
+	 * in one bucket, so it measures the fingerprint's stability and nothing about buckets. The test
+	 * that DID cover it is in `routes/import/page.server.spec.ts`, where the claim is inverted
+	 * deliberately with its reasoning. Recorded here because a docstring naming a contract the
+	 * spec below it does not check is exactly how a reader comes to believe it is checked.
 	 */
 	it('fingerprints a v2 line exactly as v1 did, so an export re-imported twice adds nothing', () => {
 		expect.assertions(1);
 
-		const viaV2 = roundTrip([row()]).transactions[0].metadata.deduplicationKey;
-		const viaV1 = parseCsvTransactions(
-			[
-				'date;libelle;categorie;montant;type;nature;source_bancaire',
-				"2026-06-12;Leroy Merlin;Maison;'-80.00;expense;spending;csv"
-			].join('\r\n')
-		).transactions[0].metadata.deduplicationKey;
+		const viaV2 = assignDedupeKeysForBatch(roundTrip([row()]).transactions, CSV_BUCKET)[0];
+		const viaV1 = assignDedupeKeysForBatch(
+			parseCsvTransactions(
+				[
+					'date;libelle;categorie;montant;type;nature;source_bancaire',
+					"2026-06-12;Leroy Merlin;Maison;'-80.00;expense;spending;csv"
+				].join('\r\n')
+			).transactions,
+			CSV_BUCKET
+		)[0];
 
 		expect(viaV2).toBe(viaV1);
 	});
@@ -140,8 +170,8 @@ describe('CSV round trip', () => {
 	it('keeps a répartition’s fingerprint on the PARENT total, not on its first part', () => {
 		expect.assertions(1);
 
-		expect(roundTrip([SPLIT_ROW]).transactions[0].metadata.deduplicationKey).toBe(
-			roundTrip([row()]).transactions[0].metadata.deduplicationKey
+		expect(assignDedupeKeysForBatch(roundTrip([SPLIT_ROW]).transactions, CSV_BUCKET)[0]).toBe(
+			assignDedupeKeysForBatch(roundTrip([row()]).transactions, CSV_BUCKET)[0]
 		);
 	});
 

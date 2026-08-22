@@ -1,17 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { constantTimeEquals } from '$lib/server/banking/constantTime';
-import { normalizeForMatch } from '$lib/domain/normalize';
 import { filterBalancesByCurrency, selectPreferredBalance } from '$lib/domain/bankBalance';
 import type { ImportedTransaction, ImportedTransactionType } from '$lib/server/import/types';
 import { parseMoney, DEFAULT_CURRENCY, isValidCurrencyCode } from '$lib/domain/money';
 import {
-	buildDeduplicationGroupKey,
-	buildDeduplicationKey,
-	hashFingerprint,
+	buildPreviewRowId,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '$lib/server/import/utils/safety';
-import { createOccurrenceCounter } from '$lib/server/import/occurrence';
 import {
 	EnableBankingApiError,
 	enableBankingRequest,
@@ -185,9 +181,12 @@ export class EnableBankingConnector implements BankConnector {
 
 		const transactions: ImportedTransaction[] = [];
 		let continuationKey: string | undefined;
-		// One counter per fetch, created OUTSIDE the pagination loop so a group spanning two
-		// pages keeps counting rather than restarting. See occurrence.ts.
-		const nextOccurrence = createOccurrenceCounter();
+		// EVERY PAGE IS COLLECTED BEFORE ANYTHING IS PERSISTED, and that is load bearing rather
+		// than incidental. The deduplication ordinal is now handed out by the write path over one
+		// batch (`import/dedupeRecompute.ts`), so a group spanning two pages keeps counting only
+		// because the whole fetch reaches `persistImportedTransactions` in a single call. Persisting
+		// page by page would restart the numbering at every page boundary, and the same transaction
+		// would key differently on the next sync and import again.
 		for (let page = 0; ; page += 1) {
 			if (page >= MAX_TRANSACTION_PAGES) {
 				throw new Error('Enable Banking pagination exceeded the defensive page cap');
@@ -201,7 +200,7 @@ export class EnableBankingConnector implements BankConnector {
 			);
 			const parsed = transactionsResponseSchema.parse(raw);
 			for (const transaction of parsed.transactions) {
-				const mapped = mapTransaction(transaction, accountId, nextOccurrence);
+				const mapped = mapTransaction(transaction, transactions.length);
 				if (mapped) transactions.push(mapped);
 			}
 			if (!parsed.continuation_key) break;
@@ -346,8 +345,7 @@ function maskIbanTail(iban: string | null | undefined): string | null {
 /** Maps one provider transaction; returns null for entries we deliberately skip (non-BOOK). */
 function mapTransaction(
 	transaction: EnableBankingTransaction,
-	accountId: string,
-	nextOccurrence: (groupKey: string) => number
+	position: number
 ): ImportedTransaction | null {
 	if (transaction.status && transaction.status !== 'BOOK') return null;
 
@@ -380,26 +378,10 @@ function mapTransaction(
 	//
 	// `category` left the key in v2: it was the constant UNCLASSIFIED_CATEGORY here, so it never
 	// distinguished anything.
-	const fallbackGroup = {
-		date,
-		label: normalizeForMatch(label),
-		amountCents: absAmountCents,
-		type
-	};
-
 	const entryReference = transaction.entry_reference?.trim() ?? '';
-	// Provider entry_reference is the stable per-account dedup anchor; the content
-	// fingerprint (normalized label) only backs up ASPSPs that omit it.
-	const deduplicationKey = entryReference
-		? `enablebanking:${accountId}:${entryReference}`
-		: buildDeduplicationKey({
-				...fallbackGroup,
-				occurrence: nextOccurrence(buildDeduplicationGroupKey(fallbackGroup)),
-				accountScope: `enablebanking:${accountId}`
-			});
 
 	return {
-		id: `eb-${hashFingerprint(deduplicationKey)}`,
+		id: buildPreviewRowId('eb', position, date, label, absAmountCents),
 		date,
 		label,
 		amountCents,
@@ -411,8 +393,7 @@ function mapTransaction(
 			reference: entryReference,
 			notes: label,
 			type,
-			bankOperationType: transaction.bank_transaction_code?.description ?? undefined,
-			deduplicationKey
+			bankOperationType: transaction.bank_transaction_code?.description ?? undefined
 		}
 	};
 }

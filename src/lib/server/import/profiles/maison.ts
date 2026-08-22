@@ -10,14 +10,11 @@ import type { CsvRefusal } from '../refusals';
 import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
-	buildDeduplicationGroupKey,
-	buildDeduplicationKey,
-	hashFingerprint,
+	buildPreviewRowId,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
-import { createOccurrenceCounter } from '../occurrence';
 import { foldExactHeader } from '../utils/encoding';
 
 const MAISON_HEADERS = [
@@ -51,8 +48,6 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 	}
 
 	const transactions: ImportedTransaction[] = [];
-	// One counter per parse, never shared between files: see occurrence.ts.
-	const nextOccurrence = createOccurrenceCounter();
 	const refusals: CsvRefusal[] = [];
 	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
 	// saying so in the summary is what stops a reader inferring the counter was forgotten.
@@ -142,14 +137,8 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 		// The ordinal is what makes two identical rows two transactions rather than one. The
 		// in-file skip that used to sit here collapsed them and counted the second as a
 		// duplicate, so a file carrying the same row twice imported one of them.
-		const group = { date, label, amountCents, type: derivedType };
-		const fingerprint = buildDeduplicationKey({
-			...group,
-			occurrence: nextOccurrence(buildDeduplicationGroupKey(group))
-		});
-
 		const transaction: ImportedTransaction = {
-			id: `csv-${hashFingerprint(fingerprint)}`,
+			id: buildPreviewRowId('csv', line, date, label, amountCents),
 			date,
 			label,
 			amountCents,
@@ -159,8 +148,7 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 				reference: '',
 				notes: label,
 				type: derivedType,
-				natureManual: natureManual ?? undefined,
-				deduplicationKey: fingerprint
+				natureManual: natureManual ?? undefined
 			}
 		};
 		const validation = validateTransaction(transaction);

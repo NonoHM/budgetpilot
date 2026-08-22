@@ -220,13 +220,24 @@ rows only, so a run that skipped everything reports zero for both.
 
 ## Duplicate detection
 
-Per **transaction**, not per file, and the comparison is over the
-transaction's **date, label, amount and direction**, plus an ordinal that
+Per **transaction**, not per file. The comparison is over the transaction's
+**date, label, amount and direction**, over **which format it was filed
+under**, over the **currency** the amount is in, and over an ordinal that
 separates genuine repeats of the same payment on the same day. Importing the
 same statement twice creates nothing the second time, and importing an
 overlapping statement creates only the rows that are new. Verified: the same
 five-row file imported twice reported 5 read / 5 imported / 0 duplicates, then
 5 read / 0 imported / 5 duplicates.
+
+**Two transactions filed under different formats are never compared**, and
+that is deliberate: the same payment can genuinely appear in two accounts, and
+treating those as one would drop a real transaction with nothing to report it.
+It has one consequence worth knowing, because the CSV export is read back as a
+**Home** file: re-importing an export of transactions that arrived through
+**Banque Populaire** or **Revolut** creates a second copy of each. The check
+described below fires on exactly that run and asks you to confirm before
+anything is written. Use **Settings, Backup** rather than the CSV export when
+what you want is a copy you can restore.
 
 **The label is a column you designate, so changing which column feeds it
 changes every comparison.** Re-reading a statement through a different label

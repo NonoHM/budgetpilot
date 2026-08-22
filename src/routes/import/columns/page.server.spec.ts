@@ -26,6 +26,10 @@ const store = vi.hoisted(() => ({
 
 const persist = vi.hoisted(() => ({
 	createImportBatch: vi.fn(async () => 'batch-1'),
+	// The read-only bucket lookup the route runs BEFORE the collision check, so the fingerprints
+	// compared there are built against the account the run will land on. Null here, which is the
+	// first-import case: the bucket does not exist yet, so it holds no keys to recognise.
+	findImportBucketAccount: vi.fn(async () => null),
 	// The shape `persistImportedTransactions` actually returns. It used to be
 	// `{ imported, duplicates, netWorthLinkStatus }` here, which is a shape the route has not read
 	// for some time: every figure it takes off this value was `undefined` and no test noticed,
