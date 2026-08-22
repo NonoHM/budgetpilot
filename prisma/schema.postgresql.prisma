@@ -89,6 +89,7 @@ model User {
   transactions                    Transaction[]
   importBatches                   ImportBatch[]
   columnMappings                  ColumnMapping[]
+  importSourceSignatures          ImportSourceSignature[]
   rules                           CategorizationRule[]
   categoryRules                   CategoryRule[]
   monthlyBudgets                  MonthlyBudget[]
@@ -164,7 +165,7 @@ model Invitation {
 }
 
 model Account {
-  id                      String           @id @default(cuid())
+  id                      String                  @id @default(cuid())
   userId                  String
   name                    String
   /// ISO 4217 code for the amounts this bucket holds, and the power of ten that scales them.
@@ -190,7 +191,7 @@ model Account {
   /// The backup contract carries both: see src/lib/server/backup/schema.ts.
   currency                String
   exponent                Int
-  source                  String           @default("manual")
+  source                  String                  @default("manual")
   /// Optional link to the net worth account this technical/import bucket belongs to.
   /// Several Account rows (e.g. one manual bucket + one per import profile) can point to
   /// the same NetWorthAccount. Nullable: most Account rows have no link yet (legacy buckets,
@@ -222,12 +223,37 @@ model Account {
   /// therefore enforced in application code (server/import/persist.ts), which resolves the
   /// folded name oldest-row-first so every provider picks the same bucket.
   nameKey                 String?
-  createdAt               DateTime         @default(now())
-  updatedAt               DateTime         @updatedAt
-  user                    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  netWorthAccount         NetWorthAccount? @relation(fields: [netWorthAccountId], references: [id], onDelete: SetNull)
-  bankConnection          BankConnection?  @relation(fields: [bankConnectionId], references: [id], onDelete: SetNull)
+  /// Four characters at most, from the END of an IBAN or account number read out of a statement.
+  /// NEVER the whole identifier, never the BBAN, never enough to recompute a check digit.
+  ///
+  /// A NEW SENSITIVE DATA CLASS: a partial bank account identifier. Four characters are not a
+  /// payment instrument, and in a list of one holder's accounts they are precisely the attribute
+  /// that identifies. Scope is at rest and on screen, in the single form `···4417`. It must never
+  /// reach a log line, a telemetry event, a crash breadcrumb or an error message: an error message
+  /// travels, through a screenshot, a ticket and a clipboard. ASVS 5.0.0 14.1.1 carries it on its
+  /// own row; 16.2.5 is the logging interdict.
+  ///
+  /// Excluded from the backup export (B2), because the backup is plaintext JSON: there is no
+  /// cipher, no passphrase and no key derivation anywhere in server/backup/. See backup/schema.ts.
+  ///
+  /// The statement file is not kept, so this value is never re-derivable after the fact. That is
+  /// an accepted limit rather than an oversight.
+  discriminant            String?
+  /// The bank, when we know it without asking. Written by the boot backfill from `source` and by
+  /// the bank-sync path from the connection. NEVER written by the create sheet, which stays one
+  /// field per ruling F1.
+  institution             String?
+  /// Archived accounts stay on their past imports and leave the picker. Not a soft delete: their
+  /// transactions remain fully readable, they simply stop being a destination.
+  archivedAt              DateTime?
+  createdAt               DateTime                @default(now())
+  updatedAt               DateTime                @updatedAt
+  user                    User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  netWorthAccount         NetWorthAccount?        @relation(fields: [netWorthAccountId], references: [id], onDelete: SetNull)
+  bankConnection          BankConnection?         @relation(fields: [bankConnectionId], references: [id], onDelete: SetNull)
   transactions            Transaction[]
+  importBatches           ImportBatch[]
+  importSourceSignatures  ImportSourceSignature[]
 
   // The one uniqueness rule in this schema still read through a collation, and therefore the
   // one place where MySQL can answer differently from SQLite and PostgreSQL. `utf8mb4_unicode_ci`
@@ -250,6 +276,7 @@ model Account {
   @@index([netWorthAccountId])
   @@index([bankConnectionId])
   @@index([userId, source, providerAccountId])
+  @@index([userId, archivedAt])
 }
 
 /// A live open-banking connection (aggregator consent/session) owned by one user.
@@ -594,6 +621,8 @@ model Transaction {
 model ImportBatch {
   id              String         @id @default(cuid())
   userId          String
+  /// The account this statement was filed into. Backfilled from the batch's own transactions.
+  accountId       String
   source          String         @default("csv")
   fileName        String?
   profile         String         @default("generic")
@@ -612,9 +641,36 @@ model ImportBatch {
   /// corrects a wrong designation has nothing to open. `SetNull` rather than `Cascade`: forgetting
   /// a correspondance must not delete the transactions that were imported through it.
   columnMappingId String?
+  /// Which date order this import APPLIED, so a later fix to #433 can offer to reinterpret rather
+  /// than only being right from its ship day onward.
+  ///
+  /// `'day-first' | 'month-first' | null`. NULL means the batch was written before this column
+  /// existed and the order it used is NOT RECOVERABLE, so nothing may offer to reinterpret it.
+  /// That is a real state and not an absence of data: a reinterpretation offered on a guess is the
+  /// silent wrong-date import #433 is about, arriving a second time through its own fix.
+  ///
+  /// ## Why a column and not a recomputation
+  ///
+  /// MEASURED 2026-08-22, through the running application against a real engine, three imports:
+  /// the applied order is stored nowhere (`ImportBatch`, `ColumnMapping` and `Transaction` all
+  /// carry no date-format field), and the RAW cell is not recoverable either on the paths that
+  /// need it. `metadataJson.csvFields` looks like it keeps the original string and does so only
+  /// for Banque Populaire, whose dates were never ambiguous: `persist.ts` filters `csvFields`
+  /// through a fixed ten-label allowlist of that profile's own headers, so a designated or generic
+  /// import stores `{}`. Measured values: designated `{}`, generic `{}`, Banque Populaire nine
+  /// keys including `Date de comptabilisation`.
+  ///
+  /// So the same class of decision as `Transaction.exponent`: an interpretation applied at import
+  /// and unrecoverable from the result. The exponent is stored per row precisely so the money
+  /// widening has a recovery path, and this is that treatment applied to the date order.
+  ///
+  /// `ImportBatch` rather than `ColumnMapping`, because a correspondance is reused across files
+  /// and the order is a property of the FILE that was read.
+  dateOrder       String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account         Account        @relation(fields: [accountId], references: [id], onDelete: Cascade)
   columnMapping   ColumnMapping? @relation(fields: [columnMappingId], references: [id], onDelete: SetNull)
   transactions    Transaction[]
 
@@ -622,6 +678,7 @@ model ImportBatch {
   @@index([source])
   @@index([userId, createdAt])
   @@index([columnMappingId])
+  @@index([accountId])
 }
 
 /// One user's answer to "which column of this file holds what", remembered by the shape of the
@@ -724,6 +781,39 @@ model ColumnMapping {
   /// ASVS 5.0 V8.2.2 is the row; the scoped where clause is the control.
   @@unique([userId, fingerprint])
   @@index([userId])
+}
+
+/// Which ACCOUNT a file shape landed on, remembered so the next statement of that shape does not ask.
+///
+/// A SECOND key beside `ColumnMapping`, never an extension of it. `ColumnMapping` says which
+/// COLUMN holds what; this says which ACCOUNT the file belongs to. Merging them would lose the
+/// column correspondance every time a new account of the same bank appears, which is the whole
+/// reason they are two.
+model ImportSourceSignature {
+  id           String    @id @default(cuid())
+  userId       String
+  /// Full 64 character SHA-256 of the header row, from import/mapping/fingerprint.ts. Never truncated.
+  fingerprint  String
+  /// The account identifier fragment read from the file, when the file carried one. NULL means the
+  /// shape was seen without one, and a NULL-discriminant fingerprint may be the only entry or one
+  /// of several: the read returns a SET, never a choice.
+  discriminant String?
+  accountId    String
+  useCount     Int       @default(0)
+  lastUsedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  account      Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+
+  /// COMPOSITE, and the reason is ColumnMapping's verbatim: a fingerprint is derived from a bank's
+  /// PUBLIC column names, so every user of that bank shares one. A global lookup is the designed
+  /// behaviour of the key, not a rare collision, and what stands between it and a read of somebody
+  /// else's configuration is that the composite makes the SAFE query the shortest one to write.
+  /// ASVS 5.0 V8.2.2 is the row; the scoped where clause is the control.
+  @@unique([userId, fingerprint, discriminant])
+  @@index([userId])
+  @@index([accountId])
 }
 
 model CategorizationRule {
