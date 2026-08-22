@@ -200,6 +200,10 @@ describe('the account fields that must never reach the local model', () => {
 	// and 14.2.3 (verified by attack, as of the 2026-08-13 assessment of commit d9c116c) is the
 	// row about sensitive data reaching untrusted parties.
 	it('refuses a payload carrying an account fragment, at any depth', () => {
+		// SEPARATES: « the walker refuses a forbidden key nested two levels down » FROM « the
+		// walker only inspects the top level ». The fragment is placed inside
+		// `largestExpenses[0]`, not on the payload root, because a top-level-only guard would be
+		// narrower than the walker it guards and would pass a root-level test.
 		const leaked = {
 			...summary,
 			largestExpenses: [{ ...summary.largestExpenses[0], discriminant: '4417' }]
@@ -209,22 +213,36 @@ describe('the account fields that must never reach the local model', () => {
 	});
 
 	it('does not name the fragment in the refusal, because an error message travels', () => {
+		// SEPARATES: « the refusal names the key and deliberately omits the value » FROM « some
+		// other error was thrown, which also happens not to contain 4417 ». Those are the same
+		// green under a bare `not.toContain`, so the positive claim is asserted first: the message
+		// must name `discriminant`. A break-check would redden either way and tell us nothing
+		// about which of the two we are in.
+		expect.assertions(3);
+
 		const leaked = {
 			...summary,
 			largestExpenses: [{ ...summary.largestExpenses[0], discriminant: '4417' }]
 		} as unknown as TransactionSummary;
 
-		// The KEY may be named, so the developer can find it. The VALUE may not: an error message
-		// reaches a log, a screenshot, a ticket and a clipboard. ASVS 5.0.0 16.2.5.
-		expect(() => buildBudgetInsightsPrompt(leaked)).toThrow();
 		try {
 			buildBudgetInsightsPrompt(leaked);
 		} catch (error) {
-			expect((error as Error).message).not.toContain('4417');
+			const message = (error as Error).message;
+			// The KEY is named, so a developer can find the field.
+			expect(message).toContain('discriminant');
+			// The VALUE is not: an error message reaches a log, a screenshot, a ticket and a
+			// clipboard. ASVS 5.0.0 16.2.5.
+			expect(message).not.toContain('4417');
+			// And it is OUR refusal rather than an incidental throw from somewhere downstream.
+			expect(message).toContain('refusing to build a prompt');
 		}
 	});
 
 	it('still builds an ordinary payload, and the control string proves it read one', () => {
+		// SEPARATES: « the prompt was built and carries no forbidden key » FROM « the builder
+		// returned nothing, so of course it carries no forbidden key ». The control string is the
+		// only thing that tells those two apart.
 		const prompt = buildBudgetInsightsPrompt(summary);
 		// THE CONTROL. Without it, "no fragment in the prompt" is equally true of a builder that
 		// returned an empty string, and an empty result would read as a clean pass.
