@@ -29,17 +29,18 @@ import {
 export type { ImportInvalidRowDetail } from '$lib/server/import/invalidRowDetails';
 import {
 	createImportBatch,
-	findImportBucketAccount,
+	findImportBucketAccountBySource,
 	persistImportedTransactions,
-	resolveImportBucketAccount
+	resolveImportBucketAccountBySource
 } from '$lib/server/import/persist';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
+import { buildAccountOffer } from '$lib/server/import/accountOffer';
+import type { ParsedCsvRow } from '$lib/server/import/types';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { isLinkableNetWorthAccountType } from '$lib/domain/netWorth';
 import { readLinkableNetWorthAccounts, readNetWorthAccounts } from '$lib/server/net-worth/service';
 import type { PageServerLoad } from './$types';
 
-const CSV_ACCOUNT_NAME = 'Compte import CSV';
 /**
  * Sources an import CSV row can land on, based on the auto-detected profile (see
  * getImportSource below). The exact one is only known after the file is uploaded and its
@@ -108,7 +109,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	const [linkableNetWorthAccounts, existingImportBuckets] = await Promise.all([
 		readLinkableNetWorthAccounts(user.id),
 		prisma.account.findMany({
-			where: { userId: user.id, name: CSV_ACCOUNT_NAME, source: { in: [...CSV_IMPORT_SOURCES] } },
+			// The NAME is gone from this filter, and its absence is the point: the boot backfill
+			// renames these buckets, so a name-scoped query silently stops matching the very rows it
+			// is asking about and reports that the user has none. `source` is what actually
+			// identifies them and it is the half that cannot be renamed.
+			where: { userId: user.id, source: { in: [...CSV_IMPORT_SOURCES] }, archivedAt: null },
 			select: { source: true }
 		})
 	]);
@@ -138,6 +143,28 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		)
 	};
 };
+
+/**
+ * The account offer, in the shape that survives the wire.
+ *
+ * `lastUsedAt` leaves as an ISO string rather than a `Date`, and the formatting happens on the
+ * page: the negotiated locale is known there, and this repository has one expensive instance of a
+ * module reaching for an ambient locale on the server. `namedAt` on this same payload already
+ * follows the convention.
+ */
+async function accountOfferPayload(userId: string, rows: ParsedCsvRow[]) {
+	const offer = await buildAccountOffer({ userId, rows });
+	return {
+		options: offer.options,
+		resolution: offer.resolution,
+		memory: offer.memory && {
+			useCount: offer.memory.useCount,
+			lastUsedAt: offer.memory.lastUsedAt?.toISOString() ?? null
+		},
+		// Nobody has chosen yet on the way in. The screen derives its prefill from `resolution`.
+		chosenId: null
+	};
+}
 
 export const actions: Actions = {
 	default: async ({ locals, request }) => {
@@ -240,6 +267,7 @@ export const actions: Actions = {
 		if (correcting) {
 			return fail(400, {
 				designation: {
+					account: await accountOfferPayload(user.id, importData.rows),
 					name: importFile.name,
 					headers: headerCells,
 					samples: importSampleValues(importData.rows),
@@ -334,6 +362,7 @@ export const actions: Actions = {
 				designation:
 					!splitPair && offersDesignation(result, headerCells)
 						? {
+								account: await accountOfferPayload(user.id, importData.rows),
 								name: importFile.name,
 								headers: headerCells,
 								samples: importSampleValues(importData.rows),
@@ -373,6 +402,29 @@ export const actions: Actions = {
 		 * re-import of an already-imported file. That run is the one every user performs, and a
 		 * warning shown on it is a warning nobody reads by the third month.
 		 */
+		/**
+		 * WHICH ACCOUNT THIS AUTO-DETECTED FILE LANDS IN, asked once and before anything is written.
+		 *
+		 * There is no account row on this path: `/import` imports a recognised file without ever
+		 * showing the designation screen, so nothing here can ask the user. The destination used to
+		 * be `(name: 'Compte import CSV', source)`, and the boot backfill renames those buckets, so
+		 * that lookup silently stopped matching and made a second one. MEASURED on this branch:
+		 * `created=true`, `buckets=2`.
+		 *
+		 * Looked up WITHOUT creating: a run the user abandons at the collision dialog must leave no
+		 * row behind, and creating here would make the next run report their destination choice as
+		 * « ignored », since that sentence is derived from whether the bucket was created.
+		 *
+		 * Two accounts of one source is the state this piece newly makes reachable, and a file alone
+		 * cannot say which. Refusing here rather than taking the first is the whole point of the
+		 * piece: the refusal names the screen that CAN ask, and it is a 400 the user can read.
+		 */
+		const source = getImportSource(result.summary.profile);
+		const destination = await findImportBucketAccountBySource({ userId: user.id, source });
+		if (destination.kind === 'ambiguous') {
+			return fail(400, { error: m.import_account_error_ambiguous_auto() });
+		}
+
 		if (formData.get('confirmCollision') !== '1') {
 			// The bucket this run will land on, looked up WITHOUT creating it. The deduplication
 			// key carries the Account.id a row lands on, so the fingerprints compared below have to
@@ -382,11 +434,7 @@ export const actions: Actions = {
 			//
 			// Null when the bucket does not exist yet, and the empty key list that follows is exact
 			// rather than lenient: a bucket with no rows has no fingerprints to recognise.
-			const collisionBucket = await findImportBucketAccount({
-				userId: user.id,
-				name: CSV_ACCOUNT_NAME,
-				source: getImportSource(result.summary.profile)
-			});
+			const collisionBucket = destination.kind === 'one' ? destination.bucket : null;
 			const incoming = describeIncomingBatch(
 				result.transactions,
 				result.summary.period,
@@ -423,13 +471,18 @@ export const actions: Actions = {
 		// counting a refusal there would overstate how much the user should trust it.
 		if (useMapping && remembered) await recordColumnMappingUse(user.id, remembered.id);
 
-		const source = getImportSource(result.summary.profile);
-		const bucket = await resolveImportBucketAccount({
+		const resolved = await resolveImportBucketAccountBySource({
 			userId: user.id,
-			name: CSV_ACCOUNT_NAME,
 			source,
 			netWorthAccountId
 		});
+		// Unreachable: the same question was asked above, before anything was written, and a
+		// `ambiguous` answer returned there. Asserted rather than assumed, because « the check above
+		// covers this » is a claim about two pieces of code that nothing keeps in step.
+		if (resolved.kind === 'ambiguous') {
+			return fail(400, { error: m.import_account_error_ambiguous_auto() });
+		}
+		const bucket = { accountId: resolved.bucket.accountId, created: resolved.created };
 		// Tells the user whether their destination-account choice was actually applied or
 		// silently ignored because a bucket for this exact profile already existed.
 		const netWorthLinkStatus: 'applied' | 'ignored' | null =

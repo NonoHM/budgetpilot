@@ -144,6 +144,10 @@ describe('resolveImportBucketAccount', () => {
 				currency: 'EUR',
 				exponent: 2,
 				netWorthAccountId: null,
+				// Create-only, like the links around it. A bucket born with a null institution keeps
+				// the boot backfill's pending predicate true and makes the once-only pass run on
+				// every start, so the field is written at creation rather than left to it.
+				institution: null,
 				bankConnectionId: null,
 				providerAccountId: null,
 				providerCashAccountType: null

@@ -1,5 +1,6 @@
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
+import type { PendingDesignation } from './pendingDesignation.svelte';
 
 /**
  * A designated run the server refused to write until the user answers for it, carried back to
@@ -40,6 +41,17 @@ export interface PendingCollision {
 		 */
 		view: DesignationFile;
 		assignment: RoleAssignment;
+		/**
+		 * The account the user chose, carried because CONFIRMING re-posts the same run.
+		 *
+		 * The designation action refuses a submission with no account, so a repost that lost this
+		 * would turn « Importer quand même » into a refusal the user cannot act on: they chose an
+		 * account one screen ago and would be told to choose one, with no control in front of them
+		 * to do it with.
+		 */
+		accountId: string;
+		/** The offer itself, so DECLINING can reopen the screen with its panel intact. */
+		account: PendingDesignation['account'];
 		remember: boolean;
 		hasHeaderRow: boolean;
 		/**

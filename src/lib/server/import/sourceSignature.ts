@@ -202,8 +202,15 @@ export async function rememberStatementAccount({
 	return 'remembered';
 }
 
-/** `rows[0]` is the header row. An empty file has no shape, and hashes the empty list. */
-function headersOf(rows: ParsedCsvRow[]): string[] {
+/**
+ * `rows[0]` is the header row. An empty file has no shape, and hashes the empty list.
+ *
+ * Exported so a caller asking a SECOND question about the same shape computes the fingerprint from
+ * the same function rather than retyping `rows[0].cells`. Two sides of one comparison must not come
+ * from two sources: a caller that retyped it would agree with this one by luck, and would keep
+ * agreeing right up until the day the header row stops being row zero.
+ */
+export function headersOf(rows: ParsedCsvRow[]): string[] {
 	return rows[0]?.cells ?? [];
 }
 

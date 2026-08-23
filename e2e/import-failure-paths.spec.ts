@@ -1,6 +1,7 @@
 import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { expectPrimaryUnobstructed, onScreen } from './screen-geometry';
+import { chooseStatementAccount } from './choose-account';
 
 /**
  * The import path's failure paths, which are the ones no level below this can see.
@@ -107,6 +108,8 @@ test.describe('the designation screen answers when the import call fails', () =>
 		// the request that follows is a genuine unauthenticated one and `requireUser` answers it.
 		await context.clearCookies();
 
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 
 		// BEFORE: this URL never changed and no message ever appeared. The assertion is the
@@ -128,6 +131,8 @@ test.describe('the designation screen answers when the import call fails', () =>
 			else await route.fallback();
 		});
 
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 
 		await expect(onScreen(page, m.import_columns_error_unexpected())).toBeVisible({

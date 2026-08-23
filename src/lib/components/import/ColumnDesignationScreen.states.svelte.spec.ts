@@ -73,6 +73,17 @@ function mount(props: Record<string, unknown> = {}) {
 	const result = render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: EMPTY_ASSIGNMENT,
+		/**
+		 * A RESOLVED account in every mount, so a press reaches what these tests measure.
+		 *
+		 * The account row refuses the primary until one is chosen, which is its own behaviour with
+		 * its own tests. Leaving it unchosen here would make every press in this file measure that
+		 * guard instead of the thing it names.
+		 */
+		accounts: [
+			{ id: 'account-1', name: 'BP · Compte courant', discriminant: '4417', transactionCount: 128 }
+		],
+		initialAccountId: 'account-1',
 		// 0 rather than 150: the ORDER is what is under test, and a real delay would make every
 		// assertion below a race. The order itself is asserted separately, in its own test.
 		announceDelayMs: 0,
@@ -108,7 +119,10 @@ describe('the screen puts each row into one state, and the precedence is the sta
 		expect(amountRow.textContent).not.toContain('Choisir une colonne');
 		// And state 3b's own promise, which is the half a single-row assertion cannot see: the
 		// untouched rows really are untouched.
-		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(4);
+		expect(
+			container.querySelectorAll('[data-testid="designation-card"] button[aria-haspopup="listbox"]')
+				.length
+		).toBe(4);
 	});
 
 	it('prefers ambiguous over empty when detection proposes two columns', () => {
@@ -481,7 +495,10 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		// inert and still answers a keyboard.
 		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
 
-		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(0);
+		expect(
+			container.querySelectorAll('[data-testid="designation-card"] button[aria-haspopup="listbox"]')
+				.length
+		).toBe(0);
 		const rows = container.querySelectorAll('[data-testid="designation-card"] > div > div');
 		expect(rows.length).toBeGreaterThan(0);
 		for (const row of rows) {
@@ -511,7 +528,10 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 			.toBeInTheDocument();
 		const card = container.querySelector('[data-testid="designation-card"]') as HTMLElement;
 		expect(card.getBoundingClientRect().height).toBe(355);
-		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(4);
+		expect(
+			container.querySelectorAll('[data-testid="designation-card"] button[aria-haspopup="listbox"]')
+				.length
+		).toBe(4);
 	});
 
 	/**

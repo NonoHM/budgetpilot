@@ -19,6 +19,7 @@ const db = vi.hoisted(() => {
 		currency: string;
 		netWorthAccountId?: string | null;
 		providerAccountId?: string | null;
+		archivedAt?: Date | null;
 	};
 	type NetWorthAccount = {
 		id: string;
@@ -182,6 +183,16 @@ const db = vi.hoisted(() => {
 						.map((account) => ({ ...account, updatedAt: account.createdAt }))
 				)
 			},
+			/**
+			 * The source-signature memory the account offer reads. Empty, which is the first-import
+			 * case: nothing has been memorised, so resolution answers rank 3 with no candidates and
+			 * the row asks. Modelled rather than omitted because an absent model is not an empty
+			 * table, it is a crash.
+			 */
+			importSourceSignature: {
+				findMany: vi.fn(async () => []),
+				findFirst: vi.fn(async () => null)
+			},
 			account: {
 				upsert: vi.fn(async ({ where, create }: AccountUpsertArgs) => {
 					const found = state.accounts.find(
@@ -195,19 +206,42 @@ const db = vi.hoisted(() => {
 					state.accounts.push(account);
 					return account;
 				}),
-				findMany: vi.fn(
-					async ({
-						where
-					}: {
-						where: { userId: string; name: string; source: { in: string[] } };
-					}) =>
-						state.accounts.filter(
-							(account) =>
-								account.userId === where.userId &&
-								account.name === where.name &&
-								where.source.in.includes(account.source)
-						)
-				),
+				/**
+				 * TWO call shapes reach this fake and it models both rather than matching neither.
+				 *
+				 * The load's probe asks `{ userId, source: { in: [...] }, archivedAt: null }`; the
+				 * auto path's destination lookup asks `{ userId, source: <scalar>, archivedAt: null }`.
+				 * The name left the first of those when the boot backfill started renaming buckets.
+				 *
+				 * It THROWS on a key it cannot model, which is the rule that makes this fake worth
+				 * anything: Prisma treats an unknown `where` key as no filter at all, so a fake that
+				 * quietly ignored one would report every account as a candidate and turn the
+				 * ambiguity refusal into a pass. A fake must fail loudly on a predicate it cannot
+				 * model and faithfully model an absent one.
+				 */
+				findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+					const modelled = new Set(['userId', 'name', 'source', 'archivedAt']);
+					for (const key of Object.keys(where)) {
+						if (!modelled.has(key)) {
+							throw new Error(`account.findMany fake cannot model where.${key}`);
+						}
+					}
+					return state.accounts.filter((account) => {
+						if (account.userId !== where.userId) return false;
+						if (where.name !== undefined && account.name !== where.name) return false;
+						const source = where.source;
+						if (typeof source === 'string' && account.source !== source) return false;
+						if (
+							source !== null &&
+							typeof source === 'object' &&
+							!(source as { in: string[] }).in.includes(account.source)
+						) {
+							return false;
+						}
+						if (where.archivedAt === null && (account.archivedAt ?? null) !== null) return false;
+						return true;
+					});
+				}),
 				findUnique: vi.fn(
 					async ({
 						where
@@ -822,11 +856,17 @@ describe('/import load', () => {
 		};
 
 		expect(result.hasAllImportBucketsExisting).toBe(false);
+		// The NAME is deliberately absent from this where, and that absence is the assertion.
+		//
+		// The boot backfill renames these buckets, so a name-scoped probe silently stops matching
+		// the rows it is asking about and reports that a user with three buckets has none. `source`
+		// is the half that identifies them and cannot be renamed. `archivedAt: null` because a
+		// retired bucket is not a bucket this screen should count as existing.
 		expect(db.prisma.account.findMany).toHaveBeenCalledWith({
 			where: {
 				userId: testUser.id,
-				name: 'Compte import CSV',
-				source: { in: ['csv', 'revolut', 'banque_populaire'] }
+				source: { in: ['csv', 'revolut', 'banque_populaire'] },
+				archivedAt: null
 			},
 			select: { source: true }
 		});

@@ -1,6 +1,7 @@
 import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { expectPrimaryUnobstructed, onScreen } from './screen-geometry';
+import { chooseStatementAccount } from './choose-account';
 
 /**
  * The three layers, end to end: a file nothing recognises, designated, imported, and then
@@ -125,6 +126,8 @@ test.describe('at 390x844', () => {
 		// Before pressing it: the control has to be reachable by a person, not only by a click.
 		await expectPrimaryUnobstructed(page, /^Importer/);
 
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 		await expect(page).toHaveURL(/\/import$/, { timeout: 15_000 });
 
@@ -206,6 +209,8 @@ test.describe('at 390x844', () => {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
 		}
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 
 		await expect(onScreen(page, m.import_summary_heading())).toBeVisible({ timeout: 15_000 });
@@ -271,6 +276,8 @@ test.describe('at 390x844', () => {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
 		}
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 
 		// The summary reports the failure (#338) and now offers the route back.
@@ -383,6 +390,8 @@ test.describe('at 390x844', () => {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
 		}
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 
 		await expect(page).toHaveURL(/\/import\/columns$/);
@@ -473,6 +482,8 @@ test.describe('at 1280x800', () => {
 
 		await expectPrimaryUnobstructed(page, /^Importer/);
 
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 		await expect(page).toHaveURL(/\/import$/, { timeout: 15_000 });
 

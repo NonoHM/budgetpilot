@@ -36,7 +36,8 @@
 	} from '$lib/domain/columnDesignation';
 	import {
 		clearPendingDesignation,
-		setPendingDesignation
+		setPendingDesignation,
+		type PendingDesignation
 	} from '$lib/import/pendingDesignation.svelte';
 	import {
 		takeCompletedImport,
@@ -259,7 +260,13 @@
 	// tried first and cost 28 unrelated type errors, because it also widened `importResult` and
 	// destroyed the narrowing the rest of this file depends on.
 	const designation = $derived(
-		form && 'designation' in form ? (form.designation as DesignationFile | undefined) : undefined
+		form && 'designation' in form
+			? // The payload is a `DesignationFile` PLUS what the server worked out about the account.
+				// Named here rather than cast at the use site, so the one place that knows the shape of
+				// this transport is the one place that describes it.
+				(form.designation as
+					(DesignationFile & { account?: PendingDesignation['account'] }) | undefined)
+			: undefined
 	);
 
 	/**
@@ -366,6 +373,9 @@
 			},
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
 			candidates: {},
+			// What the SERVER worked out about which account this statement belongs to. Null when the
+			// payload carried none, which the screen reads as « ask ».
+			account: designation.account ?? null,
 			// The ID from the SERVER, the CONSENT from the control, and the split is the whole point.
 			//
 			// `correctionState` is the action's reply to the FIRST press, so its `deleteOldImport` is
@@ -534,6 +544,9 @@
 			view: carried.repost.view,
 			initialAssignment: carried.repost.assignment,
 			candidates: {},
+			// Carried back WITH the user's choice, so declining reopens the screen the way they left
+			// it rather than the way resolution guessed it.
+			account: carried.repost.account,
 			// The answer is DROPPED on the way back, and that is the point: the screen asks again.
 			// Carrying it would re-tick a box the user is about to be re-shown, which is the echo
 			// Planche 5c removed from the previous placement.
@@ -586,6 +599,10 @@
 		body.set('confirmCollision', '1');
 		if (carried) {
 			body.set('remember', String(carried.repost.remember));
+			// Confirming re-posts the SAME run, and the designation action refuses a submission with
+			// no account. Without this line « Importer quand même » becomes a refusal telling the user
+			// to choose an account, with no control in front of them to choose one with.
+			body.set('accountId', carried.repost.accountId);
 			body.set('hasHeaderRow', String(carried.repost.hasHeaderRow));
 			for (const role of MAPPING_ROLES) {
 				const index = carried.repost.assignment[role];

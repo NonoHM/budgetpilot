@@ -37,6 +37,17 @@ function textAt(wide: boolean, columns: number, rows: number): string {
 	const { container } = render(ColumnDesignationScreen, {
 		file: fileWith(columns, rows),
 		initialAssignment: EMPTY_ASSIGNMENT,
+		/**
+		 * A RESOLVED account in every mount, so a press reaches what these tests measure.
+		 *
+		 * The account row refuses the primary until one is chosen, which is its own behaviour with
+		 * its own tests. Leaving it unchosen here would make every press in this file measure that
+		 * guard instead of the thing it names.
+		 */
+		accounts: [
+			{ id: 'account-1', name: 'BP · Compte courant', discriminant: '4417', transactionCount: 128 }
+		],
+		initialAccountId: 'account-1',
 		wide
 	});
 	return container.textContent ?? '';

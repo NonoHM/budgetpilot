@@ -20,16 +20,14 @@ import {
 } from '$lib/server/import/invalidRowDetails';
 import {
 	createImportBatch,
-	findImportBucketAccount,
+	ImportBucketAccountError,
 	persistImportedTransactions,
-	resolveImportBucketAccount
+	resolveImportBucketAccountById
 } from '$lib/server/import/persist';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
 import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
-
-const CSV_ACCOUNT_NAME = 'Compte import CSV';
 
 /**
  * The import the designation screen submits, and the ONE place its choices become facts.
@@ -187,35 +185,66 @@ export const actions: Actions = {
 		 * Before `saveColumnMapping` and before every write below it, so a run the user abandons
 		 * leaves no batch, no memorised correspondance and no use counted against one.
 		 */
-		if (formData.get('confirmCollision') !== '1') {
-			// The bucket this run will land on, looked up WITHOUT creating it. The deduplication
-			// key carries the Account.id a row lands on, so the fingerprints compared below have to
-			// be built against that account. Creating it here instead would report the user's
-			// destination-account choice as "ignored" on the next run, because that sentence comes
-			// from whether the bucket was created.
-			//
-			// Null when the bucket does not exist yet, and the empty key list that follows is exact
-			// rather than lenient: a bucket with no rows has no fingerprints to recognise.
-			//
-			// `'csv'` rather than a profile-derived source, and it must stay the same literal the
-			// write path below uses: the mapped path always lands in the csv bucket, and a
-			// different source here would look up a bucket this run will not write to.
-			const collisionBucket = await findImportBucketAccount({
+		/**
+		 * THE ACCOUNT THIS STATEMENT BELONGS TO, AND THE FIRST CLIENT-SUPPLIED OBJECT REFERENCE THIS
+		 * ROUTE HAS EVER ACCEPTED.
+		 *
+		 * `AGENTS.md` says never take a `userId` from the client. This is the same class one object
+		 * over: the id decides which account a statement is filed into, it arrives in a POST body,
+		 * and a reference a client posts is a claim rather than a fact. `resolveImportBucketAccountById`
+		 * puts `userId` in the SAME where clause, so not-yours and not-found are one answer and this
+		 * endpoint cannot be used to enumerate other users' account ids.
+		 *
+		 * ## Every one of the five refusals is a 400 the user can read, and never a 500
+		 *
+		 * Malformed, missing, well formed but nonexistent, and belonging to somebody else all reach
+		 * `not-found` and share one sentence. An ARCHIVED account of the user's own gets its own,
+		 * because they own it and the useful thing to say is what to do next. The text says what to
+		 * DO rather than what went wrong: « Choisissez le compte de ce relevé » rather than
+		 * « accountId invalide », which names a field the user never saw.
+		 *
+		 * `keepDesignation` because a refusal here must not cost the work: the user is being asked
+		 * which account, not asked to designate the columns again.
+		 *
+		 * Resolved BEFORE the collision check, so both it and the write below reason about one
+		 * account rather than two, and before any write, so a refusal leaves nothing behind.
+		 */
+		let bucket;
+		try {
+			bucket = await resolveImportBucketAccountById({
 				userId: user.id,
-				name: CSV_ACCOUNT_NAME,
-				source: 'csv'
+				accountId: asString(formData.get('accountId')) ?? ''
 			});
-			const incoming = describeIncomingBatch(
-				result.transactions,
-				result.summary.period,
-				collisionBucket && {
-					accountId: collisionBucket.accountId,
-					source: 'csv',
-					currency: collisionBucket.currency,
-					exponent: collisionBucket.exponent,
-					providerAccountId: collisionBucket.providerAccountId
-				}
-			);
+		} catch (error) {
+			return fail(400, {
+				error:
+					error instanceof ImportBucketAccountError && error.reason === 'archived'
+						? m.import_account_error_archived()
+						: m.import_account_error_required(),
+				keepDesignation: true
+			});
+		}
+
+		if (formData.get('confirmCollision') !== '1') {
+			// The account the user CHOSE, which is now the same object the write path below uses.
+			//
+			// It used to be a lookup by name that could come back null, and the null case existed
+			// because the bucket might not have been created yet. There is no such case now: an
+			// account the user picked from the panel exists by construction, and the fingerprints
+			// compared below are built against the very row the rows will land in. Resolving it
+			// once, above, is also what stops the collision check and the write from ever reasoning
+			// about two different accounts.
+			//
+			// `'csv'` is the SOURCE, and it stays the literal it was: it describes how the file was
+			// READ (designated by hand), not which account it lands in. Those two were the same
+			// question only while the destination was derived from the profile.
+			const incoming = describeIncomingBatch(result.transactions, result.summary.period, {
+				accountId: bucket.accountId,
+				source: 'csv',
+				currency: bucket.currency,
+				exponent: bucket.exponent,
+				providerAccountId: bucket.providerAccountId
+			});
 			// The batch being replaced is not a collision with itself: a correction re-reads the same
 			// statement, so it matches all three terms by construction. Scoped to that one id rather
 			// than to the correction path, because a genuine earlier import of the same statement
@@ -286,12 +315,6 @@ export const actions: Actions = {
 			if (saved.ok) await recordColumnMappingUse(user.id, saved.id);
 		}
 
-		const bucket = await resolveImportBucketAccount({
-			userId: user.id,
-			name: CSV_ACCOUNT_NAME,
-			source: 'csv',
-			netWorthAccountId: null
-		});
 		const batchId = await createImportBatch({
 			userId: user.id,
 			accountId: bucket.accountId,

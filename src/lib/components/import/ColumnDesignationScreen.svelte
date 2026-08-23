@@ -22,6 +22,8 @@
 	// note at the call site.
 	import Button from '$lib/components/Button.svelte';
 	import ColumnPicker from './ColumnPicker.svelte';
+	import AccountRow from './AccountRow.svelte';
+	import AccountPicker, { type AccountPickerOption } from './AccountPicker.svelte';
 	import CheckboxField from '$lib/components/ui/CheckboxField.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
@@ -106,6 +108,9 @@
 		recapCaption,
 		replaces,
 		wide = false,
+		accounts = [],
+		initialAccountId = null,
+		accountHint = null,
 		onCancel,
 		onModify,
 		onSubmit
@@ -230,8 +235,29 @@
 		 * transaction without a word, and stored a mapping whose column names were that row's own
 		 * values — a fingerprint no later file can match. See `header-row-toggle.svelte.spec.ts`.
 		 */
+		/**
+		 * The accounts this statement could belong to: the user's own, never archived, never manual.
+		 * Empty is a real state rather than missing data, and the panel then offers only « Nouveau
+		 * compte ».
+		 */
+		accounts?: readonly AccountPickerOption[];
+		/**
+		 * What resolution already worked out, if anything. The user can always change it.
+		 *
+		 * `initial`, like `initialAssignment` beside it and for the same reason: the screen owns the
+		 * choice from arrival, so a reactive read would throw the user's chosen account away every
+		 * time the parent re-derived its resolution.
+		 */
+		initialAccountId?: string | null;
+		/**
+		 * The provenance line, already composed by the caller: which rank answered and from what.
+		 * A sentence rather than a state, because the screen renders it and does not reason about it.
+		 */
+		accountHint?: string | null;
 		onSubmit?: (result: {
 			assignment: RoleAssignment;
+			/** The account the user chose. Never null by the time the primary submits. */
+			accountId: string;
 			remember: boolean;
 			hasHeaderRow: boolean;
 			/**
@@ -428,6 +454,68 @@
 		return file.firstRow?.[index] ?? file.samples[index]?.[0] ?? '';
 	}
 
+	// The INITIAL value is the whole point, so the warning is suppressed rather than worked around,
+	// exactly as `assignment` above does: this is what resolution worked out on arrival, and the
+	// user owns it from that moment.
+	// svelte-ignore state_referenced_locally
+	let chosenAccountId = $state<string | null>(initialAccountId);
+	let accountPanelOpen = $state(false);
+	let accountErrorShown = $state(false);
+	let accountRowWrapper = $state<HTMLElement | null>(null);
+
+	const chosenAccount = $derived(
+		accounts.find((account) => account.id === chosenAccountId) ?? null
+	);
+
+	/**
+	 * `error` only AFTER the primary has been pressed, never before.
+	 *
+	 * A row that is red before anything was asked of it accuses the user of a mistake they have not
+	 * had the chance to make. 6k puts the error at the press and nowhere earlier, which is the same
+	 * rule the create sheet's emptied field follows.
+	 */
+	const accountState = $derived<'ok' | 'todo' | 'error'>(
+		chosenAccount !== null ? 'ok' : accountErrorShown ? 'error' : 'todo'
+	);
+
+	/**
+	 * The error sentence REPLACES the provenance line rather than stacking under it.
+	 *
+	 * Two lines of help under one row is the shape that pushes the columns card off the screen, and
+	 * the provenance is a fact about a choice that has not been made: it has nothing left to explain
+	 * at the moment the user is being told to make one.
+	 */
+	const accountHintShown = $derived(
+		accountState === 'error' ? m.import_account_error_required() : (accountHint ?? undefined)
+	);
+
+	/**
+	 * Reveals the error, brings the row back into view and puts the focus on it.
+	 *
+	 * The plate's transverse rule, which this plate applies and does not impose: « le primaire n'est
+	 * jamais désactivé pour cause d'invalidité ; l'appui révèle l'erreur, remonte le champ en vue et
+	 * y pose le focus ». A greyed primary explains nothing and cannot be asked why.
+	 *
+	 * The focus goes to the ROW and not to the alert, because the row is the thing to act on. It is
+	 * reached through the wrapper rather than through a ref on the component: the row is one
+	 * `<button>` and the wrapper holds exactly one, so there is nothing to disambiguate, and adding
+	 * an imperative focus method to a presentational component to save this line would be the
+	 * larger change.
+	 */
+	function revealAccountError() {
+		accountErrorShown = true;
+		const trigger = accountRowWrapper?.querySelector('button');
+		trigger?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		trigger?.focus();
+	}
+
+	function chooseAccount(id: string) {
+		chosenAccountId = id;
+		accountPanelOpen = false;
+		// The error cannot outlive the thing it was about.
+		accountErrorShown = false;
+	}
+
 	/**
 	 * The primary's press, and the whole of 5c's ordering is in it.
 	 *
@@ -441,16 +529,37 @@
 	 */
 	function pressPrimary() {
 		if (!importable) return;
+		// Before the replace question, because a user with no account chosen must not be asked to
+		// confirm a deletion for an import that cannot happen yet.
+		if (chosenAccountId === null) {
+			revealAccountError();
+			return;
+		}
 		if (replaces && deleteOldImport) {
 			confirmingReplace = true;
 			return;
 		}
-		onSubmit?.({ assignment, remember, hasHeaderRow, deleteOldImport: false });
+		onSubmit?.({
+			accountId: chosenAccountId,
+			assignment,
+			remember,
+			hasHeaderRow,
+			deleteOldImport: false
+		});
 	}
 
 	function confirmReplace() {
 		confirmingReplace = false;
-		onSubmit?.({ assignment, remember, hasHeaderRow, deleteOldImport: true });
+		// Unreachable with a null account: `pressPrimary` is the only way into the modal and it
+		// refuses one. Narrowed rather than asserted, so the compiler carries the claim.
+		if (chosenAccountId === null) return;
+		onSubmit?.({
+			accountId: chosenAccountId,
+			assignment,
+			remember,
+			hasHeaderRow,
+			deleteOldImport: true
+		});
 	}
 
 	const CONSEQUENCE_ID = 'column-designation-consequence';
@@ -466,6 +575,45 @@
 	asserted absolutely, and a breakpoint-driven layout cannot be measured without also driving the
 	viewport, which makes every figure a fact about the runner.
 -->
+{#snippet accountBlock()}
+	<!--
+		THE FIRST ROW OF THE BODY, above the roles list and OUTSIDE it.
+		6b: « Sur l'écran de désignation, première rangée du corps ». Measured cost +81 px, and the
+		body begins to scroll by 50, which is stated here rather than hidden.
+
+		Not inside the designation card, and not a fifth `RoleRow`. `RoleRow` takes a `MappingRole`,
+		a CLOSED union of four the plate verifies as a constraint (« Quatre rôles, ensemble fermé.
+		Tenu. Le compte n'est pas un rôle : il est lu avant la correspondance, comme le préambule
+		d'un fichier »). Widening that union to carry an account would break the one thing that check
+		exists to protect, and a column named « Compte » in an export must still appear in the
+		columns list and stay ignored.
+
+		`relative`, so the panel anchors UNDER the row that opened it, exactly as the column picker
+		does one card below. `shrink-0` for the reason every body child has it: a flex column shrinks
+		its items before it scrolls.
+	-->
+	<div class="relative shrink-0" bind:this={accountRowWrapper} data-testid="designation-account">
+		<AccountRow
+			state={accountState}
+			value={chosenAccount?.name}
+			hint={accountHintShown}
+			expanded={accountPanelOpen}
+			panelId="account-picker-panel"
+			busy={submitting}
+			onOpen={() => (accountPanelOpen = !accountPanelOpen)}
+		/>
+		<AccountPicker
+			open={accountPanelOpen}
+			options={accounts}
+			selectedId={chosenAccountId}
+			panelId="account-picker-panel"
+			onChoose={chooseAccount}
+			onClose={() => (accountPanelOpen = false)}
+			onCreate={() => (accountPanelOpen = false)}
+		/>
+	</div>
+{/snippet}
+
 {#snippet fileBlock()}
 	<div class="shrink-0" data-testid="designation-file-block">
 		<p class="h-[22px] truncate text-[15px] leading-[22px] font-semibold">{file.name}</p>
@@ -790,6 +938,9 @@
 					class="flex shrink-0 flex-col gap-4 {recap ? 'w-[560px]' : 'w-[400px]'}"
 					data-testid="designation-command"
 				>
+					{#if !recap && !readOnly}
+						{@render accountBlock()}
+					{/if}
 					{@render designationCard()}
 					{@render trailingBlock()}
 
@@ -900,6 +1051,9 @@
 				the overflow calibration in this component's spec.
 			-->
 			{@render fileBlock()}
+			{#if !recap && !readOnly}
+				{@render accountBlock()}
+			{/if}
 			{@render designationCard()}
 			{@render trailingBlock()}
 		</div>

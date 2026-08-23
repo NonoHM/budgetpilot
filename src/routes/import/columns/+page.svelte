@@ -18,6 +18,8 @@
 	import type { ImportSummaryResult } from '$lib/domain/importSummary';
 	import { applyAction, deserialize } from '$app/forms';
 	import type { ActionData } from './$types';
+	import { accountAnswerFor } from '$lib/import/accountHint';
+	import { getLocale } from '$lib/paraglide/runtime';
 
 	/**
 	 * « Désigner les colonnes », as a full page in the navigation stack.
@@ -110,7 +112,47 @@
 		);
 	}
 
+	/**
+	 * What the account row opens with: the options, the prefill, and the sentence explaining it.
+	 *
+	 * Derived HERE and not on the screen, because this is where the negotiated locale is and the
+	 * memorised sentence carries a date. `domain/money.ts` is the recorded instance of a module
+	 * reaching for an ambient locale: it passed `check`, four thousand unit tests, lint and a full
+	 * Playwright run, and died at container startup.
+	 *
+	 * `chosenId` wins over the resolution whenever it is set. It is only ever set on the way back
+	 * from the collision dialog, where the user has already answered, and re-deriving there would
+	 * replace their answer with the application's on the one screen built to stop that.
+	 */
+	const accountOffer = $derived.by(() => {
+		const carried = pending?.account ?? null;
+		if (!carried) {
+			// No offer at all: the row asks, which is the honest state rather than a guess.
+			return { options: [], chosenId: null, hint: undefined };
+		}
+		const answer = accountAnswerFor(
+			carried.resolution,
+			carried.options,
+			carried.memory
+				? {
+						useCount: carried.memory.useCount,
+						lastUsedLabel: carried.memory.lastUsedAt
+							? new Intl.DateTimeFormat(getLocale(), { day: 'numeric', month: 'long' }).format(
+									new Date(carried.memory.lastUsedAt)
+								)
+							: ''
+					}
+				: null
+		);
+		return {
+			options: carried.options,
+			chosenId: carried.chosenId ?? answer.accountId,
+			hint: answer.hint
+		};
+	});
+
 	function submit(result: {
+		accountId: string;
 		assignment: RoleAssignment;
 		remember: boolean;
 		hasHeaderRow: boolean;
@@ -127,6 +169,10 @@
 		// asset with a lifetime, an expiry and a key to protect.
 		data.set('csvFile', pending.file);
 		data.set('remember', String(result.remember));
+		// The account the user chose, posted as an ID and re-resolved against THEIR OWN accounts on
+		// the server. It is a claim from here, not a fact: the server puts `userId` in the same where
+		// clause, so a hand-made request naming somebody else's account is refused as not-found.
+		data.set('accountId', result.accountId);
 		// The USER's answer, out of the screen, never `pending.view.hasHeaderRow` — which is what
 		// detection guessed on arrival and is exactly what this used to post. A user who told the
 		// screen their file had no header row was overruled in silence, losing their first
@@ -328,6 +374,9 @@
 			-->
 			<ColumnDesignationScreen
 				file={pending.view}
+				accounts={accountOffer.options}
+				initialAccountId={accountOffer.chosenId}
+				accountHint={accountOffer.hint}
 				initialAssignment={pending.initialAssignment}
 				candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
 				{submitting}
