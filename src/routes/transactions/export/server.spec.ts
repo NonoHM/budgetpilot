@@ -8,6 +8,26 @@ const db = vi.hoisted(() => ({
 		},
 		categoryNatureMapping: {
 			findMany: vi.fn()
+		},
+		/**
+		 * Added when the route began naming the account its rows came from.
+		 *
+		 * It THROWS on any where clause it cannot model rather than answering null, because a fake
+		 * that silently ignores a predicate makes « the route scoped by userId » and « the fake
+		 * returned nothing » the same green, which is the exact failure the IDOR battery is a
+		 * `db-smoke` to avoid. What this route's own `compte` column does is asserted against a real
+		 * engine in `exportAccountColumn.db-smoke.ts`; here the model only has to exist so the fixtures
+		 * below keep measuring what they name.
+		 */
+		account: {
+			findFirst: vi.fn(async ({ where }: { where: { id?: string; userId?: string } }) => {
+				if (!where || typeof where.userId !== 'string' || typeof where.id !== 'string') {
+					throw new Error(
+						`the export spec's account fake cannot model this where clause: ${JSON.stringify(where)}`
+					);
+				}
+				return null;
+			})
 		}
 	}
 }));
