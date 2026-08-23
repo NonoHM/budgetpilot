@@ -1604,5 +1604,16 @@
 	"import_account_option_detail_many": "···{fragment} · {count} transactions",
 	"import_account_error_archived": "Ce compte est archivé. Choisissez un autre compte pour ce relevé.",
 	"import_account_error_ambiguous_auto": "Vous avez plusieurs comptes pour cette banque. Désignez les colonnes pour choisir celui de ce relevé.",
-	"import_account_hint_multi_account": "Ce fichier contient plusieurs comptes. Choisissez celui de ce relevé."
+	"import_account_hint_multi_account": "Ce fichier contient plusieurs comptes. Choisissez celui de ce relevé.",
+	"import_account_create_field": "Nom du compte",
+	"import_account_create_hint": "Ce nom n'apparaît que dans BudgetPilot.",
+	"import_account_create_hint_examples": "Par exemple : Compte courant, Livret A.",
+	"import_account_create_submit": "Créer et sélectionner",
+	"import_account_create_submitting": "Création…",
+	"import_account_create_error_generic": "Le compte n'a pas pu être créé. Votre fichier et vos désignations sont conservés. Réessayez.",
+	"import_account_create_error_name_required": "Donnez un nom à ce compte.",
+	"import_account_create_error_name_taken": "Vous avez déjà un compte de ce nom.",
+	"import_account_create_error_fragment_taken": "Vous avez déjà un compte pour cet identifiant.",
+	"import_account_create_error_name_too_long": "Ce nom est trop long : {max} caractères au maximum.",
+	"import_account_hint_no_accounts": "Aucun compte pour l'instant. Créez celui de ce relevé."
 }

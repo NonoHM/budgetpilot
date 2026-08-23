@@ -92,6 +92,7 @@
 		selectedId = null,
 		panelId,
 		maxVisible = 5,
+		initialFocus = 'list',
 		onChoose,
 		onClose,
 		onCreate
@@ -107,6 +108,16 @@
 		 * can reach the scrolling case without building a fixture of six accounts every time.
 		 */
 		maxVisible?: number;
+		/**
+		 * Where the focus lands when the panel opens.
+		 *
+		 * `list` is the ordinary case and stays the default. `footer` is the return from the create
+		 * sheet: a user who cancelled a creation came FROM the footer action, and putting them back
+		 * on the list would move them somewhere they did not leave. It is also what an empty panel
+		 * gets whatever the caller asked for, because there is no list to focus and a focus call on
+		 * nothing leaves the whole panel unreachable from the keyboard.
+		 */
+		initialFocus?: 'list' | 'footer';
 		onChoose?: (accountId: string) => void;
 		onClose?: () => void;
 		onCreate?: () => void;
@@ -116,6 +127,7 @@
 	const uid = `account-picker-${idCounter}`;
 
 	let listEl = $state<HTMLElement | null>(null);
+	let footerEl = $state<HTMLButtonElement | null>(null);
 	let activeIndex = $state(-1);
 
 	const selectedIndex = $derived(options.findIndex((option) => option.id === selectedId));
@@ -133,7 +145,10 @@
 			return;
 		}
 		activeIndex = selectedIndex;
-		listEl?.focus();
+		// The empty panel forces the footer whatever was asked, because there is no list: a focus
+		// call on null is silent, and the panel would open with the focus still outside it.
+		if (initialFocus === 'footer' || options.length === 0) footerEl?.focus();
+		else listEl?.focus();
 	});
 
 	const activeId = $derived(activeIndex >= 0 ? `${uid}-option-${activeIndex}` : undefined);
@@ -285,6 +300,7 @@
 			nothing to separate it from, which is the empty-panel cell.
 		-->
 		<button
+			bind:this={footerEl}
 			type="button"
 			class="flex h-12 w-full items-center gap-2 px-4 text-left text-[13.5px] font-semibold
 				text-zinc-900 focus-visible:ring-2 focus-visible:ring-white

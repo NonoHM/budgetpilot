@@ -152,11 +152,12 @@ export const load: PageServerLoad = async ({ locals, url }) => {
  * module reaching for an ambient locale on the server. `namedAt` on this same payload already
  * follows the convention.
  */
-async function accountOfferPayload(userId: string, rows: ParsedCsvRow[]) {
-	const offer = await buildAccountOffer({ userId, rows });
+async function accountOfferPayload(userId: string, rows: ParsedCsvRow[], source?: string) {
+	const offer = await buildAccountOffer({ userId, rows, source });
 	return {
 		options: offer.options,
 		resolution: offer.resolution,
+		prefillName: offer.prefillName,
 		memory: offer.memory && {
 			useCount: offer.memory.useCount,
 			lastUsedAt: offer.memory.lastUsedAt?.toISOString() ?? null
@@ -362,7 +363,14 @@ export const actions: Actions = {
 				designation:
 					!splitPair && offersDesignation(result, headerCells)
 						? {
-								account: await accountOfferPayload(user.id, importData.rows),
+								account: await accountOfferPayload(
+									user.id,
+									importData.rows,
+									// The profile IS known on this branch, unlike the correction branch above, which
+									// decides before anything is parsed. It is what lets the create sheet open on
+									// « Banque Populaire ···4417 » rather than on the fragment alone.
+									getImportSource(result.summary.profile)
+								),
 								name: importFile.name,
 								headers: headerCells,
 								samples: importSampleValues(importData.rows),

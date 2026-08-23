@@ -1604,5 +1604,16 @@
 	"import_account_option_detail_many": "···{fragment} · {count} transactions",
 	"import_account_error_archived": "This account is archived. Choose another account for this statement.",
 	"import_account_error_ambiguous_auto": "You have several accounts for this bank. Designate the columns to choose which one this statement belongs to.",
-	"import_account_hint_multi_account": "This file contains several accounts. Choose the one this statement belongs to."
+	"import_account_hint_multi_account": "This file contains several accounts. Choose the one this statement belongs to.",
+	"import_account_create_field": "Account name",
+	"import_account_create_hint": "This name only appears in BudgetPilot.",
+	"import_account_create_hint_examples": "For example: Current account, Savings.",
+	"import_account_create_submit": "Create and select",
+	"import_account_create_submitting": "Creating…",
+	"import_account_create_error_generic": "The account could not be created. Your file and your designations are kept. Try again.",
+	"import_account_create_error_name_required": "Give this account a name.",
+	"import_account_create_error_name_taken": "You already have an account with that name.",
+	"import_account_create_error_fragment_taken": "You already have an account for that identifier.",
+	"import_account_create_error_name_too_long": "That name is too long: {max} characters at most.",
+	"import_account_hint_no_accounts": "No accounts yet. Create the one this statement belongs to."
 }

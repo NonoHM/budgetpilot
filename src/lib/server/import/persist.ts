@@ -6,7 +6,7 @@ import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { institutionForSource } from '$lib/server/import/accountBackfill';
-import { GENERIC_BUCKET_STORED_NAME } from '$lib/domain/account';
+import { GENERIC_BUCKET_STORED_NAME, MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
 import { computeDedupeKeyHash, dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
 import { isUniqueConstraintViolation, withConcurrentWriteRetry } from '$lib/server/database/upsert';
@@ -108,7 +108,7 @@ export interface ImportBucketResult {
  * Leaves room for the ` · xxxxxx` disambiguation suffix appended below (9 characters), and the
  * column itself is `varchar(255)` on MySQL, so a name from before this cap still restores.
  */
-const MAX_BUCKET_NAME_LENGTH = 120;
+const MAX_BUCKET_NAME_LENGTH = MAX_ACCOUNT_NAME_LENGTH;
 
 function capBucketName(name: string): string {
 	if (name.length <= MAX_BUCKET_NAME_LENGTH) return name;

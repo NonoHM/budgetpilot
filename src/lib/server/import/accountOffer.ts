@@ -1,4 +1,7 @@
 import { prisma } from '$lib/server/db';
+import { findDiscriminantColumn } from './discriminant';
+import { institutionForSource } from './accountBackfill';
+import { prefillAccountName } from '$lib/server/accounts/service';
 import { isStatementAccount } from '$lib/domain/account';
 import {
 	headersOf,
@@ -61,11 +64,27 @@ export interface AccountOffer {
 	options: AccountOfferOption[];
 	resolution: AccountResolution;
 	memory: AccountMemory | null;
+	/**
+	 * The name the create sheet opens with, composed HERE from what the file said.
+	 *
+	 * Composed on the server rather than on the screen for the same reason the memorised sentence's
+	 * date is: this is where the file has been read. Sending the two halves separately would put a
+	 * second copy of the joining rule in the browser, and a name that becomes a database column may
+	 * not be assembled twice.
+	 */
+	prefillName: string;
 }
 
 export async function buildAccountOffer(input: {
 	userId: string;
 	rows: ParsedCsvRow[];
+	/**
+	 * The profile's source, when the caller knows it, so the prefill can carry the bank's proper
+	 * noun. Absent on the correction branch, which decides before anything is parsed: absent means
+	 * « we do not know this bank », not « there is none », and the prefill then carries the fragment
+	 * alone rather than a guess.
+	 */
+	source?: string;
 }): Promise<AccountOffer> {
 	const accounts = await prisma.account.findMany({
 		where: { userId: input.userId, archivedAt: null },
@@ -107,7 +126,20 @@ export async function buildAccountOffer(input: {
 				})
 			: null;
 
+	/**
+	 * Read a second time rather than threaded out of `resolveStatementAccount`, and that is the
+	 * cheaper of the two. The resolver returns a RANKED ANSWER, and the fragment survives it only
+	 * when exactly one account already holds it, which is precisely the case where nobody is about
+	 * to create one. The case the sheet exists for, a fragment no account holds, is the case the
+	 * answer has thrown away. `findDiscriminantColumn` is pure over the rows the caller already has.
+	 */
+	const named = findDiscriminantColumn(input.rows);
+
 	return {
+		prefillName: prefillAccountName({
+			institution: input.source ? institutionForSource(input.source) : null,
+			fragment: named.kind === 'found' ? named.fragment : null
+		}),
 		options: destinations.map((account) => ({
 			id: account.id,
 			name: account.name,

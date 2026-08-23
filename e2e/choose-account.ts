@@ -28,7 +28,33 @@ export async function chooseStatementAccount(page: Page): Promise<string> {
 	const trigger = (await row.count()) > 0 ? row : page.getByRole('button', { name: /^Compte/ });
 	await trigger.first().click();
 
+	/**
+	 * THE EMPTY PANEL IS A REAL JOURNEY, not a fixture gap, so it is walked rather than avoided.
+	 *
+	 * A user whose only `Account` row is the manual bucket has no statement account at all:
+	 * `isStatementAccount` excludes it, so the panel's only content is « Nouveau compte ». Before the
+	 * create sheet existed that user could not finish an import from this screen at any price, and
+	 * this helper hung for fifteen seconds waiting for an option that could never appear.
+	 *
+	 * Creating one HERE rather than seeding one in a fixture is the deliberate choice: it is the
+	 * path a first-time user takes, it is the only path that exercises the sheet end to end in a
+	 * real browser, and a seeded account would make every journey silently skip the cell the whole
+	 * task exists for.
+	 */
 	const option = page.getByRole('option').first();
+	if ((await option.count()) === 0) {
+		await page.getByRole('button', { name: m.import_account_new() }).click();
+		const field = page.getByRole('textbox', { name: m.import_account_create_field() });
+		await expect(field).toBeVisible();
+		// A name unique per worker, because two workers designating at once are two users and a
+		// collision here would refuse the second for a reason about the first.
+		const created = `Compte e2e ${process.env.TEST_WORKER_INDEX ?? '0'}`;
+		await field.fill(created);
+		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
+		// The ROW states it, which is the same assertion the ordinary path makes below.
+		await expect(page.getByRole('button', { name: /^Compte, / })).toBeVisible();
+		return created;
+	}
 	await expect(option).toBeVisible();
 	const name = (await option.getAttribute('aria-label')) ?? '';
 	await option.click();

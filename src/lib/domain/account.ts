@@ -37,3 +37,14 @@ export function isStatementAccount(account: { source: string }): boolean {
  * and they do not.
  */
 export const GENERIC_BUCKET_STORED_NAME = 'Compte import CSV';
+
+/**
+ * The longest account name this application accepts from a person.
+ *
+ * Here rather than beside the create service, because THREE surfaces need it and only one of them
+ * may import a server module: the field's `maxlength`, the server's refusal, and the cap
+ * `import/persist.ts` applies to a machine-derived bucket name. One column, one bound. What differs
+ * is what happens AT the bound: a provider name arriving from a bank sync is cut, because there is
+ * nobody to ask; a name a user typed is refused, because there is.
+ */
+export const MAX_ACCOUNT_NAME_LENGTH = 120;

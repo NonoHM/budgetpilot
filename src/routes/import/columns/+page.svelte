@@ -19,6 +19,7 @@
 	import { applyAction, deserialize } from '$app/forms';
 	import type { ActionData } from './$types';
 	import { accountAnswerFor } from '$lib/import/accountHint';
+	import type { AccountPickerOption } from '$lib/components/import/AccountPicker.svelte';
 	import { getLocale } from '$lib/paraglide/runtime';
 
 	/**
@@ -150,6 +151,43 @@
 			hint: answer.hint
 		};
 	});
+
+	/**
+	 * « Créer et sélectionner », posted to the endpoint that owns the write.
+	 *
+	 * The FILE goes with it, and that is the point rather than an accident of what is in hand: the
+	 * fragment stored on the new account is what rank 1 will later treat as certain, so it has to be
+	 * read from the bytes by the server rather than claimed by this page. The endpoint reads `name`
+	 * and `csvFile` and nothing else.
+	 *
+	 * Resolves rather than throws, in both directions. The screen owns 6g's three states and needs an
+	 * ANSWER to move between them; an exception would leave it in flight for ever. The two cases with
+	 * no server answer at all are the ones that used to be silent everywhere in this flow: the fetch
+	 * rejecting, and a body that is not the JSON this endpoint returns (a crash outside it, or the
+	 * login page served after a session expired, which `fetch` follows on its own).
+	 *
+	 * ASVS 5.0 V16.5.1: the caught value is never rendered and never interpolated, so nothing
+	 * internal can reach the screen through this path.
+	 */
+	async function createAccount(
+		name: string
+	): Promise<{ ok: true; account: AccountPickerOption } | { ok: false; error: string }> {
+		if (!pending) return { ok: false, error: m.import_account_create_error_generic() };
+		const body = new FormData();
+		body.set('name', name);
+		body.set('csvFile', pending.file);
+		try {
+			const response = await fetch(resolve('/import/accounts'), { method: 'POST', body });
+			const payload = (await response.json()) as {
+				account?: AccountPickerOption;
+				error?: string;
+			};
+			if (response.ok && payload.account) return { ok: true, account: payload.account };
+			return { ok: false, error: payload.error ?? m.import_account_create_error_generic() };
+		} catch {
+			return { ok: false, error: m.import_account_create_error_generic() };
+		}
+	}
 
 	function submit(result: {
 		accountId: string;
@@ -377,6 +415,8 @@
 				accounts={accountOffer.options}
 				initialAccountId={accountOffer.chosenId}
 				accountHint={accountOffer.hint}
+				accountPrefill={pending.account?.prefillName ?? ''}
+				onCreateAccount={createAccount}
 				initialAssignment={pending.initialAssignment}
 				candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
 				{submitting}

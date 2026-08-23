@@ -58,6 +58,22 @@ export function accountAnswerFor(
 	const shown = (accountId: string): string | null =>
 		options.some((option) => option.id === accountId) ? accountId : null;
 
+	/**
+	 * NO ACCOUNTS AT ALL, and this clause is first on purpose.
+	 *
+	 * Every sentence below describes a RANK: what the file said, what we remembered, what disagrees.
+	 * All of them presuppose that there is somewhere to put a statement. When the picker is empty
+	 * that presupposition is false, and rank 1's « IBAN ···4417 lu dans le fichier » would report
+	 * evidence about the statement to a user who has nowhere to file any statement at all.
+	 *
+	 * DEVIATION FROM 6k, recorded: the plate's « Aucun compte » cell keeps state 4's « Premier relevé
+	 * de ce format. » That is true and beside the point, and the spec's Part G corrects it. This
+	 * user's fact is not about the format.
+	 */
+	if (options.length === 0) {
+		return { accountId: null, hint: m.import_account_hint_no_accounts() };
+	}
+
 	if (resolution.rank === 1) {
 		if ('kind' in resolution) {
 			return { accountId: null, hint: m.import_account_hint_multi_account() };

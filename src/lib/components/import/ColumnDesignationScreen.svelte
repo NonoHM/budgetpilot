@@ -24,6 +24,7 @@
 	import ColumnPicker from './ColumnPicker.svelte';
 	import AccountRow from './AccountRow.svelte';
 	import AccountPicker, { type AccountPickerOption } from './AccountPicker.svelte';
+	import CreateAccountSheet from './CreateAccountSheet.svelte';
 	import CheckboxField from '$lib/components/ui/CheckboxField.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
@@ -111,6 +112,8 @@
 		accounts = [],
 		initialAccountId = null,
 		accountHint = null,
+		accountPrefill = '',
+		onCreateAccount,
 		onCancel,
 		onModify,
 		onSubmit
@@ -254,6 +257,26 @@
 		 * A sentence rather than a state, because the screen renders it and does not reason about it.
 		 */
 		accountHint?: string | null;
+		/**
+		 * The name the create sheet opens with, composed by the server from what the FILE said.
+		 * Empty when it said nothing, which is a state rather than missing data: see the sheet.
+		 */
+		accountPrefill?: string;
+		/**
+		 * Creates an account and answers with the option to add, or with a sentence to show.
+		 *
+		 * A PROMISE handed down rather than a request made here, for the reason every other decision
+		 * on this screen is taken elsewhere: this component has no route, no session and no file. The
+		 * three states of 6g are owned here because they are states of a screen; the request that
+		 * moves between them is owned by the page.
+		 *
+		 * Absent means the footer action does nothing but close the panel, which is what shipped in
+		 * Task 6 and is a screen a user cannot finish an import on. Named here because a prop no
+		 * route sets is a draft, not a feature: `/import/columns/+page.svelte` sets it.
+		 */
+		onCreateAccount?: (
+			name: string
+		) => Promise<{ ok: true; account: AccountPickerOption } | { ok: false; error: string }>;
 		onSubmit?: (result: {
 			assignment: RoleAssignment;
 			/** The account the user chose. Never null by the time the primary submits. */
@@ -460,11 +483,29 @@
 	// svelte-ignore state_referenced_locally
 	let chosenAccountId = $state<string | null>(initialAccountId);
 	let accountPanelOpen = $state(false);
+	let accountPanelFocus = $state<'list' | 'footer'>('list');
 	let accountErrorShown = $state(false);
 	let accountRowWrapper = $state<HTMLElement | null>(null);
 
+	/**
+	 * Accounts created on this screen, in the order they were created.
+	 *
+	 * Held HERE and not pushed back up to the caller, because the caller's `accounts` prop is what
+	 * the server answered when the file arrived and a re-derivation of it would throw these away.
+	 * Appended rather than merged into the alphabetical order the server sent: a row the user has
+	 * just created and is about to see selected is easier to find where they left it than where a
+	 * sort would put it.
+	 */
+	let createdAccounts = $state<AccountPickerOption[]>([]);
+	const shownAccounts = $derived<readonly AccountPickerOption[]>([...accounts, ...createdAccounts]);
+
+	let createOpen = $state(false);
+	/** 5f's contract, owned here because these are states of a screen. See `CreateAccountSheet`. */
+	let createPhase = $state<'idle' | 'busy' | 'error'>('idle');
+	let createError = $state<string | null>(null);
+
 	const chosenAccount = $derived(
-		accounts.find((account) => account.id === chosenAccountId) ?? null
+		shownAccounts.find((account) => account.id === chosenAccountId) ?? null
 	);
 
 	/**
@@ -514,6 +555,59 @@
 		accountPanelOpen = false;
 		// The error cannot outlive the thing it was about.
 		accountErrorShown = false;
+	}
+
+	/** The row, reached through its wrapper. One button lives there, so there is nothing to pick. */
+	function focusAccountRow() {
+		accountRowWrapper?.querySelector('button')?.focus();
+	}
+
+	function openCreateSheet() {
+		accountPanelOpen = false;
+		accountPanelFocus = 'list';
+		createPhase = 'idle';
+		createError = null;
+		createOpen = true;
+	}
+
+	/**
+	 * Cancelling REOPENS the panel, on the action it was opened from.
+	 *
+	 * Without it, abandoning a creation drops the user on a row they have to open again to get back
+	 * where they were, which is a dead end our own navigation manufactured rather than one the task
+	 * has. The focus goes to the footer action and not to the list, because the footer action is
+	 * where they were standing.
+	 */
+	function cancelCreate() {
+		createOpen = false;
+		accountPanelFocus = 'footer';
+		accountPanelOpen = true;
+	}
+
+	/**
+	 * On SUCCESS the sheet closes, the account is selected, and the focus returns to the ROW.
+	 *
+	 * Not to the panel, which has no reason left to be open, and not to a live region: the row
+	 * announces its new value through its own accessible name, so an added announcement would say
+	 * the same thing twice. 6g settles all three.
+	 */
+	async function submitCreate(name: string) {
+		if (!onCreateAccount) return;
+		createPhase = 'busy';
+		createError = null;
+		const answer = await onCreateAccount(name);
+		if (!answer.ok) {
+			createPhase = 'error';
+			createError = answer.error;
+			return;
+		}
+		createdAccounts = [...createdAccounts, answer.account];
+		chosenAccountId = answer.account.id;
+		accountErrorShown = false;
+		createPhase = 'idle';
+		createOpen = false;
+		accountPanelOpen = false;
+		focusAccountRow();
 	}
 
 	/**
@@ -600,16 +694,38 @@
 			expanded={accountPanelOpen}
 			panelId="account-picker-panel"
 			busy={submitting}
-			onOpen={() => (accountPanelOpen = !accountPanelOpen)}
+			onOpen={() => {
+				// The list, always, when the ROW is what opened the panel. `footer` is set only by the
+				// return from a cancelled creation, and leaving it set would land the next ordinary
+				// opening on the action instead of on the options.
+				accountPanelFocus = 'list';
+				accountPanelOpen = !accountPanelOpen;
+			}}
 		/>
 		<AccountPicker
 			open={accountPanelOpen}
-			options={accounts}
+			options={shownAccounts}
 			selectedId={chosenAccountId}
 			panelId="account-picker-panel"
+			initialFocus={accountPanelFocus}
 			onChoose={chooseAccount}
 			onClose={() => (accountPanelOpen = false)}
-			onCreate={() => (accountPanelOpen = false)}
+			onCreate={openCreateSheet}
+		/>
+		<!--
+			Inside the account block rather than beside the two other dialogs at the end of the file,
+			because it is part of one control: the row, its panel and the sheet the panel opens are the
+			same question asked three ways. Brique 15 traps its own focus and restores it, so nesting
+			costs nothing.
+		-->
+		<CreateAccountSheet
+			open={createOpen}
+			prefill={accountPrefill}
+			existingNames={shownAccounts.map((account) => account.name)}
+			state={createPhase}
+			error={createError}
+			onSubmit={submitCreate}
+			onCancel={cancelCreate}
 		/>
 	</div>
 {/snippet}
@@ -907,7 +1023,28 @@
 				different axis than the content sat on. Every geometry assertion on this file was green
 				through it: they measure the column, and nothing measured the two against each other.
 			-->
-			<div class="pt-6 pb-4 {recap ? 'mx-auto w-[560px]' : ''}" data-testid="designation-heading">
+			<!--
+				`pt-4 pb-3` and not `pt-6 pb-4`, and the 12 px it reclaims is the whole reason.
+				MEASURED at 1280x800 with the account row in the column: the primary's bottom edge
+				landed at 805.5 against a fold of 800, so the screen stopped keeping its own action
+				reachable without a scroll. 12 px brings it to 793.5.
+
+				**THIS IS SHAVING TO FIT AND IT IS RECORDED AS SUCH.** It leaves a 6.5 px margin, which
+				is smaller than one line of anything, so the next storey added to this column breaks it
+				again. The durable answer is the V2 referential's sheet-footer rule, which the 390
+				chrome already obeys: the card and the memorisation block scroll inside their own
+				region and the actions sit outside it, which is height-independent for any column.
+				That is a restructure of this frame, it touches the preview pane and the recap mode,
+				and it earns its own commit and its own screenshot pass rather than riding in on this
+				one.
+
+				NOT sticky positioning, which was tried on this column and rejected with its reason in
+				the actions block below: a sticky box RISES OVER content, and it covered 29.5 px of the
+				44 px « Ne pas mémoriser » control. A static footer outside an `overflow-y-auto`
+				sibling cannot overlap anything by construction, which is the difference between the
+				two and the reason the rejected one does not rule out the other.
+			-->
+			<div class="pt-4 pb-3 {recap ? 'mx-auto w-[560px]' : ''}" data-testid="designation-heading">
 				<h1 class="text-[22px] leading-7 font-bold">{heading}</h1>
 				<p class="mt-1 truncate text-[13px] text-zinc-500">
 					{file.name} ·

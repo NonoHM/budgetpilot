@@ -54,6 +54,14 @@ export interface PendingDesignation {
 		/** ISO, formatted on the screen where the negotiated locale is known. */
 		memory: { useCount: number; lastUsedAt: string | null } | null;
 		/**
+		 * The name the create sheet opens with, composed on the server from what the file said.
+		 *
+		 * Carried rather than recomposed here for the reason the memorised sentence's date is: this
+		 * value becomes an `Account.name`, and the joining rule lives in one place. Empty when the
+		 * file said nothing, which is a state and not missing data.
+		 */
+		prefillName: string;
+		/**
 		 * The account the USER chose, when they have already chosen one.
 		 *
 		 * Null on the way in from `/import`, where nobody has chosen anything yet and the screen

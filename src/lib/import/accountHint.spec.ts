@@ -85,4 +85,17 @@ describe('what the account row is given to say', () => {
 		);
 		expect(answer.accountId).toBeNull();
 	});
+	it('says the user has NO accounts at all rather than that the format is new', () => {
+		// SEPARATES: « you have no accounts, create one » FROM « this is the first statement of this
+		// format ». Both are true of a user whose picker is empty, and only the first is the fact
+		// they can act on: the second sends them looking for a choice that does not exist. Spec Part
+		// G, the empty-picker cell, which is the state Task 8 exists for.
+		//
+		// The clause is FIRST, ahead of every rank, and that ordering is the assertion: rank 1 here
+		// reads a fragment out of the file and names an account nobody holds, so the ranked sentence
+		// would describe evidence about a statement to a user who has nowhere to put any statement.
+		const answer = accountAnswerFor({ rank: 1, accountId: 'gone', fragment: '4417' }, [], null);
+		expect(answer.accountId).toBeNull();
+		expect(answer.hint).toBe(m.import_account_hint_no_accounts());
+	});
 });

@@ -83,6 +83,7 @@ function seed() {
 			],
 			resolution: { rank: 1 as const, accountId: 'account-1', fragment: '4417' },
 			memory: null,
+			prefillName: '',
 			chosenId: null
 		},
 		correction: {
