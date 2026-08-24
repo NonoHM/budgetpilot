@@ -95,6 +95,16 @@ who does not exist. Only the header SHAPES are taken from reality, and those ide
 
 - Never accept a `userId` from the client. Derive it from `locals.user.id`, and scope every
   query by it.
+- **The same rule one object over: any OBJECT REFERENCE a client posts is a claim, not a fact.**
+  `accountId`, `batchId`, `mappingId`, `categoryId`, `tagId`, `netWorthAccountId`. The lookup that
+  resolves one names `userId` in the SAME where clause, never as a check afterwards, and a
+  reference that does not resolve is refused as not-found rather than described. Stated separately
+  because the `userId` rule above reads as satisfied the moment no `userId` field is posted, and a
+  posted `accountId` passes that reading while deciding which rows a request touches.
+  **And it is asserted in `db-smoke`, never only in a unit spec.** A unit spec's fake decides what
+  `findFirst` returns, so removing the ownership clause from the query leaves it green. That exact
+  green happened in piece 3 of the deduplication chantier, which is why the IDOR battery is against
+  a real engine.
 - Never log or expose: banking data, passwords, tokens, session internals, password hashes,
   raw imported-transaction metadata.
 - Secrets live in `.env` (gitignored) and nowhere else. Never commit one.
@@ -141,6 +151,17 @@ Tooling enforces formatting; do not restate it. What tooling cannot check:
 - **Never write about future work in the present tense of a promise.** "This will do X"
   fails exactly when the work succeeds, and nobody re-reads a page when a feature ships.
   Name the issue instead.
+- **Anything whose output is STORED and later RECOMPUTED must be a pure function of what is
+  stored.** Not a preference for pure functions generally: a narrow constraint on a small set,
+  and it is what makes three things possible at once, so losing it costs all three. A value that
+  reads the clock, a random source, an ambient locale or the network cannot be rebuilt from the
+  row that holds it, so the recompute stops working, a property test has nothing it can assert,
+  and the next version of the format costs a migration instead of a pass. Three instances today:
+  `domain/money.ts`, `import/dedupeRecompute.ts` and the boot recompute that consumes it. Money is
+  the clearest, because the fix was a design correction rather than a repair: its one `$lib` import
+  failed at container startup after `check`, the unit suite, lint and Playwright all passed, and
+  the import path was only the symptom. The cause was a module reaching for an AMBIENT LOCALE, and
+  it now imports nothing at all.
 - Prefer the existing component and the existing helper. Check before adding either.
 - Any number an operator might need to move is read from the environment: a default, a hard
   ceiling, refusal rather than clamping, and a boot warning when it differs.
@@ -251,6 +272,66 @@ is drafted, and specs covering it prove only that the draft is internally consis
 
 Nothing else catches it. A nine-PR plan could not, because no PR owned the seam.
 
+**A FOURTH INSTANCE, AND IT IS THE ONE THAT READS AS THE STRONGEST EVIDENCE IN THE REPOSITORY: a
+test that performs a production step ITSELF measures that the step is POSSIBLE, not that the
+application performs it.** Measured 2026-08-24. `import/roundTripBuckets.db-smoke.ts` runs a real
+import, a real export and a real re-import against a real engine, and asserts
+`imported=0 duplicate=1, buckets=1, rows=1`, which is exactly the figure that closes #464. It is
+green. Between the export and the re-import it resolves the destination account **in the test**,
+through a reader the import path does not call, and its own docstring says so in one line that a
+reader arriving at the assertions does not reach. Probed through the production functions the route
+actually calls: the resolver returns rank 3 with no candidates on that same file, and the route
+files it by source into a different account. **The defect is shipping and its guard is green**, and
+the handoff for the branch named this issue as one the branch closes.
+
+The seam question above catches this if you ask it of the TEST rather than of the component: **name
+the route that performs each step this test performs.** A step the test does for itself is a step
+nothing is measuring. The tell is a helper defined in the spec file whose body would be production
+code anywhere else, and the fix is not to delete the test, which measures something real, but to
+say in its NAME what it measures: a format's sufficiency is not a behaviour.
+
+### A task is not a prompt
+
+Same family, one level up: the seam entries above are about work nobody owned, and this is about
+work nobody could DO from the section describing it.
+
+**A task whose section names a symbol that exists in neither the tree nor the section is not a
+task, it is a prompt.** The person or agent executing it will fill the hole by inventing something,
+and an invented symbol compiles, tests green against itself, and reads exactly like the thing that
+was asked for.
+
+Found by grepping the tree for every identifier a plan names, rather than by reading each task
+sympathetically. Two instances in one pass, 2026-08-22, on a 14-task plan:
+
+- A task's failing test asserted on `buildImportBucketInput(...)`, a function existing in no task
+  of that plan and nowhere in `src/`.
+- The same task sized a deletion at three lines. Measured: **10 tests** referenced the field it
+  deleted, two of them about a different invariant that survives the change, and two of them
+  per-user isolation tests that had to be reinstated elsewhere rather than dropped.
+
+**And the other half is what a task needs in order to survive the hole**: a step that ends in a
+FIGURE a partial execution would fail, rather than in an instruction to be careful. One task in
+that plan had line-number references that will drift, and it carried
+`grep -c 'account\.source'` expecting **0** as its guard.
+
+**That guard was itself blind, and measuring it is the sharper half of this entry.** Its premise
+was « two render sites exist, so a count of 1 means one copy was edited ». Measured on the parent
+commit: the count was already **1**, not 2, because Prettier had line-broken the second site as
+`account\n\t\t\t\t\t.source` and the pattern never matched it on one line. So editing one site
+and editing both both produce 0, and the guard had **zero discriminating power** while reading
+exactly like a check. It was written by the same session that then praised it.
+
+**So a figure is not a guard until its STARTING value has been measured.** An assertion that a
+count ends at 0 says nothing unless you know what it was before, and « two sites exist » was an
+assumption about the source, not a reading of it. The correction is one command, run before the
+guard is written rather than after: print the count on the unmodified file and check it is the
+number the guard's reasoning assumes.
+
+So the check is three questions per task, before it is handed to anyone: **does every symbol this
+section names exist in the tree or in this section**, **does this section end in a figure that a
+partial execution would fail**, and **was that figure's starting value measured rather than
+assumed**.
+
 ## Distrusting the harness
 
 **The harness lies, and in the comfortable direction.** One that never reaches the code
@@ -261,6 +342,12 @@ path reports 5000 clean refusals, which reads like a healthy run.
   reports it, before believing any negative result. Calibrate the DETECTOR, not the page.
 - **Calibrate on the label of the thing you want to count**, not one that travels with it.
 - **A check reporting clean must say how many files it read.** Zero files reads as success.
+- **Search with Serena, not grep, when the question is « every site that does X ».** A text search
+  answers where you LOOKED, not where it IS, and it fails in the comfortable direction, as a short
+  confident answer. Three in this repo: a `fetch(` sweep that would have reported zero, a grep
+  scoped to `profiles/` that found three of five call sites, and an `account.findMany` search that
+  concluded no screen renders a bucket. Use grep for a literal whose spelling you know; use Serena
+  for a question about the code.
 - **Verify the operation RAN.** A refused rebase leaves the tree identical to a clean one.
 - **When a strict guard and a quiet guard conflict, the false negative wins.** A guard that
   misses is worse than one that shouts: a shout gets diagnosed, a silence is never noticed.

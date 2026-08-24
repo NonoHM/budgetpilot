@@ -98,12 +98,28 @@ describe('a zero amount is refused as a ZERO, and both maison versions say so id
 });
 
 describe('profil maison v2', () => {
-	// The coupling stated once, explicitly, instead of implicitly in every fixture below. If a
-	// future chantier adds a column to the export, this is what says the parser has not been told.
-	it('recognises exactly the header the export writes', () => {
-		expect.assertions(1);
+	// THIS PIN CHANGED SHAPE WHEN VERSION 3 SHIPPED, and the change is the point rather than a
+	// consequence. It used to read `expect(MAISON_V2_HEADER).toBe(TRANSACTION_CSV_HEADER)`, the
+	// coupling stated once, so that a column added to the export without telling the parser was a
+	// red test. That job moved to `maison-v3.spec.ts`, which pins the export against the version it
+	// now writes; this constant is no longer what the export writes and never will be again.
+	//
+	// What is left for version 2 to claim is the opposite thing, and it needs a LITERAL rather than
+	// a comparison: this shape is FROZEN because files carrying it are on users' disks. Comparing
+	// it against `MAISON_V3_HEADER` would compare two sides derived from one source (v3 is defined
+	// as v2 plus a column), which reads as a check and is an identity that passes always. The only
+	// oracle for « frozen » is the bytes, typed out.
+	it('is frozen at the ten columns a file already on a user disk carries', () => {
+		expect.assertions(2);
 
-		expect(MAISON_V2_HEADER).toBe(TRANSACTION_CSV_HEADER);
+		expect(MAISON_V2_HEADER).toBe(
+			'date;libelle;categorie;montant;type;nature;source_bancaire;montant_total;part;categorie_parent'
+		);
+		// The companion, and it is what makes the literal above mean something beyond itself: the
+		// export has MOVED ON, so this profile is now carrying an older contract rather than
+		// shadowing the current one. Separates « version 2 is the previous version » from « version 2
+		// is still what the export writes », which is the state this file was written in.
+		expect(MAISON_V2_HEADER).not.toBe(TRANSACTION_CSV_HEADER);
 	});
 
 	it('auto-detects the v2 header without being asked for a profile', () => {

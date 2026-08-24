@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as m from '$lib/paraglide/messages';
 
 /**
  * The designation action's memorisation branch, which had NO server test of its own.
@@ -26,6 +27,30 @@ const store = vi.hoisted(() => ({
 
 const persist = vi.hoisted(() => ({
 	createImportBatch: vi.fn(async () => 'batch-1'),
+	/**
+	 * The account the USER CHOSE, resolved once and used by both the collision check and the write.
+	 *
+	 * It replaced a name-based lookup that could return null for a bucket not yet created. There is
+	 * no such case now: an account picked from the panel exists, so one shape serves both callers
+	 * and they can no longer reason about two different accounts.
+	 */
+	resolveImportBucketAccountById: vi.fn(async () => ({
+		accountId: 'account-1',
+		currency: 'EUR',
+		exponent: 2,
+		providerAccountId: null,
+		bankConnectionId: null
+	})),
+	// A REAL class, because the route branches on `instanceof` to tell the archived refusal from the
+	// not-found one. A plain object here would make every refusal read as not-found and the archived
+	// case would go untested while looking tested.
+	ImportBucketAccountError: class ImportBucketAccountError extends Error {
+		reason: 'not-found' | 'archived';
+		constructor(reason: 'not-found' | 'archived') {
+			super(reason);
+			this.reason = reason;
+		}
+	},
 	// The shape `persistImportedTransactions` actually returns. It used to be
 	// `{ imported, duplicates, netWorthLinkStatus }` here, which is a shape the route has not read
 	// for some time: every figure it takes off this value was `undefined` and no test noticed,
@@ -36,8 +61,7 @@ const persist = vi.hoisted(() => ({
 		duplicateRows: 0,
 		importedDebitCents: 0,
 		importedCreditCents: 0
-	})),
-	resolveImportBucketAccount: vi.fn(async () => ({ accountId: 'account-1', created: false }))
+	}))
 }));
 
 const collision = vi.hoisted(() => ({
@@ -48,6 +72,23 @@ const collision = vi.hoisted(() => ({
 const db = vi.hoisted(() => ({
 	prisma: {
 		categorizationRule: { findMany: vi.fn(async () => []) },
+		/**
+		 * The read behind the summary's « N lignes importées dans X ».
+		 *
+		 * Returns a REAL account shape rather than null, because null makes the line absent and an
+		 * absent line is what every one of these tests would report if the read were broken. The
+		 * name it returns is deliberately not the stored key: `displayAccountName` substitutes for
+		 * the generic bucket, and a fixture named « Compte import CSV » here would make this fake
+		 * decide which branch the projection takes.
+		 */
+		account: {
+			findFirst: vi.fn(async () => ({
+				name: 'Compte de test',
+				nameKey: 'compte-de-test',
+				source: 'csv',
+				institution: null
+			}))
+		},
 		importBatch: {
 			findFirst: vi.fn(
 				async (): Promise<{
@@ -99,6 +140,10 @@ async function submit(csv: string, hasHeaderRow: boolean, extra: Record<string, 
 	form.set('dateIndex', '0');
 	form.set('labelIndex', '1');
 	form.set('amountIndex', '2');
+	// The account is now part of every designation, so the helper posts one. A submission without
+	// it is a refusal, and that refusal has its own tests rather than being the default every other
+	// test would silently exercise.
+	form.set('accountId', 'account-1');
 	for (const [key, value] of Object.entries(extra)) form.set(key, value);
 
 	// Typed at the seam rather than cast per assertion: the action's declared return is a union of
@@ -110,6 +155,7 @@ async function submit(csv: string, hasHeaderRow: boolean, extra: Record<string, 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any)) as unknown as {
 		status?: number;
+		data?: { error?: string; keepDesignation?: boolean };
 		replaced?: {
 			kind: 'none' | 'deleted' | 'withheld' | 'withheldOtherPeriod';
 			replacedAt?: string;
@@ -130,9 +176,12 @@ describe('the designation action and a file with no header row', () => {
 			importedDebitCents: 0,
 			importedCreditCents: 0
 		});
-		persist.resolveImportBucketAccount.mockResolvedValue({
+		persist.resolveImportBucketAccountById.mockResolvedValue({
 			accountId: 'account-1',
-			created: false
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
 		});
 		persist.createImportBatch.mockResolvedValue('batch-1');
 	});
@@ -201,9 +250,12 @@ describe('a corrected import replaces the batch it was launched from', () => {
 			importedDebitCents: 0,
 			importedCreditCents: 0
 		});
-		persist.resolveImportBucketAccount.mockResolvedValue({
+		persist.resolveImportBucketAccountById.mockResolvedValue({
 			accountId: 'account-1',
-			created: false
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
 		});
 		persist.createImportBatch.mockResolvedValue('batch-new');
 		db.prisma.importBatch.findFirst.mockResolvedValue({
@@ -426,5 +478,110 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		await submit(WITH_HEADER, true);
 
 		expect(collision.findCollidingBatch).toHaveBeenCalledWith('user-a', expect.anything(), {});
+	});
+});
+
+describe('the account a statement is filed into, and the five ways the id can be wrong', () => {
+	/**
+	 * THE 5XX STANDARD, WHICH IS ALREADY SET AND MUST NOT REGRESS.
+	 *
+	 * The last audit drove 49 form actions through two hostile passes with ZERO server errors.
+	 * `accountId` is the first client-supplied object reference this route has ever accepted, so it
+	 * is the first new way to try to break that, and every one of the five wrong answers below has
+	 * to come back as something the user can read and act on.
+	 *
+	 * The refusal says what to DO, not what went wrong. « Choisissez le compte de ce relevé avant
+	 * d'importer » rather than « accountId invalide », which names a field the user never saw and
+	 * leaves them nothing to do about it.
+	 *
+	 * WHAT THIS FILE CAN AND CANNOT PROVE. The resolver is mocked here, so the four not-found cases
+	 * necessarily collapse into one behaviour: this asserts what the ROUTE does with a refusal.
+	 * That the four are genuinely refused, and refused INDISTINGUISHABLY, is asserted against a real
+	 * engine in `resolveByChosenId.db-smoke.ts`, because a fake decides what `findFirst` returns and
+	 * « the query was scoped by userId » and « the fake had nothing to return » are the same green.
+	 */
+	beforeEach(() => {
+		vi.clearAllMocks();
+		store.saveColumnMapping.mockResolvedValue({ ok: true as const, id: 'mapping-1' });
+		persist.persistImportedTransactions.mockResolvedValue({
+			importedRows: 4,
+			duplicateRows: 0,
+			importedDebitCents: 0,
+			importedCreditCents: 0
+		});
+		persist.createImportBatch.mockResolvedValue('batch-1');
+	});
+
+	const NOT_FOUND = ['not-a-cuid', '', 'clbogus000000000000000000', 'another-users-account-id'];
+
+	it.each(NOT_FOUND)(
+		'refuses accountId %j with a readable 400 and never a server error',
+		async (accountId) => {
+			// SEPARATES: « the route refused and said what to do » FROM « the route threw and the
+			// user got a 500 ». A throw is also a refusal from the attacker's side and is useless
+			// from the user's, which is why the status is asserted and not merely the absence of a
+			// success.
+			expect.assertions(4);
+			persist.resolveImportBucketAccountById.mockRejectedValue(
+				new persist.ImportBucketAccountError('not-found')
+			);
+			const result = await submit(WITH_HEADER, true, { accountId });
+			expect(result.status).toBe(400);
+			expect(result.status).toBeLessThan(500);
+			expect(result.data?.error).toBe(m.import_account_error_required());
+			// The designations survive the refusal: the user is being asked which account, not
+			// asked to designate the columns again.
+			expect(result.data?.keepDesignation).toBe(true);
+		}
+	);
+
+	it('refuses an ARCHIVED account of the user’s own with its OWN sentence', async () => {
+		// SEPARATES: « the refusal names what to do about an archived account » FROM « every refusal
+		// says the same thing ». They own this one, so telling them it is archived discloses nothing
+		// and is the only version that explains why a valid choice was rejected. Sending them back
+		// to a panel that does not contain it, with no reason, is the alternative.
+		expect.assertions(3);
+		persist.resolveImportBucketAccountById.mockRejectedValue(
+			new persist.ImportBucketAccountError('archived')
+		);
+		const result = await submit(WITH_HEADER, true, { accountId: 'archived-account' });
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(m.import_account_error_archived());
+		expect(result.data?.error).not.toBe(m.import_account_error_required());
+	});
+
+	it('writes NOTHING on the way to refusing', async () => {
+		// SEPARATES: « the refusal happened before any write » FROM « a batch was created and then
+		// the request failed ». A refusal that leaves a batch behind is only a refusal from the
+		// caller's side, and it is the shape that makes an abandoned run cost the user a row.
+		expect.assertions(2);
+		persist.resolveImportBucketAccountById.mockRejectedValue(
+			new persist.ImportBucketAccountError('not-found')
+		);
+		await submit(WITH_HEADER, true, { accountId: 'nope' });
+		expect(persist.createImportBatch).not.toHaveBeenCalled();
+		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
+	});
+
+	it('files the statement into the account the user chose', async () => {
+		// The calibration the four refusals above need: without it they are equally explained by a
+		// route that refuses everything. SEPARATES « the chosen id reaches the write » FROM « the
+		// route ignores it and writes somewhere else ».
+		expect.assertions(2);
+		persist.resolveImportBucketAccountById.mockResolvedValue({
+			accountId: 'account-chosen',
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
+		});
+		await submit(WITH_HEADER, true, { accountId: 'account-chosen' });
+		expect(persist.resolveImportBucketAccountById).toHaveBeenCalledWith({
+			userId: 'user-a',
+			accountId: 'account-chosen'
+		});
+		expect(persist.createImportBatch).toHaveBeenCalledWith(
+			expect.objectContaining({ accountId: 'account-chosen' })
+		);
 	});
 });

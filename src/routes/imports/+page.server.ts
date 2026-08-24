@@ -6,6 +6,7 @@ import { normalizeId } from '$lib/server/transactions/where';
 import { findCollidingPairs } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import type { PageServerLoad } from './$types';
+import { displayAccountName } from '$lib/server/accounts/projection';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -27,6 +28,22 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			periodEnd: true,
 			createdAt: true,
 			_count: { select: { transactions: true } },
+			/**
+			 * WHICH ACCOUNT THIS IMPORT LANDED ON, which is the question `/imports` could not answer
+			 * before piece 4 gave `ImportBatch` an `accountId`.
+			 *
+			 * Reached through the batch's own relation, so the outer `userId` is what scopes it. The
+			 * four columns are exactly what `displayAccountName` reads: the generic bucket's stored
+			 * name is a lookup key rather than a sentence, and this list must not be the one screen
+			 * that shows it raw.
+			 *
+			 * Nullable, and legitimately so: a batch imported before the column existed carries no
+			 * account, and the pill is simply absent on that row rather than saying « aucun », which
+			 * would be a claim about where the rows went.
+			 */
+			account: {
+				select: { name: true, nameKey: true, source: true, institution: true }
+			},
 			// The correspondance this batch was read through, for the plate's §3.7 block. Reached
 			// through the batch's own relation, so the `userId` on the outer where clause is what
 			// scopes it: a mapping is never looked up by fingerprint here, and the fingerprint is
@@ -67,6 +84,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			periodEnd: batch.periodEnd?.toISOString().slice(0, 10) ?? null,
 			createdAt: batch.createdAt.toISOString(),
 			transactionCount: batch._count.transactions,
+			// PROJECTED HERE, never on the page. The substitution reads a Paraglide message, so a page
+			// that computed it would need the stored name on the client to decide not to show it, and
+			// sending a name the user must not see is how it ends up in a screenshot.
+			accountName: batch.account ? displayAccountName(batch.account) : null,
 			columnMapping: batch.columnMapping
 				? {
 						id: batch.columnMapping.id,

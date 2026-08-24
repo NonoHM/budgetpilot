@@ -29,7 +29,6 @@ import Page from './+page.svelte';
  */
 
 const DATA = {
-	linkableNetWorthAccounts: [],
 	rememberedMappings: [],
 	batches: []
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -52,7 +51,6 @@ function formWith(overrides: Record<string, unknown> = {}) {
 			batchId: 'batch-1',
 			invalidRowDetails: [],
 			hiddenInvalidRowsCount: 0,
-			netWorthLinkStatus: null,
 			...overrides
 		}
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any

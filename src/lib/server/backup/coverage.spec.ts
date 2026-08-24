@@ -98,3 +98,69 @@ describe('backup schema coverage', () => {
 		}
 	});
 });
+
+/**
+ * The backup reference page lists every root key of the export, and the list is checked here
+ * rather than trusted.
+ *
+ * `docs/reference/backup-restore.md` said "Nineteen top-level keys, read off a real export" and
+ * listed nineteen. There were twenty: `columnMappings` arrived with the column-mapping work,
+ * defaulted so that no existing file broke, and nothing failed and nothing re-read the page.
+ *
+ * That phrase is what makes this worth a gate rather than a correction. "Read off a real export"
+ * is a claim about METHOD, and a reader who finds it wrong by one loses their reason to trust the
+ * other figures on the page, including the ones that are right. Either the claim gets something
+ * that re-derives it, or it should not be made. This is that something.
+ *
+ * Parsed out of the page's own list rather than from a copy kept here, because a copy would be a
+ * second source and the two would drift in exactly the way this exists to stop.
+ */
+describe('the backup reference page', () => {
+	const REFERENCE = 'docs/reference/backup-restore.md';
+
+	function documentedKeys(): string[] {
+		const page = readFileSync(REFERENCE, 'utf8');
+		// The list is the run of backticked names following the "top-level keys" sentence, which is
+		// how the page has always written it.
+		const heading = page.indexOf('top-level keys');
+		if (heading === -1) throw new Error(`${REFERENCE} no longer names its top-level keys`);
+		// The list is the paragraph AFTER the sentence, so the search starts at the first backtick
+		// past it and ends at the blank line closing that paragraph. Slicing from the sentence
+		// itself stops at the blank line separating the two, which is how the first version of this
+		// helper returned nothing and reported it as a page listing no keys.
+		const listStart = page.indexOf('`', heading);
+		if (listStart === -1) throw new Error(`${REFERENCE} names its keys but lists none`);
+		const listEnd = page.indexOf('\n\n', listStart);
+		const list = page.slice(listStart, listEnd === -1 ? undefined : listEnd);
+		return [...list.matchAll(/`(\w+)`/g)].map((match) => match[1]);
+	}
+
+	it('reads a list off the page rather than an empty match', () => {
+		// The companion guard to every other emptiness check in this file: a regex that matched
+		// nothing would make the comparison below pass by comparing two empty sets.
+		expect(documentedKeys().length).toBeGreaterThan(10);
+	});
+
+	it('lists exactly the keys the schema declares', () => {
+		expect([...documentedKeys()].sort()).toEqual([...exportKeys].sort());
+	});
+
+	it('states a count that matches the list it gives', () => {
+		const page = readFileSync(REFERENCE, 'utf8');
+		// LONGEST ALTERNATIVE FIRST, and the order is the assertion rather than a tidiness.
+		// `-` is not a word character, so `\bTwenty\b` matches INSIDE "Twenty-one": written with
+		// `Twenty` before the hyphenated forms, this regex reads a page saying twenty-one as
+		// saying twenty, and the mismatch it then reports is the regex's own. Measured when the
+		// twenty-first key arrived: the page had been corrected and this test still failed,
+		// naming 20 against 21.
+		const spelled = /\b(Nineteen|Twenty-two|Twenty-one|Twenty)\b/.exec(page);
+		expect(spelled, `${REFERENCE} should spell its key count`).not.toBeNull();
+		const asNumber: Record<string, number> = {
+			Nineteen: 19,
+			Twenty: 20,
+			'Twenty-one': 21,
+			'Twenty-two': 22
+		};
+		expect(asNumber[spelled![1]]).toBe(exportKeys.size);
+	});
+});

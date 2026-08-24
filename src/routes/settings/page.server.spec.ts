@@ -43,8 +43,18 @@ const db = vi.hoisted(() => ({
 			deleteMany: vi.fn(),
 			createMany: vi.fn()
 		},
+		// The Comptes section's read. Defaulted to an empty list in every `beforeEach` rather than
+		// left undefined: an absent mock makes the whole `load` throw, and every test in this file
+		// then fails for a reason that has nothing to do with what it asserts.
+		account: {
+			findMany: vi.fn()
+		},
 		$transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx))
 	}
+}));
+
+const netWorthService = vi.hoisted(() => ({
+	readLinkableNetWorthAccounts: vi.fn(async () => [] as { id: string; name: string }[])
 }));
 
 const backupImport = vi.hoisted(() => {
@@ -95,6 +105,7 @@ vi.mock('$lib/server/backup/import', () => backupImport);
 vi.mock('$lib/server/tags/service', () => tagsService);
 vi.mock('$lib/server/auth/rateLimit', () => rateLimit);
 vi.mock('$lib/server/import/mapping/store', () => mappingStore);
+vi.mock('$lib/server/net-worth/service', () => netWorthService);
 
 const { hashPassword, hashSessionToken, SESSION_COOKIE } = await import('$lib/server/auth');
 const { actions, load } = await import('./+page.server');
@@ -116,6 +127,8 @@ describe('/settings', () => {
 		mappingStore.listColumnMappings.mockResolvedValue([]);
 		mappingStore.deleteColumnMapping.mockResolvedValue('deleted');
 		mappingStore.resolveColumnMappingsPerUser.mockReturnValue(50);
+		db.prisma.account.findMany.mockResolvedValue([]);
+		netWorthService.readLinkableNetWorthAccounts.mockResolvedValue([]);
 	});
 
 	it('charge uniquement les sessions du user connecté sans exposer token hash ni passwordHash', async () => {
@@ -1438,6 +1451,8 @@ describe('/settings', () => {
 			expect.assertions(1);
 
 			mappingStore.resolveColumnMappingsPerUser.mockReturnValue(50);
+			db.prisma.account.findMany.mockResolvedValue([]);
+			netWorthService.readLinkableNetWorthAccounts.mockResolvedValue([]);
 			db.prisma.user.findUniqueOrThrow.mockResolvedValue({
 				email: 'user-a@example.test',
 				role: 'USER'

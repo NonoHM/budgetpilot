@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { GENERIC_BUCKET_STORED_NAME } from '$lib/domain/account';
+import * as m from '$lib/paraglide/messages';
 
 const db = vi.hoisted(() => {
 	const batches = [
@@ -15,7 +17,21 @@ const db = vi.hoisted(() => {
 			periodStart: new Date('2026-06-01T00:00:00.000Z'),
 			periodEnd: new Date('2026-06-30T00:00:00.000Z'),
 			createdAt: new Date('2026-06-24T10:00:00.000Z'),
-			_count: { transactions: 2 }
+			_count: { transactions: 2 },
+			// The joined account, in the shape `displayAccountName` reads. The STORED name, not the
+			// rendered one: this fixture is the row, and the substitution is what the load is being
+			// asserted to perform on it.
+			account: {
+				name: 'Compte import CSV',
+				// NULL, and deliberately: this fixture lives inside `vi.hoisted`, which cannot call
+				// `computeNameKey`, and the null is not a workaround but the case most likely in the
+				// field. The column is nullable, carries no unique constraint, and the boot backfill
+				// writes it only for accounts with an institution to write, which the generic bucket
+				// has not. `isGenericallyNamed` recomputes the key from the name for exactly this row.
+				nameKey: null,
+				source: 'csv',
+				institution: null
+			}
 		}
 	];
 	const categories = [{ id: 'category-1', name: 'Alimentation' }];
@@ -94,6 +110,30 @@ interface TestImportsPageData {
 }
 
 describe('/imports', () => {
+	it('projects the display name rather than shipping the stored one', async () => {
+		// SEPARATES: « the load calls `displayAccountName` » FROM « the load ships `account.name` ».
+		// The fixture is the generic bucket, which is the only row where those two answers differ:
+		// its stored name is a lookup key half of `@@unique([userId, name, source])`, and the
+		// sentence a user must read is « Import CSV ». A page shipped the raw key would be the one
+		// screen in the application showing it.
+		//
+		// Asserted on the LOAD, not on the chrome. `account-pill.svelte.spec.ts` covers the two
+		// chromes and passes them a name; that says nothing about whether the load computes one, and
+		// the break matrix confirmed it: removing the projection reddens nothing over there.
+		expect.assertions(3);
+		const result = (await load({
+			locals: { user: testUser },
+			url: new URL('http://localhost/imports')
+		} as unknown as Parameters<typeof load>[0])) as {
+			batches: { accountName: string | null }[];
+		};
+		expect(result.batches).toHaveLength(1);
+		expect(result.batches[0].accountName).toBe(m.accounts_generic_bucket());
+		// And the stored key never leaves the server, which is the half that matters if the
+		// substitution is ever moved back onto the page.
+		expect(result.batches[0].accountName).not.toBe(GENERIC_BUCKET_STORED_NAME);
+	});
+
 	it('affiche l’historique des imports', async () => {
 		expect.assertions(4);
 

@@ -9,7 +9,7 @@ import { withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import type { Transaction, TransactionValidationCode } from '$lib/domain/transaction';
 import { allocateByCategory, type CategoryAllocation } from '$lib/domain/allocation';
 import { validateTransaction } from '$lib/domain/transaction';
-import { parseManualAmountCents } from '$lib/domain/money';
+import { parseManualAmountCents, DEFAULT_DENOMINATION } from '$lib/domain/money';
 import type { DateRange } from '$lib/server/date-range';
 import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
@@ -268,6 +268,7 @@ export async function createManualTransaction(
 
 	await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId,
 			accountId: account.id,
 			categoryId: category.id,
@@ -400,7 +401,7 @@ async function upsertBudgetByFoldedName(
 		prisma.monthlyBudget.upsert({
 			where: { userId_categoryNameKey: { userId, categoryNameKey } },
 			update: { amountCents },
-			create: { userId, categoryName, categoryNameKey, amountCents },
+			create: { ...DEFAULT_DENOMINATION, userId, categoryName, categoryNameKey, amountCents },
 			select: { id: true }
 		})
 	);
@@ -425,11 +426,11 @@ export async function ensureManualAccount(userId: string) {
 			},
 			update: {},
 			create: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				name: MANUAL_ACCOUNT_NAME,
 				nameKey: computeNameKey(MANUAL_ACCOUNT_NAME),
-				source: 'manual',
-				currency: 'EUR'
+				source: 'manual'
 			}
 		})
 	);

@@ -10,11 +10,37 @@ vi.mock('./adapter.ts', () => ({ createDatabaseAdapter }));
 // which one was constructed. Mocking them also keeps this suite from loading three real clients.
 // Hoisted with the adapter mock above: `vi.mock` factories run before the module body, so a
 // plain `class` declaration here would not exist yet when the factory reads it.
+//
+// Each fake models `$extends` EXPLICITLY, as a wrapper carrying the client it wrapped, because
+// that is what the real one does: `createPrismaClient` applies the money-column extension and a
+// real extended client is a proxy, so `instanceof` on the return value is false whatever the
+// dispatch did. The fake does NOT pretend the extension is a no-op, which would model an absent
+// behaviour as identity and quietly make the assertions below mean less than they say; it says
+// "a client was wrapped, and here is the one that was", and the tests unwrap. What the extension
+// actually does to a read is not knowable from a fake at all, and is asserted against a real
+// engine in moneyColumns.db-smoke.ts.
 const { FakeSqliteClient, FakePostgresqlClient, FakeMysqlClient } = vi.hoisted(() => ({
-	FakeSqliteClient: class FakeSqliteClient {},
-	FakePostgresqlClient: class FakePostgresqlClient {},
-	FakeMysqlClient: class FakeMysqlClient {}
+	FakeSqliteClient: class FakeSqliteClient {
+		$extends(_extension: unknown) {
+			return { base: this };
+		}
+	},
+	FakePostgresqlClient: class FakePostgresqlClient {
+		$extends(_extension: unknown) {
+			return { base: this };
+		}
+	},
+	FakeMysqlClient: class FakeMysqlClient {
+		$extends(_extension: unknown) {
+			return { base: this };
+		}
+	}
 }));
+
+/** The generated client `createPrismaClient` wrapped, which is what the dispatch tests assert on. */
+function wrappedClient(value: unknown): unknown {
+	return (value as { base: unknown }).base;
+}
 vi.mock('./generated/sqlite/client.ts', () => ({ PrismaClient: FakeSqliteClient }));
 vi.mock('./generated/postgresql/client.ts', () => ({ PrismaClient: FakePostgresqlClient }));
 vi.mock('./generated/mysql/client.ts', () => ({ PrismaClient: FakeMysqlClient }));
@@ -113,7 +139,7 @@ describe('createPrismaClient', () => {
 	])('constructs the client generated for %s', (_provider, env, expected) => {
 		expect.assertions(1);
 
-		expect(createPrismaClient(env)).toBeInstanceOf(expected);
+		expect(wrappedClient(createPrismaClient(env))).toBeInstanceOf(expected);
 	});
 
 	// The aliases exist so an operator running MariaDB, or typing the shorter "postgres", still
@@ -132,6 +158,6 @@ describe('createPrismaClient', () => {
 	])('resolves the %s alias to the right generated client', (_alias, env, expected) => {
 		expect.assertions(1);
 
-		expect(createPrismaClient(env)).toBeInstanceOf(expected);
+		expect(wrappedClient(createPrismaClient(env))).toBeInstanceOf(expected);
 	});
 });

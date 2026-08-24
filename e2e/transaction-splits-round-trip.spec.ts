@@ -72,9 +72,31 @@ test.describe('the CSV round trip', () => {
 		const columns = (sourceLine as string).split(';');
 		// `1/1` and a total equal to the line's own amount: an unsplit row has the same shape as a
 		// répartie one, which is what lets the parser treat both with one rule.
-		expect(columns.at(-2)).toBe('1/1');
+		//
+		// THE INDICES MOVED BY ONE, and the reason is worth stating rather than silently renumbering:
+		// the export gained a trailing `compte` column, so `part` is now third from the end and
+		// `categorie_parent` second. Counting from the END is what made this a one-line change; the
+		// same assertions written from the front would have needed every index re-derived.
+		expect(columns.at(-3)).toBe('1/1');
 		expect(columns[7]).toBe(columns[3]);
-		expect(columns.at(-1)).toBe(PARENT_CATEGORY);
+		expect(columns.at(-2)).toBe(PARENT_CATEGORY);
+		/**
+		 * The new `compte` cell, taken as-is and NOT asserted non-empty. Read this before tightening it.
+		 *
+		 * MEASURED on this branch: it is EMPTY, and that is a real defect rather than a property of
+		 * this fixture. `routes/transactions/export/+server.ts` never passes `accountName`, so the
+		 * column the export gained ships blank for every user. Task 10 added the column, the writer
+		 * and the reader, and its Step 4 — the caller — was forbidden to the agent that did the rest,
+		 * which is why nothing joined them. No unit test could see it: they all call
+		 * `buildTransactionsCsv` directly and hand it the option the route does not.
+		 *
+		 * Asserted as PRESENT and round-tripped rather than as non-empty on purpose. Asserting
+		 * non-empty would redden this spec for a defect it does not own; asserting it equals `''`
+		 * would cement the defect as the contract. Reading it and carrying it back through the import
+		 * keeps the round trip honest and leaves the repair visible.
+		 */
+		expect(columns).toHaveLength(11);
+		const accountName = columns.at(-1) as string;
 
 		// ---- 3. the same file, hand-edited into a répartition ----------------------------------
 		// The HEADER is the export's own, taken from the response rather than retyped — it is the
@@ -84,8 +106,10 @@ test.describe('the CSV round trip', () => {
 			page,
 			[
 				header,
-				`${SPLIT_DATE};${SPLIT_LABEL};${PARENT_CATEGORY};-5.00;expense;;csv;-8.00;1/2;${PARENT_CATEGORY}`,
-				`${SPLIT_DATE};${SPLIT_LABEL};${OTHER_CATEGORY};-3.00;expense;;csv;-8.00;2/2;${PARENT_CATEGORY}`
+				// The account cell carries the name read back OUT of the export, not a literal: the two
+				// sides of this round trip must not be two sources for one string.
+				`${SPLIT_DATE};${SPLIT_LABEL};${PARENT_CATEGORY};-5.00;expense;;csv;-8.00;1/2;${PARENT_CATEGORY};${accountName}`,
+				`${SPLIT_DATE};${SPLIT_LABEL};${OTHER_CATEGORY};-3.00;expense;;csv;-8.00;2/2;${PARENT_CATEGORY};${accountName}`
 			].join('\n')
 		);
 
@@ -117,9 +141,13 @@ test.describe('the CSV round trip', () => {
 			// The PARENT's total on every line, never a part's — this is the column the fingerprint
 			// is built from, so a part leaking into it would re-import as a different transaction.
 			expect(cells[7]).toBe("'-8.00");
-			expect(cells.at(-1)).toBe(PARENT_CATEGORY);
+			// Second from the end since the export gained its trailing `compte` column, and the
+			// account itself asserted beside it: a répartition's parts belong to the same account as
+			// the parent, and nothing else in this file would notice if they stopped.
+			expect(cells.at(-2)).toBe(PARENT_CATEGORY);
+			expect(cells.at(-1)).toBe(accountName);
 		}
-		expect(reExported.map((line) => line.split(';').at(-2))).toEqual(['1/2', '2/2']);
+		expect(reExported.map((line) => line.split(';').at(-3))).toEqual(['1/2', '2/2']);
 
 		// ---- cleanup: the répartition must not outlive this spec -------------------------------
 		await page

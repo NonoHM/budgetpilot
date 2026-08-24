@@ -1,5 +1,10 @@
+import { toNullableMinorUnits } from '../database/minorUnits.ts';
 import { prisma } from '$lib/server/db';
 import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
+import {
+	assignDedupeKeysForBatch,
+	type BatchDenomination
+} from '$lib/server/import/dedupeRecompute';
 import type { CollidingBatchView } from '$lib/domain/importCollision';
 import type { ImportedTransaction } from './types';
 
@@ -79,18 +84,31 @@ export type CollidingBatch = CollidingBatchView;
  */
 export function describeIncomingBatch(
 	transactions: ImportedTransaction[],
-	period: { from: string | null; to: string | null }
+	period: { from: string | null; to: string | null },
+	bucket: BatchDenomination | null
 ): IncomingBatchShape {
 	let debitCents = 0;
 	let creditCents = 0;
-	const dedupeKeys: string[] = [];
 	for (const transaction of transactions) {
 		if (transaction.metadata.type === 'expense') debitCents += Math.abs(transaction.amountCents);
 		if (transaction.metadata.type === 'income') creditCents += Math.abs(transaction.amountCents);
-		if (transaction.metadata.deduplicationKey) {
-			dedupeKeys.push(transaction.metadata.deduplicationKey);
-		}
 	}
+
+	// Built by the same function the write path uses, so the fingerprints this run is COMPARED on
+	// are the fingerprints it would STORE. Two constructions of the key is how the check and the
+	// write quietly stop agreeing about whether a file has been here before.
+	//
+	// A null bucket means the run lands somewhere that does not exist yet, and the empty list that
+	// follows is EXACT rather than lenient: a bucket with no rows has no keys, so the comparison
+	// has nothing to find. It computes the same verdict as a full list matching nothing, and the
+	// other three terms are untouched, so the period and total legs still speak.
+	//
+	// Nulls are dropped rather than carried: a null would be hashed and compared like a key, and
+	// every row that cannot be keyed would then look like the same row.
+	const dedupeKeys = bucket
+		? assignDedupeKeysForBatch(transactions, bucket).filter((key): key is string => key !== null)
+		: [];
+
 	return { period, transactionCount: transactions.length, debitCents, creditCents, dedupeKeys };
 }
 
@@ -293,7 +311,11 @@ async function readBatchTotals(
 			creditCents: 0
 		};
 		total.transactionCount += row._count._all;
-		const sum = row._sum.amountCents ?? 0;
+		// `toNullableMinorUnits` and not a plain read: a groupBy aggregate is one of the two shapes
+		// the money-column extension does not reach, and it typechecks as `number` while returning
+		// a `bigint`. Without this `total.debitCents += sum` throws at run time under a green
+		// `npm run check`. See server/database/moneyColumns.ts.
+		const sum = toNullableMinorUnits(row._sum.amountCents, 'Transaction.amountCents') ?? 0;
 		if (row.type === 'expense') total.debitCents += sum;
 		if (row.type === 'income') total.creditCents += sum;
 		totals.set(row.importBatchId, total);

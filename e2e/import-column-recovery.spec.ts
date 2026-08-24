@@ -1,6 +1,7 @@
 import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { onScreen } from './screen-geometry';
+import { chooseStatementAccount } from './choose-account';
 
 /**
  * The journey that had no route: a memorised correspondance that is WRONG, and correcting it.
@@ -101,6 +102,8 @@ test.describe('a memorised correspondance that is wrong can be corrected', () =>
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
 		}
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 		await expect(page).toHaveURL(/\/import$/, { timeout: 15_000 });
 
@@ -168,6 +171,8 @@ test.describe('a memorised correspondance that is wrong can be corrected', () =>
 		// PLANCHE 5c: the consent moved into this footer, pre-ticked, so the press PROPOSES and the
 		// confirmation consents. One deliberate intention for one irreversible result, and it is the
 		// step that took this journey from 8 to 9.
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 		await page
 			.getByRole('dialog')

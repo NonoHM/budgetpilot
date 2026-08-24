@@ -32,6 +32,13 @@ function baseData(overrides: Partial<PageData> = {}): PageData {
 		// reads `data.columnMappings.length`, so an omitted key is a render crash rather than an
 		// empty section, and this file is about the tags section arriving intact beside it.
 		columnMappings: [],
+		// The Comptes section reads these four. Present and empty rather than absent: the page reads
+		// `data.accounts.length`, so an omitted key is a render crash rather than an empty section,
+		// and this file is about a different section arriving intact beside it.
+		accounts: [],
+		accountsInvitation: false,
+		accountNameMaxLength: 120,
+		linkableNetWorthAccounts: [],
 		columnMappingCap: 50,
 		...overrides
 	} as PageData;

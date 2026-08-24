@@ -1,6 +1,7 @@
 import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { expectPrimaryUnobstructed, onScreen } from './screen-geometry';
+import { chooseStatementAccount } from './choose-account';
 
 /**
  * The import path's failure paths, which are the ones no level below this can see.
@@ -102,11 +103,19 @@ test.describe('the designation screen answers when the import call fails', () =>
 	}, testInfo) => {
 		await reachDesignationScreen(page, testInfo.retry, 'X');
 
+		// The account is chosen BEFORE the session is dropped, and the order is the test rather than a
+		// detail. Choosing an account can itself be a REQUEST now: a user with no statement account
+		// creates one from the panel, and that POST needs the session as much as the import does. With
+		// the clear first, the creation was refused, the row never stated an account, and the spec
+		// failed fifteen seconds later on a URL assertion, one screen away from its cause. The thing
+		// under test is the IMPORT call meeting an expired session; everything else must reach the
+		// press with a live one.
+		await chooseStatementAccount(page);
+
 		// The session dies while the user is mid-task, which is exactly when a long designation is
 		// most likely to outlive it. The cookie is dropped rather than the server being stubbed, so
 		// the request that follows is a genuine unauthenticated one and `requireUser` answers it.
 		await context.clearCookies();
-
 		await page.getByRole('button', { name: /^Importer/ }).click();
 
 		// BEFORE: this URL never changed and no message ever appeared. The assertion is the
@@ -128,6 +137,8 @@ test.describe('the designation screen answers when the import call fails', () =>
 			else await route.fallback();
 		});
 
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 
 		await expect(onScreen(page, m.import_columns_error_unexpected())).toBeVisible({

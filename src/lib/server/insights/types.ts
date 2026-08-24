@@ -62,3 +62,50 @@ export interface LocalAiAdvice {
 	insights: BudgetInsight[];
 	unavailable: boolean;
 }
+
+/**
+ * Keys that may never appear in the payload handed to the local model, expressed as a TYPE so the
+ * compiler refuses the field, and mirrored at run time by `KEYS_REFUSED_IN_PROMPT` in `prompt.ts`.
+ *
+ * Two halves rather than one, and the reason is a line of existing code: `buildBudgetInsightsPrompt`
+ * casts the walked payload `as object`, and a cast defeats a type. So the type catches the honest
+ * mistake at the moment it is written, and the run-time refusal is the one that actually holds.
+ *
+ * Recursive, because the walker is. `toPromptPayload` recurses to any depth, so a guard inspecting
+ * only the top level would be narrower than the hole it is guarding.
+ */
+type ForbiddenPromptKey =
+	| 'discriminant'
+	| 'iban'
+	| 'bban'
+	| 'accountNumber'
+	| 'id'
+	| 'accountId'
+	| 'userId'
+	| 'transactionId'
+	| 'importBatchId';
+
+/** Every forbidden key reachable anywhere in `T`, as a union. `never` when there are none. */
+type ForbiddenKeysIn<T> = T extends (...args: never[]) => unknown
+	? never
+	: T extends Date
+		? never
+		: T extends readonly (infer Element)[]
+			? ForbiddenKeysIn<Element>
+			: T extends object
+				? | Extract<keyof T, ForbiddenPromptKey>
+					| { [K in keyof T]-?: ForbiddenKeysIn<NonNullable<T[K]>> }[keyof T]
+				: never;
+
+/** `true` when nothing is reachable, otherwise the offending key, which is what the error names. */
+export type AssertPromptSafe<T> = [ForbiddenKeysIn<T>] extends [never] ? true : ForbiddenKeysIn<T>;
+
+/**
+ * THE ASSERTION ITSELF. If a later change adds an account, an id or an account fragment to any type
+ * reachable from `TransactionSummary`, this line stops compiling and names the key.
+ *
+ * A spending-by-account report is an obvious feature and is exactly the change that would do it,
+ * which is why this exists before anyone builds one rather than after.
+ */
+const _transactionSummaryCarriesNoRefusedKey: AssertPromptSafe<TransactionSummary> = true;
+void _transactionSummaryCarriesNoRefusedKey;

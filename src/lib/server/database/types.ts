@@ -19,10 +19,42 @@
  * by modules the maintenance scripts under `scripts/` run in plain Node, with no Vite
  * resolution and no `$lib` alias.
  */
-export type { Prisma, PrismaClient } from './generated/sqlite/client.ts';
+import type { Prisma as GeneratedPrisma } from './generated/sqlite/client.ts';
+
+export type { Prisma } from './generated/sqlite/client.ts';
+
+/**
+ * The client as every consumer actually receives it, which is NOT the generated one.
+ *
+ * `createPrismaClient` applies the money-column extension (see moneyColumns.ts), so the eight
+ * money columns read as `number` rather than the `bigint` the generated client declares. Naming
+ * the generated `PrismaClient` here instead would hand every module that takes a client
+ * parameter a type that disagrees with the value it is given, in the direction that reads as
+ * `bigint` and behaves as `number`.
+ *
+ * `typeof import(...)` keeps this type-only: no value is imported and no client reaches a bundle,
+ * which is the property the docstring above depends on.
+ */
+export type PrismaClient = ReturnType<typeof import('./client.ts').createPrismaClient>;
 export type {
 	BankConnectionStatus,
 	NetWorthAccountType,
 	Role,
 	TransactionNature
 } from './generated/sqlite/enums.ts';
+
+/**
+ * A transaction row as the EXTENDED client returns it, for the helpers that are generic over a
+ * `select`.
+ *
+ * `Prisma.TransactionGetPayload<{ select }>` is the GENERATED payload and knows nothing about the
+ * money-column extension, so a helper typed that way declares `amountCents: bigint` while handing
+ * its caller a `number`. That is the aggregate trap inverted: the value is right and the type is
+ * wrong, and it propagates to every caller of the helper rather than staying at one call site.
+ * `Prisma.Result` resolves against the client's own delegate type, extension included.
+ */
+export type TransactionPayload<Select> = GeneratedPrisma.Result<
+	PrismaClient['transaction'],
+	{ select: Select },
+	'findFirstOrThrow'
+>;

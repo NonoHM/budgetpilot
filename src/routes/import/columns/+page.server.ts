@@ -3,7 +3,12 @@ import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { importHeaderCells, parseCsvTransactionRows } from '$lib/server/import/csv';
-import { ImportFileError, isSupportedImportFile, readImportFile } from '$lib/server/import/file';
+import {
+	ImportFileError,
+	IMPORT_FILE_MAX_BYTES,
+	isSupportedImportFile,
+	readImportFile
+} from '$lib/server/import/file';
 import { mappingFromPostedIndices } from '$lib/server/import/mapping/designation';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
@@ -15,16 +20,15 @@ import {
 } from '$lib/server/import/invalidRowDetails';
 import {
 	createImportBatch,
+	ImportBucketAccountError,
 	persistImportedTransactions,
-	resolveImportBucketAccount
+	resolveImportBucketAccountById
 } from '$lib/server/import/persist';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
 import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
-
-const IMPORT_MAX_BYTES = 256_000;
-const CSV_ACCOUNT_NAME = 'Compte import CSV';
+import { readAccountDisplayName } from '$lib/server/accounts/service';
 
 /**
  * The import the designation screen submits, and the ONE place its choices become facts.
@@ -65,15 +69,15 @@ export const actions: Actions = {
 		if (!isSupportedImportFile(importFile.name)) {
 			return fail(400, { error: m.import_error_bad_extension() });
 		}
-		if (importFile.size > IMPORT_MAX_BYTES) {
+		if (importFile.size > IMPORT_FILE_MAX_BYTES) {
 			return fail(400, {
-				error: m.import_error_too_large({ size: importFile.size, max: IMPORT_MAX_BYTES })
+				error: m.import_error_too_large({ size: importFile.size, max: IMPORT_FILE_MAX_BYTES })
 			});
 		}
 
 		let importData;
 		try {
-			importData = await readImportFile(importFile, { maxBytes: IMPORT_MAX_BYTES });
+			importData = await readImportFile(importFile, { maxBytes: IMPORT_FILE_MAX_BYTES });
 		} catch (caught) {
 			if (caught instanceof ImportFileError)
 				return fail(400, { error: m.import_error_empty_file() });
@@ -109,7 +113,7 @@ export const actions: Actions = {
 		});
 
 		const result = parseCsvTransactionRows(importData.rows, {
-			maxBytes: IMPORT_MAX_BYTES,
+			maxBytes: IMPORT_FILE_MAX_BYTES,
 			profile: 'mapped',
 			columnMapping: resolved.mapping,
 			// The user's answer, carried into the PARSE and not only into the mapping. Without it
@@ -182,8 +186,66 @@ export const actions: Actions = {
 		 * Before `saveColumnMapping` and before every write below it, so a run the user abandons
 		 * leaves no batch, no memorised correspondance and no use counted against one.
 		 */
+		/**
+		 * THE ACCOUNT THIS STATEMENT BELONGS TO, AND THE FIRST CLIENT-SUPPLIED OBJECT REFERENCE THIS
+		 * ROUTE HAS EVER ACCEPTED.
+		 *
+		 * `AGENTS.md` says never take a `userId` from the client. This is the same class one object
+		 * over: the id decides which account a statement is filed into, it arrives in a POST body,
+		 * and a reference a client posts is a claim rather than a fact. `resolveImportBucketAccountById`
+		 * puts `userId` in the SAME where clause, so not-yours and not-found are one answer and this
+		 * endpoint cannot be used to enumerate other users' account ids.
+		 *
+		 * ## Every one of the five refusals is a 400 the user can read, and never a 500
+		 *
+		 * Malformed, missing, well formed but nonexistent, and belonging to somebody else all reach
+		 * `not-found` and share one sentence. An ARCHIVED account of the user's own gets its own,
+		 * because they own it and the useful thing to say is what to do next. The text says what to
+		 * DO rather than what went wrong: « Choisissez le compte de ce relevé » rather than
+		 * « accountId invalide », which names a field the user never saw.
+		 *
+		 * `keepDesignation` because a refusal here must not cost the work: the user is being asked
+		 * which account, not asked to designate the columns again.
+		 *
+		 * Resolved BEFORE the collision check, so both it and the write below reason about one
+		 * account rather than two, and before any write, so a refusal leaves nothing behind.
+		 */
+		let bucket;
+		try {
+			bucket = await resolveImportBucketAccountById({
+				userId: user.id,
+				accountId: asString(formData.get('accountId')) ?? ''
+			});
+		} catch (error) {
+			return fail(400, {
+				error:
+					error instanceof ImportBucketAccountError && error.reason === 'archived'
+						? m.import_account_error_archived()
+						: m.import_account_error_required(),
+				keepDesignation: true
+			});
+		}
+
 		if (formData.get('confirmCollision') !== '1') {
-			const incoming = describeIncomingBatch(result.transactions, result.summary.period);
+			// The account the user CHOSE, which is now the same object the write path below uses.
+			//
+			// It used to be a lookup by name that could come back null, and the null case existed
+			// because the bucket might not have been created yet. There is no such case now: an
+			// account the user picked from the panel exists by construction, and the fingerprints
+			// compared below are built against the very row the rows will land in. Resolving it
+			// once, above, is also what stops the collision check and the write from ever reasoning
+			// about two different accounts.
+			//
+			// `'csv'` is the SOURCE, and it stays the literal it was: it describes how the file was
+			// READ (designated by hand), not which account it lands in. Those two were the same
+			// question only while the destination was derived from the profile.
+			const incoming = describeIncomingBatch(result.transactions, result.summary.period, {
+				accountId: bucket.accountId,
+				source: 'csv',
+				currency: bucket.currency,
+				exponent: bucket.exponent,
+				providerAccountId: bucket.providerAccountId
+			});
 			// The batch being replaced is not a collision with itself: a correction re-reads the same
 			// statement, so it matches all three terms by construction. Scoped to that one id rather
 			// than to the correction path, because a genuine earlier import of the same statement
@@ -254,14 +316,9 @@ export const actions: Actions = {
 			if (saved.ok) await recordColumnMappingUse(user.id, saved.id);
 		}
 
-		const bucket = await resolveImportBucketAccount({
-			userId: user.id,
-			name: CSV_ACCOUNT_NAME,
-			source: 'csv',
-			netWorthAccountId: null
-		});
 		const batchId = await createImportBatch({
 			userId: user.id,
+			accountId: bucket.accountId,
 			source: 'csv',
 			fileName: importFile.name,
 			profile: result.summary.profile,
@@ -380,9 +437,11 @@ export const actions: Actions = {
 				// choice from a bad file. Same shape as `/import` so one panel draws both (#338).
 				invalidRowDetails: buildInvalidRowDetails(importData.previewRowsByLine, result),
 				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.invalidRows.length),
-				// Always null here: the destination-account choice belongs to the upload form, which
-				// this route does not carry. Present so the payload is one shape rather than two.
-				netWorthLinkStatus: null
+				// Named through the ONE rule both screens read, so the summary and the Comptes list
+				// cannot call one account two things. Read back rather than threaded out of the
+				// resolution, which returns an id: the id is what the resolver knows, and the name is
+				// a rendering question the resolver has no business answering.
+				accountName: await readAccountDisplayName(user.id, bucket.accountId)
 			},
 			capReached,
 			replaced

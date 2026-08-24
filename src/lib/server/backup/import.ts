@@ -1,3 +1,4 @@
+import { DEFAULT_CURRENCY, DEFAULT_EXPONENT } from '$lib/domain/money';
 import * as m from '$lib/paraglide/messages';
 import { prisma } from '$lib/server/db';
 import { LONG_TRANSACTION_OPTIONS } from '$lib/server/dbTransaction';
@@ -5,6 +6,7 @@ import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
+import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
 import { normalizeTagName, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
 import {
 	isValidSplitPartAmount,
@@ -43,12 +45,44 @@ function normalizeCategoryName(name: string): string {
  * the round trips add up on any database reached over a socket. See that module for why
  * the default budget only ever fitted a local SQLite file.
  */
+/**
+ * The denomination a restored row is written with: the file's own, or the application default when
+ * the file predates the columns.
+ *
+ * This is the SECOND call site of the stamp the migration performs, and it exists for the same
+ * reason: a backup taken before `currency` and `exponent` were columns is exponent-2 euros BY
+ * CONSTRUCTION, because that is the only thing the schema of the day could express. So the `??` is
+ * a fact rather than a guess, and writing it here means every restored row has a denomination
+ * somebody wrote, exactly as every migrated row does. There is no database default to fall back on
+ * (see prisma/schema.prisma), which is what makes the absence of this call a compile error rather
+ * than a silent euro.
+ *
+ * It is NOT applied to `TransactionSplit`: a part is denominated by its parent, and giving a part
+ * its own currency is what would let `sum(parts) === parent.amountCents` become false.
+ */
+function restoredDenomination(row: { currency?: string; exponent?: number }): {
+	currency: string;
+	exponent: number;
+} {
+	return {
+		currency: row.currency ?? DEFAULT_CURRENCY,
+		exponent: row.exponent ?? DEFAULT_EXPONENT
+	};
+}
+
 export async function restoreBackup(userId: string, payload: BackupExport): Promise<void> {
 	assertReferentialIntegrity(payload);
 
 	await prisma.$transaction(async (tx) => {
 		// a. Full purge for this user, in dependency order.
 		await tx.transaction.deleteMany({ where: { userId } });
+		// Before the accounts it hangs off, and explicitly rather than through the cascade the
+		// foreign key would give. Two reasons, and the second is the one that matters: the rows
+		// this purge removes include the memories that carry an account identifier fragment, which
+		// the export does not carry and the payload therefore cannot put back. Leaning on a
+		// cascade would make that erasure a side effect of a relation somebody could later change
+		// to SetNull, and the fragment would then survive a restore attached to nothing.
+		await tx.importSourceSignature.deleteMany({ where: { userId } });
 		await tx.account.deleteMany({ where: { userId } });
 		await tx.category.deleteMany({ where: { userId } });
 		await tx.importBatch.deleteMany({ where: { userId } });
@@ -88,6 +122,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		for (const account of payload.netWorthAccounts) {
 			const created = await tx.netWorthAccount.create({
 				data: {
+					...restoredDenomination(account),
 					userId,
 					name: account.name,
 					nameKey: computeNameKey(account.name),
@@ -105,6 +140,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		if (payload.savingsGoals.length > 0) {
 			await tx.savingsGoal.createMany({
 				data: payload.savingsGoals.map((goal) => ({
+					...restoredDenomination(goal),
 					userId,
 					name: goal.name,
 					targetAmountCents: goal.targetAmountCents,
@@ -150,6 +186,12 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// and build the Maps oldId(file) → newId).
 		const accountIdMap = new Map<string, string>();
 		const accountKeyMap = new Map<string, string>();
+		// Keyed on the RESTORED account rather than on the file's, because two file accounts whose
+		// names fold together are merged into one bucket above and the second one's transactions
+		// follow the first. A map keyed on the file's id would hand a merged row the provider
+		// account of a bucket it does not live in, and the deduplication key would name a
+		// provider account that never held it.
+		const providerAccountIdByBucket = new Map<string, string | null>();
 		for (const account of payload.accounts) {
 			// First spelling wins: an older export can hold two buckets whose names fold
 			// together, and recreating both would rebuild the duplicate the app no longer
@@ -163,9 +205,9 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 
 			const created = await tx.account.create({
 				data: {
+					...restoredDenomination(account),
 					userId,
 					name: account.name,
-					currency: account.currency,
 					source: account.source,
 					netWorthAccountId: account.netWorthAccountId
 						? (netWorthAccountIdMap.get(account.netWorthAccountId) ?? null)
@@ -181,6 +223,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			});
 			accountIdMap.set(account.id, created.id);
 			accountKeyMap.set(accountKey, created.id);
+			providerAccountIdByBucket.set(created.id, account.providerAccountId ?? null);
 		}
 
 		const categoryIdMap = new Map<string, string>();
@@ -256,6 +299,31 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			});
 		}
 
+		// The import memory, written in bulk because nothing references a signature and no
+		// generated id has to be captured.
+		//
+		// `accountId` goes through `accountIdMap`, which is not an optimisation: this restore
+		// REGENERATES every account id, so the id the file carries names nothing here, and on a
+		// restore into a different account it would name a row belonging to somebody else. The map
+		// also already folds two file accounts whose names collapse onto one bucket, so a memory
+		// of the second follows its transactions rather than dangling.
+		//
+		// `discriminant` is written NULL explicitly rather than left to the column default, of
+		// which there is none. The payload has no such field, by design (see backup/schema.ts):
+		// only fragment-free memories travel, so every restored row is fragment-free by
+		// construction and this line says so at the write site.
+		if (payload.importSourceSignatures.length > 0) {
+			await tx.importSourceSignature.createMany({
+				data: payload.importSourceSignatures.map((signature) => ({
+					userId,
+					fingerprint: signature.fingerprint,
+					discriminant: null,
+					accountId: accountIdMap.get(signature.accountId)!,
+					useCount: signature.useCount
+				}))
+			});
+		}
+
 		const importBatchIdMap = new Map<string, string>();
 		for (const batch of payload.importBatches) {
 			const created = await tx.importBatch.create({
@@ -304,9 +372,46 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		]);
 		const transactionIdMap = new Map<string, string>();
 
+		// RECOMPUTED, never taken from the file, and this is a correction rather than a tidy-up.
+		//
+		// `dedupeKey` is an exported format as well as a stored one, and the key names the account
+		// a row lands on. A restore regenerates every id, so a key copied verbatim names an account
+		// that does not exist on this instance: the row then deduplicates against nothing, and the
+		// user's next import of the same statement doubles it with nothing to report it.
+		//
+		// The ordinal is assigned over the payload's rows in payload order, which is the same rule
+		// the write path uses over a batch. Two identical rows therefore get 0 and 1 rather than
+		// one key, which is what keeps the restore from failing on
+		// `@@unique([userId, dedupeKeyHash])` or, worse, losing one of them.
+		//
+		// `keyed` comes from whether the FILE carried a key. A manual transaction has none, and
+		// inventing one would let a row the user typed compete for identity with rows a file
+		// produced. A row with no direction cannot be keyed at all and `assignDedupeKeys` returns
+		// null for it, which leaves it invisible to deduplication rather than wrongly matched.
+		const restoredDedupeKeys = assignDedupeKeys(
+			payload.transactions.map((transaction) => ({
+				id: transaction.id,
+				source: transaction.source,
+				accountId: accountIdMap.get(transaction.accountId)!,
+				// The stored `DateTime` truncated, which is what the key carries. `transaction.date`
+				// is validated as parseable and NOT as date-only, so a file may legitimately carry a
+				// full instant here (`schema.ts`'s `isoDateString`).
+				date: new Date(transaction.date).toISOString().slice(0, 10),
+				label: transaction.label,
+				amountCents: transaction.amountCents,
+				type: transaction.type,
+				...restoredDenomination(transaction),
+				providerAccountId:
+					providerAccountIdByBucket.get(accountIdMap.get(transaction.accountId)!) ?? null,
+				entryReference: readEntryReference(transaction.metadataJson),
+				keyed: transaction.dedupeKey !== null
+			}))
+		);
+
 		const transactionData = payload.transactions.map((transaction) => ({
 			oldId: transaction.id,
 			data: {
+				...restoredDenomination(transaction),
 				userId,
 				accountId: accountIdMap.get(transaction.accountId)!,
 				categoryId: categoryIdMap.get(transaction.categoryId)!,
@@ -324,9 +429,10 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 					transaction.manualCategory ? normalizeCategoryName(transaction.manualCategory) : null
 				),
 				natureManual: transaction.natureManual,
-				// Recomputed here, never read from the file: the hash is the app's own answer
-				// to "is this the same row", not something a backup gets to assert.
-				...dedupeKeyUpdate(transaction.dedupeKey),
+				// Recomputed here, never read from the file: the key names an account this restore
+				// has just regenerated, and the hash is the app's own answer to "is this the same
+				// row", not something a backup gets to assert.
+				...dedupeKeyUpdate(restoredDedupeKeys.get(transaction.id)),
 				metadataJson: transaction.metadataJson
 			}
 		}));
@@ -468,6 +574,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			await tx.monthlyBudget.createMany({
 				data: dedupeByNameKey(
 					payload.monthlyBudgets.map((budget) => ({
+						...restoredDenomination(budget),
 						userId,
 						categoryName: normalizeCategoryName(budget.categoryName),
 						categoryNameKey: computeNameKey(normalizeCategoryName(budget.categoryName)),
@@ -522,6 +629,7 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		if (payload.netWorthSnapshots.length > 0) {
 			await tx.netWorthSnapshot.createMany({
 				data: payload.netWorthSnapshots.map((snapshot) => ({
+					...restoredDenomination(snapshot),
 					userId,
 					accountId: netWorthAccountIdMap.get(snapshot.accountId)!,
 					type: snapshot.type,
@@ -623,6 +731,25 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 		if (account.bankConnectionId && !bankConnectionIds.has(account.bankConnectionId)) {
 			throw new BackupImportError(
 				m.settings_backup_error_unknown_bank_connection_link({ id: account.id })
+			);
+		}
+	}
+
+	// The import memory names an account, and `accountIdMap.get()` on an id the file does not carry
+	// would hand `createMany` an undefined foreign key: a constraint error mid-transaction, which
+	// on PostgreSQL aborts the enclosing transaction and takes the whole restore down with a
+	// message about an index. Refused by name here, before any write, exactly as the tag and split
+	// links are.
+	for (const signature of payload.importSourceSignatures) {
+		if (!accountIds.has(signature.accountId)) {
+			throw new BackupImportError(
+				m.settings_backup_error_unknown_signature_account({
+					// The fingerprint of a header row, truncated the way the duplicate-mapping
+					// message truncates it. It is a hash of a bank's PUBLIC column names, so it
+					// names a file shape rather than a person, and it is the only handle the row
+					// has: the payload deliberately carries no id.
+					fingerprint: signature.fingerprint.slice(0, 12)
+				})
 			);
 		}
 	}
@@ -828,4 +955,31 @@ function dedupeByNameKey<T>(rows: T[], keyOf: (row: T) => string): T[] {
 		seen.add(key);
 		return true;
 	});
+}
+
+/**
+ * The provider's per-account entry reference, read out of a restored row's `metadataJson`.
+ *
+ * Defensive on every step, because this is an UNTRUSTED boundary: the payload is a file the user
+ * hands us, `metadataJson` is validated as a bounded string and never as a shape, and a hand-edited
+ * one can hold anything parseable. A throw here would abort the whole restore over a cell the
+ * restore does not otherwise read.
+ *
+ * Returning null on anything unexpected is the safe direction rather than the lenient one: the key
+ * then falls back to the content branch, which is what a row with no provider reference gets
+ * anyway. The opposite failure, trusting a non-string, would put an object's stringification into
+ * a stored identifier.
+ *
+ * ASVS 5.0.0 1.5.2, on deserialization of untrusted data enforcing safe input handling.
+ */
+function readEntryReference(metadataJson: string | null): string | null {
+	if (!metadataJson) return null;
+	try {
+		const parsed: unknown = JSON.parse(metadataJson);
+		if (typeof parsed !== 'object' || parsed === null) return null;
+		const reference = (parsed as Record<string, unknown>).reference;
+		return typeof reference === 'string' && reference.trim() ? reference : null;
+	} catch {
+		return null;
+	}
 }

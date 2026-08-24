@@ -94,9 +94,7 @@ const DATA: PageData = {
 		replacedAt: '2026-08-16T08:59:00.000Z',
 		replacedRows: 25,
 		hasUserWork: false
-	},
-	linkableNetWorthAccounts: [],
-	hasAllImportBucketsExisting: true
+	}
 } as unknown as PageData;
 
 /** The action's reply to the first press, with the consent as it stood AT THAT PRESS. */

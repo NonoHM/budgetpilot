@@ -18,16 +18,13 @@ import {
 import { parseAmountCents } from '../utils/money';
 import {
 	buildCsvFields,
-	buildDeduplicationGroupKey,
-	buildDeduplicationKey,
 	buildNotes,
 	firstPresent,
-	hashFingerprint,
+	buildPreviewRowId,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
-import { createOccurrenceCounter } from '../occurrence';
 import { foldComparableHeader } from '../utils/encoding';
 
 /**
@@ -124,8 +121,6 @@ export function parseRevolutRows({
 	}
 
 	const transactions: ImportedTransaction[] = [];
-	// One counter per parse, never shared between files: see occurrence.ts.
-	const nextOccurrence = createOccurrenceCounter();
 	const refusals: CsvRefusal[] = [];
 	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
 	// saying so in the summary is what stops a reader inferring the counter was forgotten.
@@ -230,11 +225,6 @@ export function parseRevolutRows({
 		// The ordinal is what makes two identical rows two transactions rather than one. The
 		// in-file skip that used to sit here collapsed them and counted the second as a
 		// duplicate, so a file carrying the same row twice imported one of them.
-		const group = { date, label, amountCents: absAmountCents, type };
-		const fingerprint = buildDeduplicationKey({
-			...group,
-			occurrence: nextOccurrence(buildDeduplicationGroupKey(group))
-		});
 		const categorization = applyCategorizationRules({ label, category, type }, categorizationRules);
 		// The Revolut operation type (the "Type" field) is never a business category:
 		// it's applied only if a rule explicitly mapped it, otherwise it stays "to classify".
@@ -248,7 +238,7 @@ export function parseRevolutRows({
 		]);
 
 		const transaction: ImportedTransaction = {
-			id: `csv-${hashFingerprint(fingerprint)}`,
+			id: buildPreviewRowId('csv', line, date, label, absAmountCents),
 			date,
 			label,
 			amountCents: absAmountCents,
@@ -265,7 +255,6 @@ export function parseRevolutRows({
 				revolutState: state,
 				revolutFeeCents: feeCents ?? undefined,
 				revolutBalanceCents: balanceCents ?? undefined,
-				deduplicationKey: fingerprint,
 				csvFields: buildCsvFields(record, REVOLUT_METADATA_FIELDS)
 			}
 		};

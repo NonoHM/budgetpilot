@@ -14,6 +14,11 @@ import type { TransactionNature } from '$lib/domain/transaction';
 
 const NO_MAPPINGS = new Map<string, TransactionNature>();
 
+/** `categorie_parent`, by index rather than by `.at(-1)`. It stopped being the last column when v3
+ *  appended `compte`, and `.at(-1)` followed the move silently: the assertions below would have
+ *  gone on reading « the last column » and reported about the account instead. */
+const PARENT_CATEGORY_COLUMN = 9;
+
 function row(overrides: Partial<TransactionRowForMapping> = {}): TransactionRowForMapping {
 	return {
 		id: 'tx-1',
@@ -85,11 +90,14 @@ describe('buildTransactionsCsv', () => {
 		);
 
 		// montant = the PART, montant_total = the PARENT, both signed as expenses.
+		// The trailing `;` is the v3 `compte` column, empty because no account was named. The header
+		// is frozen, so the column exists on every line whether or not it has a value: a line one
+		// cell short of its own header is refused by the parser as `bad-column-count`.
 		expect(first).toBe(
-			"2026-06-12;Leroy Merlin;Bricolage;'-50.00;expense;spending;csv;'-80.00;1/2;Maison"
+			"2026-06-12;Leroy Merlin;Bricolage;'-50.00;expense;spending;csv;'-80.00;1/2;Maison;"
 		);
 		expect(second).toBe(
-			"2026-06-12;Leroy Merlin;Jardin;'-30.00;expense;spending;csv;'-80.00;2/2;Maison"
+			"2026-06-12;Leroy Merlin;Jardin;'-30.00;expense;spending;csv;'-80.00;2/2;Maison;"
 		);
 	});
 
@@ -114,7 +122,7 @@ describe('buildTransactionsCsv', () => {
 			)
 		);
 
-		expect(first.split(';').at(-1)).toBe('Maison');
+		expect(first.split(';')[PARENT_CATEGORY_COLUMN]).toBe('Maison');
 		expect(first.split(';')[2]).toBe('Bricolage');
 	});
 
@@ -122,7 +130,7 @@ describe('buildTransactionsCsv', () => {
 		expect.assertions(1);
 
 		expect(bodyOf(buildTransactionsCsv([row()], NO_MAPPINGS))[0]).toBe(
-			"2026-06-12;Leroy Merlin;Maison;'-80.00;expense;spending;csv;'-80.00;1/1;Maison"
+			"2026-06-12;Leroy Merlin;Maison;'-80.00;expense;spending;csv;'-80.00;1/1;Maison;"
 		);
 	});
 
@@ -151,7 +159,7 @@ describe('buildTransactionsCsv', () => {
 	});
 
 	it('escapes and de-fangs every column, including the two new ones', () => {
-		expect.assertions(2);
+		expect.assertions(3);
 
 		const [line] = bodyOf(
 			buildTransactionsCsv([row({ label: 'A;B"C', category: { name: '=SUM(A1)' } })], NO_MAPPINGS)
@@ -161,7 +169,14 @@ describe('buildTransactionsCsv', () => {
 		// The formula guard applies to the parent-category column too — it is the same user text,
 		// reaching the same spreadsheet, and a guard applied to one copy and not the other is the
 		// fix-the-instance shape.
-		expect(line.split(';').at(-1)).toBe("'=SUM(A1)");
+		// Counted from the END rather than through `PARENT_CATEGORY_COLUMN`, and the reason is the
+		// fixture: this label carries a `;` inside its quotes, so a naive split has more pieces than
+		// the file has columns and every index past the label is wrong. Counting from the right works
+		// because every field after the label is delimiter-free by its own grammar, with ONE
+		// exception, `compte`, which is an account name and may carry anything. It is empty here,
+		// which is why `-2` lands on the parent category.
+		expect(line.split(';').at(-2)).toBe("'=SUM(A1)");
+		expect(line.split(';').at(-1)).toBe('');
 	});
 
 	// PR5: a filtered export must read like the screen it came from, which means emitting only the

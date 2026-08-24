@@ -13,12 +13,9 @@ import type {
 import type { CsvRefusal } from '../refusals';
 import { addRefusal, buildSummary, normalizeDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
-import { createOccurrenceCounter } from '../occurrence';
 import {
 	buildCsvFields,
-	buildDeduplicationGroupKey,
-	buildDeduplicationKey,
-	hashFingerprint,
+	buildPreviewRowId,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -88,8 +85,6 @@ export function parseResolvedRows({
 	);
 
 	const transactions: ImportedTransaction[] = [];
-	// One counter per parse, never shared between files: see occurrence.ts.
-	const nextOccurrence = createOccurrenceCounter();
 	const refusals: CsvRefusal[] = [];
 	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
 	// saying so in the summary is what stops a reader inferring the counter was forgotten.
@@ -188,15 +183,10 @@ export function parseResolvedRows({
 		// present. The in-file skip is gone with it: within one source a repeated row is now
 		// occurrence 1, and the only authority on duplicates is the unique constraint in the
 		// database, which is where a duplicate ACROSS sources has always been decided.
-		const group = { date, label, amountCents, type };
-		const fingerprint = buildDeduplicationKey({
-			...group,
-			occurrence: nextOccurrence(buildDeduplicationGroupKey(group))
-		});
 		const categorization = applyCategorizationRules({ label, category, type }, categorizationRules);
 
 		const transaction: ImportedTransaction = {
-			id: `csv-${hashFingerprint(fingerprint)}`,
+			id: buildPreviewRowId('csv', line, date, label, amountCents),
 			date,
 			label,
 			amountCents,
@@ -206,7 +196,6 @@ export function parseResolvedRows({
 				reference: '',
 				notes: label,
 				type,
-				deduplicationKey: fingerprint,
 				// The RESOLVED names, not a fixed list: with a fixed one a Boursorama file would
 				// store no date at all, because its column is `dateop`.
 				csvFields: buildCsvFields(record, resolvedFields)

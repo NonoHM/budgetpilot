@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../layout.css';
@@ -57,6 +58,7 @@ describe('/net-worth AlertBanner gating', () => {
 						name: 'Livret A',
 						type: 'savings',
 						balanceCents: 500000,
+						...DEFAULT_DENOMINATION,
 						balanceEuros: '5000,00',
 						connected: false,
 						createdAt: '2026-07-01T00:00:00.000Z',
@@ -85,6 +87,7 @@ describe('/net-worth AlertBanner gating', () => {
 						name: 'Livret A',
 						type: 'savings',
 						balanceCents: 500000,
+						...DEFAULT_DENOMINATION,
 						balanceEuros: '5000,00',
 						connected: false,
 						createdAt: '2026-07-01T00:00:00.000Z',

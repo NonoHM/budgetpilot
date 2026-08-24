@@ -2,6 +2,7 @@
 	import { getLocale } from '$lib/paraglide/runtime';
 	import * as m from '$lib/paraglide/messages';
 	import { formatCents } from '$lib/domain/budget';
+	import { formatMoneyWithoutSymbol, money } from '$lib/domain/money';
 	import { createPoliteAnnouncer } from '$lib/announce';
 	import type { RemainderState } from '$lib/domain/splitDraft';
 
@@ -39,10 +40,7 @@
 	 * to carry the unit, and the design chose the spelled form rather than leaving it to chance.
 	 */
 	function spokenAmount(cents: number): string {
-		return new Intl.NumberFormat(getLocale(), {
-			minimumFractionDigits: 2,
-			maximumFractionDigits: 2
-		}).format(cents / 100);
+		return formatMoneyWithoutSymbol(money(cents), { locale: getLocale() });
 	}
 
 	function sentenceFor(s: RemainderState): string {

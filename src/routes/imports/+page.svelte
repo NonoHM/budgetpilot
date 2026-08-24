@@ -391,6 +391,21 @@
 									</td>
 									<td class="px-4 py-3 font-medium">
 										{batch.fileName ?? m.imports_default_file_name()}
+										<!--
+										WHICH ACCOUNT THESE ROWS WENT INTO. Brique 2, under the file name rather
+										than in a column of its own: a column would widen a table #332 froze, and
+										the account is a property of THIS import rather than a dimension the list
+										is read along.
+
+										Absent, not « aucun », on a batch imported before the column existed. An
+										empty pill would be a claim about where those rows went; silence is the
+										honest answer, and the Comptes screen is where the user can look.
+										-->
+										{#if batch.accountName}
+											<div class="mt-1" data-testid="import-account-pill">
+												<Badge tone="neutral">{batch.accountName}</Badge>
+											</div>
+										{/if}
 										{#if batch.columnMapping}
 											<div class="mt-1 font-normal">
 												{@render recognisedColumns(batch.id, batch.columnMapping)}
@@ -480,6 +495,11 @@
 									<Badge tone="neutral">{importProfileLabel(batch.profile)}</Badge>
 								</span>
 							</div>
+							{#if batch.accountName}
+								<div class="mt-1" data-testid="import-account-pill">
+									<Badge tone="neutral">{batch.accountName}</Badge>
+								</div>
+							{/if}
 							<p class="mt-1 truncate text-sm text-zinc-500">
 								{batch.fileName ?? m.imports_default_file_name()}
 							</p>

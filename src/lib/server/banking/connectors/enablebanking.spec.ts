@@ -2,6 +2,19 @@ import { generateKeyPairSync } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { EnableBankingConnector } from './enablebanking';
 import { UNCLASSIFIED_CATEGORY } from '$lib/server/import/utils/safety';
+import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
+
+/**
+ * The bucket these rows land in. The key is built by the write path now, so a spec that wants to
+ * talk about fingerprints asks that path what it would write, through the same function it calls.
+ */
+const EB_BUCKET = {
+	accountId: 'account-1',
+	source: 'enablebanking',
+	currency: 'EUR',
+	exponent: 2,
+	providerAccountId: 'acc-1'
+};
 
 const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
 const TEST_PRIVATE_KEY_PEM = privateKey.export({ type: 'pkcs8', format: 'pem' }) as string;
@@ -270,6 +283,35 @@ describe('EnableBankingConnector — completeAuthorization', () => {
 				hasCreditLimit: false
 			}
 		]);
+	});
+
+	// The currency a provider names is untrusted input on a NOT NULL column, and the backup
+	// boundary enforces ISO 4217's grammar. Left unchecked here, a malformed code would be stored,
+	// exported, and then make the user's OWN backup refuse to restore, with hand-editing JSON as
+	// the only repair.
+	it.each([
+		['lowercase, the realistic provider deviation', 'gbp', 'GBP'],
+		['padded', '  SEK  ', 'SEK'],
+		['two letters, which Intl cannot render', 'AB', 'EUR'],
+		['four letters', 'EURO', 'EUR'],
+		['not a code at all', '<script>', 'EUR'],
+		['absent', null, 'EUR']
+	])('normalises a provider currency that is %s', async (_name, provided, expected) => {
+		const fetchImpl = vi.fn().mockResolvedValue(
+			jsonResponse({
+				session_id: 'sess-123',
+				access: { valid_until: '2027-01-14T00:00:00.000Z' },
+				accounts: [{ uid: 'acc-1', name: 'Compte', currency: provided }]
+			})
+		);
+		const { connector } = makeConnector({ fetchImpl });
+
+		const established = await connector.completeAuthorization({
+			params: { state: 'match', code: 'auth-code' },
+			expectedState: 'match'
+		});
+
+		expect(established.accounts?.[0].currency).toBe(expected);
 	});
 
 	it('propage cash_account_type et hasCreditLimit (credit_limit présent) depuis la ressource compte', async () => {
@@ -604,7 +646,14 @@ describe('EnableBankingConnector — fetchTransactions', () => {
 			to: '2026-01-31'
 		});
 
-		expect(transactions[0].metadata.deduplicationKey).toBe('enablebanking:acc-1:stable-ref');
+		// The connector no longer builds the key: it carries the provider's entry reference on
+		// `metadata.reference`, and the write path turns that into the key, scoped by the bucket's
+		// provider account. This asserts BOTH halves, because the connector dropping the reference
+		// and the write path ignoring it fail the same way and only one of them is this file's.
+		expect(transactions[0].metadata.reference).toBe('stable-ref');
+		expect(assignDedupeKeysForBatch(transactions, EB_BUCKET)[0]).toBe(
+			'v3|enablebanking|acc-1|stable-ref'
+		);
 	});
 
 	it('construit une empreinte de contenu quand entry_reference est absent, distincte selon date/montant et sans le label brut en majuscules', async () => {
@@ -633,10 +682,11 @@ describe('EnableBankingConnector — fetchTransactions', () => {
 			to: '2026-01-31'
 		});
 
-		expect(transactions[0].metadata.deduplicationKey).not.toBe(
-			transactions[1].metadata.deduplicationKey
-		);
-		expect(transactions[0].metadata.deduplicationKey).not.toContain('ACHAT SUPERMARCHE');
+		const keys = assignDedupeKeysForBatch(transactions, EB_BUCKET);
+		expect(keys[0]).not.toBe(keys[1]);
+		// The raw uppercase label is not in the key: enablebanking folds through
+		// `normalizeForMatch` before keying while storing the label as it came.
+		expect(keys[0]).not.toContain('ACHAT SUPERMARCHE');
 	});
 
 	it('rejette un credit_debit_indicator inconnu', async () => {

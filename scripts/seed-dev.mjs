@@ -8,6 +8,7 @@ import { createPrismaClient } from '../src/lib/server/database/client.ts';
 // Imported from the app rather than restated here, so seeded rows carry the same keys the app
 // writes (Node runs the TypeScript source directly, same as scripts/normalize-names.mjs).
 import { computeNameKey } from '../src/lib/server/naming/nameKey.ts';
+import { DEFAULT_DENOMINATION } from '../src/lib/domain/money.ts';
 
 const BASE = process.env.SEED_DEV_BASE_URL ?? 'http://localhost:5173';
 const EMAIL = 'dev@budgetpilot.local';
@@ -64,6 +65,7 @@ const account = await prisma.account.upsert({
 	where: { userId_name_source: { userId: user.id, name: 'Compte principal', source: 'manual' } },
 	update: {},
 	create: {
+		...DEFAULT_DENOMINATION,
 		userId: user.id,
 		name: 'Compte principal',
 		nameKey: computeNameKey('Compte principal')
@@ -153,6 +155,7 @@ let day = 1;
 for (const label of labels) {
 	await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId: user.id,
 			accountId: account.id,
 			categoryId: catUncat.id,

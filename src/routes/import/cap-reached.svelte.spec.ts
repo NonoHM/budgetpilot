@@ -46,16 +46,14 @@ const SUMMARY: ImportSummaryResult = {
 	batchId: 'batch-1',
 	invalidRowDetails: [],
 	hiddenInvalidRowsCount: 0,
-	netWorthLinkStatus: null
+	accountName: null
 };
 
 const DATA: PageData = {
 	// Inherited from the layout load. Null is honest here: this component reads none of it, and a
 	// fabricated user would be a fixture detail that looks like a precondition of the assertion.
 	user: null,
-	correction: null,
-	linkableNetWorthAccounts: [],
-	hasAllImportBucketsExisting: true
+	correction: null
 };
 
 /**

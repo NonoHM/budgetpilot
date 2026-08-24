@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
@@ -152,6 +153,7 @@ export async function createSavingsGoal(
 
 	const created = await prisma.savingsGoal.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId,
 			name: parsed.name,
 			targetAmountCents: parsed.targetAmountCents,

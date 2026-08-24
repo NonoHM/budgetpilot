@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { describe, it, expect } from 'vitest';
 import { prisma } from '$lib/server/db';
 import {
@@ -53,7 +54,7 @@ async function seedUser() {
 		select: { id: true }
 	});
 	const account = await prisma.account.create({
-		data: { userId: user.id, name: 'Totals smoke account' },
+		data: { ...DEFAULT_DENOMINATION, userId: user.id, name: 'Totals smoke account' },
 		select: { id: true }
 	});
 	const category = await prisma.category.create({
@@ -69,6 +70,7 @@ describe('transaction kind predicate', () => {
 
 		const rows = TYPES.flatMap((type) =>
 			AMOUNTS.map((amountCents) => ({
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId,
 				categoryId,
@@ -133,6 +135,7 @@ describe('filtered totals with a category dimension', () => {
 		// could not distinguish "sums the parts" from "sums nothing at all for a répartie row".
 		const split = await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId,
 				categoryId: food.id,
@@ -146,6 +149,7 @@ describe('filtered totals with a category dimension', () => {
 		});
 		await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId,
 				categoryId: home.id,
@@ -213,6 +217,7 @@ describe('filtered totals with a category dimension', () => {
 		// A category the parent carries and no part does: matched on identity, contributing nothing.
 		await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId,
 				categoryId: home.id,
@@ -279,6 +284,7 @@ describe('filtered totals over mixed stored signs', () => {
 		];
 		await prisma.transaction.createMany({
 			data: rows.map((row, index) => ({
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId,
 				categoryId,
@@ -354,6 +360,7 @@ describe('filtered totals over mixed stored signs', () => {
 		// which means the part aggregate cancels exactly as the parent one did.
 		const imported = await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId,
 				categoryId: food.id,
@@ -367,6 +374,7 @@ describe('filtered totals over mixed stored signs', () => {
 		});
 		const manual = await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId,
 				categoryId: food.id,
@@ -395,6 +403,7 @@ describe('filtered totals over mixed stored signs', () => {
 		await prisma.transaction.createMany({
 			data: [
 				{
+					...DEFAULT_DENOMINATION,
 					userId,
 					accountId,
 					categoryId: home.id,
@@ -405,6 +414,7 @@ describe('filtered totals over mixed stored signs', () => {
 					source: 'csv'
 				},
 				{
+					...DEFAULT_DENOMINATION,
 					userId,
 					accountId,
 					categoryId: home.id,

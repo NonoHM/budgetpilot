@@ -26,7 +26,8 @@ const db = vi.hoisted(() => {
 		tags: [] as Row[],
 		transactionTags: [] as Row[],
 		transactionSplits: [] as Row[],
-		columnMappings: [] as Row[]
+		columnMappings: [] as Row[],
+		importSourceSignatures: [] as Row[]
 	};
 
 	let counter = 0;
@@ -219,6 +220,52 @@ const db = vi.hoisted(() => {
 		};
 	}
 
+	/**
+	 * ImportSourceSignature is the one table the export reads through a PREDICATE rather than as a
+	 * whole-table scan for the user: only the rows carrying no account identifier fragment travel
+	 * (see backup/schema.ts for why).
+	 *
+	 * The generic `table()` helper above honours `where.userId` and silently ignores every other
+	 * key, which is also how Prisma treats a clause it is not given: a missing filter is no filter.
+	 * Used here it would answer a filtered query with the unfiltered set, so an export that had
+	 * FORGOTTEN the filter would look correct and an export that applied it could not be told
+	 * apart. This one models the predicate, and refuses loudly any predicate it cannot model
+	 * rather than treating it as absent.
+	 */
+	function importSourceSignatureTable() {
+		const rows = store.importSourceSignatures;
+		const generic = table(rows, 'signature');
+		return {
+			...generic,
+			findMany: vi.fn(
+				async ({
+					where,
+					select
+				}: {
+					where: { userId: string; discriminant?: null };
+					select?: Record<string, boolean>;
+				}) => {
+					const modelled = new Set(['userId', 'discriminant']);
+					const unknown = Object.keys(where).filter((key) => !modelled.has(key));
+					if (unknown.length > 0) {
+						throw new Error(
+							`this fake does not model where.${unknown.join(', where.')} on ImportSourceSignature`
+						);
+					}
+					if ('discriminant' in where && where.discriminant !== null) {
+						throw new Error(
+							'this fake models `discriminant: null` only; any other value would be a fragment leaving the database'
+						);
+					}
+					return rows
+						.filter((row) => row.userId === where.userId)
+						.filter((row) => ('discriminant' in where ? (row.discriminant ?? null) === null : true))
+						.map((row) => pick(row, select));
+				}
+			)
+		};
+	}
+
 	const categoryTable = table(store.categories, 'category');
 	const categoryUpsert = vi.fn(
 		async ({
@@ -279,6 +326,7 @@ const db = vi.hoisted(() => {
 			category: { ...categoryTable, upsert: categoryUpsert },
 			importBatch: table(store.importBatches, 'batch'),
 			columnMapping: table(store.columnMappings, 'column-mapping'),
+			importSourceSignature: importSourceSignatureTable(),
 			transaction: table(store.transactions, 'transaction'),
 			monthlyBudget: table(store.monthlyBudgets, 'budget'),
 			categoryRule: table(store.categoryRules, 'category-rule'),
@@ -308,8 +356,12 @@ vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
 
 const { buildBackupExport } = await import('./export');
 const { restoreBackup, BackupImportError } = await import('./import');
-const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS } = await import('./schema');
+// MAX_PORTABLE_STRING is deliberately NOT imported here: the seam fixture below uses the literal
+// 191, and importing the constant is what made an earlier version of that fixture unfalsifiable.
+const { MAX_ANCHOR_IDS, MAX_ANCHOR_CELL_CHARS, backupExportSchema } = await import('./schema');
 const { computeNameKey } = await import('$lib/server/naming/nameKey');
+const { assignDedupeKeys } = await import('$lib/server/import/dedupeRecompute');
+const { computeDedupeKeyHash } = await import('$lib/server/import/dedupeKey');
 const { MAX_TAGS_PER_TRANSACTION } = await import('$lib/domain/tags');
 type TagColorToken = import('$lib/domain/tags').TagColorToken;
 const { UNCLASSIFIED_CATEGORY } = await import('$lib/domain/categories');
@@ -851,6 +903,15 @@ describe('restoreBackup', () => {
 				updatedAt: string;
 			}>,
 			tags: [] as Array<{ id: string; name: string; colorToken: TagColorToken }>,
+			// Empty by default, like `columnMappings` above and for the same reason: the memory has
+			// its own tests below and every other test here would otherwise carry a row it says
+			// nothing about. No `discriminant` field anywhere in this type, which is the contract:
+			// see the block comment on those tests.
+			importSourceSignatures: [] as Array<{
+				fingerprint: string;
+				accountId: string;
+				useCount: number;
+			}>,
 			transactionTags: [] as Array<{ transactionId: string; tagId: string }>,
 			transactionSplits: [] as Array<{
 				id: string;
@@ -1109,6 +1170,48 @@ describe('restoreBackup', () => {
 		);
 		expect(category?.name).toBe('Compte piégé');
 		expect(category?.defaultKey).toBeUndefined();
+	});
+
+	// THE STAMP, which nothing asserted. Replacing `restoredDenomination(row)` with
+	// `DEFAULT_DENOMINATION` at all seven sites was green across the whole suite: the columns are
+	// required, so `npm run check` catches a MISSING spread and nothing catches a WRONG one. The
+	// failure that hides behind that is silent, because every fixture in this file is euros.
+	//
+	// So the fixture is deliberately not euros. A KWD account at exponent 3 is the case where
+	// "took the file's value" and "took the application default" produce different rows.
+	it("writes the file's own denomination, not the application default", async () => {
+		expect.assertions(4);
+
+		const payload = buildValidPayload();
+		payload.accounts[0].currency = 'KWD';
+		(payload.accounts[0] as { exponent?: number }).exponent = 3;
+		(payload.transactions[0] as { currency?: string }).currency = 'KWD';
+		(payload.transactions[0] as { exponent?: number }).exponent = 3;
+
+		await restoreBackup('user-a', payload);
+
+		const account = db.store.accounts.find((entry) => entry.userId === 'user-a');
+		expect(account?.currency).toBe('KWD');
+		expect(account?.exponent).toBe(3);
+		const transaction = db.store.transactions.find((entry) => entry.userId === 'user-a');
+		expect(transaction?.currency).toBe('KWD');
+		expect(transaction?.exponent).toBe(3);
+	});
+
+	// The other half of the same stamp, and the reason the `??` in `restoredDenomination` is a fact
+	// rather than a guess: a file written before the columns existed could only have held euros at
+	// exponent 2, because that is the only thing the schema of the day could express.
+	it('stamps a file written before the columns existed as euros at exponent 2', async () => {
+		expect.assertions(3);
+
+		const payload = buildValidPayload();
+		expect(payload.transactions[0]).not.toHaveProperty('currency');
+
+		await restoreBackup('user-a', payload);
+
+		const transaction = db.store.transactions.find((entry) => entry.userId === 'user-a');
+		expect(transaction?.currency).toBe('EUR');
+		expect(transaction?.exponent).toBe(2);
 	});
 
 	it('rejects a transaction referencing an accountId absent from the file, before any write', async () => {
@@ -1723,6 +1826,112 @@ describe('restoreBackup', () => {
 		expect(JSON.parse(written)).toHaveLength(MAX_ANCHOR_IDS);
 		expect(written.length).toBeLessThanOrEqual(MAX_ANCHOR_CELL_CHARS);
 	});
+
+	/**
+	 * The restore RECOMPUTES the deduplication key instead of writing the file's back verbatim.
+	 *
+	 * `dedupeKey` is an exported format as well as a stored one, and a key names the account a row
+	 * lands on. Every id in a backup is regenerated on the way in, so a key copied verbatim names
+	 * an account that does not exist here and the row deduplicates against nothing: the user's next
+	 * import of the same statement doubles it, silently.
+	 *
+	 * This lands BEFORE the key version changes, on purpose. While the recompute still produces the
+	 * shape the current importer writes, the change is a no-op with an exact oracle, and the version
+	 * bump then carries the restore along for free. Landing it after the bump would leave a
+	 * corruption window for anyone who restores in between.
+	 */
+	describe('the deduplication key it writes', () => {
+		/** The valid payload above, with its transactions replaced by the rows a test needs. */
+		function payloadWithTransactions(rows: Array<Record<string, unknown>>) {
+			const payload = buildValidPayload();
+			const base = payload.transactions[0];
+			payload.transactions = rows.map((row, index) => ({
+				...base,
+				id: `file-tx-${index + 1}`,
+				...row
+			})) as typeof payload.transactions;
+			return payload;
+		}
+
+		it('names the NEW account id, not the one the file carried', async () => {
+			// A restore regenerates every id. A key built against the file's account id would match
+			// nothing a later import produces on this instance.
+			await restoreBackup(
+				'user-a',
+				payloadWithTransactions([{ dedupeKey: 'whatever-the-file-said' }])
+			);
+
+			const [written] = db.store.transactions;
+			const restoredAccountId = db.store.accounts[0].id;
+			expect(written.dedupeKey).not.toBe('whatever-the-file-said');
+			expect(written.dedupeKey).toBe(
+				assignDedupeKeys([
+					{
+						id: 'only',
+						source: written.source as string,
+						accountId: restoredAccountId,
+						// Read off the row as STORED, never retyped from the fixture: the claim is that the
+						// key inverts the row, so every input has to come from the row.
+						date: new Date(written.date as Date).toISOString().slice(0, 10),
+						label: written.label as string,
+						amountCents: written.amountCents as number,
+						type: 'expense',
+						currency: 'EUR',
+						exponent: 2,
+						providerAccountId: null,
+						entryReference: null,
+						keyed: true
+					}
+				]).get('only')
+			);
+		});
+
+		it('carries the hash of the key it computed, never of the one in the file', async () => {
+			// The pair must not come apart: a raw key with the wrong hash is invisible to every
+			// duplicate check, which is the import re-importing itself.
+			await restoreBackup('user-a', payloadWithTransactions([{ dedupeKey: 'stale' }]));
+
+			const [written] = db.store.transactions;
+			expect(written.dedupeKeyHash).toBe(computeDedupeKeyHash(written.dedupeKey as string));
+		});
+
+		it('leaves a manual transaction unkeyed, because it never had a fingerprint', async () => {
+			// Inventing one would let a row the user typed compete for identity with rows a file
+			// produced, so a manual entry could swallow an imported one.
+			await restoreBackup('user-a', payloadWithTransactions([{ dedupeKey: null }]));
+
+			const [written] = db.store.transactions;
+			expect(written.dedupeKey).toBe(null);
+			expect(written.dedupeKeyHash).toBe(null);
+		});
+
+		it('leaves a row with no direction unkeyed rather than guessing one', async () => {
+			// `type` is nullable in the backup contract. A row with no direction cannot be keyed,
+			// and a null key leaves it invisible to deduplication rather than wrongly matched.
+			await restoreBackup(
+				'user-a',
+				payloadWithTransactions([{ dedupeKey: 'was-keyed-once', type: null }])
+			);
+
+			const [written] = db.store.transactions;
+			expect(written.dedupeKey).toBe(null);
+			expect(written.dedupeKeyHash).toBe(null);
+		});
+
+		it('numbers two identical rows 0 and 1 rather than giving them one key', async () => {
+			// Two coffees at one price on one day are ordinary. Without the ordinal the second row
+			// collides with the first on @@unique([userId, dedupeKeyHash]): the restore either
+			// fails outright or loses one of them.
+			await restoreBackup(
+				'user-a',
+				payloadWithTransactions([{ dedupeKey: 'a' }, { dedupeKey: 'b' }])
+			);
+
+			const keys = db.store.transactions.map((row) => row.dedupeKey as string);
+			expect(new Set(keys).size).toBe(2);
+			expect(keys.map((key) => key.split('|').at(-1))).toEqual(['0', '1']);
+		});
+	});
 });
 
 /**
@@ -1783,6 +1992,13 @@ function buildTagRestorePayload() {
 		bankConnections: [],
 		recurringStreamActions: [],
 		tags: [] as Array<{ id: string; name: string; colorToken: TagColorToken }>,
+		// Empty, and present rather than omitted: `restoreBackup` takes a payload the validator has
+		// already defaulted, so a fixture missing the key is a shape the function never receives.
+		importSourceSignatures: [] as Array<{
+			fingerprint: string;
+			accountId: string;
+			useCount: number;
+		}>,
 		transactionTags: [] as Array<{ transactionId: string; tagId: string }>,
 		transactionSplits: [] as Array<{
 			id: string;
@@ -2473,3 +2689,556 @@ describe('transaction splits — the upper bound, which inspection alone had cov
 		expect(restored.reduce((sum, row) => sum + (row.amountCents as number), 0)).toBe(-2000);
 	});
 });
+
+/**
+ * THE SEAM: a real export must satisfy the validator its own restore runs.
+ *
+ * `buildBackupExport` and `restoreBackup` are both heavily tested above, and neither test touches
+ * the other's half. Every restore test in this file, and the real-database one in
+ * `volume.db-smoke.ts`, builds its payload BY HAND; `schema-properties.spec.ts` seeds from
+ * `schema.spec.ts`'s fixture and says so. So the exporter's output has never been handed to the
+ * schema, and the schema has never been handed anything the exporter produced.
+ *
+ * The type system pins the SHAPE and cannot pin the VALUES. `BackupExport` is
+ * `z.infer<typeof backupExportSchema>` and `buildBackupExport` returns it, so a missing key or a
+ * wrong type fails `npm run check`. The bounds are not types: `.min(1)`, `.max(191)`,
+ * `.length(64)` on a fingerprint, and the two `superRefine` ceilings that read a sibling key are
+ * all runtime facts about values, and nothing compares them against what the write paths permit.
+ *
+ * The repository already knows this class. `MAX_ANCHOR_IDS` in schema.ts exists because a remapped
+ * anchor cell can grow past what was validated on the way in and "leave through an export that
+ * never runs this schema, and be rejected on the way back in, the user is told their own export is
+ * corrupt". That is one column, reasoned about by hand. This is the general case.
+ *
+ * Seeded AT the bounds rather than with tidy values, because a fixture of short strings would pass
+ * against a schema bounded at anything. 191 is MAX_PORTABLE_STRING, the narrowest width any
+ * provider gives a String column, and it is the number a write path would have to exceed for a
+ * user's own export to become unrestorable.
+ *
+ * SEEN RED BEFORE BEING TRUSTED, and the two attempts are both worth recording.
+ *
+ * With `MAX_PORTABLE_STRING` narrowed by one, to 190, this fails naming 18 fields `too_big`. That
+ * is the class it guards: the validator's bounds and the values a supported engine can legally
+ * store, disagreeing.
+ *
+ * The FIRST break attempt was dropping a `toISOString()` from export.ts, and it stayed green. That
+ * is correct rather than a gap in this test: `JSON.stringify` serializes a Date to an ISO string,
+ * the export route stringifies before the file is written, and the restore parses JSON, so the
+ * production path is genuinely immune to it. A break that reddens nothing because the defect
+ * cannot reach the user is a break aimed at the wrong thing.
+ */
+describe('the export and restore seam', () => {
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+	});
+
+	/**
+	 * 191 as a LITERAL, deliberately not `MAX_PORTABLE_STRING`.
+	 *
+	 * The first version of this helper derived its length from the schema's own constant, and was
+	 * unfalsifiable: narrowing the bound narrowed the fixture with it, so the test stayed green
+	 * through the exact change it exists to catch. Measured, not reasoned about: with the constant
+	 * lowered to 190 the suite reported 0 failed.
+	 *
+	 * 191 is a fact about MySQL, not about this schema. It is `varchar(191)`, the narrowest width
+	 * any supported provider gives a String column with no native-type override, so it is what a
+	 * row legally written on any engine may hold. The claim under test is that such a row survives
+	 * an export and is accepted on the way back in, which is a claim about the DATABASE and the
+	 * VALIDATOR agreeing. Expressing the fixture in the validator's own terms would have made it
+	 * agree with itself.
+	 */
+	const atBound = (prefix: string) => prefix + 'x'.repeat(191 - prefix.length);
+
+	function seedAccountAtTheBounds() {
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+		db.store.netWorthAccounts.push({
+			id: 'nwa-1',
+			userId: 'user-a',
+			name: atBound('patrimoine-'),
+			type: 'savings',
+			balanceCents: 250_000,
+			deletedAt: new Date('2026-03-01T12:00:00.000Z')
+		});
+		db.store.netWorthSnapshots.push({
+			id: 'snap-1',
+			userId: 'user-a',
+			accountId: 'nwa-1',
+			type: 'savings',
+			balanceCents: 240_000,
+			capturedAt: new Date('2026-05-01T12:00:00.000Z')
+		});
+		db.store.savingsGoals.push({
+			id: 'goal-1',
+			userId: 'user-a',
+			name: atBound('objectif-'),
+			targetAmountCents: 300_000,
+			netWorthAccountId: 'nwa-1',
+			currentAmountCents: 250_000,
+			startingBalanceCents: 100_000,
+			targetDate: new Date('2026-12-01T00:00:00.000Z'),
+			reachedAt: null,
+			reachedBannerDismissedAt: null,
+			deletedAt: null
+		});
+		db.store.bankConnections.push({
+			id: 'conn-1',
+			userId: 'user-a',
+			provider: atBound('provider-'),
+			status: 'active',
+			aspspName: 'Banque',
+			aspspCountry: 'FR',
+			consentExpiresAt: new Date('2026-09-01T00:00:00.000Z'),
+			lastSyncAt: new Date('2026-08-01T00:00:00.000Z')
+		});
+		db.store.accounts.push({
+			id: 'acc-1',
+			userId: 'user-a',
+			name: atBound('compte-'),
+			currency: 'EUR',
+			source: atBound('source-'),
+			netWorthAccountId: 'nwa-1',
+			bankConnectionId: 'conn-1',
+			providerAccountId: 'p'.repeat(500),
+			providerCashAccountType: 'CACC'
+		});
+		db.store.categories.push(
+			{ id: 'cat-1', userId: 'user-a', name: atBound('categorie-') },
+			{ id: 'cat-2', userId: 'user-a', name: 'Loisirs' }
+		);
+		db.store.importBatches.push({
+			id: 'batch-1',
+			userId: 'user-a',
+			source: atBound('src-'),
+			fileName: 'f'.repeat(500),
+			profile: atBound('profil-'),
+			rowCount: 2,
+			importedRows: 2,
+			duplicateRows: 0,
+			invalidRows: 0,
+			periodStart: new Date('2026-01-01T00:00:00.000Z'),
+			periodEnd: new Date('2026-01-31T00:00:00.000Z')
+		});
+		db.store.columnMappings.push({
+			id: 'map-1',
+			userId: 'user-a',
+			fingerprint: 'a'.repeat(64),
+			matchBy: 'name',
+			dateColumn: 'd'.repeat(120),
+			labelColumn: 'libelle',
+			amountColumn: 'montant',
+			categoryColumn: null,
+			dateIndex: null,
+			labelIndex: null,
+			amountIndex: null,
+			categoryIndex: null,
+			columnCount: 4,
+			useCount: 3
+		});
+		db.store.transactions.push({
+			id: 'tx-1',
+			userId: 'user-a',
+			accountId: 'acc-1',
+			categoryId: 'cat-1',
+			importBatchId: 'batch-1',
+			date: new Date('2026-01-15T00:00:00.000Z'),
+			label: 'l'.repeat(2000),
+			amountCents: -1_037,
+			type: 'expense',
+			source: atBound('src-'),
+			notes: 'n'.repeat(10_000),
+			bankOperationType: 'b'.repeat(500),
+			manualCategory: atBound('manuelle-'),
+			natureManual: 'spending',
+			dedupeKey: 'd'.repeat(500),
+			metadataJson: '{}'
+		});
+		// `userId` and `categoryOwnerId` are the fake's stand-ins for the two relation filters the
+		// export scopes through (`transaction: { userId }` and `category: { userId }`). A row
+		// without them is invisible to the export, which reads as "no parts" rather than as a
+		// broken fixture.
+		db.store.transactionSplits.push(
+			{
+				id: 'split-1',
+				userId: 'user-a',
+				categoryOwnerId: 'user-a',
+				transactionId: 'tx-1',
+				categoryId: 'cat-1',
+				amountCents: -600,
+				position: 0,
+				note: atBound('note-')
+			},
+			{
+				id: 'split-2',
+				userId: 'user-a',
+				categoryOwnerId: 'user-a',
+				transactionId: 'tx-1',
+				categoryId: 'cat-2',
+				amountCents: -437,
+				position: 1,
+				note: null
+			}
+		);
+		db.store.tags.push({
+			id: 'tag-1',
+			userId: 'user-a',
+			name: atBound('tag-'),
+			colorToken: 'clay' as TagColorToken
+		});
+		db.store.transactionTags.push({
+			id: 'link-1',
+			userId: 'user-a',
+			transactionId: 'tx-1',
+			tagId: 'tag-1'
+		});
+		db.store.monthlyBudgets.push({
+			id: 'budget-1',
+			userId: 'user-a',
+			categoryName: atBound('categorie-'),
+			amountCents: 30_000
+		});
+		db.store.categoryRules.push({
+			id: 'rule-1',
+			userId: 'user-a',
+			name: atBound('regle-'),
+			matchText: 'm'.repeat(500),
+			targetCategory: atBound('cible-'),
+			targetNature: 'spending',
+			enabled: true
+		});
+		db.store.categorizationRules.push({
+			id: 'legacy-1',
+			userId: 'user-a',
+			pattern: 'p'.repeat(500),
+			targetCategory: atBound('cible-'),
+			type: 'expense',
+			active: true
+		});
+		db.store.categoryNatureMappings.push({
+			id: 'nature-1',
+			userId: 'user-a',
+			categoryName: atBound('categorie-'),
+			nature: 'spending'
+		});
+		db.store.recurringStreamActions.push({
+			id: 'action-1',
+			userId: 'user-a',
+			kind: 'IGNORE',
+			direction: 'expense',
+			normalizedLabel: atBound('label-'),
+			label: atBound('Label-'),
+			anchorTransactionIds: JSON.stringify(['tx-1']),
+			dueDate: null,
+			createdAt: new Date('2026-01-01T00:00:00.000Z'),
+			updatedAt: new Date('2026-01-02T00:00:00.000Z')
+		});
+	}
+
+	it('produces an export that its own restore validator accepts', async () => {
+		expect.assertions(2);
+		seedAccountAtTheBounds();
+
+		const exported = await buildBackupExport('user-a');
+		// Through JSON, because that is what the file is. A Date surviving in memory and failing
+		// only once serialized is exactly the regression this guards.
+		const onTheWire = JSON.parse(JSON.stringify(exported));
+		const parsed = backupExportSchema.safeParse(onTheWire);
+
+		// The issues are in the message so a failure names the field rather than saying "false".
+		expect(
+			parsed.success ? [] : parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.code}`)
+		).toEqual([]);
+		expect(parsed.success).toBe(true);
+	});
+
+	it('restores the export it just produced into another account, intact', async () => {
+		expect.assertions(4);
+		seedAccountAtTheBounds();
+		// Restored into a DIFFERENT user, which is what a backup is actually for: moving an account
+		// to another instance. It also keeps the fake honest. Restoring over `user-a` would rely on
+		// the purge removing the seeded parts, and the real purge does not delete them directly at
+		// all: it has no `transactionSplit.deleteMany` because the rows cascade from Transaction,
+		// and the fake models no cascades. Asserting through that would be asserting the fake.
+		db.store.users.push({ id: 'user-b', email: 'b@example.test' });
+
+		const exported = await buildBackupExport('user-a');
+		const parsed = backupExportSchema.safeParse(JSON.parse(JSON.stringify(exported)));
+		if (!parsed.success) throw new Error('the export did not validate, see the test above');
+
+		await restoreBackup('user-b', parsed.data);
+		const reExported = await buildBackupExport('user-b');
+
+		// The seeded account is untouched, so a restore that wrote into the wrong user is visible
+		// here rather than only as a missing row over there.
+		expect((await buildBackupExport('user-a')).transactions).toHaveLength(1);
+
+		// ABSOLUTE figures, not `exported.length`. A relation the fake does not model would make
+		// both sides empty and `0 === 0` would report a round trip that carried nothing. That is
+		// not hypothetical: the first version of this test asserted the relative form, both sides
+		// were empty because the fixture omitted the fake's relation columns, and it passed.
+		expect(reExported.transactions).toHaveLength(1);
+		expect(reExported.transactionSplits).toHaveLength(2);
+		// The money invariant, which is the one a restore must never quietly break.
+		const partsTotal = reExported.transactionSplits.reduce(
+			(sum, part) => sum + part.amountCents,
+			0
+		);
+		expect(partsTotal).toBe(reExported.transactions[0].amountCents);
+	});
+});
+
+/**
+ * THE ACCOUNT IDENTIFIER FRAGMENT, AND THE MEMORY THAT CARRIES IT.
+ *
+ * `Account.discriminant` holds at most four characters from the END of an IBAN or account number
+ * read out of a statement. In a list of one holder's accounts that is precisely the attribute that
+ * identifies, so it is a data class of its own (ASVS 5.0.0 14.1.1; 16.2.5 is the logging
+ * interdict).
+ *
+ * It stays in the database, and that decision was MEASURED rather than preferred: there is no
+ * encryption of any kind under server/backup/. No cipher, no passphrase, no key derivation. The
+ * only occurrences of the word are `credentialsEncrypted`, a BankConnection column the export
+ * deliberately does not carry. So the export is plaintext JSON that a user downloads, mails to
+ * themselves and drops in a cloud folder, and a fragment written into it has left every control
+ * this application has.
+ *
+ * The signatures follow the same line, drawn through the table rather than around it: a row whose
+ * `discriminant` is NULL carries no fragment and travels, a row carrying one does not. Full
+ * exclusion was available and is worse: an account that never had a fragment would lose a memory
+ * it could have kept.
+ *
+ * THE MIDDLE OPTION IS UNSAFE, AND IT IS KILLED HERE RATHER THAN MERELY AVOIDED, because it is
+ * what somebody reaches for as the obvious compromise: export EVERY signature with `discriminant`
+ * nulled out, keeping the whole memory and none of the fragments. Two rows of one user that share
+ * a fingerprint and tell two accounts apart by their fragment then collapse onto one key. Restored,
+ * they are either refused by @@unique([userId, fingerprint, discriminant]) mid-transaction, which
+ * takes the whole restore with it on PostgreSQL, or they land as two rows a later read cannot
+ * choose between, and the memory answers with an ARBITRARY account. That is a wrong answer the
+ * application then replays for ever, manufactured by the backup itself. The reason lives two
+ * models away from the code that would do it, which is exactly why it is written down here.
+ */
+describe('the backup and the account identifier fragment', () => {
+	// Full-length, because the column holds the whole 64 character SHA-256 of a header row and is
+	// documented as never truncated.
+	const FRAGMENT_FREE_FINGERPRINT = 'b'.repeat(64);
+	const FRAGMENT_BEARING_FINGERPRINT = 'c'.repeat(64);
+	// The four characters a statement would carry. Written once, asserted absent everywhere.
+	const FRAGMENT = '4417';
+
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+	});
+
+	function seedThreeAccounts() {
+		db.store.users.push({ id: 'user-a', email: 'a@example.test' });
+		db.store.accounts.push(
+			{
+				id: 'acc-plain',
+				userId: 'user-a',
+				name: 'Compte courant',
+				currency: 'EUR',
+				exponent: 2,
+				source: 'manual',
+				discriminant: null
+			},
+			{
+				id: 'acc-fragment',
+				userId: 'user-a',
+				name: 'Compte joint',
+				currency: 'EUR',
+				exponent: 2,
+				source: 'csv',
+				discriminant: FRAGMENT
+			},
+			{
+				id: 'acc-livret',
+				userId: 'user-a',
+				name: 'Livret',
+				currency: 'EUR',
+				exponent: 2,
+				source: 'manual',
+				discriminant: null
+			}
+		);
+	}
+
+	function seedTwoSignatures() {
+		db.store.importSourceSignatures.push(
+			{
+				id: 'sig-fragment-free',
+				userId: 'user-a',
+				fingerprint: FRAGMENT_FREE_FINGERPRINT,
+				discriminant: null,
+				accountId: 'acc-plain',
+				useCount: 3,
+				lastUsedAt: null
+			},
+			{
+				id: 'sig-fragment-bearing',
+				userId: 'user-a',
+				fingerprint: FRAGMENT_BEARING_FINGERPRINT,
+				discriminant: FRAGMENT,
+				accountId: 'acc-fragment',
+				useCount: 1,
+				lastUsedAt: null
+			},
+			// A third party, and deliberately NOT `user-b`, which is the account the restore tests
+			// below write into: a foreign row sharing the destination's id would be counted as a
+			// restored one and the remap assertion would read its accountId instead. That is not
+			// hypothetical, it is what the first run of these tests did.
+			{
+				id: 'sig-other-user',
+				userId: 'user-elsewhere',
+				fingerprint: FRAGMENT_FREE_FINGERPRINT,
+				discriminant: null,
+				accountId: 'acc-elsewhere',
+				useCount: 9,
+				lastUsedAt: null
+			}
+		);
+	}
+
+	it('never writes an account identifier fragment into the export', async () => {
+		expect.assertions(4);
+		seedThreeAccounts();
+		seedTwoSignatures();
+
+		const payload = await buildBackupExport('user-a');
+
+		// The two companions to the emptiness assertions below, both absolute. Without them a
+		// payload carrying no accounts at all, or a store that never held the fragment, would
+		// satisfy the `not.toContain` and report a control that had nothing to control.
+		expect(payload.accounts).toHaveLength(3);
+		expect(db.store.accounts.filter((row) => row.discriminant === FRAGMENT)).toHaveLength(1);
+
+		expect(JSON.stringify(payload)).not.toContain(FRAGMENT);
+		expect(payload.accounts.every((account) => !('discriminant' in account))).toBe(true);
+	});
+
+	it('exports the signatures that carry no fragment, and only those', async () => {
+		expect.assertions(5);
+		seedThreeAccounts();
+		seedTwoSignatures();
+
+		const payload = await buildBackupExport('user-a');
+
+		// Calibration again: this user owns TWO signatures, so "one is exported" is a filter doing
+		// its job rather than a query returning nothing.
+		expect(db.store.importSourceSignatures.filter((row) => row.userId === 'user-a')).toHaveLength(
+			2
+		);
+		expect(payload.importSourceSignatures).toHaveLength(1);
+		expect(payload.importSourceSignatures[0].fingerprint).toBe(FRAGMENT_FREE_FINGERPRINT);
+		// The field is ABSENT from the payload, not present and null. `.strict()` then refuses a
+		// hand-edited file that smuggles one back in, exactly as it does for credentialsEncrypted.
+		expect(payload.importSourceSignatures.every((row) => !('discriminant' in row))).toBe(true);
+		expect(JSON.stringify(payload)).not.toContain(FRAGMENT);
+	});
+
+	it('restores the fragment-free memory onto the regenerated account id', async () => {
+		expect.assertions(5);
+		seedThreeAccounts();
+		seedTwoSignatures();
+		db.store.users.push({ id: 'user-b', email: 'b@example.test' });
+
+		// Through JSON and through the validator, because that is what a restore reads: a file.
+		const exported = await buildBackupExport('user-a');
+		const parsed = backupExportSchema.safeParse(JSON.parse(JSON.stringify(exported)));
+		if (!parsed.success) {
+			throw new Error(
+				`the export did not validate: ${parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.code}`).join(', ')}`
+			);
+		}
+
+		await restoreBackup('user-b', parsed.data);
+
+		const restored = db.store.importSourceSignatures.filter((row) => row.userId === 'user-b');
+		expect(restored).toHaveLength(1);
+		const newAccount = db.store.accounts.find(
+			(row) => row.userId === 'user-b' && row.name === 'Compte courant'
+		);
+		expect(newAccount).toBeDefined();
+		// The point of the test: the file's `acc-plain` is not the id anything is stored under, so
+		// a restore that copied the column through would point the memory at another user's row.
+		expect(restored[0].accountId).toBe(newAccount!.id);
+		expect(restored[0].accountId).not.toBe('acc-plain');
+		expect(restored[0].discriminant).toBeNull();
+	});
+
+	it('leaves the memory of an account that had a fragment dead after a restore over itself', async () => {
+		expect.assertions(3);
+		seedThreeAccounts();
+		seedTwoSignatures();
+
+		const exported = await buildBackupExport('user-a');
+		const parsed = backupExportSchema.safeParse(JSON.parse(JSON.stringify(exported)));
+		if (!parsed.success) throw new Error('the export did not validate, see the test above');
+
+		await restoreBackup('user-a', parsed.data);
+
+		// The cost this design charges, asserted rather than described in a document nothing runs:
+		// the fragment-bearing row is gone and is not coming back, and the fragment-free one is
+		// still there. Both halves, so a restore that wiped the table would fail the second.
+		const own = db.store.importSourceSignatures.filter((row) => row.userId === 'user-a');
+		expect(own).toHaveLength(1);
+		expect(own[0].fingerprint).toBe(FRAGMENT_FREE_FINGERPRINT);
+		expect(JSON.stringify(db.store.importSourceSignatures)).not.toContain(FRAGMENT);
+	});
+
+	it('refuses a memory naming an account the file does not carry', async () => {
+		expect.assertions(2);
+		db.store.users.push({ id: 'user-b', email: 'b@example.test' });
+
+		const payload = {
+			...buildStandalonePayload(),
+			importSourceSignatures: [
+				{
+					fingerprint: FRAGMENT_FREE_FINGERPRINT,
+					// Names nothing in `accounts`. Left to the engine this is a foreign key error
+					// mid-transaction, which aborts the whole restore with a message about a
+					// constraint; refused by name here, before any write.
+					accountId: 'file-acc-that-is-not-there',
+					useCount: 0
+				}
+			]
+		};
+
+		await expect(restoreBackup('user-b', payload)).rejects.toThrow(BackupImportError);
+		expect(db.store.importSourceSignatures).toHaveLength(0);
+	});
+});
+
+/**
+ * The minimum payload a restore accepts, built here rather than reached for from the
+ * `restoreBackup` describe above, whose own builder is scoped to it.
+ */
+function buildStandalonePayload() {
+	return {
+		formatVersion: 1 as const,
+		exportedAt: new Date('2026-08-22T00:00:00.000Z').toISOString(),
+		userEmail: 'a@example.test',
+		accounts: [{ id: 'file-acc-1', name: 'Compte courant', currency: 'EUR', source: 'manual' }],
+		categories: [{ id: 'file-cat-1', name: 'Courses' }],
+		importBatches: [],
+		columnMappings: [],
+		transactions: [],
+		monthlyBudgets: [],
+		categoryRules: [],
+		categorizationRules: [],
+		categoryNatureMappings: [],
+		netWorthAccounts: [],
+		netWorthSnapshots: [],
+		savingsGoals: [],
+		bankConnections: [],
+		recurringStreamActions: [],
+		tags: [],
+		importSourceSignatures: [] as Array<{
+			fingerprint: string;
+			accountId: string;
+			useCount: number;
+		}>,
+		transactionTags: [],
+		transactionSplits: []
+	};
+}

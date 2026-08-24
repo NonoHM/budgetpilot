@@ -65,9 +65,7 @@ const VIEW: DesignationFile = {
 
 const DATA: PageData = {
 	user: null,
-	correction: null,
-	linkableNetWorthAccounts: [],
-	hasAllImportBucketsExisting: true
+	correction: null
 } as unknown as PageData;
 
 const FORM = { designation: VIEW } as unknown as Record<string, unknown>;

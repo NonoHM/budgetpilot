@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
@@ -28,6 +29,13 @@ export interface NetWorthAccountRecord {
 	name: string;
 	type: NetWorthAccountType;
 	balanceCents: number;
+	/**
+	 * What `balanceCents` is denominated in, carried on the record rather than assumed by whoever
+	 * renders it. The pair travels together for the reason on `Account.currency` in
+	 * prisma/schema.prisma: a magnitude without an exponent does not identify an amount.
+	 */
+	currency: string;
+	exponent: number;
 	createdAt: string;
 	updatedAt: string;
 	/** True when at least one technical Account (manual entry or CSV import bucket) links here. */
@@ -90,10 +98,24 @@ export async function createNetWorthAccount(
 		await assertNameAvailable(tx, userId, name, null);
 
 		const created = await tx.netWorthAccount.create({
-			data: { userId, name, nameKey: computeNameKey(name), type, balanceCents }
+			data: {
+				...DEFAULT_DENOMINATION,
+				userId,
+				name,
+				nameKey: computeNameKey(name),
+				type,
+				balanceCents
+			}
 		});
 		await tx.netWorthSnapshot.create({
-			data: { userId, accountId: created.id, type, balanceCents, capturedAt }
+			data: {
+				...DEFAULT_DENOMINATION,
+				userId,
+				accountId: created.id,
+				type,
+				balanceCents,
+				capturedAt
+			}
 		});
 
 		return { id: created.id };
@@ -131,7 +153,18 @@ export async function updateNetWorthAccount(
 		// silently absorbed into the next unrelated balance edit.
 		if (balanceCents !== existing.balanceCents || type !== existing.type) {
 			await tx.netWorthSnapshot.create({
-				data: { userId, accountId, type, balanceCents, capturedAt }
+				// The account's own pair, for the reason on `recordSyncedBalance` below: a snapshot
+				// that disagreed with its account would make the curve and the headline mean
+				// different things by the same integer.
+				data: {
+					currency: existing.currency,
+					exponent: existing.exponent,
+					userId,
+					accountId,
+					type,
+					balanceCents,
+					capturedAt
+				}
 			});
 		}
 
@@ -324,20 +357,34 @@ export async function recordSyncedBalance(
 	await prisma.$transaction(async (tx) => {
 		const existing = await tx.netWorthAccount.findFirst({
 			where: { id: netWorthAccountId, userId, deletedAt: null },
-			select: { id: true, type: true, balanceCents: true }
+			select: { id: true, type: true, balanceCents: true, currency: true, exponent: true }
 		});
 		if (!existing) return;
 		if (existing.balanceCents === balanceCents) return;
 
 		await tx.netWorthSnapshot.create({
-			data: { userId, accountId: existing.id, type: existing.type, balanceCents, capturedAt }
+			data: {
+				// The ACCOUNT's pair, never the application default. A snapshot is a fact about the
+				// past and an account is a verdict on the present, so the two carry the pair
+				// separately; but a snapshot that disagreed with the account it was taken from would
+				// make the timeline and the headline mean different things by the same integer.
+				currency: existing.currency,
+				exponent: existing.exponent,
+				userId,
+				accountId: existing.id,
+				type: existing.type,
+				balanceCents,
+				capturedAt
+			}
 		});
 		// Through the SAME derivation the manual edit uses, not a direct write. An invariant enforced
 		// in "the" write path is only enforced if every path is that one (CLAUDE.md), and this was the
-		// other path. `parseAsOfDate` pins a manual as-of date to 12:00:00Z while a sync stamps the
-		// real time, so a sync completing before noon UTC on a day the user also saved a balance
-		// "as of today" arrives with an OLDER `capturedAt` — writing it straight to the column put a
-		// superseded figure in the headline while the curve kept the user's.
+		// other path. A sync does not stamp the clock here: `capturedAt` is the caller's `currentTime`,
+		// taken ONCE at the start of `syncBankConnection` and passed in only after the transactions have
+		// been fetched and persisted. So a manual save landing while a sync is in flight is genuinely
+		// newer than the snapshot that sync is about to write, and writing straight to the column would
+		// put the superseded figure in the headline while the curve, built from the snapshots, kept the
+		// user's.
 		await syncBalanceToNewestSnapshot(tx, userId, existing.id, balanceCents);
 	});
 }
@@ -475,6 +522,8 @@ function toRecord(account: {
 	name: string;
 	type: string;
 	balanceCents: number;
+	currency: string;
+	exponent: number;
 	createdAt: Date;
 	updatedAt: Date;
 	_count?: { accounts: number };
@@ -484,6 +533,8 @@ function toRecord(account: {
 		name: account.name,
 		type: account.type as NetWorthAccountType,
 		balanceCents: account.balanceCents,
+		currency: account.currency,
+		exponent: account.exponent,
 		createdAt: account.createdAt.toISOString(),
 		updatedAt: account.updatedAt.toISOString(),
 		connected: (account._count?.accounts ?? 0) > 0

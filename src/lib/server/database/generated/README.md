@@ -2,10 +2,19 @@
 
 Build output. Not authored, not committed, never edited by hand.
 
-`npx prisma generate` writes one client per provider here — `sqlite/`, `postgresql/`, `mysql/` —
-each from its own schema in `prisma/`. The `output` path lives in each schema's `generator` block
-and is derived by `schemaGenerator.ts`, so it is not edited directly either: change
-`prisma/schema.prisma`, run `npm run db:schemas`, then `npx prisma generate`.
+**`npm run db:generate` writes one client per provider here**, `sqlite/`, `postgresql/` and
+`mysql/`, each from its own schema in `prisma/`. It is a separate `prisma generate` pass per
+provider, each with its own `DATABASE_PROVIDER`, which is what `scripts/generate-prisma-clients.mjs`
+exists to run.
+
+**`npx prisma generate` on its own writes only the client for the provider you have configured**,
+and `database/client.ts` imports all three statically, so a tree that has only ever run the bare
+command does not build. That is #474, and it is what made a clean clone unbuildable after the
+documented setup.
+
+The `output` path lives in each schema's `generator` block and is derived by `schemaGenerator.ts`,
+so it is not edited directly either: change `prisma/schema.prisma`, run `npm run db:schemas`, then
+`npm run db:generate`.
 
 Everything in this directory except this README is gitignored. If it is missing or stale, the app
 will not build; regenerate rather than reaching for a copy.

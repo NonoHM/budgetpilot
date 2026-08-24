@@ -1,10 +1,14 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { applyCategoryRules } from '$lib/server/categorization/rules';
 import { prisma } from '$lib/server/db';
 import { hashFingerprint } from '$lib/server/import/utils/safety';
 import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { institutionForSource } from '$lib/server/import/accountBackfill';
+import { GENERIC_BUCKET_STORED_NAME, MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
 import { computeDedupeKeyHash, dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
+import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
 import { isUniqueConstraintViolation, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import { replaceSplits } from '$lib/server/transactions/splits';
 import type { ImportedTransaction } from './types';
@@ -43,9 +47,38 @@ export interface ImportBucketInput {
 	userId: string;
 	name: string;
 	source: string;
-	currency?: string;
-	/** Applied only when the bucket is first created — an existing bucket's link is never silently changed by a later import. */
+	/**
+	 * What this bucket's amounts are denominated in, as a PAIR.
+	 *
+	 * One field and not two, so a caller cannot pass a currency without an exponent. That is the
+	 * whole rule the columns exist for: a bucket created under a non-euro currency with no exponent
+	 * beside it is ambiguous forever, and an optional `currency?: string` beside an optional
+	 * `exponent?: number` is exactly the shape that lets somebody supply one. Omitted entirely means
+	 * the application default (`DEFAULT_DENOMINATION`).
+	 */
+	denomination?: { currency: string; exponent: number };
+	/**
+	 * Applied only when the bucket is first created — an existing bucket's link is never silently
+	 * changed by a later import.
+	 *
+	 * ONE CALLER SETS THIS, and naming it is the point: `banking/sync/service.ts`, where the
+	 * provider hands over an account that IS a net worth line. The CSV import path used to set it
+	 * too, from a control on the upload form, and that control answered « which net worth line does
+	 * this bucket feed » on a screen asking « where does this file go ». It was removed with the
+	 * rest of that question; the link is now set on the Comptes screen, where the subject is an
+	 * account rather than a file.
+	 */
 	netWorthAccountId?: string | null;
+	/**
+	 * The proper noun for the bank, when the source names one. Create-only, like every field
+	 * around it.
+	 *
+	 * Set at creation rather than left to the boot backfill, and the reason is convergence rather
+	 * than tidiness: `accountsPendingWhere()` is `{ source in NAMEABLE_SOURCES, institution: null }`,
+	 * so a bucket born with a null institution keeps that predicate true and makes the once-only
+	 * boot pass run again on every start, for ever, rewriting the same row each time.
+	 */
+	institution?: string | null;
 	/** Same create-only semantics; set by the bank-sync service (step 4), never by CSV imports. */
 	bankConnectionId?: string | null;
 	/**
@@ -85,7 +118,7 @@ export interface ImportBucketResult {
  * Leaves room for the ` · xxxxxx` disambiguation suffix appended below (9 characters), and the
  * column itself is `varchar(255)` on MySQL, so a name from before this cap still restores.
  */
-const MAX_BUCKET_NAME_LENGTH = 120;
+const MAX_BUCKET_NAME_LENGTH = MAX_ACCOUNT_NAME_LENGTH;
 
 function capBucketName(name: string): string {
 	if (name.length <= MAX_BUCKET_NAME_LENGTH) return name;
@@ -102,6 +135,129 @@ function capBucketName(name: string): string {
 }
 
 /**
+ * What a caller learns about the bucket a run will land on, when it exists.
+ *
+ * Carries the denomination because the deduplication key does: an amount is identified by its
+ * magnitude AND what that magnitude is denominated in, so a reader of the key needs both.
+ * `bankConnectionId` is here for the resolver's relink rule and is ignored by everyone else.
+ */
+export interface ImportBucketAccount {
+	accountId: string;
+	currency: string;
+	exponent: number;
+	providerAccountId: string | null;
+	bankConnectionId: string | null;
+}
+
+/**
+ * One shape for both lookups, so a caller cannot get a bucket that answers fewer questions
+ * depending on which query happened to find it.
+ */
+const BUCKET_SELECT = {
+	id: true,
+	currency: true,
+	exponent: true,
+	providerAccountId: true,
+	bankConnectionId: true
+} as const;
+
+type BucketRow = {
+	id: string;
+	currency: string;
+	exponent: number;
+	providerAccountId: string | null;
+	bankConnectionId: string | null;
+};
+
+function toBucketAccount(row: BucketRow | null): ImportBucketAccount | null {
+	return row === null
+		? null
+		: {
+				accountId: row.id,
+				currency: row.currency,
+				exponent: row.exponent,
+				providerAccountId: row.providerAccountId,
+				bankConnectionId: row.bankConnectionId
+			};
+}
+
+/** The stable mapping: a provider account belongs to exactly one bucket, whatever it is called. */
+function findBucketByProviderAccount(
+	userId: string,
+	source: string,
+	providerAccountId: string
+): Promise<BucketRow | null> {
+	return prisma.account.findFirst({
+		where: { userId, source, providerAccountId },
+		select: BUCKET_SELECT
+	});
+}
+
+/**
+ * Folded match, like categories: a bucket named "Courses" and an import announcing "courses" are
+ * the same bucket, and creating a second one would split the history.
+ *
+ * Ordered, unlike the category lookup next door, because more than one row can match here.
+ * `Account` is the one name-keyed table with no unique constraint on its key: the name-key backfill
+ * deliberately refuses to merge two buckets carrying conflicting bank or net-worth links, and
+ * leaves both in place. An unordered `findFirst` would then be free to answer with a different
+ * bucket on each call, stable on SQLite and arbitrary on PostgreSQL, and the same import would
+ * scatter its rows. Oldest first, matching the survivor rule the merge plan uses, so both agree on
+ * which bucket is the real one.
+ *
+ * Takes the CAPPED name. A bucket created from a long provider name was stored capped, so its
+ * stored `nameKey` is the capped one, and folding the uncapped name would miss the bucket that
+ * exists.
+ */
+function findBucketByFoldedName(
+	userId: string,
+	cappedName: string,
+	source: string
+): Promise<BucketRow | null> {
+	return prisma.account.findFirst({
+		where: { userId, nameKey: computeNameKey(cappedName), source },
+		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+		select: BUCKET_SELECT
+	});
+}
+
+/**
+ * The bucket a run would land on, WITHOUT creating one. Null when it does not exist yet.
+ *
+ * Exists because the deduplication key carries the `Account.id` a row lands on, and
+ * `findCollidingBatch` compares keys against the database before anything is written. So the
+ * collision check needs the bucket, and it must not bring one into being: `resolveImportBucketAccount`
+ * reports whether it CREATED the bucket, the import summary turns that into "your destination
+ * account was applied" or "ignored", and creating the bucket during a check would make the next
+ * run report "ignored" about a run the user had cancelled.
+ *
+ * **Null is exact rather than lenient.** A bucket that does not exist holds no transactions, so no
+ * stored key can carry its id, so a fingerprint comparison against it has nothing to find. The
+ * caller passing an empty key list on this answer computes the same verdict as one passing keys
+ * that match nothing.
+ *
+ * Composed from the same two lookups the resolver uses, in the same order, which is what keeps the
+ * read path and the write path agreeing about which bucket a run lands on. Note the provider case:
+ * when a provider account has no bucket yet the answer is null EVEN IF the name is taken, because
+ * the resolver disambiguates that name into a new bucket rather than reusing the one holding it.
+ */
+export async function findImportBucketAccount(input: {
+	userId: string;
+	name: string;
+	source: string;
+	providerAccountId?: string | null;
+}): Promise<ImportBucketAccount | null> {
+	if (input.providerAccountId) {
+		return toBucketAccount(
+			await findBucketByProviderAccount(input.userId, input.source, input.providerAccountId)
+		);
+	}
+	return toBucketAccount(
+		await findBucketByFoldedName(input.userId, capBucketName(input.name), input.source)
+	);
+}
+
+/**
  * Resolves (or creates) the technical Account bucket a batch of imported transactions
  * lands on, keyed by the (userId, name, source) unique constraint.
  */
@@ -109,14 +265,11 @@ export async function resolveImportBucketAccount(
 	input: ImportBucketInput
 ): Promise<ImportBucketResult> {
 	if (input.providerAccountId) {
-		const byProviderAccount = await prisma.account.findFirst({
-			where: {
-				userId: input.userId,
-				source: input.source,
-				providerAccountId: input.providerAccountId
-			},
-			select: { id: true, bankConnectionId: true }
-		});
+		const byProviderAccount = await findBucketByProviderAccount(
+			input.userId,
+			input.source,
+			input.providerAccountId
+		);
 		if (byProviderAccount) {
 			// Exception to the create-only rule, and the ONLY allowed relink: a bucket
 			// orphaned by a connection deletion (onDelete: SetNull) is re-attached when the
@@ -133,21 +286,7 @@ export async function resolveImportBucketAccount(
 	}
 
 	let name = capBucketName(input.name);
-	// Folded match, like categories: a bucket named "Courses" and an import announcing
-	// "courses" are the same bucket, and creating a second one would split the history.
-	//
-	// Ordered, unlike the category lookup next door, because more than one row can match here.
-	// `Account` is the one name-keyed table with no unique constraint on its key: the name-key
-	// backfill deliberately refuses to merge two buckets carrying conflicting bank or net-worth
-	// links, and leaves both in place. An unordered `findFirst` would then be free to answer
-	// with a different bucket on each call — stable on SQLite, arbitrary on PostgreSQL — and
-	// the same import would scatter its rows. Oldest first, matching the survivor rule the
-	// merge plan uses, so both agree on which bucket is the real one.
-	const existing = await prisma.account.findFirst({
-		where: { userId: input.userId, nameKey: computeNameKey(name), source: input.source },
-		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-		select: { id: true }
-	});
+	const existing = await findBucketByFoldedName(input.userId, name, input.source);
 	if (existing) {
 		if (!input.providerAccountId) return { accountId: existing.id, created: false };
 		// The name is held by a bucket mapped to a DIFFERENT provider account (or none):
@@ -162,12 +301,13 @@ export async function resolveImportBucketAccount(
 			where: { userId_name_source: { userId: input.userId, name, source: input.source } },
 			update: {},
 			create: {
+				...(input.denomination ?? DEFAULT_DENOMINATION),
 				userId: input.userId,
 				name,
 				nameKey: computeNameKey(name),
 				source: input.source,
-				currency: input.currency ?? 'EUR',
 				netWorthAccountId: input.netWorthAccountId ?? null,
+				institution: input.institution ?? null,
 				bankConnectionId: input.bankConnectionId ?? null,
 				providerAccountId: input.providerAccountId ?? null,
 				providerCashAccountType: input.providerCashAccountType ?? null
@@ -177,6 +317,184 @@ export async function resolveImportBucketAccount(
 	return { accountId: account.id, created: true };
 }
 
+/**
+ * The bucket for a statement the user has DESIGNATED, resolved by the id they chose.
+ *
+ * ## Why this exists beside `resolveImportBucketAccount` rather than replacing it
+ *
+ * The sibling above resolves by NAME, and that is the measured hazard this piece removes: rename a
+ * bucket while name resolution is live and the next import reports `created=true`, a second bucket
+ * appears, and the same statement imports again. It stays for the bank-sync path, which resolves by
+ * `(userId, source, providerAccountId)` and legitimately CREATES a bucket the user never named.
+ * The CSV routes stop calling it.
+ *
+ * ## `accountId` ARRIVES FROM THE CLIENT, SO IT IS A CLAIM RATHER THAN A FACT
+ *
+ * `userId` is in the SAME where clause, never as a check afterwards, because a check afterwards is
+ * a second statement someone can delete without the first one failing. A reference that does not
+ * resolve is refused as NOT FOUND, and not-yours and not-found are deliberately ONE answer: two
+ * different messages would turn this into an oracle for enumerating other users' account ids.
+ *
+ * The refusal never names the id. An error message travels, through a log line, a screenshot, a
+ * ticket and a clipboard. ASVS 5.0.0 `v5.0.0-8.2.2` is the row; the scoped where clause is the
+ * control, and `resolveByChosenId.db-smoke.ts` is the attack. That file is a db-smoke and not a
+ * unit spec on purpose: a fake decides what `findFirst` returns, so « the query was scoped » and
+ * « the fake returned nothing » are the same green.
+ */
+export class ImportBucketAccountError extends Error {
+	/**
+	 * WHY THIS IS A CLASS AND NOT A MESSAGE THE CALLER MATCHES ON.
+	 *
+	 * The route has to tell two refusals apart to say what to DO about each, and matching on error
+	 * text would put the caller and the thrower on one source: the two sides of that comparison
+	 * would be the same string, so the check would pass by construction and stop meaning anything
+	 * the day someone rewords the message. `reason` is the thing the route branches on; the message
+	 * is for humans reading a log, and neither is derived from the other.
+	 */
+	readonly reason: 'not-found' | 'archived';
+
+	constructor(reason: 'not-found' | 'archived') {
+		super(
+			reason === 'archived'
+				? 'Import bucket account is archived'
+				: 'Import bucket account not found'
+		);
+		this.reason = reason;
+		this.name = 'ImportBucketAccountError';
+	}
+}
+
+export async function resolveImportBucketAccountById(input: {
+	userId: string;
+	accountId: string;
+}): Promise<ImportBucketAccount> {
+	const account = await prisma.account.findFirst({
+		where: { id: input.accountId, userId: input.userId },
+		select: { ...BUCKET_SELECT, archivedAt: true }
+	});
+	const bucket = toBucketAccount(account);
+	if (bucket === null) {
+		throw new ImportBucketAccountError('not-found');
+	}
+	/**
+	 * An ARCHIVED account is refused, and refused DIFFERENTLY, which is deliberate rather than an
+	 * inconsistency with the paragraph above.
+	 *
+	 * Not-yours and not-found are one answer because the person asking may not be the owner. This
+	 * one they own: the plate keeps an archived account off the panel, so reaching here at all takes
+	 * a hand-made request or an account archived in another tab mid-designation. Saying « archived »
+	 * to its owner discloses nothing they do not already have, and it is the only version of the
+	 * sentence that tells them what to do next. Silence here would send them back to a panel that
+	 * does not contain the account they just chose.
+	 */
+	if (account?.archivedAt) {
+		throw new ImportBucketAccountError('archived');
+	}
+	return bucket;
+}
+
+export type ImportBucketBySourceResolution =
+	{ kind: 'resolved'; bucket: ImportBucketAccount; created: boolean } | { kind: 'ambiguous' };
+
+/**
+ * The destination for the AUTO path, which has no account row to ask with.
+ *
+ * `/import` imports a recognised file without ever showing the designation screen, so unlike the
+ * designated path there is no `accountId` in the request. It used to resolve
+ * `(name: 'Compte import CSV', source)`, and that stopped working the moment the boot backfill
+ * started renaming buckets: MEASURED on this branch before the fix, the lookup came back empty,
+ * reported `created=true`, and left `buckets=2` for one user's Banque Populaire history. That is
+ * the silent history duplication this whole piece exists to remove, caused by the fix for it, and
+ * it is the second of Task 6's three reasons for being one commit.
+ *
+ * ## The source is the key now, and where it stops being enough it REFUSES
+ *
+ * One non-archived account of that source is every install that exists today, so this is
+ * behaviour-preserving rather than new. Two is the state this piece newly makes reachable, and
+ * there is no honest way to choose between them from the file alone: taking the first is how a
+ * statement lands in the wrong account silently, which is the exact defect being repaired. So it
+ * hands the question back, and the caller sends the user to the screen that can ask.
+ *
+ * `userId` is in the SAME where clause as `source`. A source is not a secret and every customer of
+ * one bank shares it, so a query on `source` alone would resolve onto somebody else's account.
+ *
+ * An archived account is not a candidate. It keeps the imports it already has; what it must not do
+ * is silently receive new ones on the one path that shows the user nothing.
+ */
+export type ImportBucketSourceLookup =
+	{ kind: 'one'; bucket: ImportBucketAccount } | { kind: 'none' } | { kind: 'ambiguous' };
+
+/**
+ * The same question WITHOUT creating anything, because one caller must not create.
+ *
+ * The collision check on `/import` builds its fingerprints against the destination account and runs
+ * BEFORE the user has confirmed anything. Creating the bucket there would make the next run report
+ * the user's destination choice as « ignored », because that sentence is derived from whether the
+ * bucket was created. A run the user abandons must leave no row behind either.
+ *
+ * Split out rather than given a `create: false` flag: a boolean parameter that changes whether a
+ * function writes is the shape where a caller reads the call site and cannot tell.
+ */
+export async function findImportBucketAccountBySource(input: {
+	userId: string;
+	source: string;
+}): Promise<ImportBucketSourceLookup> {
+	const candidates = await prisma.account.findMany({
+		where: { userId: input.userId, source: input.source, archivedAt: null },
+		select: BUCKET_SELECT,
+		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
+	});
+	if (candidates.length > 1) return { kind: 'ambiguous' };
+	const existing = toBucketAccount(candidates[0] ?? null);
+	return existing === null ? { kind: 'none' } : { kind: 'one', bucket: existing };
+}
+
+export async function resolveImportBucketAccountBySource(input: {
+	userId: string;
+	source: string;
+}): Promise<ImportBucketBySourceResolution> {
+	const found = await findImportBucketAccountBySource(input);
+	if (found.kind === 'ambiguous') return { kind: 'ambiguous' };
+	if (found.kind === 'one') return { kind: 'resolved', bucket: found.bucket, created: false };
+
+	const institution = institutionForSource(input.source);
+	// The sibling above is reused for the CREATE alone, so the upsert, the concurrent-write retry
+	// and the name cap stay in one place. Resolving by name is safe HERE in a way it was not safe
+	// on the routes: the name is derived from the source on the line above, rather than being a
+	// constant that a later rename can invalidate.
+	const created = await resolveImportBucketAccount({
+		userId: input.userId,
+		name: institution ?? GENERIC_BUCKET_STORED_NAME,
+		source: input.source,
+		institution
+	});
+	/**
+	 * `created: false` here has exactly one cause, and it is worth spelling out because it reads
+	 * like a missing case.
+	 *
+	 * The lookup above found no NON-ARCHIVED account of this source, so if the upsert nonetheless
+	 * found an existing row holding `(userId, name, source)`, that row is archived by elimination.
+	 * `@@unique` means a second one cannot be made beside it, and filing into it is precisely the
+	 * behaviour archiving exists to prevent, so the question goes back to the user.
+	 *
+	 * Derived rather than re-queried: reading the row again to ask whether it is archived would be
+	 * a second statement someone can delete without the first one failing, and the answer is
+	 * already determined by the two facts above.
+	 */
+	if (!created.created) return { kind: 'ambiguous' };
+	return {
+		kind: 'resolved',
+		bucket: {
+			accountId: created.accountId,
+			currency: DEFAULT_DENOMINATION.currency,
+			exponent: DEFAULT_DENOMINATION.exponent,
+			providerAccountId: null,
+			bankConnectionId: null
+		},
+		created: true
+	};
+}
+
 export interface CreateImportBatchInput {
 	userId: string;
 	source: string;
@@ -184,6 +502,17 @@ export interface CreateImportBatchInput {
 	profile: string;
 	rowCount: number;
 	invalidRows: number;
+	/**
+	 * The account this statement is filed into. REQUIRED here while the column is nullable, and the
+	 * asymmetry is the point.
+	 *
+	 * The column has to accept null, because a batch imported before this shipped genuinely has no
+	 * account until the boot backfill reads its own transactions. This input does not, because the
+	 * application always knows which bucket it just resolved. So history may be null and nothing
+	 * new ever is, which is what makes the backfill a one-time pass rather than a permanent
+	 * cleanup running behind a writer that keeps producing more work for it.
+	 */
+	accountId: string;
 	/** ISO dates (YYYY-MM-DD) or null when the batch has no valid dated row. */
 	period: { from: string | null; to: string | null };
 	/**
@@ -201,6 +530,7 @@ export async function createImportBatch(input: CreateImportBatchInput): Promise<
 	const batch = await prisma.importBatch.create({
 		data: {
 			userId: input.userId,
+			accountId: input.accountId,
 			source: input.source,
 			fileName: input.fileName,
 			profile: input.profile,
@@ -255,13 +585,48 @@ export async function persistImportedTransactions(
 	let importedCreditCents = 0;
 	const importedTransactionIds: string[] = [];
 
-	for (const transaction of input.transactions) {
+	// Read ONCE, before the loop, and passed down: every row of an import lands in one bucket, and
+	// a transaction is denominated by the bucket it lands in. `DEFAULT_DENOMINATION` here would
+	// make every row of a non-euro bucket positively assert something false, which is exactly what
+	// the migration goes out of its way to avoid for the rows that already exist.
+	//
+	// `providerAccountId` joins the read because the deduplication key needs it: a bank row keys on
+	// the provider's per-account entry reference, scoped by that account.
+	const bucket = await prisma.account.findUniqueOrThrow({
+		where: { id: input.accountId },
+		select: { currency: true, exponent: true, providerAccountId: true }
+	});
+
+	// Every key for this batch, computed HERE rather than at parse time, and the reasons are in
+	// `dedupeRecompute.ts`. The short version: the CSV path cannot know its `accountId` at parse
+	// time because the bucket's source comes from the detected profile, and the ordinal has to be
+	// handed out over the rows being WRITTEN or a row refused after its fingerprint was built
+	// leaves a gap that a later recompute closes by re-keying a stored row.
+	const dedupeKeys = assignDedupeKeysForBatch(input.transactions, {
+		accountId: input.accountId,
+		source: input.source,
+		currency: bucket.currency,
+		exponent: bucket.exponent,
+		providerAccountId: bucket.providerAccountId
+	});
+
+	// Narrowed EXPLICITLY, and not merely for tidiness. `persistTransaction` spreads this object
+	// into `prisma.transaction.create`, so every field on it becomes a column name. Passing the
+	// bucket row itself worked while the read was `{ currency, exponent }` and broke the moment
+	// `providerAccountId` joined it for the key: Prisma rejects an unknown argument at run time,
+	// the whole import dies, and neither `npm run check` nor a mocked suite can see it, because a
+	// mock has no column list to disagree with. An e2e import found it.
+	const denomination = { currency: bucket.currency, exponent: bucket.exponent };
+
+	for (const [index, transaction] of input.transactions.entries()) {
 		const importedTransactionId = await persistTransaction(
 			input.userId,
 			transaction,
 			input.accountId,
 			input.importBatchId,
-			input.source
+			input.source,
+			denomination,
+			dedupeKeys[index]
 		);
 		if (!importedTransactionId) {
 			duplicateRows += 1;
@@ -310,9 +675,10 @@ async function persistTransaction(
 	transaction: ImportedTransaction,
 	accountId: string,
 	importBatchId: string,
-	source: string
+	source: string,
+	denomination: { currency: string; exponent: number },
+	dedupeKey: string | null
 ): Promise<string | null> {
-	const dedupeKey = transaction.metadata.deduplicationKey;
 	if (dedupeKey) {
 		// Matched on the hash, never on the raw key: the raw comparison is the database's
 		// opinion, and on an accent-insensitive collation it treats two different transactions
@@ -329,6 +695,7 @@ async function persistTransaction(
 	try {
 		const created = await prisma.transaction.create({
 			data: {
+				...denomination,
 				userId,
 				accountId,
 				categoryId: category.id,

@@ -145,7 +145,7 @@ RUN apt-get update \
 
 ENV PYTHON=/usr/bin/python3
 ENV NODE_ENV=production
-ENV DATABASE_URL=file:/data/dev.db
+ENV DATABASE_URL=file:/data/budgetpilot.db
 
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev --no-audit --no-fund
@@ -182,7 +182,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOST=0.0.0.0
-ENV DATABASE_URL=file:/data/dev.db
+ENV DATABASE_URL=file:/data/budgetpilot.db
 # Read by the `prisma migrate deploy` boot.mjs spawns, which inherits this environment. They
 # were an inline prefix on the shell entrypoint's command line before there was an image-level
 # place to put them. CHECKPOINT_DISABLE suppresses Prisma's version-check request *and the
@@ -244,11 +244,15 @@ COPY --from=builder /app/src/lib/server/database/provider.ts ./src/lib/server/da
 # generated artifact, produced by the same `npm run db:generate` in the same stage, so they
 # cannot disagree.
 COPY --from=builder /app/scripts/normalize-names.mjs ./scripts/normalize-names.mjs
-COPY --from=builder /app/src/lib/domain/normalize.ts ./src/lib/domain/normalize.ts
+COPY --from=builder /app/src/lib/domain/normalize.ts \
+	/app/src/lib/domain/money.ts \
+	./src/lib/domain/
 COPY --from=builder /app/src/lib/server/dbTransaction.ts ./src/lib/server/dbTransaction.ts
 COPY --from=builder /app/src/lib/server/database/adapter.ts \
 	/app/src/lib/server/database/advisoryLock.ts \
 	/app/src/lib/server/database/client.ts \
+	/app/src/lib/server/database/minorUnits.ts \
+	/app/src/lib/server/database/moneyColumns.ts \
 	/app/src/lib/server/database/types.ts \
 	./src/lib/server/database/
 COPY --from=builder /app/src/lib/server/database/generated ./src/lib/server/database/generated

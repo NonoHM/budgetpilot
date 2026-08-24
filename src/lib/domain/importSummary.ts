@@ -64,8 +64,15 @@ export interface ImportSummaryResult {
 	invalidRowDetails: ImportInvalidRowDetail[];
 	hiddenInvalidRowsCount: number;
 	/**
-	 * Whether a chosen destination account was applied or ignored, and null when none was chosen.
-	 * Always null from the designation route, which carries no such field.
+	 * The account these rows landed in, as a person reads it, or null when it could not be named.
+	 *
+	 * Not the same field the destination control used to produce, and the difference is the whole
+	 * point of #372: that one asked which patrimoine line a bucket feeds, on a screen about a file.
+	 * This one answers the question the screen actually asks, « where did my rows go », with the
+	 * account the user chose two steps earlier.
+	 *
+	 * Null is a real state rather than a placeholder: a rendering rule that cannot name the account
+	 * says nothing instead of naming the wrong one.
 	 */
-	netWorthLinkStatus: 'applied' | 'ignored' | null;
+	accountName: string | null;
 }

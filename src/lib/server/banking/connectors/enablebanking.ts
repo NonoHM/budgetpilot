@@ -1,16 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { constantTimeEquals } from '$lib/server/banking/constantTime';
-import { normalizeForMatch } from '$lib/domain/normalize';
 import { filterBalancesByCurrency, selectPreferredBalance } from '$lib/domain/bankBalance';
 import type { ImportedTransaction, ImportedTransactionType } from '$lib/server/import/types';
+import { parseMoney, DEFAULT_CURRENCY, isValidCurrencyCode } from '$lib/domain/money';
 import {
-	buildDeduplicationGroupKey,
-	buildDeduplicationKey,
-	hashFingerprint,
+	buildPreviewRowId,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '$lib/server/import/utils/safety';
-import { createOccurrenceCounter } from '$lib/server/import/occurrence';
 import {
 	EnableBankingApiError,
 	enableBankingRequest,
@@ -184,9 +181,12 @@ export class EnableBankingConnector implements BankConnector {
 
 		const transactions: ImportedTransaction[] = [];
 		let continuationKey: string | undefined;
-		// One counter per fetch, created OUTSIDE the pagination loop so a group spanning two
-		// pages keeps counting rather than restarting. See occurrence.ts.
-		const nextOccurrence = createOccurrenceCounter();
+		// EVERY PAGE IS COLLECTED BEFORE ANYTHING IS PERSISTED, and that is load bearing rather
+		// than incidental. The deduplication ordinal is now handed out by the write path over one
+		// batch (`import/dedupeRecompute.ts`), so a group spanning two pages keeps counting only
+		// because the whole fetch reaches `persistImportedTransactions` in a single call. Persisting
+		// page by page would restart the numbering at every page boundary, and the same transaction
+		// would key differently on the next sync and import again.
 		for (let page = 0; ; page += 1) {
 			if (page >= MAX_TRANSACTION_PAGES) {
 				throw new Error('Enable Banking pagination exceeded the defensive page cap');
@@ -200,7 +200,7 @@ export class EnableBankingConnector implements BankConnector {
 			);
 			const parsed = transactionsResponseSchema.parse(raw);
 			for (const transaction of parsed.transactions) {
-				const mapped = mapTransaction(transaction, accountId, nextOccurrence);
+				const mapped = mapTransaction(transaction, transactions.length);
 				if (mapped) transactions.push(mapped);
 			}
 			if (!parsed.continuation_key) break;
@@ -309,10 +309,31 @@ function toConnectorAccount(account: EnableBankingAccountResource): BankConnecto
 		// IBAN fallback is masked to its last 4 characters (security review L2): a full
 		// IBAN must never become a displayed/persisted account name.
 		name: explicitName || maskIbanTail(account.account_id?.iban) || 'Compte bancaire',
-		currency: account.currency ?? 'EUR',
+		currency: normalizeProviderCurrency(account.currency),
 		cashAccountType: account.cash_account_type ?? null,
 		hasCreditLimit: account.credit_limit != null
 	};
+}
+
+/**
+ * A provider's currency code, normalised to the one shape the rest of the application accepts.
+ *
+ * This is a trust boundary and it had nothing on it. The value went straight onto
+ * `Account.currency`, a NOT NULL column with no validation, and the failure it produces is
+ * asymmetric in the direction that hurts most: the BACKUP boundary does enforce ISO 4217's
+ * grammar, so a malformed code stored from here would come back as
+ * "must be a three-letter ISO 4217 code" when the user tried to restore THEIR OWN export. The only
+ * repair would be hand-editing JSON.
+ *
+ * Uppercased before checking rather than refused outright, because lowercase is the realistic
+ * provider deviation and `EUR` is what `eur` means. Anything still malformed falls back to the
+ * application default: a bucket denominated in a code no formatter can render is worse than a
+ * bucket denominated in the wrong one, because the wrong one is visible and correctable and the
+ * unrenderable one takes the screen down.
+ */
+function normalizeProviderCurrency(currency: string | null | undefined): string {
+	const normalized = currency?.trim().toUpperCase() ?? '';
+	return isValidCurrencyCode(normalized) ? normalized : DEFAULT_CURRENCY;
 }
 
 function maskIbanTail(iban: string | null | undefined): string | null {
@@ -324,8 +345,7 @@ function maskIbanTail(iban: string | null | undefined): string | null {
 /** Maps one provider transaction; returns null for entries we deliberately skip (non-BOOK). */
 function mapTransaction(
 	transaction: EnableBankingTransaction,
-	accountId: string,
-	nextOccurrence: (groupKey: string) => number
+	position: number
 ): ImportedTransaction | null {
 	if (transaction.status && transaction.status !== 'BOOK') return null;
 
@@ -358,26 +378,10 @@ function mapTransaction(
 	//
 	// `category` left the key in v2: it was the constant UNCLASSIFIED_CATEGORY here, so it never
 	// distinguished anything.
-	const fallbackGroup = {
-		date,
-		label: normalizeForMatch(label),
-		amountCents: absAmountCents,
-		type
-	};
-
 	const entryReference = transaction.entry_reference?.trim() ?? '';
-	// Provider entry_reference is the stable per-account dedup anchor; the content
-	// fingerprint (normalized label) only backs up ASPSPs that omit it.
-	const deduplicationKey = entryReference
-		? `enablebanking:${accountId}:${entryReference}`
-		: buildDeduplicationKey({
-				...fallbackGroup,
-				occurrence: nextOccurrence(buildDeduplicationGroupKey(fallbackGroup)),
-				accountScope: `enablebanking:${accountId}`
-			});
 
 	return {
-		id: `eb-${hashFingerprint(deduplicationKey)}`,
+		id: buildPreviewRowId('eb', position, date, label, absAmountCents),
 		date,
 		label,
 		amountCents,
@@ -389,8 +393,7 @@ function mapTransaction(
 			reference: entryReference,
 			notes: label,
 			type,
-			bankOperationType: transaction.bank_transaction_code?.description ?? undefined,
-			deduplicationKey
+			bankOperationType: transaction.bank_transaction_code?.description ?? undefined
 		}
 	};
 }
@@ -402,15 +405,19 @@ function parseProviderDate(value: string | null | undefined): Date | null {
 	return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
-/** Parses the API's decimal string amounts ("12.34") into absolute cents; null on bad input. */
+/**
+ * Parses the API's decimal string amounts ("12.34") into absolute cents; null on bad input.
+ *
+ * The grammar lives in `domain/money.ts` rather than in a regex here, which is what stops this
+ * file's idea of an acceptable amount drifting from the four CSV profiles'. One deliberate
+ * widening comes with that: the shared grammar also accepts inner whitespace and a comma decimal
+ * separator, which this regex refused. The refusal was not a protection, it was an ABORT (see
+ * `fetchAccountTransactions`), so accepting more here can only turn a failed fetch into a parsed
+ * amount. What is still refused is the case that matters: more fraction digits than the exponent.
+ */
 function parseDecimalAmountCents(value: string): number | null {
-	const match = /^-?(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim());
-	if (!match) return null;
-	const units = Number.parseInt(match[1], 10);
-	const decimals = match[2] ?? '';
-	const cents = Number.parseInt(decimals.padEnd(2, '0') || '0', 10);
-	if (!Number.isSafeInteger(units * 100 + cents)) return null;
-	return units * 100 + cents;
+	const parsed = parseMoney(value, { requireSafeInteger: true });
+	return parsed === null ? null : Math.abs(parsed.minorUnits);
 }
 
 /**
@@ -421,13 +428,5 @@ function parseDecimalAmountCents(value: string): number | null {
  * signedness again (see fetchAccountBalance's doc comment / security review finding).
  */
 function parseSignedDecimalAmountCents(value: string): number | null {
-	const match = /^(-?)(\d+)(?:\.(\d{1,2}))?$/.exec(value.trim());
-	if (!match) return null;
-	const sign = match[1] === '-' ? -1 : 1;
-	const units = Number.parseInt(match[2], 10);
-	const decimals = match[3] ?? '';
-	const cents = Number.parseInt(decimals.padEnd(2, '0') || '0', 10);
-	const total = sign * (units * 100 + cents);
-	if (!Number.isSafeInteger(total)) return null;
-	return total;
+	return parseMoney(value, { requireSafeInteger: true })?.minorUnits ?? null;
 }

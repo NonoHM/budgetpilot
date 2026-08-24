@@ -150,13 +150,13 @@ if (useDocker) {
 	content = setEnvValue(content, 'ORIGIN', `http://localhost:${appPort}`);
 	// Without this the documented Docker install does not boot at all, and the reason is invisible
 	// from either file alone. .env.example ships DATABASE_URL="file:./dev.db", which is right for
-	// the no-Docker path; docker-compose.yml writes `${DATABASE_URL:-file:/data/dev.db}`, a DEFAULT
+	// the no-Docker path; docker-compose.yml writes `${DATABASE_URL:-file:/data/budgetpilot.db}`, a DEFAULT
 	// deliberately left overridable so a PostgreSQL or MySQL URL in .env wins. So the .env this
 	// script writes won that fallback with a relative path, `.` inside the container is /app, /app
 	// is read-only by design, and the container crash-looped on "the SQLite database cannot be
 	// written" from the first boot onward. `npm run setup && docker compose up -d --build` is
 	// exactly what docs/getting-started.md option B prescribes.
-	content = setEnvValue(content, 'DATABASE_URL', 'file:/data/dev.db');
+	content = setEnvValue(content, 'DATABASE_URL', 'file:/data/budgetpilot.db');
 }
 
 await writeFile(envPath, content, 'utf8');
@@ -168,7 +168,13 @@ if (useDocker) {
 	console.log('  docker compose up -d --build');
 	console.log(`\nThen open http://localhost:${appPort}`);
 } else {
-	console.log('  npx prisma generate && npx prisma migrate dev');
+	// `db:generate`, NOT `npx prisma generate`, and this line cost a clean-clone walk to find.
+	// `npx prisma generate` produces the client for the CONFIGURED provider only, while
+	// `server/database/client.ts` imports all three statically, so following the old line and then
+	// running `npm run build` fails with « Module not found: ./generated/postgresql/client.ts ».
+	// Measured 2026-08-24 on a fresh clone, and on `origin/main` in the same clone, so it is the
+	// state of the install path rather than one branch's regression.
+	console.log('  npm run db:generate && npx prisma migrate dev');
 	console.log('  npm run dev');
 	console.log('\nThen open http://localhost:5173');
 }

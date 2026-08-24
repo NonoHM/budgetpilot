@@ -3426,16 +3426,18 @@
 											{#if data.selectedTransaction.bankFields.length > 0 || data.selectedTransaction.account || data.selectedTransaction.bankOperationType}
 												<dl class="grid gap-2 text-sm">
 													{#if data.selectedTransaction.account}
+														{@const bucket = data.selectedTransaction.account}
 														<div>
 															<dt class="font-medium text-zinc-700">
 																{m.transactions_account_label()}
 															</dt>
 															<dd class="mt-0.5 text-zinc-600">
-																{#if data.selectedTransaction.account.netWorthAccountName}
-																	{data.selectedTransaction.account.netWorthAccountName}
+																{#if bucket.netWorthAccountName}
+																	{bucket.netWorthAccountName}
+																{:else if bucket.showSource}
+																	{bucket.displayName} · {bucket.source}
 																{:else}
-																	{data.selectedTransaction.account.name} · {data
-																		.selectedTransaction.account.source}
+																	{bucket.displayName}
 																{/if}
 															</dd>
 														</div>
@@ -4334,14 +4336,16 @@
 						{#if data.selectedTransaction.bankFields.length > 0 || data.selectedTransaction.account || data.selectedTransaction.bankOperationType}
 							<dl class="grid gap-2 text-sm">
 								{#if data.selectedTransaction.account}
+									{@const bucket = data.selectedTransaction.account}
 									<div>
 										<dt class="font-medium text-zinc-700">{m.transactions_account_label()}</dt>
 										<dd class="mt-0.5 text-zinc-600">
-											{#if data.selectedTransaction.account.netWorthAccountName}
-												{data.selectedTransaction.account.netWorthAccountName}
+											{#if bucket.netWorthAccountName}
+												{bucket.netWorthAccountName}
+											{:else if bucket.showSource}
+												{bucket.displayName} · {bucket.source}
 											{:else}
-												{data.selectedTransaction.account.name} · {data.selectedTransaction.account
-													.source}
+												{bucket.displayName}
 											{/if}
 										</dd>
 									</div>

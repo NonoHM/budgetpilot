@@ -236,9 +236,21 @@ jobs:
       - name: Generate Prisma clients
         run: npm run db:generate
 
-      # The provider's own migration history, applied to an empty database — the upgrade path an
-      # operator on this engine actually takes.
-      - name: Apply migrations
+      # The provider's own migration history, applied to an empty database. That is a FRESH
+      # INSTALL, and calling it the upgrade path (as this comment used to) is the one description
+      # that stops anyone noticing what is missing.
+      #
+      # An upgrade applies only the PENDING migrations to a database that already holds rows
+      # written by an older schema, and no job in this repository does that. What goes wrong there
+      # goes wrong only there: a column added NOT NULL with no default, a backfill assuming a shape
+      # only new rows have, a unique index created over data that already violates it. None of
+      # those can fail against an empty database.
+      #
+      # What these two steps DO prove is real and worth having: the history applies cleanly, and
+      # `migrate diff --exit-code` below proves it arrives at the authored schema on every
+      # provider. Until something restores an older database and migrates it, the honest word for
+      # version skipping is "untested" rather than "supported".
+      - name: Apply migrations to an empty database
         run: npx prisma migrate deploy
 
       # Applying without error is not the same as arriving where the schema says. Each provider's
