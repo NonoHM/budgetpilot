@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import * as m from '$lib/paraglide/messages';
+import { GENERIC_BUCKET_STORED_NAME } from '$lib/domain/account';
 import CreateAccountSheet from './CreateAccountSheet.svelte';
 
 /**
@@ -97,9 +98,9 @@ describe('the create account sheet', () => {
 		// through and the server refused a moment later: two answers for one question.
 		expect.assertions(1);
 		const onSubmit = vi.fn();
-		mount({ prefill: 'Compte import CSV', onSubmit });
+		mount({ prefill: GENERIC_BUCKET_STORED_NAME, onSubmit });
 		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
-		expect(onSubmit).toHaveBeenCalledWith('Compte import CSV');
+		expect(onSubmit).toHaveBeenCalledWith(GENERIC_BUCKET_STORED_NAME);
 	});
 
 	it('HAS NO LIST TO CONSULT: handed one, it still submits', async () => {
@@ -118,26 +119,78 @@ describe('the create account sheet', () => {
 		expect(onSubmit).toHaveBeenCalledWith('Livret A');
 	});
 
+	it('puts a FIXABLE server refusal under the input, marked and linked', async () => {
+		// SEPARATES: « a refusal the user can fix reaches the field surface » FROM « it reaches the
+		// banner ». This component's own doctrine draws that line, and removing the local uniqueness
+		// check crossed it: every duplicate started landing on the banner, which takes the focus away
+		// from the one control that has to be edited and leaves the input unmarked.
+		//
+		// The SERVER says which surface, because it is the side that knows what refused.
+		expect.assertions(3);
+		mount({
+			prefill: GENERIC_BUCKET_STORED_NAME,
+			state: 'error',
+			error: m.import_account_create_error_name_taken(),
+			errorField: 'name'
+		});
+		const input = field().element() as HTMLInputElement;
+		expect(input.getAttribute('aria-invalid')).toBe('true');
+		expect(input.getAttribute('aria-describedby')).toContain('create-account-error');
+		expect(document.body.textContent).toContain(m.import_account_create_error_name_taken());
+	});
+
+	it('leaves a failure the user CANNOT fix on the banner', async () => {
+		// SEPARATES: « the split still holds » FROM « everything moved to the field ». A request that
+		// never returned is not about the name, and putting it under the input would tell the user to
+		// edit their way out of a network failure. The calibration for the test above.
+		expect.assertions(1);
+		mount({
+			prefill: 'Compte courant',
+			state: 'error',
+			error: m.import_account_create_error_generic()
+		});
+		expect((field().element() as HTMLInputElement).getAttribute('aria-invalid')).toBe(null);
+	});
+
+	it("clears the SERVER's refusal as soon as the user starts fixing it", async () => {
+		// SEPARATES: « the refusal goes when the name it was about changes » FROM « it stands over a
+		// name the user has already replaced ».
+		//
+		// Invisible while the duplicate was refused LOCALLY, because that sentence vanished on the
+		// first keystroke. Removing the local check moved every duplicate onto the caller's banner,
+		// which the caller clears only on reopen or on the next attempt, so the removal took this
+		// behaviour with it. Found by a code review of the removal.
+		expect.assertions(2);
+		mount({
+			prefill: GENERIC_BUCKET_STORED_NAME,
+			state: 'error',
+			error: m.import_account_create_error_name_taken()
+		});
+		expect(document.body.textContent).toContain(m.import_account_create_error_name_taken());
+		await field().fill('Compte courant');
+		expect(document.body.textContent).not.toContain(m.import_account_create_error_name_taken());
+	});
+
 	it("renders the SERVER's refusal, which is the sentence the user reads", async () => {
 		// SEPARATES: « the reason comes back from the side that knows » FROM « the sheet invented
 		// one ». With the check gone, the only refusal a duplicate can produce is this one, so it
 		// has to be readable and has to leave the typed name in the field to correct.
 		expect.assertions(2);
 		mount({
-			prefill: 'Compte import CSV',
+			prefill: GENERIC_BUCKET_STORED_NAME,
 			state: 'error',
 			error: m.import_account_create_error_name_taken()
 		});
 		expect(document.body.textContent).toContain(m.import_account_create_error_name_taken());
-		expect((field().element() as HTMLInputElement).value).toBe('Compte import CSV');
+		expect((field().element() as HTMLInputElement).value).toBe(GENERIC_BUCKET_STORED_NAME);
 	});
 
 	it('sends the trimmed name once it is not empty', async () => {
 		// SEPARATES: « a valid name reaches the caller » FROM « the sheet refuses everything ». The
-		// calibration the four refusals above need: without it each of them is equally explained by
+		// calibration the refusals above need: without it each of them is equally explained by
 		// a primary that never submits at all.
 		const onSubmit = vi.fn();
-		mount({ prefill: '  Livret A  ', existingNames: ['Compte courant'], onSubmit });
+		mount({ prefill: '  Livret A  ', onSubmit });
 		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
 		expect(onSubmit).toHaveBeenCalledWith('Livret A');
 	});

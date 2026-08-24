@@ -86,7 +86,11 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 		});
 	} catch (caught) {
 		if (caught instanceof AccountWriteError && isCreateRefusal(caught.reason)) {
-			return json({ error: refusalSentence(caught.reason) }, { status: 400 });
+			// `field: 'name'` because ALL FOUR refusals this can return are about the name and are
+			// fixable by editing it. The client renders a fixable refusal under the input, with
+			// `aria-invalid` and the focus back in the field; a failure the user cannot fix is a
+			// banner. Saying which is the server's to say: it is the side that knows what refused.
+			return json({ error: refusalSentence(caught.reason), field: 'name' }, { status: 400 });
 		}
 		throw caught;
 	}

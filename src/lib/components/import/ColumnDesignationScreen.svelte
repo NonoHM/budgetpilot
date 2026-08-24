@@ -112,6 +112,7 @@
 		accounts = [],
 		initialAccountId = null,
 		accountHint = null,
+		accountHintAboutFile = false,
 		accountPrefill = '',
 		onCreateAccount,
 		onCancel,
@@ -258,6 +259,14 @@
 		 */
 		accountHint?: string | null;
 		/**
+		 * Whether `accountHint` is a fact about the FILE rather than a provenance for the answer.
+		 *
+		 * Decided by `accountAnswerFor`, never here: this component sees an opaque sentence and
+		 * classifying it a second time is the copied predicate. Exactly one sentence sets it today,
+		 * « ce fichier contient plusieurs comptes », and that one has to outlive a choice.
+		 */
+		accountHintAboutFile?: boolean;
+		/**
 		 * The name the create sheet opens with, composed by the server from what the FILE said.
 		 * Empty when it said nothing, which is a state rather than missing data: see the sheet.
 		 */
@@ -276,7 +285,10 @@
 		 */
 		onCreateAccount?: (
 			name: string
-		) => Promise<{ ok: true; account: AccountPickerOption } | { ok: false; error: string }>;
+		) => Promise<
+			| { ok: true; account: AccountPickerOption }
+			| { ok: false; error: string; field?: string | null }
+		>;
 		onSubmit?: (result: {
 			assignment: RoleAssignment;
 			/** The account the user chose. Never null by the time the primary submits. */
@@ -503,6 +515,8 @@
 	/** 5f's contract, owned here because these are states of a screen. See `CreateAccountSheet`. */
 	let createPhase = $state<'idle' | 'busy' | 'error'>('idle');
 	let createError = $state<string | null>(null);
+	/** Which surface the caller's refusal belongs on. The endpoint says; this only carries it. */
+	let createErrorField = $state<string | null>(null);
 
 	const chosenAccount = $derived(
 		shownAccounts.find((account) => account.id === chosenAccountId) ?? null
@@ -532,12 +546,20 @@
 		 * THE HINT DESCRIBES THE ANSWER THE SERVER PROPOSED, so it survives only while that is still
 		 * the answer on the row.
 		 *
-		 * `accountHint` is computed on the server when the page loads, and every sentence it can
-		 * carry is a PROVENANCE: the file said so, we remembered, we have never seen this shape, you
-		 * have no accounts. The moment the user overrides that answer, by choosing a different
+		 * `accountHint` is computed on the server when the page loads, and almost every sentence it
+		 * can carry is a PROVENANCE: the file said so, we remembered, we have never seen this shape,
+		 * you have no accounts. The moment the user overrides that answer, by choosing a different
 		 * account or by creating one, the sentence describes a resolution that no longer holds. One
 		 * of them becomes outright false: the row names an account while the line under it says
 		 * there are none.
+		 *
+		 * **ALMOST every sentence, and the exception is load bearing.** « Ce fichier contient
+		 * plusieurs comptes » is a fact about the BYTES, true whatever the user picks, and it is the
+		 * only notice on this screen that the file mixes accounts. Dropping it at the moment the
+		 * user commits every row of that file to ONE account is the worst timing available. The
+		 * first version of this guard did exactly that, and the comment above it claimed the general
+		 * rule while the enumeration underneath it did not hold. `aboutTheFile` is that
+		 * enumeration, made once, where the sentence is chosen.
 		 *
 		 * `chosenAccountId !== initialAccountId` is the whole test, and it reads as « the user
 		 * changed the answer » because `chosenAccountId` starts AS `initialAccountId`. It covers a
@@ -548,7 +570,7 @@
 		 * general rule and implemented the created case alone. Every state here puts the same NAME on
 		 * the row, so only the description separates them.
 		 */
-		if (chosenAccountId !== initialAccountId) return undefined;
+		if (chosenAccountId !== initialAccountId && !accountHintAboutFile) return undefined;
 		return accountHint ?? undefined;
 	});
 
@@ -612,6 +634,7 @@
 		accountPanelFocus = 'list';
 		createPhase = 'idle';
 		createError = null;
+		createErrorField = null;
 		createOpen = true;
 	}
 
@@ -640,10 +663,12 @@
 		if (!onCreateAccount) return;
 		createPhase = 'busy';
 		createError = null;
+		createErrorField = null;
 		const answer = await onCreateAccount(name);
 		if (!answer.ok) {
 			createPhase = 'error';
 			createError = answer.error;
+			createErrorField = answer.field ?? null;
 			return;
 		}
 		createdAccounts = [...createdAccounts, answer.account];
@@ -768,6 +793,7 @@
 			prefill={accountPrefill}
 			state={createPhase}
 			error={createError}
+			errorField={createErrorField}
 			onSubmit={submitCreate}
 			onCancel={cancelCreate}
 		/>

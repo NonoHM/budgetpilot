@@ -59,6 +59,7 @@
 		// name moves.
 		state: phase = 'idle',
 		error = null,
+		errorField = null,
 		onSubmit,
 		onCancel
 	}: {
@@ -73,6 +74,19 @@
 		state?: 'idle' | 'busy' | 'error';
 		/** The server's sentence. Rendered verbatim and never interpolated into anything. */
 		error?: string | null;
+		/**
+		 * Which surface that sentence belongs on, said by the side that refused.
+		 *
+		 * `'name'` puts it under the input, with `aria-invalid` and the focus back in the field,
+		 * which is this component's own doctrine for a refusal the user can FIX. Anything else, and
+		 * a failure with no field at all, stays a banner.
+		 *
+		 * It arrived with the removal of the local uniqueness check. While a duplicate was refused
+		 * here, it was a field error by construction; once the server became the only side that
+		 * answers, every duplicate landed on the banner, which took the focus away from the one
+		 * control the user has to edit and left the input unmarked.
+		 */
+		errorField?: string | null;
 		onSubmit?: (name: string) => void;
 		onCancel?: () => void;
 	} = $props();
@@ -137,8 +151,30 @@
 		phase === 'error' ? m.error_retry() : m.import_account_create_submit()
 	);
 
+	/**
+	 * The server's refusal, dismissed the moment the user starts fixing it.
+	 *
+	 * `error` is the CALLER's, and the caller clears it only when the sheet reopens or when the next
+	 * attempt is made. That was invisible while a duplicate name was refused locally, because the
+	 * local sentence vanished on the first keystroke. With the local check gone, the only refusal a
+	 * duplicate can produce is the server's, and it stood over a name the user had already replaced.
+	 *
+	 * Local rather than a new callback: the caller owns WHETHER a request failed, and this owns
+	 * whether the user has since moved on from it. Reset on every press, so a second failure shows.
+	 */
+	let serverErrorSeen = $state(false);
+
+	/**
+	 * What sits under the input: this component's own refusal, or the server's when the server said
+	 * it belongs there. One slot, so the two can never stack into two lines of red under one field.
+	 */
+	const shownFieldError = $derived(
+		fieldError ?? (phase === 'error' && errorField === 'name' && !serverErrorSeen ? error : null)
+	);
+
 	function press() {
 		if (busy) return;
+		serverErrorSeen = false;
 		const typed = name.trim();
 		if (typed.length === 0) {
 			// REVEALED at the press rather than prevented by grey. The plate's transverse rule, which
@@ -228,21 +264,24 @@
 				class="mt-1.5 w-full {inputBase} {fieldError ? 'border-rose-300' : ''}"
 				maxlength={MAX_ACCOUNT_NAME_LENGTH}
 				autocomplete="off"
-				aria-invalid={fieldError ? 'true' : undefined}
-				aria-describedby={fieldError ? `${fieldErrorId} ${hintId}` : hintId}
-				oninput={() => (fieldError = null)}
+				aria-invalid={shownFieldError ? 'true' : undefined}
+				aria-describedby={shownFieldError ? `${fieldErrorId} ${hintId}` : hintId}
+				oninput={() => {
+					fieldError = null;
+					serverErrorSeen = true;
+				}}
 			/>
-			{#if fieldError}
+			{#if shownFieldError}
 				<!--
 					rose-700 and never rose-400: the pair rose-700 on rose-50 was measured at 5.4:1 by
 					brique 1 and is the only red this product spends outside irreversible deletion.
 				-->
-				<p id={fieldErrorId} class="mt-1.5 text-[12.5px] text-rose-700">{fieldError}</p>
+				<p id={fieldErrorId} class="mt-1.5 text-[12.5px] text-rose-700">{shownFieldError}</p>
 			{/if}
 			<p id={hintId} class="mt-1.5 text-[12.5px] text-zinc-500">{hint}</p>
 		</div>
 
-		{#if phase === 'error' && error}
+		{#if phase === 'error' && error && !serverErrorSeen && errorField !== 'name'}
 			<AlertBanner variant="error" size="sm" focusOnShow>{error}</AlertBanner>
 		{/if}
 

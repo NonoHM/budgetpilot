@@ -93,6 +93,31 @@ describe('creating an account without leaving the file in your hand', () => {
 		expect(document.body.textContent).not.toContain(m.import_account_hint_unknown());
 	});
 
+	it('KEEPS the multi-account notice across a choice, because it is about the file', async () => {
+		// SEPARATES: « a sentence about the BYTES outlives the answer it sat beside » FROM « every
+		// sentence is dropped the moment the user chooses ».
+		//
+		// The first version of this guard dropped all of them, and this is the one that must not go:
+		// it is the only notice on this screen that the file mixes accounts, and it would have
+		// vanished at exactly the moment the user commits every row of that file to ONE account.
+		// Caught by a code review enumerating what the hint can actually carry against the comment
+		// claiming they are all provenances.
+		expect.assertions(2);
+		mount({
+			accounts: [
+				{ id: 'account-a', name: 'Compte courant', discriminant: null, transactionCount: 4 },
+				{ id: 'account-b', name: 'Livret A', discriminant: null, transactionCount: 2 }
+			],
+			initialAccountId: null,
+			accountHint: m.import_account_hint_multi_account(),
+			accountHintAboutFile: true
+		});
+		expect(document.body.textContent).toContain(m.import_account_hint_multi_account());
+		await openPanel();
+		await page.getByRole('option', { name: /Livret A/ }).click();
+		expect(document.body.textContent).toContain(m.import_account_hint_multi_account());
+	});
+
 	it('drops the provenance line once the user has created the account themselves', async () => {
 		// SEPARATES: « the hint describes where the CURRENT answer came from » FROM « the hint is the
 		// sentence the server computed when the page loaded ».

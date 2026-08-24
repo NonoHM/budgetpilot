@@ -129,7 +129,7 @@
 		const carried = pending?.account ?? null;
 		if (!carried) {
 			// No offer at all: the row asks, which is the honest state rather than a guess.
-			return { options: [], chosenId: null, hint: undefined };
+			return { options: [], chosenId: null, hint: undefined, hintAboutFile: false };
 		}
 		const answer = accountAnswerFor(
 			carried.resolution,
@@ -148,7 +148,8 @@
 		return {
 			options: carried.options,
 			chosenId: carried.chosenId ?? answer.accountId,
-			hint: answer.hint
+			hint: answer.hint,
+			hintAboutFile: answer.aboutTheFile
 		};
 	});
 
@@ -171,7 +172,9 @@
 	 */
 	async function createAccount(
 		name: string
-	): Promise<{ ok: true; account: AccountPickerOption } | { ok: false; error: string }> {
+	): Promise<
+		{ ok: true; account: AccountPickerOption } | { ok: false; error: string; field?: string | null }
+	> {
 		if (!pending) return { ok: false, error: m.import_account_create_error_generic() };
 		const body = new FormData();
 		body.set('name', name);
@@ -181,10 +184,17 @@
 			const payload = (await response.json()) as {
 				account?: AccountPickerOption;
 				error?: string;
+				field?: string | null;
 			};
 			if (response.ok && payload.account) return { ok: true, account: payload.account };
-			return { ok: false, error: payload.error ?? m.import_account_create_error_generic() };
+			return {
+				ok: false,
+				error: payload.error ?? m.import_account_create_error_generic(),
+				field: payload.field ?? null
+			};
 		} catch {
+			// No `field`: a fetch that never returned is not a refusal about the name, and putting it
+			// under the input would tell the user to edit their way out of a network failure.
 			return { ok: false, error: m.import_account_create_error_generic() };
 		}
 	}
@@ -415,6 +425,7 @@
 				accounts={accountOffer.options}
 				initialAccountId={accountOffer.chosenId}
 				accountHint={accountOffer.hint}
+				accountHintAboutFile={accountOffer.hintAboutFile}
 				accountPrefill={pending.account?.prefillName ?? ''}
 				onCreateAccount={createAccount}
 				initialAssignment={pending.initialAssignment}

@@ -40,6 +40,20 @@ export interface AccountAnswer {
 	/** The account to preselect, or null when the row must ask rather than state. */
 	accountId: string | null;
 	hint: string;
+	/**
+	 * Whether the sentence is a fact about the FILE rather than a provenance for the answer.
+	 *
+	 * The row drops its hint once the user overrides the resolution, because a provenance describes
+	 * an answer that has been replaced. One sentence must survive that: « ce fichier contient
+	 * plusieurs comptes » is the only on-screen notice that the file mixes accounts, and hiding it
+	 * at the moment the user commits every row of that file to ONE account is the worst timing
+	 * available. It is true whatever the user chooses, because it is about the bytes.
+	 *
+	 * Decided HERE and not on the screen. The screen receives an opaque string and cannot classify
+	 * it, and a second classification written there would be the copied predicate this repository
+	 * keeps measuring.
+	 */
+	aboutTheFile: boolean;
 }
 
 export function accountAnswerFor(
@@ -71,25 +85,32 @@ export function accountAnswerFor(
 	 * user's fact is not about the format.
 	 */
 	if (options.length === 0) {
-		return { accountId: null, hint: m.import_account_hint_no_accounts() };
+		return { accountId: null, hint: m.import_account_hint_no_accounts(), aboutTheFile: false };
 	}
 
 	if (resolution.rank === 1) {
 		if ('kind' in resolution) {
-			return { accountId: null, hint: m.import_account_hint_multi_account() };
+			return { accountId: null, hint: m.import_account_hint_multi_account(), aboutTheFile: true };
 		}
 		return {
 			accountId: shown(resolution.accountId),
-			hint: m.import_account_hint_from_file({ fragment: resolution.fragment })
+			hint: m.import_account_hint_from_file({ fragment: resolution.fragment }),
+			// A provenance despite naming the file: it explains why THIS account was proposed, and
+			// once the user picks another it is explaining a choice that no longer stands.
+			aboutTheFile: false
 		};
 	}
 
 	if (resolution.rank === 2) {
-		return { accountId: shown(resolution.accountId), hint: m.import_account_hint_unknown() };
+		return {
+			accountId: shown(resolution.accountId),
+			hint: m.import_account_hint_unknown(),
+			aboutTheFile: false
+		};
 	}
 
 	if ('kind' in resolution) {
-		return { accountId: null, hint: m.import_account_hint_orphan() };
+		return { accountId: null, hint: m.import_account_hint_orphan(), aboutTheFile: false };
 	}
 
 	if (resolution.candidates.length === 1) {
@@ -102,7 +123,8 @@ export function accountAnswerFor(
 						count: memory.useCount,
 						date: memory.lastUsedLabel
 					})
-				: m.import_account_hint_unknown()
+				: m.import_account_hint_unknown(),
+			aboutTheFile: false
 		};
 	}
 
@@ -111,6 +133,7 @@ export function accountAnswerFor(
 		hint:
 			resolution.candidates.length === 0
 				? m.import_account_hint_unknown()
-				: m.import_account_hint_ambiguous()
+				: m.import_account_hint_ambiguous(),
+		aboutTheFile: false
 	};
 }
