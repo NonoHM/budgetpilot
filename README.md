@@ -61,6 +61,21 @@ The rest are visible, and none of them costs you data:
   else one. [#438](https://github.com/NonoHM/budgetpilot/issues/438)
 - Account email addresses have to be plain ASCII on every database engine. See
   [configuration](docs/configuration.md#database).
+- Bank sync needs HTTPS before it works at all, and it is two settings rather
+  than one. Enable Banking's Control Panel refuses an `http://` redirect URL
+  outright, with "uses unsupported scheme", so a plain-http instance cannot
+  even finish registering an application. You need a TLS reverse proxy in
+  front of BudgetPilot. Then `ORIGIN` and `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS`
+  both have to change to that same `https://` address. If `ORIGIN` still says
+  `http://localhost:3000` while you browse over HTTPS, the **Connect** button
+  answers 403 "Cross-site POST form submissions are forbidden" and the flow
+  never starts. The failure is before the bank, not after it: you never leave
+  BudgetPilot, and the redirect URL you registered is never reached, so the
+  403 looks like a login or session problem rather than a bank sync one.
+  `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS` fails in the same place for the same
+  reason, though it at least names itself on screen. Set all of it up before
+  you register anything.
+  See [bank sync](docs/bank-sync.md#https-is-required-before-any-of-this-works).
 
 ## Quick start
 
