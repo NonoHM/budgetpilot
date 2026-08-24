@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
+import { GENERIC_BUCKET_STORED_NAME } from '$lib/domain/account';
+import * as m from '$lib/paraglide/messages';
 import { buildAccountOffer } from './accountOffer';
 import type { ParsedCsvRow } from './types';
 
@@ -86,6 +88,41 @@ describe('the account offer the designation screen is given', () => {
 		});
 		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
 		expect(offer.options).toHaveLength(0);
+	});
+
+	it('offers the generic bucket under its DISPLAYED name, not its stored one', async () => {
+		// SEPARATES: « the option carries `displayAccountName(account)` » FROM « it carries
+		// `account.name` », which is the raw column.
+		//
+		// Found by a SCREENSHOT rather than by any of this file's siblings. The designation screen
+		// showed « Compte import CSV » on an English page: the bucket's stored name is a lookup key,
+		// half of `@@unique([userId, name, source])`, and it is a French literal because it always
+		// was one. Every other surface in the product already substitutes it, so this panel was the
+		// one screen showing a storage key, on the feature whose whole subject is that name.
+		//
+		// `nameKey` is deliberately NULL here, which is the field case: the column is nullable, the
+		// boot backfill writes it only for accounts with an institution, and the generic bucket has
+		// none. `isGenericallyNamed` recomputes the key from the name for exactly this row, so a
+		// fixture that pre-filled `nameKey` would pass while the real row failed.
+		expect.assertions(3);
+		await makeAccount(GENERIC_BUCKET_STORED_NAME, 'csv');
+		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
+		expect(offer.options).toHaveLength(1);
+		expect(offer.options[0].name).toBe(m.accounts_generic_bucket());
+		// The companion, because the assertion above would also pass if the substitution replaced
+		// every name with a constant: the stored key must not be what reaches the screen.
+		expect(offer.options[0].name).not.toBe(GENERIC_BUCKET_STORED_NAME);
+	});
+
+	it('leaves a name the USER chose exactly as they wrote it', async () => {
+		// The other half, and it is what stops the fix above becoming a blanket rewrite. SEPARATES
+		// « only the machine's own name is substituted » FROM « every name is passed through a
+		// renderer », which would quietly change what a user typed.
+		expect.assertions(2);
+		await makeAccount('Compte courant', 'csv');
+		const offer = await buildAccountOffer({ userId: mine, rows: ROWS });
+		expect(offer.options).toHaveLength(1);
+		expect(offer.options[0].name).toBe('Compte courant');
 	});
 
 	it('answers rank 3 with no candidates for a shape it has never seen', async () => {

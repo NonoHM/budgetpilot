@@ -221,23 +221,30 @@ rows only, so a run that skipped everything reports zero for both.
 ## Duplicate detection
 
 Per **transaction**, not per file. The comparison is over the transaction's
-**date, label, amount and direction**, over **which format it was filed
-under**, over the **currency** the amount is in, and over an ordinal that
+**date, label, amount and direction**, over **which account it was filed
+into**, over the **currency** the amount is in, and over an ordinal that
 separates genuine repeats of the same payment on the same day. Importing the
 same statement twice creates nothing the second time, and importing an
 overlapping statement creates only the rows that are new. Verified: the same
 five-row file imported twice reported 5 read / 5 imported / 0 duplicates, then
 5 read / 0 imported / 5 duplicates.
 
-**Two transactions filed under different formats are never compared**, and
+**Two transactions filed into different accounts are never compared**, and
 that is deliberate: the same payment can genuinely appear in two accounts, and
 treating those as one would drop a real transaction with nothing to report it.
+That is why the account a statement belongs to is a question you answer rather
+than something the application decides for you: it is the perimeter the
+comparison runs inside.
+
 It has one consequence worth knowing, because the CSV export is read back as a
-**Home** file: re-importing an export of transactions that arrived through
-**Banque Populaire** or **Revolut** creates a second copy of each. The check
-described below fires on exactly that run and asks you to confirm before
-anything is written. Use **Settings, Backup** rather than the CSV export when
-what you want is a copy you can restore.
+**Home** file, and a Home file is filed into your CSV account: re-importing an
+export of transactions that arrived through **Banque Populaire** or **Revolut**
+creates a second copy of each. The export names the account its rows came from,
+in a `compte` column, but the import does not yet read that column back, so the
+copies land in a different account and the comparison correctly says they are
+different transactions. The check described below fires on exactly that run and
+asks you to confirm before anything is written. Use **Settings, Backup** rather
+than the CSV export when what you want is a copy you can restore.
 
 **The label is a column you designate, so changing which column feeds it
 changes every comparison.** Re-reading a statement through a different label
@@ -260,11 +267,90 @@ same statement and it is recognised as such. Two transactions that are
 genuinely distinct still both import, even when they share a date, a label and
 an amount, as long as something else about them differs.
 
-## Destination account
+## The account a statement belongs to
 
-Optional, and applied only on the **very first** import of a given bank
-profile. Once a technical account exists for that profile, a later choice is
-ignored. The form states this above the field.
+Every import goes into an **account**, and every account is one you can see and
+rename under **Settings, Accounts**. Duplicate detection runs inside one account
+at a time, so two statements from two accounts at the same bank are no longer
+read as repeats of each other.
+
+There is no destination field on the upload form. A file BudgetPilot recognises
+is filed by its format. A file it does not recognise is filed into the account
+you pick on the designation screen, in a row above the four column rows.
+
+### How the account is worked out
+
+Three sources of an answer, in this order. The first that answers, wins.
+
+| Rank | What it reads                               | What the screen does                  |
+| ---- | ------------------------------------------- | ------------------------------------- |
+| 1    | An account identifier in the file itself    | States the account, with the fragment |
+| 2    | The `compte` column of a BudgetPilot export | Not read back yet                     |
+| 3    | What was remembered for this file's shape   | Proposes one, or asks between several |
+
+**The file always beats the memory.** A memory records what happened last time,
+including the time the wrong account was picked. An identifier printed in the
+file is a fact about the file. So rank 1 answers before the memory is consulted.
+
+**Rank 1 needs proof, not a resemblance.** The identifier has to be an IBAN
+whose checksum verifies, or a run of eight digits or more, in a column where
+every row carries the same value. Only the last four characters are kept, and
+only those are ever shown or stored.
+
+**A file naming several accounts is refused before the memory is read at all.**
+A statement that mixes two accounts cannot belong to one, and a memory saying it
+does must not be allowed to override the file.
+
+**Rank 3 fills in nothing when two accounts match.** Both are offered and
+neither is chosen. A guess that is right most of the time still misfiles
+statements, and leaves no trace that a guess was made.
+
+### What is remembered
+
+The account a file shape went into, keyed on the file's **column names** in
+sorted order, the same way a column designation is remembered. A bank that adds
+a column, or reorders them, changes nothing.
+
+Two situations are told apart on screen: a shape never seen before says so, and
+a shape whose accounts have all since been deleted or archived says the
+remembered account no longer exists.
+
+### Creating an account during an import
+
+The picker offers **New account** in every state, including when you have
+none. It opens a one-field sheet, pre-filled from what the file said: the
+bank's name when the format is recognised, plus the identifier fragment when
+the file carries one.
+
+The name is yours and appears only in BudgetPilot. Two accounts may not share a
+name, and **two accounts may not share an identifier fragment**. Without that
+second rule rank 1 would find two accounts holding one fragment and would have
+to guess, which is the one thing it exists not to do.
+
+Nothing else about the account is settable from that sheet. The format, the
+identifier fragment, the net worth link and the archived flag are set by the
+application or from **Settings, Accounts**, and a request that posts them is
+refused rather than obeyed.
+
+### Refusals
+
+| Situation                                            | What you get                                                |
+| ---------------------------------------------------- | ----------------------------------------------------------- |
+| The primary pressed with no account chosen           | The row is revealed, scrolled to and focused                |
+| A recognised file, and two accounts share its format | Refused, with the offer to designate the columns and choose |
+| The chosen account has since been archived           | Refused, choose another                                     |
+| The file names several accounts                      | Choose the one this statement belongs to                    |
+
+An account reference posted by a browser is treated as a claim rather than a
+fact: it is resolved against your own accounts, and one that does not resolve
+is refused as not found, whether it belongs to nobody or to somebody else.
+
+### Archiving
+
+Archiving an account stops it being offered as an import destination and keeps
+every transaction it already holds. It can be reactivated from the same place.
+An archived account still counts against the two name rules above, so its name
+and its fragment are not free for reuse until it is deleted.
 
 ## The history
 

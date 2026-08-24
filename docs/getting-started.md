@@ -327,11 +327,18 @@ out the format itself. These are the ones it knows:
 If it recognises none of them, it asks you which column is which. See
 [importing a statement](./using/imports.md) for that screen.
 
-**Home** recognises two shapes: the seven-column header older exports wrote,
-and the ten-column one exports write today. A file you exported months ago
-still imports, unchanged: the older shape is kept, not replaced.
+**Home** recognises three shapes: the seven-column header the oldest exports
+wrote, the ten-column one that followed, and the eleven-column one exports
+write today. A file you exported months ago still imports, unchanged: an older
+shape is kept, never replaced.
 
-The extra columns exist so a **split transaction** survives the trip, one
+The eleventh column is `compte`. It names the account each transaction came
+from, so the file says where your transactions live and not only what they were.
+It is filled in when everything in the export is from one account, and left
+empty when the export mixes several, because naming the wrong account would be
+worse than naming none.
+
+The other extra columns exist so a **split transaction** survives the trip, one
 payment recorded against several categories. See
 [splitting a transaction](./using/split-transactions.md) for how to make one,
 and the [split reference](./reference/split-transactions.md) for the exact
@@ -345,12 +352,16 @@ as several separate transactions. Two limits worth knowing:
   so it is reported as a duplicate rather than imported twice.
 
   **It does add a second copy when they came in through Banque Populaire or
-  Revolut.** BudgetPilot keeps each format's transactions separately, an export
-  is read back as a Home file, and rows filed under Home are not compared
-  against rows filed under Banque Populaire or Revolut. You will be warned
-  before it happens: the import screen recognises that the file repeats an
-  earlier import and asks you to confirm. If you confirm, you get both copies
-  and can delete the new import from **Imports**.
+  Revolut.** Transactions belong to an account, and BudgetPilot never compares
+  two transactions in two different accounts. That is on purpose: the same
+  payment really can appear on two of your accounts. An export is read back as a
+  Home file, and a Home file goes into your CSV account, so the copies land
+  beside the originals instead of on top of them. The `compte` column records
+  which account they came from, but the import does not read it back yet.
+
+  You will be warned before it happens: the import screen spots that the file
+  repeats an earlier import and asks you to confirm. If you confirm, you get both
+  copies, and you can delete the new import from **Imports**.
 
   To move a statement between instances, or to keep a copy you can restore,
   use **Settings, Backup** rather than the CSV export. A backup restores your

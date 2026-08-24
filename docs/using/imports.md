@@ -21,22 +21,36 @@ The column layouts each one expects are in
 Generic and Revolut accept, and still refuse, is in
 [the imports reference](../reference/imports.md).
 
+A file BudgetPilot recognises goes straight into the account that format always
+uses, so there is nothing to answer here either.
+
+One exception: if you have two accounts using the same format, the file cannot
+say which one it is from. The import stops and offers you the screen below,
+where you pick. See [which account is this statement
+from?](#which-account-is-this-statement-from).
+
 ### 2. It is not recognised, so you are asked which column is which
 
 Banks name their columns however they like, and no list covers all of them. When
 none of the four shapes fits, the import is not refused: the summary says the
 columns were not recognised and offers **Designate the columns**.
 
-That screen shows four rows, one per role, and nothing else:
+That screen asks two things: which of your accounts this statement is from, and
+which column is which.
 
 | Row          | What it wants                             |
 | ------------ | ----------------------------------------- |
+| **Account**  | the account this statement is from        |
 | **Date**     | the column holding the transaction's date |
 | **Label**    | what the transaction says it was          |
 | **Amount**   | the sum, with its sign                    |
 | **Category** | optional, if your bank provides one       |
 
-![The designation screen: four rows for Date, Label, Amount and Category, each showing the file's own column name and its first value, with the banner reading all three columns are designated, 3 of 3, and the primary reading Import 3 rows](../screenshots/imports/columns-designation-mobile.png)
+The **Account** row is at the top and is usually already filled in. See [which
+account is this statement from?](#which-account-is-this-statement-from) below.
+The rest of this section is about the four column rows.
+
+![The designation screen on a phone: an Account row at the top reading CSV import, then four rows for Date, Label, Amount and Category, each showing the file's own column name and its first value, with the banner reading all three columns are designated, 3 of 3, and the primary reading Import 3 rows](../screenshots/imports/columns-designation-mobile.png)
 
 Tap a row and you get your own file, one card per column, each showing the
 column's name and its **first three real values**. You are choosing from the
@@ -67,7 +81,7 @@ cards are picked to be _distinguishing_, so a mostly-empty column shows you its
 own few values rather than three blanks. They therefore do not line up into rows. The
 preview reads the file again instead of arranging those.
 
-![The designation screen on a wide display: the four role rows on the left with Date, Label and Amount filled from the file's own column names, and the file preview on the right showing five statement rows across thirteen columns, the designated ones labelled DATE, LABEL and AMOUNT above their column names, the rest greyed, and a counter reading 10 of 13 columns visible](../screenshots/imports/columns-designation-desktop.png)
+![The designation screen on a wide display: the Account row and the four column rows on the left, with Date, Label and Amount filled from the file's own column names, and the file preview on the right showing five statement rows across thirteen columns, the designated ones labelled DATE, LABEL and AMOUNT above their column names, the rest greyed, and a counter reading 10 of 13 columns visible](../screenshots/imports/columns-designation-desktop.png)
 
 ![The import summary offering to designate the columns, under the heading Designate the columns](../screenshots/imports/columns-offer-desktop.png)
 
@@ -111,10 +125,51 @@ A file like this is designated **every time**. There are no column names to
 remember it by, and its first line changes with every statement, so there is
 nothing stable for BudgetPilot to recognise it by later.
 
-**Destination account** is optional, and the form says the one thing about
-it that is easy to get wrong: it applies only to the **very first** import
-of a given bank profile. Once a technical account exists for that profile,
-the choice is ignored.
+The **Account** row is on this screen too. With no column names there is nothing
+for BudgetPilot to remember the file by, so it asks for the account every time,
+along with the columns.
+
+## Which account is this statement from?
+
+Your transactions are grouped by **account**. If you have a current account and
+a savings account at the same bank, each one gets its own group.
+
+This matters for one reason. The same shop, the same day, the same amount can
+appear on two of your accounts, and both are real. Keeping the accounts apart is
+what stops BudgetPilot mistaking one for a copy of the other.
+
+So the designation screen asks. The **Account** row is at the top. Tap it and
+pick from your accounts.
+
+Most of the time the row is already filled in and you can leave it alone. Here
+is what it can say:
+
+| The row says                                                 | What to do                                    |
+| ------------------------------------------------------------ | --------------------------------------------- |
+| _IBAN ···4417 read from the file_                            | Nothing. Your bank printed the account number |
+| _Remembered, 3 imports since 15 August_                      | Nothing. Files like this went here before     |
+| _First statement in this format_                             | Pick an account. It will be remembered        |
+| _Two accounts use this format. The file does not say which._ | Pick the right one                            |
+| _This file contains several accounts._                       | Pick the one you want these transactions in   |
+| _The remembered account no longer exists._                   | Pick another one                              |
+
+Two things worth knowing:
+
+- **What the file says wins.** If your bank prints the account number in the
+  statement, BudgetPilot uses that, even if you picked something else last time.
+- **BudgetPilot does not guess.** When two answers are possible it asks instead
+  of choosing one. A statement filed in the wrong place is hard to spot later.
+
+### Making a new account
+
+Tap **New account** in the list. It is there even if you have no accounts yet,
+which is where everyone starts.
+
+You get one field, usually already filled in with your bank's name. Change it to
+whatever you will recognise, then tap **Create and select**.
+
+The name is only for you. Nobody else sees it, and you can change it later in
+**Settings, Accounts**.
 
 ## What is refused
 
@@ -158,7 +213,7 @@ columns: see [Importing the same file twice](#importing-the-same-file-twice).
 
 The import reports what it did before you go anywhere.
 
-![An import summary: the file releve-juin-2026.csv, read by the generic profile. A line above the figures reads "8 rows read from this file", then five tiles: 8 imported, 0 duplicates skipped, 0 invalid rows, €367.35 total spending, €2,524.30 total income. Below them, the period 2026-06-01 to 2026-06-24](../screenshots/imports/summary-desktop.png)
+![An import summary: the file releve-juin-2026.csv, read by the CSV profile, with a line reading "8 rows imported into CSV import" under the file name. A line above the figures reads "8 rows read from this file", then five tiles: 8 imported, 0 duplicates skipped, 0 invalid rows, €367.35 total spending, €2,524.30 total income. Below them, the period 2026-06-01 to 2026-06-24](../screenshots/imports/summary-desktop.png)
 
 It opens with how many rows it read, then shows what became of them.
 
@@ -181,13 +236,16 @@ When the rows were read, imported plus duplicates plus invalid is all of them.
 after an import that skipped everything they are both zero. That is the
 quickest way to tell "nothing happened" from "nothing needed to happen".
 
+The summary also names the account the transactions went into, so you can catch
+a statement filed in the wrong place straight away.
+
 ## Importing the same file twice
 
 Duplicate detection is per transaction, not per file, so importing the
 same statement again, or a statement that overlaps one you already have,
 creates only the rows that are new.
 
-![Import history: two runs of the same file, the first importing 5 transactions, the second reading the same 5 and skipping all of them as duplicates](../screenshots/imports/history-desktop.png)
+![Import history: two runs of the same file, each carrying a CSV import badge naming the account it went into, the first importing 5 transactions and the second reading the same 5 and skipping all of them as duplicates](../screenshots/imports/history-desktop.png)
 
 The two rows above are the same file imported twice. The second read the
 same five lines, created nothing, and recorded five duplicates.
@@ -214,7 +272,12 @@ If two imports already in your history look like the same statement, the
 ## The history
 
 **Imports** lists every run, newest first, with its date, file name,
-detected profile, the period the file covered, and the four counts.
+detected profile, **the account it was filed into**, the period the file
+covered, and the four counts.
+
+Imports made before accounts existed simply show no account, rather than a blank
+one. Most of them are filled in automatically the first time BudgetPilot starts
+after the update.
 
 Raw file contents are **not stored**. What is kept is the record of the run,
 not your statement.

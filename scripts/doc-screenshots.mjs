@@ -117,6 +117,44 @@ async function uploadWideUnrecognisedStatement(page) {
  * carrying one would put French category names into an English instance's database to document a
  * panel that never shows them.
  */
+/**
+ * Answers the designation screen's ACCOUNT row, which sits above the four column roles.
+ *
+ * Not optional dressing on these captures. The row is the first thing on that screen, the primary
+ * refuses while it is unanswered, and a shot taken with it in its `todo` state photographs a screen
+ * mid-question rather than a screen doing its job, which is the same reason the columns below are
+ * designated rather than left empty.
+ *
+ * **Chooses an existing account when there is one and creates one otherwise**, because the capture
+ * has to work on both arrangements: a fresh instance whose demo user has never imported holds no
+ * statement account at all, and a run made after the `imports` group has left two behind holds
+ * several. Branching on what the panel offers rather than on which group ran first keeps the two
+ * from having to be captured in a fixed order.
+ *
+ * The created name is a plain label a person would type, never anything read out of a file.
+ */
+async function answerAccountRow(page, name) {
+	// `:visible`, and it is the same trap the summary assertion below records: `/import/columns`
+	// renders BOTH breakpoint chromes into the DOM, so the row exists twice and an unscoped
+	// `.first()` is whichever one the markup happens to put first rather than the one on screen.
+	const row = page.locator('button[aria-haspopup="listbox"]:visible').first();
+	await row.click();
+	// Waited for rather than slept through: the panel opening is the precondition for everything
+	// below, and a timeout here says « the row did not open », where a sleep says « New account is
+	// missing », which sends the next reader to the wrong place. That is exactly what happened on
+	// the first run of this helper.
+	await page.getByRole('listbox').first().waitFor({ state: 'visible', timeout: 5000 });
+	const options = page.getByRole('option');
+	if ((await options.count()) > 0) {
+		await options.first().click();
+	} else {
+		await page.getByRole('button', { name: 'New account' }).click();
+		await page.getByLabel('Account name').fill(name);
+		await page.getByRole('button', { name: 'Create and select' }).click();
+	}
+	await page.waitForTimeout(500);
+}
+
 async function uploadSyntheticStatement(page) {
 	const form = page.locator('form[method="POST"]:visible').first();
 	await form.locator('input[name="csvFile"]').setInputFiles({
@@ -446,8 +484,10 @@ const GROUPS = {
 				await uploadUnrecognisedStatement(page);
 				await page.getByRole('button', { name: 'Designate the columns' }).click();
 				await page.waitForURL(/\/import\/columns$/);
+				await answerAccountRow(page, 'Current account');
 				// Designated, so the capture shows the screen doing its job rather than empty: the
-				// four rows carrying real column names and real values, and the count at 3 of 3.
+				// account row answered, the four rows carrying real column names and real values, and
+				// the count at 3 of 3.
 				for (const [row, column] of [
 					[/^Date, no column designated/, /^Jour\./],
 					[/^Label, no column designated/, /^Intitule operation\./],
@@ -468,6 +508,7 @@ const GROUPS = {
 				await uploadWideUnrecognisedStatement(page);
 				await page.getByRole('button', { name: 'Designate the columns' }).click();
 				await page.waitForURL(/\/import\/columns$/);
+				await answerAccountRow(page, 'Current account');
 				for (const [row, column] of [
 					[/^Date, no column designated/, /^zone_1\./],
 					[/^Label, no column designated/, /^zone_2\./],
@@ -487,6 +528,7 @@ const GROUPS = {
 				await uploadUnrecognisedStatement(page);
 				await page.getByRole('button', { name: 'Designate the columns' }).click();
 				await page.waitForURL(/\/import\/columns$/);
+				await answerAccountRow(page, 'Current account');
 				await page.getByRole('button', { name: /^Amount, no column designated/ }).click();
 				await page.waitForTimeout(300);
 			}
@@ -663,6 +705,15 @@ const GROUPS = {
 			url: '/settings',
 			clipAround: 'Sessions',
 			clipMinHeight: 200
+		},
+		{
+			// The accounts a statement can be filed into, managed here and created only by importing.
+			// Its premise is asserted rather than assumed: see `assertDepictsAccountsSection`.
+			file: 'account/accounts-desktop.png',
+			url: '/settings',
+			assert: assertDepictsAccountsSection,
+			clipAround: 'Accounts',
+			clipMinHeight: 220
 		}
 	],
 	admin: [
@@ -681,6 +732,25 @@ const GROUPS = {
 };
 
 /** Opens the enrolment dialog from the two-factor switch. */
+/**
+ * The Accounts section's premise, checked before the file is written.
+ *
+ * The section renders its heading whether or not the user holds an account, and the EMPTY state is
+ * a different picture with a different sentence. A capture taken on an instance whose demo user has
+ * never imported would photograph that empty state under a caption describing rows, and nothing
+ * downstream could tell the two apart. So the assert names the state the image is documenting: at
+ * least one row, and at least one Rename control to prove the row is an account row rather than any
+ * other list this page carries.
+ */
+async function assertDepictsAccountsSection(page) {
+	const renames = await page.getByRole('button', { name: /^Rename / }).count();
+	if (renames < 1) {
+		throw new Error(
+			`[docs] accounts-desktop: expected at least one account row with a Rename control, found ${renames}`
+		);
+	}
+}
+
 async function openTotpSetup(page) {
 	await page.getByRole('switch', { name: 'Enable two-factor authentication' }).click();
 	await page.waitForTimeout(400);

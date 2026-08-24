@@ -16,6 +16,7 @@ holds everything about your account rather than about your money.
 | Two-factor         | [A second check at sign-in](./two-factor.md)             |
 | Sessions           | Every device signed in as you                            |
 | Tags               | Renaming, recolouring and deleting [tags](./tags.md)     |
+| Accounts           | The accounts your imports go into                        |
 | AI insights        | The optional [local AI advice](../ai-insights.md)        |
 | Backup and restore | [Exporting and restoring your data](./backup-restore.md) |
 | Delete my account  | Removing the account and its data                        |
@@ -61,6 +62,52 @@ many are active, marks the one you are using, and expands to show the rest.
 
 A phone you no longer own, or a browser on a shared machine, is a session
 here until it expires. That button is how you end it.
+
+## Your accounts
+
+Every import goes into an **account**, and **Settings, Accounts** is where you
+manage them.
+
+You do not create accounts here. Your first import makes the first one, and
+later imports either reuse it or ask you which one to use.
+
+![The Accounts card: the heading Accounts above "The accounts your statements come from", an invitation reading "These accounts came from your imports. Name them the way your bank names them.", and one row reading CSV import with 13 transactions, Rename and Archive buttons, and a "Tracked in net worth" selector reading None](../screenshots/account/accounts-desktop.png)
+
+Each row shows the account's name, the last four digits of its number when your
+bank printed them, and how many transactions it holds. The count is handy when
+two accounts at the same bank have similar names.
+
+### Rename
+
+**Rename** changes the name and nothing else. Your transactions and your imports
+stay exactly where they are.
+
+BudgetPilot names your first accounts for you, after the bank the statements
+came from. One of them may be called **CSV import**, which is what it uses for
+files it could not match to a bank. If you have any of those, the page invites
+you to give them your own names, and the invitation goes away once you have.
+
+### Archive
+
+**Archive** hides an account from the import screen and changes nothing else.
+Its transactions stay where they are and stay visible. Use it for an account you
+have closed, so it stops being offered every time you import.
+
+**Reactivate** on the same row brings it back.
+
+An archived account keeps its name and its number, so you cannot reuse either
+for a new account until you delete the old one.
+
+### Tracked in net worth
+
+Each row has a selector linking the account to a line on your [net worth
+page](./net-worth.md), or to none.
+
+Link them and the two become one thing: the balance you track and the statements
+you import are about the same account, rather than two separate records of it.
+
+This used to be asked on the import screen. It belongs here, because it is a
+question about an account rather than about a file.
 
 ## Delete your account
 

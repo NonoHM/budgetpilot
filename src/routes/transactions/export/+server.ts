@@ -108,6 +108,18 @@ async function accountNameFor(
 	 * wrong is a file that misfiles its own rows on re-import.
 	 */
 	if (typeof accountId !== 'string' || accountId.length === 0) return null;
+	/**
+	 * THE STORED NAME, not `displayAccountName`, and the asymmetry is deliberate.
+	 *
+	 * Every SCREEN substitutes: the generic bucket's stored name is a lookup key and reads as one.
+	 * This column is not a screen, it is the join key a re-import matches back through
+	 * `computeNameKey`, so substituting here would write a name no row holds and the file would
+	 * stop naming its own account.
+	 *
+	 * KNOWN COST, recorded rather than fixed: an English user exporting from the generic bucket
+	 * gets its French storage literal in a column they can read. Fixing that means the reader
+	 * substituting too, which is a change to the format's contract rather than to this line.
+	 */
 	const account = await prisma.account.findFirst({
 		where: { id: accountId, userId },
 		select: { name: true }

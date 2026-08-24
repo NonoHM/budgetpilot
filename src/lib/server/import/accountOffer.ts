@@ -2,7 +2,7 @@ import { prisma } from '$lib/server/db';
 import { findDiscriminantColumn } from './discriminant';
 import { institutionForSource } from './accountBackfill';
 import { prefillAccountName } from '$lib/server/accounts/service';
-import { accountsForPicker } from '$lib/server/accounts/projection';
+import { accountsForPicker, displayAccountName } from '$lib/server/accounts/projection';
 import {
 	headersOf,
 	resolveStatementAccount,
@@ -91,6 +91,12 @@ export async function buildAccountOffer(input: {
 		select: {
 			id: true,
 			name: true,
+			// The two columns `displayAccountName` needs beyond the name, and they are here rather
+			// than derived on the screen for the reason that rule has one home at all: this panel is
+			// the fourth caller, and a fourth expression of « is this still the machine's own name »
+			// is the copy that drifts.
+			nameKey: true,
+			institution: true,
 			source: true,
 			discriminant: true,
 			archivedAt: true,
@@ -146,7 +152,12 @@ export async function buildAccountOffer(input: {
 		}),
 		options: destinations.map((account) => ({
 			id: account.id,
-			name: account.name,
+			// THE DISPLAYED NAME, never the stored one. The generic bucket's stored name is a lookup
+			// key, half of `@@unique([userId, name, source])`, and it is a French literal on an
+			// English page. Every other surface already substitutes it; this panel was the one screen
+			// left showing a storage key, on the feature whose whole subject is that name. Found by a
+			// screenshot, which is what the eleven assertions over this module could not see.
+			name: displayAccountName(account),
 			discriminant: account.discriminant ?? null,
 			transactionCount: account._count.transactions
 		})),

@@ -66,6 +66,37 @@ beforeEach(async () => {
 });
 
 describe('creating an account without leaving the file in your hand', () => {
+	it('drops the provenance line once the user has created the account themselves', async () => {
+		// SEPARATES: « the hint describes where the CURRENT answer came from » FROM « the hint is the
+		// sentence the server computed when the page loaded ».
+		//
+		// FOUND BY A SCREENSHOT of the built journey, not by any assertion here. With no accounts the
+		// server sends « No accounts yet. Create the one this statement belongs to. » The user then
+		// creates one, the row correctly shows its name, and that sentence stays underneath it: the
+		// screen names an account and says in the next line that there are none. Every sentence the
+		// hint can carry is a PROVENANCE, and an account the user has just made has no provenance the
+		// server could have described.
+		//
+		// The two states produce the same NAME on the row, which is why nothing already here caught
+		// it: only the description separates them.
+		expect.assertions(2);
+		mount({
+			accountHint: m.import_account_hint_no_accounts(),
+			onCreateAccount: vi.fn().mockResolvedValue({ ok: true, account: CREATED })
+		});
+		await openPanel();
+		await footerAction().click();
+		await nameField().fill(CREATED.name);
+		await primary().click();
+		const row = page.getByRole('button', { name: new RegExp(m.import_account_row_label()) });
+		// The row names the account, so this is the state after a successful creation rather than
+		// before one: without this the assertion below also passes on a sheet that never submitted.
+		await expect
+			.element(row)
+			.toHaveAccessibleName(m.import_account_row_aria({ account: CREATED.name }));
+		expect(document.body.textContent).not.toContain(m.import_account_hint_no_accounts());
+	});
+
 	it('opens the sheet from the panel action and closes the panel behind it', async () => {
 		// SEPARATES: « the footer action opens the create sheet » FROM « it closes the panel and
 		// nothing happens », which is what shipped with the row and the panel alone. Both leave the

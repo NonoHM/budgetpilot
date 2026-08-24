@@ -526,9 +526,25 @@
 	 * the provenance is a fact about a choice that has not been made: it has nothing left to explain
 	 * at the moment the user is being told to make one.
 	 */
-	const accountHintShown = $derived(
-		accountState === 'error' ? m.import_account_error_required() : (accountHint ?? undefined)
-	);
+	const accountHintShown = $derived.by(() => {
+		if (accountState === 'error') return m.import_account_error_required();
+		/**
+		 * AN ACCOUNT THE USER JUST MADE HAS NO PROVENANCE, so the row shows none.
+		 *
+		 * `accountHint` is computed on the server when the page loads, and every sentence it can
+		 * carry answers « where did this answer come from »: the file said so, we remembered, we have
+		 * never seen this shape, you have no accounts. None of them describes an account created a
+		 * second ago in this browser, and one of them becomes FALSE the moment it is: the row names
+		 * an account while the line under it says there are none.
+		 *
+		 * Found on a screenshot of the built journey. Both states put the same NAME on the row, which
+		 * is why the assertions over this screen could not see it.
+		 */
+		if (chosenAccount !== null && createdAccounts.some((a) => a.id === chosenAccount.id)) {
+			return undefined;
+		}
+		return accountHint ?? undefined;
+	});
 
 	/**
 	 * Reveals the error, brings the row back into view and puts the focus on it.

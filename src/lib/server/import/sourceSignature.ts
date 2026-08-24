@@ -108,11 +108,20 @@ export async function resolveStatementAccount({
 
 	// RANK 2: one of our own V3 exports, whose `compte` column names an account by NAME.
 	//
-	// NOT IMPLEMENTED YET, AND DELIBERATELY SO: the V3 export format does not exist in this tree.
-	// Inventing a header for it here would mean a recogniser written against a guess, which is the
-	// worst of both, because it would look tested and would match nothing the exporter emits. The
-	// task that adds the exporter adds the recogniser beside it, and this branch stops falling
-	// through then. Until then a V3 file simply reaches rank 3 like any other.
+	// STILL NOT IMPLEMENTED, AND THE ORIGINAL REASON IS NOW FALSE. It read « the V3 export format
+	// does not exist in this tree », which was true when written and was falsified two commits
+	// later on this same branch: `profiles/maison-v3.ts` recognises `MAISON_V3_HEADER` and
+	// `readMaisonV3Account` is the one place that column is interpreted. The reason is corrected
+	// here rather than deleted, because deleting it would leave the gap looking like an oversight.
+	//
+	// WHAT ACTUALLY REMAINS, and it is a design question rather than a wiring one: the column
+	// carries a NAME, and the three CSV buckets share one literal name and differ by `source`. So
+	// a name lookup has a disambiguation to make that nothing in this tree models yet, and a rank
+	// that resolves the wrong one of two identically named rows would file a statement into an
+	// account it never came from with full confidence, which is the exact failure ranks exist to
+	// prevent. Measured on this branch: a V3 export of a Banque Populaire account reaches rank 3
+	// with no candidates, and the route then files it by source into the CSV bucket. That is #464,
+	// which this branch does NOT close, and its comment there carries the probe.
 
 	// RANK 3: what we remember.
 	//
