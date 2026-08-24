@@ -70,16 +70,13 @@ function summary(invalidRowDetails: ImportInvalidRowDetail[]): ImportSummaryResu
 		period: { from: '2026-07-01', to: '2026-07-31' },
 		batchId: 'batch-new',
 		invalidRowDetails,
-		hiddenInvalidRowsCount: 0,
-		netWorthLinkStatus: null
+		hiddenInvalidRowsCount: 0
 	};
 }
 
 const DATA: PageData = {
 	user: null,
-	correction: null,
-	linkableNetWorthAccounts: [],
-	hasAllImportBucketsExisting: true
+	correction: null
 };
 
 const REPLACED_AT = '2026-08-16T08:59:00.000Z';

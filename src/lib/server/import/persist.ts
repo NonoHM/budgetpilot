@@ -57,7 +57,17 @@ export interface ImportBucketInput {
 	 * the application default (`DEFAULT_DENOMINATION`).
 	 */
 	denomination?: { currency: string; exponent: number };
-	/** Applied only when the bucket is first created — an existing bucket's link is never silently changed by a later import. */
+	/**
+	 * Applied only when the bucket is first created — an existing bucket's link is never silently
+	 * changed by a later import.
+	 *
+	 * ONE CALLER SETS THIS, and naming it is the point: `banking/sync/service.ts`, where the
+	 * provider hands over an account that IS a net worth line. The CSV import path used to set it
+	 * too, from a control on the upload form, and that control answered « which net worth line does
+	 * this bucket feed » on a screen asking « where does this file go ». It was removed with the
+	 * rest of that question; the link is now set on the Comptes screen, where the subject is an
+	 * account rather than a file.
+	 */
 	netWorthAccountId?: string | null;
 	/**
 	 * The proper noun for the bank, when the source names one. Create-only, like every field
@@ -442,7 +452,6 @@ export async function findImportBucketAccountBySource(input: {
 export async function resolveImportBucketAccountBySource(input: {
 	userId: string;
 	source: string;
-	netWorthAccountId?: string | null;
 }): Promise<ImportBucketBySourceResolution> {
 	const found = await findImportBucketAccountBySource(input);
 	if (found.kind === 'ambiguous') return { kind: 'ambiguous' };
@@ -457,8 +466,7 @@ export async function resolveImportBucketAccountBySource(input: {
 		userId: input.userId,
 		name: institution ?? GENERIC_BUCKET_STORED_NAME,
 		source: input.source,
-		institution,
-		netWorthAccountId: input.netWorthAccountId ?? null
+		institution
 	});
 	/**
 	 * `created: false` here has exactly one cause, and it is worth spelling out because it reads

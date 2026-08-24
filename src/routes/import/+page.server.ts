@@ -37,8 +37,6 @@ import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/co
 import { buildAccountOffer } from '$lib/server/import/accountOffer';
 import type { ParsedCsvRow } from '$lib/server/import/types';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
-import { isLinkableNetWorthAccountType } from '$lib/domain/netWorth';
-import { readLinkableNetWorthAccounts, readNetWorthAccounts } from '$lib/server/net-worth/service';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -46,7 +44,6 @@ import type { PageServerLoad } from './$types';
  * getImportSource below). The exact one is only known after the file is uploaded and its
  * profile detected, so the selector's visibility can't be decided from a single source.
  */
-const CSV_IMPORT_SOURCES = ['csv', 'revolut', 'banque_populaire'] as const;
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -106,19 +103,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 				}
 			})
 		: 0;
-	const [linkableNetWorthAccounts, existingImportBuckets] = await Promise.all([
-		readLinkableNetWorthAccounts(user.id),
-		prisma.account.findMany({
-			// The NAME is gone from this filter, and its absence is the point: the boot backfill
-			// renames these buckets, so a name-scoped query silently stops matching the very rows it
-			// is asking about and reports that the user has none. `source` is what actually
-			// identifies them and it is the half that cannot be renamed.
-			where: { userId: user.id, source: { in: [...CSV_IMPORT_SOURCES] }, archivedAt: null },
-			select: { source: true }
-		})
-	]);
-	const existingImportSources = existingImportBuckets.map((account) => account.source);
-
 	return {
 		correction: correcting
 			? {
@@ -130,17 +114,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					replacedRows: correctingBatch?.importedRows ?? 0,
 					hasUserWork: userWorkCount > 0
 				}
-			: null,
-		linkableNetWorthAccounts,
-		// The destination-account selector only has an effect the very first time a given
-		// profile's bucket is created (see the `update: {}` no-op below). Since the exact
-		// profile isn't known before upload, the selector stays visible as long as ANY
-		// profile could still be a first import. It's only hidden once every possible
-		// bucket already exists, at which point selecting a destination would always be a
-		// no-op regardless of the uploaded file.
-		hasAllImportBucketsExisting: CSV_IMPORT_SOURCES.every((source) =>
-			existingImportSources.includes(source)
-		)
+			: null
 	};
 };
 
@@ -172,14 +146,6 @@ export const actions: Actions = {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
 		const importFile = formData.get('csvFile');
-		const netWorthAccountId = await resolveNetWorthAccountId(user.id, formData);
-		if (netWorthAccountId === INVALID_NET_WORTH_ACCOUNT) {
-			return fail(400, {
-				error: m.import_error_invalid_net_worth_account(),
-				designation: undefined
-			});
-		}
-
 		if (!isUploadedFile(importFile) || importFile.size === 0) {
 			return fail(400, { error: m.import_error_no_file() });
 		}
@@ -481,8 +447,7 @@ export const actions: Actions = {
 
 		const resolved = await resolveImportBucketAccountBySource({
 			userId: user.id,
-			source,
-			netWorthAccountId
+			source
 		});
 		// Unreachable: the same question was asked above, before anything was written, and a
 		// `ambiguous` answer returned there. Asserted rather than assumed, because « the check above
@@ -491,10 +456,6 @@ export const actions: Actions = {
 			return fail(400, { error: m.import_account_error_ambiguous_auto() });
 		}
 		const bucket = { accountId: resolved.bucket.accountId, created: resolved.created };
-		// Tells the user whether their destination-account choice was actually applied or
-		// silently ignored because a bucket for this exact profile already existed.
-		const netWorthLinkStatus: 'applied' | 'ignored' | null =
-			netWorthAccountId === null ? null : bucket.created ? 'applied' : 'ignored';
 		const batchId = await createImportBatch({
 			userId: user.id,
 			accountId: bucket.accountId,
@@ -533,8 +494,7 @@ export const actions: Actions = {
 				period: result.summary.period,
 				batchId,
 				invalidRowDetails: buildInvalidRowDetails(importData.previewRowsByLine, result),
-				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.invalidRows.length),
-				netWorthLinkStatus
+				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.invalidRows.length)
 			}
 		};
 	}
@@ -614,28 +574,6 @@ function offersDesignation(
 	if (headerCells.length === 0) return false;
 	if (result.summary.totalRows === 0) return false;
 	return !result.invalidRows.every((row) => DESIGNATION_CANNOT_REPAIR.has(row.fact.code));
-}
-
-const INVALID_NET_WORTH_ACCOUNT = Symbol('invalid-net-worth-account');
-
-/**
- * Validates the client-submitted destination account against the user's own active, linkable
- * NetWorthAccounts (never trust a client-supplied foreign key blindly, see CLAUDE.md). An
- * empty selection ("Aucun") is valid and means null. An id that doesn't resolve to one of the
- * user's own accounts is rejected rather than silently ignored.
- */
-async function resolveNetWorthAccountId(
-	userId: string,
-	formData: FormData
-): Promise<string | null | typeof INVALID_NET_WORTH_ACCOUNT> {
-	const raw = formData.get('netWorthAccountId');
-	if (typeof raw !== 'string' || raw === '') return null;
-
-	const accounts = await readNetWorthAccounts(userId);
-	const match = accounts.find(
-		(account) => account.id === raw && isLinkableNetWorthAccountType(account.type)
-	);
-	return match ? match.id : INVALID_NET_WORTH_ACCOUNT;
 }
 
 function getImportSource(profile: string): string {

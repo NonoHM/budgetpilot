@@ -53,18 +53,21 @@ function formWith(invalidRowDetails: ReturnType<typeof detail>[]) {
 			period: null,
 			batchId: 'batch-1',
 			invalidRowDetails,
-			hiddenInvalidRowsCount: 0,
-			netWorthLinkStatus: null
+			hiddenInvalidRowsCount: 0
 		}
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any;
 }
 
-const DATA = {
-	linkableNetWorthAccounts: [],
-	hasAllImportBucketsExisting: false
-	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-} as any;
+// Every field this once carried is gone with the destination-account control. Kept as an empty
+// object rather than deleted, because the page still takes a `data` prop and `undefined` there is a
+// different test from `{}`.
+//
+// FOUND BY GREP, NOT BY `check`: the `as any` below is why. Nine sibling fixtures carrying the same
+// dead field were named by the compiler the moment it was removed from the load's return type, and
+// this one was silent — the cast is exactly the hole the typechecker cannot see through.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const DATA = {} as any;
 
 describe('the import invalid rows table', () => {
 	it('gives a row scoped refusal its real line number', async () => {

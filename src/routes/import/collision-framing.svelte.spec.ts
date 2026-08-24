@@ -74,9 +74,7 @@ const ASSIGNMENT = { date: 0, label: 1, amount: 2, category: null } as unknown a
 
 const DATA: PageData = {
 	user: null,
-	correction: null,
-	linkableNetWorthAccounts: [],
-	hasAllImportBucketsExisting: true
+	correction: null
 };
 
 function carry(correction: { batchId: string; deleteOldImport: boolean } | null) {

@@ -63,9 +63,4 @@ export interface ImportSummaryResult {
 	/** The rejected rows themselves, capped; `hiddenInvalidRowsCount` carries the remainder. */
 	invalidRowDetails: ImportInvalidRowDetail[];
 	hiddenInvalidRowsCount: number;
-	/**
-	 * Whether a chosen destination account was applied or ignored, and null when none was chosen.
-	 * Always null from the designation route, which carries no such field.
-	 */
-	netWorthLinkStatus: 'applied' | 'ignored' | null;
 }
