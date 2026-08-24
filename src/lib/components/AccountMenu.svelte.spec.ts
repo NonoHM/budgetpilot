@@ -3,11 +3,37 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import AccountMenu from './AccountMenu.svelte';
 
+/**
+ * OPENS THE MENU AND WAITS FOR IT TO BE OPEN, which are two things.
+ *
+ * #241: the logout test failed intermittently in CI with `expected "vi.fn()" to be called 1 times,
+ * but got 0 times`. The element was there and the key landed on it and nothing submitted, so what
+ * was missing was not the element but the handler behind it: `userEvent.click` resolves when the
+ * click is dispatched, not when bits-ui has finished wiring the menu it opens.
+ *
+ * `expect.element` RETRIES, which is what makes this a wait rather than an earlier assertion. That
+ * was measured while fixing the TagPicker sites: a probe asserting against a value that arrived
+ * 300 ms late passed, and went red when the late arrival was removed.
+ *
+ * A `waitForTimeout` is refused by standing decision. It widens the race instead of removing it,
+ * and the next reader of a red run would have no way to separate a slow machine from a broken menu.
+ *
+ * Every site goes through here, including the four that already gated themselves by asserting with
+ * `expect.element` on something inside the menu. Those were correct by accident of what they
+ * asserted next, and an accident is not a precondition.
+ */
+async function openMenu() {
+	const trigger = page.getByRole('button', { name: 'Menu du compte' });
+	await userEvent.click(trigger);
+	await expect.element(trigger).toHaveAttribute('aria-expanded', 'true');
+	return trigger;
+}
+
 describe('AccountMenu.svelte', () => {
 	it('cache le lien Administration pour un utilisateur non admin', async () => {
 		render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
 
-		await userEvent.click(page.getByRole('button', { name: 'Menu du compte' }));
+		await openMenu();
 
 		await expect.element(page.getByText('sophie.martin@gmail.com')).toBeInTheDocument();
 		await expect
@@ -21,7 +47,7 @@ describe('AccountMenu.svelte', () => {
 	it('affiche le lien Administration pour un utilisateur admin', async () => {
 		render(AccountMenu, { email: 'admin@budgetpilot.com', isAdmin: true });
 
-		await userEvent.click(page.getByRole('button', { name: 'Menu du compte' }));
+		await openMenu();
 
 		await expect
 			.element(page.getByRole('menuitem', { name: 'Administration' }))
@@ -34,7 +60,7 @@ describe('AccountMenu.svelte', () => {
 	it('place le bouton de déconnexion dans un formulaire POST vers /logout', async () => {
 		render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
 
-		await userEvent.click(page.getByRole('button', { name: 'Menu du compte' }));
+		await openMenu();
 
 		const logoutButton = page.getByRole('menuitem', { name: 'Déconnexion' });
 		await expect.element(logoutButton).toBeInTheDocument();
@@ -47,7 +73,7 @@ describe('AccountMenu.svelte', () => {
 	it('renders the logout menu item as a real <button type="submit"> inside a real <form>, not a link or a div', async () => {
 		render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
 
-		await userEvent.click(page.getByRole('button', { name: 'Menu du compte' }));
+		await openMenu();
 
 		const logoutButton = page.getByRole('menuitem', { name: 'Déconnexion' }).element();
 		expect(logoutButton.tagName).toBe('BUTTON');
@@ -63,7 +89,7 @@ describe('AccountMenu.svelte', () => {
 	it('submits the real /logout form when Enter is pressed while the logout button is focused', async () => {
 		render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
 
-		await userEvent.click(page.getByRole('button', { name: 'Menu du compte' }));
+		await openMenu();
 
 		const logoutItem = page.getByRole('menuitem', { name: 'Déconnexion' });
 		const logoutButton = logoutItem.element() as HTMLElement;
