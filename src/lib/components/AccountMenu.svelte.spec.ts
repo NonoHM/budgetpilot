@@ -6,21 +6,18 @@ import AccountMenu from './AccountMenu.svelte';
 /**
  * OPENS THE MENU AND WAITS FOR IT TO BE OPEN, which are two things.
  *
- * #241: the logout test failed intermittently in CI with `expected "vi.fn()" to be called 1 times,
- * but got 0 times`. The element was there and the key landed on it and nothing submitted, so what
- * was missing was not the element but the handler behind it: `userEvent.click` resolves when the
- * click is dispatched, not when bits-ui has finished wiring the menu it opens.
- *
  * `expect.element` RETRIES, which is what makes this a wait rather than an earlier assertion. That
  * was measured while fixing the TagPicker sites: a probe asserting against a value that arrived
  * 300 ms late passed, and went red when the late arrival was removed.
  *
- * A `waitForTimeout` is refused by standing decision. It widens the race instead of removing it,
- * and the next reader of a red run would have no way to separate a slow machine from a broken menu.
- *
  * Every site goes through here, including the four that already gated themselves by asserting with
  * `expect.element` on something inside the menu. Those were correct by accident of what they
  * asserted next, and an accident is not a precondition.
+ *
+ * WHAT THIS GATE DOES NOT DO IS CLOSE #241, AND IT USED TO SAY IT DID. `aria-expanded` flips with
+ * the open state, which is strictly before bits-ui moves focus, so this waits for the menu to
+ * exist and says nothing about where focus is. The logout test below carries the measurement and
+ * the gate that actually separates the two states.
  */
 async function openMenu() {
 	const trigger = page.getByRole('button', { name: 'Menu du compte' });
@@ -101,18 +98,46 @@ describe('AccountMenu.svelte', () => {
 		const submitHandler = vi.fn((event: SubmitEvent) => event.preventDefault());
 		form.addEventListener('submit', submitHandler);
 
-		logoutButton.focus();
-		expect(document.activeElement).toBe(logoutButton);
+		// #241, AND THE PRECONDITION IS OBSERVED WHERE IT MATTERS RATHER THAN BEFORE IT MATTERS.
+		//
+		// Measured 2026-08-24 with in-process draws, because whole-suite repetition cannot sample
+		// this: solo, 0 misses in 100 draws; under 8 concurrent browser-mode files, 3 misses in
+		// 480. Every failing draw carried the identical chain, with the gate above already passed:
+		//
+		//   66ms bits-ui focuses the menu content   69ms the gate reads aria-expanded=true
+		//   69ms this test focuses the logout button
+		//   80ms bits-ui focuses the menu content AGAIN
+		//   82ms Enter is delivered to div[role=menu], never to the button
+		//
+		// bits-ui's FocusScope defers its open auto-focus into a requestAnimationFrame and
+		// schedules it TWICE per open (bits-ui `#handleOpenAutoFocus`). The item's keydown handler
+		// is what submits, by calling `currentTarget.click()`, so a key delivered to the menu
+		// container submits nothing and reports `called 0 times`.
+		//
+		// The provider is the other half: `userEvent.type` is `locator.focus()` followed by a
+		// PAGE-LEVEL `keyboard.down`, two round trips apart, and the second rAF fits between them.
+		// The comment that used to sit here said press() focuses the element and the outcome no
+		// longer depends on focus; the first clause is true of `locator.press`, which this is not.
+		//
+		// So no gate placed before the press can close it, and a `waitForTimeout` is refused by
+		// standing decision anyway. What separates the two states is observing where the key
+		// LANDED. Retaking focus is conditional on having observed it land elsewhere, which is why
+		// this is not a blind retry: a component that stops submitting keeps the key and fails the
+		// second assertion, and a harness that can never deliver it fails the first by name.
+		let keyReachedButton = false;
+		logoutButton.addEventListener('keydown', (event) => {
+			if (event.key === 'Enter') keyReachedButton = true;
+		});
 
-		// Element-targeted (userEvent.type -> Playwright's locator.press), never page-level
-		// userEvent.keyboard(). keyboard() dispatches at the page/window level, so it lands on
-		// whatever the OS considers focused rather than the element .focus()'d via JS — with
-		// several browser-mode files running concurrently in CI that races for real window focus
-		// and sends Enter nowhere. press() focuses the located element itself before keying, so
-		// the outcome no longer depends on window focus at all. Focus is asserted before the
-		// press, not after: submitting closes the menu and bits-ui moves focus on the way out.
-		await userEvent.type(logoutItem, '{Enter}');
+		for (let attempt = 0; attempt < 10 && !keyReachedButton; attempt++) {
+			logoutButton.focus();
+			await userEvent.type(logoutItem, '{Enter}');
+		}
 
+		// Separates "the key never reached the button" from "it did and nothing submitted". The
+		// pre-press `expect(document.activeElement).toBe(logoutButton)` that used to stand here
+		// separated neither: it read LOGOUT on all 480 draws, the 3 failing ones included.
+		expect(keyReachedButton, 'Enter never reached the logout button in 10 attempts').toBe(true);
 		expect(submitHandler).toHaveBeenCalledTimes(1);
 	});
 
