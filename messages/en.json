@@ -1594,7 +1594,7 @@
 	"import_account_option_detail_one": "···{fragment} · {count} transaction",
 	"import_account_option_detail_many": "···{fragment} · {count} transactions",
 	"import_account_error_archived": "This account is archived. Choose another account for this statement.",
-	"import_account_error_ambiguous_auto": "You have several accounts for this bank. Designate the columns to choose which one this statement belongs to.",
+	"import_account_error_ambiguous_auto": "You have several accounts for this bank. Choose the one this statement belongs to.",
 	"import_account_hint_multi_account": "This file contains several accounts. Choose the one this statement belongs to.",
 	"import_account_create_field": "Account name",
 	"import_account_create_hint": "This name only appears in BudgetPilot.",

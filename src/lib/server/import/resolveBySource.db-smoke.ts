@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { GENERIC_BUCKET_STORED_NAME } from '$lib/domain/account';
-import { resolveImportBucketAccountBySource } from './persist';
+import { findImportBucketAccountBySource, resolveImportBucketAccountBySource } from './persist';
 
 /**
  * The AUTO path's destination, now that no bucket can be found by the name it used to carry.
@@ -128,5 +128,31 @@ describe('resolving the auto path’s destination by source', () => {
 		});
 		expect(resolution.kind).toBe('resolved');
 		expect(resolution.kind === 'resolved' && resolution.bucket.accountId).not.toBe(archived.id);
+	});
+
+	it('hands back WHICH accounts are ambiguous, not only that they are', async () => {
+		// SEPARATES: « the caller can check a file-named account against the accounts of THIS
+		// source » FROM « the caller is told a count exceeded one and nothing else ». Without the
+		// list, the auto path's rank 1 short-circuit would accept an account of a DIFFERENT bank
+		// that happens to hold the same four-character fragment, and file a Banque Populaire
+		// statement into a Revolut account with full confidence. The Revolut row below is what
+		// makes that failure observable rather than argued.
+		expect.assertions(3);
+		const courant = await makeAccount(mine, 'BP · Compte courant', 'banque_populaire');
+		const livret = await makeAccount(mine, 'BP · Livret A', 'banque_populaire');
+		await makeAccount(mine, 'Revolut', 'revolut');
+		const archived = await makeAccount(mine, 'Vieux BP', 'banque_populaire', true);
+
+		const lookup = await findImportBucketAccountBySource({
+			userId: mine,
+			source: 'banque_populaire'
+		});
+
+		expect(lookup.kind).toBe('ambiguous');
+		const ids = lookup.kind === 'ambiguous' ? lookup.candidates.map((c) => c.accountId) : [];
+		expect([...ids].sort()).toEqual([courant.id, livret.id].sort());
+		// Stated positively as well as by absence: an archived account is not a candidate here for
+		// the same reason it is not one above, and an empty list would satisfy the line above alone.
+		expect(ids).not.toContain(archived.id);
 	});
 });

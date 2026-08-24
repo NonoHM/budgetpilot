@@ -1594,7 +1594,7 @@
 	"import_account_option_detail_one": "···{fragment} · {count} transaction",
 	"import_account_option_detail_many": "···{fragment} · {count} transactions",
 	"import_account_error_archived": "Ce compte est archivé. Choisissez un autre compte pour ce relevé.",
-	"import_account_error_ambiguous_auto": "Vous avez plusieurs comptes pour cette banque. Désignez les colonnes pour choisir celui de ce relevé.",
+	"import_account_error_ambiguous_auto": "Vous avez plusieurs comptes pour cette banque. Choisissez celui de ce relevé.",
 	"import_account_hint_multi_account": "Ce fichier contient plusieurs comptes. Choisissez celui de ce relevé.",
 	"import_account_create_field": "Nom du compte",
 	"import_account_create_hint": "Ce nom n'apparaît que dans BudgetPilot.",

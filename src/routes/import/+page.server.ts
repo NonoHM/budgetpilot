@@ -13,6 +13,8 @@ import {
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
+import { decideAutoAccount } from '$lib/server/import/autoAccount';
+import { findDiscriminantColumn } from '$lib/server/import/discriminant';
 import {
 	ImportFileError,
 	IMPORT_FILE_MAX_BYTES,
@@ -29,12 +31,11 @@ import {
 export type { ImportInvalidRowDetail } from '$lib/server/import/invalidRowDetails';
 import {
 	createImportBatch,
-	findImportBucketAccountBySource,
 	persistImportedTransactions,
 	resolveImportBucketAccountBySource
 } from '$lib/server/import/persist';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
-import { buildAccountOffer } from '$lib/server/import/accountOffer';
+import { buildAccountOffer, type AccountOffer } from '$lib/server/import/accountOffer';
 import type { ParsedCsvRow } from '$lib/server/import/types';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import type { PageServerLoad } from './$types';
@@ -128,7 +129,17 @@ export const load: PageServerLoad = async ({ locals, url }) => {
  * follows the convention.
  */
 async function accountOfferPayload(userId: string, rows: ParsedCsvRow[], source?: string) {
-	const offer = await buildAccountOffer({ userId, rows, source });
+	return accountOfferFrom(await buildAccountOffer({ userId, rows, source }));
+}
+
+/**
+ * The serialisable half of an offer, split out because two callers now hold one.
+ *
+ * The designation branches build the offer here; the auto path's account question is handed one
+ * that `decideAutoAccount` already built to make its own decision. Rebuilding it there would run
+ * the resolver twice and give the screen a second answer that nothing keeps equal to the first.
+ */
+function accountOfferFrom(offer: AccountOffer) {
 	return {
 		options: offer.options,
 		resolution: offer.resolution,
@@ -395,9 +406,48 @@ export const actions: Actions = {
 		 * piece: the refusal names the screen that CAN ask, and it is a 400 the user can read.
 		 */
 		const source = getImportSource(result.summary.profile);
-		const destination = await findImportBucketAccountBySource({ userId: user.id, source });
-		if (destination.kind === 'ambiguous') {
-			return fail(400, { error: m.import_account_error_ambiguous_auto() });
+		const decision = await decideAutoAccount({
+			userId: user.id,
+			source,
+			rows: importData.rows,
+			// The answer to a previous `ask`, when the user has given one. Absent on the first run
+			// and on every run of an install with one account per bank, which is the ordinary path.
+			chosenId: asString(formData.get('accountId'))
+		});
+
+		if (decision.kind === 'refused') {
+			// The two refusals `resolveImportBucketAccountById` tells apart, answered here with the
+			// same two sentences the designation screen uses. Not-yours and not-found are one answer
+			// because the asker may not be the owner; archived is its owner's own account and only
+			// that sentence says what to do next.
+			return fail(400, {
+				error:
+					decision.reason === 'archived'
+						? m.import_account_error_archived()
+						: m.import_account_error_required()
+			});
+		}
+
+		if (decision.kind === 'ask') {
+			/**
+			 * THE REFUSAL CARRIES THE CONTROL THAT ANSWERS IT, which is the whole of #476.
+			 *
+			 * Before this the same 400 carried a sentence naming the designation screen and nothing
+			 * else. That screen is not reachable from here by design (ruling A1: it does not open for
+			 * a recognised file) and `/import/columns` bounces a direct visit, so a user holding two
+			 * accounts at one bank could not complete the import at all. The offer is the same shape
+			 * the designation screen's account row is given, drawn on this page instead.
+			 *
+			 * `account` and not `designation`: the columns are known, so nothing here asks about
+			 * them. Sending this file to the designation screen would make the user re-answer
+			 * columns they never answered, and submitting it would write a `ColumnMapping` under this
+			 * file's fingerprint that shadows the built-in profile for ever, which is a durable
+			 * change bought to settle a one-off question.
+			 */
+			return fail(400, {
+				error: m.import_account_error_ambiguous_auto(),
+				account: accountOfferFrom(decision.offer)
+			});
 		}
 
 		if (formData.get('confirmCollision') !== '1') {
@@ -409,7 +459,7 @@ export const actions: Actions = {
 			//
 			// Null when the bucket does not exist yet, and the empty key list that follows is exact
 			// rather than lenient: a bucket with no rows has no fingerprints to recognise.
-			const collisionBucket = destination.kind === 'one' ? destination.bucket : null;
+			const collisionBucket = decision.kind === 'account' ? decision.bucket : decision.existing;
 			const incoming = describeIncomingBatch(
 				result.transactions,
 				result.summary.period,
@@ -446,17 +496,30 @@ export const actions: Actions = {
 		// counting a refusal there would overstate how much the user should trust it.
 		if (useMapping && remembered) await recordColumnMappingUse(user.id, remembered.id);
 
-		const resolved = await resolveImportBucketAccountBySource({
-			userId: user.id,
-			source
-		});
-		// Unreachable: the same question was asked above, before anything was written, and a
-		// `ambiguous` answer returned there. Asserted rather than assumed, because « the check above
-		// covers this » is a claim about two pieces of code that nothing keeps in step.
-		if (resolved.kind === 'ambiguous') {
-			return fail(400, { error: m.import_account_error_ambiguous_auto() });
+		// An account that is already decided is NOT resolved again. `decideAutoAccount` returns a
+		// bucket only when the file named one of this source's own accounts or the user answered
+		// with one, and both are resolutions this path may not repeat: re-asking by source would
+		// come back `ambiguous` and refuse the run the user has just answered.
+		//
+		// `created: false` by construction on that branch. A decided account is one that already
+		// exists, so nothing was created for it, and the « destination choice ignored » sentence
+		// downstream is derived from this flag.
+		let bucket: { accountId: string; created: boolean };
+		if (decision.kind === 'account') {
+			bucket = { accountId: decision.bucket.accountId, created: false };
+		} else {
+			const resolved = await resolveImportBucketAccountBySource({
+				userId: user.id,
+				source
+			});
+			// Unreachable: the same question was asked above, before anything was written, and an
+			// `ask` was returned there. Asserted rather than assumed, because « the check above
+			// covers this » is a claim about two pieces of code that nothing keeps in step.
+			if (resolved.kind === 'ambiguous') {
+				return fail(400, { error: m.import_account_error_ambiguous_auto() });
+			}
+			bucket = { accountId: resolved.bucket.accountId, created: resolved.created };
 		}
-		const bucket = { accountId: resolved.bucket.accountId, created: resolved.created };
 		const batchId = await createImportBatch({
 			userId: user.id,
 			accountId: bucket.accountId,
@@ -500,7 +563,23 @@ export const actions: Actions = {
 				// cannot call one account two things. Read back rather than threaded out of the
 				// resolution, which returns an id: the id is what the resolver knows, and the name is
 				// a rendering question the resolver has no business answering.
-				accountName: await readAccountDisplayName(user.id, bucket.accountId)
+				accountName: await readAccountDisplayName(user.id, bucket.accountId),
+				/**
+				 * The file offered evidence AGAINST a single account, and every row went into one
+				 * anyway. Reported rather than refused, because a file that imports today must not
+				 * stop importing: what changes is that the user is told, not what happens.
+				 *
+				 * The underlying defect is that this path has no way to split a statement across the
+				 * accounts it names, filed as #485. The sentence is the mitigation and not the fix,
+				 * and it is here because an account showing money that is not its own with nothing on
+				 * screen saying why is the silence four other fixes in this area removed.
+				 *
+				 * `findDiscriminantColumn` is pure over rows the action already holds, so this costs
+				 * a pass over the file and no query. It is read here rather than taken from the
+				 * account offer because the offer is built only on the ambiguous branch, and a
+				 * single-account install must get the same sentence.
+				 */
+				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account'
 			}
 		};
 	}
@@ -586,6 +665,11 @@ function getImportSource(profile: string): string {
 	if (profile === 'banque-populaire') return 'banque_populaire';
 	if (profile === 'revolut') return 'revolut';
 	return 'csv';
+}
+
+/** A form field as a non-empty string, or null. A `File` is not an answer to a text field. */
+function asString(value: FormDataEntryValue | null): string | null {
+	return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 function isUploadedFile(value: FormDataEntryValue | null): value is File {
