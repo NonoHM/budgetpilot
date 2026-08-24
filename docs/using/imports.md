@@ -24,10 +24,23 @@ Generic and Revolut accept, and still refuse, is in
 A file BudgetPilot recognises goes straight into the account that format always
 uses, so there is nothing to answer here either.
 
-One exception: if you have two accounts using the same format, the file cannot
-say which one it is from, and the import stops rather than guessing. There is no
-control on that message yet: for now, archive the account the statement is not
-from in **Settings, Accounts**, import it, and reactivate the other.
+One exception: if you have **two accounts using the same format**, a recognised
+file cannot always say which one it is from.
+
+If your bank prints the account number in the statement and one of your accounts
+carries that number, the import goes there and you are not asked. Otherwise the
+import stops and the summary shows an **Account** row: pick the account this
+statement belongs to and press **Import the statement** again. Nothing is written
+until you do, and picking the wrong one is undone by deleting the import from the
+history.
+
+The row only lists accounts you already have. To send a statement to an account
+that does not exist yet, create it in **Settings > Accounts** first.
+
+If the file turns out to cover **several accounts** rather than one, the import
+still goes through and the summary tells you which account the rows landed in.
+Splitting one statement across several accounts is not something BudgetPilot can
+do yet.
 
 ### 2. It is not recognised, so you are asked which column is which
 

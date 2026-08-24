@@ -93,6 +93,7 @@
 		panelId,
 		maxVisible = 5,
 		initialFocus = 'list',
+		allowCreate = true,
 		onChoose,
 		onClose,
 		onCreate
@@ -118,6 +119,23 @@
 		 * nothing leaves the whole panel unreachable from the keyboard.
 		 */
 		initialFocus?: 'list' | 'footer';
+		/**
+		 * Whether this host can offer to create an account.
+		 *
+		 * True everywhere it has been used so far, and false on `/import`, where the account
+		 * question is asked beside a refusal and the create SHEET is not mounted. The alternative
+		 * was to render the action anyway and leave it inert, which is a dead control shipped inside
+		 * the fix for a dead end.
+		 *
+		 * **This is a REFERENTIAL GAP wearing a prop.** The account question is a row, this panel, a
+		 * create sheet and the focus choreography that makes the three one control, and that
+		 * choreography lives inside `ColumnDesignationScreen.svelte` rather than in a brique of its
+		 * own. `/import` is its second host, which is the point at which it should become one:
+		 * copying the choreography is how three expressions of one rule end up agreeing by review.
+		 * Recorded here rather than done, because extracting it means editing the designation screen,
+		 * which the change that needed this does not otherwise touch.
+		 */
+		allowCreate?: boolean;
 		onChoose?: (accountId: string) => void;
 		onClose?: () => void;
 		onCreate?: () => void;
@@ -128,6 +146,7 @@
 
 	let listEl = $state<HTMLElement | null>(null);
 	let footerEl = $state<HTMLButtonElement | null>(null);
+	let panelEl = $state<HTMLElement | null>(null);
 	let activeIndex = $state(-1);
 
 	const selectedIndex = $derived(options.findIndex((option) => option.id === selectedId));
@@ -147,8 +166,14 @@
 		activeIndex = selectedIndex;
 		// The empty panel forces the footer whatever was asked, because there is no list: a focus
 		// call on null is silent, and the panel would open with the focus still outside it.
-		if (initialFocus === 'footer' || options.length === 0) footerEl?.focus();
-		else listEl?.focus();
+		if (allowCreate && (initialFocus === 'footer' || options.length === 0)) footerEl?.focus();
+		else if (options.length > 0) listEl?.focus();
+		// Nothing inside the panel can take the focus: no options, and no action because this host
+		// cannot offer one. The panel itself does, so it is never opened with the focus left outside
+		// it, which is a control the keyboard can neither reach nor leave. The empty list used to be
+		// covered by forcing the footer, and `allowCreate: false` is what removes it from under that
+		// guard.
+		else panelEl?.focus();
 	});
 
 	const activeId = $derived(activeIndex >= 0 ? `${uid}-option-${activeIndex}` : undefined);
@@ -219,7 +244,9 @@
 		radius 12, black border, 160 ms open: brique 10 unchanged, none of these values moves.
 	-->
 	<div
+		bind:this={panelEl}
 		id={panelId}
+		tabindex="-1"
 		data-testid="account-panel"
 		class="absolute top-full right-0 left-0 z-20 mt-1 overflow-hidden rounded-xl border border-zinc-900 bg-white
 			motion-safe:animate-[fade-in_160ms_ease-out]"
@@ -299,24 +326,31 @@
 			is what separates an action from the options above it; with no options above, there is
 			nothing to separate it from, which is the empty-panel cell.
 		-->
-		<button
-			bind:this={footerEl}
-			type="button"
-			class="flex h-12 w-full items-center gap-2 px-4 text-left text-[13.5px] font-semibold
+		{#if allowCreate}
+			<button
+				bind:this={footerEl}
+				type="button"
+				class="flex h-12 w-full items-center gap-2 px-4 text-left text-[13.5px] font-semibold
 				text-zinc-900 focus-visible:ring-2 focus-visible:ring-white
 				focus-visible:ring-offset-2 focus-visible:ring-offset-zinc-400 focus-visible:outline-none active:bg-zinc-100 lg:hover:bg-zinc-50
 				{options.length > 0 ? 'border-t border-zinc-200' : ''}"
-			onclick={() => onCreate?.()}
-		>
-			<svg class="size-4 shrink-0 text-zinc-500" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-				<path
-					d="M8 3.5v9M3.5 8h9"
-					stroke="currentColor"
-					stroke-width="1.5"
-					stroke-linecap="round"
-				/>
-			</svg>
-			{m.import_account_new()}
-		</button>
+				onclick={() => onCreate?.()}
+			>
+				<svg
+					class="size-4 shrink-0 text-zinc-500"
+					viewBox="0 0 16 16"
+					fill="none"
+					aria-hidden="true"
+				>
+					<path
+						d="M8 3.5v9M3.5 8h9"
+						stroke="currentColor"
+						stroke-width="1.5"
+						stroke-linecap="round"
+					/>
+				</svg>
+				{m.import_account_new()}
+			</button>
+		{/if}
 	</div>
 {/if}

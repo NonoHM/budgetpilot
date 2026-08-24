@@ -305,6 +305,33 @@ jobs:
       - name: Check the migration history reaches the schema
         run: npx prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --exit-code
 
+  # THE DOCUMENTED SETUP, WALKED. Every other job in this workflow runs its own « Generate Prisma
+  # clients » step before anything else, docker-smoke builds through the Dockerfile, and a
+  # developer's tree has held all three clients since the first time they ran db:generate. So
+  # nothing here could see a clean clone that follows the printed steps and then cannot build,
+  # which is #474. This job is deliberately the ONE that does not generate anything of its own:
+  # adding a generate step to it would make it agree with every other job and stop meaning
+  # anything.
+  documented-setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_PROVIDER: sqlite
+      DATABASE_URL: file:/tmp/ci-documented-setup.db
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run the steps `npm run setup` prints, then check and build
+        run: node scripts/verify-documented-setup.mjs
+
   # Every Compose file combination the docs hand an operator, merged and validated. Same blind
   # spot as the three Prisma clients, one layer up: the overlays are only ever used stacked, and
   # nothing checked any stack of them. Needs no npm install — docker compose ships on the runner.

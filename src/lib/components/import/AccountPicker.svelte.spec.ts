@@ -148,6 +148,34 @@ describe('the account picker panel', () => {
 		expect(panel.textContent).toContain(m.import_account_new());
 	});
 
+	it('omits the create action for a host that cannot offer it, and stays reachable', async () => {
+		// SEPARATES: « a host with no create flow renders no create action » FROM « it renders one
+		// that does nothing when pressed ». The second is a dead control shipped inside the fix for
+		// a dead end, which is the defect one level up. The focus assertion is the other half: the
+		// panel must never open with the focus still outside it, and the footer is what used to
+		// catch that for an empty list.
+		expect.assertions(3);
+		const container = mount({ allowCreate: false });
+
+		await expect.element(page.getByText(m.import_account_new())).not.toBeInTheDocument();
+		expect(panelOf(container).querySelectorAll('button')).toHaveLength(0);
+		// The list is what the focus lands on when there is one, exactly as with the action present.
+		expect(document.activeElement?.getAttribute('role')).toBe('listbox');
+	});
+
+	it('keeps an empty panel reachable from the keyboard with no action to focus', () => {
+		// SEPARATES: « the panel itself takes the focus when nothing inside it can » FROM « the focus
+		// call lands on null and the panel opens with the focus outside it », which is a control the
+		// keyboard cannot reach or leave. The empty list used to force the footer for this reason,
+		// and `allowCreate: false` is what removes the footer from under that guard.
+		expect.assertions(2);
+		const container = mount({ allowCreate: false, options: [] });
+
+		const panel = panelOf(container);
+		expect(document.activeElement).toBe(panel);
+		expect(panel.getAttribute('tabindex')).toBe('-1');
+	});
+
 	it('renders nothing at all while closed', () => {
 		// SEPARATES: « closed means absent from the tree » FROM « closed means visually hidden ». A
 		// hidden-but-present panel keeps its options in the accessibility tree and in the tab order,

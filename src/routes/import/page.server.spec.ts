@@ -8,6 +8,7 @@ import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as m from '$lib/paraglide/messages';
 import type { ImportInvalidRowDetail } from './+page.server';
 
 const db = vi.hoisted(() => {
@@ -20,6 +21,8 @@ const db = vi.hoisted(() => {
 		netWorthAccountId?: string | null;
 		providerAccountId?: string | null;
 		archivedAt?: Date | null;
+		/** The account's identifier fragment, which is what lets a file name it at rank 1. */
+		discriminant?: string | null;
 	};
 	type NetWorthAccount = {
 		id: string;
@@ -226,21 +229,34 @@ const db = vi.hoisted(() => {
 							throw new Error(`account.findMany fake cannot model where.${key}`);
 						}
 					}
-					return state.accounts.filter((account) => {
-						if (account.userId !== where.userId) return false;
-						if (where.name !== undefined && account.name !== where.name) return false;
-						const source = where.source;
-						if (typeof source === 'string' && account.source !== source) return false;
-						if (
-							source !== null &&
-							typeof source === 'object' &&
-							!(source as { in: string[] }).in.includes(account.source)
-						) {
-							return false;
-						}
-						if (where.archivedAt === null && (account.archivedAt ?? null) !== null) return false;
-						return true;
-					});
+					return (
+						state.accounts
+							.filter((account) => {
+								if (account.userId !== where.userId) return false;
+								if (where.name !== undefined && account.name !== where.name) return false;
+								const source = where.source;
+								if (typeof source === 'string' && account.source !== source) return false;
+								if (
+									source !== null &&
+									typeof source === 'object' &&
+									!(source as { in: string[] }).in.includes(account.source)
+								) {
+									return false;
+								}
+								if (where.archivedAt === null && (account.archivedAt ?? null) !== null)
+									return false;
+								return true;
+							})
+							// `_count` is part of the row the account OFFER selects, and Prisma returns it on
+							// the row rather than beside it. A fake that omitted it would crash the offer
+							// rather than model it, and the crash would read as a route defect.
+							.map((account) => ({
+								...account,
+								_count: {
+									transactions: state.transactions.filter((t) => t.accountId === account.id).length
+								}
+							}))
+					);
 				}),
 				findUnique: vi.fn(
 					async ({
@@ -263,30 +279,52 @@ const db = vi.hoisted(() => {
 					if (!account) throw new Error(`no account ${where.id}`);
 					return account;
 				}),
-				// Two distinct lookups share findFirst: the bank-sync one keyed on
-				// providerAccountId, and the bucket-name one keyed on the folded nameKey.
+				/**
+				 * THREE distinct lookups share findFirst: the bank-sync one keyed on
+				 * providerAccountId, the bucket-name one keyed on the folded nameKey, and the
+				 * chosen-account one keyed on `id`.
+				 *
+				 * It THROWS on a key it cannot model, for the reason the `findMany` fake above
+				 * gives and because the third lookup is what caught it. This version required
+				 * `source`, which the `{ id, userId }` lookup does not send, so it matched nothing
+				 * and answered `null`: the route then refused a perfectly good account as
+				 * « not found », and the refusal read exactly like the ownership check working.
+				 * A fake that quietly ignores a predicate is the same defect as one that quietly
+				 * invents a match, one direction over.
+				 */
 				findFirst: vi.fn(
 					async ({
 						where
 					}: {
 						where: {
+							id?: string;
 							userId: string;
-							source: string;
+							source?: string;
 							nameKey?: string;
 							providerAccountId?: string;
 						};
-					}) =>
-						state.accounts.find(
-							(account) =>
-								account.userId === where.userId &&
-								account.source === where.source &&
-								(where.nameKey === undefined
-									? true
-									: computeNameKey(account.name) === where.nameKey) &&
-								(where.providerAccountId === undefined
-									? true
-									: account.providerAccountId === where.providerAccountId)
-						) ?? null
+					}) => {
+						const modelled = new Set(['id', 'userId', 'source', 'nameKey', 'providerAccountId']);
+						for (const key of Object.keys(where)) {
+							if (!modelled.has(key)) {
+								throw new Error(`account.findFirst fake cannot model where.${key}`);
+							}
+						}
+						return (
+							state.accounts.find(
+								(account) =>
+									account.userId === where.userId &&
+									(where.id === undefined ? true : account.id === where.id) &&
+									(where.source === undefined ? true : account.source === where.source) &&
+									(where.nameKey === undefined
+										? true
+										: computeNameKey(account.name) === where.nameKey) &&
+									(where.providerAccountId === undefined
+										? true
+										: account.providerAccountId === where.providerAccountId)
+							) ?? null
+						);
+					}
 				)
 			},
 			importBatch: {
@@ -2048,3 +2086,166 @@ function escapeXml(value: string): string {
 		.replace(/>/g, '&gt;')
 		.replace(/"/g, '&quot;');
 }
+
+/**
+ * #476: the account question, asked where the refusal is.
+ *
+ * The decision itself is measured against a real engine in `autoAccount.db-smoke.ts`, because which
+ * ACCOUNT ROW wins is a question a hand-written fake answers by construction. What is measured here
+ * is the seam the screen reads: whether the refusal carries the control that answers it, and
+ * whether an answer that comes back actually decides the destination.
+ */
+describe('two accounts of one source, on the auto path', () => {
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+	});
+
+	const GENERIC = 'date;label;amount;category\n2026-06-01;AUCHAN COURSES;-42,10;Autre';
+
+	function seedTwoCsvAccounts() {
+		db.state.accounts.push(
+			{
+				id: 'account-courant',
+				userId: testUser.id,
+				name: 'Compte courant',
+				source: 'csv',
+				currency: 'EUR',
+				archivedAt: null
+			} as (typeof db.state.accounts)[number],
+			{
+				id: 'account-livret',
+				userId: testUser.id,
+				name: 'Livret A',
+				source: 'csv',
+				currency: 'EUR',
+				archivedAt: null
+			} as (typeof db.state.accounts)[number]
+		);
+	}
+
+	it('refuses with the accounts to answer with, not with a sentence alone', async () => {
+		// SEPARATES: « the refusal carries the offer the screen renders » FROM « it carries an error
+		// string and nothing else ». That second state is #476 exactly: the message named the
+		// designation screen, which this path cannot reach, so the import could not be completed at
+		// all. Asserting the option ids and not merely that a key exists, because an offer with an
+		// empty list is the dead end wearing a new field name.
+		expect.assertions(4);
+		seedTwoCsvAccounts();
+
+		const result = (await runImportWithFile(GENERIC)) as unknown as {
+			status?: number;
+			data: { error: string; account?: { options: { id: string }[] } };
+		};
+
+		expect(result.status).toBe(400);
+		expect(result.data.account).toBeDefined();
+		expect(result.data.account?.options.map((option) => option.id).sort()).toEqual([
+			'account-courant',
+			'account-livret'
+		]);
+		// The sentence may no longer send the user to a screen this path does not open.
+		expect(result.data.error).not.toMatch(/colonnes|columns/i);
+	});
+
+	it('imports into the account the user answered with', async () => {
+		// SEPARATES: « the posted answer decides the destination » FROM « the control renders and the
+		// same refusal comes back », which is a dead end with a button on it. Asserted on where the
+		// TRANSACTIONS landed rather than on the absence of an error, because a run that refuses
+		// late and a run that succeeds both leave `error` unset on some shapes.
+		expect.assertions(3);
+		seedTwoCsvAccounts();
+
+		const result = (await runImportWithFileAndFields(GENERIC, {
+			accountId: 'account-livret'
+		})) as unknown as { status?: number; importResult?: { importedRows: number } };
+
+		expect(result.status).toBeUndefined();
+		expect(result.importResult?.importedRows).toBe(1);
+		expect(db.state.transactions.map((transaction) => transaction.accountId)).toEqual([
+			'account-livret'
+		]);
+	});
+
+	it('treats the posted account as a claim rather than a fact', async () => {
+		// SEPARATES: « an id that does not resolve against this user is refused » FROM « it is used
+		// because it arrived in a form ». ASVS 5.0 V8.2.2. The id below is well formed and belongs
+		// to nobody, which is the shape a hand-made request has.
+		expect.assertions(4);
+		seedTwoCsvAccounts();
+
+		const result = (await runImportWithFileAndFields(GENERIC, {
+			accountId: 'account-of-nobody'
+		})) as unknown as {
+			status?: number;
+			data: { error: string; account?: unknown };
+		};
+
+		expect(result.status).toBe(400);
+		// THE EXACT SENTENCE, and the absence of the offer beside it. Asserting a truthy error and
+		// zero transactions separates nothing here: ignoring `accountId` altogether produces the
+		// AMBIGUITY refusal, which is also a 400 with a truthy error and no rows written, so all
+		// three would stay green over a route that never read the field. These two states are
+		// « the id was resolved and refused » and « the id was never looked at ».
+		expect(result.data.error).toBe(m.import_account_error_required());
+		expect(result.data.account).toBeUndefined();
+		expect(db.state.transactions).toHaveLength(0);
+	});
+
+	/**
+	 * A file carrying SEVERAL accounts still imports, and now says so.
+	 *
+	 * The underlying defect is that every row lands in one account whatever the file says, filed as
+	 * its own issue. Refusing it here would stop an import that works today, so the trade taken is
+	 * the one this repository has taken repeatedly: a silent wrong filing becomes a visible one, and
+	 * it costs a sentence rather than a chantier.
+	 */
+	it('says so when the file carries several accounts, and still imports', async () => {
+		// SEPARATES: « the rows are known to have been filed into one account out of several » FROM
+		// « they were filed and nothing on screen says which, or that there was a choice ». An
+		// account showing money that is not its own with nothing saying why is the silence this
+		// whole chantier removed four times over.
+		expect.assertions(3);
+		const multi =
+			'date;label;amount;compte\n2026-06-01;AUCHAN;-42,10;10000001\n2026-06-02;SNCF;-30,00;10000002';
+
+		const result = (await runImportWithFile(multi)) as unknown as {
+			importResult?: { importedRows: number; multiAccountFile?: boolean };
+		};
+
+		expect(result.importResult?.importedRows).toBe(2);
+		expect(result.importResult?.multiAccountFile).toBe(true);
+		expect(db.state.accounts).toHaveLength(1);
+	});
+
+	it('does not say it for an ordinary single-account file', async () => {
+		// SEPARATES: « the notice fires on the evidence the file offers » FROM « it fires on every
+		// import ». A notice shown always is a notice nobody reads by the third month, and it would
+		// be the same defect as the refusal it replaces, one tone quieter.
+		expect.assertions(2);
+
+		const result = (await runImportWithFile(GENERIC)) as unknown as {
+			importResult?: { importedRows: number; multiAccountFile?: boolean };
+		};
+
+		expect(result.importResult?.importedRows).toBe(1);
+		expect(result.importResult?.multiAccountFile).toBe(false);
+	});
+
+	it('still imports for the install that has one account of that source', async () => {
+		// SEPARATES: « the ambiguity work touched only the ambiguous case » FROM « the auto path now
+		// asks, or refuses, where it used to import ». This change makes the app refuse LESS, so the
+		// loss it can cause lives on the path that already worked, and that path is every install
+		// today. The bucket is created by the run, which is the behaviour this must not have moved.
+		expect.assertions(3);
+
+		const result = (await runImportWithFile(GENERIC)) as unknown as {
+			status?: number;
+			importResult?: { importedRows: number };
+		};
+
+		expect(result.status).toBeUndefined();
+		expect(result.importResult?.importedRows).toBe(1);
+		expect(db.state.accounts).toHaveLength(1);
+	});
+});

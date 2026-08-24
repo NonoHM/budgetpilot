@@ -4,6 +4,8 @@
 	import type { ActionData, PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
+	import AccountRow from '$lib/components/import/AccountRow.svelte';
+	import AccountPicker from '$lib/components/import/AccountPicker.svelte';
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
@@ -290,6 +292,168 @@
 	const offersDesignation = $derived(
 		designation !== undefined && csvFiles?.[0] !== undefined && csvFiles[0] === submittedFile
 	);
+
+	/**
+	 * THE ACCOUNT QUESTION, asked here because this is where the refusal is.
+	 *
+	 * A recognised file whose bank the user holds two accounts for cannot say which one it belongs
+	 * to. The server refuses and hands back the same offer the designation screen's account row is
+	 * given; this renders it, and the answer rides the ordinary submit as `accountId`.
+	 *
+	 * Read through an `in` check for the reason `designation` above is: `fail()` returns a union of
+	 * payload shapes and only one branch carries this key.
+	 */
+	const accountOffer = $derived(
+		form && 'account' in form
+			? (form.account as PendingDesignation['account'] | undefined)
+			: undefined
+	);
+
+	/**
+	 * Guarded on file identity exactly as the designation offer is, and for the same defect.
+	 *
+	 * The file picker stays live under the refusal. Choose a DIFFERENT statement and the options
+	 * still on screen were computed for the old one: answering with one of them would post an
+	 * account chosen for a file that is no longer in hand. Identity rather than `File.name`, since a
+	 * bank that exports `releve.csv` every month is the ordinary case.
+	 */
+	const offersAccountChoice = $derived(
+		accountOffer !== undefined && csvFiles?.[0] !== undefined && csvFiles[0] === submittedFile
+	);
+
+	let chosenAccountId = $state<string | null>(null);
+	/**
+	 * THE ANSWER DIES WITH THE FILE IT WAS GIVEN FOR.
+	 *
+	 * `offersAccountChoice` guards the OFFER on file identity and says nothing about the answer, and
+	 * the two are not the same thing. Without this, choosing an account for one statement and then
+	 * picking a second ambiguous statement re-renders the question already answered, in the `ok`
+	 * state, with no error: the user presses Import and the second statement is filed into the first
+	 * one's account. That is « Ambiguity pre-fills NOTHING » (`sourceSignature.ts`) enforced on the
+	 * server and lost on the way to the screen.
+	 *
+	 * Keyed on the `File` object rather than its name, for the reason `submittedFile` is: a bank
+	 * exporting `releve.csv` every month is the ordinary case, and two files sharing a name is
+	 * exactly when carrying an answer across them matters most.
+	 */
+	let answeredFor = $state<File | undefined>(undefined);
+	$effect(() => {
+		const inHand = csvFiles?.[0];
+		if (answeredFor !== undefined && inHand !== answeredFor) {
+			chosenAccountId = null;
+			accountErrorShown = false;
+			accountPanelOpen = false;
+			answeredFor = undefined;
+		}
+	});
+	/**
+	 * ONE state for two mounts, which is the defect this host manufactures rather than the
+	 * component's.
+	 *
+	 * This page renders its form TWICE, `hidden lg:block` and `lg:hidden`, and a stateful control
+	 * declared inside the markup would exist twice with neither copy able to see the other: a user
+	 * choosing at 390 and rotating to 1280 would find the question unanswered. It is the same fix
+	 * `csvFiles` already carries one binding for. What may NOT be shared is the panel's id, because
+	 * two elements answering to one `aria-controls` is a duplicate id in the document, so each mount
+	 * is given its own.
+	 */
+	let accountPanelOpen = $state(false);
+	let accountErrorShown = $state(false);
+	const chosenAccount = $derived(
+		accountOffer?.options.find((option) => option.id === chosenAccountId)
+	);
+	const accountRowState = $derived<'ok' | 'todo' | 'error'>(
+		chosenAccount ? 'ok' : accountErrorShown ? 'error' : 'todo'
+	);
+	/**
+	 * The row's hint, which is the ERROR CHANNEL and not a decoration.
+	 *
+	 * Nothing in the `todo` state: the banner directly above is the refusal and carries the reason,
+	 * and a provenance line repeating it would say one thing twice in the one place the user is
+	 * already being told something went wrong.
+	 *
+	 * In the `error` state it is REQUIRED, and this was shipped without it for one screenshot.
+	 * `AccountRow` renders its error as the hint and falls back to the bare label in its accessible
+	 * name when `state === 'error'` arrives with none, so a row with no hint loses the error in both
+	 * channels at once: the ground goes rose-50, which is very nearly white, and a mouse press
+	 * produces `:focus` rather than `:focus-visible`, so there is no ring either. Pressing the
+	 * primary looked like nothing happening while both assertions about it were green.
+	 */
+	const accountRowHint = $derived(
+		accountRowState === 'error' ? m.import_account_error_required() : undefined
+	);
+
+	/**
+	 * Opening the panel brings the ROW to the top of the viewport first.
+	 *
+	 * MEASURED at 390 before this existed, on a user holding four accounts of one source: the panel
+	 * is `absolute top-full`, so it does not extend the page's scroll height, and it opened straight
+	 * under the fixed bottom navigation with its last two options behind it and unreachable by
+	 * touch. The component is correct and its host is the thing that is different: the designation
+	 * screen is a focused full-screen task with no bottom bar, and this page has one.
+	 *
+	 * Scrolling the row up rather than teaching the panel to flip: the flip needs brique 10's own
+	 * measurements and a second placement to keep in step, and this host's problem is that the row
+	 * sits low on the page rather than that the panel opens downwards.
+	 */
+	function toggleAccountPanel() {
+		accountPanelOpen = !accountPanelOpen;
+		if (!accountPanelOpen) return;
+		// The VISIBLE mount, found by `offsetParent`: this page renders both, and the hidden one is
+		// `display: none`, whose `scrollIntoView` is a silent no-op that would leave the panel exactly
+		// where the measurement above found it.
+		const visible = [
+			...document.querySelectorAll<HTMLElement>('[data-testid="import-account-question"]')
+		].find((element) => element.offsetParent !== null);
+		visible?.scrollIntoView({ block: 'start', behavior: 'auto' });
+	}
+
+	function chooseAccount(accountId: string) {
+		chosenAccountId = accountId;
+		answeredFor = csvFiles?.[0];
+		accountErrorShown = false;
+		closeAccountPanel();
+	}
+
+	/**
+	 * Closing the panel RETURNS THE FOCUS to the row that opened it.
+	 *
+	 * The sibling host records this as measured: focus enters the panel on the listbox, Escape
+	 * removes the listbox, and without this the focus lands on `<body>`, which puts a keyboard user
+	 * back at the top of the document. `ColumnDesignationScreen.svelte` calls it `closeAccountPanel`
+	 * and does the same thing; this is the copy the new `allowCreate` docstring warns about, kept to
+	 * three lines rather than the sixty the create sheet would have cost.
+	 */
+	function closeAccountPanel() {
+		accountPanelOpen = false;
+		const visible = [
+			...document.querySelectorAll<HTMLElement>('[data-testid="import-account-question"]')
+		].find((element) => element.offsetParent !== null);
+		visible?.querySelector('button')?.focus();
+	}
+
+	/**
+	 * The primary pressed with the question unanswered REVEALS it rather than posting.
+	 *
+	 * The same ruling the designation screen records: a disabled control explains nothing and cannot
+	 * be asked why, so the primary stays live and the press is what shows the error. Posting instead
+	 * would spend a round trip to be told again what this page already knows, and the banner it came
+	 * back with is the one already on screen, so the press would read as nothing happening.
+	 */
+	function accountAnswerMissing(event: SubmitEvent) {
+		// `chosenAccount` and not `chosenAccountId`: the ROW derives its state from the resolved
+		// option, so guarding on the raw id would let the two disagree when the id no longer names
+		// an offered account, and the primary would post an answer the screen shows as unanswered.
+		if (!offersAccountChoice || chosenAccount) return false;
+		event.preventDefault();
+		accountErrorShown = true;
+		const row = (event.currentTarget as HTMLElement).querySelector<HTMLElement>(
+			'[data-testid="import-account-question"] button'
+		);
+		row?.scrollIntoView({ block: 'center', behavior: 'auto' });
+		row?.focus();
+		return true;
+	}
 
 	/**
 	 * The designations to reopen the screen WITH, when this upload is a correction.
@@ -607,6 +771,23 @@
 			if (carried.repost.correction?.deleteOldImport) {
 				body.set('replaceBatchId', carried.repost.correction.batchId);
 			}
+		} else if (chosenAccountId) {
+			/**
+			 * THE ANSWER GIVEN ON THIS PAGE, WITHOUT WHICH CONFIRMING IS A LOOP.
+			 *
+			 * `carried` covers the run handed over by the designation screen and is null for a
+			 * collision this page's own action raised, which is now a reachable state: two accounts
+			 * of one bank, a statement already imported into the first, re-imported into the second.
+			 * The guard fires because the period and the counts are identical while the deduplication
+			 * keys are scoped by account and do not match.
+			 *
+			 * Dropping the id here re-posts a run with no account, the server answers with the
+			 * ambiguity refusal, the row re-renders still showing the chosen account, and pressing
+			 * the primary raises the same collision again. The only way out was the workaround this
+			 * branch removed from the documentation, which is #476 reappearing one screen later.
+			 * Reproduced in `e2e/import-account-ambiguous.spec.ts` before this line existed.
+			 */
+			body.set('accountId', chosenAccountId);
 		}
 
 		try {
@@ -858,7 +1039,10 @@
 				method="POST"
 				enctype="multipart/form-data"
 				use:enhance
-				onsubmit={() => (submittedFile = csvFiles?.[0])}
+				onsubmit={(event) => {
+					if (accountAnswerMissing(event)) return;
+					submittedFile = csvFiles?.[0];
+				}}
 			>
 				{@render correctionNotice()}
 				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
@@ -878,6 +1062,43 @@
 
 				{#if form?.error}
 					<AlertBanner variant="error">{form.error}</AlertBanner>
+				{/if}
+
+				{#if offersAccountChoice && accountOffer}
+					<!--
+						Two accounts of one bank, and the file cannot say which. The control that answers the
+						refusal, beside the refusal: this path never opens the designation screen, so the
+						question is asked where the user already is.
+
+						No hint on the row. The banner directly above is the refusal and carries the reason; a
+						provenance line repeating it would say one thing twice, in the one place a user is
+						already being told that something went wrong.
+
+						`allowCreate={false}`: this host does not mount the create sheet, and an action that
+						opens nothing is a dead control shipped inside the fix for a dead end.
+					-->
+					<div class="relative" data-testid="import-account-question">
+						<AccountRow
+							state={accountRowState}
+							value={chosenAccount?.name}
+							hint={accountRowHint}
+							expanded={accountPanelOpen}
+							panelId="import-account-panel-desktop"
+							onOpen={toggleAccountPanel}
+						/>
+						<AccountPicker
+							open={accountPanelOpen}
+							options={accountOffer.options}
+							selectedId={chosenAccountId}
+							panelId="import-account-panel-desktop"
+							allowCreate={false}
+							onChoose={chooseAccount}
+							onClose={closeAccountPanel}
+						/>
+						<!-- The answer rides the ordinary submit. Rendered only while the offer is current, so
+						     an id chosen for one file can never be posted with another. -->
+						<input type="hidden" name="accountId" value={chosenAccountId ?? ''} />
+					</div>
 				{/if}
 
 				{#if offersDesignation}
@@ -961,6 +1182,25 @@
 									account: importResult.accountName
 								})}
 							</p>
+						{/if}
+						{#if importResult.multiAccountFile && importResult.accountName}
+							<!--
+								THE FILE NAMED SEVERAL ACCOUNTS AND THE ROWS WENT INTO ONE.
+
+								Said rather than refused: a file that imports today must not stop importing
+								because this path learned to read its account column. What changes is that
+								the user is told, which is the trade this area has taken four times before,
+								and it costs a sentence.
+
+								`warning` and not `error`: nothing failed that the user asked for. The rows
+								landed and the count beside this is true; what is not true is the assumption
+								a reader would otherwise make, that they all belong to the account named.
+
+								The underlying defect is #485. This is its mitigation, not its fix.
+							-->
+							<AlertBanner variant="warning" class="mt-3">
+								{m.import_multi_account_notice({ account: importResult.accountName })}
+							</AlertBanner>
 						{/if}
 					</div>
 					{#if importResult.profile}
@@ -1185,7 +1425,10 @@
 			method="POST"
 			enctype="multipart/form-data"
 			use:enhance
-			onsubmit={() => (submittedFile = csvFiles?.[0])}
+			onsubmit={(event) => {
+				if (accountAnswerMissing(event)) return;
+				submittedFile = csvFiles?.[0];
+			}}
 		>
 			{@render correctionNotice()}
 			<FileDropZone
@@ -1199,6 +1442,43 @@
 
 			{#if form?.error}
 				<AlertBanner variant="error">{form.error}</AlertBanner>
+			{/if}
+
+			{#if offersAccountChoice && accountOffer}
+				<!--
+					The same question at 390. Its own `panelId`, because two elements answering to one
+					`aria-controls` is a duplicate id in the document, which is this host's hazard
+					rather than the component's. The STATE is shared, so an answer survives a rotation.
+
+					No hint on the row. The banner directly above is the refusal and carries the reason; a
+					provenance line repeating it would say one thing twice, in the one place a user is
+					already being told that something went wrong.
+
+					`allowCreate={false}`: this host does not mount the create sheet, and an action that
+					opens nothing is a dead control shipped inside the fix for a dead end.
+				-->
+				<div class="relative" data-testid="import-account-question">
+					<AccountRow
+						state={accountRowState}
+						value={chosenAccount?.name}
+						hint={accountRowHint}
+						expanded={accountPanelOpen}
+						panelId="import-account-panel-mobile"
+						onOpen={toggleAccountPanel}
+					/>
+					<AccountPicker
+						open={accountPanelOpen}
+						options={accountOffer.options}
+						selectedId={chosenAccountId}
+						panelId="import-account-panel-mobile"
+						allowCreate={false}
+						onChoose={chooseAccount}
+						onClose={closeAccountPanel}
+					/>
+					<!-- The answer rides the ordinary submit. Rendered only while the offer is current, so
+					     an id chosen for one file can never be posted with another. -->
+					<input type="hidden" name="accountId" value={chosenAccountId ?? ''} />
+				</div>
 			{/if}
 
 			{#if offersDesignation}
@@ -1271,6 +1551,25 @@
 									account: importResult.accountName
 								})}
 							</p>
+						{/if}
+						{#if importResult.multiAccountFile && importResult.accountName}
+							<!--
+								THE FILE NAMED SEVERAL ACCOUNTS AND THE ROWS WENT INTO ONE.
+
+								Said rather than refused: a file that imports today must not stop importing
+								because this path learned to read its account column. What changes is that
+								the user is told, which is the trade this area has taken four times before,
+								and it costs a sentence.
+
+								`warning` and not `error`: nothing failed that the user asked for. The rows
+								landed and the count beside this is true; what is not true is the assumption
+								a reader would otherwise make, that they all belong to the account named.
+
+								The underlying defect is #485. This is its mitigation, not its fix.
+							-->
+							<AlertBanner variant="warning" class="mt-3">
+								{m.import_multi_account_notice({ account: importResult.accountName })}
+							</AlertBanner>
 						{/if}
 					</div>
 					{#if importResult.profile}

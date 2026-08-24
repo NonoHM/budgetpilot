@@ -422,7 +422,19 @@ export type ImportBucketBySourceResolution =
  * is silently receive new ones on the one path that shows the user nothing.
  */
 export type ImportBucketSourceLookup =
-	{ kind: 'one'; bucket: ImportBucketAccount } | { kind: 'none' } | { kind: 'ambiguous' };
+	| { kind: 'one'; bucket: ImportBucketAccount }
+	| { kind: 'none' }
+	/**
+	 * WHICH accounts are ambiguous, not only that they are.
+	 *
+	 * The list is what lets the caller check a file-named account against the accounts of THIS
+	 * source. `resolveStatementAccount` searches every destination the user holds, so a rank 1
+	 * answer can name an account of another bank that happens to hold the same four trailing
+	 * characters, and `assertDiscriminantFree` guarantees the fragment is unique WITHOUT
+	 * guaranteeing its account shares this file's source. Answering with the count alone made that
+	 * check unwritable, which is why it was not written.
+	 */
+	| { kind: 'ambiguous'; candidates: ImportBucketAccount[] };
 
 /**
  * The same question WITHOUT creating anything, because one caller must not create.
@@ -444,7 +456,18 @@ export async function findImportBucketAccountBySource(input: {
 		select: BUCKET_SELECT,
 		orderBy: [{ createdAt: 'asc' }, { id: 'asc' }]
 	});
-	if (candidates.length > 1) return { kind: 'ambiguous' };
+	if (candidates.length > 1) {
+		// `toBucketAccount` per row rather than the rows themselves: the caller compares ids and the
+		// write path takes a bucket, and handing back two shapes of the same account is how the two
+		// drift. `filter` is unreachable by construction (a selected row is never null) and is here
+		// so the type is honest rather than asserted.
+		return {
+			kind: 'ambiguous',
+			candidates: candidates
+				.map((candidate) => toBucketAccount(candidate))
+				.filter((bucket): bucket is ImportBucketAccount => bucket !== null)
+		};
+	}
 	const existing = toBucketAccount(candidates[0] ?? null);
 	return existing === null ? { kind: 'none' } : { kind: 'one', bucket: existing };
 }
