@@ -74,6 +74,14 @@ because a seeded import is by definition one that WAS recognised.
 BASE_URL=http://localhost:4175 node scripts/doc-screenshots.mjs import-columns
 ```
 
+**The account row is answered before the shot is taken**, by `answerAccountRow`.
+It is the first row on that screen and the primary refuses while it is
+unanswered, so a capture that skipped it would photograph a screen mid-question
+under a caption describing a finished one, which is the same reason the four
+column rows are designated rather than left empty. The helper picks an existing
+account when the instance has one and creates one otherwise, so the group can be
+captured before or after `imports` has left accounts behind.
+
 The desktop shot uses its own **thirteen-column** file. The preview's whole
 desktop behaviour is what it does with a file wider than the region, where it
 draws the columns that fit and counts the rest, and a three-column file

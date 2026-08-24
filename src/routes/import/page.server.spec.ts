@@ -19,6 +19,7 @@ const db = vi.hoisted(() => {
 		currency: string;
 		netWorthAccountId?: string | null;
 		providerAccountId?: string | null;
+		archivedAt?: Date | null;
 	};
 	type NetWorthAccount = {
 		id: string;
@@ -182,6 +183,16 @@ const db = vi.hoisted(() => {
 						.map((account) => ({ ...account, updatedAt: account.createdAt }))
 				)
 			},
+			/**
+			 * The source-signature memory the account offer reads. Empty, which is the first-import
+			 * case: nothing has been memorised, so resolution answers rank 3 with no candidates and
+			 * the row asks. Modelled rather than omitted because an absent model is not an empty
+			 * table, it is a crash.
+			 */
+			importSourceSignature: {
+				findMany: vi.fn(async () => []),
+				findFirst: vi.fn(async () => null)
+			},
 			account: {
 				upsert: vi.fn(async ({ where, create }: AccountUpsertArgs) => {
 					const found = state.accounts.find(
@@ -195,19 +206,42 @@ const db = vi.hoisted(() => {
 					state.accounts.push(account);
 					return account;
 				}),
-				findMany: vi.fn(
-					async ({
-						where
-					}: {
-						where: { userId: string; name: string; source: { in: string[] } };
-					}) =>
-						state.accounts.filter(
-							(account) =>
-								account.userId === where.userId &&
-								account.name === where.name &&
-								where.source.in.includes(account.source)
-						)
-				),
+				/**
+				 * TWO call shapes reach this fake and it models both rather than matching neither.
+				 *
+				 * The load's probe asks `{ userId, source: { in: [...] }, archivedAt: null }`; the
+				 * auto path's destination lookup asks `{ userId, source: <scalar>, archivedAt: null }`.
+				 * The name left the first of those when the boot backfill started renaming buckets.
+				 *
+				 * It THROWS on a key it cannot model, which is the rule that makes this fake worth
+				 * anything: Prisma treats an unknown `where` key as no filter at all, so a fake that
+				 * quietly ignored one would report every account as a candidate and turn the
+				 * ambiguity refusal into a pass. A fake must fail loudly on a predicate it cannot
+				 * model and faithfully model an absent one.
+				 */
+				findMany: vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
+					const modelled = new Set(['userId', 'name', 'source', 'archivedAt']);
+					for (const key of Object.keys(where)) {
+						if (!modelled.has(key)) {
+							throw new Error(`account.findMany fake cannot model where.${key}`);
+						}
+					}
+					return state.accounts.filter((account) => {
+						if (account.userId !== where.userId) return false;
+						if (where.name !== undefined && account.name !== where.name) return false;
+						const source = where.source;
+						if (typeof source === 'string' && account.source !== source) return false;
+						if (
+							source !== null &&
+							typeof source === 'object' &&
+							!(source as { in: string[] }).in.includes(account.source)
+						) {
+							return false;
+						}
+						if (where.archivedAt === null && (account.archivedAt ?? null) !== null) return false;
+						return true;
+					});
+				}),
 				findUnique: vi.fn(
 					async ({
 						where
@@ -746,145 +780,6 @@ describe('/import load', () => {
 			expect(result.correction).toBeNull();
 		});
 	});
-
-	it('hasAllImportBucketsExisting: false quand aucun bucket CSV n’existe encore pour cet utilisateur', async () => {
-		const result = (await load({
-			locals: { user: testUser },
-			url: new URL('http://localhost/import')
-		} as never)) as {
-			hasAllImportBucketsExisting: boolean;
-		};
-
-		expect(result.hasAllImportBucketsExisting).toBe(false);
-	});
-
-	it('hasAllImportBucketsExisting reste false quand SEUL un des trois profils a déjà un bucket (régression F7 : le sélecteur doit rester visible pour un profil jamais importé)', async () => {
-		db.state.accounts.push({
-			id: 'account-existing',
-			userId: testUser.id,
-			name: 'Compte import CSV',
-			source: 'revolut',
-			currency: 'EUR'
-		});
-
-		const result = (await load({
-			locals: { user: testUser },
-			url: new URL('http://localhost/import')
-		} as never)) as {
-			hasAllImportBucketsExisting: boolean;
-		};
-
-		expect(result.hasAllImportBucketsExisting).toBe(false);
-	});
-
-	it("hasAllImportBucketsExisting: false pour un bucket d'un autre utilisateur (pas de fuite cross-user)", async () => {
-		db.state.accounts.push({
-			id: 'account-other-user',
-			userId: 'user-b',
-			name: 'Compte import CSV',
-			source: 'csv',
-			currency: 'EUR'
-		});
-
-		const result = (await load({
-			locals: { user: testUser },
-			url: new URL('http://localhost/import')
-		} as never)) as {
-			hasAllImportBucketsExisting: boolean;
-		};
-
-		expect(result.hasAllImportBucketsExisting).toBe(false);
-	});
-
-	it('hasAllImportBucketsExisting: false quand deux des trois profils ont un bucket mais pas le troisième (csv + revolut, pas banque_populaire)', async () => {
-		db.state.accounts.push(
-			{
-				id: 'account-csv',
-				userId: testUser.id,
-				name: 'Compte import CSV',
-				source: 'csv',
-				currency: 'EUR'
-			},
-			{
-				id: 'account-revolut',
-				userId: testUser.id,
-				name: 'Compte import CSV',
-				source: 'revolut',
-				currency: 'EUR'
-			}
-		);
-
-		const result = (await load({
-			locals: { user: testUser },
-			url: new URL('http://localhost/import')
-		} as never)) as {
-			hasAllImportBucketsExisting: boolean;
-		};
-
-		expect(result.hasAllImportBucketsExisting).toBe(false);
-		expect(db.prisma.account.findMany).toHaveBeenCalledWith({
-			where: {
-				userId: testUser.id,
-				name: 'Compte import CSV',
-				source: { in: ['csv', 'revolut', 'banque_populaire'] }
-			},
-			select: { source: true }
-		});
-	});
-
-	it('hasAllImportBucketsExisting: true quand les trois profils (csv, revolut, banque_populaire) ont déjà un bucket', async () => {
-		db.state.accounts.push(
-			{
-				id: 'account-csv',
-				userId: testUser.id,
-				name: 'Compte import CSV',
-				source: 'csv',
-				currency: 'EUR'
-			},
-			{
-				id: 'account-revolut',
-				userId: testUser.id,
-				name: 'Compte import CSV',
-				source: 'revolut',
-				currency: 'EUR'
-			},
-			{
-				id: 'account-bp',
-				userId: testUser.id,
-				name: 'Compte import CSV',
-				source: 'banque_populaire',
-				currency: 'EUR'
-			}
-		);
-
-		const result = (await load({
-			locals: { user: testUser },
-			url: new URL('http://localhost/import')
-		} as never)) as {
-			hasAllImportBucketsExisting: boolean;
-		};
-
-		expect(result.hasAllImportBucketsExisting).toBe(true);
-	});
-
-	it('hasAllImportBucketsExisting: false pour un bucket manuel (source différente, non-import)', async () => {
-		db.state.accounts.push({
-			id: 'account-manual',
-			userId: testUser.id,
-			name: 'Compte manuel',
-			source: 'manual',
-			currency: 'EUR'
-		});
-
-		const result = (await load({
-			locals: { user: testUser },
-			url: new URL('http://localhost/import')
-		} as never)) as {
-			hasAllImportBucketsExisting: boolean;
-		};
-
-		expect(result.hasAllImportBucketsExisting).toBe(false);
-	});
 });
 
 describe('/import actions', () => {
@@ -1402,44 +1297,23 @@ describe('/import actions', () => {
 		expect(db.state.transactions[0].natureManual).toBe('spending');
 	});
 
-	it('links a newly-created bucket to a valid, owned, linkable net worth account', async () => {
-		expect.assertions(2);
-
-		db.state.netWorthAccounts.push({
-			id: 'nwa-1',
-			userId: testUser.id,
-			name: 'Compte courant',
-			type: 'checking',
-			balanceCents: 10_000,
-			deletedAt: null,
-			createdAt: new Date()
-		});
-
-		const formData = new FormData();
-		formData.set(
-			'csvFile',
-			new File([`${BANQUE_POPULAIRE_HEADER}\n${BANQUE_POPULAIRE_VALID_ROW}`], 'export.csv', {
-				type: 'text/csv'
-			})
-		);
-		formData.set('netWorthAccountId', 'nwa-1');
-		await runImport(formData);
-
-		expect(db.state.accounts).toHaveLength(1);
-		expect(db.state.accounts[0].netWorthAccountId).toBe('nwa-1');
-	});
-
-	it('regression F7: an existing revolut bucket does not block linking on a first-ever banque_populaire import (distinct sources, distinct buckets)', async () => {
+	it('no longer links a bucket when a net worth account is submitted on the import path', async () => {
+		// SEPARATES: « the import path stopped reading the field » FROM « the field is still read and
+		// still linked ». The field was applied only when the bucket was CREATED, and hard-coded to
+		// null on the designation path, so it answered « which net worth line does this bucket feed »
+		// on a screen asking « where does this file go ». One field, two jobs; it stops having either
+		// here, and the link moves to the Comptes screen where the question is about an ACCOUNT.
+		//
+		// Asserted through the real action rather than on a shape, so a deletion that leaves the
+		// wiring live cannot pass.
+		//
+		// CORRECTED FROM THE PLAN, and the correction is the reason this comment is long: the plan
+		// wrote `expect(result).not.toHaveProperty('netWorthLinkStatus')`, and `result` is
+		// `{ importResult: {...} }` — the field has never been a property of `result`, so that
+		// assertion is green before the change and green after it. It separates nothing. The
+		// negative is asserted one level down, where the field actually lives.
 		expect.assertions(4);
 
-		db.state.accounts.push({
-			id: 'account-revolut',
-			userId: testUser.id,
-			name: 'Compte import CSV',
-			source: 'revolut',
-			currency: 'EUR',
-			netWorthAccountId: null
-		});
 		db.state.netWorthAccounts.push({
 			id: 'nwa-1',
 			userId: testUser.id,
@@ -1461,261 +1335,100 @@ describe('/import actions', () => {
 		const result = await runImport(formData);
 		const importResult = getImportResult(result);
 
-		expect(db.state.accounts).toHaveLength(2);
-		const banquePopulaireAccount = db.state.accounts.find(
-			(account) => account.source === 'banque_populaire'
-		);
-		expect(banquePopulaireAccount?.netWorthAccountId).toBe('nwa-1');
-		expect(
-			db.state.accounts.find((account) => account.source === 'revolut')?.netWorthAccountId
-		).toBeNull();
-		expect(importResult?.netWorthLinkStatus).toBe('applied');
-	});
-
-	it('reports netWorthLinkStatus "ignored" when a destination is selected but a bucket for this exact profile already exists', async () => {
-		expect.assertions(2);
-
-		db.state.accounts.push({
-			id: 'account-bp',
-			userId: testUser.id,
-			name: 'Compte import CSV',
-			source: 'banque_populaire',
-			currency: 'EUR',
-			netWorthAccountId: null
-		});
-		db.state.netWorthAccounts.push({
-			id: 'nwa-1',
-			userId: testUser.id,
-			name: 'Compte courant',
-			type: 'checking',
-			balanceCents: 10_000,
-			deletedAt: null,
-			createdAt: new Date()
-		});
-
-		const formData = new FormData();
-		formData.set(
-			'csvFile',
-			new File([`${BANQUE_POPULAIRE_HEADER}\n${BANQUE_POPULAIRE_VALID_ROW}`], 'export.csv', {
-				type: 'text/csv'
-			})
-		);
-		formData.set('netWorthAccountId', 'nwa-1');
-		const result = await runImport(formData);
-		const importResult = getImportResult(result);
-
-		expect(
-			db.state.accounts.find((account) => account.source === 'banque_populaire')?.netWorthAccountId
-		).toBeNull();
-		expect(importResult?.netWorthLinkStatus).toBe('ignored');
-	});
-
-	it('rejects a net worth account id belonging to another user, without any write', async () => {
-		expect.assertions(4);
-
-		db.state.netWorthAccounts.push({
-			id: 'nwa-foreign',
-			userId: 'someone-else',
-			name: 'Compte courant',
-			type: 'checking',
-			balanceCents: 10_000,
-			deletedAt: null,
-			createdAt: new Date()
-		});
-
-		const formData = new FormData();
-		formData.set(
-			'csvFile',
-			new File([`${BANQUE_POPULAIRE_HEADER}\n${BANQUE_POPULAIRE_VALID_ROW}`], 'export.csv', {
-				type: 'text/csv'
-			})
-		);
-		formData.set('netWorthAccountId', 'nwa-foreign');
-		const result = await runImport(formData);
-
-		expect(result.status).toBe(400);
-		expect(result.data.error).toBe('Le compte de patrimoine sélectionné est invalide.');
-		expect(db.state.accounts).toHaveLength(0);
-		expect(db.state.transactions).toHaveLength(0);
-	});
-
-	it('rejects a nonexistent net worth account id, without any write', async () => {
-		expect.assertions(3);
-
-		const formData = new FormData();
-		formData.set(
-			'csvFile',
-			new File([`${BANQUE_POPULAIRE_HEADER}\n${BANQUE_POPULAIRE_VALID_ROW}`], 'export.csv', {
-				type: 'text/csv'
-			})
-		);
-		formData.set('netWorthAccountId', 'nwa-does-not-exist');
-		const result = await runImport(formData);
-
-		expect(result.status).toBe(400);
-		expect(db.state.accounts).toHaveLength(0);
-		expect(db.state.transactions).toHaveLength(0);
-	});
-
-	it('rejects a net worth account of a non-linkable type (real_estate/other)', async () => {
-		expect.assertions(2);
-
-		db.state.netWorthAccounts.push({
-			id: 'nwa-house',
-			userId: testUser.id,
-			name: 'Maison',
-			type: 'real_estate',
-			balanceCents: 100_000,
-			deletedAt: null,
-			createdAt: new Date()
-		});
-
-		const formData = new FormData();
-		formData.set(
-			'csvFile',
-			new File([`${BANQUE_POPULAIRE_HEADER}\n${BANQUE_POPULAIRE_VALID_ROW}`], 'export.csv', {
-				type: 'text/csv'
-			})
-		);
-		formData.set('netWorthAccountId', 'nwa-house');
-		const result = await runImport(formData);
-
-		expect(result.status).toBe(400);
-		expect(db.state.accounts).toHaveLength(0);
-	});
-
-	it('does not change an already-linked bucket link on re-import, even with a different id submitted', async () => {
-		expect.assertions(2);
-
-		db.state.netWorthAccounts.push(
-			{
-				id: 'nwa-1',
-				userId: testUser.id,
-				name: 'Compte courant',
-				type: 'checking',
-				balanceCents: 10_000,
-				deletedAt: null,
-				createdAt: new Date()
-			},
-			{
-				id: 'nwa-2',
-				userId: testUser.id,
-				name: 'Livret',
-				type: 'savings',
-				balanceCents: 5_000,
-				deletedAt: null,
-				createdAt: new Date()
-			}
-		);
-		db.state.accounts.push({
-			id: 'account-existing',
-			userId: testUser.id,
-			name: 'Compte import CSV',
-			source: 'banque_populaire',
-			currency: 'EUR',
-			netWorthAccountId: 'nwa-1'
-		});
-
-		const formData = new FormData();
-		formData.set(
-			'csvFile',
-			new File([`${BANQUE_POPULAIRE_HEADER}\n${BANQUE_POPULAIRE_VALID_ROW}`], 'export.csv', {
-				type: 'text/csv'
-			})
-		);
-		formData.set('netWorthAccountId', 'nwa-2');
-		await runImport(formData);
-
+		// Calibration beside the emptiness: the import still WORKED. A bucket that was never created
+		// would also carry no link, and that is a different bug reading as this fix.
 		expect(db.state.accounts).toHaveLength(1);
-		expect(db.state.accounts[0].netWorthAccountId).toBe('nwa-1');
-	});
-
-	it('keeps working exactly as before when netWorthAccountId is absent (backward compat)', async () => {
-		expect.assertions(3);
-
-		const result = await runImportWithFile(
-			`${BANQUE_POPULAIRE_HEADER}\n${BANQUE_POPULAIRE_VALID_ROW}`
-		);
-
-		expect(result.importResult.importedRows).toBe(1);
+		expect(importResult?.importedRows).toBe(1);
 		expect(db.state.accounts[0].netWorthAccountId).toBeNull();
-		expect(result.importResult.netWorthLinkStatus).toBeNull();
+		expect(importResult).not.toHaveProperty('netWorthLinkStatus');
 	});
 
-	it("maison and generic profiles share the same 'csv' bucket: a generic-created csv bucket makes a first maison import report netWorthLinkStatus 'ignored'", async () => {
-		expect.assertions(3);
+	/**
+	 * MAISON AND GENERIC SHARE ONE `csv` BUCKET, and that is the subject these two tests keep.
+	 *
+	 * They used to read the sharing off `netWorthLinkStatus === 'ignored'`, which was an OBSERVABLE of
+	 * it rather than the thing itself: the status said « ignored » precisely because the bucket the
+	 * second profile wanted already existed. That field is gone with the destination control, and
+	 * deleting these two tests alongside the eight that really were about the net worth link would
+	 * have removed a live assertion about a live invariant while reading as part of a cleanup.
+	 *
+	 * So the invariant is asserted DIRECTLY now, and it is a stronger test than the one it replaces:
+	 * both imports really run, rather than one running against a hand-seeded fixture account. A
+	 * fixture cannot tell « the second import reused the first one's bucket » from « the second
+	 * import found a row somebody put there », because in the old form nothing had put it there but
+	 * the test.
+	 */
+	it("maison and generic profiles share one 'csv' bucket: a generic import then a maison import land on the same account", async () => {
+		// SEPARATES: « the second profile reused the bucket the first created » FROM « each profile got
+		// its own account ». Two accounts is what a per-PROFILE bucket would produce, and it is the
+		// shape `getImportSource` deliberately does not produce: everything that is not Revolut or
+		// Banque Populaire is source `csv`, maison included.
+		expect.assertions(4);
 
-		db.state.accounts.push({
-			id: 'account-csv-generic',
-			userId: testUser.id,
-			name: 'Compte import CSV',
-			source: 'csv',
-			currency: 'EUR',
-			netWorthAccountId: null
-		});
-		db.state.netWorthAccounts.push({
-			id: 'nwa-1',
-			userId: testUser.id,
-			name: 'Compte courant',
-			type: 'checking',
-			balanceCents: 10_000,
-			deletedAt: null,
-			createdAt: new Date()
-		});
+		const generic = new FormData();
+		generic.set(
+			'csvFile',
+			new File(['date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus'], 'generic.csv', {
+				type: 'text/csv'
+			})
+		);
+		await runImport(generic);
 
-		const formData = new FormData();
-		formData.set(
+		const maison = new FormData();
+		maison.set(
 			'csvFile',
 			new File(
 				[`${MAISON_HEADER}\n2026-06-01;Courses Auchan;Alimentation;-42.10;expense;spending;csv`],
-				'export.csv',
+				'maison.csv',
 				{ type: 'text/csv' }
 			)
 		);
-		formData.set('netWorthAccountId', 'nwa-1');
-		const result = await runImport(formData);
-		const importResult = getImportResult(result);
+		await runImport(maison);
 
+		// The absolute figures beside the identity: both files really imported a row each. Two
+		// transactions from one account and ZERO transactions from one account are the same
+		// « one account » otherwise, and the second is a different bug.
 		expect(db.state.accounts).toHaveLength(1);
-		expect(db.state.accounts[0].netWorthAccountId).toBeNull();
-		expect(importResult?.netWorthLinkStatus).toBe('ignored');
+		expect(db.state.accounts[0].source).toBe('csv');
+		expect(db.state.transactions).toHaveLength(2);
+		expect(new Set(db.state.transactions.map((row) => row.accountId))).toStrictEqual(
+			new Set([db.state.accounts[0].id])
+		);
 	});
 
-	it("maison and generic profiles share the same 'csv' bucket: a maison-created csv bucket makes a first generic import report netWorthLinkStatus 'ignored'", async () => {
-		expect.assertions(3);
+	it("maison and generic profiles share one 'csv' bucket: the other order lands on the same account too", async () => {
+		// SEPARATES: « the sharing is symmetric » FROM « whichever profile imports FIRST owns the
+		// bucket and the other one makes its own ». The two orders are separate cases because the
+		// bucket is CREATED on one of them and merely FOUND on the other, and only the found path can
+		// get the lookup wrong.
+		expect.assertions(4);
 
-		db.state.accounts.push({
-			id: 'account-csv-maison',
-			userId: testUser.id,
-			name: 'Compte import CSV',
-			source: 'csv',
-			currency: 'EUR',
-			netWorthAccountId: null
-		});
-		db.state.netWorthAccounts.push({
-			id: 'nwa-1',
-			userId: testUser.id,
-			name: 'Compte courant',
-			type: 'checking',
-			balanceCents: 10_000,
-			deletedAt: null,
-			createdAt: new Date()
-		});
-
-		const formData = new FormData();
-		formData.set(
+		const maison = new FormData();
+		maison.set(
 			'csvFile',
-			new File(['date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus'], 'export.csv', {
+			new File(
+				[`${MAISON_HEADER}\n2026-06-01;Courses Auchan;Alimentation;-42.10;expense;spending;csv`],
+				'maison.csv',
+				{ type: 'text/csv' }
+			)
+		);
+		await runImport(maison);
+
+		const generic = new FormData();
+		generic.set(
+			'csvFile',
+			new File(['date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus'], 'generic.csv', {
 				type: 'text/csv'
 			})
 		);
-		formData.set('netWorthAccountId', 'nwa-1');
-		const result = await runImport(formData);
-		const importResult = getImportResult(result);
+		await runImport(generic);
 
 		expect(db.state.accounts).toHaveLength(1);
-		expect(db.state.accounts[0].netWorthAccountId).toBeNull();
-		expect(importResult?.netWorthLinkStatus).toBe('ignored');
+		expect(db.state.accounts[0].source).toBe('csv');
+		expect(db.state.transactions).toHaveLength(2);
+		expect(new Set(db.state.transactions.map((row) => row.accountId))).toStrictEqual(
+			new Set([db.state.accounts[0].id])
+		);
 	});
 
 	it('no longer deduplicates across import profiles, because v3 keys carry the account', async () => {
@@ -2132,7 +1845,7 @@ async function runImport(formData: FormData) {
 				totalCreditCents: number;
 				invalidRowDetails: ImportInvalidRowDetail[];
 				hiddenInvalidRowsCount: number;
-				netWorthLinkStatus?: 'applied' | 'ignored' | null;
+				accountName?: string | null;
 			};
 		};
 		importResult: {
@@ -2146,7 +1859,7 @@ async function runImport(formData: FormData) {
 			totalCreditCents: number;
 			invalidRowDetails: ImportInvalidRowDetail[];
 			hiddenInvalidRowsCount: number;
-			netWorthLinkStatus?: 'applied' | 'ignored' | null;
+			accountName?: string | null;
 		};
 	};
 }

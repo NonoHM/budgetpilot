@@ -10,7 +10,8 @@ Rules, limits and exact values. Look things up here; the pages in
 - **[Reports](./reports.md)**: the six figures, the three-month horizon,
   and the rule a flow must meet to reach the projection.
 - **[Imports](./imports.md)**: accepted files, the four counts, duplicate
-  detection, and what deleting a run removes.
+  detection, how the account a statement belongs to is worked out, and what
+  deleting a run removes.
 - **[Upcoming bills](./upcoming-bills.md)**: the two badges, what the
   header total counts, and the three windows it is compared against.
 - **[Categories](./categories.md)**: naming rules, the eight natures, and
@@ -33,7 +34,8 @@ Rules, limits and exact values. Look things up here; the pages in
   export, what it deliberately leaves out, what the validator checks, and
   every refusal message.
 - **[Account settings](./account.md)**: the password rules, the session
-  lifetime, where the language preference lives, and what Settings cannot do.
+  lifetime, where the language preference lives, the rules for the accounts
+  your imports go into, and what Settings cannot do.
 
 Settings and environment variables are not here: those are in
 [configuration](../configuration.md), because they belong to the install

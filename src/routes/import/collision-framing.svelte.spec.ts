@@ -74,9 +74,7 @@ const ASSIGNMENT = { date: 0, label: 1, amount: 2, category: null } as unknown a
 
 const DATA: PageData = {
 	user: null,
-	correction: null,
-	linkableNetWorthAccounts: [],
-	hasAllImportBucketsExisting: true
+	correction: null
 };
 
 function carry(correction: { batchId: string; deleteOldImport: boolean } | null) {
@@ -87,6 +85,10 @@ function carry(correction: { batchId: string; deleteOldImport: boolean } | null)
 			file: new File(['x'], 'releve (1).csv', { type: 'text/csv' }),
 			view: VIEW,
 			assignment: ASSIGNMENT,
+			// Fixed across every fixture here, like `remember` below and for the same reason: this
+			// file is about how the collision is FRAMED, and the account separates none of its cases.
+			accountId: 'account-chosen',
+			account: null,
 			remember: true,
 			hasHeaderRow: true,
 			correction: correction

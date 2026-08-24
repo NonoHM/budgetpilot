@@ -215,6 +215,11 @@ const backupAccountSchema = z
 		// Provider-side cash account type of a bank-sync bucket (opaque, non-sensitive
 		// metadata — feeds a net worth account type suggestion, never authoritative).
 		providerCashAccountType: z.string().min(1).max(100).nullable().optional()
+		// NO `discriminant`, and its absence is a decision rather than an omission. See
+		// backupImportSourceSignatureSchema below for the whole of it: the export is plaintext
+		// JSON, and four characters from the end of an IBAN identify a holder's account in a list
+		// of that holder's accounts. `.strict()` is what makes this an interdict in both
+		// directions: no export writes one, and no hand-edited file can smuggle one back in.
 	})
 	.strict();
 
@@ -320,6 +325,51 @@ const backupColumnMappingSchema = z
 		categoryIndex: z.number().int().nullable(),
 		columnCount: z.number().int(),
 		useCount: z.number().int()
+	})
+	.strict();
+
+/**
+ * The import memory: "a file with THIS header shape belongs in THAT account".
+ *
+ * ONLY THE ROWS THAT CARRY NO ACCOUNT IDENTIFIER FRAGMENT TRAVEL, and the field that would carry
+ * one is absent from this object rather than present and nulled. `Account.discriminant` and
+ * `ImportSourceSignature.discriminant` hold at most four characters from the END of an IBAN or
+ * account number; among one holder's own accounts that is precisely the attribute that identifies
+ * them. ASVS 5.0.0 14.1.1 carries the data class.
+ *
+ * MEASURED, not preferred: there is no encryption of any kind under server/backup/. No cipher, no
+ * passphrase, no key derivation. The export is plaintext JSON the user downloads and stores where
+ * they like, so a fragment written into it has left every control this application has.
+ *
+ * THE MIDDLE OPTION IS UNSAFE AND IS NAMED HERE SO IT IS NOT REACHED FOR AGAIN: exporting every
+ * signature with its `discriminant` nulled out, keeping the whole memory and none of the
+ * fragments. Two rows of one user that share a fingerprint and tell two accounts apart by their
+ * fragment collapse onto one key. Restored, they either violate
+ * @@unique([userId, fingerprint, discriminant]) mid-transaction, which on PostgreSQL aborts the
+ * enclosing transaction and takes the whole restore with it, or they land as two rows a later read
+ * cannot choose between and the memory answers with an ARBITRARY account. A wrong answer replayed
+ * for ever, manufactured by the backup. The reason lives two models away from the code that would
+ * do it, which is why it is written down rather than left to be rediscovered.
+ *
+ * The cost of the filter is stated on `docs/reference/backup-restore.md`, because it is charged to
+ * the user: an account whose memory carried a fragment asks again on its first statement after a
+ * restore. An account that never had one keeps its memory, which is what this filter buys over
+ * excluding the table outright.
+ */
+const backupImportSourceSignatureSchema = z
+	.object({
+		// The full 64 character SHA-256 of a header row, never truncated (see
+		// import/mapping/fingerprint.ts). Derived from a bank's PUBLIC column names, so it
+		// identifies a file SHAPE and not a person.
+		fingerprint: z.string().length(64),
+		accountId: z.string().min(1),
+		useCount: z.number().int().min(0)
+		// No `id`, for ColumnMapping's reason verbatim: nothing references a signature, so it
+		// restores as a fresh row. No `lastUsedAt` either, for the other half of that reason: a
+		// timestamp is not portable state worth carrying across a restore.
+		//
+		// No `discriminant`. `.strict()` makes that an interdict in both directions: the export
+		// cannot write one and a hand-edited file cannot smuggle one in.
 	})
 	.strict();
 
@@ -507,6 +557,21 @@ export const backupExportSchema = z
 			.array(backupRecurringStreamActionSchema)
 			.max(MAX_IMPORTED_RECURRING_STREAM_ACTIONS)
 			.default([]),
+		// Absent from exports predating the import memory: defaulted to empty, like every other
+		// array added after 1.0, so a file written before it still restores.
+		//
+		// NO per-array bound, and the absence is reasoned rather than forgotten. The three arrays
+		// that carry one (recurringStreamActions, transactionTags, transactionSplits) all leave
+		// the bulk `createMany` and get a `create` per row inside the single interactive
+		// transaction, which is what lets a hand-edited file well under the upload limit hold a
+		// pooled connection. A signature needs no generated id captured, because nothing
+		// references one, so the restore writes the whole array with `createMany` and the per-row
+		// cost those bounds exist for is not incurred. BACKUP_MAX_JSON_NODES bounds the document.
+		//
+		// An absolute cap was considered and refused for the reason a fabricated invariant always
+		// is: nothing limits how many distinct file shapes one account has been fed, so any number
+		// here would eventually refuse somebody's own export.
+		importSourceSignatures: z.array(backupImportSourceSignatureSchema).default([]),
 		// Absent from exports predating tags: defaulted to empty.
 		tags: z.array(backupTagSchema).default([]),
 		// Absent from exports predating tags: defaulted to empty.

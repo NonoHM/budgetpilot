@@ -23,6 +23,7 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 		categories,
 		importBatches,
 		columnMappings,
+		importSourceSignatures,
 		transactions,
 		monthlyBudgets,
 		categoryRules,
@@ -87,6 +88,22 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				columnCount: true,
 				useCount: true
 			}
+		}),
+		// THE FILTER IS THE WHOLE CONTROL, so it is a where clause and not a map afterwards: a row
+		// carrying an account identifier fragment is never read out of the database at all.
+		//
+		// `discriminant: null` selects the memories learnt from a file that carried no fragment.
+		// Those are portable; the rest stay behind, because this export is plaintext JSON (there is
+		// no cipher anywhere under server/backup/) and four characters from the end of an IBAN
+		// identify an account among one holder's own. The full reasoning, including why nulling the
+		// column on the way out is worse than dropping the row, is on
+		// backupImportSourceSignatureSchema in ./schema.ts.
+		//
+		// `discriminant` is deliberately absent from the select as well as from the payload type:
+		// the value never enters this process, so no later change to the mapping below can leak it.
+		prisma.importSourceSignature.findMany({
+			where: { userId, discriminant: null },
+			select: { fingerprint: true, accountId: true, useCount: true }
 		}),
 		prisma.transaction.findMany({
 			where: { userId },
@@ -274,6 +291,9 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 			...mapping,
 			matchBy: assertMatchBy(mapping.matchBy, mapping.fingerprint)
 		})),
+		// Only the fragment-free rows are in this array: the filter is on the query above, not
+		// here. See ./schema.ts for why the whole row is dropped rather than the column nulled.
+		importSourceSignatures,
 		importBatches: importBatches.map((batch) => ({
 			...batch,
 			periodStart: batch.periodStart ? batch.periodStart.toISOString() : null,

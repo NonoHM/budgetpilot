@@ -15,6 +15,7 @@ import {
 	ensureDedupeKeyHashesBackfilled,
 	ensureDedupeKeysAtCurrentVersion
 } from '$lib/server/import/dedupeBoot';
+import { ensureStatementAccountsBackfilled } from '$lib/server/import/accountBoot';
 import { parseTrustedProxies } from '$lib/server/net/clientAddress';
 
 // One gate, one throw, every problem — see server/env/assertConfigured.ts for why this replaced
@@ -33,6 +34,10 @@ export const init: ServerInit = async () => {
 	// After the hash backfill, never before: a row with no hash is invisible to every duplicate
 	// check, and the recompute must not walk rows that one has not reached.
 	await ensureDedupeKeysAtCurrentVersion();
+	// After the recompute, and the reason is one-directional: the recompute READS `accountId` as a
+	// key field, while this backfill writes account metadata and never touches one. Keys first so
+	// the pass that can rewrite them finishes before the pass that must not.
+	await ensureStatementAccountsBackfilled();
 };
 
 // /setup/origin-mismatch is public because the operator it exists for has no account yet: an auth

@@ -62,12 +62,68 @@ Expected JSON format:
  * purpose: any monetary field added later follows the repo's `*Cents` naming and gets
  * converted automatically instead of silently reaching the model as raw cents.
  */
+/**
+ * Keys that may never appear anywhere in the payload handed to the local model.
+ *
+ * ## Why a refusal exists at all, when nothing in the payload carries these today
+ *
+ * MEASURED 2026-08-22: no account-shaped object is in `TransactionSummary`, and a search of this
+ * whole module for `account|bucket|institution|discriminant` returns zero lines. So the fragment
+ * cannot reach the model today. **But the walker below allows everything**: it recurses into every
+ * array and object and passes every key through, transforming only `*Cents`. There is no allowlist
+ * and no denylist, so the protection is an ABSENCE rather than a control, and an absence holds only
+ * until someone adds a field. A spending-by-account report is an obvious feature, and
+ * `reports/monthly.ts` already documents that a nested field reaches this prompt automatically.
+ *
+ * This repository has the identical shape on record one field over: `RecurringPayment.id` reached
+ * the prompt through a `...payment` SPREAD rather than through an edit, which is « a shape no
+ * reviewer catches by reading the diff » (see `types.ts`). The fix there was type level, so the
+ * compiler refuses the field. This is that fix made to hold at run time as well, because
+ * `buildBudgetInsightsPrompt` already casts the walked payload `as object` and a cast defeats a
+ * type.
+ *
+ * ## What is on the list, and why each
+ *
+ * `discriminant` is the new sensitive data class: at most four characters from the end of an IBAN
+ * or account number. In a list of one holder's accounts it is precisely the attribute that
+ * identifies. ASVS 5.0.0 14.1.1 classifies it and 16.2.5 is the logging interdict.
+ *
+ * `iban`, `bban` and `accountNumber` are the fuller forms it is a fragment OF. If one of those ever
+ * reaches this payload, the four-character rule is already moot.
+ *
+ * The identifier keys are the recorded incident rather than a precaution. The prompt declares
+ * itself as « Aggregated data, no raw transactions » when the user has not opted into sharing
+ * labels, and a raw identifier makes that sentence false.
+ */
+const KEYS_REFUSED_IN_PROMPT = new Set([
+	'discriminant',
+	'iban',
+	'bban',
+	'accountNumber',
+	'id',
+	'accountId',
+	'userId',
+	'transactionId',
+	'importBatchId'
+]);
+
 export function toPromptPayload(value: unknown): unknown {
 	if (Array.isArray(value)) return value.map(toPromptPayload);
 	if (value === null || typeof value !== 'object') return value;
 
 	return Object.fromEntries(
 		Object.entries(value as Record<string, unknown>).map(([key, entry]) => {
+			// Checked HERE rather than in a second walker, so the rule cannot drift from the
+			// traversal it constrains: whatever this function reaches, this refusal reaches.
+			//
+			// The KEY is named so a developer can find the field. The VALUE is never named: an
+			// error message travels, through a log line, a screenshot, a ticket and a clipboard,
+			// and naming the value would make the refusal itself the leak. ASVS 5.0.0 16.2.5.
+			if (KEYS_REFUSED_IN_PROMPT.has(key)) {
+				throw new Error(
+					`[insights] refusing to build a prompt: the payload carries "${key}", which may never reach the local model. See KEYS_REFUSED_IN_PROMPT.`
+				);
+			}
 			if (key.endsWith('Cents') && typeof entry === 'number') {
 				return [key.slice(0, -'Cents'.length), toMajorUnitNumber(money(Math.round(entry)))];
 			}

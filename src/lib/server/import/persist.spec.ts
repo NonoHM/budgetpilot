@@ -144,6 +144,10 @@ describe('resolveImportBucketAccount', () => {
 				currency: 'EUR',
 				exponent: 2,
 				netWorthAccountId: null,
+				// Create-only, like the links around it. A bucket born with a null institution keeps
+				// the boot backfill's pending predicate true and makes the once-only pass run on
+				// every start, so the field is written at creation rather than left to it.
+				institution: null,
 				bankConnectionId: null,
 				providerAccountId: null,
 				providerCashAccountType: null
@@ -462,6 +466,7 @@ describe('createImportBatch', () => {
 
 		const id = await createImportBatch({
 			userId: 'user-1',
+			accountId: 'account-1',
 			source: 'csv',
 			fileName: 'export.csv',
 			profile: 'generic',
@@ -484,6 +489,7 @@ describe('createImportBatch', () => {
 
 		await createImportBatch({
 			userId: 'user-1',
+			accountId: 'account-1',
 			source: 'csv',
 			fileName: 'export.csv',
 			profile: 'generic',
@@ -494,6 +500,37 @@ describe('createImportBatch', () => {
 
 		expect(prismaMock.importBatch.create).toHaveBeenCalledWith({
 			data: expect.objectContaining({ periodStart: null, periodEnd: null })
+		});
+	});
+
+	// THE ENFORCEMENT THAT REPLACES THE COMPILER'S.
+	//
+	// `ImportBatch.accountId` is NULLABLE in the datamodel, because a legacy row genuinely carries
+	// null until the boot backfill reaches it. That honesty costs the enumeration a required column
+	// gave for free: the typechecker no longer names every writer. So the requirement moves up one
+	// level, onto `CreateImportBatchInput`, where it is still compile-time enforced for the three
+	// production callers and is asserted here on the VALUE rather than on the shape.
+	//
+	// Asserted through the fake deliberately, and the fake is the reason this test exists at all: a
+	// hand-written mock is not typechecked against the real model, so it would have accepted a
+	// `create` with no `accountId` for ever while the real client refused it. The type says who
+	// must pass one; this says the one they passed is the one that gets written.
+	it('writes the account the caller named, so a new batch is never unfiled', async () => {
+		prismaMock.importBatch.create.mockResolvedValueOnce({ id: 'batch-3' });
+
+		await createImportBatch({
+			userId: 'user-1',
+			accountId: 'account-42',
+			source: 'banque_populaire',
+			fileName: 'releve.csv',
+			profile: 'banque-populaire',
+			rowCount: 1,
+			invalidRows: 0,
+			period: { from: null, to: null }
+		});
+
+		expect(prismaMock.importBatch.create).toHaveBeenCalledWith({
+			data: expect.objectContaining({ accountId: 'account-42' })
 		});
 	});
 });

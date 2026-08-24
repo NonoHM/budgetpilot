@@ -14,6 +14,7 @@
 		variant = 'default',
 		hideHeader = false,
 		mobileFullscreen = false,
+		widthClass = '',
 		busy = false,
 		onClose,
 		children
@@ -38,6 +39,17 @@
 		// instead of floating as a centered card — for flows like TransactionFocusOverlay
 		// that need every pixel on mobile. Desktop is unaffected (still the compact card).
 		mobileFullscreen?: boolean;
+		/**
+		 * A width the panel takes INSTEAD of brique 15's default, appended last so it wins the
+		 * cascade. Empty by default, so every existing caller renders the identical class string.
+		 *
+		 * A clause on the brique rather than a variant of it, and the plate is what decides that:
+		 * 6h's props table says brique 15 is « inchangée » about its STATE contract, and its
+		 * responsive line in the same table asks for « modale de 340 a 1280 » on the create sheet,
+		 * which is a width the brique cannot produce. The narrower of two statements is the one that
+		 * describes this prop.
+		 */
+		widthClass?: string;
 		/**
 		 * A request is in flight, so the dialog OWNS ITS ACTION until the answer (Planche 5f).
 		 *
@@ -135,8 +147,8 @@
 			class={mobileFullscreen
 				? 'h-full w-full overflow-y-auto rounded-none border-0 bg-white p-6 shadow-2xl lg:h-auto lg:max-w-lg lg:rounded-md lg:border lg:border-zinc-200 lg:p-5 lg:shadow-xl'
 				: variant === 'compact'
-					? 'w-full max-w-lg rounded-3xl border-0 bg-white p-6 shadow-2xl lg:rounded-md lg:border lg:border-zinc-200 lg:p-5 lg:shadow-xl'
-					: 'w-full max-w-lg rounded-md border border-zinc-200 bg-white p-5 shadow-xl'}
+					? `w-full max-w-lg rounded-3xl border-0 bg-white p-6 shadow-2xl lg:rounded-md lg:border lg:border-zinc-200 lg:p-5 lg:shadow-xl${widthClass ? ` ${widthClass}` : ''}`
+					: `w-full max-w-lg rounded-md border border-zinc-200 bg-white p-5 shadow-xl${widthClass ? ` ${widthClass}` : ''}`}
 		>
 			<div
 				class={hideHeader

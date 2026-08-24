@@ -24,6 +24,20 @@ const PENDING = {
 	},
 	initialAssignment: ASSIGNMENT,
 	candidates: {},
+	account: {
+		options: [
+			{
+				id: 'account-chosen',
+				name: 'BP · Compte courant',
+				discriminant: '4417',
+				transactionCount: 128
+			}
+		],
+		resolution: { rank: 3 as const, candidates: [] },
+		memory: null,
+		// Nobody has chosen yet on the way IN. The repost is what fills it.
+		chosenId: null
+	},
 	correction: {
 		mappingId: 'mapping-1',
 		batchId: 'batch-resolved',
@@ -38,7 +52,8 @@ const ANSWER = {
 	remember: true,
 	// The USER's answer, and it disagrees.
 	hasHeaderRow: false,
-	deleteOldImport: true
+	deleteOldImport: true,
+	accountId: 'account-chosen'
 };
 
 describe('buildCollisionRepost', () => {
@@ -62,6 +77,19 @@ describe('buildCollisionRepost', () => {
 
 		expect(repost.correction?.deleteOldImport).toBe(false);
 		expect(repost.correction?.batchId).toBe('batch-resolved');
+	});
+
+	// The account travels for the same reason the consent does: CONFIRMING re-posts the run, and the
+	// designation action refuses a submission with no account. A repost that lost it would turn
+	// « Importer quand même » into a refusal telling the user to choose an account, with no control
+	// in front of them to choose one with.
+	it('carries the account the user chose, on both legs of the dialog', () => {
+		const repost = buildCollisionRepost(PENDING, ANSWER);
+
+		expect(repost.accountId).toBe('account-chosen');
+		// And the offer goes back carrying that choice, so DECLINING reopens the screen showing it
+		// rather than re-deriving a prefill and overwriting the user's answer with the application's.
+		expect(repost.account?.chosenId).toBe('account-chosen');
 	});
 
 	it('carries no correction when the run is not one', () => {

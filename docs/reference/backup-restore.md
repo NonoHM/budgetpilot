@@ -14,13 +14,14 @@ Checked against a running instance, not recalled. For the steps, see
 
 ## What it contains
 
-Twenty top-level keys:
+Twenty-one top-level keys:
 
 `formatVersion`, `exportedAt`, `userEmail`, `accounts`, `categories`,
-`importBatches`, `columnMappings`, `transactions`, `monthlyBudgets`,
-`categoryRules`, `categorizationRules`, `categoryNatureMappings`,
-`netWorthAccounts`, `netWorthSnapshots`, `savingsGoals`, `bankConnections`,
-`recurringStreamActions`, `tags`, `transactionTags`, `transactionSplits`.
+`importBatches`, `columnMappings`, `importSourceSignatures`, `transactions`,
+`monthlyBudgets`, `categoryRules`, `categorizationRules`,
+`categoryNatureMappings`, `netWorthAccounts`, `netWorthSnapshots`,
+`savingsGoals`, `bankConnections`, `recurringStreamActions`, `tags`,
+`transactionTags`, `transactionSplits`.
 
 This list is checked against the export's own schema by a test, so it cannot
 drift from what the file actually contains. It said nineteen for a while, and
@@ -28,17 +29,51 @@ was wrong by one.
 
 ## What it does not contain
 
-| Absent                  | Consequence                                      |
-| ----------------------- | ------------------------------------------------ |
-| Your password           | a restore cannot move your credentials           |
-| The two-factor secret   | two-factor stays as it is on the target account  |
-| Recovery codes          | as above                                         |
-| Sessions                | restoring signs nobody in or out                 |
-| Raw imported statements | the app never stores them; only the run's record |
-| Other accounts          | the export is per account, not per instance      |
+| Absent                   | Consequence                                       |
+| ------------------------ | ------------------------------------------------- |
+| Your password            | a restore cannot move your credentials            |
+| The two-factor secret    | two-factor stays as it is on the target account   |
+| Recovery codes           | as above                                          |
+| Sessions                 | restoring signs nobody in or out                  |
+| Raw imported statements  | the app never stores them; only the run's record  |
+| Other accounts           | the export is per account, not per instance       |
+| Account number fragments | the last characters of an IBAN never leave the DB |
 
 Verified on a real export: `passwordHash`, `totp` and `session` appear
 nowhere in the file.
+
+## Account number fragments, and the import memory
+
+When a statement names the account it belongs to, the app keeps at most **four
+characters from the end** of that IBAN or account number, so it can show you
+`···4417` and recognise the same account next time. Four characters are not a
+payment instrument, but among one holder's own accounts they are exactly the
+attribute that tells them apart, so they are treated as a data class of their
+own.
+
+**They are not in the backup, and that follows from what the backup is.** The
+file is plain JSON with no encryption of any kind: no cipher, no passphrase,
+no key derivation. You download it, mail it to yourself, drop it in a cloud
+folder. Anything written into it has left every control this application has,
+which is why this one value stays in the database.
+
+`importSourceSignatures` is the memory that says "a file with this column
+layout belongs in that account". Only the entries learnt from a file that
+carried **no** fragment are exported, and they come back attached to the
+restored account. The entries that were told apart **by** a fragment are not in
+the file and are gone after a restore.
+
+So, after restoring:
+
+| The account                    | What it does on its next statement  |
+| ------------------------------ | ----------------------------------- |
+| never had a fragment           | recognised as before, nothing to do |
+| was recognised by its fragment | asks you once, then remembers again |
+
+That second row is the price of the choice, and it is charged once per account
+rather than once per import. Dropping the whole table would have been simpler
+and would have charged it to every account instead, including those that never
+had a fragment to lose.
 
 `userEmail` is **informational**. Restoring a file whose `userEmail` names
 somebody else succeeds, measured rather than assumed, because the target is

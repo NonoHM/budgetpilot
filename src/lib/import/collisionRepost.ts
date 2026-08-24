@@ -23,6 +23,7 @@ import type { RoleAssignment } from '$lib/domain/columnDesignation';
 export function buildCollisionRepost(
 	pending: PendingDesignation,
 	result: {
+		accountId: string;
 		assignment: RoleAssignment;
 		remember: boolean;
 		hasHeaderRow: boolean;
@@ -35,6 +36,11 @@ export function buildCollisionRepost(
 		// designation screen the way they left it rather than the way it was guessed.
 		view: { ...pending.view, detectedHeaderRow: result.hasHeaderRow },
 		assignment: result.assignment,
+		// The user's own choice, carried on BOTH legs: confirming re-posts it, declining reopens the
+		// screen already showing it. Re-deriving it from `resolution` on the way back would replace
+		// their answer with the application's on the one screen built to stop that.
+		accountId: result.accountId,
+		account: pending.account && { ...pending.account, chosenId: result.accountId },
 		remember: result.remember,
 		hasHeaderRow: result.hasHeaderRow,
 		// The pending correction WHOLE, plus the answer just given. The three naming fields travel so

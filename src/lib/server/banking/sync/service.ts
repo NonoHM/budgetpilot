@@ -487,6 +487,10 @@ export async function syncBankConnection(
 			if (transactions.length > 0) {
 				const importBatchId = await createImportBatch({
 					userId: input.userId,
+					// The bucket here IS the Account row, so its own id. The CSV routes go through
+					// resolveImportBucketAccount, which returns { accountId }; this one queried the
+					// table directly. Two shapes, one meaning, and the compiler is what said so.
+					accountId: bucket.id,
 					source,
 					fileName: connection.aspspName ?? connector.displayName,
 					profile: connection.provider,

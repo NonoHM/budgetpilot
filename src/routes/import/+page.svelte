@@ -5,7 +5,6 @@
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
-	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import { cardBase } from '$lib/styles';
@@ -36,7 +35,8 @@
 	} from '$lib/domain/columnDesignation';
 	import {
 		clearPendingDesignation,
-		setPendingDesignation
+		setPendingDesignation,
+		type PendingDesignation
 	} from '$lib/import/pendingDesignation.svelte';
 	import {
 		takeCompletedImport,
@@ -99,12 +99,6 @@
 	 * server. Nothing that decides anything moved; a monolingual affordance was replaced by the
 	 * refusal the server was already able to give.
 	 */
-	const netWorthAccountOptions = $derived([
-		{ value: '', label: m.import_field_net_worth_account_placeholder() },
-		...data.linkableNetWorthAccounts.map((account) => ({ value: account.id, label: account.name }))
-	]);
-	let selectedNetWorthAccountId = $state('');
-
 	/**
 	 * The table's rows, folded onto the reason each was refused for.
 	 *
@@ -259,7 +253,13 @@
 	// tried first and cost 28 unrelated type errors, because it also widened `importResult` and
 	// destroyed the narrowing the rest of this file depends on.
 	const designation = $derived(
-		form && 'designation' in form ? (form.designation as DesignationFile | undefined) : undefined
+		form && 'designation' in form
+			? // The payload is a `DesignationFile` PLUS what the server worked out about the account.
+				// Named here rather than cast at the use site, so the one place that knows the shape of
+				// this transport is the one place that describes it.
+				(form.designation as
+					(DesignationFile & { account?: PendingDesignation['account'] }) | undefined)
+			: undefined
 	);
 
 	/**
@@ -366,6 +366,9 @@
 			},
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
 			candidates: {},
+			// What the SERVER worked out about which account this statement belongs to. Null when the
+			// payload carried none, which the screen reads as « ask ».
+			account: designation.account ?? null,
 			// The ID from the SERVER, the CONSENT from the control, and the split is the whole point.
 			//
 			// `correctionState` is the action's reply to the FIRST press, so its `deleteOldImport` is
@@ -534,6 +537,9 @@
 			view: carried.repost.view,
 			initialAssignment: carried.repost.assignment,
 			candidates: {},
+			// Carried back WITH the user's choice, so declining reopens the screen the way they left
+			// it rather than the way resolution guessed it.
+			account: carried.repost.account,
 			// The answer is DROPPED on the way back, and that is the point: the screen asks again.
 			// Carrying it would re-tick a box the user is about to be re-shown, which is the echo
 			// Planche 5c removed from the previous placement.
@@ -586,6 +592,10 @@
 		body.set('confirmCollision', '1');
 		if (carried) {
 			body.set('remember', String(carried.repost.remember));
+			// Confirming re-posts the SAME run, and the designation action refuses a submission with
+			// no account. Without this line « Importer quand même » becomes a refusal telling the user
+			// to choose an account, with no control in front of them to choose one with.
+			body.set('accountId', carried.repost.accountId);
 			body.set('hasHeaderRow', String(carried.repost.hasHeaderRow));
 			for (const role of MAPPING_ROLES) {
 				const index = carried.repost.assignment[role];
@@ -597,8 +607,6 @@
 			if (carried.repost.correction?.deleteOldImport) {
 				body.set('replaceBatchId', carried.repost.correction.batchId);
 			}
-		} else {
-			body.set('netWorthAccountId', selectedNetWorthAccountId);
 		}
 
 		try {
@@ -868,60 +876,6 @@
 					noFileLabel={m.common_file_dropzone_no_file()}
 				/>
 
-				{#if data.hasAllImportBucketsExisting}
-					<p class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-500">
-						{m.import_existing_bucket_notice()}
-					</p>
-				{:else if data.linkableNetWorthAccounts.length > 0}
-					<label class="block text-sm font-medium text-zinc-700">
-						{m.import_field_net_worth_account()}
-						<div class="mt-2">
-							<Combobox
-								name="netWorthAccountId"
-								bind:value={selectedNetWorthAccountId}
-								options={netWorthAccountOptions}
-								placeholder={m.import_field_net_worth_account_placeholder()}
-								ariaLabel={m.import_field_net_worth_account()}
-							/>
-						</div>
-						<span class="mt-1 block text-xs font-normal text-zinc-500"
-							>{m.import_field_net_worth_account_hint()}</span
-						>
-					</label>
-				{:else}
-					<!-- #372 (1). With zero Net worth accounts BOTH earlier branches are false, so nothing rendered
-					     at all — not even a notice — and the control was invisible until the user had independently
-					     created an account on a page they had no reason to visit. The gate failed SILENTLY, which is
-					     the worst way for a prerequisite to fail.
-					     Neutralised on the spot rather than hidden, per design 1q: a control that is switched off
-					     stays reachable and states its own reason, so `softDisabled` travels with an
-					     `aria-describedby` — Combobox's own docstring calls the pair without one a half-applied
-					     rule. The reason carries the route that removes it.
-					     `ariaLabel` rather than a wrapping <label>, because the reason holds a link and a link
-					     inside a label is an interactive element sitting in another one's activation area.
-					     This makes the control DISCOVERABLE. It does not make it answer the question it appears to
-					     answer — see #372 (2) and (3): the designation path discards the choice, and the bucket is
-					     per profile rather than per bank, so two banks that both read as Generic still share one. -->
-					<div>
-						<span class="block text-sm font-medium text-zinc-700"
-							>{m.import_field_net_worth_account()}</span
-						>
-						<div class="mt-2">
-							<Combobox
-								options={[]}
-								softDisabled
-								aria-describedby="net-worth-empty-hint-desktop"
-								placeholder={m.import_field_net_worth_account_placeholder()}
-								ariaLabel={m.import_field_net_worth_account()}
-							/>
-						</div>
-						<p id="net-worth-empty-hint-desktop" class="mt-1 text-xs font-normal text-zinc-500">
-							{m.import_field_net_worth_account_none()}
-							<TapLink href="/net-worth">{m.import_field_net_worth_account_none_cta()}</TapLink>
-						</p>
-					</div>
-				{/if}
-
 				{#if form?.error}
 					<AlertBanner variant="error">{form.error}</AlertBanner>
 				{/if}
@@ -991,6 +945,23 @@
 								{m.import_summary_file({ name: importResult.fileName })}
 							</p>
 						{/if}
+						<!--
+						WHERE THE ROWS WENT, said once, on the screen that just put them there.
+
+						The user chose this account two steps earlier and has had no confirmation since;
+						a summary that names the file and not the destination answers the smaller half of
+						« did that work ». Absent rather than « aucun » when the name could not be
+						resolved, for the same reason the /imports pill is absent: silence is honest and
+						a placeholder is a claim.
+						-->
+						{#if importResult.accountName}
+							<p class="mt-1 text-sm text-zinc-500">
+								{m.imports_success_into_account({
+									count: importResult.importedRows,
+									account: importResult.accountName
+								})}
+							</p>
+						{/if}
 					</div>
 					{#if importResult.profile}
 						<span class="w-fit rounded-md border border-zinc-200 px-3 py-1 text-sm font-medium">
@@ -998,22 +969,6 @@
 						</span>
 					{/if}
 				</div>
-
-				{#if importResult.netWorthLinkStatus}
-					<p
-						class="mt-4 rounded-xl border p-3 text-xs"
-						class:border-emerald-200={importResult.netWorthLinkStatus === 'applied'}
-						class:bg-emerald-50={importResult.netWorthLinkStatus === 'applied'}
-						class:text-emerald-700={importResult.netWorthLinkStatus === 'applied'}
-						class:border-zinc-200={importResult.netWorthLinkStatus === 'ignored'}
-						class:bg-zinc-50={importResult.netWorthLinkStatus === 'ignored'}
-						class:text-zinc-500={importResult.netWorthLinkStatus === 'ignored'}
-					>
-						{importResult.netWorthLinkStatus === 'applied'
-							? m.import_link_applied_notice()
-							: m.import_link_ignored_notice()}
-					</p>
-				{/if}
 
 				{#if importResult.fileLevelRefusals > 0}
 					<div class="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-4">
@@ -1242,62 +1197,6 @@
 				noFileLabel={m.common_file_dropzone_no_file()}
 			/>
 
-			{#if data.hasAllImportBucketsExisting}
-				<p class="rounded-xl bg-zinc-50 p-3 text-xs text-zinc-500">
-					{m.import_existing_bucket_notice()}
-				</p>
-			{:else if data.linkableNetWorthAccounts.length > 0}
-				<label class="block text-sm font-medium text-zinc-700">
-					{m.import_field_net_worth_account()}
-					<div class="mt-2">
-						<Combobox
-							name="netWorthAccountId"
-							bind:value={selectedNetWorthAccountId}
-							options={netWorthAccountOptions}
-							placeholder={m.import_field_net_worth_account_placeholder()}
-							ariaLabel={m.import_field_net_worth_account()}
-							triggerClass="!bg-zinc-50"
-						/>
-					</div>
-					<span class="mt-1 block text-xs font-normal text-zinc-500"
-						>{m.import_field_net_worth_account_hint()}</span
-					>
-				</label>
-			{:else}
-				<!-- #372 (1). With zero Net worth accounts BOTH earlier branches are false, so nothing rendered
-				     at all — not even a notice — and the control was invisible until the user had independently
-				     created an account on a page they had no reason to visit. The gate failed SILENTLY, which is
-				     the worst way for a prerequisite to fail.
-				     Neutralised on the spot rather than hidden, per design 1q: a control that is switched off
-				     stays reachable and states its own reason, so `softDisabled` travels with an
-				     `aria-describedby` — Combobox's own docstring calls the pair without one a half-applied
-				     rule. The reason carries the route that removes it.
-				     `ariaLabel` rather than a wrapping <label>, because the reason holds a link and a link
-				     inside a label is an interactive element sitting in another one's activation area.
-				     This makes the control DISCOVERABLE. It does not make it answer the question it appears to
-				     answer — see #372 (2) and (3): the designation path discards the choice, and the bucket is
-				     per profile rather than per bank, so two banks that both read as Generic still share one. -->
-				<div>
-					<span class="block text-sm font-medium text-zinc-700"
-						>{m.import_field_net_worth_account()}</span
-					>
-					<div class="mt-2">
-						<Combobox
-							options={[]}
-							softDisabled
-							aria-describedby="net-worth-empty-hint-mobile"
-							placeholder={m.import_field_net_worth_account_placeholder()}
-							ariaLabel={m.import_field_net_worth_account()}
-							triggerClass="!bg-zinc-50"
-						/>
-					</div>
-					<p id="net-worth-empty-hint-mobile" class="mt-1 text-xs font-normal text-zinc-500">
-						{m.import_field_net_worth_account_none()}
-						<TapLink href="/net-worth">{m.import_field_net_worth_account_none_cta()}</TapLink>
-					</p>
-				</div>
-			{/if}
-
 			{#if form?.error}
 				<AlertBanner variant="error">{form.error}</AlertBanner>
 			{/if}
@@ -1365,6 +1264,14 @@
 								{importResult.fileName}
 							</p>
 						{/if}
+						{#if importResult.accountName}
+							<p class="mt-1 text-xs text-zinc-500">
+								{m.imports_success_into_account({
+									count: importResult.importedRows,
+									account: importResult.accountName
+								})}
+							</p>
+						{/if}
 					</div>
 					{#if importResult.profile}
 						<span class="shrink-0">
@@ -1372,20 +1279,6 @@
 						</span>
 					{/if}
 				</div>
-
-				{#if importResult.netWorthLinkStatus}
-					<p
-						class="mt-3 rounded-xl p-3 text-xs"
-						class:bg-emerald-50={importResult.netWorthLinkStatus === 'applied'}
-						class:text-emerald-700={importResult.netWorthLinkStatus === 'applied'}
-						class:bg-zinc-50={importResult.netWorthLinkStatus === 'ignored'}
-						class:text-zinc-500={importResult.netWorthLinkStatus === 'ignored'}
-					>
-						{importResult.netWorthLinkStatus === 'applied'
-							? m.import_link_applied_notice()
-							: m.import_link_ignored_notice()}
-					</p>
-				{/if}
 
 				{#if importResult.fileLevelRefusals > 0}
 					<div class="mt-3 rounded-xl bg-rose-50 p-3">

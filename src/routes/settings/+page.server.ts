@@ -39,6 +39,16 @@ import {
 	resolveColumnMappingsPerUser
 } from '$lib/server/import/mapping/store';
 import { rememberedMappingView } from '$lib/domain/rememberedMapping';
+import { accountListRows, invitationApplies } from '$lib/server/accounts/projection';
+import {
+	AccountWriteError,
+	archiveStatementAccount,
+	linkNetWorthAccount,
+	MAX_ACCOUNT_NAME_LENGTH,
+	renameStatementAccount,
+	type AccountWriteRefusal
+} from '$lib/server/accounts/service';
+import { readLinkableNetWorthAccounts } from '$lib/server/net-worth/service';
 import type { PageServerLoad } from './$types';
 
 const TOTP_CODE_PATTERN = /^[0-9]{6}$/;
@@ -50,31 +60,57 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 	const currentToken = cookies.get(SESSION_COOKIE);
 	const currentTokenHash = currentToken ? hashSessionToken(currentToken) : null;
 
-	const [account, sessions, tags, columnMappings] = await Promise.all([
-		prisma.user.findUniqueOrThrow({
-			where: { id: user.id },
-			select: {
-				email: true,
-				role: true,
-				aiInsightsEnabled: true,
-				aiIncludeLabels: true,
-				totpEnabled: true
-			}
-		}),
-		prisma.session.findMany({
-			where: { userId: user.id },
-			select: {
-				id: true,
-				tokenHash: true,
-				createdAt: true,
-				expiresAt: true,
-				revokedAt: true
-			},
-			orderBy: { createdAt: 'desc' }
-		}),
-		listTagsWithCounts(user.id),
-		listColumnMappings(user.id)
-	]);
+	const [account, sessions, tags, columnMappings, accountRows, linkableNetWorthAccounts] =
+		await Promise.all([
+			prisma.user.findUniqueOrThrow({
+				where: { id: user.id },
+				select: {
+					email: true,
+					role: true,
+					aiInsightsEnabled: true,
+					aiIncludeLabels: true,
+					totpEnabled: true
+				}
+			}),
+			prisma.session.findMany({
+				where: { userId: user.id },
+				select: {
+					id: true,
+					tokenHash: true,
+					createdAt: true,
+					expiresAt: true,
+					revokedAt: true
+				},
+				orderBy: { createdAt: 'desc' }
+			}),
+			listTagsWithCounts(user.id),
+			listColumnMappings(user.id),
+			/**
+			 * The Comptes section, read here and PROJECTED before it leaves the server.
+			 *
+			 * Archived rows are in the query on purpose: `accountsForList` keeps them and
+			 * `accountsForPicker` drops them, and a screen that hid what it archived would leave the
+			 * user no way to undo it. `netWorthAccount` is joined for the name alone, so the row can
+			 * say which line it feeds without the page holding an id it would have to resolve.
+			 */
+			prisma.account.findMany({
+				where: { userId: user.id },
+				select: {
+					id: true,
+					name: true,
+					nameKey: true,
+					source: true,
+					institution: true,
+					discriminant: true,
+					archivedAt: true,
+					netWorthAccountId: true,
+					netWorthAccount: { select: { name: true } },
+					_count: { select: { transactions: true } }
+				},
+				orderBy: [{ archivedAt: 'asc' }, { name: 'asc' }, { id: 'asc' }]
+			}),
+			readLinkableNetWorthAccounts(user.id)
+		]);
 
 	const mappedSessions = sessions.map((session) => ({
 		id: session.id,
@@ -112,6 +148,13 @@ export const load: PageServerLoad = async ({ cookies, locals }) => {
 			rememberedMappingView({ ...mapping, importBatchCount: mapping._count.importBatches })
 		),
 		columnMappingCap: resolveColumnMappingsPerUser(),
+		accounts: accountListRows(accountRows),
+		// The invitation reads the SAME predicate the rows' `generic` flag does, so the sentence and
+		// the rows it points at cannot disagree. Computed here rather than derived on the page from
+		// `accounts.some((row) => row.generic)`, which would be a second expression of one rule.
+		accountsInvitation: invitationApplies(accountRows),
+		accountNameMaxLength: MAX_ACCOUNT_NAME_LENGTH,
+		linkableNetWorthAccounts,
 		aiSettings: {
 			insightsEnabled: account.aiInsightsEnabled,
 			includeLabels: account.aiIncludeLabels,
@@ -591,6 +634,78 @@ export const actions: Actions = {
 	 * A row belonging to someone else answers `not-found`, identically to one that never existed,
 	 * so the response is not an oracle for whether another user's id is real.
 	 */
+	/**
+	 * The three account writes, each reading exactly the fields its form shows.
+	 *
+	 * MASS ASSIGNMENT IS THE CATEGORY AND A ONE-FIELD FORM IS WHERE NOBODY LOOKS FOR IT. Each action
+	 * reads named keys off the submission and hands them to a service whose signature accepts
+	 * nothing else, so `source`, `discriminant`, `netWorthAccountId` and `archivedAt` posted beside
+	 * a rename have nowhere to arrive. That is an allow list expressed as three signatures rather
+	 * than as a filter somebody has to keep complete.
+	 *
+	 * Every refusal is a 400 with a sentence, never a 5xx: `accountRefusal` maps the six reasons the
+	 * service can produce, and anything else rethrows to the generic handler rather than being
+	 * rendered as a guess.
+	 */
+	renameAccount: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+		if (!id) return fail(400, { accountsError: m.accounts_error_not_found() });
+
+		try {
+			await renameStatementAccount({
+				userId: user.id,
+				accountId: id,
+				name: getFormValue(formData, 'newName')
+			});
+		} catch (caught) {
+			return accountRefusal(caught);
+		}
+		return { accountsSuccess: m.accounts_success_renamed() };
+	},
+
+	archiveAccount: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+		if (!id) return fail(400, { accountsError: m.accounts_error_not_found() });
+
+		// Positive: only the literal 'false' reactivates. An absent field archives, which is the
+		// direction a hand-crafted request must not be able to obtain by omission — same reading
+		// `does NOT consent to the delete when the answer is absent` makes for the import consent.
+		const archived = getFormValue(formData, 'archived') !== 'false';
+		try {
+			await archiveStatementAccount({ userId: user.id, accountId: id, archived });
+		} catch (caught) {
+			return accountRefusal(caught);
+		}
+		return {
+			accountsSuccess: archived ? m.accounts_success_archived() : m.accounts_success_unarchived()
+		};
+	},
+
+	linkAccountNetWorth: async ({ locals, request }) => {
+		const user = requireUser(locals.user);
+		const formData = await request.formData();
+		const id = normalizeId(getFormValue(formData, 'id'));
+		if (!id) return fail(400, { accountsError: m.accounts_error_not_found() });
+
+		// An empty selection means « aucun » and clears the link. Normalised to null HERE so the
+		// service never has to decide what an empty string means about an object reference.
+		const target = normalizeId(getFormValue(formData, 'netWorthAccountId'));
+		try {
+			await linkNetWorthAccount({
+				userId: user.id,
+				accountId: id,
+				netWorthAccountId: target || null
+			});
+		} catch (caught) {
+			return accountRefusal(caught);
+		}
+		return { accountsSuccess: m.accounts_success_linked() };
+	},
+
 	deleteColumnMapping: async ({ locals, request }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
@@ -647,4 +762,39 @@ function isPrismaUniqueError(err: unknown): boolean {
 		'code' in err &&
 		(err as { code: string }).code === 'P2002'
 	);
+}
+
+/**
+ * One sentence per refusal an account write can produce, and a rethrow for anything else.
+ *
+ * Exhaustive over `AccountWriteRefusal` on purpose: a `switch` the compiler checks is what stops a
+ * seventh reason being added to the service and silently rendering somebody else's sentence. That
+ * is the defect the create endpoint's catch-all `return` had, found while widening this union.
+ *
+ * Nothing here is a 5xx. The last audit drove 49 actions through two hostile passes with zero, and
+ * a refusal a user can read is the whole difference between a rule and a crash.
+ */
+function accountRefusal(caught: unknown) {
+	if (!(caught instanceof AccountWriteError)) throw caught;
+	return fail(400, { accountsError: accountRefusalSentence(caught.reason) });
+}
+
+function accountRefusalSentence(reason: AccountWriteRefusal): string {
+	switch (reason) {
+		case 'name-required':
+			return m.accounts_error_name_required();
+		case 'name-taken':
+			return m.accounts_error_name_taken();
+		case 'name-too-long':
+			return m.accounts_error_name_too_long({ max: MAX_ACCOUNT_NAME_LENGTH });
+		case 'net-worth-not-found':
+			return m.accounts_error_net_worth_not_found();
+		case 'not-found':
+			return m.accounts_error_not_found();
+		// A fragment collision is unreachable from these three forms: none of them carries a
+		// discriminant and no service they call sets one. Named rather than folded into a default,
+		// so adding a form that DOES would be a compile error here rather than a wrong sentence.
+		case 'discriminant-taken':
+			return m.import_account_create_error_fragment_taken();
+	}
 }

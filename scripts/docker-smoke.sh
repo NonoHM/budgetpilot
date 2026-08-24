@@ -14,8 +14,14 @@
 # semantics on PostgreSQL and MariaDB, so repeating that here would buy nothing. What only this
 # check can prove is that the *image* starts on each provider — and a served request is already
 # strong evidence: adapter-node awaits hooks.server.ts's `init` before it opens the socket, and
-# `init` queries the database (bootstrap-token check, two backfills). An HTTP 200 therefore means
-# the generated client for that provider loaded and ran real queries against that engine.
+# `init` queries the database (bootstrap-token check, then EVERY boot backfill in turn). An HTTP 200
+# therefore means the generated client for that provider loaded and ran real queries against it.
+#
+# COUNTED, ONCE, AND THAT IS WHY THE COUNT IS GONE. This line read "two backfills" and there were
+# three when it was written, then four after `ensureStatementAccountsBackfilled` was added. Nothing
+# checks a comment, and a number in one is a claim that rots every time the thing it counts grows.
+# The invariant is what matters and it does not rot: adapter-node awaits `init` before it opens the
+# socket, so an HTTP 200 means every backfill there is ran to completion against that engine.
 #
 # Run it locally exactly as CI does:  ./scripts/docker-smoke.sh
 # Needs docker and roughly 4 GB of free disk. Cleans up everything it creates, including on

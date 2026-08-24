@@ -28,7 +28,6 @@ import { importProfileLabel } from '$lib/domain/importProfileLabel';
  */
 
 const DATA = {
-	linkableNetWorthAccounts: [],
 	rememberedMappings: [],
 	batches: []
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -51,7 +50,7 @@ function formWithProfile(profile: string) {
 			batchId: 'batch-1',
 			invalidRowDetails: [],
 			hiddenInvalidRowsCount: 0,
-			netWorthLinkStatus: null
+			accountName: null
 		}
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any;
