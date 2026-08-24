@@ -119,6 +119,47 @@ who does not exist. Only the header SHAPES are taken from reality, and those ide
 **Only three things earn an immediate fix outside a task's scope**: a false displayed
 figure, a security risk, or data loss. Everything else is an issue, and you say so.
 
+## How much rigour a change earns
+
+The bar above decides WHAT gets fixed. Nothing decided HOW MUCH ceremony a fix earns, so every
+change took the full protocol and a one-line correction cost forty minutes. The name for the
+missing rule is **risk-based testing**: "the test approach, in which test activities are selected,
+prioritized, and managed based on risk analysis and risk control"
+([ISTQB CTFL syllabus v4.0.1](https://istqb.org/wp-content/uploads/2024/11/ISTQB_CTFL_Syllabus_v4.0.1.pdf),
+section 5.2, page 51). Its point for us is in section 5.2.3, which lists what a risk analysis
+decides: the scope carried out, the levels and types performed, **the techniques employed and the
+coverage achieved**, and the effort estimated per task. The technique changes with the risk, not
+only the amount of it.
+
+Three tiers.
+
+- **Tier 3, full.** Anything stored, anything money passes through, anything irreversible.
+  Break-check each change separately, three engines, screenshots at both widths, greens read per
+  test.
+- **Tier 2, standard.** Behaviour a user meets that can be reverted. Break-check the change, one
+  engine, a screenshot if a screen moved.
+- **Tier 1, light.** Prose, comments, issue bodies, records. Read it back. No break-check.
+
+**Two clauses, and they are what make the tiers work rather than decorate them.**
+
+- **The tier is declared BEFORE the work, never after.** A tier chosen at the end is chosen by what
+  the work turned out to touch, so every task inflates to tier 3 by discovering something, which is
+  the state this section exists to leave. Declared first, a tier can be wrong in the direction that
+  saves time, and that is the only version of it worth having.
+- **A finding made during a tier 1 change goes to the tracker, not into the session.** That is the
+  clause that stops a comment correction becoming two hours. The bar above is the only exception and
+  it is unchanged: a false displayed figure, a security risk or data loss is fixed now, whatever
+  tier the task was declared at.
+
+**Tier 1 is exempt from MEASUREMENT, not from SCRUTINY, and reading is its technique** in the way
+the break step is tier 2's. It is not a lighter version of the same check, it is a different one,
+which is the whole reason the tiers are named after techniques rather than after amounts. Three of
+the most expensive findings of August 2026 came from reading tier 1 material and from nothing else:
+an ASVS citation pointing at a requirement the map declares unmet, a comment falsified six hours
+after it was written, and a report whose figures had been quoted rather than re-run. No test could
+have reached any of the three. So the sentence that has to survive editing is this one: tier 1 says
+read it, not skip it.
+
 ## Restricted paths
 
 - `scr/` is SCREENSHOTS, not scratch. `keys/` holds private keys. `.env` holds secrets.
