@@ -60,8 +60,17 @@ export async function decideAutoAccount(input: {
 	chosenId?: string | null;
 }): Promise<AutoAccountDecision> {
 	if (input.chosenId) {
-		// The answer is a CLAIM (ASVS 5.0 V8.1.1), resolved against this user's own accounts and
-		// never trusted for having arrived in a form. `resolveImportBucketAccountById` is called
+		// The answer is a CLAIM (ASVS 5.0 V8.2.2, data-specific access / IDOR / BOLA, and V8.3.1 for
+		// enforcing it at the service layer rather than in the browser), resolved against this
+		// user's own accounts and never trusted for having arrived in a form.
+		//
+		// V8.2.2 and not V8.1.1, which several older comments in this tree cite for the same rule.
+		// V8.1.1 is a DOCUMENTATION requirement, and `scripts/security/asvs-5.0-l1-mapping.md:238`
+		// marks it `X`, not met, tracked as #246. Citing an unmet documentation requirement as the
+		// control a line implements reads, to the next person auditing this, as evidence for
+		// something it is not.
+		//
+		// `resolveImportBucketAccountById` is called
 		// rather than its query retyped, so the auto path and the designation path refuse an
 		// account that is not yours, or archived, by one rule and with one pair of answers.
 		try {

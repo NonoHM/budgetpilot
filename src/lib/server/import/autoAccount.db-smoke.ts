@@ -200,7 +200,7 @@ describe('the auto path’s destination, now that the file is read too', () => {
 
 	it('treats an account reference as a claim, not a fact', async () => {
 		// SEPARATES: « the posted id is resolved against THIS user's accounts » FROM « it is trusted
-		// because it arrived in a form ». ASVS 5.0 V8.1.1. Only a real engine holds the other user's
+		// because it arrived in a form ». ASVS 5.0 V8.2.2. Only a real engine holds the other user's
 		// row, which is why this assertion cannot be written against the route's fake.
 		expect.assertions(2);
 		await makeAccount(mine, 'BP Compte courant', 'banque_populaire');

@@ -2169,7 +2169,7 @@ describe('two accounts of one source, on the auto path', () => {
 
 	it('treats the posted account as a claim rather than a fact', async () => {
 		// SEPARATES: « an id that does not resolve against this user is refused » FROM « it is used
-		// because it arrived in a form ». ASVS 5.0 V8.1.1. The id below is well formed and belongs
+		// because it arrived in a form ». ASVS 5.0 V8.2.2. The id below is well formed and belongs
 		// to nobody, which is the shape a hand-made request has.
 		expect.assertions(4);
 		seedTwoCsvAccounts();
