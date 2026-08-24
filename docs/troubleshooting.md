@@ -74,7 +74,7 @@ exact: same protocol, same host, same port, no trailing slash.
 If you changed the port and your `.env` has **no** `ORIGIN` line, there is
 nothing else to do: compose builds `ORIGIN` from `APP_PORT`, so the two cannot
 drift apart. If your `.env` **does** set `ORIGIN`, that line wins over the
-default and both values have to move together — or delete the line and let the
+default and both values have to move together. Or delete the line and let the
 default do it. Restart after editing.
 
 ## Login succeeds then bounces me straight back to the login page

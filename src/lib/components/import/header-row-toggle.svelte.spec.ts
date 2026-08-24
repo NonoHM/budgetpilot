@@ -48,6 +48,13 @@ function open() {
 		file: FILE,
 		initialAssignment: ASSIGNMENT,
 		candidates: {},
+		// A resolved account, because the primary refuses a submission without one. This file measures
+		// what the header-row answer does to a submission, so leaving it unchosen would make both
+		// tests measure the account guard instead.
+		accounts: [
+			{ id: 'account-1', name: 'BP · Compte courant', discriminant: '4417', transactionCount: 128 }
+		],
+		initialAccountId: 'account-1',
 		onSubmit: (result: Record<string, unknown>) => submissions.push(result)
 	} as never);
 	return submissions;

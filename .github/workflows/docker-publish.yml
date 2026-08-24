@@ -119,9 +119,44 @@ jobs:
         id: meta
         with:
           images: ghcr.io/${{ steps.image.outputs.name }}
+          # Three tags, and the middle one is the only thing an operator can pin that both
+          # receives fixes and refuses to cross a major.
+          #
+          # `latest` alone forced a choice between never being patched (pin the exact version)
+          # and being carried into the next major unattended (`docker compose pull` on `latest`).
+          # A major version is a promise that something will break; a tag that walks across one
+          # while nobody is watching is the one place that promise cannot be kept.
+          #
+          # `type=semver` rather than `type=raw` for the first two because only semver parses the
+          # version into components. `value=` supplies the version explicitly: this workflow can
+          # be dispatched against a tag, so metadata-action must not infer it from `github.ref`,
+          # which is what it would do otherwise and which is the mismatch the checkout comment
+          # above this job already records.
+          #
+          # THE TWO FLOATING TAGS TAKE DIFFERENT CODE PATHS INSIDE THE ACTION, and that is the
+          # whole reason the `enable=` below exists rather than being left to the action.
+          #
+          # `procSemver` detects a prerelease: given `1.0.0-rc.1` it emits `{{version}}` alone and
+          # never sets its `latest` flag, so `{{major}}` is suppressed and `:1` is safe with
+          # nothing written here.
+          #
+          # `procRaw` performs NO detection of any kind. It sets the value it was given and returns.
+          # `latest` is a raw tag, so without the guard a prerelease publishes as `1.0.0-rc.1` AND
+          # moves `:latest` onto it, which is precisely the promise the three tags exist to keep.
+          #
+          # `contains(version, '-')` is the whole test: a semver prerelease always carries a `-`,
+          # and a stable version never does. Build metadata uses `+` and is not a prerelease.
+          #
+          # MEASURED, and one figure is worth expecting: on a STABLE release the action emits
+          # `latest` TWICE, once from `flavor: latest=auto` on the semver tag and once from the raw
+          # line. That is harmless, and it also means the raw line is redundant exactly where it is
+          # wanted and was the sole cause of `latest` moving where it is not. It is kept explicit
+          # rather than deleted so the tag a user pulls is stated here rather than inferred from a
+          # default two layers down.
           tags: |
-            type=raw,value=${{ steps.version.outputs.version }}
-            type=raw,value=latest
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }}
+            type=semver,pattern={{major}},value=${{ steps.version.outputs.version }}
+            type=raw,value=latest,enable=${{ !contains(steps.version.outputs.version, '-') }}
 
   # Builds the image and boots it on every provider before a single layer reaches GHCR. It runs
   # on pull requests too (see ci.yml), but repeating it here is not redundant: this workflow

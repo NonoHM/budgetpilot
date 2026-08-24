@@ -4,6 +4,8 @@ import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { isLinkableNetWorthAccountType, isNetWorthAccountType } from '$lib/domain/netWorth';
 import { isSavingsGoalLinkableAccountType } from '$lib/domain/savingsGoal';
+import { money, toInputValue } from '$lib/domain/money';
+import { getLocale } from '$lib/paraglide/runtime';
 import {
 	createNetWorthAccount,
 	deleteNetWorthAccount,
@@ -47,7 +49,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 	return {
 		accounts: accounts.map((account) => ({
 			...account,
-			balanceEuros: formatBalanceInput(account.balanceCents)
+			balanceEuros: formatBalanceInput(account)
 		})),
 		series,
 		manualAccountNetWorthAccountId,
@@ -209,6 +211,20 @@ function getErrorStatus(caught: unknown): number {
 	return isHttpError(caught) ? caught.status : 400;
 }
 
-function formatBalanceInput(balanceCents: number): string {
-	return (balanceCents / 100).toFixed(2).replace('.', ',');
+/**
+ * The account's own denomination, not the application default.
+ *
+ * The one-line change the design note promised: `money(balanceCents)` used to take the default
+ * currency and the default exponent, so a non-euro account rendered with euro decimals. It now
+ * reads the row, which is what storing the pair was for. `toInputValue` takes its fraction digits
+ * from the EXPONENT rather than from locale data, deliberately, so an account stored at exponent 2
+ * shows two decimals even for a code CLDR renders with none. See docs/audits/
+ * 2026-08-21-stored-forms-design.md, Part B, for the fifteen codes where the two disagree.
+ */
+function formatBalanceInput(account: {
+	balanceCents: number;
+	currency: string;
+	exponent: number;
+}): string {
+	return toInputValue(money(account.balanceCents, account.currency, account.exponent), getLocale());
 }

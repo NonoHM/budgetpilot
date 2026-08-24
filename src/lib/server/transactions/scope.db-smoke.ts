@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { describe, it, expect, beforeAll, afterEach } from 'vitest';
 import { writeFileSync } from 'node:fs';
 import * as m from '$lib/paraglide/messages';
@@ -145,7 +146,7 @@ async function seedFixture(): Promise<Fixture> {
 	const userId = user.id;
 
 	const account = await prisma.account.create({
-		data: { userId, name: 'Scope smoke account' },
+		data: { ...DEFAULT_DENOMINATION, userId, name: 'Scope smoke account' },
 		select: { id: true }
 	});
 
@@ -244,6 +245,7 @@ async function seedFixture(): Promise<Fixture> {
 							? batches[2].id
 							: null,
 			date: isoDay(index),
+			...DEFAULT_DENOMINATION,
 			label: `${prefix} ${index}`,
 			amountCents: index % 3 === 0 ? 4_500 : 12_000,
 			type: index % 3 === 0 ? 'income' : index % 3 === 1 ? 'expense' : null,

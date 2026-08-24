@@ -1,4 +1,4 @@
-import { MAX_MANUAL_AMOUNT_CENTS, parseMoneyCents } from './money';
+import { MAX_MANUAL_AMOUNT_CENTS, parseMoney } from './money';
 
 /**
  * The arithmetic behind the split editor's remainder band (design 1d), kept apart from the
@@ -47,7 +47,7 @@ export interface RemainderState {
  *
  * `minCents: 0` is the OTHER gate and it belongs here rather than downstream (#199). A part is
  * typed as a magnitude and its stored sign is the parent's, so a minus has no meaning the editor
- * can act on — but `parseMoneyCents` never gated `-` (only `+`, behind `allowPlusSign`), so
+ * can act on — but the shared parser never gated `-` (only `+`, behind `allowPlusSign`), so
  * « -60,00 » parsed to -6000 and was ADDED to the placed total. On an 80,00 € expense with a
  * 20,00 € second part the band moved to « 120,00 € » — twice the amount, in the wrong direction —
  * and flagged nothing, because a non-null non-zero number is what `resolveRemainder` treats as a
@@ -55,12 +55,14 @@ export interface RemainderState {
  * the same value.
  */
 export function parseDraftAmountCents(raw: string): number | null {
-	return parseMoneyCents(raw, {
-		allowZero: true,
-		minCents: 0,
-		maxAbsCents: MAX_MANUAL_AMOUNT_CENTS,
-		requireSafeInteger: true
-	});
+	return (
+		parseMoney(raw, {
+			allowZero: true,
+			minMinorUnits: 0,
+			maxAbsMinorUnits: MAX_MANUAL_AMOUNT_CENTS,
+			requireSafeInteger: true
+		})?.minorUnits ?? null
+	);
 }
 
 export function resolveRemainder(

@@ -30,6 +30,10 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	// fourth site deciding for itself which columns "where did the money go" needs.
 	const exportSelect = {
 		id: true,
+		// Selected for ONE reason and it is not a column of the file: the account name written into
+		// every line may only be written when every line came from the SAME account, and that is a
+		// property of the rows rather than of the request. See `accountNameFor` below.
+		accountId: true,
 		date: true,
 		label: true,
 		amountCents: true,
@@ -55,7 +59,8 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 	const csv = buildTransactionsCsv(
 		transactions,
 		buildCategoryNatureMap(mappings),
-		scope.filters.category || undefined
+		scope.filters.category || undefined,
+		{ accountName: await accountNameFor(user.id, transactions) }
 	);
 	const dateStamp = new Date().toISOString().slice(0, 10);
 
@@ -66,3 +71,64 @@ export const GET: RequestHandler = async ({ locals, url }) => {
 		}
 	});
 };
+
+/**
+ * The name of the account these rows came from, or null when they came from more than one.
+ *
+ * ## The scope has to be established before it can be named, and that is the whole function
+ *
+ * `buildTransactionsCsv`'s own contract says a file whose rows come from several accounts names
+ * NONE, and `readMaisonV3Account` refuses a `compte` column that is not constant for the same
+ * reason: on re-import a wrong name does not fail, it FILES THE ROWS somewhere they never were.
+ * So the answer is derived from the rows actually collected rather than from the filters, because
+ * a filter that happens to select one account and a filter that names one are the same request.
+ *
+ * Zero accounts (an empty export) is null too: there is nothing to name.
+ *
+ * ## `userId` is in the same where clause, and it is not redundant
+ *
+ * The rows are already scoped, so this second lookup could take the id on trust. It does not: an id
+ * read off a row and handed back to the database is exactly the shape that leaks a name across
+ * users the moment the row scoping is loosened anywhere upstream, and the cost of the clause is a
+ * word. `AGENTS.md`: any object reference is a claim, including one the application produced.
+ */
+async function accountNameFor(
+	userId: string,
+	rows: readonly { accountId: string }[]
+): Promise<string | null> {
+	const distinct = new Set(rows.map((row) => row.accountId));
+	if (distinct.size !== 1) return null;
+	const [accountId] = [...distinct];
+	/**
+	 * FOUND BY A FAKE THAT REFUSES TO GUESS, not by review, and it is a Prisma trap rather than a
+	 * defensive nicety: `where: { id: undefined, userId }` is not an impossible query, it is the
+	 * query WITHOUT the id clause, so it returns whichever account of this user comes first and
+	 * writes that name onto rows it has nothing to do with. `accountId` is a required column, so the
+	 * value cannot be absent in production; the cost of saying so is one line and the cost of being
+	 * wrong is a file that misfiles its own rows on re-import.
+	 */
+	if (typeof accountId !== 'string' || accountId.length === 0) return null;
+	/**
+	 * THE STORED NAME, not `displayAccountName`, and the asymmetry is deliberate.
+	 *
+	 * Every SCREEN substitutes: the generic bucket's stored name is a lookup key and reads as one.
+	 * This column is not a screen. It is written to BE READ BACK as a join key, matched through
+	 * `computeNameKey` against the stored name, so substituting here would write a string no row
+	 * holds and the file would stop naming its own account.
+	 *
+	 * **Stated as intent, because that is what it is: nothing reads it yet.** Rank 2 of
+	 * `resolveStatementAccount` is the reader and is not implemented (see its own comment, and
+	 * #464), so today the only caller of `readMaisonV3Account` is a db-smoke. The decision stands on
+	 * what wiring rank 2 would need rather than on a mechanism already running, and saying so in the
+	 * present tense is how a justification outlives its reason.
+	 *
+	 * KNOWN COST, recorded rather than fixed: an English user exporting from the generic bucket
+	 * gets its French storage literal in a column they can read. Fixing that means the reader
+	 * substituting too, which is a change to the format's contract rather than to this line.
+	 */
+	const account = await prisma.account.findFirst({
+		where: { id: accountId, userId },
+		select: { name: true }
+	});
+	return account?.name ?? null;
+}

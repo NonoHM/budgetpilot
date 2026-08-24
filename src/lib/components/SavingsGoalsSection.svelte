@@ -8,6 +8,8 @@
 	import TapLink from './ui/TapLink.svelte';
 	import SavingsGoalForm from './SavingsGoalForm.svelte';
 	import SavingsGoalDetailModal from './SavingsGoalDetailModal.svelte';
+	import { money, toInputValue } from '$lib/domain/money';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import type { SavingsGoalStatus } from '$lib/domain/savingsGoal';
 	import * as m from '$lib/paraglide/messages';
 	import { cardBase } from '$lib/styles';
@@ -70,7 +72,7 @@
 	}
 
 	function formatEurosInput(cents: number): string {
-		return (cents / 100).toFixed(2).replace('.', ',');
+		return toInputValue(money(cents), getLocale());
 	}
 </script>
 

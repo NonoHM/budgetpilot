@@ -3,6 +3,7 @@ import { mapTransactionAllocations, getEffectiveCategory } from './nature';
 import type { TransactionRowForMapping } from './nature';
 import { resolveTransactionType } from './totals';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { money, toDecimalString } from '$lib/domain/money';
 
 /**
  * The CSV a user downloads from /transactions, built from ALLOCATIONS rather than from parent rows.
@@ -39,9 +40,48 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
  * `2/3` and the maison v2 parser refuses it by name ("répartition incomplète") instead of
  * re-importing a smaller, wrong répartition. A filtered export is a view of the screen, not a
  * backup — see docs/using/split-transactions.md.
+ *
+ * The fourth column past `source_bancaire` is `compte`, added by version 3:
+ *
+ *  - `compte`, the account these rows came from, by NAME. It is what lets a re-import land back
+ *    on the account it left rather than in a fresh CSV bucket, which is the difference between a
+ *    round trip that deduplicates and one that doubles every row. Blank when the caller does not
+ *    know its account: the column still exists, because the header is frozen and a file must have
+ *    the width its header declares.
+ *
+ * **This constant is a SEPARATE literal from `import/profiles/maison-v3.ts`'s, deliberately.** The
+ * two are pinned equal by an assertion (`profiles/maison-v2.spec.ts` did it for version 2, and
+ * `maison-v3.spec.ts` does it now) rather than being one constant read twice, so that adding a
+ * column here without telling the parser is a red test rather than a silent agreement. A
+ * comparison whose two sides derive from one source is an identity, and it passes always.
  */
 export const TRANSACTION_CSV_HEADER =
-	'date;libelle;categorie;montant;type;nature;source_bancaire;montant_total;part;categorie_parent';
+	'date;libelle;categorie;montant;type;nature;source_bancaire;montant_total;part;categorie_parent;compte';
+
+/**
+ * Everything past the two arguments this function had before the account column existed.
+ *
+ * **A fourth parameter carrying an OBJECT rather than a fourth string**, and the reason is the one
+ * CLAUDE.md gives for boundary fixtures: two adjacent optional `string` parameters can be
+ * transposed at a call site and neither the compiler nor a test would say so: a category filter
+ * written into the account column and an account name used as a filter both produce a plausible
+ * file. The disjoint type makes that a compile error.
+ *
+ * `categoryFilter` was NOT folded in here at the same time, which would have been tidier: it is
+ * passed positionally by `routes/transactions/export/+server.ts`, and moving it is a caller-visible
+ * break in a file this change may not touch. The two merge in one later pass or not at all.
+ */
+export interface TransactionsCsvOptions {
+	/**
+	 * The name of the account these rows came from, written into every line.
+	 *
+	 * One name for the whole file rather than one per row, because the callers that have an answer
+	 * export one account's rows. A file whose rows come from several accounts names none, and
+	 * `readMaisonV3Account` refuses a column that is not constant for exactly that reason: it must
+	 * ask rather than misfile the rows it guessed wrong about.
+	 */
+	accountName?: string | null;
+}
 
 const FORMULA_INJECTION_PATTERN = /^[=+\-@\t\r]/;
 const NEEDS_QUOTING_PATTERN = /[;"\n\r]/;
@@ -51,9 +91,13 @@ export function buildTransactionsCsv(
 	mappingMap: Map<string, TransactionNature>,
 	/** The active `?category=` filter, if any — see the doc comment above. `undefined`/empty means
 	 *  no filter, and every allocation is emitted exactly as before this parameter existed. */
-	categoryFilter?: string
+	categoryFilter?: string,
+	options: TransactionsCsvOptions = {}
 ): string {
 	const categoryKey = categoryFilter ? computeNameKey(categoryFilter) : null;
+	// Trimmed here rather than at the reader: a name of blanks names no account, and the two sides
+	// of the round trip must agree about which cell values mean "nothing".
+	const accountName = (options.accountName ?? '').trim();
 	const rows = transactions.flatMap((transaction) => {
 		const allocations = mapTransactionAllocations(transaction, mappingMap);
 		const transactionType = resolveTransactionType(transaction);
@@ -88,7 +132,8 @@ export function buildTransactionsCsv(
 				transaction.source,
 				formatAmount(totalCents),
 				`${index + 1}/${allocations.length}`,
-				parentCategory
+				parentCategory,
+				accountName
 			]
 				.map(escapeCsvField)
 				.join(';')
@@ -99,7 +144,7 @@ export function buildTransactionsCsv(
 }
 
 function formatAmount(amountCents: number): string {
-	return (amountCents / 100).toFixed(2);
+	return toDecimalString(money(amountCents));
 }
 
 function escapeCsvField(value: string): string {

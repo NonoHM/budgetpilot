@@ -26,10 +26,14 @@ openssl rand -hex 32      # -> TOTP_ENCRYPTION_KEY
 ```
 
 ```bash
-npx prisma generate
+npm run db:generate
 npx prisma migrate dev
 npm run dev
 ```
+
+`npm run db:generate` rather than `npx prisma generate`: the latter builds the
+client for the provider you configured, and `server/database/client.ts` imports
+all three, so the build fails on the two you skipped.
 
 `npm run setup` generates the three secrets for you instead of the manual
 `openssl` step above. Running the app with Docker rather than the dev
@@ -41,7 +45,7 @@ server, or stuck on any of this? See
 Run the full validation suite locally. It must be 100% green:
 
 ```bash
-npx prisma generate
+npm run db:generate
 npm run lint            # prettier --check + eslint
 npm run check           # svelte-kit sync + paraglide compile + svelte-check
 npm run test:unit -- --run
@@ -57,7 +61,7 @@ other providers' schemas:
 
 ```bash
 npx prisma migrate dev --name <name>
-npx prisma generate
+npm run db:generate
 npm run db:schemas
 ```
 
@@ -82,7 +86,7 @@ Never run `prisma migrate reset` against a database you care about.
 - **Comments**: only when the _why_ isn't obvious from the code itself (a
   non-obvious constraint, a workaround, a subtle invariant), not a
   restatement of what the code does.
-- **No em dashes (`—`)** in anything written for a reader: documentation,
+- **No em dashes (`U+2014`)** in anything written for a reader: documentation,
   comments, commit messages, PR and issue titles and bodies. Use a colon,
   a comma, parentheses, or a full stop, whichever the sentence wants, and
   not a hyphen standing in for the same construction. Quoted material (a

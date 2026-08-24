@@ -4,6 +4,22 @@ import type { ParsedCsvRow } from './types';
 import { normalizeParsedRows, parseRows } from './utils/csv';
 import { measureZipExpansion, resolveXlsxMaxUncompressedBytes, ZipBoundError } from './zipBounds';
 
+/**
+ * The upload ceiling for a statement, and the ONLY declaration of it.
+ *
+ * It was declared three times: here, and again as a route-local `IMPORT_MAX_BYTES` in both
+ * `/import` and `/import/columns`. All three read 256_000, so nothing was wrong and nothing could
+ * have gone red. What that costs is a future edit: the two screens refuse the same upload with the
+ * same message, so moving one and not the others makes them disagree about which files are legal
+ * while still agreeing about what to say. `.env.example` documents the figure as "separate, and
+ * not configurable", which was true of the documentation and false of the code, since the
+ * documentation had one source and the code had three.
+ *
+ * Deliberately not an environment variable. `BODY_SIZE_LIMIT` bounds the request, and
+ * `IMPORT_XLSX_MAX_UNCOMPRESSED_MB` bounds what a zip expands to; this bounds the file itself and
+ * nothing has asked to tune it. Adding a variable would make a fourth thing an operator has to get
+ * right for an upload to work.
+ */
 export const IMPORT_FILE_MAX_BYTES = 256_000;
 
 export type ImportFileFormat = 'csv' | 'xlsx';

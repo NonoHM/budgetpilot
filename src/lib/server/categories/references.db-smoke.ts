@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -107,7 +108,7 @@ beforeEach(async () => {
 	locals = { user: { id: userId, email: 'refs@budgetpilot.invalid', role: 'USER' } };
 
 	const account = await prisma.account.create({
-		data: { userId, name: 'Compte', nameKey: computeNameKey('Compte') },
+		data: { ...DEFAULT_DENOMINATION, userId, name: 'Compte', nameKey: computeNameKey('Compte') },
 		select: { id: true }
 	});
 	const category = await prisma.category.create({
@@ -118,6 +119,7 @@ beforeEach(async () => {
 
 	await prisma.monthlyBudget.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId,
 			categoryName: 'Loisirs',
 			categoryNameKey: computeNameKey('Loisirs'),
@@ -146,6 +148,7 @@ beforeEach(async () => {
 	const now = new Date();
 	await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId,
 			accountId: account.id,
 			categoryId: category.id,
@@ -205,6 +208,7 @@ describe('renaming a category', () => {
 		});
 		const fresh = await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: account.id,
 				categoryId,
@@ -274,6 +278,7 @@ describe('deleting a category', () => {
 		// issue is about, not a row the delete could have cleaned up.
 		const fresh = await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: account.id,
 				categoryId: (

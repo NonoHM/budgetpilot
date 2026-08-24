@@ -117,6 +117,63 @@ async function uploadWideUnrecognisedStatement(page) {
  * carrying one would put French category names into an English instance's database to document a
  * panel that never shows them.
  */
+/**
+ * A statement the GENERIC profile recognises, so it imports straight through and the summary
+ * panel renders. The other two uploaders above deliberately use headers no profile knows, because
+ * their subject is the designation screen; this one's subject is what an import REPORTS, which
+ * only exists on the path where nothing had to be designated.
+ *
+ * The rows are `scripts/synthetic/make-synthetic.mjs`'s ledger, byte for byte, so the image and
+ * the generator cannot drift into disagreeing about what a statement looks like. Holder Paul
+ * Mercier, who does not exist; every merchant and every amount invented; nothing here comes from
+ * anyone's bank. It is inlined rather than read from `scr/synthetic/` for the same reason the two
+ * uploaders above are: a capture must not depend on somebody having run the generator first.
+ *
+ * Eight movements: six debits totalling 367,35 and two credits totalling 2 524,30, over
+ * 2026-06-01 to 2026-06-24. Those are the figures `assertDepictsImportSummary` pins.
+ *
+ * No `category` column, though the generic profile accepts one. The summary names no category, so
+ * carrying one would put French category names into an English instance's database to document a
+ * panel that never shows them.
+ */
+/**
+ * Answers the designation screen's ACCOUNT row, which sits above the four column roles.
+ *
+ * Not optional dressing on these captures. The row is the first thing on that screen, the primary
+ * refuses while it is unanswered, and a shot taken with it in its `todo` state photographs a screen
+ * mid-question rather than a screen doing its job, which is the same reason the columns below are
+ * designated rather than left empty.
+ *
+ * **Chooses an existing account when there is one and creates one otherwise**, because the capture
+ * has to work on both arrangements: a fresh instance whose demo user has never imported holds no
+ * statement account at all, and a run made after the `imports` group has left two behind holds
+ * several. Branching on what the panel offers rather than on which group ran first keeps the two
+ * from having to be captured in a fixed order.
+ *
+ * The created name is a plain label a person would type, never anything read out of a file.
+ */
+async function answerAccountRow(page, name) {
+	// `:visible`, and it is the same trap the summary assertion below records: `/import/columns`
+	// renders BOTH breakpoint chromes into the DOM, so the row exists twice and an unscoped
+	// `.first()` is whichever one the markup happens to put first rather than the one on screen.
+	const row = page.locator('button[aria-haspopup="listbox"]:visible').first();
+	await row.click();
+	// Waited for rather than slept through: the panel opening is the precondition for everything
+	// below, and a timeout here says « the row did not open », where a sleep says « New account is
+	// missing », which sends the next reader to the wrong place. That is exactly what happened on
+	// the first run of this helper.
+	await page.getByRole('listbox').first().waitFor({ state: 'visible', timeout: 5000 });
+	const options = page.getByRole('option');
+	if ((await options.count()) > 0) {
+		await options.first().click();
+	} else {
+		await page.getByRole('button', { name: 'New account' }).click();
+		await page.getByLabel('Account name').fill(name);
+		await page.getByRole('button', { name: 'Create and select' }).click();
+	}
+	await page.waitForTimeout(500);
+}
+
 async function uploadSyntheticStatement(page) {
 	const form = page.locator('form[method="POST"]:visible').first();
 	await form.locator('input[name="csvFile"]').setInputFiles({
@@ -446,8 +503,10 @@ const GROUPS = {
 				await uploadUnrecognisedStatement(page);
 				await page.getByRole('button', { name: 'Designate the columns' }).click();
 				await page.waitForURL(/\/import\/columns$/);
+				await answerAccountRow(page, 'Current account');
 				// Designated, so the capture shows the screen doing its job rather than empty: the
-				// four rows carrying real column names and real values, and the count at 3 of 3.
+				// account row answered, the four rows carrying real column names and real values, and
+				// the count at 3 of 3.
 				for (const [row, column] of [
 					[/^Date, no column designated/, /^Jour\./],
 					[/^Label, no column designated/, /^Intitule operation\./],
@@ -468,6 +527,7 @@ const GROUPS = {
 				await uploadWideUnrecognisedStatement(page);
 				await page.getByRole('button', { name: 'Designate the columns' }).click();
 				await page.waitForURL(/\/import\/columns$/);
+				await answerAccountRow(page, 'Current account');
 				for (const [row, column] of [
 					[/^Date, no column designated/, /^zone_1\./],
 					[/^Label, no column designated/, /^zone_2\./],
@@ -487,6 +547,7 @@ const GROUPS = {
 				await uploadUnrecognisedStatement(page);
 				await page.getByRole('button', { name: 'Designate the columns' }).click();
 				await page.waitForURL(/\/import\/columns$/);
+				await answerAccountRow(page, 'Current account');
 				await page.getByRole('button', { name: /^Amount, no column designated/ }).click();
 				await page.waitForTimeout(300);
 			}
@@ -663,6 +724,15 @@ const GROUPS = {
 			url: '/settings',
 			clipAround: 'Sessions',
 			clipMinHeight: 200
+		},
+		{
+			// The accounts a statement can be filed into, managed here and created only by importing.
+			// Its premise is asserted rather than assumed: see `assertDepictsAccountsSection`.
+			file: 'account/accounts-desktop.png',
+			url: '/settings',
+			assert: assertDepictsAccountsSection,
+			clipAround: 'Accounts',
+			clipMinHeight: 220
 		}
 	],
 	admin: [
@@ -679,6 +749,34 @@ const GROUPS = {
 		}
 	]
 };
+
+/**
+ * The Accounts section's premise, checked before the file is written.
+ *
+ * The section renders its heading whether or not the user holds an account, and the EMPTY state is
+ * a different picture with a different sentence. A capture taken on an instance whose demo user has
+ * never imported would photograph that empty state under a caption describing rows, and nothing
+ * downstream could tell the two apart. So the assert names the state the image is documenting: at
+ * least one Rename control whose accessible name is an ACCOUNT's.
+ *
+ * Scoped through `accounts_rename_aria`'s own shape rather than through a bare `/^Rename /`. The
+ * tags list on this same page carries a rename control too, and its accessible name is the bare
+ * verb today only because `tags_rename_aria` is declared and not yet wired: the day somebody wires
+ * it, an unscoped matcher starts passing on a page with no accounts at all, which is the exact
+ * state this assert exists to refuse.
+ */
+async function assertDepictsAccountsSection(page) {
+	// `#comptes` and not a `section` element: the card is a `<div id="comptes">` (the settings page
+	// draws every card the same way), so a role or element locator would find nothing here and the
+	// capture would fail for the wrong reason.
+	const card = page.locator('#comptes');
+	const renames = await card.getByRole('button', { name: /^Rename ./ }).count();
+	if (renames < 1) {
+		throw new Error(
+			`[docs] accounts-desktop: expected at least one account row with a Rename control, found ${renames}`
+		);
+	}
+}
 
 /** Opens the enrolment dialog from the two-factor switch. */
 async function openTotpSetup(page) {

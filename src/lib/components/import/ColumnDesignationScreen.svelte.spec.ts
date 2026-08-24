@@ -86,6 +86,17 @@ function mount(props: Record<string, unknown> = {}) {
 	const { container } = render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: EMPTY_ASSIGNMENT,
+		/**
+		 * A RESOLVED account in every mount, so a press reaches what these tests measure.
+		 *
+		 * The account row refuses the primary until one is chosen, which is its own behaviour with
+		 * its own tests. Leaving it unchosen here would make every press in this file measure that
+		 * guard instead of the thing it names.
+		 */
+		accounts: [
+			{ id: 'account-1', name: 'BP · Compte courant', discriminant: '4417', transactionCount: 128 }
+		],
+		initialAccountId: 'account-1',
 		...props
 	});
 	// 390x844 exactly, which is what every figure below was drawn against.
@@ -142,8 +153,18 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 		return last.getBoundingClientRect().bottom - body.getBoundingClientRect().top + paddingBottom;
 	};
 
-	it('is 449 in state 0, leaving 187 px of air', () => {
-		// 16 padding + 40 file block + 14 gap + 355 card + 24 padding.
+	it('is 531 in state 0, leaving 105 px of air', () => {
+		// 16 padding + 40 file block + 14 gap + 68 account row + 14 gap + 355 card + 24 padding.
+		//
+		// WAS 449. THE ACCOUNT ROW ADDS 82, AND THE PLATE PREDICTED 81 (6b: « Coût mesuré : +81 px »).
+		// The one-pixel difference is the row's own 68 against the 14 px body gap, and it is recorded
+		// rather than rounded away.
+		//
+		// THE PLATE'S SECOND HALF DOES NOT HOLD HERE, AND THAT IS THE FINDING. 6b continues « le corps
+		// défile de 50 », so the plate expected this screen to begin scrolling. It does not: state 2
+		// below measures 631 of 636. The plate was sized against a screen that still carried the
+		// « Format du fichier » row, and this branch had already deleted it for 62 px. The prediction
+		// was right about the cost and wrong about the consequence, because the ground moved under it.
 		//
 		// WAS 511 with 125 px of air, and the 62 px difference is the « Format du fichier » row plus
 		// its gap: a grey heading with nothing under it, in every state and at both widths, deleted
@@ -151,19 +172,19 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 		// to a range — a bound would stop this test noticing the next thing that grows.
 		const { body } = mount();
 
-		expect(contentHeight(body)).toBe(449);
-		expect(636 - contentHeight(body)).toBe(187);
+		expect(contentHeight(body)).toBe(531);
+		expect(636 - contentHeight(body)).toBe(105);
 	});
 
-	it('is still 449 in state 1, because designating a row does not move anything', () => {
+	it('is still 531 in state 1, because designating a row does not move anything', () => {
 		// The promise is that nothing shifts as answers arrive. State 2 is excluded on purpose and
 		// gets its own figure below: it is the one state that legitimately adds content.
 		const { body } = mount({ initialAssignment: PARTIAL });
 
-		expect(contentHeight(body)).toBe(449);
+		expect(contentHeight(body)).toBe(531);
 	});
 
-	it('is 549 in state 2, which is the 100 px the memorisation block adds', () => {
+	it('is 631 in state 2, which is the 100 px the memorisation block adds', () => {
 		// 86 for the sentence and its opt-out link, plus the 14 px gap. The plate carries this figure
 		// separately from the 449 precisely because it is the one state that grows, and the point of
 		// stating it is that it stays under 636: the screen does not begin to scroll.
@@ -172,18 +193,24 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 		// 25 px of air and a 44 px checkbox row could not be added without the screen beginning to
 		// scroll. At 549 it carries 87, which is where the correction control's placement question
 		// stops being blocked by geometry.
+		//
+		// 631 of 636 after the account row. Five pixels of air, and the assertion below is what makes
+		// that a fact rather than a hope: the screen still does not begin to scroll, which is exactly
+		// what the plate expected it to lose.
 		const { body } = mount({ initialAssignment: COMPLETE });
 
-		expect(contentHeight(body)).toBe(549);
+		expect(contentHeight(body)).toBe(631);
 		expect(body.scrollHeight).toBe(body.clientHeight);
 	});
 
-	it('ends the card at 425 of 636', () => {
-		// 16 + 40 + 14 + 355. The second figure the plate calls the promise, and it is about a
-		// POSITION rather than a size, so no height assertion can stand in for it.
+	it('ends the card at 507 of 636', () => {
+		// 16 + 40 + 14 + 68 + 14 + 355. The second figure the plate calls the promise, and it is about
+		// a POSITION rather than a size, so no height assertion can stand in for it. Moved by the same
+		// 82 as the height above, which is what says the account row was inserted ABOVE the card
+		// rather than inside it.
 		const { body, card } = mount();
 
-		expect(card.getBoundingClientRect().bottom - body.getBoundingClientRect().top).toBe(425);
+		expect(card.getBoundingClientRect().bottom - body.getBoundingClientRect().top).toBe(507);
 	});
 
 	it('does not scroll, in any state', () => {

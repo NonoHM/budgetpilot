@@ -1,5 +1,5 @@
 export type TransactionSource =
-	'manual' | 'csv' | 'banque_populaire' | 'mock_connector' | 'enablebanking';
+	'manual' | 'csv' | 'revolut' | 'banque_populaire' | 'mock_connector' | 'enablebanking';
 
 export type TransactionKind = 'income' | 'expense';
 export type TransactionNature =

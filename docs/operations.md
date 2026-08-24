@@ -29,12 +29,31 @@ Ollama models. Nothing undoes it.
 
 ## Updating
 
+**Take a backup first.** Settings, then Export, which downloads a JSON file of
+your account. The rollback below needs it: migrations are not reversible, so
+if a release goes wrong the way back is the backup, not the old image. It
+takes a few seconds and it is the difference between a bad release costing you
+an afternoon and costing you your data.
+
 **Published image:**
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
+
+`docker compose pull` follows whichever tag you pinned. On `latest` that
+includes the next major version, which is allowed to break compatibility. To
+stay on a major and still receive fixes, pin the floating major tag in your
+`.env`:
+
+```dotenv
+BUDGETPILOT_VERSION=1
+```
+
+That tag moves with every 1.x release and never onto 2.0. Pinning an exact
+version instead (`1.2.3`) is also fine, and means you never receive a fix
+until you change it.
 
 ### Checking the image is really ours
 
@@ -201,11 +220,14 @@ MySQL rather than assumed:
   statement. The migration that adds the `ColumnMapping` table is **two**
   statements on MySQL, **three** on SQLite and **four** on PostgreSQL, because
   MySQL declares both indexes inside `CREATE TABLE` while PostgreSQL adds the
-  foreign key afterwards. So a mid-file failure on PostgreSQL can leave a table
-  with its indexes and no foreign key, where the same failure on MySQL leaves
-  either no table or a complete one. Read the migration file for **your**
-  engine, under `prisma/migrations/<engine>/`, before deciding at step 3 below
-  what actually landed.
+  foreign key afterwards. The one that adds a currency and an exponent to every
+  amount is much larger: **27** statements on MySQL, **37** on PostgreSQL and
+  **63** on SQLite, which rebuilds seven tables because it cannot change a
+  column in place. So a mid-file failure on PostgreSQL can leave a table with
+  its indexes and no foreign key, where the same failure on MySQL leaves either
+  no table or a complete one. Read the migration file for **your** engine, under
+  `prisma/migrations/<engine>/`, before deciding at step 3 below what actually
+  landed.
 - **Nothing further will run until you clear the failure.** Every later start
   fails with `P3009` and names the migration. This is a feature: the app
   cannot skip past a broken migration and quietly serve the wrong schema.
@@ -237,9 +259,31 @@ The recovery, in order:
 
 **Re-running restarts the migration file from the top.** After
 `--rolled-back`, the whole file runs again, including any statement that had
-already succeeded before the failure. That is safe for a migration written to
-be idempotent and is the reason to inspect at step 3 rather than reaching for
-`--rolled-back` reflexively.
+already succeeded before the failure. That is the reason to inspect at step 3
+rather than reaching for `--rolled-back` reflexively.
+
+#### When re-running will not work
+
+Some migrations cannot be run twice. Adding a column is the common case: the
+second attempt says the column already exists and stops, so you end up back
+where you started with one more error in the log.
+
+The migration that adds a currency and an exponent to every amount is one of
+these. If it fails partway, `--rolled-back` followed by a restart fails again.
+Measured on PostgreSQL, the second attempt stops with error `42701`, "column
+already exists". The other two engines stop for the same reason with their own
+wording.
+
+**What to do instead.** Restore the backup you took at step 1 onto the previous
+version of the image, so you are on a database you understand, then work out why
+the upgrade failed before trying it again. The usual causes are the boring ones:
+the disk filled up, the database connection dropped, or the container was
+stopped mid-upgrade.
+
+You can tell the two situations apart before you touch anything. Open the
+migration file for your engine and look at the statements. If they are all
+`ALTER TABLE ... ADD COLUMN`, `CREATE TABLE` or `CREATE INDEX`, re-running will
+not work. If they are updates to existing rows, it will.
 
 If you cannot tell what state the database is in, restore the backup from
 step 1 onto the previous version of the image and ask on the issue tracker
@@ -459,18 +503,23 @@ This is the real backup: every user, every setting, every transaction.
 
 ```bash
 docker compose stop
-docker compose cp budgetpilot:/data/dev.db ./budgetpilot-backup.db
+docker compose cp budgetpilot:/data/budgetpilot.db ./budgetpilot-backup.db
 docker compose start
 ```
 
 Stopping first matters. Copying a SQLite file while the app is writing to it
 can hand you a truncated database that looks fine until you need it.
 
+**If you installed before the file was renamed, yours is `/data/dev.db`** and
+the command above will report that it does not exist. Use that name instead.
+Nothing needs migrating: the app opens whichever of the two is there, says so
+in its startup log, and keeps working either way.
+
 Restoring is the same move in reverse:
 
 ```bash
 docker compose stop
-docker compose cp ./budgetpilot-backup.db budgetpilot:/data/dev.db
+docker compose cp ./budgetpilot-backup.db budgetpilot:/data/budgetpilot.db
 docker compose start
 ```
 
@@ -688,13 +737,13 @@ better served by the volume or by `docker compose logs`.
 
 ## Where your data actually is
 
-|                          | Docker                                               | No Docker                      |
-| ------------------------ | ---------------------------------------------------- | ------------------------------ |
-| Database (SQLite)        | `budgetpilot_data` volume, mounted at `/data/dev.db` | `./dev.db` in the checkout     |
-| Database (PostgreSQL)    | `postgres_data` volume, or your own server           | your own server                |
-| Database (MySQL)         | `mysql_data` volume, or your own server              | your own server                |
-| Secrets and settings     | `.env` next to your compose file                     | `.env` in the checkout         |
-| Ollama models (if AI on) | `ollama_data` volume                                 | wherever Ollama installed them |
+|                          | Docker                                                       | No Docker                      |
+| ------------------------ | ------------------------------------------------------------ | ------------------------------ |
+| Database (SQLite)        | `budgetpilot_data` volume, mounted at `/data/budgetpilot.db` | `./dev.db` in the checkout     |
+| Database (PostgreSQL)    | `postgres_data` volume, or your own server                   | your own server                |
+| Database (MySQL)         | `mysql_data` volume, or your own server                      | your own server                |
+| Secrets and settings     | `.env` next to your compose file                             | `.env` in the checkout         |
+| Ollama models (if AI on) | `ollama_data` volume                                         | wherever Ollama installed them |
 
 Nothing else leaves the machine: no telemetry, no phone-home, no account on
 anyone's server.

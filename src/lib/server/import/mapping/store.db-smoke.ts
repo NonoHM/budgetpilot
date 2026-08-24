@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -227,7 +228,12 @@ describe('forgetting a correspondance', () => {
 			}
 		});
 		const account = await prisma.account.create({
-			data: { userId: alice, name: `Compte ${stamp}`, nameKey: computeNameKey(`Compte ${stamp}`) },
+			data: {
+				...DEFAULT_DENOMINATION,
+				userId: alice,
+				name: `Compte ${stamp}`,
+				nameKey: computeNameKey(`Compte ${stamp}`)
+			},
 			select: { id: true }
 		});
 		const category = await prisma.category.create({
@@ -236,6 +242,7 @@ describe('forgetting a correspondance', () => {
 		});
 		const transaction = await prisma.transaction.create({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId: alice,
 				accountId: account.id,
 				importBatchId: batch.id,

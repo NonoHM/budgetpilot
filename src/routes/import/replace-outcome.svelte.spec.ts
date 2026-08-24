@@ -71,15 +71,13 @@ function summary(invalidRowDetails: ImportInvalidRowDetail[]): ImportSummaryResu
 		batchId: 'batch-new',
 		invalidRowDetails,
 		hiddenInvalidRowsCount: 0,
-		netWorthLinkStatus: null
+		accountName: null
 	};
 }
 
 const DATA: PageData = {
 	user: null,
-	correction: null,
-	linkableNetWorthAccounts: [],
-	hasAllImportBucketsExisting: true
+	correction: null
 };
 
 const REPLACED_AT = '2026-08-16T08:59:00.000Z';

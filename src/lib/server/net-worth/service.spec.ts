@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 
@@ -190,6 +191,7 @@ describe('createNetWorthAccount', () => {
 
 		expect(tx.netWorthAccount.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				name: 'Livret A',
 				nameKey: computeNameKey('Livret A'),
@@ -199,6 +201,7 @@ describe('createNetWorthAccount', () => {
 		});
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: 'acc-00000001',
 				type: 'savings',
@@ -243,6 +246,7 @@ describe('createNetWorthAccount', () => {
 
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: 'acc-00000001',
 				type: 'savings',
@@ -298,7 +302,16 @@ describe('updateNetWorthAccount', () => {
 			async ({ where }: { where: Record<string, unknown> }) =>
 				'nameKey' in where
 					? null
-					: { id: 'acc-00000001', userId, type: 'savings', balanceCents: 50_000 }
+					: {
+							id: 'acc-00000001',
+							userId,
+							type: 'savings',
+							balanceCents: 50_000,
+							// Deliberately NOT the application default. A snapshot must take its account's
+							// pair, and a euro-at-2 fixture cannot tell that apart from the default.
+							currency: 'KWD',
+							exponent: 3
+						}
 		);
 
 		await updateNetWorthAccount(userId, 'acc-00000001', {
@@ -325,6 +338,8 @@ describe('updateNetWorthAccount', () => {
 		});
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				currency: 'KWD',
+				exponent: 3,
 				userId,
 				accountId: 'acc-00000001',
 				type: 'savings',
@@ -339,7 +354,16 @@ describe('updateNetWorthAccount', () => {
 			async ({ where }: { where: Record<string, unknown> }) =>
 				'nameKey' in where
 					? null
-					: { id: 'acc-00000001', userId, type: 'savings', balanceCents: 50_000 }
+					: {
+							id: 'acc-00000001',
+							userId,
+							type: 'savings',
+							balanceCents: 50_000,
+							// Deliberately NOT the application default. A snapshot must take its account's
+							// pair, and a euro-at-2 fixture cannot tell that apart from the default.
+							currency: 'KWD',
+							exponent: 3
+						}
 		);
 
 		await updateNetWorthAccount(userId, 'acc-00000001', {
@@ -356,7 +380,16 @@ describe('updateNetWorthAccount', () => {
 			async ({ where }: { where: Record<string, unknown> }) =>
 				'nameKey' in where
 					? null
-					: { id: 'acc-00000001', userId, type: 'savings', balanceCents: 50_000 }
+					: {
+							id: 'acc-00000001',
+							userId,
+							type: 'savings',
+							balanceCents: 50_000,
+							// Deliberately NOT the application default. A snapshot must take its account's
+							// pair, and a euro-at-2 fixture cannot tell that apart from the default.
+							currency: 'KWD',
+							exponent: 3
+						}
 		);
 
 		await updateNetWorthAccount(userId, 'acc-00000001', {
@@ -367,6 +400,9 @@ describe('updateNetWorthAccount', () => {
 
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				// The account's pair again, not the default: same discriminating fixture as above.
+				currency: 'KWD',
+				exponent: 3,
 				userId,
 				accountId: 'acc-00000001',
 				type: 'debt',
@@ -380,7 +416,13 @@ describe('updateNetWorthAccount', () => {
 		tx.netWorthAccount.findFirst.mockImplementation(
 			async ({ where }: { where: Record<string, unknown> }) => {
 				if ('name' in where) return { id: 'acc-other' };
-				return { id: 'acc-00000001', userId, type: 'savings', balanceCents: 50_000 };
+				return {
+					id: 'acc-00000001',
+					userId,
+					type: 'savings',
+					balanceCents: 50_000,
+					...DEFAULT_DENOMINATION
+				};
 			}
 		);
 
@@ -399,7 +441,13 @@ describe('updateNetWorthAccount', () => {
 			async ({ where }: { where: Record<string, unknown> }) =>
 				'nameKey' in where
 					? null
-					: { id: 'acc-00000001', userId, type: 'checking', balanceCents: 50_000 }
+					: {
+							id: 'acc-00000001',
+							userId,
+							type: 'checking',
+							balanceCents: 50_000,
+							...DEFAULT_DENOMINATION
+						}
 		);
 		tx.account.updateMany.mockResolvedValue({ count: 2 });
 
@@ -420,7 +468,16 @@ describe('updateNetWorthAccount', () => {
 			async ({ where }: { where: Record<string, unknown> }) =>
 				'nameKey' in where
 					? null
-					: { id: 'acc-00000001', userId, type: 'savings', balanceCents: 50_000 }
+					: {
+							id: 'acc-00000001',
+							userId,
+							type: 'savings',
+							balanceCents: 50_000,
+							// Deliberately NOT the application default. A snapshot must take its account's
+							// pair, and a euro-at-2 fixture cannot tell that apart from the default.
+							currency: 'KWD',
+							exponent: 3
+						}
 		);
 
 		await updateNetWorthAccount(userId, 'acc-00000001', {
@@ -442,7 +499,13 @@ describe('updateNetWorthAccount', () => {
 				async ({ where }: { where: Record<string, unknown> }) =>
 					'nameKey' in where
 						? null
-						: { id: 'acc-00000001', userId, type: 'real_estate', balanceCents: 50_000 }
+						: {
+								id: 'acc-00000001',
+								userId,
+								type: 'real_estate',
+								balanceCents: 50_000,
+								...DEFAULT_DENOMINATION
+							}
 			);
 			tx.account.updateMany.mockResolvedValue({ count: 0 });
 
@@ -464,7 +527,13 @@ describe('updateNetWorthAccount', () => {
 			async ({ where }: { where: Record<string, unknown> }) =>
 				'nameKey' in where
 					? null
-					: { id: 'acc-00000001', userId, type: 'real_estate', balanceCents: 50_000 }
+					: {
+							id: 'acc-00000001',
+							userId,
+							type: 'real_estate',
+							balanceCents: 50_000,
+							...DEFAULT_DENOMINATION
+						}
 		);
 
 		await updateNetWorthAccount(userId, 'acc-00000001', {
@@ -744,13 +813,15 @@ describe('recordSyncedBalance', () => {
 		tx.netWorthAccount.findFirst.mockResolvedValue({
 			id: netWorthAccountId,
 			type: 'checking',
-			balanceCents: 100_00
+			balanceCents: 100_00,
+			...DEFAULT_DENOMINATION
 		});
 
 		await recordSyncedBalance(userId, netWorthAccountId, 250_00, capturedAt);
 
 		expect(tx.netWorthSnapshot.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				accountId: netWorthAccountId,
 				type: 'checking',
@@ -813,7 +884,9 @@ describe('recordSyncedBalance', () => {
 
 		expect(tx.netWorthAccount.findFirst).toHaveBeenCalledWith({
 			where: { id: netWorthAccountId, userId: 'other-user', deletedAt: null },
-			select: { id: true, type: true, balanceCents: true }
+			// The pair is selected because the snapshot copies it: a snapshot that took the
+			// application default instead would disagree with the account it was taken from.
+			select: { id: true, type: true, balanceCents: true, currency: true, exponent: true }
 		});
 		expect(tx.netWorthAccount.updateMany).not.toHaveBeenCalled();
 		expect(tx.netWorthSnapshot.create).not.toHaveBeenCalled();

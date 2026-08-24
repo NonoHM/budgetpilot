@@ -5,6 +5,8 @@
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import SplitPartRow from './SplitPartRow.svelte';
 	import SplitRemainderBand from './SplitRemainderBand.svelte';
+	import { money, toInputValue } from '$lib/domain/money';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import {
 		MAX_SPLITS_PER_TRANSACTION,
 		MIN_SPLITS_PER_TRANSACTION,
@@ -87,7 +89,7 @@
 	}
 
 	function magnitudeString(cents: number): string {
-		return (Math.abs(cents) / 100).toFixed(2).replace('.', ',');
+		return toInputValue(money(Math.abs(cents)), getLocale());
 	}
 
 	function fromExisting(): DraftPart[] {

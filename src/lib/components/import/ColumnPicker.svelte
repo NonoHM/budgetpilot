@@ -132,6 +132,17 @@
 	/** Proposals, minus anything already in the `Désignée` group, so no card appears twice. */
 	const proposed = $derived(candidates.filter((index) => index !== designatedIndex));
 
+	/**
+	 * The proposed group's heading, computed once because it is now written twice: as the group's
+	 * accessible NAME and as the paragraph a sighted user reads. Two call sites of one sentence is
+	 * exactly where a plural rule drifts, so there is one expression of it.
+	 */
+	const proposedGroupLabel = $derived(
+		proposed.length === 1
+			? m.import_columns_group_proposed_one()
+			: m.import_columns_group_proposed_many({ count: proposed.length })
+	);
+
 	const matches = $derived.by(() => {
 		const needle = query.trim().toLowerCase();
 		const all = file.headers.map((_, index) => index);
@@ -240,44 +251,92 @@
 		class="flex flex-col gap-2 px-5"
 		data-testid="column-listbox"
 	>
+		<!--
+			EVERY CHILD OF THIS LISTBOX IS AN OPTION OR A GROUP OF OPTIONS, and that is a correction
+			rather than a style. The three headings used to be bare `<p>` elements sitting directly
+			inside `role="listbox"`, beside the `role="option"` cards. A paragraph is not in a
+			listbox's content model, so an assistive technology walking the list is entitled to skip
+			it or to report the structure as broken, and NOTHING failed: the headings rendered, the
+			options rendered, every test passed. It was found by asking whether the children were
+			options, which is the whole reason that assertion is written down.
+
+			`role="group"` with the heading as its `aria-label`, rather than moving the headings out
+			of the listbox: they scroll WITH their options, and a heading that stayed put while its
+			group scrolled away would label the wrong rows. The visible `<p>` stays and is
+			`aria-hidden`, because the group already carries the same words as its name and
+			announcing them twice is worse than announcing them once.
+		-->
 		{#if designatedIndex !== null}
-			<p class="pt-1 text-[11px] font-bold tracking-[0.03em] text-zinc-500 uppercase">
-				{m.import_columns_group_designated()}
-			</p>
-			<ColumnCard {...cardFor(designatedIndex)} />
+			<div role="group" aria-label={m.import_columns_group_designated()} class="contents">
+				<p
+					class="pt-1 text-[11px] font-bold tracking-[0.03em] text-zinc-500 uppercase"
+					aria-hidden="true"
+				>
+					{m.import_columns_group_designated()}
+				</p>
+				<ColumnCard {...cardFor(designatedIndex)} />
+			</div>
 		{/if}
 
 		{#if proposed.length > 0}
-			<p class="pt-1 text-[11px] font-bold tracking-[0.03em] text-zinc-500 uppercase">
-				{proposed.length === 1
-					? m.import_columns_group_proposed_one()
-					: m.import_columns_group_proposed_many({ count: proposed.length })}
-			</p>
-			{#each proposed as index (index)}
-				<ColumnCard {...cardFor(index)} />
-			{/each}
+			<div role="group" aria-label={proposedGroupLabel} class="contents">
+				<p
+					class="pt-1 text-[11px] font-bold tracking-[0.03em] text-zinc-500 uppercase"
+					aria-hidden="true"
+				>
+					{proposedGroupLabel}
+				</p>
+				{#each proposed as index (index)}
+					<ColumnCard {...cardFor(index)} />
+				{/each}
+			</div>
 		{/if}
 
 		{#if rest.length > 0}
-			<p class="pt-1 text-[11px] font-bold tracking-[0.03em] text-zinc-500 uppercase">
-				{m.import_columns_group_all({ count: rest.length })}
-			</p>
-			{#each rest as index (index)}
-				<ColumnCard {...cardFor(index)} />
-			{/each}
+			<div
+				role="group"
+				aria-label={m.import_columns_group_all({ count: rest.length })}
+				class="contents"
+			>
+				<p
+					class="pt-1 text-[11px] font-bold tracking-[0.03em] text-zinc-500 uppercase"
+					aria-hidden="true"
+				>
+					{m.import_columns_group_all({ count: rest.length })}
+				</p>
+				{#each rest as index (index)}
+					<ColumnCard {...cardFor(index)} />
+				{/each}
+			</div>
 		{:else if searchable && query.trim() !== ''}
 			<!--
 				A 48 px line INSIDE the listbox, not the brique-7 EmptyState: that is a page-level
 				component with a round icon, and this is a message inside a list.
+
+				`role="group"` for the same reason as the headings above: it is not an option, and the
+				listbox's children may only be options or groups. Its own label is the message, so a
+				screen reader in list mode is told why the list is empty rather than that it is.
 			-->
-			<div class="flex h-12 items-center justify-between gap-3" data-testid="search-empty">
-				<span class="text-[13px] text-zinc-500">{m.import_columns_search_no_result()}</span>
+			<div
+				role="group"
+				aria-label={m.import_columns_search_no_result()}
+				class="flex h-12 items-center justify-between gap-3"
+				data-testid="search-empty"
+			>
+				<span class="text-[13px] text-zinc-500" aria-hidden="true"
+					>{m.import_columns_search_no_result()}</span
+				>
 				<TapLink onclick={() => (query = '')}>{m.import_columns_search_clear()}</TapLink>
 			</div>
 		{/if}
 
-		<!-- The white fade and home indicator area under the last card. -->
-		<div class="h-14 shrink-0" aria-hidden="true"></div>
+		<!--
+			The white fade and home indicator area under the last card. `role="presentation"` as well
+			as `aria-hidden`: the second removes it from the accessibility tree, and the first is what
+			keeps it out of the listbox's content model for a checker reading the markup rather than
+			the tree.
+		-->
+		<div class="h-14 shrink-0" role="presentation" aria-hidden="true"></div>
 	</div>
 {/snippet}
 

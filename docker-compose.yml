@@ -9,7 +9,7 @@ services:
       # install wants. Set DATABASE_URL in .env to point at a PostgreSQL or MySQL server
       # instead, alongside DATABASE_PROVIDER (see docs/configuration.md). Written as a
       # default rather than a fixed value precisely so that .env can win here.
-      DATABASE_URL: ${DATABASE_URL:-file:/data/dev.db}
+      DATABASE_URL: ${DATABASE_URL:-file:/data/budgetpilot.db}
       DATABASE_PROVIDER: ${DATABASE_PROVIDER:-sqlite}
       NODE_ENV: production
       PORT: 3000

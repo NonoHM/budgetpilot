@@ -1,5 +1,8 @@
 import type { NameKeyBackfillReport, UserNameKeyReport } from './backfill.ts';
 import type { AccountMergeBlockReason } from './mergePlan.ts';
+// Relative and with the extension, like every other import in this subtree: this file is read by
+// `scripts/normalize-names.mjs` under Node's type stripping, where `$lib` does not resolve.
+import { money, toDecimalString } from '../../domain/money.ts';
 
 /**
  * Renders a backfill plan as plain text for an operator to read before upgrading.
@@ -182,5 +185,6 @@ function renderNetWorth(user: UserNameKeyReport, lines: string[]): void {
 }
 
 function formatCents(cents: number): string {
-	return `${(cents / 100).toFixed(2)} EUR`;
+	const amount = money(cents);
+	return `${toDecimalString(amount)} ${amount.currency}`;
 }

@@ -1,6 +1,7 @@
 import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { onScreen } from './screen-geometry';
+import { chooseStatementAccount } from './choose-account';
 
 /**
  * The `replacing` framing: a correction that replaces one import AND duplicates another.
@@ -158,6 +159,8 @@ test.describe('a correction that replaces one import and would duplicate another
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
 		}
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 
 		// 2b. A and B are the same statement read two ways, so the guard fires HERE, in its ordinary
@@ -205,6 +208,8 @@ test.describe('a correction that replaces one import and would duplicate another
 		// PLANCHE 5c: the consent moved into this footer, pre-ticked, so the press PROPOSES and the
 		// confirmation consents. One deliberate intention for one irreversible result, and it is the
 		// step that took this journey from 8 to 9.
+		// The account is part of every designation now; see e2e/choose-account.ts.
+		await chooseStatementAccount(page);
 		await page.getByRole('button', { name: /^Importer/ }).click();
 		await page
 			.getByRole('dialog')

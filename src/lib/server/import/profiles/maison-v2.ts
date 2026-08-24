@@ -12,14 +12,11 @@ import type { CsvRefusal, CsvRefusalFact } from '../refusals';
 import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
-	buildDeduplicationGroupKey,
-	buildDeduplicationKey,
-	hashFingerprint,
+	buildPreviewRowId,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
-import { createOccurrenceCounter } from '../occurrence';
 import { foldExactHeader } from '../utils/encoding';
 
 /**
@@ -119,8 +116,6 @@ export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): Csv
 	});
 
 	const transactions: ImportedTransaction[] = [];
-	// One counter per parse, never shared between files: see occurrence.ts.
-	const nextOccurrence = createOccurrenceCounter();
 	// Kept at zero and still reported: within one file nothing is a duplicate any more, and
 	// saying so in the summary is what stops a reader inferring the counter was forgotten.
 	const duplicateRows = 0;
@@ -145,19 +140,13 @@ export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): Csv
 		// `dedupeGroup` rather than `group`: this file's `group` is the allocation group, a
 		// different thing entirely, and one of them shadowing the other would read as the same
 		// concept.
-		const dedupeGroup = { date, label, amountCents: totalCents, type };
-		const fingerprint = buildDeduplicationKey({
-			...dedupeGroup,
-			occurrence: nextOccurrence(buildDeduplicationGroupKey(dedupeGroup))
-		});
-
 		// A nature the whole group agrees on is the parent's override reproduced; a group that
 		// disagrees is OD-4 working as designed, and there is no honest single value to store.
 		const natures = new Set(group.map((part) => part.natureManual));
 		const natureManual = natures.size === 1 ? group[0].natureManual : null;
 
 		const transaction: ImportedTransaction = {
-			id: `csv-${hashFingerprint(fingerprint)}`,
+			id: buildPreviewRowId('csv', line, date, label, totalCents),
 			date,
 			label,
 			amountCents: totalCents,
@@ -167,8 +156,7 @@ export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): Csv
 				reference: '',
 				notes: label,
 				type,
-				natureManual: natureManual ?? undefined,
-				deduplicationKey: fingerprint
+				natureManual: natureManual ?? undefined
 			}
 		};
 		if (group.length >= MIN_SPLITS_PER_TRANSACTION) {

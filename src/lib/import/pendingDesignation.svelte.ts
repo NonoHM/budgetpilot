@@ -1,4 +1,5 @@
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
+import type { AccountResolution } from '$lib/server/import/sourceSignature';
 
 /**
  * The file, held in the BROWSER, between the import screen and the designation screen.
@@ -35,6 +36,41 @@ export interface PendingDesignation {
 	initialAssignment: RoleAssignment;
 	/** Per role, the column indices detection proposes when it will not pick between equals. */
 	candidates: Partial<Record<string, number[]>>;
+	/**
+	 * The accounts this statement could belong to, and which one the server worked out.
+	 *
+	 * Carried for the same reason `initialAssignment` is: it is what the SERVER derived from the
+	 * file, and the file itself never crosses this navigation in a form the designation screen could
+	 * re-read. Without it the row would have to ask on every import, including the ones already
+	 * recognised, which is the two extra acts the whole piece is measured against.
+	 *
+	 * Not trusted, exactly like the rest of this module. `accountId` is re-resolved server side
+	 * against this user's own accounts in the request that acts on it, so tampering with it from a
+	 * console selects an account that is already yours or is refused as not-found.
+	 */
+	account: {
+		options: { id: string; name: string; discriminant: string | null; transactionCount: number }[];
+		resolution: AccountResolution;
+		/** ISO, formatted on the screen where the negotiated locale is known. */
+		memory: { useCount: number; lastUsedAt: string | null } | null;
+		/**
+		 * The name the create sheet opens with, composed on the server from what the file said.
+		 *
+		 * Carried rather than recomposed here for the reason the memorised sentence's date is: this
+		 * value becomes an `Account.name`, and the joining rule lives in one place. Empty when the
+		 * file said nothing, which is a state and not missing data.
+		 */
+		prefillName: string;
+		/**
+		 * The account the USER chose, when they have already chosen one.
+		 *
+		 * Null on the way in from `/import`, where nobody has chosen anything yet and the screen
+		 * derives its prefill from `resolution`. Filled on the way BACK from the collision dialog,
+		 * where the choice was already made and re-deriving it would silently replace the user's
+		 * answer with the application's, on the one screen built to stop exactly that.
+		 */
+		chosenId: string | null;
+	} | null;
 	/**
 	 * The correction this designation belongs to, when it is one.
 	 *

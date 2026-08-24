@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { afterAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { pickTagColorToken } from '$lib/domain/tags';
@@ -60,7 +61,7 @@ async function seedUser(): Promise<Seed> {
 	createdUserIds.push(user.id);
 
 	const account = await prisma.account.create({
-		data: { userId: user.id, name: 'Compte courant', source: 'manual' },
+		data: { ...DEFAULT_DENOMINATION, userId: user.id, name: 'Compte courant', source: 'manual' },
 		select: { id: true }
 	});
 	const category = await prisma.category.create({
@@ -90,6 +91,7 @@ async function seedBatch(seed: Seed, fileName: string): Promise<string> {
 
 	const first = await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId: seed.userId,
 			accountId: seed.accountId,
 			categoryId: seed.categoryId,
@@ -103,6 +105,7 @@ async function seedBatch(seed: Seed, fileName: string): Promise<string> {
 	});
 	await prisma.transaction.create({
 		data: {
+			...DEFAULT_DENOMINATION,
 			userId: seed.userId,
 			accountId: seed.accountId,
 			categoryId: seed.categoryId,

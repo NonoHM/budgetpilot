@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { enhance } from '$app/forms';
 	import { afterNavigate } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import Button from '$lib/components/Button.svelte';
@@ -39,6 +39,107 @@
 	let deletingTag: TagRow | null = $state(null);
 	let renameTagSubmitting = $state(false);
 	let deleteTagSubmitting = $state(false);
+
+	// The Comptes section, same shape as the tags rows deliberately: the ROW rather than its id, so
+	// the modal and the dialog have the name to render without a second lookup.
+	type AccountRow = PageProps['data']['accounts'][number];
+	let renamingAccount: AccountRow | null = $state(null);
+	let archivingAccount: AccountRow | null = $state(null);
+	let renameAccountSubmitting = $state(false);
+	let archiveAccountSubmitting = $state(false);
+
+	// One entry per linkable net worth account, plus « Aucun » which clears the link. Built once
+	// rather than per row: the list is the same for every account.
+	const netWorthOptions = $derived([
+		{ value: '', label: m.accounts_net_worth_none() },
+		...data.linkableNetWorthAccounts.map((account) => ({
+			value: account.id,
+			label: account.name
+		}))
+	]);
+
+	// One form per row, so a change on one account submits that account's form and not the first
+	// one on the page.
+	let linkForms: Record<string, HTMLFormElement | undefined> = $state({});
+	// The chosen value, held here rather than read back off the Select, so the hidden input this
+	// form posts is one this component wrote.
+	let linkValues: Record<string, string> = $state({});
+	// Which row is mid-flight, so the control can say « working » rather than « done » while the
+	// server has not answered.
+	let linkPending: Record<string, boolean> = $state({});
+
+	/**
+	 * Posts the net worth link the user just chose.
+	 *
+	 * `await tick()` is load-bearing rather than defensive: `onValueChange` fires before Svelte has
+	 * flushed the new value into the hidden input, so submitting synchronously posts the PREVIOUS
+	 * link. That failure is silent, because the screen then re-renders from what the server saved
+	 * and shows a consistent, wrong answer.
+	 */
+	async function submitLink(accountId: string, value: string) {
+		linkValues[accountId] = value;
+		await tick();
+		linkForms[accountId]?.requestSubmit();
+	}
+
+	/**
+	 * The in-flight and refusal handling for a control that submits on CHANGE.
+	 *
+	 * A select that posts on change and paints the new value immediately is making a claim the
+	 * server has not agreed to yet. Two states it must not confuse: « saved » and « sent ». So the
+	 * control is inert while the request is out, and a result that is not a success puts the value
+	 * BACK to what the row actually holds, rather than leaving the screen showing one link while the
+	 * banner beside it says the change was refused. Two contradicting statements about one account
+	 * is worse than either one alone.
+	 */
+	function enhanceLink(accountId: string, previous: string) {
+		return () => {
+			linkPending[accountId] = true;
+			return async ({
+				result,
+				update
+			}: {
+				result: { type: string };
+				update: () => Promise<void>;
+			}) => {
+				// A `finally`, not two lines after the await, and that is not style. `update()` can
+				// reject, and everything after it is then skipped: the row stays disabled for the rest
+				// of the session and the value stays on a link the server never saved. Same shape as
+				// the break-patch rule this repository already records, arriving in a UI flag rather
+				// than in a test harness.
+				try {
+					await update();
+				} finally {
+					linkPending[accountId] = false;
+					if (result.type !== 'success') linkValues[accountId] = previous;
+				}
+			};
+		};
+	}
+
+	function accountTxCount(n: number): string {
+		return n > 1 ? m.accounts_tx_count_many({ count: n }) : m.accounts_tx_count_one({ count: n });
+	}
+
+	/**
+	 * The row's second line: what identifies this account beside its name.
+	 *
+	 * `import_account_option_detail_*` is REUSED rather than a second pair of messages written for
+	 * this screen. It is the same sentence about the same account, and two copies of it would drift
+	 * the first time either was edited. Without a fragment there is only a count to say.
+	 */
+	function accountDetail(row: AccountRow): string {
+		if (row.discriminant === null) return accountTxCount(row.transactionCount);
+		return row.transactionCount > 1
+			? m.import_account_option_detail_many({
+					fragment: row.discriminant,
+					count: row.transactionCount
+				})
+			: m.import_account_option_detail_one({
+					fragment: row.discriminant,
+					count: row.transactionCount
+				});
+	}
 
 	// The accessible name of a colour swatch is the hue token capitalised, derived here rather
 	// than stored: TAG_COLOR_TOKENS in domain/tags.ts is deliberately the only place the token
@@ -1040,6 +1141,164 @@
 		</div>
 
 		<!--
+		The accounts a statement can come from, and the third place in Settings that manages an
+		account-wide record. Same card, same list of bordered rows, same rename-in-a-Modal and
+		destructive-action-behind-a-ConfirmDialog as the tags section above: reused rather than
+		redrawn, because a user who has managed their tags has already learned this screen.
+
+		No table, deliberately. #332 is untouched in both directions.
+		-->
+		<div id="comptes" class={card}>
+			<h2 class="text-[11px] font-semibold tracking-wide text-zinc-500 uppercase">
+				{m.accounts_settings_heading()}
+			</h2>
+			<p class="mt-1 text-sm text-zinc-500">{m.accounts_settings_subtitle()}</p>
+
+			{#if data.accountsInvitation}
+				<!--
+				Non-blocking and conditional, per the spec's Part N.3. The plate shows this sentence
+				unconditionally and in the plural; after the backfill two of three buckets are already
+				named as the bank names them, so the unconditional form tells a user to do something
+				already done. It clears itself: renaming the last generically named account changes its
+				key, `isGenericallyNamed` goes false and the line stops.
+				-->
+				<p class="mt-2 text-xs text-zinc-500">{m.accounts_invitation()}</p>
+			{/if}
+
+			{#if form?.accountsError}
+				<AlertBanner variant="error" class="mt-3">{form.accountsError}</AlertBanner>
+			{/if}
+			{#if form?.accountsSuccess}
+				<AlertBanner variant="success" class="mt-3">{form.accountsSuccess}</AlertBanner>
+			{/if}
+
+			{#if data.accounts.length === 0}
+				<EmptyState card={false} description={m.accounts_settings_empty()} />
+			{:else}
+				<ul class="mt-3 space-y-2.5">
+					{#each data.accounts as account (account.id)}
+						<li
+							class="rounded-xl border p-3.5"
+							class:border-zinc-200={!account.archived}
+							class:border-zinc-100={account.archived}
+							class:bg-zinc-50={account.archived}
+						>
+							<!--
+							Column below `sm`, row above, rather than one `flex-wrap` for both. Wrapping made
+							the layout depend on the NAME LENGTH: at 390 « BP Compte courant » pushed its
+							actions onto a second line and « Livret A » did not, so two rows of one list were
+							built differently and the list read as broken rather than as responsive.
+							-->
+							<div
+								class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between sm:gap-3"
+							>
+								<div class="min-w-0">
+									<div
+										class="truncate text-sm font-medium"
+										class:text-zinc-900={!account.archived}
+										class:text-zinc-500={account.archived}
+									>
+										{account.displayName}
+									</div>
+									<div class="mt-0.5 text-xs text-zinc-500">{accountDetail(account)}</div>
+								</div>
+								<div class="flex shrink-0 flex-wrap gap-2 sm:justify-end">
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										aria-label={m.accounts_rename_aria({ name: account.displayName })}
+										onclick={() => (renamingAccount = account)}
+									>
+										{m.accounts_rename()}
+									</Button>
+									{#if account.archived}
+										<!--
+										Reactivating is not destructive, so it submits directly rather than through a
+										dialog. A confirmation on an undo is a second obstacle in front of the repair
+										for the first one.
+										-->
+										<form method="POST" action="?/archiveAccount" use:enhance>
+											<input type="hidden" name="id" value={account.id} />
+											<input type="hidden" name="archived" value="false" />
+											<Button
+												type="submit"
+												variant="ghost"
+												size="sm"
+												aria-label={m.accounts_unarchive_aria({ name: account.displayName })}
+											>
+												{m.accounts_unarchive()}
+											</Button>
+										</form>
+									{:else}
+										<Button
+											type="button"
+											variant="ghost"
+											size="sm"
+											aria-label={m.accounts_archive_aria({ name: account.displayName })}
+											onclick={() => (archivingAccount = account)}
+										>
+											{m.accounts_archive()}
+										</Button>
+									{/if}
+								</div>
+							</div>
+
+							{#if account.archived}
+								<p class="mt-2 text-xs text-zinc-500">{m.accounts_archived_notice()}</p>
+							{/if}
+
+							<!--
+							The net worth link, and this is now the ONLY place it is set. It used to be a
+							control on the upload form, which asked « which patrimoine line does this feed »
+							on a screen asking « where does this file go » (#372). Here the subject is the
+							account, which is what the question is actually about.
+
+							Submitted on change rather than behind a Save, the same way the AI toggles above
+							submit: there is one field, and a Save beside one select is a second click for a
+							choice that is already unambiguous.
+							-->
+							<form
+								method="POST"
+								action="?/linkAccountNetWorth"
+								class="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1"
+								bind:this={linkForms[account.id]}
+								use:enhance={enhanceLink(account.id, account.netWorthAccountId ?? '')}
+							>
+								<input type="hidden" name="id" value={account.id} />
+								<!--
+								The posted value is OURS, not the Select's own hidden input, and the difference
+								is a `tick`. Submitting from `onValueChange` runs before Svelte has written the
+								new value into the DOM, so a form reading the component's input would post the
+								PREVIOUS link: the user picks Livret A, the request carries Compte courant, and
+								the screen then re-renders with what the server saved. Silent and wrong.
+								`submitLink` awaits `tick()` first, and `posted-net-worth` is what the test
+								reads to prove it.
+								-->
+								<input
+									type="hidden"
+									name="netWorthAccountId"
+									data-testid="posted-net-worth"
+									value={linkValues[account.id] ?? account.netWorthAccountId ?? ''}
+								/>
+								<span class="text-xs text-zinc-500">{m.accounts_net_worth_label()}</span>
+								<Select
+									value={linkValues[account.id] ?? account.netWorthAccountId ?? ''}
+									options={netWorthOptions}
+									ariaLabel={m.accounts_net_worth_aria({ name: account.displayName })}
+									placeholder={m.accounts_net_worth_none()}
+									disabled={linkPending[account.id] === true}
+									onValueChange={(value) => submitLink(account.id, value)}
+									class="!w-auto min-w-[11rem]"
+								/>
+							</form>
+						</li>
+					{/each}
+				</ul>
+			{/if}
+		</div>
+
+		<!--
 		#326. A cap with no way to free a row is a permanent block, and the refusal that enforces it
 		now links here. Same shape as the tags section above deliberately: a card, a list of rows,
 		one destructive action per row behind a ConfirmDialog. Reused rather than redrawn, because
@@ -1467,6 +1726,85 @@
 		</div>
 	</form>
 </Modal>
+
+<!-- Modale : renommer un compte -->
+<Modal
+	open={renamingAccount !== null}
+	title={m.accounts_rename_modal_title()}
+	description={m.accounts_rename_modal_description()}
+	onClose={() => (renamingAccount = null)}
+>
+	<form
+		method="POST"
+		action="?/renameAccount"
+		class="space-y-4"
+		use:enhance={() => {
+			renameAccountSubmitting = true;
+			return async ({ result, update }) => {
+				await update();
+				renameAccountSubmitting = false;
+				if (result.type === 'success') renamingAccount = null;
+			};
+		}}
+	>
+		<input type="hidden" name="id" value={renamingAccount?.id ?? ''} />
+		<label class="grid gap-1 text-sm font-medium text-zinc-700">
+			{m.import_account_create_field()}
+			<!--
+			`maxlength` from the server's own constant rather than a literal, so the field and the
+			refusal cannot disagree about where the bound is. The field is a convenience; the refusal
+			is the enforcement, and a request that bypasses the field still meets it.
+
+			The generic bucket opens this modal with an EMPTY field rather than with « Compte import
+			CSV » prefilled: that string is a storage key the user has never been shown, and offering
+			it as a starting point would invite them to keep it.
+			-->
+			<input
+				name="newName"
+				maxlength={data.accountNameMaxLength}
+				required
+				value={renamingAccount?.generic ? '' : (renamingAccount?.displayName ?? '')}
+				placeholder={m.import_account_create_hint_examples()}
+				class={inputBase}
+			/>
+		</label>
+		<div class="flex justify-end gap-3 border-t border-zinc-100 pt-4">
+			<TapLink onclick={() => (renamingAccount = null)} disabled={renameAccountSubmitting}
+				>{m.common_cancel()}</TapLink
+			>
+			<Button type="submit" loading={renameAccountSubmitting}>{m.common_save()}</Button>
+		</div>
+	</form>
+</Modal>
+
+<!--
+ConfirmDialog : archiver un compte. Deliberately NOT `tone="danger"`: archiving destroys nothing
+and is undone from the same row, and a rose dialog would tell the user otherwise before they read
+a word of it.
+-->
+<form
+	method="POST"
+	action="?/archiveAccount"
+	use:enhance={() => {
+		archiveAccountSubmitting = true;
+		return async ({ result, update }) => {
+			await update();
+			archiveAccountSubmitting = false;
+			if (result.type === 'success') archivingAccount = null;
+		};
+	}}
+>
+	<input type="hidden" name="id" value={archivingAccount?.id ?? ''} />
+	<ConfirmDialog
+		open={archivingAccount !== null}
+		title={m.accounts_archive_confirm_title({ name: archivingAccount?.displayName ?? '' })}
+		confirmLabel={m.accounts_archive()}
+		confirmLoading={archiveAccountSubmitting}
+		onClose={() => (archivingAccount = null)}
+	>
+		<p class="text-sm text-zinc-600">{m.accounts_archive_confirm_body()}</p>
+	</ConfirmDialog>
+</form>
 
 <!-- Modale : renommer une étiquette -->
 <Modal

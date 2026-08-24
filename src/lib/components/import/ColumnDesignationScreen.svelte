@@ -22,6 +22,9 @@
 	// note at the call site.
 	import Button from '$lib/components/Button.svelte';
 	import ColumnPicker from './ColumnPicker.svelte';
+	import AccountRow from './AccountRow.svelte';
+	import AccountPicker, { type AccountPickerOption } from './AccountPicker.svelte';
+	import CreateAccountSheet from './CreateAccountSheet.svelte';
 	import CheckboxField from '$lib/components/ui/CheckboxField.svelte';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
@@ -106,6 +109,12 @@
 		recapCaption,
 		replaces,
 		wide = false,
+		accounts = [],
+		initialAccountId = null,
+		accountHint = null,
+		accountHintAboutFile = false,
+		accountPrefill = '',
+		onCreateAccount,
 		onCancel,
 		onModify,
 		onSubmit
@@ -230,8 +239,60 @@
 		 * transaction without a word, and stored a mapping whose column names were that row's own
 		 * values — a fingerprint no later file can match. See `header-row-toggle.svelte.spec.ts`.
 		 */
+		/**
+		 * The accounts this statement could belong to: the user's own, never archived, never manual.
+		 * Empty is a real state rather than missing data, and the panel then offers only « Nouveau
+		 * compte ».
+		 */
+		accounts?: readonly AccountPickerOption[];
+		/**
+		 * What resolution already worked out, if anything. The user can always change it.
+		 *
+		 * `initial`, like `initialAssignment` beside it and for the same reason: the screen owns the
+		 * choice from arrival, so a reactive read would throw the user's chosen account away every
+		 * time the parent re-derived its resolution.
+		 */
+		initialAccountId?: string | null;
+		/**
+		 * The provenance line, already composed by the caller: which rank answered and from what.
+		 * A sentence rather than a state, because the screen renders it and does not reason about it.
+		 */
+		accountHint?: string | null;
+		/**
+		 * Whether `accountHint` is a fact about the FILE rather than a provenance for the answer.
+		 *
+		 * Decided by `accountAnswerFor`, never here: this component sees an opaque sentence and
+		 * classifying it a second time is the copied predicate. Exactly one sentence sets it today,
+		 * « ce fichier contient plusieurs comptes », and that one has to outlive a choice.
+		 */
+		accountHintAboutFile?: boolean;
+		/**
+		 * The name the create sheet opens with, composed by the server from what the FILE said.
+		 * Empty when it said nothing, which is a state rather than missing data: see the sheet.
+		 */
+		accountPrefill?: string;
+		/**
+		 * Creates an account and answers with the option to add, or with a sentence to show.
+		 *
+		 * A PROMISE handed down rather than a request made here, for the reason every other decision
+		 * on this screen is taken elsewhere: this component has no route, no session and no file. The
+		 * three states of 6g are owned here because they are states of a screen; the request that
+		 * moves between them is owned by the page.
+		 *
+		 * Absent means the footer action does nothing but close the panel, which is what shipped in
+		 * Task 6 and is a screen a user cannot finish an import on. Named here because a prop no
+		 * route sets is a draft, not a feature: `/import/columns/+page.svelte` sets it.
+		 */
+		onCreateAccount?: (
+			name: string
+		) => Promise<
+			| { ok: true; account: AccountPickerOption }
+			| { ok: false; error: string; field?: string | null }
+		>;
 		onSubmit?: (result: {
 			assignment: RoleAssignment;
+			/** The account the user chose. Never null by the time the primary submits. */
+			accountId: string;
 			remember: boolean;
 			hasHeaderRow: boolean;
 			/**
@@ -428,6 +489,197 @@
 		return file.firstRow?.[index] ?? file.samples[index]?.[0] ?? '';
 	}
 
+	// The INITIAL value is the whole point, so the warning is suppressed rather than worked around,
+	// exactly as `assignment` above does: this is what resolution worked out on arrival, and the
+	// user owns it from that moment.
+	// svelte-ignore state_referenced_locally
+	let chosenAccountId = $state<string | null>(initialAccountId);
+	let accountPanelOpen = $state(false);
+	let accountPanelFocus = $state<'list' | 'footer'>('list');
+	let accountErrorShown = $state(false);
+	let accountRowWrapper = $state<HTMLElement | null>(null);
+
+	/**
+	 * Accounts created on this screen, in the order they were created.
+	 *
+	 * Held HERE and not pushed back up to the caller, because the caller's `accounts` prop is what
+	 * the server answered when the file arrived and a re-derivation of it would throw these away.
+	 * Appended rather than merged into the alphabetical order the server sent: a row the user has
+	 * just created and is about to see selected is easier to find where they left it than where a
+	 * sort would put it.
+	 */
+	let createdAccounts = $state<AccountPickerOption[]>([]);
+	const shownAccounts = $derived<readonly AccountPickerOption[]>([...accounts, ...createdAccounts]);
+
+	let createOpen = $state(false);
+	/** 5f's contract, owned here because these are states of a screen. See `CreateAccountSheet`. */
+	let createPhase = $state<'idle' | 'busy' | 'error'>('idle');
+	let createError = $state<string | null>(null);
+	/** Which surface the caller's refusal belongs on. The endpoint says; this only carries it. */
+	let createErrorField = $state<string | null>(null);
+
+	const chosenAccount = $derived(
+		shownAccounts.find((account) => account.id === chosenAccountId) ?? null
+	);
+
+	/**
+	 * `error` only AFTER the primary has been pressed, never before.
+	 *
+	 * A row that is red before anything was asked of it accuses the user of a mistake they have not
+	 * had the chance to make. 6k puts the error at the press and nowhere earlier, which is the same
+	 * rule the create sheet's emptied field follows.
+	 */
+	const accountState = $derived<'ok' | 'todo' | 'error'>(
+		chosenAccount !== null ? 'ok' : accountErrorShown ? 'error' : 'todo'
+	);
+
+	/**
+	 * The error sentence REPLACES the provenance line rather than stacking under it.
+	 *
+	 * Two lines of help under one row is the shape that pushes the columns card off the screen, and
+	 * the provenance is a fact about a choice that has not been made: it has nothing left to explain
+	 * at the moment the user is being told to make one.
+	 */
+	const accountHintShown = $derived.by(() => {
+		if (accountState === 'error') return m.import_account_error_required();
+		/**
+		 * THE HINT DESCRIBES THE ANSWER THE SERVER PROPOSED, so it survives only while that is still
+		 * the answer on the row.
+		 *
+		 * `accountHint` is computed on the server when the page loads, and almost every sentence it
+		 * can carry is a PROVENANCE: the file said so, we remembered, we have never seen this shape,
+		 * you have no accounts. The moment the user overrides that answer, by choosing a different
+		 * account or by creating one, the sentence describes a resolution that no longer holds. One
+		 * of them becomes outright false: the row names an account while the line under it says
+		 * there are none.
+		 *
+		 * **ALMOST every sentence, and the exception is load bearing.** « Ce fichier contient
+		 * plusieurs comptes » is a fact about the BYTES, true whatever the user picks, and it is the
+		 * only notice on this screen that the file mixes accounts. Dropping it at the moment the
+		 * user commits every row of that file to ONE account is the worst timing available. The
+		 * first version of this guard did exactly that, and the comment above it claimed the general
+		 * rule while the enumeration underneath it did not hold. `aboutTheFile` is that
+		 * enumeration, made once, where the sentence is chosen.
+		 *
+		 * `chosenAccountId !== initialAccountId` is the whole test, and it reads as « the user
+		 * changed the answer » because `chosenAccountId` starts AS `initialAccountId`. It covers a
+		 * created account for free, since a created id is never the one the resolution named.
+		 *
+		 * BOTH HALVES WERE FOUND BY LOOKING AT THE SCREEN rather than by any assertion here, and the
+		 * second was found in the images shipped by the fix for the first: that fix argued this
+		 * general rule and implemented the created case alone. Every state here puts the same NAME on
+		 * the row, so only the description separates them.
+		 */
+		if (chosenAccountId !== initialAccountId && !accountHintAboutFile) return undefined;
+		return accountHint ?? undefined;
+	});
+
+	/**
+	 * Reveals the error, brings the row back into view and puts the focus on it.
+	 *
+	 * The plate's transverse rule, which this plate applies and does not impose: « le primaire n'est
+	 * jamais désactivé pour cause d'invalidité ; l'appui révèle l'erreur, remonte le champ en vue et
+	 * y pose le focus ». A greyed primary explains nothing and cannot be asked why.
+	 *
+	 * The focus goes to the ROW and not to the alert, because the row is the thing to act on. It is
+	 * reached through the wrapper rather than through a ref on the component: the row is one
+	 * `<button>` and the wrapper holds exactly one, so there is nothing to disambiguate, and adding
+	 * an imperative focus method to a presentational component to save this line would be the
+	 * larger change.
+	 */
+	function revealAccountError() {
+		accountErrorShown = true;
+		const trigger = accountRowWrapper?.querySelector('button');
+		trigger?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+		trigger?.focus();
+	}
+
+	function chooseAccount(id: string) {
+		chosenAccountId = id;
+		accountPanelOpen = false;
+		// The error cannot outlive the thing it was about.
+		accountErrorShown = false;
+	}
+
+	/** The row, reached through its wrapper. One button lives there, so there is nothing to pick. */
+	function focusAccountRow() {
+		accountRowWrapper?.querySelector('button')?.focus();
+	}
+
+	/**
+	 * Closes the panel WITHOUT choosing, and puts focus back where it came from.
+	 *
+	 * MEASURED 2026-08-24, and it was a real defect rather than a precaution: Escape closed the
+	 * panel and left `document.activeElement` on `<body>`. Focus had entered the panel on the
+	 * listbox, the listbox was then removed from the document, and a removed element's focus goes
+	 * nowhere — so a keyboard user pressing Escape was returned to the top of the document, with the
+	 * row they had just been operating somewhere below them and no way back but Tab.
+	 *
+	 * Nothing caught it. Every component assertion about this panel is about the panel while it is
+	 * OPEN, and the six accessibility assertions are about accessible names and structure. Where
+	 * focus lands after a key closes something is only answerable in a real browser, which is the
+	 * whole argument for the keyboard walk existing beside them.
+	 *
+	 * `chooseAccount` already returns focus by a different route (the row re-renders with a value
+	 * and the panel closes on the choice), so this is the DISMISS path specifically: 6k's
+	 * « Fermeture sans choix ».
+	 */
+	function closeAccountPanel() {
+		accountPanelOpen = false;
+		focusAccountRow();
+	}
+
+	function openCreateSheet() {
+		accountPanelOpen = false;
+		accountPanelFocus = 'list';
+		createPhase = 'idle';
+		createError = null;
+		createErrorField = null;
+		createOpen = true;
+	}
+
+	/**
+	 * Cancelling REOPENS the panel, on the action it was opened from.
+	 *
+	 * Without it, abandoning a creation drops the user on a row they have to open again to get back
+	 * where they were, which is a dead end our own navigation manufactured rather than one the task
+	 * has. The focus goes to the footer action and not to the list, because the footer action is
+	 * where they were standing.
+	 */
+	function cancelCreate() {
+		createOpen = false;
+		accountPanelFocus = 'footer';
+		accountPanelOpen = true;
+	}
+
+	/**
+	 * On SUCCESS the sheet closes, the account is selected, and the focus returns to the ROW.
+	 *
+	 * Not to the panel, which has no reason left to be open, and not to a live region: the row
+	 * announces its new value through its own accessible name, so an added announcement would say
+	 * the same thing twice. 6g settles all three.
+	 */
+	async function submitCreate(name: string) {
+		if (!onCreateAccount) return;
+		createPhase = 'busy';
+		createError = null;
+		createErrorField = null;
+		const answer = await onCreateAccount(name);
+		if (!answer.ok) {
+			createPhase = 'error';
+			createError = answer.error;
+			createErrorField = answer.field ?? null;
+			return;
+		}
+		createdAccounts = [...createdAccounts, answer.account];
+		chosenAccountId = answer.account.id;
+		accountErrorShown = false;
+		createPhase = 'idle';
+		createOpen = false;
+		accountPanelOpen = false;
+		focusAccountRow();
+	}
+
 	/**
 	 * The primary's press, and the whole of 5c's ordering is in it.
 	 *
@@ -441,16 +693,37 @@
 	 */
 	function pressPrimary() {
 		if (!importable) return;
+		// Before the replace question, because a user with no account chosen must not be asked to
+		// confirm a deletion for an import that cannot happen yet.
+		if (chosenAccountId === null) {
+			revealAccountError();
+			return;
+		}
 		if (replaces && deleteOldImport) {
 			confirmingReplace = true;
 			return;
 		}
-		onSubmit?.({ assignment, remember, hasHeaderRow, deleteOldImport: false });
+		onSubmit?.({
+			accountId: chosenAccountId,
+			assignment,
+			remember,
+			hasHeaderRow,
+			deleteOldImport: false
+		});
 	}
 
 	function confirmReplace() {
 		confirmingReplace = false;
-		onSubmit?.({ assignment, remember, hasHeaderRow, deleteOldImport: true });
+		// Unreachable with a null account: `pressPrimary` is the only way into the modal and it
+		// refuses one. Narrowed rather than asserted, so the compiler carries the claim.
+		if (chosenAccountId === null) return;
+		onSubmit?.({
+			accountId: chosenAccountId,
+			assignment,
+			remember,
+			hasHeaderRow,
+			deleteOldImport: true
+		});
 	}
 
 	const CONSEQUENCE_ID = 'column-designation-consequence';
@@ -466,6 +739,67 @@
 	asserted absolutely, and a breakpoint-driven layout cannot be measured without also driving the
 	viewport, which makes every figure a fact about the runner.
 -->
+{#snippet accountBlock()}
+	<!--
+		THE FIRST ROW OF THE BODY, above the roles list and OUTSIDE it.
+		6b: « Sur l'écran de désignation, première rangée du corps ». Measured cost +81 px, and the
+		body begins to scroll by 50, which is stated here rather than hidden.
+
+		Not inside the designation card, and not a fifth `RoleRow`. `RoleRow` takes a `MappingRole`,
+		a CLOSED union of four the plate verifies as a constraint (« Quatre rôles, ensemble fermé.
+		Tenu. Le compte n'est pas un rôle : il est lu avant la correspondance, comme le préambule
+		d'un fichier »). Widening that union to carry an account would break the one thing that check
+		exists to protect, and a column named « Compte » in an export must still appear in the
+		columns list and stay ignored.
+
+		`relative`, so the panel anchors UNDER the row that opened it, exactly as the column picker
+		does one card below. `shrink-0` for the reason every body child has it: a flex column shrinks
+		its items before it scrolls.
+	-->
+	<div class="relative shrink-0" bind:this={accountRowWrapper} data-testid="designation-account">
+		<AccountRow
+			state={accountState}
+			value={chosenAccount?.name}
+			hint={accountHintShown}
+			expanded={accountPanelOpen}
+			panelId="account-picker-panel"
+			busy={submitting}
+			onOpen={() => {
+				// The list, always, when the ROW is what opened the panel. `footer` is set only by the
+				// return from a cancelled creation, and leaving it set would land the next ordinary
+				// opening on the action instead of on the options.
+				accountPanelFocus = 'list';
+				accountPanelOpen = !accountPanelOpen;
+			}}
+		/>
+		<AccountPicker
+			open={accountPanelOpen}
+			options={shownAccounts}
+			selectedId={chosenAccountId}
+			panelId="account-picker-panel"
+			initialFocus={accountPanelFocus}
+			onChoose={chooseAccount}
+			onClose={closeAccountPanel}
+			onCreate={openCreateSheet}
+		/>
+		<!--
+			Inside the account block rather than beside the two other dialogs at the end of the file,
+			because it is part of one control: the row, its panel and the sheet the panel opens are the
+			same question asked three ways. Brique 15 traps its own focus and restores it, so nesting
+			costs nothing.
+		-->
+		<CreateAccountSheet
+			open={createOpen}
+			prefill={accountPrefill}
+			state={createPhase}
+			error={createError}
+			errorField={createErrorField}
+			onSubmit={submitCreate}
+			onCancel={cancelCreate}
+		/>
+	</div>
+{/snippet}
+
 {#snippet fileBlock()}
 	<div class="shrink-0" data-testid="designation-file-block">
 		<p class="h-[22px] truncate text-[15px] leading-[22px] font-semibold">{file.name}</p>
@@ -759,7 +1093,28 @@
 				different axis than the content sat on. Every geometry assertion on this file was green
 				through it: they measure the column, and nothing measured the two against each other.
 			-->
-			<div class="pt-6 pb-4 {recap ? 'mx-auto w-[560px]' : ''}" data-testid="designation-heading">
+			<!--
+				`pt-4 pb-3` and not `pt-6 pb-4`, and the 12 px it reclaims is the whole reason.
+				MEASURED at 1280x800 with the account row in the column: the primary's bottom edge
+				landed at 805.5 against a fold of 800, so the screen stopped keeping its own action
+				reachable without a scroll. 12 px brings it to 793.5.
+
+				**THIS IS SHAVING TO FIT AND IT IS RECORDED AS SUCH.** It leaves a 6.5 px margin, which
+				is smaller than one line of anything, so the next storey added to this column breaks it
+				again. The durable answer is the V2 referential's sheet-footer rule, which the 390
+				chrome already obeys: the card and the memorisation block scroll inside their own
+				region and the actions sit outside it, which is height-independent for any column.
+				That is a restructure of this frame, it touches the preview pane and the recap mode,
+				and it earns its own commit and its own screenshot pass rather than riding in on this
+				one.
+
+				NOT sticky positioning, which was tried on this column and rejected with its reason in
+				the actions block below: a sticky box RISES OVER content, and it covered 29.5 px of the
+				44 px « Ne pas mémoriser » control. A static footer outside an `overflow-y-auto`
+				sibling cannot overlap anything by construction, which is the difference between the
+				two and the reason the rejected one does not rule out the other.
+			-->
+			<div class="pt-4 pb-3 {recap ? 'mx-auto w-[560px]' : ''}" data-testid="designation-heading">
 				<h1 class="text-[22px] leading-7 font-bold">{heading}</h1>
 				<p class="mt-1 truncate text-[13px] text-zinc-500">
 					{file.name} ·
@@ -790,6 +1145,9 @@
 					class="flex shrink-0 flex-col gap-4 {recap ? 'w-[560px]' : 'w-[400px]'}"
 					data-testid="designation-command"
 				>
+					{#if !recap && !readOnly}
+						{@render accountBlock()}
+					{/if}
 					{@render designationCard()}
 					{@render trailingBlock()}
 
@@ -900,6 +1258,9 @@
 				the overflow calibration in this component's spec.
 			-->
 			{@render fileBlock()}
+			{#if !recap && !readOnly}
+				{@render accountBlock()}
+			{/if}
 			{@render designationCard()}
 			{@render trailingBlock()}
 		</div>

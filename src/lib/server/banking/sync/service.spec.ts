@@ -513,7 +513,11 @@ describe('completeBankAuthorization', () => {
 			userId: 'user-1',
 			name: 'Compte courant',
 			source: 'mock_connector',
-			currency: 'EUR',
+			// The pair, never a bare currency: `ImportBucketInput.denomination` is one field so a
+			// caller cannot supply a code without the exponent that says how to read the integers
+			// filed under it. The provider names only the code, so the exponent is stated at the
+			// call site in sync/service.ts rather than defaulted out of sight.
+			denomination: { currency: 'EUR', exponent: 2 },
 			bankConnectionId: 'conn-1',
 			providerAccountId: 'acc-1',
 			providerCashAccountType: null
@@ -522,7 +526,11 @@ describe('completeBankAuthorization', () => {
 			userId: 'user-1',
 			name: 'Livret',
 			source: 'mock_connector',
-			currency: 'EUR',
+			// The pair, never a bare currency: `ImportBucketInput.denomination` is one field so a
+			// caller cannot supply a code without the exponent that says how to read the integers
+			// filed under it. The provider names only the code, so the exponent is stated at the
+			// call site in sync/service.ts rather than defaulted out of sight.
+			denomination: { currency: 'EUR', exponent: 2 },
 			bankConnectionId: 'conn-1',
 			providerAccountId: 'acc-2',
 			providerCashAccountType: null

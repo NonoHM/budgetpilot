@@ -66,6 +66,28 @@ function seed(correction: { mappingId: string; batchId: string } | null) {
 		view: VIEW,
 		initialAssignment: ASSIGNMENT,
 		candidates: {},
+		/**
+		 * A RESOLVED account, because the primary now refuses a submission without one.
+		 *
+		 * These tests are about leaving and about the replace consent, and neither separates any
+		 * account state, so the fixture gives the one state that lets the press get past the account
+		 * and reach what they are actually measuring. `null` here would make every one of them
+		 * measure the account guard instead, which is a different test that lives elsewhere.
+		 */
+		account: {
+			options: [
+				{
+					id: 'account-1',
+					name: 'BP · Compte courant',
+					discriminant: '4417',
+					transactionCount: 128
+				}
+			],
+			resolution: { rank: 1 as const, accountId: 'account-1', fragment: '4417' },
+			memory: null,
+			prefillName: '',
+			chosenId: null
+		},
 		correction: correction
 			? { ...correction, namedAt: '1 juillet 2026 à 10:59', replacedRows: 25, hasUserWork: false }
 			: null

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TRANSACTION_CSV_HEADER } from '$lib/server/transactions/exportCsv';
 
 const db = vi.hoisted(() => ({
 	prisma: {
@@ -7,6 +8,26 @@ const db = vi.hoisted(() => ({
 		},
 		categoryNatureMapping: {
 			findMany: vi.fn()
+		},
+		/**
+		 * Added when the route began naming the account its rows came from.
+		 *
+		 * It THROWS on any where clause it cannot model rather than answering null, because a fake
+		 * that silently ignores a predicate makes « the route scoped by userId » and « the fake
+		 * returned nothing » the same green, which is the exact failure the IDOR battery is a
+		 * `db-smoke` to avoid. What this route's own `compte` column does is asserted against a real
+		 * engine in `exportAccountColumn.db-smoke.ts`; here the model only has to exist so the fixtures
+		 * below keep measuring what they name.
+		 */
+		account: {
+			findFirst: vi.fn(async ({ where }: { where: { id?: string; userId?: string } }) => {
+				if (!where || typeof where.userId !== 'string' || typeof where.id !== 'string') {
+					throw new Error(
+						`the export spec's account fake cannot model this where clause: ${JSON.stringify(where)}`
+					);
+				}
+				return null;
+			})
 		}
 	}
 }));
@@ -165,15 +186,24 @@ describe('GET /transactions/export', () => {
 		expect(response.headers.get('Content-Disposition')).toContain('.csv');
 	});
 
-	it("l'en-tête CSV correspond exactement aux 7 colonnes attendues, dans l'ordre", async () => {
-		expect.assertions(1);
+	// The header is asserted against the CONSTANT rather than against a retyped literal, which is
+	// the change this test needed when the export gained its account column. A literal here and a
+	// literal in `exportCsv.ts` are two sources for one string, and the version 3 addition proved
+	// it: the constant moved, this spec did not, and the failure named a count (« 7 colonnes »)
+	// that had not been true of this line for several versions.
+	//
+	// SEPARATES: « the route serves the export's real header » FROM « the route serves some header
+	// that happens to start the same way ». `toBe` against the constant, never `toContain`.
+	it("l'en-tête CSV servi par la route est exactement la constante d'export", async () => {
+		expect.assertions(2);
 
 		const response = await GET(makeRequest() as never);
 		const body = await response.text();
 
-		expect(body.split('\r\n')[0]).toBe(
-			'date;libelle;categorie;montant;type;nature;source_bancaire;montant_total;part;categorie_parent'
-		);
+		expect(body.split('\r\n')[0]).toBe(TRANSACTION_CSV_HEADER);
+		// Calibration beside the identity: the constant is a real header rather than an empty
+		// string, so the assertion above cannot pass by both sides being nothing.
+		expect(TRANSACTION_CSV_HEADER.split(';').length).toBeGreaterThan(5);
 	});
 
 	it('un libellé au format injection de formule est préfixé par une apostrophe à l’export', async () => {

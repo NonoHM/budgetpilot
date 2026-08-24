@@ -60,6 +60,17 @@ function mount(props: Record<string, unknown> = {}) {
 	const { container } = render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: EMPTY_ASSIGNMENT,
+		/**
+		 * A RESOLVED account in every mount, so a press reaches what these tests measure.
+		 *
+		 * The account row refuses the primary until one is chosen, which is its own behaviour with
+		 * its own tests. Leaving it unchosen here would make every press in this file measure that
+		 * guard instead of the thing it names.
+		 */
+		accounts: [
+			{ id: 'account-1', name: 'BP · Compte courant', discriminant: '4417', transactionCount: 128 }
+		],
+		initialAccountId: 'account-1',
 		wide: true,
 		...props
 	});
@@ -114,7 +125,9 @@ describe('the command column', () => {
 		// asserting only that they differ passes in a world where both are zero.
 		const { card, container } = mount({ initialAssignment: COMPLETE });
 
-		const rows = container.querySelectorAll('button[aria-haspopup="listbox"]');
+		const rows = container.querySelectorAll(
+			'[data-testid="designation-card"] button[aria-haspopup="listbox"]'
+		);
 		expect(rows.length).toBe(4);
 		for (const row of rows) {
 			expect(row.getBoundingClientRect().height).toBe(56);
@@ -383,7 +396,10 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 		// Without this the absence above would be a gap rather than a decision.
 		const { container } = mount();
 
-		expect(container.querySelectorAll('button[aria-haspopup="listbox"]').length).toBe(4);
+		expect(
+			container.querySelectorAll('[data-testid="designation-card"] button[aria-haspopup="listbox"]')
+				.length
+		).toBe(4);
 	});
 });
 
@@ -424,7 +440,9 @@ describe('the junction: a trigger and the thing it triggers, in one test, at eac
 	});
 
 	const openFirstRole = async (container: HTMLElement) => {
-		const row = container.querySelector('button[aria-haspopup="listbox"]') as HTMLElement;
+		const row = container.querySelector(
+			'[data-testid="designation-card"] button[aria-haspopup="listbox"]'
+		) as HTMLElement;
 		expect(row).not.toBeNull();
 		row.click();
 		await new Promise((resolve) => setTimeout(resolve, 0));

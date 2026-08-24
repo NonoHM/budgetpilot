@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
+import { GENERIC_BUCKET_STORED_NAME } from '$lib/domain/account';
 import type { SplitIndicator } from '$lib/domain/allocation';
 import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
 // Compared against the message FUNCTION, never a copied literal: a spec that retypes the sentence
@@ -591,6 +592,10 @@ vi.mock('$lib/server/tags/bulk', async (importOriginal) => {
 
 const { applyKindSign } = await import('$lib/domain/transaction');
 const { actions, load } = await import('./+page.server');
+// Imported from its own module rather than from `+page.server`, and the move is the point: a page
+// server module may export only load/actions/prerender/csr/ssr/trailingSlash/config/entries, so
+// exporting a helper there broke `npm run build` while check, the unit suite and lint stayed green.
+const { projectAccountForDetail } = await import('$lib/server/transactions/accountProjection');
 const { MAX_BULK_TAG_TRANSACTIONS } = await import('$lib/server/tags/bulk');
 const testUser = { id: 'user-a', email: 'a@example.test', role: 'USER' as const };
 
@@ -2502,5 +2507,49 @@ describe('/transactions load — the sign a row is rendered with', () => {
 		// Not a restatement of the rule: `applyKindSign` is the function the export calls, so this
 		// asserts the two surfaces go through one definition rather than agreeing by coincidence.
 		expect(row?.amountCents).toBe(applyKindSign(3_000, 'expense'));
+	});
+});
+
+describe('projectAccountForDetail', () => {
+	it('names the manual bucket by a message rather than by its stored name and raw source', () => {
+		// Measured before this change: the detail panel rendered « Compte manuel · manual », which is
+		// the stored bucket name doing duty as a key plus the raw enum beside it. That is the defect
+		// importProfileLabel closed for the sibling column.
+		const projected = projectAccountForDetail({
+			name: 'Compte manuel',
+			nameKey: computeNameKey('Compte manuel'),
+			institution: null,
+			source: 'manual'
+		});
+		expect(projected.displayName).toBe(m.accounts_manual_entry());
+		expect(projected.showSource).toBe(false);
+	});
+
+	it('leaves a statement account showing its own name', () => {
+		const projected = projectAccountForDetail({
+			name: 'Banque Populaire',
+			nameKey: computeNameKey('Banque Populaire'),
+			institution: 'Banque Populaire',
+			source: 'banque_populaire'
+		});
+		expect(projected.displayName).toBe('Banque Populaire');
+		expect(projected.showSource).toBe(true);
+	});
+
+	it('names the generic bucket the same way the Comptes screen does', () => {
+		// SEPARATES: « one naming rule, asked on both screens » FROM « each screen has its own ».
+		// This panel read `account.name` for every statement account, so the day the Comptes screen
+		// started substituting a message the two would have named ONE row two ways: « Compte import
+		// CSV » here and « Import CSV » there. Neither is false, and a user reading both would have
+		// to work out that they are one account.
+		expect.assertions(2);
+		const projected = projectAccountForDetail({
+			name: GENERIC_BUCKET_STORED_NAME,
+			nameKey: computeNameKey(GENERIC_BUCKET_STORED_NAME),
+			institution: null,
+			source: 'csv'
+		});
+		expect(projected.displayName).toBe(m.accounts_generic_bucket());
+		expect(projected.showSource).toBe(true);
 	});
 });

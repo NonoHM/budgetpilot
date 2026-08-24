@@ -1,3 +1,4 @@
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const db = vi.hoisted(() => ({
@@ -225,6 +226,7 @@ describe('createSavingsGoal', () => {
 		expect(result).toEqual({ id: goalId });
 		expect(db.prisma.savingsGoal.create).toHaveBeenCalledWith({
 			data: {
+				...DEFAULT_DENOMINATION,
 				userId,
 				name: 'Vacances',
 				targetAmountCents: 100_000,
