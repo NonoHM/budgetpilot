@@ -45,7 +45,8 @@ const SUMMARY: ImportSummaryResult = {
 	period: { from: '2026-07-01', to: '2026-07-31' },
 	batchId: 'batch-1',
 	invalidRowDetails: [],
-	hiddenInvalidRowsCount: 0
+	hiddenInvalidRowsCount: 0,
+	accountName: null
 };
 
 const DATA: PageData = {

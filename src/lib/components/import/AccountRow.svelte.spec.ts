@@ -54,12 +54,29 @@ describe('the account row', () => {
 		// SEPARATES: « the provenance is a description » FROM « the provenance is part of the
 		// name ». Both render the same pixels. Only the second announces the whole sentence on
 		// every focus, and only the accessible surface tells them apart.
-		mount({ state: 'ok', value: 'BP · Compte courant', hint: HINT_FROM_FILE, panelId: 'p1' });
-		const trigger = page.getByRole('button', {
-			name: m.import_account_row_aria({ account: 'BP · Compte courant' })
+		const row = mount({
+			state: 'ok',
+			value: 'BP · Compte courant',
+			hint: HINT_FROM_FILE,
+			panelId: 'p1'
 		});
+		const expected = m.import_account_row_aria({ account: 'BP · Compte courant' });
+		const trigger = page.getByRole('button', { name: expected });
 		await expect.element(trigger).toBeInTheDocument();
+
+		// EQUALITY, not containment, and the break matrix is why. `getByRole`'s name option matches
+		// a SUBSTRING, so « Modifier Compte, BP · Compte courant » satisfies the locator above
+		// perfectly: a verb prepended to the label reddened nothing, and « and no verb » was a
+		// sentence in the test's title that no assertion made. The exact name is the claim.
+		expect(trigger.element().getAttribute('aria-label')).toBe(expected);
 		expect(trigger.element().getAttribute('aria-label')).not.toContain('IBAN');
+
+		// The LINKAGE, not merely the presence of the hint element. Asserting the paragraph exists
+		// and holds the right words says nothing about whether the row points at it: removing
+		// `aria-describedby` left the paragraph exactly where it was, visible and correct, and
+		// silent to a screen reader. That is the provenance leaving the accessibility tree without
+		// leaving the screen.
+		expect(row.getAttribute('aria-describedby')).toBe('account-row-hint-p1');
 		expect(document.getElementById('account-row-hint-p1')?.textContent).toBe(HINT_FROM_FILE);
 	});
 

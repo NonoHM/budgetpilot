@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
+import { GENERIC_BUCKET_STORED_NAME } from '$lib/domain/account';
 import type { SplitIndicator } from '$lib/domain/allocation';
 import { computeNameKey, computeNullableNameKey } from '$lib/server/naming/nameKey';
 // Compared against the message FUNCTION, never a copied literal: a spec that retypes the sentence
@@ -2514,7 +2515,12 @@ describe('projectAccountForDetail', () => {
 		// Measured before this change: the detail panel rendered « Compte manuel · manual », which is
 		// the stored bucket name doing duty as a key plus the raw enum beside it. That is the defect
 		// importProfileLabel closed for the sibling column.
-		const projected = projectAccountForDetail({ name: 'Compte manuel', source: 'manual' });
+		const projected = projectAccountForDetail({
+			name: 'Compte manuel',
+			nameKey: computeNameKey('Compte manuel'),
+			institution: null,
+			source: 'manual'
+		});
 		expect(projected.displayName).toBe(m.accounts_manual_entry());
 		expect(projected.showSource).toBe(false);
 	});
@@ -2522,9 +2528,28 @@ describe('projectAccountForDetail', () => {
 	it('leaves a statement account showing its own name', () => {
 		const projected = projectAccountForDetail({
 			name: 'Banque Populaire',
+			nameKey: computeNameKey('Banque Populaire'),
+			institution: 'Banque Populaire',
 			source: 'banque_populaire'
 		});
 		expect(projected.displayName).toBe('Banque Populaire');
+		expect(projected.showSource).toBe(true);
+	});
+
+	it('names the generic bucket the same way the Comptes screen does', () => {
+		// SEPARATES: « one naming rule, asked on both screens » FROM « each screen has its own ».
+		// This panel read `account.name` for every statement account, so the day the Comptes screen
+		// started substituting a message the two would have named ONE row two ways: « Compte import
+		// CSV » here and « Import CSV » there. Neither is false, and a user reading both would have
+		// to work out that they are one account.
+		expect.assertions(2);
+		const projected = projectAccountForDetail({
+			name: GENERIC_BUCKET_STORED_NAME,
+			nameKey: computeNameKey(GENERIC_BUCKET_STORED_NAME),
+			institution: null,
+			source: 'csv'
+		});
+		expect(projected.displayName).toBe(m.accounts_generic_bucket());
 		expect(projected.showSource).toBe(true);
 	});
 });

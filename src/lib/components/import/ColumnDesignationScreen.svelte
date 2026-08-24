@@ -562,6 +562,29 @@
 		accountRowWrapper?.querySelector('button')?.focus();
 	}
 
+	/**
+	 * Closes the panel WITHOUT choosing, and puts focus back where it came from.
+	 *
+	 * MEASURED 2026-08-24, and it was a real defect rather than a precaution: Escape closed the
+	 * panel and left `document.activeElement` on `<body>`. Focus had entered the panel on the
+	 * listbox, the listbox was then removed from the document, and a removed element's focus goes
+	 * nowhere — so a keyboard user pressing Escape was returned to the top of the document, with the
+	 * row they had just been operating somewhere below them and no way back but Tab.
+	 *
+	 * Nothing caught it. Every component assertion about this panel is about the panel while it is
+	 * OPEN, and the six accessibility assertions are about accessible names and structure. Where
+	 * focus lands after a key closes something is only answerable in a real browser, which is the
+	 * whole argument for the keyboard walk existing beside them.
+	 *
+	 * `chooseAccount` already returns focus by a different route (the row re-renders with a value
+	 * and the panel closes on the choice), so this is the DISMISS path specifically: 6k's
+	 * « Fermeture sans choix ».
+	 */
+	function closeAccountPanel() {
+		accountPanelOpen = false;
+		focusAccountRow();
+	}
+
 	function openCreateSheet() {
 		accountPanelOpen = false;
 		accountPanelFocus = 'list';
@@ -709,7 +732,7 @@
 			panelId="account-picker-panel"
 			initialFocus={accountPanelFocus}
 			onChoose={chooseAccount}
-			onClose={() => (accountPanelOpen = false)}
+			onClose={closeAccountPanel}
 			onCreate={openCreateSheet}
 		/>
 		<!--

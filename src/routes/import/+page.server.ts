@@ -38,6 +38,7 @@ import { buildAccountOffer } from '$lib/server/import/accountOffer';
 import type { ParsedCsvRow } from '$lib/server/import/types';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import type { PageServerLoad } from './$types';
+import { readAccountDisplayName } from '$lib/server/accounts/service';
 
 /**
  * Sources an import CSV row can land on, based on the auto-detected profile (see
@@ -494,7 +495,12 @@ export const actions: Actions = {
 				period: result.summary.period,
 				batchId,
 				invalidRowDetails: buildInvalidRowDetails(importData.previewRowsByLine, result),
-				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.invalidRows.length)
+				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.invalidRows.length),
+				// Named through the ONE rule both screens read, so the summary and the Comptes list
+				// cannot call one account two things. Read back rather than threaded out of the
+				// resolution, which returns an id: the id is what the resolver knows, and the name is
+				// a rendering question the resolver has no business answering.
+				accountName: await readAccountDisplayName(user.id, bucket.accountId)
 			}
 		};
 	}

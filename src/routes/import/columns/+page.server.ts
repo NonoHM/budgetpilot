@@ -28,6 +28,7 @@ import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/co
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
 import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
+import { readAccountDisplayName } from '$lib/server/accounts/service';
 
 /**
  * The import the designation screen submits, and the ONE place its choices become facts.
@@ -435,7 +436,12 @@ export const actions: Actions = {
 				// one run where the user had just chosen the columns and could still tell a wrong
 				// choice from a bad file. Same shape as `/import` so one panel draws both (#338).
 				invalidRowDetails: buildInvalidRowDetails(importData.previewRowsByLine, result),
-				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.invalidRows.length)
+				hiddenInvalidRowsCount: getHiddenInvalidRowsCount(result.invalidRows.length),
+				// Named through the ONE rule both screens read, so the summary and the Comptes list
+				// cannot call one account two things. Read back rather than threaded out of the
+				// resolution, which returns an id: the id is what the resolver knows, and the name is
+				// a rendering question the resolver has no business answering.
+				accountName: await readAccountDisplayName(user.id, bucket.accountId)
 			},
 			capReached,
 			replaced

@@ -49,7 +49,8 @@ function formWithProfile(profile: string) {
 			period: null,
 			batchId: 'batch-1',
 			invalidRowDetails: [],
-			hiddenInvalidRowsCount: 0
+			hiddenInvalidRowsCount: 0,
+			accountName: null
 		}
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any;

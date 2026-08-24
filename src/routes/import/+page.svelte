@@ -945,6 +945,23 @@
 								{m.import_summary_file({ name: importResult.fileName })}
 							</p>
 						{/if}
+						<!--
+						WHERE THE ROWS WENT, said once, on the screen that just put them there.
+
+						The user chose this account two steps earlier and has had no confirmation since;
+						a summary that names the file and not the destination answers the smaller half of
+						« did that work ». Absent rather than « aucun » when the name could not be
+						resolved, for the same reason the /imports pill is absent: silence is honest and
+						a placeholder is a claim.
+						-->
+						{#if importResult.accountName}
+							<p class="mt-1 text-sm text-zinc-500">
+								{m.imports_success_into_account({
+									count: importResult.importedRows,
+									account: importResult.accountName
+								})}
+							</p>
+						{/if}
 					</div>
 					{#if importResult.profile}
 						<span class="w-fit rounded-md border border-zinc-200 px-3 py-1 text-sm font-medium">
@@ -1245,6 +1262,14 @@
 						{#if importResult.fileName}
 							<p class="mt-1 text-sm font-medium break-all text-zinc-900">
 								{importResult.fileName}
+							</p>
+						{/if}
+						{#if importResult.accountName}
+							<p class="mt-1 text-xs text-zinc-500">
+								{m.imports_success_into_account({
+									count: importResult.importedRows,
+									account: importResult.accountName
+								})}
 							</p>
 						{/if}
 					</div>

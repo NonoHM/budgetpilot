@@ -1,4 +1,4 @@
-import { isStatementAccount } from '$lib/domain/account';
+import { isStatementDestination } from '$lib/server/accounts/projection';
 import { prisma } from '$lib/server/db';
 import { findDiscriminantColumn } from './discriminant';
 import { fingerprintFor } from './mapping/fingerprint';
@@ -217,14 +217,13 @@ export function headersOf(rows: ParsedCsvRow[]): string[] {
 /**
  * Whether an account can receive a statement at all.
  *
- * `isStatementAccount` is called rather than its condition retyped: it is an EXCLUSION set whose
- * whole point is that a source nobody has heard of still counts, and a second expression of it
- * here would be the copy that drifts. Archived is the other half: an archived account keeps every
- * transaction it ever received and stops being a destination.
+ * The rule moved to `accounts/projection.ts` and is CALLED here rather than expressed twice. It was
+ * written out in this file, computed again by `accountOffer.ts` from a query filter plus a
+ * `filter()`, and about to be written a third time by the Comptes screen: three expressions of
+ * « a live destination », agreeing by review. The local name stays because it reads better inside
+ * the ranks below than the qualified one does.
  */
-function isDestination(account: ResolvableAccount): boolean {
-	return isStatementAccount(account) && account.archivedAt === null;
-}
+const isDestination = isStatementDestination;
 
 /** Fragments compare trimmed and upper cased, the same way `assertDiscriminantFree` compares them. */
 function holdsFragment(account: ResolvableAccount, fragment: string): boolean {

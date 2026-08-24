@@ -125,6 +125,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 						account: {
 							select: {
 								name: true,
+								// Selected for `displayAccountName` alone: the generic bucket's stored name is
+								// the machine's, and the substitution that turns it into a sentence needs the
+								// folded key and the institution to know which rows it applies to.
+								nameKey: true,
+								institution: true,
 								source: true,
 								netWorthAccount: { select: { name: true } }
 							}
@@ -1218,6 +1223,8 @@ function mapTransactionDetail(
 		category: { name: string };
 		account: {
 			name: string;
+			nameKey: string | null;
+			institution: string | null;
 			source: string;
 			netWorthAccount: { name: string } | null;
 		} | null;

@@ -2,10 +2,11 @@ import { json } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import {
-	AccountCreateError,
+	AccountWriteError,
 	MAX_ACCOUNT_NAME_LENGTH,
 	createStatementAccount,
-	type AccountCreateRefusal
+	type AccountCreateRefusal,
+	type AccountWriteRefusal
 } from '$lib/server/accounts/service';
 import { findDiscriminantColumn } from '$lib/server/import/discriminant';
 import {
@@ -84,7 +85,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
 			}
 		});
 	} catch (caught) {
-		if (caught instanceof AccountCreateError) {
+		if (caught instanceof AccountWriteError && isCreateRefusal(caught.reason)) {
 			return json({ error: refusalSentence(caught.reason) }, { status: 400 });
 		}
 		throw caught;
@@ -122,8 +123,33 @@ async function fragmentFromFile(posted: FormDataEntryValue | null): Promise<stri
  * discriminant case is the plate's « phrase du nom pris adaptée » rather than a fifth idea.
  */
 function refusalSentence(reason: AccountCreateRefusal): string {
-	if (reason === 'name-required') return m.import_account_create_error_name_required();
-	if (reason === 'name-taken') return m.import_account_create_error_name_taken();
-	if (reason === 'discriminant-taken') return m.import_account_create_error_fragment_taken();
-	return m.import_account_create_error_name_too_long({ max: MAX_ACCOUNT_NAME_LENGTH });
+	switch (reason) {
+		case 'name-required':
+			return m.import_account_create_error_name_required();
+		case 'name-taken':
+			return m.import_account_create_error_name_taken();
+		case 'discriminant-taken':
+			return m.import_account_create_error_fragment_taken();
+		case 'name-too-long':
+			return m.import_account_create_error_name_too_long({ max: MAX_ACCOUNT_NAME_LENGTH });
+	}
+}
+
+/**
+ * Whether this refusal is one CREATING an account can produce.
+ *
+ * `createStatementAccount` throws only these four today, so this narrowing is currently total and
+ * the alternative branch unreachable. Written anyway, because the alternative to narrowing is a
+ * catch-all sentence: the two refusals this endpoint cannot receive are about an account that does
+ * not exist and a net worth account that does not, and rendering either as « ce nom est trop long »
+ * would be a false statement about the user's own input. An unexpected reason falls through to the
+ * generic 500 below instead, which says nothing rather than something wrong.
+ */
+function isCreateRefusal(reason: AccountWriteRefusal): reason is AccountCreateRefusal {
+	return (
+		reason === 'name-required' ||
+		reason === 'name-too-long' ||
+		reason === 'name-taken' ||
+		reason === 'discriminant-taken'
+	);
 }

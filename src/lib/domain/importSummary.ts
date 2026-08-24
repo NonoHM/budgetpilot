@@ -63,4 +63,16 @@ export interface ImportSummaryResult {
 	/** The rejected rows themselves, capped; `hiddenInvalidRowsCount` carries the remainder. */
 	invalidRowDetails: ImportInvalidRowDetail[];
 	hiddenInvalidRowsCount: number;
+	/**
+	 * The account these rows landed in, as a person reads it, or null when it could not be named.
+	 *
+	 * Not the same field the destination control used to produce, and the difference is the whole
+	 * point of #372: that one asked which patrimoine line a bucket feeds, on a screen about a file.
+	 * This one answers the question the screen actually asks, « where did my rows go », with the
+	 * account the user chose two steps earlier.
+	 *
+	 * Null is a real state rather than a placeholder: a rendering rule that cannot name the account
+	 * says nothing instead of naming the wrong one.
+	 */
+	accountName: string | null;
 }

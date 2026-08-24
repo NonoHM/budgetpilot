@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { isStatementAccount } from '$lib/domain/account';
-import { AccountCreateError, createStatementAccount } from './service';
+import { AccountWriteError, createStatementAccount } from './service';
 
 /**
  * THE CREATE SHEET IS A NEW WRITE PATH, AND THIS IS THE BATTERY IT OWES.
@@ -74,8 +74,8 @@ describe('creating the account a statement belongs to', () => {
 		const error = await createStatementAccount({ userId: mine, name: '  livret a  ' }).catch(
 			(caught: unknown) => caught
 		);
-		expect(error).toBeInstanceOf(AccountCreateError);
-		expect((error as AccountCreateError).reason).toBe('name-taken');
+		expect(error).toBeInstanceOf(AccountWriteError);
+		expect((error as AccountWriteError).reason).toBe('name-taken');
 		expect(await prisma.account.count({ where: { userId: mine } })).toBe(1);
 	});
 
@@ -101,11 +101,11 @@ describe('creating the account a statement belongs to', () => {
 			name: 'BP livret',
 			discriminant: '4417'
 		}).catch((caught: unknown) => caught);
-		expect(error).toBeInstanceOf(AccountCreateError);
-		expect((error as AccountCreateError).reason).toBe('discriminant-taken');
+		expect(error).toBeInstanceOf(AccountWriteError);
+		expect((error as AccountWriteError).reason).toBe('discriminant-taken');
 		// And the refusal never names the fragment. An error message travels, through a screenshot,
 		// a ticket and a clipboard. ASVS 5.0.0 16.2.5.
-		expect((error as AccountCreateError).message).not.toContain('4417');
+		expect((error as AccountWriteError).message).not.toContain('4417');
 	});
 
 	it('lets another user hold the same discriminant', async () => {
@@ -129,8 +129,8 @@ describe('creating the account a statement belongs to', () => {
 		const error = await createStatementAccount({ userId: mine, name: '   ' }).catch(
 			(caught: unknown) => caught
 		);
-		expect(error).toBeInstanceOf(AccountCreateError);
-		expect((error as AccountCreateError).reason).toBe('name-required');
+		expect(error).toBeInstanceOf(AccountWriteError);
+		expect((error as AccountWriteError).reason).toBe('name-required');
 		expect(await prisma.account.count()).toBe(before);
 	});
 
@@ -143,7 +143,7 @@ describe('creating the account a statement belongs to', () => {
 		const error = await createStatementAccount({ userId: mine, name: 'x'.repeat(121) }).catch(
 			(caught: unknown) => caught
 		);
-		expect(error).toBeInstanceOf(AccountCreateError);
-		expect((error as AccountCreateError).reason).toBe('name-too-long');
+		expect(error).toBeInstanceOf(AccountWriteError);
+		expect((error as AccountWriteError).reason).toBe('name-too-long');
 	});
 });

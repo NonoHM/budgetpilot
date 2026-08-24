@@ -72,6 +72,23 @@ const collision = vi.hoisted(() => ({
 const db = vi.hoisted(() => ({
 	prisma: {
 		categorizationRule: { findMany: vi.fn(async () => []) },
+		/**
+		 * The read behind the summary's « N lignes importées dans X ».
+		 *
+		 * Returns a REAL account shape rather than null, because null makes the line absent and an
+		 * absent line is what every one of these tests would report if the read were broken. The
+		 * name it returns is deliberately not the stored key: `displayAccountName` substitutes for
+		 * the generic bucket, and a fixture named « Compte import CSV » here would make this fake
+		 * decide which branch the projection takes.
+		 */
+		account: {
+			findFirst: vi.fn(async () => ({
+				name: 'Compte de test',
+				nameKey: 'compte-de-test',
+				source: 'csv',
+				institution: null
+			}))
+		},
 		importBatch: {
 			findFirst: vi.fn(
 				async (): Promise<{

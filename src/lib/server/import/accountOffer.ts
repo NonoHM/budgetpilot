@@ -2,7 +2,7 @@ import { prisma } from '$lib/server/db';
 import { findDiscriminantColumn } from './discriminant';
 import { institutionForSource } from './accountBackfill';
 import { prefillAccountName } from '$lib/server/accounts/service';
-import { isStatementAccount } from '$lib/domain/account';
+import { accountsForPicker } from '$lib/server/accounts/projection';
 import {
 	headersOf,
 	resolveStatementAccount,
@@ -24,10 +24,10 @@ import type { ParsedCsvRow } from './types';
  *
  * ## The options are the destinations, and archived is not one of them
  *
- * `isStatementAccount` is CALLED rather than its condition retyped. It is an exclusion set, and the
- * asymmetry is the reason it is one: forgetting a connector in an inclusion list hides a real
- * account with no error message, while forgetting one in an exclusion list offers a destination the
- * user can see and correct.
+ * `accountsForPicker` is CALLED rather than its condition retyped. It reads `isStatementAccount`,
+ * which is an exclusion set, and the asymmetry is the reason it is one: forgetting a connector in an
+ * inclusion list hides a real account with no error message, while forgetting one in an exclusion
+ * list offers a destination the user can see and correct.
  *
  * An archived account is absent from the panel (6h's last edge case) and keeps the imports it
  * already has. Filtered in the QUERY rather than after it, so the count and the list cannot
@@ -98,7 +98,11 @@ export async function buildAccountOffer(input: {
 		},
 		orderBy: [{ name: 'asc' }, { id: 'asc' }]
 	});
-	const destinations = accounts.filter((account) => isStatementAccount(account));
+	// `accountsForPicker` rather than a filter written here. The query above already excludes
+	// archived rows, so this call is the SECOND half of a rule whose first half is a where clause,
+	// and that split is exactly how the picker and the Comptes list would have drifted: one of them
+	// would have kept the query and forgotten the predicate, or the reverse.
+	const destinations = accountsForPicker(accounts);
 	const resolution = await resolveStatementAccount({
 		userId: input.userId,
 		rows: input.rows,

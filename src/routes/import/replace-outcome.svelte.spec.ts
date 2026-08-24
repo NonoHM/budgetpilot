@@ -70,7 +70,8 @@ function summary(invalidRowDetails: ImportInvalidRowDetail[]): ImportSummaryResu
 		period: { from: '2026-07-01', to: '2026-07-31' },
 		batchId: 'batch-new',
 		invalidRowDetails,
-		hiddenInvalidRowsCount: 0
+		hiddenInvalidRowsCount: 0,
+		accountName: null
 	};
 }
 

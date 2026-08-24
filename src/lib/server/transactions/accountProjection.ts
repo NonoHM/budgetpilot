@@ -1,5 +1,5 @@
 import { isStatementAccount } from '$lib/domain/account';
-import * as m from '$lib/paraglide/messages';
+import { displayAccountName, type NameableAccount } from '$lib/server/accounts/projection';
 
 /**
  * How a transaction's bucket is NAMED on screen.
@@ -28,13 +28,22 @@ import * as m from '$lib/paraglide/messages';
  * lookup key, with the raw enum printed beside it. Both halves are the defect `importProfileLabel`
  * already closed for the neighbouring column.
  */
-export function projectAccountForDetail(account: { name: string; source: string }): {
+export function projectAccountForDetail(account: NameableAccount): {
 	displayName: string;
 	showSource: boolean;
 } {
-	const statement = isStatementAccount(account);
 	return {
-		displayName: statement ? account.name : m.accounts_manual_entry(),
-		showSource: statement
+		/**
+		 * `displayAccountName` rather than the ternary this used to be, and the change is what stops
+		 * two screens naming ONE row two ways.
+		 *
+		 * The ternary was right about the manual bucket and silent about the generic one: it read
+		 * `account.name` for every statement account, so this panel said « Compte import CSV » about
+		 * the same row the Comptes screen calls « Import CSV » the moment that second rule shipped.
+		 * Neither name is false, and a user reading both would still have to work out that they are
+		 * one account. One rule, asked here and there.
+		 */
+		displayName: displayAccountName(account),
+		showSource: isStatementAccount(account)
 	};
 }

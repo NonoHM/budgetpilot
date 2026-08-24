@@ -3,7 +3,9 @@ import { prisma } from '$lib/server/db';
 import { isUniqueConstraintViolation } from '$lib/server/database/upsert';
 import { assertDiscriminantFree, DISCRIMINANT_LENGTH } from '$lib/server/import/discriminant';
 import { computeNameKey } from '$lib/server/naming/nameKey';
+import { displayAccountName } from './projection';
 import { MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
+import { isLinkableNetWorthAccountType, type NetWorthAccountType } from '$lib/domain/netWorth';
 
 /**
  * Creating and naming the accounts a statement can belong to.
@@ -58,8 +60,20 @@ export { MAX_ACCOUNT_NAME_LENGTH };
  */
 export const STATEMENT_ACCOUNT_SOURCE = 'csv';
 
+/**
+ * The four ways CREATING an account can be refused, as a type of its own.
+ *
+ * A subset rather than a comment saying « these four », because the boundary that renders them
+ * writes one sentence per reason and a catch-all `return` at the end of that chain would have
+ * quietly rendered « ce nom est trop long » for a reason that is not about a name. Naming the
+ * subset makes the compiler ask the endpoint what it means to do with a reason it cannot receive,
+ * instead of answering for it.
+ */
 export type AccountCreateRefusal =
 	'name-required' | 'name-too-long' | 'name-taken' | 'discriminant-taken';
+
+/** Every way a write to an account can be refused. Superset of the four above. */
+export type AccountWriteRefusal = AccountCreateRefusal | 'not-found' | 'net-worth-not-found';
 
 /**
  * A refusal the sheet can render, carried as a CLASS rather than as a message to match on.
@@ -73,21 +87,29 @@ export type AccountCreateRefusal =
  * through a screenshot, a ticket and a clipboard. ASVS 5.0.0 `v5.0.0-16.2.5`, as of the 2026-08-13
  * assessment of commit `d9c116c`.
  */
-export class AccountCreateError extends Error {
-	readonly reason: AccountCreateRefusal;
+export class AccountWriteError extends Error {
+	readonly reason: AccountWriteRefusal;
 
-	constructor(reason: AccountCreateRefusal) {
+	constructor(reason: AccountWriteRefusal) {
 		super(REFUSAL_MESSAGES[reason]);
-		this.name = 'AccountCreateError';
+		this.name = 'AccountWriteError';
 		this.reason = reason;
 	}
 }
 
-const REFUSAL_MESSAGES: Record<AccountCreateRefusal, string> = {
+const REFUSAL_MESSAGES: Record<AccountWriteRefusal, string> = {
 	'name-required': 'An account name is required',
 	'name-too-long': 'That account name is too long',
 	'name-taken': 'This user already holds an account with that name',
-	'discriminant-taken': 'This user already holds an account with that account identifier fragment'
+	'discriminant-taken': 'This user already holds an account with that account identifier fragment',
+	/**
+	 * ONE REASON FOR TWO SITUATIONS, and that is the decision rather than an omission: an id that
+	 * never existed and an id belonging to somebody else answer identically, so the response is not
+	 * an oracle for whether another user's id is real. Same ruling `renameTag` and
+	 * `deleteColumnMapping` already made next door, and the same reason.
+	 */
+	'not-found': 'No such account for this user',
+	'net-worth-not-found': 'No such linkable net worth account for this user'
 };
 
 /**
@@ -121,11 +143,11 @@ export async function createStatementAccount(input: {
 	discriminant?: string | null;
 }): Promise<{ id: string; name: string; discriminant: string | null }> {
 	const name = input.name.trim();
-	if (name.length === 0) throw new AccountCreateError('name-required');
+	if (name.length === 0) throw new AccountWriteError('name-required');
 	// Counted in CODE POINTS, like `persist.ts` cuts: a name of 120 emoji is 120 characters to the
 	// person who typed it and 240 UTF-16 units to `String.length`.
 	if (Array.from(name).length > MAX_ACCOUNT_NAME_LENGTH) {
-		throw new AccountCreateError('name-too-long');
+		throw new AccountWriteError('name-too-long');
 	}
 
 	const fragment = input.discriminant?.trim().slice(-DISCRIMINANT_LENGTH) || null;
@@ -136,7 +158,7 @@ export async function createStatementAccount(input: {
 		select: { nameKey: true, discriminant: true }
 	});
 	if (held.some((account) => account.nameKey === nameKey)) {
-		throw new AccountCreateError('name-taken');
+		throw new AccountWriteError('name-taken');
 	}
 	if (fragment !== null) {
 		try {
@@ -144,7 +166,7 @@ export async function createStatementAccount(input: {
 			// in one place, so a fourth caller cannot disagree with it by retyping the comparison.
 			assertDiscriminantFree(fragment, held);
 		} catch {
-			throw new AccountCreateError('discriminant-taken');
+			throw new AccountWriteError('discriminant-taken');
 		}
 	}
 
@@ -173,7 +195,162 @@ export async function createStatementAccount(input: {
 		// The read above cannot see a row a concurrent request has not committed yet, so the
 		// `@@unique([userId, name, source])` index is the only thing that decides the race. Reported
 		// as the refusal the user can act on rather than as a 500 about a constraint they cannot see.
-		if (isUniqueConstraintViolation(caught)) throw new AccountCreateError('name-taken');
+		if (isUniqueConstraintViolation(caught)) throw new AccountWriteError('name-taken');
 		throw caught;
 	}
+}
+
+/**
+ * The columns a MANAGEMENT write is allowed to touch, and nothing beside them.
+ *
+ * Written as three functions rather than one `updateAccount({ name?, archived?, link? })`, and that
+ * is the mass-assignment answer expressed in the type system rather than in a filter. A single
+ * update taking an object of optional fields is exactly the shape that lets a request that posted
+ * `archivedAt` reach the column: the deny list then has to be complete, and completeness is a
+ * property nobody can see. Three functions each writing named columns make the allow list the
+ * signature, so a field a form posts and no function accepts cannot arrive at all.
+ *
+ * Every one of them scopes on `(id, userId)` INSIDE the statement rather than reading the row and
+ * checking afterwards, and answers `not-found` identically for an id that never existed and one
+ * belonging to somebody else. Both halves are the ruling `renameTag` and `deleteColumnMapping`
+ * already made: a distinct refusal is an oracle telling an attacker whether a guessed id is real.
+ */
+
+/**
+ * Renames an account, keeping the folded key in step with the name it is the key FOR.
+ *
+ * The key is not a cache of the name, it is the thing every later comparison reads: a rename that
+ * wrote `name` alone would leave the row answering « taken » for the name it no longer has and
+ * « free » for the one it does, invisibly, because no screen renders a key. It is also what makes
+ * the Comptes invitation self-clearing — `isGenericallyNamed` reads the key, so renaming the
+ * generic bucket is what stops the sentence.
+ */
+export async function renameStatementAccount(input: {
+	userId: string;
+	accountId: string;
+	name: string;
+}): Promise<void> {
+	const name = input.name.trim();
+	if (name.length === 0) throw new AccountWriteError('name-required');
+	// Code points, like `createStatementAccount` and like `persist.ts` cuts: a name of 120 emoji is
+	// 120 characters to the person who typed it and 240 UTF-16 units to `String.length`.
+	if (Array.from(name).length > MAX_ACCOUNT_NAME_LENGTH) {
+		throw new AccountWriteError('name-too-long');
+	}
+	const nameKey = computeNameKey(name);
+
+	const held = await prisma.account.findMany({
+		where: { userId: input.userId },
+		select: { id: true, nameKey: true }
+	});
+	// The row being renamed is excluded from its own uniqueness check. Without this, correcting the
+	// casing of an account's own name is refused as a duplicate of itself, which reads on screen as
+	// a broken field rather than as a rule.
+	if (held.some((account) => account.id !== input.accountId && account.nameKey === nameKey)) {
+		throw new AccountWriteError('name-taken');
+	}
+
+	try {
+		const { count } = await prisma.account.updateMany({
+			where: { id: input.accountId, userId: input.userId },
+			data: { name, nameKey }
+		});
+		if (count === 0) throw new AccountWriteError('not-found');
+	} catch (caught) {
+		if (caught instanceof AccountWriteError) throw caught;
+		// `@@unique([userId, name, source])` is what decides a race the read above cannot see.
+		if (isUniqueConstraintViolation(caught)) throw new AccountWriteError('name-taken');
+		throw caught;
+	}
+}
+
+/**
+ * Archives an account, or brings it back. Writes `archivedAt` and NOTHING else.
+ *
+ * Not a soft delete, and the distinction is the whole feature: every transaction the account ever
+ * received stays exactly where it is and keeps rendering on every screen. What changes is that
+ * `accountsForPicker` stops offering it as a destination while `accountsForList` keeps showing it,
+ * so a user who archived by mistake has a screen on which to see it and a control to undo it.
+ *
+ * The timestamp is read from the clock at the moment of the write and is a fact about the PAST,
+ * never a verdict recomputed later.
+ */
+export async function archiveStatementAccount(input: {
+	userId: string;
+	accountId: string;
+	archived?: boolean;
+}): Promise<void> {
+	const { count } = await prisma.account.updateMany({
+		where: { id: input.accountId, userId: input.userId },
+		data: { archivedAt: input.archived === false ? null : new Date() }
+	});
+	if (count === 0) throw new AccountWriteError('not-found');
+}
+
+/**
+ * Sets, or clears, the net worth line this account feeds. THE ONLY WRITER OF THAT COLUMN outside
+ * the bank sync, which is what Task 7 made true by taking the question off the import path.
+ *
+ * ## Two object references, two authorisations
+ *
+ * `accountId` and `netWorthAccountId` both arrive from a request and each is a CLAIM. A function
+ * validating one of them looks exactly like a function validating both, which is why the two
+ * refusals are asserted separately: the net worth read is scoped by `userId`, and the account write
+ * is scoped by `userId` in its own where clause.
+ *
+ * ## The type is validated against the linkable set, positively
+ *
+ * `isLinkableNetWorthAccountType` is CALLED rather than its list retyped. A house is not a cash
+ * line, and filing a statement's transactions against one would put spending into an asset's
+ * balance. ASVS 5.0.0 `v5.0.0-2.2.1`: positive validation against an allow list of values, for
+ * input that makes a business decision.
+ *
+ * A null clears the link and needs no lookup: there is no reference to authorise.
+ */
+export async function linkNetWorthAccount(input: {
+	userId: string;
+	accountId: string;
+	netWorthAccountId: string | null;
+}): Promise<void> {
+	if (input.netWorthAccountId !== null) {
+		const target = await prisma.netWorthAccount.findFirst({
+			where: { id: input.netWorthAccountId, userId: input.userId, deletedAt: null },
+			select: { type: true }
+		});
+		// One reason for three situations — absent, foreign, and of a type that cannot be linked —
+		// for the same reason `not-found` covers two above: a distinct refusal per situation tells
+		// the caller which of their guesses was right.
+		if (!target || !isLinkableNetWorthAccountType(target.type as NetWorthAccountType)) {
+			throw new AccountWriteError('net-worth-not-found');
+		}
+	}
+
+	const { count } = await prisma.account.updateMany({
+		where: { id: input.accountId, userId: input.userId },
+		data: { netWorthAccountId: input.netWorthAccountId }
+	});
+	if (count === 0) throw new AccountWriteError('not-found');
+}
+
+/**
+ * The name of one account, as a person reads it, or null when there is no such account.
+ *
+ * Here rather than in `projection.ts` because it runs a QUERY, and that module is pure on purpose:
+ * every rule in it is a function of rows a caller already holds, which is what lets it be called
+ * from a `load`, from an action and from a test with a hand-written fixture.
+ *
+ * `userId` is in the same where clause and is not redundant. The id reaching this function was
+ * produced by the application rather than posted, so it could be taken on trust; taking an id off
+ * one row and asking the database for a name is exactly the shape that leaks a name across users
+ * the moment the row scoping is loosened anywhere upstream, and the clause costs a word.
+ */
+export async function readAccountDisplayName(
+	userId: string,
+	accountId: string
+): Promise<string | null> {
+	const account = await prisma.account.findFirst({
+		where: { id: accountId, userId },
+		select: { name: true, nameKey: true, source: true, institution: true }
+	});
+	return account ? displayAccountName(account) : null;
 }

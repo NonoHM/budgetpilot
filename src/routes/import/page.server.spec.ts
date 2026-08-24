@@ -1845,6 +1845,7 @@ async function runImport(formData: FormData) {
 				totalCreditCents: number;
 				invalidRowDetails: ImportInvalidRowDetail[];
 				hiddenInvalidRowsCount: number;
+				accountName?: string | null;
 			};
 		};
 		importResult: {
@@ -1858,6 +1859,7 @@ async function runImport(formData: FormData) {
 			totalCreditCents: number;
 			invalidRowDetails: ImportInvalidRowDetail[];
 			hiddenInvalidRowsCount: number;
+			accountName?: string | null;
 		};
 	};
 }
