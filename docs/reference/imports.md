@@ -308,8 +308,13 @@ statements, and leaves no trace that a guess was made.
 ### What is remembered
 
 The account a file shape went into, keyed on the file's **column names** in
-sorted order, the same way a column designation is remembered. A bank that adds
-a column, or reorders them, changes nothing.
+sorted order. A bank that **reorders** its columns changes nothing, because the
+names are sorted before they are hashed.
+
+A bank that **adds or removes** a column does change it: the set of names is
+different, so the digest is different and the shape reads as one never seen
+before. You are asked once more, and the new shape is remembered beside the
+old one.
 
 Two situations are told apart on screen: a shape never seen before says so, and
 a shape whose accounts have all since been deleted or archived says the
@@ -329,17 +334,24 @@ to guess, which is the one thing it exists not to do.
 
 Nothing else about the account is settable from that sheet. The format, the
 identifier fragment, the net worth link and the archived flag are set by the
-application or from **Settings, Accounts**, and a request that posts them is
-refused rather than obeyed.
+application or from **Settings, Accounts**. A request that posts them anyway
+sets nothing, because the endpoint reads the one field the form owns and never
+looks at the rest of the body.
 
 ### Refusals
 
-| Situation                                            | What you get                                                |
-| ---------------------------------------------------- | ----------------------------------------------------------- |
-| The primary pressed with no account chosen           | The row is revealed, scrolled to and focused                |
-| A recognised file, and two accounts share its format | Refused, with the offer to designate the columns and choose |
-| The chosen account has since been archived           | Refused, choose another                                     |
-| The file names several accounts                      | Choose the one this statement belongs to                    |
+| Situation                                            | What you get                                 |
+| ---------------------------------------------------- | -------------------------------------------- |
+| The primary pressed with no account chosen           | The row is revealed, scrolled to and focused |
+| A recognised file, and two accounts share its format | Refused. See the note below                  |
+| The chosen account has since been archived           | Refused, choose another                      |
+| The file names several accounts                      | Choose the one this statement belongs to     |
+
+**The refusal for two accounts of one format has no control beside it yet.**
+Its sentence asks you to designate the columns, and the designation screen is
+not offered on that path, because a recognised file never reaches it. Until that
+is fixed, the way through is to archive the account the statement is not from,
+import it, and reactivate the other.
 
 An account reference posted by a browser is treated as a claim rather than a
 fact: it is resolved against your own accounts, and one that does not resolve

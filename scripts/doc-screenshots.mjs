@@ -118,6 +118,25 @@ async function uploadWideUnrecognisedStatement(page) {
  * panel that never shows them.
  */
 /**
+ * A statement the GENERIC profile recognises, so it imports straight through and the summary
+ * panel renders. The other two uploaders above deliberately use headers no profile knows, because
+ * their subject is the designation screen; this one's subject is what an import REPORTS, which
+ * only exists on the path where nothing had to be designated.
+ *
+ * The rows are `scripts/synthetic/make-synthetic.mjs`'s ledger, byte for byte, so the image and
+ * the generator cannot drift into disagreeing about what a statement looks like. Holder Paul
+ * Mercier, who does not exist; every merchant and every amount invented; nothing here comes from
+ * anyone's bank. It is inlined rather than read from `scr/synthetic/` for the same reason the two
+ * uploaders above are: a capture must not depend on somebody having run the generator first.
+ *
+ * Eight movements: six debits totalling 367,35 and two credits totalling 2 524,30, over
+ * 2026-06-01 to 2026-06-24. Those are the figures `assertDepictsImportSummary` pins.
+ *
+ * No `category` column, though the generic profile accepts one. The summary names no category, so
+ * carrying one would put French category names into an English instance's database to document a
+ * panel that never shows them.
+ */
+/**
  * Answers the designation screen's ACCOUNT row, which sits above the four column roles.
  *
  * Not optional dressing on these captures. The row is the first thing on that screen, the primary
@@ -731,7 +750,6 @@ const GROUPS = {
 	]
 };
 
-/** Opens the enrolment dialog from the two-factor switch. */
 /**
  * The Accounts section's premise, checked before the file is written.
  *
@@ -739,11 +757,20 @@ const GROUPS = {
  * a different picture with a different sentence. A capture taken on an instance whose demo user has
  * never imported would photograph that empty state under a caption describing rows, and nothing
  * downstream could tell the two apart. So the assert names the state the image is documenting: at
- * least one row, and at least one Rename control to prove the row is an account row rather than any
- * other list this page carries.
+ * least one Rename control whose accessible name is an ACCOUNT's.
+ *
+ * Scoped through `accounts_rename_aria`'s own shape rather than through a bare `/^Rename /`. The
+ * tags list on this same page carries a rename control too, and its accessible name is the bare
+ * verb today only because `tags_rename_aria` is declared and not yet wired: the day somebody wires
+ * it, an unscoped matcher starts passing on a page with no accounts at all, which is the exact
+ * state this assert exists to refuse.
  */
 async function assertDepictsAccountsSection(page) {
-	const renames = await page.getByRole('button', { name: /^Rename / }).count();
+	// `#comptes` and not a `section` element: the card is a `<div id="comptes">` (the settings page
+	// draws every card the same way), so a role or element locator would find nothing here and the
+	// capture would fail for the wrong reason.
+	const card = page.locator('#comptes');
+	const renames = await card.getByRole('button', { name: /^Rename ./ }).count();
 	if (renames < 1) {
 		throw new Error(
 			`[docs] accounts-desktop: expected at least one account row with a Rename control, found ${renames}`
@@ -751,6 +778,7 @@ async function assertDepictsAccountsSection(page) {
 	}
 }
 
+/** Opens the enrolment dialog from the two-factor switch. */
 async function openTotpSetup(page) {
 	await page.getByRole('switch', { name: 'Enable two-factor authentication' }).click();
 	await page.waitForTimeout(400);

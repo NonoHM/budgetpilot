@@ -96,7 +96,7 @@ have closed, so it stops being offered every time you import.
 **Reactivate** on the same row brings it back.
 
 An archived account keeps its name and its number, so you cannot reuse either
-for a new account until you delete the old one.
+for a new account while the old one exists.
 
 ### Tracked in net worth
 

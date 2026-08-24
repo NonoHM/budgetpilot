@@ -25,9 +25,9 @@ A file BudgetPilot recognises goes straight into the account that format always
 uses, so there is nothing to answer here either.
 
 One exception: if you have two accounts using the same format, the file cannot
-say which one it is from. The import stops and offers you the screen below,
-where you pick. See [which account is this statement
-from?](#which-account-is-this-statement-from).
+say which one it is from, and the import stops rather than guessing. There is no
+control on that message yet: for now, archive the account the statement is not
+from in **Settings, Accounts**, import it, and reactivate the other.
 
 ### 2. It is not recognised, so you are asked which column is which
 

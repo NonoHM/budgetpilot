@@ -102,26 +102,27 @@ transaction.
 
 ## Accounts
 
-The accounts your statements are filed into. Created by importing, never
-created here.
+The accounts your statements are filed into. Created by importing or by the
+bank sync, never created here.
 
 |                                  |                                                         |
 | -------------------------------- | ------------------------------------------------------- |
 | Name length                      | **120 characters**                                      |
 | Two accounts with the same name  | refused, accents and case ignored                       |
 | Two accounts with one identifier | refused                                                 |
-| Archived accounts count for both | yes, until the account is deleted                       |
+| Archived accounts count for both | yes, for as long as the account exists                  |
 | What a row shows                 | name, identifier fragment when known, transaction count |
 
-**Rename** writes the name and nothing else. **Archive** writes the archived
+**Rename** writes the name and the folded key derived from it, and nothing else. **Archive** writes the archived
 flag and nothing else: transactions, imports and the net worth link are
 untouched, and the account stops being offered as an import destination.
 
 **Tracked in net worth** links the account to one net worth line, or to none.
 Only a linkable net worth account can be chosen, which is the same rule
 [savings goals](./savings-goals.md) apply. This is the only place the link is
-set; it used to be a field on the import form, which asked about an account on
-a screen about a file.
+set **by hand**; the bank sync sets it for the accounts it creates. It used to
+be a field on the import form, which asked about an account on a screen about a
+file.
 
 The invitation to rename appears only while at least one account still carries
 the name BudgetPilot gave it, and clears itself when the last one is renamed.

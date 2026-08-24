@@ -34,22 +34,23 @@ in the file would notice, so these are letters AS OF THAT ASSESSMENT rather than
 `v5.0.0-8.2.2` and `v5.0.0-2.2.1` are **L1** rows, not L2; `v5.0.0-15.3.3` is L2.
 
 Branch `feat/statement-account`, second half. The account a statement belongs to became something a
-user chooses, which added four write paths that take an object reference from a browser: creating an
-account from inside the import flow, renaming one, archiving or reactivating one, and linking one to
-a net worth line. **No row's letter moves.** Three rows gain evidence, one of them with a stated
+user chooses, which added four write paths: creating an account from inside the import flow,
+renaming one, archiving or reactivating one, and linking one to a net worth line. **THREE of the
+four take an object reference from a browser.** The create path takes none, which is why it appears
+under `15.3.3` below and not under `8.2.2`. **No row's letter moves.** Three rows gain evidence, one of them with a stated
 limit that makes it weaker than the sentence the assessment published, and that is written down
 here rather than left for a re-derivation to discover.
 
-### `v5.0.0-8.2.2`: four new id-bearing actions, and where they are guarded
+### `v5.0.0-8.2.2`: three new id-bearing actions, and where they are guarded
 
 > Verify that the application ensures that data-specific access is restricted to consumers with
 > explicit permissions to specific data items to mitigate insecure direct object reference (IDOR)
 > and broken object level authorization (BOLA).
 
-Each of the four resolves its reference with `userId` in the **same** where clause rather than as a
+Each of the three resolves its reference with `userId` in the **same** where clause rather than as a
 check afterwards, and answers not-found for a reference that does not resolve, whether it is missing
-or somebody else's. The two that update do it as an `updateMany` scoped by both columns and refuse
-on a count of zero, so there is no window between reading a row and writing it.
+or somebody else's. All three write through an `updateMany` scoped by both columns and refuse on a
+count of zero, so there is no window between reading a row and writing it.
 
 **Asserted against a real engine, never only in a unit spec, and the reason is a measured green.**
 A unit spec's fake decides what `findFirst` returns, so removing the ownership clause from the query
@@ -88,7 +89,10 @@ Asserted rather than described: the tests post the forbidden fields and read the
 > Verify that input is validated to enforce business or functional expectations for that input. This
 > should either use positive validation against an allow list of values, patterns, and ranges, or be
 > based on comparing the input to an expected structure and logical limits according to predefined
-> rules.
+> rules. [...]
+
+Truncated at the sentence that follows, which scopes the requirement by level and does not bear on
+this change.
 
 A net worth line has a type, and only some types are a thing a statement can be about. The link
 calls `isLinkableNetWorthAccountType` rather than retyping its list, so the one definition of that
