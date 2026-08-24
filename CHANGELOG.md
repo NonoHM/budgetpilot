@@ -1,5 +1,46 @@
 # Changelog
 
+## [0.14.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.13.1...budgetpilot-v0.14.0) (2026-08-24)
+
+
+### Features
+
+* **accounts:** the account a statement belongs to ([#480](https://github.com/NonoHM/budgetpilot/issues/480)) ([6cba949](https://github.com/NonoHM/budgetpilot/commit/6cba9494c28f82d001a37acaaeb2d66754781a15))
+* **import:** version 3 of the deduplication key, and the recompute that makes it affordable ([#465](https://github.com/NonoHM/budgetpilot/issues/465)) ([30fdbe9](https://github.com/NonoHM/budgetpilot/commit/30fdbe9b402de82eb4b4e954aa1a5569bb99b2a4))
+* **money:** a currency field and an exponent field, in the same change, on 64-bit columns ([#462](https://github.com/NonoHM/budgetpilot/issues/462)) ([8dbf68e](https://github.com/NonoHM/budgetpilot/commit/8dbf68e86538e4d1c6f48eb7d5177cc76ef6a4bf))
+
+
+### Bug Fixes
+
+* close the four gaps that compose into silent data loss on a major ([#450](https://github.com/NonoHM/budgetpilot/issues/450)) ([542ab87](https://github.com/NonoHM/budgetpilot/commit/542ab87108311163c0e1de3863011f6908b4ce2c))
+* **import:** the account question is asked where the refusal is ([#487](https://github.com/NonoHM/budgetpilot/issues/487)) ([04115f3](https://github.com/NonoHM/budgetpilot/commit/04115f3a29aed7b8c7c1b75188df5d792571f49d))
+* **net-worth:** as of today means now, not noon ([#443](https://github.com/NonoHM/budgetpilot/issues/443)) ([61c6b4a](https://github.com/NonoHM/budgetpilot/commit/61c6b4a961b49f1b5c53eda6279093bd9325ab48))
+* the four 1.0 blockers from the pre-1.0 audit ([#439](https://github.com/NonoHM/budgetpilot/issues/439)) ([5edf309](https://github.com/NonoHM/budgetpilot/commit/5edf309c0874b1b42b7f12428d18e19fbc0b2609))
+* the remaining pre-1.0 interface cleanups, and two corrections to the audit ([#456](https://github.com/NonoHM/budgetpilot/issues/456)) ([57c3a55](https://github.com/NonoHM/budgetpilot/commit/57c3a55ac3c83219225ba3d33de7ff9a756d9fb4))
+
+
+### Behaviour and internals
+
+* **money:** one module that knows an amount is scaled by a power of ten ([#461](https://github.com/NonoHM/budgetpilot/issues/461)) ([ec71b12](https://github.com/NonoHM/budgetpilot/commit/ec71b125f0eef015c0a18d65599566cf235d1b55))
+
+
+### Documentation
+
+* a truthful limitations list, a pin that resolves itself, and a version the app can name ([#440](https://github.com/NonoHM/budgetpilot/issues/440)) ([f77c049](https://github.com/NonoHM/budgetpilot/commit/f77c049aea87ca01c684b679f330d82f398db179))
+* **agents:** how much rigour a change earns, in three tiers ([#489](https://github.com/NonoHM/budgetpilot/issues/489)) ([dea87c2](https://github.com/NonoHM/budgetpilot/commit/dea87c20c51e8419301ccd51fb2af4f9219ce80e))
+* **agents:** narrow the em dash rule to prose, and gate the half that is a file ([#444](https://github.com/NonoHM/budgetpilot/issues/444)) ([58a5b7f](https://github.com/NonoHM/budgetpilot/commit/58a5b7ff906b1bb6ceb0205f0ca5d77ce6f865c4))
+* **money:** the currency and exponent rule, and the design note for the two stored forms ([7a86fbc](https://github.com/NonoHM/budgetpilot/commit/7a86fbcf10d375669266d81f30f6b45c197b4089))
+* **net-worth:** the sync comment loses its scenario and keeps its invariant ([#448](https://github.com/NonoHM/budgetpilot/issues/448)) ([50b284e](https://github.com/NonoHM/budgetpilot/commit/50b284ebf8479f98c6cedc66dcad6706698c47a5))
+* the pre-1.0 interface audit, as it was run ([#455](https://github.com/NonoHM/budgetpilot/issues/455)) ([03e36fe](https://github.com/NonoHM/budgetpilot/commit/03e36feda46a0aa89c546e2f6d237a7ae1ba6da7))
+
+
+### Maintenance
+
+* bump eslint-plugin-svelte in the npm-lint-tooling group ([#445](https://github.com/NonoHM/budgetpilot/issues/445)) ([4943c1c](https://github.com/NonoHM/budgetpilot/commit/4943c1c9f1635c77bdac9dc76828356eb2d4ab60))
+* bump the actions-patch-minor group across 1 directory with 2 updates ([#447](https://github.com/NonoHM/budgetpilot/issues/447)) ([189925f](https://github.com/NonoHM/budgetpilot/commit/189925ff6e656eb6ceab74247e0a29ff254377bc))
+* bump the npm-patch-minor group with 5 updates ([#446](https://github.com/NonoHM/budgetpilot/issues/446)) ([664c069](https://github.com/NonoHM/budgetpilot/commit/664c0699fbaa0a59ed38805463aa4c04a7214a15))
+* **claude:** path-scoped rules for skill auto-invocation, and two Skill denies ([#463](https://github.com/NonoHM/budgetpilot/issues/463)) ([b1778a6](https://github.com/NonoHM/budgetpilot/commit/b1778a66ed760a7a2e4f30639e95f89f87ab1252))
+
 ## [0.13.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.13.0...budgetpilot-v0.13.1) (2026-08-20)
 
 
