@@ -760,7 +760,6 @@
 		<CreateAccountSheet
 			open={createOpen}
 			prefill={accountPrefill}
-			existingNames={shownAccounts.map((account) => account.name)}
 			state={createPhase}
 			error={createError}
 			onSubmit={submitCreate}

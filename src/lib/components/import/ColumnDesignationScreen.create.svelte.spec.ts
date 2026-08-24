@@ -185,20 +185,35 @@ describe('creating an account without leaving the file in your hand', () => {
 		expect(document.activeElement).toBe(footerAction().element());
 	});
 
-	it('offers the sheet the names it must refuse, including one just created', async () => {
-		// SEPARATES: « the local refusal knows every account on the screen » FROM « it knows only the
-		// ones the server sent ». An account created a moment ago is exactly the one a user is most
-		// likely to type again, and it is the one a list built from the server payload cannot hold.
-		mount({ onCreateAccount: vi.fn(async () => ({ ok: true as const, account: CREATED })) });
+	it('hands the sheet no name list, so a name already on screen still reaches the server', async () => {
+		// SEPARATES: « the screen asks the server about a duplicate » FROM « it answers from what is
+		// on screen ». This assertion is the INVERSE of the one it replaces, and the inversion is the
+		// finding rather than a change of mind.
+		//
+		// The screen used to pass `shownAccounts.map((a) => a.name)` and the sheet refused against it.
+		// That was equivalent to the server's check only while those strings were the ones the server
+		// compares. Making the picker substitute `displayAccountName` ended the equivalence by
+		// construction: the row on screen reads « Import CSV » and the column holds « Compte import
+		// CSV », so the two sides disagreed in both directions on that account.
+		//
+		// Each side now validates only what it can know with certainty. This one knows what is on
+		// screen and therefore says nothing about uniqueness; the server knows what is stored and its
+		// refusal is what the user reads.
+		expect.assertions(2);
+		const onCreateAccount = vi.fn(async () => ({ ok: true as const, account: CREATED }));
+		mount({ onCreateAccount });
 		await openPanel();
 		await footerAction().click();
-		await nameField().fill('Livret A');
+		await nameField().fill(CREATED.name);
 		await primary().click();
-		// Second creation, same name. Refused here rather than at the server.
+		// Same name again, and the request goes out a second time rather than being answered here.
 		await openPanel();
 		await footerAction().click();
-		await nameField().fill('livret a');
+		await nameField().fill(CREATED.name.toLowerCase());
 		await primary().click();
-		expect(document.body.textContent).toContain(m.import_account_create_error_name_taken());
+		expect(onCreateAccount).toHaveBeenCalledTimes(2);
+		// The companion, because « it asked twice » would also be true of a screen that shows the
+		// refusal anyway: no local sentence about duplicates is on the page.
+		expect(document.body.textContent).not.toContain(m.import_account_create_error_name_taken());
 	});
 });

@@ -64,31 +64,75 @@ describe('the create account sheet', () => {
 		expect(document.body.textContent).toContain(m.import_account_create_error_name_required());
 	});
 
-	it('refuses a name already held LOCALLY, before any network call', async () => {
-		// SEPARATES: « the refusal happened in the sheet » FROM « the refusal came back from the
-		// server ». Both show the same sentence, and only `onSubmit` tells them apart. 6g asks for
-		// the local one because two homonymous accounts would make the panel unreadable, which is
-		// the defect rebuilt inside its own repair.
+	/**
+	 * THE TWO DIRECTIONS OF THE SAME REGRESSION, PLUS THE GUARD ON THE REMOVAL ITSELF.
+	 *
+	 * This sheet used to take an `existingNames` list and refuse a held name before the network. It
+	 * was equivalent to the server's check only while that list carried the same strings the server
+	 * compares. It stopped being one: the picker offers each account under its DISPLAYED name, and
+	 * the generic bucket's stored name is a different string. So the two sides disagreed in BOTH
+	 * directions on the one account where it matters.
+	 *
+	 * The list is gone rather than doubled. The criterion is not « the server is authoritative » but
+	 * « each side validates only what it can know with certainty »: this side knows what is on
+	 * screen, the server knows what is stored, and here those differ by construction.
+	 */
+	it('accepts a name the old client check REFUSED and the server accepts', async () => {
+		// SEPARATES: « the name reaches the caller » FROM « the sheet answered from a list ». The
+		// displayed name of the generic bucket is what the picker shows and what the old list would
+		// have carried; nothing is stored under it, so the server accepts it.
+		expect.assertions(2);
 		const onSubmit = vi.fn();
-		mount({ prefill: 'livret a', existingNames: ['Livret A'], onSubmit });
+		mount({ prefill: m.accounts_generic_bucket(), onSubmit });
 		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
-		expect(onSubmit).not.toHaveBeenCalled();
-		expect(document.body.textContent).toContain(m.import_account_create_error_name_taken());
+		expect(onSubmit).toHaveBeenCalledWith(m.accounts_generic_bucket());
+		// The companion: the sheet has not simply gone inert. It still refuses an empty name, so the
+		// green above separates « it deferred » from « the primary does nothing at all ».
+		expect(document.body.textContent).not.toContain(m.import_account_create_error_name_taken());
 	});
 
-	it('folds the comparison the same way the server does', async () => {
-		// SEPARATES: « the local check folds accents and case » FROM « it compares two strings ».
-		// A byte comparison lets « Epargne » through against a held « Épargne », so the user is told
-		// nothing here and refused by the server a moment later, which is the shape that makes a
-		// local check worse than none. Both sides call `normalizeForMatch`, so they cannot disagree.
+	it('sends a name the old client check ACCEPTED and the server refuses', async () => {
+		// SEPARATES: « the sheet defers » FROM « the sheet decides from a list that cannot know ».
+		// The STORED name is absent from anything the client can see, so a local check waved it
+		// through and the server refused a moment later: two answers for one question.
+		expect.assertions(1);
 		const onSubmit = vi.fn();
-		mount({ prefill: '  epargne  ', existingNames: ['Épargne'], onSubmit });
+		mount({ prefill: 'Compte import CSV', onSubmit });
 		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
-		expect(onSubmit).not.toHaveBeenCalled();
-		expect(document.body.textContent).toContain(m.import_account_create_error_name_taken());
+		expect(onSubmit).toHaveBeenCalledWith('Compte import CSV');
 	});
 
-	it('sends the trimmed name once it is neither empty nor already held', async () => {
+	it('HAS NO LIST TO CONSULT: handed one, it still submits', async () => {
+		// SEPARATES: « the component takes no name list » FROM « it takes one and this suite never
+		// passes it ». The two earlier tests both pass while the list exists and simply is not given,
+		// so neither of them guards the REMOVAL; this one hands the sheet exactly the list the caller
+		// used to pass, under the name it used to pass it, and requires the name through anyway.
+		//
+		// It is written as an unknown prop deliberately. Svelte ignores one, so this is green while
+		// the prop is absent and red the moment somebody re-adds it as an optimisation, which is the
+		// thing the comment in the component asks them not to do.
+		expect.assertions(1);
+		const onSubmit = vi.fn();
+		mount({ prefill: 'Livret A', existingNames: ['Livret A'], onSubmit });
+		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
+		expect(onSubmit).toHaveBeenCalledWith('Livret A');
+	});
+
+	it("renders the SERVER's refusal, which is the sentence the user reads", async () => {
+		// SEPARATES: « the reason comes back from the side that knows » FROM « the sheet invented
+		// one ». With the check gone, the only refusal a duplicate can produce is this one, so it
+		// has to be readable and has to leave the typed name in the field to correct.
+		expect.assertions(2);
+		mount({
+			prefill: 'Compte import CSV',
+			state: 'error',
+			error: m.import_account_create_error_name_taken()
+		});
+		expect(document.body.textContent).toContain(m.import_account_create_error_name_taken());
+		expect((field().element() as HTMLInputElement).value).toBe('Compte import CSV');
+	});
+
+	it('sends the trimmed name once it is not empty', async () => {
 		// SEPARATES: « a valid name reaches the caller » FROM « the sheet refuses everything ». The
 		// calibration the four refusals above need: without it each of them is equally explained by
 		// a primary that never submits at all.

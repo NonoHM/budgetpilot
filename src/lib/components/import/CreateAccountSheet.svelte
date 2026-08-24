@@ -35,25 +35,22 @@
 	 * and has just watched something else fail; without that half-sentence the failure of a creation
 	 * reads as the loss of the designation work. Same doctrine as 5f's import failure banner.
 	 *
-	 * ## The local refusal is an affordance and the server is the control
+	 * ## Each side validates only what it can know with certainty
 	 *
-	 * Refusing a held name before the network saves a round trip and, more importantly, keeps two
-	 * homonymous accounts out of the panel built to tell accounts apart. It is not a security
-	 * boundary: `createStatementAccount` refuses the same name again, and it is the one that decides.
-	 * Both sides fold with `normalizeForMatch`, so the two answers cannot disagree by retyping.
+	 * This side knows what is on screen; the server knows what is stored. Here the two differ by
+	 * construction, so uniqueness is checked in one place only. The argument, and the regression
+	 * that produced it, are written out above `press` where the check used to be.
 	 */
 	import * as m from '$lib/paraglide/messages';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import Button from '$lib/components/Button.svelte';
 	import Modal from '$lib/components/Modal.svelte';
 	import { MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
-	import { normalizeForMatch } from '$lib/domain/normalize';
 	import { inputBase } from '$lib/styles';
 
 	let {
 		open = false,
 		prefill = '',
-		existingNames = [],
 		// RENAMED LOCALLY, and the rename is the whole point of these two lines. A binding called
 		// `state` SHADOWS the `$state` rune for the rest of the component, and the failure is not a
 		// compile error: every `$state(...)` below throws `store_invalid_shape` at runtime, because
@@ -72,8 +69,6 @@
 		 * alternatives fabricate a name out of something that is not about the user's bank.
 		 */
 		prefill?: string;
-		/** The names this user already holds, for the refusal that happens before the network. */
-		existingNames?: readonly string[];
 		/** 5f's contract, reused unchanged. The CALLER owns it, because the caller owns the request. */
 		state?: 'idle' | 'busy' | 'error';
 		/** The server's sentence. Rendered verbatim and never interpolated into anything. */
@@ -108,7 +103,29 @@
 		prefill ? m.import_account_create_hint() : m.import_account_create_hint_examples()
 	);
 
-	const heldKeys = $derived(new Set(existingNames.map((held) => normalizeForMatch(held))));
+	/**
+	 * THERE IS NO UNIQUENESS CHECK HERE, and its absence is deliberate rather than missing.
+	 *
+	 * **The client cannot know the stored names, so it does not pretend to.** The picker offers each
+	 * account under its DISPLAYED name and the row holds a different string: « Import CSV » on
+	 * screen, « Compte import CSV » in the column the server compares. Those differ BY
+	 * CONSTRUCTION, so a client check over what is on screen cannot be equivalent to the server's
+	 * check over what is stored. Equivalence here is impossible, not merely absent.
+	 *
+	 * This component used to take an `existingNames` list and refuse before the network. It was
+	 * wrong in both directions the moment the picker started substituting: it refused the displayed
+	 * name, which the server accepts, and it waved through the stored one, which the server refuses.
+	 *
+	 * **A false client refusal is worse than a round trip.** It blocks a legitimate action and the
+	 * user cannot learn why, because the reason lives on the side that was never asked.
+	 *
+	 * So this side validates SHAPE, which is what it can know with certainty: empty, and the length
+	 * bound (`maxlength` on the field). Uniqueness is the server's, against the stored `nameKey`,
+	 * and the server's sentence is the one the user reads.
+	 *
+	 * DO NOT RE-ADD THE LIST as an optimisation. Two places agreeing on one rule is the shape this
+	 * repository has measured four times, and here the two cannot agree even in principle.
+	 */
 
 	/**
 	 * The primary NAMES the state it is in, and there are three names for one action.
@@ -128,10 +145,6 @@
 			// this plate applies and does not impose: a disabled control explains nothing and cannot
 			// be asked why. 6k's « Champ vidé » mechanics, unchanged.
 			refuse(m.import_account_create_error_name_required());
-			return;
-		}
-		if (heldKeys.has(normalizeForMatch(typed))) {
-			refuse(m.import_account_create_error_name_taken());
 			return;
 		}
 		fieldError = null;
