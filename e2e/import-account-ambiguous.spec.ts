@@ -41,15 +41,44 @@ const CSV = [
  * under test on one source. Named per worker: two workers creating at once are two users, and a
  * collision would refuse the second for a reason about the first.
  */
-async function makeAccount(page: import('@playwright/test').Page, name: string) {
+async function makeAccount(page: import('@playwright/test').Page, name: string): Promise<string> {
 	const response = await page.request.post(`${E2E_BASE_URL}/import/accounts`, {
 		headers: { Origin: E2E_BASE_URL },
 		multipart: { name: `${name} ${process.env.TEST_WORKER_INDEX ?? '0'}` }
 	});
 	expect(response.ok()).toBe(true);
+	const payload = (await response.json()) as { account: { id: string } };
+	return payload.account.id;
 }
 
-async function offerAFile(page: import('@playwright/test').Page, form: ReturnType<typeof page.locator>) {
+/**
+ * ARCHIVING WHAT THIS FILE CREATED IS PART OF THE TEST, not tidiness.
+ *
+ * MEASURED: the first version of this file left its two accounts behind, and the full suite went
+ * from `190 passed, 1 flaky` to `7 failed`. Every one of the seven is an import spec, and all of
+ * them for one reason: two accounts of source `csv` is exactly the state this file exists to
+ * create, so every later import in the run met the refusal instead of importing. `choose-account.ts`
+ * says as much in advance, that no spec has more than one statement account "and the ones that will
+ * are the ones testing the choice itself".
+ *
+ * Archiving rather than deleting, because archiving is the operation the product has and it is what
+ * takes an account out of the by-source lookup. The rows already imported stay where they are, which
+ * is what archiving means.
+ */
+async function archiveAccounts(page: import('@playwright/test').Page, ids: string[]) {
+	for (const id of ids) {
+		const response = await page.request.post(`${E2E_BASE_URL}/settings?/archiveAccount`, {
+			headers: { Origin: E2E_BASE_URL },
+			multipart: { id, archived: 'true' }
+		});
+		expect(response.ok()).toBe(true);
+	}
+}
+
+async function offerAFile(
+	page: import('@playwright/test').Page,
+	form: ReturnType<typeof page.locator>
+) {
 	await form.locator('input[name="csvFile"]').setInputFiles({
 		name: 'releve-476.csv',
 		mimeType: 'text/csv',
@@ -66,8 +95,10 @@ test('a statement ambiguous between two accounts is imported into the one chosen
 	// account the summary NAMES, not on the absence of an error: a refusal and a success that
 	// mentions nothing are the same silence.
 	await page.goto('/import');
-	await makeAccount(page, 'BP Compte courant 476');
-	await makeAccount(page, 'BP Livret A 476');
+	const created = [
+		await makeAccount(page, 'BP Compte courant 476'),
+		await makeAccount(page, 'BP Livret A 476')
+	];
 	await page.goto('/import');
 
 	const form = page.locator('form[method="POST"]').first();
@@ -94,14 +125,14 @@ test('a statement ambiguous between two accounts is imported into the one chosen
 	 * « the chosen account is displayed ».
 	 */
 	const summary = page.getByText(
-		new RegExp(
-			`2 lignes importées dans BP Livret A 476 ${process.env.TEST_WORKER_INDEX ?? '0'}`
-		)
+		new RegExp(`2 lignes importées dans BP Livret A 476 ${process.env.TEST_WORKER_INDEX ?? '0'}`)
 	);
 	await expect(summary.first()).toBeVisible({ timeout: 15_000 });
 
 	// And the refusal is gone rather than standing beside a summary that contradicts it.
 	await expect(page.getByText(m.import_account_error_ambiguous_auto())).toHaveCount(0);
+
+	await archiveAccounts(page, created);
 });
 
 test('the account panel at 390 stays clear of the bottom navigation', async ({ page }) => {
@@ -111,8 +142,7 @@ test('the account panel at 390 stays clear of the bottom navigation', async ({ p
 	// height cannot silently invalidate this.
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/import');
-	await makeAccount(page, 'BP 390 un');
-	await makeAccount(page, 'BP 390 deux');
+	const created = [await makeAccount(page, 'BP 390 un'), await makeAccount(page, 'BP 390 deux')];
 	await page.goto('/import');
 
 	const form = page.locator('form[method="POST"]').nth(1);
@@ -127,4 +157,6 @@ test('the account panel at 390 stays clear of the bottom navigation', async ({ p
 	expect(panel).not.toBeNull();
 	expect(nav).not.toBeNull();
 	expect(panel!.y + panel!.height).toBeLessThanOrEqual(nav!.y);
+
+	await archiveAccounts(page, created);
 });
