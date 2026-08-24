@@ -112,9 +112,15 @@ async function accountNameFor(
 	 * THE STORED NAME, not `displayAccountName`, and the asymmetry is deliberate.
 	 *
 	 * Every SCREEN substitutes: the generic bucket's stored name is a lookup key and reads as one.
-	 * This column is not a screen, it is the join key a re-import matches back through
-	 * `computeNameKey`, so substituting here would write a name no row holds and the file would
-	 * stop naming its own account.
+	 * This column is not a screen. It is written to BE READ BACK as a join key, matched through
+	 * `computeNameKey` against the stored name, so substituting here would write a string no row
+	 * holds and the file would stop naming its own account.
+	 *
+	 * **Stated as intent, because that is what it is: nothing reads it yet.** Rank 2 of
+	 * `resolveStatementAccount` is the reader and is not implemented (see its own comment, and
+	 * #464), so today the only caller of `readMaisonV3Account` is a db-smoke. The decision stands on
+	 * what wiring rank 2 would need rather than on a mechanism already running, and saying so in the
+	 * present tense is how a justification outlives its reason.
 	 *
 	 * KNOWN COST, recorded rather than fixed: an English user exporting from the generic bucket
 	 * gets its French storage literal in a column they can read. Fixing that means the reader
