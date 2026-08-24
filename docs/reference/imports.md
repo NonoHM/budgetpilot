@@ -343,15 +343,37 @@ looks at the rest of the body.
 | Situation                                            | What you get                                 |
 | ---------------------------------------------------- | -------------------------------------------- |
 | The primary pressed with no account chosen           | The row is revealed, scrolled to and focused |
-| A recognised file, and two accounts share its format | Refused. See the note below                  |
+| A recognised file, and two accounts share its format | The summary asks which. See the note below   |
 | The chosen account has since been archived           | Refused, choose another                      |
 | The file names several accounts                      | Choose the one this statement belongs to     |
+| A recognised file names several accounts             | Imported into one, and the summary says so   |
 
-**The refusal for two accounts of one format has no control beside it yet.**
-Its sentence asks you to designate the columns, and the designation screen is
-not offered on that path, because a recognised file never reaches it. Until that
-is fixed, the way through is to archive the account the statement is not from,
-import it, and reactivate the other.
+**Two accounts of one format: the file is read first, and only then are you
+asked.**
+
+The statement's own account column decides when it can. If the file names an
+account number and exactly one of your accounts of that format carries those
+last four characters, the import goes there with no question. The check is
+against the accounts of **that format only**: an account of another bank holding
+the same four characters never wins it, because fragments are unique across your
+accounts without being unique within one format.
+
+Otherwise the import stops before anything is written and the summary draws an
+**Account** row listing the accounts it could be. Choosing one and pressing the
+primary again completes the same run.
+
+A remembered account does **not** decide here. The memory is written by the
+designation screen, where it fills in a control you can see and change; on this
+path there is no such control, so a memorised mistake would repeat with nothing
+on screen saying so.
+
+**A recognised file naming several accounts is imported, and the summary says
+so.** A statement whose account column differs from row to row spans more than
+one account, and every row still lands in the single account the format resolves
+to. It is not refused, because refusing would stop an import that works today;
+what you get instead is a notice on the summary naming the account the rows went
+into. Splitting such a statement across the accounts it names is
+[#485](https://github.com/NonoHM/budgetpilot/issues/485) and is not implemented.
 
 An account reference posted by a browser is treated as a claim rather than a
 fact: it is resolved against your own accounts, and one that does not resolve
