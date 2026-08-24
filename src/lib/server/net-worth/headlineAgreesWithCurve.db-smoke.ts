@@ -236,38 +236,69 @@ describe('/net-worth — the headline and the curve are the same number', () => 
 	/**
 	 * `updateNetWorthAccount` is not the only writer of `NetWorthAccount.balanceCents`: a bank sync
 	 * writes it too. An invariant enforced in "the" write path is only enforced if every path is
-	 * that one (CLAUDE.md), and this one was not.
+	 * that one (CLAUDE.md), and this one was not — the sync wrote its own figure into the account
+	 * whatever the snapshots said, so an OLDER sync pushed a stale value into the headline while
+	 * the curve, built from the snapshots, kept the user's newer one.
 	 *
-	 * The two collide on an ordinary morning. `parseAsOfDate` pins an explicit as-of date to
-	 * 12:00:00Z, while a sync stamps its snapshot with the real time — so a sync completing before
-	 * noon UTC on a day the user also saved a balance "as of today" writes the OLDER snapshot last
-	 * and, before the fix, pushed its value into the headline while the curve kept the user's.
+	 * THE CLOCK IS PINNED, for the reason `lets the later of two same-day writes win, on a morning`
+	 * gives above and to the opposite side of the sync. Since #443 an "as of today" save carries
+	 * the real clock — `parseAsOfDate` returns `undefined` for today and `validateInput` resolves
+	 * it with `?? new Date()` — so which of the two writes is the newer one is decided by the
+	 * moment the run happens. Unpinned, this test read `new Date()` for its own fixture and
+	 * asserted that the manual entry was the newest snapshot: true after 09:05Z, false before it.
+	 * That is #481, and `db-matrix` is a required check on both engines, so it blocked every PR
+	 * whose run started in the small hours. An AFTERNOON is what makes the sync the older of the
+	 * two; the morning, where the sync is the newer one and must win, is that other test.
+	 *
+	 * The two states this separates are « the sync respects snapshot recency » and « the sync
+	 * writes its figure into the account regardless of it ». A third state used to answer for
+	 * both — « the sync was not the older write at all » — and it is what the pin removes. The
+	 * ordering assertion below is what proves the pin removed it, because a fixture whose whole
+	 * subject is which of two instants came first must not take that on trust.
 	 */
 	it('agrees after a bank sync that lands behind a same-day manual balance', async () => {
-		expect.assertions(3);
+		expect.assertions(4);
 
-		const { id } = await createNetWorthAccount(userId, {
-			name: 'Compte courant',
-			type: 'checking',
-			balance: '2400,00',
-			asOfDate: '2026-01-31'
-		});
+		const afternoon = new Date('2026-08-20T14:00:00.000Z');
+		vi.useFakeTimers({ toFake: ['Date'] });
+		vi.setSystemTime(afternoon);
 
-		// The user's own reading, saved "as of today": pinned to 12:00:00Z by `parseAsOfDate`.
-		const todayIso = new Date().toISOString().slice(0, 10);
-		await updateNetWorthAccount(userId, id, {
-			name: 'Compte courant',
-			type: 'checking',
-			balance: '9200,00',
-			asOfDate: todayIso
-		});
-		expect(await headlineCents()).toBe(920_000);
+		try {
+			const { id } = await createNetWorthAccount(userId, {
+				name: 'Compte courant',
+				type: 'checking',
+				balance: '2400,00',
+				asOfDate: '2026-01-31'
+			});
 
-		// The sync, stamped 09:05Z the same day: real, and OLDER than the manual entry above.
-		await recordSyncedBalance(userId, id, 850_000, new Date(`${todayIso}T09:05:00.000Z`));
+			// The user's own reading, saved "as of today", so it carries the clock above: 14:00Z.
+			await updateNetWorthAccount(userId, id, {
+				name: 'Compte courant',
+				type: 'checking',
+				balance: '9200,00',
+				asOfDate: '2026-08-20'
+			});
+			expect(await headlineCents()).toBe(920_000);
 
-		// The newest snapshot is still the user's, so it is still what the headline says.
-		expect(await headlineCents()).toBe(920_000);
-		expect(await curvePresentCents()).toBe(await headlineCents());
+			// The sync, stamped 09:05Z the same day: real, and OLDER than the manual entry above.
+			await recordSyncedBalance(userId, id, 850_000, new Date('2026-08-20T09:05:00.000Z'));
+
+			// The fixture did what its name says, read back rather than assumed: of the two
+			// snapshots written today, the sync's is the older. `Number` because the column is
+			// `BigInt` and only the money-columns extension makes it a `number` here, so the cast
+			// keeps the assertion true of either.
+			const sameDay = await prisma.netWorthSnapshot.findMany({
+				where: { userId, accountId: id, capturedAt: { gte: new Date('2026-08-20T00:00:00.000Z') } },
+				select: { balanceCents: true },
+				orderBy: { capturedAt: 'asc' }
+			});
+			expect(sameDay.map((snapshot) => Number(snapshot.balanceCents))).toEqual([850_000, 920_000]);
+
+			// The newest snapshot is still the user's, so it is still what the headline says.
+			expect(await headlineCents()).toBe(920_000);
+			expect(await curvePresentCents()).toBe(await headlineCents());
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 });

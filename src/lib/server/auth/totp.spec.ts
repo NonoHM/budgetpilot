@@ -29,12 +29,40 @@ describe('encryptTotpSecret / decryptTotpSecret', () => {
 		expect(encryptTotpSecret(secret)).not.toBe(encryptTotpSecret(secret));
 	});
 
-	it('rejette un texte chiffré altéré (authTag GCM)', () => {
+	/**
+	 * This separates « AES-GCM refuses a ciphertext whose bytes changed » from « AES-GCM accepts
+	 * it ». Until #482 a third state answered for both. The tamper rewrote the last two base64url
+	 * CHARACTERS, and the trailing characters of a base64url string carry padding bits that no
+	 * decoder reads back, so some character edits decode to the identical buffer: decryption then
+	 * succeeded because nothing had been tampered with, and the failure read as a cryptographic
+	 * one. Measured against this module: 41 non-throws in 50 000 draws, and 64 of the 65 536
+	 * trailing byte pairs by exact enumeration — 1 run in 1 024.
+	 *
+	 * So the mutation goes through the decoded BYTES, the way `crypto.spec.ts`'s `flipFirstByte`
+	 * already does, and the setup is asserted rather than assumed. THE ASSERTION COMPARES BYTES
+	 * AND NOT STRINGS, which is the part that is easy to get wrong: the tampered string differed
+	 * on all 50 000 draws, including every one of the 41 that decoded to the original, so a string
+	 * comparison rules nothing out.
+	 */
+	it('rejects a tampered ciphertext through the TOTP aliases (GCM authTag)', () => {
 		const secret = generateTotpSecretBase32();
 		const encrypted = encryptTotpSecret(secret);
 		const [iv, authTag, ciphertext] = encrypted.split(':');
-		const tampered = [iv, authTag, ciphertext.slice(0, -2) + 'aa'].join(':');
-		expect(() => decryptTotpSecret(tampered)).toThrow();
+
+		const original = Buffer.from(ciphertext, 'base64url');
+		expect(original.length).toBeGreaterThan(0);
+		const flipped = Buffer.from(original);
+		flipped[flipped.length - 1] ^= 0xff;
+		const tampered = [iv, authTag, flipped.toString('base64url')].join(':');
+
+		// The tamper tampered. Read back from the value handed to `decryptTotpSecret`, so this
+		// covers the re-encoding too and not merely the buffer above.
+		expect(Buffer.from(tampered.split(':')[2], 'base64url').equals(original)).toBe(false);
+
+		// The authentication tag rejecting the value, not the format check at the top of
+		// `decryptSecret` refusing a malformed part. Both throw, and only the first is evidence
+		// about authenticated encryption.
+		expect(() => decryptTotpSecret(tampered)).toThrow(/unable to authenticate data/i);
 	});
 });
 
