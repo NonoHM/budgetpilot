@@ -259,7 +259,7 @@ git clone https://github.com/NonoHM/budgetpilot.git
 cd budgetpilot
 npm install
 npm run setup          # answer "n" to the Docker question
-npx prisma generate
+npm run db:generate    # all three database clients, not just the one you configured
 npx prisma migrate dev
 npm run dev
 ```

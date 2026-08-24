@@ -168,7 +168,13 @@ if (useDocker) {
 	console.log('  docker compose up -d --build');
 	console.log(`\nThen open http://localhost:${appPort}`);
 } else {
-	console.log('  npx prisma generate && npx prisma migrate dev');
+	// `db:generate`, NOT `npx prisma generate`, and this line cost a clean-clone walk to find.
+	// `npx prisma generate` produces the client for the CONFIGURED provider only, while
+	// `server/database/client.ts` imports all three statically, so following the old line and then
+	// running `npm run build` fails with « Module not found: ./generated/postgresql/client.ts ».
+	// Measured 2026-08-24 on a fresh clone, and on `origin/main` in the same clone, so it is the
+	// state of the install path rather than one branch's regression.
+	console.log('  npm run db:generate && npx prisma migrate dev');
 	console.log('  npm run dev');
 	console.log('\nThen open http://localhost:5173');
 }
