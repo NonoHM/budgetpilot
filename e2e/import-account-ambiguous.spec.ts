@@ -44,7 +44,12 @@ const CSV = [
 async function makeAccount(page: import('@playwright/test').Page, name: string): Promise<string> {
 	const response = await page.request.post(`${E2E_BASE_URL}/import/accounts`, {
 		headers: { Origin: E2E_BASE_URL },
-		multipart: { name: `${name} ${process.env.TEST_WORKER_INDEX ?? '0'}` }
+		// The retry index is part of the name because an ARCHIVED account still holds its name
+		// against the uniqueness rule, so a second attempt creating the same name is refused for a
+		// reason about the first attempt rather than about what it is testing.
+		multipart: {
+			name: `${name} ${process.env.TEST_WORKER_INDEX ?? '0'}-${test.info().retry}`
+		}
 	});
 	expect(response.ok()).toBe(true);
 	const payload = (await response.json()) as { account: { id: string } };
@@ -64,6 +69,11 @@ async function makeAccount(page: import('@playwright/test').Page, name: string):
  * Archiving rather than deleting, because archiving is the operation the product has and it is what
  * takes an account out of the by-source lookup. The rows already imported stay where they are, which
  * is what archiving means.
+ *
+ * IN A `finally`, NOT AS A LAST STATEMENT. One real failure in this file would otherwise leave the
+ * two accounts behind and report as eight failures, seven of them about specs this file never
+ * touched. A cleanup that only runs when nothing went wrong is a cleanup for the case that does not
+ * need it.
  */
 async function archiveAccounts(page: import('@playwright/test').Page, ids: string[]) {
 	for (const id of ids) {
@@ -75,14 +85,28 @@ async function archiveAccounts(page: import('@playwright/test').Page, ids: strin
 	}
 }
 
+/**
+ * A statement of its own, because the collision guard is real and this suite shares a database.
+ *
+ * The other tests in this file import `CSV`, so a third test re-importing the same period and the
+ * same counts raises the duplicate warning on its FIRST run rather than its second, which is not
+ * the state it is trying to reach.
+ */
+const COLLISION_CSV = [
+	'date;label;amount;category',
+	'2026-07-01;BOULANGERIE 476;-8,40;Autre',
+	'2026-07-02;PHARMACIE 476;-21,00;Autre'
+].join('\n');
+
 async function offerAFile(
 	page: import('@playwright/test').Page,
-	form: ReturnType<typeof page.locator>
+	form: ReturnType<typeof page.locator>,
+	content = CSV
 ) {
 	await form.locator('input[name="csvFile"]').setInputFiles({
 		name: 'releve-476.csv',
 		mimeType: 'text/csv',
-		buffer: Buffer.from(CSV, 'utf-8')
+		buffer: Buffer.from(content, 'utf-8')
 	});
 	await form.getByRole('button', { name: m.import_submit() }).click();
 }
@@ -99,40 +123,42 @@ test('a statement ambiguous between two accounts is imported into the one chosen
 		await makeAccount(page, 'BP Compte courant 476'),
 		await makeAccount(page, 'BP Livret A 476')
 	];
-	await page.goto('/import');
+	try {
+		await page.goto('/import');
 
-	const form = page.locator('form[method="POST"]').first();
-	await offerAFile(page, form);
+		const form = page.locator('form[method="POST"]').first();
+		await offerAFile(page, form);
 
-	await expect(page.getByText(m.import_account_error_ambiguous_auto()).first()).toBeVisible();
-	const question = page.getByTestId('import-account-question').first();
-	await expect(question).toBeVisible();
+		await expect(page.getByText(m.import_account_error_ambiguous_auto()).first()).toBeVisible();
+		const question = page.getByTestId('import-account-question').first();
+		await expect(question).toBeVisible();
 
-	await question.locator('button').first().click();
-	const chosen = page.getByRole('option', { name: /Livret A 476/ }).first();
-	await expect(chosen).toBeVisible();
-	await chosen.click();
+		await question.locator('button').first().click();
+		const chosen = page.getByRole('option', { name: /Livret A 476/ }).first();
+		await expect(chosen).toBeVisible();
+		await chosen.click();
 
-	await form.getByRole('button', { name: m.import_submit() }).click();
+		await form.getByRole('button', { name: m.import_submit() }).click();
 
-	/**
-	 * THE SUMMARY, not the row.
-	 *
-	 * The first version of this assertion looked for the account's NAME, and it passed against the
-	 * account row that was already on screen before the submit: a run where nothing was posted at
-	 * all would have been green. The sentence below exists only after transactions have landed and
-	 * it carries the COUNT, so it separates « the file was imported into the chosen account » from
-	 * « the chosen account is displayed ».
-	 */
-	const summary = page.getByText(
-		new RegExp(`2 lignes importées dans BP Livret A 476 ${process.env.TEST_WORKER_INDEX ?? '0'}`)
-	);
-	await expect(summary.first()).toBeVisible({ timeout: 15_000 });
+		/**
+		 * THE SUMMARY, not the row.
+		 *
+		 * The first version of this assertion looked for the account's NAME, and it passed against the
+		 * account row that was already on screen before the submit: a run where nothing was posted at
+		 * all would have been green. The sentence below exists only after transactions have landed and
+		 * it carries the COUNT, so it separates « the file was imported into the chosen account » from
+		 * « the chosen account is displayed ».
+		 */
+		const summary = page.getByText(
+			new RegExp(`2 lignes importées dans BP Livret A 476 ${process.env.TEST_WORKER_INDEX ?? '0'}`)
+		);
+		await expect(summary.first()).toBeVisible({ timeout: 15_000 });
 
-	// And the refusal is gone rather than standing beside a summary that contradicts it.
-	await expect(page.getByText(m.import_account_error_ambiguous_auto())).toHaveCount(0);
-
-	await archiveAccounts(page, created);
+		// And the refusal is gone rather than standing beside a summary that contradicts it.
+		await expect(page.getByText(m.import_account_error_ambiguous_auto())).toHaveCount(0);
+	} finally {
+		await archiveAccounts(page, created);
+	}
 });
 
 test('the account panel at 390 stays clear of the bottom navigation', async ({ page }) => {
@@ -143,20 +169,80 @@ test('the account panel at 390 stays clear of the bottom navigation', async ({ p
 	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto('/import');
 	const created = [await makeAccount(page, 'BP 390 un'), await makeAccount(page, 'BP 390 deux')];
-	await page.goto('/import');
+	try {
+		await page.goto('/import');
 
-	const form = page.locator('form[method="POST"]').nth(1);
-	await offerAFile(page, form);
+		const form = page.locator('form[method="POST"]').nth(1);
+		await offerAFile(page, form);
 
-	const question = page.getByTestId('import-account-question').nth(1);
-	await expect(question).toBeVisible();
-	await question.locator('button').first().click();
+		const question = page.getByTestId('import-account-question').nth(1);
+		await expect(question).toBeVisible();
+		await question.locator('button').first().click();
 
-	const panel = await page.getByTestId('account-panel').nth(1).boundingBox();
-	const nav = await page.locator('nav').last().boundingBox();
-	expect(panel).not.toBeNull();
-	expect(nav).not.toBeNull();
-	expect(panel!.y + panel!.height).toBeLessThanOrEqual(nav!.y);
+		const panel = await page.getByTestId('account-panel').nth(1).boundingBox();
+		const nav = await page.locator('nav').last().boundingBox();
+		expect(panel).not.toBeNull();
+		expect(nav).not.toBeNull();
+		expect(panel!.y + panel!.height).toBeLessThanOrEqual(nav!.y);
+	} finally {
+		await archiveAccounts(page, created);
+	}
+});
 
-	await archiveAccounts(page, created);
+test('the collision dialog keeps the account the user chose', async ({ page }) => {
+	// SEPARATES: « confirming a duplicate warning re-posts the answer with it » FROM « the answer is
+	// dropped and the ambiguity refusal comes back », which is a loop: the refusal re-renders with
+	// the row still showing the account, pressing the primary raises the same collision, and the
+	// only way out is the workaround this branch just deleted from the documentation.
+	//
+	// Reached without any hand-crafted request. Importing a statement into the wrong account and
+	// re-importing it into the right one is one of the two things this control exists for, and the
+	// collision guard fires on the second run because it compares the period and the counts, which
+	// are identical, while the deduplication keys are scoped by account and so do not match.
+	const created: string[] = [];
+	try {
+		await page.goto('/import');
+		created.push(await makeAccount(page, 'BP Collision un'));
+		created.push(await makeAccount(page, 'BP Collision deux'));
+		await page.goto('/import');
+
+		const form = page.locator('form[method="POST"]').first();
+		const question = page.getByTestId('import-account-question').first();
+
+		// FIRST RUN: into the first account.
+		await offerAFile(page, form, COLLISION_CSV);
+		await expect(question).toBeVisible();
+		await question.locator('button').first().click();
+		await page
+			.getByRole('option', { name: /Collision un/ })
+			.first()
+			.click();
+		await form.getByRole('button', { name: m.import_submit() }).click();
+		await expect(page.getByText(/lignes importées dans BP Collision un/).first()).toBeVisible({
+			timeout: 15_000
+		});
+
+		// SECOND RUN of the same statement, into the other account.
+		await page.goto('/import');
+		await offerAFile(page, form);
+		await expect(question).toBeVisible();
+		await question.locator('button').first().click();
+		await page
+			.getByRole('option', { name: /Collision deux/ })
+			.first()
+			.click();
+		await form.getByRole('button', { name: m.import_submit() }).click();
+
+		// The duplicate warning, which is correct: same period, same counts, a different account.
+		const confirm = page.getByRole('button', { name: m.import_collision_confirm() });
+		await expect(confirm).toBeVisible({ timeout: 15_000 });
+		await confirm.click();
+
+		// The run completes into the account that was chosen before the warning appeared.
+		await expect(page.getByText(/lignes importées dans BP Collision deux/).first()).toBeVisible({
+			timeout: 15_000
+		});
+	} finally {
+		await archiveAccounts(page, created);
+	}
 });

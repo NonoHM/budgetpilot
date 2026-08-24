@@ -10,6 +10,7 @@ import {
 	readImportFile
 } from '$lib/server/import/file';
 import { mappingFromPostedIndices } from '$lib/server/import/mapping/designation';
+import { findDiscriminantColumn } from '$lib/server/import/discriminant';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
@@ -441,7 +442,14 @@ export const actions: Actions = {
 				// cannot call one account two things. Read back rather than threaded out of the
 				// resolution, which returns an id: the id is what the resolver knows, and the name is
 				// a rendering question the resolver has no business answering.
-				accountName: await readAccountDisplayName(user.id, bucket.accountId)
+				accountName: await readAccountDisplayName(user.id, bucket.accountId),
+				// The same notice `/import` draws, on the path that reaches the same state. This
+				// object is built key by key and is not typed against `ImportSummaryResult`, so
+				// `check` could not name this producer when the field was added: it was found by a
+				// review reading both call sites rather than by a compiler. The consequence had it
+				// stayed missing is that one multi-account file announces itself and the same file
+				// imported through the designation screen does not.
+				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account'
 			},
 			capReached,
 			replaced

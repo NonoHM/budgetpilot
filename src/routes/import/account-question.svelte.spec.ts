@@ -170,6 +170,51 @@ describe('the account question beside an import refusal', () => {
 		expect(questionIn(section)).toBeNull();
 	});
 
+	it('forgets the answer when the file it was given for is replaced', async () => {
+		// SEPARATES: « the answer dies with the file it was given for » FROM « the offer is guarded on
+		// file identity and the answer is not », which are different things and only the first was
+		// true. Under the second, choosing an account for one statement and then picking a second
+		// ambiguous statement re-renders the question already answered, in the `ok` state, with no
+		// error: the user presses Import and the second statement is filed into the first one's
+		// account. That is « Ambiguity pre-fills NOTHING » enforced on the server and lost here.
+		await page.viewport(1280, 800);
+		const { section } = mount(1280);
+		await chooseAndSubmit(section);
+		await userEvent.click(questionIn(section)!.querySelector('button') as HTMLElement);
+		await userEvent.click(page.getByRole('option').nth(1).element() as HTMLElement);
+		expect(postedAccount(section)).toBe('acc-livret');
+
+		// A DIFFERENT file, by identity: same name on purpose, because a bank exporting
+		// `releve.csv` every month is the ordinary case and is when carrying an answer hurts most.
+		const input = section.querySelector('input[type=file]') as HTMLInputElement;
+		await userEvent.upload(input, file('releve.csv'));
+		await chooseAndSubmit(section, 'releve.csv');
+
+		expect(postedAccount(section)).toBe('');
+		// And the ROW says so rather than showing an account nothing will post.
+		expect(questionIn(section)!.querySelector('button')!.getAttribute('aria-label')).not.toContain(
+			'Livret'
+		);
+	});
+
+	it('returns the focus to the row when the panel closes', async () => {
+		// SEPARATES: « closing returns the focus to the control that opened it » FROM « the focus
+		// lands on <body> », which puts a keyboard user back at the top of the document. Focus enters
+		// the panel on the listbox, so removing the listbox with nothing else said leaves it nowhere.
+		// The sibling host fixed exactly this and recorded it as measured; this is the second host.
+		await page.viewport(1280, 800);
+		const { section } = mount(1280);
+		await chooseAndSubmit(section);
+		const row = questionIn(section)!.querySelector('button') as HTMLElement;
+
+		await userEvent.click(row);
+		expect(document.activeElement?.getAttribute('role')).toBe('listbox');
+
+		await userEvent.keyboard('{Escape}');
+
+		expect(document.activeElement).toBe(row);
+	});
+
 	it('reveals the question rather than posting when the primary is pressed unanswered', async () => {
 		// SEPARATES: « the press shows the user what is missing » FROM « it spends a round trip to be
 		// told again what this page already knows », which comes back with the banner already on

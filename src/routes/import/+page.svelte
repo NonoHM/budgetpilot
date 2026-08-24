@@ -323,6 +323,30 @@
 
 	let chosenAccountId = $state<string | null>(null);
 	/**
+	 * THE ANSWER DIES WITH THE FILE IT WAS GIVEN FOR.
+	 *
+	 * `offersAccountChoice` guards the OFFER on file identity and says nothing about the answer, and
+	 * the two are not the same thing. Without this, choosing an account for one statement and then
+	 * picking a second ambiguous statement re-renders the question already answered, in the `ok`
+	 * state, with no error: the user presses Import and the second statement is filed into the first
+	 * one's account. That is « Ambiguity pre-fills NOTHING » (`sourceSignature.ts`) enforced on the
+	 * server and lost on the way to the screen.
+	 *
+	 * Keyed on the `File` object rather than its name, for the reason `submittedFile` is: a bank
+	 * exporting `releve.csv` every month is the ordinary case, and two files sharing a name is
+	 * exactly when carrying an answer across them matters most.
+	 */
+	let answeredFor = $state<File | undefined>(undefined);
+	$effect(() => {
+		const inHand = csvFiles?.[0];
+		if (answeredFor !== undefined && inHand !== answeredFor) {
+			chosenAccountId = null;
+			accountErrorShown = false;
+			accountPanelOpen = false;
+			answeredFor = undefined;
+		}
+	});
+	/**
 	 * ONE state for two mounts, which is the defect this host manufactures rather than the
 	 * component's.
 	 *
@@ -386,8 +410,26 @@
 
 	function chooseAccount(accountId: string) {
 		chosenAccountId = accountId;
+		answeredFor = csvFiles?.[0];
 		accountErrorShown = false;
+		closeAccountPanel();
+	}
+
+	/**
+	 * Closing the panel RETURNS THE FOCUS to the row that opened it.
+	 *
+	 * The sibling host records this as measured: focus enters the panel on the listbox, Escape
+	 * removes the listbox, and without this the focus lands on `<body>`, which puts a keyboard user
+	 * back at the top of the document. `ColumnDesignationScreen.svelte` calls it `closeAccountPanel`
+	 * and does the same thing; this is the copy the new `allowCreate` docstring warns about, kept to
+	 * three lines rather than the sixty the create sheet would have cost.
+	 */
+	function closeAccountPanel() {
 		accountPanelOpen = false;
+		const visible = [
+			...document.querySelectorAll<HTMLElement>('[data-testid="import-account-question"]')
+		].find((element) => element.offsetParent !== null);
+		visible?.querySelector('button')?.focus();
 	}
 
 	/**
@@ -399,7 +441,10 @@
 	 * back with is the one already on screen, so the press would read as nothing happening.
 	 */
 	function accountAnswerMissing(event: SubmitEvent) {
-		if (!offersAccountChoice || chosenAccountId) return false;
+		// `chosenAccount` and not `chosenAccountId`: the ROW derives its state from the resolved
+		// option, so guarding on the raw id would let the two disagree when the id no longer names
+		// an offered account, and the primary would post an answer the screen shows as unanswered.
+		if (!offersAccountChoice || chosenAccount) return false;
 		event.preventDefault();
 		accountErrorShown = true;
 		const row = (event.currentTarget as HTMLElement).querySelector<HTMLElement>(
@@ -726,6 +771,23 @@
 			if (carried.repost.correction?.deleteOldImport) {
 				body.set('replaceBatchId', carried.repost.correction.batchId);
 			}
+		} else if (chosenAccountId) {
+			/**
+			 * THE ANSWER GIVEN ON THIS PAGE, WITHOUT WHICH CONFIRMING IS A LOOP.
+			 *
+			 * `carried` covers the run handed over by the designation screen and is null for a
+			 * collision this page's own action raised, which is now a reachable state: two accounts
+			 * of one bank, a statement already imported into the first, re-imported into the second.
+			 * The guard fires because the period and the counts are identical while the deduplication
+			 * keys are scoped by account and do not match.
+			 *
+			 * Dropping the id here re-posts a run with no account, the server answers with the
+			 * ambiguity refusal, the row re-renders still showing the chosen account, and pressing
+			 * the primary raises the same collision again. The only way out was the workaround this
+			 * branch removed from the documentation, which is #476 reappearing one screen later.
+			 * Reproduced in `e2e/import-account-ambiguous.spec.ts` before this line existed.
+			 */
+			body.set('accountId', chosenAccountId);
 		}
 
 		try {
@@ -1031,7 +1093,7 @@
 							panelId="import-account-panel-desktop"
 							allowCreate={false}
 							onChoose={chooseAccount}
-							onClose={() => (accountPanelOpen = false)}
+							onClose={closeAccountPanel}
 						/>
 						<!-- The answer rides the ordinary submit. Rendered only while the offer is current, so
 						     an id chosen for one file can never be posted with another. -->
@@ -1411,7 +1473,7 @@
 						panelId="import-account-panel-mobile"
 						allowCreate={false}
 						onChoose={chooseAccount}
-						onClose={() => (accountPanelOpen = false)}
+						onClose={closeAccountPanel}
 					/>
 					<!-- The answer rides the ordinary submit. Rendered only while the offer is current, so
 					     an id chosen for one file can never be posted with another. -->

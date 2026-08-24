@@ -8,6 +8,7 @@ import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import * as m from '$lib/paraglide/messages';
 import type { ImportInvalidRowDetail } from './+page.server';
 
 const db = vi.hoisted(() => {
@@ -2170,15 +2171,24 @@ describe('two accounts of one source, on the auto path', () => {
 		// SEPARATES: « an id that does not resolve against this user is refused » FROM « it is used
 		// because it arrived in a form ». ASVS 5.0 V8.1.1. The id below is well formed and belongs
 		// to nobody, which is the shape a hand-made request has.
-		expect.assertions(3);
+		expect.assertions(4);
 		seedTwoCsvAccounts();
 
 		const result = (await runImportWithFileAndFields(GENERIC, {
 			accountId: 'account-of-nobody'
-		})) as unknown as { status?: number; data: { error: string } };
+		})) as unknown as {
+			status?: number;
+			data: { error: string; account?: unknown };
+		};
 
 		expect(result.status).toBe(400);
-		expect(result.data.error).toBeTruthy();
+		// THE EXACT SENTENCE, and the absence of the offer beside it. Asserting a truthy error and
+		// zero transactions separates nothing here: ignoring `accountId` altogether produces the
+		// AMBIGUITY refusal, which is also a 400 with a truthy error and no rows written, so all
+		// three would stay green over a route that never read the field. These two states are
+		// « the id was resolved and refused » and « the id was never looked at ».
+		expect(result.data.error).toBe(m.import_account_error_required());
+		expect(result.data.account).toBeUndefined();
 		expect(db.state.transactions).toHaveLength(0);
 	});
 

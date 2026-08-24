@@ -164,8 +164,7 @@ is what it can say:
 | _First statement in this format_                             | Pick an account. It will be remembered        |
 | _Two accounts use this format. The file does not say which._ | Pick the right one                            |
 | _This file contains several accounts._                       | Pick the one you want these transactions in   |
-
-| _The remembered account no longer exists._ | Pick another one |
+| _The remembered account no longer exists._                   | Pick another one                              |
 
 Two things worth knowing:
 
