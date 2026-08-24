@@ -75,4 +75,17 @@ export interface ImportSummaryResult {
 	 * says nothing instead of naming the wrong one.
 	 */
 	accountName: string | null;
+	/**
+	 * The FILE named several accounts and the rows all landed in one.
+	 *
+	 * Reported rather than refused, because a file that imports today must not stop importing
+	 * because this path learned to read its account column. What it buys is that an account showing
+	 * money that is not its own says so, instead of the user finding out months later as a balance
+	 * that will not reconcile.
+	 *
+	 * `false` is the ordinary case and draws nothing. The underlying defect, that this path has no
+	 * way to split a statement across the accounts it names, is #485; this field is its mitigation
+	 * and not its fix.
+	 */
+	multiAccountFile: boolean;
 }

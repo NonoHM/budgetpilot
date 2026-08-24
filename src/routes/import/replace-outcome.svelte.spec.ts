@@ -71,7 +71,8 @@ function summary(invalidRowDetails: ImportInvalidRowDetail[]): ImportSummaryResu
 		batchId: 'batch-new',
 		invalidRowDetails,
 		hiddenInvalidRowsCount: 0,
-		accountName: null
+		accountName: null,
+		multiAccountFile: false
 	};
 }
 

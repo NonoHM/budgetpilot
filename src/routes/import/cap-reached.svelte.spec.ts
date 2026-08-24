@@ -46,7 +46,8 @@ const SUMMARY: ImportSummaryResult = {
 	batchId: 'batch-1',
 	invalidRowDetails: [],
 	hiddenInvalidRowsCount: 0,
-	accountName: null
+	accountName: null,
+	multiAccountFile: false
 };
 
 const DATA: PageData = {
