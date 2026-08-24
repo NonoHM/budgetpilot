@@ -66,6 +66,33 @@ beforeEach(async () => {
 });
 
 describe('creating an account without leaving the file in your hand', () => {
+	it('drops the provenance line once the user has CHOSEN a different account', async () => {
+		// SEPARATES: « the hint describes the answer on the row now » FROM « it describes the answer
+		// the server proposed ». The two put the same NAME on the row, so only the description tells
+		// them apart, which is why nothing here saw it and why two shipped screenshots carried it.
+		//
+		// Same defect as the created case below and one step earlier: the sentence is a PROVENANCE,
+		// and the moment the user overrides the resolution it describes something that no longer
+		// holds. Found by a code review reading the images against that test's own reasoning: it
+		// argued the general rule and implemented the special case.
+		expect.assertions(2);
+		mount({
+			accounts: [
+				{ id: 'account-a', name: 'Compte courant', discriminant: null, transactionCount: 4 },
+				{ id: 'account-b', name: 'Livret A', discriminant: null, transactionCount: 2 }
+			],
+			initialAccountId: 'account-a',
+			accountHint: m.import_account_hint_unknown()
+		});
+		// The hint is on screen while the row still shows what the resolution proposed, which is the
+		// state it is true of. Without this the assertion below also passes on a screen that never
+		// rendered a hint at all.
+		expect(document.body.textContent).toContain(m.import_account_hint_unknown());
+		await openPanel();
+		await page.getByRole('option', { name: /Livret A/ }).click();
+		expect(document.body.textContent).not.toContain(m.import_account_hint_unknown());
+	});
+
 	it('drops the provenance line once the user has created the account themselves', async () => {
 		// SEPARATES: « the hint describes where the CURRENT answer came from » FROM « the hint is the
 		// sentence the server computed when the page loaded ».

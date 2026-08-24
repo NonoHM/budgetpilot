@@ -529,20 +529,26 @@
 	const accountHintShown = $derived.by(() => {
 		if (accountState === 'error') return m.import_account_error_required();
 		/**
-		 * AN ACCOUNT THE USER JUST MADE HAS NO PROVENANCE, so the row shows none.
+		 * THE HINT DESCRIBES THE ANSWER THE SERVER PROPOSED, so it survives only while that is still
+		 * the answer on the row.
 		 *
 		 * `accountHint` is computed on the server when the page loads, and every sentence it can
-		 * carry answers « where did this answer come from »: the file said so, we remembered, we have
-		 * never seen this shape, you have no accounts. None of them describes an account created a
-		 * second ago in this browser, and one of them becomes FALSE the moment it is: the row names
-		 * an account while the line under it says there are none.
+		 * carry is a PROVENANCE: the file said so, we remembered, we have never seen this shape, you
+		 * have no accounts. The moment the user overrides that answer, by choosing a different
+		 * account or by creating one, the sentence describes a resolution that no longer holds. One
+		 * of them becomes outright false: the row names an account while the line under it says
+		 * there are none.
 		 *
-		 * Found on a screenshot of the built journey. Both states put the same NAME on the row, which
-		 * is why the assertions over this screen could not see it.
+		 * `chosenAccountId !== initialAccountId` is the whole test, and it reads as « the user
+		 * changed the answer » because `chosenAccountId` starts AS `initialAccountId`. It covers a
+		 * created account for free, since a created id is never the one the resolution named.
+		 *
+		 * BOTH HALVES WERE FOUND BY LOOKING AT THE SCREEN rather than by any assertion here, and the
+		 * second was found in the images shipped by the fix for the first: that fix argued this
+		 * general rule and implemented the created case alone. Every state here puts the same NAME on
+		 * the row, so only the description separates them.
 		 */
-		if (chosenAccount !== null && createdAccounts.some((a) => a.id === chosenAccount.id)) {
-			return undefined;
-		}
+		if (chosenAccountId !== initialAccountId) return undefined;
 		return accountHint ?? undefined;
 	});
 
