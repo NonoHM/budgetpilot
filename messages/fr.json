@@ -1345,6 +1345,7 @@
 	"transactions_period_custom": "période personnalisée",
 	"transactions_period_invalid_value": "saisie invalide",
 	"transactions_period_invalid_message": "Période invalide. Les résultats affichés sont ceux de la dernière période valide.",
+	"date_field_invalid": "Date non comprise. Utilisez le format {format}.",
 	"transactions_period_presets_label": "Raccourcis",
 	"transactions_period_preset_this_month": "Ce mois-ci",
 	"transactions_period_preset_last_month": "Le mois dernier",
