@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.14.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.0...budgetpilot-v0.14.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **categories:** the stored sentinel stops reaching three screens, and a sweep stops the fourth ([#494](https://github.com/NonoHM/budgetpilot/issues/494)) ([83ed6ec](https://github.com/NonoHM/budgetpilot/commit/83ed6ec602d690ad4d8490cca7ef957e90d9e3a6))
+* **net-worth:** D4 moves to the column, so /settings cannot walk around it ([#508](https://github.com/NonoHM/budgetpilot/issues/508)) ([c6c59d5](https://github.com/NonoHM/budgetpilot/commit/c6c59d542734306ee4013cdc73f47f849a3bb7a0))
+* **net-worth:** the Connecté badge stops outliving the connection that earned it ([#505](https://github.com/NonoHM/budgetpilot/issues/505)) ([1d28799](https://github.com/NonoHM/budgetpilot/commit/1d28799f54b355cddccefee1e1fad882ae8c4393))
+* **reports,dashboard:** the period fields stop rendering in the browser's locale ([#495](https://github.com/NonoHM/budgetpilot/issues/495)) ([fab3633](https://github.com/NonoHM/budgetpilot/commit/fab3633b34bf7578449f3024563d78decc5a7144))
+
+
+### Documentation
+
+* **audits:** the architecture audit, as it was run ([#517](https://github.com/NonoHM/budgetpilot/issues/517)) ([e605773](https://github.com/NonoHM/budgetpilot/commit/e605773ba89c0e67f26945964b8c168a87ee078e))
+* **bank-sync:** a nine-step setup path, and the overlay that makes step 6 possible ([#493](https://github.com/NonoHM/budgetpilot/issues/493)) ([9c2d32b](https://github.com/NonoHM/budgetpilot/commit/9c2d32b547b8193435e103bc58a2325318b0db9b))
+* **bank-sync:** register a certificate over HTTPS, not a public key over HTTP ([#490](https://github.com/NonoHM/budgetpilot/issues/490)) ([3f0df8a](https://github.com/NonoHM/budgetpilot/commit/3f0df8a861d5d547a641bd4964405b854231a679))
+
 ## [0.14.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.13.1...budgetpilot-v0.14.0) (2026-08-24)
 
 
