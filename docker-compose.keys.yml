@@ -1,0 +1,50 @@
+# Optional private-key overlay for bank sync. Combine with either base compose file:
+#   docker compose -f docker-compose.yml -f docker-compose.keys.yml up -d --build
+#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.keys.yml up -d
+#
+# Bank sync needs HTTPS, so in practice the proxy overlay is there too:
+#   docker compose -f docker-compose.prebuilt.yml -f docker-compose.proxy.yml \
+#     -f docker-compose.keys.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.proxy.yml \
+#     -f docker-compose.keys.yml up -d --build
+#
+# Bank sync signs every API call with an RSA private key you generate yourself.
+# ENABLE_BANKING_PRIVATE_KEY_PATH is resolved INSIDE the container, so the file
+# has to be in there. This overlay mounts ./keys read-only at /app/keys, which
+# makes the documented default value work:
+#
+#   ENABLE_BANKING_PRIVATE_KEY_PATH=./keys/enablebanking.pem
+#
+# The container's working directory is /app, so that relative path resolves to
+# /app/keys/enablebanking.pem.
+#
+# WHY THIS IS A SEPARATE FILE RATHER THAN A LINE IN THE BASE COMPOSE FILES.
+# A bind mount whose source is missing does not fail: Docker creates the host
+# directory for you, owned by root. Putting this in the base files would leave
+# an empty root-owned keys/ directory in the working directory of every operator
+# who never enables bank sync, which is most of them. Opting in by adding one
+# -f flag costs a flag and cannot surprise anyone.
+#
+# THE MOUNT IS READ-ONLY AND THAT IS NOT DECORATION. The app only ever reads
+# this file. :ro means a compromised container cannot rewrite the key it signs
+# with, and it composes with the base file's read_only: true root filesystem
+# rather than punching a writable hole in it.
+#
+# PERMISSIONS ARE DECIDED INSIDE THE CONTAINER. The app runs as uid 65532
+# (nonroot, from the distroless base), and ownership crosses a bind mount by
+# NUMBER, not by name. Your key almost certainly belongs to a different uid, so
+# the container cannot open it until you say:
+#
+#   sudo chown 65532 keys/enablebanking.pem
+#   chmod 600 keys/enablebanking.pem
+#
+# A file you can read on the host is not evidence. docs/bank-sync.md has a probe
+# that answers the question from inside the container, and the whole setup path.
+#
+# If you would rather not mount anything, skip this overlay and pass the key
+# inline through ENABLE_BANKING_PRIVATE_KEY instead. Both forms are documented
+# in docs/bank-sync.md; setting both at once is a deliberate startup error.
+services:
+  budgetpilot:
+    volumes:
+      - ./keys:/app/keys:ro

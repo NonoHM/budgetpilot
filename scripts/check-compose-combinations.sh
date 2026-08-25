@@ -82,6 +82,7 @@ trap cleanup EXIT INT TERM
 #   + docker-compose.ai.gpu.yml            docs/ai-insights.md
 #   + docker-compose.proxy.yml             docs/reverse-proxy.md
 #   + both                                 docs/reverse-proxy.md
+#   + docker-compose.keys.yml              docs/bank-sync.md
 #   + docker-compose.postgres.yml          docs/database-providers.md
 #   + docker-compose.mysql.yml             docs/database-providers.md
 #   + a provider overlay and both others   docs/database-providers.md
@@ -105,6 +106,10 @@ COMBINATIONS=(
 	"docker-compose.prebuilt.yml docker-compose.ai.yml docker-compose.ai.gpu.yml"
 	"docker-compose.yml docker-compose.proxy.yml"
 	"docker-compose.prebuilt.yml docker-compose.proxy.yml"
+	"docker-compose.yml docker-compose.keys.yml"
+	"docker-compose.prebuilt.yml docker-compose.keys.yml"
+	"docker-compose.yml docker-compose.proxy.yml docker-compose.keys.yml"
+	"docker-compose.prebuilt.yml docker-compose.proxy.yml docker-compose.keys.yml"
 	"docker-compose.yml docker-compose.ai.yml docker-compose.proxy.yml"
 	"docker-compose.prebuilt.yml docker-compose.ai.yml docker-compose.proxy.yml"
 	"docker-compose.yml docker-compose.postgres.yml"
@@ -184,7 +189,18 @@ for combination in "${COMBINATIONS[@]}"; do
 	privileged=$(jq -r '.services.budgetpilot.privileged // false' <<<"$project")
 	extra_security_opts=$(jq -r '[(.services.budgetpilot.security_opt // [])[] | select(. != "no-new-privileges:true")] | join(",")' <<<"$project")
 	run_as=$(jq -r '.services.budgetpilot.user // ""' <<<"$project")
+	# The bank-sync key overlay's entire security claim is the `:ro`. Dropping it merges, renders
+	# and starts exactly the same, and hands a writable signing key to a container whose root
+	# filesystem is read-only precisely so that it has none. Counted rather than matched on a
+	# path string, so a mount added at a different target under /app/keys still has to be
+	# read-only to pass.
+	writable_key_mounts=$(jq -r '[(.services.budgetpilot.volumes // [])[] | select(.target | startswith("/app/keys")) | select(.read_only != true)] | length' <<<"$project")
 
+	if [ "$writable_key_mounts" != 0 ]; then
+		echo "FAIL: $combination mounts the bank-sync key directory writable; it must be :ro" >&2
+		failed=1
+		continue
+	fi
 	if [ "$read_only" != true ]; then
 		echo "FAIL: $combination leaves the app's root filesystem writable (read_only: $read_only)" >&2
 		failed=1
