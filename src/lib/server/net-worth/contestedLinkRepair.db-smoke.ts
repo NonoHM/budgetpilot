@@ -149,7 +149,11 @@ describe('withdrawing net worth links that more than one synchronized bucket hol
 
 		const line = await makeNetWorthAccount('Compte courant fictif');
 		const connectionId = await makeConnection();
-		const synced = await makeSyncedBucket({ connectionId, name: 'Courant', netWorthAccountId: line });
+		const synced = await makeSyncedBucket({
+			connectionId,
+			name: 'Courant',
+			netWorthAccountId: line
+		});
 		// A CSV bucket on the same line is D4's own carve-out: it never writes a balance snapshot, so
 		// it is not a second claimant and must survive.
 		const csv = await makeCsvBucket('Relevés', line);
@@ -180,7 +184,11 @@ describe('withdrawing net worth links that more than one synchronized bucket hol
 			name: 'Courant',
 			netWorthAccountId: line
 		});
-		const livret = await makeSyncedBucket({ connectionId, name: 'Livret', netWorthAccountId: line });
+		const livret = await makeSyncedBucket({
+			connectionId,
+			name: 'Livret',
+			netWorthAccountId: line
+		});
 
 		expect(await hasContestedNetWorthLines(prisma)).toBe(true);
 		const report = await repairContestedNetWorthLinks(prisma);

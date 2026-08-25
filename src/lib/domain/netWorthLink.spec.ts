@@ -202,8 +202,10 @@ describe('CALIBRATION: the invariant catches the door that refuses nothing', () 
 
 		// The absolute figure beside the finding: a run in which no draw could ever contest would
 		// report "no breach" for a reason that has nothing to do with the rule.
-		expect(exercised.contestable, 'the generator must reach sets with two synchronized buckets')
-			.toBeGreaterThan(0);
+		expect(
+			exercised.contestable,
+			'the generator must reach sets with two synchronized buckets'
+		).toBeGreaterThan(0);
 		expect(breach, 'a door that refuses nothing must be able to contest a line').not.toBeNull();
 		// The defect IN KIND rather than any disagreement the oracle happened to notice: the door
 		// accepted every write, so nothing was refused on the way to the contested state.
@@ -223,8 +225,10 @@ describe('the rule holds the invariant no sequence of accepted writes can break'
 
 		// The detector is proven to have fired: a run that refused nothing would be a clean result
 		// about a rule that was never asked a question it could answer no to.
-		expect(exercised.refused, 'the rule must actually refuse something over this corpus')
-			.toBeGreaterThan(0);
+		expect(
+			exercised.refused,
+			'the rule must actually refuse something over this corpus'
+		).toBeGreaterThan(0);
 		expect(breach).toBeNull();
 	});
 });
@@ -244,8 +248,9 @@ describe('CALIBRATION: the legitimate path catches a rule that closes too far', 
 			synchronized: true
 		};
 
-		expect(forgetsSelfExclusion(rows, candidate), 'the over-strict predicate must refuse it')
-			.toBe(true);
+		expect(forgetsSelfExclusion(rows, candidate), 'the over-strict predicate must refuse it').toBe(
+			true
+		);
 		expect(wouldContestNetWorthLine(rows, candidate)).toBe(false);
 		// And it is not merely tolerated, it is a write: the row set is unchanged by it.
 		expect(applyNetWorthLink(rows, candidate)).toEqual(rows);
@@ -256,11 +261,11 @@ describe('the rule leaves the paths that must keep working alone', () => {
 	it('never refuses a clear, whatever the row set', () => {
 		expect.assertions(1);
 
-		const breaches = fc.sample(rowsArb, { seed: SEED, numRuns: 500 }).filter((rows) =>
-			rows.some((row) =>
-				wouldContestNetWorthLine(rows, { ...row, netWorthAccountId: null })
-			)
-		);
+		const breaches = fc
+			.sample(rowsArb, { seed: SEED, numRuns: 500 })
+			.filter((rows) =>
+				rows.some((row) => wouldContestNetWorthLine(rows, { ...row, netWorthAccountId: null }))
+			);
 		// Clearing is how a user moves a line from one bucket to another. A refusal here would make
 		// a contested pair permanent, so this is the assertion that keeps the repair reachable.
 		expect(breaches).toHaveLength(0);
@@ -361,14 +366,13 @@ describe('contestedNetWorthLines, by example', () => {
 		// One synchronized bucket plus any number of others is the ORDINARY state, not a contest.
 		expect(contestedNetWorthLines([synced, csv, unlinked])).toEqual([]);
 		// Two is the defect.
-		expect(
-			contestedNetWorthLines([synced, { ...synced, accountId: 'sync-3' }])
-		).toEqual([line]);
+		expect(contestedNetWorthLines([synced, { ...synced, accountId: 'sync-3' }])).toEqual([line]);
 		// And both of them are withdrawn, never one of them kept: nothing in the data says which
 		// one the user meant, so keeping one would show a plausible balance from an arbitrary
 		// account. See the reasoning on `accountsToUnlinkForContest`.
-		expect(
-			accountsToUnlinkForContest([synced, { ...synced, accountId: 'sync-3' }, csv])
-		).toEqual(['sync-1', 'sync-3']);
+		expect(accountsToUnlinkForContest([synced, { ...synced, accountId: 'sync-3' }, csv])).toEqual([
+			'sync-1',
+			'sync-3'
+		]);
 	});
 });

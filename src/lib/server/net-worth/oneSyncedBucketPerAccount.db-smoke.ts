@@ -347,7 +347,7 @@ describe('D4 — one synchronized bucket per net worth account, whichever door t
 	 * validating both. ASVS 5.0.0 `v5.0.0-8.2.2`, as of the 2026-08-13 assessment of commit
 	 * `d9c116c`: verified by attack rather than by inspection.
 	 */
-	it('refuses another tenant\'s bucket and another tenant\'s line, on the bank door', async () => {
+	it("refuses another tenant's bucket and another tenant's line, on the bank door", async () => {
 		expect.assertions(6);
 
 		const theirConnection = await makeConnection(otherUserId);
