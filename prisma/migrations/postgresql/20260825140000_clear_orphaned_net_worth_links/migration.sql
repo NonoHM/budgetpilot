@@ -1,0 +1,42 @@
+-- Clears the net worth link on every bucket whose bank connection is gone.
+--
+-- WHY THESE ROWS EXIST. `Account.bankConnectionId` is `SetNull`, on purpose, because losing a
+-- connection must never delete transactions. Nothing was ever written to clear the sibling
+-- `netWorthAccountId` beside it, so a disconnected bucket went on pointing at a net worth account
+-- and `/net-worth` went on rendering « Connecté » for it. That value is recomputed on every load
+-- from a relation count, so it was not stale: it was telling the truth about a link no code path
+-- cleared. Measured on 0.14.0 against a real engine, the bucket after a disconnect read
+-- `bankConnectionId=null netWorthAccountId=set connected=true`.
+--
+-- The code fix lands in `deleteBankConnection` in the same change. This file is only for installs
+-- that already carry the state, because a fix on the write path cannot reach a row already written.
+--
+-- HOW AN ORPHAN IS IDENTIFIED, and why the three clauses are all needed:
+--
+--   * `bankConnectionId IS NULL` is the aftermath of the `SetNull`.
+--   * `providerAccountId IS NOT NULL` is what makes it a BANK-SYNC bucket. It is null on every CSV
+--     and manual bucket, so this clause is what stops the statement touching a link the user set
+--     from the /net-worth switch or that the import path created. Without it this would clear
+--     every manual link in the database.
+--   * `netWorthAccountId IS NOT NULL` narrows the write to rows that actually change, and it is
+--     also what makes the statement idempotent: after it runs, no row matches it again.
+--
+-- ONE STATEMENT, AND THAT IS THE ENTIRE SAFETY ARGUMENT. `prisma migrate deploy` does NOT wrap a
+-- migration file in a transaction on ANY of the three engines, PostgreSQL included; that was
+-- measured for `20260812083000_clear_category_default_key` and its comment carries the experiment.
+-- A single UPDATE has no halfway state to leave behind. Any second statement added here would be
+-- able to leave one, on every engine. Do not add one.
+--
+-- WHAT THIS DOES NOT DO, deliberately:
+--
+--   * It deletes nothing. No bucket, no transaction, no net worth account and no snapshot. The
+--     history a user has already recorded against that net worth account is untouched; only the
+--     claim that a live bank feeds it is withdrawn.
+--   * It does not stop a RESTORE reintroducing the state. A backup taken before this ran carries
+--     the old value and writes it back, and the restore's integrity check only rejects a dangling
+--     bank connection, not an absent one beside a present provider id. That is a separate decision
+--     and is filed rather than folded in here.
+--   * It touches no other column, so nothing that joins on account identity can move.
+
+UPDATE "Account" SET "netWorthAccountId" = NULL
+WHERE "bankConnectionId" IS NULL AND "providerAccountId" IS NOT NULL AND "netWorthAccountId" IS NOT NULL;

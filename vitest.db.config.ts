@@ -24,7 +24,13 @@ import { defineConfig } from 'vitest/config';
  */
 export default defineConfig({
 	resolve: {
-		alias: { $lib: resolve(import.meta.dirname, 'src/lib') }
+		alias: {
+			$lib: resolve(import.meta.dirname, 'src/lib'),
+			// See vitest.db.env-stub.ts. This suite runs without the SvelteKit plugin, so `$env` is
+			// unresolvable, and a server module that transitively imports it fails at import time
+			// rather than at use. The stub is empty by design.
+			'$env/dynamic/private': resolve(import.meta.dirname, 'vitest.db.env-stub.ts')
+		}
 	},
 	test: {
 		environment: 'node',
