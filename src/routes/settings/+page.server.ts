@@ -789,6 +789,14 @@ function accountRefusalSentence(reason: AccountWriteRefusal): string {
 			return m.accounts_error_name_too_long({ max: MAX_ACCOUNT_NAME_LENGTH });
 		case 'net-worth-not-found':
 			return m.accounts_error_net_worth_not_found();
+		// #501, and it borrows the net worth catalogue's sentence rather than adding a twin to this
+		// one, the same way `discriminant-taken` below borrows the import sheet's. D4 is ONE rule and
+		// /imports/bank-connections already refuses in these words: a second string saying the same
+		// thing is a second thing to keep true. The switch stays exhaustive on purpose, so a refusal
+		// added to `AccountWriteRefusal` is a compile error here until a sentence exists for it
+		// rather than a wrong sentence chosen by a default branch.
+		case 'net-worth-already-synced':
+			return m.net_worth_error_already_synced();
 		case 'not-found':
 			return m.accounts_error_not_found();
 		// A fragment collision is unreachable from these three forms: none of them carries a

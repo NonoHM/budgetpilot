@@ -29,7 +29,19 @@ const tx = vi.hoisted(() => ({
 	},
 	account: {
 		updateMany: vi.fn(),
-		findFirst: vi.fn()
+		findFirst: vi.fn(),
+		/**
+		 * #501. The conflict read is a `findMany` now, and the change is worth more than a method on
+		 * a fake: `findFirst` made the FAKE decide the verdict, by returning a conflicting row or
+		 * null. It returns ROWS now, and `domain/netWorthLink` decides. So these tests exercise the
+		 * real rule over a fixture instead of asserting that a mock returned what it was told to,
+		 * which is the weakness AGENTS.md names for exactly this shape.
+		 *
+		 * The boundary is unchanged and still matters: Prisma treats an unrecognised `where` key as
+		 * NO FILTER and no fake models that, so whether the SCOPING is right stays a db-smoke
+		 * question. `oneSyncedBucketPerAccount.db-smoke.ts` is where it is answered.
+		 */
+		findMany: vi.fn()
 	}
 }));
 
@@ -81,6 +93,10 @@ beforeEach(() => {
 	db.prisma.$transaction.mockImplementation(async (cb: (tx: TxMock) => Promise<void>) => cb(tx));
 	// No name conflict by default; individual tests override for the duplicate-name case.
 	tx.netWorthAccount.findFirst.mockResolvedValue(null);
+	// No other bucket feeds the target by default. An EMPTY ARRAY rather than a bucket already on
+	// it, because "nothing else claims this line" is the ordinary state and a default that
+	// conflicted would make every link test assert its own override.
+	tx.account.findMany.mockResolvedValue([]);
 	// "The newest snapshot" = the last one this call wrote. See the fake's own comment for why
 	// returning `null` here would make every test in this file pass against the old defect.
 	tx.netWorthSnapshot.findFirst.mockImplementation(async () => {
@@ -680,9 +696,13 @@ describe('linkBankAccountToNetWorth', () => {
 
 		await expect(linkBankAccountToNetWorth(userId, bucketId, targetId)).rejects.toThrow();
 
+		// `bankConnectionId` joins the select in #501, and it is read rather than assumed: the shared
+		// writer decides from it whether D4 applies to this bucket at all, because it also serves
+		// /settings, whose buckets are not all synchronized. Still exactly two columns leaving the
+		// database, which is what this pin is for.
 		expect(tx.account.findFirst).toHaveBeenCalledWith({
 			where: { id: bucketId, userId, bankConnectionId: { not: null } },
-			select: { id: true }
+			select: { id: true, bankConnectionId: true }
 		});
 		expect(tx.account.updateMany).not.toHaveBeenCalled();
 	});
@@ -697,7 +717,7 @@ describe('linkBankAccountToNetWorth', () => {
 	});
 
 	it("404 si la cible n'existe pas, appartient à un autre utilisateur, ou est soft-deleted", async () => {
-		tx.account.findFirst.mockResolvedValue({ id: bucketId });
+		tx.account.findFirst.mockResolvedValue({ id: bucketId, bankConnectionId: 'conn-1' });
 		tx.netWorthAccount.findFirst.mockResolvedValue(null);
 
 		await expect(linkBankAccountToNetWorth(userId, bucketId, targetId)).rejects.toThrow();
@@ -710,7 +730,7 @@ describe('linkBankAccountToNetWorth', () => {
 	});
 
 	it("404 si la cible est d'un type non liable (real_estate/other)", async () => {
-		tx.account.findFirst.mockResolvedValue({ id: bucketId });
+		tx.account.findFirst.mockResolvedValue({ id: bucketId, bankConnectionId: 'conn-1' });
 		tx.netWorthAccount.findFirst.mockResolvedValue({ id: targetId, type: 'real_estate' });
 
 		await expect(linkBankAccountToNetWorth(userId, bucketId, targetId)).rejects.toThrow();
@@ -718,24 +738,22 @@ describe('linkBankAccountToNetWorth', () => {
 	});
 
 	it('409 (already synced) si un autre bucket synchronisé est déjà lié à cette cible', async () => {
-		tx.account.findFirst.mockImplementation(
-			async ({ where }: { where: Record<string, unknown> }) => {
-				if ('bankConnectionId' in where && where.id === bucketId) return { id: bucketId };
-				return { id: 'other-synced-bucket' };
-			}
-		);
+		tx.account.findFirst.mockResolvedValue({ id: bucketId, bankConnectionId: 'conn-1' });
 		tx.netWorthAccount.findFirst.mockResolvedValue({ id: targetId, type: 'checking' });
+		// A DIFFERENT bucket, synchronized, already on the target. The fake supplies the row and the
+		// domain rule reaches the verdict, so this asserts D4 rather than asserting the mock.
+		tx.account.findMany.mockResolvedValue([
+			{ id: 'other-synced-bucket', bankConnectionId: 'conn-2' }
+		]);
 
 		await expect(linkBankAccountToNetWorth(userId, bucketId, targetId)).rejects.toThrow();
 
-		expect(tx.account.findFirst).toHaveBeenCalledWith({
-			where: {
-				userId,
-				netWorthAccountId: targetId,
-				bankConnectionId: { not: null },
-				id: { not: bucketId }
-			},
-			select: { id: true }
+		// EVERY row feeding the line, with no `userId` clause: the two reads that authorise are
+		// scoped, this one counts, and scoping a count would hide a foreign claimant rather than
+		// keep anyone safe. See `link.ts` for the reasoning and the db-smoke that attacks it.
+		expect(tx.account.findMany).toHaveBeenCalledWith({
+			where: { netWorthAccountId: targetId },
+			select: { id: true, bankConnectionId: true }
 		});
 		expect(tx.account.updateMany).not.toHaveBeenCalled();
 	});
@@ -743,8 +761,11 @@ describe('linkBankAccountToNetWorth', () => {
 	it('ne considère pas un conflit le fait de relier le MÊME bucket à la cible où il est déjà lié', async () => {
 		// The conflict lookup explicitly excludes `id: { not: bucketId }` — re-linking the same
 		// bucket to its current target must succeed, not trip the D4 conflict check.
-		tx.account.findFirst.mockResolvedValueOnce({ id: bucketId }).mockResolvedValueOnce(null);
+		tx.account.findFirst.mockResolvedValue({ id: bucketId, bankConnectionId: 'conn-1' });
 		tx.netWorthAccount.findFirst.mockResolvedValue({ id: targetId, type: 'checking' });
+		// The bucket ITSELF is what the line already carries. Under the rule the candidate replaces
+		// its own row, so this is one claimant and not two.
+		tx.account.findMany.mockResolvedValue([{ id: bucketId, bankConnectionId: 'conn-1' }]);
 		tx.account.updateMany.mockResolvedValue({ count: 1 });
 
 		await linkBankAccountToNetWorth(userId, bucketId, targetId);
@@ -756,11 +777,13 @@ describe('linkBankAccountToNetWorth', () => {
 	});
 
 	it("n'est pas gêné par un bucket CSV/manuel (bankConnectionId null) déjà lié à la même cible (seuls les buckets synchronisés comptent)", async () => {
-		// The conflict query itself filters bankConnectionId: { not: null }, so a manual/CSV
-		// bucket already pointing at the target never surfaces here regardless of mock shape —
-		// simulate Prisma's own filtering by returning null.
-		tx.account.findFirst.mockResolvedValueOnce({ id: bucketId }).mockResolvedValueOnce(null);
+		// #501 makes this case REAL rather than simulated. The read no longer filters, so the CSV
+		// bucket is returned and the rule is what decides it is not a claimant: it writes no balance
+		// snapshot, so it has nothing to fight with. The previous version returned null to imitate
+		// Prisma's filtering, which asserted the imitation.
+		tx.account.findFirst.mockResolvedValue({ id: bucketId, bankConnectionId: 'conn-1' });
 		tx.netWorthAccount.findFirst.mockResolvedValue({ id: targetId, type: 'checking' });
+		tx.account.findMany.mockResolvedValue([{ id: 'csv-bucket', bankConnectionId: null }]);
 		tx.account.updateMany.mockResolvedValue({ count: 1 });
 
 		await linkBankAccountToNetWorth(userId, bucketId, targetId);
@@ -772,7 +795,7 @@ describe('linkBankAccountToNetWorth', () => {
 	});
 
 	it('lie le bucket synchronisé à une cible valide sans conflit, scopé par id ET userId', async () => {
-		tx.account.findFirst.mockResolvedValueOnce({ id: bucketId }).mockResolvedValueOnce(null);
+		tx.account.findFirst.mockResolvedValue({ id: bucketId, bankConnectionId: 'conn-1' });
 		tx.netWorthAccount.findFirst.mockResolvedValue({ id: targetId, type: 'savings' });
 		tx.account.updateMany.mockResolvedValue({ count: 1 });
 
@@ -785,12 +808,14 @@ describe('linkBankAccountToNetWorth', () => {
 	});
 
 	it('délie (netWorthAccountId: null) un bucket synchronisé possédé, sans valider aucune cible', async () => {
-		tx.account.findFirst.mockResolvedValue({ id: bucketId });
+		tx.account.findFirst.mockResolvedValue({ id: bucketId, bankConnectionId: 'conn-1' });
 		tx.account.updateMany.mockResolvedValue({ count: 1 });
 
 		await linkBankAccountToNetWorth(userId, bucketId, null);
 
 		expect(tx.netWorthAccount.findFirst).not.toHaveBeenCalled();
+		// And no conflict read either: a clear has no reference to authorise and nothing to contest.
+		expect(tx.account.findMany).not.toHaveBeenCalled();
 		expect(tx.account.updateMany).toHaveBeenCalledWith({
 			where: { id: bucketId, userId },
 			data: { netWorthAccountId: null }

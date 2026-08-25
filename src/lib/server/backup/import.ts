@@ -8,6 +8,7 @@ import { manualCategoryUpdate } from '$lib/server/transactions/manualCategory';
 import { dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
 import { normalizeTagName, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
+import { accountsToUnlinkForContest, type NetWorthLinkRow } from '$lib/domain/netWorthLink';
 import {
 	isValidSplitPartAmount,
 	MIN_SPLITS_PER_TRANSACTION,
@@ -192,6 +193,11 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 		// account of a bucket it does not live in, and the deduplication key would name a
 		// provider account that never held it.
 		const providerAccountIdByBucket = new Map<string, string | null>();
+		// D4's participants, collected as the buckets are created rather than read off the payload.
+		// The loop below MERGES two file accounts whose names fold together, so the payload's rows
+		// and the rows that end up existing are not the same set: counting the payload would report
+		// a contest between a bucket and a duplicate that was never recreated.
+		const restoredLinkRows: NetWorthLinkRow[] = [];
 		for (const account of payload.accounts) {
 			// First spelling wins: an older export can hold two buckets whose names fold
 			// together, and recreating both would rebuild the duplicate the app no longer
@@ -224,6 +230,33 @@ export async function restoreBackup(userId: string, payload: BackupExport): Prom
 			accountIdMap.set(account.id, created.id);
 			accountKeyMap.set(accountKey, created.id);
 			providerAccountIdByBucket.set(created.id, account.providerAccountId ?? null);
+			restoredLinkRows.push({
+				accountId: created.id,
+				netWorthAccountId: account.netWorthAccountId
+					? (netWorthAccountIdMap.get(account.netWorthAccountId) ?? null)
+					: null,
+				synchronized: Boolean(
+					account.bankConnectionId && bankConnectionIdMap.get(account.bankConnectionId)
+				)
+			});
+		}
+
+		// D4 ON THE RESTORE PATH, and it is here because an invariant enforced on "the" write path is
+		// only enforced if every path is that one. A backup taken before #501 carries a line fed by
+		// two synchronized buckets, and this loop would write it straight back: the code fix cannot
+		// reach a file, and the boot repair runs before a restore rather than after it.
+		//
+		// WITHDRAWN, NEVER REFUSED. Rejecting the file would leave a user holding a backup the
+		// application produced and will not read, which is worse than the defect. Their transactions,
+		// snapshots and history all restore; the one claim dropped is that a live bank feeds that
+		// line, which they set again in two clicks on a screen that now enforces the rule. The same
+		// call the boot repair makes, so the two cannot disagree about what a contest is.
+		const contestedRestoredAccounts = accountsToUnlinkForContest(restoredLinkRows);
+		if (contestedRestoredAccounts.length > 0) {
+			await tx.account.updateMany({
+				where: { id: { in: contestedRestoredAccounts }, userId },
+				data: { netWorthAccountId: null }
+			});
 		}
 
 		const categoryIdMap = new Map<string, string>();

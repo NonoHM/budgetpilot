@@ -5,7 +5,7 @@ import { assertDiscriminantFree, DISCRIMINANT_LENGTH } from '$lib/server/import/
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { displayAccountName } from './projection';
 import { MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
-import { isLinkableNetWorthAccountType, type NetWorthAccountType } from '$lib/domain/netWorth';
+import { writeNetWorthLink } from '$lib/server/net-worth/link';
 
 /**
  * Creating and naming the accounts a statement can belong to.
@@ -73,7 +73,8 @@ export type AccountCreateRefusal =
 	'name-required' | 'name-too-long' | 'name-taken' | 'discriminant-taken';
 
 /** Every way a write to an account can be refused. Superset of the four above. */
-export type AccountWriteRefusal = AccountCreateRefusal | 'not-found' | 'net-worth-not-found';
+export type AccountWriteRefusal =
+	AccountCreateRefusal | 'not-found' | 'net-worth-not-found' | 'net-worth-already-synced';
 
 /**
  * A refusal the sheet can render, carried as a CLASS rather than as a message to match on.
@@ -109,7 +110,14 @@ const REFUSAL_MESSAGES: Record<AccountWriteRefusal, string> = {
 	 * `deleteColumnMapping` already made next door, and the same reason.
 	 */
 	'not-found': 'No such account for this user',
-	'net-worth-not-found': 'No such linkable net worth account for this user'
+	'net-worth-not-found': 'No such linkable net worth account for this user',
+	/**
+	 * D4, and the message says SYNCHRONIZED rather than named the bucket holding the line. Which
+	 * other account already feeds it is a fact about the user's own data, so it could be shown;
+	 * it is left out because an error message travels through a screenshot and a clipboard, and
+	 * no message in this class names another row. Same ruling as the two above.
+	 */
+	'net-worth-already-synced': 'This net worth account already has a synchronized bucket'
 };
 
 /**
@@ -288,48 +296,48 @@ export async function archiveStatementAccount(input: {
 }
 
 /**
- * Sets, or clears, the net worth line this account feeds. THE ONLY WRITER OF THAT COLUMN outside
- * the bank sync, which is what Task 7 made true by taking the question off the import path.
+ * /settings' door onto the net worth link: sets, or clears, the line this account feeds.
  *
- * ## Two object references, two authorisations
+ * ## It was called THE ONLY WRITER OF THAT COLUMN, and that sentence was wrong
  *
- * `accountId` and `netWorthAccountId` both arrive from a request and each is a CLAIM. A function
- * validating one of them looks exactly like a function validating both, which is why the two
- * refusals are asserted separately: the net worth read is scoped by `userId`, and the account write
- * is scoped by `userId` in its own where clause.
+ * Kept here as the record, because the sentence is what the defect was made of rather than an
+ * embarrassment beside it. The column has three writers - this one, `linkBankAccountToNetWorth`
+ * and `setManualAccountNetWorthLink` - and D4, the rule that at most one SYNCHRONIZED bucket may
+ * point at one line, was enforced in exactly one of them. /settings lists every bank-sync bucket
+ * and offers this control on each, so a user linked two of them to one line in four clicks and two
+ * provider balances then fought over it (#501).
  *
- * ## The type is validated against the linkable set, positively
+ * A property of a column is a claim about every writer, and the fix is that the rule stopped being
+ * a property of a function: `writeNetWorthLink` in `$lib/server/net-worth/link.ts` owns the
+ * resolution, both authorisations, D4 and the write, in one transaction. This function is the door.
+ * It narrows nothing - /settings addresses any bucket a statement can come from - and does one
+ * thing of its own, which is to translate the refusal into the sentence the page renders.
  *
- * `isLinkableNetWorthAccountType` is CALLED rather than its list retyped. A house is not a cash
- * line, and filing a statement's transactions against one would put spending into an asset's
- * balance. ASVS 5.0.0 `v5.0.0-2.2.1`: positive validation against an allow list of values, for
- * input that makes a business decision.
+ * ## What moved with the rule, and is still true
  *
- * A null clears the link and needs no lookup: there is no reference to authorise.
+ * `accountId` and `netWorthAccountId` both arrive from a request and each is a CLAIM; a function
+ * validating one of them looks exactly like a function validating both, and both are scoped by
+ * `userId` in their own where clause. The type is validated by CALLING
+ * `isLinkableNetWorthAccountType` rather than retyping its list - ASVS 5.0.0 `v5.0.0-2.2.1`,
+ * positive validation against an allow list, for input that makes a business decision. A null
+ * clears the link and needs no lookup: there is no reference to authorise and nothing to conflict
+ * with. All four now live at the site above, asserted by
+ * `net-worth/oneSyncedBucketPerAccount.db-smoke.ts` and by this module's own battery.
  */
 export async function linkNetWorthAccount(input: {
 	userId: string;
 	accountId: string;
 	netWorthAccountId: string | null;
 }): Promise<void> {
-	if (input.netWorthAccountId !== null) {
-		const target = await prisma.netWorthAccount.findFirst({
-			where: { id: input.netWorthAccountId, userId: input.userId, deletedAt: null },
-			select: { type: true }
-		});
-		// One reason for three situations — absent, foreign, and of a type that cannot be linked —
-		// for the same reason `not-found` covers two above: a distinct refusal per situation tells
-		// the caller which of their guesses was right.
-		if (!target || !isLinkableNetWorthAccountType(target.type as NetWorthAccountType)) {
-			throw new AccountWriteError('net-worth-not-found');
-		}
-	}
-
-	const { count } = await prisma.account.updateMany({
-		where: { id: input.accountId, userId: input.userId },
-		data: { netWorthAccountId: input.netWorthAccountId }
+	const refusal = await writeNetWorthLink({
+		userId: input.userId,
+		accountId: input.accountId,
+		netWorthAccountId: input.netWorthAccountId,
+		bucket: 'any'
 	});
-	if (count === 0) throw new AccountWriteError('not-found');
+	if (refusal === 'account-not-found') throw new AccountWriteError('not-found');
+	if (refusal === 'net-worth-not-found') throw new AccountWriteError('net-worth-not-found');
+	if (refusal === 'already-synced') throw new AccountWriteError('net-worth-already-synced');
 }
 
 /**

@@ -16,6 +16,7 @@ import {
 	ensureDedupeKeysAtCurrentVersion
 } from '$lib/server/import/dedupeBoot';
 import { ensureStatementAccountsBackfilled } from '$lib/server/import/accountBoot';
+import { ensureNoContestedNetWorthLinks } from '$lib/server/net-worth/contestedBoot';
 import { parseTrustedProxies } from '$lib/server/net/clientAddress';
 
 // One gate, one throw, every problem — see server/env/assertConfigured.ts for why this replaced
@@ -38,6 +39,10 @@ export const init: ServerInit = async () => {
 	// key field, while this backfill writes account metadata and never touches one. Keys first so
 	// the pass that can rewrite them finishes before the pass that must not.
 	await ensureStatementAccountsBackfilled();
+	// Last, and the order is not load bearing in either direction: this reads and writes only
+	// `Account.netWorthAccountId`, which no backfill above reads or writes. Placed after them so a
+	// pass that CAN move rows between buckets finishes before the pass that counts buckets per line.
+	await ensureNoContestedNetWorthLinks();
 };
 
 // /setup/origin-mismatch is public because the operator it exists for has no account yet: an auth
