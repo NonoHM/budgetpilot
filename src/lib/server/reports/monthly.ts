@@ -4,6 +4,7 @@ import type { CategoryAllocation, SplitIndicator } from '$lib/domain/allocation'
 import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { getTransactionKind } from '$lib/domain/transaction';
 import { getSimilarAmountGroups, normalizeRecurringLabel } from '$lib/domain/recurrence';
+import { categoryDisplayName } from '$lib/domain/categoryLabels';
 import {
 	analyzeTransactionNatures,
 	type TransactionNatureAnalysis
@@ -327,10 +328,21 @@ export function anonymizeMerchant(label: string): string {
 	return merchant ? toTitleCase(merchant) : m.reports_expense_fallback_label();
 }
 
-/** The merchant composed with its category — byte-identical to what this function returned before
- *  `anonymizeMerchant` was split out of it, which a spec asserts against recorded literals. */
+/**
+ * The merchant composed with its DISPLAYED category.
+ *
+ * `categoryDisplayName` rather than the raw argument, and that is the whole of the 0.14.0 defect:
+ * a stored category name is the name (#162) and passes through untouched, but
+ * `UNCLASSIFIED_CATEGORY` is a technical slug that must never reach a screen. Composed raw, it put
+ * "Zorglub - uncategorized" on /reports in a table whose next column already read
+ * "Non catégorisé", and in the dashboard's forecast-chart tooltip. Four render paths go through
+ * this one line, which is why the repair is here and not at any of them.
+ *
+ * Still byte-identical for every ordinary category, which is what the recorded literals in the
+ * spec pin.
+ */
 export function anonymizeLabel(label: string, category: string): string {
-	return `${anonymizeMerchant(label)} - ${category}`;
+	return `${anonymizeMerchant(label)} - ${categoryDisplayName(category)}`;
 }
 
 function getCoveredDayCount(transactions: Transaction[]): number {
