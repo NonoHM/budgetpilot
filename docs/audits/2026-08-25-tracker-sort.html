@@ -1,0 +1,1064 @@
+<title>The Milestone Sort</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+	rel="stylesheet"
+	href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap"
+/>
+
+<style>
+	:root {
+		--ground: #f4f6f7;
+		--surface: #ffffff;
+		--surface-sunk: #eceff1;
+		--ink: #171c22;
+		--ink-soft: #414c58;
+		--muted: #6b7684;
+		--rule: #dde2e6;
+		--rule-strong: #c3ccd3;
+		--accent: #2c5c60;
+		--accent-soft: #e0ecec;
+		--warn: #8a5620;
+		--warn-soft: #f5e9da;
+		--flag: #7d3440;
+		--flag-soft: #f6e3e5;
+
+		--step--1: 0.812rem;
+		--step-0: 1rem;
+		--step-1: 1.2rem;
+		--step-2: 1.5rem;
+		--step-3: 2rem;
+		--step-4: 2.75rem;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		:root:not([data-theme='light']) {
+			--ground: #12161a;
+			--surface: #1a1f25;
+			--surface-sunk: #22282f;
+			--ink: #e7eaed;
+			--ink-soft: #bcc4cd;
+			--muted: #8b96a3;
+			--rule: #2c333b;
+			--rule-strong: #3d4650;
+			--accent: #82b4b6;
+			--accent-soft: #1e3234;
+			--warn: #d3a267;
+			--warn-soft: #2f2718;
+			--flag: #d99098;
+			--flag-soft: #2f1d20;
+		}
+	}
+
+	:root[data-theme='dark'] {
+		--ground: #12161a;
+		--surface: #1a1f25;
+		--surface-sunk: #22282f;
+		--ink: #e7eaed;
+		--ink-soft: #bcc4cd;
+		--muted: #8b96a3;
+		--rule: #2c333b;
+		--rule-strong: #3d4650;
+		--accent: #82b4b6;
+		--accent-soft: #1e3234;
+		--warn: #d3a267;
+		--warn-soft: #2f2718;
+		--flag: #d99098;
+		--flag-soft: #2f1d20;
+	}
+
+	* {
+		box-sizing: border-box;
+	}
+
+	body {
+		margin: 0;
+		background: var(--ground);
+		color: var(--ink);
+		font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
+		font-size: var(--step-0);
+		line-height: 1.6;
+		-webkit-font-smoothing: antialiased;
+	}
+
+	.wrap {
+		max-width: 62rem;
+		margin: 0 auto;
+		padding: clamp(2rem, 5vw, 4.5rem) clamp(1.1rem, 4vw, 2.5rem) 6rem;
+		display: flex;
+		flex-direction: column;
+		gap: clamp(2.5rem, 5vw, 4rem);
+	}
+
+	h1,
+	h2,
+	h3 {
+		font-family: Newsreader, ui-serif, Georgia, serif;
+		font-weight: 500;
+		text-wrap: balance;
+		margin: 0;
+		letter-spacing: -0.01em;
+	}
+
+	h1 {
+		font-size: var(--step-4);
+		line-height: 1.08;
+	}
+	h2 {
+		font-size: var(--step-3);
+		line-height: 1.15;
+	}
+	h3 {
+		font-size: var(--step-1);
+		line-height: 1.3;
+	}
+
+	p {
+		margin: 0;
+		max-width: 66ch;
+	}
+
+	a {
+		color: var(--accent);
+		text-decoration-thickness: 1px;
+		text-underline-offset: 2px;
+	}
+	a:focus-visible,
+	summary:focus-visible {
+		outline: 2px solid var(--accent);
+		outline-offset: 3px;
+		border-radius: 2px;
+	}
+
+	code,
+	.num {
+		font-family: 'IBM Plex Mono', ui-monospace, monospace;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.eyebrow {
+		font-family: 'IBM Plex Mono', ui-monospace, monospace;
+		font-size: var(--step--1);
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: var(--muted);
+		margin: 0;
+	}
+
+	/* ---- masthead ---- */
+
+	.masthead {
+		display: flex;
+		flex-direction: column;
+		gap: 1.1rem;
+		padding-bottom: 2rem;
+		border-bottom: 2px solid var(--rule-strong);
+	}
+
+	.lede {
+		font-family: Newsreader, ui-serif, Georgia, serif;
+		font-size: var(--step-2);
+		line-height: 1.42;
+		color: var(--ink-soft);
+		max-width: 46ch;
+	}
+
+	.ledger {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr));
+		gap: 1px;
+		background: var(--rule);
+		border: 1px solid var(--rule);
+		margin-top: 1rem;
+	}
+
+	.ledger div {
+		background: var(--surface);
+		padding: 0.9rem 1rem 1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.15rem;
+	}
+
+	.ledger dt {
+		font-family: 'IBM Plex Mono', ui-monospace, monospace;
+		font-size: 0.7rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--muted);
+	}
+
+	.ledger dd {
+		margin: 0;
+		font-family: 'IBM Plex Mono', ui-monospace, monospace;
+		font-variant-numeric: tabular-nums;
+		font-size: var(--step-2);
+		line-height: 1.1;
+		color: var(--ink);
+	}
+
+	.ledger dd span {
+		font-size: var(--step--1);
+		color: var(--muted);
+	}
+
+	/* ---- sections ---- */
+
+	section {
+		display: flex;
+		flex-direction: column;
+		gap: 1.4rem;
+	}
+	.section-head {
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	/* ---- milestone entries ---- */
+
+	.stack {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+	}
+
+	.ms {
+		background: var(--surface);
+		border: 1px solid var(--rule);
+		border-left: 3px solid var(--accent);
+		padding: 1.15rem 1.35rem 1.3rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.7rem;
+	}
+
+	.ms.is-kept {
+		border-left-color: var(--rule-strong);
+	}
+	.ms.is-retired {
+		border-left-color: var(--rule-strong);
+		background: var(--surface-sunk);
+	}
+
+	.ms-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.count {
+		font-family: 'IBM Plex Mono', ui-monospace, monospace;
+		font-variant-numeric: tabular-nums;
+		font-size: var(--step--1);
+		color: var(--accent);
+		background: var(--accent-soft);
+		padding: 0.15rem 0.5rem;
+		border-radius: 2px;
+		white-space: nowrap;
+	}
+
+	.is-kept .count,
+	.is-retired .count {
+		color: var(--muted);
+		background: var(--surface-sunk);
+	}
+	.is-retired .count {
+		background: var(--ground);
+	}
+
+	.test {
+		font-size: var(--step--1);
+		color: var(--ink-soft);
+		border-top: 1px solid var(--rule);
+		padding-top: 0.65rem;
+		max-width: 70ch;
+	}
+
+	.test b {
+		font-weight: 500;
+		color: var(--muted);
+		font-family: 'IBM Plex Mono', ui-monospace, monospace;
+		font-size: 0.7rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		display: block;
+		margin-bottom: 0.15rem;
+	}
+
+	.ids {
+		font-family: 'IBM Plex Mono', ui-monospace, monospace;
+		font-size: var(--step--1);
+		color: var(--muted);
+		line-height: 1.75;
+		word-spacing: 0.15em;
+	}
+
+	.ids b {
+		color: var(--ink-soft);
+		font-weight: 500;
+	}
+
+	/* ---- callouts ---- */
+
+	.note {
+		border: 1px solid var(--rule);
+		border-left: 3px solid var(--warn);
+		background: var(--warn-soft);
+		padding: 1rem 1.25rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.6rem;
+	}
+
+	.note.is-flag {
+		border-left-color: var(--flag);
+		background: var(--flag-soft);
+	}
+	.note .eyebrow {
+		color: var(--warn);
+	}
+	.note.is-flag .eyebrow {
+		color: var(--flag);
+	}
+	.note p {
+		max-width: 68ch;
+	}
+
+	/* ---- tables ---- */
+
+	.scroll {
+		overflow-x: auto;
+		border: 1px solid var(--rule);
+		background: var(--surface);
+	}
+
+	table {
+		border-collapse: collapse;
+		width: 100%;
+		font-size: var(--step--1);
+	}
+
+	th,
+	td {
+		text-align: left;
+		padding: 0.6rem 0.85rem;
+		border-bottom: 1px solid var(--rule);
+		vertical-align: top;
+	}
+
+	thead th {
+		font-family: 'IBM Plex Mono', ui-monospace, monospace;
+		font-size: 0.7rem;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--muted);
+		font-weight: 500;
+		white-space: nowrap;
+		border-bottom: 1px solid var(--rule-strong);
+	}
+
+	tbody tr:last-child td {
+		border-bottom: none;
+	}
+	td.n {
+		font-family: 'IBM Plex Mono', ui-monospace, monospace;
+		font-variant-numeric: tabular-nums;
+		white-space: nowrap;
+	}
+
+	.verdict-no {
+		color: var(--flag);
+	}
+	.verdict-yes {
+		color: var(--muted);
+	}
+
+	ul {
+		margin: 0;
+		padding-left: 1.1rem;
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+		max-width: 68ch;
+	}
+	li::marker {
+		color: var(--muted);
+	}
+
+	footer {
+		border-top: 1px solid var(--rule);
+		padding-top: 1.5rem;
+		color: var(--muted);
+		font-size: var(--step--1);
+		display: flex;
+		flex-direction: column;
+		gap: 0.5rem;
+	}
+
+	@media (prefers-reduced-motion: no-preference) {
+		a {
+			transition: color 120ms ease;
+		}
+	}
+</style>
+
+<div class="wrap">
+	<header class="masthead">
+		<p class="eyebrow">Tracker record &middot; 2026-08-25 &middot; budgetpilot at 0.14.1</p>
+		<h1>The Milestone Sort</h1>
+		<p class="lede">
+			140 open issues carrying nine milestones, of which two had drifted into catch-alls and 80
+			issues had no milestone at all. Sorted into themes by what an issue serves, not by what it
+			touches. Two issues were filed. Nothing was closed.
+		</p>
+
+		<dl class="ledger">
+			<div>
+				<dt>Open, before</dt>
+				<dd>140</dd>
+			</div>
+			<div>
+				<dt>Open, after</dt>
+				<dd>142 <span>&nbsp;+2 filed</span></dd>
+			</div>
+			<div>
+				<dt>Unmilestoned</dt>
+				<dd>80 &rarr; 6</dd>
+			</div>
+			<div>
+				<dt>Milestones</dt>
+				<dd>9 &rarr; 16 <span>&nbsp;2 deleted</span></dd>
+			</div>
+			<div>
+				<dt>Issues closed</dt>
+				<dd>0</dd>
+			</div>
+		</dl>
+	</header>
+
+	<section>
+		<div class="section-head">
+			<p class="eyebrow">The finding</p>
+			<h2>The largest post&#8209;1.0 chantier had no issue</h2>
+		</div>
+		<p>
+			Merchant normalisation was named the largest post&#8209;1.0 chantier a week ago and existed
+			only in a conversation &mdash; the same class as the column mapping path, which stayed
+			invisible through four shipped PRs. It was filed as
+			<a href="https://github.com/NonoHM/budgetpilot/issues/520">#520</a> before anything was
+			sorted.
+		</p>
+
+		<div class="note is-flag">
+			<p class="eyebrow">The premise was wrong, and correcting it makes the chantier smaller</p>
+			<p>
+				It was raised as
+				<em
+					>&laquo;&nbsp;157 rules match the full label, so they cannot fire on
+					<code>CB****PRET A MANGER 44N&hellip;</code>&nbsp;&raquo;</em
+				>. Measured against the real catalogue and the real matcher, that is not what the code does:
+				matching is <em>substring containment</em> over an accent&#8209;folded label, so a prefix or
+				a suffix costs nothing at all.
+			</p>
+			<p>
+				<strong
+					>The failure is the 41 multi&#8209;token patterns of 141, and only when something touches
+					the separator inside the name.</strong
+				>
+				Not the matcher, which is doing the right thing. Not the 100 single&#8209;token patterns,
+				which survive every shape measured.
+			</p>
+			<p>
+				This correction is now the top of the issue rather than a footnote, because
+				<em>&laquo;&nbsp;the rules cannot fire on dirty labels&nbsp;&raquo;</em> gets planned as a
+				rewrite of the matcher &mdash; and that is not the work.
+			</p>
+		</div>
+
+		<div class="scroll">
+			<table>
+				<thead>
+					<tr>
+						<th>Noise shape</th>
+						<th>Example</th>
+						<th>Rules broken</th>
+						<th>After normalising</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>Surrounded by noise</td>
+						<td class="n">CARTE 12/08 CB****SUPER U 44N</td>
+						<td class="n verdict-yes">0 / 141</td>
+						<td class="n">&mdash;</td>
+					</tr>
+					<tr>
+						<td>Processor star prefix</td>
+						<td class="n">SUMUP *SUPER U</td>
+						<td class="n verdict-yes">0 / 141</td>
+						<td class="n">&mdash;</td>
+					</tr>
+					<tr>
+						<td>Separator &rarr; hyphen</td>
+						<td class="n">SUPER-U</td>
+						<td class="n verdict-no">41 / 41</td>
+						<td class="n">41 / 41 fire</td>
+					</tr>
+					<tr>
+						<td>Double space</td>
+						<td class="n">SUPER&nbsp;&nbsp;U</td>
+						<td class="n verdict-no">41 / 41</td>
+						<td class="n">41 / 41 fire</td>
+					</tr>
+					<tr>
+						<td>Digits inside</td>
+						<td class="n">SUPER 4429 U</td>
+						<td class="n verdict-no">41 / 41</td>
+						<td class="n">41 / 41 fire</td>
+					</tr>
+					<tr>
+						<td>Separator removed</td>
+						<td class="n">SUPERU</td>
+						<td class="n verdict-no">41 / 41</td>
+						<td class="n">3 / 41 fire</td>
+					</tr>
+					<tr>
+						<td>Code inserted mid&#8209;name</td>
+						<td class="n">SUPER 44N U</td>
+						<td class="n verdict-no">41 / 41</td>
+						<td class="n">3 / 41 fire</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
+		<p>
+			The right&#8209;hand column is <code>normalizeRecurringLabel</code>, a function this
+			repository already ships and already stores beside a raw label.
+			<strong>Three of five broken shapes go to 41&nbsp;/&nbsp;41 for free.</strong> The two that
+			stay broken are the chantier: token&#8209;level removal of processor references, location
+			codes and card fragments, rather than character folding.
+		</p>
+
+		<div class="note">
+			<p class="eyebrow">The decision the issue is waiting on</p>
+			<p>
+				<strong>Is the cleaned merchant name an index or a presentation?</strong> The additive half
+				is settled and is not the question:
+				<code>RecurringStreamAction.normalizedLabel</code> already stores this exact shape beside a
+				raw label, and replacing the stored label instead would move every deduplication key that
+				exists &mdash; <code>buildRowGroupKey</code> joins the folded label into the key and the
+				unique constraint sits on its hash.
+			</p>
+			<p>
+				What remains decides the release. A cleaned name only the matcher reads is an
+				<strong>index</strong>: invisible, additive, a 1.x. But the screens keep rendering
+				<code>CB****PRET A MANGER 44N 12/08</code>, and
+				<strong>the raw descriptor is the thing a user cannot read.</strong> If the cleaned name is
+				what a person should see, it is a <strong>presentation</strong>, every surface that renders
+				a label is in scope, and the question of which one is <em>the</em> label comes back with it.
+			</p>
+		</div>
+	</section>
+
+	<section>
+		<div class="section-head">
+			<p class="eyebrow">The second finding &middot; #521, a precondition of #520</p>
+			<h2>Three functions already fold a label, and they disagree</h2>
+		</div>
+		<p>
+			A chantier about normalising labels, in a tree where three functions already normalise labels
+			differently and nothing says so.
+			<strong>Whoever picks up #520 must not add a fourth</strong> &mdash; which is why this is an
+			issue rather than a comment fix.
+		</p>
+
+		<div class="scroll">
+			<table>
+				<thead>
+					<tr>
+						<th>input</th>
+						<th>normalizeForMatch</th>
+						<th>normalizeRecurringLabel</th>
+						<th>fold (csv)</th>
+						<th>fold (enablebanking)</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td class="n">"CAF&Eacute;&nbsp;&nbsp;DE LA GARE"</td>
+						<td class="n">"cafe&nbsp;&nbsp;de la gare"</td>
+						<td class="n">"cafe de la gare"</td>
+						<td class="n">"caf&eacute; de la gare"</td>
+						<td class="n">"cafe de la gare"</td>
+					</tr>
+					<tr>
+						<td class="n">"SUPER-U 4429"</td>
+						<td class="n">"super-u 4429"</td>
+						<td class="n">"super u"</td>
+						<td class="n">"super-u 4429"</td>
+						<td class="n">"super-u 4429"</td>
+					</tr>
+					<tr>
+						<td class="n">"Abonnement 2026"</td>
+						<td class="n">"abonnement 2026"</td>
+						<td class="n">"abonnement"</td>
+						<td class="n">"abonnement 2026"</td>
+						<td class="n">"abonnement 2026"</td>
+					</tr>
+					<tr>
+						<td class="n">"&#127881;"</td>
+						<td class="n">"&#127881;"</td>
+						<td class="n">""</td>
+						<td class="n">"&#127881;"</td>
+						<td class="n">"&#127881;"</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
+		<p>
+			Four of five sample inputs get different answers from the three folds. The sharpest fact is
+			not a defect: <code>computeNameKey("CAF&Eacute;") === computeNameKey("cafe")</code> is
+			<strong>true</strong> while <code>foldLabelForSource("csv", &hellip;)</code> says
+			<strong>false</strong>. The same two strings are
+			<em>one name and two transactions, simultaneously, by design</em> &mdash; two spellings of a
+			category mean one category, and two fingerprints that differ at all mean two payments, one of
+			which folding would silently swallow.
+		</p>
+
+		<div class="note is-flag">
+			<p class="eyebrow">Seventh instance &middot; a stated invariant a later change falsified</p>
+			<p>
+				<code>CLAUDE.md</code> reads
+				<em
+					>&laquo;&nbsp;<code>computeNameKey</code> is the only folding in this
+					repo&nbsp;&raquo;</em
+				>. <strong>True about names, false about labels</strong>, and the two words were being used
+				interchangeably. <code>computeNameKey</code> is not a fold at all &mdash; it is a hash over
+				<code>normalizeForMatch</code> &mdash; and it really is the only folding of a <em>name</em>.
+				Transaction labels are folded twice more, for two other purposes.
+			</p>
+			<p>
+				The dangerous kind the rule names: a why&#8209;comment, trusted because it justifies, and
+				therefore never re&#8209;read. It lives in an untracked file, which is why the record is an
+				issue.
+			</p>
+		</div>
+
+		<p>
+			<strong>This is not a request to unify them.</strong> Three deliberate foldings is a
+			defensible answer; three foldings nobody can enumerate is not. One divergence does look
+			accidental rather than argued, and is called out for a ruling:
+			<code>foldLabelForSource</code> strips accents <em>only</em> for <code>enablebanking</code>,
+			so a CSV import and a bank sync of the same payment fold differently.
+		</p>
+	</section>
+
+	<section>
+		<div class="section-head">
+			<p class="eyebrow">Nine new milestones &middot; 99 issues</p>
+			<h2>Each name is a claim its members have to make</h2>
+		</div>
+		<p>
+			A milestone here is a theme someone picks up as one piece of work, not a label for a
+			directory. The admission test is written under each one, because the way a milestone becomes a
+			label is that nobody can say what would fail to belong.
+		</p>
+
+		<div class="stack">
+			<article class="ms">
+				<div class="ms-head">
+					<h3>The import path</h3>
+					<span class="count">24 issues</span>
+				</div>
+				<p>
+					A bank we ship no profile for can be imported by a user who says what their columns mean,
+					and the cost of the next bank stops being 225 lines.
+				</p>
+				<p class="test">
+					<b>Admits</b>The csv chantier, whole. It has a real seam between the designation journey
+					and the parser architecture &mdash; that seam belongs to planning, not to sorting.
+				</p>
+				<p class="ids">
+					<b
+						>298 300 301 307 308 316 322 348 351 352 356 357 377 379 394 395 396 406 407 433 464 466
+						485 520</b
+					>
+				</p>
+			</article>
+
+			<article class="ms">
+				<div class="ms-head">
+					<h3>What the tree says about itself</h3>
+					<span class="count">15 issues</span>
+				</div>
+				<p>
+					A day with the tracked tree, correcting every place the repository describes itself
+					wrongly and writing down the rulings that currently survive only in a gitignored file.
+				</p>
+				<p class="test">
+					<b>Admits</b>Three shapes of one failure: a comment that justifies code it no longer
+					describes, a ruling that dies at the next clone, and a canonical rule retyped at a second
+					site where it has already drifted.
+				</p>
+				<p class="ids"><b>214 410 414 454 469 471 472 473 475 502 503 507 510 511 521</b></p>
+			</article>
+
+			<article class="ms">
+				<div class="ms-head">
+					<h3>Gates that do not gate</h3>
+					<span class="count">12 issues</span>
+				</div>
+				<p>
+					Every check in this repository can fail for the reason it names, and none of them reports
+					green having read nothing.
+				</p>
+				<p class="test">
+					<b>Admits</b>A test that passes ~1 run in 263 without tampering; one that fails before
+					09:05Z; a Dependabot rule that answers <em>yes, I am applied</em> and is not; a CVE gate
+					that runs after the release is published.
+				</p>
+				<p class="ids"><b>165 213 274 318 319 458 481 482 483 486 514 519</b></p>
+			</article>
+
+			<article class="ms">
+				<div class="ms-head">
+					<h3>A figure means what its label says</h3>
+					<span class="count">12 issues</span>
+				</div>
+				<p>
+					No number or label on any screen is doing work the arithmetic behind it does not support.
+				</p>
+				<p class="test">
+					<b>Admits</b>The issue body claims that property in its own words, and nothing else. The
+					second generation of <em>Nothing on screen is false</em>, which closed empty.
+				</p>
+				<p class="ids"><b>211 212 313 375 416 434 435 437 496 498 499 512</b></p>
+			</article>
+
+			<article class="ms">
+				<div class="ms-head">
+					<h3>The referential and the bricks that ship without it</h3>
+					<span class="count">11 issues</span>
+				</div>
+				<p>
+					Every component shipping today is written down, and the plates stop contradicting
+					themselves about controls they place.
+				</p>
+				<p class="test">
+					<b>Admits</b>A missing brique, a clause that contradicts itself or is silent, a variant
+					that ships unregistered, a component with no consumer at all. #358 is the arbitration the
+					other ten are decided by, so it goes first.
+				</p>
+				<p class="ids"><b>209 332 358 388 389 390 391 497 509 515 516</b></p>
+			</article>
+
+			<article class="ms">
+				<div class="ms-head">
+					<h3>What the screen reader found</h3>
+					<span class="count">8 issues</span>
+				</div>
+				<p>The keyboard opens what it says it opens, and the page announces what it just did.</p>
+				<p class="test">
+					<b>Admits</b>Output of the pass. #188 <em>is</em> the pass and stays in 1.0; this
+					milestone grows when it is run again.
+				</p>
+				<p class="ids"><b>207 208 363 427 428 429 431 432</b></p>
+			</article>
+
+			<article class="ms">
+				<div class="ms-head">
+					<h3>The transactions detail panel</h3>
+					<span class="count">8 issues</span>
+				</div>
+				<p>
+					One walk of one screen, at both widths, where every control&rsquo;s aftermath matches what
+					it did.
+				</p>
+				<p class="test">
+					<b>Admits</b>Anything one browser walk of that screen would find, and would find again.
+					#206 arrived here from Post&#8209;1.0: a control below the fold is exactly what a walk at
+					both widths catches, and it is a better fit than a bug in a milestone whose test is
+					absence.
+				</p>
+				<p class="ids"><b>205 206 413 419 422 423 424 513</b></p>
+			</article>
+
+			<article class="ms">
+				<div class="ms-head">
+					<h3>The English instance is English</h3>
+					<span class="count">6 issues</span>
+				</div>
+				<p>
+					A reader on <code>Accept-Language: en-US</code> never meets French, and the harness that
+					would have caught it is wired in.
+				</p>
+				<p class="test">
+					<b>Admits</b>Five surfaces plus the pseudo&#8209;localisation instrument that measures all
+					of them &mdash; #158, rescued from <em>Reconciliation</em>, where it never belonged.
+				</p>
+				<p class="ids"><b>158 210 299 304 353 430</b></p>
+			</article>
+
+			<article class="ms">
+				<div class="ms-head">
+					<h3>An export that comes back</h3>
+					<span class="count">3 issues</span>
+				</div>
+				<p>
+					Your own data leaves this app and returns unchanged, and the gate that is supposed to
+					prove it stops masking its own coverage.
+				</p>
+				<p class="test">
+					<b>Admits</b>The restore path only. <code>docs/getting-started.md</code> promises the
+					round trip in writing, which is what makes this a claim rather than a preference.
+				</p>
+				<p class="ids"><b>457 467 504</b></p>
+			</article>
+		</div>
+	</section>
+
+	<section>
+		<div class="section-head">
+			<p class="eyebrow">Existing milestones, tested against their own names</p>
+			<h2>Two had drifted, and one of them was already recorded</h2>
+		</div>
+
+		<div class="scroll">
+			<table>
+				<thead>
+					<tr>
+						<th>Milestone</th>
+						<th>Open</th>
+						<th>Name described contents?</th>
+						<th>Done</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td>Nothing on screen is false</td>
+						<td class="n">0</td>
+						<td class="verdict-yes">Empty. Its 26 closed issues are the record.</td>
+						<td>
+							<strong>Deleted.</strong> The issues keep their own record; a closed milestone holding
+							nothing answers nothing.
+						</td>
+					</tr>
+					<tr>
+						<td>The computed balance</td>
+						<td class="n">1</td>
+						<td class="verdict-yes">Held one issue; #187 is the same work.</td>
+						<td><strong>Folded into Reconciliation, deleted</strong></td>
+					</tr>
+					<tr>
+						<td>Reconciliation</td>
+						<td class="n">4</td>
+						<td class="verdict-no">No &mdash; 1 of 4 fitted.</td>
+						<td>#158 and #165 rescued; #174 left with no home; #185 arrived. Now 2.</td>
+					</tr>
+					<tr>
+						<td>1.0</td>
+						<td class="n">1</td>
+						<td class="verdict-yes">Yes. The screen&#8209;reader pass.</td>
+						<td>Untouched. Nothing was added.</td>
+					</tr>
+					<tr>
+						<td>Post&#8209;1.0</td>
+						<td class="n">30</td>
+						<td class="verdict-no">No &mdash; 11 of 30 fitted.</td>
+						<td>20 defects and debt moved out, #436 in, #206 on to the panel. Now 10.</td>
+					</tr>
+					<tr>
+						<td>Security hardening (post&#8209;#184)</td>
+						<td class="n">13</td>
+						<td class="verdict-yes">Yes, all 13.</td>
+						<td>
+							Done&#8209;definition corrected: it still named #219 and #220 as 1.0 gates, both
+							closed.
+						</td>
+					</tr>
+					<tr>
+						<td>Session and re&#8209;authentication</td>
+						<td class="n">7</td>
+						<td class="verdict-yes">Yes. It groups a decision and says so.</td>
+						<td>Untouched.</td>
+					</tr>
+					<tr>
+						<td>Security event logging</td>
+						<td class="n">1</td>
+						<td class="verdict-yes">Yes &mdash; one issue by design, a chantier not an item.</td>
+						<td>Untouched.</td>
+					</tr>
+					<tr>
+						<td>Recovery and lockout</td>
+						<td class="n">3</td>
+						<td class="verdict-yes">Yes.</td>
+						<td>Untouched.</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
+		<div class="note">
+			<p class="eyebrow">Why Post&#8209;1.0 drifted, and why it was not a discipline failure</p>
+			<p>
+				Its own description sets the test &mdash;
+				<em>&laquo;&nbsp;the test is whether a user notices the absence&nbsp;&raquo;</em> &mdash;
+				and 20 of its 30 were defects and debt, which are not absences. It became the parking bay
+				because <strong>it is the only milestone whose name does not commit to a subject</strong>,
+				so anything deferred fits it by construction. The timing signal was deliberately not
+				preserved: only the screen&#8209;reader pass stands before 1.0, so
+				<em>not before then</em> said nothing.
+			</p>
+		</div>
+	</section>
+
+	<section>
+		<div class="section-head">
+			<p class="eyebrow">Recorded, not promoted</p>
+			<h2>The 1.0 bar has a gap, and naming it beats widening it</h2>
+		</div>
+		<p>
+			Two issues were raised as 1.0 candidates and deliberately not filed there. Criterion 3 reads
+			<em>&laquo;&nbsp;no open issue causes a security risk or data loss&nbsp;&raquo;</em>, and
+			neither causes either &mdash; every row lands, nothing is dropped, nothing is exposed. The
+			criterion as written does not admit them and was not bent to fit.
+		</p>
+
+		<div class="scroll">
+			<table>
+				<thead>
+					<tr>
+						<th>Issue</th>
+						<th>What it does</th>
+						<th>Why the bar misses it</th>
+					</tr>
+				</thead>
+				<tbody>
+					<tr>
+						<td class="n">#433</td>
+						<td>
+							A month/day statement imports on the wrong date, silently, by up to eleven months.
+						</td>
+						<td>
+							No loss and no exposure. Its own body:
+							<em>the one limitation a user cannot detect from the screen.</em>
+						</td>
+					</tr>
+					<tr>
+						<td class="n">#485</td>
+						<td>
+							A multi&#8209;account statement files every row into one account; both balances then
+							wrong.
+						</td>
+						<td>
+							No loss and no boundary crossed &mdash; the account is the importing user&rsquo;s own.
+						</td>
+					</tr>
+				</tbody>
+			</table>
+		</div>
+
+		<p>
+			Both write <strong>wrong data that looks right</strong>. A transaction dated eleven months
+			wrong is worse than one lost &mdash; a lost one you notice. The open question, recorded on
+			both issues rather than in a conversation:
+			<strong
+				>should the bar gain a fourth trigger, silent data corruption, distinct from data
+				loss?</strong
+			>
+			That decision is to be taken before 1.0. Neither issue&rsquo;s priority changed today; both
+			sit in <em>The import path</em>.
+		</p>
+	</section>
+
+	<section>
+		<div class="section-head">
+			<p class="eyebrow">Six issues, no milestone</p>
+			<h2>Fits nowhere, and that is the answer</h2>
+		</div>
+		<p>
+			Each is complete in itself and would be picked up alone. A milestone built to hold one of
+			these would be a label.
+		</p>
+		<ul>
+			<li>
+				<strong class="num">#460</strong> &mdash; the provider&#8209;id dedupe branch trusts a
+				vendor immutability promise nothing checks. The only bank&#8209;sync correctness issue open.
+			</li>
+			<li>
+				<strong class="num">#408</strong> &mdash; <code>container_name</code> is hardcoded, so two
+				instances cannot coexist. Reproducible from a clean README follow.
+			</li>
+			<li>
+				<strong class="num">#438</strong> &mdash; one admin, forever. No promotion, no demotion, no
+				succession.
+			</li>
+			<li>
+				<strong class="num">#500</strong> &mdash; <code>/rapports</code> loads every category name
+				per view and renders none. One deletion.
+			</li>
+			<li>
+				<strong class="num">#506</strong> &mdash; verify the date field on a real iPhone. Not a
+				defect: a measurement only a person with the hardware can take.
+			</li>
+			<li>
+				<strong class="num">#174</strong> &mdash; drop <code>CategorizationRule</code>. Left
+				<em>Reconciliation</em>, where it never belonged, and needs no replacement home.
+			</li>
+		</ul>
+
+		<div class="note">
+			<p class="eyebrow">Not filed: multi&#8209;user</p>
+			<p>
+				#408 and #438 point the same way as #192, #194 and #155 &mdash; running an instance for more
+				than one person. Five issues across three milestones with no name.
+				<strong>Deliberately not made a milestone:</strong> it is a direction that has not been
+				decided, and filing for a decision nobody has made is exactly how a milestone becomes a
+				label.
+			</p>
+		</div>
+	</section>
+
+	<section>
+		<div class="section-head">
+			<p class="eyebrow">Two expectations the tracker did not support</p>
+			<h2>What was expected to be big, and was not</h2>
+		</div>
+		<ul>
+			<li>
+				<strong>The categorisation chantier is four issues</strong>, not a chantier &mdash; #437,
+				#496, #430, #174. They were distributed rather than gathered. Merchant normalisation, its
+				largest part, had no issue at all until #520.
+			</li>
+			<li>
+				<strong>The bank sync path is three issues</strong> &mdash; #460, #502, #504 &mdash; plus
+				#245, already correctly in security hardening. Not enough for a milestone.
+			</li>
+			<li>
+				<strong>The import path was the one nobody named</strong>, at 24. Larger than the next two
+				combined.
+			</li>
+		</ul>
+	</section>
+
+	<footer>
+		<p>
+			Sorted 2026-08-25 against <code>main</code> at <code>0d27bc0</code>, budgetpilot 0.14.1. 142
+			open issues, each placed exactly once and cross&#8209;checked against
+			<code>gh issue list</code> before and after. The closed count was 85 before the two empty
+			milestones were deleted and 85 after. <strong>No issue was closed.</strong>
+		</p>
+		<p>
+			Every figure in the two findings is printed output of a throwaway spec importing the
+			production functions, run and then removed &mdash; three specs in all. The catalogue probes
+			were calibrated from a live catalogue pattern, so a zero on a dirty variant is a fact about
+			the variant rather than about the probe; the folds probe is calibrated by its own disagreement
+			count, which an empty read could not produce.
+		</p>
+	</footer>
+</div>
