@@ -144,6 +144,169 @@ describe('DateField.svelte', () => {
 	});
 
 	/**
+	 * MEASURED REGRESSION, and the reason this block exists.
+	 *
+	 * On /rapports, typing 31/02/2026 and pressing « Afficher » came back with NO query string at
+	 * all: the page silently showed the default period, with no banner, no `aria-invalid` and no
+	 * message. The reader asked for a period, got a different one, and nothing said so. The native
+	 * input this component replaced made that state unreachable, because a date widget will not let
+	 * an impossible day be entered in the first place.
+	 *
+	 * So refusing the value (which the field already did) is only half the job. Saying so is the
+	 * other half, and it is what the swap owes.
+	 */
+	describe('an entry it cannot read', () => {
+		/**
+		 * Separates "the field says the date was not understood" from "the field silently drops it".
+		 * Both leave the submitted value empty, which is why the assertion is on the announcement and
+		 * not on the value: the value was already correct in the version that shipped the regression.
+		 */
+		it('marks itself invalid on blur and points at a message that says so', async () => {
+			expect.assertions(3);
+			await page.viewport(1280, 900);
+
+			const { container } = render(DateField, { name: 'from', value: '' });
+			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
+
+			await userEvent.fill(visible, '31/02/2026');
+			await userEvent.tab();
+
+			expect(visible.getAttribute('aria-invalid')).toBe('true');
+			const messageId = visible.getAttribute('aria-describedby');
+			expect(messageId).not.toBeNull();
+			expect(container.querySelector(`#${messageId}`)?.textContent?.trim()).not.toBe('');
+		});
+
+		/**
+		 * The form must not be submittable while a box says it was not understood. Asserted through
+		 * `checkValidity`, which is the mechanism the surrounding `method="GET"` form actually
+		 * consults, rather than through a proxy that would pass while the form still submitted.
+		 */
+		it('blocks its form from submitting', async () => {
+			await page.viewport(1280, 900);
+
+			const { container } = render(DateField, { name: 'from', value: '' });
+			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
+
+			await userEvent.fill(visible, '31/02/2026');
+			await userEvent.tab();
+
+			expect(visible.checkValidity()).toBe(false);
+		});
+
+		/**
+		 * MEASURED BYPASS of the guard above, and the reason the refusal no longer waits for blur.
+		 *
+		 * Pressing Enter in a text field is implicit submission and does NOT fire `blur`. With the
+		 * invalid state gated on a `touched` flag that only `onblur` set, Enter left the field
+		 * "untouched", `setCustomValidity` empty, and the form submitted with an empty value:
+		 * measured on /rapports as `?period=this-month&from=&to=2026-08-31`, which renders a period
+		 * the reader did not choose. Exactly the defect the state exists to close, reached by the
+		 * other of the two ways a person submits a form.
+		 *
+		 * So constraint validity is now computed from the BUFFER alone, and only the visible red and
+		 * the announced message wait for blur.
+		 */
+		it('refuses the value before any blur, so Enter cannot submit it', async () => {
+			expect.assertions(2);
+			await page.viewport(1280, 900);
+
+			const { container } = render(DateField, { name: 'from', value: '' });
+			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
+
+			await userEvent.fill(visible, '31/02/2026');
+			// No blur, no tab. This is the state the field is in when Enter is pressed.
+			expect(visible.checkValidity()).toBe(false);
+			// And it stays quiet until the reader leaves, so it does not shout mid-typing.
+			expect(visible.getAttribute('aria-invalid')).toBeNull();
+		});
+
+		/**
+		 * The browser fires `invalid` on a field when constraint validation blocks a submit. That is
+		 * the moment the reader finds out, so it is the moment the field must also SHOW it, rather
+		 * than staying quiet because they never tabbed away.
+		 */
+		it('shows itself once the browser blocks a submit on it', async () => {
+			await page.viewport(1280, 900);
+
+			const { container } = render(DateField, { name: 'from', value: '' });
+			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
+
+			await userEvent.fill(visible, '31/02/2026');
+			visible.dispatchEvent(new Event('invalid'));
+			await new Promise((resolve) => setTimeout(resolve, 50));
+
+			expect(visible.getAttribute('aria-invalid')).toBe('true');
+		});
+
+		/**
+		 * MEASURED DEAD STYLE. The first version appended `border-rose-400` to a class string that
+		 * already carried `border-zinc-200`. Same specificity, and Tailwind emits rose before zinc,
+		 * so zinc won and the red border never painted: the computed value on /rapports was
+		 * `oklch(0.92 0.004 286.32)`, which is zinc-200.
+		 *
+		 * Asserted on the COMPUTED colour rather than on the class list, because the class list was
+		 * correct in the version that did not render. A class assertion would have been green
+		 * throughout.
+		 */
+		it('actually paints a different border when invalid', async () => {
+			expect.assertions(2);
+			await page.viewport(1280, 900);
+
+			const { container } = render(DateField, { name: 'from', value: '2026-08-01' });
+			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
+			const resting = getComputedStyle(visible).borderColor;
+
+			await userEvent.fill(visible, '31/02/2026');
+			await userEvent.tab();
+
+			const flagged = getComputedStyle(visible).borderColor;
+			expect(flagged).not.toBe(resting);
+			// A positive figure beside the difference: an empty string would also "not equal".
+			expect(flagged.length).toBeGreaterThan(0);
+		});
+
+		/**
+		 * Separates "invalid until corrected" from "invalid for ever". A state that cannot be left is
+		 * worse than one that never fires, because the reader has no way out of it.
+		 */
+		it('clears once the entry becomes a real date', async () => {
+			expect.assertions(2);
+			await page.viewport(1280, 900);
+
+			const { container } = render(DateField, { name: 'from', value: '' });
+			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
+
+			await userEvent.fill(visible, '31/02/2026');
+			await userEvent.tab();
+			await userEvent.fill(visible, '28/02/2026');
+			await userEvent.tab();
+
+			expect(visible.getAttribute('aria-invalid')).toBeNull();
+			expect(visible.checkValidity()).toBe(true);
+		});
+
+		/**
+		 * The over-firing guard, and it is what stops the fix becoming its own defect: an EMPTY
+		 * optional field is not an error. Marking it invalid would put a red ring and a message on
+		 * every unset date box on the page before the reader has done anything at all.
+		 */
+		it('says nothing about an empty field', async () => {
+			expect.assertions(2);
+			await page.viewport(1280, 900);
+
+			const { container } = render(DateField, { name: 'from', value: '' });
+			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
+
+			await userEvent.click(visible);
+			await userEvent.tab();
+
+			expect(visible.getAttribute('aria-invalid')).toBeNull();
+			expect(visible.checkValidity()).toBe(true);
+		});
+	});
+
+	/**
 	 * The accessible name, which is the half a purely visual check misses. A caller that gives no
 	 * visible label must still give the field a name a screen reader can read, and the placeholder
 	 * is not one: it disappears the moment the reader types.

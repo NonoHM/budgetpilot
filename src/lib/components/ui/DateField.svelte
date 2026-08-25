@@ -1,3 +1,9 @@
+<script lang="ts" module>
+	// Per-instance ids for the message a field points at, so two date boxes in one form never
+	// share one `aria-describedby` target. Same idiom as PeriodFilter's own `idCounter`.
+	let idCounter = 0;
+</script>
+
 <script lang="ts">
 	import * as m from '$lib/paraglide/messages';
 	import { inputBase } from '$lib/styles';
@@ -45,7 +51,19 @@
 		ariaLabel?: string;
 		/** Wired to a caller's `<label for=...>`. */
 		id?: string;
-		/** Latest acceptable day, ISO. Advisory only, exactly as the native `max` was. */
+		/**
+		 * Latest acceptable day, ISO. **Carried, not enforced, and that is a gap rather than a
+		 * design.**
+		 *
+		 * The sentence here used to read "advisory only, exactly as the native `max` was", and that
+		 * was simply false: `max` on a native `type="date"` is a real constraint that sets
+		 * `rangeOverflow` and blocks submission. Nothing reads the `data-max` this renders, so a
+		 * caller passing it gets silent no-op enforcement.
+		 *
+		 * No caller passes it today, which is why it is a gap and not a defect. The five single-date
+		 * sites that would (see the tracker) need it working, and that is named there as one of the
+		 * things the calendar brick has to bring rather than left to be discovered.
+		 */
 		max?: string;
 		required?: boolean;
 		class?: string;
@@ -100,27 +118,116 @@
 	const submitted = $derived(toIsoOrNull(display) ?? '');
 
 	const placeholder = `${m.transactions_period_day_placeholder()}/${m.transactions_period_month_placeholder()}/${m.transactions_period_year_placeholder()}`;
+
+	idCounter += 1;
+	const messageId = `date-field-${idCounter}-message`;
+
+	/**
+	 * Whether the box should SAY it did not understand.
+	 *
+	 * On BLUR, not on every keystroke: "0" is not yet a date and flagging it while the reader is
+	 * still typing would put a red ring on every field the moment it is touched. This is the
+	 * validate-on-blur rule, and `PeriodFilter` reaches the same answer by a different route (its
+	 * Apply button is the single point of validation, because it has three ways to choose a range
+	 * and this has one).
+	 *
+	 * An EMPTY field is never invalid. An unset optional date is not an error, and marking it one
+	 * would decorate every untouched box on the page.
+	 */
+	let touched = $state(false);
+
+	/**
+	 * Whether the BUFFER cannot be read as a date. Independent of `touched`, and that separation is
+	 * the fix for a measured bypass rather than a tidy-up: pressing Enter in a text field is
+	 * implicit submission and does not fire `blur`, so a refusal gated on `touched` was simply not
+	 * armed on one of the two ways a person submits a form. Measured on /rapports: Enter with
+	 * 31/02/2026 in the box submitted `?period=this-month&from=&to=2026-08-31` and rendered a period
+	 * the reader had not chosen.
+	 *
+	 * So the FORM's answer never waits for blur, and only the visible red and the announced sentence
+	 * do. Computing both from one flag was what tied them together.
+	 */
+	const unreadable = $derived(display.trim() !== '' && toIsoOrNull(display) === null);
+	const invalid = $derived(touched && unreadable);
+
+	/**
+	 * MEASURED, and it is why this state exists at all. Before it, typing 31/02/2026 on /rapports
+	 * and pressing « Afficher » came back with NO query string: the page silently showed the
+	 * DEFAULT period, with no banner and no message. The reader asked for a period, got another
+	 * one, and nothing said so. The native input this component replaces made that unreachable,
+	 * because a date widget will not accept an impossible day in the first place.
+	 *
+	 * `setCustomValidity` rather than a flag the caller has to read: it puts the refusal into the
+	 * form's own constraint validation, so the surrounding `method="GET"` form stops submitting
+	 * without every caller having to remember to ask. The message is ours, so it is written in the
+	 * app's language rather than the browser's.
+	 */
+	let inputEl = $state<HTMLInputElement | null>(null);
+	$effect(() => {
+		inputEl?.setCustomValidity(unreadable ? m.date_field_invalid({ format: placeholder }) : '');
+	});
 </script>
 
-<input type="hidden" {name} value={submitted} />
-<input
-	{id}
-	type="text"
-	inputmode="numeric"
-	autocomplete="off"
-	{required}
-	{placeholder}
-	aria-label={ariaLabel}
-	data-max={max}
-	class="{className || inputBase} tabular-nums"
-	bind:value={display}
-	onblur={() => {
-		// Normalising on BLUR rather than on input: rewriting mid-typing moves the caret and makes
-		// the field fight the reader. On leaving, "1/8/2026" becomes "01/08/2026" so what stays on
-		// screen is what was understood, and an entry that was not understood is left exactly as
-		// typed rather than silently replaced by something else.
-		const iso = toIsoOrNull(display);
-		if (iso) display = isoToDisplay(iso);
-		else display = displayToIso(display) === display.trim() ? display.trim() : display;
-	}}
-/>
+<!--
+	The wrapper is load-bearing rather than decorative. The dashboard's period form is
+	`flex flex-col gap-2 lg:flex-row lg:items-center` with this component as a DIRECT child, so an
+	unwrapped message became a sibling flex ITEM and rendered as a column between the "from" field
+	and the arrow, shifting the whole toolbar sideways. Keeping the field and its message in one box
+	means no caller's layout can split them.
+-->
+<div class="flex min-w-0 flex-col">
+	<input type="hidden" {name} value={submitted} />
+	<input
+		{id}
+		bind:this={inputEl}
+		type="text"
+		inputmode="numeric"
+		autocomplete="off"
+		{required}
+		{placeholder}
+		aria-label={ariaLabel}
+		data-max={max}
+		aria-describedby={invalid ? messageId : undefined}
+		{...invalid ? { 'aria-invalid': 'true' } : {}}
+		class="{className || inputBase} tabular-nums aria-invalid:border-rose-500
+		aria-invalid:focus:border-rose-500 aria-invalid:focus:ring-rose-500"
+		bind:value={display}
+		oninvalid={() => {
+			// The browser fires this when constraint validation blocks a submit. That is the moment the
+			// reader finds out, so it is the moment the field must show it too, rather than staying
+			// quiet because they pressed Enter instead of tabbing away.
+			touched = true;
+		}}
+		onblur={() => {
+			touched = true;
+			// Normalising on BLUR rather than on input: rewriting mid-typing moves the caret and makes
+			// the field fight the reader. On leaving, "1/8/2026" becomes "01/08/2026" so what stays on
+			// screen is what was understood, and an entry that was not understood is left exactly as
+			// typed rather than silently replaced by something else.
+			const iso = toIsoOrNull(display);
+			if (iso) display = isoToDisplay(iso);
+			else display = displayToIso(display) === display.trim() ? display.trim() : display;
+		}}
+		oninput={() => {
+			// Leaving the invalid state is immediate, entering it waits for blur. A reader correcting a
+			// date should see the red go the moment it is right, not one tab press later.
+			if (invalid && toIsoOrNull(display) !== null) touched = false;
+		}}
+	/>
+	<!--
+		ALWAYS RENDERED, EMPTY WHEN VALID, and that is not a detail. A live region inserted into the
+		DOM in the same tick as its text is announced unreliably across screen reader and browser
+		pairs, so the region has to be registered before the message arrives.
+
+		`aria-live="polite"` rather than `role="alert"`: this fires on BLUR, by which time focus has
+		moved to the next control, and an assertive region would interrupt the announcement of the
+		control the reader just landed on. Polite is the register on-blur validation asks for;
+		assertive belongs to an error raised at submit.
+
+		`text-rose-700` rather than rose-600: 12px text over the dashboard's zinc-50 ground measures
+		4.32:1 at rose-600, under the 4.5:1 floor. rose-700 is 5.80:1 there and 6.06:1 on white.
+	-->
+	<p id={messageId} aria-live="polite" class="text-xs text-rose-700 {invalid ? 'mt-1' : 'sr-only'}">
+		{invalid ? m.date_field_invalid({ format: placeholder }) : ''}
+	</p>
+</div>

@@ -45,6 +45,32 @@ describe('displayToIso', () => {
 	it('hands back anything it does not recognise, trimmed', () => {
 		expect(displayToIso('  nonsense  ')).toBe('nonsense');
 	});
+
+	/**
+	 * Eight digits with no separators, which is what a reader on iOS can actually type.
+	 *
+	 * `inputmode="numeric"` asks iOS for the numeric keypad, and that keypad has no `/`. A grammar
+	 * that requires the slash would make the field impossible to fill on an iPhone, and unlike
+	 * `PeriodFilter` this component offers no calendar to fall back to, so on /rapports and the
+	 * dashboard it is the ONLY way to set a custom period. Fixed widths make it unambiguous: two
+	 * for the day, two for the month, four for the year.
+	 *
+	 * Separates "the field can be completed with digits alone" from "it needs a character the
+	 * keyboard does not offer".
+	 */
+	it('reads eight bare digits as ddmmyyyy, which is what a numeric keypad can produce', () => {
+		expect(displayToIso('25122026')).toBe('2026-12-25');
+		expect(displayToIso('01082026')).toBe('2026-08-01');
+	});
+
+	/**
+	 * The guard against reading a number as a date. Seven digits is not a date and neither is nine,
+	 * and treating either as one would silently invent a day.
+	 */
+	it('does not read a digit run of the wrong length as a date', () => {
+		expect(displayToIso('2512202')).toBe('2512202');
+		expect(displayToIso('251220261')).toBe('251220261');
+	});
 });
 
 describe('toIsoOrNull', () => {
@@ -67,6 +93,11 @@ describe('toIsoOrNull', () => {
 	it('refuses an incomplete buffer', () => {
 		expect(toIsoOrNull('01/08')).toBeNull();
 		expect(toIsoOrNull('')).toBeNull();
+	});
+
+	it('accepts the bare-digit form and still refuses an impossible day in it', () => {
+		expect(toIsoOrNull('25122026')).toBe('2026-12-25');
+		expect(toIsoOrNull('31022026')).toBeNull();
 	});
 
 	/**

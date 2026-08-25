@@ -1345,6 +1345,7 @@
 	"transactions_period_custom": "custom period",
 	"transactions_period_invalid_value": "invalid entry",
 	"transactions_period_invalid_message": "Invalid period. The results shown are those of the last valid period.",
+	"date_field_invalid": "Date not recognised. Use the format {format}.",
 	"transactions_period_presets_label": "Shortcuts",
 	"transactions_period_preset_this_month": "This month",
 	"transactions_period_preset_last_month": "Last month",

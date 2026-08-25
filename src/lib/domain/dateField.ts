@@ -30,12 +30,30 @@ export function isoToDisplay(iso: string): string {
 	return `${day}/${month}/${year}`;
 }
 
-/** The ISO form of a display date, or the input trimmed when it is not one. */
+/**
+ * The ISO form of a display date, or the input trimmed when it is not one.
+ *
+ * TWO accepted forms, and the second is not a convenience. `inputmode="numeric"` asks iOS for the
+ * numeric keypad, and that keypad offers no `/`. A grammar that required the separator would make
+ * the field impossible to fill on an iPhone, and the component using it offers no calendar to fall
+ * back to, so on /rapports and the dashboard it is the only way to set a custom period. Eight bare
+ * digits are unambiguous because every part has a fixed width.
+ */
 export function displayToIso(display: string): string {
-	const match = display.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-	if (!match) return display.trim();
-	const [, day, month, year] = match;
-	return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+	const trimmed = display.trim();
+	const separated = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+	if (separated) {
+		const [, day, month, year] = separated;
+		return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+	}
+	// Exactly eight, anchored: seven digits is not a date and neither is nine, and reading either
+	// as one would invent a day out of a number the reader was still typing.
+	const bare = trimmed.match(/^(\d{2})(\d{2})(\d{4})$/);
+	if (bare) {
+		const [, day, month, year] = bare;
+		return `${year}-${month}-${day}`;
+	}
+	return trimmed;
 }
 
 /**
