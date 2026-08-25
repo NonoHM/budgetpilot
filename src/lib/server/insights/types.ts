@@ -1,3 +1,4 @@
+import type { LocalLlmFailureCode } from '$lib/domain/failureCodes';
 import type {
 	AnonymizedExpense,
 	CategoryTotal,
@@ -51,16 +52,21 @@ export interface TransactionSummary {
 	flaggedCategoryLabels?: FlaggedCategoryLabels[];
 }
 
+export type { LocalLlmFailureCode };
+
 export interface LocalLlmResult {
 	summary: string;
 	insights: BudgetInsight[];
 	unavailable?: boolean;
+	/** Set whenever `unavailable` is true, and never otherwise. */
+	failureCode?: LocalLlmFailureCode;
 }
 
 /** What the dashboard needs from a local-model run — streamed, so it arrives after the page. */
 export interface LocalAiAdvice {
 	insights: BudgetInsight[];
 	unavailable: boolean;
+	failureCode?: LocalLlmFailureCode;
 }
 
 /**

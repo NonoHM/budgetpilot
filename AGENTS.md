@@ -236,6 +236,31 @@ Keep the sentence short enough to be read at 390 px. A string that wraps to four
 phone is one the reader skips, and skipped text is worse than absent text because it still
 takes the space.
 
+**For every failure and empty state, ask what the server KNOWS that the reader cannot see.** Four
+instances, and the tally is the entry rather than the rule: in each one the code a single frame away
+had already worked out why, and a screen told the reader to wait for something that would never
+change on its own.
+
+- **The bootstrap token.** « Inscription indisponible » where registration WAS available and only
+  the token was wrong. Fixed; its spec compares the two messages in ONE assertion, because asserting
+  each separately leaves both correct in isolation and lets them recollapse.
+- **The bank list.** One sentence for nine producers, ending « Réessayez plus tard ». For most of
+  them later never helps. `docs/bank-sync.md` quoted the sentence and, in the same paragraph, said
+  retrying changes nothing: the documentation described the defect and nothing could act on it.
+- **The Enable Banking private key.** Reaches the reader through the bank list's `catch`, so a key
+  file that does not exist was reported as the bank list being unavailable. Not the same subsystem,
+  not a temporary condition, and the screen said both.
+- **The AI card.** One sentence for five producers, « Assistant IA indisponible », which reads as
+  transient for the four that are not and happened to fit the one that is.
+
+**The sharpest instance needed no new information at all, which is why it is the one to remember.**
+`done_reason` arrives on the Ollama response the app already receives and says whether the answer
+was cut short. `local-llm.ts` read `message.content` and nothing else, so a truncated answer and an
+unparseable one were the same broken string and the same sentence, while needing opposite advice:
+truncation is ours and means raise a budget, garbage is the model's and means try another. The
+distinction cost one line. **The question is not whether the app could tell. It is whether anyone
+read the field that already said so.**
+
 ## Writing an assertion
 
 **A green test says nothing until you know what it would have taken to make it red.** The

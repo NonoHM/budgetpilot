@@ -81,9 +81,9 @@ describe('Budget Insights', () => {
 	});
 
 	it('garde le fallback si Ollama est indisponible', async () => {
-		expect.assertions(3);
+		expect.assertions(4);
 
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValueOnce(new Error('offline'));
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'));
 		const allocations = toAllocations(transactions);
 		const monthlySummary = summarizeMonthlyBudget(allocations, [], '2026-06');
 		const result = await getBudgetInsights({
@@ -99,10 +99,18 @@ describe('Budget Insights', () => {
 			}
 		});
 
+		// The CONNECT PROBE, not the generation, and that is the behaviour change #524 shipped: an
+		// Ollama that is not running is refused on `/api/version` inside the connect budget, so the
+		// generation budget is never opened at all. Asserting the probe URL rather than merely that
+		// some fetch happened is what separates "gave up at connect" from "waited on generation",
+		// which are the two states the whole fix is about.
 		expect(fetchMock).toHaveBeenCalledWith(
-			'http://127.0.0.1:11434/api/chat',
-			expect.objectContaining({ method: 'POST' })
+			'http://127.0.0.1:11434/api/version',
+			expect.objectContaining({ method: 'GET' })
 		);
+		expect(
+			fetchMock.mock.calls.map((call) => String(call[0])).filter((url) => url.endsWith('/api/chat'))
+		).toEqual([]);
 		expect(result.localAiUnavailable).toBe(true);
 		expect(result.insights.some((item) => item.source === 'rules')).toBe(true);
 
@@ -306,7 +314,20 @@ describe('AI prompt truthfulness: the sentence matches the shared payload (#216)
 	 */
 	async function captureModelPrompt(includeLabels: boolean): Promise<string> {
 		let captured: string | null = null;
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+		const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+			// The connect probe runs first and carries no body (#524). Answering it here rather than
+			// letting it fall into the capture is what keeps this helper measuring the PROMPT: parsing
+			// the probe's absent body throws before the generation is ever assembled, and the helper
+			// then reports "fetch was never called" while fetch had in fact been called once.
+			const url =
+				typeof input === 'string'
+					? input
+					: input instanceof URL
+						? input.href
+						: (input as Request).url;
+			if (url.endsWith('/api/version')) {
+				return new Response(JSON.stringify({ version: '0.32.5' }), { status: 200 });
+			}
 			const body = JSON.parse(String((init as RequestInit).body)) as {
 				messages: { content: string }[];
 			};

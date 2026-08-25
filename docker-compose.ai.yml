@@ -32,8 +32,24 @@ services:
       LLM_BASE_URL: http://ollama:11434
       # Defaults mirror .env.example so this overlay also works with the
       # minimal .env of the prebuilt-image setup, where these are absent.
+      # Re-checked against .env.example at #524, because this sentence was
+      # true when written and had been false since #59. Nothing compares the
+      # two files, so a change to one has to be carried to the other by hand.
+      # The prebuilt .env that docs/getting-started.md writes is five lines and
+      # carries none of these, so whatever is written here IS what that setup runs.
       LLM_MODEL: ${LLM_MODEL:-qwen2.5:0.5b}
-      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-10000}
+      # 45000, matching .env.example and the application default. It was 10000 here
+      # from #45 until #524, and the comment above claiming these mirror .env.example
+      # became false at #59, which raised the other two and left this one behind. This
+      # overlay is the only file in the tree that runs Ollama in Docker, so it is the
+      # only place that value ever applied, and #59 is the fix for the very bug it
+      # caused: a cold model load is aborted at 10s and the dashboard reports the
+      # assistant as unavailable.
+      LLM_TIMEOUT_MS: ${LLM_TIMEOUT_MS:-45000}
+      # The connect budget, spent before any model work begins. Small on purpose: a
+      # stopped Ollama is refused in about two seconds instead of costing the whole
+      # generation budget, which is what makes the 45000 above safe to raise.
+      LLM_CONNECT_TIMEOUT_MS: ${LLM_CONNECT_TIMEOUT_MS:-2000}
       LLM_ALLOWED_HOSTS: ${LLM_ALLOWED_HOSTS:-localhost,127.0.0.1,::1},ollama
       LLM_HTTP_PERMITTED_HOSTS: ${LLM_HTTP_PERMITTED_HOSTS:-},ollama
 

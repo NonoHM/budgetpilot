@@ -126,16 +126,53 @@ load the model into memory before it can generate anything. Later loads are
 much faster, seconds or less with a small model. On CPU, everything here is
 slower but still works.
 
-If it consistently gives up, raise `LLM_TIMEOUT_MS` (default 45000, in
-milliseconds) and restart.
+### Two budgets, not one
+
+Reaching Ollama and waiting for it to generate are timed separately, because
+they need very different amounts of patience.
+
+| Variable                 | Default | Covers                                                                                 |
+| ------------------------ | ------- | -------------------------------------------------------------------------------------- |
+| `LLM_CONNECT_TIMEOUT_MS` | 2000    | Whether anything is listening at `LLM_BASE_URL`. Spent first.                          |
+| `LLM_TIMEOUT_MS`         | 45000   | Loading the model and generating the advice. Spent only after the first one succeeded. |
+
+The split is what lets the second number be generous. A stopped Ollama is
+reported in about two seconds instead of costing the whole generation budget,
+so raising `LLM_TIMEOUT_MS` slows down nothing except the case that genuinely
+needs the time.
+
+If the card consistently reports a cold start, raise `LLM_TIMEOUT_MS` and
+restart. If it reports that nothing is reachable and you know the service is
+slow to accept connections, for example because it runs on another machine,
+raise `LLM_CONNECT_TIMEOUT_MS` instead.
+
+Both defaults apply out of the box, including with the Docker overlay.
+
+Earlier versions of the overlay set `LLM_TIMEOUT_MS` to 10000 regardless of
+what this page said. On the first dashboard visit that aborted the model load
+and reported the assistant as unavailable (#524). If you worked around it by
+setting `LLM_TIMEOUT_MS` in your own `.env`, you can remove the line.
 
 ## Nothing shows up
 
-The card has three states, and the quiet one is deliberate: if AI is
-disabled, there's no card and no error, because a disabled optional feature
-shouldn't nag you.
+If AI is disabled there's no card and no error, because a disabled optional
+feature shouldn't nag you. That silence is deliberate and is not a fault.
 
-Work through these in order:
+When the card does appear and carries no advice, it names which of five things
+happened. Read the card first: it tells you which of the steps below to skip.
+
+| The card says                  | What happened                                                                           | What to do                                                                        |
+| ------------------------------ | --------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| The assistant is starting      | Ollama accepted the connection and was still loading the model when the budget ran out. | Reload the page in a moment. If it repeats on every load, raise `LLM_TIMEOUT_MS`. |
+| The assistant is not reachable | Nothing answered at `LLM_BASE_URL` inside the connect budget.                           | Check the service is up: `docker compose ... logs ollama`.                        |
+| The address was refused        | `LLM_BASE_URL` is outside the host allowlist, so it was never contacted.                | Check `LLM_BASE_URL` against `LLM_ALLOWED_HOSTS` and `LLM_HTTP_PERMITTED_HOSTS`.  |
+| The model is not installed     | Ollama is running and does not have the model it was asked for.                         | Pull it, and check `LLM_MODEL` matches the pulled tag exactly.                    |
+| The answer was unreadable      | A generation finished and could not be parsed.                                          | Usually clears on the next analysis. A larger model makes it rarer.               |
+
+Only the first of these clears on its own. The other four wait for you, which
+is why the card no longer tells you to try again later for all five.
+
+If the card never appears at all, work through these in order:
 
 1. The AI overlay actually in your `docker compose` command
    (`-f docker-compose.ai.yml`), and the app restarted since. Outside
@@ -147,8 +184,6 @@ Work through these in order:
    `qwen2.5:0.5b` and `qwen2.5` are different names.
 5. Enough data: an account with four transactions gives the model nothing
    to comment on.
-6. Still on the first load? See above: give it a moment, the card fills in
-   on its own without reloading the page.
-
-If the card says the service is unavailable, the app reached the point of
-trying and failed. Check `docker compose ... logs ollama`.
+6. Still on the first load? While the card shows its pending state it fills
+   in on its own, without reloading the page. Once it has settled on one of
+   the five outcomes above it will not change until you reload.
