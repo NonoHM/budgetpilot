@@ -175,6 +175,26 @@ export async function requestLocalBudgetInsights(
 /**
  * The single place the truncated/unusable rule is expressed, so the three call sites cannot come to
  * disagree about which code an unreadable answer earns.
+ *
+ * THE RULE HAS TWO HALVES AND ONLY ONE OF THEM IS A FUNCTION, so both are stated here rather than
+ * one here and one wherever it happens to be executed.
+ *
+ * 1. An answer that could NOT be read earns `response_truncated` when `done_reason` was `length`,
+ *    and `response_unusable` otherwise. That is this function.
+ * 2. An answer that COULD be read is KEPT, whatever stopped the generation. That is the accept path
+ *    at the end of `parseLocalLlmContent`, and it is implemented as the ABSENCE of a branch, which
+ *    is exactly why it is written down here: there is no line at that site for a reader to find.
+ *
+ * Half 2 is a decision and not an oversight. `done_reason` says how generation ENDED; the schema
+ * says whether what arrived IS an answer, and those are different questions. Refusing a
+ * schema-valid answer because of how it stopped would discard a good result to honour a symptom,
+ * and would show the reader « le modèle a manqué de place … le conseil n'a pas pu être lu » over
+ * advice that could be read perfectly well.
+ *
+ * Pinned by a test, because nothing checks a comment. The existing pair in `local-llm.spec.ts`
+ * varies `done_reason` over the SAME broken content, so it separates the two CODES and is blind to
+ * half 2 entirely; the third case, `length` over VALID content, is the only one that can see it.
+ * Recorded at #531.
  */
 function unreadable(truncated: boolean): LocalLlmResult {
 	return unavailable(truncated ? 'response_truncated' : 'response_unusable');
@@ -192,6 +212,9 @@ function parseLocalLlmContent(content: string, truncated: boolean): LocalLlmResu
 
 	const parsed = localLlmResponseSchema.safeParse(parsedJson);
 	if (!parsed.success) return unreadable(truncated);
+
+	// Half 2 of the rule stated beside `unreadable`: a schema-valid answer is kept whatever stopped
+	// the generation, so `truncated` is deliberately not read from here on.
 
 	// Stripped at RECEPTION, after validation and before anything else sees the text. Neither the
 	// schema nor the prompt forbids markdown, so a model that emits « **35%** » puts the asterisks on

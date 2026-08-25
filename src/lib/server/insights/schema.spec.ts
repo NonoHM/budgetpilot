@@ -187,6 +187,15 @@ describe('local LLM generation ceiling', () => {
 		// 2.5 is the pessimistic chars-per-token floor documented beside `localLlmNumPredict`. Restated
 		// here on purpose: this assertion is the RELATIONSHIP between the two constants, so lowering
 		// the ceiling or loosening the floor without re-deriving the other has to redden something.
+		//
+		// AND THE PAIR IT CANNOT SEPARATE, named because a COUPLING test reads as a SUFFICIENCY one.
+		// Both sides of this comparison derive from the schema and no model's tokenizer appears on
+		// either, so it says nothing about whether the ceiling is ENOUGH for any actual model.
+		// Measured 2026-08-26 (#531): this assertion was green while `qwen3.5:4b-q8_0` returned
+		// `done_reason: length` at exactly `num_predict` tokens having emitted ZERO characters of
+		// content — the whole budget went to reasoning, which `num_predict` caps and the schema
+		// cannot bound. Green here is not evidence the ceiling holds; only a generation against a
+		// real model is.
 		expect(localLlmNumPredict() * 2.5).toBeGreaterThanOrEqual(maxSerializedResponseChars());
 
 		// Reproduces the original figure, per AGENTS.md: the red must bring back the measured value.
