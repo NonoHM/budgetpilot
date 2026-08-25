@@ -121,13 +121,21 @@ function renderedPart(expression: string): string {
  * covered by its own page spec at both widths instead.
  */
 function templateOnly(source: string): string {
-	// CASE-INSENSITIVE, and CodeQL is what caught the absence (`js/bad-tag-filter`, high, on this
-	// line). The alert's severity is wrong for this context: this is a test-only scanner over the
-	// repo's own tracked files, not a sanitiser, so there is no attacker and no markup produced.
-	// The BEHAVIOUR it names is a real gap all the same. `<SCRIPT>` would not have been blanked,
-	// the body would have been scanned as template text, and the guard would report a finding about
-	// a region it is documented not to read.
-	return source.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, (block) =>
+	// CASE-INSENSITIVE, AND TOLERANT OF WHITESPACE BEFORE THE CLOSING `>`. CodeQL caught both gaps
+	// (`js/bad-tag-filter`, high, on this line), one after the other: first that `<SCRIPT>` was not
+	// matched, then that `</script >` was not either. Both spellings are valid HTML.
+	//
+	// The alert's severity is wrong for this context and its reading of the behaviour is right, so
+	// the fix follows it rather than suppressing it. This is a test-only scanner over the repo's own
+	// tracked files: it produces a verdict, never markup, and there is no attacker. But either
+	// unmatched spelling leaves a script body unblanked, the body is then scanned as template text,
+	// and the guard reports a finding about a region its own header says it does not read. A false
+	// positive in the file whose entire argument is that it does not produce them.
+	//
+	// The two rounds are the lesson rather than the fix: a regex over HTML is wrong in a way that
+	// one counterexample does not exhaust. Nothing here needs to parse HTML, so the shape stays,
+	// with each spelling that has actually been named pinned by its own calibration case below.
+	return source.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, (block) =>
 		block.replace(/[^\n]/g, ' ')
 	);
 }
@@ -242,7 +250,7 @@ describe('a category name a reader meets goes through categoryDisplayName', () =
 	 * once the tree is clean.
 	 */
 	it('fires on a raw render and stays silent on a wrapped one', () => {
-		expect.assertions(11);
+		expect.assertions(12);
 
 		const raw = '<td class="px-5 py-2.5 font-medium">{cat.name}</td>';
 		const wrapped = '<td class="px-5 py-2.5 font-medium">{categoryDisplayName(cat.name)}</td>';
@@ -287,6 +295,11 @@ describe('a category name a reader meets goes through categoryDisplayName', () =
 		// this gap on the stripping regex (js/bad-tag-filter); this is the case that pins the fix.
 		expect(
 			findRawCategoryRenders('<SCRIPT>const k = { text: row.category };</SCRIPT><b>x</b>')
+		).toHaveLength(0);
+		// And with whitespace before the closing bracket, which is also valid HTML. CodeQL named
+		// this one only after the case above was fixed.
+		expect(
+			findRawCategoryRenders('<script>const k = { text: row.category };</script ><b>x</b>')
 		).toHaveLength(0);
 	});
 
