@@ -21,9 +21,20 @@
 	 */
 	interface Props {
 		/**
-		 * Every allocation, in position order, with categories ALREADY localised by the caller —
-		 * resolving the "Non catégorisé" sentinel needs the page's own default-key map, so doing it
-		 * here would drag page state into a leaf component.
+		 * Every allocation, in position order, with categories ALREADY resolved to display names by
+		 * the caller — `categoryDisplayName`, which is what turns the stored `uncategorized` slug
+		 * into « Non catégorisé ».
+		 *
+		 * The reason recorded here used to be that resolving the sentinel needed the page's own
+		 * default-key map, so doing it in a leaf component would drag page state down. #162 deleted
+		 * that map: the display name is now a pure function of the stored name and this component
+		 * could call it itself. The convention stays a CALLER convention because three of the four
+		 * call sites already localise before composing the row's own category text beside the badge,
+		 * and a component that localised again would translate twice while the page beside it read
+		 * as the authority.
+		 *
+		 * That stale WHY is not a footnote: `/upcoming-bills` was the one caller passing raw parts,
+		 * and this sentence is what let it look exempt. Corrected in the change that fixed it.
 		 */
 		parts: Array<{ category: string; amountCents: number }>;
 		/** Distinct categories OTHER than the dominant one. Zero selects the « ×N » form. */

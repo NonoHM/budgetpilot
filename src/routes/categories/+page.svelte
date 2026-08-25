@@ -215,7 +215,7 @@
 						<tbody>
 							{#each data.categories as cat (cat.id)}
 								<tr class="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
-									<td class="px-5 py-2.5 font-medium">{cat.name}</td>
+									<td class="px-5 py-2.5 font-medium">{categoryDisplayName(cat.name)}</td>
 									<td class="px-5 py-2.5">
 										<form
 											bind:this={natureFormRefs[cat.id]}
@@ -248,7 +248,7 @@
 												<Select
 													value={getNatureValue(cat.id, cat.nature)}
 													ariaLabel={m.categories_nature_aria({
-														name: cat.name
+														name: categoryDisplayName(cat.name)
 													})}
 													options={[
 														{ value: '', label: m.categories_nature_none() },
@@ -371,7 +371,9 @@
 							></span>
 							<div class="min-w-0 flex-1">
 								<div class="flex flex-wrap items-center gap-2">
-									<span class="text-[15.5px] font-bold text-zinc-950">{cat.name}</span>
+									<span class="text-[15.5px] font-bold text-zinc-950"
+										>{categoryDisplayName(cat.name)}</span
+									>
 									{#if isUnclassified}
 										<span
 											class="flex h-[18px] shrink-0 items-center rounded-md bg-zinc-100 px-1.5 text-[10px] font-bold tracking-wide text-zinc-500 uppercase"
@@ -386,7 +388,7 @@
 								<IconButton
 									class="shrink-0"
 									label={m.categories_rename_aria({
-										name: cat.name
+										name: categoryDisplayName(cat.name)
 									})}
 									onclick={() => (renamingCategory = cat)}
 								>
@@ -430,7 +432,7 @@
 								<Select
 									value={getNatureValue(cat.id, cat.nature)}
 									ariaLabel={m.categories_nature_aria({
-										name: cat.name
+										name: categoryDisplayName(cat.name)
 									})}
 									class="!bg-zinc-50"
 									options={[
@@ -470,7 +472,7 @@
 					{:else}
 						<ListCard
 							expandAriaLabel={m.categories_delete_expand_aria({
-								name: cat.name
+								name: categoryDisplayName(cat.name)
 							})}
 						>
 							{@render categoryPrimary()}
@@ -596,7 +598,7 @@
 	<ConfirmDialog
 		open={deletingCategory !== null}
 		title={m.categories_delete_confirm_title({
-			name: deletingCategory ? deletingCategory.name : ''
+			name: deletingCategory ? categoryDisplayName(deletingCategory.name) : ''
 		})}
 		confirmLabel={m.common_delete()}
 		tone="danger"
