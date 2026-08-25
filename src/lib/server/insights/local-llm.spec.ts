@@ -638,6 +638,56 @@ describe('requestLocalBudgetInsights failure codes', () => {
 		}
 	});
 
+	it('keeps a truncated answer whose JSON is nevertheless complete and schema-valid', async () => {
+		expect.assertions(3);
+
+		// HALF 2 OF THE `done_reason` RULE, and the only case that can see it. The pair above varies
+		// `done_reason` over the SAME broken content, so both of its cells fail to parse and neither
+		// reaches the accept path: they separate the two failure CODES and say nothing about whether a
+		// truncated-but-readable answer survives.
+		//
+		// Which two states this separates: « the answer is usable » from « the generation was cut short ».
+		// `done_reason` is `length` here and the content is complete and valid, which Ollama does produce
+		// — the ceiling can be reached on trailing tokens after the object has closed. Reading
+		// `truncated` on the accept path would report `response_truncated` for this response and tell the
+		// reader the advice could not be read, over advice that reads fine.
+		//
+		// Break-check: making the accept path return `unreadable(truncated)` reddens the first assertion
+		// with `response_truncated`, which is the state this pins against. Not merely « something failed »
+		// — the failure names the wrong verdict.
+		const fetchMock = mockOllamaWithSignal(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: {
+							content: JSON.stringify({
+								summary: 'Vos dépenses ont augmenté',
+								insights: [
+									{
+										title: 'Alimentation en hausse',
+										message: 'Vous avez dépensé davantage quen juin.',
+										severity: 'warning',
+										category: 'spending'
+									}
+								]
+							})
+						},
+						done_reason: 'length'
+					}),
+					{ status: 200 }
+				)
+		);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+
+			expect(result?.failureCode).toBeUndefined();
+			expect(result?.unavailable).toBeUndefined();
+			expect(result?.insights).toHaveLength(1);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
 	it('strips markdown the model emitted, so the reader never sees the asterisks', async () => {
 		expect.assertions(3);
 
