@@ -956,7 +956,7 @@
 	"net_worth_error_not_found": "Compte introuvable.",
 	"net_worth_error_generic": "Validation invalide",
 	"net_worth_error_duplicate_name": "Un compte porte déjà ce nom.",
-	"net_worth_error_already_synced": "Ce compte patrimoine est déjà lié à une autre connexion bancaire synchronisée.",
+	"net_worth_error_already_synced": "Un autre compte synchronisé suit déjà cette ligne. Choisissez-en une autre.",
 	"net_worth_chart_empty": "Pas encore assez d'historique pour afficher une courbe.",
 	"net_worth_chart_caption": "Évolution du patrimoine net",
 	"net_worth_view_curve": "Vue courbe",

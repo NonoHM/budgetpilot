@@ -956,7 +956,7 @@
 	"net_worth_error_not_found": "Account not found.",
 	"net_worth_error_generic": "Invalid input",
 	"net_worth_error_duplicate_name": "An account with this name already exists.",
-	"net_worth_error_already_synced": "This net worth account is already linked to another synchronized bank connection.",
+	"net_worth_error_already_synced": "Another synchronized account already feeds this line. Choose another one.",
 	"net_worth_chart_empty": "Not enough history yet to show a chart.",
 	"net_worth_chart_caption": "Net worth over time",
 	"net_worth_view_curve": "Curve view",

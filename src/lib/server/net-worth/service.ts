@@ -13,6 +13,7 @@ import { prisma } from '$lib/server/db';
 import { normalizeId } from '$lib/server/transactions/where';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { ensureManualAccount, findManualAccount } from '$lib/server/budget/dashboard';
+import { writeNetWorthLink } from './link';
 
 const MAX_NAME_LENGTH = 120;
 
@@ -279,58 +280,28 @@ export async function setManualAccountNetWorthLink(
  * set): CSV/manual buckets keep going through resolveImportBucketAccount's create-time link,
  * this function is never their path.
  *
- * Enforces the "no two synchronized buckets on one NetWorthAccount" rule (D4): a future
- * balance-snapshot writer (bank-sync sync step) would otherwise have two authoritative bank
- * balances fighting over the same NetWorthAccount. A CSV/manual bucket already linked to the
- * target is NOT a conflict — it never writes a balance snapshot automatically, only a
- * SYNCHRONIZED bucket (bankConnectionId set) does.
- *
- * The D4 conflict check (read) and the link (write) run inside the SAME transaction — same
- * TOCTOU fix as updateNetWorthAccount above: without it, two concurrent requests linking
- * different bank buckets to the same target could both pass the conflict read before either
- * writes, defeating D4.
+ * THE RULE IT ENFORCES NO LONGER LIVES HERE, and that is #501's fix rather than a loosening.
+ * "No two synchronized buckets on one NetWorthAccount" (D4) is now `writeNetWorthLink` in
+ * `./link.ts`, with the conflict read and the write in one transaction as they always were. It
+ * moved because this was its ONLY enforcement site while the column had another writer,
+ * `accounts/service.ts`'s `linkNetWorthAccount`, reached from /settings: both writes succeeded, so
+ * whether D4 held depended on which screen the write came from. This function is now the door
+ * rather than the rule, and it keeps exactly two things of its own - the bucket must be a bank-sync
+ * one, and a refusal is reported as the HTTP error /imports/bank-connections renders.
  */
 export async function linkBankAccountToNetWorth(
 	userId: string,
 	accountId: string,
 	netWorthAccountId: string | null
 ): Promise<void> {
-	const normalizedAccountId = normalizeId(accountId);
-	if (!normalizedAccountId) throw error(404, m.net_worth_error_not_found());
-
-	await prisma.$transaction(async (tx) => {
-		const bucket = await tx.account.findFirst({
-			where: { id: normalizedAccountId, userId, bankConnectionId: { not: null } },
-			select: { id: true }
-		});
-		if (!bucket) throw error(404, m.net_worth_error_not_found());
-
-		if (netWorthAccountId !== null) {
-			const target = await tx.netWorthAccount.findFirst({
-				where: { id: netWorthAccountId, userId, deletedAt: null },
-				select: { id: true, type: true }
-			});
-			if (!target || !isLinkableNetWorthAccountType(target.type as NetWorthAccountType)) {
-				throw error(404, m.net_worth_error_not_found());
-			}
-
-			const conflictingSyncedBucket = await tx.account.findFirst({
-				where: {
-					userId,
-					netWorthAccountId,
-					bankConnectionId: { not: null },
-					id: { not: bucket.id }
-				},
-				select: { id: true }
-			});
-			if (conflictingSyncedBucket) throw error(409, m.net_worth_error_already_synced());
-		}
-
-		await tx.account.updateMany({
-			where: { id: bucket.id, userId },
-			data: { netWorthAccountId }
-		});
+	const refusal = await writeNetWorthLink({
+		userId,
+		accountId,
+		netWorthAccountId,
+		bucket: 'bank-sync'
 	});
+	if (refusal === 'already-synced') throw error(409, m.net_worth_error_already_synced());
+	if (refusal) throw error(404, m.net_worth_error_not_found());
 }
 
 /**
