@@ -208,6 +208,36 @@ jobs:
           IMAGE_REF: ${{ steps.image.outputs.ref }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          # Has somebody already ruled on every finding here? `.cve-acknowledged` holds one line
+          # per ruled-on CVE with an EXPIRY and a ruling reference, and the filter is exercised by
+          # src/lib/server/security/cveAcknowledgements.spec.ts on every push.
+          #
+          # THE CONTRACT IS THE EXIT CODE PLUS STDOUT, and it has to be read as a pair. Empty
+          # stdout means "everything is acknowledged" on exit 0 and "could not read a thing" on
+          # any other status, so the status is the only thing separating them. Written out
+          # long-hand rather than as `if node ...` so the two are visibly checked together.
+          #
+          # This does NOT quiet the alarm. Both gate steps keep `exit-code: 1` and
+          # `TRIVY_IGNOREFILE=/dev/null`, so an acknowledged finding still fails this run red and
+          # still reaches the Security tab in the SARIF inventory. What it stops is a fresh
+          # tracker issue every morning for a finding already ruled on, which is what teaches a
+          # reader to discount the `cve-alert` label.
+          set +e
+          node scripts/cve-acknowledgements.mjs .cve-acknowledged \
+            trivy-report-amd64.json trivy-report-arm64.json \
+            > /tmp/cve-unacknowledged.txt 2> /tmp/cve-filter.log
+          filter_status=$?
+          set -e
+          cat /tmp/cve-filter.log
+          if [ "$filter_status" -eq 0 ] && [ ! -s /tmp/cve-unacknowledged.txt ]; then
+            echo "Every finding carries a live acknowledgement, so no issue is filed."
+            echo "The run still fails red; .cve-acknowledged says until when, and past that date"
+            echo "this step files again on its own."
+            exit 0
+          fi
+          if [ "$filter_status" -ne 0 ]; then
+            echo "The acknowledgement filter could not decide, so the finding is filed." >&2
+          fi
           {
             echo "Scheduled Trivy scan failed on CRITICAL/HIGH severities for \`$IMAGE_REF\`."
             echo
@@ -216,6 +246,15 @@ jobs:
               echo
               ./scripts/trivy-report.sh "trivy-report-$platform.json" "$platform"
             done
+            if grep -q '^  CVE-' /tmp/cve-filter.log; then
+              echo
+              echo "### Already ruled on, not re-raised"
+              echo
+              echo "These carry a live entry in \`.cve-acknowledged\` and are listed here only so"
+              echo "this issue is not read as the complete picture:"
+              echo
+              sed -n 's/^  /- /p' /tmp/cve-filter.log
+            fi
           } > /tmp/cve-alert-body.md
           existing=$(gh issue list --label cve-alert --state open --json number --jq '.[0].number')
           if [ -n "$existing" ]; then
