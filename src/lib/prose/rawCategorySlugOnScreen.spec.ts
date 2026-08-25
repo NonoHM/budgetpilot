@@ -121,7 +121,13 @@ function renderedPart(expression: string): string {
  * covered by its own page spec at both widths instead.
  */
 function templateOnly(source: string): string {
-	return source.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, (block) =>
+	// CASE-INSENSITIVE, and CodeQL is what caught the absence (`js/bad-tag-filter`, high, on this
+	// line). The alert's severity is wrong for this context: this is a test-only scanner over the
+	// repo's own tracked files, not a sanitiser, so there is no attacker and no markup produced.
+	// The BEHAVIOUR it names is a real gap all the same. `<SCRIPT>` would not have been blanked,
+	// the body would have been scanned as template text, and the guard would report a finding about
+	// a region it is documented not to read.
+	return source.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, (block) =>
 		block.replace(/[^\n]/g, ' ')
 	);
 }
@@ -236,7 +242,7 @@ describe('a category name a reader meets goes through categoryDisplayName', () =
 	 * once the tree is clean.
 	 */
 	it('fires on a raw render and stays silent on a wrapped one', () => {
-		expect.assertions(10);
+		expect.assertions(11);
 
 		const raw = '<td class="px-5 py-2.5 font-medium">{cat.name}</td>';
 		const wrapped = '<td class="px-5 py-2.5 font-medium">{categoryDisplayName(cat.name)}</td>';
@@ -275,6 +281,12 @@ describe('a category name a reader meets goes through categoryDisplayName', () =
 		// A script body is not a template, and is deliberately not read.
 		expect(
 			findRawCategoryRenders('<script>const k = { text: row.category };</script><b>x</b>')
+		).toHaveLength(0);
+		// The same, shouted. HTML tag names are case-insensitive, and a scanner that only knows the
+		// lower-case spelling reports on a region its own header says it does not read. CodeQL named
+		// this gap on the stripping regex (js/bad-tag-filter); this is the case that pins the fix.
+		expect(
+			findRawCategoryRenders('<SCRIPT>const k = { text: row.category };</SCRIPT><b>x</b>')
 		).toHaveLength(0);
 	});
 
