@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import * as m from '$lib/paraglide/messages';
 import type { Transaction } from '$lib/domain/transaction';
+import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
 import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
 import {
@@ -401,6 +403,35 @@ describe('anonymizeMerchant / anonymizeLabel', () => {
 
 	it('anonymizeMerchant retombe sur le libellé neutre quand rien ne survit', () => {
 		expect(anonymizeMerchant('FR7630006000011234567890189')).toBe('Dépense');
+	});
+
+	/**
+	 * Separates "the composed label carries the stored sentinel slug" from "it carries the
+	 * sentinel's display name". Both states produce a label of the same SHAPE, which is why the
+	 * assertion names the two strings rather than the shape: this defect shipped in 0.14.0 with
+	 * every structural test above it green.
+	 *
+	 * `UNCLASSIFIED_CATEGORY` is a technical slug, never a name (see domain/categories.ts). It
+	 * reaches four render paths through this one function — `largestExpenses[].label`,
+	 * `recurringPayments[].label`, the forecast's `flows[].label` and its ledger `events[].label` —
+	 * so /reports printed "Zorglub - uncategorized" in a table whose next column already read
+	 * "Non catégorisé", and the dashboard's forecast chart printed it in its tooltip.
+	 */
+	it('composes the sentinel category as its display name, never as the stored slug', () => {
+		const composed = anonymizeLabel('CB ABONNEMENT ZORGLUB', UNCLASSIFIED_CATEGORY);
+
+		expect(composed).toBe(`Zorglub - ${m.common_category_uncategorized()}`);
+		expect(composed).not.toContain(UNCLASSIFIED_CATEGORY);
+	});
+
+	/**
+	 * The other half, and it is what keeps the fix from being a rename: an ordinary category is a
+	 * NAME and is shown as stored (#162). Separates "the sentinel is translated" from "every
+	 * category is translated", which the RECORDED literals above would not catch on their own if
+	 * the display function ever grew a second branch.
+	 */
+	it('leaves an ordinary category name exactly as stored', () => {
+		expect(anonymizeLabel('CB ABONNEMENT ZORGLUB', 'Abonnements')).toBe('Zorglub - Abonnements');
 	});
 });
 

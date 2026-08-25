@@ -6,6 +6,7 @@ import '../layout.css';
 import Page from './+page.svelte';
 import { formatAmountRangeBounds, toBillRowDomKey } from '$lib/domain/upcomingBills';
 import { formatCents } from '$lib/domain/budget';
+import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import type { UpcomingBillRowView } from '$lib/server/upcoming-bills/service';
 import * as m from '$lib/paraglide/messages';
 import type { PageData } from './$types';
@@ -1136,5 +1137,64 @@ describe('/upcoming-bills page', () => {
 		const banner = container.querySelector('[role="alert"]');
 		expect(banner?.textContent).toContain('Décision introuvable.');
 		expect(container.querySelector('[role="status"][aria-live="polite"]')).toBeNull();
+	});
+});
+
+/**
+ * The RENDERED text, not the DOM's. Both breakpoint chromes are in the tree at every width (one
+ * `hidden lg:block`, one `lg:hidden`), so `textContent` at 390 also reads the desktop table and the
+ * viewport parameter separates nothing — measured: breaking the desktop cell alone reddened the
+ * 390 case too. `innerText` is what the browser actually paints, so each width now answers for its
+ * own markup.
+ */
+function visibleText(container: HTMLElement): string {
+	return container.innerText;
+}
+
+/**
+ * `UNCLASSIFIED_CATEGORY` is a technical slug, never a name (domain/categories.ts). Measured on
+ * 0.14.0: this page printed "Prélèvement · le 12 de chaque mois · uncategorized" on both
+ * breakpoints, and the répartition badge beside it printed the slug again per part.
+ *
+ * Both widths are asserted because they are DIFFERENT code — `mobileSubLineTail` builds a string,
+ * the desktop sub-line interpolates `row.category` inline — so a fix to one leaves the other
+ * shipping, which is the shape #334 and the occluded footer both took.
+ */
+describe('/upcoming-bills — the unclassified sentinel is never printed raw', () => {
+	const unclassifiedRow = () =>
+		buildRow({
+			category: UNCLASSIFIED_CATEGORY,
+			splitIndicator: {
+				dominantCategory: UNCLASSIFIED_CATEGORY,
+				dominantNature: 'spending' as const,
+				otherCategoryCount: 1,
+				partCount: 2,
+				parts: [
+					{ category: UNCLASSIFIED_CATEGORY, amountCents: -799 },
+					{ category: 'Abonnements', amountCents: -550 }
+				]
+			},
+			splitIndicatorIsInherited: false,
+			status: 'settled',
+			settledKind: 'auto'
+		});
+
+	/**
+	 * Separates "the sub-line prints the stored slug" from "it prints the display name". The
+	 * positive half is what makes the negative half a finding: a page that rendered nothing at all
+	 * would satisfy `not.toContain` on its own.
+	 */
+	it.each([
+		[1280, 900],
+		[390, 844]
+	])('shows the display name, not the slug, at %ix%i', async (width, height) => {
+		expect.assertions(2);
+		await page.viewport(width, height);
+
+		const { container } = render(Page, { data: buildData({ rows: [unclassifiedRow()] }) });
+
+		const rendered = visibleText(container as HTMLElement);
+		expect(rendered).toContain(m.common_category_uncategorized());
+		expect(rendered).not.toContain(UNCLASSIFIED_CATEGORY);
 	});
 });
