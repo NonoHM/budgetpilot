@@ -559,12 +559,53 @@ export async function syncBankConnection(
 	}
 }
 
-/** Deletes a connection; linked buckets survive via SetNull, transactions untouched. */
+/**
+ * Deletes a connection. The buckets survive via `SetNull` and their transactions are untouched;
+ * their NET WORTH link goes with the connection that earned it.
+ *
+ * ## Why the link is cleared here rather than left to `SetNull`
+ *
+ * `Account.bankConnectionId` is `SetNull` on purpose, because losing a connection must never delete
+ * transactions. Nothing was ever written to clear the sibling `netWorthAccountId` beside it, so a
+ * disconnected bucket went on pointing at a net worth account and `readNetWorthAccounts` went on
+ * reporting `connected: true` from `_count.accounts`. That value is not stale: it is recomputed on
+ * every load and was telling the truth about a link no code path cleared. Measured on 0.14.0
+ * against a real engine, the row after the disconnect read
+ * `bankConnectionId=null netWorthAccountId=set connected=true`.
+ *
+ * A bank link means "this net worth account is fed by a synced bucket", which is why
+ * `linkBankAccountToNetWorth` refuses to create one for a bucket with no connection. Once the
+ * connection is gone the claim is no longer true of anything, so it is withdrawn rather than left
+ * for the reader to notice.
+ *
+ * ## Ordering, and why one transaction
+ *
+ * The buckets are found BY the connection, so they have to be updated before the row that
+ * identifies them is deleted. Both statements share one interactive transaction: a delete that
+ * succeeded while the clearing did not would leave exactly the state this function exists to
+ * prevent, with nothing left to find the buckets by.
+ *
+ * ## What it deliberately does not touch
+ *
+ * A MANUAL or CSV bucket's link. Those are set from the /net-worth switch and from the import
+ * path, carry no `providerAccountId`, and have nothing to do with any bank. The `where` names the
+ * connection, so the blast radius is exactly the buckets that connection owned.
+ *
+ * A user who wants the link back after re-authorising re-links on /imports/bank-connections. That
+ * is a real change: before, a reconnect through `resolveImportBucketAccount`'s relink silently
+ * resumed balance sync into whatever the link had been.
+ */
 export async function deleteBankConnection(userId: string, connectionId: string): Promise<boolean> {
-	const deleted = await prisma.bankConnection.deleteMany({
-		where: { id: connectionId, userId }
+	return prisma.$transaction(async (tx) => {
+		await tx.account.updateMany({
+			where: { userId, bankConnectionId: connectionId, netWorthAccountId: { not: null } },
+			data: { netWorthAccountId: null }
+		});
+		const deleted = await tx.bankConnection.deleteMany({
+			where: { id: connectionId, userId }
+		});
+		return deleted.count > 0;
 	});
-	return deleted.count > 0;
 }
 
 function isAuthRejection(caught: unknown): boolean {

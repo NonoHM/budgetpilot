@@ -31,8 +31,20 @@ const prismaMock = vi.hoisted(() => ({
 		deleteMany: vi.fn()
 	},
 	account: {
-		findMany: vi.fn()
-	}
+		findMany: vi.fn(),
+		updateMany: vi.fn()
+	},
+	/**
+	 * The interactive transaction, modelled by handing the callback THIS SAME fake as its `tx`.
+	 *
+	 * That is faithful for what these two cases assert, and it is deliberately not faithful about
+	 * atomicity: a fake cannot roll anything back, so a spec here can never show that the clearing
+	 * and the delete stand or fall together. That claim is asserted where it can be, against a real
+	 * engine, in `net-worth/connectedBadgeOutlivesConnection.db-smoke.ts`. See AGENTS.md: a fake
+	 * must fail loudly on a predicate it CANNOT model, and be honest about the one it is standing
+	 * in for.
+	 */
+	$transaction: vi.fn()
 }));
 
 const persistMock = vi.hoisted(() => ({
@@ -1246,6 +1258,14 @@ describe('syncBankConnection', () => {
 });
 
 describe('deleteBankConnection', () => {
+	beforeEach(() => {
+		// The callback receives the same fake as its `tx`, so both statements are observable.
+		prismaMock.$transaction.mockImplementation((callback: (tx: typeof prismaMock) => unknown) =>
+			callback(prismaMock)
+		);
+		prismaMock.account.updateMany.mockResolvedValue({ count: 0 });
+	});
+
 	it('scopes the delete by userId and connectionId, returning true when a row was deleted', async () => {
 		prismaMock.bankConnection.deleteMany.mockResolvedValueOnce({ count: 1 });
 		const result = await deleteBankConnection('user-1', 'conn-1');
@@ -1259,6 +1279,34 @@ describe('deleteBankConnection', () => {
 		prismaMock.bankConnection.deleteMany.mockResolvedValueOnce({ count: 0 });
 		const result = await deleteBankConnection('user-1', 'conn-not-mine');
 		expect(result).toBe(false);
+	});
+
+	/**
+	 * The SHAPE of the clearing, which is what a fake can honestly answer: the `where` names the
+	 * user AND the connection, so the write cannot reach a bucket belonging to either another
+	 * tenant or another connection.
+	 *
+	 * Whether it actually clears anything, whether the bucket and its transactions survive, and
+	 * whether a manual link is left alone are all questions about the database, and they are
+	 * asserted against a real engine in `connectedBadgeOutlivesConnection.db-smoke.ts`. Removing
+	 * the ownership clause leaves that suite green, which is recorded there rather than papered
+	 * over: this assertion is the only place the clause is pinned at all.
+	 */
+	it('clears the net worth link on that connection’s buckets, scoped to the owner', async () => {
+		expect.assertions(2);
+		prismaMock.bankConnection.deleteMany.mockResolvedValueOnce({ count: 1 });
+
+		await deleteBankConnection('user-1', 'conn-1');
+
+		expect(prismaMock.account.updateMany).toHaveBeenCalledWith({
+			where: { userId: 'user-1', bankConnectionId: 'conn-1', netWorthAccountId: { not: null } },
+			data: { netWorthAccountId: null }
+		});
+		// Ordering is not decorative: the buckets are found BY the connection, so a clearing that
+		// ran after the delete would find none.
+		expect(prismaMock.account.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+			prismaMock.bankConnection.deleteMany.mock.invocationCallOrder[0]
+		);
 	});
 });
 
