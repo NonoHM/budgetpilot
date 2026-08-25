@@ -61,21 +61,26 @@ The rest are visible, and none of them costs you data:
   else one. [#438](https://github.com/NonoHM/budgetpilot/issues/438)
 - Account email addresses have to be plain ASCII on every database engine. See
   [configuration](docs/configuration.md#database).
-- Bank sync needs HTTPS before it works at all, and it is two settings rather
-  than one. Enable Banking's Control Panel refuses an `http://` redirect URL
-  outright, with "uses unsupported scheme", so a plain-http instance cannot
-  even finish registering an application. You need a TLS reverse proxy in
-  front of BudgetPilot. Then `ORIGIN` and `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS`
-  both have to change to that same `https://` address. If `ORIGIN` still says
-  `http://localhost:3000` while you browse over HTTPS, the **Connect** button
-  answers 403 "Cross-site POST form submissions are forbidden" and the flow
-  never starts. The failure is before the bank, not after it: you never leave
-  BudgetPilot, and the redirect URL you registered is never reached, so the
-  403 looks like a login or session problem rather than a bank sync one.
-  `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS` fails in the same place for the same
-  reason, though it at least names itself on screen. Set all of it up before
-  you register anything.
-  See [bank sync](docs/bank-sync.md#https-is-required-before-any-of-this-works).
+- Bank sync needs HTTPS, three settings that must agree, an activation step on
+  the provider's side, and the private key delivered into the container. Almost
+  every way of getting it wrong is silent. Enable Banking's Control Panel
+  refuses an `http://` redirect URL outright, with "uses unsupported scheme", so
+  a plain-http instance cannot even finish registering an application; you need
+  a TLS reverse proxy in front of BudgetPilot. Then `ORIGIN`,
+  `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS` and the URL registered in the Control
+  Panel must be the **same origin, character for character**, port included.
+  Behind a proxy on 443 that origin carries no port. A wrong `ORIGIN` answers
+  403 "Cross-site POST form submissions are forbidden" on the **Connect**
+  button, which reads like a login or session problem; a wrong registered URL
+  shows only "Invalid operation."; only `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS`
+  names itself on screen. On top of that, a PRODUCTION application is created
+  **Inactive** and answers 403 "Application is not active" to everything,
+  including the bank list, until you activate it by linking your own accounts.
+  And no base compose file mounts `keys/`, so the key has to arrive through the
+  `docker-compose.keys.yml` overlay or inline, readable by uid 65532. The app
+  reports all of this as "try again later" and writes nothing to the logs.
+  Follow [bank sync](docs/bank-sync.md) step by step rather than diagnosing from
+  the logs.
 
 ## Quick start
 
