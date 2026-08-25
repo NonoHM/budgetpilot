@@ -93,6 +93,9 @@ function buildData(
 		 *  EMPTY account, so every test written before this field existed keeps asserting exactly the
 		 *  state it always asserted: the first-run onboarding copy. */
 		accountSpan?: PageData['accountSpan'];
+		/** Only the custom period renders the two date fields, so a test about them has to ask for
+		 *  it. Every other test keeps the 'this-month' default it was written against. */
+		period?: PageData['period'];
 	} = {}
 ): PageData {
 	const {
@@ -102,14 +105,8 @@ function buildData(
 		upcomingBillsHasStreams = false,
 		upcomingBillsEmptyState = null,
 		cashFlowForecast = EMPTY_FORECAST,
-		accountSpan = EMPTY_ACCOUNT_SPAN
-	} = overrides;
-
-	return {
-		user: { email: 'user@example.com', role: 'USER' } as PageData['user'],
-		categoryOptions: [],
-		month: '2026-07',
-		period: {
+		accountSpan = EMPTY_ACCOUNT_SPAN,
+		period = {
 			key: 'this-month',
 			label: 'juillet 2026',
 			from: new Date('2026-07-01T00:00:00.000Z'),
@@ -117,7 +114,14 @@ function buildData(
 			fromDate: '2026-07-01',
 			toDate: '2026-08-01',
 			budgetMonth: '2026-07'
-		},
+		} as PageData['period']
+	} = overrides;
+
+	return {
+		user: { email: 'user@example.com', role: 'USER' } as PageData['user'],
+		categoryOptions: [],
+		month: '2026-07',
+		period,
 		budgetSummaryAvailable: true,
 		periodQuery: 'period=this-month',
 		transactions,
@@ -625,5 +629,61 @@ describe('/ manual-add modal — a refused save says why, audibly (#audit-1.0)',
 		// something to mention at the next convenient pause.
 		const liveRegion = message.element().closest('[aria-live]');
 		expect(liveRegion?.getAttribute('aria-live')).toBe('assertive');
+	});
+});
+
+/**
+ * The dashboard's custom-period form, the second instance of the same defect: a native
+ * `type="date"` renders per the BROWSER's locale and ignores every `lang` attribute this app sets.
+ * You reported it on /rapports; this screen has the identical control, which is why the fix is a
+ * sweep and not a repair.
+ *
+ * SCOPED TO THE PERIOD FORM, deliberately. The manual-entry modal on this same page still carries a
+ * native date field: it is a single date rather than a range, no shared single-date control existed
+ * when this was written, and converting it is filed rather than done here. An unscoped
+ * `input[type="date"]` assertion would either fail for that reason or quietly license leaving this
+ * one native too.
+ */
+describe('/ dashboard — the custom period form uses the app’s own date field', () => {
+	const CUSTOM_PERIOD = {
+		key: 'custom',
+		label: 'du 1 au 15 juillet 2026',
+		from: new Date('2026-07-01T00:00:00.000Z'),
+		to: new Date('2026-07-15T00:00:00.000Z'),
+		fromDate: '2026-07-01',
+		toDate: '2026-07-15',
+		budgetMonth: '2026-07'
+	} as PageData['period'];
+
+	/** The one form carrying `period=custom`, so nothing else on the page can answer for it. */
+	function periodForm(container: HTMLElement): HTMLFormElement {
+		const hidden = container.querySelector('input[name="period"][value="custom"]');
+		const form = hidden?.closest('form');
+		if (!form) throw new Error('the custom period form did not render');
+		return form as HTMLFormElement;
+	}
+
+	it('carries no native date picker, and does carry the app’s two fields', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 900);
+
+		const screen = render(Page, { data: buildData({ period: CUSTOM_PERIOD }), form: null });
+		const form = periodForm(screen.container as HTMLElement);
+
+		expect(form.querySelectorAll('input[type="date"]')).toHaveLength(0);
+		// The positive half: `periodForm` already throws if the form is absent, and this pins that
+		// the two fields inside it are the app's own rather than merely not-native.
+		expect(form.querySelectorAll('input[type="text"][inputmode="numeric"]')).toHaveLength(2);
+	});
+
+	it('submits ISO under from and to', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 900);
+
+		const screen = render(Page, { data: buildData({ period: CUSTOM_PERIOD }), form: null });
+		const form = periodForm(screen.container as HTMLElement);
+
+		expect((form.querySelector('input[name="from"]') as HTMLInputElement).value).toBe('2026-07-01');
+		expect((form.querySelector('input[name="to"]') as HTMLInputElement).value).toBe('2026-07-15');
 	});
 });

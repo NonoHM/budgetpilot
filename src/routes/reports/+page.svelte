@@ -14,6 +14,7 @@
 	import type { PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
 	import Select from '$lib/components/ui/Select.svelte';
+	import DateField from '$lib/components/ui/DateField.svelte';
 	import DonutChart, { type DonutSegment } from '$lib/components/ui/DonutChart.svelte';
 	import { cardBase, inputFilter } from '$lib/styles';
 	import Badge from '$lib/components/ui/Badge.svelte';
@@ -200,25 +201,13 @@
 					<label for="rpt-from" class="block text-sm font-medium text-zinc-600">
 						{m.reports_from_label()}
 					</label>
-					<input
-						id="rpt-from"
-						class="mt-1 {inputFilter} tabular-nums"
-						name="from"
-						type="date"
-						value={period.fromDate}
-					/>
+					<DateField id="rpt-from" class="mt-1 {inputFilter}" name="from" value={period.fromDate} />
 				</div>
 				<div>
 					<label for="rpt-to" class="block text-sm font-medium text-zinc-600">
 						{m.reports_to_label()}
 					</label>
-					<input
-						id="rpt-to"
-						class="mt-1 {inputFilter} tabular-nums"
-						name="to"
-						type="date"
-						value={period.toDate}
-					/>
+					<DateField id="rpt-to" class="mt-1 {inputFilter}" name="to" value={period.toDate} />
 				</div>
 				<Button type="submit" size="field">{m.reports_submit()}</Button>
 			</form>
@@ -249,11 +238,10 @@
 				<label for="rpt-from-mobile" class="block text-sm font-medium text-zinc-600">
 					{m.reports_from_label()}
 				</label>
-				<input
+				<DateField
 					id="rpt-from-mobile"
-					class="mt-1.5 w-full {inputFilter} !bg-zinc-50 tabular-nums"
+					class="mt-1.5 w-full {inputFilter} !bg-zinc-50"
 					name="from"
-					type="date"
 					value={period.fromDate}
 				/>
 			</div>
@@ -261,11 +249,10 @@
 				<label for="rpt-to-mobile" class="block text-sm font-medium text-zinc-600">
 					{m.reports_to_label()}
 				</label>
-				<input
+				<DateField
 					id="rpt-to-mobile"
-					class="mt-1.5 w-full {inputFilter} !bg-zinc-50 tabular-nums"
+					class="mt-1.5 w-full {inputFilter} !bg-zinc-50"
 					name="to"
-					type="date"
 					value={period.toDate}
 				/>
 			</div>

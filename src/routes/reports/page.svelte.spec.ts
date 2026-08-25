@@ -470,3 +470,51 @@ describe('/reports recurring payments — two streams that display identically (
 		expect(occurrences).toBe(4);
 	});
 });
+
+/**
+ * A native `type="date"` renders jj/mm/aaaa or mm/dd/yyyy per the BROWSER's locale and ignores
+ * every `lang` attribute this app sets, so the same build showed two different formats on two
+ * machines. `ui/PeriodFilter.svelte` refused it on /transactions for that reason; this period form
+ * kept it, which is the instance reported against 0.14.0.
+ *
+ * Asserted on the ELEMENT, not on what it displays. A native picker on a French machine renders
+ * exactly the string a correct field renders, so reading the text would pass here and fail on a
+ * reader's en-US browser, which is precisely the defect. The attribute is the only observation that
+ * separates the two states on any one machine.
+ */
+describe('/rapports — the period form uses the app’s own date field', () => {
+	it('carries no native date picker, at either width', async () => {
+		expect.assertions(4);
+
+		for (const [width, height] of [
+			[1280, 900],
+			[390, 844]
+		] as const) {
+			await page.viewport(width, height);
+			const screen = render(Page, { data: buildData(null) });
+
+			expect(screen.container.querySelectorAll('input[type="date"]')).toHaveLength(0);
+			// The positive half. Both breakpoint trees are in the DOM at every width (see #209), so
+			// this counts four: two fields on the desktop form, two on the mobile one. An assertion
+			// that only forbade the native input would pass on a page that rendered no period form
+			// at all.
+			expect(
+				screen.container.querySelectorAll('input[type="text"][inputmode="numeric"]')
+			).toHaveLength(4);
+		}
+	});
+
+	it('submits ISO under from and to, whatever the reader sees', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 900);
+
+		const screen = render(Page, { data: buildData(null) });
+
+		// The server parses ISO (`parseDateRange`). What the reader edits is text in jj/mm/aaaa; what
+		// the form sends is these. Both breakpoint trees render, hence two of each.
+		const from = [...screen.container.querySelectorAll('input[name="from"]')] as HTMLInputElement[];
+		const to = [...screen.container.querySelectorAll('input[name="to"]')] as HTMLInputElement[];
+		expect(from.map((node) => node.value)).toEqual([PERIOD.fromDate, PERIOD.fromDate]);
+		expect(to.map((node) => node.value)).toEqual([PERIOD.toDate, PERIOD.toDate]);
+	});
+});
