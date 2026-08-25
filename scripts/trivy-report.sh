@@ -36,6 +36,18 @@ if [ ! -s "$REPORT" ]; then
 	exit 0
 fi
 
+# An UNPARSEABLE report is a third state, and it used to be fatal rather than reported. jq exits
+# non-zero on malformed input, the caller runs under `set -e`, and the whole issue-filing step
+# died before reaching `gh` — so a scan that HAD found CRITICAL/HIGH filed nothing at all, and the
+# morning looked exactly like a clean one. Same family as the missing file above, so it gets the
+# same answer: say so in the body and let the caller file. Found by calibrating the workflow's
+# run-block against fixtures; asserted in src/lib/server/security/cveAcknowledgements.spec.ts.
+if ! jq empty "$REPORT" >/dev/null 2>&1; then
+	echo "_The report file could not be parsed as Trivy JSON. This is likely scanner"
+	echo "infrastructure (DB mirror, registry) rather than a confirmed finding. Check the run log._"
+	exit 0
+fi
+
 # `// []` on every optional field: a Result with no Vulnerabilities key at all is the normal shape
 # for a clean target, and jq would otherwise emit `null` into the table.
 #
