@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.14.2](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.1...budgetpilot-v0.14.2) (2026-08-25)
+
+
+### Bug Fixes
+
+* **insights:** the local AI path says which of six things went wrong ([#528](https://github.com/NonoHM/budgetpilot/issues/528)) ([69f193f](https://github.com/NonoHM/budgetpilot/commit/69f193fcae3d31582c4c3f47b8ab17774421c232)), closes [#524](https://github.com/NonoHM/budgetpilot/issues/524)
+
+
+### Documentation
+
+* **audits:** the tracker sort, as it was run ([#522](https://github.com/NonoHM/budgetpilot/issues/522)) ([fd8685c](https://github.com/NonoHM/budgetpilot/commit/fd8685cd7c5f82659c70ee04fc0aef597e522a31))
+
 ## [0.14.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.0...budgetpilot-v0.14.1) (2026-08-25)
 
 
