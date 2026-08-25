@@ -12,6 +12,7 @@
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import Menu from '$lib/components/ui/DropdownMenu.svelte';
 	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
+	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import Skeleton from '$lib/components/ui/Skeleton.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
@@ -350,13 +351,28 @@
 	 * case a répartition badge may follow) or the uncertain-tier "hors total" substitute, which
 	 * names no category at all and must never carry one.
 	 */
+	/**
+	 * `SplitBadge` renders each part's category as given, so every caller hands it DISPLAY names —
+	 * the same shape /reports, the dashboard and /transactions already use. This page was the one
+	 * that did not, and it printed the raw `uncategorized` slug per part.
+	 */
+	function badgeParts(
+		indicator: NonNullable<UpcomingBillRowView['splitIndicator']>
+	): Array<{ category: string; amountCents: number }> {
+		return indicator.parts.map((part) => ({
+			category: categoryDisplayName(part.category),
+			amountCents: part.amountCents
+		}));
+	}
+
 	function mobileSubLineTail(
 		row: UpcomingBillRowView
 	): { text: string; isCategory: boolean } | null {
 		if (row.status === 'ignored') return null;
-		if (row.status === 'settled') return { text: row.category, isCategory: true };
+		if (row.status === 'settled')
+			return { text: categoryDisplayName(row.category), isCategory: true };
 		if (row.tier === 'uncertain') return { text: m.bills_amount_excluded(), isCategory: false };
-		return { text: row.category, isCategory: true };
+		return { text: categoryDisplayName(row.category), isCategory: true };
 	}
 
 	// ─── Row actions ──────────────────────────────────────────────────────────
@@ -993,13 +1009,17 @@
 														: 'text-zinc-500'}"
 												>
 													<span class="min-w-0 truncate"
-														>{kindLabel(row)} · {cadenceLabel(row)} · {row.category}</span
+														>{kindLabel(row)} · {cadenceLabel(row)} · {categoryDisplayName(
+															row.category
+														)}</span
 													>
 													{#if row.splitIndicator}
 														<SplitBadge
-															parts={row.splitIndicator.parts}
+															parts={badgeParts(row.splitIndicator)}
 															otherCategoryCount={row.splitIndicator.otherCategoryCount}
-															dominantCategory={row.splitIndicator.dominantCategory}
+															dominantCategory={categoryDisplayName(
+																row.splitIndicator.dominantCategory
+															)}
 															inherited={row.splitIndicatorIsInherited}
 														/>
 													{/if}
@@ -1283,9 +1303,9 @@
 			>
 			{#if tail?.isCategory && row.splitIndicator}
 				<SplitBadge
-					parts={row.splitIndicator.parts}
+					parts={badgeParts(row.splitIndicator)}
 					otherCategoryCount={row.splitIndicator.otherCategoryCount}
-					dominantCategory={row.splitIndicator.dominantCategory}
+					dominantCategory={categoryDisplayName(row.splitIndicator.dominantCategory)}
 					inherited={row.splitIndicatorIsInherited}
 				/>
 			{/if}
