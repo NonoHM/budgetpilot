@@ -121,9 +121,9 @@ function renderedPart(expression: string): string {
  * covered by its own page spec at both widths instead.
  */
 function templateOnly(source: string): string {
-	// CASE-INSENSITIVE, AND TOLERANT OF WHITESPACE BEFORE THE CLOSING `>`. CodeQL caught both gaps
-	// (`js/bad-tag-filter`, high, on this line), one after the other: first that `<SCRIPT>` was not
-	// matched, then that `</script >` was not either. Both spellings are valid HTML.
+	// CASE-INSENSITIVE, AND THE CLOSING TAG TAKES ANYTHING UP TO ITS `>`. CodeQL named three gaps
+	// here (`js/bad-tag-filter`, high), one per round: `<SCRIPT>`, then `</script >`, then
+	// `</script\t\n bar>`. All three are valid HTML.
 	//
 	// The alert's severity is wrong for this context and its reading of the behaviour is right, so
 	// the fix follows it rather than suppressing it. This is a test-only scanner over the repo's own
@@ -132,10 +132,13 @@ function templateOnly(source: string): string {
 	// and the guard reports a finding about a region its own header says it does not read. A false
 	// positive in the file whose entire argument is that it does not produce them.
 	//
-	// The two rounds are the lesson rather than the fix: a regex over HTML is wrong in a way that
-	// one counterexample does not exhaust. Nothing here needs to parse HTML, so the shape stays,
-	// with each spelling that has actually been named pinned by its own calibration case below.
-	return source.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, (block) =>
+	// THE THREE ROUNDS ARE THE LESSON RATHER THAN ANY OF THE FIXES, and the first two were the
+	// wrong kind: each patched the one spelling that had just been named, which is fixing the
+	// counterexample instead of the class. A regex over HTML is wrong in a way that no finite list
+	// of counterexamples exhausts. The closing tag now consumes to its bracket rather than matching
+	// a spelling, which is what the rule actually asks for; the three named spellings are pinned
+	// below so the fix cannot silently narrow again.
+	return source.replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, (block) =>
 		block.replace(/[^\n]/g, ' ')
 	);
 }
@@ -250,7 +253,7 @@ describe('a category name a reader meets goes through categoryDisplayName', () =
 	 * once the tree is clean.
 	 */
 	it('fires on a raw render and stays silent on a wrapped one', () => {
-		expect.assertions(12);
+		expect.assertions(13);
 
 		const raw = '<td class="px-5 py-2.5 font-medium">{cat.name}</td>';
 		const wrapped = '<td class="px-5 py-2.5 font-medium">{categoryDisplayName(cat.name)}</td>';
@@ -300,6 +303,11 @@ describe('a category name a reader meets goes through categoryDisplayName', () =
 		// this one only after the case above was fixed.
 		expect(
 			findRawCategoryRenders('<script>const k = { text: row.category };</script ><b>x</b>')
+		).toHaveLength(0);
+		// And the third spelling, which is what finally showed the first two fixes were the wrong
+		// shape: an end tag takes content up to its bracket.
+		expect(
+			findRawCategoryRenders('<script>const k = { text: row.category };</script\t\n bar><b>x</b>')
 		).toHaveLength(0);
 	});
 
