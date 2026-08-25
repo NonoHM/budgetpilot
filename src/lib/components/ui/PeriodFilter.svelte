@@ -17,6 +17,10 @@
 	} from '$lib/domain/periodPresets';
 	import RangeCalendar, { type RangeCalendarRange } from './RangeCalendar.svelte';
 	import { reopeningMonthAnchor, type RangeCalendarCopy } from '$lib/domain/rangeCalendar';
+	// `type="text"` + `inputmode="numeric"`, NEVER `type="date"`: the grammar and the reason both
+	// live in domain/dateField.ts now, so /reports and the dashboard can use the same one. They
+	// could not while these were private functions here, which is why they kept native inputs.
+	import { isoToDisplay, displayToIso, toIsoOrNull } from '$lib/domain/dateField';
 	import type { locales } from '$lib/paraglide/runtime';
 
 	/**
@@ -258,50 +262,6 @@
 		thisYear: m.transactions_period_preset_this_year,
 		last12Months: m.transactions_period_preset_last_12_months
 	};
-
-	/**
-	 * `type="text"` + `inputmode="numeric"`, NEVER `type="date"`. The native date input renders
-	 * jj/mm/aaaa or mm/dd/yyyy depending on the BROWSER's own locale and ignores every `lang`
-	 * attribute this app sets — the same build showed two different formats on two machines. That is
-	 * the exact defect this whole Période dimension exists to close, so these conversions render the
-	 * app's own jj/mm/aaaa convention regardless of the visitor's browser.
-	 */
-	function isoToDisplay(iso: string): string {
-		if (!iso) return '';
-		const match = iso.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-		if (!match) return iso;
-		const [, y, mo, d] = match;
-		return `${d}/${mo}/${y}`;
-	}
-
-	/**
-	 * The strict half of `displayToIso`: a buffer that is not a complete, REAL date is not a date.
-	 *
-	 * The canonical round-trip is the same test the server applies in `parseIsoDate`, and it is here
-	 * for a reason beyond tidiness: a shape-only check accepts 31/02/2026 and 99/99/2026, which makes
-	 * "Appliquer" go live, sends the value, and gets the range refused server-side. The reader then
-	 * sees the invalid state for input this panel accepted without a word. Matching the server's
-	 * notion of validity means the panel refuses it at the point of entry instead.
-	 *
-	 * It does NOT make the client a security control — the server's check is the gate, and the URL is
-	 * reachable without this component at all. This only stops the two from disagreeing.
-	 */
-	function toIsoOrNull(display: string): string | null {
-		const iso = displayToIso(display);
-		if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return null;
-		const parsed = new Date(`${iso}T00:00:00.000Z`);
-		// `Number.isNaN` first: `toISOString()` THROWS on an invalid date rather than returning a
-		// sentinel, which is exactly how the server-side twin of this function used to 500.
-		if (Number.isNaN(parsed.getTime())) return null;
-		return parsed.toISOString().slice(0, 10) === iso ? iso : null;
-	}
-
-	function displayToIso(display: string): string {
-		const match = display.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-		if (!match) return display.trim();
-		const [, d, mo, y] = match;
-		return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
-	}
 
 	function close({ restoreFocus }: { restoreFocus: boolean }): void {
 		open = false;

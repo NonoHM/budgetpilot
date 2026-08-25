@@ -15,6 +15,7 @@
 	import Avatar from '$lib/components/Avatar.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
+	import DateField from '$lib/components/ui/DateField.svelte';
 	import { getInitials } from '$lib/domain/initials';
 	import { cardBase, inputBase, inputFilter } from '$lib/styles';
 	import Select from '$lib/components/ui/Select.svelte';
@@ -267,20 +268,18 @@
 				>
 					<form method="GET" class="flex flex-col gap-2 lg:flex-row lg:items-center">
 						<input type="hidden" name="period" value="custom" />
-						<input
-							class="{inputFilter} !bg-zinc-50 tabular-nums lg:!bg-white"
+						<DateField
+							class="{inputFilter} !bg-zinc-50 lg:!bg-white"
 							name="from"
-							type="date"
-							aria-label={m.dashboard_date_from_aria()}
+							ariaLabel={m.dashboard_date_from_aria()}
 							value={period.key === 'custom' ? period.fromDate : ''}
 							required
 						/>
 						<span class="hidden text-sm text-zinc-400 lg:inline" aria-hidden="true">→</span>
-						<input
-							class="{inputFilter} !bg-zinc-50 tabular-nums lg:!bg-white"
+						<DateField
+							class="{inputFilter} !bg-zinc-50 lg:!bg-white"
 							name="to"
-							type="date"
-							aria-label={m.dashboard_date_to_aria()}
+							ariaLabel={m.dashboard_date_to_aria()}
 							value={period.key === 'custom' ? period.toDate : ''}
 							required
 						/>
