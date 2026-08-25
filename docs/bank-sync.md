@@ -283,11 +283,14 @@ Redirect URLs: https://your.domain/imports/bank-connections/callback
 Linked accounts: Your Bank (France): IBAN ...
 ```
 
-**If you skip this step:** the **Bank connections** page shows "The bank list is
-unavailable right now. Try again later." (message key
-`bank_connections_banks_unavailable`), you can't select a bank, nothing is
-written to the logs, and no amount of retrying changes anything, because the
-condition is on the provider's side and is waiting for you.
+**If you skip this step:** the **Bank connections** page shows "The bank
+provider refused this request, so the list could not be loaded. This is usually
+a setting on the provider's side rather than a temporary fault." (message key
+`bank_connections_banks_provider_error`), and you can't select a bank. Nothing
+is written to the logs. Retrying changes nothing, because the condition is on
+the provider's side and is waiting for you, which is what the message now says.
+It used to read "Try again later", which was advice for a state this is not
+(#524).
 
 **Plan for this consequence:** in restricted mode, an account you haven't linked
 in the Control Panel can't be read, whatever you authorize inside BudgetPilot.

@@ -16,6 +16,7 @@
 	import Spinner from '$lib/components/ui/Spinner.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	import { cardBase, inputBase } from '$lib/styles';
+	import { BANK_LIST_FALLBACK_CODE, type BankListFailureCode } from '$lib/domain/failureCodes';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import {
@@ -27,6 +28,27 @@
 	import type { ActionData, PageData } from './$types';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	/**
+	 * WHY the connect form has no bank list (#524), as a sentence.
+	 *
+	 * Same shape and same reason as the AI card's map: `Record<BankListFailureCode, ...>` makes a new
+	 * code without a sentence a `check` failure rather than an empty banner, and the words are built
+	 * here because the server has no negotiated locale outside a request.
+	 *
+	 * The sentence this replaces was « La liste des banques est indisponible pour le moment.
+	 * Réessayez plus tard. » for all three. `docs/bank-sync.md` had already written down that it was
+	 * false for the provider case, in the same paragraph that quoted it: "no amount of retrying
+	 * changes anything, because the condition is on the provider's side and is waiting for you".
+	 */
+	function banksFailureMessage(code: BankListFailureCode): string {
+		const messages: Record<BankListFailureCode, string> = {
+			not_configured: m.bank_connections_banks_not_configured(),
+			provider_error: m.bank_connections_banks_provider_error(),
+			unreachable: m.bank_connections_banks_unreachable()
+		};
+		return messages[code];
+	}
 
 	type Connection = PageData['connections'][number];
 	type BankAccount = Connection['accounts'][number];
@@ -582,7 +604,7 @@
 					<p class="mt-0.5 text-sm text-zinc-500">{m.bank_connections_connect_description()}</p>
 					{#if data.banks === null}
 						<AlertBanner variant="error" class="mt-4">
-							{m.bank_connections_banks_unavailable()}
+							{banksFailureMessage(data.banksFailureCode ?? BANK_LIST_FALLBACK_CODE)}
 						</AlertBanner>
 					{:else}
 						<form

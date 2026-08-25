@@ -4,6 +4,7 @@
 	import { widthClass } from '$lib/domain/widthClass';
 	import { categoryDisplayName } from '$lib/domain/categoryLabels';
 	import type { DashboardInsights } from '$lib/server/dashboard/insights';
+	import type { LocalLlmFailureCode } from '$lib/domain/failureCodes';
 	import type { LocalAiAdvice } from '$lib/server/insights/types';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
@@ -39,6 +40,64 @@
 	// Collapsed by default on every breakpoint — identical mobile/desktop behavior.
 	let insightsOpen = $state(false);
 	let aiOpen = $state(false);
+
+	/**
+	 * WHICH of the five ways the local model can produce nothing (#524), as a sentence.
+	 *
+	 * `Record<LocalLlmFailureCode, ...>` rather than a switch with a default, and that is the whole
+	 * point of the shape: adding a code to the union without adding its sentence here stops
+	 * `npm run check` rather than rendering a blank card. A default branch would have accepted the
+	 * new code silently, which is the failure this card already had once.
+	 *
+	 * The sentences are built HERE and not on the server. `$lib/paraglide/messages` has no
+	 * negotiated locale outside a request, so a server-built string is built in the wrong language
+	 * (CLAUDE.md records what that cost in `domain/money.ts`). The server names the state; the
+	 * interface owns the words.
+	 */
+	function aiFailureTitle(code: LocalLlmFailureCode): string {
+		const titles: Record<LocalLlmFailureCode, string> = {
+			cold_start: m.dashboard_insights_ai_cold_start_title(),
+			unreachable: m.dashboard_insights_ai_unreachable_title(),
+			not_configured: m.dashboard_insights_ai_not_configured_title(),
+			model_unavailable: m.dashboard_insights_ai_model_unavailable_title(),
+			response_unusable: m.dashboard_insights_ai_response_unusable_title(),
+			response_truncated: m.dashboard_insights_ai_response_truncated_title()
+		};
+		return titles[code];
+	}
+
+	function aiFailureReason(code: LocalLlmFailureCode): string {
+		const reasons: Record<LocalLlmFailureCode, string> = {
+			cold_start: m.dashboard_insights_ai_cold_start_message(),
+			unreachable: m.dashboard_insights_ai_unreachable_reason(),
+			not_configured: m.dashboard_insights_ai_not_configured_reason(),
+			model_unavailable: m.dashboard_insights_ai_model_unavailable_reason(),
+			response_unusable: m.dashboard_insights_ai_response_unusable_reason(),
+			response_truncated: m.dashboard_insights_ai_response_truncated_reason()
+		};
+		return reasons[code];
+	}
+
+	/**
+	 * Whether to append « Check the configuration in [settings] ».
+	 *
+	 * False for `cold_start` alone, and that single false is the defect this card was filed for: a
+	 * model still loading is the one state where there is nothing to configure, and sending the
+	 * reader to a settings page implies the opposite. Its own sentence tells them to reload instead,
+	 * which is true because the streamed promise has already resolved by the time this renders and
+	 * the card will not update by itself.
+	 */
+	function aiFailureShowsConfigurationLink(code: LocalLlmFailureCode): boolean {
+		const showsLink: Record<LocalLlmFailureCode, boolean> = {
+			cold_start: false,
+			unreachable: true,
+			not_configured: true,
+			model_unavailable: true,
+			response_unusable: true,
+			response_truncated: true
+		};
+		return showsLink[code];
+	}
 
 	function categoryHref(category: string) {
 		return resolve(
@@ -246,6 +305,10 @@
 			{@const aiItems = (resolved?.insights ?? []).filter((item) => item.source === 'local-llm')}
 			{@const showAiAdviceCard = aiItems.length > 0}
 			{@const showAiUnavailableCard = resolved?.unavailable === true && !showAiAdviceCard}
+			<!-- `unreachable` when the server set no code: it is the honest reading of a run that
+			     produced nothing without saying why, and it is the same code the `{:catch}` below
+			     uses, so the two paths cannot disagree about one situation. -->
+			{@const aiFailureCode = resolved?.failureCode ?? 'unreachable'}
 			{#if showAiUnavailableCard}
 				<div class="rounded-lg border border-dashed border-zinc-300 p-4">
 					<button
@@ -259,7 +322,7 @@
 							<Badge tone="neutral">{m.dashboard_insights_ai_badge()}</Badge>
 						</span>
 						<span class="min-w-0 flex-1 truncate text-sm font-medium text-zinc-900">
-							{m.dashboard_insights_ai_unavailable_title()}
+							{aiFailureTitle(aiFailureCode)}
 						</span>
 						<svg
 							class="ml-auto h-4 w-4 shrink-0 text-zinc-400 transition-transform duration-150"
@@ -281,13 +344,16 @@
 						id="dashboard-ai-unavailable-content"
 						class="{aiOpen ? '' : 'hidden'} mt-1 text-xs text-zinc-500"
 					>
-						{m.dashboard_insights_ai_unavailable_message()}
-						<a
-							class="font-medium text-zinc-600 underline hover:text-zinc-800"
-							href={resolve('/settings')}
-						>
-							{m.dashboard_insights_settings_link()}
-						</a>.
+						{aiFailureReason(aiFailureCode)}
+						{#if aiFailureShowsConfigurationLink(aiFailureCode)}
+							{m.dashboard_insights_ai_check_configuration()}
+							<a
+								class="font-medium text-zinc-600 underline hover:text-zinc-800"
+								href={resolve('/settings')}
+							>
+								{m.dashboard_insights_settings_link()}
+							</a>.
+						{/if}
 					</p>
 				</div>
 			{/if}
@@ -345,7 +411,7 @@
 						<Badge tone="neutral">{m.dashboard_insights_ai_badge()}</Badge>
 					</span>
 					<span class="min-w-0 flex-1 truncate text-sm font-medium text-zinc-900">
-						{m.dashboard_insights_ai_unavailable_title()}
+						{aiFailureTitle('unreachable')}
 					</span>
 				</div>
 			</div>

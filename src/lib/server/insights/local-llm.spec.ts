@@ -1,6 +1,37 @@
 import { describe, expect, it, vi } from 'vitest';
 import { requestLocalBudgetInsights } from './local-llm';
 
+/**
+ * One generation is TWO requests since #524: a connect probe on `/api/version`, then the generation
+ * on `/api/chat`. The probe carries its own small budget so a stopped Ollama is refused in about two
+ * seconds instead of costing the whole generation budget.
+ *
+ * That is why these mocks route on the path instead of queueing responses. A
+ * `mockResolvedValueOnce` carrying only the chat response now feeds the PROBE, and the real chat
+ * call escapes to the network, where it hangs until the test's own 5 s limit. The failure then reads
+ * as "timed out", which is a fact about the mock rather than about the code, and the in-flight real
+ * request lands on the NEXT test's fresh spy and reports calls that test never made. Both were
+ * observed on this file before the helper existed.
+ *
+ * `probe` is a parameter rather than a constant so the probe leg can be put under test itself: a
+ * probe that never settles is what a stopped Ollama actually looks like.
+ */
+function mockOllamaFetch(
+	chat: () => Promise<Response>,
+	probe: () => Promise<Response> = async () =>
+		new Response(JSON.stringify({ version: '0.32.5' }), { status: 200 })
+) {
+	return vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+		const url =
+			typeof input === 'string'
+				? input
+				: input instanceof URL
+					? input.href
+					: (input as Request).url;
+		return url.endsWith('/api/version') ? probe() : chat();
+	});
+}
+
 describe('requestLocalBudgetInsights', () => {
 	it('refuse une URL LLM non locale sans appeler fetch', async () => {
 		expect.assertions(2);
@@ -47,13 +78,14 @@ describe('requestLocalBudgetInsights', () => {
 	it('retourne unavailable quand le contenu renvoyé par Ollama n’est pas du JSON valide', async () => {
 		expect.assertions(2);
 
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					message: { content: 'ceci n’est pas du JSON' }
-				}),
-				{ status: 200 }
-			)
+		const fetchMock = mockOllamaFetch(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: { content: 'ceci n’est pas du JSON' }
+					}),
+					{ status: 200 }
+				)
 		);
 		const result = await requestLocalBudgetInsights('prompt agrégé', {
 			LLM_ENABLED: 'true',
@@ -70,18 +102,19 @@ describe('requestLocalBudgetInsights', () => {
 	it('retourne unavailable quand le JSON est syntaxiquement valide mais hors schéma (title manquant)', async () => {
 		expect.assertions(2);
 
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					message: {
-						content: JSON.stringify({
-							summary: 'ok',
-							insights: [{ message: 'sans titre', severity: 'info', category: 'budget' }]
-						})
-					}
-				}),
-				{ status: 200 }
-			)
+		const fetchMock = mockOllamaFetch(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: {
+							content: JSON.stringify({
+								summary: 'ok',
+								insights: [{ message: 'sans titre', severity: 'info', category: 'budget' }]
+							})
+						}
+					}),
+					{ status: 200 }
+				)
 		);
 		const result = await requestLocalBudgetInsights('prompt agrégé', {
 			LLM_ENABLED: 'true',
@@ -98,15 +131,16 @@ describe('requestLocalBudgetInsights', () => {
 	it('retourne unavailable quand un champ dépasse la longueur maximale autorisée', async () => {
 		expect.assertions(1);
 
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					message: {
-						content: JSON.stringify({ summary: 'x'.repeat(161), insights: [] })
-					}
-				}),
-				{ status: 200 }
-			)
+		const fetchMock = mockOllamaFetch(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: {
+							content: JSON.stringify({ summary: 'x'.repeat(161), insights: [] })
+						}
+					}),
+					{ status: 200 }
+				)
 		);
 		const result = await requestLocalBudgetInsights('prompt agrégé', {
 			LLM_ENABLED: 'true',
@@ -139,15 +173,16 @@ describe('requestLocalBudgetInsights', () => {
 	it('accepte un hôte custom listé dans LLM_ALLOWED_HOSTS', async () => {
 		expect.assertions(2);
 
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					message: {
-						content: JSON.stringify({ summary: 'ok', insights: [] })
-					}
-				}),
-				{ status: 200 }
-			)
+		const fetchMock = mockOllamaFetch(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: {
+							content: JSON.stringify({ summary: 'ok', insights: [] })
+						}
+					}),
+					{ status: 200 }
+				)
 		);
 		const result = await requestLocalBudgetInsights('prompt agrégé', {
 			LLM_ENABLED: 'true',
@@ -218,13 +253,14 @@ describe('requestLocalBudgetInsights', () => {
 	it('accepte toujours 127.0.0.1 quand LLM_ALLOWED_HOSTS est absent', async () => {
 		expect.assertions(1);
 
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
-				}),
-				{ status: 200 }
-			)
+		const fetchMock = mockOllamaFetch(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
+					}),
+					{ status: 200 }
+				)
 		);
 		await requestLocalBudgetInsights('prompt agrégé', {
 			LLM_ENABLED: 'true',
@@ -257,13 +293,14 @@ describe('requestLocalBudgetInsights', () => {
 	it('accepte https: pour un hôte distant non-Docker listé dans LLM_ALLOWED_HOSTS', async () => {
 		expect.assertions(2);
 
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
-				}),
-				{ status: 200 }
-			)
+		const fetchMock = mockOllamaFetch(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
+					}),
+					{ status: 200 }
+				)
 		);
 		const result = await requestLocalBudgetInsights('prompt agrégé', {
 			LLM_ENABLED: 'true',
@@ -301,13 +338,14 @@ describe('requestLocalBudgetInsights', () => {
 	it('accepte http: pour un hôte listé dans LLM_HTTP_PERMITTED_HOSTS (ex. service Docker Compose)', async () => {
 		expect.assertions(2);
 
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
-				}),
-				{ status: 200 }
-			)
+		const fetchMock = mockOllamaFetch(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
+					}),
+					{ status: 200 }
+				)
 		);
 		const result = await requestLocalBudgetInsights('prompt agrégé', {
 			LLM_ENABLED: 'true',
@@ -329,15 +367,16 @@ describe('requestLocalBudgetInsights', () => {
 	it('autorise Ollama sur localhost', async () => {
 		expect.assertions(2);
 
-		const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
-			new Response(
-				JSON.stringify({
-					message: {
-						content: JSON.stringify({ summary: 'ok', insights: [] })
-					}
-				}),
-				{ status: 200 }
-			)
+		const fetchMock = mockOllamaFetch(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: {
+							content: JSON.stringify({ summary: 'ok', insights: [] })
+						}
+					}),
+					{ status: 200 }
+				)
 		);
 		const result = await requestLocalBudgetInsights('prompt agrégé', {
 			LLM_ENABLED: 'true',
@@ -352,5 +391,315 @@ describe('requestLocalBudgetInsights', () => {
 		expect(result?.summary).toBe('ok');
 
 		fetchMock.mockRestore();
+	});
+});
+
+/**
+ * WHICH of the five states the run ended in (#524), not merely that it ended badly.
+ *
+ * `unavailable: true` had five producers and one message. These tests exist to keep them five, and
+ * each one names the two states it separates, because "unavailable" was green for all five and that
+ * is precisely why the defect shipped.
+ *
+ * The failures are driven through the REAL mechanisms rather than by handing the classifier a
+ * hand-built error object. A fabricated `{ name: 'TimeoutError' }` would assert that the recogniser
+ * reads a field this test just wrote, which is the retyped-oracle shape AGENTS.md forbids: it passes
+ * whether or not `AbortSignal.timeout` actually produces that shape. So the abort is a real
+ * `AbortSignal.timeout` firing, and the 404 is a real `Response` the Ollama client converts.
+ */
+describe('requestLocalBudgetInsights failure codes', () => {
+	/** Like `mockOllamaFetch`, but the chat leg receives `init` so it can honour the abort signal. */
+	function mockOllamaWithSignal(
+		chat: (init: RequestInit) => Promise<Response>,
+		probe: (init: RequestInit) => Promise<Response> = async () =>
+			new Response(JSON.stringify({ version: '0.32.5' }), { status: 200 })
+	) {
+		return vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+			const url =
+				typeof input === 'string'
+					? input
+					: input instanceof URL
+						? input.href
+						: (input as Request).url;
+			const requestInit = (init ?? {}) as RequestInit;
+			return url.endsWith('/api/version') ? probe(requestInit) : chat(requestInit);
+		});
+	}
+
+	/** What a hung Ollama looks like: the socket is open and nothing ever comes back. */
+	const neverAnswers = (init: RequestInit) =>
+		new Promise<Response>((_resolve, reject) => {
+			const { signal } = init;
+			signal?.addEventListener('abort', () => reject(signal.reason));
+		});
+
+	const baseEnv = {
+		LLM_ENABLED: 'true',
+		LLM_PROVIDER: 'ollama',
+		LLM_BASE_URL: 'http://127.0.0.1:11434'
+	};
+
+	/** Structural parameter type: `ReturnType<typeof vi.spyOn>` drops the generics and lands on `any`. */
+	function chatCalls(fetchMock: { mock: { calls: unknown[][] } }): string[] {
+		return fetchMock.mock.calls
+			.map((call) => String(call[0]))
+			.filter((url) => url.endsWith('/api/chat'));
+	}
+
+	it('separates a refused base URL from an unreachable one: not_configured, and no socket at all', async () => {
+		expect.assertions(2);
+
+		const fetchMock = vi.spyOn(globalThis, 'fetch');
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', {
+				...baseEnv,
+				LLM_BASE_URL: 'http://autre-hote.example:11434'
+			});
+
+			// The distinction the card depends on: nothing was contacted, so "check that it is running"
+			// would be advice about a service this instance was never willing to call.
+			expect(result?.failureCode).toBe('not_configured');
+			expect(fetchMock).not.toHaveBeenCalled();
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	it('separates a stopped Ollama from a slow one: unreachable, bounded by the CONNECT budget', async () => {
+		expect.assertions(4);
+
+		// The probe hangs, which is what a stopped service behind a firewall looks like: no refusal,
+		// just silence. The generation budget is three orders of magnitude larger than the connect
+		// budget, so the two states this separates are "gave up at connect" and "waited on generation",
+		// and the elapsed time can only fall in one of them.
+		// `neverAnswers` on the PROBE leg, not a promise that ignores the signal. A mock that never
+		// settles and never listens for `abort` hangs past the runner's own limit and reports a
+		// timeout, which is a fact about the mock. Honouring the signal is also what makes this test
+		// assert something real: it fails if the connect budget never reaches the probe's fetch.
+		const fetchMock = mockOllamaWithSignal(
+			async () => new Response('{}', { status: 200 }),
+			neverAnswers
+		);
+		try {
+			const startedAt = Date.now();
+			const result = await requestLocalBudgetInsights('prompt agrégé', {
+				...baseEnv,
+				LLM_CONNECT_TIMEOUT_MS: '50',
+				LLM_TIMEOUT_MS: '30000'
+			});
+			const elapsedMs = Date.now() - startedAt;
+
+			expect(result?.failureCode).toBe('unreachable');
+			// The generation budget was never opened. This is the assertion that makes the fix a fix
+			// rather than a bigger number: a dead Ollama costs the connect budget, not 30 seconds.
+			expect(chatCalls(fetchMock)).toEqual([]);
+			expect(elapsedMs).toBeLessThan(5_000);
+			expect(elapsedMs).toBeGreaterThanOrEqual(50);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	it('separates a cold load from a stopped service: cold_start, because the probe already answered', async () => {
+		expect.assertions(2);
+
+		// Ollama accepted the connection and is loading the model into VRAM, which is exactly the
+		// reported bug: `499 after 10.285320802s`, "client connection closed before llama-server
+		// finished loading". The probe answers, the generation does not, and only the ORDER of those
+		// two facts distinguishes this from the test above. A real AbortSignal.timeout produces the
+		// abort, so this also asserts that the signal reaches the fetch at all.
+		const fetchMock = mockOllamaWithSignal(neverAnswers);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', {
+				...baseEnv,
+				LLM_CONNECT_TIMEOUT_MS: '5000',
+				LLM_TIMEOUT_MS: '50'
+			});
+
+			expect(result?.failureCode).toBe('cold_start');
+			expect(chatCalls(fetchMock)).toHaveLength(1);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	it('separates a missing model from an absent service: model_unavailable on a real 404', async () => {
+		expect.assertions(2);
+
+		// The Ollama client turns a 404 into its own ResponseError; nothing here fabricates one, so a
+		// client that stopped doing that would redden this rather than passing on a shape we invented.
+		const fetchMock = mockOllamaWithSignal(
+			async () =>
+				new Response(JSON.stringify({ error: 'model "qwen2.5:0.5b" not found' }), { status: 404 })
+		);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+
+			expect(result?.failureCode).toBe('model_unavailable');
+			expect(chatCalls(fetchMock)).toHaveLength(1);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	it('separates an unreadable answer from an absent one: response_unusable after a completed generation', async () => {
+		expect.assertions(2);
+
+		const fetchMock = mockOllamaWithSignal(
+			async () =>
+				new Response(JSON.stringify({ message: { content: 'ceci n’est pas du JSON' } }), {
+					status: 200
+				})
+		);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+
+			// The generation SUCCEEDED and the reading failed, which is the one state where telling the
+			// operator to check that Ollama is running points at a service that is working.
+			expect(result?.failureCode).toBe('response_unusable');
+			expect(chatCalls(fetchMock)).toHaveLength(1);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	it('reports response_unusable when the generation returns an EMPTY message rather than a bad one', async () => {
+		expect.assertions(2);
+
+		// A SECOND producer of the same code, and it exists because a break-check found the first test
+		// did not reach it: rewriting the `!content` branch to return `cold_start` left this file
+		// entirely green, so that branch was covered by nothing. Empty content and unparseable content
+		// travel different paths (`requestLocalBudgetInsights` versus `parseLocalLlmContent`) and only
+		// this fixture separates "the model said nothing" from "the model said something unreadable".
+		const fetchMock = mockOllamaWithSignal(
+			async () => new Response(JSON.stringify({ message: { content: '' } }), { status: 200 })
+		);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+
+			expect(result?.failureCode).toBe('response_unusable');
+			expect(chatCalls(fetchMock)).toHaveLength(1);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	it('separates a truncated answer from an unreadable one: response_truncated on done_reason length', async () => {
+		expect.assertions(2);
+
+		// THE STATE THAT ARRIVED BY ACCIDENT. Ollama returns 200 with a `done_reason` of "length" when
+		// the generation hits `num_predict`, and the JSON stops mid-object. `JSON.parse` fails exactly
+		// as it does on garbage, so the two were one code and one sentence until `done_reason` was read.
+		//
+		// The distinction is not cosmetic: truncation is OUR fault and means raise the ceiling, while an
+		// unreadable answer is the model's and means try a different one. The fixture is a real prefix
+		// of a valid response rather than random text, because that is what truncation produces.
+		const fetchMock = mockOllamaWithSignal(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: { content: '{"summary":"Vos dépenses","insights":[{"title":"Aliment' },
+						done_reason: 'length'
+					}),
+					{ status: 200 }
+				)
+		);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+
+			expect(result?.failureCode).toBe('response_truncated');
+			expect(chatCalls(fetchMock)).toHaveLength(1);
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	it('keeps response_unusable for the SAME broken JSON when the model stopped on its own', async () => {
+		expect.assertions(1);
+
+		// The other half, and the only assertion that proves the code is read from `done_reason` rather
+		// than from the parse failing. Byte-for-byte the same unparseable content as the test above;
+		// only `done_reason` differs. Without this pair, hardcoding either code passes one test.
+		const fetchMock = mockOllamaWithSignal(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: { content: '{"summary":"Vos dépenses","insights":[{"title":"Aliment' },
+						done_reason: 'stop'
+					}),
+					{ status: 200 }
+				)
+		);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+			expect(result?.failureCode).toBe('response_unusable');
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	it('strips markdown the model emitted, so the reader never sees the asterisks', async () => {
+		expect.assertions(3);
+
+		// The fifth producer, and the only one found by USING the feature rather than by reading a log.
+		// ministral emits « **35%** » into an insight; nothing in the schema or the prompt forbids it,
+		// so what renders depends on which model the operator pulled. Asserted through the whole
+		// reception path rather than on `stripMarkdown` alone, because the unit is already covered and
+		// what was missing is the WIRING: the strip existing and the strip being applied are different
+		// facts, and only this test separates them.
+		const fetchMock = mockOllamaWithSignal(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: {
+							content: JSON.stringify({
+								summary: 'Vos **dépenses** ont augmenté',
+								insights: [
+									{
+										title: '`Alimentation` en hausse',
+										message: 'Vous avez dépensé **35%** de plus quen juin.',
+										severity: 'warning',
+										category: 'spending'
+									}
+								]
+							})
+						},
+						done_reason: 'stop'
+					}),
+					{ status: 200 }
+				)
+		);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+
+			expect(result?.summary).toBe('Vos dépenses ont augmenté');
+			expect(result?.insights[0]?.title).toBe('Alimentation en hausse');
+			expect(result?.insights[0]?.message).toBe('Vous avez dépensé 35% de plus quen juin.');
+		} finally {
+			fetchMock.mockRestore();
+		}
+	});
+
+	it('sets no failure code on a successful generation, so the card cannot render a reason for a success', async () => {
+		expect.assertions(3);
+
+		const fetchMock = mockOllamaWithSignal(
+			async () =>
+				new Response(
+					JSON.stringify({
+						message: { content: JSON.stringify({ summary: 'ok', insights: [] }) }
+					}),
+					{ status: 200 }
+				)
+		);
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+
+			expect(result?.summary).toBe('ok');
+			expect(result?.unavailable).toBeUndefined();
+			expect(result?.failureCode).toBeUndefined();
+		} finally {
+			fetchMock.mockRestore();
+		}
 	});
 });

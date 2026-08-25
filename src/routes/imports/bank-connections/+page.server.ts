@@ -3,6 +3,9 @@ import { env } from '$env/dynamic/private';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { isBankSyncEnabled } from '$lib/server/banking/config';
+import { BANK_LIST_FALLBACK_CODE, type BankListFailureCode } from '$lib/domain/failureCodes';
+import { recogniseBankListFailure } from '$lib/server/banking/failures';
+import { failureCode } from '$lib/server/errors';
 import {
 	BankSyncError,
 	deleteBankConnection,
@@ -43,11 +46,18 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 	// Provider-supplied bank list for the connect form; unavailable ≠ empty (the form
 	// must not silently offer nothing when the provider call fails).
 	let banks: string[] | null = null;
+	// WHY there is no list, when there is none (#524). The bare `catch` this replaces discarded a
+	// classification the banking layer had already made, so a missing private key and a provider
+	// outage produced the same sentence telling the operator to try again later. `not_configured` is
+	// the one that sentence is simply false about: the other two may clear on their own, and it
+	// cannot, because nothing changes until the operator changes it.
+	let banksFailureCode: BankListFailureCode | null = null;
 	if (enabled) {
 		try {
 			banks = (await listBankAspsps(PROVIDER, country, { env })).map((bank) => bank.name);
-		} catch {
+		} catch (caught) {
 			banks = null;
+			banksFailureCode = failureCode(caught, recogniseBankListFailure, BANK_LIST_FALLBACK_CODE);
 		}
 	}
 
@@ -57,6 +67,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 		connections,
 		linkableNetWorthAccounts,
 		banks,
+		banksFailureCode,
 		connected: url.searchParams.get('connected') === '1',
 		errorMessage: mapCallbackError(url.searchParams.get('error'))
 	};

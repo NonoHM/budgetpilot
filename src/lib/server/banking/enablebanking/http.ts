@@ -1,6 +1,10 @@
 import { getBankProviderBaseUrl, isBankSyncEnabled } from '$lib/server/banking/config';
 import { fetchWithRedirectGuard } from '$lib/server/net/redirectGuard';
-import { createEnableBankingJwt, getEnableBankingCredentials } from './jwt';
+import {
+	createEnableBankingJwt,
+	EnableBankingConfigurationError,
+	getEnableBankingCredentials
+} from './jwt';
 
 /**
  * Gated HTTP client for the Enable Banking API. This is the ONLY code path allowed
@@ -58,7 +62,7 @@ export async function enableBankingRequest(
 
 	const credentials = getEnableBankingCredentials(env);
 	if (!credentials) {
-		throw new Error(
+		throw new EnableBankingConfigurationError(
 			'Enable Banking credentials are not configured: set ENABLE_BANKING_APP_ID plus ENABLE_BANKING_PRIVATE_KEY or ENABLE_BANKING_PRIVATE_KEY_PATH'
 		);
 	}

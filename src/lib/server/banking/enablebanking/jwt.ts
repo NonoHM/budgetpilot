@@ -19,6 +19,32 @@ const JWT_TTL_SECONDS = 3600;
 const JWT_ISSUER = 'enablebanking.com';
 const JWT_AUDIENCE = 'api.enablebanking.com';
 
+/**
+ * The provider credentials are absent, contradictory or unreadable: an OPERATOR configuration
+ * fault, not a provider or network one (#524).
+ *
+ * A distinct type rather than a plain `Error`, and the reason is what #524 measured: three call
+ * sites already threw messages naming exactly which variable to set and which paths were tried, and
+ * a bare `catch` in the route collapsed all of them into « La liste des banques est indisponible
+ * pour le moment. Réessayez plus tard. » Waiting fixes none of these, so the screen was telling the
+ * one person who could fix it to do the one thing that cannot.
+ *
+ * The `message` stays operator-facing and never reaches a user: `$lib/server/errors` recognises the
+ * TYPE and hands the interface a code, which the interface turns into its own sentence. That split
+ * is what lets the message keep naming the variable without leaking an English internal string into
+ * a French screen (#277).
+ *
+ * Carries no key material by construction: every site below passes a variable name or a path, and
+ * the module docstring's rule ("a file PATH may appear in errors; key CONTENT never does") is what
+ * bounds it.
+ */
+export class EnableBankingConfigurationError extends Error {
+	constructor(message: string) {
+		super(message);
+		this.name = 'EnableBankingConfigurationError';
+	}
+}
+
 export interface EnableBankingCredentialsConfig {
 	appId: string;
 	privateKeyPem: string;
@@ -40,7 +66,7 @@ export function getEnableBankingCredentials(
 	const keyPath = env.ENABLE_BANKING_PRIVATE_KEY_PATH?.trim();
 
 	if (inlineKey && keyPath) {
-		throw new Error(
+		throw new EnableBankingConfigurationError(
 			'Set either ENABLE_BANKING_PRIVATE_KEY or ENABLE_BANKING_PRIVATE_KEY_PATH, not both'
 		);
 	}
@@ -65,7 +91,7 @@ function readPrivateKeyFile(rawPath: string): string {
 		: [...new Set([resolve(process.cwd(), rawPath), resolve(resolveProjectRoot(), rawPath)])];
 	const found = candidates.find((candidate) => existsSync(candidate));
 	if (!found) {
-		throw new Error(
+		throw new EnableBankingConfigurationError(
 			`Enable Banking private key file not found (ENABLE_BANKING_PRIVATE_KEY_PATH); tried: ${candidates.join(', ')}`
 		);
 	}

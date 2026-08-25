@@ -5,12 +5,21 @@ import { requestLocalBudgetInsights } from './local-llm';
 import { buildBudgetInsightsPrompt } from './prompt';
 import { generateRuleInsights } from './rules';
 import { buildTransactionSummary } from './summary';
-import type { BudgetInsight, TransactionSummary } from './types';
+import type { BudgetInsight, LocalLlmFailureCode, TransactionSummary } from './types';
 
 export interface BudgetInsightsResult {
 	summary: TransactionSummary;
 	insights: BudgetInsight[];
 	localAiUnavailable: boolean;
+	/**
+	 * WHY the model produced nothing, carried alongside the boolean rather than replacing it (#524).
+	 *
+	 * Set exactly when `localAiUnavailable` is true. Kept as a separate field because the boolean is
+	 * what decides whether a card renders at all, and the code is what decides which sentence it
+	 * carries: collapsing them into one nullable field would make every reader of the first question
+	 * answer the second one too.
+	 */
+	localAiFailureCode?: LocalLlmFailureCode;
 }
 
 export async function getBudgetInsights(params: {
@@ -37,6 +46,7 @@ export async function getBudgetInsights(params: {
 	return {
 		summary: transactionSummary,
 		insights: [...ruleInsights, ...(llmResult?.insights ?? [])],
-		localAiUnavailable: llmResult?.unavailable === true
+		localAiUnavailable: llmResult?.unavailable === true,
+		...(llmResult?.failureCode ? { localAiFailureCode: llmResult.failureCode } : {})
 	};
 }

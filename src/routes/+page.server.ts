@@ -107,9 +107,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			})
 				.then((result) => ({
 					insights: result.insights.filter((item) => item.source === 'local-llm'),
-					unavailable: result.localAiUnavailable
+					unavailable: result.localAiUnavailable,
+					...(result.localAiFailureCode ? { failureCode: result.localAiFailureCode } : {})
 				}))
-				.catch(() => ({ insights: [], unavailable: true }))
+				// `unreachable` rather than a sixth code for "the promise itself rejected": nothing
+				// downstream of `getBudgetInsights` throws on a model failure (it returns a code), so
+				// reaching here means the call never completed, and that is what unreachable names.
+				.catch(() => ({ insights: [], unavailable: true, failureCode: 'unreachable' as const }))
 		: null;
 	// Computed once over the period's allocations, not per row: `recentTransactions` only ever
 	// looks up the first 10, but the map itself is built from the whole set exactly once.
