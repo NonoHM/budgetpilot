@@ -16,6 +16,13 @@
 #   3. an upstream statement declining it as a security issue.
 # A <no-dsa> or <postponed> tag fails the test even when the severity looks trivial.
 #
+# A FINDING THAT FAILS THIS TEST IS NOT HOMELESS. `.cve-acknowledged` is the sibling file for a
+# finding that IS a vulnerability and HAS been ruled on — it carries an id, an expiry and a
+# ruling reference, and it stops a daily duplicate issue without touching any gate. The two
+# answer different questions, and mixing them up is how a postponed CVE ends up silenced here:
+#   .trivyignore      is this a vulnerability at all?  (upstream declined it; it can never clear)
+#   .cve-acknowledged has a human already ruled on it?  (it is real, and the ruling expires)
+#
 # Everything below is glibc, all LOW, all triaged 2026-08-02 against
 # https://security-tracker.debian.org/tracker/source-package/glibc with installed
 # libc6 2.41-12+deb13u3 (identical to trixie's current version — nothing to pull).
