@@ -19,7 +19,7 @@
 # Node 24.18.0 in both, verified by running both images). better-sqlite3, bcrypt and Prisma's
 # schema-engine are native ELFs compiled in the builder stages and executed in the runtime one;
 # a base pair that drifted apart in glibc or in NODE_MODULE_VERSION would break them at boot.
-FROM node:24.18.0-trixie-slim@sha256:ae91dcc111a68c9d2d81ff2a17bda61be126426176fde6fe7d08ab13b7f50573 AS deps
+FROM node:26.6.0-trixie-slim@sha256:80f12a4030a00d8f78ebc4602bc3ef0f984932f498649b8ed3c0a740a6dff4a8 AS deps
 WORKDIR /app
 
 RUN apt-get update \
@@ -37,7 +37,7 @@ COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 
-FROM node:24.18.0-trixie-slim@sha256:ae91dcc111a68c9d2d81ff2a17bda61be126426176fde6fe7d08ab13b7f50573 AS builder
+FROM node:26.6.0-trixie-slim@sha256:80f12a4030a00d8f78ebc4602bc3ef0f984932f498649b8ed3c0a740a6dff4a8 AS builder
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
@@ -131,7 +131,7 @@ RUN npm run build
 RUN mkdir -p /out/data && chown 65532:65532 /out/data
 
 
-FROM node:24.18.0-trixie-slim@sha256:ae91dcc111a68c9d2d81ff2a17bda61be126426176fde6fe7d08ab13b7f50573 AS prod-deps
+FROM node:26.6.0-trixie-slim@sha256:80f12a4030a00d8f78ebc4602bc3ef0f984932f498649b8ed3c0a740a6dff4a8 AS prod-deps
 WORKDIR /app
 
 RUN apt-get update \
