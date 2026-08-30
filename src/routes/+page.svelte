@@ -3,7 +3,6 @@
 	import { labelledValue } from '$lib/domain/typography';
 	import { getTransactionKind } from '$lib/domain/transaction';
 	import type { TransactionNature } from '$lib/domain/transaction';
-	import type { PeriodKey } from '$lib/server/date-range';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import { navigating } from '$app/state';
@@ -15,10 +14,10 @@
 	import Avatar from '$lib/components/Avatar.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
-	import DateField from '$lib/components/ui/DateField.svelte';
+	import PeriodFilter from '$lib/components/ui/PeriodFilter.svelte';
+	import { REPORTING_PERIOD_PRESET_IDS, periodQueryOfRange } from '$lib/domain/periodPresets';
 	import { getInitials } from '$lib/domain/initials';
-	import { cardBase, inputBase, inputFilter } from '$lib/styles';
-	import Select from '$lib/components/ui/Select.svelte';
+	import { cardBase, inputBase } from '$lib/styles';
 	import Combobox from '$lib/components/ui/Combobox.svelte';
 	import BudgetStatusCard from '$lib/components/ui/BudgetStatusCard.svelte';
 	import GoalStatusCard from '$lib/components/ui/GoalStatusCard.svelte';
@@ -144,22 +143,6 @@
 	let manualTransactionCategory = $state('');
 	let createTransactionSubmitting = $state(false);
 	let analysisOpen = $state(false);
-	// FLAGGED during lint cleanup, not fixed here: the $effect below reads no reactive value, so
-	// under Svelte 5's dependency tracking it only runs once at mount and never again — after the
-	// user picks a period once, this permanently shadows `period.key` in `activePeriodKey` below,
-	// even if `data.period` later changes through a path other than this page's own selector (e.g.
-	// browser back/forward). A writable `$derived` (this lint rule's suggestion) would recompute
-	// from `period.key` on every dependency change and drop the local override automatically — the
-	// correct fix, but a real behavior change on a widely-used page, left for a dedicated
-	// follow-up rather than bundled into this lint-cleanup batch.
-	// eslint-disable-next-line svelte/prefer-writable-derived
-	let userSelectedPeriodKey = $state<PeriodKey | null>(null);
-	const activePeriodKey = $derived(userSelectedPeriodKey ?? period.key);
-
-	$effect(() => {
-		userSelectedPeriodKey = null;
-	});
-
 	$effect(() => {
 		if (form?.createTransactionSuccess) showManualModal = false;
 	});
@@ -168,9 +151,24 @@
 		if (!showManualModal) manualTransactionCategory = '';
 	});
 
-	function onPeriodChange(newValue: string) {
-		userSelectedPeriodKey = newValue as PeriodKey;
-		if (newValue !== 'custom') goto(resolve(`/?period=${newValue}` as `/?${string}`));
+	/**
+	 * Applying a range from the Periode panel.
+	 *
+	 * `periodQueryOfRange` rather than always writing `period=custom&from=...&to=...`: a range that
+	 * IS one of this screen's named periods has to be serialised under that name, because
+	 * `server/date-range.ts` derives `comparisonMonth` from the KEY and only for `this-month` and
+	 * `last-month`. Flattening every preset to a custom range would take the month-over-month
+	 * comparison off this page with nothing saying so. /reports uses the same function, and
+	 * `date-range.spec.ts` pins it against the server's own serialiser.
+	 */
+	function applyPeriod(range: { from: string; to: string }) {
+		const query = periodQueryOfRange(range, data.todayIso, REPORTING_PERIOD_PRESET_IDS);
+		goto(resolve(`/?${query}` as `/?${string}`));
+	}
+
+	/** Clearing goes back to the default period, which is what a dashboard with no `?period=` shows. */
+	function resetPeriod() {
+		goto(resolve('/'));
 	}
 
 	function isNeutralNature(nature: TransactionNature | undefined): boolean {
@@ -220,19 +218,45 @@
 
 		<div class="flex flex-col gap-3 lg:shrink-0 lg:items-end lg:gap-2">
 			<div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-2">
-				<!-- Period selector -->
-				<div class="w-full lg:w-auto">
-					<Select
-						value={period.key}
-						options={[
-							{ value: 'this-month', label: m.reports_period_this_month() },
-							{ value: 'last-month', label: m.reports_period_last_month() },
-							{ value: 'last-30-days', label: m.reports_period_last_30_days() },
-							{ value: 'last-90-days', label: m.reports_period_last_90_days() },
-							{ value: 'all-time', label: m.reports_period_all_time() },
-							{ value: 'custom', label: m.dashboard_period_custom() }
-						]}
-						onValueChange={onPeriodChange}
+				<!-- #547. The same Periode panel /transactions mounts, with this screen's own preset
+				     set passed as a prop. Before this it was a Select plus a revealed row of two text
+				     date boxes: the boxes worked, but there was no calendar anywhere, and the option
+				     list was written out here and twice more in reports/+page.svelte.
+
+				     Two mounts rather than one responsive mount, mirroring /transactions: `surface`
+				     decides the trigger height (46px on touch, 34px on desktop) and one mount cannot
+				     be both, so a single desktop mount would put a 34px target on a phone. -->
+				<div class="w-full lg:hidden">
+					<PeriodFilter
+						dimensionLabel={m.reports_period_label()}
+						from={period.fromDate}
+						to={period.toDate}
+						invalid={false}
+						locale={getLocale()}
+						todayIso={data.todayIso}
+						presets={REPORTING_PERIOD_PRESET_IDS}
+						allowCustomRung={false}
+						surface="mobile"
+						backLabel={m.common_close()}
+						clearAriaLabel={m.reports_period_reset_aria()}
+						onApply={applyPeriod}
+						onClear={resetPeriod}
+					/>
+				</div>
+				<div class="hidden lg:block lg:w-auto">
+					<PeriodFilter
+						dimensionLabel={m.reports_period_label()}
+						from={period.fromDate}
+						to={period.toDate}
+						invalid={false}
+						locale={getLocale()}
+						todayIso={data.todayIso}
+						presets={REPORTING_PERIOD_PRESET_IDS}
+						triggerSize="field"
+						allowCustomRung={true}
+						clearAriaLabel={m.reports_period_reset_aria()}
+						onApply={applyPeriod}
+						onClear={resetPeriod}
 					/>
 				</div>
 
@@ -261,32 +285,6 @@
 					</div>
 				{/if}
 			</div>
-
-			{#if activePeriodKey === 'custom'}
-				<div
-					class="w-full rounded-xl border border-zinc-200 bg-white p-3 lg:w-auto lg:rounded-none lg:border-0 lg:bg-transparent lg:p-0"
-				>
-					<form method="GET" class="flex flex-col gap-2 lg:flex-row lg:items-center">
-						<input type="hidden" name="period" value="custom" />
-						<DateField
-							class="{inputFilter} !bg-zinc-50 lg:!bg-white"
-							name="from"
-							ariaLabel={m.dashboard_date_from_aria()}
-							value={period.key === 'custom' ? period.fromDate : ''}
-							required
-						/>
-						<span class="hidden text-sm text-zinc-400 lg:inline" aria-hidden="true">→</span>
-						<DateField
-							class="{inputFilter} !bg-zinc-50 lg:!bg-white"
-							name="to"
-							ariaLabel={m.dashboard_date_to_aria()}
-							value={period.key === 'custom' ? period.toDate : ''}
-							required
-						/>
-						<Button type="submit" size="sm" class="w-full lg:w-auto">OK</Button>
-					</form>
-				</div>
-			{/if}
 		</div>
 	</div>
 

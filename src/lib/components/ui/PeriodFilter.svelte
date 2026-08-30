@@ -10,6 +10,7 @@
 	import BottomSheet from '../BottomSheet.svelte';
 	import { formatPeriodLabel, type PeriodCopy } from '$lib/domain/periodLabel';
 	import {
+		PERIOD_EPOCH_FLOOR,
 		PERIOD_PRESET_IDS,
 		matchPeriodPreset,
 		periodPresetRange,
@@ -50,6 +51,9 @@
 		invalid,
 		locale,
 		todayIso,
+		presets = PERIOD_PRESET_IDS,
+		backLabel = m.transactions_period_sheet_back(),
+		triggerSize = 'filter',
 		allowCustomRung = true,
 		surface = 'desktop',
 		clearAriaLabel,
@@ -64,6 +68,42 @@
 		/** The negotiated locale, not an arbitrary string — see RangeCalendar's prop for why. */
 		locale: (typeof locales)[number];
 		todayIso: string;
+		/**
+		 * Which presets the shortcut block offers. Defaults to the six /transactions ships with, so
+		 * that screen is unchanged by the widening.
+		 *
+		 * A prop rather than a constant because the dashboard and /reports carry a 90-day window and an
+		 * all-time period, and do not carry the quarter, the year or the twelve months. One
+		 * hardcoded list could serve only one of the two sets, and #495 refused to mount this
+		 * component at those sites for exactly that reason rather than replace their period model
+		 * as a side effect.
+		 *
+		 * The 102px layout budget is a ceiling on ANY set, not a fact about the first one written:
+		 * `periodPresets.spec.ts` holds both to six.
+		 */
+		presets?: readonly PeriodPresetId[];
+		/**
+		 * What the mobile sheet's way out is called. Defaults to "Filtres", which is correct on
+		 * /transactions, where this sheet is reached FROM the Filtres sheet and returns to it.
+		 *
+		 * A prop because the dashboard and /reports open the sheet straight from the page: there is
+		 * no Filtres sheet behind it, so the default names a screen that does not exist. The button
+		 * closes the sheet either way, which is why nothing could catch this except reading the word
+		 * on a 390 screenshot.
+		 */
+		backLabel?: string;
+		/**
+		 * How tall the desktop trigger draws, which is a fact about the ROW it sits in rather than
+		 * about this component.
+		 *
+		 * `filter` (34px, the default) is /transactions' filter bar, where every sibling is a 34px
+		 * chip. `field` (44px) is the dashboard and /reports header rows, where the siblings are
+		 * `size="field"` buttons and the Select this replaced was `h-11`; Button.svelte's own
+		 * comment names 44px "the primary-form-field template: Select".
+		 *
+		 * Ignored on `surface="mobile"`, which is already 44px for its own reason.
+		 */
+		triggerSize?: 'filter' | 'field';
 		/** The desktop-only "période personnalisée" rung: touch has no hover, so a Tooltip that rung
 		 *  relies on is not recoverable. The mobile caller passes `false`. */
 		allowCustomRung?: boolean;
@@ -197,7 +237,24 @@
 	const draftFrom = $derived(toIsoOrNull(draftFromDisplay));
 	const draftTo = $derived(toIsoOrNull(draftToDisplay));
 
-	const calendarValue = $derived<RangeCalendarRange>({ start: draftFrom, end: draftTo });
+	/**
+	 * What the GRID is told, which is not always what the fields say.
+	 *
+	 * An epoch floor is withheld. The all-time period has no start the reader picked, and passing 1970 as a
+	 * placed bound makes bits-ui move the month on screen to January 1970 through its own
+	 * `bind:placeholder` write-back. MEASURED rather than reasoned: with the floor passed through,
+	 * `reopeningMonthAnchor` correctly returned 2026-06-17 and the caption still read January
+	 * 1970, because the anchor rule and the library are two different writers of the same view
+	 * state and the library writes last.
+	 *
+	 * So the anchor rule alone could not fix it, and the fix is here rather than there. The Du field
+	 * still reads 01/01/1970: the field is what will be APPLIED and must stay honest. The grid draws
+	 * one bound instead of two, which is the truthful picture of a range with no chosen start.
+	 */
+	const calendarValue = $derived<RangeCalendarRange>({
+		start: draftFrom === PERIOD_EPOCH_FLOOR ? null : draftFrom,
+		end: draftTo
+	});
 
 	const anchorIso = $derived(
 		reopeningMonthAnchor({ from: draftFrom, to: draftTo, lastEdited, todayIso })
@@ -260,7 +317,13 @@
 		last30Days: m.transactions_period_preset_last_30_days,
 		thisQuarter: m.transactions_period_preset_this_quarter,
 		thisYear: m.transactions_period_preset_this_year,
-		last12Months: m.transactions_period_preset_last_12_months
+		last12Months: m.transactions_period_preset_last_12_months,
+		// The two set B ids reuse the keys the dashboard and /reports already render in their own
+		// period control, rather than adding a second pair saying the same words. A screen must not
+		// be able to name the same period one way in one place and another way elsewhere
+		// because a translator saw two keys.
+		last90Days: m.reports_period_last_90_days,
+		allTime: m.reports_period_all_time
 	};
 
 	function close({ restoreFocus }: { restoreFocus: boolean }): void {
@@ -277,7 +340,7 @@
 		draftToDisplay = isoToDisplay(to);
 		// Reopening restores the preset's armed state when the live range still IS that preset, so a
 		// panel closed on "Ce mois-ci" does not come back with nothing marked.
-		armedPreset = matchPeriodPreset({ from, to }, todayIso);
+		armedPreset = matchPeriodPreset({ from, to }, todayIso, presets);
 		// `lastEdited` is deliberately NOT cleared here. It is the whole input to 6E's single
 		// exception — "si la dernière chose écrite était « Au », la réouverture montre le mois de la
 		// fin" — and clearing it on open destroys that memory at the exact moment `anchorIso` is about
@@ -441,11 +504,16 @@
 	     fills the content box, not the border-box. `min-h-11` on the group is a FLOOR the border-box
 	     must clear, so the browser grows the box until the bordered total is 44 — the same mechanism
 	     already proven correct on the other two groups. The negative-margin trick is removed: it
-	     compensated for a too-short VISUAL row, and the row is no longer too short. -->
+	     compensated for a too-short VISUAL row, and the row is no longer too short.
+
+	     `triggerSize === 'field'` takes the same `min-h-11` branch on DESKTOP, for callers whose row
+	     is a row of 44px fields rather than of 34px chips. Same mechanism, same reason it has to be
+	     a floor rather than a fixed height. -->
 	{#snippet triggerGroup()}
 		<div
 			data-testid="period-trigger-group"
-			class="inline-flex items-stretch overflow-hidden rounded-xl border {surface === 'mobile'
+			class="inline-flex items-stretch overflow-hidden rounded-xl border {surface === 'mobile' ||
+			triggerSize === 'field'
 				? 'min-h-11'
 				: 'h-[34px]'} {isActive ? 'border-zinc-900 bg-white' : 'border-zinc-200 bg-white'}"
 		>
@@ -641,13 +709,14 @@
 				     Two fixed columns rather than a wrap: the design's preset block is budgeted at
 				     102px, which is exactly three 30px rows plus two 6px gaps. A wrap would let the
 				     block's height follow the label lengths and take the panel's total height with
-				     it. `PERIOD_PRESET_IDS` is asserted to hold exactly six for the same reason. -->
+				     it. Every set this can be mounted with is asserted to hold at most six, for the
+				     same reason. -->
 			<div
 				role="group"
 				aria-label={m.transactions_period_presets_label()}
 				class="grid grid-cols-2 gap-1.5"
 			>
-				{#each PERIOD_PRESET_IDS as id (id)}
+				{#each presets as id (id)}
 					<button
 						type="button"
 						aria-pressed={armedPreset === id}
@@ -792,7 +861,7 @@
 						stroke-linejoin="round"
 					/>
 				</svg>
-				{m.transactions_period_sheet_back()}
+				{backLabel}
 			</button>
 			<h2 class="text-base font-semibold text-zinc-900">{dimensionLabel}</h2>
 		</div>

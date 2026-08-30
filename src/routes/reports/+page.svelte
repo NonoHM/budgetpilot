@@ -13,10 +13,10 @@
 	import type { Takeaway } from '$lib/server/reports/monthly';
 	import type { PageData } from './$types';
 	import Button from '$lib/components/Button.svelte';
-	import Select from '$lib/components/ui/Select.svelte';
-	import DateField from '$lib/components/ui/DateField.svelte';
+	import PeriodFilter from '$lib/components/ui/PeriodFilter.svelte';
+	import { REPORTING_PERIOD_PRESET_IDS, periodQueryOfRange } from '$lib/domain/periodPresets';
 	import DonutChart, { type DonutSegment } from '$lib/components/ui/DonutChart.svelte';
-	import { cardBase, inputFilter } from '$lib/styles';
+	import { cardBase } from '$lib/styles';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import SplitBadge from '$lib/components/splits/SplitBadge.svelte';
 	import Tooltip from '$lib/components/ui/Tooltip.svelte';
@@ -25,8 +25,42 @@
 	import type { FlowCadence, FlowConfidenceTier } from '$lib/domain/forecast';
 	import * as m from '$lib/paraglide/messages';
 	import { formatPercent, labelledValue } from '$lib/domain/typography';
+	import { getLocale } from '$lib/paraglide/runtime';
+	import { goto } from '$app/navigation';
+	import { resolve } from '$app/paths';
 
 	let { data }: { data: PageData } = $props();
+
+	/**
+	 * Applying a range from the Periode panel. The same two functions the dashboard uses, so the two
+	 * screens cannot spell the same period differently; `date-range.spec.ts` pins the client
+	 * serialiser against the server's own for every preset in the set.
+	 */
+	function applyPeriod(range: { from: string; to: string }) {
+		const query = periodQueryOfRange(range, data.todayIso, REPORTING_PERIOD_PRESET_IDS);
+		goto(resolve(`/reports?${query}` as `/reports?${string}`));
+	}
+
+	/** Clearing goes back to the default period, which is what /reports with no `?period=` shows. */
+	function resetPeriod() {
+		goto(resolve('/reports'));
+	}
+
+	/**
+	 * Open whichever period panel is on screen. Both breakpoint chromes are in the DOM at all times,
+	 * so picking by `offsetParent` asks which one is actually rendered rather than re-deriving the
+	 * breakpoint here, where it would be a second copy of a number that lives in the class list.
+	 */
+	function openPeriodPanel() {
+		const panels = [...document.querySelectorAll<HTMLElement>('[data-period-panel]')];
+		const visible = panels.find((panel) => panel.offsetParent !== null) ?? panels[0];
+		// Deferred by one task, and the delay is the whole fix rather than a precaution. The panel
+		// closes itself on any window click landing outside it, so opening it from inside a click
+		// that is STILL BUBBLING opens and then immediately closes it: this CTA's own event reaches
+		// the window listener a moment after the programmatic click has set `open`. Measured as a
+		// panel that never appeared, with no error anywhere.
+		setTimeout(() => visible?.querySelector('button')?.click(), 0);
+	}
 	const report = $derived(data.report);
 	const period = $derived(data.period);
 	const cashFlowForecast = $derived(data.cashFlowForecast);
@@ -178,88 +212,56 @@
 					{m.reports_subtitle()}
 				</p>
 			</div>
-			<form class="hidden flex-wrap items-end gap-2 lg:flex" method="GET" id="period-form">
-				<div>
-					<p class="block text-sm font-medium text-zinc-600">{m.reports_period_label()}</p>
-					<div class="mt-1">
-						<Select
-							name="period"
-							value={period.key}
-							ariaLabel={m.reports_period_label()}
-							options={[
-								{ value: 'this-month', label: m.reports_period_this_month() },
-								{ value: 'last-month', label: m.reports_period_last_month() },
-								{ value: 'last-30-days', label: m.reports_period_last_30_days() },
-								{ value: 'last-90-days', label: m.reports_period_last_90_days() },
-								{ value: 'all-time', label: m.reports_period_all_time() },
-								{ value: 'custom', label: m.reports_period_custom() }
-							]}
-						/>
-					</div>
-				</div>
-				<div>
-					<label for="rpt-from" class="block text-sm font-medium text-zinc-600">
-						{m.reports_from_label()}
-					</label>
-					<DateField id="rpt-from" class="mt-1 {inputFilter}" name="from" value={period.fromDate} />
-				</div>
-				<div>
-					<label for="rpt-to" class="block text-sm font-medium text-zinc-600">
-						{m.reports_to_label()}
-					</label>
-					<DateField id="rpt-to" class="mt-1 {inputFilter}" name="to" value={period.toDate} />
-				</div>
-				<Button type="submit" size="field">{m.reports_submit()}</Button>
-			</form>
+			<!-- #547. The same Periode panel /transactions mounts, with this screen's preset set
+			     passed as a prop. It replaces a Select plus two text date boxes plus a submit: the
+			     boxes worked, but no calendar was reachable anywhere on this route, and the option
+			     list was written out here and again in the mobile chrome below.
+
+			     No `method="GET"` form any more. The panel applies through `goto`, and
+			     `periodQueryOfRange` decides whether the URL carries a named period or a custom
+			     pair, so a preset keeps its name and its comparisonMonth. -->
+			<div class="hidden items-end gap-2 lg:flex" data-period-panel>
+				<PeriodFilter
+					dimensionLabel={m.reports_period_label()}
+					from={period.fromDate}
+					to={period.toDate}
+					invalid={false}
+					locale={getLocale()}
+					todayIso={data.todayIso}
+					presets={REPORTING_PERIOD_PRESET_IDS}
+					triggerSize="field"
+					allowCustomRung={true}
+					clearAriaLabel={m.reports_period_reset_aria()}
+					onApply={applyPeriod}
+					onClear={resetPeriod}
+				/>
+			</div>
 		</div>
 
 		<!-- 1 · SÉLECTEUR DE PÉRIODE (mobile) -->
-		<form class="space-y-4 {cardBase} p-5 lg:hidden" method="GET" id="period-form-mobile">
-			<div>
-				<p class="block text-sm font-medium text-zinc-600">{m.reports_period_label()}</p>
-				<div class="mt-1.5">
-					<Select
-						name="period"
-						value={period.key}
-						ariaLabel={m.reports_period_label()}
-						class="!bg-zinc-50"
-						options={[
-							{ value: 'this-month', label: m.reports_period_this_month() },
-							{ value: 'last-month', label: m.reports_period_last_month() },
-							{ value: 'last-30-days', label: m.reports_period_last_30_days() },
-							{ value: 'last-90-days', label: m.reports_period_last_90_days() },
-							{ value: 'all-time', label: m.reports_period_all_time() },
-							{ value: 'custom', label: m.reports_period_custom() }
-						]}
-					/>
-				</div>
-			</div>
-			<div>
-				<label for="rpt-from-mobile" class="block text-sm font-medium text-zinc-600">
-					{m.reports_from_label()}
-				</label>
-				<DateField
-					id="rpt-from-mobile"
-					class="mt-1.5 w-full {inputFilter} !bg-zinc-50"
-					name="from"
-					value={period.fromDate}
+		<!-- Same component, `surface="mobile"` and `allowCustomRung={false}`: the custom rung relies
+		     on a Tooltip and touch has no hover to open one, so the mobile ladder stops one rung
+		     earlier. Same choice /transactions made for the same reason. -->
+		<div class="{cardBase} p-5 lg:hidden">
+			<p class="block text-sm font-medium text-zinc-600">{m.reports_period_label()}</p>
+			<div class="mt-1.5" data-period-panel>
+				<PeriodFilter
+					dimensionLabel={m.reports_period_label()}
+					from={period.fromDate}
+					to={period.toDate}
+					invalid={false}
+					locale={getLocale()}
+					todayIso={data.todayIso}
+					presets={REPORTING_PERIOD_PRESET_IDS}
+					allowCustomRung={false}
+					surface="mobile"
+					backLabel={m.common_close()}
+					clearAriaLabel={m.reports_period_reset_aria()}
+					onApply={applyPeriod}
+					onClear={resetPeriod}
 				/>
 			</div>
-			<div>
-				<label for="rpt-to-mobile" class="block text-sm font-medium text-zinc-600">
-					{m.reports_to_label()}
-				</label>
-				<DateField
-					id="rpt-to-mobile"
-					class="mt-1.5 w-full {inputFilter} !bg-zinc-50"
-					name="to"
-					value={period.toDate}
-				/>
-			</div>
-			<Button type="submit" class="!flex h-11 w-full items-center justify-center"
-				>{m.reports_submit()}</Button
-			>
-		</form>
+		</div>
 
 		<!-- KPI STRIP (desktop) -->
 		<div
@@ -466,12 +468,14 @@
 					<Button href="/imports" class="w-full sm:w-auto">
 						{m.reports_empty_import_cta()}
 					</Button>
-					<Button
-						class="w-full sm:w-auto"
-						variant="secondary"
-						form="period-form-mobile"
-						type="submit">{m.reports_empty_change_period_cta()}</Button
-					>
+					<!-- Used to be `form="period-form-mobile"` with `type="submit"`, which resubmitted
+					     the period form. That form is gone with #547, so this opens the period panel
+					     instead: BOTH panels are in the DOM at every width and only one is visible, so
+					     the visible one is the one to open. Checking `offsetParent` rather than the
+					     viewport width keeps this correct if the breakpoint ever moves. -->
+					<Button class="w-full sm:w-auto" variant="secondary" onclick={openPeriodPanel}>
+						{m.reports_empty_change_period_cta()}
+					</Button>
 				</div>
 			{/snippet}
 			<EmptyState

@@ -4,6 +4,7 @@ import { render } from 'vitest-browser-svelte';
 import { createRawSnippet } from 'svelte';
 import '../../../routes/layout.css';
 import PeriodFilter from './PeriodFilter.svelte';
+import { REPORTING_PERIOD_PRESET_IDS } from '$lib/domain/periodPresets';
 
 /**
  * PeriodFilter — the Période dimension of the /transactions filter bar.
@@ -909,5 +910,145 @@ describe('6M — the keyboard-open budget, measured rather than deduced', () => 
 			Math.round(apply.getBoundingClientRect().top)
 		);
 		expect(fieldBox.top).toBeGreaterThanOrEqual(0);
+	});
+});
+
+describe("PeriodFilter — the preset set is the caller's", () => {
+	/**
+	 * #547. The dashboard and /reports carry a 90-day window and an all-time period, which
+	 * /transactions does not, and /transactions carries a quarter, a year and twelve months, which
+	 * they do not. One hardcoded list could serve only one of the two, which is why #495 refused to
+	 * mount this component at those sites rather than silently replacing their period model.
+	 */
+	it('renders the set it was given, and none of the set it was not', async () => {
+		expect.assertions(2);
+		// Separates "presets are a prop" from "presets are the module constant". Under the second
+		// this renders six buttons whatever is passed, so the absence assertion is what carries it:
+		// a set that merely APPENDED would still contain the quarter preset.
+		render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS }));
+
+		await userEvent.click(page.getByRole('button', { name: 'Période' }));
+		const group = page.getByRole('group', { name: 'Raccourcis' }).element() as HTMLElement;
+		const labels = [...group.querySelectorAll('button')].map((b) => b.textContent?.trim());
+
+		expect(labels).toEqual([
+			'Ce mois-ci',
+			'Le mois dernier',
+			'30 derniers jours',
+			'90 derniers jours',
+			'Toujours'
+		]);
+		expect(labels).not.toContain('Ce trimestre');
+	});
+
+	it('still renders the six /transactions presets when no set is given', async () => {
+		expect.assertions(1);
+		// The control, and the reason the widening is safe: /transactions passes no `presets`, so
+		// this separates "the default is untouched" from "every caller now gets the new set".
+		render(PeriodFilter, base());
+
+		await userEvent.click(page.getByRole('button', { name: 'Période' }));
+		const group = page.getByRole('group', { name: 'Raccourcis' }).element() as HTMLElement;
+
+		expect([...group.querySelectorAll('button')].map((b) => b.textContent?.trim())).toEqual([
+			'Ce mois-ci',
+			'Le mois dernier',
+			'30 derniers jours',
+			'Ce trimestre',
+			'Cette année',
+			'12 derniers mois'
+		]);
+	});
+
+	// The gap a break-check found: with the set dropped from the `matchPeriodPreset` call, every
+	// other test here still passed, because they all arm a preset by CLICKING it and arming does not
+	// go through matching. Only reopening does. Split into two tests so each renders one component:
+	// an active trigger takes the range into its accessible name, so two live panels make every
+	// selector ambiguous.
+	const NINETY_DAYS = { from: '2026-03-20', to: '2026-06-17' };
+
+	it('reopening lights the preset the mounted set contains', async () => {
+		expect.assertions(1);
+		// Separates "a panel reopened on a period chosen by name comes back with that name marked"
+		// from "it comes back blank, reading as a hand-typed range".
+		render(PeriodFilter, base({ ...NINETY_DAYS, presets: REPORTING_PERIOD_PRESET_IDS }));
+
+		await userEvent.click(page.getByRole('button', { name: /^Période/ }));
+
+		expect(
+			page.getByRole('button', { name: '90 derniers jours' }).element().getAttribute('aria-pressed')
+		).toBe('true');
+	});
+
+	it('reopening lights nothing when the mounted set does not contain that period', async () => {
+		expect.assertions(1);
+		// The control for the test above, and the half that makes it mean something: the same range
+		// under the default set, where last90Days is not a member, must light nothing. Without it,
+		// an implementation that lights a row whatever the set would pass the first test.
+		render(PeriodFilter, base({ ...NINETY_DAYS }));
+
+		await userEvent.click(page.getByRole('button', { name: /^Période/ }));
+		const group = page.getByRole('group', { name: 'Raccourcis' }).element() as HTMLElement;
+
+		expect(
+			[...group.querySelectorAll('button')].filter((b) => b.getAttribute('aria-pressed') === 'true')
+		).toHaveLength(0);
+	});
+
+	it('can draw at field height for a row of fields, and stays at filter height by default', async () => {
+		expect.assertions(2);
+		await page.viewport(1280, 900);
+		// Measured, not read off a class string, because the group's own 1px border is exactly what
+		// makes a fixed `h-11` come out at 42 rather than 44 (see the trigger's comment).
+		//
+		// Separates "the trigger matches the height of the row it is in" from "every desktop mount
+		// is 34px". On /transactions the row is 34px filter chips and 34 is right. On the dashboard
+		// the row is 44px `size="field"` buttons, where the Select this replaced was h-11, and a
+		// 34px control there is visibly short of its neighbours.
+		render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS, triggerSize: 'field' }));
+		expect(page.getByTestId('period-trigger-group').element().getBoundingClientRect().height).toBe(
+			44
+		);
+
+		render(PeriodFilter, base());
+		expect(
+			page.getByTestId('period-trigger-group').last().element().getBoundingClientRect().height
+		).toBe(34);
+	});
+
+	it('names the way out after the screen it actually returns to', async () => {
+		expect.assertions(2);
+		await page.viewport(390, 844);
+		// Found on a screenshot, not by any assertion above. The sheet's back button CLOSES the
+		// sheet, so it always works; its label is what can be wrong. On /transactions the sheet is
+		// reached from the Filtres sheet and "Filtres" is where it returns. On the dashboard and
+		// /reports there is no Filtres sheet, and the same word names a screen that does not exist.
+		//
+		// Separates "the way out names where it goes" from "it names /transactions' parent on every
+		// screen". Both render an identical control that does an identical thing, so only the word
+		// tells them apart.
+		render(
+			PeriodFilter,
+			base({ presets: REPORTING_PERIOD_PRESET_IDS, surface: 'mobile', backLabel: 'Fermer' })
+		);
+
+		await userEvent.click(page.getByRole('button', { name: 'Période' }));
+
+		await expect.element(page.getByRole('button', { name: 'Fermer' })).toBeInTheDocument();
+		expect(page.getByRole('button', { name: 'Filtres' }).elements().length).toBe(0);
+	});
+
+	it('arming the all-time preset writes the epoch floor and opens the grid on today, not 1970', async () => {
+		expect.assertions(2);
+		// Separates "an unbounded start is shown as unbounded" from "the reader is dropped in
+		// January 1970 and has to walk back". Both states fill the Du field identically, so the
+		// caption is the only thing that tells them apart.
+		render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS }));
+
+		await userEvent.click(page.getByRole('button', { name: 'Période' }));
+		await userEvent.click(page.getByRole('button', { name: 'Toujours' }));
+
+		expect((page.getByLabelText('Du').element() as HTMLInputElement).value).toBe('01/01/1970');
+		expect(page.getByTestId('rc-month-caption').element().textContent).toContain('juin 2026');
 	});
 });

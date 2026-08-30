@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { parseCustomDateRange, parseDateRange } from './date-range';
+import { parseCustomDateRange, parseDateRange, serializePeriodParams } from './date-range';
+import {
+	REPORTING_PERIOD_PRESET_IDS,
+	periodKeyOfPreset,
+	periodPresetRange,
+	periodQueryOfRange
+} from '$lib/domain/periodPresets';
 
 const now = new Date('2026-06-25T10:00:00.000Z');
 
@@ -130,4 +136,66 @@ describe('parseCustomDateRange — hostile and shape-valid-but-impossible input'
 		expect(range.fromDate).toBe('2026-06-01');
 		expect(range.toDate).toBe('2026-06-30');
 	});
+});
+
+describe('the preset block and the period keys name the same ranges', () => {
+	/**
+	 * The one test that stops the two halves of #547 drifting apart, and it is written as a
+	 * COMPARISON OF TWO REAL FUNCTIONS rather than against a table of dates typed here: a table
+	 * would be a third source, and the two sides would be free to agree with it and not with each
+	 * other.
+	 *
+	 * It separates "a preset button writes the range its period key resolves to" from "the button
+	 * writes a range that merely looks right". The second is invisible on screen, because both
+	 * produce a filled panel and a plausible label, and it shows up only as figures computed over
+	 * the wrong days.
+	 *
+	 * `toDate` rather than `to`: `buildRange` stores the exclusive bound in `to` and the inclusive
+	 * one in `toDate`, and the preset module speaks inclusive throughout.
+	 */
+	const todayIso = now.toISOString().slice(0, 10);
+
+	for (const id of REPORTING_PERIOD_PRESET_IDS) {
+		const key = periodKeyOfPreset(id);
+
+		it(`${id} writes the same range as ?period=${key}`, () => {
+			expect.assertions(3);
+			expect(key).not.toBeNull();
+
+			const fromTheKey = parseDateRange(new URLSearchParams(`period=${key}`), now);
+			const fromThePreset = periodPresetRange(id, todayIso);
+
+			expect(fromThePreset.from).toBe(fromTheKey.fromDate);
+			expect(fromThePreset.to).toBe(fromTheKey.toDate);
+		});
+	}
+});
+
+describe('the client serialiser and the server serialiser agree', () => {
+	/**
+	 * `periodQueryOfRange` runs in the browser when a preset is applied; `serializePeriodParams`
+	 * runs on the server to rebuild the current period's query for links on the page. If they
+	 * disagree, a period applied from the panel and the same period linked from the page point at
+	 * different URLs, and only one of them carries `comparisonMonth`.
+	 *
+	 * Compared as two REAL functions rather than against a table of expected strings, so neither is
+	 * free to agree with a third source and not with the other.
+	 *
+	 * Separates "the two spellings of a period are the same string" from "they differ by a param
+	 * that only one screen sends".
+	 */
+	const todayIso = now.toISOString().slice(0, 10);
+
+	for (const id of REPORTING_PERIOD_PRESET_IDS) {
+		it(`${id} serialises the same on both sides`, () => {
+			expect.assertions(1);
+			const fromTheServer = serializePeriodParams(
+				parseDateRange(new URLSearchParams(`period=${periodKeyOfPreset(id)}`), now)
+			);
+
+			expect(
+				periodQueryOfRange(periodPresetRange(id, todayIso), todayIso, REPORTING_PERIOD_PRESET_IDS)
+			).toBe(fromTheServer);
+		});
+	}
 });

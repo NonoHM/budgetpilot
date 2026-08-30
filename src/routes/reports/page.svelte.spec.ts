@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { render } from 'vitest-browser-svelte';
-import { page } from 'vitest/browser';
+import { page, userEvent } from 'vitest/browser';
 import '../layout.css';
 import type { MonthlyReport } from '$lib/server/reports/monthly';
 import * as m from '$lib/paraglide/messages';
+import { isoToDisplay } from '$lib/domain/dateField';
 import { formatCents } from '$lib/domain/budget';
 import Page from './+page.svelte';
 import type { PageData } from './$types';
@@ -63,6 +64,7 @@ function buildReport(): MonthlyReport {
 
 function buildData(emptyState: PageData['cashFlowForecast']['emptyState']): PageData {
 	return {
+		todayIso: '2026-06-17',
 		user: { email: 'user@example.com', role: 'USER' },
 		month: PERIOD.budgetMonth,
 		period: PERIOD,
@@ -482,7 +484,32 @@ describe('/reports recurring payments — two streams that display identically (
  * reader's en-US browser, which is precisely the defect. The attribute is the only observation that
  * separates the two states on any one machine.
  */
-describe('/rapports — the period form uses the app’s own date field', () => {
+describe('/reports — the period control uses the app’s own date field', () => {
+	/**
+	 * The visible chrome's period panel, opened. #547 replaced the two `method="GET"` forms with the
+	 * Periode popover, so there is no form to read and the panel is the scope.
+	 *
+	 * BOTH breakpoint trees are in the DOM at every width (#209), and only one is displayed, so this
+	 * picks by `offsetParent`. An unscoped query returns the hidden chrome's trigger first and a
+	 * click on it waits for ever. It throws rather than returning null, so a page rendering no
+	 * period control fails here instead of reporting zero native pickers over a control that is not
+	 * there.
+	 */
+	async function openVisiblePeriodPanel(container: HTMLElement): Promise<HTMLElement> {
+		const triggers = [
+			...container.querySelectorAll<HTMLButtonElement>(
+				'[data-testid="period-trigger-group"] button'
+			)
+		];
+		const trigger = triggers.find((button) => button.offsetParent !== null);
+		if (!trigger) throw new Error(`no VISIBLE period trigger among ${triggers.length} in the DOM`);
+		await userEvent.click(trigger);
+		const panels = [...container.querySelectorAll<HTMLElement>('[role="dialog"]')];
+		const panel = panels.find((node) => node.offsetParent !== null);
+		if (!panel) throw new Error(`no VISIBLE period panel among ${panels.length} in the DOM`);
+		return panel;
+	}
+
 	it('carries no native date picker, at either width', async () => {
 		expect.assertions(4);
 
@@ -492,29 +519,40 @@ describe('/rapports — the period form uses the app’s own date field', () => 
 		] as const) {
 			await page.viewport(width, height);
 			const screen = render(Page, { data: buildData(null) });
+			const panel = await openVisiblePeriodPanel(screen.container as HTMLElement);
 
-			expect(screen.container.querySelectorAll('input[type="date"]')).toHaveLength(0);
-			// The positive half. Both breakpoint trees are in the DOM at every width (see #209), so
-			// this counts four: two fields on the desktop form, two on the mobile one. An assertion
-			// that only forbade the native input would pass on a page that rendered no period form
-			// at all.
-			expect(
-				screen.container.querySelectorAll('input[type="text"][inputmode="numeric"]')
-			).toHaveLength(4);
+			expect(panel.querySelectorAll('input[type="date"]')).toHaveLength(0);
+			// The positive half. Scoped to the OPEN panel rather than to the container, so this
+			// counts the two fields of the chrome actually on screen. An assertion that only forbade
+			// the native input would pass on a page that rendered no period control at all, which is
+			// why `openVisiblePeriodPanel` throws.
+			expect(panel.querySelectorAll('input[type="text"][inputmode="numeric"]')).toHaveLength(2);
 		}
 	});
 
-	it('submits ISO under from and to, whatever the reader sees', async () => {
-		expect.assertions(2);
-		await page.viewport(1280, 900);
+	it('opens on the period the page is showing, at either width', async () => {
+		expect.assertions(4);
+		// Replaces "submits ISO under from and to". There is no form and no hidden ISO input any
+		// more: the panel navigates through `periodQueryOfRange`, pinned as a pure function in
+		// periodPresets.spec.ts, against the server's own serialiser in date-range.spec.ts, and end
+		// to end in e2e/period-filter-adoption.spec.ts.
+		//
+		// What survives at THIS level is what none of those can see: that each chrome is fed this
+		// page's current period. It separates "the control shows the period the page is on" from "it
+		// opens blank", which look identical until the reader applies and silently moves the period.
+		for (const [width, height] of [
+			[1280, 900],
+			[390, 844]
+		] as const) {
+			await page.viewport(width, height);
+			const screen = render(Page, { data: buildData(null) });
+			const panel = await openVisiblePeriodPanel(screen.container as HTMLElement);
+			const fields = [
+				...panel.querySelectorAll<HTMLInputElement>('input[type="text"][inputmode="numeric"]')
+			];
 
-		const screen = render(Page, { data: buildData(null) });
-
-		// The server parses ISO (`parseDateRange`). What the reader edits is text in jj/mm/aaaa; what
-		// the form sends is these. Both breakpoint trees render, hence two of each.
-		const from = [...screen.container.querySelectorAll('input[name="from"]')] as HTMLInputElement[];
-		const to = [...screen.container.querySelectorAll('input[name="to"]')] as HTMLInputElement[];
-		expect(from.map((node) => node.value)).toEqual([PERIOD.fromDate, PERIOD.fromDate]);
-		expect(to.map((node) => node.value)).toEqual([PERIOD.toDate, PERIOD.toDate]);
+			expect(fields[0].value).toBe(isoToDisplay(PERIOD.fromDate));
+			expect(fields[1].value).toBe(isoToDisplay(PERIOD.toDate));
+		}
 	});
 });

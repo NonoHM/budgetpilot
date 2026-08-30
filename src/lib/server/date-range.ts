@@ -1,8 +1,13 @@
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
+import type { PeriodKey } from '$lib/domain/periodPresets';
 
-export type PeriodKey =
-	'this-month' | 'last-month' | 'last-30-days' | 'last-90-days' | 'all-time' | 'custom';
+/**
+ * Re-exported rather than declared, so this parser and the Période panel's preset block cannot
+ * name different sets of periods. The list lives in `domain/periodPresets.ts`, which imports
+ * nothing and is therefore reachable from the client half too.
+ */
+export type { PeriodKey };
 
 export interface DateRange {
 	key: PeriodKey;

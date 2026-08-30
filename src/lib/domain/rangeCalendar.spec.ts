@@ -10,6 +10,7 @@ import {
 	reopeningMonthAnchor,
 	type RangeCalendarCopy
 } from './rangeCalendar';
+import { PERIOD_EPOCH_FLOOR } from './periodPresets';
 
 /** Deliberately not the app's real messages: these assert SHAPE, not French. */
 const copy: RangeCalendarCopy = {
@@ -170,6 +171,31 @@ describe('reopeningMonthAnchor', () => {
 		expect(
 			reopeningMonthAnchor({ from: '2026-03-03', to: '2026-06-12', lastEdited: 'from', todayIso })
 		).toBe('2026-03-03');
+	});
+
+	it('opens on the end month when the range starts at the epoch floor', () => {
+		// The all-time period has no chosen start: `?period=all-time` resolves to the epoch, so anchoring
+		// on the start would open the grid on January 1970 and make the reader walk back fifty-six
+		// years to reach a date they can use.
+		//
+		// Separates "an unbounded start is treated as absent" from "it is treated as a date the
+		// reader picked". Both render a calendar, so only the caption tells them apart.
+		expect(
+			reopeningMonthAnchor({
+				from: PERIOD_EPOCH_FLOOR,
+				to: '2026-06-12',
+				lastEdited: null,
+				todayIso
+			})
+		).toBe('2026-06-12');
+	});
+
+	it('falls back to today when the range is nothing but an epoch floor', () => {
+		// Separates "the floor is skipped and the normal fallback chain continues" from "the floor
+		// is skipped straight to the end, which is not there either".
+		expect(
+			reopeningMonthAnchor({ from: PERIOD_EPOCH_FLOOR, to: '', lastEdited: null, todayIso })
+		).toBe(todayIso);
 	});
 
 	it('opens on the end month when the end was the last thing written', () => {

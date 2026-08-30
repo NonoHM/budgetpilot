@@ -118,6 +118,7 @@ function buildData(
 	} = overrides;
 
 	return {
+		todayIso: '2026-06-17',
 		user: { email: 'user@example.com', role: 'USER' } as PageData['user'],
 		categoryOptions: [],
 		month: '2026-07',
@@ -655,12 +656,27 @@ describe('/ dashboard — the custom period form uses the app’s own date field
 		budgetMonth: '2026-07'
 	} as PageData['period'];
 
-	/** The one form carrying `period=custom`, so nothing else on the page can answer for it. */
-	function periodForm(container: HTMLElement): HTMLFormElement {
-		const hidden = container.querySelector('input[name="period"][value="custom"]');
-		const form = hidden?.closest('form');
-		if (!form) throw new Error('the custom period form did not render');
-		return form as HTMLFormElement;
+	/**
+	 * The panel that answers for the period, opened. #547 replaced the revealed `method="GET"` row
+	 * with the Periode popover, so there is no form to scope to any more and the panel is the scope.
+	 * It throws rather than returning null, so a page that renders no period control fails here
+	 * instead of reporting zero native pickers over a control that is not there.
+	 */
+	async function openPeriodPanel(container: HTMLElement): Promise<HTMLElement> {
+		// BOTH breakpoint chromes are in the DOM at every width and only one is displayed, so an
+		// unscoped query returns the hidden one first and the click waits for ever on it. Same shape
+		// as the /import capture that counted ten tiles for a five-tile grid.
+		const triggers = [
+			...container.querySelectorAll<HTMLButtonElement>(
+				'[data-testid="period-trigger-group"] button'
+			)
+		];
+		const trigger = triggers.find((button) => button.offsetParent !== null);
+		if (!trigger) throw new Error(`no VISIBLE period trigger among ${triggers.length} in the DOM`);
+		await userEvent.click(trigger);
+		const panel = container.querySelector<HTMLElement>('[role="dialog"]');
+		if (!panel) throw new Error('the period panel did not open');
+		return panel;
 	}
 
 	it('carries no native date picker, and does carry the app’s two fields', async () => {
@@ -668,22 +684,33 @@ describe('/ dashboard — the custom period form uses the app’s own date field
 		await page.viewport(1280, 900);
 
 		const screen = render(Page, { data: buildData({ period: CUSTOM_PERIOD }), form: null });
-		const form = periodForm(screen.container as HTMLElement);
+		const panel = await openPeriodPanel(screen.container as HTMLElement);
 
-		expect(form.querySelectorAll('input[type="date"]')).toHaveLength(0);
-		// The positive half: `periodForm` already throws if the form is absent, and this pins that
-		// the two fields inside it are the app's own rather than merely not-native.
-		expect(form.querySelectorAll('input[type="text"][inputmode="numeric"]')).toHaveLength(2);
+		expect(panel.querySelectorAll('input[type="date"]')).toHaveLength(0);
+		// The positive half: `openPeriodPanel` already throws if the control is absent, and this pins
+		// that the two fields inside it are the app's own rather than merely not-native.
+		expect(panel.querySelectorAll('input[type="text"][inputmode="numeric"]')).toHaveLength(2);
 	});
 
-	it('submits ISO under from and to', async () => {
+	it('opens on the period the page is showing, written in the app’s own grammar', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 900);
-
+		// Replaces "submits ISO under from and to". There is no form and no hidden ISO input any
+		// more: the panel navigates through `periodQueryOfRange`, whose output is pinned as a pure
+		// function in periodPresets.spec.ts and against the server's own serialiser in
+		// date-range.spec.ts, and end to end in e2e/period-filter-adoption.spec.ts.
+		//
+		// What survives AT THIS LEVEL is the half neither of those can see: that the panel is fed
+		// this page's current period rather than a default or an empty pair. It separates "the
+		// control shows the period the page is on" from "it opens blank", which look identical until
+		// the reader applies and silently moves the period.
 		const screen = render(Page, { data: buildData({ period: CUSTOM_PERIOD }), form: null });
-		const form = periodForm(screen.container as HTMLElement);
+		const panel = await openPeriodPanel(screen.container as HTMLElement);
+		const fields = [
+			...panel.querySelectorAll<HTMLInputElement>('input[type="text"][inputmode="numeric"]')
+		];
 
-		expect((form.querySelector('input[name="from"]') as HTMLInputElement).value).toBe('2026-07-01');
-		expect((form.querySelector('input[name="to"]') as HTMLInputElement).value).toBe('2026-07-15');
+		expect(fields[0].value).toBe('01/07/2026');
+		expect(fields[1].value).toBe('15/07/2026');
 	});
 });

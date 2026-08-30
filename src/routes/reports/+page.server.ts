@@ -46,6 +46,10 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			: undefined;
 
 	return {
+		// The Periode panel's presets are a pure function of "today", which is a parameter rather
+		// than a clock read inside the preset module: a preset that read the wall clock could not be
+		// tested at a boundary. /transactions resolves it the same way, in its own load.
+		todayIso: new Date().toISOString().slice(0, 10),
 		month: period.budgetMonth,
 		period,
 		periodQuery: serializePeriodParams(period),
