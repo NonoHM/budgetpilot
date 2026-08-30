@@ -93,3 +93,62 @@ test('/reports: the empty-state CTA opens the period panel', async ({ page }) =>
 
 	await expect(page.locator('[role="grid"]').locator('visible=true')).toHaveCount(1);
 });
+
+/**
+ * THE ARRIVAL DEFAULT: what period a route shows when it is entered having chosen nothing.
+ *
+ * Nothing asserted this before. `date-range.spec.ts` pins that `parseDateRange` returns this-month
+ * for empty params, and both page specs hardcode `key: 'this-month'` in their FIXTURES, which
+ * assumes the answer rather than checking it. Neither can see a route that arrives somewhere else.
+ *
+ * It is the one property a preset swap can break in silence. The panel is handed `from`/`to` and
+ * could, through an effect or an armed default, navigate on mount and impose a period of its own:
+ * the reader's first screen would show a different period than yesterday, every figure on it would
+ * be correct for that period, and nothing on the page would say the period had changed.
+ *
+ * So both halves are asserted, and the first is the one that matters: the URL must still be bare.
+ * A route that resolves this-month AFTER rewriting itself to `?period=this-month` has already
+ * proved it can rewrite itself, and the next default it invents will not be the same one.
+ */
+for (const route of ['/', '/reports'] as const) {
+	test(`${route}: arriving with no parameter stays on this-month and leaves the URL alone`, async ({
+		page
+	}) => {
+		await page.goto(route);
+		await page.waitForLoadState('networkidle');
+
+		// Separates "the route kept the server's default" from "the control navigated on mount".
+		expect(new URL(page.url()).search, 'the control rewrote the URL on arrival').toBe('');
+
+		// Separates "the period in effect is this-month" from "it is something else the panel armed".
+		// Read off the panel's own armed row, which is what the reader sees, rather than off a label
+		// that would still read correctly for a period nobody chose.
+		await periodTrigger(page).click();
+		expect(
+			await page
+				.getByRole('button', { name: m.transactions_period_preset_this_month(), exact: true })
+				.locator('visible=true')
+				.first()
+				.getAttribute('aria-pressed')
+		).toBe('true');
+	});
+}
+
+test('/transactions: arriving with no parameter applies no period filter at all', async ({
+	page
+}) => {
+	// The third arrival state, and it is a DIFFERENT one: /transactions has no period model and no
+	// default period, so its Periode dimension must come up at rest. Included here because the
+	// inventory in #547 turns on these three routes not sharing one answer, and an assertion that
+	// only covered the two reporting screens would let a future change give this one a default
+	// without anything noticing.
+	await page.goto('/transactions');
+	await page.waitForLoadState('networkidle');
+
+	expect(new URL(page.url()).search).toBe('');
+	// At rest the trigger carries the dimension name alone and renders no clear button. A period
+	// silently applied here would show a value beside it.
+	const group = page.getByTestId('period-trigger-group').locator('visible=true').first();
+	expect((await group.innerText()).trim()).toBe(m.transactions_filter_dimension_period());
+	await expect(group.locator('button')).toHaveCount(1);
+});
