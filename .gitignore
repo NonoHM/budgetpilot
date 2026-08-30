@@ -119,3 +119,6 @@ e2e/.audit390/
 # ever judged worth versioning, `git add -f vitest.golden.config.ts` and move that line out.
 /golden-master/
 /vitest.golden.config.ts
+
+# Scratch for scripts/test-env.sh: generated Compose overlay and synthetic fixtures.
+/.test-env/
