@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { PERIOD_PRESET_IDS, matchPeriodPreset, periodPresetRange } from './periodPresets';
+import {
+	PERIOD_PRESET_IDS,
+	REPORTING_PERIOD_PRESET_IDS,
+	matchPeriodPreset,
+	periodKeyOfPreset,
+	periodKeyOfRange,
+	periodPresetRange,
+	periodQueryOfRange
+} from './periodPresets';
 
 const TODAY = '2026-06-17';
 
@@ -140,5 +148,123 @@ describe('matchPeriodPreset', () => {
 
 	it('returns null for an empty range', () => {
 		expect(matchPeriodPreset({ from: '', to: '' }, TODAY)).toBeNull();
+	});
+});
+
+describe('the reporting preset set', () => {
+	// Separates "the dashboard and /reports get their own preset list" from "every caller gets
+	// the /transactions list". Under one shared list this file cannot express set B at all.
+	it('is the five the dashboard and /reports carry, in the order they are read', () => {
+		expect([...REPORTING_PERIOD_PRESET_IDS]).toEqual([
+			'thisMonth',
+			'lastMonth',
+			'last30Days',
+			'last90Days',
+			'allTime'
+		]);
+	});
+
+	// Separates "a set fits the 102px preset block" from "a set overflows it and moves the panel
+	// off its specified height". The budget is on the COUNT, so the count is what is asserted,
+	// for BOTH sets rather than for the one that happens to be shorter.
+	it('fits the same three-row layout budget as the /transactions set', () => {
+		expect(PERIOD_PRESET_IDS.length).toBeLessThanOrEqual(6);
+		expect(REPORTING_PERIOD_PRESET_IDS.length).toBeLessThanOrEqual(6);
+	});
+});
+
+describe('periodKeyOfPreset', () => {
+	// THE test of this change. Separates "an applied preset serialises as ?period=this-month" from
+	// "it flattens to ?period=custom&from=...&to=...". The second is what deletes comparisonMonth
+	// from both screens, because date-range.ts derives that from the KEY and never from the range.
+	it('gives every reporting preset the named key the URL carries', () => {
+		expect(REPORTING_PERIOD_PRESET_IDS.map(periodKeyOfPreset)).toEqual([
+			'this-month',
+			'last-month',
+			'last-30-days',
+			'last-90-days',
+			'all-time'
+		]);
+	});
+
+	// Separates "a preset with no named key says so" from "it invents one". The three
+	// /transactions-only presets have no `period=` spelling, and a caller that serialises must be
+	// able to tell that apart from a key it has not handled yet.
+	it('returns null for the presets that exist only on /transactions', () => {
+		expect(periodKeyOfPreset('thisQuarter')).toBeNull();
+		expect(periodKeyOfPreset('thisYear')).toBeNull();
+		expect(periodKeyOfPreset('last12Months')).toBeNull();
+	});
+});
+
+describe('matchPeriodPreset over a caller-chosen set', () => {
+	// Separates "matching honours the set the caller mounted" from "matching always walks set A".
+	// The control is the same range under the default set: it must NOT light, because allTime is
+	// not in that set, and without the control a passing first line proves nothing.
+	it('lights allTime for the epoch range under the reporting set, and nothing under the default', () => {
+		const allTime = periodPresetRange('allTime', TODAY);
+
+		expect(matchPeriodPreset(allTime, TODAY, REPORTING_PERIOD_PRESET_IDS)).toBe('allTime');
+		expect(matchPeriodPreset(allTime, TODAY)).toBeNull();
+	});
+
+	it('round-trips every reporting preset', () => {
+		for (const id of REPORTING_PERIOD_PRESET_IDS) {
+			expect(
+				matchPeriodPreset(periodPresetRange(id, TODAY), TODAY, REPORTING_PERIOD_PRESET_IDS)
+			).toBe(id);
+		}
+	});
+});
+
+describe('periodKeyOfRange', () => {
+	// The brick the dashboard and /reports both serialise through, so that "which period is this"
+	// is answered in ONE place rather than once per screen. It separates "an applied range that IS
+	// a named period serialises under that name" from "every applied range becomes ?period=custom".
+	it('names a range that is a preset, and falls back to custom for one that is not', () => {
+		const set = REPORTING_PERIOD_PRESET_IDS;
+
+		expect(periodKeyOfRange(periodPresetRange('thisMonth', TODAY), TODAY, set)).toBe('this-month');
+		expect(periodKeyOfRange(periodPresetRange('allTime', TODAY), TODAY, set)).toBe('all-time');
+		expect(periodKeyOfRange({ from: '2026-03-03', to: '2026-06-12' }, TODAY, set)).toBe('custom');
+	});
+
+	// Separates "the set is honoured" from "the set argument is accepted and ignored". allTime is a
+	// real preset with a real key, so a call that omits its set must still come back custom: the
+	// range is not one of the six /transactions offers. Without this the previous test would pass
+	// against an implementation that ignored `presets` entirely.
+	it('does not name a preset that the caller-chosen set does not contain', () => {
+		expect(periodKeyOfRange(periodPresetRange('allTime', TODAY), TODAY)).toBe('custom');
+	});
+
+	// Separates "the answer follows the set the screen mounted" from "it follows set A". A quarter
+	// is a real preset on /transactions and has no `period=` spelling at all, so under the default
+	// set it must still come back as custom rather than as a key nobody can parse.
+	it('returns custom for a preset that has no named key', () => {
+		expect(periodKeyOfRange(periodPresetRange('thisQuarter', TODAY), TODAY)).toBe('custom');
+	});
+});
+
+describe('periodQueryOfRange', () => {
+	const set = REPORTING_PERIOD_PRESET_IDS;
+
+	// One serialiser for both screens, so the dashboard and /reports cannot spell the same period
+	// two ways. Separates "a named period keeps its name in the URL" from "every applied range is
+	// written out as a pair of dates".
+	it('writes a named period as its key alone, with no from or to', () => {
+		expect(periodQueryOfRange(periodPresetRange('thisMonth', TODAY), TODAY, set)).toBe(
+			'period=this-month'
+		);
+		expect(periodQueryOfRange(periodPresetRange('allTime', TODAY), TODAY, set)).toBe(
+			'period=all-time'
+		);
+	});
+
+	// Separates "a hand-typed range carries its bounds" from "it is written as a bare
+	// period=custom", which is the shape that renders the error page (#548).
+	it('writes a range that is no preset as custom, with both bounds', () => {
+		expect(periodQueryOfRange({ from: '2026-03-03', to: '2026-06-12' }, TODAY, set)).toBe(
+			'period=custom&from=2026-03-03&to=2026-06-12'
+		);
 	});
 });

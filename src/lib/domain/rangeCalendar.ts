@@ -10,6 +10,7 @@
  * ("Même période l'an dernier"), and a component that reaches for one dimension's message keys is
  * not separable, it is Période with a different name.
  */
+import { PERIOD_EPOCH_FLOOR } from './periodPresets';
 
 /** The two sizes are not one grid scaled. See `RANGE_CALENDAR_SIZES` for what that means. */
 export type RangeCalendarSize = 'mouse' | 'touch';
@@ -172,7 +173,10 @@ export function reopeningMonthAnchor(args: {
 }): string {
 	const { from, to, lastEdited, todayIso } = args;
 	if (lastEdited === 'to' && to) return to;
-	if (from) return from;
+	// An epoch floor is not a start the reader chose, it is the all-time period having no start, so
+	// it is treated as ABSENT and the ordinary fallback chain continues from here. Anchoring on it
+	// would open the grid on January 1970, fifty-six years from any date the reader can use.
+	if (from && from !== PERIOD_EPOCH_FLOOR) return from;
 	if (to) return to;
 	return todayIso;
 }
