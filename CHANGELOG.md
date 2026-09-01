@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.14.3](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.2...budgetpilot-v0.14.3) (2026-09-01)
+
+
+### Bug Fixes
+
+* **dashboard,reports:** the period control gains the calendar it never had ([#549](https://github.com/NonoHM/budgetpilot/issues/549)) ([b105388](https://github.com/NonoHM/budgetpilot/commit/b1053887dd27d227d689c947ae5eae389671b8ae))
+* **deps:** bump the distroless runtime to 774b7d0, clearing CVE-2026-14456 ([b8b690e](https://github.com/NonoHM/budgetpilot/commit/b8b690e016c10d97e5342d750c27b94a780a862e))
+* **deps:** force mariadb 3.5.3 so the image stops shipping CVE-2026-55215 ([c359955](https://github.com/NonoHM/budgetpilot/commit/c359955747ca231ee4bfef378715604434d284c6))
+* **insights:** suppress model reasoning so a thinking model can answer at all ([#554](https://github.com/NonoHM/budgetpilot/issues/554)) ([7b99c79](https://github.com/NonoHM/budgetpilot/commit/7b99c79ecf240e361547baa15321a12c38d87767))
+
+
+### Maintenance
+
+* bump the npm-patch-minor group with 7 updates ([#540](https://github.com/NonoHM/budgetpilot/issues/540)) ([04b9800](https://github.com/NonoHM/budgetpilot/commit/04b98006374868535e79e700042764f05caae1cf))
+* **deps:** bump the npm-lint-tooling group with 2 updates ([7923299](https://github.com/NonoHM/budgetpilot/commit/79232990d353629261c59f04e8ac0ddd34d82ee4))
+* **scripts:** a one-command local stack so changes reach a browser before they ship ([#551](https://github.com/NonoHM/budgetpilot/issues/551)) ([5750858](https://github.com/NonoHM/budgetpilot/commit/5750858307c0f7e87539685d35003829adb23afe))
+
 ## [0.14.2](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.1...budgetpilot-v0.14.2) (2026-08-25)
 
 
