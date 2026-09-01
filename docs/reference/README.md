@@ -36,6 +36,9 @@ Rules, limits and exact values. Look things up here; the pages in
 - **[Account settings](./account.md)**: the password rules, the session
   lifetime, where the language preference lives, the rules for the accounts
   your imports go into, and what Settings cannot do.
+- **[What the AI advice requires of a model](./ai-model.md)**: the four
+  things a model has to do for the dashboard card to carry advice, where the
+  1060-token ceiling comes from, and the four things this does not promise.
 
 Settings and environment variables are not here: those are in
 [configuration](../configuration.md), because they belong to the install
