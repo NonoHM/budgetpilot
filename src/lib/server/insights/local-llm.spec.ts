@@ -17,18 +17,18 @@ import { requestLocalBudgetInsights } from './local-llm';
  * probe that never settles is what a stopped Ollama actually looks like.
  */
 function mockOllamaFetch(
-	chat: () => Promise<Response>,
+	chat: (init: RequestInit) => Promise<Response>,
 	probe: () => Promise<Response> = async () =>
 		new Response(JSON.stringify({ version: '0.32.5' }), { status: 200 })
 ) {
-	return vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {
+	return vi.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
 		const url =
 			typeof input === 'string'
 				? input
 				: input instanceof URL
 					? input.href
 					: (input as Request).url;
-		return url.endsWith('/api/version') ? probe() : chat();
+		return url.endsWith('/api/version') ? probe() : chat((init ?? {}) as RequestInit);
 	});
 }
 
@@ -750,6 +750,109 @@ describe('requestLocalBudgetInsights failure codes', () => {
 			expect(result?.failureCode).toBeUndefined();
 		} finally {
 			fetchMock.mockRestore();
+		}
+	});
+});
+
+/**
+ * THESE TWO ASSERT ABOUT THE REQUEST, NOT ABOUT THE OUTCOME, and that is a limit of this file
+ * rather than a choice. Every test here mocks `globalThis.fetch`, so no response in this suite can
+ * carry a `message.thinking` field: reasoning being SUPPRESSED is not observable from a mock, and a
+ * test claiming to observe it would be asserting about its own fixture. What is observable is
+ * whether the field leaves the process, which is the whole of the defect: nothing in the tree set
+ * it. The outcome half was measured against a real reasoning model and lives in #527: the same
+ * prompt returned `done_reason: length`, 1060 tokens and zero characters of content without the
+ * field, and `stop`, 282 tokens and complete French JSON with it.
+ */
+describe('requestLocalBudgetInsights generation request', () => {
+	const baseEnv = {
+		LLM_ENABLED: 'true',
+		LLM_PROVIDER: 'ollama',
+		LLM_BASE_URL: 'http://127.0.0.1:11434'
+	};
+
+	/**
+	 * Reads the body the Ollama client actually serialised for `/api/chat`, rather than trusting the
+	 * options object we handed it. The client owns the mapping from its arguments to the wire, so
+	 * asserting on our own input would assert that we called a function with what we passed it.
+	 */
+	function chatBody(): { body: () => Record<string, unknown>; restore: () => void } {
+		let captured: string | null = null;
+		// Built on `mockOllamaFetch` rather than beside it: the two-request routing it documents is
+		// the thing that must stay true, and a second copy of it here would be a second place to keep
+		// true. All this adds is recording the body of the leg that reaches `/api/chat`.
+		const fetchMock = mockOllamaFetch(async (init) => {
+			captured = typeof init.body === 'string' ? init.body : null;
+			return new Response(
+				JSON.stringify({
+					message: { content: JSON.stringify({ summary: 'ok', insights: [] }) },
+					done_reason: 'stop'
+				}),
+				{ status: 200 }
+			);
+		});
+		return {
+			body: () => {
+				// An unread body and a body missing a field print the same `undefined` one line down, so
+				// the absence is refused here rather than reported as a failed field assertion.
+				if (captured === null) throw new Error('no /api/chat request body was captured');
+				return JSON.parse(captured) as Record<string, unknown>;
+			},
+			restore: () => fetchMock.mockRestore()
+		};
+	}
+
+	it('sends think: false, so a reasoning model spends its ceiling on the answer', async () => {
+		expect.assertions(2);
+
+		// Separates « the field reaches Ollama » from « the field was never sent », which is the state
+		// this repository was in: `ChatRequest.think` exists in the client we depend on and no call
+		// site set it. A model that reasons puts its reasoning tokens through the same `num_predict`
+		// budget as the answer, so on the model measured in #527 the reasoning consumed the entire
+		// ceiling and the answer was empty, not degraded but absent.
+		const capture = chatBody();
+		try {
+			const result = await requestLocalBudgetInsights('prompt agrégé', {
+				...baseEnv,
+				LLM_MODEL: 'qwen3.5:4b-q8_0'
+			});
+
+			expect(result?.unavailable).toBeUndefined();
+			expect(capture.body().think).toBe(false);
+		} finally {
+			capture.restore();
+		}
+	});
+
+	it('sends it for a model that cannot reason too, so nothing gates the field on the model', async () => {
+		expect.assertions(2);
+
+		// Separates « sent unconditionally » from « sent only when the model looks like a reasoning
+		// one ». That gate is the plausible next change: `/api/tags` reports a `capabilities` array
+		// carrying `thinking`, so a probe is available and would look like diligence. #527 measured
+		// that it buys nothing (`qwen2.5:0.5b` and `ministral-3:3b` both answer 200 with no error
+		// field when sent `think: false`) and it would cost a request, a branch and a second thing to
+		// keep true. Without this test the gate could be added and the suite would stay green.
+		//
+		// Where the field lives was CHECKED against a running server rather than against the client's
+		// types, and the two disagree: Ollama 0.32.5 returns `capabilities` per model on `/api/tags`
+		// (`thinking` present for qwen3.5:4b-q8_0, absent for qwen2.5:0.5b), while `ollama@0.6.3`
+		// declares it only on `ShowResponse`, so `ModelResponse` has no such field and the typed
+		// client cannot see what the endpoint sends. A reviewer reading the `.d.ts` alone concluded
+		// the endpoint does not carry it, which is why the source of the answer is named here.
+		const capture = chatBody();
+		try {
+			// No LLM_MODEL: the default is `qwen2.5:0.5b`, which `/api/tags` reports with no `thinking`
+			// capability. The name is retyped from `DEFAULT_MODEL` rather than imported (it is not
+			// exported), and the assertion on it is deliberate rather than incidental: it pins the
+			// PREMISE this test rests on, so changing the default to some other model reddens here and
+			// forces someone to confirm the new default cannot reason either.
+			await requestLocalBudgetInsights('prompt agrégé', baseEnv);
+
+			expect(capture.body().model).toBe('qwen2.5:0.5b');
+			expect(capture.body().think).toBe(false);
+		} finally {
+			capture.restore();
 		}
 	});
 });

@@ -145,6 +145,28 @@ export async function requestLocalBudgetInsights(
 			model,
 			messages: [{ role: 'user', content: prompt }],
 			format: localLlmJsonSchema,
+			// UNCONDITIONAL, and the absence of a capability gate is the decision rather than the
+			// shortcut. A reasoning model spends its reasoning tokens out of the same `num_predict`
+			// budget as the answer, so the ceiling below can be correctly sized for the schema and
+			// still leave nothing for the JSON. Measured in #527 on qwen3.5:4b-q8_0 over a prompt built
+			// from this module's own builders: without this field, `done_reason: length`, 1060 tokens
+			// and ZERO characters of content; with it, `stop`, 282 tokens and complete French JSON.
+			// So on a model that reasons this is not an optimisation, it is the only measured
+			// configuration in which an answer arrives at all.
+			//
+			// Sent to every model because a model with no thinking capability accepts it and generates
+			// normally, measured on qwen2.5:0.5b and ministral-3:3b: HTTP 200, no error field. A gate
+			// is therefore available and buys nothing, at the cost of a request per generation and a
+			// second thing to keep true. Where it would read from was checked against a running server
+			// rather than against the client's types, because the two disagree: Ollama 0.32.5 returns
+			// `capabilities` per model on `/api/tags`, carrying `thinking` for qwen3.5:4b-q8_0 and not
+			// for qwen2.5:0.5b, while `ollama@0.6.3` declares that field only on `ShowResponse`. So the
+			// endpoint sends something the typed client cannot see, and reading the `.d.ts` alone gives
+			// the wrong answer about whether the gate is even buildable.
+			//
+			// It does NOT replace the ceiling. A model that ignores `think` reasons anyway, and no
+			// model measured here ignores it, so that branch is untested rather than handled.
+			think: false,
 			options: {
 				temperature: 0.2,
 				// Derived from the schema, never a literal. 512 shipped with the initial release and was

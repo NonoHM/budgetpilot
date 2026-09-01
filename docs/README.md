@@ -97,6 +97,9 @@ Rules, limits and exact values, in [reference](./reference/README.md):
   what it leaves out, and what the validator checks.
 - [Account settings](./reference/account.md): password rules, session
   lifetime, and where the language preference is stored.
+- [What the AI advice requires of a model](./reference/ai-model.md): the four
+  things a model has to do, the derived token ceiling, and what is not
+  promised.
 
 ## Understand it
 
