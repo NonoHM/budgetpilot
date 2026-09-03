@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.4](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.3...budgetpilot-v0.14.4) (2026-09-03)
+
+
+### Bug Fixes
+
+* **deps:** clear both blocking image CVEs, mysql2 by override and fast-uri by refresh ([#559](https://github.com/NonoHM/budgetpilot/issues/559)) ([82b6bdb](https://github.com/NonoHM/budgetpilot/commit/82b6bdb81d1c7f6f505a0d407fef2a3e1e91d8c7))
+
 ## [0.14.3](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.2...budgetpilot-v0.14.3) (2026-09-01)
 
 
