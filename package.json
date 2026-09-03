@@ -65,7 +65,8 @@
 	"overrides": {
 		"cookie": "^0.7.2",
 		"deepmerge-ts": "^8.0.0",
-		"mariadb": "^3.5.3"
+		"mariadb": "^3.5.3",
+		"mysql2": "^3.24.3"
 	},
 	"dependencies": {
 		"@prisma/adapter-better-sqlite3": "^7.9.1",
