@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.0.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.4...budgetpilot-v1.0.0) (2026-09-07)
+
+
+### Features
+
+* define the public interface at 1.0 ([#574](https://github.com/NonoHM/budgetpilot/issues/574)) ([612e1c5](https://github.com/NonoHM/budgetpilot/commit/612e1c558eb32cbb47eb5adcd454322a3c481b94))
+
+
+### Maintenance
+
+* bump the actions-patch-minor group with 2 updates ([#566](https://github.com/NonoHM/budgetpilot/issues/566)) ([bb2e43c](https://github.com/NonoHM/budgetpilot/commit/bb2e43ccbd29417710892ef21c6edda29ff04e60))
+* bump the npm-patch-minor group across 1 directory with 3 updates ([#565](https://github.com/NonoHM/budgetpilot/issues/565)) ([41d0bc9](https://github.com/NonoHM/budgetpilot/commit/41d0bc930770a7eb4322ba0079770030706d2ca1))
+* bump the npm-prisma group with 5 updates ([#564](https://github.com/NonoHM/budgetpilot/issues/564)) ([4de17dc](https://github.com/NonoHM/budgetpilot/commit/4de17dc41622dc883966ca6bab59d86d5921f9b4))
+
 ## [0.14.4](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.3...budgetpilot-v0.14.4) (2026-09-03)
 
 
