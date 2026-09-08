@@ -25,6 +25,7 @@
 	import type { FlowCadence, FlowConfidenceTier } from '$lib/domain/forecast';
 	import * as m from '$lib/paraglide/messages';
 	import { formatPercent, labelledValue } from '$lib/domain/typography';
+	import { apportionPercentages } from '$lib/domain/apportion';
 	import { getLocale } from '$lib/paraglide/runtime';
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
@@ -126,6 +127,31 @@
 
 	const natureSegments = $derived(buildNatureSegments(report.natureAnalysis));
 	const categoryDonutSegments = $derived(buildCategoryDonutSegments(report.topCategories));
+
+	/**
+	 * The top categories' whole-number shares, computed ONCE for the three places this page prints
+	 * them: the donut legend, the desktop table and the mobile cards.
+	 *
+	 * Computed once rather than three times because a rule applied at more than one site was
+	 * measured to drift in this repository, and three sites on one screen would drift visibly. The
+	 * donut legend gets the same numbers by construction rather than by copying: DonutChart calls
+	 * `apportionPercentages` over the same shares, so agreeing is not something either side has to
+	 * remember to do.
+	 */
+	const categoryPercents = $derived(
+		apportionPercentages(
+			report.topCategories.map((category) => category.percentageOfExpenses * 100)
+		)
+	);
+
+	/**
+	 * The nature bar's shares. A full partition of the period's outflow, so these sum to 100. The
+	 * 12 % threshold below still reads the EXACT share, not this one: it decides whether a segment
+	 * is wide enough to hold text, which is a question about geometry rather than about the figure.
+	 */
+	const naturePercents = $derived(
+		apportionPercentages(natureSegments.map((segment) => segment.pct))
+	);
 	const categoryDonutMeta = $derived(
 		`${formatCents(report.expenseCents)} · ${
 			report.topCategories.length > 1
@@ -535,7 +561,7 @@
 						</div>
 						{#if natureSegments.length > 0}
 							<div class="mt-4 flex h-8 w-full overflow-hidden rounded-md ring-1 ring-zinc-200">
-								{#each natureSegments as segment (segment.label)}
+								{#each natureSegments as segment, i (segment.label)}
 									<Tooltip
 										label={labelledValue(segment.label, formatCents(segment.cents))}
 										wrapperClass="contents"
@@ -551,7 +577,7 @@
 												segment.pct
 											)} {hexToBgClass(segment.color)}"
 										>
-											{#if segment.pct >= 12}{formatPercent(Math.round(segment.pct))}{/if}
+											{#if segment.pct >= 12}{formatPercent(naturePercents[i])}{/if}
 										</div>
 									</Tooltip>
 								{/each}
@@ -619,7 +645,7 @@
 												{category.transactionCount}
 											</td>
 											<td class="px-5 py-3 text-right font-medium text-rose-600 tabular-nums">
-												{formatPercent(Math.round(category.percentageOfExpenses * 100))}
+												{formatPercent(categoryPercents[i])}
 											</td>
 										</tr>
 									{/each}
@@ -654,7 +680,7 @@
 															})}
 												</span>
 												<span class="text-sm font-semibold text-zinc-900 tabular-nums">
-													{formatPercent(Math.round(category.percentageOfExpenses * 100))}
+													{formatPercent(categoryPercents[i])}
 												</span>
 											</div>
 										</div>

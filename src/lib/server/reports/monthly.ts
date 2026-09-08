@@ -5,6 +5,7 @@ import { splitIndicatorsByTransactionId } from '$lib/domain/allocation';
 import { getTransactionKind } from '$lib/domain/transaction';
 import { getSimilarAmountGroups, normalizeRecurringLabel } from '$lib/domain/recurrence';
 import { categoryDisplayName } from '$lib/domain/categoryLabels';
+import { apportionPercentages } from '$lib/domain/apportion';
 import {
 	analyzeTransactionNatures,
 	type TransactionNatureAnalysis
@@ -388,7 +389,14 @@ function buildTakeaways(input: {
 		takeaways.push({
 			code: 'top_category',
 			category: mainCategory.category,
-			percent: formatPercentage(mainCategory.percentageOfExpenses)
+			// The same apportioned share /reports prints for this category in the donut legend, the
+			// table and the mobile cards. Rounding it here on its own put the sentence a point below
+			// the table two inches under it, on one screen, for one category.
+			percent: formatPercentage(
+				apportionPercentages(
+					input.topCategories.map((category) => category.percentageOfExpenses * 100)
+				)[0]
+			)
 		});
 	}
 
@@ -413,8 +421,9 @@ function buildTakeaways(input: {
 	return takeaways.slice(0, 4);
 }
 
-function formatPercentage(value: number): string {
-	return `${Math.round(value * 100)} %`;
+/** Takes a whole percent, already apportioned against the set it belongs to. */
+function formatPercentage(percent: number): string {
+	return `${percent} %`;
 }
 
 function toTitleCase(value: string): string {

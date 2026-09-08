@@ -8,6 +8,7 @@
 
 <script lang="ts">
 	import { formatPercent } from '$lib/domain/typography';
+	import { apportionPercentages } from '$lib/domain/apportion';
 	let {
 		segments,
 		othersColor,
@@ -73,6 +74,17 @@
 	}
 
 	const arcs = $derived(buildArcs(segments));
+
+	/**
+	 * The legend's whole-number shares, apportioned rather than rounded one at a time.
+	 *
+	 * The set handed to `apportionPercentages` is the labelled segments only, and the function
+	 * accounts for the unlabelled remainder itself, which is the same remainder `buildArcs` draws
+	 * as the trailing arc above. So a legend whose segments are the whole sums to 100, and a legend
+	 * showing the top five of twelve categories keeps summing to its own share of the whole rather
+	 * than being inflated to 100.
+	 */
+	const legendPercents = $derived(apportionPercentages(segments.map((segment) => segment.pct)));
 </script>
 
 <div class="flex items-baseline justify-between">
@@ -112,14 +124,14 @@
 			</div>
 		</div>
 		<ul class="w-full flex-1 space-y-2 text-[13px]">
-			{#each segments as segment (segment.label)}
+			{#each segments as segment, i (segment.label)}
 				<li class="flex items-center gap-2">
 					<svg class="h-2.5 w-2.5 shrink-0" viewBox="0 0 10 10" aria-hidden="true">
 						<rect width="10" height="10" rx="2" fill={segment.color} />
 					</svg>
 					<span class="flex-1 truncate text-zinc-700">{segment.label}</span>
 					<span class="font-medium text-zinc-900 tabular-nums"
-						>{formatPercent(Math.round(segment.pct))}</span
+						>{formatPercent(legendPercents[i])}</span
 					>
 				</li>
 			{/each}
