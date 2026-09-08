@@ -82,9 +82,20 @@ loud rather than quiet. Prefer the form whose success case requires the tool to 
 ## The frame, and what it excludes
 
 IADA: Identifiers, API, Data, Architecture, in decreasing order of difficulty to change. This
-application has no REST API, which is a decision (roadmap item B) rather than an omission, so the
-audit is identifiers and persistent formats. Architecture is out of scope by instruction, and the
-database schema is treated as internal for the reasons set out at the end.
+application has no REST API, which is a decision rather than an omission, so the audit is
+identifiers and persistent formats. Architecture is out of scope by instruction, and the database
+schema is treated as internal for the reasons set out at the end.
+
+**That decision has no written record in this repository, and this line is the correction that
+says so rather than a citation.** Until 2026-09-08 it read "a decision (roadmap item B)", pointing
+at a section of a document held outside the tree. Two things are wrong with that and only the
+second is obvious. A reader with a clone cannot resolve it at all, which is what a citation is for;
+and a reader holding the document still cannot, because section B is the Docker hardening chantier
+rather than the API. So the reference was unresolvable in both directions and read as authority in
+both. No rationale is supplied here in its place, deliberately: inventing one now would produce
+exactly the why-sentence this repository records as the kind nobody re-reads. If the decision is
+ever written down, its home is `docs/explanation/what-this-does-not-do.md`, where this project's
+other "not planned" rulings live.
 
 The audit is small because the absence of an API makes it small. That is the point of not having
 one.
