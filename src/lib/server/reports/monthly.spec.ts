@@ -3,6 +3,7 @@ import * as m from '$lib/paraglide/messages';
 import type { Transaction } from '$lib/domain/transaction';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { allocationsOf, type CategoryAllocation } from '$lib/domain/allocation';
+import { apportionPercentages } from '$lib/domain/apportion';
 import { getEffectiveTransactionNature } from '$lib/server/transactions/nature';
 import {
 	anonymizeLabel,
@@ -117,6 +118,58 @@ describe('buildMonthlyReport', () => {
 			category: 'Logement',
 			percent: expect.stringMatching(/^\d+ %$/)
 		});
+	});
+
+	/**
+	 * Separates "the takeaway names the same share the table beside it prints" from "the takeaway
+	 * rounds the share on its own and the two disagree by a point".
+	 *
+	 * Both figures describe ONE category and sit inches apart on /reports, so a reader meets them
+	 * together. Measured on screen on 2026-09-08 with three equal outflows: the table printed 34 %
+	 * for Investissement and the sentence above it read "premier poste de dépenses avec 33 % des
+	 * dépenses". The expectation calls `apportionPercentages` rather than naming 34, so it cannot
+	 * drift from the rule the screens use.
+	 */
+	it('le takeaway top_category annonce la part apportionnée, pas un arrondi qui lui est propre', () => {
+		expect.assertions(2);
+
+		const thirds: Transaction[] = [
+			{
+				id: 't1',
+				date: '2026-06-04',
+				label: 'A',
+				amountCents: -10_000,
+				type: 'expense',
+				category: 'Logement',
+				source: 'manual'
+			},
+			{
+				id: 't2',
+				date: '2026-06-05',
+				label: 'B',
+				amountCents: -10_000,
+				type: 'expense',
+				category: 'Transport',
+				source: 'manual'
+			},
+			{
+				id: 't3',
+				date: '2026-06-06',
+				label: 'C',
+				amountCents: -10_000,
+				type: 'expense',
+				category: 'Alimentation',
+				source: 'manual'
+			}
+		];
+		const report = buildMonthlyReport(thirds, toAllocations(thirds), '2026-06');
+		const expected = apportionPercentages(
+			report.topCategories.map((category) => category.percentageOfExpenses * 100)
+		);
+		const takeaway = report.takeaways.find((entry) => entry.code === 'top_category');
+
+		expect(expected).toEqual([34, 33, 33]);
+		expect(takeaway?.percent).toBe(`${expected[0]} %`);
 	});
 
 	it('compare le mois courant au mois précédent', () => {
