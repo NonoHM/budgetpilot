@@ -372,6 +372,7 @@
 	"import_error_no_file": "Select a statement file to import.",
 	"import_error_bad_extension": "The file must use the .csv or .xlsx extension.",
 	"import_error_too_large": "Statement too large ({size} bytes, maximum {max} bytes).",
+	"import_error_too_many_attempts": "Too many import attempts. Try again in a few minutes.",
 	"import_error_expands_too_far": "This spreadsheet unpacks to {size} MB, above the {max} MB limit. Export a shorter period, or split it across several files.",
 	"import_error_empty_file": "The statement file is empty.",
 	"import_error_no_valid_transactions": "No valid transactions to import.",

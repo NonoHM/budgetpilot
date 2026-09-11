@@ -180,3 +180,35 @@ export const CSV_REFUSAL_CODES = [
 type MissingFromArray = Exclude<CsvRefusalCode, (typeof CSV_REFUSAL_CODES)[number]>;
 const _everyCodeIsListed: MissingFromArray extends never ? true : never = true;
 void _everyCodeIsListed;
+
+/**
+ * The refusal codes that are about a file's DIMENSIONS rather than its contents.
+ *
+ * One definition, here beside the union, so that a future bound refusal is added in one place
+ * rather than in a condition somewhere downstream that nobody re-reads.
+ */
+const BOUND_REFUSAL_CODES = ['too-many-rows', 'too-many-columns'] as const;
+
+/**
+ * Whether this parse produced nothing because the file was too big to read, as opposed to
+ * unreadable.
+ *
+ * It exists so the split-amount detector does not run on a file the parser already refused on its
+ * dimensions. That detector turns "no valid transactions" into a refusal naming the two money
+ * columns (#343), which is worth doing for an unreadable file and pointless for an oversized one:
+ * the outcome is a refusal either way, and the oversized file is exactly where the work is
+ * expensive. MEASURED 2026-09-11: 15,123 ms on a 206,000 byte upload whose row cap had already
+ * fired in 7.9 ms.
+ *
+ * Takes the shape structurally rather than importing `CsvImportResult`, because `types.ts` already
+ * imports this module and the reverse would be a cycle.
+ *
+ * ONE PRODUCTION CALLER TODAY, and that is a deliberate departure from "no abstraction for a single
+ * caller": what is centralised is not a helper but the LIST above, and a predicate the route
+ * inlines is a list the route owns. The rule belongs with the catalogue it reads.
+ */
+export function refusedForBounds(result: { invalidRows: CsvRefusal[] }): boolean {
+	return result.invalidRows.some((refusal) =>
+		(BOUND_REFUSAL_CODES as readonly string[]).includes(refusal.fact.code)
+	);
+}

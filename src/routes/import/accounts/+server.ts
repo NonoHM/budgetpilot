@@ -1,6 +1,9 @@
 import { json } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
+import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
+import { exceedsCsvProductLimit } from '$lib/server/import/resourceBounds';
 import {
 	AccountWriteError,
 	MAX_ACCOUNT_NAME_LENGTH,
@@ -53,8 +56,15 @@ import type { RequestHandler } from './$types';
  * rather than stripping a deny list is the difference between a rule about this endpoint and a
  * claim about every field the schema will ever have.
  */
-export const POST: RequestHandler = async ({ locals, request }) => {
+export const POST: RequestHandler = async ({ locals, request, getClientAddress }) => {
 	const user = requireUser(locals.user);
+
+	// This door reads an uploaded file too, so it carries the same limiter as the other two.
+	const importIp = resolveClientAddress({ getClientAddress, request });
+	if (await isImportRateLimited(user.id, importIp)) {
+		return json({ error: m.import_error_too_many_attempts() }, { status: 429 });
+	}
+	await recordImportAttempt(user.id, importIp);
 
 	let formData: FormData;
 	try {
@@ -112,6 +122,19 @@ async function fragmentFromFile(posted: FormDataEntryValue | null): Promise<stri
 
 	try {
 		const read = await readImportFile(posted, { maxBytes: IMPORT_FILE_MAX_BYTES });
+		// The PRODUCT limit, which this door never had: it reads the file and returns a fragment
+		// without ever calling `parseImportRows`, so the row and column caps the other two doors
+		// apply did not exist here. Same two numbers, from the module that owns them, rather than a
+		// third spelling of the rule. (The resource ceiling is already enforced inside
+		// `readImportFile`, so this is the product half only.)
+		if (
+			exceedsCsvProductLimit({
+				columns: read.rows.length === 0 ? 0 : read.rows[0].cells.length,
+				rows: Math.max(0, read.rows.length - 1)
+			})
+		) {
+			return null;
+		}
 		const found = findDiscriminantColumn(read.rows);
 		return found.kind === 'found' ? found.fragment : null;
 	} catch {

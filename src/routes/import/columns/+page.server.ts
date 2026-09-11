@@ -1,5 +1,7 @@
 import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
+import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { importHeaderCells, parseCsvTransactionRows } from '$lib/server/import/csv';
@@ -59,7 +61,7 @@ import { readAccountDisplayName } from '$lib/server/accounts/service';
  * service last time this repository shipped an invariant in "the" write path.
  */
 export const actions: Actions = {
-	default: async ({ locals, request }) => {
+	default: async ({ locals, request, getClientAddress }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
 		const importFile = formData.get('csvFile');
@@ -70,6 +72,12 @@ export const actions: Actions = {
 		if (!isSupportedImportFile(importFile.name)) {
 			return fail(400, { error: m.import_error_bad_extension() });
 		}
+		const importIp = resolveClientAddress({ getClientAddress, request });
+		if (await isImportRateLimited(user.id, importIp)) {
+			return fail(429, { error: m.import_error_too_many_attempts() });
+		}
+		await recordImportAttempt(user.id, importIp);
+
 		if (importFile.size > IMPORT_FILE_MAX_BYTES) {
 			return fail(400, {
 				error: m.import_error_too_large({ size: importFile.size, max: IMPORT_FILE_MAX_BYTES })

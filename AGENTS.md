@@ -116,8 +116,17 @@ who does not exist. Only the header SHAPES are taken from reality, and those ide
 - We are self-assessed against **ASVS 5.0.0 Level 2**. The row-by-row position is in
   [SECURITY.md](./SECURITY.md) and is not restated anywhere else.
 
-**Only three things earn an immediate fix outside a task's scope**: a false displayed
-figure, a security risk, or data loss. Everything else is an issue, and you say so.
+**Only four things earn an immediate fix outside a task's scope**: a false displayed
+figure, a security risk, data loss, or data written wrong that looks right. Everything else
+is an issue, and you say so.
+
+The fourth was added 2026-09-12 and its reason is the test for the other three: this bar
+catches what a user cannot catch from the screen, and silent corruption is the only one of
+the four they cannot. A false figure is visible, a lost row is absent, a breach is
+discovered. A wrong value that renders correctly is invisible until something downstream
+depends on it being right. **This paragraph is the single definition of the bar. Anywhere
+else that needs it references here rather than respelling it, because a rule with two
+definitions is what this project refuses.**
 
 ## How much rigour a change earns
 
@@ -147,9 +156,10 @@ Three tiers.
   the state this section exists to leave. Declared first, a tier can be wrong in the direction that
   saves time, and that is the only version of it worth having.
 - **A finding made during a tier 1 change goes to the tracker, not into the session.** That is the
-  clause that stops a comment correction becoming two hours. The bar above is the only exception and
-  it is unchanged: a false displayed figure, a security risk or data loss is fixed now, whatever
-  tier the task was declared at.
+  clause that stops a comment correction becoming two hours. The bar at the end of « Security
+  boundaries » is the only exception, and it applies whatever tier the task was declared at. Its
+  four triggers are written there and are deliberately not respelled here: this sentence used to
+  carry its own copy of the list, and the copy went stale the moment the bar gained a trigger.
 
 **Tier 1 is exempt from MEASUREMENT, not from SCRUTINY, and reading is its technique** in the way
 the break step is tier 2's. It is not a lighter version of the same check, it is a different one,

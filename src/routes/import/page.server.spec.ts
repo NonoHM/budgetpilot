@@ -179,6 +179,15 @@ const db = vi.hoisted(() => {
 			state.userWorkCount = 0;
 		},
 		prisma: {
+			// The import doors are rate limited, so the action counts and records attempts. Modelled
+			// rather than stubbed away: `count` returning 0 is the honest "this caller is not
+			// limited", which is the state every test in this file assumes. The limiter's own
+			// thresholds are asserted in `auth/rateLimit.spec.ts` against its own fake.
+			loginAttempt: {
+				count: vi.fn(async () => 0),
+				create: vi.fn(async () => ({})),
+				deleteMany: vi.fn(async () => ({ count: 0 }))
+			},
 			netWorthAccount: {
 				findMany: vi.fn(async ({ where }: { where: { userId: string; deletedAt: null } }) =>
 					state.netWorthAccounts
@@ -1860,13 +1869,18 @@ async function runImport(formData: FormData) {
 	const action = actions.default as (event: {
 		locals: { user: typeof testUser };
 		request: Request;
+		getClientAddress: () => string;
 	}) => Promise<unknown>;
 	return (await action({
 		locals: { user: testUser },
 		request: new Request('http://localhost/import', {
 			method: 'POST',
 			body: formData
-		})
+		}),
+		// The import doors are rate limited, so the action reads the caller's address. A fixed
+		// loopback address keeps every test in this file one caller, which is what the limiter
+		// counts; the limiter's own behaviour is asserted in `auth/rateLimit.spec.ts`.
+		getClientAddress: () => '127.0.0.1'
 	})) as {
 		status?: number;
 		data: {
@@ -2247,5 +2261,43 @@ describe('two accounts of one source, on the auto path', () => {
 		expect(result.status).toBeUndefined();
 		expect(result.importResult?.importedRows).toBe(1);
 		expect(db.state.accounts).toHaveLength(1);
+	});
+});
+
+/**
+ * THE DOOR CONSULTS THE LIMITER.
+ *
+ * Separates "the door refuses when the limiter says so" from "the limiter exists and nothing calls
+ * it", which is the failure mode a green limiter unit test cannot see. The reachable denial on this
+ * path is a loop, so a limiter that is never consulted is the same as no limiter.
+ */
+describe('/import is rate limited', () => {
+	it('answers 429 without reading the file when the caller is over the limit', async () => {
+		db.prisma.loginAttempt.count.mockResolvedValue(10_000);
+		try {
+			const formData = new FormData();
+			formData.set(
+				'csvFile',
+				new File(['date;label;amount\n2026-01-15;Coffee;-12,30\n'], 'statement.csv')
+			);
+			const result = await runImport(formData);
+			expect(result.status).toBe(429);
+			expect(result.data.error).toBe(m.import_error_too_many_attempts());
+		} finally {
+			db.prisma.loginAttempt.count.mockResolvedValue(0);
+		}
+	});
+
+	it('records the attempt for a caller who is under the limit', async () => {
+		db.prisma.loginAttempt.create.mockClear();
+		const formData = new FormData();
+		formData.set(
+			'csvFile',
+			new File(['date;label;amount\n2026-01-15;Coffee;-12,30\n'], 'statement.csv')
+		);
+		await runImport(formData);
+		expect(db.prisma.loginAttempt.create).toHaveBeenCalledWith(
+			expect.objectContaining({ data: expect.objectContaining({ kind: 'IMPORT' }) })
+		);
 	});
 });

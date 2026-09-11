@@ -71,6 +71,14 @@ const collision = vi.hoisted(() => ({
 
 const db = vi.hoisted(() => ({
 	prisma: {
+		// The limiter this door now consults. `count` returning 0 is the honest "not limited",
+		// which is the state these tests assume; the thresholds are asserted in
+		// `auth/rateLimit.spec.ts`.
+		loginAttempt: {
+			count: vi.fn(async () => 0),
+			create: vi.fn(async () => ({})),
+			deleteMany: vi.fn(async () => ({ count: 0 }))
+		},
 		categorizationRule: { findMany: vi.fn(async () => []) },
 		/**
 		 * The read behind the summary's « N lignes importées dans X ».
@@ -151,7 +159,9 @@ async function submit(csv: string, hasHeaderRow: boolean, extra: Record<string, 
 	// field it means.
 	return (await actions.default({
 		request: new Request('http://localhost/import/columns', { method: 'POST', body: form }),
-		locals: { user: { id: 'user-a', email: 'a@example.test', role: 'USER' } }
+		locals: { user: { id: 'user-a', email: 'a@example.test', role: 'USER' } },
+		// This door is rate limited like the other two, so the action reads the caller's address.
+		getClientAddress: () => '127.0.0.1'
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any)) as unknown as {
 		status?: number;

@@ -22,6 +22,9 @@ import {
 	readImportFile
 } from '$lib/server/import/file';
 import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
+import { refusedForBounds } from '$lib/server/import/refusals';
+import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
 	buildInvalidRowDetails,
 	getHiddenInvalidRowsCount,
@@ -154,7 +157,7 @@ function accountOfferFrom(offer: AccountOffer) {
 }
 
 export const actions: Actions = {
-	default: async ({ locals, request }) => {
+	default: async ({ locals, request, getClientAddress }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
 		const importFile = formData.get('csvFile');
@@ -165,6 +168,15 @@ export const actions: Actions = {
 		if (!isSupportedImportFile(importFile.name)) {
 			return fail(400, { error: m.import_error_bad_extension() });
 		}
+
+		// The reachable denial on this path is a LOOP, not one request: one upload is bounded by the
+		// resource ceiling and cheap, and nothing stopped the second. Checked BEFORE the file is read,
+		// so a tripped counter costs nothing to answer.
+		const importIp = resolveClientAddress({ getClientAddress, request });
+		if (await isImportRateLimited(user.id, importIp)) {
+			return fail(429, { error: m.import_error_too_many_attempts() });
+		}
+		await recordImportAttempt(user.id, importIp);
 
 		if (importFile.size > IMPORT_FILE_MAX_BYTES) {
 			return fail(400, {
@@ -312,7 +324,15 @@ export const actions: Actions = {
 			// écran et le nommer sur /imports. » A file whose money sits in two columns cannot be
 			// expressed by naming one of them, so opening the screen would be asking the user to do
 			// work and telling them afterwards that it could not have helped.
-			const splitPair = detectSplitAmountPair(headerCells, importData.rows);
+			//
+			// NOT when the parse refused on the file's DIMENSIONS. A refusal naming the two money
+			// columns cannot change the outcome for a file that is simply too big, so the work has no
+			// reachable purpose there, and that is precisely the file on which it is most expensive.
+			// The resource ceiling in `readImportFile` caps what this can cost; this decides whether it
+			// has a reason to run at all. Two different questions, and bounding answers only the first.
+			const splitPair = refusedForBounds(result)
+				? null
+				: detectSplitAmountPair(headerCells, importData.rows);
 			const splitRefusal: ImportInvalidRowDetail[] = splitPair
 				? [
 						{
