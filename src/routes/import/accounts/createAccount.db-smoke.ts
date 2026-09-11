@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from 'vitest';
+import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
 import { POST } from './+server';
 
@@ -53,14 +54,29 @@ function requestOf(fields: Record<string, string | File>): Request {
 }
 
 function eventOf(userId: string, fields: Record<string, string | File>) {
-	return { locals: { user: { id: userId } }, request: requestOf(fields) } as unknown as Parameters<
-		typeof POST
-	>[0];
+	return {
+		locals: { user: { id: userId } },
+		request: requestOf(fields),
+		// This endpoint is rate limited alongside the other two import doors, so it reads the
+		// caller's address. One fixed address keeps every test here a single caller.
+		getClientAddress: () => '127.0.0.1'
+	} as unknown as Parameters<typeof POST>[0];
 }
 
 async function bodyOf(response: Response): Promise<{ error?: string; account?: { id: string } }> {
 	return (await response.json()) as { error?: string; account?: { id: string } };
 }
+
+/**
+ * The limiter's HMAC key, as an EXPLICIT FIXTURE rather than a value added to the env stub.
+ *
+ * `vitest.db.env-stub.ts` is empty on purpose and says so: a db-smoke that needs a real secret
+ * should fail loudly and then carry its own fixture, instead of that file growing defaults nobody
+ * re-reads. This endpoint is rate limited alongside the other two import doors, so it needs one.
+ */
+beforeAll(() => {
+	env.RATE_LIMIT_HASH_SECRET = 'a1'.repeat(32);
+});
 
 beforeAll(async () => {
 	const stamp = Date.now();
@@ -172,6 +188,7 @@ describe('creating an account from the designation screen', () => {
 		const before = await prisma.account.count();
 		const response = await POST({
 			locals: { user: { id: mine } },
+			getClientAddress: () => '127.0.0.1',
 			request: new Request('http://localhost/import/accounts', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },

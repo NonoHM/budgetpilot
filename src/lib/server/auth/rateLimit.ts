@@ -15,6 +15,20 @@ const WINDOW_MS = 15 * 60 * 1000;
 const REAUTH_WINDOW_MS = 5 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
 
+/**
+ * The import doors carry their own maximum, and it is deliberately far above the authentication one.
+ *
+ * Five per fifteen minutes is right for a password and wrong for statements. A household importing a
+ * year of monthly statements across three accounts uploads roughly three dozen files in one sitting,
+ * and a limiter that refuses that has traded a denial of service for a denial of the product. Sixty
+ * per fifteen minutes clears any plausible honest batch with room over, and still caps a grinder at
+ * four uploads a minute.
+ *
+ * This is a judgement against a usage figure, not a derivation, and it is written down here so the
+ * next person changing it knows which number it was chosen against.
+ */
+export const IMPORT_MAX_ATTEMPTS = 60;
+
 // The secret is read lazily rather than at module load. It used to throw from this module's
 // top-level body, which is why hooks.server.ts imported it for its side effect alone — and why
 // the order in which an operator meets the three secret failures was a property of the production
@@ -57,10 +71,15 @@ export function assertRateLimitSecretConfigured(source: NodeJS.ProcessEnv = env)
 	}
 }
 
-type AttemptKind = 'LOGIN' | 'REGISTER' | 'INVITE' | 'MFA' | 'BANK_SYNC_START' | 'REAUTH';
+type AttemptKind =
+	'LOGIN' | 'REGISTER' | 'INVITE' | 'MFA' | 'BANK_SYNC_START' | 'REAUTH' | 'IMPORT';
 
 function windowMsForKind(kind: AttemptKind): number {
 	return kind === 'REAUTH' ? REAUTH_WINDOW_MS : WINDOW_MS;
+}
+
+function maxAttemptsForKind(kind: AttemptKind): number {
+	return kind === 'IMPORT' ? IMPORT_MAX_ATTEMPTS : MAX_ATTEMPTS;
 }
 
 function hashRateLimitKey(value: string): string {
@@ -81,7 +100,7 @@ async function isRateLimited(kind: AttemptKind, ip: string, email?: string): Pro
 		prisma.loginAttempt.count({ where: { ipHash, kind, createdAt: { gte: windowStart } } })
 	);
 	const counts = await Promise.all(checks);
-	return counts.some((count) => count >= MAX_ATTEMPTS);
+	return counts.some((count) => count >= maxAttemptsForKind(kind));
 }
 
 async function recordAttempt(kind: AttemptKind, ip: string, email?: string): Promise<void> {
@@ -156,4 +175,18 @@ export async function isReauthRateLimited(userId: string, ip: string): Promise<b
 
 export async function recordReauthAttempt(userId: string, ip: string): Promise<void> {
 	await recordAttempt('REAUTH', ip, userId);
+}
+
+// The import doors: `/import`, `/import/columns` and `/import/accounts`. Keyed by userId AND IP, the
+// same shape as BANK_SYNC_START and REAUTH, so neither rotating addresses on one account nor
+// spraying accounts from one address buys a higher budget.
+//
+// Unlike LOGIN, EVERY attempt is recorded rather than only the failures: what is being limited here
+// is the RATE of expensive work, and a refused upload costs the same to reach as an accepted one.
+export async function isImportRateLimited(userId: string, ip: string): Promise<boolean> {
+	return isRateLimited('IMPORT', ip, userId);
+}
+
+export async function recordImportAttempt(userId: string, ip: string): Promise<void> {
+	await recordAttempt('IMPORT', ip, userId);
 }

@@ -13,6 +13,8 @@ import type {
 } from './types';
 import { emptyResult, normalizeParsedRows, parseRows } from './utils/csv';
 import { resolveCsvMaxColumns } from './columnBounds';
+import { CSV_MAX_ROWS } from './resourceBounds';
+export { CSV_MAX_ROWS };
 export { sanitizeImportedText } from './utils/safety';
 export type {
 	CsvImportOptions,
@@ -25,7 +27,6 @@ export type {
 };
 
 const DEFAULT_MAX_BYTES = 256_000;
-const DEFAULT_MAX_ROWS = 1_000;
 
 export function parseCsvTransactions(
 	content: string,
@@ -205,7 +206,7 @@ export function parseImportRows(
 	options: CsvImportOptions = {}
 ): CsvImportResult {
 	const warnings: string[] = [];
-	const maxRows = options.maxRows ?? DEFAULT_MAX_ROWS;
+	const maxRows = options.maxRows ?? CSV_MAX_ROWS;
 	const normalizedRows = normalizeParsedRows(rows);
 
 	if (normalizedRows.length < 2) return emptyResult([{ code: 'file-empty' }], warnings);
