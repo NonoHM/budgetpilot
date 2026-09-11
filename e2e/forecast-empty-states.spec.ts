@@ -65,11 +65,15 @@ test.describe('Cash-flow forecast — state 1: no detection at all (desktop)', (
 	});
 
 	test('/reports shows the empty state and offers no dead anchor (#202)', async ({ page }) => {
-		// last-90-days (not the this-month default): the seeded base transactions are dated
-		// 2026-06-05/12 (e2e/seed.ts) — /reports' own !hasData empty state (unrelated to the
-		// forecast) would otherwise hide this whole section if the selected period has zero
-		// transactions. The forecast itself is independent of this period selector (CLAUDE.md).
-		await page.goto('/reports?period=last-90-days');
+		// all-time, not a rolling window: /reports' own !hasData empty state (unrelated to the
+		// forecast) hides this whole section when the selected period has zero transactions, and the
+		// seeded base transactions are dated 2026-06-05/12 (e2e/seed.ts). This read
+		// `?period=last-90-days`, which held only while those dates stayed within ninety days of the
+		// run date and began failing on 2026-09-12 with nothing in the tree having changed: the
+		// window's floor passed 06-12. `all-time` is floored at the epoch by
+		// PERIOD_EPOCH_FLOOR, so it cannot expire. The forecast itself is independent of this period
+		// selector (CLAUDE.md), which is why any period containing the seed will do.
+		await page.goto('/reports?period=all-time');
 
 		await expect(page.getByRole('heading', { name: m.reports_forecast_heading() })).toBeVisible();
 		await expect(page.getByText(m.reports_forecast_empty_title())).toBeVisible();
