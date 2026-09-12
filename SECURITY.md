@@ -8,9 +8,10 @@ behind explicit configuration and host allowlists.
 
 ## Supported versions
 
-BudgetPilot is currently pre-1.0 and released on a rolling basis (see
-[CHANGELOG.md](./CHANGELOG.md)). Only the latest published release is
-supported with security fixes. There is no LTS branch at this stage.
+BudgetPilot released 1.0.0 on 2026-09-07 and continues on a rolling basis
+(see [CHANGELOG.md](./CHANGELOG.md)). Only the latest published release is
+supported with security fixes. There is no LTS branch, and no earlier minor
+receives backported fixes.
 
 ## Reporting a vulnerability
 

@@ -36,7 +36,11 @@ export function matchesMaisonHeader(headers: string[]): boolean {
 	);
 }
 
-export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvImportResult {
+export function parseMaisonRows({
+	rows,
+	warnings,
+	dateOrder
+}: CsvProfileParseInput): CsvImportResult {
 	const headers = rows[0].cells.map(foldExactHeader);
 	if (!matchesMaisonHeader(headers)) {
 		return emptyResult(
@@ -71,7 +75,7 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 
 		const record = toRecord(headers, row);
 
-		const date = normalizeDate(record.date ?? '');
+		const date = normalizeDate(record.date ?? '', dateOrder);
 		if (!isValidIsoDate(date)) {
 			addRefusal(
 				refusals,

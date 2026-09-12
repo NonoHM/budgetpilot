@@ -47,6 +47,12 @@ export type CsvRefusalFact =
 	| { code: 'too-many-rows'; max: number }
 	| { code: 'too-many-columns'; max: number }
 	| { code: 'header-not-recognized'; profile: string }
+	// The date column proves BOTH readings, so no single reading fits the file. Carries one cell
+	// for each, in file order, and BOTH are rendered: neither cell is wrong on its own, it is the
+	// pair that cannot both be right, so naming one sends the user to a row that is not the
+	// problem. Same reasoning as `duplicate-column` and `amount-split-across-columns`, which is
+	// why it follows their shape rather than inventing a third. See `dateOrder.ts` and #433.
+	| { code: 'mixed-date-order'; dayFirst: string; monthFirst: string }
 	// structural
 	| { code: 'unknown-column'; column: string }
 	// Every spelling the FILE uses for the folded name, joined, in file order. One name would be
@@ -139,6 +145,7 @@ export const CSV_REFUSAL_CODES = [
 	'too-many-rows',
 	'too-many-columns',
 	'header-not-recognized',
+	'mixed-date-order',
 	'unknown-column',
 	'duplicate-column',
 	'missing-required-column',

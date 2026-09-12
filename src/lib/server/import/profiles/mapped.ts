@@ -58,7 +58,8 @@ export function parseMappedRows({
 	warnings,
 	categorizationRules,
 	columnMapping,
-	hasHeaderRow
+	hasHeaderRow,
+	dateOrder
 }: MappedParseInput): CsvImportResult {
 	const headerRefusals: CsvRefusal[] = [];
 	const headers = rows[0].cells.map(foldExactHeader);
@@ -132,6 +133,7 @@ export function parseMappedRows({
 	return parseResolvedRows({
 		rows,
 		hasHeaderRow,
+		dateOrder,
 		headers,
 		columns: verdict.columns,
 		currencyColumn: CURRENCY_COLUMNS.find((name) => headers.includes(name)),

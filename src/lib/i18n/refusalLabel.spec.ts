@@ -69,7 +69,8 @@ const FACTS: { [C in CsvRefusalFact['code']]: Extract<CsvRefusalFact, { code: C 
 	'split-reserved-category-on-part': { code: 'split-reserved-category-on-part' },
 	'split-sign-opposite': { code: 'split-sign-opposite' },
 	'split-sum-mismatch': { code: 'split-sum-mismatch' },
-	'transaction-invalid': { code: 'transaction-invalid', violations: ['label-too-long'] }
+	'transaction-invalid': { code: 'transaction-invalid', violations: ['label-too-long'] },
+	'mixed-date-order': { code: 'mixed-date-order', dayFirst: '24/06/2026', monthFirst: '06/24/2026' }
 };
 
 describe('refusalLabel', () => {
@@ -79,14 +80,14 @@ describe('refusalLabel', () => {
 		expect(refusalLabel({ code: 'file-empty' })).toBe('CSV vide ou sans données');
 	});
 
-	it('renders every code in the union, and there are 39 of them', () => {
+	it('renders every code in the union, and there are 40 of them', () => {
 		const rendered = CSV_REFUSAL_CODES.map((code) => refusalLabel(FACTS[code]));
 
 		// The absolute figure beside the emptiness assertion: a run that rendered nothing at all
 		// would satisfy "none is empty" perfectly.
-		expect(rendered).toHaveLength(39);
-		expect(CSV_REFUSAL_CODES).toHaveLength(39);
-		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(39);
+		expect(rendered).toHaveLength(40);
+		expect(CSV_REFUSAL_CODES).toHaveLength(40);
+		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(40);
 		// A key leaking through would render as the key itself.
 		expect(rendered.filter((label) => label.startsWith('import_refusal_'))).toEqual([]);
 	});
@@ -96,7 +97,7 @@ describe('refusalLabel', () => {
 
 		// Two guards in sequence are indistinguishable to a user when they render the same
 		// sentence, which is the whole reason the contract names them separately.
-		expect(new Set(rendered).size).toBe(39);
+		expect(new Set(rendered).size).toBe(40);
 	});
 
 	it('renders the payload of the four facts whose sentence names a value', () => {

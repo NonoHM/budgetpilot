@@ -2,6 +2,7 @@ import type { Transaction, TransactionNature } from '$lib/domain/transaction';
 import type { CategorizationRuleInput } from '$lib/server/categorization/rules';
 import type { CsvRefusal } from './refusals';
 import type { UntrustedColumnMapping } from './mapping/model';
+import type { DateOrder } from './dateOrder';
 
 export interface CsvImportOptions {
 	sourceName?: string;
@@ -31,6 +32,16 @@ export interface CsvImportOptions {
 	 * perfectly well formed. See `headerlessFile.spec.ts`.
 	 */
 	hasHeaderRow?: boolean;
+	/**
+	 * Which component an ambiguous `06/01/2026` writes first.
+	 *
+	 * Absent means nobody has decided, and the parser reads day-first, which is what it has
+	 * always done. Exactly the shape of `hasHeaderRow` above and for the same reason: a cell
+	 * reading `06/01/2026` is two valid dates and carries nothing that separates them, so the
+	 * answer is a property of the FILE that the parser cannot take from any single value. See
+	 * `dateOrder.ts` and #433.
+	 */
+	dateOrder?: DateOrder;
 }
 
 /**
@@ -151,4 +162,8 @@ export interface CsvProfileParseInput {
 	warnings: string[];
 	sourceName?: string;
 	categorizationRules: CategorizationRuleInput[];
+	/** The file's date order, when it has been decided. Absent reads day-first. Every profile
+	 *  receives it because every profile funnels into `normalizeDate`, and one that quietly
+	 *  dropped it would be the only path where the user's answer does not apply. */
+	dateOrder?: DateOrder;
 }

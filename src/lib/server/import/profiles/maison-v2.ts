@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import type { CsvRefusal, CsvRefusalFact } from '../refusals';
 import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
+import type { DateOrder } from '../dateOrder';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildPreviewRowId,
@@ -74,7 +75,11 @@ interface AllocationLine {
 	count: number;
 }
 
-export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): CsvImportResult {
+export function parseMaisonV2Rows({
+	rows,
+	warnings,
+	dateOrder
+}: CsvProfileParseInput): CsvImportResult {
 	const headers = rows[0].cells.map(foldExactHeader);
 
 	if (!matchesMaisonV2Header(headers)) {
@@ -99,7 +104,13 @@ export function parseMaisonV2Rows({ rows, warnings }: CsvProfileParseInput): Csv
 	let ungroupableLines = 0;
 
 	rows.slice(1).forEach((parsedRow) => {
-		const parsed = parseAllocationLine(parsedRow.cells, headers, parsedRow.line, refusals);
+		const parsed = parseAllocationLine(
+			parsedRow.cells,
+			headers,
+			parsedRow.line,
+			refusals,
+			dateOrder
+		);
 		if (!parsed) {
 			ungroupableLines += 1;
 			return;
@@ -212,7 +223,8 @@ function parseAllocationLine(
 	row: string[],
 	headers: string[],
 	line: number,
-	refusals: CsvRefusal[]
+	refusals: CsvRefusal[],
+	dateOrder: DateOrder | undefined
 ): AllocationLine | null {
 	if (row.length !== headers.length) {
 		addRefusal(
@@ -226,7 +238,7 @@ function parseAllocationLine(
 
 	const record = toRecord(headers, row);
 
-	const date = normalizeDate(record.date ?? '');
+	const date = normalizeDate(record.date ?? '', dateOrder);
 	if (!isValidIsoDate(date)) {
 		addRefusal(
 			refusals,
