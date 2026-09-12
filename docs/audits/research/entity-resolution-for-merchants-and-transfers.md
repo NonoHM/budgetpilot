@@ -199,6 +199,25 @@ rule catalogue against a bank descriptor. The transfer is a structural analogy d
 that `sydney uni` contains `sydney` exactly as `uber eats` contains `uber`, and not a result
 inherited from the book.
 
+**So the monograph is not the reason for the decision, and this note says so rather than leaving it
+looking like one.** Longest-match ranking rests on three supports, none of which depends on the
+monograph quotations above:
+
+1. **[MEASURED]** The containment theorem in this catalogue. `uber` is a substring of `uber eats` and
+   `amazon` of `amazon prime`, read from the JSON at `8b42eb4`, so for nested pairs preferring the
+   longer match is a property of containment rather than a heuristic anyone has to trust.
+2. **[READ-PDF]** The survey's experimentally backed finding at p. 1551 that blocking key definition
+   matters more than the indexing technique, with traditional blocking, the simplest technique
+   surveyed, best on two of the four real data sets. That is a reason to spend the effort on the fold
+   and to keep the matcher boring, which is what a ranked linear scan is.
+3. **[VENDOR]** Actual Budget's rule engine already ranks conditions "automatically ranked from least
+   to most specific" within a stage, and keeps `imported payee` beside `payee` so that rules stay
+   re-runnable. Vendor documentation, so evidence about what a shipping product does and not a
+   validated accuracy claim, but it is an existence proof that the ordering is workable at this scale
+   in a self-hosted tool.
+
+The monograph's contribution is vocabulary and a worked example, not warrant.
+
 **The rule adopted: longest matched text anywhere in the label, tie-broken by catalogue order.**
 Three properties must be written beside it.
 
