@@ -69,6 +69,21 @@ export type DateOrderVerdict =
 /**
  * Which order a column of date cells is written in, or why that cannot be answered.
  *
+ * ## NOTHING IN THE PARSER CALLS THIS YET. #613 wires it.
+ *
+ * Stated at the top because a tested function with no caller reads, in six months, as a function
+ * that works: the tests are real, they pass, and nothing in them says whether anything downstream
+ * asks the question. That is the falsified-comment class arriving in new code rather than in old,
+ * and the only defence is to say so where a reader lands first.
+ *
+ * What that means concretely today: the order is whatever `CsvImportOptions.dateOrder` carries,
+ * nothing sets that option, so every file is read day-first, and the `mixed` verdict below has no
+ * producer even though `mixed-date-order` is a refusal code with a sentence in both catalogues.
+ *
+ * The reason it was not wired with the rest is in #613. In one line: the single door every parse
+ * path passes is `parseImportRows`, and it does not know which column holds the date until a
+ * profile resolves it, so wiring means the seven profiles declaring their date columns.
+ *
  * **The rule is that a component above 12 cannot be a month, so it names its own position**, and
  * everything else follows from reading the WHOLE column rather than any one cell. That is the
  * difference between this and what the parser could do before: `normalizeDate` sees one value,

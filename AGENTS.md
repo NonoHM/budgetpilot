@@ -213,6 +213,32 @@ Tooling enforces formatting; do not restate it. What tooling cannot check:
   failed at container startup after `check`, the unit suite, lint and Playwright all passed, and
   the import path was only the symptom. The cause was a module reaching for an AMBIENT LOCALE, and
   it now imports nothing at all.
+- **A PROPERTY THAT CHANGES HOW VALUES ARE READ IS DECIDED BY LOOKING AT EVERY VALUE IT RANGES
+  OVER. Where the file proves an answer, use it. Where the file proves two contradictory answers,
+  refuse it. Where the file exhibits the ambiguity but proves nothing, ask. Only where the file
+  exhibits no ambiguity at all may a default apply.** The single definition for the import parser's
+  per-file decisions, written here so that a ninth one inherits it rather than someone remembering
+  it. The eight today are the encoding repair, the delimiter, the sign indicator, the split amount
+  pair, the account discriminant, the currency, the decimal separator and the date order.
+  **The clause that does the work is the last one, and an earlier draft of this rule did not have
+  it.** "A file we cannot read is refused, never guessed" reads well and is wrong: it would refuse
+  an ordinary all-positive statement, which carries no direction column because it needs none, and
+  every file with no currency column, which is almost all of them. The distinction those two turn
+  on is whether the ambiguity is PRESENT IN the file or merely ABSENT FROM it. A date cell reading
+  `06/01/2026` exhibits its own ambiguity and there is something to resolve. A missing currency
+  column exhibits nothing, so there is no question to ask and a default is honest. Refusing on the
+  absence of a signal refuses the ordinary case.
+  **The four outcomes are a TYPE, not a convention, and that is the enforcement.**
+  `import/dateOrder.ts` returns `resolved`, `mixed`, `ambiguous` or `nothing-to-decide`, and there
+  is no constructor for "I guessed": a decision returning this shape cannot express the state the
+  rule forbids. `import/discriminant.ts` is the same idea at three states, keeping `none` apart
+  from `multi-account` for the reason its own docstring gives. Two decisions, two arities, and
+  deliberately NOT one shared generic yet: collapsing them would merge refusing with asking, which
+  is the distinction the rule exists to draw. A shared type registers when a third decision
+  genuinely wants four states.
+  The failure this replaces is measured in #433: the date order was the one decision of the eight
+  taken with no file-level look that ALSO failed silently, and a month-first statement imported
+  with every row about five months early, nothing refused.
 - Prefer the existing component and the existing helper. Check before adding either.
 - Any number an operator might need to move is read from the environment: a default, a hard
   ceiling, refusal rather than clamping, and a boot warning when it differs.

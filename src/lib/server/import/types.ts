@@ -40,6 +40,19 @@ export interface CsvImportOptions {
 	 * reading `06/01/2026` is two valid dates and carries nothing that separates them, so the
 	 * answer is a property of the FILE that the parser cannot take from any single value. See
 	 * `dateOrder.ts` and #433.
+	 *
+	 * ## THIS IS AN INTERIM STATE, NOT ACCEPTED ARCHITECTURE
+	 *
+	 * A derivable value is not configured, and this one IS derivable: `detectDateOrder` reads it
+	 * off the column, because a component above 12 cannot be a month and so names its own
+	 * position. So this option violates a rule this repository holds, and it is recorded as a
+	 * violation rather than left to read as a design.
+	 *
+	 * It exists only because the derivation is not wired yet, for the reason #613 gives. When
+	 * #613 lands, the order becomes DERIVED and this option becomes an OVERRIDE: the user's own
+	 * answer, which still has to win over an inference, and which is the only thing that can
+	 * settle a column the file leaves genuinely ambiguous. The precedence that then has to hold
+	 * is written down once, in #613, rather than discovered at whichever call site reads both.
 	 */
 	dateOrder?: DateOrder;
 }
