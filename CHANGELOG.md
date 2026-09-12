@@ -1,5 +1,25 @@
 # Changelog
 
+## [1.1.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.0.0...budgetpilot-v1.1.0) (2026-09-12)
+
+
+### Features
+
+* **import:** a file's date order becomes an input the parser honours ([#612](https://github.com/NonoHM/budgetpilot/issues/612)) ([784b7df](https://github.com/NonoHM/budgetpilot/commit/784b7df3db47eeff6223c0e8fb197aec1a2e84d4))
+
+
+### Bug Fixes
+
+* **import:** bound a parsed file's dimensions at the read, and rate limit the import doors ([#604](https://github.com/NonoHM/budgetpilot/issues/604)) ([8b42eb4](https://github.com/NonoHM/budgetpilot/commit/8b42eb4ff61dee83a38937f3cb3d6185fb59f9e0))
+* **reports:** apportion displayed shares so a printed set sums to 100 ([#585](https://github.com/NonoHM/budgetpilot/issues/585)) ([9b6ebcb](https://github.com/NonoHM/budgetpilot/commit/9b6ebcbe39172add99a0e61f4d49e56f46b97544))
+
+
+### Documentation
+
+* **audits:** the API decision stops citing a document nobody can open ([#577](https://github.com/NonoHM/budgetpilot/issues/577)) ([0e99cd7](https://github.com/NonoHM/budgetpilot/commit/0e99cd70afbf23b0e0f32881a6b0e990569b6d68))
+* **research:** the literature behind the merchant index and the counterparty link ([#606](https://github.com/NonoHM/budgetpilot/issues/606)) ([af907d2](https://github.com/NonoHM/budgetpilot/commit/af907d28e092e7fec0a24eb951e1b44132935c6a))
+* **research:** the perception evidence base leaves the tracker ([#578](https://github.com/NonoHM/budgetpilot/issues/578)) ([dd299c1](https://github.com/NonoHM/budgetpilot/commit/dd299c165db2d15df59c942d2acb7282d8cf5741))
+
 ## [1.0.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.4...budgetpilot-v1.0.0) (2026-09-07)
 
 
