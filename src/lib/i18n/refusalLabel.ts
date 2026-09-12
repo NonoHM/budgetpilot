@@ -82,6 +82,11 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			return m.import_refusal_too_many_columns({ max: fact.max });
 		case 'header-not-recognized':
 			return m.import_refusal_header_not_recognized({ profile: fact.profile });
+		case 'mixed-date-order':
+			return m.import_refusal_mixed_date_order({
+				dayFirst: fact.dayFirst,
+				monthFirst: fact.monthFirst
+			});
 		case 'unknown-column':
 			return m.import_refusal_unknown_column({ column: fact.column });
 		case 'duplicate-column':

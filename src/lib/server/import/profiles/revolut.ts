@@ -108,7 +108,8 @@ export function matchesRevolutHeader(headers: string[]): boolean {
 export function parseRevolutRows({
 	rows,
 	warnings,
-	categorizationRules
+	categorizationRules,
+	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
 	const headers = normalizeHeaderCells(rows[0].cells);
 	if (!matchesRevolutHeader(headers)) {
@@ -166,7 +167,10 @@ export function parseRevolutRows({
 			return;
 		}
 
-		const date = normalizeFirstValidDate(record['Date de fin'], record['Date de début']);
+		const date = normalizeFirstValidDate(
+			[record['Date de fin'], record['Date de début']],
+			dateOrder
+		);
 		if (!isValidIsoDate(date)) {
 			addRefusal(
 				refusals,

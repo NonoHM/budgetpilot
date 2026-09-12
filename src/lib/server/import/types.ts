@@ -2,6 +2,7 @@ import type { Transaction, TransactionNature } from '$lib/domain/transaction';
 import type { CategorizationRuleInput } from '$lib/server/categorization/rules';
 import type { CsvRefusal } from './refusals';
 import type { UntrustedColumnMapping } from './mapping/model';
+import type { DateOrder } from './dateOrder';
 
 export interface CsvImportOptions {
 	sourceName?: string;
@@ -31,6 +32,29 @@ export interface CsvImportOptions {
 	 * perfectly well formed. See `headerlessFile.spec.ts`.
 	 */
 	hasHeaderRow?: boolean;
+	/**
+	 * Which component an ambiguous `06/01/2026` writes first.
+	 *
+	 * Absent means nobody has decided, and the parser reads day-first, which is what it has
+	 * always done. Exactly the shape of `hasHeaderRow` above and for the same reason: a cell
+	 * reading `06/01/2026` is two valid dates and carries nothing that separates them, so the
+	 * answer is a property of the FILE that the parser cannot take from any single value. See
+	 * `dateOrder.ts` and #433.
+	 *
+	 * ## THIS IS AN INTERIM STATE, NOT ACCEPTED ARCHITECTURE
+	 *
+	 * A derivable value is not configured, and this one IS derivable: `detectDateOrder` reads it
+	 * off the column, because a component above 12 cannot be a month and so names its own
+	 * position. So this option violates a rule this repository holds, and it is recorded as a
+	 * violation rather than left to read as a design.
+	 *
+	 * It exists only because the derivation is not wired yet, for the reason #613 gives. When
+	 * #613 lands, the order becomes DERIVED and this option becomes an OVERRIDE: the user's own
+	 * answer, which still has to win over an inference, and which is the only thing that can
+	 * settle a column the file leaves genuinely ambiguous. The precedence that then has to hold
+	 * is written down once, in #613, rather than discovered at whichever call site reads both.
+	 */
+	dateOrder?: DateOrder;
 }
 
 /**
@@ -151,4 +175,8 @@ export interface CsvProfileParseInput {
 	warnings: string[];
 	sourceName?: string;
 	categorizationRules: CategorizationRuleInput[];
+	/** The file's date order, when it has been decided. Absent reads day-first. Every profile
+	 *  receives it because every profile funnels into `normalizeDate`, and one that quietly
+	 *  dropped it would be the only path where the user's answer does not apply. */
+	dateOrder?: DateOrder;
 }

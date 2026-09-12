@@ -11,6 +11,7 @@ import type {
 	ResolvedCsvImportProfile
 } from '../types';
 import type { CsvRefusal } from '../refusals';
+import type { DateOrder } from '../dateOrder';
 import { addRefusal, buildSummary, normalizeDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
@@ -44,6 +45,8 @@ export interface ResolvedRowsInput {
 	/** False when row 0 is a transaction rather than a title row. Defaults to true. */
 	hasHeaderRow?: boolean;
 	columns: ResolvedColumnNames;
+	/** How an ambiguous date cell is read. Absent reads day-first. */
+	dateOrder?: DateOrder;
 	/** The folded header declaring a currency, when the file has one. */
 	currencyColumn: string | undefined;
 	acceptedCurrency: string;
@@ -73,6 +76,7 @@ export function parseResolvedRows({
 	rows,
 	headers,
 	hasHeaderRow,
+	dateOrder,
 	columns,
 	currencyColumn,
 	acceptedCurrency,
@@ -114,7 +118,7 @@ export function parseResolvedRows({
 		// whole widening. `columns.date` is `dateop` for a Boursorama file, `started date` for a
 		// Revolut one, and whatever the user designated for a mapped one.
 		const amountCents = parseAmountCents(record[columns.amount] ?? '');
-		const date = normalizeDate(record[columns.date] ?? '');
+		const date = normalizeDate(record[columns.date] ?? '', dateOrder);
 		const label = sanitizeImportedText(record[columns.label] ?? '');
 		const category = sanitizeImportedText(
 			(columns.category ? record[columns.category] : '') || UNCLASSIFIED_CATEGORY

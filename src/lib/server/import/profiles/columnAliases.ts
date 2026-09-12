@@ -38,10 +38,23 @@ import { foldComparableHeader } from '../utils/encoding';
  * ## `posting date` is absent on purpose
  *
  * Chase's date column is `Posting Date`, and Chase writes `08/01/2026` meaning 1 August, while
- * `normalizeDate` reads `dd/mm` and would file it as 8 January. **A file that imports with a
- * wrong date is worse than the refusal it replaces.** Date ORDER is a per file property that an
- * alias table structurally cannot express, so Chase is unblocked by the mapping path (#301) and
- * never by adding its alias here. DO NOT ADD `posting date`.
+ * `normalizeDate` reads `dd/mm` by default and would file it as 8 January. **A file that imports
+ * with a wrong date is worse than the refusal it replaces.** Date ORDER is a per file property
+ * that an alias table structurally cannot express, so it is never unblocked by adding an alias
+ * here. DO NOT ADD `posting date`.
+ *
+ * **THE ESCAPE ROUTE THIS PARAGRAPH USED TO NAME WAS THE MAPPING PATH (#301), AND IT WAS FALSE.**
+ * A designation says WHICH column holds the date and nothing about how the value in it reads:
+ * `mapped` funnels into the same `normalizeDate` as every other profile. Measured in #433 on a
+ * mirror pair: the refusal is symmetric per row, so nothing anywhere inspected the column as a
+ * column. So the sentence was right that an alias cannot express the order, and wrong about where
+ * the order could be expressed instead, which left a designated Chase file importing five months
+ * early with nothing said.
+ *
+ * The order is now an INPUT, `CsvImportOptions.dateOrder`, and `dateOrder.ts` can read it off the
+ * column. Until a screen asks the question nothing sets it, so the two paths still differ and the
+ * difference is the point: a Chase file is refused here, for want of an alias, and imports through
+ * a designation. That gap is what the question screen closes.
  *
  * Note this is NOT a collision: Chase carries one date column. The collision rule does not
  * derive this exclusion, and an earlier draft claimed it did.

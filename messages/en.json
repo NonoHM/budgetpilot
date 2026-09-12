@@ -426,6 +426,7 @@
 	"import_refusal_too_many_rows": "CSV limited to {max} rows",
 	"import_refusal_too_many_columns": "This file declares more than {max} columns. That limit exists for the column designation screen.",
 	"import_refusal_header_not_recognized": "{profile} header not recognized",
+	"import_refusal_mixed_date_order": "This file writes its dates in two different orders: “{dayFirst}” can only be read day-first, “{monthFirst}” only month-first. No single reading fits the whole file, so nothing was imported.",
 	"category_default_food": "Groceries",
 	"category_default_dining": "Dining out",
 	"category_default_transport": "Transport",

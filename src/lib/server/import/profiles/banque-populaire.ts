@@ -54,7 +54,8 @@ export function matchesBanquePopulaireHeader(headers: string[]): boolean {
 export function parseBanquePopulaireRows({
 	rows,
 	warnings,
-	categorizationRules
+	categorizationRules,
+	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
 	const headers = normalizeHeaderCells(rows[0].cells);
 	if (!matchesBanquePopulaireHeader(headers)) {
@@ -105,9 +106,8 @@ export function parseBanquePopulaireRows({
 
 		const record = toRecord(headers, row);
 		const date = normalizeFirstValidDate(
-			record['Date operation'],
-			record['Date de comptabilisation'],
-			record['Date de valeur']
+			[record['Date operation'], record['Date de comptabilisation'], record['Date de valeur']],
+			dateOrder
 		);
 		/**
 		 * The date, checked HERE rather than left to `validateTransaction` at the bottom.

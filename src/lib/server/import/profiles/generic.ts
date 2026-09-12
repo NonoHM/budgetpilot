@@ -68,7 +68,8 @@ export function matchesGenericHeader(): boolean {
 export function parseGenericRows({
 	rows,
 	warnings,
-	categorizationRules
+	categorizationRules,
+	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
 	// Accents folded as well as case. ONE array feeds the duplicate check, the alias resolution
 	// and `toRecord`, so folding here is what keeps the three agreeing: a file whose label column
@@ -163,6 +164,7 @@ export function parseGenericRows({
 	return parseResolvedRows({
 		rows,
 		headers,
+		dateOrder,
 		// `resolution.ok` is guaranteed here: the header refusals above returned early otherwise,
 		// and every required role was checked for presence. The assertions are what carries that
 		// through to a type the shared loop can use without another null check per row.

@@ -254,7 +254,8 @@ export function parseImportRows(
 			sourceName: options.sourceName,
 			categorizationRules: options.categorizationRules ?? [],
 			columnMapping: options.columnMapping,
-			hasHeaderRow: options.hasHeaderRow
+			hasHeaderRow: options.hasHeaderRow,
+			dateOrder: options.dateOrder
 		});
 	}
 
@@ -273,7 +274,8 @@ export function parseImportRows(
 		rows: normalizedRows,
 		warnings,
 		sourceName: options.sourceName,
-		categorizationRules: options.categorizationRules ?? []
+		categorizationRules: options.categorizationRules ?? [],
+		dateOrder: options.dateOrder
 	});
 }
 
