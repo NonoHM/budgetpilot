@@ -100,7 +100,7 @@ describe('refusalLabel', () => {
 		expect(new Set(rendered).size).toBe(40);
 	});
 
-	it('renders the payload of the four facts whose sentence names a value', () => {
+	it('renders the payload of the five facts whose sentence names a value', () => {
 		expect(refusalLabel({ code: 'unknown-column', column: 'wibble' })).toBe(
 			'Colonne non autorisée : wibble'
 		);
@@ -123,6 +123,22 @@ describe('refusalLabel', () => {
 		expect(date).toContain('01.06.2026');
 		expect(date).toContain('JJ/MM/AAAA');
 		expect(date).toContain('AAAA-MM-JJ');
+
+		// The fifth, and it is the first to carry TWO payload values, which is why it is asserted
+		// rather than assumed to follow from the four above. A message naming one placeholder
+		// correctly and misspelling the other renders half a sentence and half a literal
+		// `{monthFirst}`, and every assertion this file already makes about the code would pass:
+		// it is non-empty, it is not the key, and it is distinct from the other thirty-nine.
+		// Both cells have to be in it, because neither is wrong on its own and the pair is the
+		// finding.
+		const mixed = refusalLabel({
+			code: 'mixed-date-order',
+			dayFirst: '24/06/2026',
+			monthFirst: '06/24/2026'
+		});
+		expect(mixed).toContain('24/06/2026');
+		expect(mixed).toContain('06/24/2026');
+		expect(mixed).not.toContain('{');
 	});
 
 	it('joins a domain verdict in the order the validator pushed it', () => {
