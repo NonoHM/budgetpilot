@@ -37,6 +37,12 @@ import { parseCsvTransactions } from './csv';
  * headerless fixtures, which are the ones that reach the designation screen, all carry ISO dates,
  * so they are `nothing-to-decide` on the mapped path too.
  *
+ * **THAT FIGURE IS UNDER REVIEW AND MUST NOT BE QUOTED AS SETTLED: see #621.** A second
+ * measurement of the same thing, taken before `dateColumns` existed, reads 31 columns over 23
+ * files with 2 ambiguous. Both cannot be right, and which one is decides whether the question
+ * screen has any real instance at all. The figure above is what THIS run measured, with its
+ * denominator and its method stated; it is not yet reconciled with the other.
+ *
  * That is the honest state of this branch: **no real fixture reaches it.** Both new branches are
  * exercised only by files built to exercise them, and nobody should measure zero change on the
  * corpus and conclude the work was pointless. It means the corpus is European.
