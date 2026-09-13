@@ -187,6 +187,54 @@ describe('the date order is read off the file at the single door', () => {
 	});
 
 	/**
+	 * Separates "a headerless file's FIRST LINE counts as evidence" from "it is skipped as a title
+	 * row". The user's answer about a title row is honoured when gathering the cells, for the same
+	 * reason `parseImportRows` honours it when counting rows: a headerless file's first line is a
+	 * transaction.
+	 *
+	 * The fixture puts the ONLY resolving cell on line one. Skip it and the column reads ambiguous,
+	 * so the file takes the day-first default, `08/15/2026` becomes day 8 of month 15 and is
+	 * refused, and the survivor lands five months early. Two figures move, not one.
+	 *
+	 * ## Written because a break showed nothing could see this
+	 *
+	 * Added after the seam-coverage measurement for this change: removing the `hasHeaderRow` clause
+	 * from the cell gather left the whole `src/lib/server/import/` suite green at 620 passed. So
+	 * this assertion was written against the BROKEN version first and watched to fail, rather than
+	 * written against working code and assumed to bite.
+	 */
+	it('reads the first line of a headerless file as evidence, not as a title row', () => {
+		expect.assertions(3);
+
+		const result = parseCsvTransactions(
+			['08/15/2026,PAYROLL,2400.00', '06/01/2026,COFFEE,-4.50'].join('\n'),
+			{
+				profile: 'mapped',
+				hasHeaderRow: false,
+				columnMapping: {
+					matchBy: 'position',
+					dateColumn: null,
+					labelColumn: null,
+					amountColumn: null,
+					categoryColumn: null,
+					dateIndex: 0,
+					labelIndex: 1,
+					amountIndex: 2,
+					categoryIndex: null,
+					columnCount: 3
+				}
+			}
+		);
+
+		expect(result.summary.validRows).toBe(2);
+		expect(result.summary.invalidRows).toBe(0);
+		expect(result.transactions.map((transaction) => transaction.date)).toEqual([
+			'2026-08-15',
+			'2026-06-01'
+		]);
+	});
+
+	/**
 	 * Separates "a declaration pointing at an absent column returns nothing" from "it throws, or
 	 * reads a neighbouring column". The file then reaches its ORDINARY refusal, which is the one
 	 * that can tell the user what to do about it.
