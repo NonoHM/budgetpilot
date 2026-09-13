@@ -69,20 +69,17 @@ export type DateOrderVerdict =
 /**
  * Which order a column of date cells is written in, or why that cannot be answered.
  *
- * ## NOTHING IN THE PARSER CALLS THIS YET. #613 wires it.
+ * ## CALLED FROM EXACTLY ONE PLACE: `parseImportRows`, the door every parse path passes
  *
- * Stated at the top because a tested function with no caller reads, in six months, as a function
- * that works: the tests are real, they pass, and nothing in them says whether anything downstream
- * asks the question. That is the falsified-comment class arriving in new code rather than in old,
- * and the only defence is to say so where a reader lands first.
+ * It ran with tests and no caller until #613, and the docstring that stood here said so, because
+ * a tested function with no caller reads in six months as a function that works. What wired it is
+ * `CsvProfileParser.dateColumns`: the door does not know which column holds the date, so each
+ * profile declares its own as indices and the decision is taken once, over the right cells,
+ * before any row is read. `mapped` declares through `mappedDateColumns`, which is the seventh
+ * declaration and the only one the compiler does not force.
  *
- * What that means concretely today: the order is whatever `CsvImportOptions.dateOrder` carries,
- * nothing sets that option, so every file is read day-first, and the `mixed` verdict below has no
- * producer even though `mixed-date-order` is a refusal code with a sentence in both catalogues.
- *
- * The reason it was not wired with the rest is in #613. In one line: the single door every parse
- * path passes is `parseImportRows`, and it does not know which column holds the date until a
- * profile resolves it, so wiring means the seven profiles declaring their date columns.
+ * The verdict does not reach `normalizeDate` directly. `decideDateOrder` turns it into a reading
+ * or a refusal, and that reading is threaded to the profile as `dateOrder`.
  *
  * **The rule is that a component above 12 cannot be a month, so it names its own position**, and
  * everything else follows from reading the WHOLE column rather than any one cell. That is the
@@ -138,4 +135,73 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
 		return { kind: 'resolved', order: 'month-first', evidence: monthFirstEvidence };
 	if (ambiguousSample) return { kind: 'ambiguous', sample: ambiguousSample };
 	return { kind: 'nothing-to-decide' };
+}
+
+/**
+ * What a parse does about the order, once the column has been read.
+ *
+ * Two outcomes rather than four, because two of the verdicts arrive at the same place: a file
+ * with nothing to decide and a file nobody has answered about are both READ, they simply differ
+ * in whether anything could have said otherwise. Collapsing them here and not in
+ * `DateOrderVerdict` is the point of having both types: the verdict is what the FILE says, the
+ * decision is what the PARSER does, and only the second one has a default in it.
+ */
+export type DateOrderDecision =
+	| { kind: 'read'; order: DateOrder }
+	/** The column proved both readings. Carries both cells, because neither is wrong alone. */
+	| { kind: 'refuse'; dayFirst: string; monthFirst: string };
+
+/**
+ * The file's verdict and the caller's override, resolved into one answer. THE ONE DEFINITION.
+ *
+ * ## The order is EVIDENCE FIRST, and that deviates from the ladder #613 wrote down
+ *
+ * #613 lists the explicit option first, « because it is the user's own answer ». Implemented as
+ * written, that is wrong in two places, and both are the standing bar rather than a preference:
+ *
+ * **Over `resolved`.** A column containing `24/06/2026` PROVES day-first: 24 is not a month, so
+ * this is not an inference that an answer can outrank, it is a fact about the bytes. An override
+ * saying month-first there refuses that row loudly (month 24 is not a date) and silently moves
+ * every ambiguous row beside it by up to eleven months. The stated rule is « where the file
+ * proves an answer, use it », with no clause admitting an answer that contradicts the proof.
+ *
+ * **Over `mixed`.** A file proving BOTH readings has no true answer to give, so honouring an
+ * override there imports half its rows wrong with the user's own answer as the alibi. No screen
+ * can ask a question whose answers are both false.
+ *
+ * So the override applies where the rule says ASK, and nowhere else. That is what makes it an
+ * override rather than configuration: it settles what the file leaves genuinely open, and it
+ * cannot overrule what the file settles for itself. `types.ts` already said as much before this
+ * function existed, in the sentence « the only thing that can settle a column the file leaves
+ * genuinely ambiguous ».
+ *
+ * ## `nothing-to-decide` ignores the override, and that is not the same as day-first winning
+ *
+ * An ISO file has no cell either reading could disagree about, so there is nothing for an
+ * override to apply TO. Reading it day-first and reading it month-first produce the identical
+ * import. Returning the default rather than the override keeps the two indistinguishable, which
+ * is what they are.
+ *
+ * Pure: no clock, no locale, no ambient state, so a decision is recomputable from the column it
+ * was taken over. See `AGENTS.md` under « Code style ».
+ */
+export function decideDateOrder(
+	verdict: DateOrderVerdict,
+	override: DateOrder | undefined
+): DateOrderDecision {
+	// First, and deliberately before the override is even read: a contradiction is not a question.
+	if (verdict.kind === 'mixed')
+		return {
+			kind: 'refuse',
+			dayFirst: verdict.dayFirstEvidence,
+			monthFirst: verdict.monthFirstEvidence
+		};
+
+	if (verdict.kind === 'resolved') return { kind: 'read', order: verdict.order };
+
+	// The one branch an override can reach. `nothing-to-decide` falls past it to the default,
+	// because there is no ambiguous cell for an answer to be about.
+	if (verdict.kind === 'ambiguous' && override) return { kind: 'read', order: override };
+
+	return { kind: 'read', order: DEFAULT_DATE_ORDER };
 }

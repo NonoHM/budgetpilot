@@ -44,11 +44,27 @@ export const CREDIT_AGRICOLE: [string, string] = [
 /**
  * Asserted as STILL REFUSED, for a different reason, and the difference is the point.
  *
- * `08/01/2026` is 1 August at source, and `normalizeDate` reads `dd/mm`, so this row would
- * import dated 8 January. **A file that imports with a wrong date is worse than the refusal it
- * replaces.** Date ORDER is a per file property an alias table structurally cannot express, so
- * Chase is unblocked by the mapping path (#301), never by adding `posting date` to the date
- * aliases. DO NOT ADD THAT ALIAS.
+ * `08/01/2026` is 1 August at source, and `normalizeDate` reads `dd/mm` by default, so this row
+ * would import dated 8 January. **A file that imports with a wrong date is worse than the refusal
+ * it replaces.** Date ORDER is a per file property an alias table structurally cannot express, so
+ * it is never unblocked by adding an alias here. DO NOT ADD `posting date`.
+ *
+ * ## THE ESCAPE ROUTE THIS PARAGRAPH NAMED WAS FALSE, AND IT SURVIVED BECAUSE THE OTHER HALF WAS
+ * TRUE
+ *
+ * It used to end « so Chase is unblocked by the mapping path (#301) ». A designation says WHICH
+ * column holds the date and nothing about how the value in it reads, and `mapped` funnelled into
+ * the same `normalizeDate` as every other profile, so a designated Chase file imported five
+ * months early with nothing said. `columnAliases.ts` was corrected when that was measured and
+ * THIS COPY WAS NOT, which is the eighth instance of the rule about comments asserting what a
+ * later change made false. The reason it survived is the rule's own prediction: the DO-NOT-ADD
+ * half is load-bearing and true, so nobody re-read the sentence beside it.
+ *
+ * What is true now, after #613: the order is DERIVED from the whole date column at the single
+ * door, on every path including `mapped`, so a Chase file carrying any day above the twelfth
+ * resolves month-first and imports correctly through a designation. A Chase file whose every cell
+ * is ambiguous still does not, and waits on the question screen. Refused here either way, for
+ * want of an alias.
  *
  * Note it is refused by ABSENCE, not by the collision rule: Chase carries one date column.
  */

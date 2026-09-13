@@ -1,5 +1,6 @@
 import { resolveProfile } from './registry';
-import { parseMappedRows } from './profiles/mapped';
+import { mappedDateColumns, parseMappedRows } from './profiles/mapped';
+import { decideDateOrder, detectDateOrder } from './dateOrder';
 import type {
 	CsvImportOptions,
 	CsvImportProfile,
@@ -15,6 +16,7 @@ import { emptyResult, normalizeParsedRows, parseRows } from './utils/csv';
 import { resolveCsvMaxColumns } from './columnBounds';
 import { CSV_MAX_ROWS } from './resourceBounds';
 export { CSV_MAX_ROWS };
+import { refusalCellValue } from './utils/safety';
 export { sanitizeImportedText } from './utils/safety';
 export type {
 	CsvImportOptions,
@@ -242,25 +244,20 @@ export function parseImportRows(
 
 	const requestedProfile = options.profile ?? 'auto';
 
-	// Routed here rather than through `csvProfileParsers`, because this profile is chosen by a row
-	// in the database rather than by the header line. Keeping it out of the registry is what makes
+	// `mapped` is routed around the registry, because this profile is chosen by a row in the
+	// database rather than by the header line. Keeping it out of `csvProfileParsers` is what makes
 	// "a mapping is never auto-detected" structural: registered after `generic`, whose match
 	// returns true for everything, it would be unreachable today and reachable the day somebody
 	// reorders that list, with nothing able to tell the difference. See `profiles/mapped.ts`.
-	if (requestedProfile === 'mapped') {
-		return parseMappedRows({
-			rows: normalizedRows,
-			warnings,
-			sourceName: options.sourceName,
-			categorizationRules: options.categorizationRules ?? [],
-			columnMapping: options.columnMapping,
-			hasHeaderRow: options.hasHeaderRow,
-			dateOrder: options.dateOrder
-		});
-	}
+	//
+	// Resolved BEFORE the date order below rather than at its own dispatch, so that both paths
+	// reach one detection rather than two. `null` here means `mapped` and nothing else.
+	const parser =
+		requestedProfile === 'mapped'
+			? null
+			: resolveProfile(normalizedRows[0].cells, requestedProfile);
 
-	const parser = resolveProfile(normalizedRows[0].cells, requestedProfile);
-	if (!parser) {
+	if (!parser && requestedProfile !== 'mapped') {
 		const profileLabel = requestedProfile === 'auto' ? 'CSV' : profileErrorLabel(requestedProfile);
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: profileLabel }],
@@ -270,13 +267,113 @@ export function parseImportRows(
 		);
 	}
 
+	/**
+	 * THE ONE PLACE THE DATE ORDER IS DECIDED, for every parse path there is.
+	 *
+	 * ## Why here and not in a profile
+	 *
+	 * The order is a property of the FILE, and a decision taken per profile is a decision seven
+	 * copies of. `normalizeDate` sees one value, and one value reading `06/01/2026` is two valid
+	 * dates with nothing to separate them; only the whole column can answer. So the profile
+	 * contributes the one thing it alone knows, which columns hold dates, and the answer is taken
+	 * here. A profile cannot bypass this, because every parse path passes through this function.
+	 *
+	 * ## The order of operations is load-bearing, and both halves were paid for
+	 *
+	 * AFTER the row cap and the column cap above, because this walks cells and a file already
+	 * refused for its dimensions must not buy any of that walk: caps firing while the expensive
+	 * work ran anyway is the defect #604 measured at 15,123 ms and +2,349 MB on a file the guards
+	 * had correctly rejected in 7.9 ms. The walk is bounded twice over by those caps, at the
+	 * declared columns (three at most, today) times the accepted rows.
+	 *
+	 * AFTER the profile resolved, because until then nothing knows which cells are dates, and a
+	 * scan of every cell in the file was rejected in #613 for a measured reason: a reference
+	 * column carrying something like `12/34/5678` becomes false evidence, and paired with genuine
+	 * evidence elsewhere it refuses a file that imports correctly today.
+	 *
+	 * BEFORE any row is read, because a refusal about the whole file must not arrive after rows
+	 * have been accepted under a reading the file contradicts.
+	 */
+	const decision = decideDateOrder(
+		detectDateOrder(
+			dateColumnCells(
+				normalizedRows,
+				parser
+					? parser.dateColumns(normalizedRows[0].cells)
+					: mappedDateColumns(options.columnMapping, normalizedRows[0].cells),
+				options.hasHeaderRow
+			)
+		),
+		options.dateOrder
+	);
+
+	// Through `refusalCellValue`, exactly as every other refusal in this directory names a cell.
+	// The evidence a verdict carries is the WHOLE trimmed cell, because `AMBIGUOUS_DATE_PATTERN`
+	// ends in `([\s\S]*)`: a date is only its first ten characters. Measured while this was being
+	// written, with the raw value: a 5,010 character cell reached the fact at 5,010 characters,
+	// and a tab survived into the page's data. A refusal fact is serialised into the page on every
+	// failed import, so an unbounded cell is a user's own upload choosing what goes there.
+	if (decision.kind === 'refuse')
+		return emptyResult(
+			[
+				{
+					code: 'mixed-date-order',
+					dayFirst: refusalCellValue(decision.dayFirst),
+					monthFirst: refusalCellValue(decision.monthFirst)
+				}
+			],
+			warnings,
+			parser ? parser.profile : 'mapped',
+			dataRowCount
+		);
+
+	if (!parser) {
+		return parseMappedRows({
+			rows: normalizedRows,
+			warnings,
+			sourceName: options.sourceName,
+			categorizationRules: options.categorizationRules ?? [],
+			columnMapping: options.columnMapping,
+			hasHeaderRow: options.hasHeaderRow,
+			dateOrder: decision.order
+		});
+	}
+
 	return parser.parse({
 		rows: normalizedRows,
 		warnings,
 		sourceName: options.sourceName,
 		categorizationRules: options.categorizationRules ?? [],
-		dateOrder: options.dateOrder
+		dateOrder: decision.order
 	});
+}
+
+/**
+ * The cells of the declared date columns, in file order, for the detector.
+ *
+ * A column index this file does not carry yields nothing rather than an `undefined` the detector
+ * would have to defend against: a declaration naming an absent column is an ordinary state (a
+ * remembered mapping whose column the bank renamed, a profile listing three date columns where
+ * one is optional), and the file meets its own refusal a few lines later with a sentence the user
+ * can act on.
+ *
+ * The user's answer about a title row is honoured for the same reason the row count honours it: a
+ * headerless file's first line is a transaction, and skipping it would drop one cell of evidence
+ * from every such file.
+ */
+function dateColumnCells(
+	rows: ParsedCsvRow[],
+	columns: number[],
+	hasHeaderRow: boolean | undefined
+): string[] {
+	const values: string[] = [];
+	for (let row = hasHeaderRow === false ? 0 : 1; row < rows.length; row++)
+		for (const column of columns) {
+			const cell = rows[row].cells[column];
+			if (cell !== undefined) values.push(cell);
+		}
+
+	return values;
 }
 
 function profileErrorLabel(profile: CsvImportProfile): string {

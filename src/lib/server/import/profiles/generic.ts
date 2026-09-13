@@ -65,6 +65,25 @@ export function matchesGenericHeader(): boolean {
 	return true;
 }
 
+/**
+ * Where this file's dates are, as indices. See `CsvProfileParser.dateColumns`.
+ *
+ * Calls `resolveRequiredColumns`, the same resolution `parseGenericRows` runs below, rather than
+ * consulting `REQUIRED_COLUMN_ALIASES` itself. Two readings of one alias table is the
+ * copied-predicate shape, and the collision rule is the half a second reading would lose: a file
+ * carrying two spellings for the date role resolves to NOTHING here, exactly as it refuses there,
+ * instead of this declaration quietly picking one and deciding the order from it.
+ *
+ * The same fold `parseGenericRows` applies, for the reason that function gives about `Libellé`.
+ */
+export function genericDateColumns(headers: string[]): number[] {
+	const folded = headers.map((header) => foldComparableHeader(header));
+	const resolution = resolveRequiredColumns(folded);
+	if (!resolution.ok || !resolution.columns.date) return [];
+	const index = folded.indexOf(resolution.columns.date);
+	return index >= 0 ? [index] : [];
+}
+
 export function parseGenericRows({
 	rows,
 	warnings,

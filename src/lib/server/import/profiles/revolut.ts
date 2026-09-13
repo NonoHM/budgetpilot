@@ -65,6 +65,15 @@ const SPELLING_TO_CANONICAL = new Map(
 	)
 );
 
+/**
+ * The two columns this profile can take a date from, in the order it tries them.
+ *
+ * CANONICAL names, which is what the row loop reads: `normalizeRevolutRecord` has already
+ * rewritten `Completed Date` to `Date de fin` by then. Same one-definition reason as
+ * `BANQUE_POPULAIRE_DATE_COLUMNS`, and it replaces two hand-typed copies below.
+ */
+export const REVOLUT_DATE_COLUMNS = ['Date de fin', 'Date de début'];
+
 const REVOLUT_METADATA_FIELDS = [
 	'Type',
 	'Produit',
@@ -103,6 +112,24 @@ export function matchesRevolutHeader(headers: string[]): boolean {
 	// one together rule out a duplicate (which would shrink the set) and an unknown column
 	// (which `filter` drops, also shrinking it), so no third clause is needed.
 	return canonicals.size === REVOLUT_COLUMNS.length;
+}
+
+/**
+ * Where this file's dates are, as indices. See `CsvProfileParser.dateColumns`.
+ *
+ * Resolved through `SPELLING_TO_CANONICAL`, never by looking for the canonical name in the
+ * header: an English export writes `Completed Date`, and a declaration that searched for
+ * `Date de fin` would find nothing and silently decline to decide the order for every
+ * non-French Revolut file. That is the one profile where the fold is a RENAME rather than a
+ * normalisation, and it is the reason this interface is declared in indices.
+ */
+export function revolutDateColumns(headers: string[]): number[] {
+	const canonicals = normalizeHeaderCells(headers).map((header) =>
+		SPELLING_TO_CANONICAL.get(foldComparableHeader(header))
+	);
+	return REVOLUT_DATE_COLUMNS.map((column) => canonicals.indexOf(column)).filter(
+		(index) => index >= 0
+	);
 }
 
 export function parseRevolutRows({
@@ -168,7 +195,7 @@ export function parseRevolutRows({
 		}
 
 		const date = normalizeFirstValidDate(
-			[record['Date de fin'], record['Date de début']],
+			REVOLUT_DATE_COLUMNS.map((column) => record[column]),
 			dateOrder
 		);
 		if (!isValidIsoDate(date)) {
@@ -180,7 +207,9 @@ export function parseRevolutRows({
 					column: 'Date de fin',
 					// What `normalizeFirstValidDate` fell back to, in its own order, so the value
 					// shown is the one it last tried to read rather than a column it skipped.
-					value: refusalCellValue(firstPresent(record['Date de fin'], record['Date de début']))
+					value: refusalCellValue(
+						firstPresent(...REVOLUT_DATE_COLUMNS.map((column) => record[column]))
+					)
 				},
 				'Date de fin'
 			);

@@ -43,11 +43,42 @@ export const BANQUE_POPULAIRE_HEADERS = [
 	'Pointage operation'
 ];
 
+/**
+ * The three columns this profile can take a date from, in the order it tries them.
+ *
+ * ONE definition, read by the row loop's `normalizeFirstValidDate`, by the refusal that shows
+ * which cell was last tried, and by the date-column declaration below. It used to be typed out
+ * at the first two, which is the copied-constant shape: the third use is what turns it into a
+ * constant rather than a coincidence that they agreed.
+ *
+ * The order matters to the row loop (it is a preference) and does not matter to the declaration
+ * (which reads all three whatever the order), so one array serves both.
+ */
+export const BANQUE_POPULAIRE_DATE_COLUMNS = [
+	'Date operation',
+	'Date de comptabilisation',
+	'Date de valeur'
+];
+
 export function matchesBanquePopulaireHeader(headers: string[]): boolean {
 	const normalizedHeaders = normalizeHeaderCells(headers);
 	return (
 		normalizedHeaders.length === BANQUE_POPULAIRE_HEADERS.length &&
 		normalizedHeaders.every((header, index) => header.trim() === BANQUE_POPULAIRE_HEADERS[index])
+	);
+}
+
+/**
+ * Where this file's dates are, as indices. See `CsvProfileParser.dateColumns`.
+ *
+ * `normalizeHeaderCells` is the same normalisation `matchesBanquePopulaireHeader` and the row
+ * loop apply, so the three agree about which cell is which by calling one function rather than
+ * by three of them being written the same way.
+ */
+export function banquePopulaireDateColumns(headers: string[]): number[] {
+	const normalized = normalizeHeaderCells(headers);
+	return BANQUE_POPULAIRE_DATE_COLUMNS.map((column) => normalized.indexOf(column)).filter(
+		(index) => index >= 0
 	);
 }
 
@@ -106,7 +137,7 @@ export function parseBanquePopulaireRows({
 
 		const record = toRecord(headers, row);
 		const date = normalizeFirstValidDate(
-			[record['Date operation'], record['Date de comptabilisation'], record['Date de valeur']],
+			BANQUE_POPULAIRE_DATE_COLUMNS.map((column) => record[column]),
 			dateOrder
 		);
 		/**
@@ -135,11 +166,7 @@ export function parseBanquePopulaireRows({
 					// The value the fallback last tried, in its own order, so the sentence shows
 					// the cell that was read rather than one of the two columns it skipped.
 					value: refusalCellValue(
-						firstPresent(
-							record['Date operation'],
-							record['Date de comptabilisation'],
-							record['Date de valeur']
-						)
+						firstPresent(...BANQUE_POPULAIRE_DATE_COLUMNS.map((column) => record[column]))
 					)
 				},
 				'Date operation'
