@@ -1,23 +1,34 @@
 import {
+	banquePopulaireDateColumns,
 	matchesBanquePopulaireHeader,
 	parseBanquePopulaireRows
 } from './profiles/banque-populaire';
-import { matchesGenericHeader, parseGenericRows } from './profiles/generic';
-import { matchesMaisonHeader, parseMaisonRows } from './profiles/maison';
-import { matchesMaisonV2Header, parseMaisonV2Rows } from './profiles/maison-v2';
-import { matchesMaisonV3Header, parseMaisonV3Rows } from './profiles/maison-v3';
-import { matchesRevolutHeader, parseRevolutRows } from './profiles/revolut';
+import { genericDateColumns, matchesGenericHeader, parseGenericRows } from './profiles/generic';
+import { maisonDateColumns, matchesMaisonHeader, parseMaisonRows } from './profiles/maison';
+import {
+	maisonV2DateColumns,
+	matchesMaisonV2Header,
+	parseMaisonV2Rows
+} from './profiles/maison-v2';
+import {
+	maisonV3DateColumns,
+	matchesMaisonV3Header,
+	parseMaisonV3Rows
+} from './profiles/maison-v3';
+import { matchesRevolutHeader, parseRevolutRows, revolutDateColumns } from './profiles/revolut';
 import type { CsvImportProfile, CsvProfileParser, ResolvedCsvImportProfile } from './types';
 
 export const csvProfileParsers: CsvProfileParser[] = [
 	{
 		profile: 'banque-populaire',
 		matches: matchesBanquePopulaireHeader,
+		dateColumns: banquePopulaireDateColumns,
 		parse: parseBanquePopulaireRows
 	},
 	{
 		profile: 'revolut',
 		matches: matchesRevolutHeader,
+		dateColumns: revolutDateColumns,
 		parse: parseRevolutRows
 	},
 	// THREE parsers share the `maison` name, and that is the versioning: v3 recognises the header
@@ -33,21 +44,25 @@ export const csvProfileParsers: CsvProfileParser[] = [
 	{
 		profile: 'maison',
 		matches: matchesMaisonV3Header,
+		dateColumns: maisonV3DateColumns,
 		parse: parseMaisonV3Rows
 	},
 	{
 		profile: 'maison',
 		matches: matchesMaisonV2Header,
+		dateColumns: maisonV2DateColumns,
 		parse: parseMaisonV2Rows
 	},
 	{
 		profile: 'maison',
 		matches: matchesMaisonHeader,
+		dateColumns: maisonDateColumns,
 		parse: parseMaisonRows
 	},
 	{
 		profile: 'generic',
 		matches: matchesGenericHeader,
+		dateColumns: genericDateColumns,
 		parse: parseGenericRows
 	}
 ];

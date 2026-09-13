@@ -41,18 +41,23 @@ export interface CsvImportOptions {
 	 * answer is a property of the FILE that the parser cannot take from any single value. See
 	 * `dateOrder.ts` and #433.
 	 *
-	 * ## THIS IS AN INTERIM STATE, NOT ACCEPTED ARCHITECTURE
+	 * ## AN OVERRIDE, NOT CONFIGURATION, AND #613 IS WHAT MADE THAT TRUE
 	 *
-	 * A derivable value is not configured, and this one IS derivable: `detectDateOrder` reads it
-	 * off the column, because a component above 12 cannot be a month and so names its own
-	 * position. So this option violates a rule this repository holds, and it is recorded as a
-	 * violation rather than left to read as a design.
+	 * This used to be the only thing that decided the order, which is a derivable value being
+	 * configured, and its own docstring recorded that as a violation rather than a design. The
+	 * order is now DERIVED at the single door by `detectDateOrder`, off the whole column the
+	 * profile declares, because a component above 12 cannot be a month and so names its own
+	 * position.
 	 *
-	 * It exists only because the derivation is not wired yet, for the reason #613 gives. When
-	 * #613 lands, the order becomes DERIVED and this option becomes an OVERRIDE: the user's own
-	 * answer, which still has to win over an inference, and which is the only thing that can
-	 * settle a column the file leaves genuinely ambiguous. The precedence that then has to hold
-	 * is written down once, in #613, rather than discovered at whichever call site reads both.
+	 * What this option does now is settle the ONE case the file cannot: a column whose every cell
+	 * reads both ways. It does not outrank a column that proves its own order, and it does not
+	 * rescue one that proves both, because neither of those is a question anybody can answer. The
+	 * precedence is written once, in `decideDateOrder`, which is also where the reason it deviates
+	 * from the ladder #613 wrote down is recorded.
+	 *
+	 * Nothing in production sets it yet: the screen that asks is not built, so an ambiguous column
+	 * still takes the day-first default. That interim is gated by
+	 * `dateOrderQuestionAsleep.spec.ts`, not by this sentence.
 	 */
 	dateOrder?: DateOrder;
 }
@@ -167,6 +172,40 @@ export interface ParsedCsvRow {
 export interface CsvProfileParser {
 	profile: ResolvedCsvImportProfile;
 	matches(headers: string[]): boolean;
+	/**
+	 * Which columns of THIS file hold dates, as INDICES into the header row.
+	 *
+	 * ## Required, and that is the whole mechanism
+	 *
+	 * The order a file writes its dates in is decided at the single door by reading the whole
+	 * column, and the door does not know which column that is: a profile resolves it, through an
+	 * alias table, a stored mapping or a fixed header. Declaring it here is what lets the decision
+	 * run ONCE, over the right cells, without the door acquiring seven special cases. A registry
+	 * entry that omits this member does not compile, so a new profile cannot ship without one.
+	 *
+	 * What that does NOT catch is a declaration that lies: `() => []` typechecks and silently
+	 * switches the derivation off for that profile. `dateOrderSeam.spec.ts` narrows that gap and
+	 * does not close it. Omission is unrepresentable; a lie is likely to be noticed.
+	 *
+	 * ## INDICES rather than names, which is the load-bearing choice
+	 *
+	 * Four different header folds exist in this directory: `normalizeHeaderCells` for
+	 * `banque-populaire` and `revolut`, `foldComparableHeader` for `generic`, `foldExactHeader`
+	 * for `maison` and `mapped`, and `revolut` additionally rewrites `Completed Date` to
+	 * `Date de fin` before anything downstream reads it. A declaration in NAMES would force the
+	 * door to know which fold applies to which profile, which is the copied-predicate shape one
+	 * layer up. An index is fold-free: the door reads `cells[index]` and never has an opinion
+	 * about spelling.
+	 *
+	 * ## A LIST rather than a name
+	 *
+	 * `banque-populaire` reads three date columns and `revolut` two, through
+	 * `normalizeFirstValidDate`, which picks the first valid one PER ROW. So a parse can take its
+	 * date from one column on one row and another on the next, and any column that could become
+	 * the date is a column whose order matters. An index that this file does not carry is simply
+	 * absent from the list; the file then meets its ordinary refusal.
+	 */
+	dateColumns(headers: string[]): number[];
 	parse(input: CsvProfileParseInput): CsvImportResult;
 }
 

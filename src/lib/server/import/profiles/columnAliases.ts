@@ -51,10 +51,12 @@ import { foldComparableHeader } from '../utils/encoding';
  * the order could be expressed instead, which left a designated Chase file importing five months
  * early with nothing said.
  *
- * The order is now an INPUT, `CsvImportOptions.dateOrder`, and `dateOrder.ts` can read it off the
- * column. Until a screen asks the question nothing sets it, so the two paths still differ and the
- * difference is the point: a Chase file is refused here, for want of an alias, and imports through
- * a designation. That gap is what the question screen closes.
+ * #613 closed that gap rather than the question screen: the order is DERIVED at the single door,
+ * from the whole date column the profile declares, on every path INCLUDING `mapped`. So a Chase
+ * file carrying any day above the twelfth now imports correctly through a designation, because
+ * that cell names its own position. A file whose every cell is ambiguous still reads day-first and
+ * still waits on the screen. Either way a Chase file is refused HERE, for want of an alias, which
+ * is what this paragraph has always been about.
  *
  * Note this is NOT a collision: Chase carries one date column. The collision rule does not
  * derive this exclusion, and an earlier draft claimed it did.

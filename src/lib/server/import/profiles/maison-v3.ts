@@ -4,6 +4,7 @@ import { foldExactHeader } from '../utils/encoding';
 import { sanitizeImportedText } from '../utils/safety';
 import { normalizeParsedRows } from '../utils/csv';
 import { MAISON_V2_HEADER, parseMaisonV2Rows } from './maison-v2';
+import { MAISON_DATE_COLUMN } from './maison';
 
 /**
  * Version 3 of the export format: version 2 plus the account the rows came from.
@@ -36,6 +37,19 @@ const MAISON_V3_HEADERS = MAISON_V3_HEADER.split(';');
 /** The account column is the LAST one, and its index is derived from the constant rather than
  *  typed, so a further version cannot leave this pointing one column short. */
 const ACCOUNT_COLUMN_INDEX = MAISON_V3_HEADERS.length - 1;
+
+/**
+ * Where this file's dates are, as indices. See `CsvProfileParser.dateColumns`.
+ *
+ * Resolved by NAME against the file's own header rather than returned as a constant index, even
+ * though the match is exact ordered equality and the answer is therefore always the same. A
+ * constant would be correct today and silently wrong the first time a column is inserted before
+ * it, which is precisely how a version of this format is added.
+ */
+export function maisonV3DateColumns(headers: string[]): number[] {
+	const index = headers.map(foldExactHeader).indexOf(MAISON_DATE_COLUMN);
+	return index >= 0 ? [index] : [];
+}
 
 export function matchesMaisonV3Header(headers: string[]): boolean {
 	const normalizedHeaders = headers.map(foldExactHeader);

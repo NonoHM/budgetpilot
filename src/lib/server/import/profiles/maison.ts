@@ -17,8 +17,11 @@ import {
 } from '../utils/safety';
 import { foldExactHeader } from '../utils/encoding';
 
+/** The single column every version of this format writes its date in. */
+export const MAISON_DATE_COLUMN = 'date';
+
 const MAISON_HEADERS = [
-	'date',
+	MAISON_DATE_COLUMN,
 	'libelle',
 	'categorie',
 	'montant',
@@ -34,6 +37,19 @@ export function matchesMaisonHeader(headers: string[]): boolean {
 		normalizedHeaders.length === MAISON_HEADERS.length &&
 		normalizedHeaders.every((header, index) => header === MAISON_HEADERS[index])
 	);
+}
+
+/**
+ * Where this file's dates are, as indices. See `CsvProfileParser.dateColumns`.
+ *
+ * Resolved by NAME against the file's own header rather than returned as a constant index, even
+ * though the match is exact ordered equality and the answer is therefore always the same. A
+ * constant would be correct today and silently wrong the first time a column is inserted before
+ * it, which is precisely how a version of this format is added.
+ */
+export function maisonDateColumns(headers: string[]): number[] {
+	const index = headers.map(foldExactHeader).indexOf(MAISON_DATE_COLUMN);
+	return index >= 0 ? [index] : [];
 }
 
 export function parseMaisonRows({

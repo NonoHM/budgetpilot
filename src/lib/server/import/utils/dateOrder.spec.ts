@@ -91,34 +91,50 @@ describe('a month-first date column', () => {
 
 	/**
 	 * Separates « month-first swaps the two components » from « month-first is day-first under
-	 * another name ». `13` cannot be a MONTH, so the two readings disagree about whether the row
-	 * is readable at all, and the month-first one must refuse rather than land somewhere.
+	 * another name », at the level of `normalizeDate` itself.
 	 *
-	 * Asserted through the parser rather than on `normalizeDate`'s return value, deliberately.
-	 * This function's contract is that an impossible date is still NORMALISED (its own
-	 * docstring gives `31/02/2026` becoming `2026-02-31`) and refused by the caller's
-	 * `isValidIsoDate`. So
-	 * the return value here is `2026-13-01`, which says nothing a reader can use; whether the row
-	 * imports is the thing that matters and the thing a future change could break.
+	 * `13` cannot be a MONTH, so the two readings disagree about whether the cell is readable at
+	 * all: day-first gives a date, month-first gives `2026-13-01`, which `isValidIsoDate` refuses
+	 * and a caller turns into `invalid-date`. This function's contract is that an impossible date
+	 * is still NORMALISED rather than rejected here (its own docstring gives `31/02/2026` becoming
+	 * `2026-02-31`), so the swap is what is asserted and the refusal belongs to the caller.
+	 *
+	 * ## THIS USED TO BE ASSERTED THROUGH THE PARSER, AND #613 TOOK THAT AWAY
+	 *
+	 * It read a one-cell file through `parseCsvTransactions` with `dateOrder: 'month-first'` and
+	 * required the row to be refused. That is no longer what the parser does, and the change is
+	 * deliberate rather than a regression: a column containing `13/01/2026` PROVES day-first, and
+	 * the order is now derived from the column rather than taken from the option. The test below
+	 * asserts the new behaviour at that level, and this one keeps the unit-level claim that the
+	 * option still swaps when it is the thing deciding.
 	 */
-	it('refuses a row whose month no reading can place, rather than landing it somewhere', () => {
-		expect.assertions(4);
+	it('swaps the two components, so an unplaceable month normalises to one', () => {
+		expect.assertions(2);
+
+		expect(normalizeDate('13/01/2026', 'month-first')).toBe('2026-13-01');
+		expect(normalizeDate('13/01/2026', 'day-first')).toBe('2026-01-13');
+	});
+
+	/**
+	 * Separates « the file's own proof decides the reading » from « whatever was asked for
+	 * decides it ». THE CASE THAT MADE #613 DEVIATE from the ladder the issue wrote down.
+	 *
+	 * `13/01/2026` cannot be month-first, so an override saying month-first is asking for a
+	 * reading this file disproves. Honouring it refuses a row that is perfectly readable and
+	 * leaves the user with `invalid-date` on a date their spreadsheet opens without complaint.
+	 * Reading the proof instead imports the thirteenth of January, which is what the cell says.
+	 *
+	 * The override is not thereby useless: it is the only thing that can settle a column the file
+	 * leaves genuinely AMBIGUOUS, which is the two tests at the top of this file.
+	 */
+	it('reads a column that proves day-first day-first, even when asked for month-first', () => {
+		expect.assertions(3);
 
 		const file = ['Date,Description,Amount', '13/01/2026,COFFEE,-4.50'].join('\n');
+		const result = parseCsvTransactions(file, { dateOrder: 'month-first' });
 
-		const monthFirst = parseCsvTransactions(file, { dateOrder: 'month-first' });
-		expect(monthFirst.transactions).toHaveLength(0);
-		expect(monthFirst.invalidRows[0].fact).toMatchObject({
-			code: 'invalid-date',
-			// The user's OWN cell, not the normalised form, so the sentence points at something
-			// they can find in their file.
-			value: '13/01/2026'
-		});
-
-		// The same cell day-first is the thirteenth of January and reads fine, which is what makes
-		// the refusal above a property of the ORDER rather than of the cell.
-		const dayFirst = parseCsvTransactions(file, { dateOrder: 'day-first' });
-		expect(dayFirst.transactions).toHaveLength(1);
-		expect(dayFirst.transactions[0].date).toBe('2026-01-13');
+		expect(result.summary.validRows).toBe(1);
+		expect(result.invalidRows).toEqual([]);
+		expect(result.transactions[0].date).toBe('2026-01-13');
 	});
 });

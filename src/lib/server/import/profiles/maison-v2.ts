@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import type { CsvRefusal, CsvRefusalFact } from '../refusals';
 import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
+import { MAISON_DATE_COLUMN } from './maison';
 import type { DateOrder } from '../dateOrder';
 import { parseAmountCents } from '../utils/money';
 import {
@@ -73,6 +74,19 @@ interface AllocationLine {
 	natureManual: TransactionNature | null;
 	index: number;
 	count: number;
+}
+
+/**
+ * Where this file's dates are, as indices. See `CsvProfileParser.dateColumns`.
+ *
+ * Resolved by NAME against the file's own header rather than returned as a constant index, even
+ * though the match is exact ordered equality and the answer is therefore always the same. A
+ * constant would be correct today and silently wrong the first time a column is inserted before
+ * it, which is precisely how a version of this format is added.
+ */
+export function maisonV2DateColumns(headers: string[]): number[] {
+	const index = headers.map(foldExactHeader).indexOf(MAISON_DATE_COLUMN);
+	return index >= 0 ? [index] : [];
 }
 
 export function parseMaisonV2Rows({
