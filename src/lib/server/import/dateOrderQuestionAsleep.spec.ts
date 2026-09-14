@@ -31,21 +31,44 @@ import { parseCsvTransactions } from './csv';
  *
  * ## The denominator, because a zero without one is not a measurement
  *
- * Measured 2026-09-13 over the synthetic corpus, regenerated in that run from
- * `scripts/synthetic/`: **24 files, 25 declared date columns, 6 resolved, 10 nothing-to-decide,
- * 8 files with no date column resolvable, and ZERO ambiguous and ZERO mixed.** The opaque and
- * headerless fixtures, which are the ones that reach the designation screen, all carry ISO dates,
- * so they are `nothing-to-decide` on the mapped path too.
+ * Re-measured 2026-09-14 over the corpus regenerated in that run from `scripts/synthetic/`, and
+ * this figure REPLACES both of the two that #621 was opened to reconcile. Reproduced by running
+ * the two tracked generators into a fresh directory and nothing else, which is what #624 bought:
+ * before it, two of the files counted here existed only on one machine.
  *
- * **THAT FIGURE IS UNDER REVIEW AND MUST NOT BE QUOTED AS SETTLED: see #621.** A second
- * measurement of the same thing, taken before `dateColumns` existed, reads 31 columns over 23
- * files with 2 ambiguous. Both cannot be right, and which one is decides whether the question
- * screen has any real instance at all. The figure above is what THIS run measured, with its
- * denominator and its method stated; it is not yet reconciled with the other.
+ * **30 files, 44 declared date columns.** Two denominators, because that is what the two figures
+ * in #621 were disagreeing about and neither said which it was:
  *
- * That is the honest state of this branch: **no real fixture reaches it.** Both new branches are
- * exercised only by files built to exercise them, and nobody should measure zero change on the
- * corpus and conclude the work was pointless. It means the corpus is European.
+ * | | resolved | nothing-to-decide | ambiguous | mixed |
+ * |---|---|---|---|---|
+ * | per FILE (30) | 7 | 18 | 3 | 2 |
+ * | per COLUMN (44) | 15 | 22 | 6 | 1 |
+ *
+ * A file gets ONE verdict, taken over the union of its declared columns, which is what the parser
+ * does; a column gets its own, which is what a reader counting date columns by eye does. Both were
+ * in circulation as « the » figure. #621's two rows reconcile against this one on three stated
+ * axes and nothing else: which files were in scope, whether an opaque file contributes a
+ * designated column, and which of the two denominators was being counted.
+ *
+ * Files with no resolvable date column: **0**, with one designated column 0 on each of the eight
+ * that resolve no profile. Counted through `auto` alone that figure is 8, which is #621's row 2.
+ *
+ * ## The zero is gone, and that is what unblocks the screen
+ *
+ * **`ambiguous` was 0 across the corpus until #624, by construction rather than by observation.**
+ * `LEDGER` walks days 17 and 24, a component above 12 proves its own position, and so every file
+ * that carried the ambiguous grammar at all also carried a proof. Third instance in this
+ * repository of a search over a space built in-house returning a well-formed zero that was
+ * unreachable by construction.
+ *
+ * `AMBIGUOUS_LEDGER` is the second ledger that fixes it, and `syntheticCorpus.spec.ts` asserts the
+ * property that makes its files worth screenshotting: the two readings disagree on EVERY row, so
+ * the evidence cell a question screen shows is never one where both answers agree.
+ *
+ * So the paragraph that stood here, « no real fixture reaches it », is false as of this change and
+ * is deleted rather than softened. Three fixtures reach it. What remains true, and matters more:
+ * every one of them is BUILT, because the corpus is European and a European corpus cannot tell you
+ * how common an ambiguous column is in the world. The figure is about the corpus.
  *
  * ## The planted positives, which are what make the zeros below readable
  *
