@@ -37,6 +37,19 @@ import type { UntrustedColumnMapping } from './mapping/model';
  * asserted: it is one way to satisfy the property, and pinning it would pass a fixture that
  * satisfied the letter and lost the point.
  *
+ * ## WHY EVERY ROW AND NOT THE FIRST ONE, WHICH IS WHAT THE SAMPLE ACTUALLY IS
+ *
+ * The cell that reaches the screen is a single one, so asserting the FIRST row moves looks like
+ * the exact property and is cheaper. **Do not loosen it to that.** The sample is whichever
+ * ambiguous cell comes first IN FILE ORDER, which is a property of the rendered file rather than
+ * of the ledger: `rows()` sorts by day, a shape function could interleave, and a future ledger
+ * could open on a movement that is not its earliest. An assertion pinned to row one would go on
+ * passing through any of those while the screen quietly acquired a cell where both readings agree.
+ *
+ * Every row is strictly stronger and therefore covers the sample whatever ends up first, which is
+ * the whole reason it was chosen over the cheaper form. A reordering must not be ABLE to hand the
+ * question screen a cell that illustrates nothing.
+ *
  * ## How the two readings are compared, and why nothing here re-states the detector
  *
  * `decideDateOrder` honours an explicit order ONLY over an `ambiguous` verdict: `resolved` and

@@ -328,6 +328,14 @@ check for that is the break step below.
   mock), not a retyped oracle (express the canonical rule by calling it).
 - **Prove the detector can detect**, with a positive case and with an absolute figure beside
   every absence assertion. "No offenders" is satisfied by a pattern that matches nothing.
+- **An instrument can MANUFACTURE the findings it reports, and a list of findings invites no
+  scrutiny the way a zero does.** The rule above guards a sweep that reads nothing. This guards
+  the other direction, which is easier to believe and therefore worse: a sweep whose own parsing
+  is wrong hands you defects that exist only in its parse. **When an audit reports findings,
+  change the instrument once and check whether the POPULATION moved. If it did, the findings were
+  about the instrument.** A total that changes when you repair your parser was measuring your
+  parser. Two tells, both cheap: findings that cluster by file format rather than by subject, and
+  a denominator you never printed because only the hits looked interesting.
 - **A test on a refusal asserts the REASON**, never that a refusal happened.
 
 ### After writing

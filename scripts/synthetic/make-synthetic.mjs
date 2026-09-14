@@ -458,11 +458,22 @@ function headerless(date = iso, ledger = LEDGER) {
  * Thirteen opaque columns, one signed amount, and the date repeated three times.
  *
  * The widest shape the designation screen has to lay out, and the only one with more than one
- * candidate date column behind opaque headers. Hand made until #624, and the hand-made version had
- * drifted in a way nothing could see: every one of the eight movements was filed under
- * `Alimentation / Courses` and typed `Carte`, salary included. The dates and the amounts were
- * right, so it read as a real file. `syntheticCorpus.spec.ts` pins both columns against the
- * movement now.
+ * candidate date column behind opaque headers.
+ *
+ * ## THE CAUTIONARY TALE OF THIS CORPUS, AND IT IS WORTH READING BEFORE ADDING A FIXTURE BY HAND
+ *
+ * Hand made until #624, and the hand-made version had drifted in a way nothing could see. Dates
+ * right. Amounts right. Every one of the eight movements filed under `Alimentation / Courses` and
+ * typed `Carte`, **salary included** — a 2 450 euro credit, presented as a card payment at a
+ * grocer. Nothing looked wrong, because everything a reader checks first was correct.
+ *
+ * That is a fixture that LIES QUIETLY, and it was sitting inside the corpus this project uses as
+ * the denominator for a figure it then reasons from. A corpus is not a pile of examples; it is the
+ * population every count is taken over, so a fixture that misrepresents its own shape corrupts
+ * conclusions far from itself and does it silently.
+ *
+ * `syntheticCorpus.spec.ts` pins both columns against the movement now, which is the only reason
+ * a regenerated one cannot drift back.
  *
  * Deliberately NOT `banquePopulaire` behind opaque headers, which would have been the shorter
  * spelling: that profile splits money across `Debit` and `Credit`, and this fixture's job is a
