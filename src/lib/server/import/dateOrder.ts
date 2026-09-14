@@ -55,6 +55,30 @@ export const AMBIGUOUS_DATE_PATTERN = /^(\d{2})[/.-](\d{2})[/.-](\d{4})([\s\S]*)
  * « Ambiguous » is a file whose every cell reads both ways, which is a real question with no
  * answer in the bytes. Collapsing them would either interrogate a user about a file that cannot
  * carry the question, or guess at one that can.
+ *
+ * ## WHY NO PREVIEW STEP IS OWED, AND THE NEXT READER WILL ASK
+ *
+ * The import summary renders AFTER the rows are written, so a line saying how the dates were read
+ * arrives after the data is stored. That looks like the gap the industry's four-step pattern fills
+ * with a preview, and it is not, because of these four states:
+ *
+ * - `resolved`: the file PROVED its order. A component above 12 cannot be a month. The disclosure
+ *   states a proof, so it cannot be wrong, and there is nothing to confirm before the write.
+ * - `nothing-to-decide`: no cell carries the ambiguous grammar, so neither reading can change any
+ *   parse. Day-first and month-first produce the identical import.
+ * - `ambiguous`: the one case with no answer in the bytes, so it is ASKED before the write. The
+ *   seam exists already: `/import` refuses with a structured offer and the user's answer rides the
+ *   next POST, which is how `accountId` and `confirmCollision` already work, and `/import/columns`
+ *   already reads `hasHeaderRow` off the form before parsing.
+ * - `mixed`: refused. Nothing is written.
+ *
+ * **No case reaches the write carrying a decision that could be wrong.** A preview before commit
+ * exists so a product can show you what it GUESSED. This one does not guess: it proves, declines to
+ * decide, asks, or refuses. Adding a preview would add a step to three states that cannot benefit
+ * from it, to cover a fourth that is already covered earlier and more cheaply.
+ *
+ * Do not wire a correction path to the disclosure for this reason either. Recorded here rather than
+ * in a note because it is the question a reader asks when they notice the summary renders last.
  */
 export type DateOrderVerdict =
 	/** Some cell placed a component above 12, which names its own position. */
@@ -92,6 +116,22 @@ export type DateOrderVerdict =
  * is simply not a date. Counting it as evidence for both readings would turn an ordinary column
  * into a `mixed` refusal on the strength of one malformed cell. It falls through to the row
  * loop's ordinary `invalid-date`, which is where an unreadable cell belongs.
+ *
+ * ## ONE COLUMN'S PROOF SETTLES THE READING OF EVERY OTHER DECLARED DATE COLUMN
+ *
+ * `dateColumnCells` hands this function the cells of ALL the declared columns flattened into one
+ * array, so the verdict is taken over their union rather than per column. Measured consequence,
+ * stated because it is a real behaviour nothing else writes down: on a Banque Populaire file where
+ * `Date de valeur` carries `06/24/2026` and proves month-first while `Date operation` carries only
+ * ambiguous cells, `06/01/2026` in `Date operation` is read as **2026-06-01** and not 2026-01-06.
+ * The proof in one column governs its siblings.
+ *
+ * That is right for a file from one bank, which writes every date the same way, and it is the whole
+ * reason the union is taken: three columns are three times the chance of finding a proof, and a
+ * per-column verdict would leave two of them guessing while the third knew.
+ *
+ * It also has a cost, and the cost is `mixed`: two declared columns that disagree refuse the file
+ * rather than either one winning. That is deliberate and is checked first below.
  *
  * ## Evidence is carried, not just the verdict
  *
