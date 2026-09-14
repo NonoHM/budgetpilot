@@ -102,32 +102,158 @@ const LEDGER = [
 	}
 ];
 
+/**
+ * A second ledger, whose every date reads correctly BOTH ways, so a file rendered from it makes
+ * `detectDateOrder` return `ambiguous`.
+ *
+ * ## Why a second ledger and not a change to the first
+ *
+ * `LEDGER` walks days 1, 2, 3, 5, 9, 12, 17, 24. Day 17 cannot be a month, so it PROVES day-first
+ * on its own, which is what makes six corpus files `resolved` and is load bearing for the #342
+ * sparse-credit defect. The corpus needs both states, so it needs both ledgers.
+ *
+ * ## The state, named
+ *
+ * Every cell of every declared date column has both leading components at or below 12. In plain
+ * terms: **no movement after the 12th of any month.** A first-twelve-days current account export,
+ * which is what a user downloads part way through a month to see what has cleared, or what a card
+ * whose cycle closes on the 12th produces. The period is the only unusual thing about it and the
+ * user chose the period.
+ *
+ * There is no salary here, and that is the shape rather than an omission: the window closes before
+ * payday. The day 5 credit keeps the Debit/Credit split exercised.
+ *
+ * ## THE PROPERTY, AND IT IS ASSERTED RATHER THAN DESCRIBED
+ *
+ * **The two readings must disagree on every row.** `detectDateOrder` takes
+ * `ambiguousSample ??= match[0]`, so the FIRST ambiguous cell in file order becomes the evidence
+ * the question screen shows a user. A cell like `02/02/2026` is ambiguous and reads identically
+ * both ways, so a ledger opening on it would illustrate the question with the one case where the
+ * question does not matter.
+ *
+ * Reaching the property costs one rule, `no day may equal the month`, and that rule is NOT the
+ * property: it is how this ledger happens to satisfy it. `syntheticCorpus.spec.ts` asserts the
+ * property itself, by parsing each emitted fixture under both readings and requiring every row to
+ * move. Whoever edits these days next gets a red rather than a docstring nobody re-reads.
+ */
+const AMBIGUOUS_LEDGER = [
+	{
+		day: 1,
+		month: 2,
+		label: 'Abonnement Fibre Doriane',
+		cents: -3990,
+		cat: 'Logement',
+		sub: 'Internet',
+		kind: 'transfer'
+	},
+	{
+		day: 3,
+		month: 2,
+		label: 'Primeur Sainte Anne',
+		cents: -1745,
+		cat: 'Alimentation',
+		sub: 'Courses',
+		kind: 'card'
+	},
+	{
+		day: 5,
+		month: 2,
+		label: 'Remboursement Teleconsultation',
+		cents: 4900,
+		cat: 'Sante',
+		sub: 'Remboursement',
+		kind: 'transfer'
+	},
+	{
+		day: 6,
+		month: 2,
+		label: 'Peage Autoroute Cevennes',
+		cents: -1260,
+		cat: 'Transport',
+		sub: 'Peage',
+		kind: 'card'
+	},
+	{
+		day: 9,
+		month: 2,
+		label: 'Opticien Vallonge',
+		cents: -8900,
+		cat: 'Sante',
+		sub: 'Optique',
+		kind: 'card'
+	},
+	{
+		day: 11,
+		month: 2,
+		label: 'Cordonnerie du Beffroi',
+		cents: -2150,
+		cat: 'Services',
+		sub: 'Reparation',
+		kind: 'card'
+	}
+];
+
 const YEAR = 2026;
 const MONTH = 6;
 
 const pad = (n) => String(n).padStart(2, '0');
-const iso = (day) => `${YEAR}-${pad(MONTH)}-${pad(day)}`;
-const fr = (day) => `${pad(day)}/${pad(MONTH)}/${YEAR}`;
+/**
+ * Every formatter takes the month from the ROW, defaulting to `MONTH`.
+ *
+ * `LEDGER` carries no `month` and renders in June exactly as it always did; `AMBIGUOUS_LEDGER`
+ * carries one, because its property is about both leading components and a fixed module-level
+ * month would make the second of them a constant of the whole file rather than of a ledger.
+ */
+const iso = (day, month = MONTH) => `${YEAR}-${pad(month)}-${pad(day)}`;
+const fr = (day, month = MONTH) => `${pad(day)}/${pad(month)}/${YEAR}`;
 /**
  * The form the blind session's real bank wrote. ACCEPTED since the dot joined `/` and `-` as a
  * separator — kept as a fixture because it is the journey that has to keep completing.
  */
-const dotted = (day) => `${pad(day)}.${pad(MONTH)}.${YEAR}`;
+const dotted = (day, month = MONTH) => `${pad(day)}.${pad(month)}.${YEAR}`;
 /** A two-digit year: still refused, and what a date-wall fixture needs now that dots import. */
-const shortYear = (day) => `${pad(day)}/${pad(MONTH)}/${String(YEAR).slice(2)}`;
+const shortYear = (day, month = MONTH) => `${pad(day)}/${pad(month)}/${String(YEAR).slice(2)}`;
+/**
+ * The same day and month, written month first.
+ *
+ * ## THESE THREE FORMATTERS EXIST TO BUILD REFUSALS, NOT STATEMENTS
+ *
+ * No bank writes a file whose date columns contradict each other, and the search for one found
+ * nothing. The only real-world producer the literature names for a REORDERED date column is a
+ * spreadsheet round trip, and that is not this either: Excel writes a converted date unpadded
+ * (`1/6/2026`) and `AMBIGUOUS_DATE_PATTERN` requires two digits, so such a cell is refused as
+ * `invalid-date` and never reaches the detector at all. Measured end to end, 2026-09-14.
+ *
+ * So the fixtures below are built to put `mixed` in front of the code that has to react to it
+ * (#622), and nobody should go looking for the bank that writes them. That sentence is here so the
+ * search is not run a second time.
+ *
+ * The one shape a real user DOES reach is `misdesignatedReference` further down, where nothing in
+ * the file contradicts anything: the user designated the wrong column.
+ */
+const frMonthFirst = (day, month = MONTH) => `${pad(month)}/${pad(day)}/${YEAR}`;
+/** Even days month first, odd days day first, so one column proves both readings. */
+const contradicting = (day, month = MONTH) =>
+	day % 2 === 0 ? frMonthFirst(day, month) : fr(day, month);
 const dec = (cents) => (cents / 100).toFixed(2);
 const decComma = (cents) => dec(cents).replace('.', ',');
 const ref = (index) => `REF${String(100 + index).padStart(6, '0')}`;
 
-/** Sorted, because a statement is chronological and a fixture that is not invites a sort bug. */
-const rows = () => [...LEDGER].sort((a, b) => a.day - b.day);
+/**
+ * Sorted, because a statement is chronological and a fixture that is not invites a sort bug.
+ *
+ * Takes the ledger rather than closing over one, so the shapes below render EITHER ledger through
+ * the same row-building code. Two ledgers with two row builders is the copied-predicate shape, in
+ * the one place nothing would ever notice them drifting apart.
+ */
+const rows = (ledger = LEDGER) => [...ledger].sort((a, b) => a.day - b.day);
 
 const csv = (header, lines) => `${header}\n${lines.join('\n')}\n`;
 
 /* ── The shapes ───────────────────────────────────────────────────────────────────────────── */
 
 /** Banque Populaire: 13 columns, `;`, money split across two columns, debit pre-signed. */
-function banquePopulaire(date = fr) {
+function banquePopulaire(date = fr, ledger = LEDGER, valueDate = date) {
 	const header = [
 		'Date de comptabilisation',
 		'Libelle simplifie',
@@ -143,7 +269,7 @@ function banquePopulaire(date = fr) {
 		'Date de valeur',
 		'Pointage operation'
 	].join(';');
-	const lines = rows().map((r, i) => {
+	const lines = rows(ledger).map((r, i) => {
 		const debit = r.cents < 0 ? decComma(r.cents) : '';
 		const credit = r.cents > 0 ? decComma(r.cents) : '';
 		const op = r.kind === 'card' ? 'Carte' : 'Virement';
@@ -153,7 +279,7 @@ function banquePopulaire(date = fr) {
 				: `VIREMENT SEPA ${r.label.toUpperCase()}`;
 		const info = r.kind === 'card' ? 'CARTE 4512' : HOLDER.toUpperCase();
 		return [
-			date(r.day),
+			date(r.day, r.month),
 			r.label.toUpperCase(),
 			long,
 			ref(i),
@@ -163,8 +289,8 @@ function banquePopulaire(date = fr) {
 			r.sub,
 			debit,
 			credit,
-			date(r.day),
-			date(r.day),
+			date(r.day, r.month),
+			valueDate(r.day, r.month),
 			''
 		].join(';');
 	});
@@ -172,17 +298,17 @@ function banquePopulaire(date = fr) {
 }
 
 /** Revolut, in both the French and the English spellings of the same ten columns. */
-function revolut(lang, date = iso) {
+function revolut(lang, date = iso, ledger = LEDGER) {
 	const en = lang === 'en';
 	const header = en
 		? 'Type,Product,Started Date,Completed Date,Description,Amount,Fee,Currency,State,Balance'
 		: 'Type,Produit,Date de début,Date de fin,Description,Montant,Frais,Devise,État,Solde';
 	const state = en ? 'COMPLETED' : 'TERMINÉ';
 	let balance = 120480;
-	const lines = rows().map((r) => {
+	const lines = rows(ledger).map((r) => {
 		balance += r.cents;
 		const type = r.cents > 0 ? (r.kind === 'transfer' ? 'TRANSFER' : 'TOPUP') : 'CARD_PAYMENT';
-		const stamp = `${date(r.day)} ${pad(8 + (r.day % 9))}:${pad((r.day * 7) % 60)}:00`;
+		const stamp = `${date(r.day, r.month)} ${pad(8 + (r.day % 9))}:${pad((r.day * 7) % 60)}:00`;
 		return [
 			type,
 			'Current',
@@ -199,7 +325,14 @@ function revolut(lang, date = iso) {
 	return csv(header, lines);
 }
 
-/** This application's own export, v1 (seven columns) and v2 (ten, one line per allocation). */
+/**
+ * This application's own export, v1 (seven columns) and v2 (ten, one line per allocation).
+ *
+ * **Deliberately NOT parameterised on a ledger, unlike the three shapes above.** This is the one
+ * format this application WRITES, and it writes ISO, so an ambiguous `maison` file is a statement
+ * no export of this app can produce. Leaving the parameter off makes that structural rather than a
+ * choice somebody has to keep making: there is no way to ask for one.
+ */
 function maison(date = iso) {
 	const header = 'date;libelle;categorie;montant;type;nature;source_bancaire';
 	const lines = rows().map((r) =>
@@ -265,14 +398,16 @@ function nature(r) {
  * SECOND opaque style rather than one, because a mapping is fingerprinted over the header row:
  * the second style is what reopens the screen on a machine where the first was memorised.
  */
-function neutral(style, date = iso) {
+function neutral(style, date = iso, ledger = LEDGER) {
 	const headers = {
 		canonical: 'date,label,amount,category',
 		accented: 'Date,Libellé,Montant,Catégorie',
 		opaque: 'col_a,col_b,col_c,col_d',
 		opaque2: 'champ_1,champ_2,champ_3,champ_4'
 	};
-	const lines = rows().map((r) => [date(r.day), r.label, dec(r.cents), r.cat].join(','));
+	const lines = rows(ledger).map((r) =>
+		[date(r.day, r.month), r.label, dec(r.cents), r.cat].join(',')
+	);
 	return csv(headers[style], lines);
 }
 
@@ -298,6 +433,81 @@ function signIndicator() {
 			[iso(r.day), r.label, dec(Math.abs(r.cents)), r.cents < 0 ? 'D' : 'C'].join(',')
 		)
 	);
+}
+
+/**
+ * The only fixture with NO TITLE ROW: its first line is a movement.
+ *
+ * Hand made and living on one machine until #624, which is why it is here. It was a copy of the
+ * `HEADERLESS` constant that two specs also hold inline, so the corpus carried a file that was a
+ * rendering of a SPEC rather than of the ledger every one of its siblings renders: a merchant
+ * (`Fleuriste Bellevue`) and a day (the 7th) that appear in no ledger at all. The specs keep their
+ * own inline fixtures, which is right for a unit spec; the corpus file is a ledger rendering, which
+ * is what makes it comparable to the rest of the corpus.
+ *
+ * `hasHeaderRow: false` is the answer a parse of this needs, and a parse that assumes otherwise
+ * silently drops its first movement.
+ */
+function headerless(date = iso, ledger = LEDGER) {
+	return `${rows(ledger)
+		.map((r) => [date(r.day, r.month), r.label, dec(r.cents)].join(','))
+		.join('\n')}\n`;
+}
+
+/**
+ * Thirteen opaque columns, one signed amount, and the date repeated three times.
+ *
+ * The widest shape the designation screen has to lay out, and the only one with more than one
+ * candidate date column behind opaque headers. Hand made until #624, and the hand-made version had
+ * drifted in a way nothing could see: every one of the eight movements was filed under
+ * `Alimentation / Courses` and typed `Carte`, salary included. The dates and the amounts were
+ * right, so it read as a real file. `syntheticCorpus.spec.ts` pins both columns against the
+ * movement now.
+ *
+ * Deliberately NOT `banquePopulaire` behind opaque headers, which would have been the shorter
+ * spelling: that profile splits money across `Debit` and `Credit`, and this fixture's job is a
+ * SINGLE signed amount column a user can designate. Two different things.
+ */
+function wide(date = fr, ledger = LEDGER) {
+	const header = Array.from({ length: 13 }, (_, i) => `zone_${i + 1}`).join(',');
+	const lines = rows(ledger).map((r, i) =>
+		[
+			date(r.day, r.month),
+			r.label,
+			ref(i),
+			r.kind === 'card' ? 'CARTE 4512' : HOLDER.toUpperCase(),
+			r.kind === 'card' ? 'Carte' : 'Virement',
+			r.cat,
+			r.sub,
+			date(r.day, r.month),
+			dec(r.cents),
+			'',
+			date(r.day, r.month),
+			'O',
+			''
+		].join(',')
+	);
+	return csv(header, lines);
+}
+
+/**
+ * A clean ISO date column beside a REFERENCE column that happens to carry the ambiguous grammar.
+ *
+ * The one refusal fixture here that a real user reaches, and they reach it by designating the
+ * wrong column: nothing in this file contradicts anything. `poste_1` is a perfectly good date
+ * column and the file imports the moment it is named. Designating `poste_2` refuses the whole
+ * file and tells the user their file writes its dates in two orders, which is false about the
+ * file and true about the column they chose. #622's second defect.
+ *
+ * Opaque headers, in a fingerprint no other fixture uses, because reaching this needs the
+ * designation screen.
+ */
+function misdesignatedReference(ledger = LEDGER) {
+	const header = 'poste_1,poste_2,poste_3,poste_4';
+	const lines = rows(ledger).map((r) =>
+		[iso(r.day, r.month), contradicting(r.day, r.month), r.label, dec(r.cents)].join(',')
+	);
+	return csv(header, lines);
 }
 
 function foreignCurrency() {
@@ -339,7 +549,27 @@ const FILES = {
 	'foreign-currency.csv': foreignCurrency(),
 
 	// The accented spelling the alias table misses.
-	'accented-headers.csv': neutral('accented')
+	'accented-headers.csv': neutral('accented'),
+
+	// The two shapes that were hand made and untracked until #624. A denominator that rests on
+	// files a cloner cannot produce is not a denominator.
+	'headerless.csv': headerless(),
+	'wide.csv': wide(),
+
+	// MIXED: the two causes #622 needs to be able to tell apart, plus the misdiagnosis. Refusal
+	// states rather than statements: see `frMonthFirst` for why no bank writes the first two.
+	'mixed-across-columns-banque-populaire.csv': banquePopulaire(fr, LEDGER, frMonthFirst),
+	'mixed-within-column-generic.csv': neutral('canonical', contradicting),
+	'misdesignated-reference-column.csv': misdesignatedReference(),
+
+	// AMBIGUOUS: every cell reads both ways, so the file asks a question the bytes cannot answer.
+	// Three shapes rather than six, because the declared-column count is the axis that matters
+	// here: the verdict is taken over the UNION of a profile's declared columns, so a shape with
+	// three of them is a different test from one with a single column. `maison` is absent for the
+	// reason its own docstring gives.
+	'ambiguous-banque-populaire.csv': banquePopulaire(fr, AMBIGUOUS_LEDGER),
+	'ambiguous-revolut-fr.csv': revolut('fr', fr, AMBIGUOUS_LEDGER),
+	'ambiguous-generic.csv': neutral('canonical', fr, AMBIGUOUS_LEDGER)
 };
 
 const out = process.argv[2];
