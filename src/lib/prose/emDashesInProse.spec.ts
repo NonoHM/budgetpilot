@@ -48,7 +48,15 @@ const ALLOWED_MESSAGE_KEYS = new Set([
 	// "None - transactions will arrive uncategorised": same shape, same row.
 	'import_columns_row_category_empty',
 	// The ORIGIN remedy note, where the dash carries the "unless" that follows.
-	'origin_mismatch_remedy_note'
+	'origin_mismatch_remedy_note',
+	// "Dates read day then month - Date operation": the import summary's one-line disclosure of a
+	// CHOSEN reading, where the dash separates the reading from the column it was chosen about.
+	// Same shape as the two row keys above and admitted for the same reason: one line, no room for
+	// a full stop or a second line, and the two halves are a fact and its subject rather than a
+	// sentence. Plate 7l fixes the wording; the alternative separators were weighed there and a
+	// middot already means "and also" on that surface, which would read as a second figure.
+	'import_summary_date_reading_day_first',
+	'import_summary_date_reading_month_first'
 ]);
 
 function trackedFiles(pattern: string): string[] {
