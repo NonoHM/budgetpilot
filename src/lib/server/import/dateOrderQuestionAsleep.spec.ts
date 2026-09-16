@@ -36,13 +36,21 @@ import { parseCsvTransactions } from './csv';
  * the two tracked generators into a fresh directory and nothing else, which is what #624 bought:
  * before it, two of the files counted here existed only on one machine.
  *
- * **30 files, 44 declared date columns.** Two denominators, because that is what the two figures
+ * **31 files, 45 declared date columns.** Two denominators, because that is what the two figures
  * in #621 were disagreeing about and neither said which it was:
  *
  * | | resolved | nothing-to-decide | ambiguous | mixed |
  * |---|---|---|---|---|
- * | per FILE (30) | 7 | 18 | 3 | 2 |
- * | per COLUMN (44) | 15 | 22 | 6 | 1 |
+ * | per FILE (31) | 7 | 18 | 4 | 2 |
+ * | per COLUMN (45) | 15 | 22 | 7 | 1 |
+ *
+ * **Re-measured 2026-09-16, and the method was reproduced before the figure was changed.** The
+ * count is the profile's own declared columns, plus ONE designated column at index 0 for each file
+ * that resolves none, which is what a user naming it produces. Run against the corpus as it stood
+ * before `ambiguous-opaque-headers.csv` that method returns 30 / 44 and both rows above to the
+ * unit, so the new figures are the old ones plus one file and one ambiguous designated column
+ * rather than a second way of counting. That reproduction is the only reason this table was
+ * touched: #621 exists because two figures were in circulation with neither naming its method.
  *
  * A file gets ONE verdict, taken over the union of its declared columns, which is what the parser
  * does; a column gets its own, which is what a reader counting date columns by eye does. Both were
@@ -66,9 +74,15 @@ import { parseCsvTransactions } from './csv';
  * the evidence cell a question screen shows is never one where both answers agree.
  *
  * So the paragraph that stood here, « no real fixture reaches it », is false as of this change and
- * is deleted rather than softened. Three fixtures reach it. What remains true, and matters more:
+ * is deleted rather than softened. Four fixtures reach it. What remains true, and matters more:
  * every one of them is BUILT, because the corpus is European and a European corpus cannot tell you
  * how common an ambiguous column is in the world. The figure is about the corpus.
+ *
+ * The fourth, `ambiguous-opaque-headers.csv`, reaches it on a different PATH rather than in a
+ * different shape. The other three resolve a profile, so they ask the question where the file was
+ * recognised; this one is refused on its header and asks it where a human has just designated the
+ * column. That path had no ambiguous fixture at all, so the screen this file exists to open could
+ * have shipped without one test exercising it.
  *
  * ## The planted positives, which are what make the zeros below readable
  *
