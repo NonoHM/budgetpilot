@@ -81,6 +81,8 @@
 		candidateCount,
 		vacatedBy,
 		lostHeader,
+		interpretation,
+		interpretationConfirmed = false,
 		onOpen
 	}: {
 		role: MappingRole;
@@ -106,6 +108,33 @@
 		vacatedBy?: MappingRole;
 		/** The OLD header, quoted, when a remembered column is gone from the new file. */
 		lostHeader?: string;
+		/**
+		 * A third line, 18 px, for the one role whose designation carries a READING and not merely
+		 * an identity (Date today; Montant joins it when §9's decimal-separator confirmation lands).
+		 *
+		 * **PRESENCE decides the row's height, never the VALUE.** `undefined` is the only value that
+		 * means "this role never interprets" (68/56, line 3 does not exist). Every other value,
+		 * INCLUDING `null`, means "this role interprets and has nothing to show yet" (86/74, line 3
+		 * exists and is blank). Plate 7c is explicit that the row is 86 px "in every state, including
+		 * empty [...] and skeleton" — if height instead followed the VALUE, a Date row would be 68 px
+		 * before a column is designated and grow to 86 the moment one is, which is exactly the
+		 * one-row jump §9's fixed card height cannot absorb. Getting this backwards is the mistake a
+		 * future reader is likeliest to make, because `null` reads as "nothing" everywhere else in
+		 * this file (`columnHeader`, `sampleValue`) and is deliberately NOT "nothing" here.
+		 */
+		interpretation?:
+			| { raw: string; pretty: string; order: 'day-first' | 'month-first' }
+			| 'inconsistent'
+			| 'no-dates'
+			| 'empty'
+			| null;
+		/**
+		 * Whether the reading in `interpretation` is asserted rather than merely assumed. Ignored
+		 * unless `interpretation` is a `{ raw, pretty }` pair — the other four values carry no
+		 * reading to confirm. 7n: the word is "Confirmer", never "à confirmer", and this line never
+		 * carries the warning triangle, which stays reserved for `ambiguous`/`missingColumn`.
+		 */
+		interpretationConfirmed?: boolean;
 		onOpen?: () => void;
 	} = $props();
 
@@ -126,12 +155,34 @@
 		switch (state) {
 			case 'ambiguous':
 				return m.import_columns_row_aria_candidates({ role: name, count: candidateCount ?? 0 });
-			case 'designated':
+			case 'designated': {
+				if (interpretation && typeof interpretation === 'object') {
+					if (!interpretationConfirmed) {
+						// The order the caller APPLIED, stated rather than derived. It cannot be derived
+						// here: `02/02/2026` reads identically both ways, and `ambiguous` is defined as
+						// every component being at or below 12, so a cell whose day equals its month is
+						// the canonical case rather than a corner. A row that worked the order out from
+						// its two strings announced the wrong reading to the one user who cannot see the
+						// cards to check it against.
+						return m.import_designate_date_row_aria_unconfirmed({
+							header: designatedName,
+							order:
+								interpretation.order === 'month-first'
+									? m.import_datesheet_option_month_first()
+									: m.import_datesheet_option_day_first()
+						});
+					}
+				} else if (interpretation === 'no-dates') {
+					return m.import_designate_date_row_aria_no_dates({ header: designatedName });
+				} else if (interpretation === 'empty') {
+					return m.import_designate_date_row_aria_empty({ header: designatedName });
+				}
 				return m.import_columns_row_aria_designated({
 					role: name,
 					header: designatedName,
 					value: spokenExample(sampleValue ?? '')
 				});
+			}
 			case 'vacated':
 				return m.import_columns_row_aria_vacated({
 					role: name,
@@ -144,9 +195,20 @@
 		}
 	});
 
-	const heightClass = $derived(compact ? 'h-14' : 'h-[68px]');
+	// Presence, not value: see the `interpretation` prop's own docstring for why `null` counts.
+	const isInterpretingRow = $derived(interpretation !== undefined);
+	const heightClass = $derived(
+		compact
+			? isInterpretingRow
+				? 'h-[74px]'
+				: 'h-14'
+			: isInterpretingRow
+				? 'h-[86px]'
+				: 'h-[68px]'
+	);
 	const nameClass = $derived(compact ? 'text-[14px] font-semibold' : 'text-[15px] font-semibold');
 	const answerClass = $derived(compact ? 'text-[12.5px]' : 'text-[13px]');
+	const interpretationLineClass = $derived(compact ? 'text-[12.5px]' : 'text-[13px]');
 </script>
 
 {#snippet warningTriangle()}
@@ -205,6 +267,55 @@
 		>
 	{:else}
 		<span class="truncate {answerClass} text-zinc-500">{m.import_columns_row_empty()}</span>
+	{/if}
+{/snippet}
+
+<!--
+	Line 3, the only line this component gives no truncation rule: a wrap here breaks the 86 px
+	invariant, so every span is `whitespace-nowrap` by contract rather than `truncate`. 7c measured
+	the longest French variant at ~262 px against 320/370 available, so this is safe without an
+	ellipsis. No `warningTriangle` on any branch here — 7n withdrew it from this line because it was
+	already registered for `ambiguous`'s "plusieurs candidates" and would carry two meanings on one
+	screen; that snippet keeps firing for `ambiguous`/`missingColumn` above, untouched.
+
+	A `{raw, pretty}` pair is split into three spans from the ALREADY-RENDERED localized sentence
+	(never re-typed) by locating `pretty` inside it: this is the one way to recolour part of a
+	catalogue string without a second, hand-maintained copy of its punctuation, and it degrades to
+	one span (no split) if `pretty` cannot be found in it, which cannot happen for either of these
+	two keys but is handled rather than assumed.
+-->
+{#snippet interpretationLine()}
+	{#if interpretation && typeof interpretation === 'object'}
+		{@const text = interpretationConfirmed
+			? m.import_designate_date_reading({ raw: interpretation.raw, pretty: interpretation.pretty })
+			: m.import_designate_date_reading_unconfirmed({
+					raw: interpretation.raw,
+					pretty: interpretation.pretty
+				})}
+		{@const splitAt = text.indexOf(interpretation.pretty)}
+		{#if splitAt === -1}
+			<span class="{interpretationLineClass} whitespace-nowrap text-zinc-500">{text}</span>
+		{:else}
+			<span class="{interpretationLineClass} whitespace-nowrap text-zinc-500"
+				>{text.slice(0, splitAt)}</span
+			><span class="{interpretationLineClass} font-semibold whitespace-nowrap text-zinc-700"
+				>{interpretation.pretty}</span
+			><span class="{interpretationLineClass} whitespace-nowrap text-zinc-500"
+				>{text.slice(splitAt + interpretation.pretty.length)}</span
+			>
+		{/if}
+	{:else if interpretation === 'inconsistent'}
+		<span class="{interpretationLineClass} font-semibold whitespace-nowrap text-zinc-700">
+			{m.import_designate_date_reading_inconsistent()}
+		</span>
+	{:else if interpretation === 'no-dates'}
+		<span class="{interpretationLineClass} font-semibold whitespace-nowrap text-zinc-700">
+			{m.import_designate_date_reading_no_dates()}
+		</span>
+	{:else if interpretation === 'empty'}
+		<span class="{interpretationLineClass} font-semibold whitespace-nowrap text-zinc-700">
+			{m.import_designate_date_reading_empty()}
+		</span>
 	{/if}
 {/snippet}
 
@@ -293,6 +404,13 @@
 				{/if}
 			</span>
 			<span class="flex h-[18px] min-w-0 items-center">{@render answer()}</span>
+			{#if isInterpretingRow}
+				<!--
+					Reserved even when `interpretation` is `null`: the 18 px slot exists whenever the row
+					interprets, whether or not it has anything yet to say. See the prop's own docstring.
+				-->
+				<span class="flex h-[18px] min-w-0 items-center">{@render interpretationLine()}</span>
+			{/if}
 		</span>
 		<!-- Decorative. The row is the target; this is not a second one. -->
 		{#if compact}
