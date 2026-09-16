@@ -43,6 +43,29 @@ Two traps, both measured:
 - **Never gate a commit on a piped command.** `npm run check | tail` exits with `tail`'s
   status. Redirect to a file and read `$?`.
 
+  **Every barrier above is claimable through a pipe by someone tidying output, and two of them
+  were, on 2026-09-16.** `npx prettier --check <four files> | tail` printed a `[warn]` line and
+  reported `exit=0`; `npx eslint <the same four> | tail` printed `1 problem (1 error)` and
+  reported `exit=0`. Both findings were real: an unformatted file and an unused variable that was
+  an unremoved test mount. The status was `tail`'s in both cases. Read the `[warn]` count and the
+  `problem` line, or redirect and read `$?`, and never quote a barrier's exit code that came out
+  of a pipeline.
+
+- **A break patch asserts its target is UNIQUE, not merely present, and it asserts the
+  substitution happened.** Three failures in one sitting on 2026-09-16, and they compound:
+
+  1. A `perl -0pi -e "s/.../.../"` matched nothing and said nothing. Three break-checks ran
+     against an unmodified file and reported the tests "passing under the break", which reads
+     exactly like a test that cannot fail.
+  2. The pattern then matched, and it occurs TWICE in that module: the substitution edited
+     `formatMonthLabel` instead of `formatReadingDate`. The break was real, applied, and aimed at
+     the wrong function, so the green was again about something else.
+  3. Only asserting `count(target) == 1` **inside the function being broken** surfaced both.
+
+  So: anchor the search to the region you mean, assert the occurrence count before replacing,
+  print the changed lines back, and diff against a pre-break copy after restoring. A break that
+  reports green has proved nothing until you have seen the file change.
+
 ## The words
 
 `CONTEXT.md` is the glossary. It carries only terms that were AMBIGUOUS IN THE CODE at some point,

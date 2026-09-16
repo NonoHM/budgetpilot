@@ -129,6 +129,23 @@
 			| 'empty'
 			| null;
 		/**
+		 * THE CALLER STATES THE ORDER. IT CANNOT BE DERIVED HERE, AND DERIVING IT IS THE BUG.
+		 *
+		 * Written here rather than only in a commit body, because the next contributor who wants to
+		 * simplify the contract will reach for exactly the derivation this replaced: compare `raw`'s
+		 * two numeric groups against the day that survived into `pretty`, and whichever matches names
+		 * the order. That is wrong on `02/02/2026`, which reads identically both ways, so it returns
+		 * day-first whatever the user chose.
+		 *
+		 * It is not an edge case. `ambiguous` is DEFINED as every component being at or below 12 on
+		 * both sides, so a cell whose day equals its month is the ORDINARY ambiguous cell, and the
+		 * corpus generator names it as the one that reads the same under both orders. The accessible
+		 * name would have lied on the commonest path, to the one person who cannot see the two cards
+		 * to check it against.
+		 *
+		 * Measured 2026-09-16, four cases, one wrong. See `DateOrder` on the server for who decides.
+		 */
+		/**
 		 * Whether the reading in `interpretation` is asserted rather than merely assumed. Ignored
 		 * unless `interpretation` is a `{ raw, pretty }` pair — the other four values carry no
 		 * reading to confirm. 7n: the word is "Confirmer", never "à confirmer", and this line never
