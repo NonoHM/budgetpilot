@@ -635,7 +635,8 @@ describe('RoleRow.svelte: line 3 renders as one sentence, not three trimmed piec
 		});
 
 		const pieces = Array.from(row.querySelectorAll('span')).filter(
-			(span) => span.children.length === 0 && /Confirmer|février|01\/02/.test(span.textContent ?? '')
+			(span) =>
+				span.children.length === 0 && /Confirmer|février|01\/02/.test(span.textContent ?? '')
 		);
 		// The planted positive: the line really is drawn as several spans, so the layout question
 		// below is about something that exists.
