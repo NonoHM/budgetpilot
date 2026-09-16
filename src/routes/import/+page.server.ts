@@ -10,6 +10,7 @@ import {
 	importSampleValues,
 	parseCsvTransactionRows
 } from '$lib/server/import/csv';
+import { importColumnDateStates } from '$lib/server/import/columnDateState';
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
@@ -262,6 +263,9 @@ export const actions: Actions = {
 					name: importFile.name,
 					headers: headerCells,
 					samples: importSampleValues(importData.rows),
+					// 7k: the whole-column verdict ships WITH the offer, one per column, so the screen never
+					// holds a state the submit could contradict and never computes one itself.
+					dateStates: importColumnDateStates(importData.rows),
 					previewRows: importPreviewRows(importData.rows),
 					coverage: importSampleCoverage(importData.rows),
 					firstRow: importFirstDataRow(importData.rows),
@@ -372,6 +376,9 @@ export const actions: Actions = {
 								name: importFile.name,
 								headers: headerCells,
 								samples: importSampleValues(importData.rows),
+								// 7k: the whole-column verdict ships WITH the offer, one per column, so the screen never
+								// holds a state the submit could contradict and never computes one itself.
+								dateStates: importColumnDateStates(importData.rows),
 								previewRows: importPreviewRows(importData.rows),
 								coverage: importSampleCoverage(importData.rows),
 								firstRow: importFirstDataRow(importData.rows),

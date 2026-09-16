@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { columnDateState } from './columnDateState';
+import { columnDateState, importColumnDateStates } from './columnDateState';
+import { parseRows } from './utils/csv';
 
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
 
@@ -232,5 +233,62 @@ describe('the per-column date state the designation screen reads', () => {
 		expect(mentions.length).toBeGreaterThanOrEqual(2);
 		expect(composes).toEqual(['src/lib/server/import/utils/csv.ts']);
 		expect(sources.length).toBeGreaterThan(100);
+	});
+});
+
+describe('the states that ship with the designation offer, one per column', () => {
+	/**
+	 * Separates « one state per column of the file, in file order » from « a state for the column
+	 * the parser happened to care about ». The screen designates BY INDEX into this array, so a
+	 * short or reordered one would put a state under the wrong card.
+	 */
+	it('returns one state per header column, in file order', () => {
+		expect.assertions(2);
+
+		const rows = parseRows(
+			['date,label,amount,category', '01/02/2026,Abonnement Fibre,-39.90,Logement'].join('\n')
+		);
+		const states = importColumnDateStates(rows);
+
+		expect(states).toHaveLength(4);
+		expect(states).toEqual(['ambiguous', 'no-dates', 'no-dates', 'no-dates']);
+	});
+
+	/**
+	 * Separates « the header row is excluded from the column's values » from « it is read as data ».
+	 * A header cell like `date` is not a date, so counting it would drag a proven column toward
+	 * `no-dates` and an empty one away from `empty`.
+	 */
+	it('excludes the header row, and includes it when the user says there is none', () => {
+		expect.assertions(2);
+
+		const withHeader = parseRows(['une date', '24/06/2026'].join('\n'));
+		expect(importColumnDateStates(withHeader)).toEqual(['proven-day']);
+		// hasHeaderRow false: line 1 is a transaction, so the column carries two values, one of
+		// which is not a date. The state is still proven-day, and the point is that the first line
+		// was READ: a file whose only proof sits on line 1 would otherwise lose it.
+		expect(importColumnDateStates(parseRows(['24/06/2026'].join('\n')), false)).toEqual([
+			'proven-day'
+		]);
+	});
+
+	/**
+	 * Separates « a cell a short row does not have » from « an empty cell ». A ragged file is
+	 * ordinary, and treating a missing cell as blank would report a populated column as `empty`
+	 * whenever a few rows are short.
+	 */
+	it('does not count a cell a short row never had', () => {
+		expect.assertions(1);
+
+		// Three columns declared; the second row carries one cell. Column 3 holds exactly one
+		// value, a date, and must read proven-day rather than being diluted by absent cells.
+		const rows = parseRows(['a,b,c', 'x,y,24/06/2026', 'z'].join('\n'));
+		expect(importColumnDateStates(rows)).toEqual(['no-dates', 'no-dates', 'proven-day']);
+	});
+
+	/** A file with no rows at all has no columns to describe. */
+	it('returns nothing for an empty file', () => {
+		expect.assertions(1);
+		expect(importColumnDateStates([])).toEqual([]);
 	});
 });
