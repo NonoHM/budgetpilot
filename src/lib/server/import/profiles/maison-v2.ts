@@ -1,4 +1,4 @@
-import { isTransactionNature, isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
+import { isTransactionNature, validateTransaction } from '$lib/domain/transaction';
 import type { TransactionNature } from '$lib/domain/transaction';
 import { MAX_SPLITS_PER_TRANSACTION, MIN_SPLITS_PER_TRANSACTION } from '$lib/domain/allocation';
 import type {
@@ -9,7 +9,7 @@ import type {
 	ImportedTransactionType
 } from '../types';
 import type { CsvRefusal, CsvRefusalFact } from '../refusals';
-import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
+import { addRefusal, buildSummary, emptyResult, readDateCell, toRecord } from '../utils/csv';
 import { MAISON_DATE_COLUMN } from './maison';
 import type { DateOrder } from '../dateOrder';
 import { parseAmountCents } from '../utils/money';
@@ -252,8 +252,8 @@ function parseAllocationLine(
 
 	const record = toRecord(headers, row);
 
-	const date = normalizeDate(record.date ?? '', dateOrder);
-	if (!isValidIsoDate(date)) {
+	const date = readDateCell(record.date ?? '', dateOrder);
+	if (date === null) {
 		addRefusal(
 			refusals,
 			{ kind: 'row', line },
