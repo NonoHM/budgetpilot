@@ -426,7 +426,17 @@
 					Reserved even when `interpretation` is `null`: the 18 px slot exists whenever the row
 					interprets, whether or not it has anything yet to say. See the prop's own docstring.
 				-->
-				<span class="flex h-[18px] min-w-0 items-center">{@render interpretationLine()}</span>
+				<!--
+					BLOCK, NOT FLEX, AND THAT IS A BUG FIX RATHER THAN A STYLE PREFERENCE. The three spans of
+					line 3 exist only to colour one sentence, and a flex container makes each of them a flex
+					ITEM, which trims its own leading and trailing whitespace at render. The text was correct
+					in the DOM ("01/02/2026 -> ", "1 fevrier 2026", " . Confirmer") and DREW as
+					"01/02/2026 ->1 fevrier 2026. Confirmer", with both spaces gone.
+					Found by looking at the running screen: no assertion on text content could see it,
+					because the content was never wrong. Ordinary inline flow restores the spacing and the
+					explicit line-height keeps the 18 px line box the invariant needs.
+				-->
+				<span class="block h-[18px] min-w-0 leading-[18px]">{@render interpretationLine()}</span>
 			{/if}
 		</span>
 		<!-- Decorative. The row is the target; this is not a second one. -->

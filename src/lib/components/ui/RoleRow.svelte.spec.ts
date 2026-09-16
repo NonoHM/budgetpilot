@@ -612,6 +612,51 @@ describe('RoleRow.svelte: line 3 is two-tone, raw and "Confirmer" pale against t
  * the one line on the row deliberately given no `truncate`/ellipsis class, unlike every other
  * answer line in this component.
  */
+/**
+ * THE SPLIT MUST NOT CHANGE THE RENDERING, and no assertion on text could see this.
+ *
+ * Line 3 is one sentence drawn as three spans so the reading can carry its own colour. That is a
+ * presentation device, so the rendered result must be identical to the same sentence drawn as one
+ * span. It was not: the wrapper was a flex container, which makes each span a flex ITEM and trims
+ * its own leading and trailing whitespace, so `"01/02/2026 \u2192 "` + `"1 f\u00e9vrier 2026"` +
+ * `" \u00b7 Confirmer"` drew as `01/02/2026 \u21921 f\u00e9vrier 2026\u00b7 Confirmer`.
+ *
+ * The forty-one tests in this file passed under both layouts, because the DOM text was never
+ * wrong. It was found by looking at the running screen. This is the assertion that can see it.
+ */
+describe('RoleRow.svelte: line 3 renders as one sentence, not three trimmed pieces', () => {
+	it('does not lay line 3 out as a flex container, which would trim its spaces', () => {
+		const { row, container } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'zone_1',
+			interpretation: { raw: '01/02/2026', pretty: '1 février 2026', order: 'day-first' },
+			interpretationConfirmed: false
+		});
+
+		const pieces = Array.from(row.querySelectorAll('span')).filter(
+			(span) => span.children.length === 0 && /Confirmer|février|01\/02/.test(span.textContent ?? '')
+		);
+		// The planted positive: the line really is drawn as several spans, so the layout question
+		// below is about something that exists.
+		expect(pieces.length).toBeGreaterThanOrEqual(3);
+
+		// The spaces live at the EDGES of those spans, which is exactly what a flex container trims.
+		const joined = pieces.map((span) => span.textContent ?? '').join('');
+		expect(joined).toContain('→ 1');
+		expect(joined).toContain('6 ·');
+
+		// THIS IS A PROXY AND IS LABELLED ONE. Asserting the drawn width against a reference span
+		// was tried first and measured the reference's own font rather than the line: 58.8 px of
+		// disagreement on a correct line. What can be asserted stably is the CAUSE, because the
+		// trimming is a property of flex layout rather than of these particular strings.
+		const wrapper = pieces[0].parentElement as HTMLElement;
+		expect(getComputedStyle(wrapper).display).not.toBe('flex');
+
+		container.remove();
+	});
+});
+
 describe('RoleRow.svelte: line 3 never wraps and never truncates', () => {
 	it('carries whitespace-nowrap and no overflow-ellipsis class', () => {
 		const { row } = mount({
