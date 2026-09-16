@@ -40,30 +40,12 @@ Two traps, both measured:
   convenient. Run `npm run lint:tracked` instead: the same two legs over `git ls-files`, which is
   the file set a fresh clone has, so it is what CI sees. It refuses to report a clean run over an
   empty file list.
-- **Never gate a commit on a piped command.** `npm run check | tail` exits with `tail`'s
-  status. Redirect to a file and read `$?`.
-
-  **Every barrier above is claimable through a pipe by someone tidying output, and two of them
-  were, on 2026-09-16.** `npx prettier --check <four files> | tail` printed a `[warn]` line and
-  reported `exit=0`; `npx eslint <the same four> | tail` printed `1 problem (1 error)` and
-  reported `exit=0`. Both findings were real: an unformatted file and an unused variable that was
-  an unremoved test mount. The status was `tail`'s in both cases. Read the `[warn]` count and the
-  `problem` line, or redirect and read `$?`, and never quote a barrier's exit code that came out
-  of a pipeline.
-
-- **A break patch asserts its target is UNIQUE, not merely present, and it asserts the
-  substitution happened.** Three failures in one sitting on 2026-09-16, and they compound:
-
-  1. A `perl -0pi -e "s/.../.../"` matched nothing and said nothing. Three break-checks ran
-     against an unmodified file and reported the tests "passing under the break", which reads
-     exactly like a test that cannot fail.
-  2. The pattern then matched, and it occurs TWICE in that module: the substitution edited
-     `formatMonthLabel` instead of `formatReadingDate`. The break was real, applied, and aimed at
-     the wrong function, so the green was again about something else.
-  3. Only asserting `count(target) == 1` **inside the function being broken** surfaced both.
-
-  So: anchor the search to the region you mean, assert the occurrence count before replacing,
-  print the changed lines back, and diff against a pre-break copy after restoring. A break that
+- **Never quote a barrier's exit code that came from a pipeline**: the status is the last
+  command's. `prettier --check ... | tail` and `eslint ... | tail` both reported exit 0 on real
+  findings. Redirect and read `$?`, or read the `[warn]` count and the `problem` line.
+- **A break patch asserts its target is UNIQUE inside the function being broken, and asserts the
+  substitution happened.** A `perl -0pi` that matches nothing reports success; a pattern present
+  twice edits the wrong function. Diff against a pre-break copy after restoring: a break that
   reports green has proved nothing until you have seen the file change.
 
 ## The words
