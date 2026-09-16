@@ -46,7 +46,11 @@ beforeAll(async () => {
 		data: { email: `date-order-batch-${Date.now()}@example.test`, passwordHash: 'x', role: 'USER' }
 	});
 	userId = user.id;
-	const bucket = await resolveImportBucketAccount({ userId, name: 'date order batch', source: 'csv' });
+	const bucket = await resolveImportBucketAccount({
+		userId,
+		name: 'date order batch',
+		source: 'csv'
+	});
 	accountId = bucket.accountId;
 });
 
