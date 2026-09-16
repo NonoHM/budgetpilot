@@ -327,25 +327,32 @@ export function parseImportRows(
 			dataRowCount
 		);
 
-	if (!parser) {
-		return parseMappedRows({
-			rows: normalizedRows,
-			warnings,
-			sourceName: options.sourceName,
-			categorizationRules: options.categorizationRules ?? [],
-			columnMapping: options.columnMapping,
-			hasHeaderRow: options.hasHeaderRow,
-			dateOrder: decision.order
-		});
-	}
+	const parsed = !parser
+		? parseMappedRows({
+				rows: normalizedRows,
+				warnings,
+				sourceName: options.sourceName,
+				categorizationRules: options.categorizationRules ?? [],
+				columnMapping: options.columnMapping,
+				hasHeaderRow: options.hasHeaderRow,
+				dateOrder: decision.order
+			})
+		: parser.parse({
+				rows: normalizedRows,
+				warnings,
+				sourceName: options.sourceName,
+				categorizationRules: options.categorizationRules ?? [],
+				dateOrder: decision.order
+			});
 
-	return parser.parse({
-		rows: normalizedRows,
-		warnings,
-		sourceName: options.sourceName,
-		categorizationRules: options.categorizationRules ?? [],
-		dateOrder: decision.order
-	});
+	// THE APPLIED ORDER LEAVES THE DOOR THAT DECIDED IT, and it is attached here rather than inside
+	// each profile for the reason the decision itself is taken here: seven profiles would be seven
+	// copies, and the one that forgot would write a batch claiming a reading it did not use.
+	//
+	// `ImportBatch.dateOrder` is what consumes it. That column has existed on all three engines
+	// since 2026-08-22 with no writer, so every stored row says « not recoverable » about an import
+	// whose order was in fact decided. This closes that, and plate 7l's summary line rests on it.
+	return { ...parsed, summary: { ...parsed.summary, dateOrder: decision.order } };
 }
 
 /**

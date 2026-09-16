@@ -2,7 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { columnDateState, importColumnDateStates } from './columnDateState';
+import {
+	columnDateState,
+	importColumnDateReadings,
+	importColumnDateStates
+} from './columnDateState';
 import { parseRows } from './utils/csv';
 
 const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
@@ -290,5 +294,42 @@ describe('the states that ship with the designation offer, one per column', () =
 	it('returns nothing for an empty file', () => {
 		expect.assertions(1);
 		expect(importColumnDateStates([])).toEqual([]);
+	});
+});
+
+describe('the two readings of each sample value, computed where the parse is', () => {
+	/**
+	 * Separates « both readings of the cell come from the parser » from « the browser works the
+	 * second one out ». The picker's two cards show the SAME cell read both ways, and a conversion
+	 * done client side would be a second implementation of `normalizeDate` in another language,
+	 * drifting from the parser the first time either changes.
+	 */
+	it('reads each sample under both orders', () => {
+		expect.assertions(2);
+
+		const readings = importColumnDateReadings([['03/04/2026', '11/04/2026']]);
+
+		expect(readings[0].dayFirst).toEqual(['2026-04-03', '2026-04-11']);
+		expect(readings[0].monthFirst).toEqual(['2026-03-04', '2026-11-04']);
+	});
+
+	/**
+	 * Separates « a cell that is not a date under this reading » from « a cell that is ». The
+	 * month-first reading of `13/05/2026` names month 13, which is not a date, and the card must
+	 * show nothing rather than an invented value.
+	 */
+	it('yields null for a cell that is not a date under that reading', () => {
+		expect.assertions(2);
+
+		const readings = importColumnDateReadings([['13/05/2026']]);
+
+		expect(readings[0].dayFirst).toEqual(['2026-05-13']);
+		expect(readings[0].monthFirst).toEqual([null]);
+	});
+
+	/** One entry per column, in file order, so the screen can index into it beside `samples`. */
+	it('returns one entry per column', () => {
+		expect.assertions(1);
+		expect(importColumnDateReadings([['a'], ['b'], ['c']])).toHaveLength(3);
 	});
 });

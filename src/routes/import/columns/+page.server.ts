@@ -334,7 +334,9 @@ export const actions: Actions = {
 			rowCount: result.summary.totalRows,
 			invalidRows: result.summary.invalidRows,
 			period: result.summary.period,
-			columnMappingId
+			columnMappingId,
+			// As on the upload path: the order the parse applied, read off its own summary.
+			dateOrder: result.summary.dateOrder ?? null
 		});
 		const persisted = await persistImportedTransactions({
 			userId: user.id,

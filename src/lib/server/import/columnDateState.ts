@@ -1,5 +1,5 @@
 import { detectDateOrder } from './dateOrder';
-import { isDateCellUnderEitherReading, normalizeParsedRows } from './utils/csv';
+import { isDateCellUnderEitherReading, normalizeParsedRows, readDateCell } from './utils/csv';
 import type { ParsedCsvRow } from './types';
 
 /**
@@ -132,4 +132,37 @@ export function importColumnDateStates(
 	}
 
 	return columns.map((values) => columnDateState(values));
+}
+
+/** One column's sample cells, each read under both orders. `null` is "not a date that way". */
+export interface ColumnDateReadings {
+	dayFirst: (string | null)[];
+	monthFirst: (string | null)[];
+}
+
+/**
+ * Both readings of each sample value, computed where the parse is.
+ *
+ * ## Why the server does this and not the browser
+ *
+ * The picker's two cards show the user their OWN cell read both ways, and the row's line 3 shows
+ * the one reading in force. Converting a cell to a date is `normalizeDate` composed with
+ * `isValidIsoDate`, and doing that in the browser would be a second implementation of the rule in
+ * another language, drifting from the parser the first time either changes. So the server sends
+ * ISO values and the browser only FORMATS them, which is a locale concern and genuinely belongs
+ * there.
+ *
+ * ## It reads the samples, not the file
+ *
+ * Takes the values `importSampleValues` already chose rather than walking the rows again. Those are
+ * the three the cards show, so the pairs cannot disagree with the values beside them, and no new
+ * cell content enters the payload: the raw side is already there.
+ *
+ * @param samples One array of sample cells per column, in file order.
+ */
+export function importColumnDateReadings(samples: readonly string[][]): ColumnDateReadings[] {
+	return samples.map((values) => ({
+		dayFirst: values.map((value) => readDateCell(value, 'day-first')),
+		monthFirst: values.map((value) => readDateCell(value, 'month-first'))
+	}));
 }
