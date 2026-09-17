@@ -1,3 +1,9 @@
+// TYPE ONLY, and it must stay type only. This module is imported by the browser; $lib/server is
+// not. A type import is erased before the bundler sees it, which is why the SvelteKit guard admits
+// it and why `npm run build` passes. A VALUE import of anything from that module would pull server
+// code into the client bundle, and this repository has one expensive instance of a domain module
+// reaching across that line and failing at container startup after every gate had passed.
+import type { ColumnDateState } from '$lib/server/import/columnDateState';
 import { MAPPING_ROLES, REQUIRED_MAPPING_ROLES, type MappingRole } from './mappingRoles';
 
 /**
@@ -77,6 +83,29 @@ export interface DesignationFile {
 	 * it, and a missing count must degrade to saying nothing rather than to saying zero.
 	 */
 	coverage?: readonly number[];
+	/**
+	 * Per column, what the file says about it AS A DATE COLUMN, computed by the parser over the
+	 * whole column at the moment this payload was built.
+	 *
+	 * The screen READS this and never computes it. Three preview values cannot answer the question:
+	 * a file whose fortieth row reads `24/06/2026` has already settled its own order, and a verdict
+	 * taken over what the picker happens to show would ask about it anyway.
+	 *
+	 * Optional so a payload assembled by a test, or by a client from before this shipped, degrades
+	 * to saying nothing about the reading rather than to claiming a state.
+	 */
+	dateStates?: readonly ColumnDateState[];
+	/**
+	 * Per column, each cell read under BOTH orders, as ISO or null when it is not a date that way.
+	 *
+	 * Index 0 is the first data row's cell, which is what the Date row prints and converts. Indices
+	 * 1 onward are `samples`, which is what the picker's cards print. They are DIFFERENT cells on a
+	 * sparse column by design, so the two surfaces each convert the value they actually show.
+	 *
+	 * ISO rather than formatted text, because the conversion is a PARSE and belongs to the parser,
+	 * while turning an ISO date into "3 avril 2026" is a locale concern and belongs here.
+	 */
+	dateReadings?: readonly { dayFirst: readonly (string | null)[]; monthFirst: readonly (string | null)[] }[];
 	/** Data rows, excluding the header row. Displayed, and used in the primary's label. */
 	rowCount: number;
 	/**

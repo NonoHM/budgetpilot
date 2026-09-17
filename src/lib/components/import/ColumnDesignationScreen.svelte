@@ -16,6 +16,8 @@
 	import FilePreviewTable from './FilePreviewTable.svelte';
 	import ConditionBanner from '$lib/components/ui/ConditionBanner.svelte';
 	import RoleRow from '$lib/components/ui/RoleRow.svelte';
+	import { formatReadingDate } from '$lib/domain/dateFormat';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	// The recap's one action. Brique 4's affordance clause is why it is not a TapLink there; see the
@@ -456,6 +458,94 @@
 	 * empty. Falling through to `empty` in either case makes the row look self-emptied, and the user
 	 * is never told a designation moved.
 	 */
+	/**
+	 * THE READING THE USER CHOSE, when the file left the question open.
+	 *
+	 * Null means nobody has answered, which is NOT the same as day-first: the row says so with
+	 * "Confirmer" and the sheet's second step is reachable. Reset whenever the designated column
+	 * changes, because a reading is an answer about ONE column and carrying it to the next one
+	 * would silently apply an answer given about different data.
+	 */
+	let chosenReading = $state<'day-first' | 'month-first' | null>(null);
+	let readingAnsweredFor = $state<number | null>(null);
+
+	/** The order VALUE to the payload's key. One translation, used by both readers below. */
+	function readingKey(order: 'day-first' | 'month-first'): 'dayFirst' | 'monthFirst' {
+		return order === 'month-first' ? 'monthFirst' : 'dayFirst';
+	}
+
+	const dateColumn = $derived(assignment.date);
+	const dateState = $derived(
+		dateColumn === null ? null : (file.dateStates?.[dateColumn] ?? null)
+	);
+
+	/**
+	 * The order this screen is currently reading the date column under.
+	 *
+	 * `proven-*` is the file's own proof and an answer cannot outrank it, which is the same
+	 * precedence `decideDateOrder` applies on the server: evidence first, the option only where the
+	 * file leaves the question genuinely open. Stating it twice would be two answers, so this
+	 * mirrors that order deliberately and the server remains the one that decides the IMPORT.
+	 */
+	const appliedReading = $derived.by((): 'day-first' | 'month-first' => {
+		if (dateState === 'proven-month') return 'month-first';
+		if (dateState === 'proven-day') return 'day-first';
+		if (dateState === 'ambiguous' && readingAnsweredFor === dateColumn && chosenReading)
+			return chosenReading;
+		return 'day-first';
+	});
+
+	/**
+	 * Line 3 of the Date row, or `null` to reserve its 18 px with nothing in it.
+	 *
+	 * `undefined` is never returned: the Date row ALWAYS interprets, so it is always 86 px, in every
+	 * state including empty. That is what keeps the card's height fixed and the skeleton exact.
+	 */
+	const dateInterpretation = $derived.by(() => {
+		if (recap || dateColumn === null || dateState === null) return null;
+		if (dateState === 'inconsistent') return 'inconsistent' as const;
+		if (dateState === 'no-dates') return 'no-dates' as const;
+		if (dateState === 'empty') return 'empty' as const;
+
+		const raw = sampleOf('date');
+		// The payload keys the two readings as `dayFirst`/`monthFirst`; the order VALUE is
+		// `day-first`/`month-first`. One translation, here, rather than a second spelling of the
+		// order anywhere else.
+		const iso = file.dateReadings?.[dateColumn]?.[readingKey(appliedReading)]?.[0] ?? null;
+		// A cell that is not a date under the order in force has no conversion to show. The row falls
+		// back to reserving the line rather than printing the raw value twice.
+		if (!raw || !iso) return null;
+		return { raw, pretty: formatReadingDate(iso, getLocale()), order: appliedReading };
+	});
+
+	/**
+	 * Confirmed is the ABSENCE of an open question, not the presence of an answer.
+	 *
+	 * A proven column was never asked about, so its line carries no imperative. An ambiguous one
+	 * carries "Confirmer" until a human has looked, which is 7a's rule that an assumption is never
+	 * allowed to stand unread.
+	 */
+	const dateInterpretationConfirmed = $derived(
+		dateState !== 'ambiguous' || (readingAnsweredFor === dateColumn && chosenReading !== null)
+	);
+
+	/** The three pairs the second step's two cards show, read from the same payload the row uses. */
+	const dateReadingPairs = $derived.by(() => {
+		if (dateColumn === null) return null;
+		const readings = file.dateReadings?.[dateColumn];
+		if (!readings) return null;
+		const cells = [sampleOf('date'), ...(file.samples[dateColumn] ?? [])];
+		const pairsFor = (order: 'day-first' | 'month-first') =>
+			readings[readingKey(order)]
+				.map((iso: string | null, index: number) => ({
+					raw: cells[index] ?? '',
+					pretty: iso ? formatReadingDate(iso, getLocale()) : ''
+				}))
+				.filter((pair: { raw: string; pretty: string }) => pair.raw !== '' && pair.pretty !== '')
+				.slice(0, 3);
+		return { dayFirst: pairsFor('day-first'), monthFirst: pairsFor('month-first') };
+	});
+
 	function stateOf(
 		role: MappingRole
 	): 'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'recap' {
@@ -872,6 +962,12 @@
 						candidateCount={candidateCounts[role]}
 						vacatedBy={vacated[role]}
 						lostHeader={lostHeaders[role]}
+						{...role === 'date'
+							? {
+									interpretation: dateInterpretation,
+									interpretationConfirmed: dateInterpretationConfirmed
+								}
+							: {}}
 						onOpen={() => (openRole = role)}
 					/>
 					{#if wide && openRole === role}
