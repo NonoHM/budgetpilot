@@ -390,3 +390,420 @@ describe('RoleRow.svelte: there is no disabled state, and a greyed row would be 
 		expect(states.length).toBe(5);
 	});
 });
+
+/**
+ * Plate 7c: the Date row is 86 px (74 compact) in EVERY state, including one with nothing to show,
+ * because it is the only role whose designation carries an interpretation. §9's card is a fixed
+ * height, so a row that grew only once a reading existed would move the card by 18 px on the one
+ * gesture the whole screen is built to make cheap.
+ */
+describe('RoleRow.svelte: the interpreting row is 86/74, decided by PRESENCE not by VALUE', () => {
+	it('is 86 px at 390 the moment `interpretation` is passed, even as `null`', () => {
+		// Separates "interpretation is undefined" (a row that never interprets, 68 px) from
+		// "interpretation is null" (an interpreting row with nothing yet to show, 86 px). Getting
+		// this backwards — treating a null/falsy value as "not interpreting" — is exactly the bug
+		// this test exists to catch, and it is the one the task calls out as the subtle part.
+		const { row } = mount({ role: 'date', interpretation: null });
+
+		expect(row.getBoundingClientRect().height).toBe(86);
+	});
+
+	it('is 74 px compact under the same rule', () => {
+		const { row } = mount({ role: 'date', compact: true, interpretation: null });
+
+		expect(row.getBoundingClientRect().height).toBe(74);
+	});
+
+	it('stays 68/56 when `interpretation` is never passed at all', () => {
+		// The control for the two tests above: an absent prop must not accidentally read as an
+		// interpreting row. Both heights asserted absolutely, per this file's own convention.
+		const notCompact = mount({ role: 'amount' });
+		expect(notCompact.row.getBoundingClientRect().height).toBe(68);
+		notCompact.container.remove();
+
+		const compact = mount({ role: 'amount', compact: true });
+		expect(compact.row.getBoundingClientRect().height).toBe(56);
+	});
+
+	it('is 86 px for every kind of interpretation value, not only the object shape', () => {
+		// A loop rather than one case, because "presence decides" is a claim about the WHOLE type,
+		// and citing one member of a five-way union is citing the one you happened to test.
+		const values: Array<unknown> = [
+			null,
+			'inconsistent',
+			'no-dates',
+			'empty',
+			{ raw: '24/06/2026', pretty: '24 juin 2026', order: 'day-first' }
+		];
+
+		for (const interpretation of values) {
+			const { row, container } = mount({ role: 'date', interpretation });
+			expect(row.getBoundingClientRect().height, JSON.stringify(interpretation)).toBe(86);
+			container.remove();
+		}
+		expect(values.length).toBe(5);
+	});
+});
+
+/**
+ * Plate 7c/7n: line 3's five variants, one test per state. Each separates "this state's own
+ * sentence is on screen" from "a different state's sentence leaked in", which is the only way a
+ * five-way union can be checked without one test standing in for all five.
+ */
+describe('RoleRow.svelte: line 3, one sentence per interpretation state', () => {
+	it('null: reserves the 18 px line but writes nothing into it', () => {
+		const { row } = mount({ role: 'date', interpretation: null });
+
+		expect(row.textContent).not.toContain('→');
+		expect(row.textContent).not.toContain('Confirmer');
+		expect(row.textContent).not.toContain('Deux ordres');
+		expect(row.textContent).not.toContain('Aucune date');
+		expect(row.textContent).not.toContain('Colonne vide');
+	});
+
+	it('a confirmed reading: "raw → pretty", with no "Confirmer" clause', () => {
+		const { row } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: { raw: '24/06/2026', pretty: '24 juin 2026', order: 'day-first' },
+			interpretationConfirmed: true
+		});
+
+		expect(row.textContent).toContain('24/06/2026 → 24 juin 2026');
+		expect(row.textContent).not.toContain('Confirmer');
+	});
+
+	it('an unconfirmed reading: the ledger word is "Confirmer", never "à confirmer"', () => {
+		// 7n supersedes 7a/7c on this exact point, and it is the kind of correction a stale
+		// component would silently keep failing to make.
+		const { row } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: { raw: '03/04/2026', pretty: '3 avril 2026', order: 'day-first' },
+			interpretationConfirmed: false
+		});
+
+		expect(row.textContent).toContain('03/04/2026 → 3 avril 2026 · Confirmer');
+		expect(row.textContent).not.toContain('à confirmer');
+	});
+
+	it('inconsistent: states the contradiction, with no raw/pretty pair to show', () => {
+		const { row } = mount({ role: 'date', interpretation: 'inconsistent' });
+
+		expect(row.textContent).toContain('Deux ordres de date dans cette colonne');
+	});
+
+	it('no-dates: a column full of content that is not dates', () => {
+		const { row } = mount({ role: 'date', interpretation: 'no-dates' });
+
+		expect(row.textContent).toContain('Aucune date dans cette colonne');
+	});
+
+	it('empty: blank on every row, its own sentence rather than sharing "no-dates"', () => {
+		// Separates "no value parses as a date" from "there was no value at all": 7m gives the two
+		// their own key because the repairs differ (a wrong position vs content that is not dates).
+		const { row } = mount({ role: 'date', interpretation: 'empty' });
+
+		expect(row.textContent).toContain('Colonne vide');
+		expect(row.textContent).not.toContain('Aucune date dans cette colonne');
+	});
+});
+
+/**
+ * 7n: the triangle was withdrawn from this line because it was already registered for "plusieurs
+ * candidates" and would carry two meanings on one screen. The existing `warningTriangle` snippet
+ * must keep firing for `ambiguous`/`missingColumn`, so this is a "not here, still there" pair
+ * rather than a single absence assertion, which could as easily mean the glyph broke everywhere.
+ */
+describe('RoleRow.svelte: no warning triangle on line 3, ever', () => {
+	it('an unconfirmed reading carries no extra glyph beyond the chevron', () => {
+		const { container } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: { raw: '03/04/2026', pretty: '3 avril 2026', order: 'day-first' },
+			interpretationConfirmed: false
+		});
+
+		// One svg: the chevron. A second would be the withdrawn triangle come back.
+		expect(container.querySelectorAll('svg').length).toBe(1);
+	});
+
+	it('the triangle is still there on the states that were never touched', () => {
+		const ambiguous = mount({ role: 'date', state: 'ambiguous', candidateCount: 2 });
+		expect(ambiguous.container.querySelectorAll('svg').length).toBe(2);
+		ambiguous.container.remove();
+
+		const missing = mount({ role: 'date', state: 'missingColumn', lostHeader: 'Date operation' });
+		expect(missing.container.querySelectorAll('svg').length).toBe(2);
+	});
+});
+
+/**
+ * 7n: raw and the "· Confirmer" clause read zinc-500, the converted result zinc-700. Asserted as
+ * actual computed colours against a same-page calibration element already known to carry each
+ * class, rather than by reading the class list off the element under test: a class name is a
+ * claim about the style and the computed colour is the style.
+ */
+describe('RoleRow.svelte: line 3 is two-tone, raw and "Confirmer" pale against the reading', () => {
+	it('the reading half is zinc-700 and the rest of the line is zinc-500', () => {
+		const { row, container } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: { raw: '03/04/2026', pretty: '3 avril 2026', order: 'day-first' },
+			interpretationConfirmed: false
+		});
+
+		// Calibration: a designated Montant row's header span is a known `text-zinc-700`, and its
+		// empty-state sentence is a known `text-zinc-500`. Grabbing their computed colours here,
+		// on the SAME page, proves the two class names really do resolve to different colours
+		// before that difference is used to tell the line's two spans apart.
+		const reference = mount({ role: 'amount', state: 'empty' });
+		const zinc500 = getComputedStyle(
+			reference.row.querySelector('span.text-zinc-500') as Element
+		).color;
+		reference.container.remove();
+
+		const designatedReference = mount({
+			role: 'amount',
+			state: 'designated',
+			columnHeader: 'Montant',
+			sampleValue: '-24,90'
+		});
+		const zinc700 = getComputedStyle(
+			designatedReference.row.querySelector('span.text-zinc-700') as Element
+		).color;
+		designatedReference.container.remove();
+
+		expect(zinc500).not.toBe(zinc700);
+
+		// Leaf spans only: a container `span` also carries its descendants' text, so filtering by
+		// text content over EVERY span (the earlier draft of this test) matched the flex wrapper
+		// around all three lines instead of the text node inside it.
+		const spans = Array.from(row.querySelectorAll('span')).filter(
+			(span) => span.children.length === 0
+		);
+		expect(spans.length).toBeGreaterThanOrEqual(2);
+
+		const prettySpan = spans.find((span) => span.textContent?.includes('3 avril 2026'));
+		expect(prettySpan).not.toBeUndefined();
+		expect(getComputedStyle(prettySpan as Element).color).toBe(zinc700);
+
+		const rawSpan = spans.find((span) => span.textContent?.includes('03/04/2026'));
+		expect(rawSpan).not.toBeUndefined();
+		expect(getComputedStyle(rawSpan as Element).color).toBe(zinc500);
+
+		const confirmSpan = spans.find((span) => span.textContent?.includes('Confirmer'));
+		expect(confirmSpan).not.toBeUndefined();
+		expect(getComputedStyle(confirmSpan as Element).color).toBe(zinc500);
+
+		// Every other test in this file removes its mount; this one did not, which left a second
+		// RoleRow in the document for whatever ran next. Its two reference mounts above are already
+		// removed, so leaving this one was an omission rather than a decision.
+		container.remove();
+	});
+});
+
+/**
+ * The line never wraps and never truncates: a wrap would break the 86 px invariant, and this is
+ * the one line on the row deliberately given no `truncate`/ellipsis class, unlike every other
+ * answer line in this component.
+ */
+/**
+ * THE SPLIT MUST NOT CHANGE THE RENDERING, and no assertion on text could see this.
+ *
+ * Line 3 is one sentence drawn as three spans so the reading can carry its own colour. That is a
+ * presentation device, so the rendered result must be identical to the same sentence drawn as one
+ * span. It was not: the wrapper was a flex container, which makes each span a flex ITEM and trims
+ * its own leading and trailing whitespace, so `"01/02/2026 \u2192 "` + `"1 f\u00e9vrier 2026"` +
+ * `" \u00b7 Confirmer"` drew as `01/02/2026 \u21921 f\u00e9vrier 2026\u00b7 Confirmer`.
+ *
+ * The forty-one tests in this file passed under both layouts, because the DOM text was never
+ * wrong. It was found by looking at the running screen. This is the assertion that can see it.
+ */
+describe('RoleRow.svelte: line 3 renders as one sentence, not three trimmed pieces', () => {
+	it('does not lay line 3 out as a flex container, which would trim its spaces', () => {
+		const { row, container } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'zone_1',
+			interpretation: { raw: '01/02/2026', pretty: '1 février 2026', order: 'day-first' },
+			interpretationConfirmed: false
+		});
+
+		const pieces = Array.from(row.querySelectorAll('span')).filter(
+			(span) =>
+				span.children.length === 0 && /Confirmer|février|01\/02/.test(span.textContent ?? '')
+		);
+		// The planted positive: the line really is drawn as several spans, so the layout question
+		// below is about something that exists.
+		expect(pieces.length).toBeGreaterThanOrEqual(3);
+
+		// The spaces live at the EDGES of those spans, which is exactly what a flex container trims.
+		const joined = pieces.map((span) => span.textContent ?? '').join('');
+		expect(joined).toContain('→ 1');
+		expect(joined).toContain('6 ·');
+
+		// THIS IS A PROXY AND IS LABELLED ONE. Asserting the drawn width against a reference span
+		// was tried first and measured the reference's own font rather than the line: 58.8 px of
+		// disagreement on a correct line. What can be asserted stably is the CAUSE, because the
+		// trimming is a property of flex layout rather than of these particular strings.
+		const wrapper = pieces[0].parentElement as HTMLElement;
+		expect(getComputedStyle(wrapper).display).not.toBe('flex');
+
+		container.remove();
+	});
+});
+
+describe('RoleRow.svelte: line 3 never wraps and never truncates', () => {
+	it('carries whitespace-nowrap and no overflow-ellipsis class', () => {
+		const { row } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: { raw: '03/04/2026', pretty: '3 avril 2026', order: 'day-first' },
+			interpretationConfirmed: false
+		});
+
+		// Leaf spans only, for the same reason as the colour test above: a container span's
+		// `textContent` includes its descendants', so an ancestor would otherwise match too and
+		// this assertion would be checking the wrapper's classes rather than the text run's own.
+		const spans = Array.from(row.querySelectorAll('span')).filter(
+			(span) => span.children.length === 0 && span.textContent?.includes('avril')
+		);
+		expect(spans.length).toBeGreaterThan(0);
+		for (const span of spans) {
+			expect(span.className).toContain('whitespace-nowrap');
+			expect(span.className).not.toContain('overflow-ellipsis');
+			expect(span.className).not.toContain('truncate');
+		}
+	});
+});
+
+/**
+ * The accessible name is composed from the SAME props as the visible text (the component's own
+ * documented rule), so the interpretation states get their own aria sentence rather than the
+ * generic "designated" one, which would announce a sample value the line no longer shows.
+ */
+describe('RoleRow.svelte: the accessible name follows the interpretation, for the states 7i names', () => {
+	// The catalogue puts a NARROW NO-BREAK SPACE (U+202F) before this colon, per French
+	// typography, unlike the plain space `import_columns_row_aria_designated` uses elsewhere in
+	// this same file. Built from the character code rather than retyped, same reason this file
+	// already pins the em dash that way: an escape does not survive being pasted back out.
+	const NNBSP = String.fromCharCode(0x202f);
+
+	/**
+	 * THE CELL WHERE A DERIVED ORDER CANNOT BE DERIVED, and the reason the caller states it.
+	 *
+	 * Separates « the row announces the reading the caller APPLIED » from « the row announces a
+	 * reading it worked out from the two strings it was handed ». `02/02/2026` reads identically
+	 * both ways, so no comparison of raw against pretty can tell them apart: the second behaviour
+	 * announces « Jour puis mois » to a screen reader whatever was chosen.
+	 *
+	 * This is not a corner. `ambiguous` is DEFINED as every component being at or below 12 on both
+	 * sides, so a cell whose day equals its month is the canonical ambiguous cell, and it is the one
+	 * the corpus generator names as reading the same under both orders. The user who meets this
+	 * label is the one who cannot see the two cards to check it against.
+	 */
+	it('unconfirmed: announces the order the caller applied, on a cell that reads both ways', () => {
+		const monthFirst = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: { raw: '02/02/2026', pretty: '2 février 2026', order: 'month-first' },
+			interpretationConfirmed: false
+		});
+		expect(monthFirst.row.getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues Mois puis jour, ordre à confirmer, non sélectionné`
+		);
+		monthFirst.container.remove();
+
+		// The planted positive: the same palindromic cell under the other order must differ, so a
+		// row that ignored `order` entirely could not pass both halves.
+		const dayFirst = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: { raw: '02/02/2026', pretty: '2 février 2026', order: 'day-first' },
+			interpretationConfirmed: false
+		});
+		expect(dayFirst.row.getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, ordre à confirmer, non sélectionné`
+		);
+		dayFirst.container.remove();
+	});
+
+	it('unconfirmed: names the header and the order the reading assumed', () => {
+		const dayFirst = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: { raw: '03/04/2026', pretty: '3 avril 2026', order: 'day-first' },
+			interpretationConfirmed: false
+		});
+		expect(dayFirst.row.getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, ordre à confirmer, non sélectionné`
+		);
+		dayFirst.container.remove();
+
+		// Separates "day-first was assumed" from "month-first was assumed": both are reachable from
+		// the same raw cell, and the order is derived from which of raw's two numbers survived as
+		// the pretty value's day, never hard-coded.
+		const monthFirst = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: { raw: '03/04/2026', pretty: '4 mars 2026', order: 'month-first' },
+			interpretationConfirmed: false
+		});
+		expect(monthFirst.row.getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues Mois puis jour, ordre à confirmer, non sélectionné`
+		);
+	});
+
+	it('no-dates: names the column and states the finding, not a sample value', () => {
+		const { row } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Client',
+			interpretation: 'no-dates'
+		});
+
+		expect(row.getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Client, aucune date dans cette colonne`
+		);
+	});
+
+	it('empty: names the column and states it is empty', () => {
+		const { row } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			interpretation: 'empty'
+		});
+
+		expect(row.getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, colonne vide`
+		);
+	});
+
+	it('a confirmed reading keeps the existing designated aria, unchanged', () => {
+		// Not asked for by the task, and pinned here so a later change to the unconfirmed branch
+		// does not silently start firing for the confirmed one too.
+		const { row } = mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			sampleValue: '24/06/2026',
+			interpretation: { raw: '24/06/2026', pretty: '24 juin 2026', order: 'day-first' },
+			interpretationConfirmed: true
+		});
+
+		expect(row.getAttribute('aria-label')).toBe(
+			'Date, colonne désignée : Date operation, exemple 24/06/2026'
+		);
+	});
+});

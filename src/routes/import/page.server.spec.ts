@@ -1576,6 +1576,33 @@ describe('/import actions', () => {
 		const RECOGNISED_HEADERS_UNREADABLE_DATES =
 			'date,label,amount\n01/06/26,CARREFOUR MARKET,-24.90\n02/06/26,SALAIRE,2140.00';
 
+		/**
+		 * 7k'S SEAM: the whole-column verdict ships WITH the offer, one per column.
+		 *
+		 * Separates « the screen is handed a state per column » from « the screen is handed columns
+		 * and works the state out itself ». The second is the round trip and the second
+		 * implementation 7k rejected, and neither is visible from `columnDateState`'s own tests:
+		 * those prove the function is right, not that the payload carries it.
+		 *
+		 * All three columns read `no-dates` here, and that is stated rather than dressed up: the
+		 * fixture's dates carry a two-digit year, which is not the ambiguous grammar and parses under
+		 * neither reading. So this asserts the SEAM, not the mapping's breadth, which
+		 * `columnDateState.spec.ts` covers over all seven. The length assertion is what stops a
+		 * payload shorter than the header row passing.
+		 */
+		it('ships one date state per column with the offer', async () => {
+			const result = (await runImportWithFile(RECOGNISED_HEADERS_UNREADABLE_DATES)) as unknown as {
+				data: { designation?: { headers: string[]; dateStates?: string[] } };
+			};
+
+			// `01/06/26` is a two-digit year, which is not the ambiguous grammar, so the date column
+			// carries values that parse under neither reading.
+			expect(result.data.designation?.dateStates).toEqual(['no-dates', 'no-dates', 'no-dates']);
+			expect(result.data.designation?.dateStates).toHaveLength(
+				result.data.designation?.headers.length ?? 0
+			);
+		});
+
 		it('is offered when the headers matched and every value failed', async () => {
 			const result = (await runImportWithFile(RECOGNISED_HEADERS_UNREADABLE_DATES)) as unknown as {
 				data: { designation?: { headers: string[]; rowCount: number } };

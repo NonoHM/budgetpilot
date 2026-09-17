@@ -88,4 +88,23 @@ export interface ImportSummaryResult {
 	 * and not its fix.
 	 */
 	multiAccountFile: boolean;
+	/**
+	 * THIS IMPORT stored a column correspondance that later files of the same shape will reuse.
+	 *
+	 * Here because the sentence saying so MOVED OFF the designation screen. It used to sit in that
+	 * screen's body beside its opt-out link, where it cost 38 px in the one state that has the least
+	 * room, and the Date row's reading line needed 18 of them. The opt-out link stayed behind: the
+	 * consent must be in reach BEFORE the write, and this surface is after it.
+	 *
+	 * So the split is deliberate and the two halves say different things. The link is the choice,
+	 * offered while it can still be made. This is the disclosure, and it is past tense in substance:
+	 * it reports what the import did.
+	 *
+	 * A BOOLEAN AND NOT AN ASSUMPTION. A user who opted out must not be told their correspondance
+	 * will be reused, which would be a false claim on the screen that reports what happened. One
+	 * production writer memorises (`import/columns`'s action, the only `saveColumnMapping` call site
+	 * outside the db-smoke), and it is false everywhere else, including the automatic path, which
+	 * USES a correspondance and never creates one.
+	 */
+	rememberedMapping: boolean;
 }

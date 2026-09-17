@@ -122,6 +122,18 @@ export interface ImportedTransaction extends Transaction {
 export interface CsvImportSummary {
 	profile: ResolvedCsvImportProfile;
 	/**
+	 * The order this parse APPLIED to ambiguous date cells, carried out of the door that decided it.
+	 *
+	 * Optional because a parse that refused the file before reading a row never took the decision,
+	 * and a summary that named one there would be reporting a reading nothing was read under. Every
+	 * parse that produced a transaction carries it.
+	 *
+	 * It exists so `ImportBatch.dateOrder` can be written. That column has been on all three engines
+	 * since 2026-08-22 with nothing writing it, because the decision was taken at the door and never
+	 * left it, so no caller had the value. This is the value.
+	 */
+	dateOrder?: DateOrder;
+	/**
 	 * The DATA rows this parse read, which is every row a refusal can be about.
 	 *
 	 * A file the parser refused before reading a row still reports the rows it has: a statement over

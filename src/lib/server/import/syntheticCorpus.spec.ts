@@ -78,7 +78,7 @@ const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
  * the denominator #621 exists to settle. Adding a fixture should oblige the next person to state
  * the new denominator here rather than let it drift under a `toBeGreaterThan`.
  */
-const CORPUS_FILE_COUNT = 30;
+const CORPUS_FILE_COUNT = 31;
 
 /** The fixtures whose every date must read both ways. See `AMBIGUOUS_LEDGER`. */
 const AMBIGUOUS_FIXTURES = [
@@ -86,6 +86,18 @@ const AMBIGUOUS_FIXTURES = [
 	'ambiguous-revolut-fr.csv',
 	'ambiguous-generic.csv'
 ];
+
+/**
+ * The fixture that is ambiguous only once a human has designated its date column.
+ *
+ * A THIRD category rather than a fourth member of `AMBIGUOUS_FIXTURES`, and the distinction is
+ * the whole reason it exists. Those three resolve a profile, so the ambiguity is reachable on the
+ * auto path and `rowsThatMove` can see it. This one resolves no usable profile: `auto` refuses it
+ * on the header and offers the designation screen, so its every date holds still until a mapping
+ * names the column. Putting it in that list would assert movement through a parse that produces
+ * no transactions at all, which is a zero that reads like a passing fixture.
+ */
+const DESIGNATED_AMBIGUOUS_FIXTURE = 'ambiguous-opaque-headers.csv';
 
 /** Movements in `AMBIGUOUS_LEDGER`, so a row count below is a figure rather than a tautology. */
 const AMBIGUOUS_LEDGER_ROWS = 6;
@@ -175,9 +187,8 @@ describe('the tracked generators produce the corpus the date-order figures are c
 	it('writes every fixture, from the tracked generators and nothing else', () => {
 		expect.assertions(2);
 		expect(corpus.size).toBe(CORPUS_FILE_COUNT);
-		expect([...AMBIGUOUS_FIXTURES, ...REFUSAL_FIXTURES].filter((name) => corpus.has(name))).toEqual(
-			[...AMBIGUOUS_FIXTURES, ...REFUSAL_FIXTURES]
-		);
+		const named = [...AMBIGUOUS_FIXTURES, ...REFUSAL_FIXTURES, DESIGNATED_AMBIGUOUS_FIXTURE];
+		expect(named.filter((name) => corpus.has(name))).toEqual(named);
 	});
 
 	/**
@@ -361,5 +372,55 @@ describe('the tracked generators produce the corpus the date-order figures are c
 			'2026-02-09',
 			'2026-02-11'
 		]);
+	});
+
+	/**
+	 * THE DESIGNATION PATH'S OWN AMBIGUOUS FILE, which the corpus had no fixture for.
+	 *
+	 * The three `ambiguous-*.csv` files all resolve a profile, so every one of them exercises the
+	 * question on the AUTO path. The path where a human names the column had none, and it is the
+	 * path the designation screen is: a file whose headers the alias table cannot read, whose date
+	 * column turns out to be ambiguous once designated.
+	 *
+	 * Separates « the designated column is genuinely ambiguous, so an answer can settle it » from
+	 * « the column proves its own order, or carries no date at all, where an answer is ignored ».
+	 * That is not a restatement of the detector: `decideDateOrder` honours an override in the
+	 * `ambiguous` branch and in NO other, so the dates moving under `month-first` is the property,
+	 * observed through the parser. A `resolved` column would hold still under the same override,
+	 * and so would one with nothing to decide.
+	 */
+	it('emits an opaque-header fixture whose date column is ambiguous only once designated', () => {
+		expect.assertions(4);
+
+		const text = corpus.get(DESIGNATED_AMBIGUOUS_FIXTURE) ?? '';
+
+		// It must reach the designation screen rather than importing on its own.
+		const auto = parseCsvTransactions(text);
+		expect(auto.transactions).toHaveLength(0);
+		expect(
+			auto.invalidRows
+				.filter((refusal) => refusal.scope.kind === 'header')
+				.map((refusal) => refusal.fact.code)
+		).toContain('missing-required-column');
+
+		// Designated, it imports, and the answer is what decides the dates.
+		const mapping = designate(4, 0, 1, 2);
+		const dayFirst = parseCsvTransactions(text, {
+			profile: 'mapped',
+			columnMapping: mapping,
+			dateOrder: 'day-first'
+		});
+		const monthFirst = parseCsvTransactions(text, {
+			profile: 'mapped',
+			columnMapping: mapping,
+			dateOrder: 'month-first'
+		});
+
+		expect(dayFirst.transactions).toHaveLength(AMBIGUOUS_LEDGER_ROWS);
+		expect(
+			dayFirst.transactions.filter(
+				(transaction, index) => transaction.date !== monthFirst.transactions[index]?.date
+			)
+		).toHaveLength(AMBIGUOUS_LEDGER_ROWS);
 	});
 });

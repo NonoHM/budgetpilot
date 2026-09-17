@@ -397,13 +397,19 @@ function nature(r) {
  * `opaque` matches no alias at all and is what opens the designation screen — and it is a
  * SECOND opaque style rather than one, because a mapping is fingerprinted over the header row:
  * the second style is what reopens the screen on a machine where the first was memorised.
+ *
+ * `opaque3` is a THIRD for the same reason and not for a third reason. It carries the ambiguous
+ * ledger, so it is the designation path's own ambiguous file; reusing `opaque`'s header row would
+ * have given the two files one fingerprint, and a mapping memorised on the ISO-dated one would
+ * then recognise the ambiguous one and skip the screen it exists to open.
  */
 function neutral(style, date = iso, ledger = LEDGER) {
 	const headers = {
 		canonical: 'date,label,amount,category',
 		accented: 'Date,Libellé,Montant,Catégorie',
 		opaque: 'col_a,col_b,col_c,col_d',
-		opaque2: 'champ_1,champ_2,champ_3,champ_4'
+		opaque2: 'champ_1,champ_2,champ_3,champ_4',
+		opaque3: 'zone_1,zone_2,zone_3,zone_4'
 	};
 	const lines = rows(ledger).map((r) =>
 		[date(r.day, r.month), r.label, dec(r.cents), r.cat].join(',')
@@ -580,7 +586,13 @@ const FILES = {
 	// reason its own docstring gives.
 	'ambiguous-banque-populaire.csv': banquePopulaire(fr, AMBIGUOUS_LEDGER),
 	'ambiguous-revolut-fr.csv': revolut('fr', fr, AMBIGUOUS_LEDGER),
-	'ambiguous-generic.csv': neutral('canonical', fr, AMBIGUOUS_LEDGER)
+	'ambiguous-generic.csv': neutral('canonical', fr, AMBIGUOUS_LEDGER),
+
+	// The same question on the OTHER path. The three above resolve a profile, so they ask it where
+	// the file was recognised; this one resolves no usable profile and is refused on its header, so
+	// it asks it where a human has just named the column. That is the designation screen, and it
+	// had no ambiguous fixture at all.
+	'ambiguous-opaque-headers.csv': neutral('opaque3', fr, AMBIGUOUS_LEDGER)
 };
 
 const out = process.argv[2];

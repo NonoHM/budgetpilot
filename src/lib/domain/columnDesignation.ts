@@ -1,3 +1,9 @@
+// TYPE ONLY, and it must stay type only. This module is imported by the browser; $lib/server is
+// not. A type import is erased before the bundler sees it, which is why the SvelteKit guard admits
+// it and why `npm run build` passes. A VALUE import of anything from that module would pull server
+// code into the client bundle, and this repository has one expensive instance of a domain module
+// reaching across that line and failing at container startup after every gate had passed.
+import type { ColumnDateState } from '$lib/server/import/columnDateState';
 import { MAPPING_ROLES, REQUIRED_MAPPING_ROLES, type MappingRole } from './mappingRoles';
 
 /**
@@ -77,6 +83,32 @@ export interface DesignationFile {
 	 * it, and a missing count must degrade to saying nothing rather than to saying zero.
 	 */
 	coverage?: readonly number[];
+	/**
+	 * Per column, what the file says about it AS A DATE COLUMN, computed by the parser over the
+	 * whole column at the moment this payload was built.
+	 *
+	 * The screen READS this and never computes it. Three preview values cannot answer the question:
+	 * a file whose fortieth row reads `24/06/2026` has already settled its own order, and a verdict
+	 * taken over what the picker happens to show would ask about it anyway.
+	 *
+	 * Optional so a payload assembled by a test, or by a client from before this shipped, degrades
+	 * to saying nothing about the reading rather than to claiming a state.
+	 */
+	dateStates?: readonly ColumnDateState[];
+	/**
+	 * Per column, each cell read under BOTH orders, as ISO or null when it is not a date that way.
+	 *
+	 * Index 0 is the first data row's cell, which is what the Date row prints and converts. Indices
+	 * 1 onward are `samples`, which is what the picker's cards print. They are DIFFERENT cells on a
+	 * sparse column by design, so the two surfaces each convert the value they actually show.
+	 *
+	 * ISO rather than formatted text, because the conversion is a PARSE and belongs to the parser,
+	 * while turning an ISO date into "3 avril 2026" is a locale concern and belongs here.
+	 */
+	dateReadings?: readonly {
+		dayFirst: readonly (string | null)[];
+		monthFirst: readonly (string | null)[];
+	}[];
 	/** Data rows, excluding the header row. Displayed, and used in the primary's label. */
 	rowCount: number;
 	/**
@@ -93,6 +125,76 @@ export interface DesignationFile {
 	 * type-checks.
 	 */
 	detectedHeaderRow: boolean;
+}
+
+/**
+ * `DesignationFile` with every key REQUIRED TO BE WRITTEN, and every value type left alone.
+ *
+ * The mapping is deliberately NOT homomorphic. `{ [K in keyof T]: T[K] }` preserves the optional
+ * modifier, so it changes nothing; `{ [K in keyof T]-?: T[K] }` removes the modifier AND strips
+ * `undefined` from the value, so it forbids copying a payload that legitimately carries no preview
+ * rows, and writing `| undefined` back does not survive the same `-?`. Both were tried here and
+ * both are wrong. Mapping over `Extract<keyof T, string>` breaks the homomorphism, which is what
+ * makes the keys required while `T[K]` still carries the `undefined` an optional field implies.
+ *
+ * So `previewRows: undefined` compiles and leaving `previewRows` out does not, which is exactly the
+ * line this type exists to draw.
+ */
+type CompleteDesignationFile = {
+	[K in Extract<keyof DesignationFile, string>]: DesignationFile[K];
+};
+
+/**
+ * The `DesignationFile` the screen draws, built from the transport payload ONE KEY AT A TIME.
+ *
+ * ## Why this is a function and not a spread
+ *
+ * The payload is a `DesignationFile` PLUS what the server worked out about the account, and the
+ * account must not travel inside the view: the view is what the screen draws and is explicitly
+ * untrusted, while the account resolution is carried beside it and re-resolved server side. A
+ * spread would quietly widen the view every time the transport gained a field.
+ *
+ * ## Why it is a function AT ALL, which is the part that cost a defect
+ *
+ * This copy used to be an object literal inside `/import/+page.svelte`, under a comment stating
+ * exactly what would go wrong: a field added to the payload and not added here reaches the screen
+ * as `undefined`. Two fields were then added to the payload and not added here, and the comment
+ * did not stop it. The screen drew nothing and every level stayed green, because the server spec
+ * asserts the offer CARRIES the fields and the component specs assert the row DRAWS them from its
+ * prop, and nothing stood at the crossing.
+ *
+ * As a function it has a caller-independent contract that `designationView.spec.ts` asserts over
+ * `Object.keys` of the payload rather than over a list of field names, so a field added tomorrow
+ * is covered on the day it is added.
+ */
+export function designationView(payload: DesignationFile): DesignationFile {
+	// EVERY KEY PRESENT, and the type is what says so. `-?` strips optionality from the KEY while
+	// leaving `undefined` in the value type, so a field the payload legitimately does not carry is
+	// written out as `undefined` rather than left out. Omission stops being representable, which is
+	// this repository's recorded answer to an invariant that a comment was being asked to hold:
+	// a REQUIRED field makes the compiler enumerate every writer, an optional one does not, and
+	// both fields that were dropped here were optional.
+	//
+	// What it does NOT buy, because describing the second as the first is the failure this tree
+	// records: omission is unrepresentable, a lie (`dateStates: undefined`) is only likely to be
+	// noticed. `designationView.spec.ts` is what narrows that half, by comparing values rather
+	// than keys.
+	//
+	// The type is `CompleteDesignationFile`, whose whole definition is one modifier. Break-checked:
+	// dropping one line from the object below fails the build and names the property.
+	const view: CompleteDesignationFile = {
+		name: payload.name,
+		headers: payload.headers,
+		samples: payload.samples,
+		previewRows: payload.previewRows,
+		coverage: payload.coverage,
+		firstRow: payload.firstRow,
+		dateStates: payload.dateStates,
+		dateReadings: payload.dateReadings,
+		rowCount: payload.rowCount,
+		detectedHeaderRow: payload.detectedHeaderRow
+	};
+	return view;
 }
 
 /**

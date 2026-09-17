@@ -32,6 +32,7 @@
 	import { groupInvalidRows } from '$lib/domain/groupInvalidRows';
 	import {
 		EMPTY_ASSIGNMENT,
+		designationView,
 		type DesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
@@ -515,19 +516,12 @@
 
 		setPendingDesignation({
 			file,
-			view: {
-				name: designation.name,
-				headers: designation.headers,
-				samples: designation.samples,
-				// The preview table's rows. Listed explicitly like every other field: this object is
-				// rebuilt key by key rather than spread, so a field added to the payload and not
-				// added here reaches the screen as `undefined` and the table silently draws nothing.
-				previewRows: designation.previewRows,
-				coverage: designation.coverage,
-				firstRow: designation.firstRow,
-				rowCount: designation.rowCount,
-				detectedHeaderRow: designation.detectedHeaderRow
-			},
+			// The key-by-key copy, MOVED OUT of this file and into a function with its own spec.
+			// The comment that used to stand here warned that a field added to the payload and not
+			// added to the copy reaches the screen as `undefined`. It was accurate and it did not
+			// work: two fields were added to the payload and not to the copy, and nothing red.
+			// A comment is not a control, so the control now lives in `designationView`.
+			view: designationView(designation),
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
 			candidates: {},
 			// What the SERVER worked out about which account this statement belongs to. Null when the
@@ -1183,6 +1177,32 @@
 								})}
 							</p>
 						{/if}
+						<!--
+							WHAT THE IMPORT MEMORISED, said on the surface that reports what the import did.
+
+							MOVED HERE FROM THE DESIGNATION SCREEN, and the move is the whole of the
+							memorisation split. That screen carried this sentence and its opt-out link as one
+							86 px block in state 2, which is the state with the least room, and the Date row's
+							reading line needed 18 of the 25 px of air the body had. The sentence is the half
+							that can move: it is a DISCLOSURE, and a disclosure is not owed before the act.
+							The opt-out LINK stayed behind, because a consent must be in reach before the
+							write and this surface is after it.
+
+							Drawn from `rememberedMapping` and from nothing else. A user who pressed « Ne pas
+							mémoriser » is not told their columns will be reused, which would be a false claim
+							on the one screen whose job is reporting what happened. The automatic path sets
+							the field false as a fact rather than a default: it uses a correspondance and
+							never creates one.
+
+							DRAWN TWICE, like every other line in this panel, because this page renders the
+							summary once per chrome. `cap-reached.svelte.spec.ts` records what that costs:
+							a notice added to one chrome and not the other is invisible to any test that does
+							not choose between them. `remember-disclosure.svelte.spec.ts` asserts both, and
+							uses DOM order as the discriminator for the same reason that one does.
+						-->
+						{#if importResult.rememberedMapping}
+							<p class="mt-1 text-sm text-zinc-500">{m.import_columns_remember_sentence()}</p>
+						{/if}
 						{#if importResult.multiAccountFile && importResult.accountName}
 							<!--
 								THE FILE NAMED SEVERAL ACCOUNTS AND THE ROWS WENT INTO ONE.
@@ -1551,6 +1571,10 @@
 									account: importResult.accountName
 								})}
 							</p>
+						{/if}
+						<!-- The mobile chrome's copy. See the desktop block above for why it is drawn twice. -->
+						{#if importResult.rememberedMapping}
+							<p class="mt-1 text-sm text-zinc-500">{m.import_columns_remember_sentence()}</p>
 						{/if}
 						{#if importResult.multiAccountFile && importResult.accountName}
 							<!--

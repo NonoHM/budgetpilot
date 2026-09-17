@@ -1,4 +1,4 @@
-import { isTransactionNature, isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
+import { isTransactionNature, validateTransaction } from '$lib/domain/transaction';
 import type { TransactionNature } from '$lib/domain/transaction';
 import type {
 	CsvImportResult,
@@ -7,7 +7,7 @@ import type {
 	ImportedTransactionType
 } from '../types';
 import type { CsvRefusal } from '../refusals';
-import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
+import { addRefusal, buildSummary, emptyResult, readDateCell, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildPreviewRowId,
@@ -91,8 +91,8 @@ export function parseMaisonRows({
 
 		const record = toRecord(headers, row);
 
-		const date = normalizeDate(record.date ?? '', dateOrder);
-		if (!isValidIsoDate(date)) {
+		const date = readDateCell(record.date ?? '', dateOrder);
+		if (date === null) {
 			addRefusal(
 				refusals,
 				{ kind: 'row', line },

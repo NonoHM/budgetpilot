@@ -1,4 +1,4 @@
-import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
+import { validateTransaction } from '$lib/domain/transaction';
 import {
 	applyCategorizationRules,
 	type CategorizationRuleInput
@@ -12,7 +12,7 @@ import type {
 } from '../types';
 import type { CsvRefusal } from '../refusals';
 import type { DateOrder } from '../dateOrder';
-import { addRefusal, buildSummary, normalizeDate, toRecord } from '../utils/csv';
+import { addRefusal, buildSummary, readDateCell, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildCsvFields,
@@ -118,7 +118,11 @@ export function parseResolvedRows({
 		// whole widening. `columns.date` is `dateop` for a Boursorama file, `started date` for a
 		// Revolut one, and whatever the user designated for a mapped one.
 		const amountCents = parseAmountCents(record[columns.amount] ?? '');
-		const date = normalizeDate(record[columns.date] ?? '', dateOrder);
+		// Through the SHARED predicate, not a local composition of `normalizeDate` and
+		// `isValidIsoDate`. The designation screen asks the same question about the same column,
+		// and two compositions would let it state a reading this loop then refuses. See
+		// `readDateCell`.
+		const date = readDateCell(record[columns.date] ?? '', dateOrder);
 		const label = sanitizeImportedText(record[columns.label] ?? '');
 		const category = sanitizeImportedText(
 			(columns.category ? record[columns.category] : '') || UNCLASSIFIED_CATEGORY
@@ -143,7 +147,7 @@ export function parseResolvedRows({
 			}
 		}
 
-		if (!isValidIsoDate(date)) {
+		if (date === null) {
 			// The RESOLVED column, like every other read in this loop. A Boursorama file names
 			// `dateop` and a mapped one names whatever the user designated, so a hardcoded `date`
 			// would point at a column their file does not contain.

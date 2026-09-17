@@ -16,6 +16,8 @@
 	import FilePreviewTable from './FilePreviewTable.svelte';
 	import ConditionBanner from '$lib/components/ui/ConditionBanner.svelte';
 	import RoleRow from '$lib/components/ui/RoleRow.svelte';
+	import { formatReadingDate } from '$lib/domain/dateFormat';
+	import { getLocale } from '$lib/paraglide/runtime';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
 	// The recap's one action. Brique 4's affordance clause is why it is not a TapLink there; see the
@@ -416,6 +418,13 @@
 		const moved = designate(assignment, role, columnIndex);
 		assignment = moved.assignment;
 		vacated = moved.vacated ? { [moved.vacated]: role } : {};
+
+		// THE CLOSE IS DEFERRED BY EXACTLY ONE QUESTION, and only here. Plate 7b: choosing an
+		// ambiguous date column APPLIES immediately, which is §5.3 unchanged, and then the same
+		// surface asks how the column reads instead of closing. Every other choose still closes.
+		//
+		// Gated on the column the user just picked rather than on `dateColumn`, because `assignment`
+		// was reassigned one line ago and reading the derived value here would race the recompute.
 		openRole = null;
 
 		const next = bannerFor({
@@ -456,6 +465,126 @@
 	 * empty. Falling through to `empty` in either case makes the row look self-emptied, and the user
 	 * is never told a designation moved.
 	 */
+	/**
+	 * THE READING THE USER CHOSE, when the file left the question open.
+	 *
+	 * Null means nobody has answered, which is NOT the same as day-first: the row says so with
+	 * "Confirmer" and the sheet's second step is reachable. Reset whenever the designated column
+	 * changes, because a reading is an answer about ONE column and carrying it to the next one
+	 * would silently apply an answer given about different data.
+	 */
+	let chosenReading = $state<'day-first' | 'month-first' | null>(null);
+	let readingAnsweredFor = $state<number | null>(null);
+
+	/** The order VALUE to the payload's key. One translation, used by both readers below. */
+	function readingKey(order: 'day-first' | 'month-first'): 'dayFirst' | 'monthFirst' {
+		return order === 'month-first' ? 'monthFirst' : 'dayFirst';
+	}
+
+	const dateColumn = $derived(assignment.date);
+	const dateState = $derived(dateColumn === null ? null : (file.dateStates?.[dateColumn] ?? null));
+
+	/**
+	 * The order this screen is currently reading the date column under.
+	 *
+	 * `proven-*` is the file's own proof and an answer cannot outrank it, which is the same
+	 * precedence `decideDateOrder` applies on the server: evidence first, the option only where the
+	 * file leaves the question genuinely open. Stating it twice would be two answers, so this
+	 * mirrors that order deliberately and the server remains the one that decides the IMPORT.
+	 */
+	const appliedReading = $derived.by((): 'day-first' | 'month-first' => {
+		if (dateState === 'proven-month') return 'month-first';
+		if (dateState === 'proven-day') return 'day-first';
+		if (dateState === 'ambiguous' && readingAnsweredFor === dateColumn && chosenReading)
+			return chosenReading;
+		return 'day-first';
+	});
+
+	/**
+	 * Line 3 of the Date row, or `null` to reserve its 18 px with nothing in it.
+	 *
+	 * `undefined` is never returned: the Date row ALWAYS interprets, so it is always 86 px, in every
+	 * state including empty. That is what keeps the card's height fixed and the skeleton exact.
+	 */
+	const dateInterpretation = $derived.by(() => {
+		if (recap || dateColumn === null || dateState === null) return null;
+		if (dateState === 'inconsistent') return 'inconsistent' as const;
+		if (dateState === 'no-dates') return 'no-dates' as const;
+		if (dateState === 'empty') return 'empty' as const;
+
+		// READ FROM `firstRow` DIRECTLY, and not through `sampleOf`, because the two halves of this
+		// line must describe THE SAME CELL.
+		//
+		// `sampleOf` falls back to `samples[index][0]` when `firstRow` is absent, and `firstRow` is
+		// optional on `DesignationFile`. The ISO below is always index 0 of `dateReadings`, which is
+		// the FIRST DATA ROW's cell by that field's own contract. So on a payload carrying readings
+		// and no first row, the old expression printed one cell's raw value beside another cell's
+		// conversion: a line that reads perfectly and states a conversion the import never made.
+		// Both production payloads set `firstRow`, so this was correct by coupling rather than by
+		// construction, and nothing asserted the coupling.
+		//
+		// Reading the same source makes the pair true by construction, and a missing `firstRow` now
+		// reserves the line instead of pairing two different cells.
+		const raw = file.firstRow?.[dateColumn] ?? '';
+		// The payload keys the two readings as `dayFirst`/`monthFirst`; the order VALUE is
+		// `day-first`/`month-first`. One translation, here, rather than a second spelling of the
+		// order anywhere else.
+		const iso = file.dateReadings?.[dateColumn]?.[readingKey(appliedReading)]?.[0] ?? null;
+		// A cell that is not a date under the order in force has no conversion to show. The row falls
+		// back to reserving the line rather than printing the raw value twice.
+		if (!raw || !iso) return null;
+		return { raw, pretty: formatReadingDate(iso, getLocale()), order: appliedReading };
+	});
+
+	/**
+	 * Confirmed is the ABSENCE of an open question, not the presence of an answer.
+	 *
+	 * A proven column was never asked about, so its line carries no imperative. An ambiguous one
+	 * carries "Confirmer" until a human has looked, which is 7a's rule that an assumption is never
+	 * allowed to stand unread.
+	 */
+	const dateAnswered = $derived(readingAnsweredFor === dateColumn && chosenReading !== null);
+
+	const dateInterpretationConfirmed = $derived(dateState !== 'ambiguous' || dateAnswered);
+
+	/**
+	 * What the second step's two cards show, in the shape `ColumnPicker` declares.
+	 *
+	 * ## Parallel to `file.samples[dateColumn]`, POSITION FOR POSITION, and that is the contract
+	 *
+	 * The picker prints the raw cell from `samples` and the converted date from here, side by side
+	 * on one line, so a value dropped from one array and not the other would pair a raw cell with
+	 * its NEIGHBOUR's conversion: a card that reads correctly and states a conversion the import
+	 * never made. Nothing is therefore filtered out. A cell that is not a date under one order maps
+	 * to the empty string, and the card is responsible for drawing a blank rather than this being
+	 * responsible for hiding it.
+	 *
+	 * Index 0 of `dateReadings` is the FIRST DATA ROW, which is what the Date row's line 3 prints
+	 * and not what the cards print, so it is sliced off here. That the two surfaces show different
+	 * cells is deliberate and is recorded on `DesignationFile.dateReadings`: the row shows one
+	 * transaction read vertically, the cards show values chosen to discriminate.
+	 *
+	 * `null` when there is no designated column or no readings for it, which makes `ColumnPicker`
+	 * fall back to step 1 rather than render an empty question.
+	 */
+	const dateReadingPairs = $derived.by(() => {
+		if (dateColumn === null) return null;
+		const readings = file.dateReadings?.[dateColumn];
+		if (!readings) return null;
+		const prettyFor = (order: 'day-first' | 'month-first') =>
+			readings[readingKey(order)]
+				.slice(1)
+				.map((iso: string | null) => (iso ? formatReadingDate(iso, getLocale()) : ''));
+		return {
+			dayFirstPretty: prettyFor('day-first'),
+			monthFirstPretty: prettyFor('month-first'),
+			// What the sheet opens WITH: the order already in force, whether that is a locale
+			// assumption nobody has confirmed or an answer given earlier this session. 7j: the card
+			// showing it is marked retained, and re-choosing it is still a value change.
+			retained: appliedReading
+		};
+	});
+
 	function stateOf(
 		role: MappingRole
 	): 'empty' | 'ambiguous' | 'designated' | 'vacated' | 'missingColumn' | 'recap' {
@@ -872,6 +1001,12 @@
 						candidateCount={candidateCounts[role]}
 						vacatedBy={vacated[role]}
 						lostHeader={lostHeaders[role]}
+						{...role === 'date'
+							? {
+									interpretation: dateInterpretation,
+									interpretationConfirmed: dateInterpretationConfirmed
+								}
+							: {}}
 						onOpen={() => (openRole = role)}
 					/>
 					{#if wide && openRole === role}
@@ -882,6 +1017,7 @@
 							file={effectiveFile}
 							{assignment}
 							candidates={candidates[role] ?? []}
+							dateReading={role === 'date' ? (dateReadingPairs ?? undefined) : undefined}
 							onChoose={choose}
 							onClose={closeWithoutChoosing}
 							onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}
@@ -950,20 +1086,35 @@
 		</div>
 	{:else if pageState === 'complete' || pageState === 'submitting'}
 		<!--
-			86 px: two lines of sentence at 17, then a 48 px TapLink. With its 14 px gap that is
-			the 100 px state 2 adds, taking the body to 611 of 636 and still not scrolling.
+			48 px: a TapLink and nothing else. With its 14 px gap that is the 62 px state 2 adds,
+			taking the body to 611 of 636.
 
-			Memorisation is ON by default and stated in ONE sentence with an opt-out link. There
-			is deliberately NO toggle: the referential has none, and a switch would present a
-			default as a decision the user has to take before they can leave.
+			## THE SENTENCE MOVED, AND ONLY THE SENTENCE
+
+			This block used to be 86: two lines of sentence at 17, a 4 px gap, then the 48 px
+			TapLink. The Date row's reading line costs 18 px in every state, and state 2 had 5 px of
+			air, not the 25 the plate assumed, because this branch had already deleted the « Format
+			du fichier » row the plate was sized against. So state 2 was 649 of a body capped at 636
+			and the screen scrolled, which the plate forbids.
+
+			34 + 4 = 38 px was recovered by moving the SENTENCE to the import summary, where it is
+			drawn from `ImportSummaryResult.rememberedMapping`. Nothing was shrunk to fit: the
+			sentence is a DISCLOSURE and belongs on the surface that reports what the import did.
+
+			THE LINK DID NOT MOVE, and that is the part that is not arithmetic. Storing the mapping
+			with no opt-out in reach BEFORE the write is a consent taken rather than given, so the
+			control stays on the screen where the choice can still be made. Moving the whole block
+			was rejected for that reason and the rejection is the reason this split exists.
+
+			Memorisation is ON by default. There is deliberately NO toggle: the referential has none,
+			and a switch would present a default as a decision the user has to take before they can
+			leave. The link's two labels carry the state, which is what lets the sentence go.
+
+			HEIGHT IS INVARIANT ACROSS THE TWO STATES, which is what the plate's promise needs: both
+			labels sit in the same 48 px row, so opting out does not move anything below it.
 		-->
 		<div class="shrink-0" data-testid="designation-remember">
-			<p class="h-[34px] text-[12.5px] leading-[17px] text-zinc-500">
-				{remember
-					? m.import_columns_remember_sentence()
-					: m.import_columns_remember_opt_in_explanation()}
-			</p>
-			<div class="mt-1 flex h-12 items-center">
+			<div class="flex h-12 items-center">
 				<TapLink onclick={() => (remember = !remember)}>
 					{remember ? m.import_columns_remember_opt_out() : m.import_columns_remember_opt_in()}
 				</TapLink>
@@ -1330,6 +1481,7 @@
 		file={effectiveFile}
 		{assignment}
 		candidates={candidates[openRole as MappingRole] ?? []}
+		dateReading={openRole === 'date' ? (dateReadingPairs ?? undefined) : undefined}
 		onChoose={choose}
 		onClose={closeWithoutChoosing}
 		onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}

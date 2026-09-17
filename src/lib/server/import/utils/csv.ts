@@ -134,6 +134,47 @@ export function normalizeDate(value: string, dateOrder: DateOrder = DEFAULT_DATE
 }
 
 /**
+ * THE ONE DEFINITION OF « IS THIS CELL A DATE »: the ISO value, or `null`.
+ *
+ * ## Why this exists rather than each caller composing the pair itself
+ *
+ * The row loop and the designation screen both have to answer this question about the same
+ * column, and they must answer it identically. If they compose it separately they will drift, and
+ * the failure is not a crash: the screen states that a column holds dates and the import then
+ * refuses every row of it, or the reverse. A screen that describes an import the import will not
+ * perform is the standing bar, not a tidiness question, so the pairing is centralised and
+ * `columnDateState.spec.ts` asserts structurally that no other production module composes it.
+ *
+ * ## THE SHORTCUT THIS REPLACES, NAMED SO IT IS NOT REDISCOVERED
+ *
+ * `normalizeDate` is a PASS-THROUGH for anything it does not recognise, so
+ * `normalizeDate(cell) !== ''` is true of every non-empty cell in the file and would report a
+ * column of `CARD_PAYMENT` as a column of dates. Measured 2026-09-16: `CARD_PAYMENT` returns
+ * `CARD_PAYMENT`, and `31/13/2026` returns the ISO-SHAPED `2026-13-31`, which names month 13.
+ * The result of `normalizeDate` is a REORDERING and is not known to be a date; only this pairing
+ * decides that. See #632.
+ *
+ * Pure: no clock, no locale, no ambient state, so a state derived from it can be recomputed from
+ * the same cells. See `AGENTS.md` under « Code style ».
+ */
+export function readDateCell(value: string, dateOrder?: DateOrder): string | null {
+	const normalized = normalizeDate(value, dateOrder);
+	return isValidIsoDate(normalized) ? normalized : null;
+}
+
+/**
+ * Whether this cell is a date under EITHER reading, which is the reading-independent question.
+ *
+ * Plate 7m's two states, `no-dates` and `empty`, are stated on the designation row BEFORE the
+ * order question is answered, so they may not depend on its answer. A cell that parses one way
+ * and not the other is still a date cell whose order is in dispute, and calling it « not a date »
+ * would prejudge exactly the question the screen is about to ask.
+ */
+export function isDateCellUnderEitherReading(value: string): boolean {
+	return readDateCell(value, 'day-first') !== null || readDateCell(value, 'month-first') !== null;
+}
+
+/**
  * Returns the first candidate that normalises to a valid ISO date, falling back to the first
  * PRESENT value's best effort so the caller still has something to refuse on.
  *

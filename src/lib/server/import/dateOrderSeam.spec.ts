@@ -316,3 +316,56 @@ describe('every registered profile declares its date columns', () => {
 		}
 	);
 });
+
+/**
+ * # THE APPLIED ORDER LEAVES THE PARSER, so the batch can record what it did
+ *
+ * `ImportBatch.dateOrder` has existed on all three engines since 2026-08-22 and nothing has ever
+ * written it: every row on every install carries NULL, while the column's own docstring describes
+ * a behaviour that does not happen. The reason it could not be written is here rather than in the
+ * route: the decision is taken at the door and was not carried out of it, so no caller had the
+ * value to store.
+ *
+ * Plate 7l's summary line is what makes this load bearing rather than tidy. « Dates lues jour puis
+ * mois, Date operation » is a statement about what THIS import did, and a line with no stored
+ * source would be recomputed at read time from a file nobody kept.
+ */
+describe('the order the parse applied, carried out of the door', () => {
+	/**
+	 * Separates « the summary reports the order the parse APPLIED » from « the summary reports the
+	 * default ». A file proving month-first is the only case where the two differ without an
+	 * explicit answer, which is why the proof is the fixture.
+	 */
+	it('reports the order a file proved, not the default', () => {
+		expect.assertions(2);
+
+		const dayFirst = parseCsvTransactions(
+			['date,label,amount', '24/06/2026,CARREFOUR,-24.90'].join('\n')
+		);
+		const monthFirst = parseCsvTransactions(
+			['date,label,amount', '06/24/2026,CARREFOUR,-24.90'].join('\n')
+		);
+
+		expect(dayFirst.summary.dateOrder).toBe('day-first');
+		expect(monthFirst.summary.dateOrder).toBe('month-first');
+	});
+
+	/**
+	 * Separates « the user's answer reached the stored fact » from « the answer changed the dates
+	 * and was then forgotten ». An ambiguous file is the only one an answer can settle, so a
+	 * summary that reported the default here would record a decision the import did not take.
+	 */
+	it('reports an explicit answer on the file that answer settles', () => {
+		expect.assertions(2);
+
+		const answered = parseCsvTransactions(
+			['date,label,amount', '03/04/2026,CARREFOUR,-24.90'].join('\n'),
+			{ dateOrder: 'month-first' }
+		);
+
+		expect(answered.summary.dateOrder).toBe('month-first');
+		// The planted positive: the answer really did move the date, so the field is not merely
+		// echoing the option back.
+		expect(answered.transactions[0]?.date).toBe('2026-03-04');
+	});
+});

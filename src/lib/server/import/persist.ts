@@ -6,6 +6,7 @@ import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { resolveCategoryByName } from '$lib/server/categories/resolve';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { institutionForSource } from '$lib/server/import/accountBackfill';
+import type { DateOrder } from './dateOrder';
 import { GENERIC_BUCKET_STORED_NAME, MAX_ACCOUNT_NAME_LENGTH } from '$lib/domain/account';
 import { computeDedupeKeyHash, dedupeKeyUpdate } from '$lib/server/import/dedupeKey';
 import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
@@ -546,6 +547,21 @@ export interface CreateImportBatchInput {
 	 * which is the five auto-detected profiles and every batch imported before the mapping path.
 	 */
 	columnMappingId?: string | null;
+	/**
+	 * Which reading this import APPLIED to ambiguous date cells, or null when it took none.
+	 *
+	 * NULL IS A REAL STATE AND NOT AN ABSENCE OF CARE, and it now covers two populations rather
+	 * than one, which is why this sentence exists. A batch written before the column had a writer
+	 * used an order nobody recorded, so nothing may offer to reinterpret it. A batch from a bank
+	 * CONNECTION parsed no CSV and took no such decision at all, so there is nothing to record.
+	 * Both are honestly null, and the invariant that matters holds for both: a null batch is never
+	 * offered a reinterpretation.
+	 *
+	 * Optional here rather than required, and the asymmetry is deliberate in the opposite direction
+	 * from `accountId` above. The application does NOT always know an order: the provider sync path
+	 * genuinely has none, so forcing a value would make that caller invent one.
+	 */
+	dateOrder?: DateOrder | null;
 }
 
 /** Creates the ImportBatch row a persistence run reports into; returns its id. */
@@ -561,7 +577,8 @@ export async function createImportBatch(input: CreateImportBatchInput): Promise<
 			invalidRows: input.invalidRows,
 			columnMappingId: input.columnMappingId ?? null,
 			periodStart: input.period.from ? new Date(`${input.period.from}T00:00:00.000Z`) : null,
-			periodEnd: input.period.to ? new Date(`${input.period.to}T00:00:00.000Z`) : null
+			periodEnd: input.period.to ? new Date(`${input.period.to}T00:00:00.000Z`) : null,
+			dateOrder: input.dateOrder ?? null
 		}
 	});
 	return batch.id;

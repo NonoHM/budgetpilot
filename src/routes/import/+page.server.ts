@@ -10,6 +10,10 @@ import {
 	importSampleValues,
 	parseCsvTransactionRows
 } from '$lib/server/import/csv';
+import {
+	importColumnDateReadings,
+	importColumnDateStates
+} from '$lib/server/import/columnDateState';
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
@@ -43,6 +47,7 @@ import type { ParsedCsvRow } from '$lib/server/import/types';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import type { PageServerLoad } from './$types';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
+import type { ImportSummaryResult } from '$lib/domain/importSummary';
 
 /**
  * Sources an import CSV row can land on, based on the auto-detected profile (see
@@ -131,6 +136,23 @@ export const load: PageServerLoad = async ({ locals, url }) => {
  * module reaching for an ambient locale on the server. `namedAt` on this same payload already
  * follows the convention.
  */
+/**
+ * The cells whose two readings the screen needs, per column: the ROW's value first, then the CARD's.
+ *
+ * Index 0 is the first data row's cell, which is the value the Date row's line 2 prints and line 3
+ * converts. Indices 1..n are `importSampleValues`'s own choices, which are what the picker's cards
+ * print. They are DIFFERENT cells on a sparse column by design (`importSampleValues` picks the
+ * first NON-EMPTY value per column, precisely so a sparse column does not render three blanks), so
+ * converting the samples and printing them beside the row's value would show a conversion of a cell
+ * the row never displayed.
+ *
+ * Built here rather than in the component so the raw value and its reading come from one array and
+ * cannot drift apart.
+ */
+function dateCellsPerColumn(firstRow: string[], samples: string[][]): string[][] {
+	return samples.map((values, column) => [firstRow[column] ?? '', ...values]);
+}
+
 async function accountOfferPayload(userId: string, rows: ParsedCsvRow[], source?: string) {
 	return accountOfferFrom(await buildAccountOffer({ userId, rows, source }));
 }
@@ -256,15 +278,27 @@ export const actions: Actions = {
 			return fail(400, { error: m.import_columns_correct_wrong_file() });
 		}
 		if (correcting) {
+			// Computed ONCE and shared with `dateReadings` below: the two must describe the same
+			// cells, or a card would print one value and convert another.
+			const correctingSamples = importSampleValues(importData.rows);
+			const correctingFirstRow = importFirstDataRow(importData.rows);
 			return fail(400, {
 				designation: {
 					account: await accountOfferPayload(user.id, importData.rows),
 					name: importFile.name,
 					headers: headerCells,
-					samples: importSampleValues(importData.rows),
+					samples: correctingSamples,
+					// 7k: the whole-column verdict ships WITH the offer, one per column, so the screen never
+					// holds a state the submit could contradict and never computes one itself.
+					dateStates: importColumnDateStates(importData.rows),
+					// Both readings of the SAME cells the cards show, so the pair on a card can never
+					// disagree with the value printed beside it.
+					dateReadings: importColumnDateReadings(
+						dateCellsPerColumn(correctingFirstRow, correctingSamples)
+					),
 					previewRows: importPreviewRows(importData.rows),
 					coverage: importSampleCoverage(importData.rows),
-					firstRow: importFirstDataRow(importData.rows),
+					firstRow: correctingFirstRow,
 					rowCount: Math.max(0, importData.rows.length - 1),
 					detectedHeaderRow: true
 				},
@@ -333,6 +367,9 @@ export const actions: Actions = {
 			const splitPair = refusedForBounds(result)
 				? null
 				: detectSplitAmountPair(headerCells, importData.rows);
+			// As in the correction branch: one array, shared by `samples` and `dateReadings`.
+			const offerSamples = importSampleValues(importData.rows);
+			const offerFirstRow = importFirstDataRow(importData.rows);
 			const splitRefusal: ImportInvalidRowDetail[] = splitPair
 				? [
 						{
@@ -371,10 +408,18 @@ export const actions: Actions = {
 								),
 								name: importFile.name,
 								headers: headerCells,
-								samples: importSampleValues(importData.rows),
+								samples: offerSamples,
+								// 7k: the whole-column verdict ships WITH the offer, one per column, so the screen
+								// never holds a state the submit could contradict and never computes one itself.
+								dateStates: importColumnDateStates(importData.rows),
+								// Both readings of the SAME cells the cards show, so the pair on a card can never
+								// disagree with the value printed beside it.
+								dateReadings: importColumnDateReadings(
+									dateCellsPerColumn(offerFirstRow, offerSamples)
+								),
 								previewRows: importPreviewRows(importData.rows),
 								coverage: importSampleCoverage(importData.rows),
-								firstRow: importFirstDataRow(importData.rows),
+								firstRow: offerFirstRow,
 								rowCount: Math.max(0, result.summary.totalRows),
 								detectedHeaderRow: true
 							}
@@ -551,7 +596,11 @@ export const actions: Actions = {
 			period: result.summary.period,
 			// Only when the mapping actually read this file. `useMapping` is the same condition the
 			// parser was given, so the link cannot claim a correspondance a different profile parsed.
-			columnMappingId: useMapping ? (remembered?.id ?? null) : null
+			columnMappingId: useMapping ? (remembered?.id ?? null) : null,
+			// What this import APPLIED, so a later reinterpretation has a fact rather than a guess.
+			// Taken from the summary the parser returned, never recomputed here: a second derivation
+			// would be a second answer, and the batch would record one the import did not use.
+			dateOrder: result.summary.dateOrder ?? null
 		});
 
 		const persisted = await persistImportedTransactions({
@@ -599,8 +648,13 @@ export const actions: Actions = {
 				 * account offer because the offer is built only on the ambiguous branch, and a
 				 * single-account install must get the same sentence.
 				 */
-				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account'
-			}
+				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account',
+				// FALSE ON THIS PATH, AND THAT IS A FACT RATHER THAN A DEFAULT. This route USES a
+				// remembered correspondance and never creates one: `saveColumnMapping` has exactly
+				// one production call site and it is the designation route's action. Nobody
+				// designated anything here, so there is nothing new to disclose.
+				rememberedMapping: false
+			} satisfies ImportSummaryResult
 		};
 	}
 };

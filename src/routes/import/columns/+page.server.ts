@@ -31,6 +31,7 @@ import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/co
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
 import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
+import type { ImportSummaryResult } from '$lib/domain/importSummary';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
 
 /**
@@ -334,7 +335,9 @@ export const actions: Actions = {
 			rowCount: result.summary.totalRows,
 			invalidRows: result.summary.invalidRows,
 			period: result.summary.period,
-			columnMappingId
+			columnMappingId,
+			// As on the upload path: the order the parse applied, read off its own summary.
+			dateOrder: result.summary.dateOrder ?? null
 		});
 		const persisted = await persistImportedTransactions({
 			userId: user.id,
@@ -451,14 +454,23 @@ export const actions: Actions = {
 				// resolution, which returns an id: the id is what the resolver knows, and the name is
 				// a rendering question the resolver has no business answering.
 				accountName: await readAccountDisplayName(user.id, bucket.accountId),
-				// The same notice `/import` draws, on the path that reaches the same state. This
-				// object is built key by key and is not typed against `ImportSummaryResult`, so
-				// `check` could not name this producer when the field was added: it was found by a
-				// review reading both call sites rather than by a compiler. The consequence had it
-				// stayed missing is that one multi-account file announces itself and the same file
-				// imported through the designation screen does not.
-				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account'
-			},
+				// The same notice `/import` draws, on the path that reaches the same state.
+				//
+				// THE COMMENT THAT STOOD HERE IS NOW OUT OF DATE IN THE GOOD DIRECTION, and it is
+				// replaced rather than deleted because the reason it existed is the thing worth
+				// keeping. It read: this object is built key by key and is not typed against
+				// `ImportSummaryResult`, so `check` could not name this producer when the field was
+				// added, and it was found by a review reading both call sites rather than by a
+				// compiler. That was true and it was demonstrated again: adding `rememberedMapping`
+				// to the interface named the two SPEC fixtures, which are typed, and neither
+				// production producer, which were not. The `satisfies` below is what ends it.
+				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account',
+				// Non-null exactly when this run stored a correspondance: a headerless file is never
+				// memorised, and an opt-out skips the block entirely. The disclosure sentence on the
+				// summary is drawn from this and from nothing else, so a user who opted out is not
+				// told their columns will be reused.
+				rememberedMapping: columnMappingId !== null
+			} satisfies ImportSummaryResult,
 			capReached,
 			replaced
 		};
