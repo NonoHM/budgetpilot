@@ -32,6 +32,7 @@
 	import { groupInvalidRows } from '$lib/domain/groupInvalidRows';
 	import {
 		EMPTY_ASSIGNMENT,
+		designationView,
 		type DesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
@@ -515,19 +516,12 @@
 
 		setPendingDesignation({
 			file,
-			view: {
-				name: designation.name,
-				headers: designation.headers,
-				samples: designation.samples,
-				// The preview table's rows. Listed explicitly like every other field: this object is
-				// rebuilt key by key rather than spread, so a field added to the payload and not
-				// added here reaches the screen as `undefined` and the table silently draws nothing.
-				previewRows: designation.previewRows,
-				coverage: designation.coverage,
-				firstRow: designation.firstRow,
-				rowCount: designation.rowCount,
-				detectedHeaderRow: designation.detectedHeaderRow
-			},
+			// The key-by-key copy, MOVED OUT of this file and into a function with its own spec.
+			// The comment that used to stand here warned that a field added to the payload and not
+			// added to the copy reaches the screen as `undefined`. It was accurate and it did not
+			// work: two fields were added to the payload and not to the copy, and nothing red.
+			// A comment is not a control, so the control now lives in `designationView`.
+			view: designationView(designation),
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
 			candidates: {},
 			// What the SERVER worked out about which account this statement belongs to. Null when the
