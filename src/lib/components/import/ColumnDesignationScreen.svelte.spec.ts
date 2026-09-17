@@ -153,64 +153,83 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 		return last.getBoundingClientRect().bottom - body.getBoundingClientRect().top + paddingBottom;
 	};
 
-	it('is 531 in state 0, leaving 105 px of air', () => {
-		// 16 padding + 40 file block + 14 gap + 68 account row + 14 gap + 355 card + 24 padding.
+	it('is 549 in state 0, leaving 87 px of air', () => {
+		// 16 padding + 40 file block + 14 gap + 68 account row + 14 gap + 373 card + 24 padding.
 		//
-		// WAS 449. THE ACCOUNT ROW ADDS 82, AND THE PLATE PREDICTED 81 (6b: « Coût mesuré : +81 px »).
-		// The one-pixel difference is the row's own 68 against the 14 px body gap, and it is recorded
-		// rather than rounded away.
+		// Separates « the body has room the design can still spend » from « it is already full ».
+		// A bound would answer neither, which is why this is restated as an exact figure every time
+		// it moves rather than relaxed to a range: a range stops the test noticing the next thing
+		// that grows, and three separate things have grown here.
 		//
-		// THE PLATE'S SECOND HALF DOES NOT HOLD HERE, AND THAT IS THE FINDING. 6b continues « le corps
-		// défile de 50 », so the plate expected this screen to begin scrolling. It does not: state 2
-		// below measures 631 of 636. The plate was sized against a screen that still carried the
-		// « Format du fichier » row, and this branch had already deleted it for 62 px. The prediction
-		// was right about the cost and wrong about the consequence, because the ground moved under it.
+		// WAS 531, AND THE 18 IS EXACTLY ONE ROW'S READING LINE. The account row did NOT move and
+		// the card did, by 18 and not by 72, because only the DATE row carries an interpretation
+		// slot: the other three roles have nothing to interpret and stay at 68. That is the check
+		// worth reading off this figure, and the row assertion below states it directly.
 		//
-		// WAS 511 with 125 px of air, and the 62 px difference is the « Format du fichier » row plus
-		// its gap: a grey heading with nothing under it, in every state and at both widths, deleted
-		// because a visible empty affordance is a promise. The figure is restated rather than relaxed
-		// to a range — a bound would stop this test noticing the next thing that grows.
+		// The slot's height is PRESENCE driven and never VALUE driven, so the Date row is 86 whether
+		// its line 3 states a proof, asks for a confirmation, or says the column holds no dates.
+		// Nothing on this screen moves when a reading is answered.
+		//
+		// WAS 449 BEFORE THAT. The account row added 82 where plate 6b predicted 81; the one-pixel
+		// difference is the row's own 68 against the 14 px body gap, recorded rather than rounded
+		// away. And 511 before THAT, the 62 px difference being the « Format du fichier » row plus
+		// its gap, deleted because a visible empty affordance is a promise.
 		const { body } = mount();
 
-		expect(contentHeight(body)).toBe(531);
-		expect(636 - contentHeight(body)).toBe(105);
+		expect(contentHeight(body)).toBe(549);
+		expect(636 - contentHeight(body)).toBe(87);
 	});
 
-	it('is still 531 in state 1, because designating a row does not move anything', () => {
-		// The promise is that nothing shifts as answers arrive. State 2 is excluded on purpose and
-		// gets its own figure below: it is the one state that legitimately adds content.
+	it('is still 549 in state 1, because designating a row does not move anything', () => {
+		// The promise is that nothing shifts as answers arrive. Separates « the layout is stable
+		// under answers » from « each answer nudges everything below it », which is the whole reason
+		// the row height is decided by presence rather than by content.
+		//
+		// State 2 is excluded on purpose and gets its own figure below: it is the one state that
+		// legitimately adds content.
 		const { body } = mount({ initialAssignment: PARTIAL });
 
-		expect(contentHeight(body)).toBe(531);
+		expect(contentHeight(body)).toBe(549);
 	});
 
-	it('is 631 in state 2, which is the 100 px the memorisation block adds', () => {
-		// 86 for the sentence and its opt-out link, plus the 14 px gap. The plate carries this figure
-		// separately from the 449 precisely because it is the one state that grows, and the point of
-		// stating it is that it stays under 636: the screen does not begin to scroll.
+	it('is 611 in state 2, which is the 62 px the memorisation link adds', () => {
+		// 48 for the opt-out TapLink, plus the 14 px gap. Separates « state 2 fits » from « state 2
+		// scrolls », which is the one geometric promise the plate makes about this screen, and the
+		// second assertion is what turns the figure into that claim rather than a number beside it.
 		//
-		// THE STATE THE DESIGN BRIEF NEEDS THIS NUMBER FOR. It used to be 611 of 636, so state 2 carried
-		// 25 px of air and a 44 px checkbox row could not be added without the screen beginning to
-		// scroll. At 549 it carries 87, which is where the correction control's placement question
-		// stops being blocked by geometry.
+		// THIS IS THE STATE THE WHOLE MEMORISATION SPLIT WAS FOR, and the arithmetic is worth having
+		// here because it is the only place it can be checked. The Date row's line 3 costs 18 px in
+		// every state. Before the split this state measured 549 + 14 + 86 = 649 against a body capped
+		// at 636, so the screen scrolled: 13 px over, not the 7 px spare the plate predicted, because
+		// the plate was sized against a base that still carried the « Format du fichier » row.
 		//
-		// 631 of 636 after the account row. Five pixels of air, and the assertion below is what makes
-		// that a fact rather than a hope: the screen still does not begin to scroll, which is exactly
-		// what the plate expected it to lose.
+		// The block was 34 (sentence) + 4 (gap) + 48 (link) = 86. Moving the SENTENCE to the import
+		// summary and leaving the LINK here takes it to 48, so 549 + 14 + 48 = 611 with 25 px of air.
+		// 611 is the plate's own original state-2 figure, reached by moving a disclosure rather than
+		// by shrinking anything to fit.
+		//
+		// The LINK did not move and that half is not arithmetic: storing the mapping with no opt-out
+		// in reach before the write is a consent taken rather than given.
 		const { body } = mount({ initialAssignment: COMPLETE });
 
-		expect(contentHeight(body)).toBe(631);
+		expect(contentHeight(body)).toBe(611);
+		expect(636 - contentHeight(body)).toBe(25);
 		expect(body.scrollHeight).toBe(body.clientHeight);
 	});
 
-	it('ends the card at 507 of 636', () => {
-		// 16 + 40 + 14 + 68 + 14 + 355. The second figure the plate calls the promise, and it is about
-		// a POSITION rather than a size, so no height assertion can stand in for it. Moved by the same
-		// 82 as the height above, which is what says the account row was inserted ABOVE the card
-		// rather than inside it.
+	it('ends the card at 525 of 636', () => {
+		// 16 + 40 + 14 + 68 + 14 + 373. The second figure the plate calls the promise, and it is about
+		// a POSITION rather than a size, so no height assertion can stand in for it. Separates « the
+		// card ends where the plate puts it » from « the card is the right height somewhere else »,
+		// which every height assertion above is blind to.
+		//
+		// WAS 507, AND IT MOVED BY EXACTLY THE CARD'S OWN 18. That is what says the growth happened
+		// INSIDE the card rather than above it: had the account row or the file block grown too,
+		// this figure would have moved further than the card's height did, and no height assertion
+		// anywhere can tell those two apart.
 		const { body, card } = mount();
 
-		expect(card.getBoundingClientRect().bottom - body.getBoundingClientRect().top).toBe(507);
+		expect(card.getBoundingClientRect().bottom - body.getBoundingClientRect().top).toBe(525);
 	});
 
 	it('does not scroll, in any state', () => {
@@ -236,27 +255,49 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 });
 
 describe('the card and its rows', () => {
-	it('is 355 px, whatever the four rows are showing', () => {
-		// 14 padding + 16 label + 10 gap + (68 + 1 + 68 + 1 + 68) + 12 + 1 + 12 + 68 + 14 padding
+	it('is 373 px, whatever the four rows are showing', () => {
+		// 14 padding + 16 label + 10 gap + (86 + 1 + 68 + 1 + 68) + 12 + 1 + 12 + 68 + 14 padding
 		// + 2 border. The stronger separator before the optional row is 25 of those, and it is what
 		// marks Categorie as a different kind of thing without an asterisk anywhere.
+		//
+		// WAS 355, AND THE 18 IS ONE ROW RATHER THAN FOUR. Only the Date row interprets, so only it
+		// is 86; the three others are unchanged at 68. Separates « the interpreting row grew » from
+		// « every row grew », which differ by 54 px and would both have satisfied a test asserting
+		// only that the card is taller than it was.
+		//
+		// The loop over three states is what makes this a constant rather than a reading of one
+		// state: the card must not move as roles are answered.
 		for (const initialAssignment of [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE]) {
 			const { card, container } = mount({ initialAssignment });
-			expect(card.getBoundingClientRect().height).toBe(355);
+			expect(card.getBoundingClientRect().height).toBe(373);
 			container.remove();
 		}
 	});
 
-	it('draws four rows at 68 px, one per ROLE and never one per column', () => {
+	it('draws four rows, one per ROLE, and only the interpreting one is 86', () => {
 		// The structural decision the whole design rests on. This file has fifteen columns and the
 		// card has four rows; a fifteen-column file must cost the same vertical space as a
-		// three-column one, which is what makes the 355 a constant.
+		// three-column one, which is what makes the 373 a constant.
+		//
+		// THE FOUR ROWS ARE NOT THE SAME HEIGHT ANY MORE, and this test says so in the two figures
+		// rather than in a comment. `MAPPING_ROLES` is `['date', 'label', 'amount', 'category']`, so
+		// index 0 is the Date row, it is the only one handed an `interpretation`, and it is the only
+		// one at 86. The other three are unchanged at 68.
+		//
+		// Separates « only the row with something to interpret grew » from « every row grew », which
+		// differ by 54 px on the card. Both satisfy « the card is taller than it was », which is why
+		// the per-row figures are asserted and not the card alone.
+		//
+		// The 86 follows the PRESENCE of the slot and never its VALUE, so the Date row does not move
+		// when its reading is answered, withdrawn, or found inconsistent. That is what the three
+		// states in the card assertion above are checking, from the other side.
 		const { card } = mount();
 
 		const rows = card.querySelectorAll('button[aria-haspopup="listbox"]');
 		expect(rows.length).toBe(4);
 		expect(FILE.headers.length).toBe(15);
-		for (const row of rows) {
+		expect(rows[0].getBoundingClientRect().height).toBe(86);
+		for (const row of [rows[1], rows[2], rows[3]]) {
 			expect(row.getBoundingClientRect().height).toBe(68);
 		}
 	});

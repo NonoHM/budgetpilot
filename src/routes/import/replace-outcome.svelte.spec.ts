@@ -72,7 +72,8 @@ function summary(invalidRowDetails: ImportInvalidRowDetail[]): ImportSummaryResu
 		invalidRowDetails,
 		hiddenInvalidRowsCount: 0,
 		accountName: null,
-		multiAccountFile: false
+		multiAccountFile: false,
+		rememberedMapping: false
 	};
 }
 

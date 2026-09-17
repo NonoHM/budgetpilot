@@ -47,6 +47,7 @@ import type { ParsedCsvRow } from '$lib/server/import/types';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import type { PageServerLoad } from './$types';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
+import type { ImportSummaryResult } from '$lib/domain/importSummary';
 
 /**
  * Sources an import CSV row can land on, based on the auto-detected profile (see
@@ -647,8 +648,13 @@ export const actions: Actions = {
 				 * account offer because the offer is built only on the ambiguous branch, and a
 				 * single-account install must get the same sentence.
 				 */
-				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account'
-			}
+				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account',
+				// FALSE ON THIS PATH, AND THAT IS A FACT RATHER THAN A DEFAULT. This route USES a
+				// remembered correspondance and never creates one: `saveColumnMapping` has exactly
+				// one production call site and it is the designation route's action. Nobody
+				// designated anything here, so there is nothing new to disclose.
+				rememberedMapping: false
+			} satisfies ImportSummaryResult
 		};
 	}
 };
