@@ -46,11 +46,36 @@ import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesigna
  *
  * Filed as #639. Deleting this file is a step of that issue, not a tidy-up.
  *
- * ## The zeros below are calibrated
+ * ## The zeros below are calibrated, and the calibration was RUN rather than reasoned
  *
- * An absence assertion over a screen that renders nothing at all would pass for the wrong reason.
- * Each test therefore carries a planted positive: a figure that must be non-zero on the same
- * render, so a broken mount reddens before any absence can be reported.
+ * An absence assertion over a screen that renders nothing at all passes for the wrong reason: a
+ * gate asserting a zero that cannot itself fail is the thing a gate exists to prevent. So every
+ * test here carries a planted positive taken from the SAME render, and the instrument was broken
+ * two ways to prove the positives collapse first.
+ *
+ * | break | result |
+ * | --- | --- |
+ * | unbroken | 0 failed, 5 passed |
+ * | the card stops rendering (`designation-card` testid renamed) | **4 failed**, 1 passed |
+ * | the column options stop being options (`ColumnCard`'s `role="option"` to `presentation`) | **2 failed**, 3 passed |
+ *
+ * The two breaks are both needed and neither is redundant, which is the part worth keeping. The
+ * card break leaves the column-list test green, because that test's positive is the picker's
+ * option list rather than the card; the option break reddens it and leaves the card tests green.
+ * **One break would have reported a calibrated gate over a test whose instrument it never
+ * touched**, which is the same shape as a loop asserting one figure across four rows and never
+ * saying which row it read.
+ *
+ * The figures were re-measured after the liveness test was added, which moved both rows by one.
+ * A table in a docstring that nobody re-runs is this repository's recorded-figure failure, so the
+ * numbers above are the ones the runs above printed and not the ones written first.
+ *
+ * Every failure above is on a POSITIVE, never on an absence. No run of a broken instrument ever
+ * reported that the reading question was absent, which is the only claim this file makes.
+ *
+ * Following `dateOrderQuestionAsleep.spec.ts` (#617's successor), which is where this pattern
+ * comes from: the liveness assertion below is its « reads a non-empty set » line, in the form a
+ * component spec can take.
  */
 const HEADERS = ['Date operation', 'Libelle', 'Montant'];
 
@@ -96,6 +121,26 @@ beforeEach(async () => {
 });
 
 describe('the date reading question cannot be answered yet', () => {
+	/**
+	 * THE INSTRUMENT IS ALIVE, asserted on its own rather than only inside the tests that depend on
+	 * it. Separates « the screen rendered and has no reading question » from « nothing rendered ».
+	 *
+	 * Every zero below is meaningless without this line. It asserts the shape the other tests read
+	 * from, in absolute figures rather than as a presence check: four role rows, the Date row at its
+	 * 86, and a card at 373. A render that produced a partial screen fails here before any absence
+	 * is reported.
+	 */
+	it('renders the screen it is asserting about', async () => {
+		const { container } = mount({ initialAssignment: DATE_DESIGNATED });
+
+		const card = container.querySelector('[data-testid="designation-card"]') as HTMLElement;
+		expect(card).not.toBeNull();
+		expect(card.getBoundingClientRect().height).toBe(373);
+		const rows = card.querySelectorAll('button[aria-haspopup="listbox"]');
+		expect(rows.length).toBe(4);
+		expect(rows[0].getBoundingClientRect().height).toBe(86);
+	});
+
 	/**
 	 * Separates « tapping the date row opens the column list » from « it opens the order question ».
 	 * The planted positive is the column list itself: three options must be on screen, so a render

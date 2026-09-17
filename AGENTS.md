@@ -342,6 +342,21 @@ check for that is the break step below.
   parser. Two tells, both cheap: findings that cluster by file format rather than by subject, and
   a denominator you never printed because only the hits looked interesting.
 - **A test on a refusal asserts the REASON**, never that a refusal happened.
+- **A LOOP ASSERTING ONE VALUE OVER A SET PROVES NOTHING ABOUT WHICH MEMBER IT READ**, and it goes
+  wrong silently the day the set stops being homogeneous. Measured on the designation card: the
+  four role rows were all 68 until one of them gained a line, and
+  `for (const row of rows) expect(h).toBe(56)` then failed on row 0 reporting 74, while the same
+  loop written against 74 failed on row 1 reporting 56. Two runs, two figures, one cause, and
+  either reading ALONE looks like non-determinism. **The tell is that the two failures disagree in
+  opposite directions.** Assert the kinds separately as soon as a set stops being uniform; the
+  arithmetic then checks itself, because one member's change and every member's change differ by a
+  factor of the set size.
+- **AN UNOBSERVED FIGURE IN A PASSING TEST IS NOT A MEASUREMENT.** An assertion placed after
+  another in the same test is never evaluated while the first one fails, so a figure can sit in a
+  green suite for months having never been computed. The desktop card's height was written down,
+  asserted, and read for the first time only when the row loop above it was fixed. **If a test
+  carries two figures, one of them is unverified whenever the other is red**: split them, or
+  expect the day you learn its real value to be the day something else breaks.
 
 ### After writing
 
