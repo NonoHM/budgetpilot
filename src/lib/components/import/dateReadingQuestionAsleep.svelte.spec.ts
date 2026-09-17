@@ -128,6 +128,48 @@ describe('the date reading question cannot be answered yet', () => {
 	});
 
 	/**
+	 * THE TWO HALVES OF LINE 3 DESCRIBE ONE CELL, or the line states a conversion of something else.
+	 *
+	 * `firstRow` is OPTIONAL on `DesignationFile`, and the ISO half is always index 0 of
+	 * `dateReadings`, which is the first data row's cell by that field's contract. While the raw
+	 * half was read through `sampleOf`, a payload with readings and no first row paired
+	 * `samples[col][0]`'s raw value with `firstRow`'s conversion: a line that reads perfectly and
+	 * states a conversion the import never made.
+	 *
+	 * Separates « the pair is true by construction » from « the pair happens to agree because both
+	 * production payloads set firstRow ». The fixture here deliberately omits `firstRow`, which is
+	 * the one shape that can tell them apart, and the row must reserve its line rather than invent a
+	 * pairing. The planted positive is the row itself: its 86 px are asserted, so a render that
+	 * produced no row cannot report this absence.
+	 */
+	it('says nothing on line 3 when the payload carries readings but no first row', async () => {
+		const { firstRow: _omitted, ...withoutFirstRow } = FILE;
+		const { container } = render(ColumnDesignationScreen, {
+			file: withoutFirstRow,
+			initialAssignment: DATE_DESIGNATED,
+			accounts: [
+				{
+					id: 'account-1',
+					name: 'BP · Compte courant',
+					discriminant: '4417',
+					transactionCount: 128
+				}
+			],
+			initialAccountId: 'account-1',
+			announceDelayMs: 0
+		});
+
+		const row = container.querySelector(
+			'[data-testid="designation-card"] button[aria-haspopup="listbox"]'
+		) as HTMLElement;
+		expect(row.getBoundingClientRect().height).toBe(86);
+		// `samples[0][0]` is 05/06/2026 and `dateReadings[0].dayFirst[0]` is 2026-04-03. Pairing them
+		// would print « 05/06/2026 -> 3 avril 2026 », which is the exact lie this separates.
+		expect(row.textContent).not.toContain('3 avril 2026');
+		expect(row.textContent).not.toContain('5 juin 2026');
+	});
+
+	/**
 	 * THE ONE THAT CARRIES THE BAR. The row states a reading, and the reading it states must be the
 	 * one the parser will actually use, or the screen is displaying a date the import will not
 	 * write.

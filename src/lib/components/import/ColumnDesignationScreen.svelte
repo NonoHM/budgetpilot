@@ -512,7 +512,20 @@
 		if (dateState === 'no-dates') return 'no-dates' as const;
 		if (dateState === 'empty') return 'empty' as const;
 
-		const raw = sampleOf('date');
+		// READ FROM `firstRow` DIRECTLY, and not through `sampleOf`, because the two halves of this
+		// line must describe THE SAME CELL.
+		//
+		// `sampleOf` falls back to `samples[index][0]` when `firstRow` is absent, and `firstRow` is
+		// optional on `DesignationFile`. The ISO below is always index 0 of `dateReadings`, which is
+		// the FIRST DATA ROW's cell by that field's own contract. So on a payload carrying readings
+		// and no first row, the old expression printed one cell's raw value beside another cell's
+		// conversion: a line that reads perfectly and states a conversion the import never made.
+		// Both production payloads set `firstRow`, so this was correct by coupling rather than by
+		// construction, and nothing asserted the coupling.
+		//
+		// Reading the same source makes the pair true by construction, and a missing `firstRow` now
+		// reserves the line instead of pairing two different cells.
+		const raw = file.firstRow?.[dateColumn] ?? '';
 		// The payload keys the two readings as `dayFirst`/`monthFirst`; the order VALUE is
 		// `day-first`/`month-first`. One translation, here, rather than a second spelling of the
 		// order anywhere else.
