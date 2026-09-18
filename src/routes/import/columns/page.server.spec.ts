@@ -595,3 +595,195 @@ describe('the account a statement is filed into, and the five ways the id can be
 		);
 	});
 });
+
+/**
+ * THE READING THE USER ANSWERED, AND WHETHER IT REACHES THE PARSE. #639.
+ *
+ * ## Why the dates and not a flag
+ *
+ * The defect this closes is not « an option was dropped ». It is that a user who answered « Mois
+ * puis jour » read `4 mars 2026` on the designation row, pressed Importer, and the import stored
+ * `2026-04-03`. So every test below asserts the DATES that reached the write, read off
+ * `persistImportedTransactions`' own argument, because that is the value a user's money is filed
+ * under. A test asserting that the action forwarded a string would pass over a parser that ignored
+ * it.
+ *
+ * `createImportBatch` is asserted beside it: the stored `ImportBatch.dateOrder` is the only record
+ * of how a file was read, and a parse that applied one reading while the batch recorded another is
+ * a false displayed figure on `/imports`.
+ *
+ * ## The four tests in the direction this is NOT going
+ *
+ * An override that could outrank the file's own proof would be worse than no override: a column
+ * containing `24/06/2026` PROVES day-first, and honouring an answer there refuses that row loudly
+ * and moves every ambiguous row beside it by up to eleven months. `decideDateOrder` holds that
+ * precedence and these assert it through the door rather than restating it.
+ */
+const AMBIGUOUS_OPAQUE = [
+	'zone_1,zone_2,zone_3',
+	'01/02/2026,Abonnement Fibre Doriane,-39.90',
+	'03/02/2026,Primeur Sainte Anne,-17.45',
+	'05/02/2026,Remboursement Teleconsultation,49.00'
+].join('\n');
+
+/** 24 cannot be a month, so this column PROVES day-first. No answer can outrank a proof. */
+const PROVES_DAY_FIRST = [
+	'zone_1,zone_2,zone_3',
+	'24/06/2026,Abonnement Fibre Doriane,-39.90',
+	'01/02/2026,Primeur Sainte Anne,-17.45'
+].join('\n');
+
+/** Both readings proved, in one column. Refused, and an answer cannot rescue it. */
+const MIXED = [
+	'zone_1,zone_2,zone_3',
+	'24/06/2026,Abonnement Fibre Doriane,-39.90',
+	'06/24/2026,Primeur Sainte Anne,-17.45'
+].join('\n');
+
+/** No cell carries the ambiguous grammar, so neither reading can change any parse. */
+const ISO_ONLY = [
+	'zone_1,zone_2,zone_3',
+	'2026-02-01,Abonnement Fibre Doriane,-39.90',
+	'2026-02-03,Primeur Sainte Anne,-17.45'
+].join('\n');
+
+function datesWritten(): string[] {
+	const [input] = persist.persistImportedTransactions.mock.calls[0] as unknown as [
+		{ transactions: Array<{ date: string }> }
+	];
+	return input.transactions.map((transaction) => transaction.date);
+}
+
+describe('the reading the user answered decides how the file is read', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		store.saveColumnMapping.mockResolvedValue({ ok: true as const, id: 'mapping-1' });
+		persist.persistImportedTransactions.mockResolvedValue({
+			importedRows: 3,
+			duplicateRows: 0,
+			importedDebitCents: 0,
+			importedCreditCents: 0
+		});
+		persist.resolveImportBucketAccountById.mockResolvedValue({
+			accountId: 'account-1',
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
+		});
+		persist.createImportBatch.mockResolvedValue('batch-1');
+	});
+
+	/**
+	 * THE BASELINE, and it is the calibration every test below needs. Separates « the field moved
+	 * the dates » from « these dates are what the parser produces whatever it is told », which is
+	 * the state this whole describe block was written against.
+	 */
+	it('reads an unanswered ambiguous column day-first, which is the application default', async () => {
+		expect.assertions(2);
+		await submit(AMBIGUOUS_OPAQUE, true);
+		expect(datesWritten()).toEqual(['2026-02-01', '2026-02-03', '2026-02-05']);
+		expect(persist.createImportBatch).toHaveBeenCalledWith(
+			expect.objectContaining({ dateOrder: 'day-first' })
+		);
+	});
+
+	/**
+	 * THE ONE THAT CARRIES THE BAR. Separates « the answer reached the parse » from « the answer
+	 * was accepted and discarded », and the two are the same green on any assertion weaker than
+	 * the dates themselves.
+	 */
+	it('reads the column month-first when that is what the user answered', async () => {
+		expect.assertions(2);
+		await submit(AMBIGUOUS_OPAQUE, true, { dateOrder: 'month-first' });
+		expect(datesWritten()).toEqual(['2026-01-02', '2026-03-02', '2026-05-02']);
+		expect(persist.createImportBatch).toHaveBeenCalledWith(
+			expect.objectContaining({ dateOrder: 'month-first' })
+		);
+	});
+
+	/**
+	 * Separates « day-first was answered » from « no answer arrived », which produce the identical
+	 * dates. Only the STORED reading can tell them apart, and it has to, because the disclosure on
+	 * `/imports` states what the import applied.
+	 */
+	it('reads the column day-first when that is what the user answered', async () => {
+		expect.assertions(2);
+		await submit(AMBIGUOUS_OPAQUE, true, { dateOrder: 'day-first' });
+		expect(datesWritten()).toEqual(['2026-02-01', '2026-02-03', '2026-02-05']);
+		expect(persist.createImportBatch).toHaveBeenCalledWith(
+			expect.objectContaining({ dateOrder: 'day-first' })
+		);
+	});
+
+	/**
+	 * A CLOSED SET, POSITIVELY VALIDATED, and a hostile value falls back to the DERIVATION rather
+	 * than to an error. ASVS 5.0 v5.0.0-5.1.4.
+	 *
+	 * Separates « the value was validated against the two readings » from « the string was passed
+	 * through ». A parser handed `Mois puis jour` would not match either reading and would read
+	 * day-first anyway, so the dates alone cannot tell the two apart: the STORED reading is what
+	 * does, because a passed-through string would be recorded as itself.
+	 */
+	it('ignores a value that is not one of the two readings, and still imports', async () => {
+		expect.assertions(3);
+		await submit(AMBIGUOUS_OPAQUE, true, { dateOrder: 'Mois puis jour' });
+		expect(datesWritten()).toEqual(['2026-02-01', '2026-02-03', '2026-02-05']);
+		expect(persist.createImportBatch).toHaveBeenCalledWith(
+			expect.objectContaining({ dateOrder: 'day-first' })
+		);
+		expect(persist.persistImportedTransactions).toHaveBeenCalledTimes(1);
+	});
+
+	/** The empty field, which is what a form posts for an unanswered question. */
+	it('ignores an empty field rather than refusing the import', async () => {
+		expect.assertions(2);
+		await submit(AMBIGUOUS_OPAQUE, true, { dateOrder: '' });
+		expect(datesWritten()).toEqual(['2026-02-01', '2026-02-03', '2026-02-05']);
+		expect(persist.createImportBatch).toHaveBeenCalledWith(
+			expect.objectContaining({ dateOrder: 'day-first' })
+		);
+	});
+
+	/**
+	 * THE DIRECTION THIS IS NOT GOING. A file that PROVES its order ignores the answer entirely.
+	 * `24/06/2026` read month-first is month 24, which is not a date: honouring the answer here
+	 * would refuse that row and move `01/02/2026` beside it to 2026-01-02.
+	 */
+	it('ignores the answer on a column that proves its own order', async () => {
+		expect.assertions(2);
+		await submit(PROVES_DAY_FIRST, true, { dateOrder: 'month-first' });
+		expect(datesWritten()).toEqual(['2026-06-24', '2026-02-01']);
+		expect(persist.createImportBatch).toHaveBeenCalledWith(
+			expect.objectContaining({ dateOrder: 'day-first' })
+		);
+	});
+
+	/**
+	 * THE DIRECTION THIS IS NOT GOING, second half. A column proving BOTH readings has no true
+	 * answer to give, so an answer must not rescue it: honouring one would import half the rows
+	 * wrong with the user's own choice as the alibi.
+	 */
+	it('still refuses a column that proves both readings, answer or no answer', async () => {
+		expect.assertions(3);
+		const result = await submit(MIXED, true, { dateOrder: 'month-first' });
+		expect(result.status).toBe(400);
+		expect(result.data?.keepDesignation).toBe(true);
+		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
+	});
+
+	/**
+	 * THE DIRECTION THIS IS NOT GOING, third half. An ISO column has no cell either reading could
+	 * disagree about, so the answer applies to nothing and the two readings produce the identical
+	 * import. The stored value is the default rather than the answer, which keeps « indistinguishable
+	 * » and « answered » from being recorded as the same thing.
+	 */
+	it('leaves an ISO column untouched by the answer', async () => {
+		expect.assertions(2);
+		await submit(ISO_ONLY, true, { dateOrder: 'month-first' });
+		expect(datesWritten()).toEqual(['2026-02-01', '2026-02-03']);
+		expect(persist.createImportBatch).toHaveBeenCalledWith(
+			expect.objectContaining({ dateOrder: 'day-first' })
+		);
+	});
+});

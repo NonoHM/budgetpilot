@@ -1,6 +1,8 @@
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
 import type { CollidingBatchView, CollisionFigures } from '$lib/domain/importCollision';
 import type { PendingDesignation } from './pendingDesignation.svelte';
+// TYPE ONLY, as in `pendingDesignation.svelte.ts`.
+import type { DateOrder } from '$lib/server/import/dateOrder';
 
 /**
  * A designated run the server refused to write until the user answers for it, carried back to
@@ -54,6 +56,21 @@ export interface PendingCollision {
 		account: PendingDesignation['account'];
 		remember: boolean;
 		hasHeaderRow: boolean;
+		/**
+		 * The reading the user answered, carried because CONFIRMING re-posts the same run.
+		 *
+		 * The same argument as `hasHeaderRow` above, one field over and with more at stake: dropping
+		 * it re-posts the file under the application's default reading on the screen that had just
+		 * stated the user's answer, and `row.date` is the second field of the deduplication key, so
+		 * the reading decides the identity of every row the file writes rather than one column's
+		 * value.
+		 *
+		 * Carried on BOTH legs. Confirming re-posts it; declining reopens the designation screen
+		 * already showing it, through `PendingDesignation.dateOrder`, because re-asking a question the
+		 * user has answered is WCAG 2.2 3.3.7's redundant entry on the one screen built to stop
+		 * exactly that.
+		 */
+		dateOrder: DateOrder | null;
 		/**
 		 * The correction this run belongs to, when it is one. Carried WHOLE rather than as a batch
 		 * id, and the difference is what the dialog reads.

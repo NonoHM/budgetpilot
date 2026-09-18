@@ -4,6 +4,8 @@
 	import * as m from '$lib/paraglide/messages';
 	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
 	import type { RoleAssignment } from '$lib/domain/columnDesignation';
+	// TYPE ONLY. See `domain/columnDesignation.ts`: erased before the bundler sees it.
+	import type { DateOrder } from '$lib/server/import/dateOrder';
 	import ColumnDesignationScreen from '$lib/components/import/ColumnDesignationScreen.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import {
@@ -204,6 +206,7 @@
 		assignment: RoleAssignment;
 		remember: boolean;
 		hasHeaderRow: boolean;
+		dateOrder: DateOrder | null;
 		deleteOldImport: boolean;
 	}) {
 		if (!pending || !formEl) return;
@@ -226,6 +229,12 @@
 		// screen their file had no header row was overruled in silence, losing their first
 		// transaction to a header that was never there.
 		data.set('hasHeaderRow', String(result.hasHeaderRow));
+		// THE READING, and only when a human answered it. The field is ABSENT otherwise, which is
+		// what the action reads as « nobody said »: it then derives the order off the column, which
+		// is the right answer for every file that never raised the question. `String(null)` would
+		// post the four characters `null`, and posting a default would record the application's
+		// guess as the user's decision. See #639.
+		if (result.dateOrder) data.set('dateOrder', result.dateOrder);
 		for (const role of MAPPING_ROLES) {
 			const index = result.assignment[role];
 			// Indices, never names. The server resolves them against ITS own header list, so a name
@@ -311,7 +320,14 @@
 					actionResult.data?.collision &&
 					actionResult.data.incoming
 				) {
-					setPendingDesignation({ ...pending, initialAssignment: result.assignment });
+					// The answer travels with the assignment: a refusal must not cost the reading any
+					// more than it costs the designation, and both are re-shown by the screen this
+					// reopens.
+					setPendingDesignation({
+						...pending,
+						initialAssignment: result.assignment,
+						dateOrder: result.dateOrder
+					});
 					setPendingCollision({
 						// Built by `buildCollisionRepost`, which is where the mapping is asserted: this
 						// branch is reachable only through a serialised `ActionResult`, which a component
@@ -355,7 +371,14 @@
 					replaced: carried.replaced ?? { kind: 'none' }
 				});
 				if (failed) {
-					setPendingDesignation({ ...pending, initialAssignment: result.assignment });
+					// The answer travels with the assignment: a refusal must not cost the reading any
+					// more than it costs the designation, and both are re-shown by the screen this
+					// reopens.
+					setPendingDesignation({
+						...pending,
+						initialAssignment: result.assignment,
+						dateOrder: result.dateOrder
+					});
 				} else {
 					clearPendingDesignation();
 				}
@@ -422,6 +445,7 @@
 			-->
 			<ColumnDesignationScreen
 				file={pending.view}
+				initialDateOrder={pending.dateOrder}
 				accounts={accountOffer.options}
 				initialAccountId={accountOffer.chosenId}
 				accountHint={accountOffer.hint}

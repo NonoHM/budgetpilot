@@ -1,33 +1,21 @@
 /**
- * Which component a file writes first in an ambiguous `dd/mm/yyyy`-shaped date column.
+ * THE TWO READINGS, THE DEFAULT AND THE ANSWER VALIDATOR LIVE IN `domain/dateReading.ts`.
  *
- * ## Why this is a type of its own rather than a boolean
+ * They moved there, and are re-exported here so every existing importer keeps one path to them,
+ * because the designation screen needs them and cannot value-import a server module: it has to
+ * know what the two readings are and which one applies when nobody has answered. Left here, the
+ * component carried its own copy of both facts, which is two definitions of one rule with a browser
+ * boundary between them.
  *
- * A `monthFirst: boolean` has three states in practice (true, false, and absent), and the
- * absent one is the interesting one: it means nobody has decided yet. Spelling the two readings
- * out makes the undecided state `undefined` at the option level and keeps it distinguishable
- * from `day-first`, which is a DECISION that happens to agree with the default. #433 is a defect
- * about a guess presented as an answer, so the distinction is the point rather than a nicety.
- *
- * ## Why it lives here and not in `types.ts`
- *
- * `src/lib/server/import/` already holds one module per property of the file that has to be
- * decided by looking at the file: `discriminant.ts`, `signIndicator.ts`, `splitAmount.ts`,
- * `columnBounds.ts`. The date order is the same kind of thing, so it joins them rather than
- * becoming another member of the parser's shared option bag. The detection that fills it in
- * belongs in this file too.
+ * What stays in this file is everything that needs a whole COLUMN, which the browser does not hold:
+ * the grammar of an ambiguous cell, the detector that reads a column's own evidence, and the
+ * precedence between that evidence and the user's answer.
  */
-export type DateOrder = 'day-first' | 'month-first';
+export { DATE_ORDERS, DEFAULT_DATE_ORDER, readDateOrderAnswer } from '$lib/domain/dateReading';
+export type { DateOrder } from '$lib/domain/dateReading';
 
-/**
- * What a file is read as when nobody has said.
- *
- * Day-first, and it must stay day-first. Every statement this parser has read correctly since it
- * existed is day-first, and a default that moved would silently shift the dates of every file
- * that imports correctly today, which is #433 itself, arriving a second time through its own
- * fix, in the direction nobody is watching.
- */
-export const DEFAULT_DATE_ORDER: DateOrder = 'day-first';
+import { DEFAULT_DATE_ORDER } from '$lib/domain/dateReading';
+import type { DateOrder } from '$lib/domain/dateReading';
 
 /**
  * The grammar of a date cell whose two leading components could each be a day or a month.

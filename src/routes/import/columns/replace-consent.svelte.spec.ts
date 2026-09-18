@@ -64,6 +64,8 @@ function seed() {
 		view: VIEW,
 		initialAssignment: COMPLETE,
 		candidates: {},
+		// Unanswered: this file is about the replace consent, which reads neither the reading nor it.
+		dateOrder: null,
 		/**
 		 * A RESOLVED account, because the primary now refuses a submission without one.
 		 *

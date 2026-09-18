@@ -10,6 +10,11 @@
 		type DesignationFile,
 		type RoleAssignment
 	} from '$lib/domain/columnDesignation';
+	// A DOMAIN module, so this is an ordinary value import: the two readings, the default and the
+	// precedence over `ColumnDateState` live there precisely so this component does not hold its own
+	// copy of them. `dateReadingAgreement.spec.ts` compares that ladder against the parser's over
+	// every state and every answer; a copy here would be outside what that gate inspects.
+	import { readingForState, type DateOrder } from '$lib/domain/dateReading';
 	import { bannerFor, fileMetaLine, submitLabel } from '$lib/domain/columnDesignationBanner';
 	import { roleLabel } from '$lib/domain/columnMappingLabels';
 	import { readWithHeaderRow } from '$lib/domain/headerRowReading';
@@ -113,6 +118,7 @@
 		wide = false,
 		accounts = [],
 		initialAccountId = null,
+		initialDateOrder = null,
 		accountHint = null,
 		accountHintAboutFile = false,
 		accountPrefill = '',
@@ -129,6 +135,20 @@
 		 * mechanism in two files.
 		 */
 		initialAssignment?: RoleAssignment;
+		/**
+		 * A READING ALREADY ANSWERED, handed back so this screen does not ask again.
+		 *
+		 * `null` means nobody has answered, which is NOT day-first: the row says so with
+		 * « Confirmer » and the sheet's second step is reachable. See `chosenReading`.
+		 *
+		 * It exists for the duplicate-statement dialog's DECLINE leg, which reopens this screen and
+		 * already carries `hasHeaderRow` the same way, for the same reason: re-deriving the answer on
+		 * the way back would replace the user's with the application's on the one screen built to
+		 * stop that. WCAG 2.2 3.3.7 Redundant Entry.
+		 *
+		 * Captured once, like `initialAssignment`: this screen owns the answer from arrival.
+		 */
+		initialDateOrder?: DateOrder | null;
 		/**
 		 * Per role, the column indices detection proposes. Two or more is what makes a row ambiguous.
 		 *
@@ -298,6 +318,15 @@
 			remember: boolean;
 			hasHeaderRow: boolean;
 			/**
+			 * THE READING THE USER ANSWERED, or `null` when the question was never put to them.
+			 *
+			 * The ANSWER, never the applied reading. `decideDateOrder` on the server consults an
+			 * override only where the column leaves the question genuinely open, so posting the
+			 * applied reading would send `day-first` for every proven column and every ISO file,
+			 * recording a decision nobody took. Null and `day-first` are different payloads.
+			 */
+			dateOrder: DateOrder | null;
+			/**
 			 * Whether the run replaces the import it was launched from.
 			 *
 			 * Always present, and `false` when nothing is being replaced, so the caller never has to
@@ -404,17 +433,48 @@
 		}, announceDelayMs);
 	}
 
+	/**
+	 * Whether picking THIS column for THIS role leaves the reading genuinely open.
+	 *
+	 * Read off the column PICKED rather than off `dateColumn`, which is derived from an `assignment`
+	 * that `choose` reassigns a line earlier: reading the derived value there would race the
+	 * recompute. That is the same reason the comment inside `choose` used to give for a gate it
+	 * never actually applied.
+	 *
+	 * Both halves are required. `ambiguous` is the only state that asks anybody anything, and
+	 * without readings for the column `ColumnPicker` falls back to step 1 anyway, so deferring the
+	 * close would hold the sheet open on the question it cannot render.
+	 */
+	function defersToReading(role: MappingRole, columnIndex: number): boolean {
+		return (
+			role === 'date' &&
+			(file.dateStates?.[columnIndex] ?? null) === 'ambiguous' &&
+			(file.dateReadings?.[columnIndex] ?? null) !== undefined
+		);
+	}
+
 	function choose(columnIndex: number) {
 		const role = openRole;
 		if (role === null) return;
 
 		// Choosing the already-designated card closes and changes nothing. Not an error, an
 		// abandonment, so nothing is announced: a "3 sur 3" here would imply a change.
+		//
+		// The deferred question is still OWED, though, and that is why this branch is not a plain
+		// close. A user who reached step 2, took its foot TapLink back to step 1 and picked the same
+		// column again would otherwise be dropped out of the sheet with the question unanswered and
+		// no way back to it except another round trip.
 		if (assignment[role] === columnIndex) {
+			if (defersToReading(role, columnIndex) && !dateAnswered) {
+				pickerStep = 'reading';
+				return;
+			}
 			openRole = null;
+			pickerStep = 'columns';
 			return;
 		}
 
+		const deferred = defersToReading(role, columnIndex);
 		const moved = designate(assignment, role, columnIndex);
 		assignment = moved.assignment;
 		vacated = moved.vacated ? { [moved.vacated]: role } : {};
@@ -422,10 +482,12 @@
 		// THE CLOSE IS DEFERRED BY EXACTLY ONE QUESTION, and only here. Plate 7b: choosing an
 		// ambiguous date column APPLIES immediately, which is §5.3 unchanged, and then the same
 		// surface asks how the column reads instead of closing. Every other choose still closes.
-		//
-		// Gated on the column the user just picked rather than on `dateColumn`, because `assignment`
-		// was reassigned one line ago and reading the derived value here would race the recompute.
-		openRole = null;
+		if (deferred) {
+			pickerStep = 'reading';
+		} else {
+			openRole = null;
+			pickerStep = 'columns';
+		}
 
 		const next = bannerFor({
 			state: pageStateOf({ assignment, columnCount, signaturePartial }),
@@ -436,17 +498,63 @@
 		});
 
 		announceLater(
-			moved.vacated
-				? m.import_columns_announce_moved({
-						role: roleLabel(role),
+			// A DEFERRED QUESTION IS THE OUTCOME OF THIS GESTURE, so the sentence says so. The generic
+			// designated sentence carries a consequence clause, and on this column it would read as if
+			// the designation were finished when the screen is still asking. Plate 7i's own key.
+			//
+			// A displacement still wins, because it carries the fact the user did not ask for: a
+			// vacated row is the half a reader most needs and the half a second polite update drops.
+			deferred && !moved.vacated
+				? m.import_designate_announce_date_assumed({
 						header: effectiveFile.headers[columnIndex] ?? '',
-						vacated: roleLabel(moved.vacated),
 						count: next.count
 					})
-				: m.import_columns_announce_designated({
-						count: next.count,
-						consequence: next.consequence
-					})
+				: moved.vacated
+					? m.import_columns_announce_moved({
+							role: roleLabel(role),
+							header: effectiveFile.headers[columnIndex] ?? '',
+							vacated: roleLabel(moved.vacated),
+							count: next.count
+						})
+					: m.import_columns_announce_designated({
+							count: next.count,
+							consequence: next.consequence
+						})
+		);
+	}
+
+	/**
+	 * THE ANSWER, applied and announced. Plate 7j: assumed becomes confirmed, which is a value
+	 * change even when the reading chosen is the one already retained, so this always commits.
+	 *
+	 * The close is here rather than in `ColumnPicker` for the same reason step 1's is: the sheet
+	 * never closes itself on a choose, so one caller owns both applications and there is no second
+	 * path a close could take.
+	 */
+	function chooseReading(order: DateOrder) {
+		const column = dateColumn;
+		if (column === null) return;
+		chosenReading = order;
+		readingAnsweredFor = column;
+		openRole = null;
+		pickerStep = 'columns';
+
+		// The FIRST DATA ROW under the reading just chosen, which is the cell the row's line 3 will
+		// state. Index 0 of `dateReadings` is that row by that field's own contract.
+		const iso = file.dateReadings?.[column]?.[readingKey(order)]?.[0] ?? null;
+		const pretty = iso ? formatReadingDate(iso, getLocale()) : null;
+		// A cell that is not a date under the reading in force has no first line to name, and a
+		// sentence reading « Première ligne : . » would be a false figure in the live region. The
+		// shorter form states the reading and claims nothing about a row. An ambiguous column
+		// guarantees an ambiguous CELL, never that it is the first one.
+		announceLater(
+			pretty
+				? order === 'month-first'
+					? m.import_datesheet_announce_month_first({ pretty })
+					: m.import_datesheet_announce_day_first({ pretty })
+				: order === 'month-first'
+					? m.import_recap_date_reading_month_first()
+					: m.import_recap_date_reading_day_first()
 		);
 	}
 
@@ -454,6 +562,29 @@
 		// The live region says NOTHING. Only the focus return speaks, announcing the unchanged row.
 		// Announcing a count after a no-op close would imply a change that did not happen.
 		openRole = null;
+		// 7d: a session run twice must not remember the first run's body. A sheet reopened on step 2
+		// because the previous session ended there would put the question in front of a user who
+		// came back to change the column.
+		pickerStep = 'columns';
+	}
+
+	/**
+	 * Which body the sheet OPENS on, which is a second entry point rather than a second rule.
+	 *
+	 * Step 2 when the row's own line 3 carries the imperative: a designated ambiguous column whose
+	 * reading no human has confirmed reads `01/02/2026 → 1 février 2026 · Confirmer`, and an
+	 * imperative that opens a list of columns is a false affordance. Step 1 in every other state,
+	 * including once the question is answered, because what that row then offers is the column.
+	 *
+	 * Step 1 stays one tap from step 2 through its foot TapLink, which is what makes this safe
+	 * rather than a trap.
+	 */
+	function openPicker(role: MappingRole) {
+		pickerStep =
+			role === 'date' && dateState === 'ambiguous' && !dateAnswered && dateReadingPairs
+				? 'reading'
+				: 'columns';
+		openRole = role;
 	}
 
 	/**
@@ -473,11 +604,24 @@
 	 * changes, because a reading is an answer about ONE column and carrying it to the next one
 	 * would silently apply an answer given about different data.
 	 */
-	let chosenReading = $state<'day-first' | 'month-first' | null>(null);
-	let readingAnsweredFor = $state<number | null>(null);
+	// svelte-ignore state_referenced_locally
+	let chosenReading = $state<DateOrder | null>(initialDateOrder);
+	// Seeded together with the answer, and from `initialAssignment` rather than from the derived
+	// `dateColumn`: an answer handed back belongs to the column it was given about, which is the one
+	// the screen is reopening on.
+	// svelte-ignore state_referenced_locally
+	let readingAnsweredFor = $state<number | null>(initialDateOrder ? initialAssignment.date : null);
+	/**
+	 * Which body the ONE picker surface is showing. See `ColumnPicker`'s `step` section, plate 7b.
+	 *
+	 * Owned here because the transition between the two bodies is a consequence of gestures this
+	 * screen already owns: designating a column, and answering about it. `ColumnPicker` never
+	 * advances it on its own, exactly as it never closes itself on a choose.
+	 */
+	let pickerStep = $state<'columns' | 'reading'>('columns');
 
 	/** The order VALUE to the payload's key. One translation, used by both readers below. */
-	function readingKey(order: 'day-first' | 'month-first'): 'dayFirst' | 'monthFirst' {
+	function readingKey(order: DateOrder): 'dayFirst' | 'monthFirst' {
 		return order === 'month-first' ? 'monthFirst' : 'dayFirst';
 	}
 
@@ -487,18 +631,25 @@
 	/**
 	 * The order this screen is currently reading the date column under.
 	 *
-	 * `proven-*` is the file's own proof and an answer cannot outrank it, which is the same
-	 * precedence `decideDateOrder` applies on the server: evidence first, the option only where the
-	 * file leaves the question genuinely open. Stating it twice would be two answers, so this
-	 * mirrors that order deliberately and the server remains the one that decides the IMPORT.
+	 * ## THE LADDER IS NOT HERE, AND THAT IS THE FIX RATHER THAN A TIDY
+	 *
+	 * This used to restate `decideDateOrder`'s precedence inline, under a comment saying « stating
+	 * it twice would be two answers, so this mirrors that order deliberately ». It was two answers:
+	 * the server decides the import and this decides what the row STATES, and a row stating a date
+	 * the import will not write is a false displayed figure and data written wrong that looks right,
+	 * at once. Nothing stood between the two copies.
+	 *
+	 * `readingForState` is that ladder as a function, in `domain/`, and
+	 * `dateReadingAgreement.spec.ts` compares it against the parser's over every `ColumnDateState`
+	 * and every answer, driving both from the same cells. A ladder inside a component can be
+	 * described; it cannot be compared.
+	 *
+	 * The answer is passed as `null` unless it was given about THIS column, which is what stops a
+	 * reading chosen over one column's data being applied to another's.
 	 */
-	const appliedReading = $derived.by((): 'day-first' | 'month-first' => {
-		if (dateState === 'proven-month') return 'month-first';
-		if (dateState === 'proven-day') return 'day-first';
-		if (dateState === 'ambiguous' && readingAnsweredFor === dateColumn && chosenReading)
-			return chosenReading;
-		return 'day-first';
-	});
+	const appliedReading = $derived(
+		readingForState(dateState, readingAnsweredFor === dateColumn ? chosenReading : null)
+	);
 
 	/**
 	 * Line 3 of the Date row, or `null` to reserve its 18 px with nothing in it.
@@ -548,6 +699,18 @@
 	const dateInterpretationConfirmed = $derived(dateState !== 'ambiguous' || dateAnswered);
 
 	/**
+	 * THE VALUE THAT LEAVES THIS SCREEN, derived once so both submit paths cannot post different
+	 * things.
+	 *
+	 * The ANSWER and never `appliedReading`. An answer belongs to the column it was given about, so
+	 * it is null the moment the designation moves, and it is null for a proven column and for an ISO
+	 * file because nobody was asked. `decideDateOrder` on the server consults an override only where
+	 * the column is genuinely ambiguous, so posting `appliedReading` would record a decision no
+	 * human took on every file that never raised the question.
+	 */
+	const answeredReading = $derived<DateOrder | null>(dateAnswered ? chosenReading : null);
+
+	/**
 	 * What the second step's two cards show, in the shape `ColumnPicker` declares.
 	 *
 	 * ## Parallel to `file.samples[dateColumn]`, POSITION FOR POSITION, and that is the contract
@@ -571,7 +734,7 @@
 		if (dateColumn === null) return null;
 		const readings = file.dateReadings?.[dateColumn];
 		if (!readings) return null;
-		const prettyFor = (order: 'day-first' | 'month-first') =>
+		const prettyFor = (order: DateOrder) =>
 			readings[readingKey(order)]
 				.slice(1)
 				.map((iso: string | null) => (iso ? formatReadingDate(iso, getLocale()) : ''));
@@ -837,6 +1000,7 @@
 			assignment,
 			remember,
 			hasHeaderRow,
+			dateOrder: answeredReading,
 			deleteOldImport: false
 		});
 	}
@@ -851,6 +1015,7 @@
 			assignment,
 			remember,
 			hasHeaderRow,
+			dateOrder: answeredReading,
 			deleteOldImport: true
 		});
 	}
@@ -1007,7 +1172,7 @@
 									interpretationConfirmed: dateInterpretationConfirmed
 								}
 							: {}}
-						onOpen={() => (openRole = role)}
+						onOpen={() => openPicker(role)}
 					/>
 					{#if wide && openRole === role}
 						<ColumnPicker
@@ -1017,8 +1182,11 @@
 							file={effectiveFile}
 							{assignment}
 							candidates={candidates[role] ?? []}
+							step={role === 'date' ? pickerStep : 'columns'}
 							dateReading={role === 'date' ? (dateReadingPairs ?? undefined) : undefined}
 							onChoose={choose}
+							onChooseReading={chooseReading}
+							onChangeColumn={() => (pickerStep = 'columns')}
 							onClose={closeWithoutChoosing}
 							onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}
 						/>
@@ -1481,8 +1649,11 @@
 		file={effectiveFile}
 		{assignment}
 		candidates={candidates[openRole as MappingRole] ?? []}
+		step={openRole === 'date' ? pickerStep : 'columns'}
 		dateReading={openRole === 'date' ? (dateReadingPairs ?? undefined) : undefined}
 		onChoose={choose}
+		onChooseReading={chooseReading}
+		onChangeColumn={() => (pickerStep = 'columns')}
 		onClose={closeWithoutChoosing}
 		onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}
 	/>
