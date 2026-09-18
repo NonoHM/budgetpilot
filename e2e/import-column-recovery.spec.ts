@@ -2,6 +2,7 @@ import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { onScreen } from './screen-geometry';
 import { chooseStatementAccount } from './choose-account';
+import { answerDateReadingIfAsked } from './date-reading';
 
 /**
  * The journey that had no route: a memorised correspondance that is WRONG, and correcting it.
@@ -101,6 +102,9 @@ test.describe('a memorised correspondance that is wrong can be corrected', () =>
 		] as const) {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
+			// An ambiguous date column defers the close by one question, and the next row's click
+			// would land on the open sheet. No-op on a file that proves its own order.
+			await answerDateReadingIfAsked(page);
 		}
 		// The account is part of every designation now; see e2e/choose-account.ts.
 		await chooseStatementAccount(page);

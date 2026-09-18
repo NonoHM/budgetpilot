@@ -2,6 +2,7 @@ import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { expectPrimaryUnobstructed, onScreen } from './screen-geometry';
 import { chooseStatementAccount } from './choose-account';
+import { answerDateReadingIfAsked } from './date-reading';
 
 /**
  * The three layers, end to end: a file nothing recognises, designated, imported, and then
@@ -121,6 +122,9 @@ test.describe('at 390x844', () => {
 		] as const) {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
+			// An ambiguous date column defers the close by one question, and the next row's click
+			// would land on the open sheet. No-op on a file that proves its own order.
+			await answerDateReadingIfAsked(page);
 		}
 
 		// Before pressing it: the control has to be reachable by a person, not only by a click.
@@ -208,6 +212,9 @@ test.describe('at 390x844', () => {
 		] as const) {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
+			// An ambiguous date column defers the close by one question, and the next row's click
+			// would land on the open sheet. No-op on a file that proves its own order.
+			await answerDateReadingIfAsked(page);
 		}
 		// The account is part of every designation now; see e2e/choose-account.ts.
 		await chooseStatementAccount(page);
@@ -275,6 +282,9 @@ test.describe('at 390x844', () => {
 		] as const) {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
+			// An ambiguous date column defers the close by one question, and the next row's click
+			// would land on the open sheet. No-op on a file that proves its own order.
+			await answerDateReadingIfAsked(page);
 		}
 		// The account is part of every designation now; see e2e/choose-account.ts.
 		await chooseStatementAccount(page);
@@ -389,6 +399,9 @@ test.describe('at 390x844', () => {
 		] as const) {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
+			// An ambiguous date column defers the close by one question, and the next row's click
+			// would land on the open sheet. No-op on a file that proves its own order.
+			await answerDateReadingIfAsked(page);
 		}
 		// The account is part of every designation now; see e2e/choose-account.ts.
 		await chooseStatementAccount(page);
@@ -478,6 +491,9 @@ test.describe('at 1280x800', () => {
 			// The junction, in the journey: the row is the trigger and this is its target. Before
 			// #334 was fixed this click timed out here, because the picker was a `lg:hidden` sheet.
 			await page.getByRole('option', { name: column }).click();
+			// An ambiguous date column defers the close by one question, and the next row's click
+			// would land on the open sheet. No-op on a file that proves its own order.
+			await answerDateReadingIfAsked(page);
 		}
 
 		await expectPrimaryUnobstructed(page, /^Importer/);

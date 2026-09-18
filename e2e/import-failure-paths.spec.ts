@@ -2,6 +2,7 @@ import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { expectPrimaryUnobstructed, onScreen } from './screen-geometry';
 import { chooseStatementAccount } from './choose-account';
+import { answerDateReadingIfAsked } from './date-reading';
 
 /**
  * The import path's failure paths, which are the ones no level below this can see.
@@ -77,6 +78,9 @@ async function reachDesignationScreen(
 	] as const) {
 		await page.getByRole('button', { name: rowName }).click();
 		await page.getByRole('option', { name: column }).click();
+		// An ambiguous date column defers the close by one question, and the next row's click would
+		// land on the open sheet. No-op on a file that proves its own order.
+		await answerDateReadingIfAsked(page);
 	}
 }
 
