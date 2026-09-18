@@ -28,6 +28,24 @@ import { EMPTY_ASSIGNMENT, type RoleAssignment } from '$lib/domain/columnDesigna
  * is a false affordance, so tapping that row opens the question it names. Step 1 stays one tap away
  * through step 2's own foot TapLink, which exists for exactly this.
  *
+ * ## WHY NO TEST IN THIS FILE COULD HAVE FOUND THE ONE-WAY DOOR, which a walk found instead
+ *
+ * Every test below that reaches step 2 reaches it from an UNANSWERED state, because that is the
+ * state the question exists for and it is the obvious thing to set up. The defect lived one state
+ * further on: once answered, `openPicker` sent the row to step 1 and re-choosing the same column
+ * closed the sheet, so there was no route back to the reading at all. A value deciding how every
+ * date in the file is read could be set once and never revised.
+ *
+ * The suite could not see it because the suite never went there. Each test arranged the state it
+ * was about, asserted it, and stopped; nothing in a file organised that way asks what happens after
+ * its own subject is satisfied. That is not a gap a stricter assertion closes, and it is the SECOND
+ * time on this screen that opening the page found what the tests could not: the first was the live
+ * region announcing « 1 sur 3 sur 3 », which every substring assertion accepted.
+ *
+ * **The habit both findings argue for: after a test proves a state is reachable, ask what the user
+ * does NEXT from it, and write that.** The two tests at the end of this file are that question
+ * answered for the reading, and they are the reason it is now a door rather than a latch.
+ *
  * ## The answer is the ANSWER, never the applied reading
  *
  * `onSubmit` carries `null` until a human has chosen, and `decideDateOrder` consults an override

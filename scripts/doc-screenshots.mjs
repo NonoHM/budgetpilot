@@ -156,11 +156,16 @@ async function uploadWideUnrecognisedStatement(page) {
  * Answers the date reading question when the file's date column leaves it open, and does nothing
  * when it does not.
  *
- * Designating a date column whose every value is at or below 12 in both positions DEFERS the
- * panel's close by exactly one question, so a capture that designates such a column and then clicks
- * the next row finds the question in the way. That is what happened here: the wide fixture's dates
- * are 01/06 to 09/06, nothing in the column proves an order, and the desktop capture failed with
- * « How should these dates be read? ... intercepts pointer events » after this shipped.
+ * THE FIXTURE IS AMBIGUOUS, which is a fact about ITS DATA rather than a change in the flow, and
+ * that distinction is the whole comment. The wide fixture's dates are 01/06 to 09/06: every
+ * component sits at or below 12, so nothing in the column proves an order and the screen is right
+ * to ask. The narrow fixture's `24/06/2026` proves day first and is never asked.
+ *
+ * So the desktop capture did not break because designating a date column started behaving
+ * differently. It broke because THIS file has always been one a user must be asked about, and the
+ * screen only recently gained the ability to ask: the question is now open when the loop clicks the
+ * next row, and Playwright reports « How should these dates be read? ... intercepts pointer
+ * events ». A capture of a file that answers its own order needs none of this.
  *
  * Conditional rather than unconditional, because the narrow fixture's `24/06/2026` PROVES day first
  * and never asks: a helper that waited for the question there would time out on a file behaving
