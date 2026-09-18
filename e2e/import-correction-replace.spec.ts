@@ -2,6 +2,7 @@ import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { onScreen } from './screen-geometry';
 import { chooseStatementAccount } from './choose-account';
+import { answerDateReadingIfAsked } from './date-reading';
 
 /**
  * The `replacing` framing: a correction that replaces one import AND duplicates another.
@@ -158,6 +159,9 @@ test.describe('a correction that replaces one import and would duplicate another
 		] as const) {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
+			// An ambiguous date column defers the close by one question, and the next row's click
+			// would land on the open sheet. No-op on a file that proves its own order.
+			await answerDateReadingIfAsked(page);
 		}
 		// The account is part of every designation now; see e2e/choose-account.ts.
 		await chooseStatementAccount(page);

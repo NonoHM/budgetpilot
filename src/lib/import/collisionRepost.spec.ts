@@ -53,7 +53,10 @@ const ANSWER = {
 	// The USER's answer, and it disagrees.
 	hasHeaderRow: false,
 	deleteOldImport: true,
-	accountId: 'account-chosen'
+	accountId: 'account-chosen',
+	// Unanswered on the way in, so each test states the reading it is about rather than inheriting
+	// one. The default is the value that makes a dropped field invisible, so it is never the fixture.
+	dateOrder: null as 'day-first' | 'month-first' | null
 };
 
 describe('buildCollisionRepost', () => {
@@ -90,6 +93,32 @@ describe('buildCollisionRepost', () => {
 		// And the offer goes back carrying that choice, so DECLINING reopens the screen showing it
 		// rather than re-deriving a prefill and overwriting the user's answer with the application's.
 		expect(repost.account?.chosenId).toBe('account-chosen');
+	});
+
+	/**
+	 * THE READING TRAVELS, and it travels for the same reason `hasHeaderRow` above does: answering
+	 * the dialog re-posts the SAME run, so a reading dropped here imports the file under the
+	 * application's default while the screen had just stated the user's answer. `row.date` is the
+	 * second field of the deduplication key, so that is not one column's value: it is the identity
+	 * of every row the file writes.
+	 *
+	 * The fixture makes the answer DISAGREE with the default, which is the whole point: a builder
+	 * that dropped the field and one that hard-coded `day-first` are the same value on any fixture
+	 * that answered day-first.
+	 */
+	it('re-posts the reading the user answered', () => {
+		expect(buildCollisionRepost(PENDING, { ...ANSWER, dateOrder: 'month-first' }).dateOrder).toBe(
+			'month-first'
+		);
+	});
+
+	/**
+	 * And null survives as null. Separates « the question was never answered » from « it was answered
+	 * day-first », which produce the identical dates and must not be recorded as the same decision.
+	 * A builder normalising the absent case to a reading would pass the test above.
+	 */
+	it('carries an unanswered question as unanswered', () => {
+		expect(buildCollisionRepost(PENDING, { ...ANSWER, dateOrder: null }).dateOrder).toBeNull();
 	});
 
 	it('carries no correction when the run is not one', () => {

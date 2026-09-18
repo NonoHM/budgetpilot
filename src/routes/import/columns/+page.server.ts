@@ -13,6 +13,7 @@ import {
 } from '$lib/server/import/file';
 import { mappingFromPostedIndices } from '$lib/server/import/mapping/designation';
 import { findDiscriminantColumn } from '$lib/server/import/discriminant';
+import { readDateOrderAnswer } from '$lib/server/import/dateOrder';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
@@ -101,6 +102,22 @@ export const actions: Actions = {
 		// helper the parser resolves against, so the bytes designated are the bytes parsed.
 		const headers = importHeaderCells(importData.rows);
 		const hasHeaderRow = formData.get('hasHeaderRow') !== 'false';
+		/**
+		 * THE READING THE USER ANSWERED, when the file left the question open.
+		 *
+		 * Read off the form exactly as `hasHeaderRow` above is, and for the same reason: it is a
+		 * per-file parse decision that the parser cannot take from any single value, because a cell
+		 * reading `06/01/2026` is two valid dates with nothing in it to separate them. The answer is
+		 * the screen's second step and it rides this POST.
+		 *
+		 * `readDateOrderAnswer` is the whole of the validation and it lives beside the type, not
+		 * here: positive, against the closed set, and `undefined` for anything else, so an absent or
+		 * hostile value falls back to the derivation rather than to an error. Nothing about
+		 * precedence is decided here either. `decideDateOrder` is the one definition, and it consults
+		 * an override only where the column leaves the question genuinely ambiguous: a file that
+		 * proves its own order ignores this, and a file that proves both is refused whatever it says.
+		 */
+		const dateOrder = readDateOrderAnswer(formData.get('dateOrder'));
 
 		const resolved = mappingFromPostedIndices({
 			headers,
@@ -130,6 +147,11 @@ export const actions: Actions = {
 			// the parser consumed row 0 as a header on a file that has none, losing one
 			// transaction per import in silence. See `server/import/headerlessFile.spec.ts`.
 			hasHeaderRow,
+			// The user's answer, carried into the PARSE. Without it the parser re-derived the order
+			// and settled an ambiguous column with the application default, so a user who chose
+			// « Mois puis jour » read `4 mars 2026` on the row and the import stored `2026-04-03`.
+			// Every date in the file wrong, the summary reporting success. See #639.
+			dateOrder,
 			sourceName: importFile.name || importData.kind,
 			categorizationRules: categorizationRules.map((rule) => ({
 				...rule,

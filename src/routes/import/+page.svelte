@@ -523,6 +523,11 @@
 			// A comment is not a control, so the control now lives in `designationView`.
 			view: designationView(designation),
 			initialAssignment: correctingAssignment ?? EMPTY_ASSIGNMENT,
+			// NOBODY HAS BEEN ASKED YET, and null says exactly that rather than `day-first`. The two
+			// are different facts: the screen's row carries « Confirmer » for the first and states a
+			// confirmed reading for the second, and the server records a decision for the second and
+			// a default for the first.
+			dateOrder: null,
 			candidates: {},
 			// What the SERVER worked out about which account this statement belongs to. Null when the
 			// payload carried none, which the screen reads as « ask ».
@@ -695,6 +700,10 @@
 			view: carried.repost.view,
 			initialAssignment: carried.repost.assignment,
 			candidates: {},
+			// The USER's answer, back onto the screen that asked for it. Same leg and same reasoning
+			// as `hasHeaderRow`, which travels inside the view: declining must not cost the answer,
+			// or the one screen built to stop the application guessing asks again and then guesses.
+			dateOrder: carried.repost.dateOrder,
 			// Carried back WITH the user's choice, so declining reopens the screen the way they left
 			// it rather than the way resolution guessed it.
 			account: carried.repost.account,
@@ -755,6 +764,11 @@
 			// to choose an account, with no control in front of them to choose one with.
 			body.set('accountId', carried.repost.accountId);
 			body.set('hasHeaderRow', String(carried.repost.hasHeaderRow));
+			// Only when a human answered. An absent field is what the action reads as « no answer »,
+			// and it then derives the order from the column, which is the correct behaviour for a
+			// file nobody was asked about. Posting a default here would record a decision as the
+			// user's.
+			if (carried.repost.dateOrder) body.set('dateOrder', carried.repost.dateOrder);
 			for (const role of MAPPING_ROLES) {
 				const index = carried.repost.assignment[role];
 				// Indices, never names. The server resolves them against ITS own header list.

@@ -52,12 +52,36 @@ which column holds your money.
 | `DD.MM.YYYY` | `15.01.2026` | 15 January |
 | `DD-MM-YYYY` | `15-01-2026` | 15 January |
 
-**The day always comes first**, never the month. A file written `MM/DD/YYYY`
-imports on the wrong date rather than being refused, because nothing in the
-file says which convention it uses. This is the one case designating columns
-cannot repair: convert those dates before importing.
-
 A time after the date is ignored, so `2026-01-15 10:30:00` reads as 15 January.
+
+### How the day and month are told apart
+
+`15/01/2026` can only be 15 January, because there is no fifteenth month.
+`06/01/2026` is either 6 January or 1 June, and nothing inside the cell says
+which.
+
+BudgetPilot decides by reading the **whole column**, not the cell:
+
+| What the column contains                                       | How the file is read |
+| -------------------------------------------------------------- | -------------------- |
+| A value above 12 in the first position, such as `24/06/2026`   | Day first.           |
+| A value above 12 in the second position, such as `06/24/2026`  | Month first.         |
+| Only `YYYY-MM-DD` values                                       | Both readings agree. |
+| Every value at or below 12 in both positions                   | You are asked.       |
+| Values proving both, such as `24/06/2026` **and** `06/24/2026` | The file is refused. |
+
+A single value above 12 settles the whole column, so one unambiguous row is
+enough to read every other row correctly. Where a file has several date
+columns, a proof found in one settles the others, because a bank writes every
+date in a statement the same way.
+
+You are asked only in the fourth case, and only on the [designation
+screen](../using/imports.md#when-the-dates-could-be-read-two-ways). A file that
+is recognised automatically is never ambiguous in a way you can answer: it has
+either proved its order or it has none to prove.
+
+**If you are not asked, the file answered for itself.** The reading each import
+applied is recorded against the import, though it is not yet shown to you.
 
 Anything else is refused per row, and the message shows the value it read
 beside the forms it accepts.

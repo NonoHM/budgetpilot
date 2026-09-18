@@ -351,6 +351,17 @@ check for that is the break step below.
   opposite directions.** Assert the kinds separately as soon as a set stops being uniform; the
   arithmetic then checks itself, because one member's change and every member's change differ by a
   factor of the set size.
+- **A SUBSTRING ASSERTION PASSES STRAIGHT OVER A DOUBLED TAIL, so a sentence that is malformed
+  rather than missing goes green.** Same family as the two above and it fails on the one thing a
+  user actually receives: the whole string. Measured on the designation screen's live region, which
+  announced « Date : zone_1. Ordre des dates a confirmer. 1 sur 3 sur 3. » The screen's `count`
+  already carries the whole « 1 sur 3 » phrase, and the catalogue key being wired expected a bare
+  number, so the two conventions spliced. Every `toContain` a reader would reach for here passes:
+  the header is present, the order is present, « 1 sur 3 » is present. **Compare the SENTENCE**,
+  with `toHaveTextContent` or an equality, whenever the thing under test is a message a person
+  reads. A fragment assertion answers « is this word in there », and no user has that question.
+  Found by opening the page, which is the tell: a defect in the JOIN between correct parts is
+  invisible to assertions written about the parts.
 - **AN UNOBSERVED FIGURE IN A PASSING TEST IS NOT A MEASUREMENT.** An assertion placed after
   another in the same test is never evaluated while the first one fails, so a figure can sit in a
   green suite for months having never been computed. The desktop card's height was written down,

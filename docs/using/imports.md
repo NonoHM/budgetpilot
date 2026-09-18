@@ -79,6 +79,45 @@ Three columns are enough. **Category is optional**, and leaving it empty means
 the transactions arrive uncategorised, where [categorization
 rules](./rules.md) can still pick them up.
 
+#### When the dates could be read two ways
+
+`06/01/2026` is either 6 January or 1 June. Most statements answer the question
+themselves: one row dated `24/06/2026` proves the day comes first, because there
+is no twenty-fourth month, and that single row settles every other row in the
+column.
+
+When **no row** in the column settles it, BudgetPilot asks instead of guessing.
+Designate the date column as usual, and the same panel stays open on one more
+question, **How should these dates be read?**
+
+![The reading question on a phone: the panel headed How should these dates be read, above two cards. Day then month is marked Current reading and reads 01/06/2026 as June 1, 2026; Month then day reads the same cell as January 6, 2026. Behind the panel the Date row shows zone_1 and the word Confirm](../screenshots/imports/columns-date-reading-mobile.png)
+
+To answer it:
+
+1. Read the two cards. Each shows **the same three cells from your file**, converted
+   both ways, so you are comparing your own dates rather than an example.
+2. Select the card that matches your statement. The panel closes and the **Date**
+   row states the reading you chose.
+3. Optional: to change your answer, select the **Date** row again, select the same
+   column, and the question comes back with your answer marked **Current reading**.
+
+The card marked **Current reading** is what the import will use if you go no
+further. Until you answer, the **Date** row reads **Confirm**, because an
+assumption nobody has looked at is not an answer.
+
+To change the column instead of the reading, select **Change column** at the foot
+of the panel.
+
+Two things are worth knowing:
+
+- **The reading applies to the whole file**, not to one row.
+- **A file whose column proves both readings is refused**, and nothing is
+  imported. That happens when one column mixes `24/06/2026` and `06/24/2026`, which
+  no single answer can make true.
+
+The full table of what settles a date order is in
+[the imports reference](../reference/imports.md#how-the-day-and-month-are-told-apart).
+
 #### On a wide screen
 
 The same four rows sit on the left, and your file is drawn beside them: the
