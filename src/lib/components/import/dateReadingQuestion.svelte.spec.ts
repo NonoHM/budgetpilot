@@ -406,4 +406,99 @@ describe('the date reading question can be answered', () => {
 		expect(card.textContent).toContain('3 avril 2026');
 		expect(card.textContent).not.toContain('4 mars 2026');
 	});
+	/**
+	 * THE TWO ANNOUNCEMENTS, ASSERTED AS WHOLE SENTENCES, because the defect they exist to stop is a
+	 * MALFORMED one rather than a missing one.
+	 *
+	 * Found in a browser, not by a test: designating an ambiguous column announced
+	 * « Date : zone_1. Ordre des dates a confirmer. 1 sur 3 sur 3. » The screen's `count` already
+	 * carries the whole « 1 sur 3 » phrase, which is what the two shipped announcement keys expect,
+	 * and plate 7i's four unwired keys were written as `{count} sur 3` against a bare number. Wiring
+	 * one spliced the two conventions. All four were brought onto the shipped one.
+	 *
+	 * A `toContain` on a fragment would pass over the doubled tail, which is exactly why these
+	 * compare the SENTENCE. Separates « the live region said something » from « it said something a
+	 * person can read ».
+	 */
+	it('announces a whole sentence when the column defers the question', async () => {
+		const { container } = mount();
+
+		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
+		await page.getByRole('option', { name: /Date operation/ }).click();
+		await expect
+			.element(page.getByTestId('designation-live'))
+			.toHaveTextContent('Date : Date operation. Ordre des dates à confirmer. 1 sur 3.');
+		// The planted positive: the question really is on screen, so this is not a sentence about a
+		// gesture that did nothing.
+		expect(container.querySelectorAll('[data-testid="reading-listbox"]').length).toBe(1);
+	});
+
+	/**
+	 * The second gesture's own sentence. Separates « answering announced the reading » from
+	 * « answering re-announced the designation », which is the sentence a reader would get if the
+	 * choose path fell through to the generic branch.
+	 */
+	it('announces the reading, and the first row under it, when the question is answered', async () => {
+		mount();
+
+		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
+		await page.getByRole('option', { name: /Date operation/ }).click();
+		await page.getByRole('option', { name: /Mois puis jour/ }).click();
+		await expect
+			.element(page.getByTestId('designation-live'))
+			.toHaveTextContent('Dates lues mois puis jour. Première ligne : 4 mars 2026.');
+	});
+	/**
+	 * A USER MUST BE ABLE TO CHANGE THEIR MIND, and the walk is what found that they could not.
+	 *
+	 * Once the question was answered, `openPicker` sent the row to step 1 (correct: what that row
+	 * then offers is the column) and re-choosing the SAME column closed the sheet instead of
+	 * re-asking, because the deferral was gated on the question being unanswered. Between them there
+	 * was no route back to the reading at all: the only way to reach it was to designate a different
+	 * column and come back, which resets the answer. A one-way door on a value that decides how every
+	 * date in the file is read.
+	 *
+	 * Separates « the reading can be changed » from « the reading can be set once ». The retained
+	 * marker is asserted too, so this also covers the sheet reopening on the answer in force rather
+	 * than on the default.
+	 */
+	it('re-asks the reading when the designated column is chosen again', async () => {
+		mount();
+
+		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
+		await page.getByRole('option', { name: /Date operation/ }).click();
+		await page.getByRole('option', { name: /Mois puis jour/ }).click();
+		// Answered. Now the row offers the column, and the column offers the reading again.
+		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
+		await page.getByRole('option', { name: /Date operation/ }).click();
+
+		await expect.element(page.getByText(m.import_datesheet_title())).toBeVisible();
+		// The sheet reopens on the answer in force, not on the application default.
+		const options = page.getByRole('option').elements();
+		expect(options.length).toBe(2);
+		expect(options[1].getAttribute('aria-selected')).toBe('true');
+		expect(options[0].getAttribute('aria-selected')).toBe('false');
+	});
+
+	/**
+	 * And the reading can then be changed BACK, which is the half that proves the route is a door
+	 * rather than a second one-way trip. Separates « the sheet reopened » from « choosing there still
+	 * applies ».
+	 */
+	it('applies a second answer given through that route', async () => {
+		const { container } = mount();
+
+		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
+		await page.getByRole('option', { name: /Date operation/ }).click();
+		await page.getByRole('option', { name: /Mois puis jour/ }).click();
+		expect(cardOf(container).textContent).toContain('4 mars 2026');
+
+		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
+		await page.getByRole('option', { name: /Date operation/ }).click();
+		await page.getByRole('option', { name: /Jour puis mois/ }).click();
+
+		const card = cardOf(container);
+		expect(card.textContent).toContain('3 avril 2026');
+		expect(card.textContent).not.toContain('4 mars 2026');
+	});
 });

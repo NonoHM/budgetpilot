@@ -461,11 +461,17 @@
 		// abandonment, so nothing is announced: a "3 sur 3" here would imply a change.
 		//
 		// The deferred question is still OWED, though, and that is why this branch is not a plain
-		// close. A user who reached step 2, took its foot TapLink back to step 1 and picked the same
-		// column again would otherwise be dropped out of the sheet with the question unanswered and
-		// no way back to it except another round trip.
+		// close. It is ALSO the only route back to the reading once it has been answered, and gating
+		// it on the question being unanswered made the answer a one-way door: `openPicker` sends an
+		// answered row to step 1, which is right because what that row then offers is the column, and
+		// re-choosing the column closed. Between them there was no way to change a value that decides
+		// how every date in the file is read. Found by walking the screen, not by a test.
+		//
+		// So: re-choosing the designated column re-asks, answered or not. Nothing is APPLIED on this
+		// branch either way, which is §5.3 unchanged: the announcement still belongs to a change, and
+		// re-choosing the same column is not one.
 		if (assignment[role] === columnIndex) {
-			if (defersToReading(role, columnIndex) && !dateAnswered) {
+			if (defersToReading(role, columnIndex)) {
 				pickerStep = 'reading';
 				return;
 			}

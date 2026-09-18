@@ -69,9 +69,16 @@ export const DEFAULT_DATE_ORDER: DateOrder = 'day-first';
  * every file: `decideDateOrder` reads the column's own evidence and only consults an answer where
  * the file leaves the question genuinely open. So a hand-made request naming this field cannot
  * change what a file that proves its order imports, and cannot turn an ordinary import into an
- * error either. ASVS 5.0 **v5.0.0-5.1.4**: « Verify that the application validates that
- * user-supplied input conforms to the expected data type and format, using positive validation
- * (allow lists) rather than rejecting known-bad patterns. »
+ * error either.
+ *
+ * ASVS 5.0 **v5.0.0-2.2.1** (L1, Validation and Business Logic > Input Validation), quoted inline
+ * because `scripts/security/` is gitignored and a citation by path is unreadable to anyone who
+ * clones this repository (#601): « Verify that input is validated to enforce business or functional expectations for that input. This should either use positive validation against an allow list of values, patterns, and ranges, or be based on comparing the input to an expected structure and logical limits according to predefined rules. »
+ *
+ * The identifier here was `v5.0.0-5.1.4` when this function was written, and NO SUCH REQUIREMENT
+ * EXISTS: V5.1 holds V5.1.1 alone, which is about documenting permitted file types. The quoted
+ * text was invented to match the invented number. Caught by reading the local source rather than
+ * by any gate, which is what a gitignored reference costs.
  *
  * Exactly the shape of `hasHeaderRow`, which is the per-file parse decision this one follows: read
  * off a form field, honoured before the parse, and meaningless to the parser when absent.

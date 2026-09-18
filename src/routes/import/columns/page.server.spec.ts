@@ -718,7 +718,9 @@ describe('the reading the user answered decides how the file is read', () => {
 
 	/**
 	 * A CLOSED SET, POSITIVELY VALIDATED, and a hostile value falls back to the DERIVATION rather
-	 * than to an error. ASVS 5.0 v5.0.0-5.1.4.
+	 * than to an error. ASVS 5.0 v5.0.0-2.2.1, whose text is quoted where the validation lives, in
+	 * `domain/dateReading.ts`. It read `v5.0.0-5.1.4` here first, which is not a requirement that
+	 * exists.
 	 *
 	 * Separates « the value was validated against the two readings » from « the string was passed
 	 * through ». A parser handed `Mois puis jour` would not match either reading and would read
