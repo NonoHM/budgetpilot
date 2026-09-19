@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.1.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.0.0...budgetpilot-v1.1.0) (2026-09-19)
+
+
+### Features
+
+* **import:** a file's date order becomes an input the parser honours ([#612](https://github.com/NonoHM/budgetpilot/issues/612)) ([784b7df](https://github.com/NonoHM/budgetpilot/commit/784b7df3db47eeff6223c0e8fb197aec1a2e84d4))
+* **import:** derive a file's date order at the single door, from the column each profile declares ([#618](https://github.com/NonoHM/budgetpilot/issues/618)) ([464113c](https://github.com/NonoHM/budgetpilot/commit/464113c595029bb0db1f9bf8dfc6de0131595344))
+* **import:** derive, disclose and store how a file's dates are read ([#637](https://github.com/NonoHM/budgetpilot/issues/637)) ([f66e449](https://github.com/NonoHM/budgetpilot/commit/f66e449bbe0e65413ceb9df0cbdc102ba5ba75de))
+* **import:** thread the date reading a user answers into the parse and the key ([#649](https://github.com/NonoHM/budgetpilot/issues/649)) ([118d820](https://github.com/NonoHM/budgetpilot/commit/118d820fba46d8ab2bebabb299667564e96dc39d))
+
+
+### Bug Fixes
+
+* **csv:** test the first character a consumer sees, not the first code unit ([#654](https://github.com/NonoHM/budgetpilot/issues/654)) ([b9729c7](https://github.com/NonoHM/budgetpilot/commit/b9729c7d838de8f46dc5da1266c618c79d143618))
+* **import:** bound a parsed file's dimensions at the read, and rate limit the import doors ([#604](https://github.com/NonoHM/budgetpilot/issues/604)) ([8b42eb4](https://github.com/NonoHM/budgetpilot/commit/8b42eb4ff61dee83a38937f3cb3d6185fb59f9e0))
+* **reports:** apportion displayed shares so a printed set sums to 100 ([#585](https://github.com/NonoHM/budgetpilot/issues/585)) ([9b6ebcb](https://github.com/NonoHM/budgetpilot/commit/9b6ebcbe39172add99a0e61f4d49e56f46b97544))
+
+
+### Documentation
+
+* **audits:** the API decision stops citing a document nobody can open ([#577](https://github.com/NonoHM/budgetpilot/issues/577)) ([0e99cd7](https://github.com/NonoHM/budgetpilot/commit/0e99cd70afbf23b0e0f32881a6b0e990569b6d68))
+* **research:** the literature behind the merchant index and the counterparty link ([#606](https://github.com/NonoHM/budgetpilot/issues/606)) ([af907d2](https://github.com/NonoHM/budgetpilot/commit/af907d28e092e7fec0a24eb951e1b44132935c6a))
+* **research:** the perception evidence base leaves the tracker ([#578](https://github.com/NonoHM/budgetpilot/issues/578)) ([dd299c1](https://github.com/NonoHM/budgetpilot/commit/dd299c165db2d15df59c942d2acb7282d8cf5741))
+
+
+### Maintenance
+
+* bump devalue from 5.8.1 to 5.9.2 ([#644](https://github.com/NonoHM/budgetpilot/issues/644)) ([350c9c9](https://github.com/NonoHM/budgetpilot/commit/350c9c935d7074a9bb23c12fc80dfab4bc567dea))
+* bump the npm-patch-minor group across 1 directory with 11 updates ([#642](https://github.com/NonoHM/budgetpilot/issues/642)) ([59dc431](https://github.com/NonoHM/budgetpilot/commit/59dc431f3f3d35cd69aa0b4d9c47cb5be906882b))
+
 ## [1.0.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v0.14.4...budgetpilot-v1.0.0) (2026-09-07)
 
 
