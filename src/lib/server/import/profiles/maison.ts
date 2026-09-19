@@ -11,6 +11,7 @@ import { addRefusal, buildSummary, emptyResult, readDateCell, toRecord } from '.
 import { parseAmountCents } from '../utils/money';
 import {
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -102,6 +103,13 @@ export function parseMaisonRows({
 			return;
 		}
 
+		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
+		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
+		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+		if (hasStrandedControlCharacter(record.libelle ?? '')) {
+			addRefusal(refusals, { kind: 'row', line }, { code: 'control-character' }, 'libelle');
+			return;
+		}
 		const label = sanitizeImportedText(record.libelle ?? '');
 
 		const categoryResult = resolveMaisonCategory(record.categorie ?? '');

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { refusalCellValue, sanitizeImportedText } from './safety';
+import { hasStrandedControlCharacter, refusalCellValue, sanitizeImportedText } from './safety';
 
 /**
  * `refusalCellValue` exists because a refusal fact travels to the browser.
@@ -63,9 +63,12 @@ describe('sanitizeImportedText and the leading character a consumer keeps', () =
 		expect.assertions(3);
 
 		// Separates « the first character a consumer keeps is tested » from « the first code unit
-		// is tested », which is what shipped. U+0000 is the instance #594 was filed for; the other
-		// two are the same defect with no control byte in sight.
-		expect(sanitizeImportedText('\u0000=cmd')).toBe("'\u0000=cmd");
+		// is tested », which is what shipped. U+0000 was the instance #594 was filed for; #652
+		// changed what happens to it (see `hasStrandedControlCharacter` in safety.ts): the NUL is
+		// now stripped before the guard ever runs, so the leading `=` it used to hide is read
+		// directly and the stored value comes back without it, still guarded. The other two are
+		// `Cf`, not `Cc`, out of scope for the strip, and still carried through unchanged.
+		expect(sanitizeImportedText('\u0000=cmd')).toBe("'=cmd");
 		expect(sanitizeImportedText('\u200B=cmd')).toBe("'\u200B=cmd");
 		expect(sanitizeImportedText('\u202E=cmd')).toBe("'\u202E=cmd");
 	});
@@ -93,5 +96,72 @@ describe('sanitizeImportedText and the leading character a consumer keeps', () =
 		// copy of this rule and dead here. That asymmetry is why the class kept them.
 		expect(sanitizeImportedText('\t=cmd')).toBe("'=cmd");
 		expect(sanitizeImportedText('\r=cmd')).toBe("'=cmd");
+	});
+});
+
+/**
+ * #652: the class this strips is "control character", not "U+0000" — the one instance Task 1
+ * measured throwing `SQLSTATE 22021` on PostgreSQL. Swept as a class rather than a single code
+ * point for the same reason `formulaGuard.ts` swept `Cc`/`Cf`/`Zs`/`Zl`/`Zp` instead of enumerating
+ * one character: a fix shaped as "add U+0000 to the list" is one of many.
+ */
+describe('sanitizeImportedText strips stranded control characters', () => {
+	it('removes a control character from the middle of a value, closing the gap left behind', () => {
+		expect.assertions(4);
+
+		// U+0000, measured. U+0007 (BEL), U+001B (ESC) and U+007F (DEL): untested by the live
+		// measurement but the same Unicode category, included so the fix is provably about the
+		// class and not a second special case for the one byte that got measured.
+		expect(sanitizeImportedText('SUPERETTE\u00003')).toBe('SUPERETTE3');
+		expect(sanitizeImportedText('SUPERETTE\u00073')).toBe('SUPERETTE3');
+		expect(sanitizeImportedText('SUPERETTE\u001B3')).toBe('SUPERETTE3');
+		expect(sanitizeImportedText('SUPERETTE\u007F3')).toBe('SUPERETTE3');
+	});
+
+	it('strips a C1 control (U+0080-U+009F), the other half of the Cc category', () => {
+		expect.assertions(1);
+		expect(sanitizeImportedText('SUPERETTE\u00853')).toBe('SUPERETTE3');
+	});
+
+	it('collapses the double space a stripped-out control character leaves behind', () => {
+		expect.assertions(1);
+		// The control character sat between two real spaces; removing it must not leave both.
+		expect(sanitizeImportedText('SUPERETTE \u0000 3')).toBe('SUPERETTE 3');
+	});
+
+	it('leaves the five whitespace-shaped Cc characters to the existing collapse, unstripped', () => {
+		expect.assertions(4);
+		// \t \n \v \f already become an ordinary space via the `\s+` collapse; stripping them here
+		// too would concatenate words a real tab or newline separates, a regression the control-
+		// character strip must not cause.
+		expect(sanitizeImportedText('Foo\tBar')).toBe('Foo Bar');
+		expect(sanitizeImportedText('Foo\nBar')).toBe('Foo Bar');
+		expect(sanitizeImportedText('Foo\vBar')).toBe('Foo Bar');
+		expect(sanitizeImportedText('Foo\fBar')).toBe('Foo Bar');
+	});
+});
+
+describe('hasStrandedControlCharacter', () => {
+	it('is true for the class sanitizeImportedText strips, and false once stripped', () => {
+		expect.assertions(3);
+		expect(hasStrandedControlCharacter('SUPERETTE\u00003')).toBe(true);
+		expect(hasStrandedControlCharacter('SUPERETTE\u007F3')).toBe(true);
+		expect(hasStrandedControlCharacter(sanitizeImportedText('SUPERETTE\u00003'))).toBe(false);
+	});
+
+	it('is false for ordinary text and for the whitespace-shaped Cc characters', () => {
+		expect.assertions(5);
+		expect(hasStrandedControlCharacter('Courses')).toBe(false);
+		expect(hasStrandedControlCharacter('')).toBe(false);
+		expect(hasStrandedControlCharacter('Foo\tBar')).toBe(false);
+		expect(hasStrandedControlCharacter('Foo\nBar')).toBe(false);
+		expect(hasStrandedControlCharacter('Foo\rBar')).toBe(false);
+	});
+
+	it('is false for a Cf character, a different Unicode category from Cc', () => {
+		expect.assertions(1);
+		// Zero-width space: guarded against by formulaGuard's own ignorable-leading logic, and
+		// deliberately out of scope for this predicate, which is about Cc alone.
+		expect(hasStrandedControlCharacter('​=cmd')).toBe(false);
 	});
 });

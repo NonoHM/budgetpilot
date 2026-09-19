@@ -4,8 +4,82 @@ import { guardFormulaLead } from '$lib/server/csv/formulaGuard';
 
 export { UNCLASSIFIED_CATEGORY };
 
+/**
+ * Control characters with no legitimate meaning in an imported statement, once the five that
+ * already have defined, tested handling are excluded: `\t` `\n` `\v` `\f` `\r` (U+0009, U+000A,
+ * U+000B, U+000C, U+000D) are collapsed into an ordinary space by the whitespace pass below, same
+ * as any other run of `\s`. What is left is exactly Unicode's `Cc` (control) category minus those
+ * five — U+0000 through U+0008, U+000E through U+001F, and the C1 controls U+007F through
+ * U+009F — spelled as literal ranges rather than `\p{Cc}`. Cc is a fixed, closed block (it is tied
+ * to the ASCII/Latin-1 control codes, not to a table a Unicode version can extend), so unlike
+ * `formulaGuard.ts`'s `\p{Cf}` this class cannot drift under a Node upgrade and needs no pinned
+ * count to catch it if it did.
+ *
+ * #652: a NUL surviving into a stored `Transaction.label` throws `SQLSTATE 22021` on PostgreSQL
+ * (`invalid byte sequence for encoding "UTF8": 0x00`) from inside the per-row write loop in
+ * `server/import/persist.ts`, which has no enclosing transaction to roll back — rows written
+ * before the throw stay committed while the batch's `importedRows` counter, written once after
+ * the loop, never advances past zero. SQLite and MariaDB store the byte and never throw. Measured
+ * with a planted positive on all three engines: `controlCharacterPartialCommit.db-smoke.ts`.
+ *
+ * None of these characters can be a real amount sign, a real separator, or a real part of a
+ * French bank's own encoding the way `-39,90`'s leading `-` can — `guardFormulaLead`'s "prefix,
+ * never strip" rule protects exactly that possibility for `=+-@` and stays untouched. This one
+ * carries no such content: stripping it is closer to the `\s+` collapse two lines below, or to
+ * `normalizeMojibakeText`'s own silent repair of a different kind of damaged byte, than to
+ * altering a value a bank statement could legitimately hold.
+ */
+// Two literals rather than one derived with `new RegExp(source, 'g')`: `injection-sinks.spec.ts`
+// (ASVS v5.0.0-1.2.9) refuses a RegExp built from a string, and a shared `g` flag would also be
+// unsafe to reuse for `.test()` below — a global regex carries `lastIndex` across calls, which
+// `.test()` on the same instance would then read and corrupt.
+//
+// Same convention as `server/auth.ts`'s `CONTROL_CHAR_PATTERN`, guarding the identical class of
+// bug (a control character reaching a Postgres text parameter) on a different column.
+// eslint-disable-next-line no-control-regex -- matching control characters is the point here
+const STRANDED_CONTROL_CHARACTER = /[\u0000-\u0008\u000E-\u001F\u007F-\u009F]/;
+// eslint-disable-next-line no-control-regex -- matching control characters is the point here
+const STRANDED_CONTROL_CHARACTERS = /[\u0000-\u0008\u000E-\u001F\u007F-\u009F]/g;
+
+/**
+ * Whether IMPORTED text carries a control character `sanitizeImportedText` is about to strip.
+ *
+ * Exported so a caller that can still refuse the ROW this text came from — a CSV profile
+ * parser, before it calls `sanitizeImportedText` — reports it as an ordinary invalid row instead
+ * of silently accepting an altered label. `sanitizeImportedText` itself has no such channel: most
+ * of its other callers (column-mapping names, bank-connector text other than the label) have no
+ * per-row refusal concept to report through, which is why the strip below is the universal
+ * fallback and this predicate is the opt-in refusal for the one caller that has somewhere to
+ * report to. Tested against the RAW value, before mojibake normalisation or the whitespace
+ * collapse: neither one can introduce or remove a `Cc` character, so the verdict is identical
+ * either way and this reads the value a caller already has in hand.
+ *
+ * NOT DEFINED IN `domain/transaction.ts`'s `validateTransaction`, where a fourth caller
+ * intuitively belongs beside `label-too-long` and the other per-field checks. `domain/` is pure —
+ * no `$lib/server`, `$app/*` or Prisma import, by the directory rule in AGENTS.md — and this
+ * predicate lives in `$lib/server/import/`, so `validateTransaction` cannot see it without either
+ * duplicating the regex there (the copied predicate this file exists to avoid) or moving this
+ * module's dependents across the boundary. If a future reader moves this check into
+ * `validateTransaction`, they have re-implemented the class rather than reused it: check for a
+ * second copy of `STRANDED_CONTROL_CHARACTER`'s ranges before trusting that it hasn't.
+ *
+ * ONE OPEN DOOR THIS DOES NOT CLOSE: `backup/import.ts` writes a restored `label` straight from
+ * the backup JSON and never calls `sanitizeImportedText` at all (see `safety.spec.ts`'s "#594, the
+ * DEFENCE IN DEPTH half"). A caller that never calls this function is not protected by it. #652
+ * closed the CSV-profile door (this file) and the bank-connector door
+ * (`enablebanking.ts`'s `bank_transaction_code.description`); the restore door was already known
+ * and is still open.
+ */
+export function hasStrandedControlCharacter(value: string): boolean {
+	return STRANDED_CONTROL_CHARACTER.test(value);
+}
+
 export function sanitizeImportedText(value: string): string {
-	const sanitized = normalizeMojibakeText(value).trim().replace(/\s+/g, ' ');
+	const withoutControlCharacters = normalizeMojibakeText(value).replace(
+		STRANDED_CONTROL_CHARACTERS,
+		''
+	);
+	const sanitized = withoutControlCharacters.trim().replace(/\s+/g, ' ');
 	return guardFormulaLead(sanitized);
 }
 

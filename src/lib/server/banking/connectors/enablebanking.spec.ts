@@ -471,6 +471,41 @@ describe('EnableBankingConnector — fetchTransactions', () => {
 		expect(transactions.map((tx) => tx.date)).toEqual(['2026-01-01', '2026-01-02']);
 	});
 
+	/**
+	 * #652: `bank_transaction_code.description` is bank/ASPSP-supplied free text, exactly like a
+	 * CSV cell, and it reaches a real (non-JSON) column: `Transaction.bankOperationType`
+	 * (persist.ts). Unlike `label` and `explicitName` on this same connector, it went straight
+	 * from the provider response into `metadata.bankOperationType` with no sanitisation — the
+	 * same crash class this whole issue is about (a stranded control character throwing
+	 * `SQLSTATE 22021` on PostgreSQL from inside persist.ts's unguarded write loop), reachable
+	 * through bank-sync instead of a CSV profile. Found by a contradiction pass against the CSV
+	 * fix, not by the original measurement.
+	 */
+	it('sanitises bank_transaction_code.description before it reaches bankOperationType', async () => {
+		expect.assertions(1);
+		const fetchImpl = vi.fn().mockResolvedValue(
+			txPage([
+				{
+					entry_reference: 'ref-control-char',
+					booking_date: '2026-01-01',
+					status: 'BOOK',
+					credit_debit_indicator: 'DBIT',
+					transaction_amount: { currency: 'EUR', amount: '10.00' },
+					creditor: { name: 'Marchand' },
+					bank_transaction_code: { description: 'PAIEMENT\u0000CARTE' }
+				}
+			])
+		);
+		const { connector } = makeConnector({ fetchImpl });
+
+		const transactions = await connector.fetchTransactions(activeConnection, 'acc-1', {
+			from: '2026-01-01',
+			to: '2026-01-31'
+		});
+
+		expect(transactions[0].metadata.bankOperationType).toBe('PAIEMENTCARTE');
+	});
+
 	it('mappe CRDT en revenu positif et DBIT en dépense négative', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(
 			txPage([

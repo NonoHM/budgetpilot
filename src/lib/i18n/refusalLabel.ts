@@ -154,6 +154,8 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			return m.import_refusal_debit_credit_empty();
 		case 'category-too-long':
 			return m.import_refusal_category_too_long();
+		case 'control-character':
+			return m.import_refusal_control_character();
 		case 'split-column-unreadable':
 			return m.import_refusal_split_column_unreadable();
 		case 'split-out-of-bounds':

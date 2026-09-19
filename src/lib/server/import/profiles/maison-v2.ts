@@ -15,6 +15,7 @@ import type { DateOrder } from '../dateOrder';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -263,6 +264,13 @@ function parseAllocationLine(
 		return null;
 	}
 
+	// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching a
+	// stored label crashes the write on PostgreSQL, and this refuses the row rather than silently
+	// importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+	if (hasStrandedControlCharacter(record.libelle ?? '')) {
+		addRefusal(refusals, { kind: 'row', line }, { code: 'control-character' }, 'libelle');
+		return null;
+	}
 	const label = sanitizeImportedText(record.libelle ?? '');
 
 	const category = resolveV2Category(record.categorie ?? '');
