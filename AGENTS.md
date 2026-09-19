@@ -482,6 +482,13 @@ path reports 5000 clean refusals, which reads like a healthy run.
 - **Every harness carries its own calibration**: give it a known failing case and check it
   reports it, before believing any negative result. Calibrate the DETECTOR, not the page.
 - **Calibrate on the label of the thing you want to count**, not one that travels with it.
+- **The measurement that PROVES a fix is a detector too, and it fails in the same comfortable
+  direction.** A before-and-after comparison reporting a clean after is indistinguishable from one
+  that read nothing, and it arrives at the moment you most want to believe it. Measured: a
+  spreadsheet conversion written to show a formula-injection fix reported ZERO formula cells in the
+  broken file and the fixed one alike, and only a planted positive in the same pass separated « the
+  fix worked » from « the instrument read nothing ». Run the positive in the SAME pass as the
+  comparison, never once beforehand, and print what each side read beside what it found.
 - **A check reporting clean must say how many files it read.** Zero files reads as success.
 - **Search with Serena, not grep, when the question is « every site that does X ».** A text search
   answers where you LOOKED, not where it IS, and it fails in the comfortable direction, as a short
