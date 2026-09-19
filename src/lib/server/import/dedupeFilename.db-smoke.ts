@@ -95,7 +95,13 @@ beforeAll(async () => {
 });
 
 async function runImport(profile: Profile, body: string, fileName: string) {
-	const parsed = parseCsvTransactions(`${profile.header}\n${body}\n`, { sourceName: fileName });
+	// banque-populaire's fixture date is ambiguous by construction (day and month both <= 12);
+	// this file is about the deduplication key ignoring the file name, not the reading, so an
+	// explicit answer keeps every profile out of the auto path's ambiguous-date-order ask.
+	const parsed = parseCsvTransactions(`${profile.header}\n${body}\n`, {
+		sourceName: fileName,
+		dateOrder: 'day-first'
+	});
 	// The parse must have succeeded, or every count below is a fact about a broken fixture rather
 	// than about the deduplication key.
 	expect(parsed.invalidRows, `${profile.name} refused its own fixture`).toStrictEqual([]);

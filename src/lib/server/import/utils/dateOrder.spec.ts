@@ -29,10 +29,6 @@ const MONTH_FIRST_FILE = [
 	'08/03/2026,SALARY,2400.00'
 ].join('\n');
 
-function daysBetween(from: string, to: string): number {
-	return Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000);
-}
-
 describe('a month-first date column', () => {
 	/**
 	 * Separates « the parser was told the order and honoured it » from « the parser was told and
@@ -51,25 +47,21 @@ describe('a month-first date column', () => {
 	});
 
 	/**
-	 * Separates « the default is unchanged » from « the fix moved every existing user's dates ».
-	 * This is the assertion that has to keep passing, and it is written as the MEASURED
-	 * displacement rather than as a list of wrong dates, because the size is what makes #433 a
-	 * defect rather than an off-by-one: a figure a reader cannot mistake for a rounding.
+	 * SUPERSEDED, #433'S REMAINDER CLOSED ON THIS PATH. This used to pin the silent five-month
+	 * displacement: three rows in, three rows out, nothing refused, dates wrong. `generic` is a
+	 * REGISTERED profile, so `dateOrderSeam.spec.ts`'s "a registered profile asks instead of
+	 * silently defaulting" now covers exactly this shape, and the file is refused rather than
+	 * silently misread. `AUTHOR_DATES` stays for the sibling test above, which still needs it to
+	 * prove the override moved anything.
 	 */
-	it('is read day first when the order is not given, displacing every row by five months', () => {
+	it('asks instead of silently displacing every row by five months', () => {
 		expect.assertions(3);
 
 		const result = parseCsvTransactions(MONTH_FIRST_FILE);
-		const stored = result.transactions.map((transaction) => transaction.date);
 
-		// Silent: three rows in, three rows out, nothing refused. That is the whole defect.
-		expect(result.summary.validRows).toBe(3);
-		expect(result.summary.invalidRows).toBe(0);
-		// The absolute figure, measured here rather than quoted: each row lands this many days
-		// BEFORE the date its author wrote.
-		expect(stored.map((date, index) => daysBetween(date, AUTHOR_DATES[index]))).toEqual([
-			146, 145, 148
-		]);
+		expect(result.transactions).toEqual([]);
+		expect(result.summary.fileLevelRefusals).toBe(1);
+		expect(result.invalidRows[0].fact.code).toBe('ambiguous-date-order');
 	});
 
 	/**

@@ -53,6 +53,13 @@ export type CsvRefusalFact =
 	// problem. Same reasoning as `duplicate-column` and `amount-split-across-columns`, which is
 	// why it follows their shape rather than inventing a third. See `dateOrder.ts` and #433.
 	| { code: 'mixed-date-order'; dayFirst: string; monthFirst: string }
+	// The column left the question genuinely open: no cell proves either reading. `column` is the
+	// index into the header row, threaded to the route so it can build the offer without
+	// re-deriving which column the profile declared; `sample` is one ambiguous cell, through
+	// `refusalCellValue` exactly as `mixed-date-order`'s pair. Never emitted for `mapped`: that
+	// door keeps its existing, tested day-first default, because the designation screen (#639) is
+	// trusted to have asked before this door is reached. See `dateOrder.ts` and #433.
+	| { code: 'ambiguous-date-order'; column: number; sample: string }
 	// structural
 	| { code: 'unknown-column'; column: string }
 	// Every spelling the FILE uses for the folded name, joined, in file order. One name would be
@@ -153,6 +160,7 @@ export const CSV_REFUSAL_CODES = [
 	'too-many-columns',
 	'header-not-recognized',
 	'mixed-date-order',
+	'ambiguous-date-order',
 	'unknown-column',
 	'duplicate-column',
 	'missing-required-column',

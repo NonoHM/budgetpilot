@@ -67,7 +67,11 @@ const CASES: Array<{
 		path: 'mapped, through a designation the user made',
 		profile: 'mapped',
 		content: ['Jour;Intitule operation;Somme', `${AMBIGUOUS};CARREFOUR MARKET;-24,90`].join('\n'),
-		options: { profile: 'mapped', columnMapping: MAPPING }
+		// `dateOrderPromptedClientSide` is what actually keeps this profile defaulting silently
+		// when nothing is said (below): #433's contradiction pass found `mapped` alone no longer
+		// means "the designation screen already asked", since `/import`'s own silent
+		// remembered-mapping reuse also parses as `mapped` with nobody ever having been asked.
+		options: { profile: 'mapped', columnMapping: MAPPING, dateOrderPromptedClientSide: true }
 	},
 	{
 		path: 'banque-populaire, through its three date candidates',
@@ -127,12 +131,18 @@ describe('the file s date order reaches every parse path', () => {
 	});
 
 	/**
-	 * The control, and it is what makes the table above a measurement rather than a tautology.
-	 * Separates « the fixtures are ambiguous and the order decides » from « the fixtures happen to
-	 * read the same either way », which would make every assertion above pass on a parser that
-	 * ignored the option entirely.
+	 * THE CONTROL, split by profile since #433's auto-path remainder: it is no longer one
+	 * behaviour, and pretending it is would make this the exact silent default that session
+	 * closed. `mapped` keeps its existing, tested day-first default (the designation screen, #639,
+	 * is trusted to have asked before this door is reached); every REGISTERED profile now asks
+	 * instead, which is what makes the table above a measurement rather than a tautology on that
+	 * side too: a parser that ignored the option entirely would read day-first regardless, and a
+	 * parser too eager to ask would never reach the table above at all.
 	 */
-	it.each(CASES)(
+	const MAPPED_CASES = CASES.filter((c) => c.profile === 'mapped');
+	const REGISTERED_CASES = CASES.filter((c) => c.profile !== 'mapped');
+
+	it.each(MAPPED_CASES)(
 		'$path reads the same cell day-first when nothing is said',
 		({ content, options }) => {
 			expect.assertions(1);
@@ -142,4 +152,26 @@ describe('the file s date order reaches every parse path', () => {
 			expect(result.transactions[0].date).toBe(DAY_FIRST_DATE);
 		}
 	);
+
+	it.each(REGISTERED_CASES)(
+		'$path asks instead of defaulting when nothing is said',
+		({ content, options }) => {
+			expect.assertions(2);
+
+			const result = parseCsvTransactions(content, options);
+
+			expect(result.transactions).toEqual([]);
+			expect(result.invalidRows[0]?.fact.code).toBe('ambiguous-date-order');
+		}
+	);
+
+	/**
+	 * THE PARTITION IS EXHAUSTIVE. Separates « every case landed in one of the two groups above »
+	 * from « a profile added later silently joined neither », which would make both `it.each`
+	 * blocks pass while covering fewer cases than `CASES` declares.
+	 */
+	it('splits every case into exactly one of the two groups', () => {
+		expect.assertions(1);
+		expect(MAPPED_CASES.length + REGISTERED_CASES.length).toBe(CASES.length);
+	});
 });

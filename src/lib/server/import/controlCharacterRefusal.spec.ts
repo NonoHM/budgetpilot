@@ -107,7 +107,11 @@ describe('a control character in the label is refused, not silently stripped', (
 		).toHaveLength(1);
 		expect(
 			parseCsvTransactions(
-				`${BANQUE_POPULAIRE_HEADER}\n01/08/2026;SUPERETTE;PAIEMENT CB SUPERETTE;REF001;;Carte;Alimentation;Courses;-8,40;;01/08/2026;01/08/2026;`
+				`${BANQUE_POPULAIRE_HEADER}\n01/08/2026;SUPERETTE;PAIEMENT CB SUPERETTE;REF001;;Carte;Alimentation;Courses;-8,40;;01/08/2026;01/08/2026;`,
+				// The date is ambiguous by construction; this test is about the control-character
+				// guard, not the reading, so an explicit answer keeps it out of the auto path's
+				// ambiguous-date-order ask.
+				{ dateOrder: 'day-first' }
 			).transactions
 		).toHaveLength(1);
 		expect(
