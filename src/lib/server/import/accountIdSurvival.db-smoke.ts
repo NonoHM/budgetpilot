@@ -44,7 +44,10 @@ beforeAll(async () => {
 });
 
 async function importInto(intoAccountId: string, fileName: string) {
-	const parsed = parseCsvTransactions(BP_FILE, { sourceName: fileName });
+	// The fixture's date is ambiguous by construction (day and month both <= 12); this file is
+	// about dedupe-key survival across an account promotion, not the reading, so an explicit
+	// answer keeps it out of the auto path's ambiguous-date-order ask.
+	const parsed = parseCsvTransactions(BP_FILE, { sourceName: fileName, dateOrder: 'day-first' });
 	expect(parsed.invalidRows, `${fileName} must parse`).toStrictEqual([]);
 	const importBatchId = await createImportBatch({
 		userId,

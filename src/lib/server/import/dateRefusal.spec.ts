@@ -143,7 +143,11 @@ describe('an unreadable date, on every profile that can read one', () => {
 
 		const result = parseCsvTransactions(
 			'Date de comptabilisation;Libelle simplifie;Libelle operation;Reference;Informations complementaires;Type operation;Categorie;Sous categorie;Debit;Credit;Date operation;Date de valeur;Pointage operation\n' +
-				';MERCERIE LAFAYETTE;PAIEMENT CB MERCERIE LAFAYETTE;REF000100;CARTE 4512;Carte;Alimentation;Courses;-45,20;;;01/06/2026;'
+				';MERCERIE LAFAYETTE;PAIEMENT CB MERCERIE LAFAYETTE;REF000100;CARTE 4512;Carte;Alimentation;Courses;-45,20;;;01/06/2026;',
+			// The fixture's date is ambiguous by construction (day and month both <= 12), and the
+			// fallback is what this test is about, not the reading: an explicit answer keeps the
+			// scope narrow, same as the sibling test below.
+			{ dateOrder: 'day-first' }
 		);
 
 		expect(result.invalidRows).toHaveLength(0);
@@ -158,7 +162,9 @@ describe('an unreadable date, on every profile that can read one', () => {
 		const result = parseCsvTransactions(
 			'Date de comptabilisation;Libelle simplifie;Libelle operation;Reference;Informations complementaires;Type operation;Categorie;Sous categorie;Debit;Credit;Date operation;Date de valeur;Pointage operation\n' +
 				'01/06/2026;MERCERIE LAFAYETTE;PAIEMENT CB MERCERIE LAFAYETTE;REF000100;CARTE 4512;Carte;Alimentation;Courses;-45,20;;01/06/2026;01/06/2026;\n' +
-				'03/06/2026;SALAIRE;VIREMENT SEPA SALAIRE;REF000101;PAUL MERCIER;Virement;Revenus;Salaire;;2450,00;03/06/2026;03/06/2026;'
+				'03/06/2026;SALAIRE;VIREMENT SEPA SALAIRE;REF000101;PAUL MERCIER;Virement;Revenus;Salaire;;2450,00;03/06/2026;03/06/2026;',
+			// Ambiguous by construction, same reason as the sibling test above.
+			{ dateOrder: 'day-first' }
 		);
 
 		expect(result.invalidRows).toHaveLength(0);

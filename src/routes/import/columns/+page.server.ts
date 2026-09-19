@@ -152,6 +152,12 @@ export const actions: Actions = {
 			// « Mois puis jour » read `4 mars 2026` on the row and the import stored `2026-04-03`.
 			// Every date in the file wrong, the summary reporting success. See #639.
 			dateOrder,
+			// THIS is the caller the door trusts to have already asked, per #433's contradiction
+			// pass: the designation screen (#639) defers its own close until an ambiguous column
+			// is answered or the user waives it (plate 7b), so a silent day-first default here is
+			// the screen's own decision, not the door guessing. `/import`'s OTHER `mapped` caller
+			// (a silently reapplied remembered mapping) sets no such flag, and asks instead.
+			dateOrderPromptedClientSide: true,
 			sourceName: importFile.name || importData.kind,
 			categorizationRules: categorizationRules.map((rule) => ({
 				...rule,
@@ -491,7 +497,8 @@ export const actions: Actions = {
 				// memorised, and an opt-out skips the block entirely. The disclosure sentence on the
 				// summary is drawn from this and from nothing else, so a user who opted out is not
 				// told their columns will be reused.
-				rememberedMapping: columnMappingId !== null
+				rememberedMapping: columnMappingId !== null,
+				dateOrderDisclosure: result.summary.dateOrderDisclosure ?? null
 			} satisfies ImportSummaryResult,
 			capReached,
 			replaced

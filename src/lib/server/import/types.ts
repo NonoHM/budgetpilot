@@ -55,11 +55,35 @@ export interface CsvImportOptions {
 	 * precedence is written once, in `decideDateOrder`, which is also where the reason it deviates
 	 * from the ladder #613 wrote down is recorded.
 	 *
-	 * Nothing in production sets it yet: the screen that asks is not built, so an ambiguous column
-	 * still takes the day-first default. That interim is gated by
-	 * `dateOrderQuestionAsleep.spec.ts`, not by this sentence.
+	 * Two production callers set it now: `/import/columns`, from an answer the designation
+	 * screen (#639) collected, and `/import`'s own action, from the auto-path reading offer this
+	 * option's absence can trigger — see `dateOrderPromptedClientSide` below for how the two
+	 * `mapped` callers among them are told apart.
 	 */
 	dateOrder?: DateOrder;
+	/**
+	 * Whether a CLIENT-SIDE screen already had the chance to ask this column's reading before this
+	 * parse ran, so the door must not ask again.
+	 *
+	 * ## The gap this closes, found by #433's contradiction pass
+	 *
+	 * The door used to infer "already asked" from `profile === 'mapped'`, on the reasoning that a
+	 * mapped parse always comes from `/import/columns`, backed by the designation screen. That
+	 * reasoning missed a THIRD caller: `/import`'s own action also parses with `profile: 'mapped'`
+	 * whenever it silently reapplies a `ColumnMapping` remembered from a PREVIOUS designation
+	 * (`useMapping`, keyed by header fingerprint) — and that reuse shows no screen at all.
+	 * `ColumnMapping` carries no `dateOrder` field, so nothing was ever asked or remembered for
+	 * this file, and the day-first default would otherwise apply silently forever on precisely the
+	 * path most repeat imports take.
+	 *
+	 * So `mapped` alone no longer means "already asked". Only `/import/columns` sets this flag,
+	 * because it alone is wired to the screen that can ask (#639) and is trusted to have deferred
+	 * its own close until the question was answered or waived (plate 7b). Every other caller —
+	 * every registered profile AND the silent `mapped` reuse — leaves it unset, and an ambiguous
+	 * column with no override there reaches the same `ambiguous-date-order` refusal `csv.ts` gives
+	 * a registered profile.
+	 */
+	dateOrderPromptedClientSide?: boolean;
 }
 
 /**
@@ -133,6 +157,21 @@ export interface CsvImportSummary {
 	 * left it, so no caller had the value. This is the value.
 	 */
 	dateOrder?: DateOrder;
+	/**
+	 * The column and reading to disclose on the import summary, plate 7l — present only where the
+	 * reading was CHOSEN rather than proven or defaulted.
+	 *
+	 * "Chosen" is exactly the one branch `decideDateOrder` reaches through an override: the column
+	 * left the question genuinely open (`ambiguous`) and an answer settled it. A proven column is
+	 * arithmetic and disclosing it every month is noise (7l); a defaulted column was never chosen
+	 * by anyone, and stating a "reading" nobody answered is the silent default #433 names, wearing
+	 * a summary line instead of a refusal.
+	 *
+	 * Absent, never `null`, for the same reason `dateOrder` is optional: most parses have nothing
+	 * to disclose, and an object some parses omit is a smaller lie than a field always present and
+	 * usually null.
+	 */
+	dateOrderDisclosure?: { header: string; order: DateOrder };
 	/**
 	 * The DATA rows this parse read, which is every row a refusal can be about.
 	 *

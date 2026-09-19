@@ -73,7 +73,11 @@ describe('a date written with dots', () => {
 		expect.assertions(4);
 
 		const result = parseCsvTransactions(
-			'date,label,amount\n01.06.2026,Mercerie Lafayette,-45.20\n03.06.2026,Salaire,2450.00'
+			'date,label,amount\n01.06.2026,Mercerie Lafayette,-45.20\n03.06.2026,Salaire,2450.00',
+			// Both dates are ambiguous by construction; this test is about dotted-separator
+			// support end to end, not about the reading, so an explicit answer keeps it out of the
+			// auto path's ambiguous-date-order ask.
+			{ dateOrder: 'day-first' }
 		);
 
 		expect(result.invalidRows).toHaveLength(0);

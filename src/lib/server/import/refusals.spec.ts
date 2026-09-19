@@ -28,7 +28,9 @@ describe('refusal catalogue coverage', () => {
 		// 41 since `control-character` (#652): a control character in a label, refused at parse
 		// rather than silently stripped, because the guard that strips it (`sanitizeImportedText`)
 		// has no refusal channel of its own.
-		expect(CSV_REFUSAL_CODES).toHaveLength(41);
+		// 42 since `ambiguous-date-order` (#433): a registered profile's date column that proves
+		// neither reading, asked about on the auto path rather than defaulted silently.
+		expect(CSV_REFUSAL_CODES).toHaveLength(42);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

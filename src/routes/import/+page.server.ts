@@ -27,6 +27,7 @@ import {
 } from '$lib/server/import/file';
 import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
 import { refusedForBounds } from '$lib/server/import/refusals';
+import { readDateOrderAnswer } from '$lib/server/import/dateOrder';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
@@ -349,7 +350,11 @@ export const actions: Actions = {
 			categorizationRules: categorizationRules.map((rule) => ({
 				...rule,
 				type: rule.type === 'income' || rule.type === 'expense' ? rule.type : 'any'
-			}))
+			})),
+			// Absent until now: nothing on this route ever posted the field, because nothing could
+			// ask. The reading offer below is the caller; `readDateOrderAnswer` is the same closed-set
+			// validator `/import/columns` already reads its own answer through.
+			dateOrder: readDateOrderAnswer(formData.get('dateOrder'))
 		});
 
 		if (result.transactions.length === 0) {
@@ -370,6 +375,22 @@ export const actions: Actions = {
 			// As in the correction branch: one array, shared by `samples` and `dateReadings`.
 			const offerSamples = importSampleValues(importData.rows);
 			const offerFirstRow = importFirstDataRow(importData.rows);
+			/**
+			 * THE FOURTH OFFER, #433's auto-path remainder (plate 7l). The parse door (`csv.ts`)
+			 * already refused to guess: an ambiguous column under a recognised profile comes back as
+			 * this ONE fact and nothing else, because `csv.ts` only reaches it when the file would
+			 * otherwise have imported cleanly (structural refusals win first).
+			 *
+			 * `result.invalidRows.length === 1` rather than `.some`: this refusal is the WHOLE story
+			 * for this parse (the door returns `emptyResult` with exactly one fact), so checking there
+			 * is nothing else is free and catches a future door change that starts emitting it
+			 * alongside something else, which would silently change what this offer means.
+			 */
+			const dateOrderRefusal =
+				result.invalidRows.length === 1 &&
+				result.invalidRows[0].fact.code === 'ambiguous-date-order'
+					? result.invalidRows[0].fact
+					: null;
 			const splitRefusal: ImportInvalidRowDetail[] = splitPair
 				? [
 						{
@@ -388,15 +409,19 @@ export const actions: Actions = {
 			return fail(400, {
 				error: splitPair
 					? refusalLabel(splitRefusal[0].fact)
-					: m.import_error_no_valid_transactions(),
+					: dateOrderRefusal
+						? m.import_error_ambiguous_date_order()
+						: m.import_error_no_valid_transactions(),
 				// The file nothing recognised, offered to the designation screen rather than left as
 				// a refusal. Only when the refusal is ABOUT the columns: a file refused for a
 				// currency it cannot hold, or for amounts whose sign lives in another column, is not
 				// a file the user can repair by naming columns, and offering the screen there would
 				// send them to do work that cannot help.
-				// `!splitPair` is the gate: everything else about the offer is unchanged.
+				// `!splitPair && !dateOrderRefusal` is the gate: everything else about the offer is
+				// unchanged. `dateOrderRefusal` is excluded for the reason plate 7l gives: recognition
+				// covers mapping, not reading, so there is no column left to redesignate.
 				designation:
-					!splitPair && offersDesignation(result, headerCells)
+					!splitPair && !dateOrderRefusal && offersDesignation(result, headerCells)
 						? {
 								account: await accountOfferPayload(
 									user.id,
@@ -424,6 +449,24 @@ export const actions: Actions = {
 								detectedHeaderRow: true
 							}
 						: undefined,
+				// Plate 7l: opens `ColumnPicker` at `step: 'reading'` alone, no column list, no back
+				// to it. `dateColumn` is the profile's OWN declared index, never a user's guess:
+				// recognition already covers mapping, so this offer answers the one thing it does
+				// not, the reading, and nothing about which column holds the date is in question.
+				reading: dateOrderRefusal
+					? {
+							name: importFile.name,
+							headers: headerCells,
+							samples: offerSamples,
+							dateReadings: importColumnDateReadings(
+								dateCellsPerColumn(offerFirstRow, offerSamples)
+							),
+							firstRow: offerFirstRow,
+							detectedHeaderRow: true,
+							rowCount: Math.max(0, result.summary.totalRows),
+							dateColumn: dateOrderRefusal.column
+						}
+					: undefined,
 				importResult: buildImportResult(
 					result.summary.totalRows,
 					0,
@@ -653,7 +696,10 @@ export const actions: Actions = {
 				// remembered correspondance and never creates one: `saveColumnMapping` has exactly
 				// one production call site and it is the designation route's action. Nobody
 				// designated anything here, so there is nothing new to disclose.
-				rememberedMapping: false
+				rememberedMapping: false,
+				// Plate 7l. Populated whenever THIS parse's date order was chosen rather than proven or
+				// defaulted — see `CsvImportSummary.dateOrderDisclosure`'s docstring for the one rule.
+				dateOrderDisclosure: result.summary.dateOrderDisclosure ?? null
 			} satisfies ImportSummaryResult
 		};
 	}
@@ -698,7 +744,13 @@ function buildImportResult(
 const DESIGNATION_CANNOT_REPAIR = new Set<string>([
 	'unsupported-currency',
 	'amount-sign-in-separate-column',
-	'amount-split-across-columns'
+	'amount-split-across-columns',
+	// Plate 7l: recognition covers mapping, not reading. The column is already correctly
+	// identified; the reading offer built below answers this one directly, and sending the user to
+	// redesignate columns that are not the problem is the dead end this set already exists to name.
+	// Checked defensively here as well as ahead of the offer below (`!dateOrderRefusal`), because
+	// this set is the guard `mixed-date-order` is deliberately absent from for the opposite reason.
+	'ambiguous-date-order'
 ]);
 
 /**
