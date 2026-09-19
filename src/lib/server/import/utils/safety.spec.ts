@@ -46,3 +46,52 @@ describe('refusalCellValue', () => {
 		expect(refusalCellValue('a\n\n\n\n\nb')).toBe('a b');
 	});
 });
+
+/**
+ * #594, the DEFENCE IN DEPTH half. The control point is the export writer, not here.
+ *
+ * `sanitizeImportedText` is one of three writers that reach a stored label, and the only one that
+ * sanitises: `backup/import.ts` writes `label: transaction.label` straight from restore JSON, and
+ * ASVS v5.0.0-1.2.10 says « when exporting » rather than when importing. So these assertions are
+ * worth having and are NOT what makes the application safe; `exportCsv.spec.ts` is.
+ *
+ * Both halves are asserted together on purpose. A run where the neutralised controls silently
+ * stopped being neutralised would otherwise read as a pass.
+ */
+describe('sanitizeImportedText and the leading character a consumer keeps', () => {
+	it('neutralises a formula hidden behind a character trim does not remove', () => {
+		expect.assertions(3);
+
+		// Separates « the first character a consumer keeps is tested » from « the first code unit
+		// is tested », which is what shipped. U+0000 is the instance #594 was filed for; the other
+		// two are the same defect with no control byte in sight.
+		expect(sanitizeImportedText('\u0000=cmd')).toBe("'\u0000=cmd");
+		expect(sanitizeImportedText('\u200B=cmd')).toBe("'\u200B=cmd");
+		expect(sanitizeImportedText('\u202E=cmd')).toBe("'\u202E=cmd");
+	});
+
+	it('goes on neutralising what it always did, and goes on leaving alone what it always left', () => {
+		expect.assertions(6);
+
+		// The planted controls. Clause one of the guard is preserved verbatim, and these say so:
+		// if the repair had replaced the old test rather than adding to it, these would redden
+		// and the three above would still pass.
+		expect(sanitizeImportedText('=IMPORTXML("https://example.test")')).toBe(
+			'\'=IMPORTXML("https://example.test")'
+		);
+		expect(sanitizeImportedText('+150,00')).toBe("'+150,00");
+		expect(sanitizeImportedText('-30,00')).toBe("'-30,00");
+		expect(sanitizeImportedText('@cmd')).toBe("'@cmd");
+		expect(sanitizeImportedText('Courses')).toBe('Courses');
+		expect(sanitizeImportedText('CARREFOUR  MARKET')).toBe('CARREFOUR MARKET');
+	});
+
+	it('is unchanged for a leading tab or carriage return, which trim removes before the test', () => {
+		expect.assertions(2);
+
+		// Named rather than left implicit, because the same two characters are LIVE in the export
+		// copy of this rule and dead here. That asymmetry is why the class kept them.
+		expect(sanitizeImportedText('\t=cmd')).toBe("'=cmd");
+		expect(sanitizeImportedText('\r=cmd')).toBe("'=cmd");
+	});
+});

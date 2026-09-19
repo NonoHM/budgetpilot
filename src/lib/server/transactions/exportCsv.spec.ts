@@ -179,6 +179,58 @@ describe('buildTransactionsCsv', () => {
 		expect(line.split(';').at(-1)).toBe('');
 	});
 
+	/**
+	 * #594. THE ANCHOR SEES THE FIRST CODE UNIT, THE SPREADSHEET SEES THE FIRST CHARACTER IT KEEPS.
+	 *
+	 * Measured rather than reasoned, on LibreOffice 26.8 against a file this function produced: a
+	 * label of U+0000 followed by `=1+1` imports as `value-type="float" value="2"` carrying
+	 * `table:formula="of:=1+1"`. LibreOffice DISCARDS the NUL, which promotes the `=` to first
+	 * position, so the anchored test here never saw the character the consumer did.
+	 *
+	 * Every assertion below names the two states it separates, because « the guard fired » and
+	 * « the guard fired for the reason claimed » are the same green otherwise.
+	 */
+	describe('the leading character a spreadsheet actually keeps (#594)', () => {
+		/** The field a label lands in, with the header's own name rather than a counted index. */
+		function labelFieldOf(label: string): string {
+			const [line] = bodyOf(buildTransactionsCsv([row({ label })], NO_MAPPINGS));
+			return line.split(';')[1];
+		}
+
+		it('guards a formula hidden behind a leading NUL, which the spreadsheet discards', () => {
+			expect.assertions(1);
+
+			// Separates « the guard reads the first character a consumer keeps » from « the guard
+			// reads the first code unit present », which is what shipped.
+			expect(labelFieldOf('\u0000=1+1')).toBe("'\u0000=1+1");
+		});
+
+		it('guards one hidden behind a zero-width space, the same defect without a control byte', () => {
+			expect.assertions(1);
+
+			expect(labelFieldOf('\u200B=1+1')).toBe("'\u200B=1+1");
+		});
+
+		it('still leaves an ordinary label completely alone', () => {
+			expect.assertions(2);
+
+			// The planted negative. If this ever gains an apostrophe the fix has become a regression,
+			// and the two assertions below would not say so on their own.
+			expect(labelFieldOf('Leroy Merlin')).toBe('Leroy Merlin');
+			expect(labelFieldOf('Étude de Maître Blanc')).toBe('Étude de Maître Blanc');
+		});
+
+		it('still guards a bare negative amount, which 161 cells of the corpus open with', () => {
+			expect.assertions(2);
+
+			// Measured on `scripts/synthetic/`: 161 of 1 759 cells open with `-` and NONE is a
+			// formula. A fix that stopped quoting them would be a visible regression on every
+			// French statement, so it is asserted here rather than inherited from `safety.spec.ts`.
+			expect(labelFieldOf('-39,90')).toBe("'-39,90");
+			expect(bodyOf(buildTransactionsCsv([row()], NO_MAPPINGS))[0].split(';')[3]).toBe("'-80.00");
+		});
+	});
+
 	// PR5: a filtered export must read like the screen it came from, which means emitting only the
 	// allocations the filter matched — never a répartition's OTHER parts, which the screen never
 	// showed under that filter either.
