@@ -393,7 +393,19 @@ function mapTransaction(
 			reference: entryReference,
 			notes: label,
 			type,
-			bankOperationType: transaction.bank_transaction_code?.description ?? undefined
+			// #652: the one field on this connector that reaches a real (non-JSON) column,
+			// `Transaction.bankOperationType`, without going through `sanitizeImportedText` first —
+			// bank/ASPSP-supplied free text, same crash class as an unsanitised CSV label. `label`
+			// two lines above and `explicitName` in the account resolver above are already guarded;
+			// this was the gap.
+			// #652: the one field on this connector that reaches a real (non-JSON) column,
+			// `Transaction.bankOperationType`, without going through `sanitizeImportedText` first —
+			// bank/ASPSP-supplied free text, same crash class as an unsanitised CSV label. `label`
+			// two lines above and `explicitName` in the account resolver above are already guarded;
+			// this was the gap.
+			bankOperationType: transaction.bank_transaction_code?.description
+				? sanitizeImportedText(transaction.bank_transaction_code.description)
+				: undefined
 		}
 	};
 }
