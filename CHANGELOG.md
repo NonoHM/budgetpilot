@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.1.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.1.0...budgetpilot-v1.1.1) (2026-09-19)
+
+
+### Bug Fixes
+
+* **ci:** remove the expired-in-practice CVE-2026-14456 acknowledgement ([#665](https://github.com/NonoHM/budgetpilot/issues/665)) ([40797be](https://github.com/NonoHM/budgetpilot/commit/40797be4d36bfca29bf3c16d24df944620ad39fd)), closes [#579](https://github.com/NonoHM/budgetpilot/issues/579)
+* **import:** refuse a control character in a label before it crashes the write ([#663](https://github.com/NonoHM/budgetpilot/issues/663)) ([9d069e6](https://github.com/NonoHM/budgetpilot/commit/9d069e65737ae4366a6558abee902bc8a1b5631d))
+* **import:** refuse a control character in a label before it crashes the write ([#663](https://github.com/NonoHM/budgetpilot/issues/663)) ([9d069e6](https://github.com/NonoHM/budgetpilot/commit/9d069e65737ae4366a6558abee902bc8a1b5631d))
+
+
+### Documentation
+
+* calibrate the measurement that proves a fix, not only the gate ([#655](https://github.com/NonoHM/budgetpilot/issues/655)) ([28d6a9d](https://github.com/NonoHM/budgetpilot/commit/28d6a9d5d1397f3378853fc73ec92f78d47976d8))
+* compress AGENTS.md and record the five missing assertion rules ([#658](https://github.com/NonoHM/budgetpilot/issues/658)) ([2ad98b3](https://github.com/NonoHM/budgetpilot/commit/2ad98b3d82c5d722aa0bb9977545f9a11164abeb))
+
 ## [1.1.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.0.0...budgetpilot-v1.1.0) (2026-09-19)
 
 
