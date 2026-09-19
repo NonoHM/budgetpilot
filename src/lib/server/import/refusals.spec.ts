@@ -25,7 +25,10 @@ describe('refusal catalogue coverage', () => {
 		// so every change to it should be deliberate enough to edit this line.
 		// 40 since `mixed-date-order`: a date column that proves both a day-first and a
 		// month-first reading, which no single reading of the file can satisfy (#433).
-		expect(CSV_REFUSAL_CODES).toHaveLength(40);
+		// 41 since `control-character` (#652): a control character in a label, refused at parse
+		// rather than silently stripped, because the guard that strips it (`sanitizeImportedText`)
+		// has no refusal channel of its own.
+		expect(CSV_REFUSAL_CODES).toHaveLength(41);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

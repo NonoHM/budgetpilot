@@ -21,6 +21,7 @@ import {
 	buildNotes,
 	firstPresent,
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -249,6 +250,13 @@ export function parseRevolutRows({
 			return;
 		}
 
+		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
+		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
+		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+		if (hasStrandedControlCharacter(record.Description ?? '')) {
+			addRefusal(refusals, { kind: 'row', line }, { code: 'control-character' }, 'Description');
+			return;
+		}
 		const label = sanitizeImportedText(record.Description || 'Opération Revolut');
 		const revolutType = sanitizeImportedText(record.Type ?? '');
 		const product = sanitizeImportedText(record.Produit ?? '');

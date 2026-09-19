@@ -399,6 +399,7 @@
 	"import_refusal_debit_credit_both": "debit and credit both filled",
 	"import_refusal_debit_credit_empty": "debit and credit both empty",
 	"import_refusal_category_too_long": "category too long",
+	"import_refusal_control_character": "invalid control character",
 	"import_refusal_split_column_unreadable": "unreadable share column",
 	"import_refusal_split_out_of_bounds": "split out of bounds",
 	"import_refusal_split_inconsistent": "split inconsistent across rows",

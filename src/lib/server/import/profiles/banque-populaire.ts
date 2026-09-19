@@ -22,6 +22,7 @@ import {
 	buildNotes,
 	firstPresent,
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -173,13 +174,24 @@ export function parseBanquePopulaireRows({
 			);
 			return;
 		}
-		const label = sanitizeImportedText(
-			firstPresent(
-				record['Libelle simplifie'],
-				record['Libelle operation'],
-				record['Type operation']
-			) || 'Opération Banque Populaire'
+		const rawLabel = firstPresent(
+			record['Libelle simplifie'],
+			record['Libelle operation'],
+			record['Type operation']
 		);
+		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
+		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
+		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+		if (hasStrandedControlCharacter(rawLabel)) {
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'control-character' },
+				'Libelle simplifie'
+			);
+			return;
+		}
+		const label = sanitizeImportedText(rawLabel || 'Opération Banque Populaire');
 		const banquePopulaireCategory = sanitizeImportedText(
 			firstPresent(record.Categorie, record['Sous categorie']) || 'Autre'
 		);

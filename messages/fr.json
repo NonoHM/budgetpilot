@@ -399,6 +399,7 @@
 	"import_refusal_debit_credit_both": "débit et crédit remplis en même temps",
 	"import_refusal_debit_credit_empty": "débit et crédit vides",
 	"import_refusal_category_too_long": "catégorie trop longue",
+	"import_refusal_control_character": "caractère de contrôle non valide",
 	"import_refusal_split_column_unreadable": "colonne part illisible",
 	"import_refusal_split_out_of_bounds": "répartition hors bornes",
 	"import_refusal_split_inconsistent": "répartition incohérente entre les lignes",

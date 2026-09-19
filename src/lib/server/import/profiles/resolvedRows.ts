@@ -17,6 +17,7 @@ import { parseAmountCents } from '../utils/money';
 import {
 	buildCsvFields,
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -123,6 +124,13 @@ export function parseResolvedRows({
 		// and two compositions would let it state a reading this loop then refuses. See
 		// `readDateCell`.
 		const date = readDateCell(record[columns.date] ?? '', dateOrder);
+		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
+		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
+		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+		if (hasStrandedControlCharacter(record[columns.label] ?? '')) {
+			addRefusal(refusals, { kind: 'row', line }, { code: 'control-character' }, columns.label);
+			return;
+		}
 		const label = sanitizeImportedText(record[columns.label] ?? '');
 		const category = sanitizeImportedText(
 			(columns.category ? record[columns.category] : '') || UNCLASSIFIED_CATEGORY

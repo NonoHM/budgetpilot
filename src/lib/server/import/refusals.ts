@@ -108,6 +108,13 @@ export type CsvRefusalFact =
 	| { code: 'debit-credit-both' }
 	| { code: 'debit-credit-empty' }
 	| { code: 'category-too-long' }
+	// #652: a control character (Cc minus the five whitespace already handled) in the field a
+	// profile reads its label from, before `sanitizeImportedText` strips it. Named after the
+	// class rather than the one instance measured (U+0000), since `hasStrandedControlCharacter`
+	// tests the whole class. No payload, matching `category-too-long`'s shape: the offending
+	// field is named through `CsvRefusal.field`, not through the fact, and the sentence is the
+	// same regardless of which field or which character.
+	| { code: 'control-character' }
 	// repartition, maison v2 only
 	| { code: 'split-column-unreadable' }
 	| { code: 'split-out-of-bounds' }
@@ -167,6 +174,7 @@ export const CSV_REFUSAL_CODES = [
 	'debit-credit-both',
 	'debit-credit-empty',
 	'category-too-long',
+	'control-character',
 	'split-column-unreadable',
 	'split-out-of-bounds',
 	'split-inconsistent',
