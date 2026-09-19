@@ -154,6 +154,19 @@ export function isValidIsoDate(value: string): boolean {
 	return date.toISOString().slice(0, 10) === value;
 }
 
+/**
+ * NO CHECK FOR A CONTROL CHARACTER HERE, AND NONE BELONGS HERE (#652).
+ *
+ * A stranded control character in `label` throws `SQLSTATE 22021` on PostgreSQL when
+ * `persist.ts` writes the row. The check for it, `hasStrandedControlCharacter`, lives in
+ * `$lib/server/import/utils/safety.ts` instead of as a violation here, because this module is
+ * pure `$lib/domain` — no `$lib/server`, `$app/*` or Prisma import, by AGENTS.md's directory rule
+ * — and that predicate is `$lib/server` code. Adding a `label-control-character` violation here
+ * would mean either importing across that boundary (refused) or re-deriving the same character
+ * class as a second, independent copy — the exact duplicated predicate this repository's own
+ * testing rules warn against, silently divergeable the day one copy is edited and the other is
+ * not. The five CSV profile parsers call `hasStrandedControlCharacter` directly instead.
+ */
 export function validateTransaction(transaction: Transaction): TransactionValidationResult {
 	const violations: TransactionValidationCode[] = [];
 

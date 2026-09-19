@@ -47,12 +47,28 @@ const STRANDED_CONTROL_CHARACTERS = /[\u0000-\u0008\u000E-\u001F\u007F-\u009F]/g
  * Exported so a caller that can still refuse the ROW this text came from — a CSV profile
  * parser, before it calls `sanitizeImportedText` — reports it as an ordinary invalid row instead
  * of silently accepting an altered label. `sanitizeImportedText` itself has no such channel: most
- * of its other callers (restore metadata, column-mapping names, bank-connector text) have no
+ * of its other callers (column-mapping names, bank-connector text other than the label) have no
  * per-row refusal concept to report through, which is why the strip below is the universal
  * fallback and this predicate is the opt-in refusal for the one caller that has somewhere to
  * report to. Tested against the RAW value, before mojibake normalisation or the whitespace
  * collapse: neither one can introduce or remove a `Cc` character, so the verdict is identical
  * either way and this reads the value a caller already has in hand.
+ *
+ * NOT DEFINED IN `domain/transaction.ts`'s `validateTransaction`, where a fourth caller
+ * intuitively belongs beside `label-too-long` and the other per-field checks. `domain/` is pure —
+ * no `$lib/server`, `$app/*` or Prisma import, by the directory rule in AGENTS.md — and this
+ * predicate lives in `$lib/server/import/`, so `validateTransaction` cannot see it without either
+ * duplicating the regex there (the copied predicate this file exists to avoid) or moving this
+ * module's dependents across the boundary. If a future reader moves this check into
+ * `validateTransaction`, they have re-implemented the class rather than reused it: check for a
+ * second copy of `STRANDED_CONTROL_CHARACTER`'s ranges before trusting that it hasn't.
+ *
+ * ONE OPEN DOOR THIS DOES NOT CLOSE: `backup/import.ts` writes a restored `label` straight from
+ * the backup JSON and never calls `sanitizeImportedText` at all (see `safety.spec.ts`'s "#594, the
+ * DEFENCE IN DEPTH half"). A caller that never calls this function is not protected by it. #652
+ * closed the CSV-profile door (this file) and the bank-connector door
+ * (`enablebanking.ts`'s `bank_transaction_code.description`); the restore door was already known
+ * and is still open.
  */
 export function hasStrandedControlCharacter(value: string): boolean {
 	return STRANDED_CONTROL_CHARACTER.test(value);

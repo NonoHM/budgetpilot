@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { parseCsvTransactions } from './csv';
 import type { ColumnMappingInput } from './mapping/model';
@@ -120,5 +121,58 @@ describe('a control character in the label is refused, not silently stripped', (
 				columnMapping: MAPPED_MAPPING
 			}).transactions
 		).toHaveLength(1);
+	});
+});
+
+/**
+ * ONE PREDICATE, FIVE CALLERS — BY CONSTRUCTION, not by five checks that happen to agree today.
+ *
+ * The five tests above prove each profile refuses a control character; they say nothing about
+ * whether a sixth profile, or a rewrite of one of these five, does the same by calling the shared
+ * `hasStrandedControlCharacter` or by quietly growing its own regex that matches today's corpus
+ * and drifts from the Unicode class tomorrow. That second shape is the copied predicate AGENTS.md
+ * warns against: two spellings of one rule pass together and diverge silently the day someone
+ * edits one of them.
+ *
+ * Read the SOURCE TEXT rather than the compiled behaviour, because behaviour cannot distinguish
+ * "calls the shared function" from "reimplements it well enough to pass this file's fixtures" —
+ * the whole point of a copied predicate is that it looks identical from the outside until it
+ * isn't.
+ */
+describe('the five profiles share one control-character predicate, not five', () => {
+	const PROFILE_FILES = [
+		'profiles/banque-populaire.ts',
+		'profiles/revolut.ts',
+		'profiles/maison.ts',
+		'profiles/maison-v2.ts',
+		'profiles/resolvedRows.ts'
+	];
+
+	function sourceOf(relativePath: string): string {
+		return readFileSync(new URL(relativePath, import.meta.url), 'utf8');
+	}
+
+	it('each profile imports hasStrandedControlCharacter from utils/safety, and calls it', () => {
+		expect.assertions(PROFILE_FILES.length * 2);
+		for (const file of PROFILE_FILES) {
+			const source = sourceOf(file);
+			expect(source, `${file} imports the shared predicate`).toMatch(
+				/import\s*\{[^}]*\bhasStrandedControlCharacter\b[^}]*\}\s*from\s*'\.\.\/utils\/safety'/
+			);
+			expect(source, `${file} calls it`).toMatch(/hasStrandedControlCharacter\(/);
+		}
+	});
+
+	it('no profile defines its own control-character class', () => {
+		expect.assertions(PROFILE_FILES.length);
+		// The two shapes `utils/safety.ts` uses for the one definition: the explicit Cc-minus-
+		// whitespace ranges, or the Unicode property escape. Either appearing in a profile file
+		// would mean a second, independent copy of the rule rather than a caller of the first.
+		const localDefinitionShapes = /\\u0000-\\u0008|\\p\{Cc\}/;
+		for (const file of PROFILE_FILES) {
+			expect(sourceOf(file), `${file} has no local control-character class`).not.toMatch(
+				localDefinitionShapes
+			);
+		}
 	});
 });
