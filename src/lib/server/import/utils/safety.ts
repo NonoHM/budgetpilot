@@ -1,13 +1,12 @@
 import { normalizeMojibakeText } from './encoding';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
+import { guardFormulaLead } from '$lib/server/csv/formulaGuard';
 
 export { UNCLASSIFIED_CATEGORY };
 
-const DANGEROUS_TEXT_PATTERN = /^[=+\-@\t\r]/;
-
 export function sanitizeImportedText(value: string): string {
 	const sanitized = normalizeMojibakeText(value).trim().replace(/\s+/g, ' ');
-	return DANGEROUS_TEXT_PATTERN.test(sanitized) ? `'${sanitized}` : sanitized;
+	return guardFormulaLead(sanitized);
 }
 
 /**
