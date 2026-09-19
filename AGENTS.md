@@ -389,6 +389,11 @@ clean refusals; a scanner seeing zero packages passes; a fuzzer reaching no acce
 - **Plant the positive where the detector actually LOOKS.** A detector's exclusion list is the
   place that silently is not, so read it before choosing where to plant, or the calibration
   measures the exclusion list and fails in whichever direction you already expected.
+- **Where a gate has history, the calibration is its own past failure, not a synthetic one.** A
+  planted positive proves the instrument can fire; a historical one proves it fired for THIS
+  finding. `trivy-scheduled.yml`'s CRITICAL/HIGH gate reddened on every run from 2026-08-23 to
+  2026-09-03 for the same CVE the green streak afterward was in question about (#579); reading
+  the run history settled it without planting anything.
 - **The measurement that PROVES a fix is a detector too, and it fails in the same comfortable
   direction.** A before-and-after comparison reporting a clean after is indistinguishable from one
   that read nothing, and it arrives at the moment you most want to believe it. Run the positive in
