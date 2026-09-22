@@ -1644,6 +1644,8 @@
 	"import_account_error_ambiguous_auto": "You have several accounts for this bank. Choose the one this statement belongs to.",
 	"import_error_ambiguous_date_order": "We can't tell how to read this file's dates: day first or month first. Confirm the reading before importing.",
 	"import_error_ambiguous_account_column": "We can't tell whether this file covers one account or several. Confirm before importing.",
+	"import_error_account_column_unanswerable": "The \"{header}\" column might name more than one account, and this screen can't confirm it. Edit or remove it, or split the file by account, before importing.",
+	"import_error_account_column_unanswerable_no_header": "Column {count} might name more than one account, and this screen can't confirm it. Edit or remove it, or split the file by account, before importing.",
 	"import_account_hint_multi_account": "This file contains several accounts. Choose the one this statement belongs to.",
 	"import_account_create_field": "Account name",
 	"import_account_create_hint": "This name only appears in BudgetPilot.",

@@ -4,11 +4,7 @@ import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateL
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
-import {
-	importHeaderCells,
-	importSampleValues,
-	parseCsvTransactionRows
-} from '$lib/server/import/csv';
+import { importHeaderCells, parseCsvTransactionRows } from '$lib/server/import/csv';
 import {
 	ImportFileError,
 	IMPORT_FILE_MAX_BYTES,
@@ -207,26 +203,35 @@ export const actions: Actions = {
 				multiAccount: multiAccountRefusal,
 				accountColumn: accountColumnRefusal
 			});
+			/**
+			 * #485's `accountColumn` rung REFUSES rather than asks on this door, and DOES NOT carry
+			 * an offer: `/import/columns` has no interactive control for it (#670), and shipping the
+			 * "confirm before importing" sentence with no way to confirm is the exact dead end
+			 * `DESIGNATION_CANNOT_REPAIR` names in `/import`'s own action, applied to the door the
+			 * user is already ON rather than one they would be sent to. `not-account`/`is-account`
+			 * are never posted from this door for the same reason: nothing here can answer.
+			 *
+			 * The message NAMES THE RECOURSE instead: this door cannot silently drop the column
+			 * either, because an unproven signal is still real evidence, and #485's whole point is
+			 * that a file that might name several accounts must not import as one silently. The only
+			 * two honest outcomes left are refuse-with-recourse (this) or ask (which this door
+			 * cannot do), never a third state that guesses.
+			 */
+			const accountColumnHeader =
+				accountColumnRefusal && headers[accountColumnRefusal.column]
+					? headers[accountColumnRefusal.column]
+					: undefined;
 			return fail(400, {
 				error:
 					offer.rung === 'header' || offer.rung === 'multiAccount'
 						? refusalLabel(offer.fact)
 						: offer.rung === 'accountColumn'
-							? m.import_error_ambiguous_account_column()
+							? accountColumnHeader
+								? m.import_error_account_column_unanswerable({ header: accountColumnHeader })
+								: m.import_error_account_column_unanswerable_no_header({
+										count: offer.fact.column + 1
+									})
 							: m.import_error_no_valid_transactions(),
-				// FOUND BY A BROWSER WALK on `/import`'s own copy of this field: `importSampleValues`
-				// pads every column to 3 entries with `''` for the reading offer's cards, a
-				// convention this offer does not share. Filtered here for the same reason.
-				accountColumn:
-					offer.rung === 'accountColumn'
-						? {
-								column: offer.fact.column,
-								header: headers[offer.fact.column] ?? '',
-								samples: (importSampleValues(importData.rows)[offer.fact.column] ?? []).filter(
-									(value) => value !== ''
-								)
-							}
-						: undefined,
 				keepDesignation: true
 			});
 		}
