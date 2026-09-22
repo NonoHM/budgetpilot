@@ -4,6 +4,7 @@ import type { ParsedCsvRow } from './types';
 import {
 	DISCRIMINANT_LENGTH,
 	findDiscriminantColumn,
+	isVerifiedIban,
 	type DiscriminantResult
 } from './discriminant';
 
@@ -196,7 +197,7 @@ function matchesGrammar(value: string): boolean {
 			{ cells: ['header'], line: 1 },
 			{ cells: [value], line: 2 },
 			{ cells: [value], line: 3 }
-		]).kind === 'found'
+		]).kind === 'resolved'
 	);
 }
 
@@ -207,10 +208,10 @@ function brokenFindDiscriminant(file: GeneratedFile): DiscriminantResult {
 	for (let index = 0; index < columnCount; index += 1) {
 		const values = dataRows.map((row) => (row.cells[index] ?? '').trim());
 		if (values.every((value) => value !== '' && matchesGrammar(value))) {
-			return { kind: 'found', index, fragment: values[0].slice(-DISCRIMINANT_LENGTH) };
+			return { kind: 'resolved', index, fragment: values[0].slice(-DISCRIMINANT_LENGTH) };
 		}
 	}
-	return { kind: 'none' };
+	return { kind: 'nothing-to-decide' };
 }
 
 /**
@@ -241,7 +242,7 @@ describe('CALIBRATION: the property catches a predicate that ignores constancy',
 			fc.assert(
 				fc.property(twoAccountFile, (file) => {
 					draws += 1;
-					const wrong = brokenFindDiscriminant(file).kind === 'found';
+					const wrong = brokenFindDiscriminant(file).kind === 'resolved';
 					if (wrong && caughtAt === null) caughtAt = draws;
 					return !wrong;
 				}),
@@ -271,21 +272,26 @@ describe('findDiscriminantColumn, as a property', () => {
 			fc.property(oneAccountFile, (file) => {
 				const result = findDiscriminantColumn(file.rows);
 				expect(result).toStrictEqual({
-					kind: 'found',
+					kind: 'resolved',
 					index: file.index,
 					fragment: file.canonical[0].slice(-DISCRIMINANT_LENGTH)
 				});
-				expect(result.kind === 'found' && result.fragment.length).toBe(DISCRIMINANT_LENGTH);
+				expect(result.kind === 'resolved' && result.fragment.length).toBe(DISCRIMINANT_LENGTH);
 			}),
 			{ seed: SEED, numRuns: RUNS }
 		);
 	});
 
-	it('refuses by name, and never answers found, whenever more than one account is named', () => {
+	// `IDENTIFIERS` mixes IBANs and bare digit runs, so `twoAccountColumn` already draws both an
+	// all-IBAN pair and a pair carrying at least one bare digit run: the expected KIND is derived
+	// from the SAME canonical values the drawn column carries, through `isVerifiedIban` (the
+	// production checksum, called rather than retyped), so this property is the one place both of
+	// #485's refuse/ask kinds are exercised against the real function on every run.
+	it('refuses by name, and never answers resolved, whenever more than one account is named', () => {
 		fc.assert(
 			fc.property(twoAccountFile, (file) => {
 				expect(findDiscriminantColumn(file.rows)).toStrictEqual({
-					kind: 'multi-account',
+					kind: file.canonical.every(isVerifiedIban) ? 'contradictory' : 'ambiguous',
 					index: file.index
 				});
 			}),
@@ -297,7 +303,7 @@ describe('findDiscriminantColumn, as a property', () => {
 	it('carries no identifier column in a file made only of dates, labels and amounts', () => {
 		fc.assert(
 			fc.property(noiseOnlyFile, (file) => {
-				expect(findDiscriminantColumn(file.rows)).toStrictEqual({ kind: 'none' });
+				expect(findDiscriminantColumn(file.rows)).toStrictEqual({ kind: 'nothing-to-decide' });
 			}),
 			{ seed: SEED, numRuns: RUNS }
 		);

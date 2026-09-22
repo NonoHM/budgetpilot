@@ -16,6 +16,7 @@ export type { DateOrder } from '$lib/domain/dateReading';
 
 import { DEFAULT_DATE_ORDER } from '$lib/domain/dateReading';
 import type { DateOrder } from '$lib/domain/dateReading';
+import type { FileVerdict } from '$lib/domain/fileVerdict';
 
 /**
  * The grammar of a date cell whose two leading components could each be a day or a month.
@@ -58,7 +59,8 @@ export const AMBIGUOUS_DATE_PATTERN = /^(\d{2})[/.-](\d{2})[/.-](\d{4})([\s\S]*)
  *   seam exists already: `/import` refuses with a structured offer and the user's answer rides the
  *   next POST, which is how `accountId` and `confirmCollision` already work, and `/import/columns`
  *   already reads `hasHeaderRow` off the form before parsing.
- * - `mixed`: refused. Nothing is written.
+ * - `contradictory` (named `mixed` before #485 registered `FileVerdict`): refused. Nothing is
+ *   written.
  *
  * **No case reaches the write carrying a decision that could be wrong.** A preview before commit
  * exists so a product can show you what it GUESSED. This one does not guess: it proves, declines to
@@ -67,16 +69,18 @@ export const AMBIGUOUS_DATE_PATTERN = /^(\d{2})[/.-](\d{2})[/.-](\d{4})([\s\S]*)
  *
  * Do not wire a correction path to the disclosure for this reason either. Recorded here rather than
  * in a note because it is the question a reader asks when they notice the summary renders last.
+ *
+ * `FileVerdict`: `import/discriminant.ts`'s `DiscriminantResult` reached the same four states
+ * independently (#485), which is what makes this a shape worth sharing rather than a coincidence
+ * worth restating. Generic over each state's PAYLOAD, not over the states themselves: this file's
+ * `contradictory` needs both conflicting cells shown because neither reading is wrong alone,
+ * `discriminant.ts`'s needs only a column index. See that type's own docstring.
  */
-export type DateOrderVerdict =
-	/** Some cell placed a component above 12, which names its own position. */
-	| { kind: 'resolved'; order: DateOrder; evidence: string }
-	/** Cells proved BOTH readings. The file cannot be read as a whole and is refused. */
-	| { kind: 'mixed'; dayFirstEvidence: string; monthFirstEvidence: string }
-	/** Ambiguous cells, no proof either way. The user is asked; nothing is guessed. */
-	| { kind: 'ambiguous'; sample: string }
-	/** No cell carries the ambiguous grammar. */
-	| { kind: 'nothing-to-decide' };
+export type DateOrderVerdict = FileVerdict<
+	{ order: DateOrder; evidence: string },
+	{ dayFirstEvidence: string; monthFirstEvidence: string },
+	{ sample: string }
+>;
 
 /**
  * Which order a column of date cells is written in, or why that cannot be answered.
@@ -102,7 +106,7 @@ export type DateOrderVerdict =
  *
  * `31/13/2026` puts a value above 12 in both positions, so it proves nothing about the order: it
  * is simply not a date. Counting it as evidence for both readings would turn an ordinary column
- * into a `mixed` refusal on the strength of one malformed cell. It falls through to the row
+ * into a `contradictory` refusal on the strength of one malformed cell. It falls through to the row
  * loop's ordinary `invalid-date`, which is where an unreadable cell belongs.
  *
  * ## ONE COLUMN'S PROOF SETTLES THE READING OF EVERY OTHER DECLARED DATE COLUMN
@@ -118,7 +122,7 @@ export type DateOrderVerdict =
  * reason the union is taken: three columns are three times the chance of finding a proof, and a
  * per-column verdict would leave two of them guessing while the third knew.
  *
- * It also has a cost, and the cost is `mixed`: two declared columns that disagree refuse the file
+ * It also has a cost, and the cost is `contradictory`: two declared columns that disagree refuse the file
  * rather than either one winning. That is deliberate and is checked first below.
  *
  * ## Evidence is carried, not just the verdict
@@ -157,7 +161,7 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
 	// Checked before either single answer: a file that proves both readings is refused rather
 	// than read against whichever proof came first.
 	if (dayFirstEvidence && monthFirstEvidence)
-		return { kind: 'mixed', dayFirstEvidence, monthFirstEvidence };
+		return { kind: 'contradictory', dayFirstEvidence, monthFirstEvidence };
 	if (dayFirstEvidence) return { kind: 'resolved', order: 'day-first', evidence: dayFirstEvidence };
 	if (monthFirstEvidence)
 		return { kind: 'resolved', order: 'month-first', evidence: monthFirstEvidence };
@@ -193,7 +197,7 @@ export type DateOrderDecision =
  * every ambiguous row beside it by up to eleven months. The stated rule is « where the file
  * proves an answer, use it », with no clause admitting an answer that contradicts the proof.
  *
- * **Over `mixed`.** A file proving BOTH readings has no true answer to give, so honouring an
+ * **Over `contradictory`.** A file proving BOTH readings has no true answer to give, so honouring an
  * override there imports half its rows wrong with the user's own answer as the alibi. No screen
  * can ask a question whose answers are both false.
  *
@@ -218,7 +222,7 @@ export function decideDateOrder(
 	override: DateOrder | undefined
 ): DateOrderDecision {
 	// First, and deliberately before the override is even read: a contradiction is not a question.
-	if (verdict.kind === 'mixed')
+	if (verdict.kind === 'contradictory')
 		return {
 			kind: 'refuse',
 			dayFirst: verdict.dayFirstEvidence,

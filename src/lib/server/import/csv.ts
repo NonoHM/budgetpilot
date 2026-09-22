@@ -1,6 +1,7 @@
 import { resolveProfile } from './registry';
 import { mappedDateColumns, parseMappedRows } from './profiles/mapped';
 import { decideDateOrder, detectDateOrder } from './dateOrder';
+import { findDiscriminantColumn } from './discriminant';
 import type {
 	CsvImportOptions,
 	CsvImportProfile,
@@ -340,6 +341,62 @@ export function parseImportRows(
 				categorizationRules: options.categorizationRules ?? [],
 				dateOrder: decision.order
 			});
+
+	/**
+	 * #485. AFTER the parse, same reason as the date-order block below: asking or refusing about
+	 * an account column is pointless for a file a structural or per-row refusal has already killed.
+	 * BEFORE the date-order block, deliberately: a PROVEN multi-account file (`kind: 'contradictory'`) can
+	 * never be resolved by answering the date question either, so it is at least as severe as a
+	 * structural refusal and wins ahead of it, exactly the reasoning that already puts structural
+	 * refusals ahead of `ambiguous-date-order`. MEASURED rather than decided in the abstract
+	 * (`multiAccountRefusal.spec.ts`'s "order against #433" cases): the cost this pays is that a
+	 * file carrying BOTH an unproven account column and an ambiguous date column asks its two
+	 * questions one at a time rather than together, because nothing here can ask both at once.
+	 *
+	 * No `alreadyPromptedClientSide`-shaped flag, unlike the date-order block: `/import`'s auto
+	 * path and `/import/columns`'s designation path both reach this door with no PRIOR mechanism
+	 * that has ever asked whether a file covers more than one account (the designation screen picks
+	 * one destination account; it does not read the file's own account column), so #485's fix
+	 * applies identically to both with no exclusion to draw.
+	 */
+	const discriminant = findDiscriminantColumn(normalizedRows);
+	if (
+		(discriminant.kind === 'contradictory' || discriminant.kind === 'ambiguous') &&
+		parsed.transactions.length > 0 &&
+		parsed.summary.fileLevelRefusals === 0
+	) {
+		// LOGGED GOING FORWARD, #485: neither this repository's fixture corpus nor a DB query could
+		// answer how often this fires on a real file (`multiAccountFile` was computed and discarded,
+		// never stored, and the raw file is not retained either). This is the one line that lets a
+		// future session count it: the kind, never a cell value or the discriminant fragment, which
+		// `discriminant.ts`'s own docstring names a sensitive data class. Durability is outside this
+		// PR's control: whether it survives depends on how the deployment collects container stdout.
+		console.warn(`[budgetpilot] multi-account column detected, kind=${discriminant.kind}`);
+		if (discriminant.kind === 'contradictory' || options.accountColumnAnswer === 'is-account') {
+			return emptyResult(
+				[{ code: 'multi-account-file', column: discriminant.index }],
+				warnings,
+				parser ? parser.profile : 'mapped',
+				dataRowCount
+			);
+		}
+		if (options.accountColumnAnswer !== 'not-account') {
+			return emptyResult(
+				[
+					{
+						code: 'ambiguous-account-column',
+						column: discriminant.index,
+						sample: refusalCellValue(normalizedRows[1]?.cells[discriminant.index] ?? '')
+					}
+				],
+				warnings,
+				parser ? parser.profile : 'mapped',
+				dataRowCount
+			);
+		}
+		// 'not-account': the column is confirmed noise, and `parsed` proceeds untouched, exactly as
+		// a `kind: 'nothing-to-decide'` verdict would have.
+	}
 
 	/**
 	 * THE FOURTH OUTCOME, #433's auto-path remainder (plate 7l). AFTER the parse rather than before

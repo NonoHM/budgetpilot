@@ -36,12 +36,16 @@ describe('findDiscriminantColumn', () => {
 				['02/06/2026', 'B', '-2,00', ACCOUNT_A]
 			])
 		);
-		expect(result).toStrictEqual({ kind: 'found', index: 3, fragment: '0185' });
+		expect(result).toStrictEqual({ kind: 'resolved', index: 3, fragment: '0185' });
 	});
 
 	// THE EVIDENCE IS THE CONSTANCY, NOT THE GRAMMAR. A column of well-formed IBANs that DIFFER is
 	// not a discriminant, it is a multi-account export, and it is REFUSED with a sentence rather than
 	// dropped into a silent rank 3.
+	//
+	// `contradictory` is what lets #485's fix REFUSE outright on this shape: a mod-97 checksum
+	// collision across two genuinely different account numbers is not a realistic accident, so this
+	// is proof rather than evidence. See #485 and the `ambiguous` case below, which is not.
 	it('refuses a column carrying more than one account, rather than falling through', () => {
 		const result = findDiscriminantColumn(
 			rowsOf(HEADER, [
@@ -49,7 +53,36 @@ describe('findDiscriminantColumn', () => {
 				['02/06/2026', 'B', '-2,00', ACCOUNT_B]
 			])
 		);
-		expect(result).toStrictEqual({ kind: 'multi-account', index: 3 });
+		expect(result).toStrictEqual({ kind: 'contradictory', index: 3 });
+	});
+
+	// A bare digit run is exactly as consistent with a reference number, an invoice number or a
+	// running balance as with a second account: the grammar match is real, but nothing here PROVES
+	// the column names accounts. `ambiguous` is what lets #485's fix ASK instead of refuse.
+	it('marks a varying bare-digit-run column as unproven rather than as proof of two accounts', () => {
+		const result = findDiscriminantColumn(
+			rowsOf(
+				['Date', 'Libelle', 'Montant', 'Reference'],
+				[
+					['01/06/2026', 'A', '-1,00', '10000001'],
+					['02/06/2026', 'B', '-2,00', '10000002']
+				]
+			)
+		);
+		expect(result).toStrictEqual({ kind: 'ambiguous', index: 3 });
+	});
+
+	// A column mixing a bare digit run on one row and a checksummed IBAN on another still varies,
+	// and the mix is itself evidence the column is not uniformly a verified account identifier: ANY
+	// row failing the IBAN check downgrades the whole column to unproven, never to proven-by-majority.
+	it('downgrades a varying column to ambiguous when not every value verifies as an IBAN', () => {
+		const result = findDiscriminantColumn(
+			rowsOf(HEADER, [
+				['01/06/2026', 'A', '-1,00', ACCOUNT_A],
+				['02/06/2026', 'B', '-2,00', '10000002']
+			])
+		);
+		expect(result).toStrictEqual({ kind: 'ambiguous', index: 3 });
 	});
 
 	it('rejects an IBAN whose checksum does not verify', () => {
@@ -59,7 +92,7 @@ describe('findDiscriminantColumn', () => {
 				['02/06/2026', 'B', '-2,00', 'FR7630001007941234567890186']
 			])
 		);
-		expect(result).toStrictEqual({ kind: 'none' });
+		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
 
 	it('finds nothing in a file that carries no identifier column', () => {
@@ -72,7 +105,7 @@ describe('findDiscriminantColumn', () => {
 				]
 			)
 		);
-		expect(result).toStrictEqual({ kind: 'none' });
+		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
 
 	it('never returns more than four characters', () => {
@@ -82,7 +115,7 @@ describe('findDiscriminantColumn', () => {
 				['02/06/2026', 'B', '-2,00', ACCOUNT_A]
 			])
 		);
-		expect(result.kind === 'found' && result.fragment.length).toBe(4);
+		expect(result.kind === 'resolved' && result.fragment.length).toBe(4);
 		expect(DISCRIMINANT_LENGTH).toBe(4);
 	});
 
@@ -96,7 +129,7 @@ describe('findDiscriminantColumn', () => {
 				]
 			)
 		);
-		expect(result).toStrictEqual({ kind: 'found', index: 3, fragment: '8901' });
+		expect(result).toStrictEqual({ kind: 'resolved', index: 3, fragment: '8901' });
 	});
 
 	// A date column is a run of digits broken by separators, and an amount column is a run of digits
@@ -112,7 +145,7 @@ describe('findDiscriminantColumn', () => {
 				]
 			)
 		);
-		expect(result).toStrictEqual({ kind: 'none' });
+		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
 
 	it('skips a column that is blank on any data row', () => {
@@ -122,12 +155,14 @@ describe('findDiscriminantColumn', () => {
 				['02/06/2026', 'B', '-2,00', '']
 			])
 		);
-		expect(result).toStrictEqual({ kind: 'none' });
+		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
 
 	it('finds nothing in a file that carries no data row at all', () => {
-		expect(findDiscriminantColumn(rowsOf(HEADER, []))).toStrictEqual({ kind: 'none' });
-		expect(findDiscriminantColumn([])).toStrictEqual({ kind: 'none' });
+		expect(findDiscriminantColumn(rowsOf(HEADER, []))).toStrictEqual({
+			kind: 'nothing-to-decide'
+		});
+		expect(findDiscriminantColumn([])).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
 });
 
