@@ -281,57 +281,12 @@ describe('the account question beside an import refusal', () => {
 });
 
 /**
- * The notice for a file that carries several accounts.
- *
- * The rows all land in one account, which is the behaviour that must not change: refusing here
- * would stop an import that works today. What changes is that the screen says so.
+ * REMOVED, #485: the notice this described (`import_multi_account_notice`, both `+page.svelte`
+ * render sites) reported a multi-account file AFTER it had already been filed into one account.
+ * #485 moves the question before the write — a proven file refuses outright and an unproven one
+ * asks — so no successful import can still be the file this notice was about. See
+ * `importSummary.ts`'s removal comment on `multiAccountFile` for why showing it in the one
+ * surviving case (the user has just answered "not an account") would contradict that answer
+ * rather than inform anyone. Coverage for the new refuse/ask behaviour lives in
+ * `multiAccountRefusal.spec.ts` (the door) and `page.server.spec.ts` (the route).
  */
-describe('a file carrying several accounts', () => {
-	const SUMMARY = {
-		fileName: 'releve.csv',
-		profile: 'csv',
-		totalRows: 2,
-		importedRows: 2,
-		invalidRows: 0,
-		fileLevelRefusals: 0,
-		duplicateRows: 0,
-		autoCategorizedRows: 0,
-		totalDebitCents: 7210,
-		totalCreditCents: 0,
-		period: { from: '2026-06-01', to: '2026-06-02' },
-		batchId: 'batch-1',
-		invalidRowDetails: [],
-		hiddenInvalidRowsCount: 0,
-		accountName: 'BP · Livret A'
-	};
-
-	it('names the account the rows went into, and says the file named several', async () => {
-		// SEPARATES: « an account showing money that is not its own says so » FROM « the rows are
-		// filed and nothing on screen mentions there was more than one account in the file ». The
-		// second is discovered months later as a balance that will not reconcile.
-		await page.viewport(1280, 800);
-		render(Page, {
-			data: DATA,
-			form: { importResult: { ...SUMMARY, multiAccountFile: true } } as never
-		});
-
-		await expect
-			.element(page.getByText(m.import_multi_account_notice({ account: 'BP · Livret A' })).first())
-			.toBeVisible();
-	});
-
-	it('says nothing for an ordinary single-account file', async () => {
-		// SEPARATES: « the notice fires on the evidence the file offers » FROM « it fires on every
-		// import ». A notice shown always is one nobody reads by the third month, which is the same
-		// defect as the refusal it replaces, one tone quieter.
-		await page.viewport(1280, 800);
-		render(Page, {
-			data: DATA,
-			form: { importResult: { ...SUMMARY, multiAccountFile: false } } as never
-		});
-
-		await expect
-			.element(page.getByText(m.import_multi_account_notice({ account: 'BP · Livret A' })).first())
-			.not.toBeInTheDocument();
-	});
-});

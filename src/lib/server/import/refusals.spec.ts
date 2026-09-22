@@ -30,7 +30,10 @@ describe('refusal catalogue coverage', () => {
 		// has no refusal channel of its own.
 		// 42 since `ambiguous-date-order` (#433): a registered profile's date column that proves
 		// neither reading, asked about on the auto path rather than defaulted silently.
-		expect(CSV_REFUSAL_CODES).toHaveLength(42);
+		// 44 since `multi-account-file` and `ambiguous-account-column` (#485): a discriminant
+		// column PROVEN or merely EXHIBITING more than one account, refused or asked before any
+		// row is written rather than reported after the fact.
+		expect(CSV_REFUSAL_CODES).toHaveLength(44);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

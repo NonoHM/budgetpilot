@@ -47,7 +47,6 @@ const BASE: ImportSummaryResult = {
 	invalidRowDetails: [],
 	hiddenInvalidRowsCount: 0,
 	accountName: null,
-	multiAccountFile: false,
 	rememberedMapping: true,
 	dateOrderDisclosure: null
 };

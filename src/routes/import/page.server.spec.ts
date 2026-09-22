@@ -2305,43 +2305,98 @@ describe('two accounts of one source, on the auto path', () => {
 	});
 
 	/**
-	 * A file carrying SEVERAL accounts still imports, and now says so.
-	 *
-	 * The underlying defect is that every row lands in one account whatever the file says, filed as
-	 * its own issue. Refusing it here would stop an import that works today, so the trade taken is
-	 * the one this repository has taken repeatedly: a silent wrong filing becomes a visible one, and
-	 * it costs a sentence rather than a chantier.
+	 * #485: a file carrying several accounts used to import ANYWAY, with a sentence added after
+	 * the write. It is refused or asked BEFORE the write now, following `discriminant.ts`'s kind:
+	 * `contradictory` (a verified IBAN pair) refuses outright, `ambiguous` (a bare digit run) asks.
 	 */
-	it('says so when the file carries several accounts, and still imports', async () => {
-		// SEPARATES: « the rows are known to have been filed into one account out of several » FROM
-		// « they were filed and nothing on screen says which, or that there was a choice ». An
-		// account showing money that is not its own with nothing saying why is the silence this
-		// whole chantier removed four times over.
-		expect.assertions(3);
-		const multi =
+	describe('a file naming more than one account', () => {
+		const PROVEN =
+			'date;label;amount;compte\n' +
+			'2026-06-01;AUCHAN;-42,10;FR7630001007941234567890185\n' +
+			'2026-06-02;SNCF;-30,00;FR3730001007949876543210192';
+		const UNPROVEN =
 			'date;label;amount;compte\n2026-06-01;AUCHAN;-42,10;10000001\n2026-06-02;SNCF;-30,00;10000002';
 
-		const result = (await runImportWithFile(multi)) as unknown as {
-			importResult?: { importedRows: number; multiAccountFile?: boolean };
-		};
+		it('refuses outright when the column PROVES two accounts, and writes nothing', async () => {
+			expect.assertions(3);
 
-		expect(result.importResult?.importedRows).toBe(2);
-		expect(result.importResult?.multiAccountFile).toBe(true);
-		expect(db.state.accounts).toHaveLength(1);
-	});
+			const result = (await runImportWithFile(PROVEN)) as unknown as {
+				status?: number;
+				data: { error: string };
+			};
 
-	it('does not say it for an ordinary single-account file', async () => {
-		// SEPARATES: « the notice fires on the evidence the file offers » FROM « it fires on every
-		// import ». A notice shown always is a notice nobody reads by the third month, and it would
-		// be the same defect as the refusal it replaces, one tone quieter.
-		expect.assertions(2);
+			expect(result.status).toBe(400);
+			expect(result.data.error).toBe(refusalLabel({ code: 'multi-account-file', column: 3 }));
+			expect(db.state.transactions).toHaveLength(0);
+		});
 
-		const result = (await runImportWithFile(GENERIC)) as unknown as {
-			importResult?: { importedRows: number; multiAccountFile?: boolean };
-		};
+		it('asks instead of guessing when the column only EXHIBITS the ambiguity', async () => {
+			expect.assertions(2);
 
-		expect(result.importResult?.importedRows).toBe(1);
-		expect(result.importResult?.multiAccountFile).toBe(false);
+			const result = (await runImportWithFile(UNPROVEN)) as unknown as {
+				status?: number;
+				data: { error: string };
+			};
+
+			expect(result.status).toBe(400);
+			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		// FOUND BY A BROWSER WALK: `importSampleValues` pads every column to 3 entries with `''`
+		// so the reading offer's cards can render « (vide) » for a sparse column (#342). This
+		// offer has no such convention — its dialog joins `samples` with `', '` — so the pad
+		// leaked through as a trailing empty entry, rendered live as "10000001, 10000002, ".
+		it("carries only the column's own values as samples, never the padding", async () => {
+			expect.assertions(2);
+
+			const result = (await runImportWithFile(UNPROVEN)) as unknown as {
+				status?: number;
+				data: { accountColumn?: { samples: string[] } };
+			};
+
+			expect(result.status).toBe(400);
+			expect(result.data.accountColumn?.samples).toStrictEqual(['10000001', '10000002']);
+		});
+
+		it('imports normally once the column is confirmed to name something else', async () => {
+			expect.assertions(3);
+
+			const result = (await runImportWithFileAndFields(UNPROVEN, {
+				accountColumnAnswer: 'not-account'
+			})) as unknown as { status?: number; importResult?: { importedRows: number } };
+
+			expect(result.status).toBeUndefined();
+			expect(result.importResult?.importedRows).toBe(2);
+			expect(db.state.accounts).toHaveLength(1);
+		});
+
+		it('refuses the same way once the column is confirmed to name accounts', async () => {
+			expect.assertions(3);
+
+			const result = (await runImportWithFileAndFields(UNPROVEN, {
+				accountColumnAnswer: 'is-account'
+			})) as unknown as { status?: number; data: { error: string } };
+
+			expect(result.status).toBe(400);
+			expect(result.data.error).toBe(refusalLabel({ code: 'multi-account-file', column: 3 }));
+			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		it('leaves an ordinary single-account file untouched', async () => {
+			expect.assertions(2);
+			const single =
+				'date;label;amount;compte\n' +
+				'2026-06-01;AUCHAN;-42,10;FR7630001007941234567890185\n' +
+				'2026-06-02;SNCF;-30,00;FR7630001007941234567890185';
+
+			const result = (await runImportWithFile(single)) as unknown as {
+				status?: number;
+				importResult?: { importedRows: number };
+			};
+
+			expect(result.status).toBeUndefined();
+			expect(result.importResult?.importedRows).toBe(2);
+		});
 	});
 
 	it('still imports for the install that has one account of that source', async () => {
@@ -2359,6 +2414,45 @@ describe('two accounts of one source, on the auto path', () => {
 		expect(result.status).toBeUndefined();
 		expect(result.importResult?.importedRows).toBe(1);
 		expect(db.state.accounts).toHaveLength(1);
+	});
+
+	/**
+	 * THE SECOND PAIR THE PLAN NAMES: the account question (#476, source ambiguity) and the
+	 * duplicate-statement confirmation (#343, `findCollidingBatch`) can both apply to one re-upload
+	 * — the same file, imported a second time, once the caller has stopped naming an account. The
+	 * order is a control-flow fact rather than a `resolveZeroTransactionOffer`-shaped priority
+	 * (each check is an early `return` in `decideAutoAccount`'s own caller, not a set of facts
+	 * computed together and then ranked), so it is tested here directly against the real collision
+	 * detector rather than through that module: `decision.kind === 'ask'` (`+page.server.ts`) is
+	 * checked and returned on BEFORE `formData.get('confirmCollision')` is ever read.
+	 */
+	it('asks which account before ever raising the duplicate-statement confirmation', async () => {
+		expect.assertions(4);
+		seedTwoCsvAccounts();
+
+		// First upload: named explicitly, so it succeeds and becomes the batch the second upload
+		// would collide with.
+		const first = (await runImportWithFileAndFields(GENERIC, {
+			accountId: 'account-courant'
+		})) as unknown as { status?: number };
+		expect(first.status).toBeUndefined();
+
+		// Second upload: the SAME file, no account named. Both the source ambiguity (#476) and the
+		// collision (#343) are true of this request; only one refusal can be shown.
+		const second = (await runImportWithFile(GENERIC)) as unknown as {
+			status?: number;
+			data: {
+				account?: { options: unknown[] };
+				collision?: unknown;
+				incoming?: unknown;
+			};
+		};
+
+		expect(second.status).toBe(400);
+		// The account offer, not the collision dialog: had the collision check run first, this
+		// would be 409 with `data.collision` populated instead.
+		expect(second.data.account).toBeDefined();
+		expect(second.data.collision).toBeUndefined();
 	});
 });
 

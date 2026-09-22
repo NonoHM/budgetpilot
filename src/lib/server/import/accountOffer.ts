@@ -148,7 +148,7 @@ export async function buildAccountOffer(input: {
 	return {
 		prefillName: prefillAccountName({
 			institution: input.source ? institutionForSource(input.source) : null,
-			fragment: named.kind === 'found' ? named.fragment : null
+			fragment: named.kind === 'resolved' ? named.fragment : null
 		}),
 		options: destinations.map((account) => ({
 			id: account.id,

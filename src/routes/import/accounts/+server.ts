@@ -136,7 +136,7 @@ async function fragmentFromFile(posted: FormDataEntryValue | null): Promise<stri
 			return null;
 		}
 		const found = findDiscriminantColumn(read.rows);
-		return found.kind === 'found' ? found.fragment : null;
+		return found.kind === 'resolved' ? found.fragment : null;
 	} catch {
 		return null;
 	}
