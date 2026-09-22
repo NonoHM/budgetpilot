@@ -365,13 +365,12 @@ export function parseImportRows(
 		parsed.transactions.length > 0 &&
 		parsed.summary.fileLevelRefusals === 0
 	) {
-		// LOGGED GOING FORWARD, #485: neither this repository's fixture corpus nor a DB query could
-		// answer how often this fires on a real file (`multiAccountFile` was computed and discarded,
-		// never stored, and the raw file is not retained either). This is the one line that lets a
-		// future session count it: the kind, never a cell value or the discriminant fragment, which
-		// `discriminant.ts`'s own docstring names a sensitive data class. Durability is outside this
-		// PR's control: whether it survives depends on how the deployment collects container stdout.
-		console.warn(`[budgetpilot] multi-account column detected, kind=${discriminant.kind}`);
+		// UNMEASURED, #485: neither this repository's fixture corpus nor a DB query could answer how
+		// often this fires on a real file (`multiAccountFile` was computed and discarded, never
+		// stored, and the raw file is not retained either). A `console.warn` here would not close that
+		// gap: this app ships as a distroless container with no log aggregation configured, so a line
+		// written to stdout reaches nobody and is indistinguishable from never having run. The gap is
+		// recorded on the issue instead of manufactured as a log line nothing reads.
 		if (discriminant.kind === 'contradictory' || options.accountColumnAnswer === 'is-account') {
 			return emptyResult(
 				[{ code: 'multi-account-file', column: discriminant.index }],

@@ -1644,6 +1644,8 @@
 	"import_account_error_ambiguous_auto": "Vous avez plusieurs comptes pour cette banque. Choisissez celui de ce relevé.",
 	"import_error_ambiguous_date_order": "Nous ne savons pas comment lire les dates de ce fichier : jour en premier ou mois en premier. Confirmez la lecture avant d'importer.",
 	"import_error_ambiguous_account_column": "Nous ne savons pas si ce fichier concerne un seul compte ou plusieurs. Confirmez avant d'importer.",
+	"import_error_account_column_unanswerable": "La colonne « {header} » pourrait indiquer plusieurs comptes, et cet écran ne peut pas le confirmer. Modifiez-la, retirez-la, ou séparez le fichier par compte avant d'importer.",
+	"import_error_account_column_unanswerable_no_header": "La colonne {count} pourrait indiquer plusieurs comptes, et cet écran ne peut pas le confirmer. Modifiez-la, retirez-la, ou séparez le fichier par compte avant d'importer.",
 	"import_account_hint_multi_account": "Ce fichier contient plusieurs comptes. Choisissez celui de ce relevé.",
 	"import_account_create_field": "Nom du compte",
 	"import_account_create_hint": "Ce nom n'apparaît que dans BudgetPilot.",

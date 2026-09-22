@@ -840,25 +840,29 @@ describe('a file naming more than one account, on the designation door', () => {
 		expect(persist.createImportBatch).not.toHaveBeenCalled();
 	});
 
-	it('asks instead of guessing when the column only EXHIBITS the ambiguity', async () => {
-		expect.assertions(3);
+	// #670: this door has no control to answer the ask, so it must not ship the "confirm before
+	// importing" sentence with nothing to confirm with. It refuses instead, naming the recourse,
+	// which is the OTHER honest outcome `DESIGNATION_CANNOT_REPAIR`'s own principle leaves open
+	// (silently dropping the column was the third option, and it reopens #485 on this one door).
+	it('refuses with the recourse named, rather than asking a question nothing here can answer', async () => {
+		expect.assertions(4);
 		const result = await submit(UNPROVEN, true);
 		expect(result.status).toBe(400);
-		expect(result.data?.error).toBe(m.import_error_ambiguous_account_column());
+		expect(result.data?.error).toBe(
+			m.import_error_account_column_unanswerable({ header: 'compte' })
+		);
+		expect(result.data?.error).not.toBe(m.import_error_ambiguous_account_column());
 		expect(persist.createImportBatch).not.toHaveBeenCalled();
 	});
 
-	// FOUND BY A BROWSER WALK on `/import`'s own copy of this offer: `importSampleValues` pads
-	// every column to 3 entries with `''` for the reading offer's cards, a convention this offer
-	// does not share. Asserted on this door too, since it builds the field from its own call.
-	it("carries only the column's own values as samples, never the padding", async () => {
-		expect.assertions(2);
+	// No dialog exists on this door (#670), so the offer payload that would feed one must not be
+	// built either: a payload with nothing to consume it is drafted, not built.
+	it('carries no accountColumn offer, since nothing here renders one', async () => {
+		expect.assertions(1);
 		const result = (await submit(UNPROVEN, true)) as unknown as {
-			status?: number;
-			data?: { accountColumn?: { samples: string[] } };
+			data?: { accountColumn?: unknown };
 		};
-		expect(result.status).toBe(400);
-		expect(result.data?.accountColumn?.samples).toStrictEqual(['10000001', '10000002']);
+		expect(result.data?.accountColumn).toBeUndefined();
 	});
 
 	it('imports normally once the column is confirmed to name something else', async () => {
