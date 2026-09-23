@@ -125,8 +125,8 @@ async function seedUser(tag: string) {
 	// TWO statement accounts, so the auto path cannot choose by source and asks. That question is
 	// the ordinary door through which a user reaches the synced account from `/import`.
 	const eur = await createStatementAccount({ userId: user.id, name: 'Compte courant' });
-	await createStatementAccount({ userId: user.id, name: 'Compte joint' });
-	return { userId: user.id, usdId: usd.accountId, eurId: eur.id };
+	const joint = await createStatementAccount({ userId: user.id, name: 'Compte joint' });
+	return { userId: user.id, usdId: usd.accountId, eurId: eur.id, jointId: joint.id };
 }
 
 async function storedIn(userId: string, accountId: string) {
@@ -234,6 +234,64 @@ describe('#600: a declared currency the destination contradicts is refused befor
 		const { userId, usdId } = await seedUser('keep');
 		const refused = await DOORS[1].post(userId, usdId);
 		expect(refused.data?.keepDesignation).toBe(true);
+	});
+
+	/**
+	 * THE REMEMBERED MAPPING, `/import`'s third caller and its most common repeat-import path: the
+	 * file matches no profile, so `/import` parses it through a `ColumnMapping` this user saved on
+	 * an earlier designation (`useMapping`, by header fingerprint) and shows no screen at all.
+	 *
+	 * The mapping is saved the way a user saves one, by designating on `/import/columns` with the
+	 * memorisation left on. Then the same file goes through `/import` twice: into the USD account,
+	 * and, as the calibration, into the second EUR account. The calibration's `profile === 'mapped'` is
+	 * what proves the refusal was reached THROUGH the remembered mapping rather than through a
+	 * parse that refused the file for its unrecognised headers.
+	 *
+	 * Separates « the silent reuse is compared with the destination » from « it is not », and the
+	 * use count separates « refused before anything is written » from « refused after the mapping
+	 * counted a use it did not have ».
+	 */
+	it('/import through a remembered mapping: refuses EUR into USD, imports into EUR as mapped', async () => {
+		expect.assertions(7);
+		const { userId, usdId, eurId, jointId } = await seedUser('remembered');
+		const designated = await postColumns(userId, {
+			csvFile: fileOf(OPAQUE_DECLARING_EUR),
+			dateIndex: '0',
+			labelIndex: '1',
+			amountIndex: '2',
+			accountId: eurId
+		});
+		expect(designated.status).toBeUndefined();
+		const saved = await prisma.columnMapping.findFirst({
+			where: { userId },
+			select: { id: true, useCount: true }
+		});
+		expect(saved?.useCount).toBe(1);
+
+		const refused = await postImport(userId, {
+			csvFile: fileOf(OPAQUE_DECLARING_EUR),
+			accountId: usdId
+		});
+		console.info(
+			`[#600] remembered mapping into USD: status=${refused.status ?? 200} stored=${JSON.stringify((await storedIn(userId, usdId)).map((row) => row.currency))}`
+		);
+		expect(refused.status).toBe(400);
+		expect(refused.data?.error).toBe(EUR_INTO_USD);
+		expect(await storedIn(userId, usdId)).toEqual([]);
+		expect(
+			(await prisma.columnMapping.findFirst({ where: { userId }, select: { useCount: true } }))
+				?.useCount
+		).toBe(1);
+
+		// `confirmCollision`: the same statement already sits in the first EUR account, so the
+		// duplicate-statement question fires first (measured: 409). Answering it is the user's step,
+		// and it is not what this calibration is about.
+		const accepted = await postImport(userId, {
+			csvFile: fileOf(OPAQUE_DECLARING_EUR),
+			accountId: jointId,
+			confirmCollision: '1'
+		});
+		expect((accepted.importResult as { profile?: string } | undefined)?.profile).toBe('mapped');
 	});
 
 	/**
