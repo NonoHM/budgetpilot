@@ -85,7 +85,14 @@ export type DateOrderVerdict = FileVerdict<
 /**
  * Which order a column of date cells is written in, or why that cannot be answered.
  *
- * ## CALLED FROM EXACTLY ONE PLACE: `parseImportRows`, the door every parse path passes
+ * ## CALLED FROM TWO PLACES: `parseImportRows` DECIDES with it, `columnDateState` DESCRIBES with it
+ *
+ * `parseImportRows`, the door every parse path passes, turns the verdict into a reading or a
+ * refusal for the whole file. `columnDateState` reads one column at a time for the designation
+ * screen and decides nothing, so the screen and the parser cannot disagree about what an ambiguous
+ * column is. Recount with
+ * `rg -n 'detectDateOrder\(' src -g '!*.spec.ts'` (the two calls plus this definition) rather than
+ * trusting this heading.
  *
  * It ran with tests and no caller until #613, and the docstring that stood here said so, because
  * a tested function with no caller reads in six months as a function that works. What wired it is
