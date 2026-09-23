@@ -661,12 +661,20 @@
 		OUT OF the listbox, same reasoning as step 1's SwitchRow and search-empty group: a listbox's
 		children must be options, and a TapLink is not one. A re-ask for step 1, never a back — see
 		the class docstring's `step` section and 7d.
+
+		ABSENT, not merely inert, when the caller has no columns to go back to. Plate 7l's auto-path
+		reading offer omits `onChangeColumn` rather than passing a no-op: "no column list, no back
+		to it", and a visible link that does nothing when pressed is the false affordance the plate
+		forbids, not a harmless one. Found by a browser walk: no test asserted the link's absence,
+		so an unconditional render survived the whole suite.
 	-->
-	<div class="px-5 pt-2">
-		<div class="flex h-12 items-center">
-			<TapLink onclick={() => onChangeColumn?.()}>{m.import_datesheet_change_column()}</TapLink>
+	{#if onChangeColumn}
+		<div class="px-5 pt-2">
+			<div class="flex h-12 items-center">
+				<TapLink onclick={onChangeColumn}>{m.import_datesheet_change_column()}</TapLink>
+			</div>
 		</div>
-	</div>
+	{/if}
 {/snippet}
 
 {#if variant === 'anchored'}

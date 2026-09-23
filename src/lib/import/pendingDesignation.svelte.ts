@@ -1,4 +1,7 @@
 import type { DesignationFile, RoleAssignment } from '$lib/domain/columnDesignation';
+// TYPE ONLY. See `domain/columnDesignation.ts`: a type import from `$lib/server` is erased before
+// the bundler sees it, and this module is imported by the browser.
+import type { DateOrder } from '$lib/server/import/dateOrder';
 import type { AccountResolution } from '$lib/server/import/sourceSignature';
 
 /**
@@ -34,6 +37,20 @@ export interface PendingDesignation {
 	view: DesignationFile;
 	/** What detection worked out, so the screen opens with the unambiguous columns already filled. */
 	initialAssignment: RoleAssignment;
+	/**
+	 * A READING ALREADY ANSWERED, or null when the question has not been put to anybody.
+	 *
+	 * REQUIRED rather than optional, and that asymmetry is the point. An optional field makes the
+	 * compiler name no writer at all, which is exactly how two fields were added to the designation
+	 * payload and to none of the places that copy it, reaching the screen as `undefined` while every
+	 * level stayed green (#638). Required, the compiler enumerates all four writers, and three of
+	 * them are spreads that carry it for free.
+	 *
+	 * Null on the way IN: nothing has asked yet. It is filled by the designation screen's own answer
+	 * on the way back through a refusal, and by the duplicate-statement dialog's decline leg, which
+	 * is what stops the user being asked a question they have answered.
+	 */
+	dateOrder: DateOrder | null;
 	/** Per role, the column indices detection proposes when it will not pick between equals. */
 	candidates: Partial<Record<string, number[]>>;
 	/**

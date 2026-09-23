@@ -152,6 +152,36 @@ async function uploadWideUnrecognisedStatement(page) {
  *
  * The created name is a plain label a person would type, never anything read out of a file.
  */
+/**
+ * Answers the date reading question when the file's date column leaves it open, and does nothing
+ * when it does not.
+ *
+ * THE FIXTURE IS AMBIGUOUS, which is a fact about ITS DATA rather than a change in the flow, and
+ * that distinction is the whole comment. The wide fixture's dates are 01/06 to 09/06: every
+ * component sits at or below 12, so nothing in the column proves an order and the screen is right
+ * to ask. The narrow fixture's `24/06/2026` proves day first and is never asked.
+ *
+ * So the desktop capture did not break because designating a date column started behaving
+ * differently. It broke because THIS file has always been one a user must be asked about, and the
+ * screen only recently gained the ability to ask: the question is now open when the loop clicks the
+ * next row, and Playwright reports « How should these dates be read? ... intercepts pointer
+ * events ». A capture of a file that answers its own order needs none of this.
+ *
+ * Conditional rather than unconditional, because the narrow fixture's `24/06/2026` PROVES day first
+ * and never asks: a helper that waited for the question there would time out on a file behaving
+ * correctly.
+ *
+ * It answers rather than dismissing. Dismissing leaves the row reading « Confirm », which is a
+ * screen mid-question, and the images this script produces are of screens doing their job.
+ */
+async function answerDateReadingIfAsked(page) {
+	const cards = page.getByRole('option', { name: /^Day then month/ });
+	if ((await cards.count()) === 0) return false;
+	await cards.first().click();
+	await page.waitForTimeout(300);
+	return true;
+}
+
 async function answerAccountRow(page, name) {
 	// `:visible`, and it is the same trap the summary assertion below records: `/import/columns`
 	// renders BOTH breakpoint chromes into the DOM, so the row exists twice and an unscoped
@@ -535,8 +565,32 @@ const GROUPS = {
 				]) {
 					await page.getByRole('button', { name: row }).click();
 					await page.getByRole('option', { name: column }).click();
+					// This fixture's date column is ambiguous, so the Date row's choice leaves the
+					// question open and the NEXT row's click would land on it. See the helper.
+					await answerDateReadingIfAsked(page);
 					await page.waitForTimeout(200);
 				}
+			}
+		},
+		{
+			// THE READING QUESTION, which only opens on a column no row settles. The WIDE fixture is
+			// the one that reaches it: its dates are 01/06 to 09/06, every component at or below 12,
+			// so nothing in the column proves an order. The narrow fixture's `24/06/2026` proves day
+			// first, so designating its date column closes the panel and this capture would show the
+			// designation screen instead, which is what the image above already shows.
+			file: 'imports/columns-date-reading-mobile.png',
+			url: '/import',
+			viewport: MOBILE,
+			before: async (page) => {
+				await uploadWideUnrecognisedStatement(page);
+				await page.getByRole('button', { name: 'Designate the columns' }).click();
+				await page.waitForURL(/\/import\/columns$/);
+				await answerAccountRow(page, 'Current account');
+				await page.getByRole('button', { name: /^Date, no column designated/ }).click();
+				await page.getByRole('option', { name: /^zone_1\./ }).click();
+				// No close here, deliberately: designating an ambiguous column DEFERS the close by one
+				// question, so the panel is now showing the reading cards.
+				await page.waitForTimeout(300);
 			}
 		},
 		{

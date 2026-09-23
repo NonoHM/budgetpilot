@@ -47,11 +47,14 @@ const DUPLICATE_HEADER_CSV = [
 ].join('\n');
 
 /** Two ROW-scoped refusals of different kinds, plus one good row so the counts have to add up. */
+// The valid row's date is the 24th, not the 1st: a day above 12 PROVES day-first, which keeps
+// this file's own subject (row-level refusal rendering) out of #433's auto-path reading question.
+// The two unreadable date/amount cells carry no ambiguous-grammar evidence of their own.
 const TWO_BAD_ROWS_CSV = [
 	'date;libelle;montant',
 	'PAS-UNE-DATE;E2E date illisible;-3,50',
 	'01/02/2026;E2E montant illisible;PAS-UN-MONTANT',
-	'01/03/2026;E2E ligne valide refusee;-9,90'
+	'24/03/2026;E2E ligne valide refusee;-9,90'
 ].join('\n');
 
 async function upload(page: import('@playwright/test').Page, name: string, csv: string) {

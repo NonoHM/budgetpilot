@@ -5,6 +5,7 @@ import { MAISON_V2_HEADER } from './profiles/maison-v2';
 import { BANQUE_POPULAIRE_HEADERS } from './profiles/banque-populaire';
 import { REVOLUT_HEADERS } from './profiles/revolut';
 import { buildRowGroupKey } from './dedupeRecompute';
+import { needsFormulaGuard } from '$lib/server/csv/formulaGuard';
 
 /**
  * Property-based coverage of the CSV import parser, which is the larger of the two attacker-facing
@@ -35,7 +36,6 @@ import { buildRowGroupKey } from './dedupeRecompute';
  * repository; this is the regression net, not the search.
  */
 
-const FORMULA_LEAD = /^[=+\-@\t\r]/;
 /** A plain number is not a formula. Revolut metadata carries cents as strings, so "-1234" trips a
  *  naive leading-character test: the exploratory harness reported 1492 of those as injection
  *  findings before this line existed, every one of them the harness talking to itself. */
@@ -90,7 +90,7 @@ function inspect(content: string, parse = parseCsvTransactions): Outcome {
 		];
 		for (const [where, value] of texts) {
 			if (PLAIN_NUMBER.test(value)) continue;
-			if (FORMULA_LEAD.test(value)) violations.push(`formula character survives in ${where}`);
+			if (needsFormulaGuard(value)) violations.push(`formula character survives in ${where}`);
 		}
 	}
 
@@ -442,7 +442,15 @@ describe('the CSV parser under generated input', () => {
 
 		fc.assert(
 			fc.property(anyInput, ([generatedAs, content]) => {
-				const outcome = inspect(content);
+				// An explicit day-first answer, deliberately: this gate fuzzes robustness and
+				// duplicate detection, not the auto path's ambiguous-date-order ask, and a random
+				// two-digit day and month is ambiguous often enough to starve `acceptedBy` and
+				// `inputsCarryingACollisionGroup` of the population they calibrate against. The
+				// override matches the SAME default the door already applied silently before that
+				// ask existed, so every other measurement here is unchanged by it.
+				const outcome = inspect(content, (c) =>
+					parseCsvTransactions(c, { dateOrder: 'day-first' })
+				);
 				if (outcome.threw) throws.push({ error: outcome.threw, input: content });
 				violations.push(...outcome.violations);
 				if (outcome.accepted) acceptedBy[generatedAs] = (acceptedBy[generatedAs] ?? 0) + 1;

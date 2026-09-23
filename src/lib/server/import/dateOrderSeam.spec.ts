@@ -369,3 +369,255 @@ describe('the order the parse applied, carried out of the door', () => {
 		expect(answered.transactions[0]?.date).toBe('2026-03-04');
 	});
 });
+
+/**
+ * # THE DISCLOSURE FIRES ON A CHOICE, NEVER ON ARITHMETIC. Plate 7l.
+ *
+ * « Dates lues jour puis mois — Date operation » states a proof, so it must appear only where
+ * there was something to choose: a proven column is arithmetic and disclosing it every month is
+ * noise (7l), and a defaulted column was never chosen by anyone, so a sentence claiming a reading
+ * "was applied" beside a day-first fallback nobody answered would be the exact silent-default #433
+ * is about, wearing a summary line instead of a refusal.
+ */
+describe('the summary discloses a chosen reading, never a proven or defaulted one', () => {
+	/**
+	 * THE ONE CASE THAT DISCLOSES. Separates « the column and the reading both reach the summary »
+	 * from « only the applied order does », which the two tests above already cover: this is the
+	 * new field, not `dateOrder` again.
+	 */
+	it('discloses the header and the reading when an ambiguous column was answered', () => {
+		expect.assertions(1);
+
+		const answered = parseCsvTransactions(
+			['date,label,amount', '03/04/2026,CARREFOUR,-24.90'].join('\n'),
+			{ dateOrder: 'month-first' }
+		);
+
+		expect(answered.summary.dateOrderDisclosure).toEqual({
+			header: 'date',
+			order: 'month-first'
+		});
+	});
+
+	/**
+	 * Separates « a proven column never discloses » from « it discloses whenever an override is
+	 * present ». The override is passed here and `decideDateOrder` already ignores it for a proven
+	 * column (asserted above); this is the summary-line half of the same rule.
+	 */
+	it('discloses nothing when the file proved its own order, even with an answer in hand', () => {
+		expect.assertions(2);
+
+		const proven = parseCsvTransactions(
+			['date,label,amount', '24/06/2026,CARREFOUR,-24.90'].join('\n'),
+			{ dateOrder: 'month-first' }
+		);
+
+		expect(proven.summary.dateOrder).toBe('day-first');
+		expect(proven.summary.dateOrderDisclosure).toBeUndefined();
+	});
+
+	/**
+	 * Separates « nothing to decide discloses nothing » from « any applied order discloses ». An
+	 * ISO column carries no ambiguous grammar at all, so there was never a question in it.
+	 */
+	it('discloses nothing when there was nothing to decide', () => {
+		expect.assertions(1);
+
+		const iso = parseCsvTransactions(
+			['date,label,amount', '2026-06-01,CARREFOUR,-24.90'].join('\n')
+		);
+
+		expect(iso.summary.dateOrderDisclosure).toBeUndefined();
+	});
+
+	/**
+	 * THE CASE THIS RULE EXISTS TO REFUSE. An ambiguous column with no answer still applies the
+	 * day-first default on `mapped` (unchanged behaviour, asserted in
+	 * `columns/page.server.spec.ts`), and it must not disclose a "reading" nobody chose: that would
+	 * state a decision as a fact when it is the exact silent default #433 names.
+	 *
+	 * `profile: 'mapped'` alone is pinned rather than left to `auto`'s own resolution,
+	 * deliberately: a registered profile no longer silently defaults here once the auto path can
+	 * ask (task 2 of #433's remainder), and this test is about the one profile that still does.
+	 * `dateOrderPromptedClientSide: true` is what actually keeps it defaulting since the
+	 * contradiction pass found `mapped` alone no longer means that on its own — see
+	 * `dateOrderSeam.spec.ts`'s own "a mapped parse asks unless..." block for the case that
+	 * distinguishes the two `mapped` callers.
+	 */
+	it('discloses nothing when an ambiguous column silently defaulted on the mapped path', () => {
+		expect.assertions(2);
+
+		const defaulted = parseCsvTransactions(
+			['date,label,amount', '03/04/2026,CARREFOUR,-24.90'].join('\n'),
+			{
+				profile: 'mapped',
+				dateOrderPromptedClientSide: true,
+				columnMapping: {
+					matchBy: 'name',
+					dateColumn: 'date',
+					labelColumn: 'label',
+					amountColumn: 'amount',
+					categoryColumn: null,
+					dateIndex: null,
+					labelIndex: null,
+					amountIndex: null,
+					categoryIndex: null,
+					columnCount: 3
+				}
+			}
+		);
+
+		expect(defaulted.summary.dateOrder).toBe('day-first');
+		expect(defaulted.summary.dateOrderDisclosure).toBeUndefined();
+	});
+});
+
+/**
+ * # THE AUTO PATH ASKS, #433'S REMAINDER. `/import` has no designation screen to ask through, so
+ * the door itself asks for exactly the population `#639`'s UI cannot reach: a RECOGNISED profile
+ * (`parser` truthy) whose date column is ambiguous and carries no answer.
+ *
+ * `mapped` is excluded by construction rather than by a second condition: `parser` is null
+ * exactly when the profile is `mapped`, which is the same variable the door already reads to
+ * choose which parser runs. `columns/page.server.spec.ts:682`'s baseline is the reason it must
+ * stay excluded — that test locks the silent default on the path #639's client-side screen
+ * already covers.
+ */
+describe('a registered profile asks instead of silently defaulting on an ambiguous column', () => {
+	/**
+	 * THE ONE CASE THIS SESSION EXISTS TO CHANGE. Separates « the file is refused, asking » from
+	 * « it imports silently under the default », which is what #433's remainder names.
+	 */
+	it('refuses with ambiguous-date-order, naming the column and a sample cell', () => {
+		expect.assertions(5);
+
+		const result = parseCsvTransactions(
+			['Date,Description,Amount', '06/01/2026,COFFEE,-4.50'].join('\n')
+		);
+
+		expect(result.transactions).toEqual([]);
+		expect(result.summary.validRows).toBe(0);
+		expect(result.summary.fileLevelRefusals).toBe(1);
+		expect(result.invalidRows).toHaveLength(1);
+		expect(result.invalidRows[0].fact).toEqual({
+			code: 'ambiguous-date-order',
+			column: 0,
+			sample: '06/01/2026'
+		});
+	});
+
+	/** THE REPOST. An explicit answer still settles an ambiguous column, exactly as before. */
+	it('imports once an explicit answer settles the same column', () => {
+		expect.assertions(2);
+
+		const result = parseCsvTransactions(
+			['Date,Description,Amount', '06/01/2026,COFFEE,-4.50'].join('\n'),
+			{ dateOrder: 'month-first' }
+		);
+
+		expect(result.transactions).toHaveLength(1);
+		expect(result.transactions[0].date).toBe('2026-06-01');
+	});
+
+	/**
+	 * THE COMPLEMENT'S FIRST HALF. A proven column names its own position, so there is nothing to
+	 * ask: separates « the new branch fires on any registered profile » from « it fires only where
+	 * the verdict is genuinely ambiguous ».
+	 */
+	it('does not fire on a column that proves its own order', () => {
+		expect.assertions(2);
+
+		const result = parseCsvTransactions(
+			['Date,Description,Amount', '24/06/2026,COFFEE,-4.50'].join('\n')
+		);
+
+		expect(result.transactions).toHaveLength(1);
+		expect(result.summary.fileLevelRefusals).toBe(0);
+	});
+
+	/** THE COMPLEMENT'S SECOND HALF. An ISO column has no ambiguous grammar to ask about. */
+	it('does not fire when there is nothing to decide', () => {
+		expect.assertions(2);
+
+		const result = parseCsvTransactions(
+			['Date,Description,Amount', '2026-06-01,COFFEE,-4.50'].join('\n')
+		);
+
+		expect(result.transactions).toHaveLength(1);
+		expect(result.summary.fileLevelRefusals).toBe(0);
+	});
+
+	/**
+	 * THE MIXED CASE STILL REFUSES ITS OWN WAY. Separates « ambiguous and mixed are the same
+	 * branch » from « mixed keeps its own refusal and its own repairable path » (`mixed-date-order`
+	 * is not in `DESIGNATION_CANNOT_REPAIR`; `ambiguous-date-order` must be, checked at the route).
+	 */
+	it('leaves a column proving both readings on its own mixed-date-order refusal', () => {
+		expect.assertions(2);
+
+		const result = parseCsvTransactions(
+			['Date,Description,Amount', '24/06/2026,A,-1.00', '06/24/2026,B,-2.00'].join('\n')
+		);
+
+		expect(result.transactions).toEqual([]);
+		expect(result.invalidRows[0].fact.code).toBe('mixed-date-order');
+	});
+});
+
+/**
+ * # `mapped` ALONE NO LONGER MEANS "ALREADY ASKED". #433's contradiction pass.
+ *
+ * `/import`'s own action ALSO parses with `profile: 'mapped'`, silently, whenever it reapplies a
+ * `ColumnMapping` remembered from a PREVIOUS designation (`useMapping`, by header fingerprint) —
+ * no screen opens for that reuse, and `ColumnMapping` carries no `dateOrder` field, so nothing was
+ * ever asked or remembered about this file's reading. Only `/import/columns`, backed by the
+ * designation screen (#639), sets `dateOrderPromptedClientSide`, and only that caller may keep the
+ * silent default this door still gives it.
+ */
+describe('a mapped parse asks unless the caller was the screen that already could', () => {
+	const MAPPING: ColumnMappingInput = {
+		matchBy: 'name',
+		dateColumn: 'date',
+		labelColumn: 'label',
+		amountColumn: 'amount',
+		categoryColumn: null,
+		dateIndex: null,
+		labelIndex: null,
+		amountIndex: null,
+		categoryIndex: null,
+		columnCount: 3
+	};
+
+	/**
+	 * THE GAP ITSELF. Separates « a silent mapped reuse still defaults, forever » from « it now
+	 * asks like a registered profile does », which is what closes it.
+	 */
+	it('asks when the mapped parse carries no client-prompted flag', () => {
+		expect.assertions(2);
+
+		const result = parseCsvTransactions(
+			['date,label,amount', '03/04/2026,CARREFOUR,-24.90'].join('\n'),
+			{ profile: 'mapped', columnMapping: MAPPING }
+		);
+
+		expect(result.transactions).toEqual([]);
+		expect(result.invalidRows[0]?.fact.code).toBe('ambiguous-date-order');
+	});
+
+	/**
+	 * THE CONTRACT `columns/page.server.spec.ts:682` LOCKS, preserved. Separates « the flag
+	 * suppresses the ask » from « the flag does nothing », which would make the two tests here
+	 * identical and prove neither.
+	 */
+	it('keeps the silent default when the caller flags itself as already having asked', () => {
+		expect.assertions(2);
+
+		const result = parseCsvTransactions(
+			['date,label,amount', '03/04/2026,CARREFOUR,-24.90'].join('\n'),
+			{ profile: 'mapped', columnMapping: MAPPING, dateOrderPromptedClientSide: true }
+		);
+
+		expect(result.transactions).toHaveLength(1);
+		expect(result.summary.dateOrder).toBe('day-first');
+	});
+});

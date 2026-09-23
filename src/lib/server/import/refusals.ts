@@ -53,6 +53,23 @@ export type CsvRefusalFact =
 	// problem. Same reasoning as `duplicate-column` and `amount-split-across-columns`, which is
 	// why it follows their shape rather than inventing a third. See `dateOrder.ts` and #433.
 	| { code: 'mixed-date-order'; dayFirst: string; monthFirst: string }
+	// The column left the question genuinely open: no cell proves either reading. `column` is the
+	// index into the header row, threaded to the route so it can build the offer without
+	// re-deriving which column the profile declared; `sample` is one ambiguous cell, through
+	// `refusalCellValue` exactly as `mixed-date-order`'s pair. Never emitted for `mapped`: that
+	// door keeps its existing, tested day-first default, because the designation screen (#639) is
+	// trusted to have asked before this door is reached. See `dateOrder.ts` and #433.
+	| { code: 'ambiguous-date-order'; column: number; sample: string }
+	// The discriminant column PROVES two accounts: a verified IBAN pair (mod-97) that differs per
+	// row, or a column the user has just confirmed names accounts after `ambiguous-account-column`
+	// asked. Refused outright, before any row is written: see `discriminant.ts`'s `kind: 'contradictory'`
+	// and #485. `column` is the index the file offered as evidence, carried for the sentence.
+	| { code: 'multi-account-file'; column: number }
+	// The discriminant column EXHIBITS ambiguity and proves nothing: a bare digit run that varies
+	// per row is exactly as consistent with a reference number or a running balance as with a
+	// second account. Never emitted once an answer has resolved it either way for this file: see
+	// `discriminant.ts`'s `kind: 'ambiguous'` and #485.
+	| { code: 'ambiguous-account-column'; column: number; sample: string }
 	// structural
 	| { code: 'unknown-column'; column: string }
 	// Every spelling the FILE uses for the folded name, joined, in file order. One name would be
@@ -108,6 +125,13 @@ export type CsvRefusalFact =
 	| { code: 'debit-credit-both' }
 	| { code: 'debit-credit-empty' }
 	| { code: 'category-too-long' }
+	// #652: a control character (Cc minus the five whitespace already handled) in the field a
+	// profile reads its label from, before `sanitizeImportedText` strips it. Named after the
+	// class rather than the one instance measured (U+0000), since `hasStrandedControlCharacter`
+	// tests the whole class. No payload, matching `category-too-long`'s shape: the offending
+	// field is named through `CsvRefusal.field`, not through the fact, and the sentence is the
+	// same regardless of which field or which character.
+	| { code: 'control-character' }
 	// repartition, maison v2 only
 	| { code: 'split-column-unreadable' }
 	| { code: 'split-out-of-bounds' }
@@ -146,6 +170,9 @@ export const CSV_REFUSAL_CODES = [
 	'too-many-columns',
 	'header-not-recognized',
 	'mixed-date-order',
+	'ambiguous-date-order',
+	'multi-account-file',
+	'ambiguous-account-column',
 	'unknown-column',
 	'duplicate-column',
 	'missing-required-column',
@@ -167,6 +194,7 @@ export const CSV_REFUSAL_CODES = [
 	'debit-credit-both',
 	'debit-credit-empty',
 	'category-too-long',
+	'control-character',
 	'split-column-unreadable',
 	'split-out-of-bounds',
 	'split-inconsistent',

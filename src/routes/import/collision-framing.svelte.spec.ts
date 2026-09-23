@@ -90,6 +90,9 @@ function carry(correction: { batchId: string; deleteOldImport: boolean } | null)
 			accountId: 'account-chosen',
 			account: null,
 			remember: true,
+			// Unanswered: this file is about the collision framing, and the reading separates none of
+			// its cases. Null is also the value a run that never met the question carries.
+			dateOrder: null,
 			hasHeaderRow: true,
 			correction: correction
 				? {

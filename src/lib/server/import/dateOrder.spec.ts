@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { detectDateOrder, AMBIGUOUS_DATE_PATTERN } from './dateOrder';
+import { detectDateOrder, readDateOrderAnswer, AMBIGUOUS_DATE_PATTERN } from './dateOrder';
+import type { DateOrder } from './dateOrder';
 import { normalizeDate } from './utils/csv';
 
 /**
@@ -96,7 +97,7 @@ describe('reading a date order off a column', () => {
 
 		const verdict = detectDateOrder(['24/06/2026', '06/24/2026', '01/02/2026']);
 
-		expect(verdict.kind).toBe('mixed');
+		expect(verdict.kind).toBe('contradictory');
 		// BOTH cells, in file order. Naming one would send the user to a row that is not the
 		// problem: neither cell is wrong on its own, it is the pair that cannot both be right.
 		expect(verdict).toMatchObject({ dayFirstEvidence: '24/06/2026' });
@@ -145,5 +146,77 @@ describe('reading a date order off a column', () => {
 		}
 		// A form neither accepts, so the agreement above is not two constants that are both true.
 		expect(AMBIGUOUS_DATE_PATTERN.test('2026-06-24')).toBe(false);
+	});
+});
+
+/**
+ * THE ONE PLACE A POSTED READING BECOMES A READING, and the reason it is a function.
+ *
+ * A reading now arrives from an untrusted form field, which makes it the first client input in
+ * this directory whose value decides how STORED dates are read. `row.date` is the second field of
+ * the deduplication key, so this string decides the identity of every row the file writes.
+ *
+ * Positive validation against the closed set, never a cast and never a rejection: an absent,
+ * empty or hostile value falls back to the DERIVATION, because the file's own evidence is the
+ * answer in every case except the one this settles. A refusal here would turn a hand-made request
+ * into a failed import, and an error is the wrong answer to a question the file can already answer
+ * for itself.
+ */
+describe('reading a posted answer', () => {
+	/**
+	 * Separates « the two readings are accepted » from « everything is accepted », which is the
+	 * whole of the validation and is why both are asserted in one test rather than one each.
+	 */
+	it('accepts exactly the two readings', () => {
+		expect.assertions(2);
+		expect(readDateOrderAnswer('day-first')).toBe('day-first');
+		expect(readDateOrderAnswer('month-first')).toBe('month-first');
+	});
+
+	/**
+	 * Separates « the set is closed » from « the string is passed through ». Every value here is
+	 * one a hand-made request or a locale confusion can produce, and `undefined` is the answer that
+	 * hands the decision back to the file.
+	 */
+	it('answers undefined for anything else, rather than refusing', () => {
+		expect.assertions(9);
+		for (const hostile of [
+			'Mois puis jour',
+			'DAY-FIRST',
+			'day-first ',
+			'monthfirst',
+			'',
+			'__proto__',
+			'day-first,month-first'
+		]) {
+			expect(readDateOrderAnswer(hostile)).toBeUndefined();
+		}
+		// The shapes a form field actually produces when the question was never asked.
+		expect(readDateOrderAnswer(null)).toBeUndefined();
+		expect(readDateOrderAnswer(undefined)).toBeUndefined();
+	});
+
+	/**
+	 * A `FormData` value is `string | File`, so the File branch is reachable from a hand-made
+	 * multipart request naming this field. Separates « a non-string is refused » from « a non-string
+	 * reaches a comparison that happens to be false », which are the same answer today and stop
+	 * being so the moment anyone normalises the input.
+	 */
+	it('answers undefined for a value that is not a string at all', () => {
+		expect.assertions(3);
+		expect(readDateOrderAnswer(new File(['day-first'], 'x.txt'))).toBeUndefined();
+		expect(readDateOrderAnswer({ toString: () => 'day-first' })).toBeUndefined();
+		expect(readDateOrderAnswer(['day-first'])).toBeUndefined();
+	});
+
+	/**
+	 * THE FUNCTION IS THE ONE DEFINITION, asserted against `DateOrder`'s own inhabitants rather
+	 * than against two literals retyped here. A third reading added to the type without a branch
+	 * here would be silently unacceptable, and this is what says so.
+	 */
+	it('accepts every reading the type has, by construction', () => {
+		expect.assertions(2);
+		const everyReading: DateOrder[] = ['day-first', 'month-first'];
+		for (const reading of everyReading) expect(readDateOrderAnswer(reading)).toBe(reading);
 	});
 });

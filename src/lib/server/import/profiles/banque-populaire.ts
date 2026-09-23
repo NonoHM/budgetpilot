@@ -22,6 +22,7 @@ import {
 	buildNotes,
 	firstPresent,
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -42,6 +43,10 @@ export const BANQUE_POPULAIRE_HEADERS = [
 	'Date de valeur',
 	'Pointage operation'
 ];
+
+/** The two BANQUE_POPULAIRE_HEADERS that hold a signed amount: exempted from
+ *  `sanitizeImportedText` so a negative debit or credit keeps its leading `-`. */
+const BANQUE_POPULAIRE_AMOUNT_FIELDS = new Set(['Debit', 'Credit']);
 
 /**
  * The three columns this profile can take a date from, in the order it tries them.
@@ -173,13 +178,24 @@ export function parseBanquePopulaireRows({
 			);
 			return;
 		}
-		const label = sanitizeImportedText(
-			firstPresent(
-				record['Libelle simplifie'],
-				record['Libelle operation'],
-				record['Type operation']
-			) || 'Opération Banque Populaire'
+		const rawLabel = firstPresent(
+			record['Libelle simplifie'],
+			record['Libelle operation'],
+			record['Type operation']
 		);
+		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
+		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
+		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+		if (hasStrandedControlCharacter(rawLabel)) {
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'control-character' },
+				'Libelle simplifie'
+			);
+			return;
+		}
+		const label = sanitizeImportedText(rawLabel || 'Opération Banque Populaire');
 		const banquePopulaireCategory = sanitizeImportedText(
 			firstPresent(record.Categorie, record['Sous categorie']) || 'Autre'
 		);
@@ -229,7 +245,7 @@ export function parseBanquePopulaireRows({
 				bankOperationType: banquePopulaireCategory,
 				banquePopulaireCategory,
 				subcategory: subcategory || undefined,
-				csvFields: buildCsvFields(record, BANQUE_POPULAIRE_HEADERS)
+				csvFields: buildCsvFields(record, BANQUE_POPULAIRE_HEADERS, BANQUE_POPULAIRE_AMOUNT_FIELDS)
 			}
 		};
 		const validation = validateTransaction(transaction);
