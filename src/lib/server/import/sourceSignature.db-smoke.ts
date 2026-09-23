@@ -39,9 +39,16 @@ const headersFor = (label: string) => ['date', 'libelle', 'montant', `compte-${l
 
 let mine = '';
 let other = '';
-let myAccount: ResolvableAccount = { id: '', source: 'csv', archivedAt: null, discriminant: null };
+let myAccount: ResolvableAccount = {
+	id: '',
+	name: '',
+	source: 'csv',
+	archivedAt: null,
+	discriminant: null
+};
 let otherAccount: ResolvableAccount = {
 	id: '',
+	name: '',
 	source: 'csv',
 	archivedAt: null,
 	discriminant: null
@@ -59,7 +66,7 @@ async function makeAccount(userId: string, name: string, discriminant: string | 
 			source: 'csv',
 			discriminant
 		},
-		select: { id: true, source: true, archivedAt: true, discriminant: true }
+		select: { id: true, name: true, source: true, archivedAt: true, discriminant: true }
 	});
 }
 

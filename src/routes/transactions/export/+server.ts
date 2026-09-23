@@ -116,11 +116,10 @@ async function accountNameFor(
 	 * `computeNameKey` against the stored name, so substituting here would write a string no row
 	 * holds and the file would stop naming its own account.
 	 *
-	 * **Stated as intent, because that is what it is: nothing reads it yet.** Rank 2 of
-	 * `resolveStatementAccount` is the reader and is not implemented (see its own comment, and
-	 * #464), so today the only caller of `readMaisonV3Account` is a db-smoke. The decision stands on
-	 * what wiring rank 2 would need rather than on a mechanism already running, and saying so in the
-	 * present tense is how a justification outlives its reason.
+	 * Rank 2 of `resolveStatementAccount` (and `decideAutoAccount`'s own direct call to
+	 * `resolveNamedAccount`, ahead of it) is the reader, closing #464: a re-import of this column
+	 * now lands back on the account named here, matched by `computeNameKey` against the stored
+	 * name, never the substituted one.
 	 *
 	 * KNOWN COST, recorded rather than fixed: an English user exporting from the generic bucket
 	 * gets its French storage literal in a column they can read. Fixing that means the reader
