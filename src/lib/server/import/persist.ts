@@ -26,18 +26,6 @@ import type { ImportedTransaction } from './types';
  */
 
 const METADATA_CELL_ANONYMIZE_LIMIT = 18;
-const METADATA_CSV_FIELD_ALLOWLIST = [
-	'Libelle simplifie',
-	'Libelle operation',
-	'Type operation',
-	'Categorie',
-	'Sous categorie',
-	'Informations complementaires',
-	'Date de comptabilisation',
-	'Date operation',
-	'Date de valeur',
-	'Pointage operation'
-];
 
 /** PII-masking applied to any raw CSV cell before it is persisted or previewed. */
 export function anonymizeImportCell(value: string): string {
@@ -842,11 +830,19 @@ async function persistSplitParts(
 	}
 }
 
+/**
+ * The bound here USED to be a fixed, ten-item Banque Populaire label list, which dropped any
+ * resolved name from any other profile before it reached the database (#466). The bound is now
+ * whatever `buildCsvFields` already resolved for THIS file, each PROFILE's own scoped list
+ * (`BANQUE_POPULAIRE_HEADERS`, `REVOLUT_METADATA_FIELDS`, or `resolvedRows.ts`'s four resolved
+ * column names) rather than a second, fixed list that has to be kept in step with all of them by
+ * hand. `anonymizeImportCell` still runs over every value unconditionally: the bound moved to the
+ * KEY SET each caller already scopes, never lifted from the VALUE it applies to.
+ */
 function sanitizeMetadataCsvFields(csvFields: Record<string, string>): Record<string, string> {
 	return Object.fromEntries(
-		METADATA_CSV_FIELD_ALLOWLIST.map((label) => [
-			label,
-			anonymizeImportCell(csvFields[label] ?? '')
-		]).filter(([, value]) => value !== '')
+		Object.entries(csvFields)
+			.map(([field, value]) => [field, anonymizeImportCell(value)] as const)
+			.filter(([, value]) => value !== '')
 	);
 }

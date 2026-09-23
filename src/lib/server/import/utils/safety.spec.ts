@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { hasStrandedControlCharacter, refusalCellValue, sanitizeImportedText } from './safety';
+import {
+	buildCsvFields,
+	hasStrandedControlCharacter,
+	refusalCellValue,
+	sanitizeImportedText
+} from './safety';
 
 /**
  * `refusalCellValue` exists because a refusal fact travels to the browser.
@@ -163,5 +168,66 @@ describe('hasStrandedControlCharacter', () => {
 		// Zero-width space: guarded against by formulaGuard's own ignorable-leading logic, and
 		// deliberately out of scope for this predicate, which is about Cc alone.
 		expect(hasStrandedControlCharacter('​=cmd')).toBe(false);
+	});
+});
+
+/**
+ * `buildCsvFields` used to decide which field names skip `sanitizeImportedText` from a FIXED,
+ * case-sensitive list of six literal spellings, no matter what the caller passed as `fields`. That
+ * list was never reachable by a name it did not already know: #466's exact finding, and the
+ * reason `exemptFields` is now supplied by the caller instead of guessed from the field's own
+ * spelling. `resolvedRows.ts` passes whatever its OWN resolved amount column is actually called,
+ * so this must work for a name the fixed list never anticipated, not only for the ones it did.
+ */
+describe('buildCsvFields', () => {
+	it('sanitises a field outside the exempt set, neutralising a leading formula character', () => {
+		expect.assertions(1);
+
+		const result = buildCsvFields({ Libelle: '=cmd|/c calc' }, ['Libelle'], new Set());
+
+		expect(result['Libelle']).toBe(sanitizeImportedText('=cmd|/c calc'));
+	});
+
+	it('leaves an exempt field alone, preserving a leading minus a negative amount needs', () => {
+		expect.assertions(2);
+
+		const result = buildCsvFields({ montant: '-42,00' }, ['montant'], new Set(['montant']));
+
+		expect(result['montant']).toBe('-42,00');
+		// The companion figure: sanitising the SAME value is what the exemption exists to avoid.
+		expect(sanitizeImportedText('-42,00')).not.toBe('-42,00');
+	});
+
+	// THE FIX ITSELF: a lowercase, unanticipated spelling. The old fixed list carried `Montant`
+	// capitalised and never `montant`, which is the ordinary French header this repository's own
+	// mapping fixtures use. A caller-supplied set has no such gap, because it is never guessing a
+	// spelling in the first place.
+	it('exempts an arbitrary caller-supplied name, not only a name a fixed list anticipated', () => {
+		expect.assertions(1);
+
+		const result = buildCsvFields({ montant: '-8,40' }, ['montant'], new Set(['montant']));
+
+		expect(result['montant']).toBe('-8,40');
+	});
+
+	it('exempts only the fields the caller named, not every field in the same call', () => {
+		expect.assertions(2);
+
+		const result = buildCsvFields(
+			{ montant: '-8,40', libelle: '=cmd|/c calc' },
+			['montant', 'libelle'],
+			new Set(['montant'])
+		);
+
+		expect(result['montant']).toBe('-8,40');
+		expect(result['libelle']).toBe(sanitizeImportedText('=cmd|/c calc'));
+	});
+
+	it('defaults to exempting nothing when the caller passes no exempt set', () => {
+		expect.assertions(1);
+
+		const result = buildCsvFields({ montant: '-8,40' }, ['montant']);
+
+		expect(result['montant']).toBe(sanitizeImportedText('-8,40'));
 	});
 });

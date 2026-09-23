@@ -48,6 +48,29 @@ describe('parseCsvTransactions', () => {
 		});
 	});
 
+	// #466: a designated or auto-detected file's amount column is exempted from
+	// `sanitizeImportedText` by its OWN resolved name now, whatever a user's file happens to call
+	// it. `montant` (lowercase, the ordinary French header and the alias `columnAliases.ts` maps
+	// to `amount`) is the exact spelling the old fixed exemption list never carried, capitalised
+	// `Montant` only. A leading `-` surviving here is the sign, not damage.
+	it('keeps a lowercase montant amount column unsanitised in csvFields, unlike the label beside it', () => {
+		expect.assertions(3);
+
+		const result = parseCsvTransactions(
+			'date;label;montant;category\n2026-06-01;=cmd|/c calc;-42,10;Alimentation'
+		);
+
+		expect(result.invalidRows).toStrictEqual([]);
+		// The sign is preserved: sanitising this the way a label is sanitised would prefix it with
+		// an apostrophe and corrupt the stored figure.
+		expect(result.transactions[0].metadata.csvFields?.montant).toBe('-42,10');
+		// The companion figure: a DIFFERENT resolved field in the SAME row is still sanitised, so
+		// this is the amount column's own exemption and not every field going unsanitised.
+		expect(result.transactions[0].metadata.csvFields?.label).toBe(
+			sanitizeImportedText('=cmd|/c calc')
+		);
+	});
+
 	it('ignore une colonne inconnue au lieu de refuser tout le fichier', () => {
 		expect.assertions(4);
 

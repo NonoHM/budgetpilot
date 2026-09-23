@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -1272,7 +1273,13 @@ describe('/import actions', () => {
 		expect(metadata.revolutFeeCents).toBe(0);
 		expect(metadata.revolutCurrency).toBe('EUR');
 		expect(metadata.revolutState).toBe('TERMINÉ');
-		expect(metadata.csvFields?.Frais).toBeUndefined();
+		// #466: `Frais` is one of Revolut's OWN resolved metadata fields (`REVOLUT_METADATA_FIELDS`),
+		// so it survives to storage now, anonymized like every other field. A fixed, Banque
+		// Populaire-shaped allowlist used to drop it silently despite the profile asking for it.
+		expect(metadata.csvFields?.Frais).toBe(anonymizeDetailText('0.00', 18));
+		// `Description` stays undefined for an unrelated reason: it is not one of Revolut's
+		// resolved metadata fields at all (the label comes from elsewhere), so this is unaffected
+		// by #466's fix.
 		expect(metadata.csvFields?.Description).toBeUndefined();
 	});
 

@@ -118,20 +118,38 @@ export function buildNotes(values: Array<string | undefined>): string {
 		.join(' | ');
 }
 
+/**
+ * `exemptFields` names the fields whose value skips `sanitizeImportedText` — the amount-bearing
+ * columns, where a leading `-` is a sign rather than a threat and must survive. NOT a fixed list
+ * inside this function: #466 measured that shape as an exact-match allowlist of six spellings,
+ * capitalised `Montant` and never lowercase `montant`, over data this application does not
+ * control the casing of. `resolvedRows.ts` passes its OWN resolved amount column name, whatever a
+ * user's file happens to call it, so the exemption is exact for that file rather than a guess
+ * against a list that cannot anticipate it. `revolut.ts` and `banque-populaire.ts` pass their own
+ * fixed headers, unchanged from before.
+ */
 export function buildCsvFields(
 	record: Record<string, string>,
-	fields: string[]
+	fields: string[],
+	exemptFields: ReadonlySet<string> = new Set()
 ): Record<string, string> {
 	return Object.fromEntries(
 		fields
-			.map((field) => [field, normalizeMetadataField(field, record[field] ?? '')] as const)
+			.map(
+				(field) =>
+					[field, normalizeMetadataField(field, record[field] ?? '', exemptFields)] as const
+			)
 			.filter(([, value]) => value !== '')
 	);
 }
 
-function normalizeMetadataField(field: string, value: string): string {
+function normalizeMetadataField(
+	field: string,
+	value: string,
+	exemptFields: ReadonlySet<string>
+): string {
 	const normalized = normalizeMojibakeText(value).trim().replace(/\s+/g, ' ');
-	if (['Debit', 'Credit', 'amount', 'Montant', 'Frais', 'Solde'].includes(field)) return normalized;
+	if (exemptFields.has(field)) return normalized;
 	return sanitizeImportedText(normalized);
 }
 

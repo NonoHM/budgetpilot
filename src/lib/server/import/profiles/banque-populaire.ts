@@ -44,6 +44,10 @@ export const BANQUE_POPULAIRE_HEADERS = [
 	'Pointage operation'
 ];
 
+/** The two BANQUE_POPULAIRE_HEADERS that hold a signed amount: exempted from
+ *  `sanitizeImportedText` so a negative debit or credit keeps its leading `-`. */
+const BANQUE_POPULAIRE_AMOUNT_FIELDS = new Set(['Debit', 'Credit']);
+
 /**
  * The three columns this profile can take a date from, in the order it tries them.
  *
@@ -241,7 +245,7 @@ export function parseBanquePopulaireRows({
 				bankOperationType: banquePopulaireCategory,
 				banquePopulaireCategory,
 				subcategory: subcategory || undefined,
-				csvFields: buildCsvFields(record, BANQUE_POPULAIRE_HEADERS)
+				csvFields: buildCsvFields(record, BANQUE_POPULAIRE_HEADERS, BANQUE_POPULAIRE_AMOUNT_FIELDS)
 			}
 		};
 		const validation = validateTransaction(transaction);
