@@ -87,6 +87,11 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 				dayFirst: fact.dayFirst,
 				monthFirst: fact.monthFirst
 			});
+		case 'ambiguous-date-order':
+			// Reached only when the route did not intercept the offer (a hand-crafted request, or a
+			// client that dropped the `reading` payload): the sentence names the problem in words
+			// rather than leaving a bare `error` field with nothing behind it.
+			return m.import_refusal_ambiguous_date_order();
 		case 'unknown-column':
 			return m.import_refusal_unknown_column({ column: fact.column });
 		case 'duplicate-column':

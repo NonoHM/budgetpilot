@@ -1694,6 +1694,56 @@ describe('/import actions', () => {
 		});
 	});
 
+	describe('the reading offer, #433s auto-path remainder (plate 7l)', () => {
+		/** `06/01/2026` is ambiguous by construction: day and month both <= 12. */
+		const AMBIGUOUS_GENERIC = 'Date,Description,Amount\n06/01/2026,COFFEE,-4.50';
+
+		/**
+		 * THE SEAM. Separates « the auto path can ask » from « it silently defaults », which is
+		 * exactly #433's remainder on a recognised bank. `reading` and not `designation`: the
+		 * column is already known, per plate 7l ("recognition covers mapping, not reading").
+		 */
+		it('offers the reading sheet instead of designation, for a recognised profile', async () => {
+			const result = (await runImportWithFile(AMBIGUOUS_GENERIC)) as unknown as {
+				data: {
+					error: string;
+					designation?: unknown;
+					reading?: { headers: string[]; dateColumn: number; rowCount: number };
+				};
+			};
+
+			expect(result.data.error).toBe(m.import_error_ambiguous_date_order());
+			expect(result.data.designation).toBeUndefined();
+			expect(result.data.reading).toBeDefined();
+			expect(result.data.reading?.headers).toEqual(['Date', 'Description', 'Amount']);
+			// Column 0: the profile's own declared date column, not a user's guess.
+			expect(result.data.reading?.dateColumn).toBe(0);
+			expect(result.data.reading?.rowCount).toBe(1);
+		});
+
+		/** THE REPOST. An explicit answer settles the same file and the import proceeds. */
+		it('imports once the reading is answered', async () => {
+			const result = await runImportWithFileAndFields(AMBIGUOUS_GENERIC, {
+				dateOrder: 'month-first'
+			});
+
+			expect(result.importResult.importedRows).toBe(1);
+			expect(db.state.transactions).toHaveLength(1);
+			expect(db.state.transactions[0]).toMatchObject({ label: 'COFFEE', amountCents: 450 });
+		});
+
+		/**
+		 * THE OTHER DIRECTION. A recognised bank whose column PROVES its own order is never asked,
+		 * and it must not be confused with the ambiguous case merely because both are 0 rows away
+		 * from a normal import today: this file has 6 valid rows and no refusal at all.
+		 */
+		it('does not offer the reading sheet for a column that proves its own order', async () => {
+			const result = await runImportWithFile('Date,Description,Amount\n24/06/2026,COFFEE,-4.50');
+
+			expect(result.importResult.importedRows).toBe(1);
+		});
+	});
+
 	describe('a remembered column mapping at the import action', () => {
 		// A file no alias table can read: `Jour`, `Intitule operation` and `Somme` are in no alias
 		// list, so without a mapping this content is refused. That is what makes the two tests below
@@ -1736,6 +1786,27 @@ describe('/import actions', () => {
 			// The count and the stamp, because the recap sentence reads both.
 			expect(row.useCount).toBe(1);
 			expect(row.lastUsedAt).not.toBeNull();
+		});
+
+		/**
+		 * #433's CONTRADICTION-PASS FINDING, closed. A remembered mapping is reapplied SILENTLY —
+		 * no designation screen opens for this reuse — and `ColumnMapping` carries no `dateOrder`
+		 * field, so nothing was ever asked or remembered about this file's reading. Before this,
+		 * `csv.ts` inferred "already asked" from `profile === 'mapped'` alone, which this caller
+		 * also sets, so an ambiguous column here defaulted to day-first silently forever: #433's
+		 * exact original defect, on what is likely the most common repeat-import path.
+		 */
+		it('offers the reading question on a remembered mapping, rather than defaulting silently', async () => {
+			rememberFor(testUser.id);
+			const ambiguous = 'Jour;Intitule operation;Somme\n03/04/2026;CARREFOUR MARKET;-24,90';
+
+			const result = (await runImportWithFile(ambiguous)) as unknown as {
+				data: { error: string; reading?: { dateColumn: number } };
+			};
+
+			expect(result.data.error).toBe(m.import_error_ambiguous_date_order());
+			expect(result.data.reading).toBeDefined();
+			expect(db.state.transactions).toHaveLength(0);
 		});
 
 		/**

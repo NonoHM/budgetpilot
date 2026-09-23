@@ -442,7 +442,15 @@ describe('the CSV parser under generated input', () => {
 
 		fc.assert(
 			fc.property(anyInput, ([generatedAs, content]) => {
-				const outcome = inspect(content);
+				// An explicit day-first answer, deliberately: this gate fuzzes robustness and
+				// duplicate detection, not the auto path's ambiguous-date-order ask, and a random
+				// two-digit day and month is ambiguous often enough to starve `acceptedBy` and
+				// `inputsCarryingACollisionGroup` of the population they calibrate against. The
+				// override matches the SAME default the door already applied silently before that
+				// ask existed, so every other measurement here is unchanged by it.
+				const outcome = inspect(content, (c) =>
+					parseCsvTransactions(c, { dateOrder: 'day-first' })
+				);
 				if (outcome.threw) throws.push({ error: outcome.threw, input: content });
 				violations.push(...outcome.violations);
 				if (outcome.accepted) acceptedBy[generatedAs] = (acceptedBy[generatedAs] ?? 0) + 1;

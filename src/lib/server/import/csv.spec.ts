@@ -32,7 +32,11 @@ describe('parseCsvTransactions', () => {
 		expect.assertions(4);
 
 		const result = parseCsvTransactions(
-			'date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus\n01/06/2026;Courses;-42.10;Alimentation'
+			'date;label;amount;category\n2026-06-01;Salaire;2500,50;Revenus\n01/06/2026;Courses;-42.10;Alimentation',
+			// The second row's date is ambiguous by construction; this test is about the amount
+			// parsing, not the reading, so an explicit answer keeps it out of the auto path's
+			// ambiguous-date-order ask.
+			{ dateOrder: 'day-first' }
 		);
 
 		expect(result.invalidRows).toStrictEqual([]);

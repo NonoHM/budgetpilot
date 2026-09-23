@@ -350,28 +350,46 @@ describe('the tracked generators produce the corpus the date-order figures are c
 	});
 
 	/**
-	 * #433's remainder, pinned on a real fixture rather than on a string built in a test.
+	 * #433'S REMAINDER, CLOSED. `dateOrderQuestionAsleep.spec.ts` was the gate that said this had
+	 * to redden here, and it has been deleted as the step of this change its own header names.
 	 *
-	 * Separates "an ambiguous file imports silently under the default" from "it has acquired
-	 * somewhere to go". Today every row imports, nothing is refused, and the dates are wrong if the
-	 * file was written month-first. When the question screen lands, this reddens, and it should:
-	 * `dateOrderQuestionAsleep.spec.ts` is the gate that says so and this is its fixture.
+	 * All three: `AMBIGUOUS_FIXTURES` resolve a real registered profile, which is exactly the
+	 * population the auto path's door can now ask about. Asserted together because the acceptance
+	 * criterion is the SET, not one member: "the three that ask must be exactly three."
 	 */
-	it('still imports an ambiguous fixture silently under the day-first default', () => {
-		expect.assertions(3);
+	it('asks about the reading on exactly the three ambiguous fixtures, importing nothing yet', () => {
+		expect.assertions(AMBIGUOUS_FIXTURES.length * 2);
 
-		const result = parseCsvTransactions(corpus.get('ambiguous-generic.csv') ?? '');
+		for (const name of AMBIGUOUS_FIXTURES) {
+			const result = parseCsvTransactions(corpus.get(name) ?? '');
+			expect({ name, transactions: result.transactions.length }).toEqual({
+				name,
+				transactions: 0
+			});
+			expect({ name, codes: refusalCodes(result) }).toEqual({
+				name,
+				codes: ['ambiguous-date-order']
+			});
+		}
+	});
 
-		expect(result.summary.validRows).toBe(AMBIGUOUS_LEDGER_ROWS);
-		expect(result.summary.fileLevelRefusals).toBe(0);
-		expect(result.transactions.map((transaction) => transaction.date)).toEqual([
-			'2026-02-01',
-			'2026-02-03',
-			'2026-02-05',
-			'2026-02-06',
-			'2026-02-09',
-			'2026-02-11'
-		]);
+	/**
+	 * THE COMPLEMENT, and it is the one that matters more than the three above: every OTHER file in
+	 * the corpus must reach the write exactly as it did before this session, with no sheet. An
+	 * absence assertion is meaningless without the positive it is read against, which is the test
+	 * above: break the new branch's `parser` guard and both the positive and this absence move.
+	 */
+	it('leaves every other fixture free of the new refusal', () => {
+		expect.assertions(2);
+
+		const others = [...corpus].filter(([name]) => !AMBIGUOUS_FIXTURES.includes(name));
+		const withTheNewRefusal = others
+			.map(([name, text]) => ({ name, codes: refusalCodes(parseCsvTransactions(text)) }))
+			.filter(({ codes }) => codes.includes('ambiguous-date-order'));
+
+		expect(withTheNewRefusal).toEqual([]);
+		// The denominator, so the zero above is a measurement rather than a silence.
+		expect(others.length).toBe(CORPUS_FILE_COUNT - AMBIGUOUS_FIXTURES.length);
 	});
 
 	/**

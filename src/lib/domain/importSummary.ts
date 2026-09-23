@@ -1,4 +1,5 @@
 import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
+import type { DateOrder } from '$lib/domain/dateReading';
 
 /**
  * The shape of an import summary, named once so both routes that produce one produce the same.
@@ -107,4 +108,14 @@ export interface ImportSummaryResult {
 	 * USES a correspondance and never creates one.
 	 */
 	rememberedMapping: boolean;
+	/**
+	 * The column and reading to state on the summary, plate 7l. Null unless the reading was CHOSEN
+	 * rather than proven or defaulted: `CsvImportSummary.dateOrderDisclosure`'s docstring holds the
+	 * one rule, and this is the same fact carried across the server/client boundary.
+	 *
+	 * Null and not absent, unlike its server-side source: this interface is a wire shape rather
+	 * than an internal one, and `satisfies` catches an omitted field but not a forgotten optional
+	 * one left implicitly undefined.
+	 */
+	dateOrderDisclosure: { header: string; order: DateOrder } | null;
 }

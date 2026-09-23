@@ -275,7 +275,10 @@ describe('the anchored variant (1280) renders the same two bodies as the sheet',
 			file: FILE,
 			assignment: ASSIGNMENT,
 			step: 'reading',
-			dateReading: DATE_READING
+			dateReading: DATE_READING,
+			// A caller with columns to go back to, unlike the auto path's reading-only offer, whose
+			// own test below asserts the opposite: absence hides the link entirely.
+			onChangeColumn: () => {}
 		});
 
 		await expect
@@ -284,6 +287,33 @@ describe('the anchored variant (1280) renders the same two bodies as the sheet',
 		const options = page.getByRole('option');
 		expect(options.elements()).toHaveLength(2);
 		await expect.element(page.getByText(m.import_datesheet_change_column())).toBeVisible();
+	});
+
+	/**
+	 * THE AUTO PATH'S OWN REQUIREMENT, plate 7l: "no column list, no back to it." A caller with no
+	 * columns to go back to (the auto path's reading-only offer, `+page.svelte`) omits
+	 * `onChangeColumn` rather than passing a no-op, and the link must not merely do nothing when
+	 * pressed — it must not be ON SCREEN, because a visible link with no destination is a false
+	 * affordance the plate explicitly forbids.
+	 *
+	 * FOUND BY A BROWSER WALK, not by a test: every existing test either passed the callback or
+	 * never asserted the link's presence, so the unconditional render survived the whole suite.
+	 */
+	it('hides the change-column link entirely when the caller has none to offer', async () => {
+		render(ColumnPicker, {
+			open: true,
+			variant: 'anchored',
+			role: 'date',
+			file: FILE,
+			assignment: ASSIGNMENT,
+			step: 'reading',
+			dateReading: DATE_READING
+		});
+
+		await expect
+			.element(page.getByRole('dialog', { name: m.import_datesheet_title() }))
+			.toBeVisible();
+		expect(page.getByText(m.import_datesheet_change_column()).elements()).toHaveLength(0);
 	});
 
 	it('separates a step change from an open in the anchored panel too: the h2 receives focus', async () => {

@@ -270,11 +270,20 @@ describe('the rows a parser CLASSIFIED always partition', () => {
 		['nothing readable', 'date;label;amount\n']
 	];
 
+	/**
+	 * The corpus's dates (`01/06/2026`, `02/06/2026`) are ambiguous by construction and incidental
+	 * to what this describe block is about: an explicit answer keeps every fixture out of the auto
+	 * path's ambiguous-date-order ask, which would otherwise turn every fixture with at least one
+	 * otherwise-valid row into a file-level refusal and collapse the very partition being tested.
+	 */
+	function parseCorpus(content: string) {
+		return parseCsvTransactions(content, { dateOrder: 'day-first' });
+	}
+
 	it.each(CORPUS)(
 		'%s: rows read is valid plus invalid once the rows were read',
 		(_name, content) => {
-			const { totalRows, validRows, invalidRows, fileLevelRefusals } =
-				parseCsvTransactions(content).summary;
+			const { totalRows, validRows, invalidRows, fileLevelRefusals } = parseCorpus(content).summary;
 
 			if (fileLevelRefusals > 0) {
 				// Refused whole: the rows are counted because the file has them, and classified as
@@ -291,7 +300,7 @@ describe('the rows a parser CLASSIFIED always partition', () => {
 		// Otherwise the branch above is an assertion nothing runs: a corpus with no refused-whole
 		// file would pass with the early return deleted, and a corpus of only refused-whole files
 		// would pass with the sum deleted.
-		const summaries = CORPUS.map(([, content]) => parseCsvTransactions(content).summary);
+		const summaries = CORPUS.map(([, content]) => parseCorpus(content).summary);
 
 		expect(summaries.filter((summary) => summary.fileLevelRefusals > 0)).toHaveLength(2);
 		expect(summaries.filter((summary) => summary.fileLevelRefusals === 0)).toHaveLength(5);
@@ -301,7 +310,7 @@ describe('the rows a parser CLASSIFIED always partition', () => {
 		// The partition is satisfied trivially by a corpus where every file imports cleanly, so the
 		// absolute figures sit beside it: the assertion above is only worth running because these
 		// two are non-zero.
-		const summaries = CORPUS.map(([, content]) => parseCsvTransactions(content).summary);
+		const summaries = CORPUS.map(([, content]) => parseCorpus(content).summary);
 
 		expect(summaries.filter((summary) => summary.invalidRows > 0)).toHaveLength(4);
 		expect(summaries.filter((summary) => summary.validRows > 0)).toHaveLength(4);

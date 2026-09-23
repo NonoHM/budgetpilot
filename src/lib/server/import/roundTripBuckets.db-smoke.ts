@@ -75,7 +75,11 @@ async function importFile(
 	body: string,
 	{ source, fileName, accountId }: { source: string; fileName: string; accountId: string }
 ) {
-	const parsed = parseCsvTransactions(body, { sourceName: fileName });
+	// The banque-populaire fixture's date is ambiguous by construction (day and month both <= 12);
+	// this file is about bucket resolution across a round trip, not the reading, so an explicit
+	// answer keeps it out of the auto path's ambiguous-date-order ask. The exported leg is ISO and
+	// reads the same either way.
+	const parsed = parseCsvTransactions(body, { sourceName: fileName, dateOrder: 'day-first' });
 	expect(parsed.invalidRows, `${fileName} must parse`).toStrictEqual([]);
 	const batch = await prisma.importBatch.create({
 		data: {
