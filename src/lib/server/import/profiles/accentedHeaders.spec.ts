@@ -53,7 +53,11 @@ describe('an accented French header', () => {
 		expect.assertions(3);
 
 		const result = parseCsvTransactions(
-			'Date,Libellé,Montant,Catégorie\n01/06/2026,Mercerie Lafayette,"-45,20",Alimentation'
+			'Date,Libellé,Montant,Catégorie\n01/06/2026,Mercerie Lafayette,"-45,20",Alimentation',
+			// The date is ambiguous by construction; this test is about the accented header
+			// resolving the label role, not about the reading, so an explicit answer keeps it out
+			// of the auto path's ambiguous-date-order ask.
+			{ dateOrder: 'day-first' }
 		);
 
 		expect(result.invalidRows).toHaveLength(0);

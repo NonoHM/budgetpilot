@@ -260,15 +260,17 @@ That is why the account a statement belongs to is a question you answer rather
 than something the application decides for you: it is the perimeter the
 comparison runs inside.
 
-It has one consequence worth knowing, because the CSV export is read back as a
-**Home** file, and a Home file is filed into your CSV account: re-importing an
-export of transactions that arrived through **Banque Populaire** or **Revolut**
-creates a second copy of each. The export names the account its rows came from,
-in a `compte` column, but the import does not yet read that column back, so the
-copies land in a different account and the comparison correctly says they are
-different transactions. The check described below fires on exactly that run and
-asks you to confirm before anything is written. Use **Settings, Backup** rather
-than the CSV export when what you want is a copy you can restore.
+The CSV export is read back as a **Home** file, and the `compte` column it
+carries names the account its rows came from, so re-importing an export of
+transactions that arrived through **Banque Populaire** or **Revolut** lands
+back on that account instead of a fresh CSV one, and the comparison correctly
+recognises every line as one already there. This still creates a second copy
+in two narrow cases: the named account has since been deleted, or two of your
+accounts happen to share the exact same name, in which case the import
+refuses to guess and files into your CSV account instead. Either way the
+check described below fires on that run and asks you to confirm before
+anything is written. Use **Settings, Backup** rather than the CSV export when
+what you want is a copy you can restore.
 
 **The label is a column you designate, so changing which column feeds it
 changes every comparison.** Re-reading a statement through a different label
@@ -309,7 +311,7 @@ Three sources of an answer, in this order. The first that answers, wins.
 | Rank | What it reads                               | What the screen does                  |
 | ---- | ------------------------------------------- | ------------------------------------- |
 | 1    | An account identifier in the file itself    | States the account, with the fragment |
-| 2    | The `compte` column of a BudgetPilot export | Not read back yet                     |
+| 2    | The `compte` column of a BudgetPilot export | States the account, by its name       |
 | 3    | What was remembered for this file's shape   | Proposes one, or asks between several |
 
 **The file always beats the memory.** A memory records what happened last time,
@@ -320,6 +322,12 @@ file is a fact about the file. So rank 1 answers before the memory is consulted.
 whose checksum verifies, or a run of eight digits or more, in a column where
 every row carries the same value. Only the last four characters are kept, and
 only those are ever shown or stored.
+
+**Rank 2 needs the name to be unambiguous, not merely present.** A name
+matching none of your accounts decides nothing, and neither does a name that
+happens to match more than one: taking either would risk filing a statement
+into an account it never came from, so it falls through exactly as if the
+file had named nothing.
 
 **A file naming several accounts is refused before the memory is read at all.**
 A statement that mixes two accounts cannot belong to one, and a memory saying it

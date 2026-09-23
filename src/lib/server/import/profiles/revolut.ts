@@ -21,6 +21,7 @@ import {
 	buildNotes,
 	firstPresent,
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -84,6 +85,10 @@ const REVOLUT_METADATA_FIELDS = [
 	'État',
 	'Solde'
 ];
+
+/** The two REVOLUT_METADATA_FIELDS that hold a signed amount: exempted from
+ *  `sanitizeImportedText` so a negative fee or balance keeps its leading `-`. */
+const REVOLUT_AMOUNT_FIELDS = new Set(['Frais', 'Solde']);
 
 /**
  * ORDER IS NO LONGER LOAD BEARING, and that is a deliberate second change.
@@ -249,6 +254,13 @@ export function parseRevolutRows({
 			return;
 		}
 
+		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
+		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
+		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+		if (hasStrandedControlCharacter(record.Description ?? '')) {
+			addRefusal(refusals, { kind: 'row', line }, { code: 'control-character' }, 'Description');
+			return;
+		}
 		const label = sanitizeImportedText(record.Description || 'Opération Revolut');
 		const revolutType = sanitizeImportedText(record.Type ?? '');
 		const product = sanitizeImportedText(record.Produit ?? '');
@@ -288,7 +300,7 @@ export function parseRevolutRows({
 				revolutState: state,
 				revolutFeeCents: feeCents ?? undefined,
 				revolutBalanceCents: balanceCents ?? undefined,
-				csvFields: buildCsvFields(record, REVOLUT_METADATA_FIELDS)
+				csvFields: buildCsvFields(record, REVOLUT_METADATA_FIELDS, REVOLUT_AMOUNT_FIELDS)
 			}
 		};
 		const validation = validateTransaction(transaction);

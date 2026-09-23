@@ -47,8 +47,8 @@ const BASE: ImportSummaryResult = {
 	invalidRowDetails: [],
 	hiddenInvalidRowsCount: 0,
 	accountName: null,
-	multiAccountFile: false,
-	rememberedMapping: true
+	rememberedMapping: true,
+	dateOrderDisclosure: null
 };
 
 const DATA: PageData = { user: null, correction: null };

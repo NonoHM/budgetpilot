@@ -6,6 +6,10 @@
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import AccountRow from '$lib/components/import/AccountRow.svelte';
 	import AccountPicker from '$lib/components/import/AccountPicker.svelte';
+	import ColumnPicker from '$lib/components/import/ColumnPicker.svelte';
+	import { formatReadingDate } from '$lib/domain/dateFormat';
+	import { DEFAULT_DATE_ORDER, type DateOrder } from '$lib/domain/dateReading';
+	import type { ResolvedDesignationFile } from '$lib/domain/columnDesignation';
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
 	import TapLink from '$lib/components/ui/TapLink.svelte';
@@ -17,6 +21,7 @@
 	import { goto } from '$app/navigation';
 	import { applyAction, deserialize, enhance } from '$app/forms';
 	import DuplicateStatementDialog from '$lib/components/import/DuplicateStatementDialog.svelte';
+	import AccountColumnDialog from '$lib/components/import/AccountColumnDialog.svelte';
 	import type {
 		CollidingBatchView,
 		CollisionFigures,
@@ -178,6 +183,23 @@
 		return count === 1
 			? m.import_summary_auto_categorized_one({ count })
 			: m.import_summary_auto_categorized_many({ count });
+	});
+
+	/**
+	 * Plate 7l's disclosure. Null unless `importResult.dateOrderDisclosure` is set, which
+	 * `CsvImportSummary.dateOrderDisclosure`'s docstring restricts to a CHOSEN reading — never a
+	 * proven or defaulted one, so this line is never shown for the ordinary import.
+	 *
+	 * DRAWN TWICE, exactly where `rememberedMapping` already is: this page renders the summary once
+	 * per chrome, and a notice added to one and not the other is invisible to any test that does not
+	 * choose between them (`cap-reached.svelte.spec.ts`'s own docstring names this).
+	 */
+	const dateOrderDisclosureLine = $derived.by(() => {
+		const disclosure = importResult?.dateOrderDisclosure;
+		if (!disclosure) return null;
+		return disclosure.order === 'day-first'
+			? m.import_summary_date_reading_day_first({ header: disclosure.header })
+			: m.import_summary_date_reading_month_first({ header: disclosure.header });
 	});
 
 	/**
@@ -454,6 +476,216 @@
 		row?.scrollIntoView({ block: 'center', behavior: 'auto' });
 		row?.focus();
 		return true;
+	}
+
+	/**
+	 * THE READING QUESTION, plate 7l. A recognised bank whose date column leaves the reading
+	 * genuinely open: the server refused rather than guess, and this row answers it where the
+	 * refusal is, exactly as the account question does. `reading` and not `designation`: the
+	 * columns are known, recognition covers mapping, and this offer is only ever about the one
+	 * column the profile already declared.
+	 *
+	 * Read through the same `in` check as `designation`/`account` above, for the same reason.
+	 */
+	const readingOffer = $derived(
+		form && 'reading' in form
+			? (form.reading as
+					| {
+							name: string;
+							headers: string[];
+							samples: string[][];
+							firstRow?: string[];
+							dateReadings: { dayFirst: (string | null)[]; monthFirst: (string | null)[] }[];
+							detectedHeaderRow: boolean;
+							rowCount: number;
+							dateColumn: number;
+					  }
+					| undefined)
+			: undefined
+	);
+
+	/** Guarded on file identity, exactly as the designation and account offers are, and for the same defect. */
+	const offersReading = $derived(
+		readingOffer !== undefined && csvFiles?.[0] !== undefined && csvFiles[0] === submittedFile
+	);
+
+	/**
+	 * The column ColumnPicker treats as "designated". Only `date` is ever read at `step: 'reading'`
+	 * (see the component's own `effectiveStep`), so the other three roles are null rather than a
+	 * second, unused assignment shape.
+	 */
+	const readingAssignment = $derived({
+		date: readingOffer?.dateColumn ?? null,
+		label: null,
+		amount: null,
+		category: null
+	});
+
+	/** `ColumnPicker`'s `file` prop, resolved from the wire payload exactly as the designation screen resolves its own. */
+	const readingFile = $derived<ResolvedDesignationFile | undefined>(
+		readingOffer && {
+			name: readingOffer.name,
+			headers: readingOffer.headers,
+			samples: readingOffer.samples,
+			firstRow: readingOffer.firstRow,
+			dateReadings: readingOffer.dateReadings,
+			rowCount: readingOffer.rowCount,
+			hasHeaderRow: true
+		}
+	);
+
+	/**
+	 * THE ANSWER DIES WITH THE FILE IT WAS GIVEN FOR, same rule and same defect as the account
+	 * question's `answeredFor`.
+	 */
+	let chosenDateOrder = $state<DateOrder | null>(null);
+	let dateOrderAnsweredFor = $state<File | undefined>(undefined);
+	$effect(() => {
+		const inHand = csvFiles?.[0];
+		if (dateOrderAnsweredFor !== undefined && inHand !== dateOrderAnsweredFor) {
+			chosenDateOrder = null;
+			readingPanelOpen = false;
+			dateOrderAnsweredFor = undefined;
+		}
+	});
+
+	/** One state for two mounts, exactly as `accountPanelOpen` is one state for two `AccountPicker`s. */
+	let readingPanelOpen = $state(false);
+
+	/**
+	 * THE READING IN FORCE, whether adopted from the app's own default or confirmed by the user.
+	 * `DEFAULT_DATE_ORDER` (day-first) is plate 7a's stated assumption, never a guess about the
+	 * bank, and it is always posted explicitly below so the retry never repeats this same refusal.
+	 */
+	const retainedDateOrder = $derived(chosenDateOrder ?? DEFAULT_DATE_ORDER);
+
+	function readingKey(order: DateOrder): 'dayFirst' | 'monthFirst' {
+		return order === 'month-first' ? 'monthFirst' : 'dayFirst';
+	}
+
+	/**
+	 * The row's own line 2: the file's first data row, read under the retained order. Reuses
+	 * `import_designate_date_reading`/`_unconfirmed`, the same two keys `RoleRow` already renders
+	 * for this exact pair, rather than a third spelling of "raw → pretty".
+	 */
+	const readingRowLine = $derived.by(() => {
+		const column = readingOffer?.dateColumn;
+		if (column === undefined) return '';
+		const raw = readingOffer?.firstRow?.[column] ?? '';
+		const iso = readingOffer?.dateReadings[column]?.[readingKey(retainedDateOrder)]?.[0] ?? null;
+		if (!raw || !iso) return '';
+		const pretty = formatReadingDate(iso, getLocale());
+		return chosenDateOrder
+			? m.import_designate_date_reading({ raw, pretty })
+			: m.import_designate_date_reading_unconfirmed({ raw, pretty });
+	});
+
+	/** The two cards' evidence, `ColumnPicker`'s own `dateReading` prop shape. */
+	const readingCardPairs = $derived.by(() => {
+		const column = readingOffer?.dateColumn;
+		if (column === undefined) return undefined;
+		const readings = readingOffer?.dateReadings[column];
+		if (!readings) return undefined;
+		const prettyFor = (order: DateOrder) =>
+			readings[readingKey(order)]
+				.slice(1)
+				.map((iso) => (iso ? formatReadingDate(iso, getLocale()) : ''));
+		return {
+			dayFirstPretty: prettyFor('day-first'),
+			monthFirstPretty: prettyFor('month-first'),
+			retained: retainedDateOrder
+		};
+	});
+
+	/**
+	 * #485's one offer: does this file cover more than one account? Same guard-on-file-identity
+	 * shape as `readingOffer`/`accountOffer`, for the same reason: the options on screen were
+	 * computed for the file that raised them, and a second file in the picker must not inherit them.
+	 */
+	const accountColumnOffer = $derived(
+		form && 'accountColumn' in form
+			? (form.accountColumn as { column: number; header: string; samples: string[] } | undefined)
+			: undefined
+	);
+
+	const offersAccountColumn = $derived(
+		accountColumnOffer !== undefined && csvFiles?.[0] !== undefined && csvFiles[0] === submittedFile
+	);
+
+	/**
+	 * THE STATE DIES WITH THE FILE IT WAS GIVEN FOR, same rule as `answeredFor` and
+	 * `dateOrderAnsweredFor` above, and the same defect if it did not: a second, unrelated
+	 * ambiguous file would silently inherit "not an account" from the first one's answer.
+	 *
+	 * FOUND BY THIS PR'S OWN CONTRADICTION PASS: a DISMISSAL is state too, and the first version
+	 * here only stamped `accountColumnStateFor` inside `chooseAccountColumn`, never inside
+	 * `closeAccountColumnDialog`. A user who dismissed file A's dialog without answering, then
+	 * picked an unrelated file B that raised its OWN ambiguous offer, found `accountColumnDismissed`
+	 * still `true` from file A: the reset effect's guard (`accountColumnStateFor !== undefined`)
+	 * never became true, because nothing had ever set it away from `undefined`. File B's dialog
+	 * silently failed to auto-open; only pressing submit a second time recovered it, via
+	 * `accountColumnAnswerMissing`'s own reset. Not a money-correctness bug — `csv.ts`'s gate still
+	 * refuses regardless of whether the dialog opens — but a dismissal must reset exactly like an
+	 * answer does, so `accountColumnStateFor` is now stamped by BOTH.
+	 */
+	let accountColumnAnswer = $state<'is-account' | 'not-account' | null>(null);
+	let accountColumnStateFor = $state<File | undefined>(undefined);
+	/**
+	 * Whether the user has closed the dialog without answering. A MODAL rather than the reading
+	 * question's anchored row (the maintainer's own ruling: two substantive answers, no plain
+	 * dismissal), so it needs an explicit "the user looked and closed it" bit that the row's
+	 * `accountErrorShown` does not: without one, `open` below would recompute true the instant
+	 * `onClose` ran, and Escape or the backdrop could never actually close it.
+	 */
+	let accountColumnDismissed = $state(false);
+	$effect(() => {
+		const inHand = csvFiles?.[0];
+		if (accountColumnStateFor !== undefined && inHand !== accountColumnStateFor) {
+			accountColumnAnswer = null;
+			accountColumnDismissed = false;
+			accountColumnStateFor = undefined;
+		}
+	});
+
+	/** Auto-opens the instant the offer is current and unanswered; closes on either answer. */
+	const accountColumnDialogOpen = $derived(
+		offersAccountColumn && accountColumnAnswer === null && !accountColumnDismissed
+	);
+
+	function chooseAccountColumn(answer: 'is-account' | 'not-account') {
+		accountColumnAnswer = answer;
+		accountColumnStateFor = csvFiles?.[0];
+	}
+
+	function closeAccountColumnDialog() {
+		accountColumnDismissed = true;
+		accountColumnStateFor = csvFiles?.[0];
+	}
+
+	/**
+	 * The primary pressed with the question unanswered REOPENS it rather than posting, same rule
+	 * as `accountAnswerMissing`: there is no safe default here, unlike `retainedDateOrder`'s
+	 * day-first assumption, because guessing IS the defect #485 exists to remove.
+	 */
+	function accountColumnAnswerMissing(event: SubmitEvent): boolean {
+		if (!offersAccountColumn || accountColumnAnswer) return false;
+		event.preventDefault();
+		accountColumnDismissed = false;
+		return true;
+	}
+
+	function toggleReadingPanel() {
+		readingPanelOpen = !readingPanelOpen;
+	}
+
+	function closeReadingPanel() {
+		readingPanelOpen = false;
+	}
+
+	function chooseReading(order: DateOrder) {
+		chosenDateOrder = order;
+		dateOrderAnsweredFor = csvFiles?.[0];
+		readingPanelOpen = false;
 	}
 
 	/**
@@ -779,7 +1011,7 @@
 			if (carried.repost.correction?.deleteOldImport) {
 				body.set('replaceBatchId', carried.repost.correction.batchId);
 			}
-		} else if (chosenAccountId) {
+		} else {
 			/**
 			 * THE ANSWER GIVEN ON THIS PAGE, WITHOUT WHICH CONFIRMING IS A LOOP.
 			 *
@@ -795,7 +1027,20 @@
 			 * branch removed from the documentation, which is #476 reappearing one screen later.
 			 * Reproduced in `e2e/import-account-ambiguous.spec.ts` before this line existed.
 			 */
-			body.set('accountId', chosenAccountId);
+			if (chosenAccountId) body.set('accountId', chosenAccountId);
+			/**
+			 * THE SAME SHAPE, ONE FIELD OVER, #433's remainder. A collision on this page's own
+			 * action is only reachable AFTER the date order was already answered or defaulted (the
+			 * ambiguous-date-order refusal happens before any collision check), so `retainedDateOrder`
+			 * always describes what the parse that raised this collision actually used.
+			 *
+			 * FOUND BY A BROWSER WALK: dropping this field re-posts a run with no reading answer,
+			 * the server re-refuses with `ambiguous-date-order`, and "Importer quand même" reopens
+			 * the very question it was pressed to get past, forever. `decideDateOrder` ignores this
+			 * value for a proven or nothing-to-decide column, so posting it unconditionally is safe
+			 * on every file, not only an ambiguous one.
+			 */
+			body.set('dateOrder', retainedDateOrder);
 		}
 
 		try {
@@ -1049,6 +1294,7 @@
 				use:enhance
 				onsubmit={(event) => {
 					if (accountAnswerMissing(event)) return;
+					if (accountColumnAnswerMissing(event)) return;
 					submittedFile = csvFiles?.[0];
 				}}
 			>
@@ -1107,6 +1353,79 @@
 						     an id chosen for one file can never be posted with another. -->
 						<input type="hidden" name="accountId" value={chosenAccountId ?? ''} />
 					</div>
+				{/if}
+
+				{#if offersReading && readingFile}
+					<!--
+						PLATE 7L. Recognition covers mapping, not reading: the column is already known, so
+						this asks the one thing it does not, where the refusal is, exactly as the account
+						question does. `ColumnPicker` opens at `step: 'reading'` alone — no column list,
+						no back to it (7l names the price: this route's condition widens, not a new
+						component).
+
+						`anchored`: this is the 1280 mount, matching every other picker on this screen.
+					-->
+					<div class="relative" data-testid="import-reading-question">
+						<button
+							type="button"
+							class="flex h-[68px] w-full items-center gap-3 rounded-xl bg-white px-4
+								text-left transition-colors
+								active:bg-zinc-100 lg:h-[56px] lg:hover:bg-zinc-50
+								{readingPanelOpen ? 'bg-zinc-100' : ''}
+								focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-400 focus-visible:outline-none"
+							aria-haspopup="listbox"
+							aria-expanded={readingPanelOpen}
+							onclick={toggleReadingPanel}
+						>
+							<span class="flex min-w-0 flex-1 flex-col gap-1 lg:gap-0.5">
+								<span class="truncate text-[13.5px] font-semibold text-zinc-900">
+									{m.import_datesheet_title()}
+								</span>
+								{#if readingRowLine}
+									<span class="truncate text-[11.5px] text-zinc-500">{readingRowLine}</span>
+								{/if}
+							</span>
+							<svg
+								class="size-4 shrink-0 text-zinc-400 transition-transform {readingPanelOpen
+									? 'rotate-180'
+									: ''}"
+								viewBox="0 0 16 16"
+								fill="none"
+								aria-hidden="true"
+							>
+								<path
+									d="M4 6l4 4 4-4"
+									stroke="currentColor"
+									stroke-width="1.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								/>
+							</svg>
+						</button>
+						<ColumnPicker
+							open={readingPanelOpen}
+							variant="anchored"
+							role="date"
+							file={readingFile}
+							assignment={readingAssignment}
+							step="reading"
+							dateReading={readingCardPairs}
+							onChooseReading={chooseReading}
+							onClose={closeReadingPanel}
+						/>
+						<!-- Posted on EVERY submit while the offer is current, whether or not the panel was
+						     ever opened: the door refuses an ambiguous column with no answer, so an empty
+						     value here would repeat the same refusal forever. `retainedDateOrder` is the
+						     app's own day-first assumption until a human picks the other card. -->
+						<input type="hidden" name="dateOrder" value={retainedDateOrder} />
+					</div>
+				{/if}
+
+				<!-- #485. NO fallback value, unlike `dateOrder` above: omitted entirely until answered,
+				     because there is no safe default to post while unanswered, and posting one would
+				     recreate the exact silent guess this feature exists to remove. -->
+				{#if accountColumnAnswer}
+					<input type="hidden" name="accountColumnAnswer" value={accountColumnAnswer} />
 				{/if}
 
 				{#if offersDesignation}
@@ -1217,25 +1536,24 @@
 						{#if importResult.rememberedMapping}
 							<p class="mt-1 text-sm text-zinc-500">{m.import_columns_remember_sentence()}</p>
 						{/if}
-						{#if importResult.multiAccountFile && importResult.accountName}
-							<!--
-								THE FILE NAMED SEVERAL ACCOUNTS AND THE ROWS WENT INTO ONE.
-
-								Said rather than refused: a file that imports today must not stop importing
-								because this path learned to read its account column. What changes is that
-								the user is told, which is the trade this area has taken four times before,
-								and it costs a sentence.
-
-								`warning` and not `error`: nothing failed that the user asked for. The rows
-								landed and the count beside this is true; what is not true is the assumption
-								a reader would otherwise make, that they all belong to the account named.
-
-								The underlying defect is #485. This is its mitigation, not its fix.
-							-->
-							<AlertBanner variant="warning" class="mt-3">
-								{m.import_multi_account_notice({ account: importResult.accountName })}
-							</AlertBanner>
+						<!--
+							PLATE 7L'S DISCLOSURE. Zinc-500, one line, no glyph, no control, no chevron: it
+							states a proof and must never read as a question. `dateOrderDisclosureLine` is
+							null for the ordinary proven or defaulted import, so this renders on the minority
+							of statements whose date order nobody but a human could settle.
+						-->
+						{#if dateOrderDisclosureLine}
+							<p class="mt-1 text-sm text-zinc-500">{dateOrderDisclosureLine}</p>
 						{/if}
+						<!--
+							REMOVED, #485: the notice this space held said the file named several accounts
+							and every row went into one anyway. #485 moves that question before the write —
+							`AccountColumnDialog` above answers it — so a SUCCESSFUL import reaching this
+							markup has either never carried the signal, or already had it answered "not an
+							account" a moment ago. Showing the notice in that surviving case would contradict
+							the answer just given rather than inform anyone of something new. See
+							`importSummary.ts`'s removal comment on `multiAccountFile` for the full reasoning.
+						-->
 					</div>
 					{#if importResult.profile}
 						<span class="w-fit rounded-md border border-zinc-200 px-3 py-1 text-sm font-medium">
@@ -1461,6 +1779,7 @@
 			use:enhance
 			onsubmit={(event) => {
 				if (accountAnswerMissing(event)) return;
+				if (accountColumnAnswerMissing(event)) return;
 				submittedFile = csvFiles?.[0];
 			}}
 		>
@@ -1513,6 +1832,70 @@
 					     an id chosen for one file can never be posted with another. -->
 					<input type="hidden" name="accountId" value={chosenAccountId ?? ''} />
 				</div>
+			{/if}
+
+			{#if offersReading && readingFile}
+				<!-- The same question at 390. `sheet`: this is the mobile mount, matching every other
+				     picker on this screen. The STATE is shared with the 1280 mount, so an answer
+				     survives a rotation. -->
+				<div class="relative" data-testid="import-reading-question">
+					<button
+						type="button"
+						class="flex h-[68px] w-full items-center gap-3 rounded-xl bg-white px-4
+							text-left transition-colors
+							active:bg-zinc-100 lg:h-[56px] lg:hover:bg-zinc-50
+							{readingPanelOpen ? 'bg-zinc-100' : ''}
+							focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-4 focus-visible:ring-offset-zinc-400 focus-visible:outline-none"
+						aria-haspopup="listbox"
+						aria-expanded={readingPanelOpen}
+						onclick={toggleReadingPanel}
+					>
+						<span class="flex min-w-0 flex-1 flex-col gap-1 lg:gap-0.5">
+							<span class="truncate text-[13.5px] font-semibold text-zinc-900">
+								{m.import_datesheet_title()}
+							</span>
+							{#if readingRowLine}
+								<span class="truncate text-[11.5px] text-zinc-500">{readingRowLine}</span>
+							{/if}
+						</span>
+						<svg
+							class="size-4 shrink-0 text-zinc-400 transition-transform {readingPanelOpen
+								? 'rotate-180'
+								: ''}"
+							viewBox="0 0 16 16"
+							fill="none"
+							aria-hidden="true"
+						>
+							<path
+								d="M4 6l4 4 4-4"
+								stroke="currentColor"
+								stroke-width="1.5"
+								stroke-linecap="round"
+								stroke-linejoin="round"
+							/>
+						</svg>
+					</button>
+					<ColumnPicker
+						open={readingPanelOpen}
+						variant="sheet"
+						role="date"
+						file={readingFile}
+						assignment={readingAssignment}
+						step="reading"
+						dateReading={readingCardPairs}
+						onChooseReading={chooseReading}
+						onClose={closeReadingPanel}
+					/>
+					<!-- Posted on EVERY submit while the offer is current, whether or not the panel was
+					     ever opened: the door refuses an ambiguous column with no answer, so an empty
+					     value here would repeat the same refusal forever. -->
+					<input type="hidden" name="dateOrder" value={retainedDateOrder} />
+				</div>
+			{/if}
+
+			<!-- #485. NO fallback value, unlike `dateOrder` above: see the desktop mount's comment. -->
+			{#if accountColumnAnswer}
+				<input type="hidden" name="accountColumnAnswer" value={accountColumnAnswer} />
 			{/if}
 
 			{#if offersDesignation}
@@ -1590,25 +1973,10 @@
 						{#if importResult.rememberedMapping}
 							<p class="mt-1 text-sm text-zinc-500">{m.import_columns_remember_sentence()}</p>
 						{/if}
-						{#if importResult.multiAccountFile && importResult.accountName}
-							<!--
-								THE FILE NAMED SEVERAL ACCOUNTS AND THE ROWS WENT INTO ONE.
-
-								Said rather than refused: a file that imports today must not stop importing
-								because this path learned to read its account column. What changes is that
-								the user is told, which is the trade this area has taken four times before,
-								and it costs a sentence.
-
-								`warning` and not `error`: nothing failed that the user asked for. The rows
-								landed and the count beside this is true; what is not true is the assumption
-								a reader would otherwise make, that they all belong to the account named.
-
-								The underlying defect is #485. This is its mitigation, not its fix.
-							-->
-							<AlertBanner variant="warning" class="mt-3">
-								{m.import_multi_account_notice({ account: importResult.accountName })}
-							</AlertBanner>
+						{#if dateOrderDisclosureLine}
+							<p class="mt-1 text-sm text-zinc-500">{dateOrderDisclosureLine}</p>
 						{/if}
+						<!-- REMOVED, #485. See the desktop block above for why. -->
 					</div>
 					{#if importResult.profile}
 						<span class="shrink-0">
@@ -1799,4 +2167,22 @@
 			onCancel={cancelCollision}
 		/>
 	</form>
+{/if}
+
+<!--
+	#485's one offer, outside the two upload sections for the same reason `DuplicateStatementDialog`
+	is: one dialog, one focus trap, for a page that renders its form twice. No wrapping `<form>`:
+	neither button submits anything itself, both just record the answer and close, and the primary
+	submit two forms up is what actually re-posts, carrying the hidden input set above.
+-->
+{#if accountColumnOffer}
+	<AccountColumnDialog
+		open={accountColumnDialogOpen}
+		column={accountColumnOffer.column}
+		header={accountColumnOffer.header}
+		samples={accountColumnOffer.samples}
+		onConfirmAccount={() => chooseAccountColumn('is-account')}
+		onDenyAccount={() => chooseAccountColumn('not-account')}
+		onClose={closeAccountColumnDialog}
+	/>
 {/if}

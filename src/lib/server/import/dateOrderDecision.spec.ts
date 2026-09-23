@@ -21,8 +21,8 @@ const RESOLVED_MONTH: DateOrderVerdict = {
 	order: 'month-first',
 	evidence: '06/24/2026'
 };
-const MIXED: DateOrderVerdict = {
-	kind: 'mixed',
+const CONTRADICTORY: DateOrderVerdict = {
+	kind: 'contradictory',
 	dayFirstEvidence: '24/06/2026',
 	monthFirstEvidence: '06/24/2026'
 };
@@ -53,9 +53,9 @@ describe('decideDateOrder', () => {
 	it('refuses a mixed column whatever the override says', () => {
 		expect.assertions(3);
 		const refusal = { kind: 'refuse', dayFirst: '24/06/2026', monthFirst: '06/24/2026' };
-		expect(decideDateOrder(MIXED, undefined)).toEqual(refusal);
-		expect(decideDateOrder(MIXED, 'day-first')).toEqual(refusal);
-		expect(decideDateOrder(MIXED, 'month-first')).toEqual(refusal);
+		expect(decideDateOrder(CONTRADICTORY, undefined)).toEqual(refusal);
+		expect(decideDateOrder(CONTRADICTORY, 'day-first')).toEqual(refusal);
+		expect(decideDateOrder(CONTRADICTORY, 'month-first')).toEqual(refusal);
 	});
 
 	/**

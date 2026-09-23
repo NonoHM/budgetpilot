@@ -42,14 +42,17 @@ const CORPUS: Array<{ value: string; guarded: boolean; afterImport: string; why:
 	{
 		value: '\u0000',
 		guarded: false,
-		afterImport: '\u0000',
+		// #652: sanitizeImportedText now strips a stranded Cc character before guardFormulaLead
+		// ever sees it (safety.ts), which this pipeline's own afterImport reflects; the export
+		// pipeline (`guarded`, `exportedLabelField`) never strips and is unaffected.
+		afterImport: '',
 		why: 'ignorable all the way down, no formula behind it'
 	},
 	{
 		value: '\u0000Courses',
 		guarded: false,
-		afterImport: '\u0000Courses',
-		why: 'a hidden character in front of something safe'
+		afterImport: 'Courses',
+		why: 'a hidden character in front of something safe, #652: now stripped at import'
 	},
 	{
 		value: '=SUM(A1:A9)',
@@ -87,8 +90,13 @@ const CORPUS: Array<{ value: string; guarded: boolean; afterImport: string; why:
 	{
 		value: '\u0000=1+1',
 		guarded: true,
-		afterImport: "'\u0000=1+1",
-		why: 'clause two, #594, measured live in LibreOffice'
+		// #652: at import the NUL is stripped before guardFormulaLead runs, so it reads a leading
+		// `=` directly (clause one, not clause two) and the value comes back without the NUL. The
+		// export pipeline is untouched: a row already stored with a raw NUL (written before this
+		// fix, or by a writer that never sanitises — `backup/import.ts`) still exercises clause two
+		// exactly as measured, which is what `guarded: true` here still asserts.
+		afterImport: "'=1+1",
+		why: 'clause two at export, #594, measured live in LibreOffice; stripped before import now'
 	},
 	{
 		value: '\u200B=1+1',

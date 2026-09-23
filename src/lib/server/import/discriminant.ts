@@ -1,4 +1,7 @@
 import type { ParsedCsvRow } from './types';
+import type { FileVerdict } from '$lib/domain/fileVerdict';
+export { ACCOUNT_COLUMN_ANSWERS, readAccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
+export type { AccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 
 /**
  * How many characters of an account identifier are kept. Four, from the END.
@@ -11,10 +14,19 @@ import type { ParsedCsvRow } from './types';
  */
 export const DISCRIMINANT_LENGTH = 4;
 
-export type DiscriminantResult =
-	| { kind: 'found'; index: number; fragment: string }
-	| { kind: 'multi-account'; index: number }
-	| { kind: 'none' };
+/**
+ * `FileVerdict`, #485. `contradictory` is what `basis: 'iban'` used to spell inside one
+ * `multi-account` kind: a verified IBAN pair that differs PROVES two accounts. `ambiguous` is what
+ * `basis: 'digit-run'` used to spell: a bare digit run that varies EXHIBITS the question without
+ * proving it. Splitting them into the shared taxonomy's own two kinds retires the `basis` field
+ * rather than keeping it beside a now-redundant distinction: a caller reads `.kind`, never `.kind`
+ * and then `.basis`.
+ */
+export type DiscriminantResult = FileVerdict<
+	{ index: number; fragment: string },
+	{ index: number },
+	{ index: number }
+>;
 
 /**
  * **The grammar narrows the candidates. The constancy is the evidence.**
@@ -31,7 +43,7 @@ export type DiscriminantResult =
  * substring. A date is a run of digits broken by separators and an amount is a run of digits broken
  * by a comma, so a substring match would find an identifier column in every dated file that exists.
  *
- * ## Why `found` wins over `multi-account`, measured rather than assumed
+ * ## Why `resolved` wins over `contradictory`/`ambiguous`, measured rather than assumed
  *
  * A file can carry two qualifying columns, one constant and one varying, and the order they are
  * read in is then a decision rather than a detail. It is decided by a real header row already in
@@ -49,19 +61,30 @@ export type DiscriminantResult =
  * ## The refusal is a sentence
  *
  * When some column carries well-formed identifiers that DIFFER per row and no column pins one
- * account, the answer is `multi-account` carrying the column index, never `none`. `none` means the
- * file offered no evidence at all; `multi-account` means it offered evidence AGAINST a single
- * account. Collapsing the two would let a statement spanning two accounts fall silently into
- * whatever a lower rank guesses.
+ * account, the answer is `contradictory` or `ambiguous` carrying the column index, never
+ * `nothing-to-decide`. `nothing-to-decide` means the file offered no evidence at all; the other two
+ * mean it offered evidence AGAINST a single account, PROVEN or merely EXHIBITED. Collapsing either
+ * pair would let a statement spanning two accounts fall silently into whatever a lower rank guesses.
+ *
+ * ## `contradictory` is PROOF, `ambiguous` is EVIDENCE, and #485's fix is built on the difference
+ *
+ * The grammar has two branches and they do not carry the same weight. A mod-97 checksum verifying
+ * across two account numbers that also DIFFER is not a realistic accident: `contradictory` is close
+ * enough to proof that #485's fix refuses on it outright. A bare run of 8+ digits is exactly as
+ * consistent with a reference number, an invoice number or a running balance as with a second
+ * account: `ambiguous` is evidence the column EXHIBITS the question, never proof it resolves one
+ * way, so the fix asks instead of refusing. The kind is decided over every value the column
+ * qualified on, never the first: one row failing the IBAN check downgrades the whole column to
+ * `ambiguous`, because a column proven only on most of its rows is not proven.
  *
  * @param rows As `parseRows` returns them: `rows[0]` is the HEADER row and the data starts at 1.
  */
 export function findDiscriminantColumn(rows: ParsedCsvRow[]): DiscriminantResult {
 	const dataRows = rows.slice(1);
-	if (dataRows.length === 0) return { kind: 'none' };
+	if (dataRows.length === 0) return { kind: 'nothing-to-decide' };
 
 	const columnCount = dataRows.reduce((widest, row) => Math.max(widest, row.cells.length), 0);
-	let varying: number | null = null;
+	let varying: { index: number; proven: boolean } | null = null;
 
 	for (let index = 0; index < columnCount; index += 1) {
 		const values: string[] = [];
@@ -78,12 +101,17 @@ export function findDiscriminantColumn(rows: ParsedCsvRow[]): DiscriminantResult
 		if (!qualifies) continue;
 
 		if (values.every((value) => value === values[0])) {
-			return { kind: 'found', index, fragment: values[0].slice(-DISCRIMINANT_LENGTH) };
+			return { kind: 'resolved', index, fragment: values[0].slice(-DISCRIMINANT_LENGTH) };
 		}
-		varying ??= index;
+		if (varying === null) {
+			varying = { index, proven: values.every(isVerifiedIban) };
+		}
 	}
 
-	return varying === null ? { kind: 'none' } : { kind: 'multi-account', index: varying };
+	if (varying === null) return { kind: 'nothing-to-decide' };
+	return varying.proven
+		? { kind: 'contradictory', index: varying.index }
+		: { kind: 'ambiguous', index: varying.index };
 }
 
 /**
@@ -124,7 +152,15 @@ const IBAN_SHAPE = /^[A-Z]{2}\d{2}[A-Z0-9]{11,30}$/;
 const DIGIT_RUN = /^\d{8,}$/;
 
 function matchesIdentifierGrammar(value: string): boolean {
-	if (DIGIT_RUN.test(value)) return true;
+	return DIGIT_RUN.test(value) || isVerifiedIban(value);
+}
+
+/**
+ * The stronger of the grammar's two branches, factored out and exported so both `basis` above and
+ * a caller checking a `basis` claim (a property test asking which branch a drawn value took) call
+ * one definition rather than retyping the checksum.
+ */
+export function isVerifiedIban(value: string): boolean {
 	return IBAN_SHAPE.test(value) && ibanChecksumVerifies(value);
 }
 

@@ -97,7 +97,7 @@ describe('reading a date order off a column', () => {
 
 		const verdict = detectDateOrder(['24/06/2026', '06/24/2026', '01/02/2026']);
 
-		expect(verdict.kind).toBe('mixed');
+		expect(verdict.kind).toBe('contradictory');
 		// BOTH cells, in file order. Naming one would send the user to a row that is not the
 		// problem: neither cell is wrong on its own, it is the pair that cannot both be right.
 		expect(verdict).toMatchObject({ dayFirstEvidence: '24/06/2026' });

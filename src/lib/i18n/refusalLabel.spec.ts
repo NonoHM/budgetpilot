@@ -59,6 +59,7 @@ const FACTS: { [C in CsvRefusalFact['code']]: Extract<CsvRefusalFact, { code: C 
 	'debit-credit-both': { code: 'debit-credit-both' },
 	'debit-credit-empty': { code: 'debit-credit-empty' },
 	'category-too-long': { code: 'category-too-long' },
+	'control-character': { code: 'control-character' },
 	'split-column-unreadable': { code: 'split-column-unreadable' },
 	'split-out-of-bounds': { code: 'split-out-of-bounds' },
 	'split-inconsistent': { code: 'split-inconsistent' },
@@ -70,7 +71,14 @@ const FACTS: { [C in CsvRefusalFact['code']]: Extract<CsvRefusalFact, { code: C 
 	'split-sign-opposite': { code: 'split-sign-opposite' },
 	'split-sum-mismatch': { code: 'split-sum-mismatch' },
 	'transaction-invalid': { code: 'transaction-invalid', violations: ['label-too-long'] },
-	'mixed-date-order': { code: 'mixed-date-order', dayFirst: '24/06/2026', monthFirst: '06/24/2026' }
+	'mixed-date-order': {
+		code: 'mixed-date-order',
+		dayFirst: '24/06/2026',
+		monthFirst: '06/24/2026'
+	},
+	'ambiguous-date-order': { code: 'ambiguous-date-order', column: 0, sample: '06/01/2026' },
+	'multi-account-file': { code: 'multi-account-file', column: 3 },
+	'ambiguous-account-column': { code: 'ambiguous-account-column', column: 3, sample: '10000001' }
 };
 
 describe('refusalLabel', () => {
@@ -80,14 +88,15 @@ describe('refusalLabel', () => {
 		expect(refusalLabel({ code: 'file-empty' })).toBe('CSV vide ou sans données');
 	});
 
-	it('renders every code in the union, and there are 40 of them', () => {
+	it('renders every code in the union, and there are 44 of them', () => {
 		const rendered = CSV_REFUSAL_CODES.map((code) => refusalLabel(FACTS[code]));
 
 		// The absolute figure beside the emptiness assertion: a run that rendered nothing at all
-		// would satisfy "none is empty" perfectly.
-		expect(rendered).toHaveLength(40);
-		expect(CSV_REFUSAL_CODES).toHaveLength(40);
-		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(40);
+		// would satisfy "none is empty" perfectly. 44 since #485 added 'multi-account-file' and
+		// 'ambiguous-account-column'.
+		expect(rendered).toHaveLength(44);
+		expect(CSV_REFUSAL_CODES).toHaveLength(44);
+		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(44);
 		// A key leaking through would render as the key itself.
 		expect(rendered.filter((label) => label.startsWith('import_refusal_'))).toEqual([]);
 	});
@@ -97,7 +106,7 @@ describe('refusalLabel', () => {
 
 		// Two guards in sequence are indistinguishable to a user when they render the same
 		// sentence, which is the whole reason the contract names them separately.
-		expect(new Set(rendered).size).toBe(40);
+		expect(new Set(rendered).size).toBe(44);
 	});
 
 	it('renders the payload of the five facts whose sentence names a value', () => {
