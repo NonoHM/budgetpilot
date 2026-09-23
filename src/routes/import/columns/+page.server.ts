@@ -323,7 +323,10 @@ export const actions: Actions = {
 		 * memorised correspondance and every write. `keepDesignation` because the repair is choosing
 		 * another account on this screen, not designating the columns again.
 		 */
-		const currencyRefusal = declaredCurrencyRefusal(result.transactions, bucket);
+		const currencyRefusal = declaredCurrencyRefusal(
+			result.summary.declaredCurrencies ?? [],
+			bucket
+		);
 		if (currencyRefusal) {
 			return fail(400, { error: refusalLabel(currencyRefusal), keepDesignation: true });
 		}

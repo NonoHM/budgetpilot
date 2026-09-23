@@ -295,6 +295,30 @@ describe('#600: a declared currency the destination contradicts is refused befor
 	});
 
 	/**
+	 * CONTRADICTION PASS F2, through the route. The only row declaring EUR is refused for its date
+	 * and the other row leaves the cell blank. MEASURED before the fix: 200, stored `["USD"]`, while
+	 * the same file with a valid first date was refused. Separates « the file's declaration is read
+	 * off every row » from « off the rows that survived ».
+	 */
+	it('/import: a declaration on a row refused for its date still refuses the file into USD', async () => {
+		expect.assertions(3);
+		const { userId, usdId } = await seedUser('refused-row');
+		const refused = await postImport(userId, {
+			csvFile: fileOf(
+				['date,label,amount,currency', 'not-a-date,A,-4.20,EUR', '2026-06-14,B,1850.00,'].join('\n')
+			),
+			accountId: usdId
+		});
+		const usdRows = await storedIn(userId, usdId);
+		console.info(
+			`[#600 F2] refused-row declaration into USD: status=${refused.status ?? 200} stored=${JSON.stringify(usdRows.map((row) => row.currency))}`
+		);
+		expect(usdRows).toEqual([]);
+		expect(refused.status).toBe(400);
+		expect(refused.data?.error).toBe(EUR_INTO_USD);
+	});
+
+	/**
 	 * The `by-source` branch of `/import`'s destination, which the tests above never take (they post
 	 * an account). Separates « compared with the bucket the rows will land in » from « compared with
 	 * something else » on the path most imports take: a user with no account yet, whose first import

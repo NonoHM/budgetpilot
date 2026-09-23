@@ -27,6 +27,7 @@ import {
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
 import { foldComparableHeader } from '../utils/encoding';
+import { acceptedDeclarations } from '../currencyDeclaration';
 
 /**
  * Revolut's ten columns, in the spellings this profile accepts.
@@ -161,6 +162,18 @@ export function parseRevolutRows({
 	let totalDebitCents = 0;
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
+
+	// THE FILE'S DECLARATION, read off every row of the right width before any row is judged, so a
+	// row refused below for its state, date or amount still declares (#600, contradiction pass F2).
+	// Exact `EUR`, the same test the row loop applies. See `currencyDeclaration.ts`.
+	const declaredCurrencies = acceptedDeclarations(
+		rows
+			.slice(1)
+			.filter((parsedRow) => parsedRow.cells.length === headers.length)
+			.map((parsedRow) => normalizeRevolutRecord(toRecord(headers, parsedRow.cells)).Devise ?? ''),
+		'EUR',
+		(declared) => declared === 'EUR'
+	);
 
 	rows.slice(1).forEach((parsedRow) => {
 		const row = parsedRow.cells;
@@ -329,17 +342,20 @@ export function parseRevolutRows({
 		transactions,
 		warnings,
 		invalidRows: refusals,
-		summary: buildSummary({
-			profile: 'revolut',
-			totalRows: rows.length - 1,
-			validRows: transactions.length,
-			invalidRows: refusals.length,
-			fileLevelRefusals: 0,
-			duplicateRows,
-			totalDebitCents,
-			totalCreditCents,
-			dates: validDates
-		})
+		summary: {
+			...buildSummary({
+				profile: 'revolut',
+				totalRows: rows.length - 1,
+				validRows: transactions.length,
+				invalidRows: refusals.length,
+				fileLevelRefusals: 0,
+				duplicateRows,
+				totalDebitCents,
+				totalCreditCents,
+				dates: validDates
+			}),
+			declaredCurrencies
+		}
 	};
 }
 

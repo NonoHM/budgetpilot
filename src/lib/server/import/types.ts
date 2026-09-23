@@ -201,6 +201,20 @@ export interface CsvImportSummary {
 	 */
 	dateOrderDisclosure?: { header: string; order: DateOrder };
 	/**
+	 * The currencies this FILE declares, read off every row whether or not the row became a
+	 * transaction (`currencyDeclaration.ts`), as ISO codes. Empty or absent when it declares none,
+	 * which takes the destination account's currency by design (#600's ruling).
+	 *
+	 * THE AUTHORITY the routes compare with the destination (`declaredCurrencyRefusal`). The
+	 * per-row `ImportedTransaction.declaredCurrency` feeds only the persist backstop, and is the
+	 * weaker of the two for the reason F2 measured: a declaring row refused for its date leaves no
+	 * transaction to carry its claim.
+	 *
+	 * Optional because only the profiles that can read a currency set it (`generic`, `mapped`,
+	 * `revolut`); the others cannot be handed a file carrying one (`declaredCurrency.spec.ts`).
+	 */
+	declaredCurrencies?: string[];
+	/**
 	 * The DATA rows this parse read, which is every row a refusal can be about.
 	 *
 	 * A file the parser refused before reading a row still reports the rows it has: a statement over

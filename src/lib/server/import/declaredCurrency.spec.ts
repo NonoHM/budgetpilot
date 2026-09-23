@@ -204,11 +204,57 @@ describe('every registered profile that can be handed a declaring file carries t
 	});
 });
 
+/**
+ * THE DECLARATION IS A FACT ABOUT THE FILE, read off every row (contradiction pass F2).
+ *
+ * AGENTS.md: a property that changes how values are read is decided by looking at every value it
+ * ranges over. A row refused for its date or its amount still said which currency the file is in,
+ * and reading the declaration only off the rows that survived let a file whose one declaring row
+ * failed file its other rows under the account's currency. MEASURED before this: that file into a
+ * USD account returned 200 and stored `["USD"]`.
+ */
+describe('the file declares a currency on every row it wrote one, surviving or not', () => {
+	/** Separates « read off every row » from « read off the rows that became transactions ». */
+	it('keeps the declaration of a row refused for its date', () => {
+		expect.assertions(2);
+		const result = parseCsvTransactions(
+			['date,label,amount,currency', 'not-a-date,A,-4.20,EUR', '2026-06-14,B,1850.00,'].join('\n')
+		);
+		// The calibration of the fixture: the declaring row really is the one refused.
+		expect(result.transactions.map((transaction) => transaction.declaredCurrency)).toEqual([
+			undefined
+		]);
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+	});
+
+	/** Separates « nothing declared » from « an empty column read as a declaration ». */
+	it('declares nothing when every currency cell is blank', () => {
+		expect.assertions(1);
+		const result = parseCsvTransactions(
+			['date,label,amount,currency', '2026-06-03,A,-4.20,', '2026-06-14,B,1850.00,'].join('\n')
+		);
+		expect(result.summary.declaredCurrencies).toEqual([]);
+	});
+
+	/** Revolut's column is read the same way: a row refused for its date still declares. */
+	it('keeps the declaration of a Revolut row refused for its date', () => {
+		expect.assertions(2);
+		const result = parseCsvTransactions(
+			[
+				REVOLUT_HEADERS.join(','),
+				'CARD_PAYMENT,Current,not-a-date,not-a-date,A,-4.20,0.00,EUR,TERMINÉ,1200.00'
+			].join('\n')
+		);
+		expect(result.transactions).toEqual([]);
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+	});
+});
+
 describe('declaredCurrencyRefusal: the one comparison', () => {
 	/** Separates « a contradicted declaration is refused, naming both » from « accepted ». */
 	it('refuses a declaration the destination contradicts, naming both currencies', () => {
 		expect.assertions(1);
-		expect(declaredCurrencyRefusal([{ declaredCurrency: 'EUR' }], { currency: 'USD' })).toEqual({
+		expect(declaredCurrencyRefusal(['EUR'], { currency: 'USD' })).toEqual({
 			code: 'declared-currency-mismatch',
 			declared: 'EUR',
 			destination: 'USD'
@@ -218,29 +264,25 @@ describe('declaredCurrencyRefusal: the one comparison', () => {
 	/** Separates « compared with the destination » from « refused whenever anything is declared ». */
 	it('accepts a declaration the destination agrees with', () => {
 		expect.assertions(1);
-		expect(declaredCurrencyRefusal([{ declaredCurrency: 'EUR' }], { currency: 'EUR' })).toBeNull();
+		expect(declaredCurrencyRefusal(['EUR'], { currency: 'EUR' })).toBeNull();
 	});
 
 	/** Separates « the absent declaration takes the default » from « refused for saying nothing ». */
 	it('accepts a file that declares nothing, whatever the destination', () => {
 		expect.assertions(1);
-		expect(
-			declaredCurrencyRefusal([{}, { declaredCurrency: undefined }], { currency: 'USD' })
-		).toBeNull();
+		expect(declaredCurrencyRefusal([undefined, ''], { currency: 'USD' })).toBeNull();
 	});
 
 	/** Separates « any declaring row decides » from « only the first row is read ». */
 	it('refuses when a later row declares and the first does not', () => {
 		expect.assertions(1);
-		expect(
-			declaredCurrencyRefusal([{}, { declaredCurrency: 'EUR' }], { currency: 'USD' })?.declared
-		).toBe('EUR');
+		expect(declaredCurrencyRefusal([undefined, 'EUR'], { currency: 'USD' })?.declared).toBe('EUR');
 	});
 
 	/** The declared value is untrusted bytes on its way to a page: bounded like every refusal cell. */
 	it('bounds the declared value it names', () => {
 		expect.assertions(1);
-		const fact = declaredCurrencyRefusal([{ declaredCurrency: 'X'.repeat(500) }], {
+		const fact = declaredCurrencyRefusal(['X'.repeat(500)], {
 			currency: 'USD'
 		});
 		expect(fact?.declared.length).toBeLessThanOrEqual(67);

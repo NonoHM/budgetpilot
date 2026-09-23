@@ -42,22 +42,32 @@ export type DeclaredCurrencyMismatch = Extract<
  * destination's own denomination, at the server boundary.
  */
 export function declaredCurrencyRefusal(
-	transactions: ReadonlyArray<Pick<ImportedTransaction, 'declaredCurrency'>>,
+	/**
+	 * What the file declares. The routes pass `CsvImportSummary.declaredCurrencies`, the file-level
+	 * fact read off every row; the persist backstop passes its rows' `declaredCurrency`, which is
+	 * all a writer holding only transactions can see (`declaredCurrencies`' own docstring says why
+	 * that is the weaker input).
+	 */
+	declared: ReadonlyArray<string | undefined>,
 	destination: { currency: string }
 ): DeclaredCurrencyMismatch | null {
-	// ANY declaring row decides, not the first: a file may leave the column blank on some rows,
-	// and a blank is not a declaration (`resolvedRows.ts`).
-	const contradicted = transactions.find(
-		(transaction) =>
-			Boolean(transaction.declaredCurrency) && transaction.declaredCurrency !== destination.currency
-	);
-	if (!contradicted?.declaredCurrency) return null;
+	// ANY declaration decides, not the first: a file may leave the column blank on some rows, and a
+	// blank is not a declaration (`currencyDeclaration.ts`).
+	const contradicted = declared.find((code) => Boolean(code) && code !== destination.currency);
+	if (!contradicted) return null;
 	return {
 		code: 'declared-currency-mismatch',
 		// Lifted from the file, on its way to a page: bounded like every cell a refusal names.
-		declared: refusalCellValue(contradicted.declaredCurrency),
+		declared: refusalCellValue(contradicted),
 		destination: destination.currency
 	};
+}
+
+/** The per-row declarations a writer holding only transactions can pass to the comparison. */
+export function rowDeclarations(
+	transactions: ReadonlyArray<Pick<ImportedTransaction, 'declaredCurrency'>>
+): Array<string | undefined> {
+	return transactions.map((transaction) => transaction.declaredCurrency);
 }
 
 /**

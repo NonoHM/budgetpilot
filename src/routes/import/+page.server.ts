@@ -614,7 +614,10 @@ export const actions: Actions = {
 		 */
 		const destination =
 			decision.kind === 'account' ? decision.bucket : (decision.existing ?? DEFAULT_DENOMINATION);
-		const currencyRefusal = declaredCurrencyRefusal(result.transactions, destination);
+		const currencyRefusal = declaredCurrencyRefusal(
+			result.summary.declaredCurrencies ?? [],
+			destination
+		);
 		if (currencyRefusal) {
 			return fail(400, { error: refusalLabel(currencyRefusal) });
 		}

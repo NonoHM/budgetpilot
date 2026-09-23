@@ -22,6 +22,7 @@ import {
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
+import { acceptedDeclarations } from '../currencyDeclaration';
 
 /**
  * Which FOLDED header fills each role, once something upstream has decided.
@@ -101,6 +102,22 @@ export function parseResolvedRows({
 	// Row 0 is skipped only when it IS a header. A headerless file's first line is a transaction,
 	// and slicing it away unconditionally is what ate one row per import.
 	const dataRows = rows.slice(firstDataRowIndex(hasHeaderRow));
+
+	// THE FILE'S DECLARATION, read off EVERY data row before any row is judged (#600, contradiction
+	// pass F2). A row refused below for its date or its amount still said which currency the file is
+	// in. Rows of the wrong width are left out: their cells do not sit under the header they would be
+	// read through. See `currencyDeclaration.ts`.
+	const declarationIndex = currencyColumn ? headers.indexOf(currencyColumn) : -1;
+	const declaredCurrencies =
+		declarationIndex < 0
+			? []
+			: acceptedDeclarations(
+					dataRows
+						.filter((parsedRow) => parsedRow.cells.length === headers.length)
+						.map((parsedRow) => parsedRow.cells[declarationIndex] ?? ''),
+					acceptedCurrency
+				);
+
 	dataRows.forEach((parsedRow) => {
 		const row = parsedRow.cells;
 		const line = parsedRow.line;
@@ -251,19 +268,22 @@ export function parseResolvedRows({
 		transactions,
 		warnings,
 		invalidRows: refusals,
-		summary: buildSummary({
-			profile,
-			// The rows the parser actually READ, which is every row when there is no header.
-			totalRows: dataRows.length,
-			validRows: transactions.length,
-			invalidRows: refusals.length,
-			// Every refusal this loop produces is scoped to a row and every row produces at most one,
-			// so there is nothing here that is not a row.
-			fileLevelRefusals: 0,
-			duplicateRows,
-			totalDebitCents,
-			totalCreditCents,
-			dates: validDates
-		})
+		summary: {
+			...buildSummary({
+				profile,
+				// The rows the parser actually READ, which is every row when there is no header.
+				totalRows: dataRows.length,
+				validRows: transactions.length,
+				invalidRows: refusals.length,
+				// Every refusal this loop produces is scoped to a row and every row produces at most
+				// one, so there is nothing here that is not a row.
+				fileLevelRefusals: 0,
+				duplicateRows,
+				totalDebitCents,
+				totalCreditCents,
+				dates: validDates
+			}),
+			declaredCurrencies
+		}
 	};
 }
