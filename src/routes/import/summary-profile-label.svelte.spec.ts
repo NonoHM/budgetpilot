@@ -62,7 +62,7 @@ describe('the import summary names the format the way the rest of the product na
 		async (profile) => {
 			expect.assertions(2);
 			await page.viewport(1280, 800);
-			render(Page, { data: DATA, form: formWithProfile(profile) });
+			await render(Page, { data: DATA, form: formWithProfile(profile) });
 
 			expect(page.getByText(importProfileLabel(profile), { exact: true }).elements()).toHaveLength(
 				2

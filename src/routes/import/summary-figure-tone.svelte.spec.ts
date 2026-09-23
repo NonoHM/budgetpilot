@@ -85,7 +85,7 @@ describe('the two chromes of the summary agree on what each figure means', () =>
 	])('%s is coloured the same way at both widths', async (_name, overrides) => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith(overrides) });
+		await render(Page, { data: DATA, form: formWith(overrides) });
 
 		const [desktop, mobile] = tonesPerChrome();
 		expect(desktop).toHaveLength(5); // calibration: the grids are there to be compared
@@ -95,7 +95,7 @@ describe('the two chromes of the summary agree on what each figure means', () =>
 	it('does not paint a zero refusal count in the colour of a refusal', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith() });
+		await render(Page, { data: DATA, form: formWith() });
 
 		// The measured case, stated separately from the agreement above, because two chromes that
 		// were BOTH unconditionally rose would satisfy that one.
@@ -120,7 +120,7 @@ describe('the two chromes of the summary agree on what each figure means', () =>
 		// no verdict is available: nothing was imported, nothing was skipped, nothing was refused.
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith(overrides) });
+		await render(Page, { data: DATA, form: formWith(overrides) });
 
 		const defaults: Record<CountKey, number> = {
 			importedRows: 8,
@@ -140,7 +140,7 @@ describe('the two chromes of the summary agree on what each figure means', () =>
 	it('still marks a real refusal, so the gate is not simply the colour removed', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith({ invalidRows: 3, importedRows: 5 }) });
+		await render(Page, { data: DATA, form: formWith({ invalidRows: 3, importedRows: 5 }) });
 
 		for (const chrome of tonesPerChrome()) {
 			expect(chrome.filter((tone) => tone.startsWith('text-rose'))).toHaveLength(1);

@@ -48,7 +48,7 @@ describe('Settings — the running version', () => {
 	it('names the version it is running, labelled', async () => {
 		expect.assertions(2);
 
-		render(Page, { params: {}, data: baseData(), form: null });
+		await render(Page, { params: {}, data: baseData(), form: null });
 
 		await expect.element(page.getByText(m.settings_version_label()).first()).toBeInTheDocument();
 		await expect.element(page.getByText('1.2.3').first()).toBeInTheDocument();

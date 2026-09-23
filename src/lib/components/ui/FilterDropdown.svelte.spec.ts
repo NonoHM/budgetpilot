@@ -53,7 +53,7 @@ function base(overrides: Props = {}): Props {
 describe('FilterDropdown — the trigger grammar', () => {
 	it('at rest the trigger reads the dimension name, and "Toutes" is nowhere on it', async () => {
 		expect.assertions(2);
-		render(FilterDropdown, base());
+		await render(FilterDropdown, base());
 
 		await expect.element(page.getByRole('button', { name: 'Étiquette' })).toBeInTheDocument();
 		// The closed component must not render the return row at all: "Toutes" on a resting trigger
@@ -63,7 +63,7 @@ describe('FilterDropdown — the trigger grammar', () => {
 
 	it('active renders two adjoined buttons — open, and a separate clear', async () => {
 		expect.assertions(2);
-		render(FilterDropdown, base({ value: 'a', activeLabel: 'Étiquette : Alpha' }));
+		await render(FilterDropdown, base({ value: 'a', activeLabel: 'Étiquette : Alpha' }));
 
 		// Two buttons, never one nested in the other: nested buttons are invalid HTML, and the
 		// design requires two independent targets of at least 24px.
@@ -77,7 +77,7 @@ describe('FilterDropdown — the trigger grammar', () => {
 
 	it('the trigger group is 34px tall and neither half falls under the 24px target', async () => {
 		expect.assertions(3);
-		render(FilterDropdown, base({ value: 'a', activeLabel: 'Étiquette : Alpha' }));
+		await render(FilterDropdown, base({ value: 'a', activeLabel: 'Étiquette : Alpha' }));
 
 		const open = page.getByRole('button', { name: 'Étiquette : Alpha' }).element();
 		const clear = page.getByRole('button', { name: 'Retirer le filtre par Étiquette' }).element();
@@ -97,7 +97,7 @@ describe('FilterDropdown — the trigger grammar', () => {
 
 	it('the footer is a sibling of the listbox, not one of its options', async () => {
 		expect.assertions(3);
-		render(FilterDropdown, base({ footer: footerSnippet }));
+		await render(FilterDropdown, base({ footer: footerSnippet }));
 		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
 
 		// First: the footer really is on screen. Without this the two assertions below are equally
@@ -113,7 +113,7 @@ describe('FilterDropdown — the trigger grammar', () => {
 
 	it('a zero count stays visible, writes "0", and is aria-disabled rather than hidden', async () => {
 		expect.assertions(2);
-		render(FilterDropdown, base());
+		await render(FilterDropdown, base());
 		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
 
 		// Hiding it would be indistinguishable from a deletion — and since tags now disappear on
@@ -129,7 +129,7 @@ describe('FilterDropdown — the trigger grammar', () => {
 		// label and the count (zinc-400, ~2.5:1) and aria-disabled/the digit for inactivity, with the
 		// tag's own hue (its identity, not a state) left untouched.
 		expect.assertions(6);
-		render(
+		await render(
 			FilterDropdown,
 			base({
 				options: [
@@ -157,7 +157,7 @@ describe('FilterDropdown — the trigger grammar', () => {
 
 	it('an unavailable count renders the placeholder, not a digit and not nothing', async () => {
 		expect.assertions(2);
-		render(FilterDropdown, base({ options: [{ value: 'a', label: 'Alpha', count: null }] }));
+		await render(FilterDropdown, base({ options: [{ value: 'a', label: 'Alpha', count: null }] }));
 		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
 
 		const text = page.getByRole('option', { name: /Alpha/ }).element().textContent ?? '';
@@ -176,7 +176,10 @@ describe('FilterDropdown — the trigger grammar', () => {
 			label: `Tag ${i}`,
 			count: 1
 		}));
-		render(FilterDropdown, base({ options: many, scopeNote: 'Comptes dans le filtre courant.' }));
+		await render(
+			FilterDropdown,
+			base({ options: many, scopeNote: 'Comptes dans le filtre courant.' })
+		);
 		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
 
 		await expect.element(page.getByPlaceholder('Filtrer les étiquettes')).toBeInTheDocument();
@@ -194,7 +197,10 @@ describe('FilterDropdown — the trigger grammar', () => {
 			label: `Tag ${i}`,
 			count: 1
 		}));
-		render(FilterDropdown, base({ options: eight, scopeNote: 'Comptes dans le filtre courant.' }));
+		await render(
+			FilterDropdown,
+			base({ options: eight, scopeNote: 'Comptes dans le filtre courant.' })
+		);
 		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
 
 		await expect.element(page.getByText('Comptes dans le filtre courant.')).toBeInTheDocument();
@@ -206,7 +212,7 @@ describe('FilterDropdown — selection and keyboard', () => {
 	it('choosing a row reports its value, and the return row reports the empty string', async () => {
 		expect.assertions(2);
 		const onSelect = vi.fn();
-		render(FilterDropdown, base({ onSelect }));
+		await render(FilterDropdown, base({ onSelect }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
 		await userEvent.click(page.getByRole('option', { name: /Alpha/ }));
@@ -222,7 +228,7 @@ describe('FilterDropdown — selection and keyboard', () => {
 		expect.assertions(2);
 		const onClear = vi.fn();
 		const onSelect = vi.fn();
-		render(
+		await render(
 			FilterDropdown,
 			base({ value: 'a', activeLabel: 'Étiquette : Alpha', onClear, onSelect })
 		);
@@ -235,7 +241,7 @@ describe('FilterDropdown — selection and keyboard', () => {
 	it('a zero-count row is announced but inert: clicking it selects nothing', async () => {
 		expect.assertions(1);
 		const onSelect = vi.fn();
-		render(FilterDropdown, base({ onSelect }));
+		await render(FilterDropdown, base({ onSelect }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Étiquette' }));
 		// A NATIVE click, deliberately, not userEvent.click: Playwright refuses to click an
@@ -252,7 +258,7 @@ describe('FilterDropdown — selection and keyboard', () => {
 	it('arrows traverse the rows and Enter takes the highlighted one', async () => {
 		expect.assertions(1);
 		const onSelect = vi.fn();
-		render(FilterDropdown, base({ onSelect }));
+		await render(FilterDropdown, base({ onSelect }));
 
 		const trigger = page.getByRole('button', { name: 'Étiquette' });
 		await userEvent.click(trigger);
@@ -264,7 +270,7 @@ describe('FilterDropdown — selection and keyboard', () => {
 
 	it('Escape closes the panel and hands focus back to the trigger, not to the clear button', async () => {
 		expect.assertions(2);
-		render(FilterDropdown, base({ value: 'a', activeLabel: 'Étiquette : Alpha' }));
+		await render(FilterDropdown, base({ value: 'a', activeLabel: 'Étiquette : Alpha' }));
 
 		const trigger = page.getByRole('button', { name: 'Étiquette : Alpha' });
 		await userEvent.click(trigger);
@@ -277,7 +283,7 @@ describe('FilterDropdown — selection and keyboard', () => {
 
 	it('moving focus out of the panel closes it, so it cannot float over the page unreachable', async () => {
 		expect.assertions(2);
-		render(FilterDropdown, base());
+		await render(FilterDropdown, base());
 
 		// Something outside the component to receive the focus. Pressing Tab is not enough on its
 		// own here: the test DOM has nothing after the component, so focus leaves the document and
@@ -301,7 +307,7 @@ describe('FilterDropdown — selection and keyboard', () => {
 
 	it('the tinted variant paints its own background instead of the neutral active border', async () => {
 		expect.assertions(2);
-		render(
+		await render(
 			FilterDropdown,
 			base({
 				value: 'a',
@@ -324,7 +330,7 @@ describe('FilterDropdown — selection and keyboard', () => {
 		// Reachable in this app: a tag on zero transactions is deleted silently, so a bookmarked
 		// ?tag=<id> outlives its tag. The trigger used to read as resting while painting an active
 		// border and an orphan "×".
-		render(FilterDropdown, base({ value: 'deleted-tag-id' }));
+		await render(FilterDropdown, base({ value: 'deleted-tag-id' }));
 
 		await expect.element(page.getByRole('button', { name: 'Étiquette' })).toBeInTheDocument();
 		expect(

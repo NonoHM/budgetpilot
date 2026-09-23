@@ -116,7 +116,7 @@ beforeEach(() => {
 async function pressPrimary() {
 	await page.viewport(390, 844);
 	seed();
-	render(Page, { form: null as never });
+	await render(Page, { form: null as never });
 	const primary = document.querySelector('[data-testid="designation-primary"]') as HTMLElement;
 	primary.click();
 	await new Promise((r) => setTimeout(r, 0));
@@ -152,7 +152,7 @@ describe('what the correction posts, and what decides it', () => {
 	it('posts no batch id at all when the consent is untied', async () => {
 		await page.viewport(390, 844);
 		seed();
-		render(Page, { form: null as never });
+		await render(Page, { form: null as never });
 
 		const box = document.querySelector(
 			'[data-testid="designation-replace-consent"] input[type="checkbox"]'

@@ -5,7 +5,7 @@ import BudgetStatusCard from './BudgetStatusCard.svelte';
 
 describe('BudgetStatusCard.svelte', () => {
 	it('hides the status badge by default when variant is plain', async () => {
-		render(BudgetStatusCard, {
+		await render(BudgetStatusCard, {
 			categoryLabel: 'Alimentation',
 			spentCents: 1000,
 			limitCents: 25000,
@@ -17,7 +17,7 @@ describe('BudgetStatusCard.svelte', () => {
 	});
 
 	it('shows the status badge when variant is plain but showBadge is explicitly set', async () => {
-		render(BudgetStatusCard, {
+		await render(BudgetStatusCard, {
 			categoryLabel: 'Alimentation',
 			spentCents: 1000,
 			limitCents: 25000,
@@ -29,7 +29,7 @@ describe('BudgetStatusCard.svelte', () => {
 	});
 
 	it('shows the status badge by default when variant is card', async () => {
-		render(BudgetStatusCard, {
+		await render(BudgetStatusCard, {
 			categoryLabel: 'Alimentation',
 			spentCents: 1000,
 			limitCents: 25000

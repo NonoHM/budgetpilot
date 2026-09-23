@@ -105,7 +105,7 @@ describe('leaving the designation screen', () => {
 	it('returns to the correction it came from, with both ids', async () => {
 		await page.viewport(390, 844);
 		seed({ mappingId: MAPPING, batchId: BATCH });
-		render(Page, { form: null } as never);
+		await render(Page, { form: null } as never);
 
 		await userEvent.click(
 			page.getByRole('button', { name: m.import_columns_cancel() }).element() as HTMLElement
@@ -124,7 +124,7 @@ describe('leaving the designation screen', () => {
 		// refusing an empty id.
 		await page.viewport(390, 844);
 		seed(null);
-		render(Page, { form: null } as never);
+		await render(Page, { form: null } as never);
 
 		await userEvent.click(
 			page.getByRole('button', { name: m.import_columns_cancel() }).element() as HTMLElement
@@ -139,7 +139,7 @@ describe('leaving the designation screen', () => {
 		// test that only presses the other.
 		await page.viewport(390, 844);
 		seed({ mappingId: MAPPING, batchId: BATCH });
-		render(Page, { form: null } as never);
+		await render(Page, { form: null } as never);
 
 		await userEvent.click(
 			page.getByRole('button', { name: m.import_columns_back() }).element() as HTMLElement

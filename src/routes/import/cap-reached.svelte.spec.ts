@@ -89,7 +89,7 @@ describe('the memorisation cap is reported on the import it happened to', () => 
 			replaced: { kind: 'none' }
 		});
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await expect.element(desktopNotice()).toBeVisible();
 	});
@@ -103,7 +103,7 @@ describe('the memorisation cap is reported on the import it happened to', () => 
 			replaced: { kind: 'none' }
 		});
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await expect.element(mobileNotice()).toBeVisible();
 	});
@@ -129,7 +129,7 @@ describe('the memorisation cap is reported on the import it happened to', () => 
 			replaced: { kind: 'none' }
 		});
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await expect.element(page.getByText(m.import_summary_heading()).last()).toBeVisible();
 		await expect.element(mobileNotice()).not.toBeInTheDocument();
@@ -149,7 +149,7 @@ describe('the memorisation cap is reported on the import it happened to', () => 
 			replaced: { kind: 'none' }
 		});
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await expect.element(mobileNotice()).toBeVisible();
 		await expect.element(page.getByText(m.import_summary_heading()).last()).toBeVisible();

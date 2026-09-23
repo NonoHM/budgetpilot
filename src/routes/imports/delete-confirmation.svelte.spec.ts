@@ -115,7 +115,7 @@ describe('the delete confirmation on the desktop chrome', () => {
 		// The older batch is the second row, so a title built from `data.batches[0]`, or from
 		// whichever row was rendered last, passes the first half and fails here.
 		await page.viewport(1280, 900);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const older = await shownDate(OLDER_AT);
 		const newer = await shownDate(NEWER_AT);
@@ -132,7 +132,7 @@ describe('the delete confirmation on the desktop chrome', () => {
 		// SHARE, so a title carrying it states an identity both satisfy. It is still worth showing:
 		// it is what the user recognises, once the dialog has already said which import it means.
 		await page.viewport(1280, 900);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await page.getByRole('button', { name: m.common_delete() }).nth(1).click();
 
@@ -150,7 +150,7 @@ describe('the delete confirmation on the desktop chrome', () => {
 		// that as digits and slashes, which cannot be compared button to button, and the row does
 		// not say it either.
 		await page.viewport(1280, 900);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await page.getByRole('button', { name: m.common_delete() }).nth(1).click();
 
@@ -163,7 +163,7 @@ describe('the delete confirmation on the desktop chrome', () => {
 		// deletion, so the dismiss says what it PRESERVES. A dialog that gained back an "Annuler"
 		// button would leave every assertion above green.
 		await page.viewport(1280, 900);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await page.getByRole('button', { name: m.common_delete() }).nth(1).click();
 
@@ -188,7 +188,7 @@ describe('the delete confirmation on the mobile chrome', () => {
 		// to count is usually reporting something about the page, and it was. Planche 5e removes the
 		// disclosure and names the control by the timestamp, so the row can be named.
 		await page.viewport(390, 844);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const older = await shownDate(OLDER_AT);
 		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
@@ -229,7 +229,7 @@ describe('the destructive control on the import card', () => {
 	// The absolute count sits beside the uniqueness claim so a selector matching nothing cannot pass.
 	it('gives two lookalike cards two different names', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const names = visibleDeleteControls().map((b) => b.getAttribute('aria-label'));
 
@@ -242,7 +242,7 @@ describe('the destructive control on the import card', () => {
 	// it is what both satisfy.
 	it('names each card by the timestamp its row already shows', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const older = await shownDate(OLDER_AT);
 		const control = visibleDeleteControls().find(
@@ -258,7 +258,7 @@ describe('the destructive control on the import card', () => {
 	// matches nothing, so the count above is what proves the query works.
 	it('leaves no expand disclosure on any card', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		expect(document.querySelectorAll('button[aria-expanded]')).toHaveLength(0);
 	});
@@ -268,7 +268,7 @@ describe('the destructive control on the import card', () => {
 	// carrying the words.
 	it('opens the confirmation in one press', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const older = await shownDate(OLDER_AT);
 		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
@@ -280,7 +280,7 @@ describe('the destructive control on the import card', () => {
 	// divergence that grows, and this one is the documented origin of the whole chantier.
 	it('is the same icon control at 1280, with no text label and no tooltip', async () => {
 		await page.viewport(1280, 900);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const controls = visibleDeleteControls();
 		expect(controls).toHaveLength(2);
@@ -297,7 +297,7 @@ describe('the destructive control on the import card', () => {
 	// weakens the one that informs in favour of the one that decorates.
 	it('rests neutral rather than red', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const control = visibleDeleteControls()[0];
 
@@ -333,7 +333,7 @@ describe('the delete that is refused', () => {
 					})
 			)
 		);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const older = await shownDate(OLDER_AT);
 		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
@@ -362,7 +362,7 @@ describe('the delete that is refused', () => {
 			'fetch',
 			vi.fn(() => new Promise<Response>((resolve) => (resolveFetch = resolve)))
 		);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const older = await shownDate(OLDER_AT);
 		await page.getByRole('button', { name: `Supprimer l'import du ${older}` }).click();
@@ -411,7 +411,7 @@ describe('the delete that gets no answer at all', () => {
 			'fetch',
 			vi.fn(() => new Promise<Response>(() => {}))
 		);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		const control = visibleDeleteControls()[0];
 		control.click();
@@ -481,7 +481,7 @@ describe('the delete confirmation on an import that created nothing', () => {
 
 	async function openDeleteFor(importedRows: number) {
 		await page.viewport(1280, 900);
-		render(Page, {
+		await render(Page, {
 			data: { ...DATA, batches: [batchWith(importedRows)] } as unknown as PageData,
 			form: null
 		});
@@ -546,7 +546,7 @@ describe('the delete confirmation when importedRows and the live count disagree 
 
 	async function openDeleteForDivergent(importedRows: number, transactionCount: number) {
 		await page.viewport(1280, 900);
-		render(Page, {
+		await render(Page, {
 			data: {
 				...DATA,
 				batches: [divergentBatch(importedRows, transactionCount)]

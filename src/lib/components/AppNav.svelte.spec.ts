@@ -5,7 +5,7 @@ import AppNav from './AppNav.svelte';
 
 describe('AppNav.svelte', () => {
 	it('opens the mobile "More" menu and lists Rules/Imports/Net Worth as plain navigation links', async () => {
-		render(AppNav, { active: 'dashboard' });
+		await render(AppNav, { active: 'dashboard' });
 
 		const moreTrigger = page.getByRole('button', { name: "Plus d'options de navigation" });
 		await expect.element(moreTrigger).toHaveAttribute('aria-expanded', 'false');
@@ -30,7 +30,7 @@ describe('AppNav.svelte', () => {
 	});
 
 	it('marks the active "More" item with aria-current=page and does not mark the others', async () => {
-		render(AppNav, { active: 'rules' });
+		await render(AppNav, { active: 'rules' });
 
 		await userEvent.click(page.getByRole('button', { name: "Plus d'options de navigation" }));
 
@@ -43,7 +43,7 @@ describe('AppNav.svelte', () => {
 	});
 
 	it('does not render the "More" menu items before the trigger is clicked', async () => {
-		render(AppNav, { active: 'dashboard' });
+		await render(AppNav, { active: 'dashboard' });
 
 		await expect.element(page.getByRole('menuitem', { name: 'Règles' })).not.toBeInTheDocument();
 	});

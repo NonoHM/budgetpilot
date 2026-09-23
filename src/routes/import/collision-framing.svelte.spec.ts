@@ -122,7 +122,7 @@ describe('the page derives the dialog framing from the posted choice', () => {
 		await page.viewport(390, 844);
 		carry({ batchId: 'batch-old', deleteOldImport: false });
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await expect
 			.element(page.getByText(m.import_collision_keeping_body()).last())
@@ -135,7 +135,7 @@ describe('the page derives the dialog framing from the posted choice', () => {
 		await page.viewport(390, 844);
 		carry({ batchId: 'batch-old', deleteOldImport: false });
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		expect(await page.getByText(m.import_collision_replacing_body()).all()).toHaveLength(0);
 	});
@@ -144,7 +144,7 @@ describe('the page derives the dialog framing from the posted choice', () => {
 		await page.viewport(390, 844);
 		carry({ batchId: 'batch-old', deleteOldImport: true });
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await expect
 			.element(page.getByText(m.import_collision_replacing_body()).last())
@@ -162,7 +162,7 @@ describe('the page derives the dialog framing from the posted choice', () => {
 		await page.viewport(390, 844);
 		carry({ batchId: 'batch-old', deleteOldImport: true });
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await expect
 			.element(page.getByText(m.import_collision_replacing_heading()).last())
@@ -176,7 +176,7 @@ describe('the page derives the dialog framing from the posted choice', () => {
 		await page.viewport(390, 844);
 		carry({ batchId: 'batch-old', deleteOldImport: true });
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await expect
 			.element(page.getByText(m.import_collision_consequence()).last())
@@ -187,7 +187,7 @@ describe('the page derives the dialog framing from the posted choice', () => {
 		await page.viewport(390, 844);
 		carry(null);
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await expect
 			.element(page.getByText(m.import_collision_explanation()).last())
@@ -204,7 +204,7 @@ describe('declining keeps the designation work', () => {
 		// what decides whether it reopens designated or empty.
 		await page.viewport(390, 844);
 		carry({ batchId: 'batch-old', deleteOldImport: false });
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		await page.getByRole('button', { name: m.import_collision_cancel() }).last().click();
 
@@ -239,7 +239,7 @@ describe('declining keeps the designation work', () => {
 		// return to, and seeding one would send the user to a designation screen for a file they
 		// uploaded through the ordinary form.
 		await page.viewport(390, 844);
-		render(Page, {
+		await render(Page, {
 			data: DATA,
 			form: { collision: EXISTING, incoming: INCOMING } as unknown as null
 		});

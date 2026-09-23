@@ -157,7 +157,7 @@ describe('a row matched by parent identity, carrying none of the filtered money'
 	it('shows zero and the category that matched, never the dominant part and the full total', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData({ transactions: [IDENTITY_ONLY] }), form: null });
+		await render(Page, { data: baseData({ transactions: [IDENTITY_ONLY] }), form: null });
 
 		const table = page.getByRole('table');
 		// The figure the band also reports for this row, so the two agree by construction.
@@ -174,7 +174,7 @@ describe('the secondary « sur {total} » line under a category filter', () => {
 	it('renders on a genuine fragment — so the absence asserted below is an absence of something possible', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData({ transactions: [GENUINE_FRAGMENT] }), form: null });
+		await render(Page, { data: baseData({ transactions: [GENUINE_FRAGMENT] }), form: null });
 
 		// APPEAR FIRST. A negative assertion whose subject has never been shown to appear proves
 		// nothing at all — it passes on an empty table, on an unmounted component, on a typo in the
@@ -187,7 +187,7 @@ describe('the secondary « sur {total} » line under a category filter', () => {
 	it('does NOT render on an unsplit row stored as a positive magnitude', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData({ transactions: [IMPORTED_MAGNITUDE] }), form: null });
+		await render(Page, { data: baseData({ transactions: [IMPORTED_MAGNITUDE] }), form: null });
 
 		const table = page.getByRole('table');
 		// The row is on screen, so the absence below is about the LINE and not about the row.

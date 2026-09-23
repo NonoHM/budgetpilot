@@ -304,17 +304,22 @@ describe('the card and its rows', () => {
 });
 
 describe('the banner does not move between states, which is a relational promise', () => {
-	it('holds the same height AND the same top across states 0, 1 and 2', () => {
+	it('holds the same height AND the same top across states 0, 1 and 2', async () => {
 		// A single-element measurement cannot answer a question about a difference, so this reads
 		// both states and compares. The absolute 64 is asserted too: a comparison alone passes in a
 		// world with no stylesheet, where every state agrees at the same wrong number.
-		const readings = [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE].map(async (initialAssignment) => {
+		//
+		// Sequential, not Promise.all: each mount measures and removes its own container before the
+		// next begins, the same discipline the card-height test above this one uses. Concurrent
+		// mounts would share the document at once and risk one state's geometry leaking into another's
+		// reading.
+		const readings: { height: number; top: number }[] = [];
+		for (const initialAssignment of [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE]) {
 			const { banner, screen, container } = await mount({ initialAssignment });
 			const box = banner.getBoundingClientRect();
-			const reading = { height: box.height, top: box.top - screen.getBoundingClientRect().top };
+			readings.push({ height: box.height, top: box.top - screen.getBoundingClientRect().top });
 			container.remove();
-			return reading;
-		});
+		}
 
 		expect(readings[0]).toStrictEqual({ height: 64, top: 692 });
 		expect(readings[1]).toStrictEqual(readings[0]);
