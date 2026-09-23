@@ -517,3 +517,66 @@ describe('the delete confirmation on an import that created nothing', () => {
 		expect(dialogBody()).toContain(m.imports_delete_confirm_description_count_one());
 	});
 });
+
+/**
+ * #652: `importedRows` is a counter written once after `persistImportedTransactions`'s row loop
+ * finishes. A throw mid-loop (measured: a control character reaching a stored label, PostgreSQL
+ * only) leaves it at its `@default(0)` while some rows already committed — `transactionCount`
+ * (`_count.transactions`, a live query) reads the true number.
+ *
+ * Before this fix the dialog branched on `importedRows` alone, so a batch in exactly this state
+ * told the user « Cet import n'a créé aucune transaction. Le supprimer retire seulement sa ligne
+ * de cette liste. » — false, and the last sentence read before an irreversible delete that
+ * `deleteImportBatch` (deleteBatch.ts) performs by `importBatchId`, not by this counter, so the
+ * real transactions ARE destroyed regardless of what the dialog claims.
+ */
+describe('the delete confirmation when importedRows and the live count disagree (#652)', () => {
+	function divergentBatch(importedRows: number, transactionCount: number) {
+		return {
+			...batch('batch-divergent', OLDER_AT),
+			rowCount: 4,
+			importedRows,
+			transactionCount
+		};
+	}
+
+	function dialogBody(): string {
+		return document.querySelector('[role="dialog"]')?.textContent ?? '';
+	}
+
+	async function openDeleteForDivergent(importedRows: number, transactionCount: number) {
+		await page.viewport(1280, 900);
+		render(Page, {
+			data: {
+				...DATA,
+				batches: [divergentBatch(importedRows, transactionCount)]
+			} as unknown as PageData,
+			form: null
+		});
+		await page.getByRole('button', { name: m.common_delete() }).first().click();
+	}
+
+	it('does not claim nothing will be deleted when importedRows is 0 but rows exist', async () => {
+		expect.assertions(2);
+		await openDeleteForDivergent(0, 2);
+
+		// The false claim this reproduces and must not render again.
+		expect(dialogBody()).not.toContain(m.imports_delete_confirm_description_count_zero());
+		expect(dialogBody()).toContain(m.imports_delete_confirm_description_count_many({ count: 2 }));
+	});
+
+	it('still warns about splits and tags when importedRows is 0 but rows exist', async () => {
+		expect.assertions(1);
+		await openDeleteForDivergent(0, 2);
+
+		expect(dialogBody()).toContain(m.imports_delete_cost_note());
+	});
+
+	it('reads the true count as the SINGULAR case too, at the boundary the two selectors would disagree on', async () => {
+		expect.assertions(2);
+		await openDeleteForDivergent(0, 1);
+
+		expect(dialogBody()).toContain(m.imports_delete_confirm_description_count_one());
+		expect(dialogBody()).not.toContain(m.imports_delete_confirm_description_count_zero());
+	});
+});

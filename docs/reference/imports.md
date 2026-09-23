@@ -52,12 +52,36 @@ which column holds your money.
 | `DD.MM.YYYY` | `15.01.2026` | 15 January |
 | `DD-MM-YYYY` | `15-01-2026` | 15 January |
 
-**The day always comes first**, never the month. A file written `MM/DD/YYYY`
-imports on the wrong date rather than being refused, because nothing in the
-file says which convention it uses. This is the one case designating columns
-cannot repair: convert those dates before importing.
-
 A time after the date is ignored, so `2026-01-15 10:30:00` reads as 15 January.
+
+### How the day and month are told apart
+
+`15/01/2026` can only be 15 January, because there is no fifteenth month.
+`06/01/2026` is either 6 January or 1 June, and nothing inside the cell says
+which.
+
+BudgetPilot decides by reading the **whole column**, not the cell:
+
+| What the column contains                                       | How the file is read |
+| -------------------------------------------------------------- | -------------------- |
+| A value above 12 in the first position, such as `24/06/2026`   | Day first.           |
+| A value above 12 in the second position, such as `06/24/2026`  | Month first.         |
+| Only `YYYY-MM-DD` values                                       | Both readings agree. |
+| Every value at or below 12 in both positions                   | You are asked.       |
+| Values proving both, such as `24/06/2026` **and** `06/24/2026` | The file is refused. |
+
+A single value above 12 settles the whole column, so one unambiguous row is
+enough to read every other row correctly. Where a file has several date
+columns, a proof found in one settles the others, because a bank writes every
+date in a statement the same way.
+
+You are asked only in the fourth case, and only on the [designation
+screen](../using/imports.md#when-the-dates-could-be-read-two-ways). A file that
+is recognised automatically is never ambiguous in a way you can answer: it has
+either proved its order or it has none to prove.
+
+**If you are not asked, the file answered for itself.** The reading each import
+applied is recorded against the import, though it is not yet shown to you.
 
 Anything else is refused per row, and the message shows the value it read
 beside the forms it accepts.
@@ -236,15 +260,17 @@ That is why the account a statement belongs to is a question you answer rather
 than something the application decides for you: it is the perimeter the
 comparison runs inside.
 
-It has one consequence worth knowing, because the CSV export is read back as a
-**Home** file, and a Home file is filed into your CSV account: re-importing an
-export of transactions that arrived through **Banque Populaire** or **Revolut**
-creates a second copy of each. The export names the account its rows came from,
-in a `compte` column, but the import does not yet read that column back, so the
-copies land in a different account and the comparison correctly says they are
-different transactions. The check described below fires on exactly that run and
-asks you to confirm before anything is written. Use **Settings, Backup** rather
-than the CSV export when what you want is a copy you can restore.
+The CSV export is read back as a **Home** file, and the `compte` column it
+carries names the account its rows came from, so re-importing an export of
+transactions that arrived through **Banque Populaire** or **Revolut** lands
+back on that account instead of a fresh CSV one, and the comparison correctly
+recognises every line as one already there. This still creates a second copy
+in two narrow cases: the named account has since been deleted, or two of your
+accounts happen to share the exact same name, in which case the import
+refuses to guess and files into your CSV account instead. Either way the
+check described below fires on that run and asks you to confirm before
+anything is written. Use **Settings, Backup** rather than the CSV export when
+what you want is a copy you can restore.
 
 **The label is a column you designate, so changing which column feeds it
 changes every comparison.** Re-reading a statement through a different label
@@ -285,7 +311,7 @@ Three sources of an answer, in this order. The first that answers, wins.
 | Rank | What it reads                               | What the screen does                  |
 | ---- | ------------------------------------------- | ------------------------------------- |
 | 1    | An account identifier in the file itself    | States the account, with the fragment |
-| 2    | The `compte` column of a BudgetPilot export | Not read back yet                     |
+| 2    | The `compte` column of a BudgetPilot export | States the account, by its name       |
 | 3    | What was remembered for this file's shape   | Proposes one, or asks between several |
 
 **The file always beats the memory.** A memory records what happened last time,
@@ -296,6 +322,12 @@ file is a fact about the file. So rank 1 answers before the memory is consulted.
 whose checksum verifies, or a run of eight digits or more, in a column where
 every row carries the same value. Only the last four characters are kept, and
 only those are ever shown or stored.
+
+**Rank 2 needs the name to be unambiguous, not merely present.** A name
+matching none of your accounts decides nothing, and neither does a name that
+happens to match more than one: taking either would risk filing a statement
+into an account it never came from, so it falls through exactly as if the
+file had named nothing.
 
 **A file naming several accounts is refused before the memory is read at all.**
 A statement that mixes two accounts cannot belong to one, and a memory saying it

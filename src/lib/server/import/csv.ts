@@ -1,5 +1,7 @@
 import { resolveProfile } from './registry';
-import { parseMappedRows } from './profiles/mapped';
+import { mappedDateColumns, parseMappedRows } from './profiles/mapped';
+import { decideDateOrder, detectDateOrder } from './dateOrder';
+import { findDiscriminantColumn } from './discriminant';
 import type {
 	CsvImportOptions,
 	CsvImportProfile,
@@ -13,6 +15,9 @@ import type {
 } from './types';
 import { emptyResult, normalizeParsedRows, parseRows } from './utils/csv';
 import { resolveCsvMaxColumns } from './columnBounds';
+import { CSV_MAX_ROWS } from './resourceBounds';
+export { CSV_MAX_ROWS };
+import { refusalCellValue } from './utils/safety';
 export { sanitizeImportedText } from './utils/safety';
 export type {
 	CsvImportOptions,
@@ -25,7 +30,6 @@ export type {
 };
 
 const DEFAULT_MAX_BYTES = 256_000;
-const DEFAULT_MAX_ROWS = 1_000;
 
 export function parseCsvTransactions(
 	content: string,
@@ -205,7 +209,7 @@ export function parseImportRows(
 	options: CsvImportOptions = {}
 ): CsvImportResult {
 	const warnings: string[] = [];
-	const maxRows = options.maxRows ?? DEFAULT_MAX_ROWS;
+	const maxRows = options.maxRows ?? CSV_MAX_ROWS;
 	const normalizedRows = normalizeParsedRows(rows);
 
 	if (normalizedRows.length < 2) return emptyResult([{ code: 'file-empty' }], warnings);
@@ -241,24 +245,20 @@ export function parseImportRows(
 
 	const requestedProfile = options.profile ?? 'auto';
 
-	// Routed here rather than through `csvProfileParsers`, because this profile is chosen by a row
-	// in the database rather than by the header line. Keeping it out of the registry is what makes
+	// `mapped` is routed around the registry, because this profile is chosen by a row in the
+	// database rather than by the header line. Keeping it out of `csvProfileParsers` is what makes
 	// "a mapping is never auto-detected" structural: registered after `generic`, whose match
 	// returns true for everything, it would be unreachable today and reachable the day somebody
 	// reorders that list, with nothing able to tell the difference. See `profiles/mapped.ts`.
-	if (requestedProfile === 'mapped') {
-		return parseMappedRows({
-			rows: normalizedRows,
-			warnings,
-			sourceName: options.sourceName,
-			categorizationRules: options.categorizationRules ?? [],
-			columnMapping: options.columnMapping,
-			hasHeaderRow: options.hasHeaderRow
-		});
-	}
+	//
+	// Resolved BEFORE the date order below rather than at its own dispatch, so that both paths
+	// reach one detection rather than two. `null` here means `mapped` and nothing else.
+	const parser =
+		requestedProfile === 'mapped'
+			? null
+			: resolveProfile(normalizedRows[0].cells, requestedProfile);
 
-	const parser = resolveProfile(normalizedRows[0].cells, requestedProfile);
-	if (!parser) {
+	if (!parser && requestedProfile !== 'mapped') {
 		const profileLabel = requestedProfile === 'auto' ? 'CSV' : profileErrorLabel(requestedProfile);
 		return emptyResult(
 			[{ code: 'header-not-recognized', profile: profileLabel }],
@@ -268,12 +268,242 @@ export function parseImportRows(
 		);
 	}
 
-	return parser.parse({
-		rows: normalizedRows,
-		warnings,
-		sourceName: options.sourceName,
-		categorizationRules: options.categorizationRules ?? []
-	});
+	/**
+	 * THE ONE PLACE THE DATE ORDER IS DECIDED, for every parse path there is.
+	 *
+	 * ## Why here and not in a profile
+	 *
+	 * The order is a property of the FILE, and a decision taken per profile is a decision seven
+	 * copies of. `normalizeDate` sees one value, and one value reading `06/01/2026` is two valid
+	 * dates with nothing to separate them; only the whole column can answer. So the profile
+	 * contributes the one thing it alone knows, which columns hold dates, and the answer is taken
+	 * here. A profile cannot bypass this, because every parse path passes through this function.
+	 *
+	 * ## The order of operations is load-bearing, and both halves were paid for
+	 *
+	 * AFTER the row cap and the column cap above, because this walks cells and a file already
+	 * refused for its dimensions must not buy any of that walk: caps firing while the expensive
+	 * work ran anyway is the defect #604 measured at 15,123 ms and +2,349 MB on a file the guards
+	 * had correctly rejected in 7.9 ms. The walk is bounded twice over by those caps, at the
+	 * declared columns (three at most, today) times the accepted rows.
+	 *
+	 * AFTER the profile resolved, because until then nothing knows which cells are dates, and a
+	 * scan of every cell in the file was rejected in #613 for a measured reason: a reference
+	 * column carrying something like `12/34/5678` becomes false evidence, and paired with genuine
+	 * evidence elsewhere it refuses a file that imports correctly today.
+	 *
+	 * BEFORE any row is read, because a refusal about the whole file must not arrive after rows
+	 * have been accepted under a reading the file contradicts.
+	 */
+	const dateColumns = parser
+		? parser.dateColumns(normalizedRows[0].cells)
+		: mappedDateColumns(options.columnMapping, normalizedRows[0].cells);
+	const verdict = detectDateOrder(
+		dateColumnCells(normalizedRows, dateColumns, options.hasHeaderRow)
+	);
+
+	const decision = decideDateOrder(verdict, options.dateOrder);
+
+	// Through `refusalCellValue`, exactly as every other refusal in this directory names a cell.
+	// The evidence a verdict carries is the WHOLE trimmed cell, because `AMBIGUOUS_DATE_PATTERN`
+	// ends in `([\s\S]*)`: a date is only its first ten characters. Measured while this was being
+	// written, with the raw value: a 5,010 character cell reached the fact at 5,010 characters,
+	// and a tab survived into the page's data. A refusal fact is serialised into the page on every
+	// failed import, so an unbounded cell is a user's own upload choosing what goes there.
+	if (decision.kind === 'refuse')
+		return emptyResult(
+			[
+				{
+					code: 'mixed-date-order',
+					dayFirst: refusalCellValue(decision.dayFirst),
+					monthFirst: refusalCellValue(decision.monthFirst)
+				}
+			],
+			warnings,
+			parser ? parser.profile : 'mapped',
+			dataRowCount
+		);
+
+	const parsed = !parser
+		? parseMappedRows({
+				rows: normalizedRows,
+				warnings,
+				sourceName: options.sourceName,
+				categorizationRules: options.categorizationRules ?? [],
+				columnMapping: options.columnMapping,
+				hasHeaderRow: options.hasHeaderRow,
+				dateOrder: decision.order
+			})
+		: parser.parse({
+				rows: normalizedRows,
+				warnings,
+				sourceName: options.sourceName,
+				categorizationRules: options.categorizationRules ?? [],
+				dateOrder: decision.order
+			});
+
+	/**
+	 * #485. AFTER the parse, same reason as the date-order block below: asking or refusing about
+	 * an account column is pointless for a file a structural or per-row refusal has already killed.
+	 * BEFORE the date-order block, deliberately: a PROVEN multi-account file (`kind: 'contradictory'`) can
+	 * never be resolved by answering the date question either, so it is at least as severe as a
+	 * structural refusal and wins ahead of it, exactly the reasoning that already puts structural
+	 * refusals ahead of `ambiguous-date-order`. MEASURED rather than decided in the abstract
+	 * (`multiAccountRefusal.spec.ts`'s "order against #433" cases): the cost this pays is that a
+	 * file carrying BOTH an unproven account column and an ambiguous date column asks its two
+	 * questions one at a time rather than together, because nothing here can ask both at once.
+	 *
+	 * No `alreadyPromptedClientSide`-shaped flag, unlike the date-order block: `/import`'s auto
+	 * path and `/import/columns`'s designation path both reach this door with no PRIOR mechanism
+	 * that has ever asked whether a file covers more than one account (the designation screen picks
+	 * one destination account; it does not read the file's own account column), so #485's fix
+	 * applies identically to both with no exclusion to draw.
+	 */
+	const discriminant = findDiscriminantColumn(normalizedRows);
+	if (
+		(discriminant.kind === 'contradictory' || discriminant.kind === 'ambiguous') &&
+		parsed.transactions.length > 0 &&
+		parsed.summary.fileLevelRefusals === 0
+	) {
+		// UNMEASURED, #485: neither this repository's fixture corpus nor a DB query could answer how
+		// often this fires on a real file (`multiAccountFile` was computed and discarded, never
+		// stored, and the raw file is not retained either). A `console.warn` here would not close that
+		// gap: this app ships as a distroless container with no log aggregation configured, so a line
+		// written to stdout reaches nobody and is indistinguishable from never having run. The gap is
+		// recorded on the issue instead of manufactured as a log line nothing reads.
+		if (discriminant.kind === 'contradictory' || options.accountColumnAnswer === 'is-account') {
+			return emptyResult(
+				[{ code: 'multi-account-file', column: discriminant.index }],
+				warnings,
+				parser ? parser.profile : 'mapped',
+				dataRowCount
+			);
+		}
+		if (options.accountColumnAnswer !== 'not-account') {
+			return emptyResult(
+				[
+					{
+						code: 'ambiguous-account-column',
+						column: discriminant.index,
+						sample: refusalCellValue(normalizedRows[1]?.cells[discriminant.index] ?? '')
+					}
+				],
+				warnings,
+				parser ? parser.profile : 'mapped',
+				dataRowCount
+			);
+		}
+		// 'not-account': the column is confirmed noise, and `parsed` proceeds untouched, exactly as
+		// a `kind: 'nothing-to-decide'` verdict would have.
+	}
+
+	/**
+	 * THE FOURTH OUTCOME, #433's auto-path remainder (plate 7l). AFTER the parse rather than before
+	 * it, deliberately: a structural refusal (`duplicate-column`, `missing-required-column`,
+	 * `bad-column-count`, ...) or a per-row one over EVERY row must win, because asking about a
+	 * reading is pointless for a file that cannot be imported at all regardless of the answer.
+	 * MEASURED while writing this: checking the verdict alone, before the parse, made an ambiguous
+	 * date column preempt `duplicate-column` on a fixture that carried both — the file needed a
+	 * different repair and got asked the wrong question. Gating on the RESULT is what a period
+	 * range like `01/01/2026 au 31/01/2026` also needed: `AMBIGUOUS_DATE_PATTERN`'s trailing
+	 * `[\s\S]*` matches it as ambiguous evidence, but every row referencing it still fails
+	 * `invalid-date`, so `parsed.transactions.length` stays zero and this branch correctly leaves
+	 * that refusal alone.
+	 *
+	 * `!options.dateOrderPromptedClientSide`, NOT `parser` truthy: #433's contradiction pass found
+	 * that "mapped" does not mean "already asked". `/import`'s own action also parses with
+	 * `profile: 'mapped'` when it silently reapplies a `ColumnMapping` remembered from a PREVIOUS
+	 * designation (`useMapping`, by header fingerprint), and that reuse shows no screen at all —
+	 * `ColumnMapping` carries no `dateOrder` field, so nothing was ever asked or remembered for
+	 * this file. Only `/import/columns`, backed by the designation screen (#639), sets the flag,
+	 * because it alone is trusted to have deferred its own close until the question was answered
+	 * or waived (plate 7b) — `columns/page.server.spec.ts`'s baseline test locks that path's
+	 * existing day-first default for an unanswered column, and this flag is what lets this branch
+	 * leave it alone without also leaving the silent `mapped` reuse unasked forever.
+	 *
+	 * `dateColumns[0]` rather than every declared column: a registered profile with more than one
+	 * date candidate (banque-populaire, revolut) still designates ONE column as ITS date column,
+	 * and that is what the reading offer's `assignment.date` needs to point at. A profile whose
+	 * first-listed column is blank on the evidence row while a later one supplies it is a narrower,
+	 * separately filed gap (#667): the applied reading is still correct file-wide, only the reading
+	 * offer's own evidence cards can render empty.
+	 */
+	if (
+		verdict.kind === 'ambiguous' &&
+		!options.dateOrder &&
+		!options.dateOrderPromptedClientSide &&
+		parsed.transactions.length > 0 &&
+		parsed.summary.fileLevelRefusals === 0
+	) {
+		return emptyResult(
+			[
+				{
+					code: 'ambiguous-date-order',
+					column: dateColumns[0],
+					sample: refusalCellValue(verdict.sample)
+				}
+			],
+			warnings,
+			parser ? parser.profile : 'mapped',
+			dataRowCount
+		);
+	}
+
+	// THE APPLIED ORDER LEAVES THE DOOR THAT DECIDED IT, and it is attached here rather than inside
+	// each profile for the reason the decision itself is taken here: seven profiles would be seven
+	// copies, and the one that forgot would write a batch claiming a reading it did not use.
+	//
+	// `ImportBatch.dateOrder` is what consumes it. That column has existed on all three engines
+	// since 2026-08-22 with no writer, so every stored row says « not recoverable » about an import
+	// whose order was in fact decided. This closes that, and plate 7l's summary line rests on it.
+	//
+	// PLATE 7L'S DISCLOSURE, computed at the one door that knows both halves it needs: which column
+	// (`dateColumns[0]`, the same index `dateColumnCells` just read) and whether an ANSWER is what
+	// settled it, which is exactly the one branch `decideDateOrder` takes an override through
+	// (`verdict.kind === 'ambiguous' && options.dateOrder`). A proven or defaulted column leaves
+	// this undefined, never a value the summary would have to know not to render.
+	//
+	// The header text is left undisclosed (not synthesised) for a headerless file: there is no
+	// message variant for that combination in 7i, and the applied reading is unaffected either way.
+	const dateOrderHeader =
+		options.hasHeaderRow !== false ? (normalizedRows[0].cells[dateColumns[0]] ?? '').trim() : '';
+	const dateOrderDisclosure: CsvImportSummary['dateOrderDisclosure'] =
+		verdict.kind === 'ambiguous' && options.dateOrder && decision.kind === 'read' && dateOrderHeader
+			? { header: dateOrderHeader, order: decision.order }
+			: undefined;
+
+	return {
+		...parsed,
+		summary: { ...parsed.summary, dateOrder: decision.order, dateOrderDisclosure }
+	};
+}
+
+/**
+ * The cells of the declared date columns, in file order, for the detector.
+ *
+ * A column index this file does not carry yields nothing rather than an `undefined` the detector
+ * would have to defend against: a declaration naming an absent column is an ordinary state (a
+ * remembered mapping whose column the bank renamed, a profile listing three date columns where
+ * one is optional), and the file meets its own refusal a few lines later with a sentence the user
+ * can act on.
+ *
+ * The user's answer about a title row is honoured for the same reason the row count honours it: a
+ * headerless file's first line is a transaction, and skipping it would drop one cell of evidence
+ * from every such file.
+ */
+function dateColumnCells(
+	rows: ParsedCsvRow[],
+	columns: number[],
+	hasHeaderRow: boolean | undefined
+): string[] {
+	const values: string[] = [];
+	for (let row = hasHeaderRow === false ? 0 : 1; row < rows.length; row++)
+		for (const column of columns) {
+			const cell = rows[row].cells[column];
+			if (cell !== undefined) values.push(cell);
+		}
+
+	return values;
 }
 
 function profileErrorLabel(profile: CsvImportProfile): string {

@@ -2,6 +2,7 @@ import { expect, test } from './fixtures';
 import * as m from '../src/lib/paraglide/messages';
 import { onScreen } from './screen-geometry';
 import { chooseStatementAccount } from './choose-account';
+import { answerDateReadingIfAsked } from './date-reading';
 
 /**
  * The `replacing` framing: a correction that replaces one import AND duplicates another.
@@ -68,30 +69,35 @@ function statement(attempt: number) {
 	// failing several steps later on a page that was correctly empty. Varying the cents makes each
 	// attempt a genuinely different statement. Within one attempt they stay identical across all
 	// three runs, which is what the collision guard compares to the cent.
+	//
+	// Days 25-28, not 05-08: this journey never opens a screen (the header names the generic
+	// profile unaided), so nothing here can answer #433's auto-path reading question. A day above
+	// 12 PROVES day-first, which keeps this file's own subject out of a question about a different
+	// one.
 	const rows = [
 		{
-			date: '05/03/2017',
+			date: '25/03/2017',
 			merchant: 'E2E REPLACE FROMAGERIE',
 			reference: 'RPL0001',
 			detail: 'TICKET 4471',
 			cents: `11,8${attempt}`
 		},
 		{
-			date: '06/03/2017',
+			date: '26/03/2017',
 			merchant: 'E2E REPLACE PAPETERIE',
 			reference: 'RPL0002',
 			detail: 'TICKET 4472',
 			cents: `31,5${attempt}`
 		},
 		{
-			date: '07/03/2017',
+			date: '27/03/2017',
 			merchant: 'E2E REPLACE QUINCAILLERIE',
 			reference: 'RPL0003',
 			detail: 'TICKET 4473',
 			cents: `64,2${attempt}`
 		},
 		{
-			date: '08/03/2017',
+			date: '28/03/2017',
 			merchant: 'E2E REPLACE TRAITEUR',
 			reference: 'RPL0004',
 			detail: 'TICKET 4474',
@@ -158,6 +164,9 @@ test.describe('a correction that replaces one import and would duplicate another
 		] as const) {
 			await page.getByRole('button', { name: rowName }).click();
 			await page.getByRole('option', { name: column }).click();
+			// An ambiguous date column defers the close by one question, and the next row's click
+			// would land on the open sheet. No-op on a file that proves its own order.
+			await answerDateReadingIfAsked(page);
 		}
 		// The account is part of every designation now; see e2e/choose-account.ts.
 		await chooseStatementAccount(page);

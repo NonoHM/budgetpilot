@@ -40,3 +40,32 @@ export function formatMonthLabel(month: string, locale: string): string {
 		timeZone: 'UTC'
 	}).format(date);
 }
+
+/**
+ * A date the user is being asked to CHECK, not merely to read.
+ *
+ * ## Why this is not `formatShortDate`
+ *
+ * Two differences, both deliberate, both about verification rather than display.
+ *
+ * **The year is always shown.** `formatShortDate` suppresses it in the current year, which is right
+ * for a list the reader is scanning. This date exists so someone can confirm that `03/04/2026`
+ * really became 3 April 2026, and a year-less date cannot be checked against a statement.
+ *
+ * **The zone is pinned to UTC.** `formatShortDate` deliberately pins none, matching the behaviour
+ * it was extracted from. Here that would be a defect rather than a cosmetic difference: the ISO
+ * value is anchored at UTC midnight, so a reader west of Greenwich would be shown the PREVIOUS day
+ * and would confirm a reading against a date the import never used. The pair's whole purpose is
+ * that the two halves agree with what was stored.
+ *
+ * Pure: no clock, unlike `formatShortDate` above, so the same ISO value renders identically for
+ * every reader in a given locale and a test does not depend on the year it runs in.
+ */
+export function formatReadingDate(iso: string, locale: string): string {
+	return new Date(`${iso}T00:00:00.000Z`).toLocaleDateString(locale, {
+		day: 'numeric',
+		month: 'long',
+		year: 'numeric',
+		timeZone: 'UTC'
+	});
+}

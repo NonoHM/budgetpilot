@@ -119,20 +119,33 @@ describe('the command column', () => {
 		expect(command.getBoundingClientRect().width).toBe(400);
 	});
 
-	it('draws 56 px rows and a 307 px card, which is the mobile card with desktop rows', () => {
-		// 14 padding + 16 label + 10 gap + 4x56 + 2 hairlines + 25 separator block + 14 padding + 2
-		// border. Row 56 at 1280 and 68 at 390, never the reverse, and both absolute: a test
-		// asserting only that they differ passes in a world where both are zero.
+	it('draws 74 and 56 px rows and a 325 px card, which is the mobile card with desktop rows', () => {
+		// 14 padding + 16 label + 10 gap + (74 + 56 + 56 + 56) + 2 hairlines + 25 separator block
+		// + 14 padding + 2 border. Rows 74/56 at 1280 against 86/68 at 390, never the reverse, and
+		// all four absolute: a test asserting only that they differ passes in a world where both
+		// are zero.
+		//
+		// THE FOUR ROWS ARE NO LONGER UNIFORM AND THIS TEST USED TO ASSUME THEY WERE. Only the Date
+		// row is handed an `interpretation`, so only it carries line 3, and the compact form of that
+		// is 74 rather than 86. The loop that used to assert one figure for all four hid which row
+		// it was reading: run against 56 it failed on row 0 reporting 74, and run against 74 it
+		// failed on row 1 reporting 56, which is the same non-uniformity seen from two sides.
+		//
+		// THE CARD'S FIGURE IS MEASURED HERE FOR THE FIRST TIME. This file's own break matrix
+		// records that break 3 never observed it, because the row loop and the card assertion share
+		// a test and the run stops at the first failure. With the rows split by kind the card is
+		// reached: 325, which is 307 plus exactly one row's 18.
 		const { card, container } = mount({ initialAssignment: COMPLETE });
 
 		const rows = container.querySelectorAll(
 			'[data-testid="designation-card"] button[aria-haspopup="listbox"]'
 		);
 		expect(rows.length).toBe(4);
-		for (const row of rows) {
+		expect(rows[0].getBoundingClientRect().height).toBe(74);
+		for (const row of [rows[1], rows[2], rows[3]]) {
 			expect(row.getBoundingClientRect().height).toBe(56);
 		}
-		expect(card.getBoundingClientRect().height).toBe(307);
+		expect(card.getBoundingClientRect().height).toBe(325);
 	});
 
 	it('rounds the card at 8 rather than 24, which is the referential desktop card', () => {

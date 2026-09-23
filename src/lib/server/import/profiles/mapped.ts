@@ -30,6 +30,46 @@ export interface MappedParseInput extends CsvProfileParseInput {
 }
 
 /**
+ * Where this file's dates are, as indices, according to the mapping the user made.
+ *
+ * ## The SEVENTH declaration, and the only one not forced by the compiler
+ *
+ * `mapped` has no entry in `csvProfileParsers`, for the structural reason this module's own
+ * docstring gives, so the required `dateColumns` member cannot reach it and this is a free
+ * function called from the door instead. Two mechanisms for one idea, named as two rather than
+ * presented as one: the alternative, registering `mapped`, would break « a mapping is never
+ * auto-detected », which is a worse trade than an asymmetry that is written down.
+ *
+ * ## A stored mapping is the POINTER to the evidence, never the evidence
+ *
+ * Which column holds the date is the user's answer and proves nothing about the bytes just
+ * received. How the bytes in that column read is a property of the file, and it is read off the
+ * cells here exactly as it is for every other profile. That distinction is why `mapped` is in
+ * this family rather than excepted from it, and it is not academic: `posting date` is deliberately
+ * absent from the alias table, so a Chase statement reaches the parser ONLY through a designation.
+ * The designation screen exists because the bank was not recognised, an unrecognised bank is
+ * disproportionately not European, and not European is where month-first lives.
+ *
+ * Every refusal reason returns an empty list rather than throwing. The file is going to be refused
+ * a few lines later by `resolveMappedColumns`, with a sentence naming what the user can do about
+ * it, and a date-order complaint arriving first would describe a consequence instead of the cause.
+ */
+export function mappedDateColumns(
+	mapping: UntrustedColumnMapping | undefined,
+	headers: string[]
+): number[] {
+	if (!mapping || !validateColumnMapping(mapping).ok) return [];
+
+	const applied = applyColumnMapping(mapping, headers);
+	if (applied.kind !== 'recognised' || applied.columns.date === null) return [];
+
+	// Both sides folded, for the reason `resolveMappedColumns` folds: `applyColumnMapping` returns
+	// the file's own spelling and the row record is keyed by the folded name.
+	const index = headers.map(foldExactHeader).indexOf(foldExactHeader(applied.columns.date));
+	return index >= 0 ? [index] : [];
+}
+
+/**
  * Parse a file through a mapping the user designated and this instance remembered.
  *
  * ## Deliberately NOT in `csvProfileParsers`
@@ -58,7 +98,8 @@ export function parseMappedRows({
 	warnings,
 	categorizationRules,
 	columnMapping,
-	hasHeaderRow
+	hasHeaderRow,
+	dateOrder
 }: MappedParseInput): CsvImportResult {
 	const headerRefusals: CsvRefusal[] = [];
 	const headers = rows[0].cells.map(foldExactHeader);
@@ -132,6 +173,7 @@ export function parseMappedRows({
 	return parseResolvedRows({
 		rows,
 		hasHeaderRow,
+		dateOrder,
 		headers,
 		columns: verdict.columns,
 		currencyColumn: CURRENCY_COLUMNS.find((name) => headers.includes(name)),

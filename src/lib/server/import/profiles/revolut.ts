@@ -21,6 +21,7 @@ import {
 	buildNotes,
 	firstPresent,
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -65,6 +66,15 @@ const SPELLING_TO_CANONICAL = new Map(
 	)
 );
 
+/**
+ * The two columns this profile can take a date from, in the order it tries them.
+ *
+ * CANONICAL names, which is what the row loop reads: `normalizeRevolutRecord` has already
+ * rewritten `Completed Date` to `Date de fin` by then. Same one-definition reason as
+ * `BANQUE_POPULAIRE_DATE_COLUMNS`, and it replaces two hand-typed copies below.
+ */
+export const REVOLUT_DATE_COLUMNS = ['Date de fin', 'Date de début'];
+
 const REVOLUT_METADATA_FIELDS = [
 	'Type',
 	'Produit',
@@ -75,6 +85,10 @@ const REVOLUT_METADATA_FIELDS = [
 	'État',
 	'Solde'
 ];
+
+/** The two REVOLUT_METADATA_FIELDS that hold a signed amount: exempted from
+ *  `sanitizeImportedText` so a negative fee or balance keeps its leading `-`. */
+const REVOLUT_AMOUNT_FIELDS = new Set(['Frais', 'Solde']);
 
 /**
  * ORDER IS NO LONGER LOAD BEARING, and that is a deliberate second change.
@@ -105,10 +119,29 @@ export function matchesRevolutHeader(headers: string[]): boolean {
 	return canonicals.size === REVOLUT_COLUMNS.length;
 }
 
+/**
+ * Where this file's dates are, as indices. See `CsvProfileParser.dateColumns`.
+ *
+ * Resolved through `SPELLING_TO_CANONICAL`, never by looking for the canonical name in the
+ * header: an English export writes `Completed Date`, and a declaration that searched for
+ * `Date de fin` would find nothing and silently decline to decide the order for every
+ * non-French Revolut file. That is the one profile where the fold is a RENAME rather than a
+ * normalisation, and it is the reason this interface is declared in indices.
+ */
+export function revolutDateColumns(headers: string[]): number[] {
+	const canonicals = normalizeHeaderCells(headers).map((header) =>
+		SPELLING_TO_CANONICAL.get(foldComparableHeader(header))
+	);
+	return REVOLUT_DATE_COLUMNS.map((column) => canonicals.indexOf(column)).filter(
+		(index) => index >= 0
+	);
+}
+
 export function parseRevolutRows({
 	rows,
 	warnings,
-	categorizationRules
+	categorizationRules,
+	dateOrder
 }: CsvProfileParseInput): CsvImportResult {
 	const headers = normalizeHeaderCells(rows[0].cells);
 	if (!matchesRevolutHeader(headers)) {
@@ -166,7 +199,10 @@ export function parseRevolutRows({
 			return;
 		}
 
-		const date = normalizeFirstValidDate(record['Date de fin'], record['Date de début']);
+		const date = normalizeFirstValidDate(
+			REVOLUT_DATE_COLUMNS.map((column) => record[column]),
+			dateOrder
+		);
 		if (!isValidIsoDate(date)) {
 			addRefusal(
 				refusals,
@@ -176,7 +212,9 @@ export function parseRevolutRows({
 					column: 'Date de fin',
 					// What `normalizeFirstValidDate` fell back to, in its own order, so the value
 					// shown is the one it last tried to read rather than a column it skipped.
-					value: refusalCellValue(firstPresent(record['Date de fin'], record['Date de début']))
+					value: refusalCellValue(
+						firstPresent(...REVOLUT_DATE_COLUMNS.map((column) => record[column]))
+					)
 				},
 				'Date de fin'
 			);
@@ -216,6 +254,13 @@ export function parseRevolutRows({
 			return;
 		}
 
+		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
+		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
+		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+		if (hasStrandedControlCharacter(record.Description ?? '')) {
+			addRefusal(refusals, { kind: 'row', line }, { code: 'control-character' }, 'Description');
+			return;
+		}
 		const label = sanitizeImportedText(record.Description || 'Opération Revolut');
 		const revolutType = sanitizeImportedText(record.Type ?? '');
 		const product = sanitizeImportedText(record.Produit ?? '');
@@ -255,7 +300,7 @@ export function parseRevolutRows({
 				revolutState: state,
 				revolutFeeCents: feeCents ?? undefined,
 				revolutBalanceCents: balanceCents ?? undefined,
-				csvFields: buildCsvFields(record, REVOLUT_METADATA_FIELDS)
+				csvFields: buildCsvFields(record, REVOLUT_METADATA_FIELDS, REVOLUT_AMOUNT_FIELDS)
 			}
 		};
 		const validation = validateTransaction(transaction);

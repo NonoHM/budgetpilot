@@ -84,6 +84,13 @@ docs/superpowers/
 # cookie jars and a TOTP secret. An unignored `git add -A` publishes them to a public
 # repository. The rule was twice lost to a `git reset --hard` that discarded the working-tree
 # edit carrying it, in one afternoon, which is exactly as often as it takes.
+#
+# CHECKED 2026-09-12, once, so nobody has to wonder again: nothing under this path has ever been
+# committed to any ref. `git log --all --diff-filter=A -- 'scripts/security/**'` returns zero over
+# 785 commits and 188 refs, as do the same queries for '*.pem', '*.cookies' and '*totp_secret*'
+# anywhere in history. The query was calibrated against 'scripts/*', which returns 25, so the zero
+# is a reading rather than a broken pathspec. The rule held through both reset windows above and
+# no key, cookie jar or TOTP secret needs rotating.
 scripts/security/
 
 # Local-only agent instructions (public shared file is AGENTS.md)

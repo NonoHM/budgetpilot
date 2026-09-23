@@ -4,6 +4,7 @@ import type { TransactionRowForMapping } from './nature';
 import { resolveTransactionType } from './totals';
 import { computeNameKey } from '$lib/server/naming/nameKey';
 import { money, toDecimalString } from '$lib/domain/money';
+import { guardFormulaLead } from '$lib/server/csv/formulaGuard';
 
 /**
  * The CSV a user downloads from /transactions, built from ALLOCATIONS rather than from parent rows.
@@ -83,7 +84,6 @@ export interface TransactionsCsvOptions {
 	accountName?: string | null;
 }
 
-const FORMULA_INJECTION_PATTERN = /^[=+\-@\t\r]/;
 const NEEDS_QUOTING_PATTERN = /[;"\n\r]/;
 
 export function buildTransactionsCsv(
@@ -148,7 +148,7 @@ function formatAmount(amountCents: number): string {
 }
 
 function escapeCsvField(value: string): string {
-	const withGuard = FORMULA_INJECTION_PATTERN.test(value) ? `'${value}` : value;
+	const withGuard = guardFormulaLead(value);
 	if (NEEDS_QUOTING_PATTERN.test(withGuard)) {
 		return `"${withGuard.replace(/"/g, '""')}"`;
 	}

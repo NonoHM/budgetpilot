@@ -47,6 +47,29 @@ export type CsvRefusalFact =
 	| { code: 'too-many-rows'; max: number }
 	| { code: 'too-many-columns'; max: number }
 	| { code: 'header-not-recognized'; profile: string }
+	// The date column proves BOTH readings, so no single reading fits the file. Carries one cell
+	// for each, in file order, and BOTH are rendered: neither cell is wrong on its own, it is the
+	// pair that cannot both be right, so naming one sends the user to a row that is not the
+	// problem. Same reasoning as `duplicate-column` and `amount-split-across-columns`, which is
+	// why it follows their shape rather than inventing a third. See `dateOrder.ts` and #433.
+	| { code: 'mixed-date-order'; dayFirst: string; monthFirst: string }
+	// The column left the question genuinely open: no cell proves either reading. `column` is the
+	// index into the header row, threaded to the route so it can build the offer without
+	// re-deriving which column the profile declared; `sample` is one ambiguous cell, through
+	// `refusalCellValue` exactly as `mixed-date-order`'s pair. Never emitted for `mapped`: that
+	// door keeps its existing, tested day-first default, because the designation screen (#639) is
+	// trusted to have asked before this door is reached. See `dateOrder.ts` and #433.
+	| { code: 'ambiguous-date-order'; column: number; sample: string }
+	// The discriminant column PROVES two accounts: a verified IBAN pair (mod-97) that differs per
+	// row, or a column the user has just confirmed names accounts after `ambiguous-account-column`
+	// asked. Refused outright, before any row is written: see `discriminant.ts`'s `kind: 'contradictory'`
+	// and #485. `column` is the index the file offered as evidence, carried for the sentence.
+	| { code: 'multi-account-file'; column: number }
+	// The discriminant column EXHIBITS ambiguity and proves nothing: a bare digit run that varies
+	// per row is exactly as consistent with a reference number or a running balance as with a
+	// second account. Never emitted once an answer has resolved it either way for this file: see
+	// `discriminant.ts`'s `kind: 'ambiguous'` and #485.
+	| { code: 'ambiguous-account-column'; column: number; sample: string }
 	// structural
 	| { code: 'unknown-column'; column: string }
 	// Every spelling the FILE uses for the folded name, joined, in file order. One name would be
@@ -102,6 +125,13 @@ export type CsvRefusalFact =
 	| { code: 'debit-credit-both' }
 	| { code: 'debit-credit-empty' }
 	| { code: 'category-too-long' }
+	// #652: a control character (Cc minus the five whitespace already handled) in the field a
+	// profile reads its label from, before `sanitizeImportedText` strips it. Named after the
+	// class rather than the one instance measured (U+0000), since `hasStrandedControlCharacter`
+	// tests the whole class. No payload, matching `category-too-long`'s shape: the offending
+	// field is named through `CsvRefusal.field`, not through the fact, and the sentence is the
+	// same regardless of which field or which character.
+	| { code: 'control-character' }
 	// repartition, maison v2 only
 	| { code: 'split-column-unreadable' }
 	| { code: 'split-out-of-bounds' }
@@ -139,6 +169,10 @@ export const CSV_REFUSAL_CODES = [
 	'too-many-rows',
 	'too-many-columns',
 	'header-not-recognized',
+	'mixed-date-order',
+	'ambiguous-date-order',
+	'multi-account-file',
+	'ambiguous-account-column',
 	'unknown-column',
 	'duplicate-column',
 	'missing-required-column',
@@ -160,6 +194,7 @@ export const CSV_REFUSAL_CODES = [
 	'debit-credit-both',
 	'debit-credit-empty',
 	'category-too-long',
+	'control-character',
 	'split-column-unreadable',
 	'split-out-of-bounds',
 	'split-inconsistent',
@@ -180,3 +215,35 @@ export const CSV_REFUSAL_CODES = [
 type MissingFromArray = Exclude<CsvRefusalCode, (typeof CSV_REFUSAL_CODES)[number]>;
 const _everyCodeIsListed: MissingFromArray extends never ? true : never = true;
 void _everyCodeIsListed;
+
+/**
+ * The refusal codes that are about a file's DIMENSIONS rather than its contents.
+ *
+ * One definition, here beside the union, so that a future bound refusal is added in one place
+ * rather than in a condition somewhere downstream that nobody re-reads.
+ */
+const BOUND_REFUSAL_CODES = ['too-many-rows', 'too-many-columns'] as const;
+
+/**
+ * Whether this parse produced nothing because the file was too big to read, as opposed to
+ * unreadable.
+ *
+ * It exists so the split-amount detector does not run on a file the parser already refused on its
+ * dimensions. That detector turns "no valid transactions" into a refusal naming the two money
+ * columns (#343), which is worth doing for an unreadable file and pointless for an oversized one:
+ * the outcome is a refusal either way, and the oversized file is exactly where the work is
+ * expensive. MEASURED 2026-09-11: 15,123 ms on a 206,000 byte upload whose row cap had already
+ * fired in 7.9 ms.
+ *
+ * Takes the shape structurally rather than importing `CsvImportResult`, because `types.ts` already
+ * imports this module and the reverse would be a cycle.
+ *
+ * ONE PRODUCTION CALLER TODAY, and that is a deliberate departure from "no abstraction for a single
+ * caller": what is centralised is not a helper but the LIST above, and a predicate the route
+ * inlines is a list the route owns. The rule belongs with the catalogue it reads.
+ */
+export function refusedForBounds(result: { invalidRows: CsvRefusal[] }): boolean {
+	return result.invalidRows.some((refusal) =>
+		(BOUND_REFUSAL_CODES as readonly string[]).includes(refusal.fact.code)
+	);
+}

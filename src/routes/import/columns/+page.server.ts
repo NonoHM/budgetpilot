@@ -1,5 +1,7 @@
 import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
+import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
 import { importHeaderCells, parseCsvTransactionRows } from '$lib/server/import/csv';
@@ -10,11 +12,13 @@ import {
 	readImportFile
 } from '$lib/server/import/file';
 import { mappingFromPostedIndices } from '$lib/server/import/mapping/designation';
-import { findDiscriminantColumn } from '$lib/server/import/discriminant';
+import { readAccountColumnAnswer } from '$lib/server/import/discriminant';
+import { readDateOrderAnswer } from '$lib/server/import/dateOrder';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
+import { resolveZeroTransactionOffer } from '$lib/server/import/offerPrecedence';
 import {
 	buildInvalidRowDetails,
 	getHiddenInvalidRowsCount
@@ -29,6 +33,7 @@ import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/co
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
 import type { ReplaceOutcome } from '$lib/import/completedImport.svelte';
+import type { ImportSummaryResult } from '$lib/domain/importSummary';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
 
 /**
@@ -59,7 +64,7 @@ import { readAccountDisplayName } from '$lib/server/accounts/service';
  * service last time this repository shipped an invariant in "the" write path.
  */
 export const actions: Actions = {
-	default: async ({ locals, request }) => {
+	default: async ({ locals, request, getClientAddress }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
 		const importFile = formData.get('csvFile');
@@ -70,6 +75,12 @@ export const actions: Actions = {
 		if (!isSupportedImportFile(importFile.name)) {
 			return fail(400, { error: m.import_error_bad_extension() });
 		}
+		const importIp = resolveClientAddress({ getClientAddress, request });
+		if (await isImportRateLimited(user.id, importIp)) {
+			return fail(429, { error: m.import_error_too_many_attempts() });
+		}
+		await recordImportAttempt(user.id, importIp);
+
 		if (importFile.size > IMPORT_FILE_MAX_BYTES) {
 			return fail(400, {
 				error: m.import_error_too_large({ size: importFile.size, max: IMPORT_FILE_MAX_BYTES })
@@ -92,6 +103,22 @@ export const actions: Actions = {
 		// helper the parser resolves against, so the bytes designated are the bytes parsed.
 		const headers = importHeaderCells(importData.rows);
 		const hasHeaderRow = formData.get('hasHeaderRow') !== 'false';
+		/**
+		 * THE READING THE USER ANSWERED, when the file left the question open.
+		 *
+		 * Read off the form exactly as `hasHeaderRow` above is, and for the same reason: it is a
+		 * per-file parse decision that the parser cannot take from any single value, because a cell
+		 * reading `06/01/2026` is two valid dates with nothing in it to separate them. The answer is
+		 * the screen's second step and it rides this POST.
+		 *
+		 * `readDateOrderAnswer` is the whole of the validation and it lives beside the type, not
+		 * here: positive, against the closed set, and `undefined` for anything else, so an absent or
+		 * hostile value falls back to the derivation rather than to an error. Nothing about
+		 * precedence is decided here either. `decideDateOrder` is the one definition, and it consults
+		 * an override only where the column leaves the question genuinely ambiguous: a file that
+		 * proves its own order ignores this, and a file that proves both is refused whatever it says.
+		 */
+		const dateOrder = readDateOrderAnswer(formData.get('dateOrder'));
 
 		const resolved = mappingFromPostedIndices({
 			headers,
@@ -121,11 +148,28 @@ export const actions: Actions = {
 			// the parser consumed row 0 as a header on a file that has none, losing one
 			// transaction per import in silence. See `server/import/headerlessFile.spec.ts`.
 			hasHeaderRow,
+			// The user's answer, carried into the PARSE. Without it the parser re-derived the order
+			// and settled an ambiguous column with the application default, so a user who chose
+			// « Mois puis jour » read `4 mars 2026` on the row and the import stored `2026-04-03`.
+			// Every date in the file wrong, the summary reporting success. See #639.
+			dateOrder,
+			// THIS is the caller the door trusts to have already asked, per #433's contradiction
+			// pass: the designation screen (#639) defers its own close until an ambiguous column
+			// is answered or the user waives it (plate 7b), so a silent day-first default here is
+			// the screen's own decision, not the door guessing. `/import`'s OTHER `mapped` caller
+			// (a silently reapplied remembered mapping) sets no such flag, and asks instead.
+			dateOrderPromptedClientSide: true,
 			sourceName: importFile.name || importData.kind,
 			categorizationRules: categorizationRules.map((rule) => ({
 				...rule,
 				type: rule.type === 'income' || rule.type === 'expense' ? rule.type : 'any'
-			}))
+			})),
+			// #485. No suppression flag, unlike `dateOrderPromptedClientSide` above: choosing a
+			// destination account (below, `resolveImportBucketAccountById`) is a plain picker over
+			// this user's accounts, never a read of the file's own account column, so this door has
+			// no prior mechanism that could have already asked whether the file covers more than
+			// one account. Same fix, same door, no exclusion to draw.
+			accountColumnAnswer: readAccountColumnAnswer(formData.get('accountColumnAnswer'))
 		});
 
 		if (result.transactions.length === 0) {
@@ -141,10 +185,53 @@ export const actions: Actions = {
 			// teaches and one that only blocks. Row-scoped refusals are deliberately not surfaced
 			// here: sixty-six of them are a summary, not a banner. See #343.
 			const headerRefusal = result.invalidRows.find((row) => row.scope.kind === 'header');
+			// #485, PROVEN or just confirmed: refused outright, no offer, same reasoning as `/import`.
+			const multiAccountRefusal =
+				result.invalidRows.length === 1 && result.invalidRows[0].fact.code === 'multi-account-file'
+					? result.invalidRows[0].fact
+					: null;
+			// #485, UNPROVEN: the one offer this branch gains.
+			const accountColumnRefusal =
+				result.invalidRows.length === 1 &&
+				result.invalidRows[0].fact.code === 'ambiguous-account-column'
+					? result.invalidRows[0].fact
+					: null;
+			// THE ONE ORDER, same function `/import` reads: no `split`/`dateOrder` on this door (see
+			// `offerPrecedence.ts`'s own docstring for why), so those two are simply never passed.
+			const offer = resolveZeroTransactionOffer({
+				header: headerRefusal?.fact ?? null,
+				multiAccount: multiAccountRefusal,
+				accountColumn: accountColumnRefusal
+			});
+			/**
+			 * #485's `accountColumn` rung REFUSES rather than asks on this door, and DOES NOT carry
+			 * an offer: `/import/columns` has no interactive control for it (#670), and shipping the
+			 * "confirm before importing" sentence with no way to confirm is the exact dead end
+			 * `DESIGNATION_CANNOT_REPAIR` names in `/import`'s own action, applied to the door the
+			 * user is already ON rather than one they would be sent to. `not-account`/`is-account`
+			 * are never posted from this door for the same reason: nothing here can answer.
+			 *
+			 * The message NAMES THE RECOURSE instead: this door cannot silently drop the column
+			 * either, because an unproven signal is still real evidence, and #485's whole point is
+			 * that a file that might name several accounts must not import as one silently. The only
+			 * two honest outcomes left are refuse-with-recourse (this) or ask (which this door
+			 * cannot do), never a third state that guesses.
+			 */
+			const accountColumnHeader =
+				accountColumnRefusal && headers[accountColumnRefusal.column]
+					? headers[accountColumnRefusal.column]
+					: undefined;
 			return fail(400, {
-				error: headerRefusal
-					? refusalLabel(headerRefusal.fact)
-					: m.import_error_no_valid_transactions(),
+				error:
+					offer.rung === 'header' || offer.rung === 'multiAccount'
+						? refusalLabel(offer.fact)
+						: offer.rung === 'accountColumn'
+							? accountColumnHeader
+								? m.import_error_account_column_unanswerable({ header: accountColumnHeader })
+								: m.import_error_account_column_unanswerable_no_header({
+										count: offer.fact.column + 1
+									})
+							: m.import_error_no_valid_transactions(),
 				keepDesignation: true
 			});
 		}
@@ -326,7 +413,9 @@ export const actions: Actions = {
 			rowCount: result.summary.totalRows,
 			invalidRows: result.summary.invalidRows,
 			period: result.summary.period,
-			columnMappingId
+			columnMappingId,
+			// As on the upload path: the order the parse applied, read off its own summary.
+			dateOrder: result.summary.dateOrder ?? null
 		});
 		const persisted = await persistImportedTransactions({
 			userId: user.id,
@@ -443,14 +532,13 @@ export const actions: Actions = {
 				// resolution, which returns an id: the id is what the resolver knows, and the name is
 				// a rendering question the resolver has no business answering.
 				accountName: await readAccountDisplayName(user.id, bucket.accountId),
-				// The same notice `/import` draws, on the path that reaches the same state. This
-				// object is built key by key and is not typed against `ImportSummaryResult`, so
-				// `check` could not name this producer when the field was added: it was found by a
-				// review reading both call sites rather than by a compiler. The consequence had it
-				// stayed missing is that one multi-account file announces itself and the same file
-				// imported through the designation screen does not.
-				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account'
-			},
+				// Non-null exactly when this run stored a correspondance: a headerless file is never
+				// memorised, and an opt-out skips the block entirely. The disclosure sentence on the
+				// summary is drawn from this and from nothing else, so a user who opted out is not
+				// told their columns will be reused.
+				rememberedMapping: columnMappingId !== null,
+				dateOrderDisclosure: result.summary.dateOrderDisclosure ?? null
+			} satisfies ImportSummaryResult,
 			capReached,
 			replaced
 		};

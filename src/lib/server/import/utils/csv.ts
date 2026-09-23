@@ -7,6 +7,7 @@ import type {
 } from '../types';
 import type { CsvRefusal, CsvRefusalFact, CsvRefusalScope } from '../refusals';
 import { normalizeHeaderName, normalizeMojibakeText } from './encoding';
+import { AMBIGUOUS_DATE_PATTERN, DEFAULT_DATE_ORDER, type DateOrder } from '../dateOrder';
 
 export function parseRows(content: string): ParsedCsvRow[] {
 	const separator = detectSeparator(content);
@@ -106,7 +107,7 @@ function isTimeOnlyRemainder(remainder: string): boolean {
  * An IMPOSSIBLE date is still normalised — `31/02/2026` becomes `2026-02-31` — so that the same
  * downstream check refuses it. Only an UNACCOUNTED-FOR remainder is returned as-is.
  */
-export function normalizeDate(value: string): string {
+export function normalizeDate(value: string, dateOrder: DateOrder = DEFAULT_DATE_ORDER): string {
 	const trimmed = value.trim();
 	if (isValidIsoDate(trimmed)) return trimmed;
 
@@ -115,18 +116,62 @@ export function normalizeDate(value: string): string {
 		return isTimeOnlyRemainder(isoDateTime[2]) ? isoDateTime[1] : trimmed;
 	}
 
-	// `.` joins `/` and `-` as a separator, never as a new ORDERING. `dd.mm.yyyy` is the German,
-	// Swiss and Austrian form and those are day-first without exception, while the month-first
-	// convention this file already refuses to accommodate (see `CHASE` in realHeaders.fixture.ts)
-	// is written with slashes. So the dot is strictly safer than the two separators beside it.
-	// A blind session met a statement written this way and could only import it by replacing
-	// twenty-five dots in a text editor. See `dottedDate.spec.ts`.
-	const frenchDate = /^(\d{2})[/.-](\d{2})[/.-](\d{4})([\s\S]*)$/.exec(trimmed);
+	// The grammar lives in `dateOrder.ts` and is SHARED with the detector that reads a column's
+	// order, rather than restated here. The two must agree on what an ambiguous date is: a cell
+	// the detector does not recognise and this function reads as a date is a cell whose order was
+	// never considered. The separator set, including why `.` is in it, is documented there.
+	const frenchDate = AMBIGUOUS_DATE_PATTERN.exec(trimmed);
 	if (!frenchDate) return trimmed;
 
-	const [, day, month, year, remainder] = frenchDate;
+	// The ONLY place the two readings differ. Both components are still validated downstream by
+	// `isValidIsoDate`, so a month-first reading of `13/01/2026` is normalised to `2026-13-01`
+	// and refused there, exactly as an impossible day-first date already is: this function does
+	// not acquire a second way to refuse.
+	const [, first, second, year, remainder] = frenchDate;
+	const [day, month] = dateOrder === 'month-first' ? [second, first] : [first, second];
 	if (!isTimeOnlyRemainder(remainder)) return trimmed;
 	return `${year}-${month}-${day}`;
+}
+
+/**
+ * THE ONE DEFINITION OF « IS THIS CELL A DATE »: the ISO value, or `null`.
+ *
+ * ## Why this exists rather than each caller composing the pair itself
+ *
+ * The row loop and the designation screen both have to answer this question about the same
+ * column, and they must answer it identically. If they compose it separately they will drift, and
+ * the failure is not a crash: the screen states that a column holds dates and the import then
+ * refuses every row of it, or the reverse. A screen that describes an import the import will not
+ * perform is the standing bar, not a tidiness question, so the pairing is centralised and
+ * `columnDateState.spec.ts` asserts structurally that no other production module composes it.
+ *
+ * ## THE SHORTCUT THIS REPLACES, NAMED SO IT IS NOT REDISCOVERED
+ *
+ * `normalizeDate` is a PASS-THROUGH for anything it does not recognise, so
+ * `normalizeDate(cell) !== ''` is true of every non-empty cell in the file and would report a
+ * column of `CARD_PAYMENT` as a column of dates. Measured 2026-09-16: `CARD_PAYMENT` returns
+ * `CARD_PAYMENT`, and `31/13/2026` returns the ISO-SHAPED `2026-13-31`, which names month 13.
+ * The result of `normalizeDate` is a REORDERING and is not known to be a date; only this pairing
+ * decides that. See #632.
+ *
+ * Pure: no clock, no locale, no ambient state, so a state derived from it can be recomputed from
+ * the same cells. See `AGENTS.md` under « Code style ».
+ */
+export function readDateCell(value: string, dateOrder?: DateOrder): string | null {
+	const normalized = normalizeDate(value, dateOrder);
+	return isValidIsoDate(normalized) ? normalized : null;
+}
+
+/**
+ * Whether this cell is a date under EITHER reading, which is the reading-independent question.
+ *
+ * Plate 7m's two states, `no-dates` and `empty`, are stated on the designation row BEFORE the
+ * order question is answered, so they may not depend on its answer. A cell that parses one way
+ * and not the other is still a date cell whose order is in dispute, and calling it « not a date »
+ * would prejudge exactly the question the screen is about to ask.
+ */
+export function isDateCellUnderEitherReading(value: string): boolean {
+	return readDateCell(value, 'day-first') !== null || readDateCell(value, 'month-first') !== null;
 }
 
 /**
@@ -148,13 +193,16 @@ export function normalizeDate(value: string): string {
  * pins the fall-through against a control where the first column IS readable, and the two
  * columns carry different dates on purpose.
  */
-export function normalizeFirstValidDate(...values: Array<string | undefined>): string {
+export function normalizeFirstValidDate(
+	values: Array<string | undefined>,
+	dateOrder?: DateOrder
+): string {
 	for (const value of values) {
-		const normalized = normalizeDate(value ?? '');
+		const normalized = normalizeDate(value ?? '', dateOrder);
 		if (isValidIsoDate(normalized)) return normalized;
 	}
 
-	return normalizeDate(firstPresentValue(...values));
+	return normalizeDate(firstPresentValue(...values), dateOrder);
 }
 
 export function emptyResult(

@@ -3,6 +3,7 @@ import type { CellValue } from 'read-excel-file/node';
 import type { ParsedCsvRow } from './types';
 import { normalizeParsedRows, parseRows } from './utils/csv';
 import { measureZipExpansion, resolveXlsxMaxUncompressedBytes, ZipBoundError } from './zipBounds';
+import { exceedsCsvResourceCeiling } from './resourceBounds';
 
 /**
  * The upload ceiling for a statement, and the ONLY declaration of it.
@@ -53,7 +54,7 @@ export async function readImportFile(
 		);
 	}
 
-	if (format === 'csv') return readCsvImportFile(file);
+	if (format === 'csv') return assertWithinResourceCeiling(await readCsvImportFile(file));
 
 	// The .xlsx extension alone isn't trustworthy (a client can name any file this way):
 	// check the real ZIP file signature before handing the buffer to read-excel-file, whose
@@ -65,7 +66,36 @@ export async function readImportFile(
 			'bad_extension'
 		);
 	}
-	return readXlsxImportFile(file);
+	return assertWithinResourceCeiling(await readXlsxImportFile(file));
+}
+
+/**
+ * The RESOURCE CEILING, enforced here because here is where every door passes.
+ *
+ * `/import`, `/import/columns` and `/import/accounts` all obtain their rows from `readImportFile`
+ * and from nowhere else, so refusing here means no oversized `ParsedCsvRow[]` exists anywhere in
+ * the process for any consumer to read. That is the difference between capping a cost and removing
+ * the possibility of it: there is no route that bypasses this, because there is nowhere to bypass.
+ *
+ * It is NOT the product limit. A file merely over `CSV_MAX_ROWS` or the configured column limit
+ * passes here untouched and is refused by `parseImportRows` with the catalogue sentence a user can
+ * act on. See `resourceBounds.ts` for why those are two rules rather than one.
+ *
+ * The parse above is bounded by the file's byte count (it allocates per cell the file actually
+ * has); the CONSUMERS are not, because they build `columns x rows` matrices from the header width.
+ * So the check belongs after the parse and before the return.
+ */
+function assertWithinResourceCeiling(result: ReadImportFileResult): ReadImportFileResult {
+	const columns = result.rows.length === 0 ? 0 : result.rows[0].cells.length;
+	const rows = Math.max(0, result.rows.length - 1);
+	if (exceedsCsvResourceCeiling({ columns, rows })) {
+		throw new ImportFileError(
+			`Le fichier dépasse les dimensions traitables (${columns} colonnes, ${rows} lignes).`,
+			'exceeds_resource_ceiling',
+			{ size: columns * rows }
+		);
+	}
+	return result;
 }
 
 // Local file header signature "PK\x03\x04" shared by every ZIP-based Office format
@@ -89,7 +119,8 @@ export function isSupportedImportFile(fileName: string): boolean {
 	return getImportFileFormat(fileName) !== null;
 }
 
-export type ImportFileErrorCode = 'too_large' | 'bad_extension' | 'empty' | 'expands_too_far';
+export type ImportFileErrorCode =
+	'too_large' | 'bad_extension' | 'empty' | 'expands_too_far' | 'exceeds_resource_ceiling';
 
 export class ImportFileError extends Error {
 	/** Stable code for translation on the route side; the French message stays for logs/tests. */

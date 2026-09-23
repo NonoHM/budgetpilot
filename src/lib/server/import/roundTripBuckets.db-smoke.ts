@@ -1,12 +1,12 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { buildTransactionsCsv } from '$lib/server/transactions/exportCsv';
-import { computeNameKey } from '$lib/server/naming/nameKey';
 import { BANQUE_POPULAIRE_HEADERS } from './profiles/banque-populaire';
 import { MAISON_V3_HEADER, readMaisonV3Account } from './profiles/maison-v3';
 import { parseCsvTransactions } from './csv';
 import { parseRows } from './utils/csv';
 import { persistImportedTransactions, resolveImportBucketAccount } from './persist';
+import { decideAutoAccount } from './autoAccount';
 
 /**
  * The round trip a user actually performs: import a statement, export, re-import.
@@ -36,15 +36,16 @@ import { persistImportedTransactions, resolveImportBucketAccount } from './persi
  * the re-import can land back on the account the rows left instead of in a fresh CSV bucket. Same
  * account, same content, therefore the same key: the row is recognised as the duplicate it is.
  *
- * ## The lookup below is the test's own, and that is stated rather than disguised
+ * ## The destination now comes from `decideAutoAccount`, the function `/import`'s auto path calls
  *
- * `resolveStatementAccount`'s rank 2 is not wired yet (see its own comment). What IS wired is the
- * READER, `readMaisonV3Account`, the single place the account column is interpreted and what
- * rank 2 will call, so the file's answer is not re-derived here, only resolved. The resolution
- * itself, one `nameKey` lookup, is unambiguous in this fixture because at the moment it runs the
- * user holds exactly one account. IT IS NOT UNAMBIGUOUS IN GENERAL: the three CSV buckets share
- * the literal name `Compte import CSV` and differ by `source`, so rank 2 has a disambiguation to
- * make that this file deliberately does not model.
+ * This used to resolve the destination itself, with its own `nameKey` lookup, which measured that
+ * the FORMAT was sufficient and nothing about whether the application actually reads it back (see
+ * AGENTS.md, "Every piece correct, the assembly not"). Step 3 below calls `decideAutoAccount`
+ * instead, the exact function the route calls for a recognised file with nothing on screen.
+ *
+ * `readMaisonV3Account` is still asserted directly first, to keep the two failure modes apart: a
+ * file that stopped naming its own account, and an application that stopped reading the name it
+ * still carries, are different defects and this file now catches both.
  */
 
 const BP_HEADER = BANQUE_POPULAIRE_HEADERS.join(';');
@@ -75,7 +76,11 @@ async function importFile(
 	body: string,
 	{ source, fileName, accountId }: { source: string; fileName: string; accountId: string }
 ) {
-	const parsed = parseCsvTransactions(body, { sourceName: fileName });
+	// The banque-populaire fixture's date is ambiguous by construction (day and month both <= 12);
+	// this file is about bucket resolution across a round trip, not the reading, so an explicit
+	// answer keeps it out of the auto path's ambiguous-date-order ask. The exported leg is ISO and
+	// reads the same either way.
+	const parsed = parseCsvTransactions(body, { sourceName: fileName, dateOrder: 'day-first' });
 	expect(parsed.invalidRows, `${fileName} must parse`).toStrictEqual([]);
 	const batch = await prisma.importBatch.create({
 		data: {
@@ -98,8 +103,8 @@ async function importFile(
 
 describe('re-importing BudgetPilot own export after a bank-profile import', () => {
 	it('lands the export back on the account it came from, so nothing is imported twice', async () => {
-		// 10 here plus one per importFile call, which asserts its own fixture parsed.
-		expect.assertions(12);
+		// 11 here plus one per importFile call, which asserts its own fixture parsed.
+		expect.assertions(13);
 
 		// 1. The bank statement, through the profile that recognises it.
 		const bucket = await resolveImportBucketAccount({
@@ -151,18 +156,25 @@ describe('re-importing BudgetPilot own export after a bank-profile import', () =
 		// and empty », which is what an export written by a caller with no account produces and
 		// which would send this import straight back into a second bucket.
 		expect(named).toBe(BUCKET_NAME);
-		const destination = await prisma.account.findFirst({
-			where: { userId, nameKey: computeNameKey(named as string) },
-			select: { id: true }
+
+		// The SECOND failure mode: the file still names its account, but does the application read
+		// it back? `decideAutoAccount` is the exact function `/import`'s auto path calls for a
+		// recognised file, with nothing on screen and no designation step to fall back on.
+		const decision = await decideAutoAccount({
+			userId,
+			source: 'csv',
+			rows: parseRows(exported)
 		});
-		// The companion figure for the lookup: it found something, and what it found is the account
-		// the statement was imported into rather than a bucket created along the way.
-		expect(destination?.id).toBe(bucket.accountId);
+		expect(decision.kind).toBe('account');
+		const resolvedAccountId = decision.kind === 'account' ? decision.bucket.accountId : undefined;
+		// The companion figure for the decision: it landed on something, and what it landed on is
+		// the account the statement was imported into rather than a bucket created along the way.
+		expect(resolvedAccountId).toBe(bucket.accountId);
 
 		const second = await importFile(exported, {
 			source: 'csv',
 			fileName: 'budgetpilot-export.csv',
-			accountId: destination?.id as string
+			accountId: resolvedAccountId as string
 		});
 		// `maison` rather than a per-version name: `CsvImportProfile` has one member for the family
 		// and the summary a user reads says « maison ». Either way `getImportSource` buckets it as

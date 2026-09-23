@@ -10,11 +10,15 @@ import {
 	importSampleValues,
 	parseCsvTransactionRows
 } from '$lib/server/import/csv';
+import {
+	importColumnDateReadings,
+	importColumnDateStates
+} from '$lib/server/import/columnDateState';
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
 import { decideAutoAccount } from '$lib/server/import/autoAccount';
-import { findDiscriminantColumn } from '$lib/server/import/discriminant';
+import { readAccountColumnAnswer } from '$lib/server/import/discriminant';
 import {
 	ImportFileError,
 	IMPORT_FILE_MAX_BYTES,
@@ -22,6 +26,11 @@ import {
 	readImportFile
 } from '$lib/server/import/file';
 import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
+import { refusedForBounds } from '$lib/server/import/refusals';
+import { resolveZeroTransactionOffer } from '$lib/server/import/offerPrecedence';
+import { readDateOrderAnswer } from '$lib/server/import/dateOrder';
+import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
+import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
 	buildInvalidRowDetails,
 	getHiddenInvalidRowsCount,
@@ -40,6 +49,7 @@ import type { ParsedCsvRow } from '$lib/server/import/types';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import type { PageServerLoad } from './$types';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
+import type { ImportSummaryResult } from '$lib/domain/importSummary';
 
 /**
  * Sources an import CSV row can land on, based on the auto-detected profile (see
@@ -128,6 +138,23 @@ export const load: PageServerLoad = async ({ locals, url }) => {
  * module reaching for an ambient locale on the server. `namedAt` on this same payload already
  * follows the convention.
  */
+/**
+ * The cells whose two readings the screen needs, per column: the ROW's value first, then the CARD's.
+ *
+ * Index 0 is the first data row's cell, which is the value the Date row's line 2 prints and line 3
+ * converts. Indices 1..n are `importSampleValues`'s own choices, which are what the picker's cards
+ * print. They are DIFFERENT cells on a sparse column by design (`importSampleValues` picks the
+ * first NON-EMPTY value per column, precisely so a sparse column does not render three blanks), so
+ * converting the samples and printing them beside the row's value would show a conversion of a cell
+ * the row never displayed.
+ *
+ * Built here rather than in the component so the raw value and its reading come from one array and
+ * cannot drift apart.
+ */
+function dateCellsPerColumn(firstRow: string[], samples: string[][]): string[][] {
+	return samples.map((values, column) => [firstRow[column] ?? '', ...values]);
+}
+
 async function accountOfferPayload(userId: string, rows: ParsedCsvRow[], source?: string) {
 	return accountOfferFrom(await buildAccountOffer({ userId, rows, source }));
 }
@@ -154,7 +181,7 @@ function accountOfferFrom(offer: AccountOffer) {
 }
 
 export const actions: Actions = {
-	default: async ({ locals, request }) => {
+	default: async ({ locals, request, getClientAddress }) => {
 		const user = requireUser(locals.user);
 		const formData = await request.formData();
 		const importFile = formData.get('csvFile');
@@ -165,6 +192,15 @@ export const actions: Actions = {
 		if (!isSupportedImportFile(importFile.name)) {
 			return fail(400, { error: m.import_error_bad_extension() });
 		}
+
+		// The reachable denial on this path is a LOOP, not one request: one upload is bounded by the
+		// resource ceiling and cheap, and nothing stopped the second. Checked BEFORE the file is read,
+		// so a tripped counter costs nothing to answer.
+		const importIp = resolveClientAddress({ getClientAddress, request });
+		if (await isImportRateLimited(user.id, importIp)) {
+			return fail(429, { error: m.import_error_too_many_attempts() });
+		}
+		await recordImportAttempt(user.id, importIp);
 
 		if (importFile.size > IMPORT_FILE_MAX_BYTES) {
 			return fail(400, {
@@ -244,15 +280,27 @@ export const actions: Actions = {
 			return fail(400, { error: m.import_columns_correct_wrong_file() });
 		}
 		if (correcting) {
+			// Computed ONCE and shared with `dateReadings` below: the two must describe the same
+			// cells, or a card would print one value and convert another.
+			const correctingSamples = importSampleValues(importData.rows);
+			const correctingFirstRow = importFirstDataRow(importData.rows);
 			return fail(400, {
 				designation: {
 					account: await accountOfferPayload(user.id, importData.rows),
 					name: importFile.name,
 					headers: headerCells,
-					samples: importSampleValues(importData.rows),
+					samples: correctingSamples,
+					// 7k: the whole-column verdict ships WITH the offer, one per column, so the screen never
+					// holds a state the submit could contradict and never computes one itself.
+					dateStates: importColumnDateStates(importData.rows),
+					// Both readings of the SAME cells the cards show, so the pair on a card can never
+					// disagree with the value printed beside it.
+					dateReadings: importColumnDateReadings(
+						dateCellsPerColumn(correctingFirstRow, correctingSamples)
+					),
 					previewRows: importPreviewRows(importData.rows),
 					coverage: importSampleCoverage(importData.rows),
-					firstRow: importFirstDataRow(importData.rows),
+					firstRow: correctingFirstRow,
 					rowCount: Math.max(0, importData.rows.length - 1),
 					detectedHeaderRow: true
 				},
@@ -303,7 +351,14 @@ export const actions: Actions = {
 			categorizationRules: categorizationRules.map((rule) => ({
 				...rule,
 				type: rule.type === 'income' || rule.type === 'expense' ? rule.type : 'any'
-			}))
+			})),
+			// Absent until now: nothing on this route ever posted the field, because nothing could
+			// ask. The reading offer below is the caller; `readDateOrderAnswer` is the same closed-set
+			// validator `/import/columns` already reads its own answer through.
+			dateOrder: readDateOrderAnswer(formData.get('dateOrder')),
+			// #485's account-column offer below is the caller. Unlike `dateOrder`, no suppression
+			// flag: this door has no prior mechanism that could have already asked the question.
+			accountColumnAnswer: readAccountColumnAnswer(formData.get('accountColumnAnswer'))
 		});
 
 		if (result.transactions.length === 0) {
@@ -312,34 +367,107 @@ export const actions: Actions = {
 			// écran et le nommer sur /imports. » A file whose money sits in two columns cannot be
 			// expressed by naming one of them, so opening the screen would be asking the user to do
 			// work and telling them afterwards that it could not have helped.
-			const splitPair = detectSplitAmountPair(headerCells, importData.rows);
-			const splitRefusal: ImportInvalidRowDetail[] = splitPair
+			//
+			// NOT when the parse refused on the file's DIMENSIONS. A refusal naming the two money
+			// columns cannot change the outcome for a file that is simply too big, so the work has no
+			// reachable purpose there, and that is precisely the file on which it is most expensive.
+			// The resource ceiling in `readImportFile` caps what this can cost; this decides whether it
+			// has a reason to run at all. Two different questions, and bounding answers only the first.
+			const splitPair = refusedForBounds(result)
+				? null
+				: detectSplitAmountPair(headerCells, importData.rows);
+			// As in the correction branch: one array, shared by `samples` and `dateReadings`.
+			const offerSamples = importSampleValues(importData.rows);
+			const offerFirstRow = importFirstDataRow(importData.rows);
+			/**
+			 * THE FOURTH OFFER, #433's auto-path remainder (plate 7l). The parse door (`csv.ts`)
+			 * already refused to guess: an ambiguous column under a recognised profile comes back as
+			 * this ONE fact and nothing else, because `csv.ts` only reaches it when the file would
+			 * otherwise have imported cleanly (structural refusals win first).
+			 *
+			 * `result.invalidRows.length === 1` rather than `.some`: this refusal is the WHOLE story
+			 * for this parse (the door returns `emptyResult` with exactly one fact), so checking there
+			 * is nothing else is free and catches a future door change that starts emitting it
+			 * alongside something else, which would silently change what this offer means.
+			 */
+			const dateOrderRefusal =
+				result.invalidRows.length === 1 &&
+				result.invalidRows[0].fact.code === 'ambiguous-date-order'
+					? result.invalidRows[0].fact
+					: null;
+			/**
+			 * #485, PROVEN. The door refuses outright on a verified IBAN pair (or on a bare digit
+			 * run the user has just confirmed names accounts), and there is nothing to offer beside
+			 * the sentence: unlike a reading, "which account" has no answer this screen can collect
+			 * that would let the file import as several accounts. Same `.length === 1` guard as
+			 * `dateOrderRefusal`, same reason.
+			 */
+			const multiAccountRefusal =
+				result.invalidRows.length === 1 && result.invalidRows[0].fact.code === 'multi-account-file'
+					? result.invalidRows[0].fact
+					: null;
+			/**
+			 * #485, UNPROVEN. The one offer this refusal DOES carry: whether the column names
+			 * accounts at all. Same `.length === 1` guard, same reason.
+			 */
+			const accountColumnRefusal =
+				result.invalidRows.length === 1 &&
+				result.invalidRows[0].fact.code === 'ambiguous-account-column'
+					? result.invalidRows[0].fact
+					: null;
+			const splitFact = splitPair
+				? ({
+						code: 'amount-split-across-columns',
+						columns: splitPair.map((name) => `« ${name} »`).join(' et ')
+					} as const)
+				: null;
+			const splitRefusal: ImportInvalidRowDetail[] = splitFact
 				? [
 						{
 							key: -1,
 							scope: { kind: 'header' },
-							fact: {
-								code: 'amount-split-across-columns',
-								columns: splitPair.map((name) => `« ${name} »`).join(' et ')
-							},
+							fact: splitFact,
 							profile: result.summary.profile,
 							preview: ''
 						}
 					]
 				: [];
 
+			/**
+			 * THE ONE ORDER, read from `offerPrecedence.ts` rather than a ternary chain written by
+			 * hand at this call site: `/import/columns` reads the SAME function below, over its own
+			 * subset of these five facts, so the two doors cannot drift into two different answers
+			 * for a file that raises the same pair on both.
+			 */
+			const offer = resolveZeroTransactionOffer({
+				split: splitFact,
+				multiAccount: multiAccountRefusal,
+				accountColumn: accountColumnRefusal,
+				dateOrder: dateOrderRefusal
+			});
+
 			return fail(400, {
-				error: splitPair
-					? refusalLabel(splitRefusal[0].fact)
-					: m.import_error_no_valid_transactions(),
+				error:
+					offer.rung === 'split' || offer.rung === 'multiAccount'
+						? refusalLabel(offer.fact)
+						: offer.rung === 'accountColumn'
+							? m.import_error_ambiguous_account_column()
+							: offer.rung === 'dateOrder'
+								? m.import_error_ambiguous_date_order()
+								: m.import_error_no_valid_transactions(),
 				// The file nothing recognised, offered to the designation screen rather than left as
 				// a refusal. Only when the refusal is ABOUT the columns: a file refused for a
 				// currency it cannot hold, or for amounts whose sign lives in another column, is not
 				// a file the user can repair by naming columns, and offering the screen there would
 				// send them to do work that cannot help.
-				// `!splitPair` is the gate: everything else about the offer is unchanged.
+				// `offer.rung === 'generic'` is the gate: everything else about the offer is
+				// unchanged. Every other rung is excluded for its own reason — `dateOrder` per plate
+				// 7l (recognition covers mapping, not reading, so there is no column left to
+				// redesignate), `multiAccount`/`accountColumn` one level over (naming columns cannot
+				// answer "does this file cover more than one account" either) — and `resolve
+				// ZeroTransactionOffer`'s order is what guarantees at most one of them is ever true.
 				designation:
-					!splitPair && offersDesignation(result, headerCells)
+					offer.rung === 'generic' && offersDesignation(result, headerCells)
 						? {
 								account: await accountOfferPayload(
 									user.id,
@@ -351,12 +479,64 @@ export const actions: Actions = {
 								),
 								name: importFile.name,
 								headers: headerCells,
-								samples: importSampleValues(importData.rows),
+								samples: offerSamples,
+								// 7k: the whole-column verdict ships WITH the offer, one per column, so the screen
+								// never holds a state the submit could contradict and never computes one itself.
+								dateStates: importColumnDateStates(importData.rows),
+								// Both readings of the SAME cells the cards show, so the pair on a card can never
+								// disagree with the value printed beside it.
+								dateReadings: importColumnDateReadings(
+									dateCellsPerColumn(offerFirstRow, offerSamples)
+								),
 								previewRows: importPreviewRows(importData.rows),
 								coverage: importSampleCoverage(importData.rows),
-								firstRow: importFirstDataRow(importData.rows),
+								firstRow: offerFirstRow,
 								rowCount: Math.max(0, result.summary.totalRows),
 								detectedHeaderRow: true
+							}
+						: undefined,
+				// Plate 7l: opens `ColumnPicker` at `step: 'reading'` alone, no column list, no back
+				// to it. `dateColumn` is the profile's OWN declared index, never a user's guess:
+				// recognition already covers mapping, so this offer answers the one thing it does
+				// not, the reading, and nothing about which column holds the date is in question.
+				// Gated on `offer.rung`, not on `dateOrderRefusal` alone: the WINNING rung, per
+				// `offerPrecedence.ts`, is what may open a dialog, never a fact that merely exists.
+				reading:
+					offer.rung === 'dateOrder'
+						? {
+								name: importFile.name,
+								headers: headerCells,
+								samples: offerSamples,
+								dateReadings: importColumnDateReadings(
+									dateCellsPerColumn(offerFirstRow, offerSamples)
+								),
+								firstRow: offerFirstRow,
+								detectedHeaderRow: true,
+								rowCount: Math.max(0, result.summary.totalRows),
+								dateColumn: offer.fact.column
+							}
+						: undefined,
+				/**
+				 * #485's one offer. `column` is the index the door found evidence on; `header` and
+				 * `samples` are read HERE rather than carried on the fact, same reason `dateColumn`'s
+				 * sibling fields are: the fact names the evidence, the route names it for a screen.
+				 * `samples` reuses `offerSamples`, chosen to DISCRIMINATE (#342) rather than the first
+				 * rows, which is exactly what this question needs shown: two values that differ.
+				 * Gated on `offer.rung`, same reason as `reading` above.
+				 *
+				 * FOUND BY A BROWSER WALK: `offerSamples` pads every column to 3 entries with `''`
+				 * so the reading offer's cards can render « (vide) » for a sparse column — a
+				 * convention this offer does not share, and the dialog joins `samples` with `', '`
+				 * for its evidence line, so the padding rendered live as a trailing "10000001,
+				 * 10000002, ". Filtered here, at the one boundary where the padded convention meets
+				 * this offer's own (unpadded) contract.
+				 */
+				accountColumn:
+					offer.rung === 'accountColumn'
+						? {
+								column: offer.fact.column,
+								header: headerCells[offer.fact.column] ?? '',
+								samples: (offerSamples[offer.fact.column] ?? []).filter((value) => value !== '')
 							}
 						: undefined,
 				importResult: buildImportResult(
@@ -531,7 +711,11 @@ export const actions: Actions = {
 			period: result.summary.period,
 			// Only when the mapping actually read this file. `useMapping` is the same condition the
 			// parser was given, so the link cannot claim a correspondance a different profile parsed.
-			columnMappingId: useMapping ? (remembered?.id ?? null) : null
+			columnMappingId: useMapping ? (remembered?.id ?? null) : null,
+			// What this import APPLIED, so a later reinterpretation has a fact rather than a guess.
+			// Taken from the summary the parser returned, never recomputed here: a second derivation
+			// would be a second answer, and the batch would record one the import did not use.
+			dateOrder: result.summary.dateOrder ?? null
 		});
 
 		const persisted = await persistImportedTransactions({
@@ -564,23 +748,15 @@ export const actions: Actions = {
 				// resolution, which returns an id: the id is what the resolver knows, and the name is
 				// a rendering question the resolver has no business answering.
 				accountName: await readAccountDisplayName(user.id, bucket.accountId),
-				/**
-				 * The file offered evidence AGAINST a single account, and every row went into one
-				 * anyway. Reported rather than refused, because a file that imports today must not
-				 * stop importing: what changes is that the user is told, not what happens.
-				 *
-				 * The underlying defect is that this path has no way to split a statement across the
-				 * accounts it names, filed as #485. The sentence is the mitigation and not the fix,
-				 * and it is here because an account showing money that is not its own with nothing on
-				 * screen saying why is the silence four other fixes in this area removed.
-				 *
-				 * `findDiscriminantColumn` is pure over rows the action already holds, so this costs
-				 * a pass over the file and no query. It is read here rather than taken from the
-				 * account offer because the offer is built only on the ambiguous branch, and a
-				 * single-account install must get the same sentence.
-				 */
-				multiAccountFile: findDiscriminantColumn(importData.rows).kind === 'multi-account'
-			}
+				// FALSE ON THIS PATH, AND THAT IS A FACT RATHER THAN A DEFAULT. This route USES a
+				// remembered correspondance and never creates one: `saveColumnMapping` has exactly
+				// one production call site and it is the designation route's action. Nobody
+				// designated anything here, so there is nothing new to disclose.
+				rememberedMapping: false,
+				// Plate 7l. Populated whenever THIS parse's date order was chosen rather than proven or
+				// defaulted — see `CsvImportSummary.dateOrderDisclosure`'s docstring for the one rule.
+				dateOrderDisclosure: result.summary.dateOrderDisclosure ?? null
+			} satisfies ImportSummaryResult
 		};
 	}
 };
@@ -624,7 +800,13 @@ function buildImportResult(
 const DESIGNATION_CANNOT_REPAIR = new Set<string>([
 	'unsupported-currency',
 	'amount-sign-in-separate-column',
-	'amount-split-across-columns'
+	'amount-split-across-columns',
+	// Plate 7l: recognition covers mapping, not reading. The column is already correctly
+	// identified; the reading offer built below answers this one directly, and sending the user to
+	// redesignate columns that are not the problem is the dead end this set already exists to name.
+	// Checked defensively here as well as ahead of the offer below (`!dateOrderRefusal`), because
+	// this set is the guard `mixed-date-order` is deliberately absent from for the opposite reason.
+	'ambiguous-date-order'
 ]);
 
 /**

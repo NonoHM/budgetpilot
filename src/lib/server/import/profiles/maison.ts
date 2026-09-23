@@ -1,4 +1,4 @@
-import { isTransactionNature, isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
+import { isTransactionNature, validateTransaction } from '$lib/domain/transaction';
 import type { TransactionNature } from '$lib/domain/transaction';
 import type {
 	CsvImportResult,
@@ -7,18 +7,22 @@ import type {
 	ImportedTransactionType
 } from '../types';
 import type { CsvRefusal } from '../refusals';
-import { addRefusal, buildSummary, emptyResult, normalizeDate, toRecord } from '../utils/csv';
+import { addRefusal, buildSummary, emptyResult, readDateCell, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
 import { foldExactHeader } from '../utils/encoding';
 
+/** The single column every version of this format writes its date in. */
+export const MAISON_DATE_COLUMN = 'date';
+
 const MAISON_HEADERS = [
-	'date',
+	MAISON_DATE_COLUMN,
 	'libelle',
 	'categorie',
 	'montant',
@@ -36,7 +40,24 @@ export function matchesMaisonHeader(headers: string[]): boolean {
 	);
 }
 
-export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvImportResult {
+/**
+ * Where this file's dates are, as indices. See `CsvProfileParser.dateColumns`.
+ *
+ * Resolved by NAME against the file's own header rather than returned as a constant index, even
+ * though the match is exact ordered equality and the answer is therefore always the same. A
+ * constant would be correct today and silently wrong the first time a column is inserted before
+ * it, which is precisely how a version of this format is added.
+ */
+export function maisonDateColumns(headers: string[]): number[] {
+	const index = headers.map(foldExactHeader).indexOf(MAISON_DATE_COLUMN);
+	return index >= 0 ? [index] : [];
+}
+
+export function parseMaisonRows({
+	rows,
+	warnings,
+	dateOrder
+}: CsvProfileParseInput): CsvImportResult {
 	const headers = rows[0].cells.map(foldExactHeader);
 	if (!matchesMaisonHeader(headers)) {
 		return emptyResult(
@@ -71,8 +92,8 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 
 		const record = toRecord(headers, row);
 
-		const date = normalizeDate(record.date ?? '');
-		if (!isValidIsoDate(date)) {
+		const date = readDateCell(record.date ?? '', dateOrder);
+		if (date === null) {
 			addRefusal(
 				refusals,
 				{ kind: 'row', line },
@@ -82,6 +103,13 @@ export function parseMaisonRows({ rows, warnings }: CsvProfileParseInput): CsvIm
 			return;
 		}
 
+		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
+		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
+		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+		if (hasStrandedControlCharacter(record.libelle ?? '')) {
+			addRefusal(refusals, { kind: 'row', line }, { code: 'control-character' }, 'libelle');
+			return;
+		}
 		const label = sanitizeImportedText(record.libelle ?? '');
 
 		const categoryResult = resolveMaisonCategory(record.categorie ?? '');

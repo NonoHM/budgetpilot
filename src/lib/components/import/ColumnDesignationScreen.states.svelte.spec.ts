@@ -349,19 +349,40 @@ describe('the live region: one announcement per gesture, and it never pre-empts 
 describe('memorisation is on by default, in one sentence, with an opt-out', () => {
 	it('appears only once the three required columns are designated', async () => {
 		// Separates "not yet relevant" from "off". There is nothing to memorise until there is a
-		// correspondance, so the sentence is absent rather than present and disabled.
+		// correspondance, so the control is absent rather than present and disabled.
+		//
+		// ASSERTED ON THE LINK AND NO LONGER ON THE SENTENCE, and the difference is the point. This
+		// test used to read `not.toContain('sera réutilisée')`, and once that sentence moved to the
+		// import summary it asserted the absence of a string this component can no longer produce in
+		// any state: it would have passed for ever, including over a block rendered unconditionally.
+		// The link is what is left on this screen, so the link is what the absence is about, and the
+		// test below is its planted positive.
 		const { container } = mount();
 
-		expect(container.textContent).not.toContain('sera réutilisée');
+		expect(container.querySelector('[data-testid="designation-remember"]')).toBeNull();
 	});
 
-	it('states the reuse and offers a link to decline, with no toggle', async () => {
+	it('offers a link to decline, with no toggle and no sentence beside it', async () => {
 		const { container } = mount({ initialAssignment: COMPLETE });
 
-		expect(container.textContent).toContain('sera réutilisée pour les prochains fichiers');
+		// The positive half, and the calibration for the absence asserted above: this selector does
+		// find the block when the state warrants it, so the null up there is a state and not a
+		// selector that matches nothing.
+		expect(container.querySelector('[data-testid="designation-remember"]')).not.toBeNull();
+		await expect
+			.element(page.getByRole('button', { name: 'Ne pas mémoriser' }))
+			.toBeInTheDocument();
+
 		// No switch: the referential has none, and a switch would present a default as a decision
 		// the user must take before they can leave.
 		expect(container.querySelectorAll('input[type="checkbox"]').length).toBe(0);
+
+		// THE SENTENCE IS NOT HERE, and this is the half of the memorisation split that this file
+		// can see. It moved to the import summary, which bought the 38 px state 2 needed for the
+		// Date row's reading line. `remember-disclosure.svelte.spec.ts` asserts it ARRIVED there;
+		// without both halves a sentence deleted from one surface and never added to the other
+		// would leave every suite green.
+		expect(container.textContent).not.toContain('sera réutilisée');
 	});
 
 	it('hands the caller remember: false after the opt-out is used', async () => {
@@ -527,7 +548,10 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 			.element(page.getByRole('button', { name: /^Date, colonne désignée/ }))
 			.toBeInTheDocument();
 		const card = container.querySelector('[data-testid="designation-card"]') as HTMLElement;
-		expect(card.getBoundingClientRect().height).toBe(355);
+		// 373, the same figure the control form measures in `ColumnDesignationScreen.svelte.spec.ts`,
+		// which is the whole claim: the recap returns to the card rather than to a copy of it. Was
+		// 355 before the Date row gained its reading line.
+		expect(card.getBoundingClientRect().height).toBe(373);
 		expect(
 			container.querySelectorAll('[data-testid="designation-card"] button[aria-haspopup="listbox"]')
 				.length

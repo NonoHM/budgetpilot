@@ -651,10 +651,20 @@ model ImportBatch {
   /// Which date order this import APPLIED, so a later fix to #433 can offer to reinterpret rather
   /// than only being right from its ship day onward.
   ///
-  /// `'day-first' | 'month-first' | null`. NULL means the batch was written before this column
-  /// existed and the order it used is NOT RECOVERABLE, so nothing may offer to reinterpret it.
-  /// That is a real state and not an absence of data: a reinterpretation offered on a guess is the
-  /// silent wrong-date import #433 is about, arriving a second time through its own fix.
+  /// `'day-first' | 'month-first' | null`. NULL means NO READING IS RECORDED FOR THIS BATCH, so
+  /// nothing may offer to reinterpret it. That is a real state and not an absence of data: a
+  /// reinterpretation offered on a guess is the silent wrong-date import #433 is about, arriving a
+  /// second time through its own fix.
+  ///
+  /// It covers TWO populations and the distinction is worth keeping straight. A batch written
+  /// before this column had a writer used an order nobody recorded. A batch from a bank CONNECTION
+  /// parsed no CSV and took no such decision at all. Both are honestly null and the invariant holds
+  /// for both.
+  ///
+  /// WRITTEN SINCE 2026-09-16, and before that date this paragraph described a behaviour that did
+  /// not happen: the column shipped on all three engines on 2026-08-22 and nothing wrote it, so
+  /// every row on every install was null while this text said otherwise. The value now comes from
+  /// `CsvImportSummary.dateOrder`, which carries the decision out of the one door that takes it.
   ///
   /// ## Why a column and not a recomputation
   ///

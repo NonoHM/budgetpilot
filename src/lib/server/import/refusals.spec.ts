@@ -23,7 +23,17 @@ describe('refusal catalogue coverage', () => {
 		// tree that has DELETED a code and added two, and by any future count above 33: an
 		// assertion with slack has a blind band the size of its slack. The count is knowable,
 		// so every change to it should be deliberate enough to edit this line.
-		expect(CSV_REFUSAL_CODES).toHaveLength(39);
+		// 40 since `mixed-date-order`: a date column that proves both a day-first and a
+		// month-first reading, which no single reading of the file can satisfy (#433).
+		// 41 since `control-character` (#652): a control character in a label, refused at parse
+		// rather than silently stripped, because the guard that strips it (`sanitizeImportedText`)
+		// has no refusal channel of its own.
+		// 42 since `ambiguous-date-order` (#433): a registered profile's date column that proves
+		// neither reading, asked about on the auto path rather than defaulted silently.
+		// 44 since `multi-account-file` and `ambiguous-account-column` (#485): a discriminant
+		// column PROVEN or merely EXHIBITING more than one account, refused or asked before any
+		// row is written rather than reported after the fact.
+		expect(CSV_REFUSAL_CODES).toHaveLength(44);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

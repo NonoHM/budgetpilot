@@ -253,9 +253,13 @@ describe('the checked-in acknowledgement file', () => {
 		// asserts only that the file can be read at all.
 		const text = readFileSync(new URL('../../../../.cve-acknowledged', import.meta.url), 'utf8');
 
+		// Zero entries is a legitimate state, not an unparsed file: it is what the file reads as
+		// the moment every acknowledgement has been removed, e.g. because its finding left the
+		// image before its expiry. Asserting a positive count here would make removing the last
+		// entry a CI failure, which is backwards for a file whose whole point is to shrink.
 		const acks = parseAcknowledgements(text);
 
-		expect(acks.length).toBeGreaterThan(0);
+		expect(acks.length).toBeGreaterThanOrEqual(0);
 		for (const ack of acks) {
 			expect(ack.id).toMatch(/^CVE-\d{4}-\d{4,}$/);
 			expect(ack.ruling).not.toBe('');

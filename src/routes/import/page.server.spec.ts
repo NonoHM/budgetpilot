@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
 import { computeNameKey } from '$lib/server/naming/nameKey';
@@ -179,6 +180,15 @@ const db = vi.hoisted(() => {
 			state.userWorkCount = 0;
 		},
 		prisma: {
+			// The import doors are rate limited, so the action counts and records attempts. Modelled
+			// rather than stubbed away: `count` returning 0 is the honest "this caller is not
+			// limited", which is the state every test in this file assumes. The limiter's own
+			// thresholds are asserted in `auth/rateLimit.spec.ts` against its own fake.
+			loginAttempt: {
+				count: vi.fn(async () => 0),
+				create: vi.fn(async () => ({})),
+				deleteMany: vi.fn(async () => ({ count: 0 }))
+			},
 			netWorthAccount: {
 				findMany: vi.fn(async ({ where }: { where: { userId: string; deletedAt: null } }) =>
 					state.netWorthAccounts
@@ -1263,7 +1273,13 @@ describe('/import actions', () => {
 		expect(metadata.revolutFeeCents).toBe(0);
 		expect(metadata.revolutCurrency).toBe('EUR');
 		expect(metadata.revolutState).toBe('TERMINÉ');
-		expect(metadata.csvFields?.Frais).toBeUndefined();
+		// #466: `Frais` is one of Revolut's OWN resolved metadata fields (`REVOLUT_METADATA_FIELDS`),
+		// so it survives to storage now, anonymized like every other field. A fixed, Banque
+		// Populaire-shaped allowlist used to drop it silently despite the profile asking for it.
+		expect(metadata.csvFields?.Frais).toBe(anonymizeDetailText('0.00', 18));
+		// `Description` stays undefined for an unrelated reason: it is not one of Revolut's
+		// resolved metadata fields at all (the label comes from elsewhere), so this is unaffected
+		// by #466's fix.
 		expect(metadata.csvFields?.Description).toBeUndefined();
 	});
 
@@ -1567,6 +1583,33 @@ describe('/import actions', () => {
 		const RECOGNISED_HEADERS_UNREADABLE_DATES =
 			'date,label,amount\n01/06/26,CARREFOUR MARKET,-24.90\n02/06/26,SALAIRE,2140.00';
 
+		/**
+		 * 7k'S SEAM: the whole-column verdict ships WITH the offer, one per column.
+		 *
+		 * Separates « the screen is handed a state per column » from « the screen is handed columns
+		 * and works the state out itself ». The second is the round trip and the second
+		 * implementation 7k rejected, and neither is visible from `columnDateState`'s own tests:
+		 * those prove the function is right, not that the payload carries it.
+		 *
+		 * All three columns read `no-dates` here, and that is stated rather than dressed up: the
+		 * fixture's dates carry a two-digit year, which is not the ambiguous grammar and parses under
+		 * neither reading. So this asserts the SEAM, not the mapping's breadth, which
+		 * `columnDateState.spec.ts` covers over all seven. The length assertion is what stops a
+		 * payload shorter than the header row passing.
+		 */
+		it('ships one date state per column with the offer', async () => {
+			const result = (await runImportWithFile(RECOGNISED_HEADERS_UNREADABLE_DATES)) as unknown as {
+				data: { designation?: { headers: string[]; dateStates?: string[] } };
+			};
+
+			// `01/06/26` is a two-digit year, which is not the ambiguous grammar, so the date column
+			// carries values that parse under neither reading.
+			expect(result.data.designation?.dateStates).toEqual(['no-dates', 'no-dates', 'no-dates']);
+			expect(result.data.designation?.dateStates).toHaveLength(
+				result.data.designation?.headers.length ?? 0
+			);
+		});
+
 		it('is offered when the headers matched and every value failed', async () => {
 			const result = (await runImportWithFile(RECOGNISED_HEADERS_UNREADABLE_DATES)) as unknown as {
 				data: { designation?: { headers: string[]; rowCount: number } };
@@ -1658,6 +1701,56 @@ describe('/import actions', () => {
 		});
 	});
 
+	describe('the reading offer, #433s auto-path remainder (plate 7l)', () => {
+		/** `06/01/2026` is ambiguous by construction: day and month both <= 12. */
+		const AMBIGUOUS_GENERIC = 'Date,Description,Amount\n06/01/2026,COFFEE,-4.50';
+
+		/**
+		 * THE SEAM. Separates « the auto path can ask » from « it silently defaults », which is
+		 * exactly #433's remainder on a recognised bank. `reading` and not `designation`: the
+		 * column is already known, per plate 7l ("recognition covers mapping, not reading").
+		 */
+		it('offers the reading sheet instead of designation, for a recognised profile', async () => {
+			const result = (await runImportWithFile(AMBIGUOUS_GENERIC)) as unknown as {
+				data: {
+					error: string;
+					designation?: unknown;
+					reading?: { headers: string[]; dateColumn: number; rowCount: number };
+				};
+			};
+
+			expect(result.data.error).toBe(m.import_error_ambiguous_date_order());
+			expect(result.data.designation).toBeUndefined();
+			expect(result.data.reading).toBeDefined();
+			expect(result.data.reading?.headers).toEqual(['Date', 'Description', 'Amount']);
+			// Column 0: the profile's own declared date column, not a user's guess.
+			expect(result.data.reading?.dateColumn).toBe(0);
+			expect(result.data.reading?.rowCount).toBe(1);
+		});
+
+		/** THE REPOST. An explicit answer settles the same file and the import proceeds. */
+		it('imports once the reading is answered', async () => {
+			const result = await runImportWithFileAndFields(AMBIGUOUS_GENERIC, {
+				dateOrder: 'month-first'
+			});
+
+			expect(result.importResult.importedRows).toBe(1);
+			expect(db.state.transactions).toHaveLength(1);
+			expect(db.state.transactions[0]).toMatchObject({ label: 'COFFEE', amountCents: 450 });
+		});
+
+		/**
+		 * THE OTHER DIRECTION. A recognised bank whose column PROVES its own order is never asked,
+		 * and it must not be confused with the ambiguous case merely because both are 0 rows away
+		 * from a normal import today: this file has 6 valid rows and no refusal at all.
+		 */
+		it('does not offer the reading sheet for a column that proves its own order', async () => {
+			const result = await runImportWithFile('Date,Description,Amount\n24/06/2026,COFFEE,-4.50');
+
+			expect(result.importResult.importedRows).toBe(1);
+		});
+	});
+
 	describe('a remembered column mapping at the import action', () => {
 		// A file no alias table can read: `Jour`, `Intitule operation` and `Somme` are in no alias
 		// list, so without a mapping this content is refused. That is what makes the two tests below
@@ -1700,6 +1793,27 @@ describe('/import actions', () => {
 			// The count and the stamp, because the recap sentence reads both.
 			expect(row.useCount).toBe(1);
 			expect(row.lastUsedAt).not.toBeNull();
+		});
+
+		/**
+		 * #433's CONTRADICTION-PASS FINDING, closed. A remembered mapping is reapplied SILENTLY —
+		 * no designation screen opens for this reuse — and `ColumnMapping` carries no `dateOrder`
+		 * field, so nothing was ever asked or remembered about this file's reading. Before this,
+		 * `csv.ts` inferred "already asked" from `profile === 'mapped'` alone, which this caller
+		 * also sets, so an ambiguous column here defaulted to day-first silently forever: #433's
+		 * exact original defect, on what is likely the most common repeat-import path.
+		 */
+		it('offers the reading question on a remembered mapping, rather than defaulting silently', async () => {
+			rememberFor(testUser.id);
+			const ambiguous = 'Jour;Intitule operation;Somme\n03/04/2026;CARREFOUR MARKET;-24,90';
+
+			const result = (await runImportWithFile(ambiguous)) as unknown as {
+				data: { error: string; reading?: { dateColumn: number } };
+			};
+
+			expect(result.data.error).toBe(m.import_error_ambiguous_date_order());
+			expect(result.data.reading).toBeDefined();
+			expect(db.state.transactions).toHaveLength(0);
 		});
 
 		/**
@@ -1860,13 +1974,18 @@ async function runImport(formData: FormData) {
 	const action = actions.default as (event: {
 		locals: { user: typeof testUser };
 		request: Request;
+		getClientAddress: () => string;
 	}) => Promise<unknown>;
 	return (await action({
 		locals: { user: testUser },
 		request: new Request('http://localhost/import', {
 			method: 'POST',
 			body: formData
-		})
+		}),
+		// The import doors are rate limited, so the action reads the caller's address. A fixed
+		// loopback address keeps every test in this file one caller, which is what the limiter
+		// counts; the limiter's own behaviour is asserted in `auth/rateLimit.spec.ts`.
+		getClientAddress: () => '127.0.0.1'
 	})) as {
 		status?: number;
 		data: {
@@ -2193,43 +2312,98 @@ describe('two accounts of one source, on the auto path', () => {
 	});
 
 	/**
-	 * A file carrying SEVERAL accounts still imports, and now says so.
-	 *
-	 * The underlying defect is that every row lands in one account whatever the file says, filed as
-	 * its own issue. Refusing it here would stop an import that works today, so the trade taken is
-	 * the one this repository has taken repeatedly: a silent wrong filing becomes a visible one, and
-	 * it costs a sentence rather than a chantier.
+	 * #485: a file carrying several accounts used to import ANYWAY, with a sentence added after
+	 * the write. It is refused or asked BEFORE the write now, following `discriminant.ts`'s kind:
+	 * `contradictory` (a verified IBAN pair) refuses outright, `ambiguous` (a bare digit run) asks.
 	 */
-	it('says so when the file carries several accounts, and still imports', async () => {
-		// SEPARATES: « the rows are known to have been filed into one account out of several » FROM
-		// « they were filed and nothing on screen says which, or that there was a choice ». An
-		// account showing money that is not its own with nothing saying why is the silence this
-		// whole chantier removed four times over.
-		expect.assertions(3);
-		const multi =
+	describe('a file naming more than one account', () => {
+		const PROVEN =
+			'date;label;amount;compte\n' +
+			'2026-06-01;AUCHAN;-42,10;FR7630001007941234567890185\n' +
+			'2026-06-02;SNCF;-30,00;FR3730001007949876543210192';
+		const UNPROVEN =
 			'date;label;amount;compte\n2026-06-01;AUCHAN;-42,10;10000001\n2026-06-02;SNCF;-30,00;10000002';
 
-		const result = (await runImportWithFile(multi)) as unknown as {
-			importResult?: { importedRows: number; multiAccountFile?: boolean };
-		};
+		it('refuses outright when the column PROVES two accounts, and writes nothing', async () => {
+			expect.assertions(3);
 
-		expect(result.importResult?.importedRows).toBe(2);
-		expect(result.importResult?.multiAccountFile).toBe(true);
-		expect(db.state.accounts).toHaveLength(1);
-	});
+			const result = (await runImportWithFile(PROVEN)) as unknown as {
+				status?: number;
+				data: { error: string };
+			};
 
-	it('does not say it for an ordinary single-account file', async () => {
-		// SEPARATES: « the notice fires on the evidence the file offers » FROM « it fires on every
-		// import ». A notice shown always is a notice nobody reads by the third month, and it would
-		// be the same defect as the refusal it replaces, one tone quieter.
-		expect.assertions(2);
+			expect(result.status).toBe(400);
+			expect(result.data.error).toBe(refusalLabel({ code: 'multi-account-file', column: 3 }));
+			expect(db.state.transactions).toHaveLength(0);
+		});
 
-		const result = (await runImportWithFile(GENERIC)) as unknown as {
-			importResult?: { importedRows: number; multiAccountFile?: boolean };
-		};
+		it('asks instead of guessing when the column only EXHIBITS the ambiguity', async () => {
+			expect.assertions(2);
 
-		expect(result.importResult?.importedRows).toBe(1);
-		expect(result.importResult?.multiAccountFile).toBe(false);
+			const result = (await runImportWithFile(UNPROVEN)) as unknown as {
+				status?: number;
+				data: { error: string };
+			};
+
+			expect(result.status).toBe(400);
+			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		// FOUND BY A BROWSER WALK: `importSampleValues` pads every column to 3 entries with `''`
+		// so the reading offer's cards can render « (vide) » for a sparse column (#342). This
+		// offer has no such convention — its dialog joins `samples` with `', '` — so the pad
+		// leaked through as a trailing empty entry, rendered live as "10000001, 10000002, ".
+		it("carries only the column's own values as samples, never the padding", async () => {
+			expect.assertions(2);
+
+			const result = (await runImportWithFile(UNPROVEN)) as unknown as {
+				status?: number;
+				data: { accountColumn?: { samples: string[] } };
+			};
+
+			expect(result.status).toBe(400);
+			expect(result.data.accountColumn?.samples).toStrictEqual(['10000001', '10000002']);
+		});
+
+		it('imports normally once the column is confirmed to name something else', async () => {
+			expect.assertions(3);
+
+			const result = (await runImportWithFileAndFields(UNPROVEN, {
+				accountColumnAnswer: 'not-account'
+			})) as unknown as { status?: number; importResult?: { importedRows: number } };
+
+			expect(result.status).toBeUndefined();
+			expect(result.importResult?.importedRows).toBe(2);
+			expect(db.state.accounts).toHaveLength(1);
+		});
+
+		it('refuses the same way once the column is confirmed to name accounts', async () => {
+			expect.assertions(3);
+
+			const result = (await runImportWithFileAndFields(UNPROVEN, {
+				accountColumnAnswer: 'is-account'
+			})) as unknown as { status?: number; data: { error: string } };
+
+			expect(result.status).toBe(400);
+			expect(result.data.error).toBe(refusalLabel({ code: 'multi-account-file', column: 3 }));
+			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		it('leaves an ordinary single-account file untouched', async () => {
+			expect.assertions(2);
+			const single =
+				'date;label;amount;compte\n' +
+				'2026-06-01;AUCHAN;-42,10;FR7630001007941234567890185\n' +
+				'2026-06-02;SNCF;-30,00;FR7630001007941234567890185';
+
+			const result = (await runImportWithFile(single)) as unknown as {
+				status?: number;
+				importResult?: { importedRows: number };
+			};
+
+			expect(result.status).toBeUndefined();
+			expect(result.importResult?.importedRows).toBe(2);
+		});
 	});
 
 	it('still imports for the install that has one account of that source', async () => {
@@ -2247,5 +2421,82 @@ describe('two accounts of one source, on the auto path', () => {
 		expect(result.status).toBeUndefined();
 		expect(result.importResult?.importedRows).toBe(1);
 		expect(db.state.accounts).toHaveLength(1);
+	});
+
+	/**
+	 * THE SECOND PAIR THE PLAN NAMES: the account question (#476, source ambiguity) and the
+	 * duplicate-statement confirmation (#343, `findCollidingBatch`) can both apply to one re-upload
+	 * — the same file, imported a second time, once the caller has stopped naming an account. The
+	 * order is a control-flow fact rather than a `resolveZeroTransactionOffer`-shaped priority
+	 * (each check is an early `return` in `decideAutoAccount`'s own caller, not a set of facts
+	 * computed together and then ranked), so it is tested here directly against the real collision
+	 * detector rather than through that module: `decision.kind === 'ask'` (`+page.server.ts`) is
+	 * checked and returned on BEFORE `formData.get('confirmCollision')` is ever read.
+	 */
+	it('asks which account before ever raising the duplicate-statement confirmation', async () => {
+		expect.assertions(4);
+		seedTwoCsvAccounts();
+
+		// First upload: named explicitly, so it succeeds and becomes the batch the second upload
+		// would collide with.
+		const first = (await runImportWithFileAndFields(GENERIC, {
+			accountId: 'account-courant'
+		})) as unknown as { status?: number };
+		expect(first.status).toBeUndefined();
+
+		// Second upload: the SAME file, no account named. Both the source ambiguity (#476) and the
+		// collision (#343) are true of this request; only one refusal can be shown.
+		const second = (await runImportWithFile(GENERIC)) as unknown as {
+			status?: number;
+			data: {
+				account?: { options: unknown[] };
+				collision?: unknown;
+				incoming?: unknown;
+			};
+		};
+
+		expect(second.status).toBe(400);
+		// The account offer, not the collision dialog: had the collision check run first, this
+		// would be 409 with `data.collision` populated instead.
+		expect(second.data.account).toBeDefined();
+		expect(second.data.collision).toBeUndefined();
+	});
+});
+
+/**
+ * THE DOOR CONSULTS THE LIMITER.
+ *
+ * Separates "the door refuses when the limiter says so" from "the limiter exists and nothing calls
+ * it", which is the failure mode a green limiter unit test cannot see. The reachable denial on this
+ * path is a loop, so a limiter that is never consulted is the same as no limiter.
+ */
+describe('/import is rate limited', () => {
+	it('answers 429 without reading the file when the caller is over the limit', async () => {
+		db.prisma.loginAttempt.count.mockResolvedValue(10_000);
+		try {
+			const formData = new FormData();
+			formData.set(
+				'csvFile',
+				new File(['date;label;amount\n2026-01-15;Coffee;-12,30\n'], 'statement.csv')
+			);
+			const result = await runImport(formData);
+			expect(result.status).toBe(429);
+			expect(result.data.error).toBe(m.import_error_too_many_attempts());
+		} finally {
+			db.prisma.loginAttempt.count.mockResolvedValue(0);
+		}
+	});
+
+	it('records the attempt for a caller who is under the limit', async () => {
+		db.prisma.loginAttempt.create.mockClear();
+		const formData = new FormData();
+		formData.set(
+			'csvFile',
+			new File(['date;label;amount\n2026-01-15;Coffee;-12,30\n'], 'statement.csv')
+		);
+		await runImport(formData);
+		expect(db.prisma.loginAttempt.create).toHaveBeenCalledWith(
+			expect.objectContaining({ data: expect.objectContaining({ kind: 'IMPORT' }) })
+		);
 	});
 });

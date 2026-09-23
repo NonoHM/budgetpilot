@@ -37,7 +37,16 @@
 	let pendingCancel = $state<{
 		id: string;
 		fileName: string | null;
-		importedRows: number;
+		/**
+		 * #652: the dialog branches on the LIVE row count (`_count.transactions`, sent down as
+		 * `transactionCount`), never on `importedRows`. `importedRows` is a counter written once
+		 * after `persistImportedTransactions`'s row loop finishes; a throw mid-loop leaves it at
+		 * its `@default(0)` while some rows already committed. The delete action itself was never
+		 * wrong — `deleteImportBatch` deletes by `importBatchId`, not by this counter — but the
+		 * dialog read the same stale counter and told a user "this import created no
+		 * transactions" while about to destroy real ones.
+		 */
+		transactionCount: number;
 		createdAt: string;
 	} | null>(null);
 	/**
@@ -178,10 +187,10 @@
 	 * sentence now, and the singular no longer interpolates a count it does not need: « la
 	 * transaction » is what French says once there is exactly one of them.
 	 */
-	function cancelConfirmDescription(importedRows: number): string {
-		if (importedRows === 0) return m.imports_delete_confirm_description_count_zero();
-		return importedRows > 1
-			? m.imports_delete_confirm_description_count_many({ count: importedRows })
+	function cancelConfirmDescription(transactionCount: number): string {
+		if (transactionCount === 0) return m.imports_delete_confirm_description_count_zero();
+		return transactionCount > 1
+			? m.imports_delete_confirm_description_count_many({ count: transactionCount })
 			: m.imports_delete_confirm_description_count_one();
 	}
 
@@ -469,7 +478,7 @@
 													(pendingCancel = {
 														id: batch.id,
 														fileName: batch.fileName,
-														importedRows: batch.importedRows,
+														transactionCount: batch.transactionCount,
 														createdAt: batch.createdAt
 													})}
 											/>
@@ -570,7 +579,7 @@
 											(pendingCancel = {
 												id: batch.id,
 												fileName: batch.fileName,
-												importedRows: batch.importedRows,
+												transactionCount: batch.transactionCount,
 												createdAt: batch.createdAt
 											})}
 									/>
@@ -657,7 +666,7 @@
 		<ConfirmDialog
 			open={true}
 			title={m.imports_delete_confirm_title({ date: formatDate(pendingCancel.createdAt) })}
-			description={cancelConfirmDescription(pendingCancel.importedRows)}
+			description={cancelConfirmDescription(pendingCancel.transactionCount)}
 			confirmLabel={m.imports_delete_confirm_label()}
 			cancelLabel={m.imports_delete_keep_label()}
 			tone="danger"
@@ -684,7 +693,7 @@
 				accurately. At one it is the sentence that stops a user losing an evening of splitting,
 				which is why it is gated on the count rather than deleted.
 			-->
-			{#if pendingCancel.importedRows > 0}
+			{#if pendingCancel.transactionCount > 0}
 				<p class="mt-2 text-sm text-zinc-600">{m.imports_delete_cost_note()}</p>
 			{/if}
 			<!--

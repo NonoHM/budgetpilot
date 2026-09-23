@@ -31,6 +31,9 @@ const {
 	recordBankSyncStartAttempt,
 	isReauthRateLimited,
 	recordReauthAttempt,
+	isImportRateLimited,
+	recordImportAttempt,
+	IMPORT_MAX_ATTEMPTS,
 	assertRateLimitSecretConfigured
 } = await import('./rateLimit');
 
@@ -626,5 +629,67 @@ describe('assertRateLimitSecretConfigured', () => {
 		expect(() =>
 			assertRateLimitSecretConfigured({ RATE_LIMIT_HASH_SECRET: 'A'.repeat(32) + 'f'.repeat(32) })
 		).not.toThrow();
+	});
+});
+
+/**
+ * THE IMPORT DOORS.
+ *
+ * The reachable denial of service on `/import` is a LOOP: one upload is bounded and cheap, and
+ * nothing stopped the second one. So this limiter is half of that fix rather than defence in depth
+ * beside it.
+ *
+ * It carries its own maximum rather than sharing the authentication one, and the reason is a
+ * product fact: five attempts per fifteen minutes is right for a password and wrong for statements,
+ * because a household importing a year of monthly statements across three accounts uploads dozens
+ * of files in one sitting. A limiter that refuses that has replaced a denial of service with a
+ * denial of the product.
+ */
+describe('isImportRateLimited', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	// Separates "the limiter trips at its own maximum" from "it trips at the authentication one",
+	// which is the mistake that would lock an honest household out of its own statements.
+	it('does not trip below its own maximum, which is above the authentication maximum', async () => {
+		expect(IMPORT_MAX_ATTEMPTS).toBeGreaterThan(5);
+		db.prisma.loginAttempt.count.mockResolvedValue(IMPORT_MAX_ATTEMPTS - 1);
+		await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBe(false);
+	});
+
+	it('trips at its maximum', async () => {
+		db.prisma.loginAttempt.count.mockResolvedValue(IMPORT_MAX_ATTEMPTS);
+		await expect(isImportRateLimited('user-1', '10.0.0.1')).resolves.toBe(true);
+	});
+
+	// Separates "keyed by both dimensions" from "keyed by one", which is what lets an attacker
+	// rotate IPs on one account, or spray many accounts from one address.
+	it('counts against the user AND the address', async () => {
+		db.prisma.loginAttempt.count.mockResolvedValue(0);
+		await isImportRateLimited('user-1', '10.0.0.1');
+		expect(db.prisma.loginAttempt.count).toHaveBeenCalledTimes(2);
+		const wheres = db.prisma.loginAttempt.count.mock.calls.map((call) => call[0].where);
+		expect(wheres.every((where) => where.kind === 'IMPORT')).toBe(true);
+		expect(wheres.some((where) => HEX_SHA256.test(where.emailHash ?? ''))).toBe(true);
+		expect(wheres.some((where) => HEX_SHA256.test(where.ipHash ?? ''))).toBe(true);
+	});
+
+	// Separates "its own counter" from "shares the login counter", which would let failed logins
+	// lock a user out of importing and vice versa.
+	it('records under its own kind, so it shares no counter with authentication', async () => {
+		await recordImportAttempt('user-1', '10.0.0.1');
+		expect(db.prisma.loginAttempt.create).toHaveBeenCalledWith(
+			expect.objectContaining({ data: expect.objectContaining({ kind: 'IMPORT' }) })
+		);
+	});
+
+	it('never stores the raw user id or address', async () => {
+		await recordImportAttempt('user-1', '10.0.0.1');
+		const data = db.prisma.loginAttempt.create.mock.calls[0][0].data;
+		expect(data.emailHash).toMatch(HEX_SHA256);
+		expect(data.ipHash).toMatch(HEX_SHA256);
+		expect(JSON.stringify(data)).not.toContain('user-1');
+		expect(JSON.stringify(data)).not.toContain('10.0.0.1');
 	});
 });

@@ -1,6 +1,8 @@
 import type { PendingDesignation } from './pendingDesignation.svelte';
 import type { PendingCollision } from './pendingCollision.svelte';
 import type { RoleAssignment } from '$lib/domain/columnDesignation';
+// TYPE ONLY, as in the two stores this bridges.
+import type { DateOrder } from '$lib/server/import/dateOrder';
 
 /**
  * What a run hands to the duplicate-statement dialog so that answering it can re-post the SAME run.
@@ -27,6 +29,7 @@ export function buildCollisionRepost(
 		assignment: RoleAssignment;
 		remember: boolean;
 		hasHeaderRow: boolean;
+		dateOrder: DateOrder | null;
 		deleteOldImport: boolean;
 	}
 ): PendingCollision['repost'] {
@@ -43,6 +46,10 @@ export function buildCollisionRepost(
 		account: pending.account && { ...pending.account, chosenId: result.accountId },
 		remember: result.remember,
 		hasHeaderRow: result.hasHeaderRow,
+		// The USER's answer, exactly as `hasHeaderRow` beside it: confirming re-posts it and
+		// declining reopens the screen showing it. There is no guess to fall back to here, because
+		// the value's whole purpose is that the application would otherwise guess.
+		dateOrder: result.dateOrder,
 		// The pending correction WHOLE, plus the answer just given. The three naming fields travel so
 		// declining can reopen the screen able to ask again; `deleteOldImport` travels because
 		// answering re-posts the same run, and a correction that lost it here would import beside the

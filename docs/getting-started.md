@@ -347,17 +347,17 @@ and `montant_total`, `part` (`1/2`, `2/2`, …) and `categorie_parent` are what
 put those lines back together as one transaction with its parts, rather than
 as several separate transactions. Two limits worth knowing:
 
-- Re-importing an export adds nothing **when those transactions came in
-  through Home or Generic**. Every line is recognised as one you already have,
-  so it is reported as a duplicate rather than imported twice.
+- Re-importing an export adds nothing, whichever account the transactions
+  came in through. The `compte` column names the account each line left, and
+  a re-import lands back on that same account rather than a fresh one, so
+  every line is recognised as one you already have and reported as a
+  duplicate rather than imported twice.
 
-  **It does add a second copy when they came in through Banque Populaire or
-  Revolut.** Transactions belong to an account, and BudgetPilot never compares
-  two transactions in two different accounts. That is on purpose: the same
-  payment really can appear on two of your accounts. An export is read back as a
-  Home file, and a Home file goes into your CSV account, so the copies land
-  beside the originals instead of on top of them. The `compte` column records
-  which account they came from, but the import does not read it back yet.
+  This can still add a second copy in two narrow cases: if the account it
+  named has since been deleted, or if two of your accounts happen to share
+  the exact same name. Either way, BudgetPilot refuses to guess rather than
+  risk filing a statement into the wrong account, and the export lands in
+  your CSV account instead, beside the originals.
 
   You will be warned before it happens: the import screen spots that the file
   repeats an earlier import and asks you to confirm. If you confirm, you get both

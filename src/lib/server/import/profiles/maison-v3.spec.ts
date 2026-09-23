@@ -246,7 +246,15 @@ describe('a file at the exact previous header', () => {
 		const resolution = await resolveStatementAccount({
 			userId: 'user-mine',
 			rows: parseRows(v2File),
-			accounts: [{ id: 'account-a', source: 'csv', archivedAt: null, discriminant: '4417' }]
+			accounts: [
+				{
+					id: 'account-a',
+					name: 'Compte import CSV',
+					source: 'csv',
+					archivedAt: null,
+					discriminant: '4417'
+				}
+			]
 		});
 
 		// Separates « the file named nothing, so we ask » from « rank 1 or rank 2 answered », which

@@ -1,4 +1,5 @@
 import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusals';
+import type { DateOrder } from '$lib/domain/dateReading';
 
 /**
  * The shape of an import summary, named once so both routes that produce one produce the same.
@@ -76,16 +77,46 @@ export interface ImportSummaryResult {
 	 */
 	accountName: string | null;
 	/**
-	 * The FILE named several accounts and the rows all landed in one.
+	 * REMOVED, #485, and the reason is decided rather than a side effect of the fix.
 	 *
-	 * Reported rather than refused, because a file that imports today must not stop importing
-	 * because this path learned to read its account column. What it buys is that an account showing
-	 * money that is not its own says so, instead of the user finding out months later as a balance
-	 * that will not reconcile.
-	 *
-	 * `false` is the ordinary case and draws nothing. The underlying defect, that this path has no
-	 * way to split a statement across the accounts it names, is #485; this field is its mitigation
-	 * and not its fix.
+	 * This carried « the file named several accounts and the rows all landed in one » so a
+	 * successful import could at least say so after the fact. #485's fix moved the question BEFORE
+	 * the write: a file `discriminant.ts` calls `contradictory` now refuses outright and never
+	 * reaches this object at all. A file it calls `ambiguous` only reaches a SUCCESSFUL import
+	 * after the user has just answered `accountColumnAnswer: 'not-account'` — and re-running
+	 * `findDiscriminantColumn` here would still report `ambiguous`, unchanged, because the raw
+	 * grammar over the file's cells has not moved. Showing this notice in that surviving case would
+	 * not inform the user of anything new: it would CONTRADICT the answer they gave thirty seconds
+	 * earlier. There is no remaining state on a successful import for this field to describe
+	 * honestly, so it is deleted rather than left reporting `false` forever.
 	 */
-	multiAccountFile: boolean;
+	/**
+	 * THIS IMPORT stored a column correspondance that later files of the same shape will reuse.
+	 *
+	 * Here because the sentence saying so MOVED OFF the designation screen. It used to sit in that
+	 * screen's body beside its opt-out link, where it cost 38 px in the one state that has the least
+	 * room, and the Date row's reading line needed 18 of them. The opt-out link stayed behind: the
+	 * consent must be in reach BEFORE the write, and this surface is after it.
+	 *
+	 * So the split is deliberate and the two halves say different things. The link is the choice,
+	 * offered while it can still be made. This is the disclosure, and it is past tense in substance:
+	 * it reports what the import did.
+	 *
+	 * A BOOLEAN AND NOT AN ASSUMPTION. A user who opted out must not be told their correspondance
+	 * will be reused, which would be a false claim on the screen that reports what happened. One
+	 * production writer memorises (`import/columns`'s action, the only `saveColumnMapping` call site
+	 * outside the db-smoke), and it is false everywhere else, including the automatic path, which
+	 * USES a correspondance and never creates one.
+	 */
+	rememberedMapping: boolean;
+	/**
+	 * The column and reading to state on the summary, plate 7l. Null unless the reading was CHOSEN
+	 * rather than proven or defaulted: `CsvImportSummary.dateOrderDisclosure`'s docstring holds the
+	 * one rule, and this is the same fact carried across the server/client boundary.
+	 *
+	 * Null and not absent, unlike its server-side source: this interface is a wire shape rather
+	 * than an internal one, and `satisfies` catches an omitted field but not a forgotten optional
+	 * one left implicitly undefined.
+	 */
+	dateOrderDisclosure: { header: string; order: DateOrder } | null;
 }

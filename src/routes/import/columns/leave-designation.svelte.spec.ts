@@ -66,6 +66,8 @@ function seed(correction: { mappingId: string; batchId: string } | null) {
 		view: VIEW,
 		initialAssignment: ASSIGNMENT,
 		candidates: {},
+		// Unanswered: this file is about the WAY OUT, which reads neither the reading nor the answer.
+		dateOrder: null,
 		/**
 		 * A RESOLVED account, because the primary now refuses a submission without one.
 		 *

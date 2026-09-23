@@ -1,4 +1,4 @@
-import { isValidIsoDate, validateTransaction } from '$lib/domain/transaction';
+import { validateTransaction } from '$lib/domain/transaction';
 import {
 	applyCategorizationRules,
 	type CategorizationRuleInput
@@ -11,11 +11,13 @@ import type {
 	ResolvedCsvImportProfile
 } from '../types';
 import type { CsvRefusal } from '../refusals';
-import { addRefusal, buildSummary, normalizeDate, toRecord } from '../utils/csv';
+import type { DateOrder } from '../dateOrder';
+import { addRefusal, buildSummary, readDateCell, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildCsvFields,
 	buildPreviewRowId,
+	hasStrandedControlCharacter,
 	refusalCellValue,
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
@@ -44,6 +46,8 @@ export interface ResolvedRowsInput {
 	/** False when row 0 is a transaction rather than a title row. Defaults to true. */
 	hasHeaderRow?: boolean;
 	columns: ResolvedColumnNames;
+	/** How an ambiguous date cell is read. Absent reads day-first. */
+	dateOrder?: DateOrder;
 	/** The folded header declaring a currency, when the file has one. */
 	currencyColumn: string | undefined;
 	acceptedCurrency: string;
@@ -73,6 +77,7 @@ export function parseResolvedRows({
 	rows,
 	headers,
 	hasHeaderRow,
+	dateOrder,
 	columns,
 	currencyColumn,
 	acceptedCurrency,
@@ -114,7 +119,18 @@ export function parseResolvedRows({
 		// whole widening. `columns.date` is `dateop` for a Boursorama file, `started date` for a
 		// Revolut one, and whatever the user designated for a mapped one.
 		const amountCents = parseAmountCents(record[columns.amount] ?? '');
-		const date = normalizeDate(record[columns.date] ?? '');
+		// Through the SHARED predicate, not a local composition of `normalizeDate` and
+		// `isValidIsoDate`. The designation screen asks the same question about the same column,
+		// and two compositions would let it state a reading this loop then refuses. See
+		// `readDateCell`.
+		const date = readDateCell(record[columns.date] ?? '', dateOrder);
+		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
+		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than
+		// silently importing an altered one. See `hasStrandedControlCharacter`'s own docstring.
+		if (hasStrandedControlCharacter(record[columns.label] ?? '')) {
+			addRefusal(refusals, { kind: 'row', line }, { code: 'control-character' }, columns.label);
+			return;
+		}
 		const label = sanitizeImportedText(record[columns.label] ?? '');
 		const category = sanitizeImportedText(
 			(columns.category ? record[columns.category] : '') || UNCLASSIFIED_CATEGORY
@@ -139,7 +155,7 @@ export function parseResolvedRows({
 			}
 		}
 
-		if (!isValidIsoDate(date)) {
+		if (date === null) {
 			// The RESOLVED column, like every other read in this loop. A Boursorama file names
 			// `dateop` and a mapped one names whatever the user designated, so a hardcoded `date`
 			// would point at a column their file does not contain.
@@ -197,8 +213,11 @@ export function parseResolvedRows({
 				notes: label,
 				type,
 				// The RESOLVED names, not a fixed list: with a fixed one a Boursorama file would
-				// store no date at all, because its column is `dateop`.
-				csvFields: buildCsvFields(record, resolvedFields)
+				// store no date at all, because its column is `dateop`. `columns.amount` is
+				// exempted from `sanitizeImportedText` by its own resolved name, whatever a
+				// user's file happens to call it, so a lowercase `montant` amount column is
+				// exempted exactly like `Montant` would be. #466.
+				csvFields: buildCsvFields(record, resolvedFields, new Set([columns.amount]))
 			}
 		};
 		const validation = validateTransaction(transaction);

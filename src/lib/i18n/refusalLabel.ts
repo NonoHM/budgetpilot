@@ -82,6 +82,25 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			return m.import_refusal_too_many_columns({ max: fact.max });
 		case 'header-not-recognized':
 			return m.import_refusal_header_not_recognized({ profile: fact.profile });
+		case 'mixed-date-order':
+			return m.import_refusal_mixed_date_order({
+				dayFirst: fact.dayFirst,
+				monthFirst: fact.monthFirst
+			});
+		case 'ambiguous-date-order':
+			// Reached only when the route did not intercept the offer (a hand-crafted request, or a
+			// client that dropped the `reading` payload): the sentence names the problem in words
+			// rather than leaving a bare `error` field with nothing behind it.
+			return m.import_refusal_ambiguous_date_order();
+		case 'multi-account-file':
+			// #485. `column` is not rendered here, same convention as `ambiguous-date-order`'s
+			// unrendered `column`/`sample`: the route reads it to name the header when it builds the
+			// offer, and this plain sentence covers the case where nothing downstream did.
+			return m.import_refusal_multi_account_file();
+		case 'ambiguous-account-column':
+			// Reached only when the route did not intercept the offer, same convention as
+			// `ambiguous-date-order` immediately above.
+			return m.import_refusal_ambiguous_account_column();
 		case 'unknown-column':
 			return m.import_refusal_unknown_column({ column: fact.column });
 		case 'duplicate-column':
@@ -149,6 +168,8 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			return m.import_refusal_debit_credit_empty();
 		case 'category-too-long':
 			return m.import_refusal_category_too_long();
+		case 'control-character':
+			return m.import_refusal_control_character();
 		case 'split-column-unreadable':
 			return m.import_refusal_split_column_unreadable();
 		case 'split-out-of-bounds':
