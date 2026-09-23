@@ -91,7 +91,7 @@ describe('summary row', () => {
 	it('is rendered with no filter at all, carrying the totals a user has today', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		// Both surfaces render simultaneously, a known duplication: a count of 2 is what stops this
 		// passing while one of the two has lost its totals.
@@ -116,12 +116,12 @@ describe('summary row', () => {
 		const countText = (c: HTMLElement) =>
 			c.querySelector('[data-testid="summary-count"]')?.textContent?.trim();
 
-		const unfiltered = render(Page, { data: baseData(), form: null });
+		const unfiltered = await render(Page, { data: baseData(), form: null });
 		// "142 transactions" — the whole month, not a result.
 		expect(countText(unfiltered.container)).toBe(m.transactions_total_many({ count: 142 }));
 		unfiltered.unmount();
 
-		const withFilter = render(Page, { data: filtered(), form: null });
+		const withFilter = await render(Page, { data: filtered(), form: null });
 		// "6 résultats". One word per concept: the bar said "6 transactions filtrées" here and
 		// "Étiqueter les 6 résultats" on the trigger, naming one thing two ways.
 		expect(countText(withFilter.container)).toBe(m.transactions_results_many({ count: 6 }));
@@ -131,12 +131,12 @@ describe('summary row', () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
 
-		const unfiltered = render(Page, { data: baseData(), form: null });
+		const unfiltered = await render(Page, { data: baseData(), form: null });
 		expect(bulkTriggers(unfiltered.container)).toHaveLength(0);
 		expect(unfiltered.container.querySelectorAll('[data-testid="reset-filters"]')).toHaveLength(0);
 		unfiltered.unmount();
 
-		const withFilter = render(Page, { data: filtered(), form: null });
+		const withFilter = await render(Page, { data: filtered(), form: null });
 		expect(bulkTriggers(withFilter.container)).toHaveLength(2);
 		expect(withFilter.container.querySelectorAll('[data-testid="reset-filters"]')).toHaveLength(2);
 	});
@@ -144,7 +144,7 @@ describe('summary row', () => {
 	it('keeps every button out of the live region', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: filtered(), form: null });
+		const { container } = await render(Page, { data: filtered(), form: null });
 
 		// role="status" covers the TEXT only. With the controls inside it, every filter change
 		// re-announces "Réinitialiser les filtres, bouton" alongside the figures.
@@ -157,7 +157,7 @@ describe('summary row', () => {
 	it('zero results: the trigger stays focusable, drops the number, and explains itself', async () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: filtered({
 				pagination: {
 					page: 1,
@@ -186,7 +186,7 @@ describe('summary row', () => {
 	it('no tag exists yet: the trigger is still rendered, disabled, naming the only way to create one', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: filtered({ allTags: [] }), form: null });
+		const { container } = await render(Page, { data: filtered({ allTags: [] }), form: null });
 
 		// Deliberately unlike the tag FILTER, which is not rendered at all in this case. A filter
 		// with no possible value has nothing to offer; an unavailable ACTION has to teach the
@@ -200,7 +200,7 @@ describe('summary row', () => {
 	it('over the cap: the refusal is a warning up front, naming a fallback with its real count', async () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: filtered({
 				pagination: {
 					page: 1,
@@ -234,7 +234,7 @@ describe('summary row', () => {
 	it('over the cap with nothing that would fit: the banner offers no route at all', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: filtered({
 				pagination: {
 					page: 1,
@@ -262,7 +262,7 @@ describe('summary row', () => {
 	it('under the cap: no refusal at all', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: filtered({
 				pagination: {
 					page: 1,
@@ -304,7 +304,10 @@ describe('summary row', () => {
 	it('desktop: the band is its own row above the table, and reads on one line', async () => {
 		expect.assertions(6);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData({ transactions: ONE_ROW }), form: null });
+		const { container } = await render(Page, {
+			data: baseData({ transactions: ONE_ROW }),
+			form: null
+		});
 
 		const band = container.querySelector<HTMLElement>('[data-testid="summary-band"]')!;
 		const table = container.querySelector<HTMLElement>('table')!;
@@ -336,7 +339,7 @@ describe('summary row', () => {
 	it('labels each figure and signs it, expenses first', async () => {
 		expect.assertions(5);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const totals = container.querySelector<HTMLElement>('[data-testid="filtered-totals"]')!;
 		// Whitespace normalised on BOTH sides, never on one: Intl separates thousands with U+202F

@@ -6,7 +6,7 @@ import SearchBar from './SearchBar.svelte';
 
 describe('SearchBar.svelte', () => {
 	it('hides the clear button when the value is empty', async () => {
-		render(SearchBar, { value: '', clearLabel: 'Effacer la recherche' });
+		await render(SearchBar, { value: '', clearLabel: 'Effacer la recherche' });
 
 		await expect
 			.element(page.getByRole('button', { name: 'Effacer la recherche' }))
@@ -14,7 +14,7 @@ describe('SearchBar.svelte', () => {
 	});
 
 	it('shows the clear button when the value is non-empty, and clears + refocuses on click', async () => {
-		render(SearchBar, { value: 'carrefour', clearLabel: 'Effacer la recherche' });
+		await render(SearchBar, { value: 'carrefour', clearLabel: 'Effacer la recherche' });
 
 		const input = page.getByRole('searchbox');
 		await expect.element(input).toHaveValue('carrefour');
@@ -32,7 +32,7 @@ describe('SearchBar.svelte', () => {
 	});
 
 	it('applies the rose error classes when error is true', async () => {
-		render(SearchBar, { value: '', clearLabel: 'Effacer la recherche', error: true });
+		await render(SearchBar, { value: '', clearLabel: 'Effacer la recherche', error: true });
 
 		const input = page.getByRole('searchbox').element();
 		expect(input.className).toContain('border-rose-300');
@@ -40,7 +40,7 @@ describe('SearchBar.svelte', () => {
 	});
 
 	it('does not apply the error classes by default', async () => {
-		render(SearchBar, { value: '', clearLabel: 'Effacer la recherche' });
+		await render(SearchBar, { value: '', clearLabel: 'Effacer la recherche' });
 
 		const input = page.getByRole('searchbox').element();
 		expect(input.className).not.toContain('border-rose-300');
@@ -52,7 +52,7 @@ describe('SearchBar.svelte', () => {
 	// like a bare, uncontrolled <input value={...}> would behave. This proves the $bindable prop
 	// still resyncs from a new parent value when the caller never established a two-way `bind:`.
 	it('resyncs to a fresh value prop after local typing, when the caller does not use bind:value', async () => {
-		const { rerender } = render(SearchBar, { value: 'old query', clearLabel: 'Effacer' });
+		const { rerender } = await render(SearchBar, { value: 'old query', clearLabel: 'Effacer' });
 
 		const input = page.getByRole('searchbox');
 		await expect.element(input).toHaveValue('old query');
@@ -69,7 +69,7 @@ describe('SearchBar.svelte', () => {
 	});
 
 	it('passes name/id/placeholder/aria-label through to the input', async () => {
-		render(SearchBar, {
+		await render(SearchBar, {
 			value: '',
 			name: 'q',
 			id: 'search-transactions',
@@ -89,7 +89,7 @@ describe('SearchBar.svelte', () => {
 		// button is type="button" (IconButton's default), so it can never accidentally submit an
 		// enclosing native form.
 		const onclick = vi.fn();
-		render(SearchBar, { value: 'x', clearLabel: 'Effacer' });
+		await render(SearchBar, { value: 'x', clearLabel: 'Effacer' });
 
 		const clearButton = page.getByRole('button', { name: 'Effacer' }).element();
 		expect(clearButton.getAttribute('type')).toBe('button');
@@ -136,7 +136,7 @@ describe('SearchBar.svelte', () => {
 		}
 
 		it('submits name="q" with the typed value alongside the untouched hidden qMode sibling', async () => {
-			const { container } = render(SearchBar, {
+			const { container } = await render(SearchBar, {
 				value: '',
 				name: 'q',
 				clearLabel: 'Effacer'
@@ -165,7 +165,7 @@ describe('SearchBar.svelte', () => {
 		});
 
 		it('submits an empty q param when the value is empty', async () => {
-			const { container } = render(SearchBar, {
+			const { container } = await render(SearchBar, {
 				value: '',
 				name: 'q',
 				clearLabel: 'Effacer'
@@ -180,7 +180,7 @@ describe('SearchBar.svelte', () => {
 		});
 
 		it('omits the q param entirely when no name prop is passed (matches a bare unnamed <input>)', async () => {
-			const { container } = render(SearchBar, { value: 'carrefour', clearLabel: 'Effacer' });
+			const { container } = await render(SearchBar, { value: 'carrefour', clearLabel: 'Effacer' });
 			const { form } = buildTransactionsFilterForm(container);
 
 			const formData = new FormData(form);
@@ -190,7 +190,7 @@ describe('SearchBar.svelte', () => {
 		});
 
 		it('never intercepts the native submit (no preventDefault of its own, no extra fields added)', async () => {
-			const { container } = render(SearchBar, {
+			const { container } = await render(SearchBar, {
 				value: 'sncf',
 				name: 'q',
 				clearLabel: 'Effacer'
@@ -218,7 +218,7 @@ describe('SearchBar.svelte', () => {
 		// a class list cannot prove two components agree about a number.
 		it('the field density is the 44px primary-form-field template', async () => {
 			expect.assertions(1);
-			render(SearchBar, { value: '', clearLabel: 'Effacer', wrapperClass: 'w-[300px]' });
+			await render(SearchBar, { value: '', clearLabel: 'Effacer', wrapperClass: 'w-[300px]' });
 
 			const wrapper = page.getByRole('searchbox').element().parentElement as HTMLElement;
 			expect(Math.round(wrapper.getBoundingClientRect().height)).toBe(44);
@@ -226,7 +226,7 @@ describe('SearchBar.svelte', () => {
 
 		it('the bar density is 34px and its clear button still clears the 24px target', async () => {
 			expect.assertions(4);
-			render(SearchBar, {
+			await render(SearchBar, {
 				value: 'carrefour',
 				density: 'bar',
 				clearLabel: 'Effacer',

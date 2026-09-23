@@ -25,7 +25,7 @@ describe('SplitPartRow — naming', () => {
 		// 1p: « La position est dans le nom accessible, ce qui rend le numéro visible purement
 		// décoratif. » A screen reader that heard "2" from the number AND from each field would say it
 		// three times per row.
-		render(SplitPartRow, base({ position: 2, categoryId: 'cat-maison' }));
+		await render(SplitPartRow, base({ position: 2, categoryId: 'cat-maison' }));
 
 		await expect
 			.element(page.getByRole('combobox', { name: 'Catégorie de la part 2' }))
@@ -44,7 +44,7 @@ describe('SplitPartRow — naming', () => {
 
 describe('SplitPartRow — the floor (1f)', () => {
 	it('neutralises the cross with aria-disabled and a reason, never native disabled', async () => {
-		render(SplitPartRow, base({ removeSoftDisabled: true, removeHintId: 'floor-sentence' }));
+		await render(SplitPartRow, base({ removeSoftDisabled: true, removeHintId: 'floor-sentence' }));
 
 		const cross = page.getByRole('button', { name: 'Retirer la part 1' }).element();
 		expect(cross.getAttribute('aria-disabled')).toBe('true');
@@ -55,7 +55,7 @@ describe('SplitPartRow — the floor (1f)', () => {
 
 	it('does not remove the part while neutralised', async () => {
 		const onRemove = vi.fn<() => void>();
-		render(SplitPartRow, base({ removeSoftDisabled: true, removeHintId: 'floor', onRemove }));
+		await render(SplitPartRow, base({ removeSoftDisabled: true, removeHintId: 'floor', onRemove }));
 
 		// Clicked directly rather than through userEvent: Playwright treats aria-disabled as
 		// not-enabled and would wait forever, while a programmatic or assistive-technology
@@ -66,7 +66,7 @@ describe('SplitPartRow — the floor (1f)', () => {
 
 	it('removes normally when it is not at the floor', async () => {
 		const onRemove = vi.fn<() => void>();
-		render(SplitPartRow, base({ onRemove }));
+		await render(SplitPartRow, base({ onRemove }));
 		await userEvent.click(page.getByRole('button', { name: 'Retirer la part 1' }));
 		expect(onRemove).toHaveBeenCalledTimes(1);
 	});
@@ -74,7 +74,7 @@ describe('SplitPartRow — the floor (1f)', () => {
 
 describe('SplitPartRow — the note (1h)', () => {
 	it('costs nothing when absent: a button, no field, no counter', async () => {
-		render(SplitPartRow, base());
+		await render(SplitPartRow, base());
 
 		await expect.element(page.getByRole('button', { name: 'Note' })).toBeInTheDocument();
 		expect(document.querySelector('input[maxlength="80"]')).toBeNull();
@@ -82,7 +82,7 @@ describe('SplitPartRow — the note (1h)', () => {
 
 	it('renders the field when a note already exists, with the full text in title', async () => {
 		const long = 'Courses de la semaine pour la maison et les enfants';
-		render(SplitPartRow, base({ note: long }));
+		await render(SplitPartRow, base({ note: long }));
 
 		const field = page.getByLabelText('Note de la part 1').element() as HTMLInputElement;
 		expect(field.value).toBe(long);
@@ -101,7 +101,7 @@ describe('SplitPartRow — the note (1h)', () => {
 		// the assertion ran before anything had rendered. The counter was missing because the DOM was
 		// stale, not because of the rule. Polling a DISAPPEARANCE is a real signal; polling an absence
 		// that was never present is not.
-		const { rerender } = render(SplitPartRow, base({ note: 'x'.repeat(60) }));
+		const { rerender } = await render(SplitPartRow, base({ note: 'x'.repeat(60) }));
 		(page.getByLabelText('Note de la part 1').element() as HTMLInputElement).focus();
 		await expect.poll(() => document.body.textContent).toContain('20 restants');
 
@@ -113,7 +113,7 @@ describe('SplitPartRow — the note (1h)', () => {
 
 describe('SplitPartRow — a deleted category (1r)', () => {
 	it('keeps the amount, names the lost category, and marks it by shape as well as text', async () => {
-		render(SplitPartRow, base({ deletedCategoryName: 'Cadeaux', amount: '20,00' }));
+		await render(SplitPartRow, base({ deletedCategoryName: 'Cadeaux', amount: '20,00' }));
 
 		// The work is kept — it is the category that vanished, not the amount.
 		expect((page.getByLabelText('Montant de la part 1').element() as HTMLInputElement).value).toBe(
@@ -130,12 +130,12 @@ describe('SplitPartRow — a deleted category (1r)', () => {
 
 describe('SplitPartRow — the rounding cent (1e)', () => {
 	it('attaches the mention to the part concerned, not to a legend', async () => {
-		render(SplitPartRow, base({ showRoundingCent: true }));
+		await render(SplitPartRow, base({ showRoundingCent: true }));
 		expect(document.body.textContent).toContain("centime d'arrondi");
 	});
 
 	it('renders nothing when the division was even', async () => {
-		render(SplitPartRow, base());
+		await render(SplitPartRow, base());
 		expect(document.body.textContent).not.toContain("centime d'arrondi");
 	});
 });
@@ -143,7 +143,7 @@ describe('SplitPartRow — the rounding cent (1e)', () => {
 describe('SplitPartRow — reporting typing to the editor', () => {
 	it('reports every keystroke, which is what makes the remainder live', async () => {
 		const onAmountInput = vi.fn<() => void>();
-		render(SplitPartRow, base({ amount: '', onAmountInput }));
+		await render(SplitPartRow, base({ amount: '', onAmountInput }));
 
 		await userEvent.fill(page.getByLabelText('Montant de la part 1'), '60');
 		expect(onAmountInput).toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe('SplitPartRow — reporting typing to the editor', () => {
 
 	it('reports leaving the field, which is what lets the sentence be spoken at once', async () => {
 		const onAmountBlur = vi.fn<() => void>();
-		render(SplitPartRow, base({ onAmountBlur }));
+		await render(SplitPartRow, base({ onAmountBlur }));
 
 		const field = page.getByLabelText('Montant de la part 1').element() as HTMLInputElement;
 		field.focus();

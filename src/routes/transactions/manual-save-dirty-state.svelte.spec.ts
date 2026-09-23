@@ -120,7 +120,7 @@ function baseData(overrides: Record<string, unknown> = {}): PageData {
 describe('manual category/nature save button dirty state', () => {
 	it('desktop: disabled by default, enabled on change, disabled again on revert', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const aside = container.querySelector('aside') as HTMLElement;
 		const natureSection = aside.querySelectorAll('section')[1] as HTMLElement;
@@ -140,7 +140,7 @@ describe('manual category/nature save button dirty state', () => {
 
 	it('mobile: disabled by default, enabled on change, disabled again on revert', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		const sheet = page.getByRole('dialog');
 		const trigger = sheet.getByRole('button', { name: 'Nature manuelle' });

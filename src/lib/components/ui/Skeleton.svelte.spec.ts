@@ -29,14 +29,14 @@ function reducedMotionRuleDeclarations(): string {
 
 describe('Skeleton.svelte', () => {
 	it('is purely decorative (aria-hidden), never announced as content', async () => {
-		const { container } = render(Skeleton, {});
+		const { container } = await render(Skeleton, {});
 
 		const root = container.firstElementChild as HTMLElement;
 		expect(root.getAttribute('aria-hidden')).toBe('true');
 	});
 
 	it('mirrors ListCard slots: a pastille + two text lines + a trailing value, never a lone rectangle', async () => {
-		const { container } = render(Skeleton, {});
+		const { container } = await render(Skeleton, {});
 
 		const pulseBlocks = container.querySelectorAll('.skeleton-pulse');
 		// pastille, 2 text lines, trailing value = 4 distinct pulsing blocks.
@@ -48,14 +48,14 @@ describe('Skeleton.svelte', () => {
 	});
 
 	it('accepts an extra class on the root element', async () => {
-		const { container } = render(Skeleton, { class: 'my-extra-class' });
+		const { container } = await render(Skeleton, { class: 'my-extra-class' });
 
 		const root = container.firstElementChild as HTMLElement;
 		expect(root.className).toContain('my-extra-class');
 	});
 
 	it('freezes the pulse to a static, fully opaque placeholder under prefers-reduced-motion', async () => {
-		render(Skeleton, {});
+		await render(Skeleton, {});
 
 		const declarations = reducedMotionRuleDeclarations();
 		expect(declarations).toContain('skeleton-pulse');
@@ -66,7 +66,7 @@ describe('Skeleton.svelte', () => {
 	});
 
 	it('renders no phantom chip slot by default', async () => {
-		const { container } = render(Skeleton, {});
+		const { container } = await render(Skeleton, {});
 
 		expect(container.querySelectorAll('.skeleton-pulse').length).toBe(4);
 		expect(container.querySelector('[data-testid="skeleton-chips"]')).toBeNull();
@@ -76,7 +76,7 @@ describe('Skeleton.svelte', () => {
 		// "Always drawn" per the design: the real row's tag count is unknown while loading, and a
 		// slot that only appears once the data arrives would shift the column — so this renders
 		// unconditionally on `chips`, never based on any tag count (there is none to know yet).
-		const { container } = render(Skeleton, { chips: true });
+		const { container } = await render(Skeleton, { chips: true });
 
 		const slot = container.querySelector('[data-testid="skeleton-chips"]');
 		expect(slot).not.toBeNull();

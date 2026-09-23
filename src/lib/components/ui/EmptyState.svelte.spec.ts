@@ -12,7 +12,7 @@ function iconSnippet() {
 
 describe('EmptyState.svelte', () => {
 	it('renders the title and description text', async () => {
-		render(EmptyState, {
+		await render(EmptyState, {
 			title: 'Aucune transaction',
 			description: 'Importez un relevé pour commencer.'
 		});
@@ -22,7 +22,7 @@ describe('EmptyState.svelte', () => {
 	});
 
 	it('renders the icon snippet when card is true (default)', async () => {
-		const { container } = render(EmptyState, {
+		const { container } = await render(EmptyState, {
 			title: 'Vide',
 			icon: iconSnippet()
 		});
@@ -31,7 +31,7 @@ describe('EmptyState.svelte', () => {
 	});
 
 	it('wraps content in the solid card classes by default', async () => {
-		const { container } = render(EmptyState, { title: 'Vide', icon: iconSnippet() });
+		const { container } = await render(EmptyState, { title: 'Vide', icon: iconSnippet() });
 
 		const wrapper = container.querySelector('div')!;
 		expect(wrapper.className).toContain('px-6');
@@ -39,7 +39,7 @@ describe('EmptyState.svelte', () => {
 	});
 
 	it('renders without card wrapper classes when card=false', async () => {
-		const { container } = render(EmptyState, { title: 'Vide', card: false });
+		const { container } = await render(EmptyState, { title: 'Vide', card: false });
 
 		const wrapper = container.querySelector('div')!;
 		expect(wrapper.className).not.toContain('px-6');
@@ -48,21 +48,25 @@ describe('EmptyState.svelte', () => {
 	});
 
 	it('does not force an icon when card=false and none is passed', async () => {
-		const { container } = render(EmptyState, { title: 'Vide', card: false });
+		const { container } = await render(EmptyState, { title: 'Vide', card: false });
 
 		expect(container.querySelector('svg')).toBeNull();
 		expect(container.querySelector('.rounded-full')).toBeNull();
 	});
 
 	it('still renders a passed icon even when card=false', async () => {
-		const { container } = render(EmptyState, { title: 'Vide', card: false, icon: iconSnippet() });
+		const { container } = await render(EmptyState, {
+			title: 'Vide',
+			card: false,
+			icon: iconSnippet()
+		});
 
 		expect(container.querySelector('svg')).not.toBeNull();
 	});
 
 	it('renders a primary CTA button and fires onCtaClick when clicked', async () => {
 		const onCtaClick = vi.fn();
-		render(EmptyState, {
+		await render(EmptyState, {
 			title: 'Vide',
 			ctaLabel: 'Importer',
 			onCtaClick
@@ -74,7 +78,7 @@ describe('EmptyState.svelte', () => {
 	});
 
 	it('renders the primary CTA as a link when ctaHref is given, not a button', async () => {
-		const { container } = render(EmptyState, {
+		const { container } = await render(EmptyState, {
 			title: 'Vide',
 			ctaLabel: 'Aller aux réglages',
 			ctaHref: '/settings'
@@ -90,7 +94,7 @@ describe('EmptyState.svelte', () => {
 		const actionSnippet = createRawSnippet(() => ({
 			render: () => '<button type="button">Action personnalisée</button>'
 		}));
-		render(EmptyState, {
+		await render(EmptyState, {
 			title: 'Vide',
 			action: actionSnippet,
 			ctaLabel: 'Ignoré',
@@ -105,7 +109,7 @@ describe('EmptyState.svelte', () => {
 
 	it('renders a secondary CTA as a TapLink only when both secondaryLabel and onSecondaryClick are passed', async () => {
 		const onSecondaryClick = vi.fn();
-		render(EmptyState, {
+		await render(EmptyState, {
 			title: 'Vide',
 			secondaryLabel: 'Ajouter manuellement',
 			onSecondaryClick
@@ -118,13 +122,13 @@ describe('EmptyState.svelte', () => {
 	});
 
 	it('does not render a secondary CTA when secondaryLabel is missing', async () => {
-		render(EmptyState, { title: 'Vide', onSecondaryClick: vi.fn() });
+		await render(EmptyState, { title: 'Vide', onSecondaryClick: vi.fn() });
 
 		expect(page.getByRole('button').elements().length).toBe(0);
 	});
 
 	it('does not render a secondary CTA when onSecondaryClick is missing', async () => {
-		render(EmptyState, { title: 'Vide', secondaryLabel: 'Ajouter manuellement' });
+		await render(EmptyState, { title: 'Vide', secondaryLabel: 'Ajouter manuellement' });
 
 		expect(page.getByText('Ajouter manuellement').elements().length).toBe(0);
 	});
@@ -133,7 +137,7 @@ describe('EmptyState.svelte', () => {
 		const detailSnippet = createRawSnippet(() => ({
 			render: () => '<span data-testid="detail-block">3 marchands observés</span>'
 		}));
-		const { container } = render(EmptyState, {
+		const { container } = await render(EmptyState, {
 			title: 'Vide',
 			description: 'Description ici.',
 			detail: detailSnippet,
@@ -156,13 +160,13 @@ describe('EmptyState.svelte', () => {
 	});
 
 	it('does not render a detail block when none is passed', async () => {
-		const { container } = render(EmptyState, { title: 'Vide', description: 'Rien.' });
+		const { container } = await render(EmptyState, { title: 'Vide', description: 'Rien.' });
 
 		expect(container.querySelector('[data-testid="detail-block"]')).toBeNull();
 	});
 
 	it('renders cleanly with only icon/title/description and no CTA at all', async () => {
-		const { container } = render(EmptyState, {
+		const { container } = await render(EmptyState, {
 			title: 'Rien à afficher',
 			description: 'Tout est vide ici.',
 			icon: iconSnippet()

@@ -103,7 +103,7 @@ function allHrefs(container: HTMLElement): string[] {
 describe('?ids= propagation through the generated links', () => {
 	it('carries ids into pagination, row selection and the export', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const hrefs = allHrefs(container);
 
@@ -124,7 +124,7 @@ describe('?ids= propagation through the generated links', () => {
 
 	it('drops ids from the tab links, which visibly change the list', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const tabs = [...container.querySelectorAll('a[role="tab"]')].map(
 			(tab) => tab.getAttribute('href') ?? ''
@@ -143,7 +143,7 @@ describe('?ids= propagation through the generated links', () => {
 		// Rendered rather than asserted on the builder alone, because the defect lived in what the
 		// CALL SITE passed, not in the builder. A unit test on buildTransactionsHref cannot see it.
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, type: 'expense' } }),
 			form: null
 		});
@@ -167,7 +167,7 @@ describe('?ids= propagation through the generated links', () => {
 	it('drops ids from the focus-mode navigation', async () => {
 		await page.viewport(1280, 800);
 		goto.mockClear();
-		render(Page, {
+		await render(Page, {
 			data: baseData({ uncategorizedCount: 3, classifiableCount: 0, classifyStackIds: ['tx-1'] }),
 			form: null
 		});
@@ -180,7 +180,7 @@ describe('?ids= propagation through the generated links', () => {
 
 	it('carries no ids hidden input in the search forms, so submitting one leaves the filtered view', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const forms = [...container.querySelectorAll('form')].filter(
 			(form) => (form.getAttribute('method') ?? 'get').toLowerCase() === 'get'
@@ -194,7 +194,7 @@ describe('?ids= propagation through the generated links', () => {
 
 	it('tells the user a filter is active, since no field echoes it', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		// The whole point of the notice: with `?q=` the search box showed the term, so a short list
 		// explained itself. `?ids=` has no field of its own and the bar would otherwise look empty.
@@ -207,7 +207,7 @@ describe('?ids= propagation through the generated links', () => {
 
 	it('reads correctly in the singular, when exactly one result is on screen', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				transactions: [makeTransaction('tx-1')],
 				pagination: {
@@ -227,7 +227,7 @@ describe('?ids= propagation through the generated links', () => {
 
 	it('says nothing when no id filter is active', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, ids: '' } }),
 			form: null
 		});

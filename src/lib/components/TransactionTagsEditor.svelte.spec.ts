@@ -30,8 +30,8 @@ const SUBMIT: SubmitFunction =
 
 type EditorProps = ComponentProps<typeof TransactionTagsEditor>;
 
-function renderEditor(props: Omit<EditorProps, 'allTags' | 'action' | 'enhanceSubmit'>) {
-	return render(TransactionTagsEditor, {
+async function renderEditor(props: Omit<EditorProps, 'allTags' | 'action' | 'enhanceSubmit'>) {
+	return await render(TransactionTagsEditor, {
 		allTags,
 		action: ACTION,
 		enhanceSubmit: SUBMIT,
@@ -41,7 +41,7 @@ function renderEditor(props: Omit<EditorProps, 'allTags' | 'action' | 'enhanceSu
 
 describe('TransactionTagsEditor.svelte', () => {
 	it('pre-selects the transaction current tags as removable chips', async () => {
-		renderEditor({
+		await renderEditor({
 			transactionId: 'tx-1',
 			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
 		});
@@ -52,7 +52,7 @@ describe('TransactionTagsEditor.svelte', () => {
 	});
 
 	it('carries the transaction id as a hidden field, and posts where the page says', async () => {
-		const { container } = renderEditor({ transactionId: 'tx-42', tags: [] });
+		const { container } = await renderEditor({ transactionId: 'tx-42', tags: [] });
 
 		const hidden = container.querySelector('input[name="transactionId"]') as HTMLInputElement;
 		expect(hidden.value).toBe('tx-42');
@@ -64,7 +64,7 @@ describe('TransactionTagsEditor.svelte', () => {
 	});
 
 	it('disables Save until the selection actually changes from what is saved', async () => {
-		renderEditor({
+		await renderEditor({
 			transactionId: 'tx-1',
 			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
 		});
@@ -79,7 +79,7 @@ describe('TransactionTagsEditor.svelte', () => {
 	});
 
 	it('re-disables Save once the selection reverts back to what is saved', async () => {
-		renderEditor({
+		await renderEditor({
 			transactionId: 'tx-1',
 			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
 		});
@@ -99,7 +99,7 @@ describe('TransactionTagsEditor.svelte', () => {
 		// The catalogue's own sentence, called rather than retyped: a hard-coded copy asserts the
 		// copy. `max` is the production constant for the same reason.
 		const refusal = m.tags_error_too_many({ max: MAX_TAGS_PER_TRANSACTION });
-		const { container } = renderEditor({ transactionId: 'tx-1', tags: [], error: refusal });
+		const { container } = await renderEditor({ transactionId: 'tx-1', tags: [], error: refusal });
 
 		await expect.element(page.getByText(refusal)).toBeInTheDocument();
 		// `role="alert"`: the panel survives the submit now, so a refused save changes nothing else
@@ -109,7 +109,7 @@ describe('TransactionTagsEditor.svelte', () => {
 
 	it('renders the static help line under the chip group when at least one chip is present', async () => {
 		expect.assertions(2);
-		renderEditor({
+		await renderEditor({
 			transactionId: 'tx-1',
 			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
 		});
@@ -123,7 +123,7 @@ describe('TransactionTagsEditor.svelte', () => {
 
 	it('renders no help line when there are no chips, symmetrically with the group itself', async () => {
 		expect.assertions(1);
-		renderEditor({ transactionId: 'tx-1', tags: [] });
+		await renderEditor({ transactionId: 'tx-1', tags: [] });
 
 		expect(page.getByText(m.tags_chips_help_remove()).elements().length).toBe(0);
 	});
@@ -141,7 +141,7 @@ describe('TransactionTagsEditor.svelte', () => {
 	 */
 	it('keeps an unsaved selection when the load re-runs and says the same thing', async () => {
 		const tags = [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }];
-		const { rerender } = renderEditor({ transactionId: 'tx-1', tags });
+		const { rerender } = await renderEditor({ transactionId: 'tx-1', tags });
 
 		await userEvent.click(page.getByRole('combobox'));
 		await userEvent.click(page.getByRole('option', { name: 'Travaux' }));
@@ -162,7 +162,7 @@ describe('TransactionTagsEditor.svelte', () => {
 	});
 
 	it('takes the new tags when the load says something different', async () => {
-		const { rerender } = renderEditor({
+		const { rerender } = await renderEditor({
 			transactionId: 'tx-1',
 			tags: [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }]
 		});
@@ -187,7 +187,7 @@ describe('TransactionTagsEditor.svelte', () => {
 
 	it('resets when a different row is selected, even if that row carries the same tags', async () => {
 		const tags = [{ id: 'tag-1', name: 'Portugal', colorToken: 'clay' as const }];
-		const { rerender } = renderEditor({ transactionId: 'tx-1', tags });
+		const { rerender } = await renderEditor({ transactionId: 'tx-1', tags });
 
 		await userEvent.click(page.getByRole('combobox'));
 		await userEvent.click(page.getByRole('option', { name: 'Travaux' }));

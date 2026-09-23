@@ -82,8 +82,8 @@ const FILE = {
 const PARTIAL: RoleAssignment = { date: 0, label: null, amount: null, category: null };
 const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 5, category: 7 };
 
-function mount(props: Record<string, unknown> = {}) {
-	const { container } = render(ColumnDesignationScreen, {
+async function mount(props: Record<string, unknown> = {}) {
+	const { container } = await render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: EMPTY_ASSIGNMENT,
 		/**
@@ -121,8 +121,8 @@ describe('the four regions, and their sum is the screen', () => {
 	 * BREAK 2: header `h-14` to `h-16`.
 	 * Both run; results recorded in the tests they redden.
 	 */
-	it('is 56 + 636 + 64 + 88, and those add to the 844 the screen occupies', () => {
-		const { screen, header, body, banner, footer } = mount();
+	it('is 56 + 636 + 64 + 88, and those add to the 844 the screen occupies', async () => {
+		const { screen, header, body, banner, footer } = await mount();
 
 		const heights = [header, body, banner, footer].map((el) => el.getBoundingClientRect().height);
 		expect(heights).toStrictEqual([56, 636, 64, 88]);
@@ -133,13 +133,13 @@ describe('the four regions, and their sum is the screen', () => {
 		expect(screen.getBoundingClientRect().width).toBe(390);
 	});
 
-	it('caps the body at 636 rather than letting it grow, which a bare 1fr would not', () => {
+	it('caps the body at 636 rather than letting it grow, which a bare 1fr would not', async () => {
 		// A `1fr` track has `min-height: auto`, refuses to shrink below its content, and the cap is
 		// then silently ignored: the page grows and the banner leaves the screen, in exactly the
 		// states with the most content. Measured under BREAK 1: the body reads 636 either way in
 		// these states because the content is only 449, so this assertion is NOT what catches it.
 		// The one that does is the overflow test below, run against a deliberately overfull body.
-		const { body } = mount();
+		const { body } = await mount();
 
 		expect(body.getBoundingClientRect().height).toBe(636);
 		expect(getComputedStyle(body).overflowY).toBe('auto');
@@ -153,7 +153,7 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 		return last.getBoundingClientRect().bottom - body.getBoundingClientRect().top + paddingBottom;
 	};
 
-	it('is 549 in state 0, leaving 87 px of air', () => {
+	it('is 549 in state 0, leaving 87 px of air', async () => {
 		// 16 padding + 40 file block + 14 gap + 68 account row + 14 gap + 373 card + 24 padding.
 		//
 		// Separates « the body has room the design can still spend » from « it is already full ».
@@ -174,25 +174,25 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 		// difference is the row's own 68 against the 14 px body gap, recorded rather than rounded
 		// away. And 511 before THAT, the 62 px difference being the « Format du fichier » row plus
 		// its gap, deleted because a visible empty affordance is a promise.
-		const { body } = mount();
+		const { body } = await mount();
 
 		expect(contentHeight(body)).toBe(549);
 		expect(636 - contentHeight(body)).toBe(87);
 	});
 
-	it('is still 549 in state 1, because designating a row does not move anything', () => {
+	it('is still 549 in state 1, because designating a row does not move anything', async () => {
 		// The promise is that nothing shifts as answers arrive. Separates « the layout is stable
 		// under answers » from « each answer nudges everything below it », which is the whole reason
 		// the row height is decided by presence rather than by content.
 		//
 		// State 2 is excluded on purpose and gets its own figure below: it is the one state that
 		// legitimately adds content.
-		const { body } = mount({ initialAssignment: PARTIAL });
+		const { body } = await mount({ initialAssignment: PARTIAL });
 
 		expect(contentHeight(body)).toBe(549);
 	});
 
-	it('is 611 in state 2, which is the 62 px the memorisation link adds', () => {
+	it('is 611 in state 2, which is the 62 px the memorisation link adds', async () => {
 		// 48 for the opt-out TapLink, plus the 14 px gap. Separates « state 2 fits » from « state 2
 		// scrolls », which is the one geometric promise the plate makes about this screen, and the
 		// second assertion is what turns the figure into that claim rather than a number beside it.
@@ -210,14 +210,14 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 		//
 		// The LINK did not move and that half is not arithmetic: storing the mapping with no opt-out
 		// in reach before the write is a consent taken rather than given.
-		const { body } = mount({ initialAssignment: COMPLETE });
+		const { body } = await mount({ initialAssignment: COMPLETE });
 
 		expect(contentHeight(body)).toBe(611);
 		expect(636 - contentHeight(body)).toBe(25);
 		expect(body.scrollHeight).toBe(body.clientHeight);
 	});
 
-	it('ends the card at 525 of 636', () => {
+	it('ends the card at 525 of 636', async () => {
 		// 16 + 40 + 14 + 68 + 14 + 373. The second figure the plate calls the promise, and it is about
 		// a POSITION rather than a size, so no height assertion can stand in for it. Separates « the
 		// card ends where the plate puts it » from « the card is the right height somewhere else »,
@@ -227,24 +227,24 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 		// INSIDE the card rather than above it: had the account row or the file block grown too,
 		// this figure would have moved further than the card's height did, and no height assertion
 		// anywhere can tell those two apart.
-		const { body, card } = mount();
+		const { body, card } = await mount();
 
 		expect(card.getBoundingClientRect().bottom - body.getBoundingClientRect().top).toBe(525);
 	});
 
-	it('does not scroll, in any state', () => {
+	it('does not scroll, in any state', async () => {
 		for (const initialAssignment of [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE]) {
-			const { body, container } = mount({ initialAssignment });
+			const { body, container } = await mount({ initialAssignment });
 			expect(body.scrollHeight).toBe(body.clientHeight);
 			container.remove();
 		}
 	});
 
-	it('scrolls the BODY and never the page when content does overflow', () => {
+	it('scrolls the BODY and never the page when content does overflow', async () => {
 		// The calibration for the test above: an assertion that nothing scrolls is worth nothing
 		// until the detector has been shown a real overflow. The reserved slot is grown past the
 		// available air, and the body must absorb it rather than the screen growing.
-		const { body, screen } = mount();
+		const { body, screen } = await mount();
 		const slot = body.lastElementChild as HTMLElement;
 		slot.style.height = '900px';
 
@@ -255,7 +255,7 @@ describe("the body's 449 of 636, which is the plate's promise", () => {
 });
 
 describe('the card and its rows', () => {
-	it('is 373 px, whatever the four rows are showing', () => {
+	it('is 373 px, whatever the four rows are showing', async () => {
 		// 14 padding + 16 label + 10 gap + (86 + 1 + 68 + 1 + 68) + 12 + 1 + 12 + 68 + 14 padding
 		// + 2 border. The stronger separator before the optional row is 25 of those, and it is what
 		// marks Categorie as a different kind of thing without an asterisk anywhere.
@@ -268,13 +268,13 @@ describe('the card and its rows', () => {
 		// The loop over three states is what makes this a constant rather than a reading of one
 		// state: the card must not move as roles are answered.
 		for (const initialAssignment of [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE]) {
-			const { card, container } = mount({ initialAssignment });
+			const { card, container } = await mount({ initialAssignment });
 			expect(card.getBoundingClientRect().height).toBe(373);
 			container.remove();
 		}
 	});
 
-	it('draws four rows, one per ROLE, and only the interpreting one is 86', () => {
+	it('draws four rows, one per ROLE, and only the interpreting one is 86', async () => {
 		// The structural decision the whole design rests on. This file has fifteen columns and the
 		// card has four rows; a fifteen-column file must cost the same vertical space as a
 		// three-column one, which is what makes the 373 a constant.
@@ -291,7 +291,7 @@ describe('the card and its rows', () => {
 		// The 86 follows the PRESENCE of the slot and never its VALUE, so the Date row does not move
 		// when its reading is answered, withdrawn, or found inconsistent. That is what the three
 		// states in the card assertion above are checking, from the other side.
-		const { card } = mount();
+		const { card } = await mount();
 
 		const rows = card.querySelectorAll('button[aria-haspopup="listbox"]');
 		expect(rows.length).toBe(4);
@@ -308,8 +308,8 @@ describe('the banner does not move between states, which is a relational promise
 		// A single-element measurement cannot answer a question about a difference, so this reads
 		// both states and compares. The absolute 64 is asserted too: a comparison alone passes in a
 		// world with no stylesheet, where every state agrees at the same wrong number.
-		const readings = [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE].map((initialAssignment) => {
-			const { banner, screen, container } = mount({ initialAssignment });
+		const readings = [EMPTY_ASSIGNMENT, PARTIAL, COMPLETE].map(async (initialAssignment) => {
+			const { banner, screen, container } = await mount({ initialAssignment });
 			const box = banner.getBoundingClientRect();
 			const reading = { height: box.height, top: box.top - screen.getBoundingClientRect().top };
 			container.remove();
@@ -321,12 +321,12 @@ describe('the banner does not move between states, which is a relational promise
 		expect(readings[2]).toStrictEqual(readings[0]);
 	});
 
-	it('sits between the body and the footer, not over them', () => {
+	it('sits between the body and the footer, not over them', async () => {
 		// The reason this is a grid track rather than `position: sticky; bottom: 0`. A bottom-sticky
 		// element is painted at the scrollport's bottom edge for as long as its containing block
 		// runs past that edge, so "sticky" and "must not cover content" are not jointly satisfiable.
 		// Asserted as a non-overlap, which is the property that actually failed last time.
-		const { body, banner, footer } = mount();
+		const { body, banner, footer } = await mount();
 
 		expect(banner.getBoundingClientRect().top).toBeGreaterThanOrEqual(
 			body.getBoundingClientRect().bottom
@@ -354,14 +354,14 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 		hasUserWork: false
 	};
 
-	function withConsent(props: Record<string, unknown> = {}) {
-		return mount({ initialAssignment: COMPLETE, replaces: REPLACES, ...props });
+	async function withConsent(props: Record<string, unknown> = {}) {
+		return await mount({ initialAssignment: COMPLETE, replaces: REPLACES, ...props });
 	}
 
 	// THE ROUTE-PRODUCES-IT CHECK, paid first. Absent a batch to replace there is nothing to choose,
 	// and a ticked box promising a deletion that cannot happen is the defect this wave removes.
-	it('renders no consent when nothing is being replaced', () => {
-		const { container } = mount({ initialAssignment: COMPLETE });
+	it('renders no consent when nothing is being replaced', async () => {
+		const { container } = await mount({ initialAssignment: COMPLETE });
 
 		expect(container.querySelector('[data-testid="designation-replace-consent"]')).toBeNull();
 	});
@@ -370,8 +370,8 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// consents; the destructive confirmation of this same section consents and names both facts, so
 	// the box proposes rather than arms. Asserted as the input's VALUE, not as an attribute string:
 	// `defaultChecked` and `checked` diverge the moment anything toggles it.
-	it('is ticked by default', () => {
-		const { container } = withConsent();
+	it('is ticked by default', async () => {
+		const { container } = await withConsent();
 		const box = container.querySelector<HTMLInputElement>(
 			'[data-testid="designation-replace-consent"] input[type="checkbox"]'
 		);
@@ -390,8 +390,8 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	//
 	// Built with the consent inside the footer first, which put the count above it. Nothing failed;
 	// the screenshot is what showed it.
-	it('sits above the count, which sits above the primary', () => {
-		const { container } = withConsent();
+	it('sits above the count, which sits above the primary', async () => {
+		const { container } = await withConsent();
 		const consent = container.querySelector('[data-testid="designation-replace-consent"]')!;
 		const banner = container.querySelector('[data-testid="condition-banner"]')!;
 		const primary = container.querySelector('[data-testid="designation-primary"]')!;
@@ -404,8 +404,8 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// The label NAMES the import it destroys. « Supprimer l'ancien import » names nothing once a
 	// user holds several, and this flow's ordinary shape is two imports of one statement minutes
 	// apart: the blind session ended in exactly that state, unable to tell the two rows apart.
-	it('names the import it would delete, by the timestamp', () => {
-		const { container } = withConsent();
+	it('names the import it would delete, by the timestamp', async () => {
+		const { container } = await withConsent();
 		const consent = container.querySelector('[data-testid="designation-replace-consent"]')!;
 
 		expect(consent.textContent).toContain('1 juillet 2026 à 10:59');
@@ -413,9 +413,9 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 
 	// The cost note appears only when there is a cost. A warning about a loss that cannot occur is
 	// discounted every time after, and then it is not read on the one run where it was true.
-	it('states the split-and-tag cost only when the batch carries user work', () => {
-		const without = withConsent();
-		const withWork = mount({
+	it('states the split-and-tag cost only when the batch carries user work', async () => {
+		const without = await withConsent();
+		const withWork = await mount({
 			initialAssignment: COMPLETE,
 			replaces: { ...REPLACES, hasUserWork: true }
 		});
@@ -429,8 +429,8 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// The note is the sentence the explicit delete ALREADY shows, not a second wording for one fact.
 	// Two wordings is how two screens start disagreeing about what a deletion costs, and this is the
 	// one figure the user has to match across them.
-	it('reuses the cost sentence the explicit delete already shows', () => {
-		const { container } = mount({
+	it('reuses the cost sentence the explicit delete already shows', async () => {
+		const { container } = await mount({
 			initialAssignment: COMPLETE,
 			replaces: { ...REPLACES, hasUserWork: true }
 		});
@@ -443,8 +443,12 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// to every test that does not choose a width, and this repository has shipped that shape more
 	// than once. At 1280 the consent lives in the sticky command foot rather than in a footer, so
 	// the assertion is that it sits inside the box that travels with the primary.
-	it('renders in the 1280 chrome too, inside the box that travels with the primary', () => {
-		const { container } = mount({ initialAssignment: COMPLETE, replaces: REPLACES, wide: true });
+	it('renders in the 1280 chrome too, inside the box that travels with the primary', async () => {
+		const { container } = await mount({
+			initialAssignment: COMPLETE,
+			replaces: REPLACES,
+			wide: true
+		});
 		const consent = container.querySelector('[data-testid="designation-replace-consent"]');
 		const foot = container.querySelector('[data-testid="designation-command-foot"]');
 
@@ -456,7 +460,7 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// and checks onSubmit would lock in the defect where a tick alone destroys.
 	it('opens the destructive confirmation instead of submitting, when ticked', async () => {
 		let submitted: unknown = null;
-		const { container } = withConsent({ onSubmit: (r: unknown) => (submitted = r) });
+		const { container } = await withConsent({ onSubmit: (r: unknown) => (submitted = r) });
 
 		(container.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
 		await new Promise((r) => setTimeout(r, 0));
@@ -469,7 +473,7 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// in play, so the press imports directly and no modal is mounted.
 	it('imports directly, with no confirmation, when unticked', async () => {
 		let submitted: { deleteOldImport?: boolean } | null = null;
-		const { container } = withConsent({
+		const { container } = await withConsent({
 			onSubmit: (r: { deleteOldImport?: boolean }) => (submitted = r)
 		});
 		const box = container.querySelector<HTMLInputElement>(
@@ -490,7 +494,7 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// Asserted positively on the title node: a negative assertion over the dialog's concatenated
 	// text cannot match.
 	it('the confirmation names the rows imported and the import deleted, in one title', async () => {
-		const { container } = withConsent();
+		const { container } = await withConsent();
 		(container.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
 		await new Promise((r) => setTimeout(r, 0));
 
@@ -504,7 +508,7 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// REMOVED, from the old import. A fixture where both were 25, as the plate's example has them,
 	// could not tell the two apart, so this one makes them 132 and 25.
 	it('the body counts the old import rows, which is not the number in the title', async () => {
-		const { container } = withConsent({
+		const { container } = await withConsent({
 			replaces: { ...REPLACES, replacedRows: 25 }
 		});
 		(container.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
@@ -521,7 +525,7 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// Confirming is what reaches onSubmit, and it carries the consent.
 	it('confirming submits with the consent attached', async () => {
 		let submitted: { deleteOldImport?: boolean } | null = null;
-		const { container } = withConsent({
+		const { container } = await withConsent({
 			onSubmit: (r: { deleteOldImport?: boolean }) => (submitted = r)
 		});
 		(container.querySelector('[data-testid="designation-primary"]') as HTMLElement).click();
@@ -540,7 +544,7 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 	// The primary keeps its words either way. « Importer et supprimer » on the footer would put two
 	// verbs on one action and make the label depend on a checkbox sitting above it.
 	it('the primary reads « Importer 132 lignes » ticked or unticked', async () => {
-		const { container } = withConsent();
+		const { container } = await withConsent();
 		const primary = container.querySelector('[data-testid="designation-primary"]')!;
 		const ticked = primary.textContent;
 

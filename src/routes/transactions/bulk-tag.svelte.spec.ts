@@ -83,7 +83,7 @@ function bulkTagButtons(): HTMLButtonElement[] {
 describe('bulk-tag trigger', () => {
 	it('desktop: is aria-disabled, not disabled, when it is rendered and cannot act', async () => {
 		await page.viewport(1280, 800);
-		render(Page, { data: disabledFixture(), form: null });
+		await render(Page, { data: disabledFixture(), form: null });
 
 		const [trigger] = bulkTagButtons();
 		expect(trigger).toBeDefined();
@@ -95,7 +95,7 @@ describe('bulk-tag trigger', () => {
 
 	it('desktop: is enabled once a filter (category) is active', async () => {
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, category: 'Loyer' } }),
 			form: null
 		});
@@ -106,7 +106,7 @@ describe('bulk-tag trigger', () => {
 
 	it('mobile: is aria-disabled, not disabled, when it is rendered and cannot act', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: disabledFixture(), form: null });
+		await render(Page, { data: disabledFixture(), form: null });
 
 		const [trigger] = bulkTagButtons();
 		expect(trigger).toBeDefined();
@@ -116,7 +116,7 @@ describe('bulk-tag trigger', () => {
 
 	it('mobile: is enabled once a filter (category) is active', async () => {
 		await page.viewport(390, 844);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, category: 'Loyer' } }),
 			form: null
 		});
@@ -130,7 +130,7 @@ describe('bulk-tag trigger', () => {
 		// aria-describedby unset) makes the `getElementById` lookup null and this fails — verified
 		// by hand, see the PR report.
 		await page.viewport(1280, 800);
-		render(Page, { data: disabledFixture(), form: null });
+		await render(Page, { data: disabledFixture(), form: null });
 
 		const [trigger] = bulkTagButtons();
 		expect(trigger.getAttribute('title')).toBeNull();
@@ -145,7 +145,7 @@ describe('bulk-tag trigger', () => {
 
 	it('desktop: has no aria-describedby, and no visible reason, once enabled', async () => {
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, category: 'Loyer' } }),
 			form: null
 		});
@@ -170,7 +170,7 @@ describe('bulk-tag trigger', () => {
 			// one surface only is this repo's most-repeated defect shape.
 			await page.viewport(width, height);
 
-			const filtered = render(Page, {
+			const filtered = await render(Page, {
 				data: baseData({
 					filters: { ...baseData().filters, category: 'Loyer' },
 					pagination: { ...baseData().pagination, totalTransactions: 6 }
@@ -183,14 +183,14 @@ describe('bulk-tag trigger', () => {
 			// Rendered but unable to act: the label drops the number, because there is no number to
 			// say. NOT the no-filter state any more — the trigger is not rendered at all then, its
 			// absence being the message.
-			render(Page, { data: disabledFixture(), form: null });
+			await render(Page, { data: disabledFixture(), form: null });
 			expect(bulkTagButtons()[0].textContent?.trim()).toBe('Étiqueter les résultats');
 		}
 	);
 
 	it('says "le résultat", not "les 1 résultats", when the filter matches a single row', async () => {
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({
 				filters: { ...baseData().filters, category: 'Loyer' },
 				pagination: { ...baseData().pagination, totalTransactions: 1 }
@@ -207,7 +207,7 @@ describe('bulk-tag trigger', () => {
 		// verified by hand, see the PR report. That number would also contradict the dialog, which
 		// quotes the set.
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({
 				filters: { ...baseData().filters, category: 'Loyer' },
 				transactions: [],
@@ -229,7 +229,7 @@ describe('bulk-tag trigger', () => {
 		// button leaves the `color` assertion green and turns the `opacity` assertion red —
 		// verified by hand, see the PR report for the exact value observed (0.4).
 		await page.viewport(1280, 800);
-		render(Page, { data: disabledFixture(), form: null });
+		await render(Page, { data: disabledFixture(), form: null });
 
 		const [trigger] = bulkTagButtons();
 		// Tailwind v4 defines its palette in oklch; this is Tailwind's own zinc-500 value, not a
@@ -247,7 +247,7 @@ describe('bulk-tag confirm dialog', () => {
 		// while the count assertion alone would still pass — which is exactly the gap the
 		// "not just the count" constraint exists to close.
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({
 				filters: {
 					...baseData().filters,
@@ -276,7 +276,7 @@ describe('bulk-tag confirm dialog', () => {
 
 	it('closes without submitting via the cancel control', async () => {
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, category: 'Loyer' } }),
 			form: null
 		});
@@ -300,7 +300,7 @@ describe('bulk-tag undo banner', () => {
 
 	it('renders the undo form OUTSIDE the AlertBanner, with the button wired via form=', async () => {
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData(),
 			form: { bulkTagResult } as unknown as ActionData
 		});
@@ -355,7 +355,7 @@ describe('bulk-tag undo banner', () => {
 			// fail with the trigger at a HIGHER index than the undo — verified by hand, see the PR
 			// report.
 			await page.viewport(width, height);
-			const { container } = render(Page, {
+			const { container } = await render(Page, {
 				data: baseData({ filters: { ...baseData().filters, category: 'Loyer' } }),
 				form: { bulkTagResult } as unknown as ActionData
 			});
@@ -376,7 +376,7 @@ describe('bulk-tag undo banner', () => {
 
 	it('names the applied count and the tag', async () => {
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: { bulkTagResult } as unknown as ActionData });
+		await render(Page, { data: baseData(), form: { bulkTagResult } as unknown as ActionData });
 
 		// A COUNT, not .first(): both surfaces render, and asserting 2 is what catches the banner
 		// being lost from one of them — the most-repeated defect shape on this page.
@@ -396,7 +396,7 @@ describe('bulk-tag undo banner', () => {
 		// tags_bulk banner just below the description comment) instead of `Infinity` makes this
 		// fail once real time crosses that value — verified by hand at 40ms, see the PR report.
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: { bulkTagResult } as unknown as ActionData });
+		await render(Page, { data: baseData(), form: { bulkTagResult } as unknown as ActionData });
 
 		await expect
 			.element(page.getByText('Étiquette « Voyage » appliquée à 7 transactions.').first())
@@ -411,7 +411,7 @@ describe('bulk-tag undo banner', () => {
 
 	it('keys the banner on the result object, so a second identical action can be announced again', async () => {
 		await page.viewport(1280, 800);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: baseData(),
 			form: { bulkTagResult } as unknown as ActionData
 		});

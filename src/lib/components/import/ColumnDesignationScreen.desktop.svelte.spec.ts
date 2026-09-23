@@ -56,8 +56,8 @@ const FILE = {
 
 const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4 };
 
-function mount(props: Record<string, unknown> = {}) {
-	const { container } = render(ColumnDesignationScreen, {
+async function mount(props: Record<string, unknown> = {}) {
+	const { container } = await render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: EMPTY_ASSIGNMENT,
 		/**
@@ -90,36 +90,36 @@ function mount(props: Record<string, unknown> = {}) {
 }
 
 describe('the frame is 1280 and the content is 1230, and the frame is asserted for its own sake', () => {
-	it('renders the frame at its full 1280 rather than at whatever the window allowed', () => {
+	it('renders the frame at its full 1280 rather than at whatever the window allowed', async () => {
 		// The plate records a desktop frame capped to its window rendering 802 px while the document
 		// claimed six visible columns against 2.2 actually visible. Every figure below was computed
 		// against 1280, so a compressed frame makes all of them wrong at once and none of them
 		// obviously wrong. This is the one assertion that can see it.
-		const { frame } = mount();
+		const { frame } = await mount();
 
 		expect(frame.getBoundingClientRect().width).toBe(1280);
 	});
 
-	it('leaves 1230 of content: 1280 minus the frame border minus 2x24', () => {
+	it('leaves 1230 of content: 1280 minus the frame border minus 2x24', async () => {
 		// The figures include every border. 1232 is what you get by forgetting the 1 px each side,
 		// which is the same arithmetic slip the banner's 64 records.
-		const { content } = mount();
+		const { content } = await mount();
 
 		expect(content.getBoundingClientRect().width).toBe(1230);
 	});
 });
 
 describe('the command column', () => {
-	it('is 400 wide, asserted separately from the content box that holds it', () => {
+	it('is 400 wide, asserted separately from the content box that holds it', async () => {
 		// A column that shrinks inside a correct content box is exactly the failure an outer
 		// measurement cannot see, so both are pinned. It is also why the two are separate tests:
 		// one figure moving tells you which.
-		const { command } = mount();
+		const { command } = await mount();
 
 		expect(command.getBoundingClientRect().width).toBe(400);
 	});
 
-	it('draws 74 and 56 px rows and a 325 px card, which is the mobile card with desktop rows', () => {
+	it('draws 74 and 56 px rows and a 325 px card, which is the mobile card with desktop rows', async () => {
 		// 14 padding + 16 label + 10 gap + (74 + 56 + 56 + 56) + 2 hairlines + 25 separator block
 		// + 14 padding + 2 border. Rows 74/56 at 1280 against 86/68 at 390, never the reverse, and
 		// all four absolute: a test asserting only that they differ passes in a world where both
@@ -135,7 +135,7 @@ describe('the command column', () => {
 		// records that break 3 never observed it, because the row loop and the card assertion share
 		// a test and the run stops at the first failure. With the rows split by kind the card is
 		// reached: 325, which is 307 plus exactly one row's 18.
-		const { card, container } = mount({ initialAssignment: COMPLETE });
+		const { card, container } = await mount({ initialAssignment: COMPLETE });
 
 		const rows = container.querySelectorAll(
 			'[data-testid="designation-card"] button[aria-haspopup="listbox"]'
@@ -148,25 +148,25 @@ describe('the command column', () => {
 		expect(card.getBoundingClientRect().height).toBe(325);
 	});
 
-	it('rounds the card at 8 rather than 24, which is the referential desktop card', () => {
+	it('rounds the card at 8 rather than 24, which is the referential desktop card', async () => {
 		// Rule 5 gives 24 to a mobile page card and 8 to a desktop one. Asserted as a real computed
 		// radius rather than a class name, and against the mobile value, so the two states are
 		// distinguished rather than one being confirmed.
-		const wide = mount();
+		const wide = await mount();
 		expect(getComputedStyle(wide.card).borderTopLeftRadius).toBe('8px');
 		wide.container.remove();
 
-		const narrow = mount({ wide: false });
+		const narrow = await mount({ wide: false });
 		expect(getComputedStyle(narrow.card).borderTopLeftRadius).toBe('24px');
 	});
 });
 
 describe('the banner and the actions are one box', () => {
-	it('holds both in a single element', () => {
+	it('holds both in a single element', async () => {
 		// What COMMANDS the primary action travels with it. If the banner and the actions were two
 		// boxes, the count explaining why the primary is off could be scrolled away from the primary
 		// it explains, which is the defect the Repartition plate's amendment exists to prevent.
-		const { foot } = mount();
+		const { foot } = await mount();
 
 		expect(foot.querySelector('[data-testid="condition-banner"]')).not.toBeNull();
 		expect(foot.querySelector('button[aria-disabled="true"]')).not.toBeNull();
@@ -185,17 +185,17 @@ describe('the banner and the actions are one box', () => {
 	 * the overflow test further down now checks. What is asserted here is only that the box has
 	 * stopped being positioned, so a future edit reintroducing it meets this note first.
 	 */
-	it('is not positioned, because a bottom-sticky box cannot promise to cover nothing', () => {
-		const { foot } = mount();
+	it('is not positioned, because a bottom-sticky box cannot promise to cover nothing', async () => {
+		const { foot } = await mount();
 
 		expect(getComputedStyle(foot).position).toBe('static');
 	});
 
-	it('points the blocked primary at the banner inside the same box', () => {
+	it('points the blocked primary at the banner inside the same box', async () => {
 		// The `aria-describedby` target must be reachable from the button, and both are now in one
 		// box: a dangling reference is silent and looks identical in markup to a working one, so the
 		// lookup is performed rather than the attribute being read.
-		const { foot } = mount();
+		const { foot } = await mount();
 
 		const primary = foot.querySelector('button[aria-disabled="true"]') as HTMLElement;
 		const describedBy = primary.getAttribute('aria-describedby');
@@ -218,8 +218,8 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	 * no rows for. `samples` are chosen per column and would fabricate transactions, so a screen
 	 * without `previewRows` draws nothing rather than drawing something plausible.
 	 */
-	it('reserves the room and renders no table when the file carries no preview rows', () => {
-		const { previewSlot, container } = mount();
+	it('reserves the room and renders no table when the file carries no preview rows', async () => {
+		const { previewSlot, container } = await mount();
 
 		expect(previewSlot).not.toBeNull();
 		expect(previewSlot.children.length).toBe(0);
@@ -237,8 +237,8 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	 * A `min-height` on that slot would reserve the emptiness ON PURPOSE, which is the repair this
 	 * refuses. The column stops being the left half of something instead.
 	 */
-	it('declares no preview area at all in recap mode', () => {
-		const { previewSlot, container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+	it('declares no preview area at all in recap mode', async () => {
+		const { previewSlot, container } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		// The SLOT, not the table. A query for the table alone cannot separate "draws no preview"
 		// from "draws an empty preview", and the second is the defect that shipped.
@@ -251,8 +251,8 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	 * introduced for a screen that has no new data to show. Asserted absolutely, like every other
 	 * figure here.
 	 */
-	it('is a single 560 px column, centred, in recap mode', () => {
-		const { command, content } = mount({ initialAssignment: COMPLETE, readOnly: true });
+	it('is a single 560 px column, centred, in recap mode', async () => {
+		const { command, content } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		expect(command.getBoundingClientRect().width).toBe(560);
 
@@ -276,8 +276,8 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	 * what produces it and a class assertion could not tell that from a margin that happens to look
 	 * right at this one viewport.
 	 */
-	it('puts the heading on the same axis as the column it names, in recap mode', () => {
-		const { command, container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+	it('puts the heading on the same axis as the column it names, in recap mode', async () => {
+		const { command, container } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 		const heading = container.querySelector('[data-testid="designation-heading"]') as HTMLElement;
 
 		expect(Math.round(heading.getBoundingClientRect().left)).toBe(
@@ -290,8 +290,8 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	 * THE CONTROL FORM IS UNTOUCHED, and this is the assertion that says the condition was put on
 	 * the right branch. The same two figures, on the same component, in the mode 5b does not govern.
 	 */
-	it('keeps the 400 px column and the declared preview area outside recap mode', () => {
-		const { command, previewSlot } = mount();
+	it('keeps the 400 px column and the declared preview area outside recap mode', async () => {
+		const { command, previewSlot } = await mount();
 
 		expect(command.getBoundingClientRect().width).toBe(400);
 		expect(previewSlot).not.toBeNull();
@@ -308,8 +308,8 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	 * all of them stayed green. This one compares the two elements the decision relates, which is the
 	 * only shape that can see it.
 	 */
-	it('never covers the memorisation control, in the state that overflows the column', () => {
-		const { container } = mount({
+	it('never covers the memorisation control, in the state that overflows the column', async () => {
+		const { container } = await mount({
 			initialAssignment: COMPLETE,
 			replaces: {
 				batchId: 'batch-old',
@@ -331,8 +331,8 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 		);
 	});
 
-	it('draws the table once the file carries real rows, with a header cell per column', () => {
-		const { container } = mount({
+	it('draws the table once the file carries real rows, with a header cell per column', async () => {
+		const { container } = await mount({
 			file: {
 				...FILE,
 				previewRows: [
@@ -366,8 +366,8 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	 * a 13-column file drew nine columns in 774 px while the indicator beside them said five. The
 	 * figures are asserted because they were briefly plausible and false together.
 	 */
-	it('lays the columns out at the plate figures rather than at whatever fitted', () => {
-		const { container } = mount({
+	it('lays the columns out at the plate figures rather than at whatever fitted', async () => {
+		const { container } = await mount({
 			file: { ...FILE, previewRows: [HEADERS.map((_, index) => `r0c${index}`)] },
 			initialAssignment: { date: 0, label: 1, amount: 2, category: null }
 		});
@@ -392,8 +392,8 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 	 * The plate decided that designated columns are not pulled to the left: reordered, the preview
 	 * becomes a second source of truth that contradicts the same file opened in a spreadsheet.
 	 */
-	it('leaves the columns in the file order rather than pulling designated ones left', () => {
-		const { container } = mount({
+	it('leaves the columns in the file order rather than pulling designated ones left', async () => {
+		const { container } = await mount({
 			file: { ...FILE, previewRows: [HEADERS.map((_, index) => `r0c${index}`)] },
 			initialAssignment: { date: 3, label: 1, amount: 5, category: null }
 		});
@@ -404,10 +404,10 @@ describe('Lacune B: the preview table is drawn, and only when there are real row
 		expect(cells).toEqual(HEADERS.map((_, index) => `r0c${index}`));
 	});
 
-	it('still shows every value through the picker, which is why the table can wait', () => {
+	it('still shows every value through the picker, which is why the table can wait', async () => {
 		// Ruling D2 widened to 1280: the values are read in the selector cards, exactly as at 390.
 		// Without this the absence above would be a gap rather than a decision.
-		const { container } = mount();
+		const { container } = await mount();
 
 		expect(
 			container.querySelectorAll('[data-testid="designation-card"] button[aria-haspopup="listbox"]')
@@ -463,7 +463,7 @@ describe('the junction: a trigger and the thing it triggers, in one test, at eac
 	};
 
 	it('opens a real, visible list of columns at 1280', async () => {
-		const { container } = mount();
+		const { container } = await mount();
 
 		await openFirstRole(container);
 
@@ -479,7 +479,7 @@ describe('the junction: a trigger and the thing it triggers, in one test, at eac
 	it('anchors the panel under its own row and keeps it inside the window', async () => {
 		// Measured FROM THE ANCHOR. A viewport fraction is not a constraint on a box that starts
 		// partway down the page, which this repository measured once as a primary action at y=960.
-		const { container } = mount();
+		const { container } = await mount();
 
 		const row = await openFirstRole(container);
 		const panel = container.querySelector('[data-testid="column-picker-panel"]') as HTMLElement;
@@ -494,7 +494,7 @@ describe('the junction: a trigger and the thing it triggers, in one test, at eac
 		// The same journey through the sheet. Asserted here rather than left to the states spec so
 		// that ONE test file carries both widths: the defect was that no file did.
 		await page.viewport(390, 844);
-		const { container } = mount({ wide: false });
+		const { container } = await mount({ wide: false });
 
 		await openFirstRole(container);
 

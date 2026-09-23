@@ -74,8 +74,8 @@ const FORM = { designation: VIEW } as unknown as Record<string, unknown>;
  * The chrome to drive. This page renders its whole content twice, so every locator resolves to two
  * and exactly one is visible; `.first()` is the desktop copy, `display:none` at 390.
  */
-function mount(width: number) {
-	const rendered = render(Page, { data: DATA, form: FORM as never });
+async function mount(width: number) {
+	const rendered = await render(Page, { data: DATA, form: FORM as never });
 	const sections = rendered.container.querySelectorAll('main > section');
 	return (width >= 1024 ? sections[0] : sections[1]) as HTMLElement;
 }
@@ -103,7 +103,7 @@ describe('the designation offer after a refusal', () => {
 		// and calibrated against the offer's own button in the same document: an absence of tint is only
 		// believed after the detector has been shown to see one.
 		await page.viewport(1280, 800);
-		const section = mount(1280);
+		const section = await mount(1280);
 		await chooseAndSubmit(section);
 
 		const chroma = (element: Element) => {
@@ -123,7 +123,7 @@ describe('the designation offer after a refusal', () => {
 		// run to the designation screen. Asserted on the handoff NOT happening: the store stays empty
 		// and no navigation is issued.
 		await page.viewport(1280, 800);
-		const section = mount(1280);
+		const section = await mount(1280);
 		await chooseAndSubmit(section);
 
 		expect(takePendingDesignation()).toBeNull();
@@ -134,7 +134,7 @@ describe('the designation offer after a refusal', () => {
 		// A fix applied to one mount and not the other is invisible to any test that does not choose a
 		// width, and this page has shipped exactly that defect before.
 		await page.viewport(390, 844);
-		const section = mount(390);
+		const section = await mount(390);
 		await chooseAndSubmit(section);
 
 		expect(takePendingDesignation()).toBeNull();
@@ -144,7 +144,7 @@ describe('the designation offer after a refusal', () => {
 	it('opens the designation screen from the offer button, which is the only route in', async () => {
 		// The direction this change must not break: the offer worked before and has to keep working.
 		await page.viewport(1280, 800);
-		const section = mount(1280);
+		const section = await mount(1280);
 		await chooseAndSubmit(section);
 
 		await userEvent.click(offerButtons().first().element() as HTMLElement);
@@ -164,7 +164,7 @@ describe('the designation offer after a refusal', () => {
 		// `getByText` matches hidden text; these two locators do not agree, and assuming they do is how
 		// an absence assertion ends up measuring a breakpoint.
 		await page.viewport(1280, 800);
-		const section = mount(1280);
+		const section = await mount(1280);
 		await chooseAndSubmit(section, 'releve.csv');
 		expect(await offerButtons().all()).toHaveLength(1);
 
@@ -177,7 +177,7 @@ describe('the designation offer after a refusal', () => {
 	it('withdraws the offer once the chosen file is no longer the file it describes, at 390', async () => {
 		// The other chrome, driven separately for the reason the mount helper records.
 		await page.viewport(390, 844);
-		const section = mount(390);
+		const section = await mount(390);
 		await chooseAndSubmit(section, 'releve.csv');
 		expect(await offerButtons().all()).toHaveLength(1);
 

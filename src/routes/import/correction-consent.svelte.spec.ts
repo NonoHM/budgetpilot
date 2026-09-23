@@ -110,8 +110,8 @@ const FORM = {
  * This page renders its form TWICE, `hidden lg:block` and `lg:hidden`, so every locator resolves to
  * two and exactly one is visible. `.first()` is the desktop copy, which is `display:none` at 390.
  */
-function mount(width: number) {
-	const rendered = render(Page, { data: DATA, form: FORM as never });
+async function mount(width: number) {
+	const rendered = await render(Page, { data: DATA, form: FORM as never });
 	const desktop = width >= 1024;
 	const section = rendered.container.querySelectorAll('main > section');
 	return (desktop ? section[0] : section[1]) as HTMLElement;
@@ -145,7 +145,7 @@ describe('the consent that travels to the deleting request', () => {
 		// After Planche 5c the second is the correct shape, and asserting the ABSENCE positively is
 		// what stops the old echo being reintroduced as a convenience field nothing reads.
 		await page.viewport(1280, 800);
-		const section = mount(1280);
+		const section = await mount(1280);
 		await chooseFile(section);
 
 		// The control is gone from this screen too, which is the visible half of the same move.
@@ -164,7 +164,7 @@ describe('the consent that travels to the deleting request', () => {
 		// resolved the batch knows either. A handoff missing these leaves the screen with a batch to
 		// replace and no way to name it.
 		await page.viewport(1280, 800);
-		const section = mount(1280);
+		const section = await mount(1280);
 		await chooseFile(section);
 
 		await userEvent.click(
@@ -184,7 +184,7 @@ describe('the consent that travels to the deleting request', () => {
 		// The property the consent fix must not cost. Both ids are this fixture's own, and they
 		// differ, so a handoff rebuilt from `data.correction` reddens here and nowhere else.
 		await page.viewport(1280, 800);
-		const section = mount(1280);
+		const section = await mount(1280);
 		await chooseFile(section);
 
 		await userEvent.click(
@@ -206,7 +206,7 @@ describe('the consent that travels to the deleting request', () => {
 		// a page to return to. The fixture gives them values that could not be confused, so a repair
 		// taking both from one place reddens here rather than passing on either alone.
 		await page.viewport(1280, 800);
-		const section = mount(1280);
+		const section = await mount(1280);
 		await chooseFile(section);
 
 		await userEvent.click(
@@ -227,7 +227,7 @@ describe('the consent that travels to the deleting request', () => {
 		// choose a width, and this page has shipped exactly that defect before: `csvFiles` exists
 		// because each mount used to hold its own file.
 		await page.viewport(390, 844);
-		const section = mount(390);
+		const section = await mount(390);
 		await chooseFile(section);
 
 		await userEvent.click(

@@ -18,8 +18,10 @@ import * as m from '$lib/paraglide/messages';
  * 2. Drop the evidence line: red on the values-shown test, which is the whole argument for asking
  *    rather than refusing on vocabulary the user does not think in.
  */
-function mount(overrides: { onConfirmAccount?: () => void; onDenyAccount?: () => void } = {}) {
-	return render(AccountColumnDialog, {
+async function mount(
+	overrides: { onConfirmAccount?: () => void; onDenyAccount?: () => void } = {}
+) {
+	return await render(AccountColumnDialog, {
 		open: true,
 		column: 3,
 		header: 'Reference',
@@ -32,13 +34,13 @@ function mount(overrides: { onConfirmAccount?: () => void; onDenyAccount?: () =>
 
 describe('AccountColumnDialog', () => {
 	it('asks the question a user thinks in, not the vocabulary of the detector', async () => {
-		const screen = mount();
+		const screen = await mount();
 
 		await expect.element(screen.getByText(m.import_account_column_title())).toBeInTheDocument();
 	});
 
 	it('shows the column and its own differing values as evidence', async () => {
-		const screen = mount();
+		const screen = await mount();
 
 		await expect
 			.element(
@@ -50,7 +52,7 @@ describe('AccountColumnDialog', () => {
 	});
 
 	it('falls back to a numbered column when the file has no header', async () => {
-		const screen = render(AccountColumnDialog, {
+		const screen = await render(AccountColumnDialog, {
 			open: true,
 			column: 3,
 			header: '',
@@ -72,7 +74,7 @@ describe('AccountColumnDialog', () => {
 	it('calls onConfirmAccount from the button that answers "several accounts"', async () => {
 		const onConfirmAccount = vi.fn();
 		const onDenyAccount = vi.fn();
-		const screen = mount({ onConfirmAccount, onDenyAccount });
+		const screen = await mount({ onConfirmAccount, onDenyAccount });
 
 		await screen.getByRole('button', { name: m.import_account_column_confirm() }).click();
 
@@ -83,7 +85,7 @@ describe('AccountColumnDialog', () => {
 	it('calls onDenyAccount from the button that answers "something else"', async () => {
 		const onConfirmAccount = vi.fn();
 		const onDenyAccount = vi.fn();
-		const screen = mount({ onConfirmAccount, onDenyAccount });
+		const screen = await mount({ onConfirmAccount, onDenyAccount });
 
 		await screen.getByRole('button', { name: m.import_account_column_deny() }).click();
 

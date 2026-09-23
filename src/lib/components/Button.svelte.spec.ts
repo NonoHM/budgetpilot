@@ -14,7 +14,7 @@ function textSnippet(text: string) {
 
 describe('Button.svelte', () => {
 	it('renders its children and is enabled by default', async () => {
-		render(Button, { children: textSnippet('Enregistrer') });
+		await render(Button, { children: textSnippet('Enregistrer') });
 
 		const button = page.getByRole('button', { name: 'Enregistrer' });
 		await expect.element(button).toBeInTheDocument();
@@ -22,7 +22,7 @@ describe('Button.svelte', () => {
 	});
 
 	it('replaces the label with a spinner + sr-only text when loading, and disables the button', async () => {
-		render(Button, {
+		await render(Button, {
 			loading: true,
 			loadingLabel: 'Enregistrement…',
 			children: textSnippet('Enregistrer')
@@ -43,13 +43,13 @@ describe('Button.svelte', () => {
 	});
 
 	it('falls back to a generic sr-only label when loading without an explicit loadingLabel', async () => {
-		render(Button, { loading: true, children: textSnippet('Enregistrer') });
+		await render(Button, { loading: true, children: textSnippet('Enregistrer') });
 
 		await expect.element(page.getByText(m.common_loading())).toBeInTheDocument();
 	});
 
 	it('stays disabled when both disabled and loading are true, and is not aria-busy when only disabled', async () => {
-		render(Button, { disabled: true, children: textSnippet('Enregistrer') });
+		await render(Button, { disabled: true, children: textSnippet('Enregistrer') });
 
 		const button = page.getByRole('button', { name: 'Enregistrer' });
 		await expect.element(button).toBeDisabled();
@@ -57,7 +57,7 @@ describe('Button.svelte', () => {
 	});
 
 	it('renders an <a> with the same look when href is passed', async () => {
-		render(Button, {
+		await render(Button, {
 			href: '/admin?page=2',
 			variant: 'secondary',
 			children: textSnippet('Suivant')
@@ -70,7 +70,11 @@ describe('Button.svelte', () => {
 	});
 
 	it('disabled anchor variant drops the href and leaves the tab order', async () => {
-		render(Button, { href: '/admin?page=2', disabled: true, children: textSnippet('Suivant') });
+		await render(Button, {
+			href: '/admin?page=2',
+			disabled: true,
+			children: textSnippet('Suivant')
+		});
 
 		const el = page.getByText('Suivant').element().closest('a');
 		expect(el).not.toBeNull();
@@ -80,7 +84,7 @@ describe('Button.svelte', () => {
 	});
 
 	it('softDisabled stays focusable and announces itself, unlike native disabled', async () => {
-		const { container } = render(Button, {
+		const { container } = await render(Button, {
 			softDisabled: true,
 			children: textSnippet('Enregistrer')
 		});
@@ -95,7 +99,7 @@ describe('Button.svelte', () => {
 	});
 
 	it('softDisabled swallows activation so a submit never submits', async () => {
-		const { container } = render(Button, {
+		const { container } = await render(Button, {
 			type: 'submit',
 			softDisabled: true,
 			children: textSnippet('Enregistrer')
@@ -120,7 +124,7 @@ describe('Button.svelte', () => {
 
 	it('softDisabled cannot be defeated by a caller passing its own onclick', async () => {
 		let called = 0;
-		const { container } = render(Button, {
+		const { container } = await render(Button, {
 			softDisabled: true,
 			onclick: () => {
 				called += 1;
@@ -137,7 +141,7 @@ describe('Button.svelte', () => {
 
 	it('still calls the caller onclick when it is not soft-disabled', async () => {
 		let called = 0;
-		const { container } = render(Button, {
+		const { container } = await render(Button, {
 			onclick: () => {
 				called += 1;
 			},
@@ -154,7 +158,7 @@ describe('Button.svelte', () => {
 	// the 34px filter-bar trigger. A class-name assertion cannot see a disagreement.
 	it('size="field" renders the 44px form-field height', async () => {
 		expect.assertions(1);
-		const { container } = render(Button, { size: 'field', children: textSnippet('Filtrer') });
+		const { container } = await render(Button, { size: 'field', children: textSnippet('Filtrer') });
 
 		const button = container.querySelector('button') as HTMLButtonElement;
 		expect(Math.round(button.getBoundingClientRect().height)).toBe(44);
@@ -162,7 +166,7 @@ describe('Button.svelte', () => {
 
 	it('size="bar" renders the 34px filter-bar height', async () => {
 		expect.assertions(1);
-		const { container } = render(Button, { size: 'bar', children: textSnippet('Filtrer') });
+		const { container } = await render(Button, { size: 'bar', children: textSnippet('Filtrer') });
 
 		const button = container.querySelector('button') as HTMLButtonElement;
 		expect(Math.round(button.getBoundingClientRect().height)).toBe(34);

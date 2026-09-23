@@ -33,8 +33,8 @@ function fileWith(columns: number, rows: number) {
 	};
 }
 
-function textAt(wide: boolean, columns: number, rows: number): string {
-	const { container } = render(ColumnDesignationScreen, {
+async function textAt(wide: boolean, columns: number, rows: number): Promise<string> {
+	const { container } = await render(ColumnDesignationScreen, {
 		file: fileWith(columns, rows),
 		initialAssignment: EMPTY_ASSIGNMENT,
 		/**
@@ -54,15 +54,15 @@ function textAt(wide: boolean, columns: number, rows: number): string {
 }
 
 describe('the file meta line reads the same at 390 and at 1280', () => {
-	it('is singular in both layouts at one column and one row', () => {
+	it('is singular in both layouts at one column and one row', async () => {
 		// Asserted positively on the whole composed sentence in each layout, so a layout that lost
 		// the line altogether fails here rather than passing an equality between two absences.
-		expect(textAt(false, 1, 1)).toContain(SINGULAR);
-		expect(textAt(true, 1, 1)).toContain(SINGULAR);
+		expect(await textAt(false, 1, 1)).toContain(SINGULAR);
+		expect(await textAt(true, 1, 1)).toContain(SINGULAR);
 	});
 
-	it('is unchanged from what shipped in both layouts at two columns and two rows', () => {
-		expect(textAt(false, 2, 2)).toContain(PLURAL);
-		expect(textAt(true, 2, 2)).toContain(PLURAL);
+	it('is unchanged from what shipped in both layouts at two columns and two rows', async () => {
+		expect(await textAt(false, 2, 2)).toContain(PLURAL);
+		expect(await textAt(true, 2, 2)).toContain(PLURAL);
 	});
 });

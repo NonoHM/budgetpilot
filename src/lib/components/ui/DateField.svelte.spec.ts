@@ -26,7 +26,7 @@ describe('DateField.svelte', () => {
 		expect.assertions(3);
 		await page.viewport(1280, 900);
 
-		const { container } = render(DateField, { name: 'from', value: '2026-08-01' });
+		const { container } = await render(DateField, { name: 'from', value: '2026-08-01' });
 
 		expect(container.querySelector('input[type="date"]')).toBeNull();
 		const visible = container.querySelector('input[type="text"]');
@@ -42,7 +42,7 @@ describe('DateField.svelte', () => {
 	it('shows a stored ISO value in the app’s jj/mm/aaaa order', async () => {
 		await page.viewport(1280, 900);
 
-		const { container } = render(DateField, { name: 'from', value: '2026-08-01' });
+		const { container } = await render(DateField, { name: 'from', value: '2026-08-01' });
 
 		const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 		expect(visible.value).toBe(isoToDisplay('2026-08-01'));
@@ -58,7 +58,7 @@ describe('DateField.svelte', () => {
 		expect.assertions(2);
 		await page.viewport(1280, 900);
 
-		const { container } = render(DateField, { name: 'from', value: '2026-08-01' });
+		const { container } = await render(DateField, { name: 'from', value: '2026-08-01' });
 
 		const hidden = container.querySelector('input[name="from"]') as HTMLInputElement;
 		expect(hidden.type).toBe('hidden');
@@ -72,7 +72,7 @@ describe('DateField.svelte', () => {
 	it('follows what the reader types', async () => {
 		await page.viewport(1280, 900);
 
-		const { container } = render(DateField, { name: 'from', value: '' });
+		const { container } = await render(DateField, { name: 'from', value: '' });
 		const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 
 		await userEvent.fill(visible, '25/12/2026');
@@ -91,7 +91,7 @@ describe('DateField.svelte', () => {
 		expect.assertions(2);
 		await page.viewport(1280, 900);
 
-		const { container } = render(DateField, { name: 'from', value: '' });
+		const { container } = await render(DateField, { name: 'from', value: '' });
 		const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 		const hidden = container.querySelector('input[name="from"]') as HTMLInputElement;
 
@@ -113,7 +113,7 @@ describe('DateField.svelte', () => {
 	it('follows a value the page changes underneath it', async () => {
 		await page.viewport(1280, 900);
 
-		const { container, rerender } = render(DateField, { name: 'from', value: '2026-08-01' });
+		const { container, rerender } = await render(DateField, { name: 'from', value: '2026-08-01' });
 		const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 		expect(visible.value).toBe('01/08/2026');
 
@@ -134,7 +134,7 @@ describe('DateField.svelte', () => {
 	it('leaves what the reader is typing alone when the value has not changed', async () => {
 		await page.viewport(1280, 900);
 
-		const { container, rerender } = render(DateField, { name: 'from', value: '2026-08-01' });
+		const { container, rerender } = await render(DateField, { name: 'from', value: '2026-08-01' });
 		const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 
 		await userEvent.fill(visible, '25/12');
@@ -165,7 +165,7 @@ describe('DateField.svelte', () => {
 			expect.assertions(3);
 			await page.viewport(1280, 900);
 
-			const { container } = render(DateField, { name: 'from', value: '' });
+			const { container } = await render(DateField, { name: 'from', value: '' });
 			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 
 			await userEvent.fill(visible, '31/02/2026');
@@ -185,7 +185,7 @@ describe('DateField.svelte', () => {
 		it('blocks its form from submitting', async () => {
 			await page.viewport(1280, 900);
 
-			const { container } = render(DateField, { name: 'from', value: '' });
+			const { container } = await render(DateField, { name: 'from', value: '' });
 			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 
 			await userEvent.fill(visible, '31/02/2026');
@@ -211,7 +211,7 @@ describe('DateField.svelte', () => {
 			expect.assertions(2);
 			await page.viewport(1280, 900);
 
-			const { container } = render(DateField, { name: 'from', value: '' });
+			const { container } = await render(DateField, { name: 'from', value: '' });
 			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 
 			await userEvent.fill(visible, '31/02/2026');
@@ -229,7 +229,7 @@ describe('DateField.svelte', () => {
 		it('shows itself once the browser blocks a submit on it', async () => {
 			await page.viewport(1280, 900);
 
-			const { container } = render(DateField, { name: 'from', value: '' });
+			const { container } = await render(DateField, { name: 'from', value: '' });
 			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 
 			await userEvent.fill(visible, '31/02/2026');
@@ -253,7 +253,7 @@ describe('DateField.svelte', () => {
 			expect.assertions(2);
 			await page.viewport(1280, 900);
 
-			const { container } = render(DateField, { name: 'from', value: '2026-08-01' });
+			const { container } = await render(DateField, { name: 'from', value: '2026-08-01' });
 			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 			const resting = getComputedStyle(visible).borderColor;
 
@@ -274,7 +274,7 @@ describe('DateField.svelte', () => {
 			expect.assertions(2);
 			await page.viewport(1280, 900);
 
-			const { container } = render(DateField, { name: 'from', value: '' });
+			const { container } = await render(DateField, { name: 'from', value: '' });
 			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 
 			await userEvent.fill(visible, '31/02/2026');
@@ -295,7 +295,7 @@ describe('DateField.svelte', () => {
 			expect.assertions(2);
 			await page.viewport(1280, 900);
 
-			const { container } = render(DateField, { name: 'from', value: '' });
+			const { container } = await render(DateField, { name: 'from', value: '' });
 			const visible = container.querySelector('input[type="text"]') as HTMLInputElement;
 
 			await userEvent.click(visible);
@@ -314,7 +314,7 @@ describe('DateField.svelte', () => {
 	it('carries the accessible name the caller gives it', async () => {
 		await page.viewport(1280, 900);
 
-		const { container } = render(DateField, {
+		const { container } = await render(DateField, {
 			name: 'from',
 			value: '',
 			ariaLabel: m.reports_from_label()

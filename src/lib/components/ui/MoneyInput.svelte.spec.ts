@@ -11,14 +11,14 @@ import { money, toInputValue } from '$lib/domain/money';
 
 describe('MoneyInput.svelte', () => {
 	it('renders a real associated label for the amount field', async () => {
-		render(MoneyInput, { name: 'amount', label: 'Montant' });
+		await render(MoneyInput, { name: 'amount', label: 'Montant' });
 
 		const input = page.getByLabelText('Montant');
 		await expect.element(input).toBeInTheDocument();
 	});
 
 	it('renders the € suffix as decorative (aria-hidden)', async () => {
-		const { container } = render(MoneyInput, { name: 'amount', label: 'Montant' });
+		const { container } = await render(MoneyInput, { name: 'amount', label: 'Montant' });
 
 		const suffix = Array.from(container.querySelectorAll('span')).find(
 			(el) => el.textContent?.trim() === '€'
@@ -35,7 +35,7 @@ describe('MoneyInput.svelte', () => {
 	// A real browser render, not a formatter unit test one layer down: the suffix, the value and
 	// the locale meet here and nowhere else.
 	it('renders a non-euro suffix and the stored precision, not the locale default', async () => {
-		const { container } = render(MoneyInput, {
+		const { container } = await render(MoneyInput, {
 			name: 'balance',
 			label: 'Solde',
 			currency: 'HUF',
@@ -55,7 +55,7 @@ describe('MoneyInput.svelte', () => {
 	});
 
 	it('renders a three-decimal currency with three, for the same reason', async () => {
-		const { container } = render(MoneyInput, {
+		const { container } = await render(MoneyInput, {
 			name: 'balance',
 			label: 'Solde',
 			currency: 'KWD',
@@ -70,7 +70,7 @@ describe('MoneyInput.svelte', () => {
 	});
 
 	it('uses inputmode="decimal" and type="text" (never type="number")', async () => {
-		render(MoneyInput, { name: 'amount', label: 'Montant' });
+		await render(MoneyInput, { name: 'amount', label: 'Montant' });
 
 		const input = page.getByLabelText('Montant').element() as HTMLInputElement;
 		expect(input.type).toBe('text');
@@ -78,21 +78,26 @@ describe('MoneyInput.svelte', () => {
 	});
 
 	it('sets the name attribute for form submission', async () => {
-		render(MoneyInput, { name: 'targetAmount', label: 'Montant' });
+		await render(MoneyInput, { name: 'targetAmount', label: 'Montant' });
 
 		const input = page.getByLabelText('Montant').element() as HTMLInputElement;
 		expect(input.name).toBe('targetAmount');
 	});
 
 	it('applies a fixed 44px (h-11) touch target height', async () => {
-		render(MoneyInput, { name: 'amount', label: 'Montant' });
+		await render(MoneyInput, { name: 'amount', label: 'Montant' });
 
 		const input = page.getByLabelText('Montant').element() as HTMLInputElement;
 		expect(input.className).toContain('h-11');
 	});
 
 	it('exposes allowZero/allowNegative as data attributes for callers/tests, never as min (inert on type="text")', async () => {
-		render(MoneyInput, { name: 'amount', label: 'Montant', allowZero: true, allowNegative: true });
+		await render(MoneyInput, {
+			name: 'amount',
+			label: 'Montant',
+			allowZero: true,
+			allowNegative: true
+		});
 
 		const input = page.getByLabelText('Montant').element() as HTMLInputElement;
 		expect(input.getAttribute('data-allow-zero')).toBe('true');
@@ -101,13 +106,13 @@ describe('MoneyInput.svelte', () => {
 	});
 
 	it('does not render an error message by default', async () => {
-		const { container } = render(MoneyInput, { name: 'amount', label: 'Montant' });
+		const { container } = await render(MoneyInput, { name: 'amount', label: 'Montant' });
 
 		expect(container.querySelector('[aria-invalid]')).toBeNull();
 	});
 
 	it('links the error message via aria-describedby when error is set', async () => {
-		render(MoneyInput, { name: 'amount', label: 'Montant', error: 'Montant invalide' });
+		await render(MoneyInput, { name: 'amount', label: 'Montant', error: 'Montant invalide' });
 
 		const input = page.getByLabelText('Montant').element() as HTMLInputElement;
 		expect(input.getAttribute('aria-invalid')).toBe('true');
@@ -122,7 +127,7 @@ describe('MoneyInput.svelte', () => {
 	});
 
 	it('renders the hint text when provided', async () => {
-		render(MoneyInput, {
+		await render(MoneyInput, {
 			name: 'amount',
 			label: 'Montant',
 			hint: 'Négatif pour une dépense, positif pour un revenu.'
@@ -134,21 +139,21 @@ describe('MoneyInput.svelte', () => {
 	});
 
 	it('is required by default', async () => {
-		render(MoneyInput, { name: 'amount', label: 'Montant' });
+		await render(MoneyInput, { name: 'amount', label: 'Montant' });
 
 		const input = page.getByLabelText('Montant').element() as HTMLInputElement;
 		expect(input.required).toBe(true);
 	});
 
 	it('is not required when required=false', async () => {
-		render(MoneyInput, { name: 'amount', label: 'Montant', required: false });
+		await render(MoneyInput, { name: 'amount', label: 'Montant', required: false });
 
 		const input = page.getByLabelText('Montant').element() as HTMLInputElement;
 		expect(input.required).toBe(false);
 	});
 
 	it('prefills the value when passed', async () => {
-		render(MoneyInput, { name: 'amount', label: 'Montant', value: '42,50' });
+		await render(MoneyInput, { name: 'amount', label: 'Montant', value: '42,50' });
 
 		const input = page.getByLabelText('Montant').element() as HTMLInputElement;
 		expect(input.value).toBe('42,50');
@@ -162,7 +167,7 @@ describe('MoneyInput.svelte', () => {
 	 */
 	it('reports every keystroke through oninput, raw and unreformatted', async () => {
 		const oninput = vi.fn<(raw: string) => void>();
-		render(MoneyInput, { name: 'amount', label: 'Montant', oninput });
+		await render(MoneyInput, { name: 'amount', label: 'Montant', oninput });
 
 		const input = page.getByLabelText('Montant');
 		await userEvent.fill(input, '1 234,5');
@@ -176,7 +181,7 @@ describe('MoneyInput.svelte', () => {
 	it('does not rewrite what the user typed', async () => {
 		// The guard on the paragraph above: a component that echoed a normalised value back into the
 		// field would pass the oninput test and still destroy the parser's tolerance.
-		render(MoneyInput, { name: 'amount', label: 'Montant' });
+		await render(MoneyInput, { name: 'amount', label: 'Montant' });
 		const input = page.getByLabelText('Montant');
 		await userEvent.fill(input, '12,5');
 		expect((input.element() as HTMLInputElement).value).toBe('12,5');
@@ -197,7 +202,11 @@ describe('MoneyInput.svelte — softDisabled (1i, 1q)', () => {
 		// Typed for real, and the field is proven to ACCEPT typing first with the same gesture and
 		// the same selector. Asserting only that a locked field stayed empty passes on a field that
 		// was never reachable.
-		const { rerender } = render(MoneyInput, { name: 'amount', label: 'Montant', value: '10,00' });
+		const { rerender } = await render(MoneyInput, {
+			name: 'amount',
+			label: 'Montant',
+			value: '10,00'
+		});
 		const live = page.getByLabelText('Montant').element() as HTMLInputElement;
 		await userEvent.fill(live, '12,34');
 		expect(live.value).toBe('12,34');
@@ -221,7 +230,7 @@ describe('MoneyInput.svelte — softDisabled (1i, 1q)', () => {
 		// the CONTRAST — the same gesture on the same component does fire when it is not locked —
 		// rather than by a lone absence, which would pass on a callback that was never wired.
 		const live = vi.fn();
-		const first = render(MoneyInput, {
+		const first = await render(MoneyInput, {
 			name: 'amount',
 			label: 'Montant',
 			value: '10,00',
@@ -233,7 +242,7 @@ describe('MoneyInput.svelte — softDisabled (1i, 1q)', () => {
 		expect(live).toHaveBeenCalled();
 
 		const locked = vi.fn();
-		const second = render(MoneyInput, {
+		const second = await render(MoneyInput, {
 			name: 'amount',
 			label: 'Montant',
 			value: '10,00',
@@ -251,7 +260,11 @@ describe('MoneyInput.svelte — softDisabled (1i, 1q)', () => {
 		// Relational: the figure that matters is not 44 on its own but that the locked field agrees
 		// with the live one. 1i is explicit that the remainder band must not move during the save —
 		// a field that changed height would move everything below it.
-		const { rerender } = render(MoneyInput, { name: 'amount', label: 'Montant', value: '10,00' });
+		const { rerender } = await render(MoneyInput, {
+			name: 'amount',
+			label: 'Montant',
+			value: '10,00'
+		});
 		await expect.element(page.getByLabelText('Montant')).toBeInTheDocument();
 		const live = (page.getByLabelText('Montant').element() as HTMLElement).getBoundingClientRect();
 
@@ -267,7 +280,7 @@ describe('MoneyInput.svelte — softDisabled (1i, 1q)', () => {
 	it('points a locked field at ONE explanation, and an error still wins it', async () => {
 		// 1q: one reason location per neutralised control, never two. A field that is both in error
 		// and locked has one describedby, and it is the error — the thing the user has to act on.
-		const { rerender } = render(MoneyInput, {
+		const { rerender } = await render(MoneyInput, {
 			name: 'amount',
 			label: 'Montant',
 			value: '10,00',

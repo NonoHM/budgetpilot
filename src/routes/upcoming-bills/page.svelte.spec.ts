@@ -145,7 +145,7 @@ describe('/upcoming-bills — split indicator (PR6)', () => {
 		});
 		const unsplitRow = buildRow({ rowKey: 'expense:edf:2026-07-15:2' });
 
-		render(Page, {
+		await render(Page, {
 			data: buildData({ rows: [exactRow, inheritedRow, unsplitRow], streamCount: 3 })
 		});
 
@@ -184,7 +184,7 @@ describe('/upcoming-bills page', () => {
 	// The domain guarantees `status: 'upcoming'` / `daysLate: null` for it; this proves the page
 	// does not re-derive lateness from the date on its own.
 	it('renders an uncertain-tier row whose estimated date is long past as "À venir", never "En retard"', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				rows: [
 					buildRow({
@@ -216,7 +216,7 @@ describe('/upcoming-bills page', () => {
 	// fall outside the displayed month (a yearly bill: eleven months out of twelve). `streamCount`
 	// is the predicate that distinguishes "nothing detected, ever" from "nothing due here".
 	it('keeps both period arrows reachable when streams exist but this month holds none of them', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({ streamCount: 4, rows: [], remainingExpenseCents: 0 })
 		});
 
@@ -235,7 +235,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('disables both arrows only when no stream has ever been detected', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({ streamCount: 0, rows: [], remainingExpenseCents: 0 })
 		});
 
@@ -258,7 +258,7 @@ describe('/upcoming-bills page', () => {
 	describe('the all-stale empty state, task 2026-08-02', () => {
 		it('renders the stale copy, never the "changez de mois" copy, when emptyState is all-stale', async () => {
 			expect.assertions(3);
-			const { container } = render(Page, {
+			const { container } = await render(Page, {
 				data: buildData({
 					streamCount: 1,
 					emptyState: 'all-stale',
@@ -274,7 +274,7 @@ describe('/upcoming-bills page', () => {
 
 		it('keeps the period navigator reachable in the all-stale state', async () => {
 			expect.assertions(1 + 2 * 4);
-			const { container } = render(Page, {
+			const { container } = await render(Page, {
 				data: buildData({
 					streamCount: 1,
 					emptyState: 'all-stale',
@@ -295,7 +295,7 @@ describe('/upcoming-bills page', () => {
 
 		it('still renders the ordinary "changez de mois" copy when a live stream exists elsewhere', async () => {
 			expect.assertions(1);
-			const { container } = render(Page, {
+			const { container } = await render(Page, {
 				data: buildData({
 					streamCount: 1,
 					emptyState: null,
@@ -317,7 +317,7 @@ describe('/upcoming-bills page', () => {
 		 */
 		it('keeps the ordinary past-month copy, never the stale copy, on a past month even when emptyState is all-stale', async () => {
 			expect.assertions(2);
-			const { container } = render(Page, {
+			const { container } = await render(Page, {
 				data: buildData({
 					month: '2025-11',
 					isCurrentMonth: false,
@@ -341,7 +341,7 @@ describe('/upcoming-bills page', () => {
 	// help. The navigator stops at the boundary instead, with the arrow treatment the page already
 	// owns; the "next" arrow is untouched, since walking forward is always meaningful.
 	it('makes the previous arrow inert at the edge of the detection window, alive one month later', async () => {
-		const atBoundary = render(Page, {
+		const atBoundary = await render(Page, {
 			data: buildData({
 				month: '2025-07',
 				oldestNavigableMonth: '2025-07',
@@ -362,7 +362,7 @@ describe('/upcoming-bills page', () => {
 
 		atBoundary.unmount();
 
-		const insideWindow = render(Page, {
+		const insideWindow = await render(Page, {
 			data: buildData({
 				month: '2025-08',
 				oldestNavigableMonth: '2025-07',
@@ -383,7 +383,7 @@ describe('/upcoming-bills page', () => {
 	// `<=`, and without this a regression to `===` would go green here and silently re-open the path
 	// the redirect closes.
 	it('keeps the previous arrow inert on a month strictly older than the boundary', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				month: '2024-06',
 				oldestNavigableMonth: '2025-07',
@@ -411,7 +411,7 @@ describe('/upcoming-bills page', () => {
 			countsInRemainingTotal: false,
 			appliedActionId: 'action-a'
 		});
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				streamCount: 3,
 				rows: [
@@ -445,7 +445,7 @@ describe('/upcoming-bills page', () => {
 	// the tree is asserted rather than assumed: one list per visible group, each named by its own
 	// visible heading, and one listitem per visible row.
 	it('builds one role="list" per group, each labelled by its visible heading', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				streamCount: 3,
 				rows: [
@@ -498,7 +498,7 @@ describe('/upcoming-bills page', () => {
 	// anything and this assertion could never fail. Same fact, same workaround, as
 	// UpcomingBillsCard.svelte.spec.ts.
 	it('renders past-tense copy on a past month, never the future wording or a zeroed total, on EITHER surface', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				month: '2026-06',
 				isCurrentMonth: false,
@@ -535,7 +535,7 @@ describe('/upcoming-bills page', () => {
 	// rows come back `overdue` / `countsInRemainingTotal: true`, so `remainingExpenseCents` is real —
 	// and the header still owes no "reste à sortir" claim for a period that is over.
 	it('drops the present-tense header on a past month even when its remaining total is NOT zero', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				month: '2026-06',
 				isCurrentMonth: false,
@@ -564,7 +564,7 @@ describe('/upcoming-bills page', () => {
 	// The page half of `formatAmountRangeBounds`: only the widget's use of the shared helper is
 	// exercised today. Asserted on a PAST month, where the row still has to render its bounds.
 	it('prints a variable amount as a range with one currency symbol, on a past month too', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				month: '2026-06',
 				isCurrentMonth: false,
@@ -601,7 +601,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('titles an empty past month without claiming anything is still expected', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				month: '2026-06',
 				isCurrentMonth: false,
@@ -619,7 +619,7 @@ describe('/upcoming-bills page', () => {
 
 	// The future month keeps the wording the design specifies for it (plate B2).
 	it('keeps the future wording on a future month', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				month: '2026-08',
 				isCurrentMonth: false,
@@ -651,7 +651,7 @@ describe('/upcoming-bills page', () => {
 	it('renders exactly the four locked actions, in order, in the desktop row menu, only the last in rose', async () => {
 		// The desktop cell is `hidden lg:grid`; the suite's beforeEach already puts the viewport at
 		// 1280 so its trigger is not display:none and a role-based query can reach it.
-		render(Page, { data: buildData() });
+		await render(Page, { data: buildData() });
 
 		// Named per row, not "Actions de l'échéance": a page of them would otherwise expose several
 		// controls sharing one accessible name.
@@ -678,7 +678,7 @@ describe('/upcoming-bills page', () => {
 		// nothing"), never a bare `/transactions` showing the user's whole history under a label
 		// that promises the bill's own occurrences.
 		const base = buildRow();
-		render(Page, {
+		await render(Page, {
 			data: buildData({
 				rows: [
 					buildRow({ actionPayload: { ...base.actionPayload, anchorTransactionIds: 'not json' } })
@@ -698,7 +698,7 @@ describe('/upcoming-bills page', () => {
 		// 390px, design planche C1. Set explicitly because the viewport is shared across tests in a
 		// file and the desktop menu test above widens it.
 		await page.viewport(390, 844);
-		const { container } = render(Page, { data: buildData() });
+		const { container } = await render(Page, { data: buildData() });
 
 		// One focusable control per mobile row (design C1), distinguished from the desktop cell by
 		// its breakpoint class rather than by its text.
@@ -727,7 +727,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('gives a settled row no action surface at all, and an ignored row only its restore link', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({
 				streamCount: 2,
 				rows: [
@@ -766,7 +766,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('posts the stored payload without normalizedLabel', async () => {
-		const { container } = render(Page, { data: buildData() });
+		const { container } = await render(Page, { data: buildData() });
 
 		const form = container.querySelector<HTMLFormElement>('form[action="?/markPaid"]');
 		expect(form).not.toBeNull();
@@ -787,7 +787,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('announces a successful action in a polite live region and offers the undo', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData(),
 			form: { billAction: { kind: 'ignore', actionId: 'action-1', month: '2026-07', label: '' } }
 		});
@@ -841,7 +841,7 @@ describe('/upcoming-bills page', () => {
 				buildRow({ status: 'ignored', countsInRemainingTotal: false, appliedActionId: 'action-1' })
 			]
 		});
-		const { rerender } = render(Page, { data: before });
+		const { rerender } = await render(Page, { data: before });
 
 		// Through the real surface: the menu item is what opens the dialog whose form is enhanced.
 		await userEvent.click(page.getByRole('button', { name: 'Actions pour Netflix' }));
@@ -867,7 +867,7 @@ describe('/upcoming-bills page', () => {
 				buildRow({ status: 'settled', settledKind: 'manual', countsInRemainingTotal: false })
 			]
 		});
-		const { rerender } = render(Page, { data: before });
+		const { rerender } = await render(Page, { data: before });
 
 		await runSubmit('?/markPaid', async () => {
 			await rerender({ data: after });
@@ -894,7 +894,7 @@ describe('/upcoming-bills page', () => {
 	}
 
 	it('confirms an ignore with the design copy, a BLACK final button, and a form posting ?/ignoreOccurrence', async () => {
-		const { container } = render(Page, { data: buildData() });
+		const { container } = await render(Page, { data: buildData() });
 		await openDialogItem('Ignorer cette occurrence');
 
 		expect(container.textContent).toContain('Ignorer cette occurrence ?');
@@ -922,7 +922,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('confirms an exclude in ROSE, with a form posting ?/excludeStream and carrying no due date', async () => {
-		const { container } = render(Page, { data: buildData() });
+		const { container } = await render(Page, { data: buildData() });
 		await openDialogItem('Ne plus détecter ce flux');
 
 		expect(container.textContent).toContain('Ne plus détecter ce flux ?');
@@ -943,7 +943,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('does not show a previous action failure inside a freshly opened dialog', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData(),
 			form: { billError: 'Échéance introuvable ou déjà obsolète. Rechargez la page.' }
 		});
@@ -966,7 +966,7 @@ describe('/upcoming-bills page', () => {
 	];
 
 	it('lists excluded streams in a section collapsed by default, restorable through ?/undoAction', async () => {
-		const { container } = render(Page, { data: buildData({ excludedStreams: EXCLUDED }) });
+		const { container } = await render(Page, { data: buildData({ excludedStreams: EXCLUDED }) });
 
 		const toggle = container.querySelector<HTMLButtonElement>('#bills-excluded-toggle');
 		expect(toggle?.getAttribute('aria-expanded')).toBe('false');
@@ -1001,7 +1001,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('collapses again on a second toggle', async () => {
-		const { container } = render(Page, { data: buildData({ excludedStreams: EXCLUDED }) });
+		const { container } = await render(Page, { data: buildData({ excludedStreams: EXCLUDED }) });
 		const toggle = container.querySelector<HTMLButtonElement>('#bills-excluded-toggle');
 		const list = container.querySelector<HTMLElement>('#bills-excluded-list');
 
@@ -1014,8 +1014,8 @@ describe('/upcoming-bills page', () => {
 		expect(list?.hidden).toBe(true);
 	});
 
-	it('is the section heading, so it appears in the page heading outline', () => {
-		const { container } = render(Page, { data: buildData({ excludedStreams: EXCLUDED }) });
+	it('is the section heading, so it appears in the page heading outline', async () => {
+		const { container } = await render(Page, { data: buildData({ excludedStreams: EXCLUDED }) });
 
 		// A bare <button> would leave the section out of the outline entirely, unlike every bill group.
 		const heading = container.querySelector('h2 > #bills-excluded-toggle');
@@ -1028,8 +1028,8 @@ describe('/upcoming-bills page', () => {
 	 * The section is a sibling of `#bills-list` rather than a child, so it survives that branch — but
 	 * that is a claim about markup placement and nothing else covered it.
 	 */
-	it('still renders the excluded section in the no-stream-at-all empty state', () => {
-		const { container } = render(Page, {
+	it('still renders the excluded section in the no-stream-at-all empty state', async () => {
+		const { container } = await render(Page, {
 			data: buildData({ streamCount: 0, rows: [], excludedStreams: [EXCLUDED[0]] })
 		});
 
@@ -1043,8 +1043,8 @@ describe('/upcoming-bills page', () => {
 	 * of ignores is 480, all still live). The copy must therefore not rest on a section that is not
 	 * on the page in that exact case.
 	 */
-	it('states the cap error truthfully when no excluded section is rendered', () => {
-		const { container } = render(Page, {
+	it('states the cap error truthfully when no excluded section is rendered', async () => {
+		const { container } = await render(Page, {
 			data: buildData({ excludedStreams: [] }),
 			form: { billError: m.upcoming_bills_error_action_limit() }
 		});
@@ -1061,8 +1061,8 @@ describe('/upcoming-bills page', () => {
 		expect(banner?.textContent).not.toContain("Annulez-en une avant d'en ajouter une nouvelle");
 	});
 
-	it('renders no excluded section at all when the user holds no exclusion', () => {
-		const { container } = render(Page, { data: buildData() });
+	it('renders no excluded section at all when the user holds no exclusion', async () => {
+		const { container } = await render(Page, { data: buildData() });
 
 		expect(container.querySelector('#bills-excluded-toggle')).toBeNull();
 		expect(container.textContent).not.toContain('Détection désactivée');
@@ -1071,7 +1071,7 @@ describe('/upcoming-bills page', () => {
 	it('moves focus to the list when the last exclusion is restored', async () => {
 		const before = buildData({ excludedStreams: [EXCLUDED[0]] });
 		const after = buildData();
-		const { rerender } = render(Page, { data: before });
+		const { rerender } = await render(Page, { data: before });
 
 		// The section disappears with its last row, so the focus target chosen at render is the list —
 		// not the toggle, which is exactly the node that has just been removed.
@@ -1086,7 +1086,7 @@ describe('/upcoming-bills page', () => {
 	it('keeps focus on the toggle when an exclusion remains', async () => {
 		const before = buildData({ excludedStreams: EXCLUDED });
 		const after = buildData({ excludedStreams: [EXCLUDED[1]] });
-		const { rerender } = render(Page, { data: before });
+		const { rerender } = await render(Page, { data: before });
 
 		const first = submitted.filter((entry) => entry.node.getAttribute('action') === '?/undoAction');
 		expect(first).toHaveLength(2);
@@ -1106,7 +1106,7 @@ describe('/upcoming-bills page', () => {
 	// backlog), so a transfer row is expected to carry the badge TWICE — asserted as a count, not
 	// with `.first()`, so a badge that only reached one of the two copies goes red.
 	it('badges a transfer row in both the desktop and the mobile layout', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({ rows: [buildRow({ nature: 'transfer' })] })
 		});
 
@@ -1121,7 +1121,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('leaves an ordinary expense row untagged', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData({ rows: [buildRow({ nature: 'spending' })] })
 		});
 
@@ -1129,7 +1129,7 @@ describe('/upcoming-bills page', () => {
 	});
 
 	it('surfaces an action failure as an error banner rather than a success one', async () => {
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData(),
 			form: { billError: 'Décision introuvable.' }
 		});
@@ -1191,7 +1191,7 @@ describe('/upcoming-bills — the unclassified sentinel is never printed raw', (
 		expect.assertions(2);
 		await page.viewport(width, height);
 
-		const { container } = render(Page, { data: buildData({ rows: [unclassifiedRow()] }) });
+		const { container } = await render(Page, { data: buildData({ rows: [unclassifiedRow()] }) });
 
 		const rendered = visibleText(container as HTMLElement);
 		expect(rendered).toContain(m.common_category_uncategorized());

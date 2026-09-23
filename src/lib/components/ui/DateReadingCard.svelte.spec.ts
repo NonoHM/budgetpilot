@@ -23,8 +23,8 @@ const BASE = {
 	current: false
 };
 
-function mount(props: Record<string, unknown>) {
-	const { container } = render(DateReadingCard, { ...BASE, ...props });
+async function mount(props: Record<string, unknown>) {
+	const { container } = await render(DateReadingCard, { ...BASE, ...props });
 	container.style.width = '350px';
 	const card = container.querySelector('[role="option"]') as HTMLElement;
 	expect(card).not.toBeNull();
@@ -41,24 +41,24 @@ describe('DateReadingCard.svelte: 107 px at both widths, and it does not move', 
 	 * 2. Widen the header row from `h-5` to `h-6`: separates "the header line box is fixed" from
 	 *    "any 20px number would have passed".
 	 */
-	it('is 107 px at 350 px width, with three ordinary pairs', () => {
+	it('is 107 px at 350 px width, with three ordinary pairs', async () => {
 		// Separates "the geometry holds for a real render" from "the height is a CSS default".
-		const { card } = mount({});
+		const { card } = await mount({});
 
 		expect(card.getBoundingClientRect().height).toBe(107);
 		expect(card.getBoundingClientRect().width).toBe(350);
 	});
 
-	it('stays 107 px when the card is the current reading and shows the marker', () => {
+	it('stays 107 px when the card is the current reading and shows the marker', async () => {
 		// Separates "the marker line is the same fixed 20px header row" from "the marker adds a row".
-		const { card } = mount({ current: true });
+		const { card } = await mount({ current: true });
 
 		expect(card.getBoundingClientRect().height).toBe(107);
 	});
 
-	it('stays 107 px when a converted value is far too long to fit, because the line truncates', () => {
+	it('stays 107 px when a converted value is far too long to fit, because the line truncates', async () => {
 		// Separates "the line is a fixed box that clips" from "a long value grows the card".
-		const { card } = mount({
+		const { card } = await mount({
 			pairs: [
 				{
 					raw: '03/04/2026',
@@ -72,10 +72,10 @@ describe('DateReadingCard.svelte: 107 px at both widths, and it does not move', 
 		expect(card.getBoundingClientRect().height).toBe(107);
 	});
 
-	it('is 107 px at 1280 px width too, because the card does not scale with the viewport', () => {
+	it('is 107 px at 1280 px width too, because the card does not scale with the viewport', async () => {
 		// Separates "the card is evidence, fixed at both widths" from "the card is a row, which
 		// scales" (86 -> 74, 68 -> 56 elsewhere on this screen per the plate).
-		const { container } = render(DateReadingCard, BASE);
+		const { container } = await render(DateReadingCard, BASE);
 		container.style.width = '1280px';
 		const card = container.querySelector('[role="option"]') as HTMLElement;
 
@@ -84,22 +84,22 @@ describe('DateReadingCard.svelte: 107 px at both widths, and it does not move', 
 });
 
 describe('DateReadingCard.svelte: the title names the reading', () => {
-	it('titles the day-first card', () => {
-		const { card } = mount({ order: 'day-first' });
+	it('titles the day-first card', async () => {
+		const { card } = await mount({ order: 'day-first' });
 
 		expect(card.textContent).toContain('Jour puis mois');
 	});
 
-	it('titles the month-first card', () => {
-		const { card } = mount({ order: 'month-first' });
+	it('titles the month-first card', async () => {
+		const { card } = await mount({ order: 'month-first' });
 
 		expect(card.textContent).toContain('Mois puis jour');
 	});
 });
 
 describe('DateReadingCard.svelte: the three lines, raw then pretty', () => {
-	it('renders each pair as raw, an arrow, then the converted value, in that order', () => {
-		const { card } = mount({});
+	it('renders each pair as raw, an arrow, then the converted value, in that order', async () => {
+		const { card } = await mount({});
 
 		const text = card.textContent ?? '';
 		// Separates "raw precedes pretty on each line" from "both are present in any order": each
@@ -114,12 +114,12 @@ describe('DateReadingCard.svelte: the three lines, raw then pretty', () => {
 		}
 	});
 
-	it('applies tabular-nums to the raw side only, never to the converted prose', () => {
+	it('applies tabular-nums to the raw side only, never to the converted prose', async () => {
 		// Separates "digits align down the column" (raw) from "tabular figures inside prose read as
 		// a table that is not there" (pretty). Both spans are read, not just one, per the
 		// fixture-blindness rule: a probe that only checked the raw side would pass a component that
 		// also (wrongly) put tabular-nums on the pretty side.
-		const { card } = mount({});
+		const { card } = await mount({});
 
 		const rawSpans = [...card.querySelectorAll('span')].filter(
 			(el) => el.textContent?.trim() === BASE.pairs[0].raw
@@ -133,11 +133,11 @@ describe('DateReadingCard.svelte: the three lines, raw then pretty', () => {
 		expect(getComputedStyle(prettySpans[0]).fontVariantNumeric).not.toContain('tabular-nums');
 	});
 
-	it('truncates a long line rather than wrapping it, asserted where the height cannot see it', () => {
+	it('truncates a long line rather than wrapping it, asserted where the height cannot see it', async () => {
 		// Same reasoning as ColumnCard's identical test: a fixed 17px line box with overflow-hidden
 		// CLIPS a wrapped second line instead of growing, so the height assertion above cannot tell
 		// truncation from wrapping-then-clipping. scrollWidth vs clientWidth can.
-		const { card } = mount({
+		const { card } = await mount({
 			pairs: [
 				{
 					raw: '03/04/2026',
@@ -157,17 +157,17 @@ describe('DateReadingCard.svelte: the three lines, raw then pretty', () => {
 });
 
 describe('DateReadingCard.svelte: the current marker', () => {
-	it('shows the retained-reading marker only when current', () => {
-		const { card: current } = mount({ current: true });
-		const { card: notCurrent } = mount({ current: false });
+	it('shows the retained-reading marker only when current', async () => {
+		const { card: current } = await mount({ current: true });
+		const { card: notCurrent } = await mount({ current: false });
 
 		expect(current.textContent).toContain('Lecture retenue');
 		expect(notCurrent.textContent).not.toContain('Lecture retenue');
 	});
 
-	it('reflects current on aria-selected, so the state exists in the tree and not only on screen', () => {
-		const { card: current } = mount({ current: true });
-		const { card: notCurrent } = mount({ current: false });
+	it('reflects current on aria-selected, so the state exists in the tree and not only on screen', async () => {
+		const { card: current } = await mount({ current: true });
+		const { card: notCurrent } = await mount({ current: false });
 
 		expect(current.getAttribute('aria-selected')).toBe('true');
 		expect(notCurrent.getAttribute('aria-selected')).toBe('false');
@@ -175,8 +175,8 @@ describe('DateReadingCard.svelte: the current marker', () => {
 });
 
 describe('DateReadingCard.svelte: the accessible name announces converted values only', () => {
-	it('composes order and the three PRETTY values, never the raw ones', () => {
-		const { card } = mount({});
+	it('composes order and the three PRETTY values, never the raw ones', async () => {
+		const { card } = await mount({});
 
 		const label = card.getAttribute('aria-label') ?? '';
 		// U+202F (narrow no-break space) before the colon, not an ASCII space: French typography,
@@ -191,8 +191,8 @@ describe('DateReadingCard.svelte: the accessible name announces converted values
 		}
 	});
 
-	it('carries no role word, because assistive technology contributes the role', () => {
-		const { card } = mount({});
+	it('carries no role word, because assistive technology contributes the role', async () => {
+		const { card } = await mount({});
 
 		const label = card.getAttribute('aria-label') ?? '';
 		expect(label.toLowerCase()).not.toContain('option');
@@ -200,25 +200,25 @@ describe('DateReadingCard.svelte: the accessible name announces converted values
 		expect(label.toLowerCase()).not.toContain('button');
 	});
 
-	it('hides the visual block from the accessibility tree, so the label is not walked twice', () => {
-		const { card } = mount({});
+	it('hides the visual block from the accessibility tree, so the label is not walked twice', async () => {
+		const { card } = await mount({});
 
 		expect(card.querySelector('[aria-hidden="true"]')).not.toBeNull();
 	});
 });
 
 describe('DateReadingCard.svelte: it is an option in a listbox, not a button', () => {
-	it('is never a tab stop, whatever the container decides to focus', () => {
-		const { card } = mount({});
+	it('is never a tab stop, whatever the container decides to focus', async () => {
+		const { card } = await mount({});
 
 		expect(card.getAttribute('role')).toBe('option');
 		expect(card.getAttribute('tabindex')).toBe('-1');
 		expect(page.getByRole('button').elements().length).toBe(0);
 	});
 
-	it('fires onSelect on click', () => {
+	it('fires onSelect on click', async () => {
 		const onSelect = vi.fn();
-		const { card } = mount({ onSelect });
+		const { card } = await mount({ onSelect });
 
 		card.click();
 		expect(onSelect).toHaveBeenCalledTimes(1);
@@ -226,10 +226,10 @@ describe('DateReadingCard.svelte: it is an option in a listbox, not a button', (
 });
 
 describe('DateReadingCard.svelte: hover exists only at lg, matching AccountRow', () => {
-	it('carries lg:hover:bg-zinc-50 as its own class token and no bare hover token below lg', () => {
+	it('carries lg:hover:bg-zinc-50 as its own class token and no bare hover token below lg', async () => {
 		// Split on whitespace rather than `.toContain('hover:bg-zinc-50')`, which would be satisfied
 		// by the substring inside `lg:hover:bg-zinc-50` itself and could never fail.
-		const { card } = mount({});
+		const { card } = await mount({});
 
 		const tokens = card.className.split(/\s+/);
 		expect(tokens).toContain('lg:hover:bg-zinc-50');

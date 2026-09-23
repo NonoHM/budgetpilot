@@ -83,7 +83,7 @@ afterEach(() => {
 
 describe('BottomSheet.svelte', () => {
 	it('renders children and no footer container when footer is omitted (existing callers)', async () => {
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -100,7 +100,7 @@ describe('BottomSheet.svelte', () => {
 	});
 
 	it('renders the footer outside the scrolling body when provided', async () => {
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -120,7 +120,7 @@ describe('BottomSheet.svelte', () => {
 	});
 
 	it('keeps the footer visible while the body scrolls (sticky, not scrolled)', async () => {
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -153,7 +153,7 @@ describe('BottomSheet.svelte', () => {
 	 * enforces the law; these pin the geometry the law is about.
 	 */
 	it('renders the header outside the scrolling body', async () => {
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -172,7 +172,7 @@ describe('BottomSheet.svelte', () => {
 	});
 
 	it('keeps the header visible while the body scrolls (pinned, not scrolled)', async () => {
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -196,7 +196,7 @@ describe('BottomSheet.svelte', () => {
 		// Relational, on purpose: each band's own height says nothing about whether the title ended
 		// up under the drag handle or over the scrolling area. The measurement that answers the
 		// question is the comparison, not the value.
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -226,7 +226,7 @@ describe('BottomSheet.svelte', () => {
 	 * « Supprimer ». These pin both branches so neither can drift into the other.
 	 */
 	it('focuses the first focusable by default, which is what every sheet did before the prop', async () => {
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -241,7 +241,7 @@ describe('BottomSheet.svelte', () => {
 	it('focuses the panel itself when asked, so a destructive first control is not the landing spot', async () => {
 		// The body's first focusable is deliberately named like the real offender: if this ever
 		// regresses, the failure message says which button focus landed on.
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'CARREFOUR MARKET',
 			onClose: vi.fn(),
@@ -260,7 +260,7 @@ describe('BottomSheet.svelte', () => {
 		// Focusing the container is only safe if Tab still enters the sheet and still cycles. A trap
 		// that lets focus escape from this starting point would break aria-modal's promise for the
 		// one sheet that needs the option.
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -280,7 +280,7 @@ describe('BottomSheet.svelte', () => {
 	});
 
 	it('scrolls a focused field inside the body into view', async () => {
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -311,7 +311,7 @@ describe('BottomSheet.svelte', () => {
 	it('falls back to the static max-h-[85vh] sizing when visualViewport is unavailable', async () => {
 		stubVisualViewport(null);
 
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -332,7 +332,7 @@ describe('BottomSheet.svelte', () => {
 		const fake = new FakeVisualViewport(844, 0);
 		stubVisualViewport(fake as unknown as VisualViewport);
 
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -360,7 +360,7 @@ describe('BottomSheet.svelte', () => {
 		const fake = new FakeVisualViewport(844, 0);
 		stubVisualViewport(fake as unknown as VisualViewport);
 
-		const { rerender } = render(BottomSheet, {
+		const { rerender } = await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose: vi.fn(),
@@ -386,7 +386,7 @@ describe('BottomSheet.svelte', () => {
 
 	it('keeps the Tab trap and Escape contract, and the trap now spans the footer too', async () => {
 		const onClose = vi.fn();
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Titre',
 			onClose,
@@ -428,7 +428,7 @@ describe('the visualViewport sizing must not repaint the sheets that never asked
 		const vv = new FakeVisualViewport(window.innerHeight, 0);
 		stubVisualViewport(vv as unknown as VisualViewport);
 
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Sans pied',
 			onClose: vi.fn(),
@@ -452,7 +452,7 @@ describe('the visualViewport sizing must not repaint the sheets that never asked
 		const vv = new FakeVisualViewport(window.innerHeight, 0);
 		stubVisualViewport(vv as unknown as VisualViewport);
 
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Sans pied',
 			onClose: vi.fn(),
@@ -473,7 +473,7 @@ describe('the visualViewport sizing must not repaint the sheets that never asked
 		const vv = new FakeVisualViewport(window.innerHeight, 0);
 		stubVisualViewport(vv as unknown as VisualViewport);
 
-		render(BottomSheet, {
+		await render(BottomSheet, {
 			open: true,
 			ariaLabel: 'Avec pied',
 			onClose: vi.fn(),

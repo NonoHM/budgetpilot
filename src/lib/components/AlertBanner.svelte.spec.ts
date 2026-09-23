@@ -12,21 +12,29 @@ function textSnippet(text: string) {
 
 describe('AlertBanner.svelte', () => {
 	it('auto-hides a success banner after autoDismissMs', async () => {
-		render(AlertBanner, { variant: 'success', autoDismissMs: 20, children: textSnippet('OK') });
+		await render(AlertBanner, {
+			variant: 'success',
+			autoDismissMs: 20,
+			children: textSnippet('OK')
+		});
 
 		await expect.element(page.getByText('OK')).toBeInTheDocument();
 		await expect.poll(() => page.getByText('OK').elements().length).toBe(0);
 	});
 
 	it('never auto-hides an error banner regardless of autoDismissMs', async () => {
-		render(AlertBanner, { variant: 'error', autoDismissMs: 20, children: textSnippet('Oops') });
+		await render(AlertBanner, {
+			variant: 'error',
+			autoDismissMs: 20,
+			children: textSnippet('Oops')
+		});
 
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		await expect.element(page.getByText('Oops')).toBeInTheDocument();
 	});
 
 	it('never auto-hides a warning banner regardless of autoDismissMs', async () => {
-		render(AlertBanner, {
+		await render(AlertBanner, {
 			variant: 'warning',
 			autoDismissMs: 20,
 			children: textSnippet('Careful')
@@ -37,7 +45,7 @@ describe('AlertBanner.svelte', () => {
 	});
 
 	it('never auto-hides an info banner regardless of autoDismissMs', async () => {
-		render(AlertBanner, {
+		await render(AlertBanner, {
 			variant: 'info',
 			autoDismissMs: 20,
 			children: textSnippet('Rename them?')
@@ -49,7 +57,7 @@ describe('AlertBanner.svelte', () => {
 	});
 
 	it('announces an info banner politely, not assertively', async () => {
-		render(AlertBanner, { variant: 'info', children: textSnippet('Rename them?') });
+		await render(AlertBanner, { variant: 'info', children: textSnippet('Rename them?') });
 
 		// `status`/`polite` rather than `alert`/`assertive`: an assertive region cuts across
 		// whatever the reader is in the middle of, which is right for an error blocking their
@@ -59,7 +67,7 @@ describe('AlertBanner.svelte', () => {
 		expect(banner.textContent).toContain('Rename them?');
 	});
 
-	it('gives info its own GLYPH, so the tone is never carried by colour alone', () => {
+	it('gives info its own GLYPH, so the tone is never carried by colour alone', async () => {
 		// The accessibility rule this variant is most likely to break. Zinc against rose is a
 		// colour difference, and a reader who cannot use colour has to be able to tell an offer
 		// from a failure. Asserted on the SVG markup rather than on a class name: the class is what
@@ -67,13 +75,13 @@ describe('AlertBanner.svelte', () => {
 		//
 		// Two structural differences, both checked. Info's circle is STROKED where error's is
 		// filled, and info's dot sits ABOVE the bar where error's sits below.
-		const { container: infoContainer } = render(AlertBanner, {
+		const { container: infoContainer } = await render(AlertBanner, {
 			variant: 'info',
 			children: textSnippet('Offer')
 		});
 		const infoIcon = infoContainer.querySelector('[aria-hidden="true"] svg');
 
-		const { container: errorContainer } = render(AlertBanner, {
+		const { container: errorContainer } = await render(AlertBanner, {
 			variant: 'error',
 			children: textSnippet('Failure')
 		});
@@ -87,7 +95,7 @@ describe('AlertBanner.svelte', () => {
 	it('lets a caller name the close control when "Close" would understate it', async () => {
 		// A banner whose dismissal is PERSISTED makes the X a permanent decision. Announced as
 		// "Close", a screen reader user has no way to know that before pressing it.
-		render(AlertBanner, {
+		await render(AlertBanner, {
 			variant: 'info',
 			dismissLabel: 'Keep the current names',
 			children: textSnippet('Offer')
@@ -100,13 +108,13 @@ describe('AlertBanner.svelte', () => {
 	});
 
 	it('still says "Fermer" when no dismissLabel is passed, so existing callers are unaffected', async () => {
-		render(AlertBanner, { variant: 'info', children: textSnippet('Offer') });
+		await render(AlertBanner, { variant: 'info', children: textSnippet('Offer') });
 
 		await expect.element(page.getByRole('button', { name: 'Fermer' })).toBeVisible();
 	});
 
 	it('closes any variant immediately via the manual close button', async () => {
-		render(AlertBanner, { variant: 'error', children: textSnippet('Oops') });
+		await render(AlertBanner, { variant: 'error', children: textSnippet('Oops') });
 
 		await userEvent.click(page.getByRole('button', { name: 'Fermer' }));
 
@@ -114,7 +122,11 @@ describe('AlertBanner.svelte', () => {
 	});
 
 	it('lets the user dismiss a success banner early, before the timer fires', async () => {
-		render(AlertBanner, { variant: 'success', autoDismissMs: 5000, children: textSnippet('OK') });
+		await render(AlertBanner, {
+			variant: 'success',
+			autoDismissMs: 5000,
+			children: textSnippet('OK')
+		});
 
 		await userEvent.click(page.getByRole('button', { name: 'Fermer' }));
 
@@ -132,7 +144,7 @@ describe('AlertBanner.svelte', () => {
 				node.addEventListener('click', onUndo);
 			}
 		}));
-		render(AlertBanner, {
+		await render(AlertBanner, {
 			variant: 'warning',
 			children: textSnippet('Careful'),
 			action: actionSnippet
@@ -148,7 +160,7 @@ describe('AlertBanner.svelte', () => {
 		const actionSnippet = createRawSnippet(() => ({
 			render: () => '<button type="button">Annuler</button>'
 		}));
-		render(AlertBanner, {
+		await render(AlertBanner, {
 			variant: 'success',
 			autoDismissMs: 20,
 			children: textSnippet('OK'),
@@ -167,7 +179,7 @@ describe('AlertBanner.svelte', () => {
 		const actionSnippet = createRawSnippet(() => ({
 			render: () => '<button type="button">Annuler</button>'
 		}));
-		const { container } = render(AlertBanner, {
+		const { container } = await render(AlertBanner, {
 			variant: 'warning',
 			children: textSnippet('Careful'),
 			action: actionSnippet
@@ -180,7 +192,7 @@ describe('AlertBanner.svelte', () => {
 	});
 
 	it('has no action at all when the caller passes none, so existing callers are unaffected', async () => {
-		render(AlertBanner, { variant: 'error', children: textSnippet('Oops') });
+		await render(AlertBanner, { variant: 'error', children: textSnippet('Oops') });
 
 		expect(page.getByRole('button').elements().length).toBe(1);
 		await expect.element(page.getByRole('button', { name: 'Fermer' })).toBeInTheDocument();

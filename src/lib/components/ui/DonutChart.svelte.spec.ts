@@ -24,8 +24,8 @@ function segments(pcts: number[]): DonutSegment[] {
 	return pcts.map((pct, i) => ({ label: `C${i}`, color: '#111111', pct }));
 }
 
-function renderDonut(pcts: number[]) {
-	return render(DonutChart, {
+async function renderDonut(pcts: number[]) {
+	return await render(DonutChart, {
 		segments: segments(pcts),
 		othersColor: '#d4d4d8',
 		title: 'Sorties par catégorie',
@@ -56,7 +56,7 @@ describe('DonutChart.svelte legend percentages', () => {
 			[100 / 3, 100 / 3, 100 / 3],
 			[42.4, 21.3, 8.3]
 		]) {
-			const { container } = renderDonut(pcts);
+			const { container } = await renderDonut(pcts);
 			expect(legendPercents(container)).toEqual(apportionPercentages(pcts));
 		}
 	});
@@ -74,7 +74,7 @@ describe('DonutChart.svelte legend percentages', () => {
 		expect.assertions(2);
 		await page.viewport(1280, 900);
 
-		const { container } = renderDonut([50.5, 49.5]);
+		const { container } = await renderDonut([50.5, 49.5]);
 
 		expect(legendPercents(container)).toEqual([51, 49]);
 		expect(legendPercents(container).reduce((a, b) => a + b, 0)).toBe(100);
@@ -93,7 +93,7 @@ describe('DonutChart.svelte legend percentages', () => {
 		await page.viewport(1280, 900);
 
 		const third = 100 / 3;
-		const { container } = renderDonut([third, third, third]);
+		const { container } = await renderDonut([third, third, third]);
 
 		expect(legendPercents(container)).toEqual([34, 33, 33]);
 		expect(legendPercents(container).reduce((a, b) => a + b, 0)).toBe(100);
@@ -114,7 +114,7 @@ describe('DonutChart.svelte legend percentages', () => {
 		expect.assertions(2);
 		await page.viewport(1280, 900);
 
-		const { container } = renderDonut([16.667, 16.667, 66.666]);
+		const { container } = await renderDonut([16.667, 16.667, 66.666]);
 
 		expect(legendPercents(container)).toEqual([17, 17, 66]);
 		expect(legendPercents(container).reduce((a, b) => a + b, 0)).toBe(100);
@@ -137,7 +137,7 @@ describe('DonutChart.svelte legend percentages', () => {
 		expect.assertions(2);
 		await page.viewport(1280, 900);
 
-		const { container } = renderDonut([30, 20, 10]);
+		const { container } = await renderDonut([30, 20, 10]);
 
 		expect(legendPercents(container)).toEqual([30, 20, 10]);
 		expect(legendPercents(container).reduce((a, b) => a + b, 0)).toBe(60);

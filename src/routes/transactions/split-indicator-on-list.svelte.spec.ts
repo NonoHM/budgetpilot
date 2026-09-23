@@ -115,7 +115,7 @@ describe('the répartition indicator on the transactions list', () => {
 	it('desktop: prints the DOMINANT category in place of the parent, with the badge beside it', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ transactions: [makeTransaction({ splitIndicator: SPLIT_INDICATOR })] }),
 			form: null
 		});
@@ -133,7 +133,7 @@ describe('the répartition indicator on the transactions list', () => {
 	it('desktop: line 2 describes the SAME part line 1 names (OD-4)', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ transactions: [makeTransaction({ splitIndicator: SPLIT_INDICATOR })] }),
 			form: null
 		});
@@ -148,7 +148,7 @@ describe('the répartition indicator on the transactions list', () => {
 	it('desktop: the dot agrees with the name beside it', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				transactions: [
 					makeTransaction({ id: 'tx-split', splitIndicator: SPLIT_INDICATOR }),
@@ -171,7 +171,7 @@ describe('the répartition indicator on the transactions list', () => {
 	it('mobile: the badge is inert, and says what it is anyway', async () => {
 		expect.assertions(3);
 		await page.viewport(390, 844);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				transactions: [makeTransaction({ splitIndicator: SPLIT_INDICATOR })]
 			}),
@@ -190,7 +190,7 @@ describe('the répartition indicator on the transactions list', () => {
 	it('renders no badge at all on an unsplit row, on either surface', async () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
-		const { container, rerender } = render(Page, {
+		const { container, rerender } = await render(Page, {
 			data: baseData({ transactions: [makeTransaction({ splitIndicator: SPLIT_INDICATOR })] }),
 			form: null
 		});
@@ -218,7 +218,7 @@ describe('the répartition indicator on the transactions list', () => {
 	it('mobile: the meta line measures 22px WITHOUT a badge, and the row does not grow when one arrives', async () => {
 		expect.assertions(3);
 		await page.viewport(390, 844);
-		const { container, rerender } = render(Page, { data: baseData(), form: null });
+		const { container, rerender } = await render(Page, { data: baseData(), form: null });
 
 		const rowOf = () => container.querySelector('#tx-row-tx-1') as HTMLElement;
 		const metaOf = () => {

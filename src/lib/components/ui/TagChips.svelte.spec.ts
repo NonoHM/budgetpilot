@@ -13,13 +13,13 @@ const three = [
 
 describe('TagChips.svelte', () => {
 	it('always writes the name, so colour never carries information alone', async () => {
-		render(TagChips, { tags: [three[0]] });
+		await render(TagChips, { tags: [three[0]] });
 
 		await expect.element(page.getByText('Portugal')).toBeInTheDocument();
 	});
 
 	it('shows at most two tags by default and collapses the rest as +N', async () => {
-		render(TagChips, { tags: three });
+		await render(TagChips, { tags: three });
 
 		await expect.element(page.getByText('Portugal')).toBeInTheDocument();
 		await expect.element(page.getByText('Remboursement Paul')).toBeInTheDocument();
@@ -32,7 +32,7 @@ describe('TagChips.svelte', () => {
 	});
 
 	it('names the hidden tags in the overflow button aria-label so nothing is lost', async () => {
-		render(TagChips, { tags: three });
+		await render(TagChips, { tags: three });
 
 		await expect
 			.element(page.getByRole('button', { name: /1 étiquette de plus : Pro/ }))
@@ -40,7 +40,7 @@ describe('TagChips.svelte', () => {
 	});
 
 	it('pluralises the overflow aria-label when more than one tag is hidden', async () => {
-		render(TagChips, { tags: three, max: 1 });
+		await render(TagChips, { tags: three, max: 1 });
 
 		await expect
 			.element(
@@ -52,13 +52,13 @@ describe('TagChips.svelte', () => {
 	});
 
 	it('renders no overflow marker when everything fits', async () => {
-		render(TagChips, { tags: [three[0], three[1]] });
+		await render(TagChips, { tags: [three[0], three[1]] });
 
 		expect(page.getByRole('button').elements().length).toBe(0);
 	});
 
 	it('carries the palette background class on the dot, not on the whole chip', async () => {
-		const { container } = render(TagChips, { tags: [three[0]] });
+		const { container } = await render(TagChips, { tags: [three[0]] });
 
 		const dot = container.querySelector('.bg-\\[\\#9f4949\\]');
 		expect(dot).toBeTruthy();
@@ -69,17 +69,17 @@ describe('TagChips.svelte', () => {
 	it('offers a remove control only in the enclosed variant, and only when onRemove is given', async () => {
 		const onRemove = vi.fn();
 
-		const plain = render(TagChips, { tags: [three[0]], onRemove, variant: 'plain' });
+		const plain = await render(TagChips, { tags: [three[0]], onRemove, variant: 'plain' });
 		expect(plain.container.querySelectorAll('button[aria-label^="Retirer"]').length).toBe(0);
 		plain.unmount();
 
-		const enclosedNoRemove = render(TagChips, { tags: [three[0]], variant: 'enclosed' });
+		const enclosedNoRemove = await render(TagChips, { tags: [three[0]], variant: 'enclosed' });
 		expect(
 			enclosedNoRemove.container.querySelectorAll('button[aria-label^="Retirer"]').length
 		).toBe(0);
 		enclosedNoRemove.unmount();
 
-		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
+		await render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
 		await expect
 			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
 			.toBeInTheDocument();
@@ -87,7 +87,7 @@ describe('TagChips.svelte', () => {
 
 	it('calls onRemove with the tag key when the remove control is activated', async () => {
 		const onRemove = vi.fn();
-		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
+		await render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
 
 		await userEvent.click(
 			page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
@@ -97,14 +97,14 @@ describe('TagChips.svelte', () => {
 	});
 
 	it('shows every tag when removal is offered, so a hidden tag cannot be unremovable', async () => {
-		render(TagChips, { tags: three, onRemove: vi.fn(), variant: 'enclosed' });
+		await render(TagChips, { tags: three, onRemove: vi.fn(), variant: 'enclosed' });
 
 		await expect.element(page.getByText('Pro')).toBeInTheDocument();
 		expect(page.getByRole('button', { name: /^\+/ }).elements().length).toBe(0);
 	});
 
 	it('renders nothing at all for an empty list', async () => {
-		const { container } = render(TagChips, { tags: [] });
+		const { container } = await render(TagChips, { tags: [] });
 
 		expect(container.textContent?.trim()).toBe('');
 	});
@@ -112,7 +112,7 @@ describe('TagChips.svelte', () => {
 	it('renders a neutral zinc dot for a tag with no colour yet, never guessing one', async () => {
 		// TagPicker's pending-create case: the colour derives from nameKey, a server-side digest,
 		// so the client genuinely does not know it until the row exists.
-		const { container } = render(TagChips, {
+		const { container } = await render(TagChips, {
 			tags: [{ key: 'Nouveau', name: 'Nouveau', colorToken: null }]
 		});
 
@@ -121,7 +121,7 @@ describe('TagChips.svelte', () => {
 	});
 
 	it('marks a pending (in-flight creation) chip with a dashed border, a zinc-400 dot and a spinner', async () => {
-		const { container } = render(TagChips, {
+		const { container } = await render(TagChips, {
 			tags: [{ key: 'Réparation vélo', name: 'Réparation vélo', colorToken: null, pending: true }],
 			variant: 'enclosed'
 		});
@@ -133,7 +133,7 @@ describe('TagChips.svelte', () => {
 
 	it('gives the remove button a real 44x44 tap target on mobile via padding that overflows the chip, staying visually 22x22', async () => {
 		const onRemove = vi.fn();
-		render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
+		await render(TagChips, { tags: [three[0]], onRemove, variant: 'enclosed' });
 
 		const button = page
 			.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) })
@@ -155,7 +155,7 @@ describe('TagChips.svelte', () => {
 	});
 
 	it('widens the "+N" overflow button to a 44px min-width / 28px height real tap target on mobile', async () => {
-		render(TagChips, { tags: three });
+		await render(TagChips, { tags: three });
 
 		const button = page
 			.getByRole('button', { name: /1 étiquette de plus/ })
@@ -166,7 +166,7 @@ describe('TagChips.svelte', () => {
 	});
 
 	it("spins the pending-chip spinner at the design's 0.8s cadence, not Tailwind's 1s default", async () => {
-		const { container } = render(TagChips, {
+		const { container } = await render(TagChips, {
 			tags: [{ key: 'x', name: 'x', colorToken: null, pending: true }],
 			variant: 'enclosed'
 		});
@@ -176,11 +176,11 @@ describe('TagChips.svelte', () => {
 	});
 
 	it('groups the chips in a list with an accessible name, absent entirely when there are no tags', async () => {
-		const populated = render(TagChips, { tags: [three[0]] });
+		const populated = await render(TagChips, { tags: [three[0]] });
 		await expect.element(page.getByRole('list', { name: 'Étiquettes' })).toBeInTheDocument();
 		populated.unmount();
 
-		const empty = render(TagChips, { tags: [] });
+		const empty = await render(TagChips, { tags: [] });
 		expect(empty.container.querySelector('ul')).toBeNull();
 	});
 
@@ -188,7 +188,7 @@ describe('TagChips.svelte', () => {
 		['sm', '18px'],
 		['md', '26px']
 	])('pins the %s chip height at %s rather than letting the text decide it', async (size, px) => {
-		const { container } = render(TagChips, {
+		const { container } = await render(TagChips, {
 			tags: [{ key: 't1', name: 'Portugal', colorToken: 'lagoon' as const }],
 			size: size as 'sm' | 'md'
 		});
@@ -213,7 +213,7 @@ describe('TagChips.svelte', () => {
 		// The design forbids wrapping in the reading context only ("Retour à la ligne : jamais en
 		// variante plain (ligne de tableau)"); the editing variants wrap on purpose, which is why
 		// all three are pinned together rather than plain alone.
-		const { container } = render(TagChips, {
+		const { container } = await render(TagChips, {
 			tags: three,
 			variant: variant as 'plain' | 'enclosed' | 'tinted',
 			max: Infinity
@@ -226,7 +226,7 @@ describe('TagChips.svelte', () => {
 	it('lets a long name truncate instead of widening the chip past its cap', async () => {
 		// The other half of the no-wrap fix: with nowrap and nothing shrinkable, two chips simply
 		// overflowed their column instead of wrapping. The name must be the only thing that gives.
-		const { container } = render(TagChips, {
+		const { container } = await render(TagChips, {
 			tags: [
 				{ key: 't1', name: 'Mariage Camille et Thomas juin 2026 Bretagne', colorToken: 'clay' }
 			],
@@ -242,7 +242,7 @@ describe('TagChips.svelte', () => {
 	});
 
 	it('renders the tinted variant with the token hue as text on its own tint', async () => {
-		const { container } = render(TagChips, {
+		const { container } = await render(TagChips, {
 			tags: [{ key: 't1', name: 'Portugal', colorToken: 'lagoon' as const }],
 			variant: 'tinted',
 			max: Infinity
@@ -258,7 +258,7 @@ describe('TagChips.svelte', () => {
 	});
 
 	it('falls back to neutral zinc in the tinted variant when the tag has no colour yet', async () => {
-		const { container } = render(TagChips, {
+		const { container } = await render(TagChips, {
 			tags: [{ key: 'Portugal', name: 'Portugal', colorToken: null }],
 			variant: 'tinted',
 			max: Infinity
@@ -293,7 +293,7 @@ describe('TagChips.svelte', () => {
 
 	it('offers a remove control on a tinted chip, named after the tag', async () => {
 		const removed: string[] = [];
-		render(TagChips, {
+		await render(TagChips, {
 			tags: [{ key: 't1', name: 'Portugal', colorToken: 'lagoon' as const }],
 			variant: 'tinted',
 			max: Infinity,

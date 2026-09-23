@@ -169,7 +169,7 @@ describe('unsaved-changes guard', () => {
 	it('lets a navigation through untouched when nothing is dirty', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		const nav = fireNavigate(navigation());
 		expect(nav.cancel).not.toHaveBeenCalled();
@@ -181,7 +181,7 @@ describe('unsaved-changes guard', () => {
 	it('cancels and asks when a tag was changed but not saved', async () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 		await makeDirty(container);
 
 		const nav = fireNavigate(navigation());
@@ -198,7 +198,7 @@ describe('unsaved-changes guard', () => {
 	it('"Rester" dismisses the question and goes nowhere', async () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 		await makeDirty(container);
 		fireNavigate(navigation());
 
@@ -214,7 +214,7 @@ describe('unsaved-changes guard', () => {
 	it('"Abandonner" replays the exact navigation that was cancelled', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 		await makeDirty(container);
 		const target = new URL('https://example.test/budgets?month=2026-06');
 		fireNavigate(navigation({ to: { url: target } }));
@@ -228,7 +228,7 @@ describe('unsaved-changes guard', () => {
 	it('a tab close is cancelled but raises no dialog of ours', async () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 		await makeDirty(container);
 
 		const nav = fireNavigate(navigation({ willUnload: true, to: null }));

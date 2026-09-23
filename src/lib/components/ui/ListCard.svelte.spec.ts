@@ -10,7 +10,7 @@ function rawSnippet(html: string) {
 
 describe('ListCard.svelte', () => {
 	it('toggles the expand button aria-label between show/hide details when no expandLabel is passed', async () => {
-		render(ListCard, {
+		await render(ListCard, {
 			children: rawSnippet('<span>Row content</span>'),
 			details: rawSnippet('<span>Details content</span>')
 		});
@@ -26,7 +26,7 @@ describe('ListCard.svelte', () => {
 	});
 
 	it('uses the provided expandLabel as a fixed aria-label instead of the default toggle', async () => {
-		render(ListCard, {
+		await render(ListCard, {
 			children: rawSnippet('<span>Row content</span>'),
 			details: rawSnippet('<span>Details content</span>'),
 			expandLabel: 'Supprimer'
@@ -36,7 +36,7 @@ describe('ListCard.svelte', () => {
 	});
 
 	it('uses expandAriaLabel for the accessible name while keeping the default visible glyph', async () => {
-		render(ListCard, {
+		await render(ListCard, {
 			children: rawSnippet('<span>Row content</span>'),
 			details: rawSnippet('<span>Details content</span>'),
 			expandAriaLabel: 'Supprimer la règle Coinbase'
@@ -49,7 +49,7 @@ describe('ListCard.svelte', () => {
 
 	it('announces the active card, not only tints it', async () => {
 		expect.assertions(2);
-		const { container } = render(ListCard, {
+		const { container } = await render(ListCard, {
 			children: rawSnippet('<span>Row content</span>'),
 			href: '/transactions?selected=tx-1',
 			active: true
@@ -64,7 +64,7 @@ describe('ListCard.svelte', () => {
 
 	it('leaves an inactive card unannounced', async () => {
 		expect.assertions(1);
-		const { container } = render(ListCard, {
+		const { container } = await render(ListCard, {
 			children: rawSnippet('<span>Row content</span>'),
 			href: '/transactions?selected=tx-2'
 		});
@@ -75,7 +75,7 @@ describe('ListCard.svelte', () => {
 	});
 
 	it('prefers expandAriaLabel over expandLabel for the accessible name when both are passed', async () => {
-		render(ListCard, {
+		await render(ListCard, {
 			children: rawSnippet('<span>Row content</span>'),
 			details: rawSnippet('<span>Details content</span>'),
 			expandLabel: 'Actions',

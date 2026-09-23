@@ -65,8 +65,8 @@ const FILE = {
  * designated column, a proposed one and the rest each contribute a heading, and a fixture with one
  * group would report on a listbox that has one heading in it rather than three.
  */
-function mountColumns() {
-	return render(ColumnPicker, {
+async function mountColumns() {
+	return await render(ColumnPicker, {
 		open: true,
 		role: 'date',
 		file: FILE,
@@ -78,7 +78,7 @@ function mountColumns() {
 }
 
 describe('1. the columns listbox contains options, and nothing that is not one', () => {
-	it('has no child that is neither an option nor a group of options', () => {
+	it('has no child that is neither an option nor a group of options', async () => {
 		// SEPARATES: « every child of `role="listbox"` is in its content model » FROM « the group
 		// headings sit inside it as bare paragraphs ». Both render identically. Only the second
 		// hands an assistive technology a list whose children it is entitled to skip, and the
@@ -89,7 +89,7 @@ describe('1. the columns listbox contains options, and nothing that is not one',
 		// `role="group"` with the heading as the group's own label, which is the shape ARIA has for
 		// exactly this, and the options nest inside.
 		expect.assertions(3);
-		mountColumns();
+		await mountColumns();
 		const listbox = document.querySelector('[data-testid="column-listbox"]');
 		expect(listbox).not.toBeNull();
 		const children = [...listbox!.children];
@@ -109,24 +109,24 @@ describe('1. the columns listbox contains options, and nothing that is not one',
 		).toStrictEqual([]);
 	});
 
-	it('keeps every option reachable, inside a group or directly', () => {
+	it('keeps every option reachable, inside a group or directly', async () => {
 		// SEPARATES: « the options are still there after the regrouping » FROM « the fix hid them ».
 		// A listbox whose children are all groups and whose groups are empty passes the assertion
 		// above perfectly, which is why this one exists beside it.
 		expect.assertions(2);
-		mountColumns();
+		await mountColumns();
 		const options = page.getByRole('option').elements();
 		// Four headers, four options, whatever grouping they are arranged into.
 		expect(options).toHaveLength(HEADERS.length);
 		expect(options.every((option) => option.closest('[data-testid="column-listbox"]'))).toBe(true);
 	});
 
-	it('gives each group a name, so a heading that stops being a paragraph does not stop being read', () => {
+	it('gives each group a name, so a heading that stops being a paragraph does not stop being read', async () => {
 		// SEPARATES: « the regrouping KEPT the heading text in the accessibility tree » FROM « it
 		// removed the paragraphs and put nothing in their place ». The fix must not be an
 		// improvement on paper that loses the label the sighted user reads.
 		expect.assertions(2);
-		mountColumns();
+		await mountColumns();
 		const groups = [...document.querySelectorAll('[data-testid="column-listbox"] [role="group"]')];
 		expect(groups.length).toBeGreaterThan(0);
 		expect(
@@ -155,7 +155,7 @@ describe('6. pressing the primary with no account moves focus to the row that is
 		// sentence with no way to act on it without hunting, and it is the more natural thing to
 		// build: the banner is what just appeared.
 		expect.assertions(4);
-		render(ColumnDesignationScreen, {
+		await render(ColumnDesignationScreen, {
 			file: SCREEN_FILE,
 			initialAssignment: { date: 0, label: 1, amount: 2, category: null },
 			accounts: [],
@@ -181,12 +181,12 @@ describe('6. pressing the primary with no account moves focus to the row that is
 		expect(row.element().getAttribute('aria-label')).toContain(m.import_account_error_required());
 	});
 
-	it('carries no aria-invalid on the row it just put into error', () => {
+	it('carries no aria-invalid on the row it just put into error', async () => {
 		// SEPARATES: « the ruling held through the screen » FROM « the component drops the attribute
 		// and the screen adds it back ». One line, and it is the line a later contributor restores
 		// « for completeness » on the argument that 6h specifies it.
 		expect.assertions(1);
-		const { container } = render(ColumnDesignationScreen, {
+		const { container } = await render(ColumnDesignationScreen, {
 			file: SCREEN_FILE,
 			initialAssignment: { date: 0, label: 1, amount: 2, category: null },
 			accounts: [],

@@ -41,7 +41,7 @@ function base(overrides: Props = {}): Props {
 describe('PeriodFilter — the trigger grammar', () => {
 	it('at rest the trigger reads only the dimension name, and there is no clear button', async () => {
 		expect.assertions(2);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await expect.element(page.getByRole('button', { name: 'Période' })).toBeInTheDocument();
 		expect(page.getByRole('button', { name: /Retirer le filtre/ }).elements().length).toBe(0);
@@ -49,7 +49,7 @@ describe('PeriodFilter — the trigger grammar', () => {
 
 	it('active renders "Période", ":" and the value, as two adjoined buttons', async () => {
 		expect.assertions(4);
-		render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12' }));
+		await render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12' }));
 
 		const group = page.getByTestId('period-trigger-group').element() as HTMLElement;
 		const buttons = group.querySelectorAll('button');
@@ -64,7 +64,7 @@ describe('PeriodFilter — the trigger grammar', () => {
 
 	it('the trigger group is 34px tall on desktop and neither button falls under 24px', async () => {
 		expect.assertions(3);
-		render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12' }));
+		await render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12' }));
 
 		const group = page.getByTestId('period-trigger-group').element() as HTMLElement;
 		const buttons = [...group.querySelectorAll('button')];
@@ -78,7 +78,7 @@ describe('PeriodFilter — the trigger grammar', () => {
 
 	it('on mobile each button is a full 44px target, matching the other filter-bar triggers (design 6I)', async () => {
 		expect.assertions(3);
-		render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12', surface: 'mobile' }));
+		await render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12', surface: 'mobile' }));
 
 		const group = page.getByTestId('period-trigger-group').element() as HTMLElement;
 		const buttons = [...group.querySelectorAll('button')];
@@ -99,7 +99,7 @@ describe('PeriodFilter — the trigger grammar', () => {
 
 	it('caps the value slot at 190px WITHOUT an ellipsis', async () => {
 		expect.assertions(3);
-		render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12' }));
+		await render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12' }));
 
 		const value = page.getByTestId('period-value').element() as HTMLElement;
 		expect(value.className).toContain('max-w-[190px]');
@@ -112,7 +112,7 @@ describe('PeriodFilter — the trigger grammar', () => {
 
 	it('always carries the unabridged form in the accessible name, whichever rung renders', async () => {
 		expect.assertions(1);
-		render(PeriodFilter, base({ from: '2026-09-30', to: '2027-02-28' }));
+		await render(PeriodFilter, base({ from: '2026-09-30', to: '2027-02-28' }));
 
 		await expect
 			.element(page.getByRole('button', { name: /30 septembre 2026 → 28 février 2027/ }))
@@ -123,7 +123,7 @@ describe('PeriodFilter — the trigger grammar', () => {
 		expect.assertions(4);
 		// This range's `full` form ("30 septembre 2026 → 28 février 2027") does not fit the 190px cap
 		// under the measured character table, so the ladder shortens it and `shortened` is true.
-		render(PeriodFilter, base({ from: '2026-09-30', to: '2027-02-28' }));
+		await render(PeriodFilter, base({ from: '2026-09-30', to: '2027-02-28' }));
 
 		const value = page.getByTestId('period-value').element() as HTMLElement;
 		expect(value.className).toContain('decoration-dotted');
@@ -152,7 +152,7 @@ describe('PeriodFilter — the trigger grammar', () => {
 describe('PeriodFilter — the invalid state', () => {
 	it('stays neutral (no rose, no amber) and writes the word, not just the glyph', async () => {
 		expect.assertions(4);
-		render(PeriodFilter, base({ from: 'nonsense', to: '2026-06-12', invalid: true }));
+		await render(PeriodFilter, base({ from: 'nonsense', to: '2026-06-12', invalid: true }));
 
 		const group = page.getByTestId('period-trigger-group').element() as HTMLElement;
 		expect(group.className).toContain('border-zinc-900');
@@ -165,7 +165,7 @@ describe('PeriodFilter — the invalid state', () => {
 
 	it('points aria-describedby at the panel message it names', async () => {
 		expect.assertions(2);
-		render(PeriodFilter, base({ from: 'nonsense', to: '2026-06-12', invalid: true }));
+		await render(PeriodFilter, base({ from: 'nonsense', to: '2026-06-12', invalid: true }));
 
 		const open = page.getByTestId('period-trigger-group').element().querySelector('button');
 		const describedBy = open?.getAttribute('aria-describedby');
@@ -182,7 +182,7 @@ describe('PeriodFilter — the invalid state', () => {
 describe('PeriodFilter — the panel', () => {
 	it('offers the presets and two labelled, genuinely focusable date inputs', async () => {
 		expect.assertions(3);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await expect.element(page.getByRole('button', { name: 'Ce mois-ci' })).toBeInTheDocument();
@@ -195,7 +195,7 @@ describe('PeriodFilter — the panel', () => {
 
 	it('never renders a native date input — the defect this dimension closes', async () => {
 		expect.assertions(1);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		expect(document.querySelectorAll('input[type="date"]')).toHaveLength(0);
@@ -203,7 +203,7 @@ describe('PeriodFilter — the panel', () => {
 
 	it('the from/to inputs are type=text with inputmode=numeric', async () => {
 		expect.assertions(4);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		const fromInput = page.getByLabelText('Du').element() as HTMLInputElement;
@@ -220,7 +220,7 @@ describe('PeriodFilter — the panel', () => {
 		// validation point for all three: a preset brushed by accident must not fire a request that
 		// then has to be undone by touching something else.
 		const onApply = vi.fn();
-		render(PeriodFilter, base({ onApply }));
+		await render(PeriodFilter, base({ onApply }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.click(page.getByRole('button', { name: 'Ce mois-ci' }));
@@ -236,7 +236,7 @@ describe('PeriodFilter — the panel', () => {
 	it('applies a preset as a from/to pair, never a third param, only once Appliquer is pressed', async () => {
 		expect.assertions(1);
 		const onApply = vi.fn();
-		render(PeriodFilter, base({ onApply }));
+		await render(PeriodFilter, base({ onApply }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.click(page.getByRole('button', { name: 'Ce mois-ci' }));
@@ -252,7 +252,7 @@ describe('PeriodFilter — the panel', () => {
 		// test that passed whether or not the anchor moved at all. Read from the month caption node
 		// specifically (`[data-testid="rc-month-caption"]`): the status region ALSO renders "mai" once the
 		// range is a full month, so a plain text query for "mai 2026" matches both and is ambiguous.
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.click(page.getByRole('button', { name: 'Le mois dernier' }));
@@ -268,7 +268,7 @@ describe('PeriodFilter — the panel', () => {
 		// Six is a LAYOUT constraint (three 30px rows + two 6px gaps in two columns), not a taste —
 		// see periodPresets.ts. `last3Months` was displaced, not supplemented, so its absence is part
 		// of the same claim as the count.
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		const group = page.getByRole('group', { name: 'Raccourcis' }).element() as HTMLElement;
@@ -287,7 +287,7 @@ describe('PeriodFilter — the panel', () => {
 
 	it('a preset goes dark the instant a calendar day is clicked, even though the draft still equals its range', async () => {
 		expect.assertions(2);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.click(page.getByRole('button', { name: 'Ce mois-ci' }));
@@ -303,7 +303,7 @@ describe('PeriodFilter — the panel', () => {
 
 	it('a preset goes dark the instant a field is typed in', async () => {
 		expect.assertions(1);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.click(page.getByRole('button', { name: 'Ce mois-ci' }));
@@ -317,7 +317,7 @@ describe('PeriodFilter — the panel', () => {
 	it('the "Toutes les périodes" return row clears the filter', async () => {
 		expect.assertions(1);
 		const onClear = vi.fn();
-		render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12', onClear }));
+		await render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12', onClear }));
 
 		await userEvent.click(page.getByRole('button', { name: /Période/ }).first());
 		await userEvent.click(page.getByRole('button', { name: 'Toutes les périodes' }));
@@ -328,7 +328,7 @@ describe('PeriodFilter — the panel', () => {
 	it('the Appliquer button applies the typed dates', async () => {
 		expect.assertions(1);
 		const onApply = vi.fn();
-		render(PeriodFilter, base({ onApply }));
+		await render(PeriodFilter, base({ onApply }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.fill(page.getByLabelText('Du'), '03/03/2026');
@@ -342,7 +342,7 @@ describe('PeriodFilter — the panel', () => {
 		expect.assertions(3);
 		const onApply = vi.fn();
 		const onClear = vi.fn();
-		render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12', onApply, onClear }));
+		await render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12', onApply, onClear }));
 
 		await userEvent.click(page.getByRole('button', { name: /Période/ }).first());
 		await expect.element(page.getByRole('button', { name: 'Appliquer' })).toBeInTheDocument();
@@ -357,7 +357,7 @@ describe('PeriodFilter — the panel', () => {
 	it('Appliquer is aria-disabled (never native disabled) until BOTH bounds are placed, and a click on it does nothing', async () => {
 		expect.assertions(5);
 		const onApply = vi.fn();
-		render(PeriodFilter, base({ onApply }));
+		await render(PeriodFilter, base({ onApply }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		const applyButton = page
@@ -394,7 +394,7 @@ describe('PeriodFilter — the panel', () => {
 		 * the same thing from the design side: "tant que la fin manque, « Appliquer » reste éteint".
 		 */
 		expect.assertions(4);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.fill(page.getByLabelText('Du'), '03/03/2026');
@@ -414,7 +414,7 @@ describe('PeriodFilter — the panel', () => {
 	it('Appliquer stays inert when one field holds an incomplete fragment', async () => {
 		// Otherwise the fragment is sent verbatim as a URL param on the strength of the other field.
 		expect.assertions(1);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.fill(page.getByLabelText('Du'), '03/03/2026');
@@ -428,7 +428,7 @@ describe('PeriodFilter — the panel', () => {
 
 	it('mounts a calendar grid, with full day names on the column headers and a live status region', async () => {
 		expect.assertions(4);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		// The panel keeps its own role="dialog"; the calendar is a role="grid" INSIDE it, not a
@@ -455,7 +455,7 @@ describe('PeriodFilter — the panel', () => {
 
 	it('the invalid message says what did NOT change, and carries the id the trigger points at', async () => {
 		expect.assertions(2);
-		render(PeriodFilter, base({ from: 'nonsense', to: '2026-06-12', invalid: true }));
+		await render(PeriodFilter, base({ from: 'nonsense', to: '2026-06-12', invalid: true }));
 
 		const open = page.getByTestId('period-trigger-group').element().querySelector('button');
 		const describedBy = open?.getAttribute('aria-describedby');
@@ -468,7 +468,7 @@ describe('PeriodFilter — the panel', () => {
 
 	it('renders the optional footer as a sibling of the panel controls, never a listbox option', async () => {
 		expect.assertions(2);
-		render(PeriodFilter, base({ footer: footerSnippet }));
+		await render(PeriodFilter, base({ footer: footerSnippet }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await expect.element(page.getByTestId('footer-probe')).toBeInTheDocument();
@@ -480,7 +480,7 @@ describe('PeriodFilter — the panel', () => {
 
 	it('puts the selected state on the matching preset row when the current range IS one', async () => {
 		expect.assertions(1);
-		render(PeriodFilter, base({ from: '2026-06-01', to: '2026-06-30' }));
+		await render(PeriodFilter, base({ from: '2026-06-01', to: '2026-06-30' }));
 
 		await userEvent.click(page.getByRole('button', { name: /Période/ }).first());
 		const thisMonth = page.getByRole('button', { name: 'Ce mois-ci' }).element();
@@ -491,7 +491,7 @@ describe('PeriodFilter — the panel', () => {
 describe('PeriodFilter — Escape and focus-out', () => {
 	it('Escape closes the panel and hands focus back to the open button', async () => {
 		expect.assertions(2);
-		render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12' }));
+		await render(PeriodFilter, base({ from: '2026-03-03', to: '2026-06-12' }));
 
 		const trigger = page.getByRole('button', {
 			name: /Période : 3 mars 2026 → 12 juin 2026/
@@ -505,7 +505,7 @@ describe('PeriodFilter — Escape and focus-out', () => {
 
 	it('moving focus out of the panel entirely (relatedTarget null) does not close it', async () => {
 		expect.assertions(2);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		expect(page.getByRole('dialog').elements().length).toBe(1);
@@ -518,7 +518,7 @@ describe('PeriodFilter — Escape and focus-out', () => {
 
 	it('moving focus to something outside the component closes the panel', async () => {
 		expect.assertions(2);
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		const outside = document.createElement('button');
 		outside.textContent = 'ailleurs';
@@ -550,7 +550,7 @@ describe('PeriodFilter — Escape and focus-out', () => {
  */
 describe('the panel cannot escape its own box', () => {
 	async function openPanel(triggerName: string, overrides: Props = {}) {
-		render(PeriodFilter, base(overrides));
+		await render(PeriodFilter, base(overrides));
 		// Named explicitly rather than matched on 'Période': once a value is set the group grows a
 		// second button ("Retirer le filtre par Période") that also matches the substring.
 		await userEvent.click(page.getByRole('button', { name: triggerName, exact: true }));
@@ -607,7 +607,7 @@ describe('the grid restarts a backward range, it never swaps the bounds silently
 	 * second call at all. It would pass against the broken build.
 	 */
 	async function openPanelOn(day: string) {
-		const screen = render(PeriodFilter, base());
+		const screen = await render(PeriodFilter, base());
 		await screen.getByRole('button', { name: 'Période', exact: true }).click();
 		await page
 			.getByRole('gridcell', { name: new RegExp(`\\b${day}\\b`) })
@@ -664,7 +664,7 @@ describe('at 390 Période is a sheet, not a popover', () => {
 	 */
 	async function openMobileSheet() {
 		await page.viewport(390, 844);
-		const screen = render(PeriodFilter, base({ surface: 'mobile', allowCustomRung: false }));
+		const screen = await render(PeriodFilter, base({ surface: 'mobile', allowCustomRung: false }));
 		await screen.getByRole('button', { name: 'Période', exact: true }).click();
 		return screen;
 	}
@@ -732,7 +732,7 @@ describe('the mobile trigger meets the 44px floor in BOTH dimensions', () => {
 	 */
 	it('gives every trigger button at least 44px of width and height', async () => {
 		await page.viewport(390, 844);
-		render(PeriodFilter, base({ surface: 'mobile', from: '2026-06-01', to: '2026-06-30' }));
+		await render(PeriodFilter, base({ surface: 'mobile', from: '2026-06-01', to: '2026-06-30' }));
 
 		const group = document.querySelector('[data-testid="period-trigger-group"]')!;
 		const buttons = [...group.querySelectorAll('button')];
@@ -762,7 +762,7 @@ describe('the sheet keeps its header as well as its footer', () => {
 	 */
 	async function openSheet() {
 		await page.viewport(390, 844);
-		const screen = render(PeriodFilter, base({ surface: 'mobile', allowCustomRung: false }));
+		const screen = await render(PeriodFilter, base({ surface: 'mobile', allowCustomRung: false }));
 		await screen.getByRole('button', { name: 'Période', exact: true }).click();
 		return screen;
 	}
@@ -847,7 +847,7 @@ describe('6M — the keyboard-open budget, measured rather than deduced', () => 
 		const vv = new FakeVV(844, 0);
 		Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true });
 
-		const screen = render(PeriodFilter, base({ surface: 'mobile', allowCustomRung: false }));
+		const screen = await render(PeriodFilter, base({ surface: 'mobile', allowCustomRung: false }));
 		await screen.getByRole('button', { name: 'Période', exact: true }).click();
 		await new Promise((r) => setTimeout(r, 60));
 
@@ -891,7 +891,7 @@ describe('6M — the keyboard-open budget, measured rather than deduced', () => 
 		const vv = new FakeVV(844, 0);
 		Object.defineProperty(window, 'visualViewport', { value: vv, configurable: true });
 
-		const screen = render(PeriodFilter, base({ surface: 'mobile', allowCustomRung: false }));
+		const screen = await render(PeriodFilter, base({ surface: 'mobile', allowCustomRung: false }));
 		await screen.getByRole('button', { name: 'Période', exact: true }).click();
 		await new Promise((r) => setTimeout(r, 60));
 		vv.set(544, 0);
@@ -925,7 +925,7 @@ describe("PeriodFilter — the preset set is the caller's", () => {
 		// Separates "presets are a prop" from "presets are the module constant". Under the second
 		// this renders six buttons whatever is passed, so the absence assertion is what carries it:
 		// a set that merely APPENDED would still contain the quarter preset.
-		render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS }));
+		await render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		const group = page.getByRole('group', { name: 'Raccourcis' }).element() as HTMLElement;
@@ -945,7 +945,7 @@ describe("PeriodFilter — the preset set is the caller's", () => {
 		expect.assertions(1);
 		// The control, and the reason the widening is safe: /transactions passes no `presets`, so
 		// this separates "the default is untouched" from "every caller now gets the new set".
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		const group = page.getByRole('group', { name: 'Raccourcis' }).element() as HTMLElement;
@@ -971,7 +971,7 @@ describe("PeriodFilter — the preset set is the caller's", () => {
 		expect.assertions(1);
 		// Separates "a panel reopened on a period chosen by name comes back with that name marked"
 		// from "it comes back blank, reading as a hand-typed range".
-		render(PeriodFilter, base({ ...NINETY_DAYS, presets: REPORTING_PERIOD_PRESET_IDS }));
+		await render(PeriodFilter, base({ ...NINETY_DAYS, presets: REPORTING_PERIOD_PRESET_IDS }));
 
 		await userEvent.click(page.getByRole('button', { name: /^Période/ }));
 
@@ -985,7 +985,7 @@ describe("PeriodFilter — the preset set is the caller's", () => {
 		// The control for the test above, and the half that makes it mean something: the same range
 		// under the default set, where last90Days is not a member, must light nothing. Without it,
 		// an implementation that lights a row whatever the set would pass the first test.
-		render(PeriodFilter, base({ ...NINETY_DAYS }));
+		await render(PeriodFilter, base({ ...NINETY_DAYS }));
 
 		await userEvent.click(page.getByRole('button', { name: /^Période/ }));
 		const group = page.getByRole('group', { name: 'Raccourcis' }).element() as HTMLElement;
@@ -1005,12 +1005,15 @@ describe("PeriodFilter — the preset set is the caller's", () => {
 		// is 34px". On /transactions the row is 34px filter chips and 34 is right. On the dashboard
 		// the row is 44px `size="field"` buttons, where the Select this replaced was h-11, and a
 		// 34px control there is visibly short of its neighbours.
-		render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS, triggerSize: 'field' }));
+		await render(
+			PeriodFilter,
+			base({ presets: REPORTING_PERIOD_PRESET_IDS, triggerSize: 'field' })
+		);
 		expect(page.getByTestId('period-trigger-group').element().getBoundingClientRect().height).toBe(
 			44
 		);
 
-		render(PeriodFilter, base());
+		await render(PeriodFilter, base());
 		expect(
 			page.getByTestId('period-trigger-group').last().element().getBoundingClientRect().height
 		).toBe(34);
@@ -1027,7 +1030,7 @@ describe("PeriodFilter — the preset set is the caller's", () => {
 		// Separates "the way out names where it goes" from "it names /transactions' parent on every
 		// screen". Both render an identical control that does an identical thing, so only the word
 		// tells them apart.
-		render(
+		await render(
 			PeriodFilter,
 			base({ presets: REPORTING_PERIOD_PRESET_IDS, surface: 'mobile', backLabel: 'Fermer' })
 		);
@@ -1043,7 +1046,7 @@ describe("PeriodFilter — the preset set is the caller's", () => {
 		// Separates "an unbounded start is shown as unbounded" from "the reader is dropped in
 		// January 1970 and has to walk back". Both states fill the Du field identically, so the
 		// caption is the only thing that tells them apart.
-		render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS }));
+		await render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.click(page.getByRole('button', { name: 'Toujours' }));

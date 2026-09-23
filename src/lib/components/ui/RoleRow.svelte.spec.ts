@@ -49,8 +49,8 @@ const VALUE_LABEL = m.import_columns_recap_value_fact({ value: '' }).trim();
  */
 const BASE = { role: 'amount', state: 'empty' } as const;
 
-function mount(props: Record<string, unknown>) {
-	const { container } = render(RoleRow, { ...BASE, ...props });
+async function mount(props: Record<string, unknown>) {
+	const { container } = await render(RoleRow, { ...BASE, ...props });
 	container.style.width = '320px';
 	const row = container.firstElementChild as HTMLElement;
 	expect(row).not.toBeNull();
@@ -58,16 +58,16 @@ function mount(props: Record<string, unknown>) {
 }
 
 describe('RoleRow.svelte: three heights, and each is a different kind of thing', () => {
-	it('is 68 px at 390, which is a two-line ROW and not a control', () => {
+	it('is 68 px at 390, which is a two-line ROW and not a control', async () => {
 		// 13 top air + 20 line 1 + 4 gap + 18 line 2 + 13 bottom air. The product's control heights
 		// are 44 and 48 and this is neither, deliberately: 48 does not hold two lines with air. The
 		// figure that has to be respected is the touch-target floor, and 68 clears it by 20.
-		const { row } = mount({});
+		const { row } = await mount({});
 
 		expect(row.getBoundingClientRect().height).toBe(68);
 	});
 
-	it('is 68 px in every interactive state, so nothing shifts as answers arrive', () => {
+	it('is 68 px in every interactive state, so nothing shifts as answers arrive', async () => {
 		// The card is 355 because the four rows do not move. A row that grew when it was answered
 		// would make the skeleton a lie and the card's fixed height an accident.
 		const states = [
@@ -80,7 +80,7 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 		];
 
 		for (const props of states) {
-			const { row, container } = mount(props);
+			const { row, container } = await mount(props);
 			expect(row.getBoundingClientRect().height, `state ${props.state}`).toBe(68);
 			container.remove();
 		}
@@ -89,20 +89,20 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 		expect(states.length).toBe(6);
 	});
 
-	it('is 56 px in compact form, asserted absolutely and not merely as "smaller"', () => {
+	it('is 56 px in compact form, asserted absolutely and not merely as "smaller"', async () => {
 		// 20 air + 18 line 1 + 2 gap + 16 line 2. Both heights are pinned to their own number: a
 		// test asserting only that compact is shorter passes in a world where both are 0.
-		const { row } = mount({ compact: true });
+		const { row } = await mount({ compact: true });
 
 		expect(row.getBoundingClientRect().height).toBe(56);
 	});
 
-	it('is 64 px as a recapitulatif, which is a third thing and not a smaller row', () => {
+	it('is 64 px as a recapitulatif, which is a third thing and not a smaller row', async () => {
 		// 4 air + 18 role + 3 + 16 + 3 + 16 + 4. It was 44 while the row held ONE line, and the
 		// line it held is the arrow A8 is about. A row that states two facts cannot be one line,
 		// so the plate's 44 is deviated from deliberately and the deviation is recorded at the
 		// site rather than rounded away.
-		const { row } = mount({
+		const { row } = await mount({
 			state: 'recap',
 			columnHeader: 'Date operation',
 			// Passed because the real caller always passes it: `columnIndex` is what says a role HOLDS
@@ -116,7 +116,7 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 		expect(row.textContent).toContain('24/06/2026');
 	});
 
-	it('is 64 px whatever the recapitulatif row has to show', () => {
+	it('is 64 px whatever the recapitulatif row has to show', async () => {
 		// The card is a fixed height because the four rows do not move, and a recap row shows one,
 		// two or three lines depending on what the role holds. Separates "the row is 64 when it is
 		// full" from "the row is 64", which is the property the card's own figure rests on.
@@ -131,14 +131,14 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 		];
 
 		for (const shape of shapes) {
-			const { row, container } = mount({ state: 'recap', ...shape });
+			const { row, container } = await mount({ state: 'recap', ...shape });
 			expect(row.getBoundingClientRect().height, JSON.stringify(shape)).toBe(64);
 			container.remove();
 		}
 		expect(shapes.length).toBe(4);
 	});
 
-	it('states the column and the value as two facts, never as one pairing', () => {
+	it('states the column and the value as two facts, never as one pairing', async () => {
 		// A8. Separates "the row shows a column name and a value" from "the row claims that column
 		// produced that value". The column is read LIVE from the correspondance and the value comes
 		// from this batch's transactions, so after a correction the two halves are from different
@@ -147,7 +147,7 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 		// Asserted by ORDER rather than by the absence of a separator glyph, because a middot swapped
 		// for a dash, an arrow or a slash is the same claim and would leave a `not.toContain('·')`
 		// green. What has to hold is that the value is introduced by its own label.
-		const { row } = mount({
+		const { row } = await mount({
 			state: 'recap',
 			columnHeader: 'Date operation',
 			columnIndex: 0,
@@ -166,11 +166,11 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 		expect(value).toBeGreaterThan(valueLabel);
 	});
 
-	it('states no value fact when this import left no value to read', () => {
+	it('states no value fact when this import left no value to read', async () => {
 		// Separates "the labels are printed" from "a fact is stated only when there is one". A batch
 		// whose transactions are gone gives every role an empty sample, and a row reading
 		// « Lu par cet import : » with nothing after it is a label doing a fact's job.
-		const { row } = mount({
+		const { row } = await mount({
 			state: 'recap',
 			columnHeader: 'Date operation',
 			columnIndex: 0,
@@ -181,12 +181,12 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 		expect(row.textContent).not.toContain(VALUE_LABEL);
 	});
 
-	it('names no column in a recapitulatif when the role holds none', () => {
+	it('names no column in a recapitulatif when the role holds none', async () => {
 		// `Colonne N` is the right fallback for a designated column with an unreadable header and a
 		// LIE for a role that was never designated: it would tell a user reading their memorised
 		// correspondance that their categories came from column 1 of a file that had no category
 		// column. Catégorie says so in its own words.
-		const { row } = mount({ state: 'recap', role: 'category' });
+		const { row } = await mount({ state: 'recap', role: 'category' });
 
 		expect(row.textContent).not.toContain('Colonne 1');
 		expect(row.textContent).toContain('Aucune');
@@ -197,8 +197,8 @@ describe('RoleRow.svelte: three heights, and each is a different kind of thing',
 });
 
 describe('RoleRow.svelte: the row is the target and the chevron is not a second one', () => {
-	it('has exactly one tab stop and one accessible name', () => {
-		const { container } = mount({});
+	it('has exactly one tab stop and one accessible name', async () => {
+		const { container } = await mount({});
 
 		expect(container.querySelectorAll('button').length).toBe(1);
 		// A separate chevron button would be a second stop for one action and a second name for one
@@ -209,15 +209,15 @@ describe('RoleRow.svelte: the row is the target and the chevron is not a second 
 
 	it('calls onOpen once from the row itself', async () => {
 		const onOpen = vi.fn();
-		mount({ onOpen });
+		await mount({ onOpen });
 
 		await page.getByRole('button').click();
 
 		expect(onOpen).toHaveBeenCalledTimes(1);
 	});
 
-	it('moves aria-expanded and takes the open surface without a transition', () => {
-		const closed = mount({});
+	it('moves aria-expanded and takes the open surface without a transition', async () => {
+		const closed = await mount({});
 		expect(closed.row.getAttribute('aria-expanded')).toBe('false');
 		expect(getComputedStyle(closed.row).transitionDuration).toBe('0.12s');
 		closed.container.remove();
@@ -226,15 +226,15 @@ describe('RoleRow.svelte: the row is the target and the chevron is not a second 
 		// opening is instantaneous. Same property, two behaviours, which is why the transition is
 		// conditional rather than constant. Both halves asserted: a single reading cannot tell a
 		// conditional transition from an absent one.
-		const open = mount({ expanded: true });
+		const open = await mount({ expanded: true });
 		expect(open.row.getAttribute('aria-expanded')).toBe('true');
 		expect(getComputedStyle(open.row).transitionDuration).toBe('0s');
 	});
 });
 
 describe('RoleRow.svelte: the answer line, one test per state', () => {
-	it('empty: asks for a column, and names the role in the accessible name', () => {
-		const { row } = mount({ role: 'amount', state: 'empty' });
+	it('empty: asks for a column, and names the role in the accessible name', async () => {
+		const { row } = await mount({ role: 'amount', state: 'empty' });
 
 		expect(row.textContent).toContain('Choisir une colonne');
 		// « bouton » is the ROLE and the assistive technology contributes it. Writing it into the
@@ -243,9 +243,9 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		expect(row.getAttribute('aria-label')).not.toContain('bouton');
 	});
 
-	it('optional and empty: states the consequence, with no triangle and no tint', () => {
+	it('optional and empty: states the consequence, with no triangle and no tint', async () => {
 		// A consequence, not a warning. Nobody did anything wrong by leaving it empty.
-		const { row, container } = mount({ role: 'category', state: 'empty', optional: true });
+		const { row, container } = await mount({ role: 'category', state: 'empty', optional: true });
 
 		// Copied from the handoff's state table, not composed. The design is the source of truth for
 		// UI strings, so the punctuation is the plate's and not this repository's prose convention.
@@ -255,19 +255,19 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		expect(container.querySelectorAll('svg').length).toBe(1);
 	});
 
-	it('requiredness is marked BY EXCEPTION: the three required rows carry no badge at all', () => {
+	it('requiredness is marked BY EXCEPTION: the three required rows carry no badge at all', async () => {
 		// No asterisks anywhere. The presence half is the test above; this is the absence half, and
 		// it is asserted across all three rather than on one, because a badge rendered on `date`
 		// only would pass a single-row check.
 		for (const role of ['date', 'label', 'amount']) {
-			const { row, container } = mount({ role, state: 'empty' });
+			const { row, container } = await mount({ role, state: 'empty' });
 			expect(row.textContent, role).not.toContain('Optionnel');
 			container.remove();
 		}
 	});
 
-	it('ambiguous: the count is in the accessible name, not only in the glyph', () => {
-		const { row, container } = mount({ role: 'date', state: 'ambiguous', candidateCount: 2 });
+	it('ambiguous: the count is in the accessible name, not only in the glyph', async () => {
+		const { row, container } = await mount({ role: 'date', state: 'ambiguous', candidateCount: 2 });
 
 		expect(row.textContent).toContain('2 colonnes possibles');
 		expect(row.getAttribute('aria-label')).toBe('Date, 2 colonnes possibles');
@@ -275,8 +275,8 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		expect(container.querySelectorAll('svg').length).toBe(2);
 	});
 
-	it('designated: header, dot, example, and the example is what truncates', () => {
-		const { row } = mount({
+	it('designated: header, dot, example, and the example is what truncates', async () => {
+		const { row } = await mount({
 			role: 'amount',
 			state: 'designated',
 			columnHeader: 'Montant',
@@ -292,10 +292,10 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		);
 	});
 
-	it('designated with an unreadable header: named by position, with the raw bytes NOT in the row', () => {
+	it('designated with an unreadable header: named by position, with the raw bytes NOT in the row', async () => {
 		// The raw text lives in the picker card. The row is where you check your answer at a glance,
 		// and a line of mojibake in it is noise rather than evidence.
-		const { row } = mount({
+		const { row } = await mount({
 			role: 'label',
 			state: 'designated',
 			columnHeader: '',
@@ -307,8 +307,8 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		expect(row.getAttribute('aria-label')).toContain('colonne désignée : Colonne 5');
 	});
 
-	it('vacated: says who took it, and NEVER reads as if it emptied itself', () => {
-		const { row } = mount({ role: 'date', state: 'vacated', vacatedBy: 'label' });
+	it('vacated: says who took it, and NEVER reads as if it emptied itself', async () => {
+		const { row } = await mount({ role: 'date', state: 'vacated', vacatedBy: 'label' });
 
 		expect(row.textContent).toContain('Reprise par Libellé');
 		// The absence assertion that carries the whole meaning of this state, with its presence
@@ -318,7 +318,7 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		expect(row.getAttribute('aria-label')).toBe('Date, reprise par Libellé, à redésigner');
 	});
 
-	it('vacated: the VISIBLE string takes the plate dash and the SPOKEN one takes a comma', () => {
+	it('vacated: the VISIBLE string takes the plate dash and the SPOKEN one takes a comma', async () => {
 		// Not an inconsistency and not an oversight: the plate's state table gives the visible line
 		// « Reprise par Libelle [U+2014] a redesigner » and the accessible name « Date, reprise par
 		// Libelle, a redesigner, bouton ». A dash is typography and a screen reader does not read it,
@@ -327,7 +327,7 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		// Pinned because this is precisely what a future sweep of the repository's no-em-dash rule
 		// would "fix". That rule governs OUR prose; the design is the source of truth for UI strings,
 		// and this is a UI string.
-		const { row } = mount({ role: 'date', state: 'vacated', vacatedBy: 'label' });
+		const { row } = await mount({ role: 'date', state: 'vacated', vacatedBy: 'label' });
 
 		expect(row.textContent).toContain(
 			`Reprise par Libellé ${String.fromCharCode(8212)} à redésigner`
@@ -335,8 +335,8 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
 		expect(row.getAttribute('aria-label')).not.toContain(String.fromCharCode(8212));
 	});
 
-	it('missing column: quotes the OLD header, because it is gone from the new file', () => {
-		const { row } = mount({ role: 'amount', state: 'missingColumn', lostHeader: 'Montant' });
+	it('missing column: quotes the OLD header, because it is gone from the new file', async () => {
+		const { row } = await mount({ role: 'amount', state: 'missingColumn', lostHeader: 'Montant' });
 
 		expect(row.textContent).toContain("n'est plus dans le fichier");
 		expect(row.getAttribute('aria-label')).toBe(
@@ -358,8 +358,8 @@ describe('RoleRow.svelte: the answer line, one test per state', () => {
  * its own component and its own threshold tests.
  */
 describe('RoleRow.svelte: the state that is not a button', () => {
-	it('recap: not a button, not focusable, and it receives no focus when tabbed to', () => {
-		const { row, container } = mount({
+	it('recap: not a button, not focusable, and it receives no focus when tabbed to', async () => {
+		const { row, container } = await mount({
 			state: 'recap',
 			columnHeader: 'Date operation',
 			sampleValue: '24/06/2026'
@@ -375,14 +375,14 @@ describe('RoleRow.svelte: the state that is not a button', () => {
 });
 
 describe('RoleRow.svelte: there is no disabled state, and a greyed row would be a defect', () => {
-	it('renders none of the seven states as disabled or aria-disabled', () => {
+	it('renders none of the seven states as disabled or aria-disabled', async () => {
 		// Recorded as a test rather than as a comment because "for completeness" is exactly how a
 		// disabled state gets added. No file combination produces one: even with all three required
 		// roles taken, Categorie stays designable, since a column may carry two roles.
 		const states = ['empty', 'ambiguous', 'designated', 'vacated', 'missingColumn'];
 
 		for (const state of states) {
-			const { row, container } = mount({ state, candidateCount: 2, vacatedBy: 'label' });
+			const { row, container } = await mount({ state, candidateCount: 2, vacatedBy: 'label' });
 			expect(row.hasAttribute('disabled'), state).toBe(false);
 			expect(row.getAttribute('aria-disabled'), state).toBeNull();
 			container.remove();
@@ -398,34 +398,34 @@ describe('RoleRow.svelte: there is no disabled state, and a greyed row would be 
  * gesture the whole screen is built to make cheap.
  */
 describe('RoleRow.svelte: the interpreting row is 86/74, decided by PRESENCE not by VALUE', () => {
-	it('is 86 px at 390 the moment `interpretation` is passed, even as `null`', () => {
+	it('is 86 px at 390 the moment `interpretation` is passed, even as `null`', async () => {
 		// Separates "interpretation is undefined" (a row that never interprets, 68 px) from
 		// "interpretation is null" (an interpreting row with nothing yet to show, 86 px). Getting
 		// this backwards — treating a null/falsy value as "not interpreting" — is exactly the bug
 		// this test exists to catch, and it is the one the task calls out as the subtle part.
-		const { row } = mount({ role: 'date', interpretation: null });
+		const { row } = await mount({ role: 'date', interpretation: null });
 
 		expect(row.getBoundingClientRect().height).toBe(86);
 	});
 
-	it('is 74 px compact under the same rule', () => {
-		const { row } = mount({ role: 'date', compact: true, interpretation: null });
+	it('is 74 px compact under the same rule', async () => {
+		const { row } = await mount({ role: 'date', compact: true, interpretation: null });
 
 		expect(row.getBoundingClientRect().height).toBe(74);
 	});
 
-	it('stays 68/56 when `interpretation` is never passed at all', () => {
+	it('stays 68/56 when `interpretation` is never passed at all', async () => {
 		// The control for the two tests above: an absent prop must not accidentally read as an
 		// interpreting row. Both heights asserted absolutely, per this file's own convention.
-		const notCompact = mount({ role: 'amount' });
+		const notCompact = await mount({ role: 'amount' });
 		expect(notCompact.row.getBoundingClientRect().height).toBe(68);
 		notCompact.container.remove();
 
-		const compact = mount({ role: 'amount', compact: true });
+		const compact = await mount({ role: 'amount', compact: true });
 		expect(compact.row.getBoundingClientRect().height).toBe(56);
 	});
 
-	it('is 86 px for every kind of interpretation value, not only the object shape', () => {
+	it('is 86 px for every kind of interpretation value, not only the object shape', async () => {
 		// A loop rather than one case, because "presence decides" is a claim about the WHOLE type,
 		// and citing one member of a five-way union is citing the one you happened to test.
 		const values: Array<unknown> = [
@@ -437,7 +437,7 @@ describe('RoleRow.svelte: the interpreting row is 86/74, decided by PRESENCE not
 		];
 
 		for (const interpretation of values) {
-			const { row, container } = mount({ role: 'date', interpretation });
+			const { row, container } = await mount({ role: 'date', interpretation });
 			expect(row.getBoundingClientRect().height, JSON.stringify(interpretation)).toBe(86);
 			container.remove();
 		}
@@ -451,8 +451,8 @@ describe('RoleRow.svelte: the interpreting row is 86/74, decided by PRESENCE not
  * five-way union can be checked without one test standing in for all five.
  */
 describe('RoleRow.svelte: line 3, one sentence per interpretation state', () => {
-	it('null: reserves the 18 px line but writes nothing into it', () => {
-		const { row } = mount({ role: 'date', interpretation: null });
+	it('null: reserves the 18 px line but writes nothing into it', async () => {
+		const { row } = await mount({ role: 'date', interpretation: null });
 
 		expect(row.textContent).not.toContain('→');
 		expect(row.textContent).not.toContain('Confirmer');
@@ -461,8 +461,8 @@ describe('RoleRow.svelte: line 3, one sentence per interpretation state', () => 
 		expect(row.textContent).not.toContain('Colonne vide');
 	});
 
-	it('a confirmed reading: "raw → pretty", with no "Confirmer" clause', () => {
-		const { row } = mount({
+	it('a confirmed reading: "raw → pretty", with no "Confirmer" clause', async () => {
+		const { row } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -474,10 +474,10 @@ describe('RoleRow.svelte: line 3, one sentence per interpretation state', () => 
 		expect(row.textContent).not.toContain('Confirmer');
 	});
 
-	it('an unconfirmed reading: the ledger word is "Confirmer", never "à confirmer"', () => {
+	it('an unconfirmed reading: the ledger word is "Confirmer", never "à confirmer"', async () => {
 		// 7n supersedes 7a/7c on this exact point, and it is the kind of correction a stale
 		// component would silently keep failing to make.
-		const { row } = mount({
+		const { row } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -489,22 +489,22 @@ describe('RoleRow.svelte: line 3, one sentence per interpretation state', () => 
 		expect(row.textContent).not.toContain('à confirmer');
 	});
 
-	it('inconsistent: states the contradiction, with no raw/pretty pair to show', () => {
-		const { row } = mount({ role: 'date', interpretation: 'inconsistent' });
+	it('inconsistent: states the contradiction, with no raw/pretty pair to show', async () => {
+		const { row } = await mount({ role: 'date', interpretation: 'inconsistent' });
 
 		expect(row.textContent).toContain('Deux ordres de date dans cette colonne');
 	});
 
-	it('no-dates: a column full of content that is not dates', () => {
-		const { row } = mount({ role: 'date', interpretation: 'no-dates' });
+	it('no-dates: a column full of content that is not dates', async () => {
+		const { row } = await mount({ role: 'date', interpretation: 'no-dates' });
 
 		expect(row.textContent).toContain('Aucune date dans cette colonne');
 	});
 
-	it('empty: blank on every row, its own sentence rather than sharing "no-dates"', () => {
+	it('empty: blank on every row, its own sentence rather than sharing "no-dates"', async () => {
 		// Separates "no value parses as a date" from "there was no value at all": 7m gives the two
 		// their own key because the repairs differ (a wrong position vs content that is not dates).
-		const { row } = mount({ role: 'date', interpretation: 'empty' });
+		const { row } = await mount({ role: 'date', interpretation: 'empty' });
 
 		expect(row.textContent).toContain('Colonne vide');
 		expect(row.textContent).not.toContain('Aucune date dans cette colonne');
@@ -518,8 +518,8 @@ describe('RoleRow.svelte: line 3, one sentence per interpretation state', () => 
  * rather than a single absence assertion, which could as easily mean the glyph broke everywhere.
  */
 describe('RoleRow.svelte: no warning triangle on line 3, ever', () => {
-	it('an unconfirmed reading carries no extra glyph beyond the chevron', () => {
-		const { container } = mount({
+	it('an unconfirmed reading carries no extra glyph beyond the chevron', async () => {
+		const { container } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -531,12 +531,16 @@ describe('RoleRow.svelte: no warning triangle on line 3, ever', () => {
 		expect(container.querySelectorAll('svg').length).toBe(1);
 	});
 
-	it('the triangle is still there on the states that were never touched', () => {
-		const ambiguous = mount({ role: 'date', state: 'ambiguous', candidateCount: 2 });
+	it('the triangle is still there on the states that were never touched', async () => {
+		const ambiguous = await mount({ role: 'date', state: 'ambiguous', candidateCount: 2 });
 		expect(ambiguous.container.querySelectorAll('svg').length).toBe(2);
 		ambiguous.container.remove();
 
-		const missing = mount({ role: 'date', state: 'missingColumn', lostHeader: 'Date operation' });
+		const missing = await mount({
+			role: 'date',
+			state: 'missingColumn',
+			lostHeader: 'Date operation'
+		});
 		expect(missing.container.querySelectorAll('svg').length).toBe(2);
 	});
 });
@@ -548,8 +552,8 @@ describe('RoleRow.svelte: no warning triangle on line 3, ever', () => {
  * claim about the style and the computed colour is the style.
  */
 describe('RoleRow.svelte: line 3 is two-tone, raw and "Confirmer" pale against the reading', () => {
-	it('the reading half is zinc-700 and the rest of the line is zinc-500', () => {
-		const { row, container } = mount({
+	it('the reading half is zinc-700 and the rest of the line is zinc-500', async () => {
+		const { row, container } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -561,13 +565,13 @@ describe('RoleRow.svelte: line 3 is two-tone, raw and "Confirmer" pale against t
 		// empty-state sentence is a known `text-zinc-500`. Grabbing their computed colours here,
 		// on the SAME page, proves the two class names really do resolve to different colours
 		// before that difference is used to tell the line's two spans apart.
-		const reference = mount({ role: 'amount', state: 'empty' });
+		const reference = await mount({ role: 'amount', state: 'empty' });
 		const zinc500 = getComputedStyle(
 			reference.row.querySelector('span.text-zinc-500') as Element
 		).color;
 		reference.container.remove();
 
-		const designatedReference = mount({
+		const designatedReference = await mount({
 			role: 'amount',
 			state: 'designated',
 			columnHeader: 'Montant',
@@ -625,8 +629,8 @@ describe('RoleRow.svelte: line 3 is two-tone, raw and "Confirmer" pale against t
  * wrong. It was found by looking at the running screen. This is the assertion that can see it.
  */
 describe('RoleRow.svelte: line 3 renders as one sentence, not three trimmed pieces', () => {
-	it('does not lay line 3 out as a flex container, which would trim its spaces', () => {
-		const { row, container } = mount({
+	it('does not lay line 3 out as a flex container, which would trim its spaces', async () => {
+		const { row, container } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'zone_1',
@@ -659,8 +663,8 @@ describe('RoleRow.svelte: line 3 renders as one sentence, not three trimmed piec
 });
 
 describe('RoleRow.svelte: line 3 never wraps and never truncates', () => {
-	it('carries whitespace-nowrap and no overflow-ellipsis class', () => {
-		const { row } = mount({
+	it('carries whitespace-nowrap and no overflow-ellipsis class', async () => {
+		const { row } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -708,8 +712,8 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 	 * the corpus generator names as reading the same under both orders. The user who meets this
 	 * label is the one who cannot see the two cards to check it against.
 	 */
-	it('unconfirmed: announces the order the caller applied, on a cell that reads both ways', () => {
-		const monthFirst = mount({
+	it('unconfirmed: announces the order the caller applied, on a cell that reads both ways', async () => {
+		const monthFirst = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -723,7 +727,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 
 		// The planted positive: the same palindromic cell under the other order must differ, so a
 		// row that ignored `order` entirely could not pass both halves.
-		const dayFirst = mount({
+		const dayFirst = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -736,8 +740,8 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 		dayFirst.container.remove();
 	});
 
-	it('unconfirmed: names the header and the order the reading assumed', () => {
-		const dayFirst = mount({
+	it('unconfirmed: names the header and the order the reading assumed', async () => {
+		const dayFirst = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -752,7 +756,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 		// Separates "day-first was assumed" from "month-first was assumed": both are reachable from
 		// the same raw cell, and the order is derived from which of raw's two numbers survived as
 		// the pretty value's day, never hard-coded.
-		const monthFirst = mount({
+		const monthFirst = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -764,8 +768,8 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 		);
 	});
 
-	it('no-dates: names the column and states the finding, not a sample value', () => {
-		const { row } = mount({
+	it('no-dates: names the column and states the finding, not a sample value', async () => {
+		const { row } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Client',
@@ -777,8 +781,8 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 		);
 	});
 
-	it('empty: names the column and states it is empty', () => {
-		const { row } = mount({
+	it('empty: names the column and states it is empty', async () => {
+		const { row } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
@@ -790,10 +794,10 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 		);
 	});
 
-	it('a confirmed reading keeps the existing designated aria, unchanged', () => {
+	it('a confirmed reading keeps the existing designated aria, unchanged', async () => {
 		// Not asked for by the task, and pinned here so a later change to the unconfirmed branch
 		// does not silently start firing for the confirmed one too.
-		const { row } = mount({
+		const { row } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',

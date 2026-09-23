@@ -73,7 +73,7 @@ describe('Settings — the Comptes section', () => {
 		// The generic bucket is the fixture that tells them apart: its stored name is « Compte
 		// import CSV » and the sentence a user must read is « Import CSV ».
 		expect.assertions(3);
-		render(Page, { params: {}, data: baseData(), form: null });
+		await render(Page, { params: {}, data: baseData(), form: null });
 		await expect
 			.element(page.getByText(m.accounts_generic_bucket(), { exact: true }))
 			.toBeVisible();
@@ -88,7 +88,7 @@ describe('Settings — the Comptes section', () => {
 		// stops ». 6f is explicit that without the count two accounts at one bank are
 		// indistinguishable in the control built to separate them, and the same holds here.
 		expect.assertions(2);
-		render(Page, { params: {}, data: baseData(), form: null });
+		await render(Page, { params: {}, data: baseData(), form: null });
 		await expect
 			.element(
 				page.getByText(m.import_account_option_detail_many({ fragment: '4417', count: 128 }), {
@@ -107,11 +107,11 @@ describe('Settings — the Comptes section', () => {
 		// explain the difference. Spec Part N.3: shown to a user whose accounts are all named, the
 		// sentence tells them to do something already done.
 		expect.assertions(2);
-		const shown = render(Page, { params: {}, data: baseData(), form: null });
+		const shown = await render(Page, { params: {}, data: baseData(), form: null });
 		await expect.element(page.getByText(m.accounts_invitation())).toBeVisible();
 		shown.unmount();
 
-		render(Page, {
+		await render(Page, {
 			params: {},
 			data: baseData({ accountsInvitation: false } as Partial<PageData>),
 			form: null
@@ -124,7 +124,7 @@ describe('Settings — the Comptes section', () => {
 		// user who archived by mistake needs a screen on which to see it; the picker is the one
 		// screen that must not offer it, and this is not that screen.
 		expect.assertions(3);
-		render(Page, {
+		await render(Page, {
 			params: {},
 			data: baseData({
 				accounts: [{ ...BP_ROW, archived: true }]
@@ -148,7 +148,7 @@ describe('Settings — the Comptes section', () => {
 		// invites them to keep the machine's name, which is the one thing the invitation is asking
 		// them not to do.
 		expect.assertions(2);
-		render(Page, { params: {}, data: baseData(), form: null });
+		await render(Page, { params: {}, data: baseData(), form: null });
 
 		await page
 			.getByRole('button', { name: m.accounts_rename_aria({ name: m.accounts_generic_bucket() }) })
@@ -164,7 +164,7 @@ describe('Settings — the Comptes section', () => {
 
 	it('the rename modal prefills an account whose name a person chose', async () => {
 		expect.assertions(1);
-		render(Page, { params: {}, data: baseData(), form: null });
+		await render(Page, { params: {}, data: baseData(), form: null });
 		await page
 			.getByRole('button', { name: m.accounts_rename_aria({ name: 'BP ···4417' }) })
 			.click();
@@ -178,7 +178,7 @@ describe('Settings — the Comptes section', () => {
 		// own ». A `maxlength` typed as a literal beside a server cap of a different value is a
 		// field that silently truncates or a refusal the user cannot see coming.
 		expect.assertions(1);
-		render(Page, {
+		await render(Page, {
 			params: {},
 			data: baseData({ accountNameMaxLength: 77 } as Partial<PageData>),
 			form: null
@@ -214,7 +214,7 @@ describe('Settings — the Comptes section', () => {
 		};
 
 		try {
-			render(Page, { params: {}, data: baseData(), form: null });
+			await render(Page, { params: {}, data: baseData(), form: null });
 			await page
 				.getByRole('button', {
 					name: m.accounts_net_worth_aria({ name: m.accounts_generic_bucket() })
@@ -285,7 +285,7 @@ describe('Settings — the Comptes section', () => {
 		}) as typeof fetch;
 
 		try {
-			render(Page, { params: {}, data: baseData(), form: null });
+			await render(Page, { params: {}, data: baseData(), form: null });
 			const posted = () =>
 				document.querySelectorAll<HTMLInputElement>('[data-testid="posted-net-worth"]')[1];
 			const trigger = () =>
@@ -321,7 +321,7 @@ describe('Settings — the Comptes section', () => {
 
 	it('the empty state says what will fill it rather than that there is nothing', async () => {
 		expect.assertions(2);
-		render(Page, {
+		await render(Page, {
 			params: {},
 			data: baseData({ accounts: [], accountsInvitation: false } as unknown as Partial<PageData>),
 			form: null
@@ -335,7 +335,7 @@ describe('Settings — the Comptes section', () => {
 		// Every one of the six refusals reaches the user through this one banner, so a section that
 		// did not render it would turn six readable rules into six silent no-ops.
 		expect.assertions(1);
-		render(Page, {
+		await render(Page, {
 			params: {},
 			data: baseData(),
 			form: { accountsError: m.accounts_error_name_taken() } as unknown as null

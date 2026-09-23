@@ -12,7 +12,7 @@ function buttonSnippet(text: string) {
 
 describe('Tooltip.svelte', () => {
 	it('reveals the tooltip on keyboard focus alone, without any hover', async () => {
-		render(Tooltip, { label: 'Explication', children: buttonSnippet('Trigger') });
+		await render(Tooltip, { label: 'Explication', children: buttonSnippet('Trigger') });
 
 		const trigger = page.getByRole('button', { name: 'Trigger' });
 		await trigger.element().focus();
@@ -29,7 +29,7 @@ describe('Tooltip.svelte', () => {
 		// transitions run on requestAnimationFrame and must keep using real time.
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		try {
-			const { container } = render(Tooltip, {
+			const { container } = await render(Tooltip, {
 				label: 'Explication',
 				children: buttonSnippet('Hover me')
 			});
@@ -59,7 +59,7 @@ describe('Tooltip.svelte', () => {
 	});
 
 	it('shows the tooltip on hover after the intent delay', async () => {
-		render(Tooltip, { label: 'Explication', children: buttonSnippet('Hover me') });
+		await render(Tooltip, { label: 'Explication', children: buttonSnippet('Hover me') });
 
 		await userEvent.hover(page.getByRole('button', { name: 'Hover me' }));
 
@@ -67,7 +67,7 @@ describe('Tooltip.svelte', () => {
 	});
 
 	it('starts hiding on mouse-leave without waiting for the hover-intent delay', async () => {
-		render(Tooltip, { label: 'Explication', children: buttonSnippet('Hover me') });
+		await render(Tooltip, { label: 'Explication', children: buttonSnippet('Hover me') });
 
 		await userEvent.hover(page.getByRole('button', { name: 'Hover me' }));
 		await expect.element(page.getByRole('tooltip')).toBeInTheDocument();
@@ -80,7 +80,7 @@ describe('Tooltip.svelte', () => {
 	});
 
 	it('closes on Escape while focused', async () => {
-		render(Tooltip, { label: 'Explication', children: buttonSnippet('Trigger') });
+		await render(Tooltip, { label: 'Explication', children: buttonSnippet('Trigger') });
 
 		const trigger = page.getByRole('button', { name: 'Trigger' });
 		await trigger.element().focus();
@@ -92,7 +92,7 @@ describe('Tooltip.svelte', () => {
 	});
 
 	it('closes on focus-out (blur)', async () => {
-		render(Tooltip, { label: 'Explication', children: buttonSnippet('Trigger') });
+		await render(Tooltip, { label: 'Explication', children: buttonSnippet('Trigger') });
 
 		const trigger = page.getByRole('button', { name: 'Trigger' });
 		await trigger.element().focus();
@@ -104,7 +104,7 @@ describe('Tooltip.svelte', () => {
 	});
 
 	it('links the trigger to the tooltip via aria-describedby matching the tooltip id', async () => {
-		const { container } = render(Tooltip, {
+		const { container } = await render(Tooltip, {
 			label: 'Explication',
 			children: buttonSnippet('Trigger')
 		});
@@ -121,8 +121,8 @@ describe('Tooltip.svelte', () => {
 	});
 
 	it('assigns distinct ids to two Tooltip instances rendered together (no collision)', async () => {
-		render(Tooltip, { label: 'Premier', children: buttonSnippet('Trigger A') });
-		render(Tooltip, { label: 'Second', children: buttonSnippet('Trigger B') });
+		await render(Tooltip, { label: 'Premier', children: buttonSnippet('Trigger A') });
+		await render(Tooltip, { label: 'Second', children: buttonSnippet('Trigger B') });
 
 		await page.getByRole('button', { name: 'Trigger A' }).element().focus();
 		// Scoped by accessible name (not a bare getByRole('tooltip')): moving focus to B starts A's

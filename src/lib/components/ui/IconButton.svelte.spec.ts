@@ -12,13 +12,13 @@ function iconSnippet() {
 
 describe('IconButton.svelte', () => {
 	it('renders aria-label from the label prop', async () => {
-		render(IconButton, { label: 'Supprimer', children: iconSnippet() });
+		await render(IconButton, { label: 'Supprimer', children: iconSnippet() });
 
 		await expect.element(page.getByRole('button', { name: 'Supprimer' })).toBeInTheDocument();
 	});
 
 	it('applies the neutral tone color classes by default', async () => {
-		render(IconButton, { label: 'Modifier', tone: 'neutral', children: iconSnippet() });
+		await render(IconButton, { label: 'Modifier', tone: 'neutral', children: iconSnippet() });
 
 		const button = page.getByRole('button', { name: 'Modifier' }).element();
 		expect(button.className).toContain('text-zinc-500');
@@ -37,7 +37,7 @@ describe('IconButton.svelte', () => {
 	 * entirely.
 	 */
 	it('rests neutral and reserves rose for hover, focus and press', async () => {
-		render(IconButton, { label: 'Supprimer', tone: 'danger', children: iconSnippet() });
+		await render(IconButton, { label: 'Supprimer', tone: 'danger', children: iconSnippet() });
 
 		const button = page.getByRole('button', { name: 'Supprimer' }).element();
 		expect(button.className).toContain('text-zinc-700');
@@ -47,7 +47,12 @@ describe('IconButton.svelte', () => {
 	});
 
 	it('sets aria-pressed=true and the active visual state when pressed=true', async () => {
-		render(IconButton, { label: 'Regex', shape: 'box', pressed: true, children: iconSnippet() });
+		await render(IconButton, {
+			label: 'Regex',
+			shape: 'box',
+			pressed: true,
+			children: iconSnippet()
+		});
 
 		const button = page.getByRole('button', { name: 'Regex' });
 		await expect.element(button).toHaveAttribute('aria-pressed', 'true');
@@ -55,7 +60,12 @@ describe('IconButton.svelte', () => {
 	});
 
 	it('sets aria-pressed=false when pressed=false', async () => {
-		render(IconButton, { label: 'Regex', shape: 'box', pressed: false, children: iconSnippet() });
+		await render(IconButton, {
+			label: 'Regex',
+			shape: 'box',
+			pressed: false,
+			children: iconSnippet()
+		});
 
 		await expect
 			.element(page.getByRole('button', { name: 'Regex' }))
@@ -63,14 +73,14 @@ describe('IconButton.svelte', () => {
 	});
 
 	it('omits aria-pressed entirely when pressed is not provided (non-toggle button)', async () => {
-		render(IconButton, { label: 'Fermer', children: iconSnippet() });
+		await render(IconButton, { label: 'Fermer', children: iconSnippet() });
 
 		const button = page.getByRole('button', { name: 'Fermer' }).element();
 		expect(button.hasAttribute('aria-pressed')).toBe(false);
 	});
 
 	it('applies distinct classes for the circle shape (default)', async () => {
-		render(IconButton, { label: 'Fermer', children: iconSnippet() });
+		await render(IconButton, { label: 'Fermer', children: iconSnippet() });
 
 		const button = page.getByRole('button', { name: 'Fermer' }).element();
 		expect(button.className).toContain('rounded-full');
@@ -78,7 +88,7 @@ describe('IconButton.svelte', () => {
 	});
 
 	it('applies distinct classes for the box shape', async () => {
-		render(IconButton, { label: 'Regex', shape: 'box', children: iconSnippet() });
+		await render(IconButton, { label: 'Regex', shape: 'box', children: iconSnippet() });
 
 		const button = page.getByRole('button', { name: 'Regex' }).element();
 		expect(button.className).toContain('rounded-md');
@@ -86,7 +96,7 @@ describe('IconButton.svelte', () => {
 	});
 
 	it('applies distinct classes for the pill shape', async () => {
-		render(IconButton, { label: 'Regex', shape: 'pill', children: iconSnippet() });
+		await render(IconButton, { label: 'Regex', shape: 'pill', children: iconSnippet() });
 
 		const button = page.getByRole('button', { name: 'Regex' }).element();
 		expect(button.className).toContain('rounded-full');
@@ -95,7 +105,7 @@ describe('IconButton.svelte', () => {
 	});
 
 	it('renders with a minimum 44x44px touch target regardless of shape', async () => {
-		render(IconButton, { label: 'Fermer', children: iconSnippet() });
+		await render(IconButton, { label: 'Fermer', children: iconSnippet() });
 
 		const button = page.getByRole('button', { name: 'Fermer' }).element();
 		expect(button.className).toContain('min-h-11');
@@ -104,7 +114,7 @@ describe('IconButton.svelte', () => {
 
 	it('disables the button and does not fire onclick when disabled', async () => {
 		const onclick = vi.fn();
-		render(IconButton, { label: 'Fermer', disabled: true, onclick, children: iconSnippet() });
+		await render(IconButton, { label: 'Fermer', disabled: true, onclick, children: iconSnippet() });
 
 		const button = page.getByRole('button', { name: 'Fermer' });
 		await expect.element(button).toBeDisabled();
@@ -115,7 +125,7 @@ describe('IconButton.svelte', () => {
 
 	it('fires onclick when enabled', async () => {
 		const onclick = vi.fn();
-		render(IconButton, { label: 'Fermer', onclick, children: iconSnippet() });
+		await render(IconButton, { label: 'Fermer', onclick, children: iconSnippet() });
 
 		await userEvent.click(page.getByRole('button', { name: 'Fermer' }));
 
@@ -123,7 +133,7 @@ describe('IconButton.svelte', () => {
 	});
 
 	it('defaults to type="button"', async () => {
-		render(IconButton, { label: 'Fermer', children: iconSnippet() });
+		await render(IconButton, { label: 'Fermer', children: iconSnippet() });
 
 		await expect
 			.element(page.getByRole('button', { name: 'Fermer' }))
@@ -131,7 +141,7 @@ describe('IconButton.svelte', () => {
 	});
 
 	it('renders type="submit" when explicitly set', async () => {
-		render(IconButton, { label: 'Envoyer', type: 'submit', children: iconSnippet() });
+		await render(IconButton, { label: 'Envoyer', type: 'submit', children: iconSnippet() });
 
 		await expect
 			.element(page.getByRole('button', { name: 'Envoyer' }))
@@ -145,7 +155,7 @@ describe('IconButton.svelte', () => {
 	 * why they are off — which a natively `disabled` button cannot do, being unreachable.
 	 */
 	it('neutralises with aria-disabled and stays focusable, never native disabled', async () => {
-		render(IconButton, {
+		await render(IconButton, {
 			label: 'Retirer la part 2',
 			softDisabled: true,
 			'aria-describedby': 'floor-hint',
@@ -164,7 +174,7 @@ describe('IconButton.svelte', () => {
 
 	it('swallows the click while soft-disabled, and lets it through once it is not', async () => {
 		const onclick = vi.fn<() => void>();
-		const { rerender } = render(IconButton, {
+		const { rerender } = await render(IconButton, {
 			label: 'Retirer la part 2',
 			softDisabled: true,
 			onclick,

@@ -115,7 +115,7 @@ describe('/reports largest expenses — split indicator (PR6)', () => {
 			]
 		};
 
-		const screen = render(Page, { data });
+		const screen = await render(Page, { data });
 
 		// Never `interactive` on this surface: the desktop card wraps the table in
 		// `overflow-hidden` on both axes, which would clip the hover bubble (see +page.svelte). Named
@@ -146,7 +146,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("renders the 'nothing detected yet' copy when emptyState is 'none-detected'", async () => {
 		expect.assertions(3);
 
-		const screen = render(Page, { data: buildData('none-detected') });
+		const screen = await render(Page, { data: buildData('none-detected') });
 
 		await expect.element(screen.getByText(m.reports_forecast_empty_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_stale_title());
@@ -158,7 +158,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("renders the 'gone stale' copy when emptyState is 'all-stale'", async () => {
 		expect.assertions(3);
 
-		const screen = render(Page, { data: buildData('all-stale') });
+		const screen = await render(Page, { data: buildData('all-stale') });
 
 		await expect.element(screen.getByText(m.reports_forecast_stale_title())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.reports_forecast_empty_title());
@@ -174,7 +174,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("offers no dead anchor in the 'none-detected' branch", async () => {
 		expect.assertions(2);
 
-		const screen = render(Page, { data: buildData('none-detected') });
+		const screen = await render(Page, { data: buildData('none-detected') });
 
 		expect(screen.container.querySelector('a[href="#annexe-recurrences"]')).toBeNull();
 		// The control beside the emptiness assertion.
@@ -184,7 +184,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 	it("offers no dead anchor in the 'all-stale' branch either", async () => {
 		expect.assertions(2);
 
-		const screen = render(Page, { data: buildData('all-stale') });
+		const screen = await render(Page, { data: buildData('all-stale') });
 
 		expect(screen.container.querySelector('a[href="#annexe-recurrences"]')).toBeNull();
 		expect(screen.container.textContent).toContain(m.reports_forecast_stale_title());
@@ -215,7 +215,7 @@ describe('/reports forecast panel — split empty-state copy (Task 2)', () => {
 			}
 		];
 
-		const screen = render(Page, { data });
+		const screen = await render(Page, { data });
 
 		// A desktop and a mobile copy of the flows table render simultaneously (CSS hides one per
 		// breakpoint, not the DOM). Asserting a length of 2 — not `.first()` — so a regression that
@@ -284,7 +284,7 @@ describe('/reports donut centre — formatCents, and whether it still fits', () 
 	it('prints 214,50 € where it used to print 215 €', async () => {
 		expect.assertions(2);
 
-		const screen = render(Page, { data: donutData(EXPENSE_CENTS) });
+		const screen = await render(Page, { data: donutData(EXPENSE_CENTS) });
 		const value = centerValueElement(screen.container as HTMLElement);
 
 		// Non-breaking spaces in the French currency format, normalised so the assertion is about
@@ -298,7 +298,7 @@ describe('/reports donut centre — formatCents, and whether it still fits', () 
 	it('separates thousands, where the old expression ran the digits together', async () => {
 		expect.assertions(1);
 
-		const screen = render(Page, { data: donutData(100_500_278_500) });
+		const screen = await render(Page, { data: donutData(100_500_278_500) });
 		const value = centerValueElement(screen.container as HTMLElement);
 		const text = value.textContent?.replace(/[\u00A0\u202F\u2009]/g, ' ').trim();
 
@@ -309,7 +309,7 @@ describe('/reports donut centre — formatCents, and whether it still fits', () 
 		expect.assertions(4);
 
 		await page.viewport(390, 844);
-		const mobile = render(Page, { data: donutData(EXPENSE_CENTS) });
+		const mobile = await render(Page, { data: donutData(EXPENSE_CENTS) });
 		const mobileValue = centerValueElement(mobile.container as HTMLElement);
 		const mobileDisc = mobileValue.parentElement as HTMLElement;
 
@@ -321,7 +321,7 @@ describe('/reports donut centre — formatCents, and whether it still fits', () 
 		expect(mobileValue.getBoundingClientRect().width).toBeLessThanOrEqual(132);
 
 		await page.viewport(1280, 800);
-		const desktop = render(Page, { data: donutData(EXPENSE_CENTS) });
+		const desktop = await render(Page, { data: donutData(EXPENSE_CENTS) });
 		const desktopValue = centerValueElement(desktop.container as HTMLElement);
 		const desktopDisc = desktopValue.parentElement as HTMLElement;
 
@@ -355,7 +355,7 @@ describe('/reports donut centre — formatCents, and whether it still fits', () 
 		expect.assertions(3);
 
 		await page.viewport(390, 844);
-		const screen = render(Page, { data: donutData(100_500_278_500) });
+		const screen = await render(Page, { data: donutData(100_500_278_500) });
 		const value = centerValueElement(screen.container as HTMLElement);
 		const disc = value.parentElement as HTMLElement;
 
@@ -411,7 +411,7 @@ describe('/reports forecast flows — two amount bands of one merchant (#audit-1
 			flows: [bandedFlow(8_000), bandedFlow(2_500)]
 		};
 
-		render(Page, { data });
+		await render(Page, { data });
 
 		// The two bands' amounts are what distinguishes the rows; the desktop table and the mobile
 		// card list both render every flow, so each amount appears twice on the page.
@@ -455,7 +455,7 @@ describe('/reports recurring payments — two streams that display identically (
 			recurringPayments: [twinStream('sub-nation-1'), twinStream('sub-bercy-1')]
 		};
 
-		const screen = render(Page, { data });
+		const screen = await render(Page, { data });
 
 		await expect
 			.element(page.getByText('Salle De Sport Basic Fit Par').first())
@@ -518,7 +518,7 @@ describe('/reports — the period control uses the app’s own date field', () =
 			[390, 844]
 		] as const) {
 			await page.viewport(width, height);
-			const screen = render(Page, { data: buildData(null) });
+			const screen = await render(Page, { data: buildData(null) });
 			const panel = await openVisiblePeriodPanel(screen.container as HTMLElement);
 
 			expect(panel.querySelectorAll('input[type="date"]')).toHaveLength(0);
@@ -545,7 +545,7 @@ describe('/reports — the period control uses the app’s own date field', () =
 			[390, 844]
 		] as const) {
 			await page.viewport(width, height);
-			const screen = render(Page, { data: buildData(null) });
+			const screen = await render(Page, { data: buildData(null) });
 			const panel = await openVisiblePeriodPanel(screen.container as HTMLElement);
 			const fields = [
 				...panel.querySelectorAll<HTMLInputElement>('input[type="text"][inputmode="numeric"]')

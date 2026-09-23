@@ -32,7 +32,7 @@ function detailOf(parts: { category: string; amountCents: number }[]): string {
 describe('SplitBadge.svelte', () => {
 	it('counts other CATEGORIES with « + » and parts with « × », so one symbol never means two things', async () => {
 		expect.assertions(2);
-		const { rerender } = render(SplitBadge, {
+		const { rerender } = await render(SplitBadge, {
 			parts: THREE_CATEGORIES,
 			otherCategoryCount: 2,
 			dominantCategory: 'Alimentation',
@@ -51,7 +51,7 @@ describe('SplitBadge.svelte', () => {
 
 	it('names every part in the accessible name, because the bubble is hidden from it', async () => {
 		expect.assertions(2);
-		render(SplitBadge, {
+		await render(SplitBadge, {
 			parts: THREE_CATEGORIES,
 			otherCategoryCount: 2,
 			dominantCategory: 'Alimentation',
@@ -69,7 +69,7 @@ describe('SplitBadge.svelte', () => {
 
 	it('states magnitudes, never a sign, matching the editor the parts were typed into', async () => {
 		expect.assertions(1);
-		render(SplitBadge, {
+		await render(SplitBadge, {
 			parts: THREE_CATEGORIES,
 			otherCategoryCount: 2,
 			dominantCategory: 'Alimentation',
@@ -88,7 +88,7 @@ describe('SplitBadge.svelte', () => {
 	// mounted, before any hover had been processed, and for a dozen reasons unrelated to the rule.
 	it('opens the bubble on hover and closes it again on Escape, focus never leaving the badge', async () => {
 		expect.assertions(4);
-		render(SplitBadge, {
+		await render(SplitBadge, {
 			parts: THREE_CATEGORIES,
 			otherCategoryCount: 2,
 			dominantCategory: 'Alimentation',
@@ -110,7 +110,7 @@ describe('SplitBadge.svelte', () => {
 
 	it('opens on FOCUS too, so the bubble is reachable without a pointer', async () => {
 		expect.assertions(2);
-		render(SplitBadge, {
+		await render(SplitBadge, {
 			parts: THREE_CATEGORIES,
 			otherCategoryCount: 2,
 			dominantCategory: 'Alimentation',
@@ -135,7 +135,7 @@ describe('SplitBadge.svelte', () => {
 
 	it('is not a target at 390, and still says what it is', async () => {
 		expect.assertions(3);
-		render(SplitBadge, {
+		await render(SplitBadge, {
 			parts: ONE_CATEGORY,
 			otherCategoryCount: 0,
 			dominantCategory: 'Alimentation'
@@ -154,7 +154,7 @@ describe('SplitBadge.svelte', () => {
 
 	it('measures 24 px as a button and 22 px as an inert span, the two figures the design ties to interactivity', async () => {
 		expect.assertions(3);
-		const { rerender } = render(SplitBadge, {
+		const { rerender } = await render(SplitBadge, {
 			parts: THREE_CATEGORIES,
 			otherCategoryCount: 2,
 			dominantCategory: 'Alimentation',
@@ -180,7 +180,7 @@ describe('SplitBadge.svelte', () => {
 	// component taller than its host line with a green class assertion.
 	it('adds no vertical margin, which is exactly what went wrong on the tags chantier', async () => {
 		expect.assertions(2);
-		render(SplitBadge, {
+		await render(SplitBadge, {
 			parts: THREE_CATEGORIES,
 			otherCategoryCount: 2,
 			dominantCategory: 'Alimentation',
@@ -200,7 +200,7 @@ describe('SplitBadge.svelte', () => {
 	describe('inherited', () => {
 		it('weakens the inert sentence instead of claiming this transaction is split', async () => {
 			expect.assertions(2);
-			render(SplitBadge, {
+			await render(SplitBadge, {
 				parts: ONE_CATEGORY,
 				otherCategoryCount: 0,
 				dominantCategory: 'Alimentation',
@@ -218,7 +218,7 @@ describe('SplitBadge.svelte', () => {
 
 		it('weakens the aria-label and the tooltip heading on the interactive branch too', async () => {
 			expect.assertions(2);
-			render(SplitBadge, {
+			await render(SplitBadge, {
 				parts: THREE_CATEGORIES,
 				otherCategoryCount: 2,
 				dominantCategory: 'Alimentation',

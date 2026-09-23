@@ -83,7 +83,7 @@ describe('filter bar — trigger grammar', () => {
 	it('at rest each trigger carries its dimension name', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		await expect
 			.element(
@@ -98,7 +98,7 @@ describe('filter bar — trigger grammar', () => {
 	it('no closed filter control opens with "Toutes" — only the nature group keeps the word', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		// Two earlier phrasings of this guard were incapable of failing, and the reason is worth
 		// keeping: "no BUTTON named Toutes" missed it because the old control was a combobox, and
@@ -121,7 +121,7 @@ describe('filter bar — trigger grammar', () => {
 	it('an active dimension reads "Dimension : Valeur" and grows its own clear control', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, tag: 'tag-1' } }),
 			form: null
 		});
@@ -146,7 +146,7 @@ describe('filter bar — trigger grammar', () => {
 	it('the tag dimension keeps its tint when active, and the category dimension does not', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({
 				filters: { ...baseData().filters, tag: 'tag-1', category: 'Voyages' }
 			}),
@@ -185,7 +185,7 @@ describe('filter bar — trigger grammar', () => {
 		// bookmarked ?tag=<id> outlives its tag. The way out is the summary row's reset, which is
 		// rendered because the server still counts the filter as active.
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, tag: 'deleted-id' } }),
 			form: null
 		});
@@ -225,7 +225,7 @@ describe('filter bar — mobile sheet', () => {
 	it('at rest the trigger reads plainly "Filtres", and only the mobile copy is in the accessibility tree at this viewport', async () => {
 		expect.assertions(2);
 		await page.viewport(390, 844);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		const trigger = page.getByRole('button', { name: m.transactions_filters_sheet_label() });
 		await expect.element(trigger.first()).toBeInTheDocument();
@@ -238,7 +238,7 @@ describe('filter bar — mobile sheet', () => {
 	it('with one active dimension the trigger reads "Filtres, 1 actif" and an active token with its own clear control appears', async () => {
 		expect.assertions(2);
 		await page.viewport(390, 844);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, category: 'Voyages' } }),
 			form: null
 		});
@@ -268,7 +268,7 @@ describe('filter bar — mobile sheet', () => {
 	it('with category AND tag active the trigger reads "Filtres, 2 actifs" — the design\'s own example', async () => {
 		expect.assertions(1);
 		await page.viewport(390, 844);
-		render(Page, {
+		await render(Page, {
 			data: baseData({
 				filters: { ...baseData().filters, category: 'Voyages', tag: 'tag-1' }
 			}),
@@ -289,7 +289,7 @@ describe('filter bar — mobile sheet', () => {
 	it('opening the sheet shows both dimensions at rest as "Toutes", and the apply button names the current total', async () => {
 		expect.assertions(3);
 		await page.viewport(390, 844);
-		render(Page, {
+		await render(Page, {
 			data: baseData({
 				pagination: { ...baseData().pagination, totalTransactions: 6 }
 			}),
@@ -320,7 +320,7 @@ describe('filter bar — mobile sheet', () => {
 	it('the category sub-sheet lists options with a check on the current selection, and picking one navigates', async () => {
 		expect.assertions(2);
 		await page.viewport(390, 844);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ filters: { ...baseData().filters, category: 'Alimentation' } }),
 			form: null
 		});
@@ -349,7 +349,7 @@ describe('filter bar — mobile sheet', () => {
 	it('the tag sub-sheet renders a zero-count row dimmed but reachable, never hidden', async () => {
 		expect.assertions(2);
 		await page.viewport(390, 844);
-		render(Page, {
+		await render(Page, {
 			data: baseData({
 				tagCounts: [{ tagId: 'tag-1', count: 0 }],
 				tagScopeTotal: 0
@@ -382,10 +382,10 @@ describe('filter bar — mobile sheet', () => {
 		const shortest = (c: HTMLElement) =>
 			Math.min(...mobileButtons(c).map((b) => Math.round(b.getBoundingClientRect().height)));
 
-		const resting = render(Page, { data: baseData(), form: null });
+		const resting = await render(Page, { data: baseData(), form: null });
 		expect(shortest(resting.container)).toBeGreaterThanOrEqual(44);
 
-		const active = render(Page, {
+		const active = await render(Page, {
 			data: baseData({
 				filters: { ...baseData().filters, category: 'Alimentation', tag: 'tag-1' }
 			}),
@@ -407,7 +407,7 @@ describe('filter bar — mobile sheet', () => {
 	it('all four mobile filter-bar triggers draw at the 12px referential radius (design 6I)', async () => {
 		expect.assertions(4);
 		await page.viewport(390, 844);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				filters: { ...baseData().filters, category: 'Alimentation', tag: 'tag-1' }
 			}),
@@ -469,7 +469,7 @@ describe('filter bar — Période dimension', () => {
 	it('renders no native date input anywhere on the page', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		// The defect this dimension closes: type="date" renders jj/mm/aaaa or mm/dd/yyyy depending
 		// on the BROWSER's own locale and ignores every lang attribute the app can set, so the same
@@ -480,7 +480,7 @@ describe('filter bar — Période dimension', () => {
 	it('places Période in the bar with the same grammar as the other dimensions', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		await expect
 			.element(page.getByRole('button', { name: m.transactions_filter_dimension_period() }).first())
@@ -490,7 +490,7 @@ describe('filter bar — Période dimension', () => {
 	it('renders the invalid range neutrally, with no destructive or overdue tone', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				dateRangeError: true,
 				filters: { ...baseData().filters, from: 'nonsense', to: '2026-06-12' }
@@ -506,7 +506,7 @@ describe('filter bar — Période dimension', () => {
 	it('stops the mobile ladder at the numeric rung: no "période personnalisée" at 390', async () => {
 		expect.assertions(1);
 		await page.viewport(390, 844);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				filters: { ...baseData().filters, from: '2026-09-30', to: '2027-02-28' }
 			}),
@@ -524,7 +524,7 @@ describe('filter bar — the search field', () => {
 	it('desktop: the regex toggle is inside the search field, and the field holds the right edge', async () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const bar = container.querySelector<HTMLElement>('div.hidden.lg\\:block')!;
 		const field = bar.querySelector<HTMLInputElement>('input[name="q"]')!;

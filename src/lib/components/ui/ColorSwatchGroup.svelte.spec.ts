@@ -9,8 +9,8 @@ const options = [
 	{ value: 'olive', label: 'Olive', class: 'bg-[#6e6b00]' }
 ];
 
-function renderGroup(selected = 'ochre') {
-	return render(ColorSwatchGroup, {
+async function renderGroup(selected = 'ochre') {
+	return await render(ColorSwatchGroup, {
 		name: 'colorToken',
 		options,
 		selected,
@@ -24,7 +24,7 @@ function radios(container: HTMLElement) {
 
 describe('ColorSwatchGroup', () => {
 	it('names every swatch by its colour rather than its position', async () => {
-		const { container } = renderGroup();
+		const { container } = await renderGroup();
 
 		// The design's rule: "Lagune", never "couleur 4". A positional name tells a screen-reader
 		// user nothing about what they are choosing.
@@ -36,7 +36,7 @@ describe('ColorSwatchGroup', () => {
 	});
 
 	it('marks exactly one swatch checked, and it is the selected one', async () => {
-		const { container } = renderGroup();
+		const { container } = await renderGroup();
 
 		const checked = radios(container).filter((r) => r.getAttribute('aria-checked') === 'true');
 		expect(checked).toHaveLength(1);
@@ -44,7 +44,7 @@ describe('ColorSwatchGroup', () => {
 	});
 
 	it('puts only the selected swatch in the tab order', async () => {
-		const { container } = renderGroup();
+		const { container } = await renderGroup();
 
 		// A roving tabindex. Without it, Tab walks through all nine swatches before reaching the
 		// next control, which is the thing the arrow keys exist to avoid.
@@ -52,7 +52,7 @@ describe('ColorSwatchGroup', () => {
 	});
 
 	it('moves focus with the arrow keys and wraps at both ends', async () => {
-		const { container } = renderGroup();
+		const { container } = await renderGroup();
 		const [first, second, third] = radios(container);
 
 		second.focus();
@@ -70,7 +70,7 @@ describe('ColorSwatchGroup', () => {
 	});
 
 	it('jumps to the ends with Home and End', async () => {
-		const { container } = renderGroup();
+		const { container } = await renderGroup();
 		const [first, second, third] = radios(container);
 
 		second.focus();
@@ -82,7 +82,7 @@ describe('ColorSwatchGroup', () => {
 	});
 
 	it('does not submit while the arrow keys are only moving focus', async () => {
-		const { container } = renderGroup();
+		const { container } = await renderGroup();
 
 		// Manual activation, deliberately. Each swatch is a submit button, so selecting on arrow
 		// would fire one POST per keypress while the user is just looking through the palette.
@@ -103,7 +103,7 @@ describe('ColorSwatchGroup', () => {
 	});
 
 	it('stays keyboard reachable when the selected value is not in the palette', async () => {
-		const { container } = renderGroup('written-by-an-older-release');
+		const { container } = await renderGroup('written-by-an-older-release');
 
 		// Falls back to the first swatch rather than leaving every tabindex at -1, which would make
 		// the whole group unreachable by Tab.
@@ -111,7 +111,7 @@ describe('ColorSwatchGroup', () => {
 	});
 
 	it('submits the token under the field name the caller chose', async () => {
-		const { container } = renderGroup();
+		const { container } = await renderGroup();
 
 		const [first] = radios(container);
 		expect(first.name).toBe('colorToken');

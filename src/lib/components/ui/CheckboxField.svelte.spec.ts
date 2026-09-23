@@ -10,8 +10,8 @@ import CheckboxField from './CheckboxField.svelte';
  * assertion reads a plausible number instead of failing, which this repository has measured twice.
  */
 describe('CheckboxField.svelte', () => {
-	function mount(props: Record<string, unknown> = {}) {
-		const { container } = render(CheckboxField, {
+	async function mount(props: Record<string, unknown> = {}) {
+		const { container } = await render(CheckboxField, {
 			name: 'deleteOldImport',
 			label: "Supprimer l'ancien import",
 			checked: true,
@@ -21,43 +21,43 @@ describe('CheckboxField.svelte', () => {
 		return container;
 	}
 
-	it('clears the 44 px floor at the mobile breakpoint', () => {
+	it('clears the 44 px floor at the mobile breakpoint', async () => {
 		// The V2 precedence clause, which exists because three triggers shipped at 40 and a fourth
 		// at 36, each defensible on its own screen. ABSOLUTE and not a comparison against a sibling:
 		// a relative assertion passes with no stylesheet loaded at all.
-		const row = mount().querySelector('label') as HTMLElement;
+		const row = (await mount()).querySelector('label') as HTMLElement;
 
 		expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
 	});
 
-	it('posts an unambiguous value when it is UNTICKED', () => {
+	it('posts an unambiguous value when it is UNTICKED', async () => {
 		// The whole reason this component exists rather than a bare <input type="checkbox">. An
 		// unchecked box is absent from the submission, so « the user said no » and « the field was
 		// never added » arrive as the same thing, and this control decides a delete.
-		const container = mount({ checked: false });
+		const container = await mount({ checked: false });
 
 		const hidden = container.querySelector('input[type="hidden"][name="deleteOldImport"]');
 		expect(hidden).toHaveValue('false');
 	});
 
-	it('posts exactly one entry for its name, whichever way it is set', () => {
+	it('posts exactly one entry for its name, whichever way it is set', async () => {
 		// Two named fields would make the answer depend on DOM order, since `formData.get` returns
 		// the first entry. Counted rather than reasoned about, in both states.
 		for (const checked of [true, false]) {
-			const container = mount({ checked });
+			const container = await mount({ checked });
 
 			expect(container.querySelectorAll('[name="deleteOldImport"]')).toHaveLength(1);
 		}
 	});
 
-	it('posts true when it is ticked', () => {
-		const container = mount({ checked: true });
+	it('posts true when it is ticked', async () => {
+		const container = await mount({ checked: true });
 
 		expect(container.querySelector('input[type="hidden"]')).toHaveValue('true');
 	});
 
-	it('renders the note when given one, and describes the control with it', () => {
-		const container = mount({ note: 'Les répartitions seront supprimées.' });
+	it('renders the note when given one, and describes the control with it', async () => {
+		const container = await mount({ note: 'Les répartitions seront supprimées.' });
 
 		const input = container.querySelector('input[type="checkbox"]') as HTMLElement;
 		const described = input.getAttribute('aria-describedby');
@@ -67,11 +67,11 @@ describe('CheckboxField.svelte', () => {
 		);
 	});
 
-	it('renders NOTHING extra when there is no note', () => {
+	it('renders NOTHING extra when there is no note', async () => {
 		// The direction this is not moving in, and the owner's condition on shipping it: a warning
 		// about a loss that cannot occur is discounted every time after. The app knows which case it
 		// is in, so it answers rather than hedges.
-		const container = mount();
+		const container = await mount();
 
 		expect(container.querySelector('p')).toBeNull();
 		expect(container.querySelector('input[type="checkbox"]')).not.toHaveAttribute(
@@ -79,7 +79,7 @@ describe('CheckboxField.svelte', () => {
 		);
 	});
 
-	it('carries no tint in either state, against a detector calibrated on a real tint', () => {
+	it('carries no tint in either state, against a detector calibrated on a real tint', async () => {
 		// The referential reserves colour for the destructive, the late, and a tag's identity. This
 		// control deletes and is still none of the three: the deletion is the repair the user came
 		// for and they have done nothing wrong. Asserted on the RENDERED colour rather than on the
@@ -110,7 +110,7 @@ describe('CheckboxField.svelte', () => {
 		control.remove();
 
 		for (const checked of [true, false]) {
-			const container = mount({ checked });
+			const container = await mount({ checked });
 
 			expect(chromaOf(container.querySelector('label span')!)).toBeLessThan(0.05);
 		}

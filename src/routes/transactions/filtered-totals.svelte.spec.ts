@@ -77,7 +77,7 @@ function totalsRegions(container: HTMLElement): HTMLElement[] {
 describe('filtered-set totals: three states that do not resemble each other', () => {
 	it('normal: writes both figures', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const regions = totalsRegions(container);
 		expect(regions).toHaveLength(2);
@@ -93,7 +93,7 @@ describe('filtered-set totals: three states that do not resemble each other', ()
 		// BREAK-THE-CHECK: restoring the `incomeCents > 0 || expenseCents > 0` gate empties the
 		// region and this fails on the first `toContain` — verified by hand, see the PR report.
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				filteredTotals: { incomeCents: 0, expenseCents: 0 },
 				pagination: { ...baseData().pagination, totalTransactions: 0 }
@@ -112,7 +112,7 @@ describe('filtered-set totals: three states that do not resemble each other', ()
 		'%s: writes — and says the totals are unavailable, never a figure',
 		async (flag) => {
 			await page.viewport(1280, 800);
-			const { container } = render(Page, {
+			const { container } = await render(Page, {
 				data: baseData({
 					[flag]: true,
 					filteredTotals: { incomeCents: 0, expenseCents: 0 },
@@ -136,7 +136,7 @@ describe('filtered-set totals: three states that do not resemble each other', ()
 		// evaluated, empty result set. The server zeroes those fields precisely BECAUSE it has no
 		// answer (+page.server.ts, the `queryError || dateRangeError` branch).
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				queryError: true,
 				filteredTotals: { incomeCents: 0, expenseCents: 0 },
@@ -158,7 +158,7 @@ describe('filtered-set totals: three states that do not resemble each other', ()
 		// unified upward rather than a third one invented.
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const toggles = [...container.querySelectorAll('button')].filter(
 			(b) => b.getAttribute('aria-label') === m.transactions_regex_toggle_aria()
@@ -182,7 +182,7 @@ describe('filtered-set totals: three states that do not resemble each other', ()
 			baseData({ filteredTotals: { incomeCents: 0, expenseCents: 0 } }),
 			baseData({ queryError: true, filteredTotals: { incomeCents: 0, expenseCents: 0 } })
 		]) {
-			const view = render(Page, { data, form: null });
+			const view = await render(Page, { data, form: null });
 			for (const region of totalsRegions(view.container)) {
 				seen.add(`${region.getAttribute('role')}|${region.getAttribute('aria-live')}`);
 			}
@@ -204,7 +204,7 @@ describe('filtered-set totals: three states that do not resemble each other', ()
 		// last valid expression's results" directly above totals that match neither.
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ queryError: true, filteredTotals: { incomeCents: 0, expenseCents: 0 } }),
 			form: null
 		});
@@ -225,7 +225,7 @@ describe('filtered-set totals: three states that do not resemble each other', ()
 
 	it('gives the error state the warning tone, never danger: nothing is broken for the user', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ queryError: true, filteredTotals: { incomeCents: 0, expenseCents: 0 } }),
 			form: null
 		});
