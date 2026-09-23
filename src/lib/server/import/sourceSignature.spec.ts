@@ -36,9 +36,28 @@ const fileNaming = (fragment: string) => rowsWhoseAccountColumnReads(`1234${frag
 /** The SAME shape and therefore the same fingerprint, carrying nothing that can name an account. */
 const fileNamingNothing = () => rowsWhoseAccountColumnReads('Compte courant');
 
-/** Two well-formed identifiers that DIFFER per row, and no constant qualifying column beside them:
- *  the file offering evidence AGAINST a single account. */
+/**
+ * Two verified IBANs that DIFFER per row, and no constant qualifying column beside them: the file
+ * PROVING evidence against a single account (kind: 'contradictory', #485). Checksums computed rather
+ * than typed, same pair as `discriminant.spec.ts`'s `ACCOUNT_A`/`ACCOUNT_B`.
+ */
 function fileNamingTwoAccounts(): ParsedCsvRow[] {
+	return [
+		{ cells: HEADERS, line: 1 },
+		{ cells: ['2026-08-01', 'Cafe Fictif', '-2,50', 'FR7630001007941234567890185'], line: 2 },
+		{
+			cells: ['2026-08-02', 'Boulangerie Fictive', '-3,10', 'FR3730001007949876543210192'],
+			line: 3
+		}
+	];
+}
+
+/**
+ * A column that VARIES and qualifies the grammar, but only through the loose bare-digit-run
+ * branch (kind: 'ambiguous', #485): exactly as consistent with a reference number as with a
+ * second account, so the file does not PROVE anything at rank 1.
+ */
+function fileNamingTwoUnprovenValues(): ParsedCsvRow[] {
 	return [
 		{ cells: HEADERS, line: 1 },
 		{ cells: ['2026-08-01', 'Cafe Fictif', '-2,50', '12349032'], line: 2 },
@@ -88,7 +107,7 @@ describe('rank 1, what the file itself names', () => {
 		});
 	});
 
-	// The other direction of the same rule: a file that says it spans two accounts is not
+	// The other direction of the same rule: a file that PROVES it spans two accounts is not
 	// overridden by a memory that says it is one.
 	it('refuses a multi-account export rather than falling back to the memory', async () => {
 		remembers(bpCurrent('0185').id);
@@ -102,6 +121,23 @@ describe('rank 1, what the file itself names', () => {
 		expect(resolution).toStrictEqual({ rank: 1, kind: 'multi-account' });
 		// And the memory was never consulted, which is what "refuses" means here.
 		expect(findMany).not.toHaveBeenCalled();
+	});
+
+	// #485's plate-7 split: an UNPROVEN varying column (a bare digit run, exactly as consistent
+	// with a reference number as with a second account) is not proof, so it must not short-circuit
+	// rank 1 the way a verified IBAN pair does. It falls through to the memory exactly as a file
+	// naming nothing would, because unproven evidence and no evidence get the same rank-1 answer.
+	it('falls through to the memory when the varying column is unproven rather than verified', async () => {
+		remembers(bpCurrent('0185').id);
+
+		const resolution = await resolveStatementAccount({
+			userId,
+			rows: fileNamingTwoUnprovenValues(),
+			accounts: [bpCurrent('0185'), bpSavings('9032')]
+		});
+
+		expect(resolution).toStrictEqual({ rank: 3, candidates: [bpCurrent('0185').id] });
+		expect(findMany).toHaveBeenCalledTimes(1);
 	});
 });
 

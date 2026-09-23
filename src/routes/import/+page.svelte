@@ -21,6 +21,7 @@
 	import { goto } from '$app/navigation';
 	import { applyAction, deserialize, enhance } from '$app/forms';
 	import DuplicateStatementDialog from '$lib/components/import/DuplicateStatementDialog.svelte';
+	import AccountColumnDialog from '$lib/components/import/AccountColumnDialog.svelte';
 	import type {
 		CollidingBatchView,
 		CollisionFigures,
@@ -595,6 +596,83 @@
 			retained: retainedDateOrder
 		};
 	});
+
+	/**
+	 * #485's one offer: does this file cover more than one account? Same guard-on-file-identity
+	 * shape as `readingOffer`/`accountOffer`, for the same reason: the options on screen were
+	 * computed for the file that raised them, and a second file in the picker must not inherit them.
+	 */
+	const accountColumnOffer = $derived(
+		form && 'accountColumn' in form
+			? (form.accountColumn as { column: number; header: string; samples: string[] } | undefined)
+			: undefined
+	);
+
+	const offersAccountColumn = $derived(
+		accountColumnOffer !== undefined && csvFiles?.[0] !== undefined && csvFiles[0] === submittedFile
+	);
+
+	/**
+	 * THE STATE DIES WITH THE FILE IT WAS GIVEN FOR, same rule as `answeredFor` and
+	 * `dateOrderAnsweredFor` above, and the same defect if it did not: a second, unrelated
+	 * ambiguous file would silently inherit "not an account" from the first one's answer.
+	 *
+	 * FOUND BY THIS PR'S OWN CONTRADICTION PASS: a DISMISSAL is state too, and the first version
+	 * here only stamped `accountColumnStateFor` inside `chooseAccountColumn`, never inside
+	 * `closeAccountColumnDialog`. A user who dismissed file A's dialog without answering, then
+	 * picked an unrelated file B that raised its OWN ambiguous offer, found `accountColumnDismissed`
+	 * still `true` from file A: the reset effect's guard (`accountColumnStateFor !== undefined`)
+	 * never became true, because nothing had ever set it away from `undefined`. File B's dialog
+	 * silently failed to auto-open; only pressing submit a second time recovered it, via
+	 * `accountColumnAnswerMissing`'s own reset. Not a money-correctness bug — `csv.ts`'s gate still
+	 * refuses regardless of whether the dialog opens — but a dismissal must reset exactly like an
+	 * answer does, so `accountColumnStateFor` is now stamped by BOTH.
+	 */
+	let accountColumnAnswer = $state<'is-account' | 'not-account' | null>(null);
+	let accountColumnStateFor = $state<File | undefined>(undefined);
+	/**
+	 * Whether the user has closed the dialog without answering. A MODAL rather than the reading
+	 * question's anchored row (the maintainer's own ruling: two substantive answers, no plain
+	 * dismissal), so it needs an explicit "the user looked and closed it" bit that the row's
+	 * `accountErrorShown` does not: without one, `open` below would recompute true the instant
+	 * `onClose` ran, and Escape or the backdrop could never actually close it.
+	 */
+	let accountColumnDismissed = $state(false);
+	$effect(() => {
+		const inHand = csvFiles?.[0];
+		if (accountColumnStateFor !== undefined && inHand !== accountColumnStateFor) {
+			accountColumnAnswer = null;
+			accountColumnDismissed = false;
+			accountColumnStateFor = undefined;
+		}
+	});
+
+	/** Auto-opens the instant the offer is current and unanswered; closes on either answer. */
+	const accountColumnDialogOpen = $derived(
+		offersAccountColumn && accountColumnAnswer === null && !accountColumnDismissed
+	);
+
+	function chooseAccountColumn(answer: 'is-account' | 'not-account') {
+		accountColumnAnswer = answer;
+		accountColumnStateFor = csvFiles?.[0];
+	}
+
+	function closeAccountColumnDialog() {
+		accountColumnDismissed = true;
+		accountColumnStateFor = csvFiles?.[0];
+	}
+
+	/**
+	 * The primary pressed with the question unanswered REOPENS it rather than posting, same rule
+	 * as `accountAnswerMissing`: there is no safe default here, unlike `retainedDateOrder`'s
+	 * day-first assumption, because guessing IS the defect #485 exists to remove.
+	 */
+	function accountColumnAnswerMissing(event: SubmitEvent): boolean {
+		if (!offersAccountColumn || accountColumnAnswer) return false;
+		event.preventDefault();
+		accountColumnDismissed = false;
+		return true;
+	}
 
 	function toggleReadingPanel() {
 		readingPanelOpen = !readingPanelOpen;
@@ -1216,6 +1294,7 @@
 				use:enhance
 				onsubmit={(event) => {
 					if (accountAnswerMissing(event)) return;
+					if (accountColumnAnswerMissing(event)) return;
 					submittedFile = csvFiles?.[0];
 				}}
 			>
@@ -1342,6 +1421,13 @@
 					</div>
 				{/if}
 
+				<!-- #485. NO fallback value, unlike `dateOrder` above: omitted entirely until answered,
+				     because there is no safe default to post while unanswered, and posting one would
+				     recreate the exact silent guess this feature exists to remove. -->
+				{#if accountColumnAnswer}
+					<input type="hidden" name="accountColumnAnswer" value={accountColumnAnswer} />
+				{/if}
+
 				{#if offersDesignation}
 					<!-- The file nothing recognised. A refusal that offers the repair rather than
 					     stating the problem: the user's next step is naming three columns, and the
@@ -1459,25 +1545,15 @@
 						{#if dateOrderDisclosureLine}
 							<p class="mt-1 text-sm text-zinc-500">{dateOrderDisclosureLine}</p>
 						{/if}
-						{#if importResult.multiAccountFile && importResult.accountName}
-							<!--
-								THE FILE NAMED SEVERAL ACCOUNTS AND THE ROWS WENT INTO ONE.
-
-								Said rather than refused: a file that imports today must not stop importing
-								because this path learned to read its account column. What changes is that
-								the user is told, which is the trade this area has taken four times before,
-								and it costs a sentence.
-
-								`warning` and not `error`: nothing failed that the user asked for. The rows
-								landed and the count beside this is true; what is not true is the assumption
-								a reader would otherwise make, that they all belong to the account named.
-
-								The underlying defect is #485. This is its mitigation, not its fix.
-							-->
-							<AlertBanner variant="warning" class="mt-3">
-								{m.import_multi_account_notice({ account: importResult.accountName })}
-							</AlertBanner>
-						{/if}
+						<!--
+							REMOVED, #485: the notice this space held said the file named several accounts
+							and every row went into one anyway. #485 moves that question before the write —
+							`AccountColumnDialog` above answers it — so a SUCCESSFUL import reaching this
+							markup has either never carried the signal, or already had it answered "not an
+							account" a moment ago. Showing the notice in that surviving case would contradict
+							the answer just given rather than inform anyone of something new. See
+							`importSummary.ts`'s removal comment on `multiAccountFile` for the full reasoning.
+						-->
 					</div>
 					{#if importResult.profile}
 						<span class="w-fit rounded-md border border-zinc-200 px-3 py-1 text-sm font-medium">
@@ -1703,6 +1779,7 @@
 			use:enhance
 			onsubmit={(event) => {
 				if (accountAnswerMissing(event)) return;
+				if (accountColumnAnswerMissing(event)) return;
 				submittedFile = csvFiles?.[0];
 			}}
 		>
@@ -1816,6 +1893,11 @@
 				</div>
 			{/if}
 
+			<!-- #485. NO fallback value, unlike `dateOrder` above: see the desktop mount's comment. -->
+			{#if accountColumnAnswer}
+				<input type="hidden" name="accountColumnAnswer" value={accountColumnAnswer} />
+			{/if}
+
 			{#if offersDesignation}
 				<!-- The file nothing recognised. A refusal that offers the repair rather than
 				     stating the problem: the user's next step is naming three columns, and the
@@ -1894,25 +1976,7 @@
 						{#if dateOrderDisclosureLine}
 							<p class="mt-1 text-sm text-zinc-500">{dateOrderDisclosureLine}</p>
 						{/if}
-						{#if importResult.multiAccountFile && importResult.accountName}
-							<!--
-								THE FILE NAMED SEVERAL ACCOUNTS AND THE ROWS WENT INTO ONE.
-
-								Said rather than refused: a file that imports today must not stop importing
-								because this path learned to read its account column. What changes is that
-								the user is told, which is the trade this area has taken four times before,
-								and it costs a sentence.
-
-								`warning` and not `error`: nothing failed that the user asked for. The rows
-								landed and the count beside this is true; what is not true is the assumption
-								a reader would otherwise make, that they all belong to the account named.
-
-								The underlying defect is #485. This is its mitigation, not its fix.
-							-->
-							<AlertBanner variant="warning" class="mt-3">
-								{m.import_multi_account_notice({ account: importResult.accountName })}
-							</AlertBanner>
-						{/if}
+						<!-- REMOVED, #485. See the desktop block above for why. -->
 					</div>
 					{#if importResult.profile}
 						<span class="shrink-0">
@@ -2103,4 +2167,22 @@
 			onCancel={cancelCollision}
 		/>
 	</form>
+{/if}
+
+<!--
+	#485's one offer, outside the two upload sections for the same reason `DuplicateStatementDialog`
+	is: one dialog, one focus trap, for a page that renders its form twice. No wrapping `<form>`:
+	neither button submits anything itself, both just record the answer and close, and the primary
+	submit two forms up is what actually re-posts, carrying the hidden input set above.
+-->
+{#if accountColumnOffer}
+	<AccountColumnDialog
+		open={accountColumnDialogOpen}
+		column={accountColumnOffer.column}
+		header={accountColumnOffer.header}
+		samples={accountColumnOffer.samples}
+		onConfirmAccount={() => chooseAccountColumn('is-account')}
+		onDenyAccount={() => chooseAccountColumn('not-account')}
+		onClose={closeAccountColumnDialog}
+	/>
 {/if}

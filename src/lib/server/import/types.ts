@@ -3,6 +3,7 @@ import type { CategorizationRuleInput } from '$lib/server/categorization/rules';
 import type { CsvRefusal } from './refusals';
 import type { UntrustedColumnMapping } from './mapping/model';
 import type { DateOrder } from './dateOrder';
+import type { AccountColumnAnswer } from './discriminant';
 
 export interface CsvImportOptions {
 	sourceName?: string;
@@ -84,6 +85,18 @@ export interface CsvImportOptions {
 	 * a registered profile.
 	 */
 	dateOrderPromptedClientSide?: boolean;
+	/**
+	 * The user's answer to a previous `ambiguous-account-column` refusal, when there has been one.
+	 *
+	 * Absent means nobody has decided. Unlike `dateOrderPromptedClientSide`, there is no caller
+	 * this needs to be suppressed for: both doors — `/import`'s auto path and `/import/columns`'s
+	 * designation path — call this same parser with no prior mechanism that already asked whether
+	 * a file covers more than one account, so #485's fix applies to both with one flag and no
+	 * exclusion. `'is-account'` promotes the column to PROVEN (the same refusal a verified IBAN
+	 * pair gets); `'not-account'` drops it and lets the parse proceed as if the column were noise.
+	 * See `discriminant.ts`'s `kind` (contradictory vs ambiguous) and #485.
+	 */
+	accountColumnAnswer?: AccountColumnAnswer;
 }
 
 /**

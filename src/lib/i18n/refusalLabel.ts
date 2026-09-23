@@ -92,6 +92,15 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			// client that dropped the `reading` payload): the sentence names the problem in words
 			// rather than leaving a bare `error` field with nothing behind it.
 			return m.import_refusal_ambiguous_date_order();
+		case 'multi-account-file':
+			// #485. `column` is not rendered here, same convention as `ambiguous-date-order`'s
+			// unrendered `column`/`sample`: the route reads it to name the header when it builds the
+			// offer, and this plain sentence covers the case where nothing downstream did.
+			return m.import_refusal_multi_account_file();
+		case 'ambiguous-account-column':
+			// Reached only when the route did not intercept the offer, same convention as
+			// `ambiguous-date-order` immediately above.
+			return m.import_refusal_ambiguous_account_column();
 		case 'unknown-column':
 			return m.import_refusal_unknown_column({ column: fact.column });
 		case 'duplicate-column':

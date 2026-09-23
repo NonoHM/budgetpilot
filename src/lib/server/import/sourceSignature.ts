@@ -93,9 +93,21 @@ export async function resolveStatementAccount({
 	const destinations = accounts.filter(isDestination);
 
 	// RANK 1: what the file itself names.
+	//
+	// `contradictory` ONLY, #485's plate-7 split: a verified IBAN pair that differs is proof against
+	// a single account, and proof is what earns a rank-1 short-circuit ahead of the memory. A bare
+	// digit run that varies (`ambiguous`) is exactly as consistent with a reference number or a
+	// running balance as with a second account, so it is not proof, and it gets the SAME rank-1
+	// answer as `kind: 'nothing-to-decide'`: nothing decides here, fall through and let the memory
+	// answer. By the time this runs, `csv.ts`'s own door has already asked about that column when it
+	// could (see #485's PR): a caller reaching this point with an unresolved `ambiguous` column,
+	// source ambiguity notwithstanding, has either none to begin with or already had it answered
+	// upstream.
 	const named = findDiscriminantColumn(rows);
-	if (named.kind === 'multi-account') return { rank: 1, kind: 'multi-account' };
-	if (named.kind === 'found') {
+	if (named.kind === 'contradictory') {
+		return { rank: 1, kind: 'multi-account' };
+	}
+	if (named.kind === 'resolved') {
 		const holders = destinations.filter((account) => holdsFragment(account, named.fragment));
 		if (holders.length === 1) {
 			return { rank: 1, accountId: holders[0].id, fragment: named.fragment };

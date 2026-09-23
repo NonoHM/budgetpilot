@@ -39,7 +39,6 @@ const BASE: ImportSummaryResult = {
 	invalidRowDetails: [],
 	hiddenInvalidRowsCount: 0,
 	accountName: null,
-	multiAccountFile: false,
 	rememberedMapping: false,
 	dateOrderDisclosure: { header: 'Date operation', order: 'month-first' }
 };

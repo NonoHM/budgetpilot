@@ -69,7 +69,7 @@ export type ColumnDateState =
 export function columnDateState(values: readonly string[]): ColumnDateState {
 	const verdict = detectDateOrder(values);
 
-	if (verdict.kind === 'mixed') return 'inconsistent';
+	if (verdict.kind === 'contradictory') return 'inconsistent';
 	if (verdict.kind === 'ambiguous') return 'ambiguous';
 	if (verdict.kind === 'resolved')
 		return verdict.order === 'day-first' ? 'proven-day' : 'proven-month';

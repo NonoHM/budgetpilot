@@ -60,6 +60,16 @@ export type CsvRefusalFact =
 	// door keeps its existing, tested day-first default, because the designation screen (#639) is
 	// trusted to have asked before this door is reached. See `dateOrder.ts` and #433.
 	| { code: 'ambiguous-date-order'; column: number; sample: string }
+	// The discriminant column PROVES two accounts: a verified IBAN pair (mod-97) that differs per
+	// row, or a column the user has just confirmed names accounts after `ambiguous-account-column`
+	// asked. Refused outright, before any row is written: see `discriminant.ts`'s `kind: 'contradictory'`
+	// and #485. `column` is the index the file offered as evidence, carried for the sentence.
+	| { code: 'multi-account-file'; column: number }
+	// The discriminant column EXHIBITS ambiguity and proves nothing: a bare digit run that varies
+	// per row is exactly as consistent with a reference number or a running balance as with a
+	// second account. Never emitted once an answer has resolved it either way for this file: see
+	// `discriminant.ts`'s `kind: 'ambiguous'` and #485.
+	| { code: 'ambiguous-account-column'; column: number; sample: string }
 	// structural
 	| { code: 'unknown-column'; column: string }
 	// Every spelling the FILE uses for the folded name, joined, in file order. One name would be
@@ -161,6 +171,8 @@ export const CSV_REFUSAL_CODES = [
 	'header-not-recognized',
 	'mixed-date-order',
 	'ambiguous-date-order',
+	'multi-account-file',
+	'ambiguous-account-column',
 	'unknown-column',
 	'duplicate-column',
 	'missing-required-column',

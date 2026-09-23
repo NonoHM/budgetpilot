@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as m from '$lib/paraglide/messages';
+import { refusalLabel } from '$lib/i18n/refusalLabel';
 
 /**
  * The designation action's memorisation branch, which had NO server test of its own.
@@ -787,5 +788,107 @@ describe('the reading the user answered decides how the file is read', () => {
 		expect(persist.createImportBatch).toHaveBeenCalledWith(
 			expect.objectContaining({ dateOrder: 'day-first' })
 		);
+	});
+});
+
+/**
+ * #485 on the designation door. Correction 2's own finding: this door has no PRIOR mechanism that
+ * could have already asked whether a file covers more than one account (it picks a single
+ * destination account from a plain list; it never reads the file's own account column), so the
+ * fix applies here identically to the auto path, with no suppression flag to draw.
+ *
+ * The account column here is the file's FOURTH, unmapped column: `dateIndex`/`labelIndex`/
+ * `amountIndex` name the first three, and `findDiscriminantColumn` scans every column regardless
+ * of which ones are mapped to a role.
+ */
+describe('a file naming more than one account, on the designation door', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		store.saveColumnMapping.mockResolvedValue({ ok: true as const, id: 'mapping-1' });
+		persist.persistImportedTransactions.mockResolvedValue({
+			importedRows: 2,
+			duplicateRows: 0,
+			importedDebitCents: 0,
+			importedCreditCents: 0
+		});
+		persist.resolveImportBucketAccountById.mockResolvedValue({
+			accountId: 'account-1',
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
+		});
+		persist.createImportBatch.mockResolvedValue('batch-1');
+	});
+
+	const PROVEN = [
+		'date,label,amount,compte',
+		'2026-06-01,AUCHAN,-42.10,FR7630001007941234567890185',
+		'2026-06-02,SNCF,-30.00,FR3730001007949876543210192'
+	].join('\n');
+	const UNPROVEN = [
+		'date,label,amount,compte',
+		'2026-06-01,AUCHAN,-42.10,10000001',
+		'2026-06-02,SNCF,-30.00,10000002'
+	].join('\n');
+
+	it('refuses outright when the column PROVES two accounts, and writes nothing', async () => {
+		expect.assertions(3);
+		const result = await submit(PROVEN, true);
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(refusalLabel({ code: 'multi-account-file', column: 3 }));
+		expect(persist.createImportBatch).not.toHaveBeenCalled();
+	});
+
+	// #670: this door has no control to answer the ask, so it must not ship the "confirm before
+	// importing" sentence with nothing to confirm with. It refuses instead, naming the recourse,
+	// which is the OTHER honest outcome `DESIGNATION_CANNOT_REPAIR`'s own principle leaves open
+	// (silently dropping the column was the third option, and it reopens #485 on this one door).
+	it('refuses with the recourse named, rather than asking a question nothing here can answer', async () => {
+		expect.assertions(4);
+		const result = await submit(UNPROVEN, true);
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(
+			m.import_error_account_column_unanswerable({ header: 'compte' })
+		);
+		expect(result.data?.error).not.toBe(m.import_error_ambiguous_account_column());
+		expect(persist.createImportBatch).not.toHaveBeenCalled();
+	});
+
+	// No dialog exists on this door (#670), so the offer payload that would feed one must not be
+	// built either: a payload with nothing to consume it is drafted, not built.
+	it('carries no accountColumn offer, since nothing here renders one', async () => {
+		expect.assertions(1);
+		const result = (await submit(UNPROVEN, true)) as unknown as {
+			data?: { accountColumn?: unknown };
+		};
+		expect(result.data?.accountColumn).toBeUndefined();
+	});
+
+	it('imports normally once the column is confirmed to name something else', async () => {
+		expect.assertions(2);
+		const result = await submit(UNPROVEN, true, { accountColumnAnswer: 'not-account' });
+		expect(result.status).toBeUndefined();
+		expect(persist.createImportBatch).toHaveBeenCalledTimes(1);
+	});
+
+	it('refuses the same way once the column is confirmed to name accounts', async () => {
+		expect.assertions(3);
+		const result = await submit(UNPROVEN, true, { accountColumnAnswer: 'is-account' });
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(refusalLabel({ code: 'multi-account-file', column: 3 }));
+		expect(persist.createImportBatch).not.toHaveBeenCalled();
+	});
+
+	it('leaves an ordinary single-account file untouched', async () => {
+		expect.assertions(2);
+		const single = [
+			'date,label,amount,compte',
+			'2026-06-01,AUCHAN,-42.10,FR7630001007941234567890185',
+			'2026-06-02,SNCF,-30.00,FR7630001007941234567890185'
+		].join('\n');
+		const result = await submit(single, true);
+		expect(result.status).toBeUndefined();
+		expect(persist.createImportBatch).toHaveBeenCalledTimes(1);
 	});
 });
