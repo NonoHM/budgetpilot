@@ -204,10 +204,10 @@ Tooling enforces formatting; do not restate it. What tooling cannot check:
   merely ABSENT FROM it: `06/01/2026` exhibits its own, a missing currency column exhibits nothing.
   "Refused, never guessed" reads well and refuses the ordinary case.
   **The four outcomes are a TYPE, not a convention, and that is the enforcement.**
-  `import/dateOrder.ts` returns `resolved`, `mixed`, `ambiguous` or `nothing-to-decide`, with no
-  constructor for "I guessed"; `import/discriminant.ts` is the same idea at three states. NOT one
-  shared generic yet: collapsing them would merge refusing with asking. The failure this replaces
-  is measured in #433.
+  `domain/fileVerdict.ts`'s `FileVerdict` is `resolved`, `contradictory`, `ambiguous` or
+  `nothing-to-decide`, with no constructor for "I guessed"; `import/dateOrder.ts` and
+  `import/discriminant.ts` both inhabit it. `contradictory` (refuse) and `ambiguous` (ask) stay
+  two states, never merged. The failure this replaces is measured in #433.
 - Prefer the existing component and the existing helper. Check before adding either.
 - Any number an operator might need to move is read from the environment: a default, a hard
   ceiling, refusal rather than clamping, and a boot warning when it differs.
