@@ -75,6 +75,19 @@ const postedAccount = (section: HTMLElement) =>
 beforeEach(() => {
 	clearPendingDesignation();
 	vi.clearAllMocks();
+	// The press POSTS since #395 made the submit occupy itself until the answer: an answer that
+	// never came left every later press in a test swallowed by the busy button. So the request is
+	// answered at once, with the refusal this file is about, which is what the server sends.
+	vi.stubGlobal(
+		'fetch',
+		vi.fn(
+			async () =>
+				new Response(
+					JSON.stringify({ type: 'failure', status: 400, data: '[{"error":1},"Refusé"]' }),
+					{ status: 400 }
+				)
+		)
+	);
 });
 
 describe('the account question beside an import refusal', () => {
