@@ -431,6 +431,16 @@ clean refusals; a scanner seeing zero packages passes; a fuzzer reaching no acce
   beside an issue number unless you mean it now, including in a sentence about future work.
 - `CHANGELOG.md` is release-please's file. Never edit it by hand.
 
+## Before citing an industry pattern
+
+Read what the closest comparable products actually do, before adopting a pattern retrieved from a
+generic search. For this repository that is **Actual Budget** and **Firefly III** first, both
+self-hosted and closest in shape, then **YNAB** and **Monarch**. A pattern from an unrelated
+repository is weaker evidence than one product's own documented behaviour, and citing it as
+established practice without checking is how a wrong requirement gets built: a session briefed
+#464's fix on a "UUIDs preserved same-instance, stripped cross-instance" conflict-resolution
+pattern that neither comparable actually implements, checked directly against both afterward.
+
 ## References
 
 Standards this repository is held to, and where each one binds.

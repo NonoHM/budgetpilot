@@ -114,6 +114,7 @@ export async function buildAccountOffer(input: {
 		rows: input.rows,
 		accounts: destinations.map((account) => ({
 			id: account.id,
+			name: account.name,
 			source: account.source,
 			archivedAt: account.archivedAt,
 			discriminant: account.discriminant

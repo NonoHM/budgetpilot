@@ -1,3 +1,5 @@
+import { prisma } from '$lib/server/db';
+import { accountsForPicker } from '$lib/server/accounts/projection';
 import { buildAccountOffer, type AccountOffer } from './accountOffer';
 import {
 	findImportBucketAccountBySource,
@@ -5,6 +7,7 @@ import {
 	resolveImportBucketAccountById,
 	type ImportBucketAccount
 } from './persist';
+import { resolveNamedAccount } from './sourceSignature';
 import type { ParsedCsvRow } from './types';
 
 /**
@@ -19,13 +22,21 @@ import type { ParsedCsvRow } from './types';
  *
  * ## THE FILE IS READ BEFORE THE MEMORY, AND THE MEMORY IS NOT READ AT ALL
  *
- * Only `{ rank: 1, accountId }` short-circuits, which is the file's OWN account column naming an
- * account the user holds. A rank 3 answer is a memory, and the memory is written by the designation
- * screen: letting it decide here would replay a memorised mistake on the one path that shows the
- * user nothing and asks them nothing, which is the failure `sourceSignature.ts` refuses at length
- * under « THE FILE BEATS THE MEMORY, ALWAYS ». On the designated path the same memory only
- * PRE-FILLS a control the user can see and change. There is no such control here, so it decides
- * nothing.
+ * Rank 2 short-circuits unconditionally, ahead of source bucketing: a V3 export's own PROFILE
+ * always buckets as `csv` regardless of which account its rows actually left, so if rank 2 waited
+ * for the source lookup to be ambiguous the way rank 1 does below, it would never run on the
+ * common case of a fresh re-import, and #464 would still double every row. Rank 1 stays scoped to
+ * the ambiguous branch: a recognised bank file's own PROFILE already buckets it correctly, so rank
+ * 1 only has within-source accounts to disambiguate, which is a question that does not arise until
+ * the source lookup already found more than one.
+ *
+ * `resolveNamedAccount` is called directly rather than the full `resolveStatementAccount`, and
+ * that is what keeps rank 3 out of this function: the combined resolver falls through to a memory
+ * read the moment ranks 1 and 2 both miss, and the memory is written by the designation screen.
+ * Letting it decide here would replay a memorised mistake on the one path that shows the user
+ * nothing and asks them nothing, which is the failure `sourceSignature.ts` refuses at length under
+ * « THE FILE BEATS THE MEMORY, ALWAYS ». On the designated path the same memory only PRE-FILLS a
+ * control the user can see and change. There is no such control here, so it decides nothing.
  *
  * `{ rank: 1, kind: 'multi-account' }` does not short-circuit either, and deliberately falls
  * through to today's behaviour rather than becoming a new refusal: a file that imports today must
@@ -86,6 +97,35 @@ export async function decideAutoAccount(input: {
 				return { kind: 'refused', reason: error.reason };
 			}
 			throw error;
+		}
+	}
+
+	// RANK 2, ahead of any source bucketing. See the module doc for why this must not wait for
+	// the by-source lookup to be ambiguous, and `sourceSignature.ts`'s own doc for why a name
+	// matching more than one of the user's accounts refuses rather than guesses.
+	const namedByExport = resolveNamedAccount(
+		input.rows,
+		accountsForPicker(
+			await prisma.account.findMany({
+				where: { userId: input.userId, archivedAt: null },
+				select: { id: true, name: true, source: true, archivedAt: true, discriminant: true }
+			})
+		)
+	);
+	if (namedByExport !== null) {
+		try {
+			return {
+				kind: 'account',
+				bucket: await resolveImportBucketAccountById({
+					userId: input.userId,
+					accountId: namedByExport
+				})
+			};
+		} catch (error) {
+			if (!(error instanceof ImportBucketAccountError)) throw error;
+			// The named account no longer resolves (archived or gone between the two reads above,
+			// a race rather than the ordinary case): by-source bucketing decides below, exactly as
+			// it would have if rank 2 had found nothing.
 		}
 	}
 

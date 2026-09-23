@@ -86,6 +86,10 @@ const REVOLUT_METADATA_FIELDS = [
 	'Solde'
 ];
 
+/** The two REVOLUT_METADATA_FIELDS that hold a signed amount: exempted from
+ *  `sanitizeImportedText` so a negative fee or balance keeps its leading `-`. */
+const REVOLUT_AMOUNT_FIELDS = new Set(['Frais', 'Solde']);
+
 /**
  * ORDER IS NO LONGER LOAD BEARING, and that is a deliberate second change.
  *
@@ -296,7 +300,7 @@ export function parseRevolutRows({
 				revolutState: state,
 				revolutFeeCents: feeCents ?? undefined,
 				revolutBalanceCents: balanceCents ?? undefined,
-				csvFields: buildCsvFields(record, REVOLUT_METADATA_FIELDS)
+				csvFields: buildCsvFields(record, REVOLUT_METADATA_FIELDS, REVOLUT_AMOUNT_FIELDS)
 			}
 		};
 		const validation = validateTransaction(transaction);

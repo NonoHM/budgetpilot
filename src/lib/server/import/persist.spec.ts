@@ -937,7 +937,12 @@ describe('persistImportedTransactions', () => {
 		});
 	});
 
-	it('drops a csvField not on the allowlist and anonymizes an allowlisted one', async () => {
+	// #466: a fixed, ten-item Banque Populaire label list used to be the bound here, so a resolved
+	// name from any other profile (a designated file, a generic one, Boursorama's `dateop`) was
+	// silently dropped before it ever reached the database. The bound is now whatever the caller's
+	// OWN profile already resolved into `csvFields`, anonymized like every other field — never a
+	// second, fixed list that can drift from the first.
+	it('anonymizes every csvField the caller resolved, not only the fixed Banque Populaire labels', async () => {
 		await persistImportedTransactions({
 			userId: 'user-1',
 			accountId: 'account-1',
@@ -952,7 +957,7 @@ describe('persistImportedTransactions', () => {
 						type: 'expense',
 						csvFields: {
 							'Libelle simplifie': 'AUCHAN 0065 SC 78MAUREPAS',
-							'Not on the allowlist': 'super secret raw column'
+							dateop: '12/06/2026'
 						}
 					}
 				})
@@ -966,7 +971,8 @@ describe('persistImportedTransactions', () => {
 			csvFields: Record<string, string>;
 		};
 
-		expect(metadata.csvFields['Not on the allowlist']).toBeUndefined();
+		// Never on the old fixed list, and no longer dropped for that reason.
+		expect(metadata.csvFields['dateop']).toBe(anonymizeDetailText('12/06/2026', 18));
 		expect(metadata.csvFields['Libelle simplifie']).toBe(
 			anonymizeDetailText('AUCHAN 0065 SC 78MAUREPAS', 18)
 		);

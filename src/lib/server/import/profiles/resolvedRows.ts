@@ -213,8 +213,11 @@ export function parseResolvedRows({
 				notes: label,
 				type,
 				// The RESOLVED names, not a fixed list: with a fixed one a Boursorama file would
-				// store no date at all, because its column is `dateop`.
-				csvFields: buildCsvFields(record, resolvedFields)
+				// store no date at all, because its column is `dateop`. `columns.amount` is
+				// exempted from `sanitizeImportedText` by its own resolved name, whatever a
+				// user's file happens to call it, so a lowercase `montant` amount column is
+				// exempted exactly like `Montant` would be. #466.
+				csvFields: buildCsvFields(record, resolvedFields, new Set([columns.amount]))
 			}
 		};
 		const validation = validateTransaction(transaction);

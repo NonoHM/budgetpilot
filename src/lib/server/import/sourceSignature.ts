@@ -1,7 +1,9 @@
 import { isStatementDestination } from '$lib/server/accounts/projection';
 import { prisma } from '$lib/server/db';
+import { computeNameKey } from '$lib/server/naming/nameKey';
 import { findDiscriminantColumn } from './discriminant';
 import { fingerprintFor } from './mapping/fingerprint';
+import { readMaisonV3Account } from './profiles/maison-v3';
 import type { ParsedCsvRow } from './types';
 
 /**
@@ -9,13 +11,51 @@ import type { ParsedCsvRow } from './types';
  *
  * `discriminant` is optional because the caller's projection habitually omits it for buckets that
  * cannot carry one; an absent fragment and a NULL fragment mean the same thing here, which is
- * "this account is not named by any file".
+ * "this account is not named by any file". `name` is required rather than optional: rank 2 reads
+ * it on every call, and an optional field a caller forgot to populate would silently make rank 2
+ * unreachable for that caller rather than failing to compile.
  */
 export interface ResolvableAccount {
 	id: string;
+	name: string;
 	source: string;
 	archivedAt: Date | null;
 	discriminant?: string | null;
+}
+
+/**
+ * Rank 2's own rule: the account a V3 export's `compte` column names, matched against accounts
+ * the caller holds.
+ *
+ * Exported separately from `resolveStatementAccount` so a caller that must not read rank 3's
+ * memory can still run this rule without pulling the whole ranked chain in — see
+ * `decideAutoAccount`'s own doc for why the auto path is exactly that caller.
+ *
+ * ## Zero holders and two holders get the same answer, and it is not an oversight
+ *
+ * The column carries a NAME, and `@@unique([userId, name, source])` means two of the user's own
+ * accounts CAN share one literal name across different sources (`naming/backfill.ts` and
+ * `naming/mergePlan.ts` both key account collisions on `source + name`, never on name alone, for
+ * this exact reason). A rank that picked either of two identically named accounts would file a
+ * statement into an account it never came from with full confidence, which is the exact failure
+ * ranks exist to prevent (see rank 1's own `kind: 'contradictory'` vs `'ambiguous'` split, above).
+ * So a name matching more than one destination decides nothing here, exactly like a name matching
+ * none: the caller falls through, refused rather than guessed.
+ *
+ * In the ordinary, unrenamed case this is not the common path: a bank-recognised bucket is named
+ * after its institution (`institutionForSource`), so only the generic, no-institution `csv`
+ * bucket shares its stored name with another generic `csv` bucket, and two of those cannot exist
+ * for one user without one being archived first (`@@unique([userId, name, source])`).
+ */
+export function resolveNamedAccount(
+	rows: ParsedCsvRow[],
+	destinations: ResolvableAccount[]
+): string | null {
+	const named = readMaisonV3Account(rows);
+	if (named === null) return null;
+	const key = computeNameKey(named);
+	const holders = destinations.filter((account) => computeNameKey(account.name) === key);
+	return holders.length === 1 ? holders[0].id : null;
 }
 
 /**
@@ -120,20 +160,14 @@ export async function resolveStatementAccount({
 
 	// RANK 2: one of our own V3 exports, whose `compte` column names an account by NAME.
 	//
-	// STILL NOT IMPLEMENTED, AND THE ORIGINAL REASON IS NOW FALSE. It read « the V3 export format
-	// does not exist in this tree », which was true when written and was falsified two commits
-	// later on this same branch: `profiles/maison-v3.ts` recognises `MAISON_V3_HEADER` and
-	// `readMaisonV3Account` is the one place that column is interpreted. The reason is corrected
-	// here rather than deleted, because deleting it would leave the gap looking like an oversight.
-	//
-	// WHAT ACTUALLY REMAINS, and it is a design question rather than a wiring one: the column
-	// carries a NAME, and the three CSV buckets share one literal name and differ by `source`. So
-	// a name lookup has a disambiguation to make that nothing in this tree models yet, and a rank
-	// that resolves the wrong one of two identically named rows would file a statement into an
-	// account it never came from with full confidence, which is the exact failure ranks exist to
-	// prevent. Measured on this branch: a V3 export of a Banque Populaire account reaches rank 3
-	// with no candidates, and the route then files it by source into the CSV bucket. That is #464,
-	// which this branch does NOT close, and its comment there carries the probe.
+	// The disambiguation the original comment here flagged as unmodelled is `resolveNamedAccount`'s
+	// own job now: a name matching more than one destination refuses exactly like a name matching
+	// none, so this rank never guesses between two accounts that happen to share a stored name.
+	// See its doc for why that is safe in the ordinary case rather than a hole. #464.
+	const namedAccountId = resolveNamedAccount(rows, destinations);
+	if (namedAccountId !== null) {
+		return { rank: 2, accountId: namedAccountId };
+	}
 
 	// RANK 3: what we remember.
 	//

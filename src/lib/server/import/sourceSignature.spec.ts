@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MAISON_V3_HEADER } from './profiles/maison-v3';
 import type { ParsedCsvRow } from './types';
 
 const findMany = vi.fn();
@@ -65,14 +66,42 @@ function fileNamingTwoUnprovenValues(): ParsedCsvRow[] {
 	];
 }
 
+const V3_HEADERS = MAISON_V3_HEADER.split(';');
+
+/** A V3 export naming ONE account in its `compte` column (the last cell of every row): rank 2
+ *  territory. `date;libelle;categorie;montant;type;nature;source_bancaire;montant_total;part;
+ *  categorie_parent;compte`, in that order, with the account name held constant. */
+function v3RowsNaming(accountName: string): ParsedCsvRow[] {
+	const row = (label: string) => [
+		'2026-08-01',
+		label,
+		'Alimentation',
+		'-2,50',
+		'expense',
+		'spending',
+		'csv',
+		'-2,50',
+		'1/1',
+		'Alimentation',
+		accountName
+	];
+	return [
+		{ cells: V3_HEADERS, line: 1 },
+		{ cells: row('Cafe Fictif'), line: 2 },
+		{ cells: row('Boulangerie Fictive'), line: 3 }
+	];
+}
+
 const bpCurrent = (discriminant: string) => ({
 	id: `account-current-${discriminant}`,
+	name: 'BP courant',
 	source: 'csv',
 	archivedAt: null,
 	discriminant
 });
 const bpSavings = (discriminant: string) => ({
 	id: `account-savings-${discriminant}`,
+	name: 'BP livret',
 	source: 'csv',
 	archivedAt: null,
 	discriminant
@@ -138,6 +167,61 @@ describe('rank 1, what the file itself names', () => {
 
 		expect(resolution).toStrictEqual({ rank: 3, candidates: [bpCurrent('0185').id] });
 		expect(findMany).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("rank 2, what a V3 export's own compte column names", () => {
+	it('resolves the account when the name matches exactly one destination', async () => {
+		const resolution = await resolveStatementAccount({
+			userId,
+			rows: v3RowsNaming('Banque Populaire'),
+			accounts: [
+				{ id: 'account-bp', name: 'Banque Populaire', source: 'banque_populaire', archivedAt: null }
+			]
+		});
+
+		expect(resolution).toStrictEqual({ rank: 2, accountId: 'account-bp' });
+		// Resolved before the memory was ever read: rank 2 sits ahead of rank 3, same as rank 1.
+		expect(findMany).not.toHaveBeenCalled();
+	});
+
+	it('falls through to the memory when the name matches none of the destinations', async () => {
+		remembers();
+
+		const resolution = await resolveStatementAccount({
+			userId,
+			rows: v3RowsNaming('Compte disparu'),
+			accounts: [
+				{ id: 'account-bp', name: 'Banque Populaire', source: 'banque_populaire', archivedAt: null }
+			]
+		});
+
+		expect(resolution).toStrictEqual({ rank: 3, candidates: [] });
+	});
+
+	// THE SAFETY CASE. `@@unique([userId, name, source])` lets two of the user's own accounts
+	// share one literal name across different sources, so a name match is not a proof the way a
+	// verified IBAN pair is. Taking either would file the statement into an account it may not
+	// have come from, so this gets the SAME answer as a name matching nothing: refused, not
+	// guessed.
+	it("refuses rather than guesses when the name matches two of the user's own accounts", async () => {
+		remembers();
+
+		const resolution = await resolveStatementAccount({
+			userId,
+			rows: v3RowsNaming('Compte import CSV'),
+			accounts: [
+				{ id: 'account-csv', name: 'Compte import CSV', source: 'csv', archivedAt: null },
+				{
+					id: 'account-bp-renamed',
+					name: 'Compte import CSV',
+					source: 'banque_populaire',
+					archivedAt: null
+				}
+			]
+		});
+
+		expect(resolution).toStrictEqual({ rank: 3, candidates: [] });
 	});
 });
 
@@ -218,7 +302,10 @@ describe('rank 3, what the memory holds', () => {
 		const resolution = await resolveStatementAccount({
 			userId,
 			rows: fileNamingNothing(),
-			accounts: [bpCurrent('0185'), { id: 'manual-1', source: 'manual', archivedAt: null }]
+			accounts: [
+				bpCurrent('0185'),
+				{ id: 'manual-1', name: 'Manuel', source: 'manual', archivedAt: null }
+			]
 		});
 
 		expect(resolution).toStrictEqual({ rank: 3, candidates: [bpCurrent('0185').id] });
