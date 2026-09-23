@@ -18,7 +18,7 @@ function childrenSnippet() {
 
 describe('ui/DropdownMenu.svelte', () => {
 	it('renders the trigger snippet content inside a button carrying the given aria-label', async () => {
-		render(DropdownMenu, {
+		await render(DropdownMenu, {
 			triggerAriaLabel: 'Ouvrir le menu',
 			trigger: triggerSnippet(),
 			children: childrenSnippet()
@@ -30,7 +30,7 @@ describe('ui/DropdownMenu.svelte', () => {
 	});
 
 	it('does not render the children snippet content while closed', async () => {
-		render(DropdownMenu, {
+		await render(DropdownMenu, {
 			triggerAriaLabel: 'Ouvrir le menu',
 			trigger: triggerSnippet(),
 			children: childrenSnippet()
@@ -40,7 +40,7 @@ describe('ui/DropdownMenu.svelte', () => {
 	});
 
 	it('opens the menu and renders the children snippet content when the trigger is clicked', async () => {
-		render(DropdownMenu, {
+		await render(DropdownMenu, {
 			triggerAriaLabel: 'Ouvrir le menu',
 			trigger: triggerSnippet(),
 			children: childrenSnippet()
@@ -56,7 +56,7 @@ describe('ui/DropdownMenu.svelte', () => {
 	});
 
 	it('renders the children content immediately when open is passed as true (bindable prop accepts an initial value)', async () => {
-		render(DropdownMenu, {
+		await render(DropdownMenu, {
 			open: true,
 			triggerAriaLabel: 'Ouvrir le menu',
 			trigger: triggerSnippet(),
@@ -70,7 +70,7 @@ describe('ui/DropdownMenu.svelte', () => {
 	});
 
 	it('applies triggerClass and contentClass to the trigger and content elements', async () => {
-		render(DropdownMenu, {
+		await render(DropdownMenu, {
 			open: true,
 			triggerAriaLabel: 'Ouvrir le menu',
 			triggerClass: 'my-trigger-class',

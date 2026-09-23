@@ -24,8 +24,8 @@ const ACCOUNTS = [
 	{ id: 'a3', name: 'Revolut · Perso', discriminant: null, transactionCount: 1 }
 ];
 
-function mount(props: Record<string, unknown> = {}) {
-	const { container } = render(AccountPicker, {
+async function mount(props: Record<string, unknown> = {}) {
+	const { container } = await render(AccountPicker, {
 		open: true,
 		options: ACCOUNTS,
 		panelId: 'account-panel',
@@ -47,7 +47,7 @@ describe('the account picker panel', () => {
 		// description ». A description can be switched off in a screen reader's settings, and
 		// switching it off there removes the only thing separating two accounts at one bank. This is
 		// the OPPOSITE treatment from the row's provenance hint, and deliberately so.
-		mount();
+		await mount();
 		const option = page.getByRole('option', {
 			name: `BP · Compte courant, ${m.import_account_option_detail_many({ fragment: '4417', count: 128 })}`
 		});
@@ -58,7 +58,7 @@ describe('the account picker panel', () => {
 		// SEPARATES: « every option has two lines » FROM « an option without a discriminant has one ».
 		// Two options on different templates read as two kinds of thing, and the reader cannot tell
 		// « this account has no identifier » from « this row is built differently ».
-		const container = mount();
+		const container = await mount();
 		const option = page.getByRole('option', {
 			name: `Revolut · Perso, ${m.import_account_option_none()}`
 		});
@@ -66,21 +66,21 @@ describe('the account picker panel', () => {
 		expect(panelOf(container).textContent).toContain(m.import_account_option_none());
 	});
 
-	it('announces exactly as many options as there are accounts, never accounts plus one', () => {
+	it('announces exactly as many options as there are accounts, never accounts plus one', async () => {
 		// SEPARATES: « the footer action is a sibling of the listbox » FROM « the footer action is an
 		// option ». The second makes a screen reader count one destination too many, and the extra
 		// one is not a destination at all. This is 6n's assertion 2 and the structural move of 5d.
-		const container = mount();
+		const container = await mount();
 		const listbox = panelOf(container).querySelector('[role="listbox"]');
 		expect(listbox?.querySelectorAll('[role="option"]')).toHaveLength(ACCOUNTS.length);
 		expect(listbox?.querySelector('button')).toBeNull();
 	});
 
-	it('makes the footer action the LAST tab stop of the panel, after the options', () => {
+	it('makes the footer action the LAST tab stop of the panel, after the options', async () => {
 		// SEPARATES: « the create action comes after every option » FROM « it sits among them ». An
 		// action reachable between two options is one an arrow key can land on by accident while
 		// choosing, and the plate is explicit that arrows never reach it: Tab does.
-		const container = mount();
+		const container = await mount();
 		const panel = panelOf(container);
 		const buttons = [...panel.querySelectorAll('button')];
 		expect(buttons).toHaveLength(1);
@@ -94,11 +94,11 @@ describe('the account picker panel', () => {
 		expect((listbox as Element).compareDocumentPosition(action) & 4).toBeTruthy();
 	});
 
-	it('marks the chosen account and opens ON it rather than on the first', () => {
+	it('marks the chosen account and opens ON it rather than on the first', async () => {
 		// SEPARATES: « the panel opens on the account currently chosen » FROM « it opens on the top of
 		// the list ». Opening on the first means the arrow keys start somewhere the user did not
 		// leave them, and a confirming press changes the value it was meant to confirm.
-		const container = mount({ selectedId: 'a2' });
+		const container = await mount({ selectedId: 'a2' });
 		const listbox = panelOf(container).querySelector('[role="listbox"]');
 		const selected = listbox?.querySelector('[aria-selected="true"]');
 		expect(selected?.textContent).toContain('BP · Livret A');
@@ -112,11 +112,11 @@ describe('the account picker panel', () => {
 		expect(selected?.querySelector('svg')).not.toBeNull();
 	});
 
-	it('shows five options and half of the sixth, with the action pinned out of the scroll', () => {
+	it('shows five options and half of the sixth, with the action pinned out of the scroll', async () => {
 		// SEPARATES: « the list scrolls internally and says so by cutting a row » FROM « the list ends
 		// in a clean edge ». A clean edge at the fifth row is a claim that there are five accounts.
 		// Absolute figure: 5.5 rows of 56 px at this width, which is 308 px, never a comparison.
-		const container = mount({
+		const container = await mount({
 			options: [...ACCOUNTS, ...ACCOUNTS.map((a) => ({ ...a, id: `${a.id}-bis` }))]
 		});
 		const panel = panelOf(container);
@@ -127,22 +127,22 @@ describe('the account picker panel', () => {
 		expect(listbox.contains(panel.querySelector('button'))).toBe(false);
 	});
 
-	it('is 56 px per option at 390 and 48 at 1280, and 48 for the action at both', () => {
+	it('is 56 px per option at 390 and 48 at 1280, and 48 for the action at both', async () => {
 		// SEPARATES: « the option is the two-line height 6f measured » FROM « it kept brique 10's
 		// one-line 34 px ». Absolute figures on both, never a comparison: a comparison passes when
 		// both sides collapse to the same wrong number.
-		const container = mount();
+		const container = await mount();
 		const option = panelOf(container).querySelector('[role="option"]') as HTMLElement;
 		expect(option.className).toContain('h-14');
 		expect(option.className).toContain('lg:h-12');
 		expect((panelOf(container).querySelector('button') as HTMLElement).className).toContain('h-12');
 	});
 
-	it('offers the create action alone when the user has no account yet', () => {
+	it('offers the create action alone when the user has no account yet', async () => {
 		// SEPARATES: « an empty panel is one line of action » FROM « an empty panel is a full-card
 		// empty state ». A panel of one line does not need brique 7, and the only possible action is
 		// the only visible thing. This is the cell where the user has the least context.
-		const container = mount({ options: [] });
+		const container = await mount({ options: [] });
 		const panel = panelOf(container);
 		expect(panel.querySelectorAll('[role="option"]')).toHaveLength(0);
 		expect(panel.textContent).toContain(m.import_account_new());
@@ -155,7 +155,7 @@ describe('the account picker panel', () => {
 		// panel must never open with the focus still outside it, and the footer is what used to
 		// catch that for an empty list.
 		expect.assertions(3);
-		const container = mount({ allowCreate: false });
+		const container = await mount({ allowCreate: false });
 
 		await expect.element(page.getByText(m.import_account_new())).not.toBeInTheDocument();
 		expect(panelOf(container).querySelectorAll('button')).toHaveLength(0);
@@ -163,24 +163,24 @@ describe('the account picker panel', () => {
 		expect(document.activeElement?.getAttribute('role')).toBe('listbox');
 	});
 
-	it('keeps an empty panel reachable from the keyboard with no action to focus', () => {
+	it('keeps an empty panel reachable from the keyboard with no action to focus', async () => {
 		// SEPARATES: « the panel itself takes the focus when nothing inside it can » FROM « the focus
 		// call lands on null and the panel opens with the focus outside it », which is a control the
 		// keyboard cannot reach or leave. The empty list used to force the footer for this reason,
 		// and `allowCreate: false` is what removes the footer from under that guard.
 		expect.assertions(2);
-		const container = mount({ allowCreate: false, options: [] });
+		const container = await mount({ allowCreate: false, options: [] });
 
 		const panel = panelOf(container);
 		expect(document.activeElement).toBe(panel);
 		expect(panel.getAttribute('tabindex')).toBe('-1');
 	});
 
-	it('renders nothing at all while closed', () => {
+	it('renders nothing at all while closed', async () => {
 		// SEPARATES: « closed means absent from the tree » FROM « closed means visually hidden ». A
 		// hidden-but-present panel keeps its options in the accessibility tree and in the tab order,
 		// so a keyboard user tabs through accounts that are not on screen.
-		const container = mount({ open: false });
+		const container = await mount({ open: false });
 		expect(container.querySelector('[data-testid="account-panel"]')).toBeNull();
 	});
 });

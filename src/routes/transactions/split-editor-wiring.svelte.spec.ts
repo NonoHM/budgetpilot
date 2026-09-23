@@ -168,7 +168,7 @@ function sheet() {
 describe('the entry point (1b)', () => {
 	it('desktop: the door exists, and pressing it is what puts the editor on screen', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 		const panel = aside(container);
 
 		// The editor is ABSENT first and appears on the gesture. Asserting the open state alone
@@ -196,7 +196,7 @@ describe('the entry point (1b)', () => {
 
 	it('is withheld exactly when the load says so, on both surfaces at once', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ splitEntryAvailable: false }),
 			form: null
 		});
@@ -211,7 +211,7 @@ describe('the entry point (1b)', () => {
 
 	it('renders one door per surface, and both are in the DOM at once — so neither can be forgotten', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const doors = Array.from(container.querySelectorAll('button')).filter((b) =>
 			b.textContent?.includes('Répartir entre plusieurs catégories')
@@ -223,7 +223,7 @@ describe('the entry point (1b)', () => {
 describe('the parent selector locks in situ (1j, 1q)', () => {
 	it('is aria-disabled and points at the sentence ON ITS OWN SURFACE, never the other mount’s', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: null
 		});
@@ -257,7 +257,7 @@ describe('the parent selector locks in situ (1j, 1q)', () => {
 
 	it('withholds « Réinitialiser », because it writes the very category the lock forbids', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				manualCategory: 'Alimentation',
 				isManualCategory: true,
@@ -275,7 +275,7 @@ describe('the parent selector locks in situ (1j, 1q)', () => {
 
 	it('leaves the selector live when nothing is répartie — proven by opening its list', async () => {
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		// The mirror of the lock assertion, and it is what stops that one passing on a page where the
 		// selector is neutralised permanently.
@@ -288,7 +288,7 @@ describe('the parent selector locks in situ (1j, 1q)', () => {
 describe('an existing répartition opens as the editor (1j-B)', () => {
 	it('renders the parts, the count in the section title, and no door', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: null
 		});
@@ -307,7 +307,7 @@ describe('an existing répartition opens as the editor (1j-B)', () => {
 describe('the states after a write (1i)', () => {
 	it('failure is an alert INSIDE the panel, above the band, and does not auto-dismiss', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: actionResult({ splitsError: m.splits_error_generic() })
 		});
@@ -349,7 +349,7 @@ describe('the states after a write (1i)', () => {
 	 */
 	it('a submission that never becomes ActionData still reaches the banner, on both mounts', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: null
 		});
@@ -428,7 +428,7 @@ describe('the states after a write (1i)', () => {
 	 */
 	it('a client-side failure REPLACES the previous submission’s server refusal, rather than hiding behind it', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			// The state a first submission left behind: the server explained a refusal.
 			form: actionResult({ splitsError: m.splits_error_sum() })
@@ -492,7 +492,7 @@ describe('the states after a write (1i)', () => {
 	 */
 	it('a failure does not follow the user to another transaction', async () => {
 		await page.viewport(1280, 800);
-		const { container, rerender } = render(Page, {
+		const { container, rerender } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: null
 		});
@@ -551,7 +551,7 @@ describe('the states after a write (1i)', () => {
 
 	it('the removal message names the recovered category, which is what makes it obviously lossless', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData(),
 			form: actionResult({ splitsRemoved: true })
 		});
@@ -561,7 +561,7 @@ describe('the states after a write (1i)', () => {
 
 	it('the success message counts the parts', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: actionResult({ splitsSaved: true, splitsCount: 2 })
 		});
@@ -571,7 +571,7 @@ describe('the states after a write (1i)', () => {
 
 	it('a category refusal names the parts; an amount refusal carrying the same positions does not', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: actionResult({
 				splitsCategoryConflict: true,
@@ -583,7 +583,7 @@ describe('the states after a write (1i)', () => {
 
 		// The discriminator earning its keep: identical positions, a different refusal, and the panel
 		// must NOT tell the user to choose a category when the amount is what was wrong.
-		const { container: other } = render(Page, {
+		const { container: other } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: actionResult({
 				splitsError: m.splits_error_invalid_amounts(),
@@ -597,7 +597,7 @@ describe('the states after a write (1i)', () => {
 describe('the mobile sheet mounts the same editor', () => {
 	it('at 390, the sheet holds the editor with its controls at the 48px floor', async () => {
 		await page.viewport(390, 844);
-		render(Page, {
+		await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: null
 		});
@@ -636,7 +636,7 @@ describe('the tab-return refresh (1r)', () => {
 		await page.viewport(1280, 800);
 		invalidateAll.mockClear();
 
-		const open = render(Page, {
+		const open = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: null
 		});
@@ -647,7 +647,7 @@ describe('the tab-return refresh (1r)', () => {
 		// already fired on the identical event: a page with no editor open must not reload, or every
 		// tab return on /transactions costs a round trip for a case that cannot arise.
 		open.unmount();
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 		document.dispatchEvent(new Event('visibilitychange'));
 		await new Promise((resolve) => setTimeout(resolve, 20));
 		expect(invalidateAll.mock.calls.length).toBe(1);
@@ -657,7 +657,7 @@ describe('the tab-return refresh (1r)', () => {
 		await page.viewport(1280, 800);
 		invalidateAll.mockClear();
 
-		render(Page, {
+		await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: null
 		});
@@ -694,7 +694,7 @@ describe('the saving state and the dirty baseline (1i)', () => {
 
 	it('reads as clean again once the server returns the parts that were just saved', async () => {
 		await page.viewport(1280, 800);
-		const { container, rerender } = render(Page, {
+		const { container, rerender } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: null
 		});
@@ -738,7 +738,7 @@ describe('the saving state and the dirty baseline (1i)', () => {
 		// parts sont conservées », and a remount on every response would discard exactly the work
 		// that promise is about.
 		await page.viewport(1280, 800);
-		const { container, rerender } = render(Page, {
+		const { container, rerender } = await render(Page, {
 			data: baseData({ splits: SPLIT_60_20, splitEntryAvailable: false }),
 			form: null
 		});

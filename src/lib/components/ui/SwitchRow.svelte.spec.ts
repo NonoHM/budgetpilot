@@ -37,16 +37,16 @@ describe('SwitchRow, the six states of brique 6c', () => {
 	// component bug, a wrong value state is a wiring bug, and a value that is not written in words
 	// is the defect the brick exists to remove.
 	it('is a switch', async () => {
-		const screen = render(SwitchRow, BASE);
+		const screen = await render(SwitchRow, BASE);
 
 		await expect.element(screen.getByRole('switch')).toBeInTheDocument();
 	});
 
 	it('carries its value state', async () => {
-		const on = render(SwitchRow, BASE);
+		const on = await render(SwitchRow, BASE);
 		expect((await on.getByRole('switch').element()).getAttribute('aria-checked')).toBe('true');
 
-		const off = render(SwitchRow, { ...BASE, checked: false });
+		const off = await render(SwitchRow, { ...BASE, checked: false });
 		expect((await off.getByRole('switch').last().element()).getAttribute('aria-checked')).toBe(
 			'false'
 		);
@@ -56,17 +56,17 @@ describe('SwitchRow, the six states of brique 6c', () => {
 	// contient des données » is a sentence true or false according to a state it does not show: you
 	// read an action and you get a value. The brick separates them.
 	it('writes its value in words, and the words change with the state', async () => {
-		const on = render(SwitchRow, BASE);
+		const on = await render(SwitchRow, BASE);
 		await expect.element(on.getByText('en-têtes')).toBeInTheDocument();
 
-		const off = render(SwitchRow, { ...BASE, checked: false });
+		const off = await render(SwitchRow, { ...BASE, checked: false });
 		await expect.element(off.getByText('données').last()).toBeInTheDocument();
 	});
 
 	// The consequence is written underneath rather than guessed, and it is LINKED rather than being
 	// a second name: `aria-describedby`, so it is heard after the name and not instead of it.
 	it('links the consequence by aria-describedby, not by name', async () => {
-		const screen = render(SwitchRow, BASE);
+		const screen = await render(SwitchRow, BASE);
 		const control = await screen.getByRole('switch').element();
 
 		const describedBy = control.getAttribute('aria-describedby');
@@ -83,7 +83,7 @@ describe('SwitchRow, the six states of brique 6c', () => {
 	// The whole row is the target, 48 px, and it is what the press lights. Sinking a 22 px knob would
 	// flash an object smaller than the finger touching it.
 	it('is a 48 px row, and the row is what presses', async () => {
-		const screen = render(SwitchRow, BASE);
+		const screen = await render(SwitchRow, BASE);
 		const control = (await screen.getByRole('switch').element()) as HTMLElement;
 
 		expect(control.getBoundingClientRect().height).toBeGreaterThanOrEqual(48);
@@ -98,7 +98,7 @@ describe('SwitchRow, the six states of brique 6c', () => {
 	// `onclick` answers Enter on a <button> and never Space, and the reverse for a custom keydown.
 	it('toggles on click, on Enter and on Space', async () => {
 		const onChange = vi.fn();
-		const screen = render(SwitchRow, { ...BASE, onChange });
+		const screen = await render(SwitchRow, { ...BASE, onChange });
 		const control = (await screen.getByRole('switch').element()) as HTMLElement;
 
 		control.click();
@@ -115,7 +115,7 @@ describe('SwitchRow, the six states of brique 6c', () => {
 	// switched off that cannot say why is not switched off, it is broken.
 	it('locked is inert and states its reason, and the two are one prop', async () => {
 		const onChange = vi.fn();
-		const screen = render(SwitchRow, {
+		const screen = await render(SwitchRow, {
 			...BASE,
 			checked: false,
 			onChange,
@@ -136,7 +136,7 @@ describe('SwitchRow, the six states of brique 6c', () => {
 	// local re-read can exceed 300 ms. The VALUE is replaced by the word, so nothing is read by
 	// colour alone and the row still says what it is doing.
 	it('in flight replaces the value with a word and stays a switch', async () => {
-		const screen = render(SwitchRow, { ...BASE, busyLabel: 'relecture…' });
+		const screen = await render(SwitchRow, { ...BASE, busyLabel: 'relecture…' });
 		const control = (await screen.getByRole('switch').element()) as HTMLElement;
 
 		await expect.element(screen.getByText('relecture…')).toBeInTheDocument();
@@ -147,7 +147,7 @@ describe('SwitchRow, the six states of brique 6c', () => {
 	// The focus ring is brique 1's, unchanged, and it is on the ROW because the row is the control.
 	it('takes the focus ring on the row', async () => {
 		await page.viewport(390, 844);
-		const screen = render(SwitchRow, BASE);
+		const screen = await render(SwitchRow, BASE);
 		const control = (await screen.getByRole('switch').element()) as HTMLElement;
 
 		control.focus();

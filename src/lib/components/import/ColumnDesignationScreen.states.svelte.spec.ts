@@ -69,8 +69,8 @@ const FILE = {
 
 const COMPLETE: RoleAssignment = { date: 0, label: 2, amount: 3, category: 4 };
 
-function mount(props: Record<string, unknown> = {}) {
-	const result = render(ColumnDesignationScreen, {
+async function mount(props: Record<string, unknown> = {}) {
+	const result = await render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: EMPTY_ASSIGNMENT,
 		/**
@@ -112,7 +112,7 @@ describe('the screen puts each row into one state, and the precedence is the sta
 		// Scoped to the ONE row under test. An assertion over the whole screen would also be reading
 		// the date and label rows, which are legitimately empty here, and would fail for a reason
 		// that has nothing to do with the precedence.
-		const { container } = mount({ lostHeaders: { amount: 'Montant' } });
+		const { container } = await mount({ lostHeaders: { amount: 'Montant' } });
 
 		const amountRow = await page.getByRole('button', { name: /^Montant,/ }).element();
 		expect(amountRow.textContent).toContain("n'est plus dans le fichier");
@@ -125,18 +125,18 @@ describe('the screen puts each row into one state, and the precedence is the sta
 		).toBe(4);
 	});
 
-	it('prefers ambiguous over empty when detection proposes two columns', () => {
+	it('prefers ambiguous over empty when detection proposes two columns', async () => {
 		// Separates "nothing is known about this role" from "two columns could carry it". Detection
 		// does not pick between equals, so the row must say so rather than staying silent.
-		const { container } = mount({ candidates: { date: [0, 1] } });
+		const { container } = await mount({ candidates: { date: [0, 1] } });
 
 		expect(container.textContent).toContain('2 colonnes possibles');
 	});
 
-	it('leaves a single proposal as a plain empty row, not as an ambiguity', () => {
+	it('leaves a single proposal as a plain empty row, not as an ambiguity', async () => {
 		// The other side of the same boundary, and the reason the threshold is 2 rather than 1: one
 		// proposal is an answer the picker pins at the top, not a question for the row to ask.
-		const { container } = mount({ candidates: { date: [0] } });
+		const { container } = await mount({ candidates: { date: [0] } });
 
 		expect(container.textContent).not.toContain('colonnes possibles');
 		expect(container.textContent).toContain('Choisir une colonne');
@@ -145,7 +145,7 @@ describe('the screen puts each row into one state, and the precedence is the sta
 
 describe('designating a column, and what it does to the other three rows', () => {
 	it('fills the row and recounts the banner', async () => {
-		const { row, banner } = mount();
+		const { row, banner } = await mount();
 
 		await row(/^Date, aucune colonne désignée/).click();
 		await page.getByRole('option', { name: /^Date operation\./ }).click();
@@ -158,7 +158,7 @@ describe('designating a column, and what it does to the other three rows', () =>
 		// move, and the two states this separates are "the date row is empty because the user never
 		// answered" and "the date row is empty because the label row just took its column". The
 		// second must never read as the first, or a designation moves with nobody told.
-		const { row, container, banner } = mount({ initialAssignment: COMPLETE });
+		const { row, container, banner } = await mount({ initialAssignment: COMPLETE });
 
 		await row(/^Libellé, colonne désignée/).click();
 		await page.getByRole('option', { name: /^Date operation\./ }).click();
@@ -172,7 +172,7 @@ describe('designating a column, and what it does to the other three rows', () =>
 	it('switches the primary off when the move empties a required role', async () => {
 		// `aria-disabled`, never `disabled`, and pointed at the banner's second line. Asserted as a
 		// pair with the enabled state above it so this cannot pass on a button that is always off.
-		const { row, primary } = mount({ initialAssignment: COMPLETE });
+		const { row, primary } = await mount({ initialAssignment: COMPLETE });
 		await expect.element(primary()).not.toHaveAttribute('aria-disabled');
 
 		await row(/^Libellé, colonne désignée/).click();
@@ -187,7 +187,7 @@ describe('designating a column, and what it does to the other three rows', () =>
 	it('leaves the other rows untouched by a move', async () => {
 		// A move takes one column from one role. An implementation that reset everything would pass
 		// every assertion above, which is why this asserts the two rows that must NOT have changed.
-		const { row, container } = mount({ initialAssignment: COMPLETE });
+		const { row, container } = await mount({ initialAssignment: COMPLETE });
 
 		await row(/^Libellé, colonne désignée/).click();
 		await page.getByRole('option', { name: /^Date operation\./ }).click();
@@ -201,7 +201,7 @@ describe('owner ruling 1, in the Categorie picker', () => {
 	it('offers a required role column as unchoosable, naming its holder', async () => {
 		// Categorie may not take a column a required role holds. The card STAYS, carrying the reason,
 		// because removing it would send the user hunting for a column visibly in their own file.
-		const { row } = mount({ initialAssignment: { ...COMPLETE, category: null } });
+		const { row } = await mount({ initialAssignment: { ...COMPLETE, category: null } });
 
 		await row(/^Catégorie, aucune colonne désignée/).click();
 		const held = page.getByRole('option', { name: /^Libelle\./ });
@@ -224,7 +224,7 @@ describe('owner ruling 1, in the Categorie picker', () => {
 		// `textContent` synchronously. Measured 2026-08-15: the synchronous read passed under the
 		// break that lifts the ruling entirely, because Svelte flushes on a microtask and the read
 		// happened first. It was reading the DOM before the defect could reach it.
-		const { row } = mount({ initialAssignment: { ...COMPLETE, category: null } });
+		const { row } = await mount({ initialAssignment: { ...COMPLETE, category: null } });
 
 		await row(/^Catégorie, aucune colonne désignée/).click();
 		((await page.getByRole('option', { name: /^Libelle\./ }).element()) as HTMLElement).click();
@@ -235,7 +235,7 @@ describe('owner ruling 1, in the Categorie picker', () => {
 	it('still allows a REQUIRED role to take a held column, which is the displacement', async () => {
 		// The direction this is not moving in. A test asserting only the refusal would pass on an
 		// implementation that froze every held column, which would break the displacement entirely.
-		const { row, container } = mount({ initialAssignment: COMPLETE });
+		const { row, container } = await mount({ initialAssignment: COMPLETE });
 
 		await row(/^Montant, colonne désignée/).click();
 		await page.getByRole('option', { name: /^Date operation\./ }).click();
@@ -248,7 +248,7 @@ describe('the picker groups a column exactly once', () => {
 	it('pins the designated column above, and does not repeat it below', async () => {
 		// The rule that makes the common case one tap. A column in two groups is a second place to
 		// look for the same card, which is what the pinning exists to avoid.
-		const { row } = mount({ initialAssignment: COMPLETE });
+		const { row } = await mount({ initialAssignment: COMPLETE });
 
 		await row(/^Date, colonne désignée/).click();
 
@@ -258,7 +258,7 @@ describe('the picker groups a column exactly once', () => {
 	it('omits the proposal group AND its heading when there is no proposal', async () => {
 		// Separates "no proposals" from "proposals I cannot see". A heading over nothing is a
 		// promise the sheet cannot keep, and « Aucune proposition » would be a second empty state.
-		const { row, container } = mount();
+		const { row, container } = await mount();
 
 		await row(/^Date, aucune colonne désignée/).click();
 
@@ -270,7 +270,7 @@ describe('the picker groups a column exactly once', () => {
 	it('shows the proposal group when there is one, so the absence above means something', async () => {
 		// The presence half. Without it, the assertion above passes on a picker that never renders
 		// a proposal group at all.
-		const { row, container } = mount({ candidates: { date: [1] } });
+		const { row, container } = await mount({ candidates: { date: [1] } });
 
 		await row(/^Date, aucune colonne désignée/).click();
 
@@ -282,7 +282,7 @@ describe('closing the sheet: five ways, and only one of them changes a value', (
 	it('changes nothing and says nothing when closed with the cross', async () => {
 		// Separates an abandonment from a choice. A live update after a no-op close would tell the
 		// reader something changed when nothing did.
-		const { row, container, live } = mount();
+		const { row, container, live } = await mount();
 
 		await row(/^Date, aucune colonne désignée/).click();
 		await page.getByRole('button', { name: 'Fermer' }).click();
@@ -294,7 +294,7 @@ describe('closing the sheet: five ways, and only one of them changes a value', (
 	it('changes nothing and says nothing when the already-designated card is chosen', async () => {
 		// Not an error, an abandonment. The value is the same before and after, so announcing a
 		// count would imply a change.
-		const { row, live } = mount({ initialAssignment: COMPLETE });
+		const { row, live } = await mount({ initialAssignment: COMPLETE });
 
 		await row(/^Date, colonne désignée/).click();
 		await page.getByRole('option', { name: /^Date operation\./ }).click();
@@ -315,7 +315,7 @@ describe('the live region: one announcement per gesture, and it never pre-empts 
 		// The fix is to WAIT for the row's own update first, with a polling assertion. Once the row
 		// carries its new accessible name the flush has happened, so a live region that is still
 		// empty at that moment is empty by design rather than by timing.
-		const { row, live } = mount({ announceDelayMs: 150 });
+		const { row, live } = await mount({ announceDelayMs: 150 });
 
 		await row(/^Date, aucune colonne désignée/).click();
 		(
@@ -334,7 +334,7 @@ describe('the live region: one announcement per gesture, and it never pre-empts 
 		// A screen reader receiving two successive polite updates drops one, and the one it drops is
 		// the second: the unintended consequence, which is the half the user did not ask for. So the
 		// assertion is that a single string contains both, not that both were eventually said.
-		const { row, live } = mount({ initialAssignment: COMPLETE });
+		const { row, live } = await mount({ initialAssignment: COMPLETE });
 
 		await row(/^Libellé, colonne désignée/).click();
 		await page.getByRole('option', { name: /^Date operation\./ }).click();
@@ -357,13 +357,13 @@ describe('memorisation is on by default, in one sentence, with an opt-out', () =
 		// any state: it would have passed for ever, including over a block rendered unconditionally.
 		// The link is what is left on this screen, so the link is what the absence is about, and the
 		// test below is its planted positive.
-		const { container } = mount();
+		const { container } = await mount();
 
 		expect(container.querySelector('[data-testid="designation-remember"]')).toBeNull();
 	});
 
 	it('offers a link to decline, with no toggle and no sentence beside it', async () => {
-		const { container } = mount({ initialAssignment: COMPLETE });
+		const { container } = await mount({ initialAssignment: COMPLETE });
 
 		// The positive half, and the calibration for the absence asserted above: this selector does
 		// find the block when the state warrants it, so the null up there is a state and not a
@@ -389,7 +389,7 @@ describe('memorisation is on by default, in one sentence, with an opt-out', () =
 		// The assertion that the link is wired to the SUBMITTED value rather than only to the copy.
 		const onSubmit = vi.fn();
 		const { initialAssignment } = { initialAssignment: COMPLETE };
-		mount({ initialAssignment, onSubmit });
+		await mount({ initialAssignment, onSubmit });
 
 		await page.getByRole('button', { name: 'Ne pas mémoriser' }).click();
 		await page.getByRole('button', { name: /Importer/ }).click();
@@ -415,7 +415,7 @@ describe('above 20 columns the picker gains a search field, and below it does no
 	it('has no search field at exactly 20, which is the boundary', async () => {
 		// An off-by-one here is the difference between a sheet that scrolls for four screens and one
 		// that does not, so the boundary is tested AT the threshold and not merely below it.
-		const { row, container } = mount({ file: wide(20) });
+		const { row, container } = await mount({ file: wide(20) });
 
 		await row(/^Date, aucune colonne désignée/).click();
 
@@ -423,7 +423,7 @@ describe('above 20 columns the picker gains a search field, and below it does no
 	});
 
 	it('has one at 21', async () => {
-		const { row, container } = mount({ file: wide(21) });
+		const { row, container } = await mount({ file: wide(21) });
 
 		await row(/^Date, aucune colonne désignée/).click();
 
@@ -431,7 +431,7 @@ describe('above 20 columns the picker gains a search field, and below it does no
 	});
 
 	it('narrows the list and announces the count', async () => {
-		const { row, container } = mount({ file: wide(21) });
+		const { row, container } = await mount({ file: wide(21) });
 
 		await row(/^Date, aucune colonne désignée/).click();
 		await userEvent.fill(page.getByRole('searchbox'), 'Colonne 1');
@@ -443,7 +443,7 @@ describe('above 20 columns the picker gains a search field, and below it does no
 	});
 
 	it('offers a way out when the search matches nothing', async () => {
-		const { row, container } = mount({ file: wide(21) });
+		const { row, container } = await mount({ file: wide(21) });
 
 		await row(/^Date, aucune colonne désignée/).click();
 		await userEvent.fill(page.getByRole('searchbox'), 'zzzz');
@@ -462,7 +462,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		// It was 235 over 44 px rows, and the plate sizes it there. The row grew because it stopped
 		// pairing a live column name with a historical value and started stating them as two facts,
 		// which is one line more; the deviation from §3.7 is recorded in `RoleRow`'s own docstring.
-		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+		const { container } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		const card = container.querySelector('[data-testid="designation-card"]') as HTMLElement;
 		expect(card.getBoundingClientRect().height).toBe(315);
@@ -475,7 +475,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		//
 		// Separates "the note exists on the page" from "the note is read before the press it is
 		// about". A sentence under the link explains a cost the user has already paid.
-		const { container } = mount({
+		const { container } = await mount({
 			initialAssignment: COMPLETE,
 			readOnly: true,
 			modifyAsksForFile: true
@@ -494,7 +494,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		// a consequence of `readOnly`. This same recap opened over a file still in hand flips the
 		// rows back to their controls in place: nothing is re-asked, and a note promising the file
 		// will be asked for again would be false on exactly the path that has it.
-		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+		const { container } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		const block = container.querySelector('[data-testid="designation-modify"]') as HTMLElement;
 		expect(block.textContent).toContain(m.import_columns_modify());
@@ -504,7 +504,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 	it('never says it on the designation form, which asks for the file up front', async () => {
 		// The second half of the same separation, at the other mode. The control form was reached
 		// BY handing over a file, so there is nothing to re-ask and nothing to warn about.
-		const { container } = mount({ initialAssignment: COMPLETE });
+		const { container } = await mount({ initialAssignment: COMPLETE });
 
 		expect(container.textContent).not.toContain(m.import_columns_recap_modify_note());
 	});
@@ -514,7 +514,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		// focusable without one. So focus is actually attempted on each row and the check is where
 		// it landed. The two states separated: a row that looks inert and is, and one that looks
 		// inert and still answers a keyboard.
-		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+		const { container } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		expect(
 			container.querySelectorAll('[data-testid="designation-card"] button[aria-haspopup="listbox"]')
@@ -531,7 +531,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 	it('carries no condition banner, because nothing is being asked', async () => {
 		// A banner reports the state of a condition. In the recap there is no condition: nothing is
 		// blocked and nothing is being satisfied, so a banner would answer a question nobody asked.
-		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+		const { container } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		expect(container.querySelector('[data-testid="condition-banner"]')).toBeNull();
 	});
@@ -540,7 +540,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		// The assertion that proves the recap is a MODE rather than a second screen: the same rows,
 		// resolved the same way, become the control form in place. A second screen would have to be
 		// kept in step by hand, and nothing would go red when it drifted.
-		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+		const { container } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		await page.getByRole('button', { name: 'Modifier les colonnes' }).click();
 
@@ -587,7 +587,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 	}
 
 	it('gives the recap exactly ONE control that reads as one, and it is the modify', async () => {
-		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+		const { container } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		const modify = container.querySelector(
 			'[data-testid="designation-modify"] button'
@@ -604,7 +604,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		// A14's phantom. Nothing is in progress on a read-only page, so nothing can be cancelled: the
 		// control goes back to the list the recap was opened from. Both assertions, because renaming it
 		// to a third thing would pass a presence check alone.
-		const { container } = mount({ initialAssignment: COMPLETE, readOnly: true });
+		const { container } = await mount({ initialAssignment: COMPLETE, readOnly: true });
 
 		const escape = container.querySelector(
 			'[data-testid="designation-footer"] button'
@@ -618,7 +618,7 @@ describe('the recapitulatif, which is a MODE of this screen and not a second scr
 		// The direction this change is not moving in, and the one a careless fix takes with it. On the
 		// control form something IS in progress and abandoning it is exactly what that button does, so
 		// the word and the box are both right there.
-		const { container } = mount({ initialAssignment: COMPLETE });
+		const { container } = await mount({ initialAssignment: COMPLETE });
 
 		const escape = container.querySelector(
 			'[data-testid="designation-footer"] button'

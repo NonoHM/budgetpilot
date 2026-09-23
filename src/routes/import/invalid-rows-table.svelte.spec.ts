@@ -74,7 +74,7 @@ describe('the import invalid rows table', () => {
 	it('gives a row scoped refusal its real line number', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: DATA,
 			form: formWith([
 				detail(
@@ -116,7 +116,7 @@ describe('the import invalid rows table', () => {
 	it('states a header scoped refusal without giving it a line, and opens no rows table', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: DATA,
 			form: formWith([
 				detail(
@@ -150,7 +150,7 @@ describe('the import invalid rows table', () => {
 		// table's each block was, they would all share one key: a Svelte duplicate key crash at
 		// runtime, invisible to the typecheck because the dependency lives in markup. The block
 		// they moved to is keyed the same way and inherits the same hazard.
-		render(Page, {
+		await render(Page, {
 			data: DATA,
 			form: formWith([
 				detail(0, { kind: 'header' }, { code: 'unknown-column', column: 'alpha' }),
@@ -186,7 +186,7 @@ describe('the import invalid rows table', () => {
 	it('collapses rows refused for one reason into a single row carrying the count', async () => {
 		expect.assertions(4);
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: DATA,
 			form: formWith(
 				Array.from({ length: 8 }, (_, index) =>
@@ -218,7 +218,7 @@ describe('the import invalid rows table', () => {
 	it('leaves a lone refusal exactly as it was, with its line number and no reveal', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: DATA,
 			form: formWith([
 				detail(
@@ -254,7 +254,7 @@ describe('the import invalid rows table', () => {
 	it('collapses the 390 card list too, not only the 1280 table', async () => {
 		expect.assertions(2);
 		await page.viewport(390, 844);
-		render(Page, {
+		await render(Page, {
 			data: DATA,
 			form: formWith(
 				Array.from({ length: 8 }, (_, index) =>
@@ -281,7 +281,7 @@ describe('the import invalid rows table', () => {
 		// A ROW scoped refusal carrying no field, which is the case that still reaches this table:
 		// the file and header scopes moved out of it, and with them the only other way in. The
 		// guarantee is the same one, asserted where it can still be violated.
-		render(Page, {
+		await render(Page, {
 			data: DATA,
 			form: formWith([detail(0, { kind: 'row', line: 4 }, { code: 'type-amount-mismatch' })])
 		});

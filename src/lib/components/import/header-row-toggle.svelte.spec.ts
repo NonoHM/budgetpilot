@@ -42,9 +42,9 @@ const FILE: DesignationFile = {
 
 const ASSIGNMENT: RoleAssignment = { date: 0, label: 1, amount: 2, category: null };
 
-function open() {
+async function open() {
 	const submissions: Array<Record<string, unknown>> = [];
-	render(ColumnDesignationScreen, {
+	await render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: ASSIGNMENT,
 		candidates: {},
@@ -78,7 +78,7 @@ describe('the first-line-is-data control', () => {
 		expect.assertions(2);
 		await page.viewport(1280, 900);
 
-		const submissions = open();
+		const submissions = await open();
 		await clickToggle();
 		// `rowCount + 1`, and the +1 IS the repair. Declaring the first line data makes it a
 		// transaction, so the primary counts it. This locator read `FILE.rowCount` and started timing
@@ -100,7 +100,7 @@ describe('the first-line-is-data control', () => {
 		expect.assertions(2);
 		await page.viewport(1280, 900);
 
-		open();
+		await open();
 		// The presence half first: without it, the absence assertion below would pass on a screen
 		// that rendered no meta line at all.
 		await expect
@@ -122,7 +122,7 @@ describe('the first-line-is-data control', () => {
 		expect.assertions(1);
 		await page.viewport(1280, 900);
 
-		const submissions = open();
+		const submissions = await open();
 		await page
 			.getByRole('button', { name: m.import_columns_submit_many({ count: FILE.rowCount }) })
 			.first()
@@ -144,7 +144,7 @@ describe('the first-line-is-data control', () => {
 describe('the header toggle is a switch, and it is not an option', () => {
 	async function openPicker() {
 		await page.viewport(1280, 900);
-		open();
+		await open();
 		await page
 			.getByRole('button', { name: /^Date,/ })
 			.first()
@@ -195,7 +195,7 @@ describe('the header toggle is a switch, and it is not an option', () => {
 describe('the count follows the answer', () => {
 	it('adds the header line to the primary once it is declared data', async () => {
 		await page.viewport(1280, 900);
-		open();
+		await open();
 
 		const before = await page
 			.getByRole('button', { name: m.import_columns_submit_many({ count: FILE.rowCount }) })
@@ -216,7 +216,7 @@ describe('the count follows the answer', () => {
 
 	it('says how many lines the file holds under that reading', async () => {
 		await page.viewport(1280, 900);
-		open();
+		await open();
 		await clickToggle();
 
 		// The meta line and the primary are two renderings of ONE count, so they are asserted

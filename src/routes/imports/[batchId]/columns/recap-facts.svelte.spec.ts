@@ -88,7 +88,7 @@ describe('the memorised-columns page, opened from an import', () => {
 		// correspondance shown was true". The page reads the mapping live, so the old sentence was
 		// a statement about the past made from a row that only knows the present.
 		await page.viewport(390, 844);
-		render(Page, { data: DATA });
+		await render(Page, { data: DATA });
 
 		expect(pageText()).not.toContain('cet import en a tirée');
 		expect(pageText()).toContain(m.import_columns_recap_explanation());
@@ -99,7 +99,7 @@ describe('the memorised-columns page, opened from an import', () => {
 		// Asserted by order, so a page that reinstated the middot between the memorised column and
 		// the imported value reddens even if both labels are still printed somewhere.
 		await page.viewport(390, 844);
-		render(Page, { data: DATA });
+		await render(Page, { data: DATA });
 
 		const text = pageText();
 		const columnLabel = text.indexOf(m.import_columns_recap_column_fact({ column: '' }).trim());
@@ -118,7 +118,7 @@ describe('the memorised-columns page, opened from an import', () => {
 		// same screen opened over a file still in hand must not: telling it is a decision about the
 		// route, taken here, and invisible to every test in the component's own file.
 		await page.viewport(390, 844);
-		render(Page, { data: DATA });
+		await render(Page, { data: DATA });
 
 		expect(pageText()).toContain(m.import_columns_recap_modify_note());
 	});
@@ -134,7 +134,7 @@ describe('the memorised-columns page, opened from an import', () => {
 		// the runner's window. What has to hold is which region owns it, and the two regions are
 		// different elements per chrome.
 		await page.viewport(390, 844);
-		const mobile = render(Page, { data: DATA });
+		const mobile = await render(Page, { data: DATA });
 		const inBody = mobile.container.querySelector(
 			'[data-testid="designation-body"] [data-testid="designation-recap-caption"]'
 		);
@@ -142,7 +142,7 @@ describe('the memorised-columns page, opened from an import', () => {
 		mobile.container.remove();
 
 		await page.viewport(1280, 900);
-		const desktop = render(Page, { data: DATA });
+		const desktop = await render(Page, { data: DATA });
 		const inCommand = desktop.container.querySelector(
 			'[data-testid="designation-command"] [data-testid="designation-recap-caption"]'
 		);
@@ -154,7 +154,7 @@ describe('the memorised-columns page, opened from an import', () => {
 		// one width before. Separates "the route passes the props" from "the props survive the
 		// branch the route is actually rendered in".
 		await page.viewport(1280, 900);
-		render(Page, { data: DATA });
+		await render(Page, { data: DATA });
 
 		const text = pageText();
 		expect(text).toContain(m.import_columns_recap_column_fact({ column: MEMORISED_COLUMN }));

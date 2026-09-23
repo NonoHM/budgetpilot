@@ -115,7 +115,7 @@ describe('detail panel on demand', () => {
 	it('is not rendered at all without a selection, and nothing stands in for it', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		expect(panel(container)).toBeNull();
 		// No "sélectionnez une transaction" placeholder either: an empty column announcing its own
@@ -126,7 +126,7 @@ describe('detail panel on demand', () => {
 	it('appears on selection as a labelled region with a close control', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: selected(), form: null });
+		const { container } = await render(Page, { data: selected(), form: null });
 
 		const aside = panel(container);
 		expect(aside).not.toBeNull();
@@ -147,13 +147,13 @@ describe('detail panel on demand', () => {
 		const width = (c: HTMLElement) =>
 			c.querySelector<HTMLElement>('[data-testid="tags-cell"]')?.getBoundingClientRect().width;
 
-		const roomy = render(Page, { data: baseData(), form: null });
+		const roomy = await render(Page, { data: baseData(), form: null });
 		expect(width(roomy.container)).toBe(240);
 		roomy.unmount();
 
 		// 190px is today's set, unchanged: the narrowed state removes nothing, it is the unselected
 		// state that gains air.
-		const tight = render(Page, { data: selected(), form: null });
+		const tight = await render(Page, { data: selected(), form: null });
 		expect(width(tight.container)).toBe(190);
 	});
 
@@ -172,11 +172,11 @@ describe('detail panel on demand', () => {
 			return li && getComputedStyle(li).maxWidth;
 		};
 
-		const roomy = render(Page, { data: baseData({ transactions: [tagged] }), form: null });
+		const roomy = await render(Page, { data: baseData({ transactions: [tagged] }), form: null });
 		expect(chipCap(roomy.container)).toBe('110px');
 		roomy.unmount();
 
-		const tight = render(Page, {
+		const tight = await render(Page, {
 			data: selected({ transactions: [tagged] }),
 			form: null
 		});
@@ -187,7 +187,7 @@ describe('detail panel on demand', () => {
 		expect.assertions(5);
 		await page.viewport(1280, 800);
 		const OTHER = { ...TX, id: 'tx-2', label: 'Pastéis de Belém' };
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: selected({ transactions: [TX, OTHER] }),
 			form: null
 		});
@@ -217,7 +217,7 @@ describe('detail panel on demand', () => {
 	it('keeps a panel taller than the viewport reachable by scrolling', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: selected(), form: null });
+		const { container } = await render(Page, { data: selected(), form: null });
 
 		const sticky = container.querySelector<HTMLElement>('[data-testid="detail-sticky"]');
 		expect(sticky).not.toBeNull();

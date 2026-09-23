@@ -134,7 +134,7 @@ describe('tag chips on the transactions list rows', () => {
 
 	it('desktop: shows the first two tags and collapses the third as +1', async () => {
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		const table = page.getByRole('table');
 		await expect.element(table.getByText('Portugal')).toBeInTheDocument();
@@ -147,7 +147,7 @@ describe('tag chips on the transactions list rows', () => {
 
 	it('mobile: shows the first two tags and collapses the third as +1', async () => {
 		await page.viewport(390, 844);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({ selectedTransaction: null }),
 			form: null
 		});
@@ -183,7 +183,7 @@ describe('tag chips on the transactions list rows', () => {
 		];
 
 		await page.viewport(1280, 800);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				transactions: [
 					makeTransaction({ id: 'tx-none', label: 'Sans étiquette', tags: [] }),
@@ -234,7 +234,7 @@ describe('tag chips on the transactions list rows', () => {
 
 	it('renders no chip at all for a transaction with no tags', async () => {
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: baseData({
 				transactions: [makeTransaction({ tags: [] })],
 				selectedTransaction: null
@@ -249,7 +249,7 @@ describe('tag chips on the transactions list rows', () => {
 describe('TransactionTagsEditor mounted on the detail surfaces', () => {
 	it('desktop: the panel offers the tags section with the current tag as a removable chip', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const aside = container.querySelector('aside') as HTMLElement;
 		expect(aside.textContent).toContain('Étiquettes');
@@ -260,7 +260,7 @@ describe('TransactionTagsEditor mounted on the detail surfaces', () => {
 
 	it('mobile: the bottom sheet offers the tags section with the current tag as a removable chip', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		const sheet = page.getByRole('dialog');
 		// A group, not a heading: the editor is a <fieldset> whose <legend> names it, which is what

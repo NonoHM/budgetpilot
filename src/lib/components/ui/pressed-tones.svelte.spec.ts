@@ -83,7 +83,7 @@ describe('the pressed state paints, tone by tone', () => {
 			designColour('bg-zinc-200', 'backgroundColor')
 		);
 
-		const screen = render(TapLink, { children: textSnippet('Calibration') });
+		const screen = await render(TapLink, { children: textSnippet('Calibration') });
 		const el = await screen.getByRole('button').element();
 		const resting = getComputedStyle(el).backgroundColor;
 
@@ -94,7 +94,7 @@ describe('the pressed state paints, tone by tone', () => {
 	// zinc-100 fill, zinc-900 glyph. Brique 1's own hover pair, moved onto the press: nothing to
 	// revalidate.
 	it('IconButton neutral presses to zinc-100', async () => {
-		const screen = render(IconButton, { label: 'Modifier', children: textSnippet('x') });
+		const screen = await render(IconButton, { label: 'Modifier', children: textSnippet('x') });
 		const el = await screen.getByRole('button', { name: 'Modifier' }).element();
 		expect(getComputedStyle(el).backgroundColor).toBe('rgba(0, 0, 0, 0)');
 
@@ -107,7 +107,7 @@ describe('the pressed state paints, tone by tone', () => {
 
 	// rose-50 / rose-700 = 5.4:1, already measured by brique 1 for its hover state.
 	it('IconButton danger presses to the brick-1 rose pair', async () => {
-		const screen = render(IconButton, {
+		const screen = await render(IconButton, {
 			tone: 'danger',
 			label: 'Supprimer',
 			children: textSnippet('x')
@@ -124,7 +124,7 @@ describe('the pressed state paints, tone by tone', () => {
 	// A fill cannot lighten without changing tone, so it presses by sinking. White on pure black is
 	// 21:1, and the inset shadow survives prefers-reduced-motion where a transform would not.
 	it('a filled neutral button presses to pure black with an inset', async () => {
-		const screen = render(Button, { children: textSnippet('Importer') });
+		const screen = await render(Button, { children: textSnippet('Importer') });
 		const el = await screen.getByRole('button', { name: 'Importer' }).element();
 		const resting = getComputedStyle(el).backgroundColor;
 
@@ -137,7 +137,7 @@ describe('the pressed state paints, tone by tone', () => {
 	// THE ONLY NEW TINT OF THE PLATE: rose-800 #9f1239. White on it is 7.6:1. An arbitrary hex, so
 	// it computes to rgb and the literal is checkable by eye against the plate.
 	it('a filled rose button presses to rose-800', async () => {
-		const screen = render(Button, { variant: 'danger', children: textSnippet('Supprimer') });
+		const screen = await render(Button, { variant: 'danger', children: textSnippet('Supprimer') });
 		const el = await screen.getByRole('button', { name: 'Supprimer' }).element();
 		const resting = getComputedStyle(el).backgroundColor;
 
@@ -149,7 +149,7 @@ describe('the pressed state paints, tone by tone', () => {
 	// Brique 4 forbids a fill and a border, so the press cannot be a surface. It is the underline
 	// the brick removed from the resting state, handed back where it is transient. A stroke.
 	it('TapLink presses to an underline and never to a surface', async () => {
-		const screen = render(TapLink, { children: textSnippet('Modifier les colonnes') });
+		const screen = await render(TapLink, { children: textSnippet('Modifier les colonnes') });
 		const el = await screen.getByRole('button').element();
 		expect(getComputedStyle(el).textDecorationLine).toBe('none');
 
@@ -160,7 +160,7 @@ describe('the pressed state paints, tone by tone', () => {
 
 	// The same stroke in rose-800, so the darkening is perceptible against a rose-700 rest.
 	it('TapLink danger darkens to rose-800 under the same stroke', async () => {
-		const screen = render(TapLink, {
+		const screen = await render(TapLink, {
 			tone: 'danger',
 			children: textSnippet('Supprimer cet import')
 		});
@@ -175,7 +175,7 @@ describe('the pressed state paints, tone by tone', () => {
 	// Full width, zinc-100. zinc-50 was tried and set aside: at 2% difference it is not perceptible
 	// in daylight on a phone screen.
 	it('a ListCard row presses full width in zinc-100', async () => {
-		const screen = render(ListCard, { href: '/imports', children: textSnippet('Une ligne') });
+		const screen = await render(ListCard, { href: '/imports', children: textSnippet('Une ligne') });
 		const el = await screen.getByRole('link').element();
 
 		pointerDown(el);
@@ -188,7 +188,7 @@ describe('the pressed state paints, tone by tone', () => {
 	// THE ROW PRESSES, NOT THE BOX. The target is the whole row; sinking a 22 px box would flash an
 	// object smaller than the finger touching it.
 	it('a checkbox row presses as a row, and the box itself does not', async () => {
-		const screen = render(CheckboxField, {
+		const screen = await render(CheckboxField, {
 			name: 'deleteOldImport',
 			label: "Supprimer l'ancien import",
 			checked: true
@@ -213,7 +213,7 @@ describe('the pressed state paints, tone by tone', () => {
 	// deferred.
 	it('a calendar cell presses to zinc-200, one step below the band', async () => {
 		await page.viewport(1280, 900);
-		render(PeriodFilter, {
+		await render(PeriodFilter, {
 			dimensionLabel: 'Période',
 			from: '',
 			to: '',

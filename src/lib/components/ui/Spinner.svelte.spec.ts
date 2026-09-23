@@ -29,7 +29,7 @@ function reducedMotionRuleDeclarations(): string {
 
 describe('Spinner.svelte', () => {
 	it('is purely decorative (aria-hidden svg icon)', async () => {
-		const { container } = render(Spinner, {});
+		const { container } = await render(Spinner, {});
 
 		const svg = container.querySelector('svg');
 		expect(svg).not.toBeNull();
@@ -37,7 +37,7 @@ describe('Spinner.svelte', () => {
 	});
 
 	it('defaults to a 14px size', async () => {
-		const { container } = render(Spinner, {});
+		const { container } = await render(Spinner, {});
 
 		const svg = container.querySelector('svg') as SVGElement;
 		expect(svg.style.width).toBe('14px');
@@ -45,7 +45,7 @@ describe('Spinner.svelte', () => {
 	});
 
 	it('applies a custom size', async () => {
-		const { container } = render(Spinner, { size: 28 });
+		const { container } = await render(Spinner, { size: 28 });
 
 		const svg = container.querySelector('svg') as SVGElement;
 		expect(svg.style.width).toBe('28px');
@@ -53,14 +53,14 @@ describe('Spinner.svelte', () => {
 	});
 
 	it('exposes the rotation speed as a CSS custom property consumed by the keyframe animation', async () => {
-		const { container } = render(Spinner, { speedMs: 900 });
+		const { container } = await render(Spinner, { speedMs: 900 });
 
 		const svg = container.querySelector('svg') as SVGElement;
 		expect(svg.style.getPropertyValue('--spinner-duration')).toBe('900ms');
 	});
 
 	it('freezes the rotation to a static icon under prefers-reduced-motion (never just slowed down)', async () => {
-		render(Spinner, {});
+		await render(Spinner, {});
 
 		const declarations = reducedMotionRuleDeclarations();
 		expect(declarations).toContain('spinner-icon');

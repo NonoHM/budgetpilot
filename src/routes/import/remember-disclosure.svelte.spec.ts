@@ -61,14 +61,14 @@ beforeEach(() => {
 	takeCompletedImport();
 });
 
-function show(importResult: ImportSummaryResult) {
+async function show(importResult: ImportSummaryResult) {
 	setCompletedImport({
 		importResult,
 		capReached: false,
 		canRevisit: false,
 		replaced: { kind: 'none' }
 	});
-	render(Page, { data: DATA, form: null });
+	await render(Page, { data: DATA, form: null });
 }
 
 describe('what the import memorised is disclosed on the summary', () => {
@@ -79,7 +79,7 @@ describe('what the import memorised is disclosed on the summary', () => {
 	 */
 	it('states at 1280 that the correspondance will be reused', async () => {
 		await page.viewport(1280, 800);
-		show(BASE);
+		await show(BASE);
 
 		await expect.element(sentences().first()).toBeVisible();
 	});
@@ -89,7 +89,7 @@ describe('what the import memorised is disclosed on the summary', () => {
 	 */
 	it('states at 390 that the correspondance will be reused', async () => {
 		await page.viewport(390, 844);
-		show(BASE);
+		await show(BASE);
 
 		await expect.element(sentences().last()).toBeVisible();
 	});
@@ -108,7 +108,7 @@ describe('what the import memorised is disclosed on the summary', () => {
 	 */
 	it('says nothing when the user declined to memorise', async () => {
 		await page.viewport(390, 844);
-		show({ ...BASE, rememberedMapping: false });
+		await show({ ...BASE, rememberedMapping: false });
 
 		expect(sentences().elements().length).toBe(0);
 	});

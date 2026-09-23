@@ -43,8 +43,8 @@ import AccountRow from './AccountRow.svelte';
  */
 const HINT_FROM_FILE = m.import_account_hint_from_file({ fragment: '4417' });
 
-function mount(props: Record<string, unknown>) {
-	const { container } = render(AccountRow, { state: 'todo', ...props });
+async function mount(props: Record<string, unknown>) {
+	const { container } = await render(AccountRow, { state: 'todo', ...props });
 	container.style.width = '320px';
 	return container.firstElementChild as HTMLElement;
 }
@@ -54,7 +54,7 @@ describe('the account row', () => {
 		// SEPARATES: « the provenance is a description » FROM « the provenance is part of the
 		// name ». Both render the same pixels. Only the second announces the whole sentence on
 		// every focus, and only the accessible surface tells them apart.
-		const row = mount({
+		const row = await mount({
 			state: 'ok',
 			value: 'BP · Compte courant',
 			hint: HINT_FROM_FILE,
@@ -84,7 +84,7 @@ describe('the account row', () => {
 		// SEPARATES: « the prompt is readable text in the accessibility tree » FROM « the prompt is
 		// a placeholder attribute ». A placeholder is not reliably announced, is not contrasted,
 		// and vanishes on input, leaving an unlabelled button.
-		const row = mount({ hint: m.import_account_hint_unknown() });
+		const row = await mount({ hint: m.import_account_hint_unknown() });
 		await expect
 			.element(page.getByRole('button', { name: m.import_account_row_label() }))
 			.toBeInTheDocument();
@@ -101,57 +101,57 @@ describe('the account row', () => {
 		// list it as supported on `role=button`, so it is an attribute a screen reader may ignore,
 		// which is a control that reads as present and does nothing. That is the class this project
 		// has removed four times. The plate's 6h specifies it; this is a recorded deviation.
-		const row = mount({ state: 'error', hint: m.import_account_error_required() });
+		const row = await mount({ state: 'error', hint: m.import_account_error_required() });
 		expect(row.hasAttribute('aria-invalid')).toBe(false);
 		expect(row.getAttribute('aria-label')).toContain(m.import_account_error_required());
 		expect(row.textContent).toContain(m.import_account_error_required());
 	});
 
-	it('is never disabled, in any state', () => {
+	it('is never disabled, in any state', async () => {
 		// SEPARATES: « the path stays open and pressing reveals the error » FROM « the control is
 		// greyed and the user is told nothing ». Asserted because a greyed row is exactly what a
 		// later contributor adds for completeness, and a disabled control cannot be asked why.
 		for (const state of ['ok', 'todo', 'error'] as const) {
-			const row = mount({ state, value: state === 'ok' ? 'X' : undefined });
+			const row = await mount({ state, value: state === 'ok' ? 'X' : undefined });
 			expect(row.hasAttribute('disabled')).toBe(false);
 			expect(row.getAttribute('aria-disabled')).toBeNull();
 		}
 	});
 
-	it('declares the popup it controls and whether it is open', () => {
+	it('declares the popup it controls and whether it is open', async () => {
 		// SEPARATES: « the row declares a listbox popup and its expanded state » FROM « the row is
 		// an ordinary button that happens to open something ». Without the first, a screen reader
 		// user is never told a list exists, nor that it opened.
-		const row = mount({ expanded: true, panelId: 'account-panel' });
+		const row = await mount({ expanded: true, panelId: 'account-panel' });
 		expect(row.getAttribute('aria-haspopup')).toBe('listbox');
 		expect(row.getAttribute('aria-expanded')).toBe('true');
 		expect(row.getAttribute('aria-controls')).toBe('account-panel');
 	});
 
-	it('goes inert while the import is in flight and stays readable', () => {
+	it('goes inert while the import is in flight and stays readable', async () => {
 		// SEPARATES: « the row is busy and still shows its value » FROM « the row is emptied or
 		// hidden during the import ». The user must still be able to read where the file is going
 		// at the moment they can no longer change it.
-		const row = mount({ state: 'ok', value: 'BP · Compte courant', busy: true });
+		const row = await mount({ state: 'ok', value: 'BP · Compte courant', busy: true });
 		expect(row.getAttribute('aria-busy')).toBe('true');
 		expect(row.textContent).toContain('BP · Compte courant');
 	});
 
-	it('is one target and one tab stop, chevron included', () => {
+	it('is one target and one tab stop, chevron included', async () => {
 		// SEPARATES: « the whole row is one button » FROM « the chevron is a second one ». The
 		// second doubles the tab stops for one action and gives assistive technology two names for
 		// one thing.
-		const row = mount({ state: 'ok', value: 'BP · Compte courant' });
+		const row = await mount({ state: 'ok', value: 'BP · Compte courant' });
 		expect(row.tagName).toBe('BUTTON');
 		expect(row.querySelectorAll('button')).toHaveLength(0);
 		expect(row.querySelector('svg')?.getAttribute('aria-hidden')).toBe('true');
 	});
 
-	it('is 68 px at 390 and 56 at 1280, which is the row height and not a control height', () => {
+	it('is 68 px at 390 and 56 at 1280, which is the row height and not a control height', async () => {
 		// SEPARATES: « the row matches the designation-row brique » FROM « the row is some other
 		// height that happens to look similar ». Absolute figures on both, never a comparison:
 		// a comparison passes when both collapse to the same wrong number.
-		const row = mount({ state: 'ok', value: 'BP · Compte courant' });
+		const row = await mount({ state: 'ok', value: 'BP · Compte courant' });
 		expect(row.className).toContain('h-[68px]');
 		expect(row.className).toContain('lg:h-[56px]');
 	});

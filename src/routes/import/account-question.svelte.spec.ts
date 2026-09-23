@@ -48,8 +48,8 @@ const FORM = {
 } as unknown as Record<string, unknown>;
 
 /** This page renders its whole content twice; section 0 is desktop, section 1 is the 390 mount. */
-function mount(width: number) {
-	const rendered = render(Page, { data: DATA, form: FORM as never });
+async function mount(width: number) {
+	const rendered = await render(Page, { data: DATA, form: FORM as never });
 	const sections = rendered.container.querySelectorAll('main > section');
 	return {
 		section: (width >= 1024 ? sections[0] : sections[1]) as HTMLElement,
@@ -82,7 +82,7 @@ describe('the account question beside an import refusal', () => {
 		// SEPARATES: « the refusal carries a control » FROM « it carries a sentence and nothing
 		// else », which is the dead end: the message named a screen this path never opens.
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 
 		expect(questionIn(section)).not.toBeNull();
@@ -98,7 +98,7 @@ describe('the account question beside an import refusal', () => {
 		// one mount and not the other is invisible to any test that does not choose a width, and this
 		// page has shipped exactly that defect before.
 		await page.viewport(390, 844);
-		const { section } = mount(390);
+		const { section } = await mount(390);
 		await chooseAndSubmit(section);
 
 		expect(questionIn(section)).not.toBeNull();
@@ -110,7 +110,7 @@ describe('the account question beside an import refusal', () => {
 		// than the component's: the component is correct and is mounted twice by a responsive layout
 		// that renders its whole form at both widths.
 		await page.viewport(1280, 800);
-		const { container, section } = mount(1280);
+		const { container, section } = await mount(1280);
 		await chooseAndSubmit(section);
 
 		const ids = [...container.querySelectorAll('[aria-controls]')].map((element) =>
@@ -126,7 +126,7 @@ describe('the account question beside an import refusal', () => {
 		// posts the same thing it posted before », which is a dead end with a button on it. Asserted
 		// on the field the browser will send, not on the row's rendering.
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 
 		expect(postedAccount(section)).toBe('');
@@ -142,7 +142,7 @@ describe('the account question beside an import refusal', () => {
 		// question. Two mounts of a stateful control is not a responsive layout, it is two controls
 		// that happen to look alike.
 		await page.viewport(1280, 800);
-		const { container, section } = mount(1280);
+		const { container, section } = await mount(1280);
 		await chooseAndSubmit(section);
 		await userEvent.click(questionIn(section)!.querySelector('button') as HTMLElement);
 		await userEvent.click(page.getByRole('option').nth(1).element() as HTMLElement);
@@ -160,7 +160,7 @@ describe('the account question beside an import refusal', () => {
 		// account chosen for a file that is no longer being imported. By IDENTITY, never by name: a
 		// bank exporting `releve.csv` every month is the ordinary case.
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 		expect(questionIn(section)).not.toBeNull();
 
@@ -178,7 +178,7 @@ describe('the account question beside an import refusal', () => {
 		// error: the user presses Import and the second statement is filed into the first one's
 		// account. That is « Ambiguity pre-fills NOTHING » enforced on the server and lost here.
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 		await userEvent.click(questionIn(section)!.querySelector('button') as HTMLElement);
 		await userEvent.click(page.getByRole('option').nth(1).element() as HTMLElement);
@@ -203,7 +203,7 @@ describe('the account question beside an import refusal', () => {
 		// the panel on the listbox, so removing the listbox with nothing else said leaves it nowhere.
 		// The sibling host fixed exactly this and recorded it as measured; this is the second host.
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 		const row = questionIn(section)!.querySelector('button') as HTMLElement;
 
@@ -222,7 +222,7 @@ describe('the account question beside an import refusal', () => {
 		// which is the ruling the designation screen records: a disabled control explains nothing and
 		// cannot be asked why.
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 
 		// Recorded rather than blocked: `preventDefault` does not stop other listeners on the same
@@ -253,7 +253,7 @@ describe('the account question beside an import refusal', () => {
 		// its accessible name through: its name falls back to the bare label when `state === 'error'`
 		// arrives without one, so a row with no hint loses the error in BOTH channels at once.
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 		await userEvent.click(section.querySelector('button[type=submit]') as HTMLElement);
 
@@ -266,7 +266,7 @@ describe('the account question beside an import refusal', () => {
 		// SEPARATES: « the sentence goes when the thing it asks for arrives » FROM « it stays beside
 		// a row that now names an account », which is a refusal contradicting the value next to it.
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 		await userEvent.click(section.querySelector('button[type=submit]') as HTMLElement);
 		await expect.element(page.getByText(m.import_account_error_required()).first()).toBeVisible();

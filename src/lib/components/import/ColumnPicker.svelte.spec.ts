@@ -40,8 +40,8 @@ const DATE_READING = {
 	retained: 'day-first' as const
 };
 
-function mountSheet(props: Record<string, unknown> = {}) {
-	return render(ColumnPicker, {
+async function mountSheet(props: Record<string, unknown> = {}) {
+	return await render(ColumnPicker, {
 		open: true,
 		role: 'date',
 		file: FILE,
@@ -56,7 +56,7 @@ beforeEach(async () => {
 
 describe('step defaults to columns, so every existing call site is unaffected', () => {
 	it('separates a caller that never passes step from one that explicitly asks for columns', async () => {
-		mountSheet();
+		await mountSheet();
 		await expect
 			.element(page.getByRole('heading', { name: m.import_columns_picker_title_date() }))
 			.toBeVisible();
@@ -68,7 +68,7 @@ describe('step defaults to columns, so every existing call site is unaffected', 
 
 describe('step "reading" renders the second body instead of the first, in the same sheet', () => {
 	it('separates the reading body from the columns body: only one is ever on screen', async () => {
-		mountSheet({ step: 'reading', dateReading: DATE_READING });
+		await mountSheet({ step: 'reading', dateReading: DATE_READING });
 
 		await expect
 			.element(page.getByRole('heading', { name: m.import_datesheet_title() }))
@@ -79,14 +79,14 @@ describe('step "reading" renders the second body instead of the first, in the sa
 	});
 
 	it('separates a readable header from an unreadable one in the subline', async () => {
-		mountSheet({ step: 'reading', dateReading: DATE_READING });
+		await mountSheet({ step: 'reading', dateReading: DATE_READING });
 		await expect
 			.element(page.getByText(m.import_datesheet_subline({ header: 'Date operation' })))
 			.toBeVisible();
 	});
 
 	it('separates a headerless file from a headered one: the subline falls back to a position', async () => {
-		mountSheet({
+		await mountSheet({
 			step: 'reading',
 			dateReading: DATE_READING,
 			file: { ...FILE, hasHeaderRow: false }
@@ -97,14 +97,14 @@ describe('step "reading" renders the second body instead of the first, in the sa
 	});
 
 	it('separates a missing dateReading payload from a present one: the sheet falls back to columns rather than rendering an empty question', async () => {
-		mountSheet({ step: 'reading' });
+		await mountSheet({ step: 'reading' });
 		await expect
 			.element(page.getByRole('heading', { name: m.import_columns_picker_title_date() }))
 			.toBeVisible();
 	});
 
 	it('renders exactly two options in a single-select listbox, day-first before month-first', async () => {
-		mountSheet({ step: 'reading', dateReading: DATE_READING });
+		await mountSheet({ step: 'reading', dateReading: DATE_READING });
 		const listbox = page.getByRole('listbox', { name: m.import_datesheet_title() });
 		await expect.element(listbox).toBeVisible();
 		const options = page.getByRole('option');
@@ -115,7 +115,7 @@ describe('step "reading" renders the second body instead of the first, in the sa
 	});
 
 	it('marks the retained reading as selected, and only that one', async () => {
-		mountSheet({ step: 'reading', dateReading: DATE_READING });
+		await mountSheet({ step: 'reading', dateReading: DATE_READING });
 		const options = page.getByRole('option');
 		expect(options.nth(0).element().getAttribute('aria-selected')).toBe('true');
 		expect(options.nth(1).element().getAttribute('aria-selected')).toBe('false');
@@ -126,7 +126,7 @@ describe('the foot TapLink is a re-ask, not a back', () => {
 	it('separates "change column" from "close": it calls onChangeColumn and not onClose', async () => {
 		let changeColumnCalls = 0;
 		let closeCalls = 0;
-		mountSheet({
+		await mountSheet({
 			step: 'reading',
 			dateReading: DATE_READING,
 			onChangeColumn: () => changeColumnCalls++,
@@ -141,7 +141,7 @@ describe('the foot TapLink is a re-ask, not a back', () => {
 describe('keyboard: arrows move focus and selection follows it', () => {
 	it('separates ArrowDown from a click: pressing it while day-first is active chooses month-first', async () => {
 		const chosen: string[] = [];
-		mountSheet({
+		await mountSheet({
 			step: 'reading',
 			dateReading: DATE_READING,
 			onChooseReading: (order: string) => chosen.push(order)
@@ -154,7 +154,7 @@ describe('keyboard: arrows move focus and selection follows it', () => {
 
 	it('separates a clamped edge from a wrap: ArrowUp while day-first (the first option) is already active chooses nothing', async () => {
 		const chosen: string[] = [];
-		mountSheet({
+		await mountSheet({
 			step: 'reading',
 			dateReading: DATE_READING,
 			onChooseReading: (order: string) => chosen.push(order)
@@ -167,7 +167,7 @@ describe('keyboard: arrows move focus and selection follows it', () => {
 
 	it('separates Enter-to-confirm from Enter-doing-nothing: pressing it on the already-active option still reports a choice', async () => {
 		const chosen: string[] = [];
-		mountSheet({
+		await mountSheet({
 			step: 'reading',
 			dateReading: DATE_READING,
 			onChooseReading: (order: string) => chosen.push(order)
@@ -179,7 +179,7 @@ describe('keyboard: arrows move focus and selection follows it', () => {
 	});
 
 	it('separates aria-activedescendant pointing at a real option from one pointing at nothing', async () => {
-		mountSheet({ step: 'reading', dateReading: DATE_READING });
+		await mountSheet({ step: 'reading', dateReading: DATE_READING });
 		const listbox = await page.getByRole('listbox', { name: m.import_datesheet_title() }).element();
 		const activeId = listbox.getAttribute('aria-activedescendant');
 		expect(activeId).toBeTruthy();
@@ -191,7 +191,7 @@ describe('keyboard: arrows move focus and selection follows it', () => {
 
 describe('focus at the step change goes to the new title, never to a live region', () => {
 	it('separates a step change from an open: the heading is an h2 with tabindex -1 that receives focus when step flips while already open', async () => {
-		const { rerender } = mountSheet({ step: 'columns' });
+		const { rerender } = await mountSheet({ step: 'columns' });
 		await expect
 			.element(page.getByRole('heading', { name: m.import_columns_picker_title_date() }))
 			.toBeVisible();
@@ -208,14 +208,14 @@ describe('focus at the step change goes to the new title, never to a live region
 describe('committed: true once the open-to-close session has applied anything, across both steps', () => {
 	it('separates a session that only opened from one that designated a column: closing without touching anything reports false', async () => {
 		let received: boolean | undefined;
-		mountSheet({ onClose: (committed: boolean) => (received = committed) });
+		await mountSheet({ onClose: (committed: boolean) => (received = committed) });
 		await userEvent.keyboard('{Escape}');
 		expect(received).toBe(false);
 	});
 
 	it('separates a reading chosen earlier in the session from one never touched: closing after choosing a reading, then reopening on a fresh session, reports false again', async () => {
 		let received: boolean | undefined;
-		const { rerender } = mountSheet({
+		const { rerender } = await mountSheet({
 			step: 'reading',
 			dateReading: DATE_READING,
 			open: false,
@@ -230,7 +230,7 @@ describe('committed: true once the open-to-close session has applied anything, a
 
 	it('separates choosing a reading from merely opening: closing after an ArrowDown selection reports true', async () => {
 		let received: boolean | undefined;
-		mountSheet({
+		await mountSheet({
 			step: 'reading',
 			dateReading: DATE_READING,
 			onClose: (committed: boolean) => (received = committed)
@@ -244,7 +244,7 @@ describe('committed: true once the open-to-close session has applied anything, a
 
 	it('separates designating a new column from re-choosing the one already designated: only the former commits', async () => {
 		let received: boolean | undefined;
-		mountSheet({
+		await mountSheet({
 			candidates: [1],
 			onClose: (committed: boolean) => (received = committed)
 		});
@@ -268,7 +268,7 @@ describe('the anchored variant (1280) renders the same two bodies as the sheet',
 	});
 
 	it('separates the anchored dialog from the sheet: step "reading" renders there too', async () => {
-		render(ColumnPicker, {
+		await render(ColumnPicker, {
 			open: true,
 			variant: 'anchored',
 			role: 'date',
@@ -300,7 +300,7 @@ describe('the anchored variant (1280) renders the same two bodies as the sheet',
 	 * never asserted the link's presence, so the unconditional render survived the whole suite.
 	 */
 	it('hides the change-column link entirely when the caller has none to offer', async () => {
-		render(ColumnPicker, {
+		await render(ColumnPicker, {
 			open: true,
 			variant: 'anchored',
 			role: 'date',
@@ -317,7 +317,7 @@ describe('the anchored variant (1280) renders the same two bodies as the sheet',
 	});
 
 	it('separates a step change from an open in the anchored panel too: the h2 receives focus', async () => {
-		const { rerender } = render(ColumnPicker, {
+		const { rerender } = await render(ColumnPicker, {
 			open: true,
 			variant: 'anchored',
 			role: 'date',

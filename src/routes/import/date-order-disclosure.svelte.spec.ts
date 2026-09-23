@@ -54,14 +54,14 @@ beforeEach(() => {
 	takeCompletedImport();
 });
 
-function show(importResult: ImportSummaryResult) {
+async function show(importResult: ImportSummaryResult) {
 	setCompletedImport({
 		importResult,
 		capReached: false,
 		canRevisit: false,
 		replaced: { kind: 'none' }
 	});
-	render(Page, { data: DATA, form: null });
+	await render(Page, { data: DATA, form: null });
 }
 
 describe('the chosen date reading is disclosed on the summary', () => {
@@ -72,7 +72,7 @@ describe('the chosen date reading is disclosed on the summary', () => {
 	 */
 	it('states at 1280 which column and reading were chosen', async () => {
 		await page.viewport(1280, 800);
-		show(BASE);
+		await show(BASE);
 
 		await expect.element(lines().first()).toBeVisible();
 	});
@@ -80,7 +80,7 @@ describe('the chosen date reading is disclosed on the summary', () => {
 	/** The mobile chrome, at the width it is drawn for. Same claim, other copy. */
 	it('states at 390 which column and reading were chosen', async () => {
 		await page.viewport(390, 844);
-		show(BASE);
+		await show(BASE);
 
 		await expect.element(lines().last()).toBeVisible();
 	});
@@ -88,7 +88,7 @@ describe('the chosen date reading is disclosed on the summary', () => {
 	/** The sibling reading, so the test cannot pass on a hard-coded string. */
 	it('states the day-first reading when that is what was chosen', async () => {
 		await page.viewport(1280, 800);
-		show({ ...BASE, dateOrderDisclosure: { header: 'Date operation', order: 'day-first' } });
+		await show({ ...BASE, dateOrderDisclosure: { header: 'Date operation', order: 'day-first' } });
 
 		await expect
 			.element(
@@ -112,7 +112,7 @@ describe('the chosen date reading is disclosed on the summary', () => {
 	 */
 	it('discloses nothing when the reading was not chosen', async () => {
 		await page.viewport(390, 844);
-		show({ ...BASE, dateOrderDisclosure: null });
+		await show({ ...BASE, dateOrderDisclosure: null });
 
 		expect(lines().elements().length).toBe(0);
 	});

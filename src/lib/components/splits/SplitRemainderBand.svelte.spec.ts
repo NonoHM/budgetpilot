@@ -36,7 +36,7 @@ describe('SplitRemainderBand — the visible half', () => {
 		[['60,00', '20,00'], 'Tout est réparti', '0,00'],
 		[['60,00', '25,00'], 'Dépassement', '5,00']
 	])('%s renders « %s »', async (amounts, label, amount) => {
-		render(SplitRemainderBand, {
+		await render(SplitRemainderBand, {
 			remainder: resolveRemainder(amounts as string[], EXPENSE_TOTAL),
 			announcementId: ANNOUNCEMENT_ID
 		});
@@ -50,7 +50,7 @@ describe('SplitRemainderBand — the visible half', () => {
 		// 1d: « Une formulation unique du type "Reste : −5,00 €" obligerait à lire un signe pour
 		// comprendre un sens, et un signe moins de 8 px de large ne porte pas une information à lui
 		// seul. » The three states are told apart by their words, not by a glyph.
-		render(SplitRemainderBand, {
+		await render(SplitRemainderBand, {
 			remainder: resolveRemainder(['60,00', '25,00'], EXPENSE_TOTAL),
 			announcementId: ANNOUNCEMENT_ID
 		});
@@ -62,7 +62,7 @@ describe('SplitRemainderBand — the visible half', () => {
 		// The rule 1p says must not be re-broken. An `aria-hidden` element takes its descendants out
 		// of the accessibility tree, so a region nested inside the band would expose nothing — and
 		// would look completely correct in the rendered page.
-		render(SplitRemainderBand, {
+		await render(SplitRemainderBand, {
 			remainder: resolveRemainder(['60,00'], EXPENSE_TOTAL),
 			announcementId: ANNOUNCEMENT_ID
 		});
@@ -73,7 +73,7 @@ describe('SplitRemainderBand — the visible half', () => {
 	});
 
 	it('is a status region, not an alert — an overshoot is a form state, not an incident', async () => {
-		render(SplitRemainderBand, {
+		await render(SplitRemainderBand, {
 			remainder: resolveRemainder(['60,00', '25,00'], EXPENSE_TOTAL),
 			announcementId: ANNOUNCEMENT_ID
 		});
@@ -96,7 +96,7 @@ describe('SplitRemainderBand — the pairing', () => {
 	});
 
 	it('opens holding its sentence, so mounting the panel says nothing new', async () => {
-		render(SplitRemainderBand, {
+		await render(SplitRemainderBand, {
 			remainder: resolveRemainder(['0,00', '0,00'], EXPENSE_TOTAL),
 			announcementId: ANNOUNCEMENT_ID
 		});
@@ -112,7 +112,7 @@ describe('SplitRemainderBand — the pairing', () => {
 	it('does NOT rewrite the region on every state change — only after the pause', async () => {
 		// Four states inside one pause is the typing case. The band's own text tracks every one of
 		// them; the region must not.
-		const { rerender } = render(SplitRemainderBand, {
+		const { rerender } = await render(SplitRemainderBand, {
 			remainder: resolveRemainder(['0,00', '0,00'], EXPENSE_TOTAL),
 			announcementId: ANNOUNCEMENT_ID
 		});
@@ -137,7 +137,7 @@ describe('SplitRemainderBand — the pairing', () => {
 	it('speaks the state that matches the band, not one keystroke behind it', async () => {
 		// The pairing failure that a per-half test cannot see: a correct policy fed a stale state, or
 		// a correct state fed to the wrong sentence builder. Both halves pass; the panel lies.
-		const { rerender } = render(SplitRemainderBand, {
+		const { rerender } = await render(SplitRemainderBand, {
 			remainder: resolveRemainder(['0,00', '0,00'], EXPENSE_TOTAL),
 			announcementId: ANNOUNCEMENT_ID
 		});
@@ -155,7 +155,7 @@ describe('SplitRemainderBand — the pairing', () => {
 	});
 
 	it('announces that Save is available exactly when the remainder reaches zero', async () => {
-		const { rerender } = render(SplitRemainderBand, {
+		const { rerender } = await render(SplitRemainderBand, {
 			remainder: resolveRemainder(['60,00'], EXPENSE_TOTAL),
 			announcementId: ANNOUNCEMENT_ID
 		});
@@ -170,7 +170,7 @@ describe('SplitRemainderBand — the pairing', () => {
 	});
 
 	it('stays silent when a keystroke and its deletion land back on the same state', async () => {
-		const { rerender } = render(SplitRemainderBand, {
+		const { rerender } = await render(SplitRemainderBand, {
 			remainder: resolveRemainder(['60,00'], EXPENSE_TOTAL),
 			announcementId: ANNOUNCEMENT_ID
 		});

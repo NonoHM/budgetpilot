@@ -60,7 +60,7 @@ describe('/categories — the unclassified sentinel is never printed raw', () =>
 		expect.assertions(2);
 		await page.viewport(width, height);
 
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: buildData([UNCLASSIFIED_CATEGORY, 'Alimentation']),
 			form: null
 		});
@@ -78,7 +78,7 @@ describe('/categories — the unclassified sentinel is never printed raw', () =>
 	it('leaves an ordinary category name exactly as stored', async () => {
 		await page.viewport(1280, 900);
 
-		const { container } = render(Page, { data: buildData(['Alimentation']), form: null });
+		const { container } = await render(Page, { data: buildData(['Alimentation']), form: null });
 
 		expect(visibleText(container as HTMLElement)).toContain('Alimentation');
 	});
@@ -93,7 +93,10 @@ describe('/categories — the unclassified sentinel is never printed raw', () =>
 	it('keeps the stored slug as the posted identifier', async () => {
 		await page.viewport(1280, 900);
 
-		const { container } = render(Page, { data: buildData([UNCLASSIFIED_CATEGORY]), form: null });
+		const { container } = await render(Page, {
+			data: buildData([UNCLASSIFIED_CATEGORY]),
+			form: null
+		});
 
 		const posted = [...container.querySelectorAll('input[name="categoryName"]')].map(
 			(node) => (node as HTMLInputElement).value

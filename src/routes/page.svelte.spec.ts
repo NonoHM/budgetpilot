@@ -152,7 +152,7 @@ function buildData(
 
 describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, B5a)', () => {
 	it('renders the widget when the period has no data but a stream was detected', async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({ upcomingBillsHasStreams: true }),
 			form: null as ActionData
 		});
@@ -164,7 +164,7 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 	});
 
 	it('shows the onboarding empty state, not the widget, when neither the period nor the detector has anything', async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({ upcomingBillsHasStreams: false }),
 			form: null as ActionData
 		});
@@ -181,7 +181,7 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 	 * goes to `/imports`, the history page, not `/import`.
 	 */
 	it('keeps an import entry point reachable when only a detected stream opens the body', async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({ upcomingBillsHasStreams: true }),
 			form: null as ActionData
 		});
@@ -199,7 +199,7 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 	 */
 	it('still widens the body for a period with no activity when the only detected stream is stale', async () => {
 		expect.assertions(2);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({ upcomingBillsHasStreams: false, upcomingBillsEmptyState: 'all-stale' }),
 			form: null as ActionData
 		});
@@ -219,7 +219,7 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 	 */
 	it('renders two distinct all-stale empty cards, never the same title twice', async () => {
 		expect.assertions(3);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				upcomingBillsHasStreams: false,
 				upcomingBillsEmptyState: 'all-stale',
@@ -234,7 +234,7 @@ describe('/ dashboard — upcoming-bills widget vs the onboarding gate (Task 3, 
 	});
 
 	it('still renders the widget in the ordinary populated case', async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				transactions: [
 					{
@@ -276,7 +276,7 @@ describe('/ dashboard — empty state keys on the ACCOUNT, not the period (A7)',
 
 	it('shows the period-mismatch state, not the first-run copy, when the account has data elsewhere', async () => {
 		expect.assertions(2);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({ accountSpan: SPAN_SAME_YEAR }),
 			form: null as ActionData
 		});
@@ -287,7 +287,7 @@ describe('/ dashboard — empty state keys on the ACCOUNT, not the period (A7)',
 
 	it('leaves the first-run copy exactly as it was on an account that has never had data', async () => {
 		expect.assertions(2);
-		const screen = render(Page, { data: buildData(), form: null as ActionData });
+		const screen = await render(Page, { data: buildData(), form: null as ActionData });
 
 		await expect.element(screen.getByText(m.dashboard_empty_heading())).toBeInTheDocument();
 		expect(screen.container.textContent).not.toContain(m.dashboard_other_period_heading());
@@ -295,7 +295,7 @@ describe('/ dashboard — empty state keys on the ACCOUNT, not the period (A7)',
 
 	it('shows neither empty state once the period itself has data', async () => {
 		expect.assertions(2);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				accountSpan: SPAN_SAME_YEAR,
 				transactions: [
@@ -326,7 +326,7 @@ describe('/ dashboard — empty state keys on the ACCOUNT, not the period (A7)',
 	 */
 	it('names the real range rather than a placeholder', async () => {
 		expect.assertions(3);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({ accountSpan: SPAN_SAME_YEAR }),
 			form: null as ActionData
 		});
@@ -346,7 +346,7 @@ describe('/ dashboard — empty state keys on the ACCOUNT, not the period (A7)',
 	 */
 	it('states how many transactions are on record', async () => {
 		expect.assertions(1);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({ accountSpan: SPAN_SAME_YEAR }),
 			form: null as ActionData
 		});
@@ -356,7 +356,7 @@ describe('/ dashboard — empty state keys on the ACCOUNT, not the period (A7)',
 
 	it('uses the singular description for an account holding exactly one transaction', async () => {
 		expect.assertions(2);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				accountSpan: { count: 1, firstDate: '2026-03-03', lastDate: '2026-03-03' }
 			}),
@@ -388,7 +388,7 @@ describe('/ dashboard — empty state keys on the ACCOUNT, not the period (A7)',
 	 */
 	it('names a year when the span crosses a year boundary', async () => {
 		expect.assertions(2);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				accountSpan: { count: 120, firstDate: '2025-12-03', lastDate: '2026-01-12' }
 			}),
@@ -407,7 +407,7 @@ describe('/ dashboard — empty state keys on the ACCOUNT, not the period (A7)',
 
 	it('offers the way out and keeps an import entry point reachable', async () => {
 		expect.assertions(2);
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({ accountSpan: SPAN_SAME_YEAR }),
 			form: null as ActionData
 		});
@@ -458,7 +458,7 @@ describe('/ dashboard recent transactions — split indicator (PR6)', () => {
 			}
 		];
 
-		const screen = render(Page, { data, form: null as ActionData });
+		const screen = await render(Page, { data, form: null as ActionData });
 
 		// The row still shows the PARENT's own category and amount (OD-3) — the badge only flags
 		// the répartition, it never re-ranks or relabels the row from its parts.
@@ -483,7 +483,7 @@ describe('/ dashboard recent transactions — split indicator (PR6)', () => {
 
 describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => {
 	it("renders the 'nothing detected yet' copy when emptyState is 'none-detected'", async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				upcomingBillsHasStreams: true,
 				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'none-detected' }
@@ -499,7 +499,7 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 	});
 
 	it("renders the 'gone stale' copy when emptyState is 'all-stale'", async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				upcomingBillsHasStreams: true,
 				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'all-stale' }
@@ -529,7 +529,7 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 	 * the `all-stale` one now says the projection returns by itself.
 	 */
 	it("offers no dead anchor in the 'none-detected' branch", async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				upcomingBillsHasStreams: true,
 				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'none-detected' }
@@ -544,7 +544,7 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 	});
 
 	it("offers no dead anchor in the 'all-stale' branch either", async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				upcomingBillsHasStreams: true,
 				cashFlowForecast: { ...EMPTY_FORECAST, emptyState: 'all-stale' }
@@ -563,7 +563,7 @@ describe('/ dashboard forecast card — split empty-state copy (Task 2)', () => 
 	 * render path that coupling used to guard and is otherwise unexercised by the two tests above.
 	 */
 	it('renders the populated forecast (chart, not an empty state) when emptyState is null', async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: buildData({
 				upcomingBillsHasStreams: true,
 				cashFlowForecast: {
@@ -616,7 +616,7 @@ describe('/ manual-add modal — a refused save says why, audibly (#audit-1.0)',
 	it('announces the server refusal instead of only colouring it red', async () => {
 		expect.assertions(2);
 
-		render(Page, {
+		await render(Page, {
 			data: buildData({ upcomingBillsHasStreams: true }),
 			form: { createTransactionError: 'Choisissez une catégorie.' } as ActionData
 		});
@@ -683,7 +683,7 @@ describe('/ dashboard — the custom period form uses the app’s own date field
 		expect.assertions(2);
 		await page.viewport(1280, 900);
 
-		const screen = render(Page, { data: buildData({ period: CUSTOM_PERIOD }), form: null });
+		const screen = await render(Page, { data: buildData({ period: CUSTOM_PERIOD }), form: null });
 		const panel = await openPeriodPanel(screen.container as HTMLElement);
 
 		expect(panel.querySelectorAll('input[type="date"]')).toHaveLength(0);
@@ -704,7 +704,7 @@ describe('/ dashboard — the custom period form uses the app’s own date field
 		// this page's current period rather than a default or an empty pair. It separates "the
 		// control shows the period the page is on" from "it opens blank", which look identical until
 		// the reader applies and silently moves the period.
-		const screen = render(Page, { data: buildData({ period: CUSTOM_PERIOD }), form: null });
+		const screen = await render(Page, { data: buildData({ period: CUSTOM_PERIOD }), form: null });
 		const panel = await openPeriodPanel(screen.container as HTMLElement);
 		const fields = [
 			...panel.querySelectorAll<HTMLInputElement>('input[type="text"][inputmode="numeric"]')

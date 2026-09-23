@@ -100,7 +100,7 @@ beforeEach(() => {
 });
 
 describe('the withheld replacement, at both widths', () => {
-	function mountWithheld(details: ImportInvalidRowDetail[] = [refusal(REFUSAL_FACT, 0)]) {
+	async function mountWithheld(details: ImportInvalidRowDetail[] = [refusal(REFUSAL_FACT, 0)]) {
 		setCompletedImport({
 			importResult: summary(details),
 			capReached: false,
@@ -112,50 +112,50 @@ describe('the withheld replacement, at both widths', () => {
 				importedRows: 28
 			}
 		});
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 	}
 
 	it('names the import it did NOT delete, at 1280', async () => {
 		// The retraction, and it is a different job from explaining the figures. Two screens promise
 		// the replacement before any row is counted, and one of them names this import by its date.
 		await page.viewport(1280, 800);
-		mountWithheld();
+		await mountWithheld();
 
 		await expect.element(withheldNotices().first()).toBeVisible();
-		await expect.element(withheldNotices().first()).toHaveTextContent('16 août 2026');
+		await expect.element(withheldNotices().first()).toMatchTextContent('16 août 2026');
 	});
 
 	it('names the import it did NOT delete, at 390', async () => {
 		await page.viewport(390, 844);
-		mountWithheld();
+		await mountWithheld();
 
 		await expect.element(withheldNotices().last()).toBeVisible();
-		await expect.element(withheldNotices().last()).toHaveTextContent('16 août 2026');
+		await expect.element(withheldNotices().last()).toMatchTextContent('16 août 2026');
 	});
 
 	it('states BOTH counts, so the user can tell a repair from a loss', async () => {
 		await page.viewport(390, 844);
-		mountWithheld();
+		await mountWithheld();
 
 		const notice = withheldNotices().last();
-		await expect.element(notice).toHaveTextContent('28');
-		await expect.element(notice).toHaveTextContent('30');
+		await expect.element(notice).toMatchTextContent('28');
+		await expect.element(notice).toMatchTextContent('30');
 	});
 
 	it('names the refusal reason beside the counts', async () => {
 		// The figures alone do not tell anybody whether they lost data. What separates a repair from
 		// a loss is WHY the rows went, and the app already holds it.
 		await page.viewport(390, 844);
-		mountWithheld();
+		await mountWithheld();
 
-		await expect.element(withheldNotices().last()).toHaveTextContent(refusalLabel(REFUSAL_FACT));
+		await expect.element(withheldNotices().last()).toMatchTextContent(refusalLabel(REFUSAL_FACT));
 	});
 
 	it('offers the route rather than only the figures', async () => {
 		// The user reached the two-row state without choosing it. Figures with no next step is the
 		// silence this wave exists to remove.
 		await page.viewport(390, 844);
-		mountWithheld();
+		await mountWithheld();
 
 		const link = page.getByRole('link', { name: m.import_correct_delete_withheld_action() }).last();
 		await expect.element(link).toBeVisible();
@@ -167,7 +167,7 @@ describe('the withheld replacement, at both widths', () => {
 		// DISTINCT facts, because groups fold on the reason: five copies of one fact is one group
 		// and would pass a broken cap.
 		await page.viewport(390, 844);
-		mountWithheld([REFUSAL_FACT, ...OTHER_FACTS].map(refusal));
+		await mountWithheld([REFUSAL_FACT, ...OTHER_FACTS].map(refusal));
 
 		// SIX: two chromes, three each. Asserted on the TOTAL rather than per chrome, because a cap
 		// applied to one chrome and not the other would still show three here, and six is what
@@ -187,7 +187,7 @@ describe('the withheld replacement, at both widths', () => {
 		await expect.element(notice).toBeVisible();
 		await expect
 			.element(notice)
-			.toHaveTextContent(m.import_correct_delete_withheld_reasons_more({ count: 2 }));
+			.toMatchTextContent(m.import_correct_delete_withheld_reasons_more({ count: 2 }));
 	});
 });
 
@@ -207,14 +207,14 @@ describe('the withholding that reports a wrong file, at both widths', () => {
 		replacedPeriod: { from: '2026-07-01T00:00:00.000Z', to: '2026-07-31T00:00:00.000Z' }
 	} as const;
 
-	function mountOtherPeriod() {
+	async function mountOtherPeriod() {
 		setCompletedImport({
 			importResult: summary([]),
 			capReached: false,
 			canRevisit: false,
 			replaced: OTHER_PERIOD
 		});
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 	}
 
 	const periodNotices = () =>
@@ -225,10 +225,10 @@ describe('the withholding that reports a wrong file, at both widths', () => {
 
 	it('names the import it did not delete, at 1280', async () => {
 		await page.viewport(1280, 800);
-		mountOtherPeriod();
+		await mountOtherPeriod();
 
 		await expect.element(periodNotices().first()).toBeVisible();
-		await expect.element(periodNotices().first()).toHaveTextContent('16 août 2026');
+		await expect.element(periodNotices().first()).toMatchTextContent('16 août 2026');
 	});
 
 	it('names the withheld import PERIOD, not the one the summary already prints', async () => {
@@ -236,9 +236,9 @@ describe('the withholding that reports a wrong file, at both widths', () => {
 		// imported, so restating that would leave out the only comparison that explains the notice.
 		// The fixture's two periods are deliberately different months, which is the whole input.
 		await page.viewport(390, 844);
-		mountOtherPeriod();
+		await mountOtherPeriod();
 
-		await expect.element(periodNotices().last()).toHaveTextContent('juillet 2026');
+		await expect.element(periodNotices().last()).toMatchTextContent('juillet 2026');
 	});
 
 	it('does not report it as a row shortfall', async () => {
@@ -246,7 +246,7 @@ describe('the withholding that reports a wrong file, at both widths', () => {
 		// flag, would send a user hunting for refused rows on a run where every row landed and the
 		// file was simply the wrong statement.
 		await page.viewport(390, 844);
-		mountOtherPeriod();
+		await mountOtherPeriod();
 
 		expect(await withheldNotices().all()).toHaveLength(0);
 		expect(await deletedNotices().all()).toHaveLength(0);
@@ -266,9 +266,9 @@ describe('the two states that are not a withholding', () => {
 			replaced: { kind: 'deleted', replacedAt: REPLACED_AT }
 		});
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
-		await expect.element(deletedNotices().last()).toHaveTextContent('16 août 2026');
+		await expect.element(deletedNotices().last()).toMatchTextContent('16 août 2026');
 	});
 
 	it('says NOTHING at all when the run replaced nothing', async () => {
@@ -283,7 +283,7 @@ describe('the two states that are not a withholding', () => {
 			replaced: { kind: 'none' }
 		});
 
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 
 		expect(await withheldNotices().all()).toHaveLength(0);
 		expect(await deletedNotices().all()).toHaveLength(0);

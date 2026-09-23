@@ -28,13 +28,13 @@ describe('Combobox.svelte — field height', () => {
 	}
 
 	it('is 44px by default — the app-wide touch-target floor, and every existing caller', async () => {
-		render(Combobox, { options, ariaLabel: 'Catégorie' });
+		await render(Combobox, { options, ariaLabel: 'Catégorie' });
 		await expect.element(page.getByRole('combobox', { name: 'Catégorie' })).toBeInTheDocument();
 		expect(heightOf('Catégorie')).toBe(44);
 	});
 
 	it('is 48px at size="lg", which the mobile sheet requires of every control', async () => {
-		render(Combobox, { options, ariaLabel: 'Catégorie de la part 1', size: 'lg' });
+		await render(Combobox, { options, ariaLabel: 'Catégorie de la part 1', size: 'lg' });
 		await expect
 			.element(page.getByRole('combobox', { name: 'Catégorie de la part 1' }))
 			.toBeInTheDocument();
@@ -71,7 +71,7 @@ describe('Combobox.svelte — softDisabled (1j, 1q)', () => {
 		// construction (`selectedLabel` is `options.find(...)?.label ?? ''`, and the locked branch
 		// renders no list at all), and "safe by construction" is exactly the claim worth pinning:
 		// the day someone gives the locked branch a list, this is what says /import broke.
-		render(Combobox, {
+		await render(Combobox, {
 			options: [],
 			ariaLabel: 'Compte de destination',
 			placeholder: 'Aucun',
@@ -93,7 +93,7 @@ describe('Combobox.svelte — softDisabled (1j, 1q)', () => {
 		// the portal is still empty, while bits-ui has not mounted, while nothing has flushed. So the
 		// list is opened for real, with the same gesture and the same selector, BEFORE it is asserted
 		// gone. Appear-then-disappear, never absence-then-hope.
-		const { rerender } = render(Combobox, {
+		const { rerender } = await render(Combobox, {
 			options,
 			ariaLabel: 'Catégorie',
 			value: 'alimentation'
@@ -118,7 +118,7 @@ describe('Combobox.svelte — softDisabled (1j, 1q)', () => {
 	});
 
 	it('is neutralised but not mute: aria-disabled, focusable, and pointed at its reason', async () => {
-		render(Combobox, {
+		await render(Combobox, {
 			options,
 			ariaLabel: 'Catégorie',
 			value: 'alimentation',
@@ -144,7 +144,11 @@ describe('Combobox.svelte — softDisabled (1j, 1q)', () => {
 		// neutralised control agrees with the live one. A lock that changed height by a pixel would
 		// make the whole card jump at the moment of removal, which is the exact thing 1j puts the
 		// selector in situ to avoid.
-		const { rerender } = render(Combobox, { options, ariaLabel: 'Catégorie', value: 'maison' });
+		const { rerender } = await render(Combobox, {
+			options,
+			ariaLabel: 'Catégorie',
+			value: 'maison'
+		});
 		await expect.element(page.getByRole('combobox', { name: 'Catégorie' })).toBeInTheDocument();
 		const live = (
 			page.getByRole('combobox', { name: 'Catégorie' }).element() as HTMLElement
@@ -189,11 +193,11 @@ describe('Combobox.svelte — required does not silently abort a submit', () => 
 		// follows is evidence about `required` and not about the harness. Ordered this way on
 		// purpose — a calibration that only runs when the real assertion already passed calibrates
 		// nothing (CLAUDE.md: prove the detector can detect).
-		render(ComboboxInForm, { options, required: false, onsubmitted: () => (submitted += 1) });
+		await render(ComboboxInForm, { options, required: false, onsubmitted: () => (submitted += 1) });
 		await userEvent.click(page.getByRole('button', { name: 'Enregistrer' }));
 		expect(submitted).toBe(1);
 
-		render(ComboboxInForm, { options, required: true, onsubmitted: () => (submitted += 1) });
+		await render(ComboboxInForm, { options, required: true, onsubmitted: () => (submitted += 1) });
 		await userEvent.click(page.getByRole('button', { name: 'Enregistrer' }).last());
 		expect(submitted).toBe(2);
 	});
@@ -201,11 +205,11 @@ describe('Combobox.svelte — required does not silently abort a submit', () => 
 	it('still tells assistive technology the field is required', async () => {
 		expect.assertions(2);
 
-		render(Combobox, { options, ariaLabel: 'Catégorie', required: true });
+		await render(Combobox, { options, ariaLabel: 'Catégorie', required: true });
 		const input = page.getByRole('combobox', { name: 'Catégorie' }).element();
 		expect(input.getAttribute('aria-required')).toBe('true');
 
-		render(Combobox, { options, ariaLabel: 'Montant', required: false });
+		await render(Combobox, { options, ariaLabel: 'Montant', required: false });
 		expect(
 			page.getByRole('combobox', { name: 'Montant' }).element().getAttribute('aria-required')
 		).toBeNull();

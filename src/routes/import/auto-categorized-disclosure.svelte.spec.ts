@@ -63,7 +63,7 @@ describe('the import summary says when it categorised transactions by itself', (
 	it('states the count, in both breakpoint copies', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith() });
+		await render(Page, { data: DATA, form: formWith() });
 
 		// Built from the fixture's own figure through the catalogue: a hardcoded string here would
 		// assert this test's spelling and would keep passing on a page interpolating the wrong count.
@@ -75,7 +75,7 @@ describe('the import summary says when it categorised transactions by itself', (
 	it('agrees with itself on one, where the plural would be wrong', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith({ autoCategorizedRows: 1 }) });
+		await render(Page, { data: DATA, form: formWith({ autoCategorizedRows: 1 }) });
 
 		expect(
 			page.getByText(m.import_summary_auto_categorized_one({ count: 1 })).elements()
@@ -87,7 +87,7 @@ describe('the import summary says when it categorised transactions by itself', (
 		await page.viewport(1280, 800);
 		// The calibration. A sentence that always renders is not a disclosure, it is furniture, and
 		// the reader stops seeing it on the imports where it matters.
-		render(Page, { data: DATA, form: formWith({ autoCategorizedRows: 0 }) });
+		await render(Page, { data: DATA, form: formWith({ autoCategorizedRows: 0 }) });
 
 		expect(page.getByText(m.import_summary_auto_categorized_many({ count: 0 })).elements()).toEqual(
 			[]

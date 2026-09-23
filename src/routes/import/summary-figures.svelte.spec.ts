@@ -55,7 +55,7 @@ describe('the import summary states its rows read rather than tiling it', () => 
 	it('says how many rows it read, in words, in both breakpoint copies', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith() });
+		await render(Page, { data: DATA, form: formWith() });
 
 		// Built from the fixture's own figure through the catalogue, never typed as a string here:
 		// a hardcoded « 8 lignes lues » asserts this test's spelling of the sentence rather than
@@ -69,7 +69,10 @@ describe('the import summary states its rows read rather than tiling it', () => 
 	it('agrees with itself on one row, where the plural would be wrong', async () => {
 		expect.assertions(1);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith({ totalRows: 1, importedRows: 1, invalidRows: 0 }) });
+		await render(Page, {
+			data: DATA,
+			form: formWith({ totalRows: 1, importedRows: 1, invalidRows: 0 })
+		});
 
 		// The boundary: one is the single value where the two catalogue keys disagree.
 		expect(
@@ -80,7 +83,7 @@ describe('the import summary states its rows read rather than tiling it', () => 
 	it('draws five outcome tiles, none of which is a total', async () => {
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith() });
+		await render(Page, { data: DATA, form: formWith() });
 
 		// Structural rather than by label, because the property is about what the GRID contains: a
 		// reader subtracts from a total that sits beside the parts, and the fix was to take the
@@ -144,7 +147,7 @@ describe('a file refused whole states what became of its rows instead of tiling 
 	it('draws no outcome grid, because every tile in it would be a zero about an unexamined row', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith(REFUSED) });
+		await render(Page, { data: DATA, form: formWith(REFUSED) });
 
 		// Structural, for the same reason the five-tile assertion above is: the defect is what the
 		// GRID asserts, and a fix that renamed « Lignes invalides » while leaving the row of zeroes
@@ -157,7 +160,7 @@ describe('a file refused whole states what became of its rows instead of tiling 
 	it('says the rows were not examined, rather than that they were read', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith(REFUSED) });
+		await render(Page, { data: DATA, form: formWith(REFUSED) });
 
 		// Built through the catalogue from the fixture's own figure, so a page interpolating the
 		// wrong count still reddens.
@@ -177,7 +180,7 @@ describe('a file refused whole states what became of its rows instead of tiling 
 		// Three bad rows out of eight is not a refused file: the parser read every one of them and
 		// classified it, so the tiles are about real outcomes and must stay. Without this, the
 		// suppression above is satisfiable by deleting the grid outright.
-		render(Page, { data: DATA, form: formWith({ invalidRows: 3, fileLevelRefusals: 0 }) });
+		await render(Page, { data: DATA, form: formWith({ invalidRows: 3, fileLevelRefusals: 0 }) });
 
 		expect(document.querySelectorAll('[data-testid="import-summary-figures"]')).toHaveLength(2);
 		expect(
@@ -190,11 +193,11 @@ describe('a file refused whole says so above the figures', () => {
 	it('draws the refusal block only when there is a file level refusal', async () => {
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: formWith() });
+		await render(Page, { data: DATA, form: formWith() });
 
 		expect(page.getByText(m.import_summary_refused_heading()).elements()).toHaveLength(0);
 
-		render(Page, {
+		await render(Page, {
 			data: DATA,
 			form: formWith({
 				totalRows: 8,

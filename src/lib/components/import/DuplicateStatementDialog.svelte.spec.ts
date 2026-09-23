@@ -44,10 +44,10 @@ const EXISTING = {
 // is exactly the shape this dialog meets most often.
 const INCOMING = { ...EXISTING, fileName: 'releve (1).csv' } satisfies CollisionFigures;
 
-function mount(
+async function mount(
 	overrides: Partial<{ error: string | null; correctionContext: CorrectionContext }> = {}
 ) {
-	return render(DuplicateStatementDialog, {
+	return await render(DuplicateStatementDialog, {
 		open: true,
 		existing: EXISTING,
 		incoming: INCOMING,
@@ -60,14 +60,14 @@ function mount(
 
 describe('DuplicateStatementDialog', () => {
 	it('names both statements, so the resemblance is shown rather than asserted', async () => {
-		const screen = mount();
+		const screen = await mount();
 
 		await expect.element(screen.getByText('releve-juin.csv')).toBeInTheDocument();
 		await expect.element(screen.getByText('releve (1).csv')).toBeInTheDocument();
 	});
 
 	it('prints the money on both sides, to the cent', async () => {
-		const screen = mount();
+		const screen = await mount();
 
 		// Twice, once per panel. `getByText` would refuse an ambiguous match, which is what makes
 		// this assert the pair rather than one of them.
@@ -77,7 +77,7 @@ describe('DuplicateStatementDialog', () => {
 	});
 
 	it('says what pressing the primary would cost', async () => {
-		const screen = mount();
+		const screen = await mount();
 
 		await expect
 			.element(screen.getByText(/ajouterait ces opérations une seconde fois/))
@@ -89,7 +89,7 @@ describe('DuplicateStatementDialog', () => {
 		// of this test checked only that two buttons existed with those names, and swapping them
 		// stayed green: the swap moves which one submits, and nothing about mere presence can see
 		// that. `type="submit"` is what the caller's form is wired to, so it is the real difference.
-		const screen = mount();
+		const screen = await mount();
 
 		const confirm = screen.getByRole('button', { name: 'Importer quand même' });
 		const cancel = screen.getByRole('button', { name: 'Ne pas importer' });
@@ -103,13 +103,13 @@ describe('DuplicateStatementDialog', () => {
 	it('reports a failed confirmation inside the dialog, where the reader is', async () => {
 		// A banner on the page behind a modal is a message nobody sees. The failure it reports is the
 		// one where the user presses the primary and nothing happens, so it has to be in here.
-		const screen = mount({ error: 'Une erreur est survenue.' });
+		const screen = await mount({ error: 'Une erreur est survenue.' });
 
 		await expect.element(screen.getByText('Une erreur est survenue.')).toBeInTheDocument();
 	});
 
 	it('says nothing when there is nothing to report', async () => {
-		const screen = mount();
+		const screen = await mount();
 
 		// Absence asserted with a figure beside it, per the house rule: the dialog has exactly one
 		// alert region when it fails and none when it does not.
@@ -140,7 +140,7 @@ describe('the collision guard reframed for a correction', () => {
 		// The hole this prop exists to close. The batch id is present in both correction cases, so a
 		// dialog keyed on the correction rather than on the choice says the opposite of what will
 		// happen.
-		const screen = mount({ correctionContext: 'keeping' });
+		const screen = await mount({ correctionContext: 'keeping' });
 
 		await expect.element(screen.getByText(m.import_collision_keeping_body())).toBeInTheDocument();
 		expect(await screen.getByText(m.import_collision_replacing_body()).all()).toHaveLength(0);
@@ -150,7 +150,7 @@ describe('the collision guard reframed for a correction', () => {
 		// The only case where a replacement and a duplication warning are both true. Saying one of
 		// them is the same defect one level along, so both are asserted in one test: a version that
 		// dropped either would pass a test asserting only the other.
-		const screen = mount({ correctionContext: 'replacing' });
+		const screen = await mount({ correctionContext: 'replacing' });
 
 		await expect.element(screen.getByText(m.import_collision_replacing_body())).toBeInTheDocument();
 		// And the ordinary consequence line stays, because the statement above really would be
@@ -161,7 +161,7 @@ describe('the collision guard reframed for a correction', () => {
 	it("leaves today's copy alone when the run is not a correction", async () => {
 		// The direction this change is not moving in, and the common one: most collisions have
 		// nothing to do with a correction.
-		const screen = mount({ correctionContext: 'none' });
+		const screen = await mount({ correctionContext: 'none' });
 
 		await expect.element(screen.getByText(m.import_collision_explanation())).toBeInTheDocument();
 		expect(await screen.getByText(m.import_collision_keeping_body()).all()).toHaveLength(0);
@@ -180,14 +180,14 @@ describe('the collision guard reframed for a correction', () => {
 	 * anywhere on screen. That is what the heading actually is, and it is the half that made the bug
 	 * worse than a cosmetic one: a screen reader named the dialog by the claim that was false.
 	 */
-	function heading(screen: ReturnType<typeof mount>): string {
+	function heading(screen: Awaited<ReturnType<typeof mount>>): string {
 		const dialog = screen.container.querySelector('[role="dialog"]');
 		const id = dialog?.getAttribute('aria-labelledby') ?? '';
 		return (screen.container.querySelector(`#${id}`)?.textContent ?? '').trim();
 	}
 
 	it('names the keeping case by the choice the user made', async () => {
-		expect(heading(mount({ correctionContext: 'keeping' }))).toBe(
+		expect(heading(await mount({ correctionContext: 'keeping' }))).toBe(
 			m.import_collision_keeping_heading()
 		);
 	});
@@ -195,22 +195,22 @@ describe('the collision guard reframed for a correction', () => {
 	it('does NOT name the replacing case as a keeping, which is what it used to do', async () => {
 		// Separates « the title changes for a correction » from « the title knows WHICH correction ».
 		// Both assertions, because the positive one alone would pass a title that printed both.
-		const title = heading(mount({ correctionContext: 'replacing' }));
+		const title = heading(await mount({ correctionContext: 'replacing' }));
 
 		expect(title).toBe(m.import_collision_replacing_heading());
 		expect(title).not.toBe(m.import_collision_keeping_heading());
 	});
 
 	it('keeps the original title when the run is not a correction', async () => {
-		expect(heading(mount({ correctionContext: 'none' }))).toBe(m.import_collision_title());
+		expect(heading(await mount({ correctionContext: 'none' }))).toBe(m.import_collision_title());
 	});
 
 	it('gives the three framings three DIFFERENT titles', async () => {
 		// The property that no per-value test can see on its own, and the one that was violated: two of
 		// the three were the same string. Asserted on the rendered headings rather than on the
 		// catalogue, so it is a claim about the component's branching and not about the copy.
-		const titles = (['none', 'keeping', 'replacing'] as const).map((correctionContext) =>
-			heading(mount({ correctionContext }))
+		const titles = (['none', 'keeping', 'replacing'] as const).map(async (correctionContext) =>
+			heading(await mount({ correctionContext }))
 		);
 
 		expect(new Set(titles).size).toBe(3);
@@ -249,7 +249,7 @@ describe('the collision guard reframed for a correction', () => {
 		// made this calibration a test of the harness. `Button` is the element `ConfirmDialog` renders
 		// for its tinted confirm (`variant={tone === 'danger' ? 'danger' : 'primary'}`), so this
 		// measures the same rose through the same stylesheet, one component closer to the paint.
-		const calibration = render(Button, {
+		const calibration = await render(Button, {
 			variant: 'danger' as const,
 			children: createRawSnippet(() => ({ render: () => '<span>calibration</span>' }))
 		});
@@ -258,7 +258,7 @@ describe('the collision guard reframed for a correction', () => {
 		calibration.container.remove();
 
 		for (const context of ['none', 'keeping', 'replacing'] as const) {
-			const { container } = mount({ correctionContext: context });
+			const { container } = await mount({ correctionContext: context });
 			expect(chroma(submitOf(container))).toBeLessThan(0.05);
 		}
 	});
@@ -270,7 +270,7 @@ describe('the collision guard reframed for a correction', () => {
 		// test, because cleanup runs between TESTS, and a page-wide locator then resolves to three
 		// elements and fails on strictness rather than on the claim.
 		for (const context of ['none', 'keeping', 'replacing'] as const) {
-			const { container } = mount({ correctionContext: context });
+			const { container } = await mount({ correctionContext: context });
 			expect(container.textContent).toContain(m.import_collision_consequence());
 		}
 	});
@@ -278,7 +278,7 @@ describe('the collision guard reframed for a correction', () => {
 	it('offers a confirm label that names what will happen in a correction', async () => {
 		// « Importer quand même » is the right words for an ordinary duplicate and the wrong ones
 		// here: nothing is being overridden, the user is completing the repair they came for.
-		const screen = mount({ correctionContext: 'keeping' });
+		const screen = await mount({ correctionContext: 'keeping' });
 
 		await expect
 			.element(screen.getByRole('button', { name: m.import_collision_correction_confirm() }))

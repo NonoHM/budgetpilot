@@ -222,7 +222,7 @@ describe('the table holds its column set whatever the content', () => {
 		// MEASURED, not read off class lists. A class assertion passes happily against a column that
 		// is nothing like the figure it names — which is precisely how this defect survived: the
 		// header measured 190px while the rendered column was 262px.
-		const roomy = render(Page, { data: baseData(), form: null });
+		const roomy = await render(Page, { data: baseData(), form: null });
 		const roomyCols = columnWidths(roomy.container);
 		// Libellé is `1fr` and is the ONLY column allowed to move: it absorbs the slack.
 		//
@@ -240,7 +240,7 @@ describe('the table holds its column set whatever the content', () => {
 		expect(new Set(rowHeights(roomy.container)).size).toBe(1);
 		roomy.unmount();
 
-		const tight = render(Page, { data: selected(), form: null });
+		const tight = await render(Page, { data: selected(), form: null });
 		const tightCols = columnWidths(tight.container);
 		expect(tightCols.slice(1)).toEqual([184, 190, 110]);
 		expect(new Set(rowHeights(tight.container)).size).toBe(1);
@@ -272,14 +272,14 @@ describe('the table holds its column set whatever the content', () => {
 			makeTransaction({ id: 'tx-cat-unbreakable', category: UNBREAKABLE })
 		];
 
-		const roomy = render(Page, { data: baseData({ transactions: rows }), form: null });
+		const roomy = await render(Page, { data: baseData({ transactions: rows }), form: null });
 		// Only the 40-character unbreakable one gives way, and it is the calibration: something has
 		// to fire, or the `truncate` class is not in effect and this test proves nothing.
 		expect(truncatedCategories(roomy.container)).toEqual([UNBREAKABLE]);
 		expect(truncatedCategories(roomy.container)).not.toContain(LONGEST_DEFAULT);
 		roomy.unmount();
 
-		const tight = render(Page, { data: selected({ transactions: rows }), form: null });
+		const tight = await render(Page, { data: selected({ transactions: rows }), form: null });
 		expect(truncatedCategories(tight.container)).toEqual([UNBREAKABLE]);
 		expect(truncatedCategories(tight.container)).not.toContain(LONGEST_MEASURED);
 	});

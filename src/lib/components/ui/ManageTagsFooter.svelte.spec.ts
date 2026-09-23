@@ -14,7 +14,7 @@ import * as m from '$lib/paraglide/messages';
 describe('ManageTagsFooter', () => {
 	it('is a link to the tags section of Settings, not a button', async () => {
 		expect.assertions(2);
-		render(ManageTagsFooter);
+		await render(ManageTagsFooter);
 
 		// A link, because the destination is an address: middle-click and open-in-new-tab must work.
 		// getByRole('link') resolves only for an <a> that actually carries an href, so this fails
@@ -26,7 +26,7 @@ describe('ManageTagsFooter', () => {
 
 	it('renders the second line visibly, since that is what answers "how do I delete"', async () => {
 		expect.assertions(2);
-		render(ManageTagsFooter);
+		await render(ManageTagsFooter);
 
 		const sub = page.getByText(m.tags_manage_footer_sub());
 		await expect.element(sub).toBeInTheDocument();

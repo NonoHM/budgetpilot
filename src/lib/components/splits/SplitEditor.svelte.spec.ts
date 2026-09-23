@@ -47,7 +47,7 @@ function amountOf(position: number) {
 
 describe('SplitEditor — creation (1j-A)', () => {
 	it('opens at the whole amount, with part 1 inheriting the parent and part 2 empty', async () => {
-		render(SplitEditor, base());
+		await render(SplitEditor, base());
 
 		// « Le reste démarre à 80,00 €, le montant entier. C'est la leçon en un coup d'œil. »
 		expect(document.body.textContent).toContain('Reste à répartir');
@@ -64,7 +64,7 @@ describe('SplitEditor — creation (1j-A)', () => {
 
 	it('offers the way OUT in the floor sentence, not just the refusal', async () => {
 		// 1f: « Qui clique sur la deuxième croix ne veut pas une part de moins, il veut sortir. »
-		render(SplitEditor, base());
+		await render(SplitEditor, base());
 		expect(document.body.textContent).toContain('Une répartition compte au moins 2 parts.');
 		await expect
 			.element(page.getByRole('button', { name: 'Retirer la répartition' }))
@@ -76,7 +76,7 @@ describe('SplitEditor — the one-reason-location law (1q)', () => {
 	it('points a remainder-blocked Save at the HIDDEN REGION, never into the aria-hidden band', async () => {
 		// The rule that must not be re-broken: an `aria-hidden` element takes its descendants out of
 		// the accessibility tree, so a describedby aimed into the band exposes nothing.
-		render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		await render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
 		await userEvent.fill(amountOf(2), '10,00');
 
 		await expect.poll(() => save().getAttribute('aria-disabled')).toBe('true');
@@ -92,7 +92,7 @@ describe('SplitEditor — the one-reason-location law (1q)', () => {
 	it('points a non-arithmetic refusal at the reason LINE instead — one location, never both', async () => {
 		// 1j-B: remainder at zero and Save still off, because nothing changed. That is not an
 		// exception to the promise, it is the second reason location.
-		render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		await render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
 
 		await expect.poll(() => save().getAttribute('aria-disabled')).toBe('true');
 		const target = save().getAttribute('aria-describedby');
@@ -106,7 +106,7 @@ describe('SplitEditor — the one-reason-location law (1q)', () => {
 		// What settles 1r's own open question. `replaceSplits` returns 0-based positions for every
 		// failing part, so the panel can say « la part 2, 3 » rather than degrade to a generic
 		// message — which 1r calls a real degradation.
-		render(
+		await render(
 			SplitEditor,
 			base({
 				existingParts: [...SPLIT_60_20, { categoryId: 'cat-transport', amountCents: 0, note: '' }],
@@ -124,7 +124,7 @@ describe('SplitEditor — floor and ceiling (1f)', () => {
 			amountCents: -400,
 			note: ''
 		}));
-		render(SplitEditor, base({ existingParts: many }));
+		await render(SplitEditor, base({ existingParts: many }));
 
 		const add = page.getByRole('button', { name: 'Ajouter une part' }).element();
 		// « Sa disparition serait un mystère de plus à résoudre. »
@@ -136,7 +136,7 @@ describe('SplitEditor — floor and ceiling (1f)', () => {
 	});
 
 	it('adds a part, which lifts the floor and reactivates the crosses', async () => {
-		render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		await render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
 		await userEvent.click(page.getByRole('button', { name: 'Ajouter une part' }));
 
 		await expect
@@ -152,7 +152,7 @@ describe('SplitEditor — floor and ceiling (1f)', () => {
 
 describe('SplitEditor — « Répartir également » (1e)', () => {
 	it('redistributes every amount, and gives the extra cent to part 1 with a mention', async () => {
-		render(SplitEditor, base({ amountCents: -10_000 }));
+		await render(SplitEditor, base({ amountCents: -10_000 }));
 		await userEvent.click(page.getByRole('button', { name: 'Ajouter une part' }));
 		await userEvent.click(page.getByRole('button', { name: 'Répartir également' }));
 
@@ -163,7 +163,7 @@ describe('SplitEditor — « Répartir également » (1e)', () => {
 	});
 
 	it('says nothing when the division is even — there is nothing to explain', async () => {
-		render(SplitEditor, base());
+		await render(SplitEditor, base());
 		await userEvent.click(page.getByRole('button', { name: 'Répartir également' }));
 
 		await expect.poll(() => amountOf(1).value).toBe('40,00');
@@ -171,7 +171,7 @@ describe('SplitEditor — « Répartir également » (1e)', () => {
 	});
 
 	it('drops the mention as soon as an amount is edited — it explained a gesture', async () => {
-		render(SplitEditor, base({ amountCents: -10_000 }));
+		await render(SplitEditor, base({ amountCents: -10_000 }));
 		await userEvent.click(page.getByRole('button', { name: 'Ajouter une part' }));
 		await userEvent.click(page.getByRole('button', { name: 'Répartir également' }));
 		await expect.poll(() => document.body.textContent).toContain("centime d'arrondi");
@@ -182,7 +182,7 @@ describe('SplitEditor — « Répartir également » (1e)', () => {
 
 	it('refuses a distribution that would produce a zero part', async () => {
 		// `replaceSplits` refuses a zero part, so the button must not offer one.
-		render(SplitEditor, base({ amountCents: -1 }));
+		await render(SplitEditor, base({ amountCents: -1 }));
 		expect(
 			page
 				.getByRole('button', { name: 'Répartir également' })
@@ -194,7 +194,7 @@ describe('SplitEditor — « Répartir également » (1e)', () => {
 
 describe('SplitEditor — deferred removal (1j-C)', () => {
 	it('states the intention, offers the way back, and switches the form to clear', async () => {
-		render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		await render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
 		await userEvent.click(page.getByRole('button', { name: 'Retirer la répartition' }));
 
 		await expect
@@ -213,7 +213,7 @@ describe('SplitEditor — deferred removal (1j-C)', () => {
 	it('undoes the removal without a dialog, restoring the parts untouched', async () => {
 		// « Le modèle différé garde les parts en mémoire jusqu'à l'enregistrement, donc il n'a rien à
 		// promettre. » No ConfirmDialog anywhere in this flow.
-		render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		await render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
 		await userEvent.click(page.getByRole('button', { name: 'Retirer la répartition' }));
 		await userEvent.click(page.getByRole('button', { name: 'Annuler le retrait' }));
 
@@ -229,7 +229,7 @@ describe('SplitEditor — the form the action reads', () => {
 		// The action identifies a part by the ALIGNMENT of three lists. A row that contributed a
 		// category and no note would shift every later note by one and file a comment against the
 		// wrong money, so all three are rendered unconditionally.
-		render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		await render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
 
 		expect(document.querySelectorAll('input[name="splitCategoryId"]').length).toBe(2);
 		expect(document.querySelectorAll('input[name="splitAmount"]').length).toBe(2);
@@ -254,7 +254,7 @@ describe('SplitEditor — focus after add and remove (1p)', () => {
 	];
 
 	it('sends focus to the NEXT part’s cross, which is the one that takes the removed row’s place', async () => {
-		render(SplitEditor, base({ existingParts: THREE_PARTS }));
+		await render(SplitEditor, base({ existingParts: THREE_PARTS }));
 
 		// Removing part 2 of 3: the row that was part 3 becomes part 2, and its cross is where the
 		// eye already is. Asserting on the LABEL rather than on an element captured beforehand is
@@ -278,7 +278,7 @@ describe('SplitEditor — focus after add and remove (1p)', () => {
 	});
 
 	it('sends focus to « Ajouter une part » when the removed row was the last', async () => {
-		render(SplitEditor, base({ existingParts: THREE_PARTS }));
+		await render(SplitEditor, base({ existingParts: THREE_PARTS }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Retirer la part 3' }));
 
@@ -288,7 +288,7 @@ describe('SplitEditor — focus after add and remove (1p)', () => {
 	});
 
 	it('sends focus to the new part’s category selector when one is added', async () => {
-		render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		await render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Ajouter une part' }));
 
@@ -317,7 +317,7 @@ describe('SplitEditor — a category deleted in another window (1r)', () => {
 		// Appear-then-disappear: the row is rendered NORMAL first, with the category present and no
 		// warning anywhere, and only then is the option withdrawn. Asserting the warning's presence
 		// on a first render would pass on a component that always warns.
-		const { rerender } = render(
+		const { rerender } = await render(
 			SplitEditor,
 			base({ categoryOptions: OPTIONS_WITH_GIFTS, existingParts: SPLIT_WITH_GIFTS })
 		);
@@ -355,7 +355,7 @@ describe('SplitEditor — a category deleted in another window (1r)', () => {
 			{ value: 'cat-cadeaux', label: 'Cadeaux' },
 			{ value: 'cat-voyage', label: 'Voyage' }
 		];
-		const { rerender } = render(
+		const { rerender } = await render(
 			SplitEditor,
 			base({ categoryOptions: withBoth, existingParts: twoLost })
 		);
@@ -371,7 +371,7 @@ describe('SplitEditor — a category deleted in another window (1r)', () => {
 		// conflict clause from `canSave` left the whole suite green. The draft here is dirty (the
 		// note was edited), the remainder is zero, and every part carries a category id — so the
 		// ONLY thing that can still hold Save is the conflict.
-		const { rerender } = render(
+		const { rerender } = await render(
 			SplitEditor,
 			base({ categoryOptions: OPTIONS_WITH_GIFTS, existingParts: SPLIT_WITH_GIFTS })
 		);
@@ -388,7 +388,7 @@ describe('SplitEditor — a category deleted in another window (1r)', () => {
 		// An empty selector is « choisissez une catégorie pour chaque part », not « cette catégorie a
 		// été supprimée ». Conflating them would report a deletion that never happened on the most
 		// ordinary state there is: a freshly added row.
-		render(SplitEditor, base());
+		await render(SplitEditor, base());
 
 		const reason = document.getElementById(save().getAttribute('aria-describedby') ?? '');
 		expect(reason?.textContent?.trim()).toBe(m.splits_reason_missing_category());
@@ -403,7 +403,7 @@ describe('SplitEditor — a category deleted in another window (1r)', () => {
  */
 describe('SplitEditor — saving (1i)', () => {
 	it('neutralises every field without taking one out of the tab order', async () => {
-		const { rerender } = render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		const { rerender } = await render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
 
 		// Live first, with the same selectors: a locked-field assertion that never saw the fields
 		// live passes on a component that renders none.
@@ -439,7 +439,7 @@ describe('SplitEditor — saving (1i)', () => {
 		// Relational and measured: the band's box before the save and during it, in the same render
 		// tree. « Le bandeau de reste ne bouge pas. » A band that shifted would move the button the
 		// user just pressed, mid-request.
-		const { rerender } = render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
+		const { rerender } = await render(SplitEditor, base({ existingParts: SPLIT_60_20 }));
 		const band = () =>
 			(
 				Array.from(document.querySelectorAll('[aria-hidden="true"]')).find((el) =>
@@ -456,7 +456,7 @@ describe('SplitEditor — saving (1i)', () => {
 	});
 
 	it('says the save is in flight on the button itself', async () => {
-		render(SplitEditor, base({ existingParts: SPLIT_60_20, saving: true }));
+		await render(SplitEditor, base({ existingParts: SPLIT_60_20, saving: true }));
 		await expect
 			.element(page.getByRole('button', { name: m.splits_saving_label() }))
 			.toBeInTheDocument();

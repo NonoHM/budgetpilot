@@ -6,7 +6,7 @@ import DashboardSkeleton from './DashboardSkeleton.svelte';
 
 describe('DashboardSkeleton.svelte', () => {
 	it('exposes a role="status" region with the loading accessible label', async () => {
-		render(DashboardSkeleton, {});
+		await render(DashboardSkeleton, {});
 
 		const status = page.getByRole('status');
 		await expect.element(status).toBeInTheDocument();

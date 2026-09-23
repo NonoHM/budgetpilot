@@ -25,8 +25,8 @@ const BASE = {
 	consequenceId: 'columns-condition-consequence'
 };
 
-function mount(props: Record<string, unknown> = {}) {
-	const { container } = render(ConditionBanner, { ...BASE, ...props });
+async function mount(props: Record<string, unknown> = {}) {
+	const { container } = await render(ConditionBanner, { ...BASE, ...props });
 	container.style.width = '390px';
 	const banner = container.querySelector('[data-testid="condition-banner"]') as HTMLElement;
 	expect(banner).not.toBeNull();
@@ -34,28 +34,28 @@ function mount(props: Record<string, unknown> = {}) {
 }
 
 describe('ConditionBanner.svelte: 64 px, and the hairline is inside it', () => {
-	it('is 64 px, not 62: the 1 px top border is part of the box', () => {
+	it('is 64 px, not 62: the 1 px top border is part of the box', async () => {
 		//  1 hairline + 12 padding + 20 line 1 + 2 gap + 17 line 2 + 12 padding = 64.
 		// The subtraction to 62 was made twice in one document by counting only the content. A
 		// border is inside its box, and this assertion is the only thing that says so out loud.
-		const { banner } = mount();
+		const { banner } = await mount();
 
 		expect(banner.getBoundingClientRect().height).toBe(64);
 		expect(getComputedStyle(banner).borderTopWidth).toBe('1px');
 	});
 
-	it('renders both states and compares them, which is the assertion the pinned 64 cannot make', () => {
+	it('renders both states and compares them, which is the assertion the pinned 64 cannot make', async () => {
 		// The plan asks for BOTH forms and they answer different questions. The absolute 64 says the
 		// figure is right; this says the two states agree, which is what the layout actually needs
 		// and which an absolute assertion per state cannot express directly.
 		//
 		// It is second, never alone: a comparison passes with no stylesheet loaded at all, because
 		// both sides fall back to the same defaults. Paired with the absolute figure it is safe.
-		const incomplete = mount({ complete: false });
+		const incomplete = await mount({ complete: false });
 		const incompleteHeight = incomplete.banner.getBoundingClientRect().height;
 		incomplete.container.remove();
 
-		const complete = mount({
+		const complete = await mount({
 			complete: true,
 			label: 'Les trois colonnes sont désignées',
 			count: '3 sur 3',
@@ -66,11 +66,11 @@ describe('ConditionBanner.svelte: 64 px, and the hairline is inside it', () => {
 		expect(incompleteHeight).toBe(64);
 	});
 
-	it('is 64 px in the complete state too, so the body above it never moves', () => {
+	it('is 64 px in the complete state too, so the body above it never moves', async () => {
 		// This banner sits OUTSIDE the scrolling area, between the 636 px body and the footer. If it
 		// changed height between states, the body would change with it and "nothing scrolls" would
 		// hold in some states and not others.
-		const { banner } = mount({
+		const { banner } = await mount({
 			complete: true,
 			label: 'Les trois colonnes sont désignées',
 			count: '3 sur 3',
@@ -80,7 +80,7 @@ describe('ConditionBanner.svelte: 64 px, and the hairline is inside it', () => {
 		expect(banner.getBoundingClientRect().height).toBe(64);
 	});
 
-	it('is 64 px during analysis, where the count is a dash rather than a number', () => {
+	it('is 64 px during analysis, where the count is a dash rather than a number', async () => {
 		// `count` is a string for exactly this state. A numeric prop would push the caller into
 		// rendering the dash some other way, which is how a second layout appears for one state.
 		//
@@ -89,7 +89,7 @@ describe('ConditionBanner.svelte: 64 px, and the hairline is inside it', () => {
 		// The repository's no-em-dash rule is about sentences and has no answer for this; the
 		// decision is open and recorded as open. This is an eighth site of it. Both catalogues stay
 		// at zero: nothing here reaches `messages/*.json`.
-		const { banner } = mount({
+		const { banner } = await mount({
 			label: 'Analyse du fichier',
 			count: '—',
 			consequence: 'Lecture des colonnes et des premières lignes.'
@@ -98,9 +98,9 @@ describe('ConditionBanner.svelte: 64 px, and the hairline is inside it', () => {
 		expect(banner.getBoundingClientRect().height).toBe(64);
 	});
 
-	it('holds 64 px against a consequence long enough to wrap a narrower box', () => {
+	it('holds 64 px against a consequence long enough to wrap a narrower box', async () => {
 		// The height must not depend on copy length, because copy length depends on translation.
-		const { banner } = mount({
+		const { banner } = await mount({
 			consequence:
 				'Il reste la date et le montant, et deux colonnes portent une date, ce qui fait de cette phrase la plus longue que cet écran puisse produire.'
 		});
@@ -112,7 +112,7 @@ describe('ConditionBanner.svelte: 64 px, and the hairline is inside it', () => {
 });
 
 describe('ConditionBanner.svelte: the complete glyph is black, not green', () => {
-	it('paints the check the same ink as the count, which is the page ink and not a status colour', () => {
+	it('paints the check the same ink as the count, which is the page ink and not a status colour', async () => {
 		// Green is one of the product's two tinted surfaces and it is spent on success, meaning
 		// something happened. Nothing has happened here: three columns are designated, which is a
 		// fact about the form.
@@ -120,7 +120,7 @@ describe('ConditionBanner.svelte: the complete glyph is black, not green', () =>
 		// Compared against the COUNT rather than against a colour literal retyped into this file.
 		// A retyped literal is a copy certifying the original, and Tailwind v4 emits `oklch`, so the
 		// literal would also have pinned a serialisation this test has no opinion about.
-		const { banner } = mount({ complete: true });
+		const { banner } = await mount({ complete: true });
 
 		const glyph = banner.querySelector('svg') as SVGElement;
 		const count = banner.querySelector('.tabular-nums') as HTMLElement;
@@ -137,15 +137,15 @@ describe('ConditionBanner.svelte: the complete glyph is black, not green', () =>
 		expect(glyph.getAttribute('aria-hidden')).toBe('true');
 	});
 
-	it('draws no glyph at all when the condition is not met', () => {
+	it('draws no glyph at all when the condition is not met', async () => {
 		// The presence half sits in the test above: the detector is known to find a glyph when
 		// there is one, so finding none here is a fact about the state rather than about the query.
-		const { banner } = mount({ complete: false });
+		const { banner } = await mount({ complete: false });
 
 		expect(banner.querySelectorAll('svg').length).toBe(0);
 	});
 
-	it('uses no tinted surface in either state, measured as chroma rather than as a class name', () => {
+	it('uses no tinted surface in either state, measured as chroma rather than as a class name', async () => {
 		// An unrecognised file comes from a bank we have not seen; a renamed column comes from the
 		// bank's own site update. None of it is an act of the user, so none of it is painted.
 		//
@@ -170,7 +170,7 @@ describe('ConditionBanner.svelte: the complete glyph is black, not green', () =>
 		probe.remove();
 
 		for (const complete of [false, true]) {
-			const { banner, container } = mount({ complete });
+			const { banner, container } = await mount({ complete });
 			expect(chromaOf(banner), `complete=${complete}`).toBe(0);
 			container.remove();
 		}
@@ -178,22 +178,22 @@ describe('ConditionBanner.svelte: the complete glyph is black, not green', () =>
 });
 
 describe('ConditionBanner.svelte: one reason location per disabled control', () => {
-	it('carries the consequence on an element the primary can point at by id', () => {
+	it('carries the consequence on an element the primary can point at by id', async () => {
 		// The blocked primary is `aria-disabled="true"` with `aria-describedby` aimed HERE, at the
 		// second line, and never at a reason line under the button: the cause is a count, and the
 		// count is displayed here.
-		const { banner } = mount();
+		const { banner } = await mount();
 
 		const target = banner.querySelector('#columns-condition-consequence');
 		expect(target).not.toBeNull();
 		expect(target?.textContent?.trim()).toBe(BASE.consequence);
 	});
 
-	it('resolves the reference from a control that really points at it', () => {
+	it('resolves the reference from a control that really points at it', async () => {
 		// A dangling `aria-describedby` is silent and looks identical in markup to a working one, so
 		// the reference is RESOLVED here rather than assumed: the button is built, pointed at the id,
 		// and the lookup is performed the way an assistive technology performs it.
-		const { container } = mount();
+		const { container } = await mount();
 
 		const primary = document.createElement('button');
 		primary.setAttribute('aria-disabled', 'true');
@@ -210,8 +210,8 @@ describe('ConditionBanner.svelte: one reason location per disabled control', () 
 });
 
 describe('ConditionBanner.svelte: the count', () => {
-	it('is tabular so it does not jitter as it climbs from 0 to 3', () => {
-		const { banner } = mount({ count: '3 sur 3' });
+	it('is tabular so it does not jitter as it climbs from 0 to 3', async () => {
+		const { banner } = await mount({ count: '3 sur 3' });
 
 		const count = banner.querySelector('.tabular-nums') as HTMLElement;
 		expect(count).not.toBeNull();

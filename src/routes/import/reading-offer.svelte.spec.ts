@@ -58,8 +58,8 @@ const FORM = {
 } as unknown as Record<string, unknown>;
 
 /** This page renders its whole content twice; section 0 is desktop, section 1 is the 390 mount. */
-function mount(width: number) {
-	const rendered = render(Page, { data: DATA, form: FORM as never });
+async function mount(width: number) {
+	const rendered = await render(Page, { data: DATA, form: FORM as never });
 	const sections = rendered.container.querySelectorAll('main > section');
 	return {
 		section: (width >= 1024 ? sections[0] : sections[1]) as HTMLElement,
@@ -90,7 +90,7 @@ beforeEach(() => {
 describe('the reading question beside an import refusal', () => {
 	it('draws the control that answers the refusal, at 1280', async () => {
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 
 		expect(questionIn(section)).not.toBeNull();
@@ -101,7 +101,7 @@ describe('the reading question beside an import refusal', () => {
 
 	it('draws it at 390 too', async () => {
 		await page.viewport(390, 844);
-		const { section } = mount(390);
+		const { section } = await mount(390);
 		await chooseAndSubmit(section);
 
 		expect(questionIn(section)).not.toBeNull();
@@ -115,7 +115,7 @@ describe('the reading question beside an import refusal', () => {
 	 */
 	it('posts the day-first default before any card is chosen', async () => {
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 
 		expect(postedOrder(section)).toBe('day-first');
@@ -123,7 +123,7 @@ describe('the reading question beside an import refusal', () => {
 
 	it('opens at the reading step alone, two cards and no column list', async () => {
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 
 		await userEvent.click(questionIn(section)!.querySelector('button') as HTMLElement);
@@ -134,7 +134,7 @@ describe('the reading question beside an import refusal', () => {
 
 	it('puts the chosen reading into the request', async () => {
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 
 		await userEvent.click(questionIn(section)!.querySelector('button') as HTMLElement);
@@ -147,7 +147,7 @@ describe('the reading question beside an import refusal', () => {
 
 	it('carries one answer across both mounts', async () => {
 		await page.viewport(1280, 800);
-		const { container, section } = mount(1280);
+		const { container, section } = await mount(1280);
 		await chooseAndSubmit(section);
 		await userEvent.click(questionIn(section)!.querySelector('button') as HTMLElement);
 		await userEvent.click(
@@ -162,7 +162,7 @@ describe('the reading question beside an import refusal', () => {
 
 	it('stops describing a file the user has since replaced', async () => {
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 		expect(questionIn(section)).not.toBeNull();
 
@@ -174,7 +174,7 @@ describe('the reading question beside an import refusal', () => {
 
 	it('forgets the answer when the file it was given for is replaced', async () => {
 		await page.viewport(1280, 800);
-		const { section } = mount(1280);
+		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
 		await userEvent.click(questionIn(section)!.querySelector('button') as HTMLElement);
 		await userEvent.click(

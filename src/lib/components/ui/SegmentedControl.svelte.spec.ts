@@ -17,14 +17,14 @@ function iconSnippet() {
 
 describe('SegmentedControl.svelte', () => {
 	it('renders a tablist with one tab per option', async () => {
-		render(SegmentedControl, { options, value: 'curve', icon: iconSnippet() });
+		await render(SegmentedControl, { options, value: 'curve', icon: iconSnippet() });
 
 		await expect.element(page.getByRole('tablist')).toBeInTheDocument();
 		expect(page.getByRole('tab').elements().length).toBe(2);
 	});
 
 	it('marks the option matching value as selected via aria-selected', async () => {
-		render(SegmentedControl, { options, value: 'curve', icon: iconSnippet() });
+		await render(SegmentedControl, { options, value: 'curve', icon: iconSnippet() });
 
 		await expect
 			.element(page.getByRole('tab', { name: 'Courbe' }))
@@ -36,7 +36,7 @@ describe('SegmentedControl.svelte', () => {
 
 	it('selects an option and updates aria-selected on both tabs when clicked', async () => {
 		const onValueChange = vi.fn();
-		render(SegmentedControl, { options, value: 'curve', onValueChange, icon: iconSnippet() });
+		await render(SegmentedControl, { options, value: 'curve', onValueChange, icon: iconSnippet() });
 
 		await userEvent.click(page.getByRole('tab', { name: 'Donut' }));
 
@@ -50,7 +50,7 @@ describe('SegmentedControl.svelte', () => {
 	});
 
 	it('uses roving tabindex: -1 on the inactive tab, 0 on the active tab', async () => {
-		render(SegmentedControl, { options, value: 'curve', icon: iconSnippet() });
+		await render(SegmentedControl, { options, value: 'curve', icon: iconSnippet() });
 
 		await expect
 			.element(page.getByRole('tab', { name: 'Courbe' }))
@@ -62,7 +62,7 @@ describe('SegmentedControl.svelte', () => {
 
 	it('moves selection and focus to the next option on ArrowRight', async () => {
 		const onValueChange = vi.fn();
-		render(SegmentedControl, { options, value: 'curve', onValueChange, icon: iconSnippet() });
+		await render(SegmentedControl, { options, value: 'curve', onValueChange, icon: iconSnippet() });
 
 		const curveTab = page.getByRole('tab', { name: 'Courbe' });
 		curveTab.element().focus();
@@ -77,7 +77,7 @@ describe('SegmentedControl.svelte', () => {
 
 	it('moves selection and focus to the previous option on ArrowLeft (wraps around)', async () => {
 		const onValueChange = vi.fn();
-		render(SegmentedControl, { options, value: 'curve', onValueChange, icon: iconSnippet() });
+		await render(SegmentedControl, { options, value: 'curve', onValueChange, icon: iconSnippet() });
 
 		const curveTab = page.getByRole('tab', { name: 'Courbe' });
 		curveTab.element().focus();
@@ -90,7 +90,7 @@ describe('SegmentedControl.svelte', () => {
 
 	it('does not cycle between tabs on plain Tab (arrow-key handler ignores non-arrow keys)', async () => {
 		const onValueChange = vi.fn();
-		render(SegmentedControl, { options, value: 'curve', onValueChange, icon: iconSnippet() });
+		await render(SegmentedControl, { options, value: 'curve', onValueChange, icon: iconSnippet() });
 
 		const curveTab = page.getByRole('tab', { name: 'Courbe' });
 		curveTab.element().focus();

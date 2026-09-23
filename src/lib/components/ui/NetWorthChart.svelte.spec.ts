@@ -42,7 +42,7 @@ const SERIES = [
 
 describe('NetWorthChart.svelte — the accessible table announces a day, not a time (#204)', () => {
 	it('renders no clock time anywhere in the screen-reader table', async () => {
-		render(NetWorthChart, { series: SERIES });
+		await render(NetWorthChart, { series: SERIES });
 
 		const table = page.getByRole('table').element();
 		expect(table.textContent ?? '').not.toMatch(CLOCK_TIME);
@@ -51,14 +51,14 @@ describe('NetWorthChart.svelte — the accessible table announces a day, not a t
 	it('the control: the table still names both days, so the assertion above is not vacuous', async () => {
 		// Without this, deleting the table entirely would pass the test above. The absence
 		// assertion needs an absolute figure beside it.
-		render(NetWorthChart, { series: SERIES });
+		await render(NetWorthChart, { series: SERIES });
 
 		const rows = page.getByRole('row').elements();
 		expect(rows.length).toBe(2);
 	});
 
 	it('renders no clock time in the point aria-label either, which is the same string', async () => {
-		render(NetWorthChart, { series: SERIES });
+		await render(NetWorthChart, { series: SERIES });
 
 		const labels = page
 			.getByRole('button')

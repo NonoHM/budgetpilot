@@ -12,7 +12,7 @@ function textSnippet(text: string) {
 
 describe('Badge.svelte', () => {
 	it('renders as a non-interactive span, not focusable and without an interactive role', async () => {
-		const { container } = render(Badge, { tone: 'neutral', children: textSnippet('Label') });
+		const { container } = await render(Badge, { tone: 'neutral', children: textSnippet('Label') });
 
 		const badge = await page.getByText('Label').element();
 		const span = badge.parentElement!;
@@ -23,7 +23,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('applies the neutral tone color classes by default', async () => {
-		render(Badge, { tone: 'neutral', children: textSnippet('Neutral') });
+		await render(Badge, { tone: 'neutral', children: textSnippet('Neutral') });
 
 		const span = (await page.getByText('Neutral').element()).parentElement!;
 		expect(span.className).toContain('bg-zinc-100');
@@ -31,7 +31,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('applies the success tone color classes', async () => {
-		render(Badge, { tone: 'success', children: textSnippet('Success') });
+		await render(Badge, { tone: 'success', children: textSnippet('Success') });
 
 		const span = (await page.getByText('Success').element()).parentElement!;
 		expect(span.className).toContain('bg-emerald-50');
@@ -39,7 +39,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('applies the warning tone color classes', async () => {
-		render(Badge, { tone: 'warning', children: textSnippet('Warning') });
+		await render(Badge, { tone: 'warning', children: textSnippet('Warning') });
 
 		const span = (await page.getByText('Warning').element()).parentElement!;
 		expect(span.className).toContain('bg-amber-50');
@@ -47,7 +47,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('applies the danger tone color classes', async () => {
-		render(Badge, { tone: 'danger', children: textSnippet('Danger') });
+		await render(Badge, { tone: 'danger', children: textSnippet('Danger') });
 
 		const span = (await page.getByText('Danger').element()).parentElement!;
 		expect(span.className).toContain('bg-rose-50');
@@ -55,7 +55,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('applies the count tone color classes regardless of bordered/solid', async () => {
-		render(Badge, {
+		await render(Badge, {
 			tone: 'count',
 			bordered: true,
 			solid: true,
@@ -69,7 +69,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('uses the smaller rounded sizing when shape="rounded"', async () => {
-		render(Badge, { tone: 'neutral', shape: 'rounded', children: textSnippet('Rounded') });
+		await render(Badge, { tone: 'neutral', shape: 'rounded', children: textSnippet('Rounded') });
 
 		const span = (await page.getByText('Rounded').element()).parentElement!;
 		expect(span.className).toContain('rounded-[5px]');
@@ -78,7 +78,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('uses the pill sizing by default (shape unset)', async () => {
-		render(Badge, { tone: 'neutral', children: textSnippet('Pill') });
+		await render(Badge, { tone: 'neutral', children: textSnippet('Pill') });
 
 		const span = (await page.getByText('Pill').element()).parentElement!;
 		expect(span.className).toContain('rounded-full');
@@ -86,7 +86,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('adds border classes and a transparent fill when bordered, without changing the text color', async () => {
-		render(Badge, { tone: 'success', bordered: true, children: textSnippet('Bordered') });
+		await render(Badge, { tone: 'success', bordered: true, children: textSnippet('Bordered') });
 
 		const span = (await page.getByText('Bordered').element()).parentElement!;
 		expect(span.className).toContain('border');
@@ -97,7 +97,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('applies the solid emerald style and renders a checkmark icon when tone="success" and solid=true', async () => {
-		const { container } = render(Badge, {
+		const { container } = await render(Badge, {
 			tone: 'success',
 			solid: true,
 			children: textSnippet('Reached')
@@ -110,7 +110,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('ignores solid for a non-success tone (no black-on-color solid style, no icon)', async () => {
-		const { container } = render(Badge, {
+		const { container } = await render(Badge, {
 			tone: 'warning',
 			solid: true,
 			children: textSnippet('Warning solid')
@@ -129,7 +129,7 @@ describe('Badge.svelte', () => {
 	// These three cases pin what it may and may not do, so a future call site cannot quietly turn it
 	// into a general restyling prop.
 	it('leaves the class attribute unchanged when no class prop is passed', async () => {
-		render(Badge, { tone: 'neutral', children: textSnippet('Bare') });
+		await render(Badge, { tone: 'neutral', children: textSnippet('Bare') });
 
 		const span = (await page.getByText('Bare').element()).parentElement!;
 		expect(span.className.trim()).toBe(
@@ -138,7 +138,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('APPENDS the extra classes without displacing the tone classes', async () => {
-		render(Badge, {
+		await render(Badge, {
 			tone: 'neutral',
 			shape: 'rounded',
 			bordered: true,
@@ -161,7 +161,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('does not let the class prop reach a role, tabindex or any attribute other than class', async () => {
-		const { container } = render(Badge, {
+		const { container } = await render(Badge, {
 			tone: 'warning',
 			class: '!bg-amber-100 !text-amber-800',
 			children: textSnippet('Overdue tier')
@@ -173,7 +173,7 @@ describe('Badge.svelte', () => {
 	});
 
 	it('ignores solid for the danger tone as well', async () => {
-		const { container } = render(Badge, {
+		const { container } = await render(Badge, {
 			tone: 'danger',
 			solid: true,
 			children: textSnippet('Danger solid')

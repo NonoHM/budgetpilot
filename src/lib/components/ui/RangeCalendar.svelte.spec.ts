@@ -40,7 +40,7 @@ function base(overrides: Record<string, unknown> = {}): Record<string, unknown> 
 async function openPanel(surface: 'desktop' | 'mobile') {
 	if (surface === 'mobile') await page.viewport(390, 844);
 	else await page.viewport(1280, 900);
-	const screen = render(
+	const screen = await render(
 		PeriodFilter,
 		base(surface === 'mobile' ? { surface: 'mobile', allowCustomRung: false } : {})
 	);
@@ -64,7 +64,7 @@ describe('the mouse grid at 1280', () => {
 	it('CALIBRATION — reproduces the trigger group height this file did not set', async () => {
 		// 34px is the referential's desktop control height, pinned by a spec that predates this
 		// chantier. If this line is wrong, no number below can be trusted.
-		const screen = render(PeriodFilter, base());
+		const screen = await render(PeriodFilter, base());
 		await page.viewport(1280, 900);
 		await expect
 			.element(screen.getByRole('button', { name: 'Période', exact: true }))
@@ -287,8 +287,8 @@ describe('unavailable days and the min/max bounds — the props Période never p
 		empty: 'Aucune période choisie.'
 	};
 
-	function mountCalendar(props: Record<string, unknown> = {}) {
-		return render(RangeCalendar, {
+	async function mountCalendar(props: Record<string, unknown> = {}) {
+		return await render(RangeCalendar, {
 			value: { start: null, end: null },
 			onValueChange: vi.fn(),
 			size: 'mouse',
@@ -307,7 +307,7 @@ describe('unavailable days and the min/max bounds — the props Période never p
 
 	it('marks an unavailable day aria-disabled and strikes it through, without removing it', async () => {
 		await page.viewport(1280, 900);
-		mountCalendar({ isDateUnavailable: (iso: string) => iso === '2026-06-11' });
+		await mountCalendar({ isDateUnavailable: (iso: string) => iso === '2026-06-11' });
 
 		const cell = document.querySelector('[data-bits-day][data-value="2026-06-11"]') as HTMLElement;
 		expect(cell).not.toBeNull();
@@ -323,7 +323,10 @@ describe('unavailable days and the min/max bounds — the props Période never p
 	it('does not select an unavailable day when it is clicked', async () => {
 		await page.viewport(1280, 900);
 		const onValueChange = vi.fn();
-		mountCalendar({ isDateUnavailable: (iso: string) => iso === '2026-06-11', onValueChange });
+		await mountCalendar({
+			isDateUnavailable: (iso: string) => iso === '2026-06-11',
+			onValueChange
+		});
 
 		(document.querySelector('[data-bits-day][data-value="2026-06-11"]') as HTMLElement).click();
 		expect(onValueChange).not.toHaveBeenCalled();
@@ -331,7 +334,7 @@ describe('unavailable days and the min/max bounds — the props Période never p
 
 	it('disables days outside minIso/maxIso while keeping the month rendered', async () => {
 		await page.viewport(1280, 900);
-		mountCalendar({ minIso: '2026-06-10', maxIso: '2026-06-20' });
+		await mountCalendar({ minIso: '2026-06-10', maxIso: '2026-06-20' });
 
 		const before = document.querySelector(
 			'[data-bits-day][data-value="2026-06-05"]'

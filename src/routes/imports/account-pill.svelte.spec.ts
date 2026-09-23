@@ -73,7 +73,7 @@ describe('the /imports list names the account each import landed in', () => {
 		// answer. A selector that has to count is usually reporting something about the page.
 		expect.assertions(3);
 		await page.viewport(1280, 800);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 		const pills = page.getByText(NAMED, { exact: true }).elements();
 		// Two rows in the fixture and exactly ONE carries a name, so two occurrences is one per
 		// chrome. Four would mean the pill renders for the legacy row too.
@@ -86,7 +86,7 @@ describe('the /imports list names the account each import landed in', () => {
 	it('shows it at 390, where the other chrome is the one on screen', async () => {
 		expect.assertions(2);
 		await page.viewport(390, 844);
-		render(Page, { data: DATA, form: null });
+		await render(Page, { data: DATA, form: null });
 		const pills = page.getByText(NAMED, { exact: true }).elements();
 		expect(pills).toHaveLength(2);
 		expect(pills.filter((el) => el.checkVisibility())).toHaveLength(1);
@@ -100,7 +100,7 @@ describe('the /imports list names the account each import landed in', () => {
 		// user can look.
 		expect.assertions(2);
 		await page.viewport(1280, 800);
-		render(Page, {
+		await render(Page, {
 			data: { ...DATA, batches: [batch('only', null)] } as PageData,
 			form: null
 		});

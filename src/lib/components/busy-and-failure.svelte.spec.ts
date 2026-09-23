@@ -35,7 +35,7 @@ describe('a button that is occupied rather than disabled', () => {
 	// answer at the place they pressed.
 	it('keeps its focus and its name, and refuses activation without going disabled', async () => {
 		const onclick = vi.fn();
-		const screen = render(Button, {
+		const screen = await render(Button, {
 			loading: true,
 			busyLabel: 'Suppression…',
 			onclick,
@@ -55,7 +55,7 @@ describe('a button that is occupied rather than disabled', () => {
 	// The VERB, visible. « En cours… » is a fallback that says nothing about what is running; the
 	// action's own verb in the progressive is the same action, in its course.
 	it('shows the verb rather than a bare spinner', async () => {
-		const screen = render(Button, {
+		const screen = await render(Button, {
 			loading: true,
 			busyLabel: 'Suppression…',
 			children: createRawSnippet(() => ({ render: () => '<span>Supprimer</span>' }))
@@ -68,7 +68,7 @@ describe('a button that is occupied rather than disabled', () => {
 	// finger. Measured as a comparison between the two states rather than as a figure, because the
 	// figure depends on the font and the label.
 	it('does not change width when it becomes busy', async () => {
-		const screen = render(Button, {
+		const screen = await render(Button, {
 			children: createRawSnippet(() => ({ render: () => '<span>Supprimer</span>' }))
 		});
 		const button = (await screen.getByRole('button').element()) as HTMLButtonElement;
@@ -85,7 +85,7 @@ describe('a confirmation that owns its action until the answer', () => {
 	// answer lands in a screen that no longer exists.
 	it('does not close on Escape while the request is in flight', async () => {
 		const onClose = vi.fn();
-		render(ConfirmDialog, {
+		await render(ConfirmDialog, {
 			open: true,
 			title: 'Supprimer ?',
 			phase: 'busy',
@@ -100,7 +100,7 @@ describe('a confirmation that owns its action until the answer', () => {
 
 	it('does not close on a backdrop click while the request is in flight', async () => {
 		const onClose = vi.fn();
-		render(ConfirmDialog, {
+		await render(ConfirmDialog, {
 			open: true,
 			title: 'Supprimer ?',
 			phase: 'busy',
@@ -119,7 +119,7 @@ describe('a confirmation that owns its action until the answer', () => {
 	// neutralised Escape unconditionally would pass both of them and break every other dialog.
 	it('still closes on Escape when nothing is in flight', async () => {
 		const onClose = vi.fn();
-		render(ConfirmDialog, { open: true, title: 'Supprimer ?', onClose, children: body() });
+		await render(ConfirmDialog, { open: true, title: 'Supprimer ?', onClose, children: body() });
 
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
 
@@ -135,7 +135,7 @@ describe('a confirmation that owns its action until the answer', () => {
 		// its own content when it opens, which is a parent effect and therefore runs after any child's
 		// on the same mount. In the journey the dialog opens idle, the request goes out, and the
 		// failure arrives afterwards, which is what this drives.
-		const screen = render(ConfirmDialog, {
+		const screen = await render(ConfirmDialog, {
 			open: true,
 			title: 'Supprimer ?',
 			onClose: () => {},
@@ -174,7 +174,7 @@ describe('a confirmation that owns its action until the answer', () => {
 	// the defect in. The dialog is still mounted with the failure showing.
 	it('is still mounted after a failure, with the action re-offered', async () => {
 		const onAction = vi.fn();
-		render(ConfirmDialog, {
+		await render(ConfirmDialog, {
 			open: true,
 			title: 'Supprimer ?',
 			phase: 'error',
@@ -196,7 +196,7 @@ describe('a confirmation that owns its action until the answer', () => {
 	// irreversible action blind is the worst advice a banner can give, so a no-answer offers a
 	// refresh instead.
 	it('offers a refresh rather than a retry when there was no answer at all', async () => {
-		render(ConfirmDialog, {
+		await render(ConfirmDialog, {
 			open: true,
 			title: 'Supprimer ?',
 			phase: 'error',

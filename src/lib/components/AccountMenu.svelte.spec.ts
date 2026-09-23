@@ -28,7 +28,7 @@ async function openMenu() {
 
 describe('AccountMenu.svelte', () => {
 	it('cache le lien Administration pour un utilisateur non admin', async () => {
-		render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
+		await render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
 
 		await openMenu();
 
@@ -42,7 +42,7 @@ describe('AccountMenu.svelte', () => {
 	});
 
 	it('affiche le lien Administration pour un utilisateur admin', async () => {
-		render(AccountMenu, { email: 'admin@budgetpilot.com', isAdmin: true });
+		await render(AccountMenu, { email: 'admin@budgetpilot.com', isAdmin: true });
 
 		await openMenu();
 
@@ -55,7 +55,7 @@ describe('AccountMenu.svelte', () => {
 	});
 
 	it('place le bouton de déconnexion dans un formulaire POST vers /logout', async () => {
-		render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
+		await render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
 
 		await openMenu();
 
@@ -68,7 +68,7 @@ describe('AccountMenu.svelte', () => {
 	});
 
 	it('renders the logout menu item as a real <button type="submit"> inside a real <form>, not a link or a div', async () => {
-		render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
+		await render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
 
 		await openMenu();
 
@@ -84,7 +84,7 @@ describe('AccountMenu.svelte', () => {
 	});
 
 	it('submits the real /logout form when Enter is pressed while the logout button is focused', async () => {
-		render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
+		await render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
 
 		await openMenu();
 
@@ -142,7 +142,7 @@ describe('AccountMenu.svelte', () => {
 	});
 
 	it('reflects the DropdownMenu wrapper open state back to the trigger (bind:open two-way through the wrapper)', async () => {
-		render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
+		await render(AccountMenu, { email: 'sophie.martin@gmail.com', isAdmin: false });
 
 		const trigger = page.getByRole('button', { name: 'Menu du compte' });
 		await expect.element(trigger).toHaveAttribute('aria-expanded', 'false');

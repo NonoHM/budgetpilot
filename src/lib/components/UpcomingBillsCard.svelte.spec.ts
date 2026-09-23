@@ -111,7 +111,7 @@ function hasHidingToken(className: string | null | undefined): boolean {
 describe('UpcomingBillsCard.svelte', () => {
 	it('always renders the footer label, visibly, on a narrow (mobile) viewport', async () => {
 		await page.viewport(390, 844);
-		const { container } = render(UpcomingBillsCard, { widget: buildWidget() });
+		const { container } = await render(UpcomingBillsCard, { widget: buildWidget() });
 
 		// Real stylesheet is loaded (see the `layout.css` import above), so `toBeVisible()` reflects
 		// an actual computed style here, not an inert assertion against unstyled markup.
@@ -124,7 +124,7 @@ describe('UpcomingBillsCard.svelte', () => {
 
 	it('always renders the footer label, visibly, on a wide (desktop) viewport', async () => {
 		await page.viewport(1280, 800);
-		const { container } = render(UpcomingBillsCard, { widget: buildWidget() });
+		const { container } = await render(UpcomingBillsCard, { widget: buildWidget() });
 
 		await expect.element(page.getByText('Reste à sortir · 30 prochains jours')).toBeVisible();
 
@@ -134,18 +134,20 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('renders the overdue badge only when overdueCount > 0', async () => {
-		const { unmount } = render(UpcomingBillsCard, { widget: buildWidget({ overdueCount: 2 }) });
+		const { unmount } = await render(UpcomingBillsCard, {
+			widget: buildWidget({ overdueCount: 2 })
+		});
 
 		await expect.element(page.getByText('2 en retard')).toBeInTheDocument();
 		unmount();
 
-		render(UpcomingBillsCard, { widget: buildWidget({ overdueCount: 0 }) });
+		await render(UpcomingBillsCard, { widget: buildWidget({ overdueCount: 0 }) });
 
 		expect(page.getByText(/en retard/).elements().length).toBe(0);
 	});
 
 	it('carries the amber contrast classes on an overdue row and none on a non-overdue row', async () => {
-		const { container } = render(UpcomingBillsCard, {
+		const { container } = await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				overdueCount: 1,
 				rows: [
@@ -168,7 +170,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('writes the overdue lateness as text', async () => {
-		render(UpcomingBillsCard, {
+		await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				overdueCount: 1,
 				rows: [
@@ -181,7 +183,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('renders the EmptyState, keeps the card title and hides the footer when no stream was ever detected', async () => {
-		const { container } = render(UpcomingBillsCard, {
+		const { container } = await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				rows: [],
 				overdueCount: 0,
@@ -204,7 +206,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('renders a different empty state, still without a footer, when streams exist but none survive into the window', async () => {
-		render(UpcomingBillsCard, {
+		await render(UpcomingBillsCard, {
 			widget: buildWidget({ rows: [], overdueCount: 0, hasStreams: true, remainingExpenseCents: 0 })
 		});
 
@@ -224,7 +226,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	// `emptyState === 'all-stale'` branch).
 	it('renders the dormant-flow copy, in the empty branch, for the all-stale state', async () => {
 		expect.assertions(4);
-		const { container } = render(UpcomingBillsCard, {
+		const { container } = await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				rows: [],
 				overdueCount: 0,
@@ -249,7 +251,7 @@ describe('UpcomingBillsCard.svelte', () => {
 				dateIso: `2026-08-0${index + 1}`
 			})
 		);
-		const { container } = render(UpcomingBillsCard, { widget: buildWidget({ rows }) });
+		const { container } = await render(UpcomingBillsCard, { widget: buildWidget({ rows }) });
 
 		const rowEls = container.querySelectorAll('.divide-y > div');
 		expect(rowEls.length).toBe(5);
@@ -263,7 +265,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('never re-totals: the displayed total is the server-supplied remainingExpenseCents, even when it contradicts the row amounts', async () => {
-		render(UpcomingBillsCard, {
+		await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				rows: [buildRow({ amountCents: -100, minAmountCents: 100, maxAmountCents: 100 })],
 				// Deliberately does not match the single row's amount: proves the component reads this
@@ -276,7 +278,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('renders "0,00 €" rather than "-0,00 €" when nothing is due', async () => {
-		render(UpcomingBillsCard, { widget: buildWidget({ remainingExpenseCents: 0 }) });
+		await render(UpcomingBillsCard, { widget: buildWidget({ remainingExpenseCents: 0 }) });
 
 		await expect.element(page.getByText(formatCents(0))).toBeInTheDocument();
 		expect(page.getByText('-0,00 €').elements().length).toBe(0);
@@ -284,7 +286,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('signs a fixed-amount expense row with a minus and an income row with a plus', async () => {
-		render(UpcomingBillsCard, {
+		await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				rows: [
 					buildRow({ rowKey: 'expense', direction: 'expense', amountCents: -4890 }),
@@ -299,7 +301,7 @@ describe('UpcomingBillsCard.svelte', () => {
 
 	it('renders a variable row as a signed, euro-rounded range plus the "variable" tag', async () => {
 		// Unsigned magnitudes in cents, as `forecast.ts` documents them.
-		render(UpcomingBillsCard, {
+		await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				rows: [
 					buildRow({
@@ -325,7 +327,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	it('renders a variable income row as a signed positive range', async () => {
 		// Only the expense variable row was previously covered — signing is the entire reason
 		// `formatSignedRange` exists, so an income row is the case most likely to regress silently.
-		render(UpcomingBillsCard, {
+		await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				rows: [
 					buildRow({
@@ -348,7 +350,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	it('derives relative-date text from widget.todayIso, never from the browser clock', async () => {
 		// todayIso is deliberately years away from the real wall clock: a `new Date()`-based
 		// implementation could not produce "dans 3 j" for a row dated 2020-03-04 under this fixture.
-		render(UpcomingBillsCard, {
+		await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				todayIso: '2020-03-01',
 				rows: [buildRow({ rowKey: 'row', dateIso: '2020-03-04' })]
@@ -359,7 +361,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('composes the sub-line as absolute date, then a separator, then the relative label, for a future row', async () => {
-		const { container } = render(UpcomingBillsCard, {
+		const { container } = await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				// TODAY_ISO is 2026-08-01, so this row is 3 days out — clear of the delta===1 "demain"
 				// special case, so the general "dans N j" composition is what's under test here.
@@ -374,7 +376,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('renders "aujourd\'hui" alone, with no date part, for a row due today', async () => {
-		const { container } = render(UpcomingBillsCard, {
+		const { container } = await render(UpcomingBillsCard, {
 			widget: buildWidget({ rows: [buildRow({ rowKey: 'row', dateIso: TODAY_ISO })] })
 		});
 
@@ -383,7 +385,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('carries proximity as weight, not colour: near-horizon rows are dark and bold, far-horizon rows are neither', async () => {
-		const { container } = render(UpcomingBillsCard, {
+		const { container } = await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				rows: [
 					buildRow({ rowKey: 'near', dateIso: '2026-08-08' }), // delta 7: at the near threshold
@@ -407,7 +409,7 @@ describe('UpcomingBillsCard.svelte', () => {
 	});
 
 	it('renders an icon in both "no streams" and "streams but none due" empty states', async () => {
-		const { container: noStreams, unmount } = render(UpcomingBillsCard, {
+		const { container: noStreams, unmount } = await render(UpcomingBillsCard, {
 			widget: buildWidget({
 				rows: [],
 				overdueCount: 0,
@@ -420,20 +422,20 @@ describe('UpcomingBillsCard.svelte', () => {
 		expect(noStreams.querySelector('svg')).not.toBeNull();
 		unmount();
 
-		const { container: noneDue } = render(UpcomingBillsCard, {
+		const { container: noneDue } = await render(UpcomingBillsCard, {
 			widget: buildWidget({ rows: [], overdueCount: 0, hasStreams: true, remainingExpenseCents: 0 })
 		});
 		expect(noneDue.querySelector('svg')).not.toBeNull();
 	});
 
 	it('badges a transfer row and leaves an ordinary expense row untagged', async () => {
-		const { unmount } = render(UpcomingBillsCard, {
+		const { unmount } = await render(UpcomingBillsCard, {
 			widget: buildWidget({ rows: [buildRow({ nature: 'transfer' })] })
 		});
 		await expect.element(page.getByText(m.nature_transfer())).toBeInTheDocument();
 		unmount();
 
-		const { container } = render(UpcomingBillsCard, {
+		const { container } = await render(UpcomingBillsCard, {
 			widget: buildWidget({ rows: [buildRow({ nature: 'spending' })] })
 		});
 		// `spending` is the fallback an unmapped category resolves to, so badging it would tag
@@ -445,7 +447,7 @@ describe('UpcomingBillsCard.svelte', () => {
 		const rows = Array.from({ length: 5 }, (_, index) =>
 			buildRow({ rowKey: `row-${index}`, label: `Flux ${index}`, dateIso: `2026-08-0${index + 2}` })
 		);
-		const { container } = render(UpcomingBillsCard, { widget: buildWidget({ rows }) });
+		const { container } = await render(UpcomingBillsCard, { widget: buildWidget({ rows }) });
 
 		const rowEls = container.querySelectorAll('.divide-y > div');
 		expect(rowEls[2].className).toMatch(/(^|\s)max-lg:pb-0(\s|$)/);

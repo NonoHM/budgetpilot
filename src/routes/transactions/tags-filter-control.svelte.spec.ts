@@ -86,14 +86,14 @@ function tagTrigger(container: HTMLElement): HTMLElement {
 describe('tag filter control', () => {
 	it('desktop: is absent for a user with no tags', async () => {
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		expect(page.getByRole('button', { name: m.tags_filter_dimension() }).elements().length).toBe(0);
 	});
 
 	it('desktop: renders once the user has at least one tag', async () => {
 		await page.viewport(1280, 800);
-		render(Page, { data: baseData({ allTags: SPENDING_TAG_OPTIONS }), form: null });
+		await render(Page, { data: baseData({ allTags: SPENDING_TAG_OPTIONS }), form: null });
 
 		await expect
 			.element(page.getByRole('button', { name: m.tags_filter_dimension() }).first())
@@ -102,14 +102,14 @@ describe('tag filter control', () => {
 
 	it('mobile: is absent for a user with no tags', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		expect(page.getByRole('button', { name: m.tags_filter_dimension() }).elements().length).toBe(0);
 	});
 
 	it('mobile: renders once the user has at least one tag', async () => {
 		await page.viewport(390, 844);
-		render(Page, { data: baseData({ allTags: SPENDING_TAG_OPTIONS }), form: null });
+		await render(Page, { data: baseData({ allTags: SPENDING_TAG_OPTIONS }), form: null });
 
 		await expect
 			.element(page.getByRole('button', { name: m.tags_filter_dimension() }).first())
@@ -124,7 +124,7 @@ describe('tag filter control', () => {
 		// is meant to say so. Desktop kept claiming "Comptes dans le filtre courant." while every row
 		// beside it rendered "—", so the header contradicted the numbers under it. Mobile already had
 		// the branch and desktop did not — the same one-surface-only shape this repo keeps finding.
-		const unavailable = render(Page, {
+		const unavailable = await render(Page, {
 			data: baseData({ allTags: SPENDING_TAG_OPTIONS, tagCounts: null }),
 			form: null
 		});
@@ -133,7 +133,7 @@ describe('tag filter control', () => {
 		expect(unavailable.container.textContent).not.toContain(m.tags_filter_scope_note());
 		unavailable.unmount();
 
-		const scoped = render(Page, {
+		const scoped = await render(Page, {
 			data: baseData({ allTags: SPENDING_TAG_OPTIONS, tagCounts: [{ tagId: 'tag-1', count: 2 }] }),
 			form: null
 		});
@@ -150,7 +150,7 @@ describe('tag filter control', () => {
 		expect.assertions(6);
 		await page.viewport(390, 844);
 		const zeroTag = { id: 'tag-1', name: 'Portugal', colorToken: 'lagoon' as const };
-		render(Page, {
+		await render(Page, {
 			data: baseData({ allTags: [zeroTag], tagCounts: [{ tagId: 'tag-1', count: 0 }] }),
 			form: null
 		});

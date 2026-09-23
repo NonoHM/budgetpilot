@@ -103,8 +103,8 @@ const ACCOUNTS = [
 	{ id: 'account-1', name: 'BP · Compte courant', discriminant: '4417', transactionCount: 128 }
 ];
 
-function mount(props: Record<string, unknown> = {}) {
-	return render(ColumnDesignationScreen, {
+async function mount(props: Record<string, unknown> = {}) {
+	return await render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: EMPTY_ASSIGNMENT,
 		accounts: ACCOUNTS,
@@ -129,7 +129,7 @@ describe('the date reading question can be answered', () => {
 	 * screen fails here before anything else is reported.
 	 */
 	it('renders the screen it is asserting about', async () => {
-		const { container } = mount({ initialAssignment: DATE_DESIGNATED });
+		const { container } = await mount({ initialAssignment: DATE_DESIGNATED });
 
 		const card = cardOf(container);
 		expect(card).not.toBeNull();
@@ -145,7 +145,7 @@ describe('the date reading question can be answered', () => {
 	 * must not change: the row states the day-first reading behind the open question.
 	 */
 	it('defers the close by one question when the designated column is ambiguous', async () => {
-		const { container } = mount();
+		const { container } = await mount();
 
 		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
 		await page.getByRole('option', { name: /Date operation/ }).click();
@@ -160,7 +160,7 @@ describe('the date reading question can be answered', () => {
 	 * of the day-first rendering is what makes this a change rather than an addition.
 	 */
 	it('moves the stated reading when the other reading is chosen', async () => {
-		const { container } = mount();
+		const { container } = await mount();
 
 		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
 		await page.getByRole('option', { name: /Date operation/ }).click();
@@ -179,7 +179,7 @@ describe('the date reading question can be answered', () => {
 	 */
 	it('carries the chosen reading out through onSubmit', async () => {
 		const onSubmit = vi.fn();
-		mount({ onSubmit });
+		await mount({ onSubmit });
 
 		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
 		await page.getByRole('option', { name: /Date operation/ }).click();
@@ -203,7 +203,7 @@ describe('the date reading question can be answered', () => {
 	 */
 	it('carries null when the question was never answered', async () => {
 		const onSubmit = vi.fn();
-		mount({ initialAssignment: DATE_DESIGNATED, onSubmit });
+		await mount({ initialAssignment: DATE_DESIGNATED, onSubmit });
 
 		await page.getByTestId('designation-primary').click();
 
@@ -218,7 +218,7 @@ describe('the date reading question can be answered', () => {
 	 * discards any answer given.
 	 */
 	it('closes immediately on a column that proves its own order', async () => {
-		const { container } = render(ColumnDesignationScreen, {
+		const { container } = await render(ColumnDesignationScreen, {
 			file: PROVEN,
 			initialAssignment: EMPTY_ASSIGNMENT,
 			accounts: ACCOUNTS,
@@ -239,7 +239,7 @@ describe('the date reading question can be answered', () => {
 	 * planted positive is that imperative: a render whose row said nothing could not report this.
 	 */
 	it('opens the question from a row whose reading is still unconfirmed', async () => {
-		const { container } = mount({ initialAssignment: DATE_DESIGNATED });
+		const { container } = await mount({ initialAssignment: DATE_DESIGNATED });
 
 		expect(cardOf(container).textContent).toContain('Confirmer');
 		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
@@ -253,7 +253,7 @@ describe('the date reading question can be answered', () => {
 	 * sheet », and the planted positive is the column list itself.
 	 */
 	it('re-asks the column question from the foot of the reading question', async () => {
-		mount({ initialAssignment: DATE_DESIGNATED });
+		await mount({ initialAssignment: DATE_DESIGNATED });
 
 		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
 		await page.getByRole('button', { name: m.import_datesheet_change_column() }).click();
@@ -273,7 +273,7 @@ describe('the date reading question can be answered', () => {
 	 * afterwards, so a render that produced no line cannot report the absence of the reading.
 	 */
 	it('states no reading for a column the answer was not about', async () => {
-		const { container } = render(ColumnDesignationScreen, {
+		const { container } = await render(ColumnDesignationScreen, {
 			file: FOUR_COLUMN,
 			initialAssignment: DATE_DESIGNATED,
 			initialDateOrder: 'month-first',
@@ -300,7 +300,7 @@ describe('the date reading question can be answered', () => {
 	 */
 	it('carries null once the designation moves off the column the answer was about', async () => {
 		const onSubmit = vi.fn();
-		render(ColumnDesignationScreen, {
+		await render(ColumnDesignationScreen, {
 			file: FOUR_COLUMN,
 			initialAssignment: DATE_DESIGNATED,
 			initialDateOrder: 'month-first',
@@ -330,7 +330,7 @@ describe('the date reading question can be answered', () => {
 	 * to be absent with it, or « revived » and « reset to the default » would read the same.
 	 */
 	it('revives the answer when the designation comes back to its own column', async () => {
-		const { container } = render(ColumnDesignationScreen, {
+		const { container } = await render(ColumnDesignationScreen, {
 			file: FOUR_COLUMN,
 			initialAssignment: DATE_DESIGNATED,
 			initialDateOrder: 'month-first',
@@ -360,7 +360,7 @@ describe('the date reading question can be answered', () => {
 	 * and ignored », and only the absence of the day-first rendering can tell those apart.
 	 */
 	it('opens already answered when a prior answer is handed back to it', async () => {
-		const { container } = mount({
+		const { container } = await mount({
 			initialAssignment: DATE_DESIGNATED,
 			initialDateOrder: 'month-first'
 		});
@@ -388,7 +388,7 @@ describe('the date reading question can be answered', () => {
 	 */
 	it('says nothing on line 3 when the payload carries readings but no first row', async () => {
 		const { firstRow: _omitted, ...withoutFirstRow } = FILE;
-		const { container } = render(ColumnDesignationScreen, {
+		const { container } = await render(ColumnDesignationScreen, {
 			file: withoutFirstRow,
 			initialAssignment: DATE_DESIGNATED,
 			accounts: ACCOUNTS,
@@ -418,7 +418,7 @@ describe('the date reading question can be answered', () => {
 	 * could be null while the row drew the other reading.
 	 */
 	it('states the default reading until a human has answered', async () => {
-		const { container } = mount({ initialAssignment: DATE_DESIGNATED });
+		const { container } = await mount({ initialAssignment: DATE_DESIGNATED });
 
 		const card = cardOf(container);
 		expect(card.textContent).toContain('3 avril 2026');
@@ -439,7 +439,7 @@ describe('the date reading question can be answered', () => {
 	 * person can read ».
 	 */
 	it('announces a whole sentence when the column defers the question', async () => {
-		const { container } = mount();
+		const { container } = await mount();
 
 		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
 		await page.getByRole('option', { name: /Date operation/ }).click();
@@ -457,7 +457,7 @@ describe('the date reading question can be answered', () => {
 	 * choose path fell through to the generic branch.
 	 */
 	it('announces the reading, and the first row under it, when the question is answered', async () => {
-		mount();
+		await mount();
 
 		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
 		await page.getByRole('option', { name: /Date operation/ }).click();
@@ -481,7 +481,7 @@ describe('the date reading question can be answered', () => {
 	 * than on the default.
 	 */
 	it('re-asks the reading when the designated column is chosen again', async () => {
-		mount();
+		await mount();
 
 		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
 		await page.getByRole('option', { name: /Date operation/ }).click();
@@ -504,7 +504,7 @@ describe('the date reading question can be answered', () => {
 	 * applies ».
 	 */
 	it('applies a second answer given through that route', async () => {
-		const { container } = mount();
+		const { container } = await mount();
 
 		await page.getByRole('button', { name: /^Date, aucune colonne/ }).click();
 		await page.getByRole('option', { name: /Date operation/ }).click();

@@ -23,7 +23,7 @@ function baseData(overrides: Partial<PageData> = {}): PageData {
 
 describe('/budgets AlertBanner gating', () => {
 	it('shows the page-level error banner when no modal is open', async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: baseData(),
 			form: { error: 'Boom' } as unknown as ActionData
 		});
@@ -34,7 +34,7 @@ describe('/budgets AlertBanner gating', () => {
 	});
 
 	it('renders exactly one role="alert" (not two) while the create modal is open with a form error', async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: baseData({ budgets: [] }),
 			form: { error: 'Category is required' } as unknown as ActionData
 		});
@@ -47,7 +47,7 @@ describe('/budgets AlertBanner gating', () => {
 	});
 
 	it('renders exactly one role="alert" while the delete ConfirmDialog is open with a form error', async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: baseData({
 				budgets: [
 					{
@@ -74,7 +74,7 @@ describe('/budgets AlertBanner gating', () => {
 	});
 
 	it('shows the success banner with the server-provided text after a successful action', async () => {
-		const screen = render(Page, {
+		const screen = await render(Page, {
 			data: baseData(),
 			form: { success: 'Budget créé' } as unknown as ActionData
 		});
@@ -85,7 +85,7 @@ describe('/budgets AlertBanner gating', () => {
 	});
 
 	it('renders no alert/status banner when form is null', async () => {
-		render(Page, { data: baseData(), form: null });
+		await render(Page, { data: baseData(), form: null });
 
 		expect(document.querySelectorAll('[role="alert"]').length).toBe(0);
 		expect(document.querySelectorAll('[role="status"]').length).toBe(0);
@@ -105,14 +105,14 @@ describe('/budgets AlertBanner gating', () => {
  */
 describe('/budgets header month', () => {
 	it('names août for the 2026-08 key that a UTC clock produces at the month boundary', async () => {
-		const screen = render(Page, { data: baseData({ currentMonth: '2026-08' }), form: null });
+		const screen = await render(Page, { data: baseData({ currentMonth: '2026-08' }), form: null });
 
 		await expect.element(screen.getByText(/août 2026/)).toBeInTheDocument();
 		expect(document.body.textContent).not.toContain('septembre 2026');
 	});
 
 	it('names septembre for 2026-09, so the assertion above is about the key and not the word', async () => {
-		const screen = render(Page, { data: baseData({ currentMonth: '2026-09' }), form: null });
+		const screen = await render(Page, { data: baseData({ currentMonth: '2026-09' }), form: null });
 
 		await expect.element(screen.getByText(/septembre 2026/)).toBeInTheDocument();
 	});

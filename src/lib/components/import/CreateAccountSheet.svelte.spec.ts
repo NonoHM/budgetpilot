@@ -19,8 +19,8 @@ import CreateAccountSheet from './CreateAccountSheet.svelte';
  * `layout.css` is imported because two assertions below are real measurements.
  */
 
-function mount(props: Record<string, unknown> = {}) {
-	return render(CreateAccountSheet, { open: true, ...props });
+async function mount(props: Record<string, unknown> = {}) {
+	return await render(CreateAccountSheet, { open: true, ...props });
 }
 
 const field = () => page.getByRole('textbox', { name: m.import_account_create_field() });
@@ -31,7 +31,7 @@ describe('the create account sheet', () => {
 		// value they have to accept ». 6g draws the distinction itself: prefilling a NAME in a sheet
 		// the user opened deliberately saves them a keystroke, and it is only a commodity while it
 		// stays editable before an explicit press.
-		mount({ prefill: 'Banque Populaire ···4417' });
+		await mount({ prefill: 'Banque Populaire ···4417' });
 		const input = field();
 		await expect.element(input).toBeInTheDocument();
 		expect((input.element() as HTMLInputElement).value).toBe('Banque Populaire ···4417');
@@ -44,7 +44,7 @@ describe('the create account sheet', () => {
 		// worst answer available. DEVIATION from 6g's « jamais vide », recorded: with no institution
 		// and no fragment there is nothing to prefill FROM, and both alternatives fabricate a name
 		// from something that is not about the user's bank.
-		mount({ prefill: '' });
+		await mount({ prefill: '' });
 		const input = field();
 		expect((input.element() as HTMLInputElement).value).toBe('');
 		expect((input.element() as HTMLInputElement).disabled).toBe(false);
@@ -57,7 +57,7 @@ describe('the create account sheet', () => {
 		// disabled and explains nothing ». The plate's transverse rule, which this plate applies and
 		// does not impose. A greyed control cannot be asked why.
 		const onSubmit = vi.fn();
-		mount({ prefill: '', onSubmit });
+		await mount({ prefill: '', onSubmit });
 		const primary = page.getByRole('button', { name: m.import_account_create_submit() });
 		expect((primary.element() as HTMLButtonElement).disabled).toBe(false);
 		await primary.click();
@@ -84,7 +84,7 @@ describe('the create account sheet', () => {
 		// have carried; nothing is stored under it, so the server accepts it.
 		expect.assertions(2);
 		const onSubmit = vi.fn();
-		mount({ prefill: m.accounts_generic_bucket(), onSubmit });
+		await mount({ prefill: m.accounts_generic_bucket(), onSubmit });
 		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
 		expect(onSubmit).toHaveBeenCalledWith(m.accounts_generic_bucket());
 		// The companion: the sheet has not simply gone inert. It still refuses an empty name, so the
@@ -98,7 +98,7 @@ describe('the create account sheet', () => {
 		// through and the server refused a moment later: two answers for one question.
 		expect.assertions(1);
 		const onSubmit = vi.fn();
-		mount({ prefill: GENERIC_BUCKET_STORED_NAME, onSubmit });
+		await mount({ prefill: GENERIC_BUCKET_STORED_NAME, onSubmit });
 		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
 		expect(onSubmit).toHaveBeenCalledWith(GENERIC_BUCKET_STORED_NAME);
 	});
@@ -114,7 +114,7 @@ describe('the create account sheet', () => {
 		// thing the comment in the component asks them not to do.
 		expect.assertions(1);
 		const onSubmit = vi.fn();
-		mount({ prefill: 'Livret A', existingNames: ['Livret A'], onSubmit });
+		await mount({ prefill: 'Livret A', existingNames: ['Livret A'], onSubmit });
 		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
 		expect(onSubmit).toHaveBeenCalledWith('Livret A');
 	});
@@ -127,7 +127,7 @@ describe('the create account sheet', () => {
 		//
 		// The SERVER says which surface, because it is the side that knows what refused.
 		expect.assertions(3);
-		mount({
+		await mount({
 			prefill: GENERIC_BUCKET_STORED_NAME,
 			state: 'error',
 			error: m.import_account_create_error_name_taken(),
@@ -144,7 +144,7 @@ describe('the create account sheet', () => {
 		// never returned is not about the name, and putting it under the input would tell the user to
 		// edit their way out of a network failure. The calibration for the test above.
 		expect.assertions(1);
-		mount({
+		await mount({
 			prefill: 'Compte courant',
 			state: 'error',
 			error: m.import_account_create_error_generic()
@@ -161,7 +161,7 @@ describe('the create account sheet', () => {
 		// which the caller clears only on reopen or on the next attempt, so the removal took this
 		// behaviour with it. Found by a code review of the removal.
 		expect.assertions(2);
-		mount({
+		await mount({
 			prefill: GENERIC_BUCKET_STORED_NAME,
 			state: 'error',
 			error: m.import_account_create_error_name_taken()
@@ -176,7 +176,7 @@ describe('the create account sheet', () => {
 		// one ». With the check gone, the only refusal a duplicate can produce is this one, so it
 		// has to be readable and has to leave the typed name in the field to correct.
 		expect.assertions(2);
-		mount({
+		await mount({
 			prefill: GENERIC_BUCKET_STORED_NAME,
 			state: 'error',
 			error: m.import_account_create_error_name_taken()
@@ -190,7 +190,7 @@ describe('the create account sheet', () => {
 		// calibration the refusals above need: without it each of them is equally explained by
 		// a primary that never submits at all.
 		const onSubmit = vi.fn();
-		mount({ prefill: '  Livret A  ', onSubmit });
+		await mount({ prefill: '  Livret A  ', onSubmit });
 		await page.getByRole('button', { name: m.import_account_create_submit() }).click();
 		expect(onSubmit).toHaveBeenCalledWith('Livret A');
 	});
@@ -199,7 +199,7 @@ describe('the create account sheet', () => {
 		// SEPARATES: « the button carries 5f's occupancy contract » FROM « the button shows a bare
 		// spinner ». A disabled button leaves the tab order and announces nothing, which sends focus
 		// to the body at the exact moment the user is waiting for an answer where they pressed.
-		mount({ prefill: 'Livret A', state: 'busy' });
+		await mount({ prefill: 'Livret A', state: 'busy' });
 		const primary = page.getByRole('button', { name: m.import_account_create_submitting() });
 		await expect.element(primary).toBeInTheDocument();
 		const element = primary.element() as HTMLButtonElement;
@@ -212,7 +212,7 @@ describe('the create account sheet', () => {
 		// the sheet over a request nothing can recall ». A dismissal that cancels nothing and hides
 		// the answer is not a dismissal.
 		const onCancel = vi.fn();
-		mount({ prefill: 'Livret A', state: 'busy', onCancel });
+		await mount({ prefill: 'Livret A', state: 'busy', onCancel });
 		const cancel = page.getByRole('button', { name: m.common_cancel() });
 		// Clicked DIRECTLY rather than through the locator: Playwright treats `aria-disabled="true"`
 		// as not enabled and waits for it to become enabled, which never happens, so the ordinary
@@ -226,7 +226,11 @@ describe('the create account sheet', () => {
 		// SEPARATES: « the failure left the work in place » FROM « the failure lost it ». The user is
 		// in the middle of an import and has just seen something else fail; the sentence has to say
 		// what survived, or the failure reads as the loss of the designation work.
-		mount({ prefill: 'Livret A', state: 'error', error: m.import_account_create_error_generic() });
+		await mount({
+			prefill: 'Livret A',
+			state: 'error',
+			error: m.import_account_create_error_generic()
+		});
 		expect((field().element() as HTMLInputElement).value).toBe('Livret A');
 		expect(document.body.textContent).toContain(m.import_account_create_error_generic());
 		await expect.element(page.getByRole('button', { name: m.error_retry() })).toBeInTheDocument();
@@ -237,7 +241,11 @@ describe('the create account sheet', () => {
 		// are two mechanisms that fail separately: `role="alert"` reads the sentence out and moves
 		// nobody, so a keyboard user is left reading a message whose actions they must hunt for.
 		// 6g: « la feuille ne ferme pas, le focus va au bandeau ».
-		mount({ prefill: 'Livret A', state: 'error', error: m.import_account_create_error_generic() });
+		await mount({
+			prefill: 'Livret A',
+			state: 'error',
+			error: m.import_account_create_error_generic()
+		});
 		const alert = page.getByRole('alert');
 		await expect.element(alert).toBeInTheDocument();
 		const input = field().element();
@@ -254,7 +262,7 @@ describe('the create account sheet', () => {
 		// SEPARATES: « the panel carries the plate's two widths » FROM « it carries brique 15's
 		// default 512 ». Absolute figures, never a comparison: a comparison passes when both sides
 		// collapse to the same wrong number. 6h's responsive line is the source.
-		mount({ prefill: 'Livret A' });
+		await mount({ prefill: 'Livret A' });
 		const panel = page.getByRole('dialog').element();
 		expect(panel.className).toContain('lg:max-w-[340px]');
 		expect(panel.className).toContain('w-full');
@@ -270,7 +278,7 @@ describe('the create account sheet', () => {
 		// worse than it looks at 390, where the compact variant renders that close control `sr-only`:
 		// the sheet opens with the focus on a control nobody can see, so there is no focus ring on
 		// screen at all and Tab appears to start from nowhere.
-		mount({ prefill: 'Banque Populaire ···4417' });
+		await mount({ prefill: 'Banque Populaire ···4417' });
 		await expect.element(field()).toBeInTheDocument();
 		expect(document.activeElement).toBe(field().element());
 		// And the prefill is SELECTED rather than merely present, so the first keystroke replaces a
@@ -285,7 +293,7 @@ describe('the create account sheet', () => {
 		// user learns the bound only after pressing ». The server refusal still exists, because a
 		// hand-made request is not a form; this is the affordance that keeps an ordinary user out of
 		// it.
-		mount({ prefill: '' });
+		await mount({ prefill: '' });
 		expect((field().element() as HTMLInputElement).maxLength).toBe(120);
 	});
 });

@@ -47,13 +47,13 @@ function baseData(overrides: Partial<PageData> = {}): PageData {
 describe('Settings — arrival at the tags section', () => {
 	it('the section carries the anchor the panel footer links at', async () => {
 		expect.assertions(1);
-		const { container } = render(Page, { params: {}, data: baseData(), form: null });
+		const { container } = await render(Page, { params: {}, data: baseData(), form: null });
 		expect(container.querySelector('#tags')).not.toBeNull();
 	});
 
 	it('the heading is programmatically focusable, so the deep link can land on it', async () => {
 		expect.assertions(1);
-		render(Page, { params: {}, data: baseData(), form: null });
+		await render(Page, { params: {}, data: baseData(), form: null });
 		const heading = page
 			.getByRole('heading', { name: m.tags_settings_heading(), level: 2 })
 			.element();
@@ -62,10 +62,10 @@ describe('Settings — arrival at the tags section', () => {
 
 	it('states the silent auto-deletion rule, in the section and in the empty state', async () => {
 		expect.assertions(2);
-		render(Page, { params: {}, data: baseData(), form: null });
+		await render(Page, { params: {}, data: baseData(), form: null });
 		await expect.element(page.getByText(m.tags_settings_auto_delete_note())).toBeInTheDocument();
 
-		render(Page, { params: {}, data: baseData({ tags: [] }), form: null });
+		await render(Page, { params: {}, data: baseData({ tags: [] }), form: null });
 		expect(page.getByText(m.tags_settings_auto_delete_note()).elements().length).toBeGreaterThan(0);
 	});
 });

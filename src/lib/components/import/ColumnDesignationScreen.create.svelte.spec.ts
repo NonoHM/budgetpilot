@@ -39,8 +39,8 @@ const CREATED = {
 	transactionCount: 0
 };
 
-function mount(props: Record<string, unknown> = {}) {
-	return render(ColumnDesignationScreen, {
+async function mount(props: Record<string, unknown> = {}) {
+	return await render(ColumnDesignationScreen, {
 		file: FILE,
 		initialAssignment: COMPLETE,
 		// EMPTY on purpose: this is the cell the whole task exists for. A user with only manual
@@ -76,7 +76,7 @@ describe('creating an account without leaving the file in your hand', () => {
 		// holds. Found by a code review reading the images against that test's own reasoning: it
 		// argued the general rule and implemented the special case.
 		expect.assertions(2);
-		mount({
+		await mount({
 			accounts: [
 				{ id: 'account-a', name: 'Compte courant', discriminant: null, transactionCount: 4 },
 				{ id: 'account-b', name: 'Livret A', discriminant: null, transactionCount: 2 }
@@ -103,7 +103,7 @@ describe('creating an account without leaving the file in your hand', () => {
 		// Caught by a code review enumerating what the hint can actually carry against the comment
 		// claiming they are all provenances.
 		expect.assertions(2);
-		mount({
+		await mount({
 			accounts: [
 				{ id: 'account-a', name: 'Compte courant', discriminant: null, transactionCount: 4 },
 				{ id: 'account-b', name: 'Livret A', discriminant: null, transactionCount: 2 }
@@ -132,7 +132,7 @@ describe('creating an account without leaving the file in your hand', () => {
 		// The two states produce the same NAME on the row, which is why nothing already here caught
 		// it: only the description separates them.
 		expect.assertions(2);
-		mount({
+		await mount({
 			accountHint: m.import_account_hint_no_accounts(),
 			onCreateAccount: vi.fn().mockResolvedValue({ ok: true, account: CREATED })
 		});
@@ -153,7 +153,7 @@ describe('creating an account without leaving the file in your hand', () => {
 		// SEPARATES: « the footer action opens the create sheet » FROM « it closes the panel and
 		// nothing happens », which is what shipped with the row and the panel alone. Both leave the
 		// panel closed, and only the sheet tells them apart.
-		mount({ onCreateAccount: vi.fn() });
+		await mount({ onCreateAccount: vi.fn() });
 		await openPanel();
 		await footerAction().click();
 		await expect.element(nameField()).toBeInTheDocument();
@@ -167,7 +167,7 @@ describe('creating an account without leaving the file in your hand', () => {
 		// has to go and pick it ». The second is a screen that reports success and leaves the primary
 		// still refusing, which reads as a creation that did not work.
 		const onCreateAccount = vi.fn(async () => ({ ok: true as const, account: CREATED }));
-		mount({ onCreateAccount });
+		await mount({ onCreateAccount });
 		await openPanel();
 		await footerAction().click();
 		await nameField().fill('Livret A');
@@ -188,7 +188,7 @@ describe('creating an account without leaving the file in your hand', () => {
 		// and there is no path from this screen to an import. The account id submitted is the CREATED
 		// one, which is the only proof the two halves are the same account.
 		const onSubmit = vi.fn();
-		mount({
+		await mount({
 			onCreateAccount: vi.fn(async () => ({ ok: true as const, account: CREATED })),
 			onSubmit
 		});
@@ -205,7 +205,7 @@ describe('creating an account without leaving the file in your hand', () => {
 		// SEPARATES: « the failure is reported on the sheet the user is standing on » FROM « the sheet
 		// closes and the failure is reported somewhere else, or nowhere ». The user is mid-import;
 		// a sheet that vanishes on a failure reads as the loss of the designation work.
-		mount({
+		await mount({
 			onCreateAccount: vi.fn(async () => ({
 				ok: false as const,
 				error: m.import_account_create_error_generic()
@@ -225,7 +225,7 @@ describe('creating an account without leaving the file in your hand', () => {
 		// a closed row they must open again ». The second is a dead end our own navigation
 		// manufactured rather than one the task has. The focus is the assertion, not the reopening:
 		// a panel that reopens with the focus elsewhere is the same dead end for a keyboard user.
-		mount({ onCreateAccount: vi.fn() });
+		await mount({ onCreateAccount: vi.fn() });
 		await openPanel();
 		await footerAction().click();
 		// Scoped to the account block, and NOT by position: the screen's own footer carries an
@@ -253,7 +253,7 @@ describe('creating an account without leaving the file in your hand', () => {
 		// refusal is what the user reads.
 		expect.assertions(2);
 		const onCreateAccount = vi.fn(async () => ({ ok: true as const, account: CREATED }));
-		mount({ onCreateAccount });
+		await mount({ onCreateAccount });
 		await openPanel();
 		await footerAction().click();
 		await nameField().fill(CREATED.name);

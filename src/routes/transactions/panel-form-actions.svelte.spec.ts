@@ -164,7 +164,7 @@ function expectCarriesSelectionAndFilters(form: Element, actionName: string): vo
 describe('the detail panel posts without discarding the panel', () => {
 	it('manual category: both mounts carry the selection and every active filter', async () => {
 		await page.viewport(1280, 900);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		// Absolute figure beside the sweep: desktop panel and mobile sheet are both mounted at every
 		// width and only one is shown by CSS, so a fix landing on one of them must not read as green.
@@ -180,7 +180,7 @@ describe('the detail panel posts without discarding the panel', () => {
 		// transaction is répartie, and the server refuses the write (+page.server.ts's
 		// `splits: { none: {} }` guard). Before the panel survived the submit this sentence was
 		// computed, returned, and rendered nowhere.
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData(),
 			form: { manualCategoryError: m.transactions_error_category_locked_by_split() }
 		});
@@ -200,7 +200,7 @@ describe('the detail panel posts without discarding the panel', () => {
 
 	it('manual nature: both mounts carry the selection and every active filter', async () => {
 		await page.viewport(1280, 900);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const forms = container.querySelectorAll('form[action$="/saveManualNature"]');
 		expect(forms.length).toBe(2);
@@ -213,7 +213,7 @@ describe('the detail panel posts without discarding the panel', () => {
 		// The refusal this form can actually produce: the Select offers only valid natures, so the
 		// reachable answer is the row having gone (deleted in another tab) between the selection and
 		// the submit.
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData(),
 			form: { manualNatureError: m.transactions_error_transaction_not_found() }
 		});
@@ -230,7 +230,7 @@ describe('the detail panel posts without discarding the panel', () => {
 
 	it('étiquettes: both mounts carry the selection and every active filter', async () => {
 		await page.viewport(1280, 900);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		const forms = container.querySelectorAll('form[action$="/saveTags"]');
 		expect(forms.length).toBe(2);
@@ -244,7 +244,7 @@ describe('the detail panel posts without discarding the panel', () => {
 		// refuses the eleventh selection itself (`atMax`), so no browser path reaches this refusal
 		// and a journey claiming to exercise it would be claiming something false. What is asserted
 		// here is narrower and true: when the server does answer with it, the panel renders it.
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData(),
 			form: { tagsError: m.tags_error_too_many({ max: MAX_TAGS_PER_TRANSACTION }) }
 		});
@@ -273,7 +273,7 @@ describe('the detail panel posts without discarding the panel', () => {
 	 */
 	it('every POST form in the panel carries the selection, at both mounts', async () => {
 		await page.viewport(1280, 900);
-		const { container } = render(Page, { data: baseData(), form: null });
+		const { container } = await render(Page, { data: baseData(), form: null });
 
 		for (const [surface, root] of panelSurfaces(container)) {
 			const forms = [...root.querySelectorAll('form[method="POST"]')];
@@ -306,7 +306,7 @@ describe('the detail panel posts without discarding the panel', () => {
 	 */
 	it('the classify tab adds a fifth form, and its verdict is recorded rather than assumed', async () => {
 		await page.viewport(1280, 900);
-		const { container } = render(Page, {
+		const { container } = await render(Page, {
 			data: baseData({
 				filters: { ...baseData().filters, type: 'classify' },
 				uncategorizedCount: 1,

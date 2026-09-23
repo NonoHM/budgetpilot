@@ -16,7 +16,7 @@ function fieldInput() {
 
 describe('TagPicker.svelte', () => {
 	it('lists existing tags with their colour dots when opened', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 
@@ -25,7 +25,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('offers to create the typed value when nothing matches', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.type(fieldInput(), 'Réparation vélo');
 
@@ -35,7 +35,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('does not offer to create a name that already exists, case-insensitively', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.type(fieldInput(), 'portugal');
 
@@ -47,7 +47,7 @@ describe('TagPicker.svelte', () => {
 		// A plain case fold (toLowerCase) is not enough: "Café" and "cafe" only match through
 		// normalizeForMatch's NFD diacritic stripping, which this test exists specifically to pin.
 		const accented = [{ id: 'o3', name: 'Café clients', colorToken: 'olive' as const }];
-		render(TagPicker, { options: accented, selected: [] });
+		await render(TagPicker, { options: accented, selected: [] });
 
 		await userEvent.type(fieldInput(), 'cafe clients');
 
@@ -56,7 +56,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('lets several tags be picked in one pass, without the focus ever leaving the field', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
@@ -80,7 +80,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('removes a selected tag when its chip remove control is used', async () => {
-		render(TagPicker, { options, selected: ['Portugal'] });
+		await render(TagPicker, { options, selected: ['Portugal'] });
 
 		await expect
 			.element(page.getByRole('button', { name: m.tags_remove_aria({ name: 'Portugal' }) }))
@@ -100,7 +100,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('serializes the selection into the hidden input, newline separated', async () => {
-		const { container } = render(TagPicker, {
+		const { container } = await render(TagPicker, {
 			options,
 			selected: ['Portugal', 'Travaux'],
 			name: 'tagNames'
@@ -117,7 +117,11 @@ describe('TagPicker.svelte', () => {
 		// instance sharing the initial `selected` prop would read `hidden` back unchanged no matter
 		// what the acted-upon instance did, and the cap check could be broken without this test
 		// noticing.
-		const { container } = render(TagPicker, { options: [], selected: many, name: 'tagNames' });
+		const { container } = await render(TagPicker, {
+			options: [],
+			selected: many,
+			name: 'tagNames'
+		});
 
 		await userEvent.type(fieldInput(), 'Une de plus');
 		// Gate on the full value before acting on it: under CI contention `type` can return with
@@ -135,7 +139,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('trims and collapses whitespace before adding, matching normalizeTagName', async () => {
-		const { container } = render(TagPicker, { options: [], selected: [], name: 'tagNames' });
+		const { container } = await render(TagPicker, { options: [], selected: [], name: 'tagNames' });
 
 		await userEvent.type(fieldInput(), '  Vacances   Portugal  ');
 		// Without this gate the click lands on a "Créer" option built from a partial value: CI has
@@ -148,7 +152,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('is keyboard reachable: arrow keys move, Enter selects, Escape closes without changing selection', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		// A real click, not a bare .focus() call: under load, a programmatic focus() can resolve
 		// before the browser has actually moved document.activeElement, and the very next
@@ -187,7 +191,7 @@ describe('TagPicker.svelte', () => {
 		// BREAK-THE-CHECK: dropping `event.stopPropagation()` from TagPicker's Escape branch makes
 		// the first expectation fail (the window handler sees the open-panel Escape) — verified by
 		// hand, see the PR report.
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		const seenByPage: string[] = [];
 		const listener = () => seenByPage.push('escape');
@@ -211,7 +215,7 @@ describe('TagPicker.svelte', () => {
 	it('debounces live filtering by 250ms rather than filtering on every keystroke', async () => {
 		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
 		try {
-			render(TagPicker, { options, selected: [] });
+			await render(TagPicker, { options, selected: [] });
 
 			await fieldInput().element().focus();
 			fieldInput().element().dispatchEvent(new Event('focus'));
@@ -230,7 +234,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('closes the panel when focus leaves the component, resetting aria-expanded', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 		await expect.element(page.getByRole('listbox')).toBeInTheDocument();
@@ -246,7 +250,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('closes the panel on an outside click even when focus does not move', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 		await expect.element(page.getByRole('listbox')).toBeInTheDocument();
@@ -261,7 +265,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('closes the panel once a tag is committed, but keeps it open when one is deselected', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
@@ -278,7 +282,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('does not act on Enter after Escape has closed the panel', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 		await userEvent.type(fieldInput(), 'Trav');
@@ -297,7 +301,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('bolds the matched substring anywhere in the name, not only a prefix', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.type(fieldInput(), 'ugal');
 
@@ -314,7 +318,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('pre-highlights the create row before Enter is pressed, matching what Enter will do', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.type(fieldInput(), 'Réparation vélo');
 
@@ -329,7 +333,7 @@ describe('TagPicker.svelte', () => {
 		// (derived from `options`) is then empty for this name, and `showCreateRow` also excludes
 		// it (it's already selected), so `flatItems` is empty: the exact scenario the panel and
 		// live region must not misreport as "no match, press Enter to create".
-		render(TagPicker, { options: [options[0]], selected: ['Travaux'] });
+		await render(TagPicker, { options: [options[0]], selected: ['Travaux'] });
 
 		await userEvent.type(fieldInput(), 'Travaux');
 
@@ -347,7 +351,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('keeps aria-controls valid (pointing at an element that exists) while the list is loading', async () => {
-		render(TagPicker, { options: [], selected: [], loading: true });
+		await render(TagPicker, { options: [], selected: [], loading: true });
 
 		await userEvent.click(fieldInput());
 
@@ -357,7 +361,7 @@ describe('TagPicker.svelte', () => {
 	});
 
 	it('keeps aria-controls valid while showing the "no tags yet" panel', async () => {
-		render(TagPicker, { options: [], selected: [] });
+		await render(TagPicker, { options: [], selected: [] });
 
 		await userEvent.click(fieldInput());
 
@@ -388,7 +392,7 @@ describe('TagPicker.svelte', () => {
 	}
 
 	it('tells a screen reader the tag was removed, not that it was added', async () => {
-		render(TagPicker, { options, selected: [] });
+		await render(TagPicker, { options, selected: [] });
 
 		await userEvent.click(fieldInput());
 		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
@@ -409,7 +413,7 @@ describe('TagPicker.svelte', () => {
 	it('tells a screen reader the tag was removed when the list row is toggled off', async () => {
 		// The second removal path, and it is the one no chip is involved in: re-clicking a selected
 		// option in the panel deselects it. Same silence, same stale sentence.
-		render(TagPicker, { options, selected: ['Portugal'] });
+		await render(TagPicker, { options, selected: ['Portugal'] });
 
 		await userEvent.click(fieldInput());
 		await userEvent.click(page.getByRole('option', { name: 'Portugal' }));
@@ -422,7 +426,7 @@ describe('TagPicker.svelte', () => {
 		// it is precisely where it matters most: this is where a first-time user learns that a
 		// management surface exists, before ever needing it. The design requires the row in all
 		// five panel states for that reason.
-		render(TagPicker, { options: [], selected: [] });
+		await render(TagPicker, { options: [], selected: [] });
 
 		await userEvent.click(fieldInput());
 
