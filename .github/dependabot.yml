@@ -30,6 +30,19 @@ updates:
         update-types:
           - patch
           - minor
+      # vitest, @vitest/browser-playwright and vitest-browser-svelte pin each other by exact or
+      # near-exact peer version (see @vitest/browser-playwright's package.json), and
+      # vitest-browser-svelte's major tracks vitest's. Bumping one alone leaves npm unable to
+      # resolve the other two's peer ranges, so every one of #589, #590 and #592 failed
+      # independently on the same ERESOLVE. No update-types filter, unlike npm-prisma: the
+      # breakage here is at the major level (vitest-browser-svelte 3's `render()` became async,
+      # 542 type errors across 76 spec files, tracked in #676), so majors need to land grouped
+      # too, not just patch/minor.
+      npm-vitest:
+        patterns:
+          - 'vitest'
+          - '@vitest/*'
+          - 'vitest-browser-svelte'
       npm-patch-minor:
         exclude-patterns:
           - 'eslint*'
@@ -39,6 +52,9 @@ updates:
           - 'prisma'
           - '@prisma/client'
           - '@prisma/adapter-*'
+          - 'vitest'
+          - '@vitest/*'
+          - 'vitest-browser-svelte'
         update-types:
           - patch
           - minor
