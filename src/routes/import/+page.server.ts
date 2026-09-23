@@ -21,6 +21,8 @@ import {
 import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
 import { refusedForBounds } from '$lib/server/import/refusals';
 import { resolveImportOffer } from '$lib/server/import/offerPrecedence';
+import { declaredCurrencyRefusal } from '$lib/server/import/declaredCurrency';
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
@@ -597,6 +599,24 @@ export const actions: Actions = {
 		// claim about two pieces of code that nothing keeps in step, and it narrows the type below.
 		if (decision.kind === 'ask' || decision.kind === 'refused') {
 			throw new Error('offerPrecedence answered none over a pending account question');
+		}
+
+		/**
+		 * #600: a currency the file DECLARES, against the account it is about to be filed into.
+		 *
+		 * HERE, the first line where the destination is known, and before the collision question and
+		 * every write, so a refused run leaves no batch, no bucket and no use counted against a
+		 * correspondance. `declaredCurrency.ts` says why this is not a rung of `offerPrecedence.ts`.
+		 *
+		 * A `by-source` decision with no account yet lands in the bucket
+		 * `resolveImportBucketAccountBySource` creates below, which is always the default
+		 * denomination: that is the currency it will hold, so that is the one compared.
+		 */
+		const destination =
+			decision.kind === 'account' ? decision.bucket : (decision.existing ?? DEFAULT_DENOMINATION);
+		const currencyRefusal = declaredCurrencyRefusal(result.transactions, destination);
+		if (currencyRefusal) {
+			return fail(400, { error: refusalLabel(currencyRefusal) });
 		}
 
 		if (formData.get('confirmCollision') !== '1') {

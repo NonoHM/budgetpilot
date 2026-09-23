@@ -1,0 +1,323 @@
+import { beforeAll, describe, expect, it } from 'vitest';
+import { env } from '$env/dynamic/private';
+import { prisma } from '$lib/server/db';
+import {
+	createImportBatch,
+	persistImportedTransactions,
+	resolveImportBucketAccount
+} from '$lib/server/import/persist';
+import { parseCsvTransactions } from '$lib/server/import/csv';
+import { DeclaredCurrencyMismatchError } from '$lib/server/import/declaredCurrency';
+import { refusalLabel } from '$lib/i18n/refusalLabel';
+import { createStatementAccount } from '$lib/server/accounts/service';
+import { actions as importActions } from './+page.server';
+import { actions as columnsActions } from './columns/+page.server';
+
+/**
+ * #600: A FILE THAT DECLARES ITS CURRENCY, FILED INTO AN ACCOUNT HELD IN ANOTHER ONE.
+ *
+ * ## What this measured first, before anything was fixed (M1)
+ *
+ * Whether it could happen at all. A CSV import reaches a non-EUR account only through an account the
+ * bank-sync connector created, because `createStatementAccount` takes no currency and every
+ * statement account is EUR. So the fixture seeds one exactly the way `banking/sync/service.ts` does,
+ * through `resolveImportBucketAccount` with the provider's source, a `providerAccountId` and the
+ * provider's currency, and then asks the question through the REAL ROUTE ACTIONS, the same functions
+ * a browser POST reaches. Nothing in this file resolves a destination or parses a file itself.
+ *
+ * Measured on `main` (df9ca1c) before the fix, on SQLite: the auto path offered the USD account in
+ * its account question, the generic file declaring `EUR` imported 2 rows into it, and both rows were
+ * stored `currency = USD`. Same for the designation path and for a Revolut file. The calibration in
+ * the same pass, the same file into a EUR statement account, stored `EUR`. So the unit a user reads
+ * beside every amount of that import was the account's, while the file had said otherwise. The same
+ * figures came back on PostgreSQL and MariaDB with the declaration removed at the parse, which is the
+ * pre-fix state of every check this file covers.
+ *
+ * ## What it asserts now
+ *
+ * Refused, naming BOTH currencies, and nothing written: no transaction, no batch. The calibration
+ * runs in the same pass, per door, as its own test (two figures in one test leave the second
+ * unobserved whenever the first is red), because a refusal that also fired on a EUR account would
+ * be a different defect: a file that can no longer be imported at all.
+ *
+ * ## Why db-smoke and not a unit spec
+ *
+ * The figure is a stored column. A fake decides what `create` receives and what `findMany` returns,
+ * so « the row was stored USD » and « the fake echoed what it was given » would be the same green.
+ */
+
+/** The two dates are ISO on purpose: this file is about currency, and an ambiguous `06/01/2026`
+ *  would make the auto path ask its date reading before it ever reached the destination. */
+const GENERIC_DECLARING_EUR = [
+	'date,label,amount,currency',
+	'2026-06-03,Boulangerie Mercier,-4.20,EUR',
+	'2026-06-14,Virement salaire,1850.00,EUR'
+].join('\n');
+
+/** Headers no profile recognises, so the file reaches the designation screen, plus a `Devise`
+ *  column the mapped profile reads as the file's declaration. */
+const OPAQUE_DECLARING_EUR = [
+	'poste_1,poste_2,poste_3,Devise',
+	'2026-06-03,Boulangerie Mercier,-4.20,EUR',
+	'2026-06-14,Virement salaire,1850.00,EUR'
+].join('\n');
+
+/** Revolut's French export, whose `Devise` column is part of the profile's own ten. */
+const REVOLUT_DECLARING_EUR = [
+	'Type,Produit,Date de début,Date de fin,Description,Montant,Frais,Devise,État,Solde',
+	'CARD_PAYMENT,Current,2026-06-03 09:21:00,2026-06-03 09:21:00,Boulangerie Mercier,-4.20,0.00,EUR,TERMINÉ,1200.00',
+	'TOPUP,Current,2026-06-14 10:10:00,2026-06-14 10:10:00,Virement salaire,1850.00,0.00,EUR,TERMINÉ,3050.00'
+].join('\n');
+
+/**
+ * The sentence the route must return, compared WHOLE (AGENTS.md: a substring passes over a doubled
+ * tail). Built by calling the renderer with the fact this refusal must carry, so what is asserted is
+ * that the route handed the renderer THIS fact; `declaredCurrency.spec.ts` pins the French literal.
+ */
+const EUR_INTO_USD = refusalLabel({
+	code: 'declared-currency-mismatch',
+	declared: 'EUR',
+	destination: 'USD'
+});
+
+function fileOf(text: string, name = 'releve.csv'): File {
+	return new File([text], name, { type: 'text/csv' });
+}
+
+function eventOf(userId: string, fields: Record<string, string | File>) {
+	const body = new FormData();
+	for (const [key, value] of Object.entries(fields)) body.set(key, value);
+	return {
+		locals: { user: { id: userId } },
+		request: new Request('http://localhost/import', { method: 'POST', body }),
+		// ONE ADDRESS PER USER, not one for the file. The import limiter counts per address as well as
+		// per user (60 in its window), so a shared address trips after five runs of this file and every
+		// later run reads 429s as findings: measured during this file's own break-check, where the
+		// calibrations went red from the second break on. The value is hashed, never parsed.
+		getClientAddress: () => `client-${userId}`
+	} as unknown as Parameters<NonNullable<typeof importActions.default>>[0];
+}
+
+type ActionOutcome = { status?: number; data?: Record<string, unknown> } & Record<string, unknown>;
+
+async function postImport(userId: string, fields: Record<string, string | File>) {
+	return (await importActions.default!(eventOf(userId, fields))) as ActionOutcome;
+}
+
+async function postColumns(userId: string, fields: Record<string, string | File>) {
+	return (await columnsActions.default!(eventOf(userId, fields))) as ActionOutcome;
+}
+
+/** A fresh user holding the three accounts every test needs. */
+async function seedUser(tag: string) {
+	const user = await prisma.user.create({
+		data: { email: `declared-${tag}-${Date.now()}@example.test`, passwordHash: 'x', role: 'USER' }
+	});
+	// The account bank sync creates: same function, same fields, `service.ts` connectAccounts.
+	const usd = await resolveImportBucketAccount({
+		userId: user.id,
+		name: 'Checking USD',
+		source: 'enablebanking',
+		denomination: { currency: 'USD', exponent: 2 },
+		providerAccountId: `uid-${tag}-usd`,
+		providerCashAccountType: 'CACC'
+	});
+	// TWO statement accounts, so the auto path cannot choose by source and asks. That question is
+	// the ordinary door through which a user reaches the synced account from `/import`.
+	const eur = await createStatementAccount({ userId: user.id, name: 'Compte courant' });
+	await createStatementAccount({ userId: user.id, name: 'Compte joint' });
+	return { userId: user.id, usdId: usd.accountId, eurId: eur.id };
+}
+
+async function storedIn(userId: string, accountId: string) {
+	return prisma.transaction.findMany({
+		where: { userId, accountId },
+		select: { currency: true, exponent: true, label: true },
+		orderBy: { label: 'asc' }
+	});
+}
+
+beforeAll(() => {
+	// The limiter's HMAC key, as an explicit fixture: see `accounts/createAccount.db-smoke.ts`.
+	env.RATE_LIMIT_HASH_SECRET = 'b2'.repeat(32);
+});
+
+/**
+ * Each door, as it posts. Three shapes of file reach a declared currency: `generic` (alias table),
+ * `mapped` (a designation) and `revolut` (its own ten columns). `declaredCurrency.spec.ts` proves at
+ * the parse that every registered profile carries a declaration out; this proves at the route that
+ * what is carried out is compared before anything is written.
+ */
+const DOORS = [
+	{
+		name: '/import, generic',
+		post: (userId: string, accountId: string) =>
+			postImport(userId, { csvFile: fileOf(GENERIC_DECLARING_EUR), accountId })
+	},
+	{
+		name: '/import/columns, mapped',
+		post: (userId: string, accountId: string) =>
+			postColumns(userId, {
+				csvFile: fileOf(OPAQUE_DECLARING_EUR),
+				dateIndex: '0',
+				labelIndex: '1',
+				amountIndex: '2',
+				remember: 'false',
+				accountId
+			})
+	},
+	{
+		name: '/import, revolut',
+		post: (userId: string, accountId: string) =>
+			postImport(userId, { csvFile: fileOf(REVOLUT_DECLARING_EUR), accountId })
+	}
+] as const;
+
+describe('#600: a declared currency the destination contradicts is refused before anything is written', () => {
+	/**
+	 * Separates « a CSV import can reach a non-EUR account » from « nothing offers one », which is
+	 * the question M1 existed to answer. Red here would mean the defect is latent and the refusal
+	 * below guards a door nobody can open.
+	 */
+	it('the auto path offers the synced USD account as an import destination', async () => {
+		expect.assertions(1);
+		const { userId, usdId } = await seedUser('offer');
+		const asked = await postImport(userId, { csvFile: fileOf(GENERIC_DECLARING_EUR) });
+		const offered = (asked.data?.account as { options: Array<{ id: string }> } | undefined)
+			?.options;
+		expect(offered?.map((option) => option.id)).toContain(usdId);
+	});
+
+	/**
+	 * Separates « refused, naming both currencies, nothing written » from « imported under the
+	 * account's currency », which is what `main` did on every door (2 rows, both `USD`).
+	 */
+	it.each(DOORS)('$name: refuses EUR into the USD account and writes nothing', async (door) => {
+		expect.assertions(4);
+		const { userId, usdId } = await seedUser(`refuse-${door.name}`);
+
+		const refused = await door.post(userId, usdId);
+		const usdRows = await storedIn(userId, usdId);
+		console.info(
+			`[#600 M1] ${door.name} into USD: status=${refused.status ?? 200} stored=${JSON.stringify(usdRows.map((row) => row.currency))}`
+		);
+		expect(usdRows).toEqual([]);
+		expect(await prisma.importBatch.count({ where: { userId } })).toBe(0);
+		expect(refused.status).toBe(400);
+		expect(refused.data?.error).toBe(EUR_INTO_USD);
+	});
+
+	/**
+	 * THE CALIBRATION, in the same pass: the same file into a EUR account imports, stored `EUR`.
+	 * Separates « the declaration is compared with the destination » from « a file declaring a
+	 * currency can no longer be imported at all », which a refusal ignoring the destination would be.
+	 */
+	it.each(DOORS)('$name: calibration, stores EUR into a EUR account', async (door) => {
+		expect.assertions(2);
+		const { userId, eurId } = await seedUser(`calibrate-${door.name}`);
+
+		const accepted = await door.post(userId, eurId);
+		const eurRows = await storedIn(userId, eurId);
+		console.info(
+			`[#600 M1] ${door.name} into EUR (calibration): status=${accepted.status ?? 200} stored=${JSON.stringify(eurRows.map((row) => row.currency))}`
+		);
+		expect(accepted.status).toBeUndefined();
+		expect(eurRows.map((row) => row.currency)).toEqual(['EUR', 'EUR']);
+	});
+
+	/**
+	 * The designation survives the refusal, because the repair is choosing another account on the
+	 * screen the user is already on, not designating the columns again.
+	 */
+	it('/import/columns keeps the designation on the refusal', async () => {
+		expect.assertions(1);
+		const { userId, usdId } = await seedUser('keep');
+		const refused = await DOORS[1].post(userId, usdId);
+		expect(refused.data?.keepDesignation).toBe(true);
+	});
+
+	/**
+	 * The `by-source` branch of `/import`'s destination, which the tests above never take (they post
+	 * an account). Separates « compared with the bucket the rows will land in » from « compared with
+	 * something else » on the path most imports take: a user with no account yet, whose first import
+	 * creates one at the default denomination, and a user with exactly one statement account.
+	 */
+	it.each([
+		{ name: 'no account yet', statementAccounts: 0 },
+		{ name: 'one statement account', statementAccounts: 1 }
+	])('/import by source, $name: a file declaring EUR imports, stored EUR', async (shape) => {
+		expect.assertions(2);
+		const user = await prisma.user.create({
+			data: {
+				email: `declared-bysource-${shape.statementAccounts}-${Date.now()}@example.test`,
+				passwordHash: 'x',
+				role: 'USER'
+			}
+		});
+		if (shape.statementAccounts === 1)
+			await createStatementAccount({ userId: user.id, name: 'Compte courant' });
+
+		const accepted = await postImport(user.id, { csvFile: fileOf(GENERIC_DECLARING_EUR) });
+		const rows = await prisma.transaction.findMany({
+			where: { userId: user.id },
+			select: { currency: true }
+		});
+		expect(accepted.status).toBeUndefined();
+		expect(rows.map((row) => row.currency)).toEqual(['EUR', 'EUR']);
+	});
+
+	/**
+	 * THE THIRD CALL, in `persistImportedTransactions`. This test performs the parse and the write
+	 * ITSELF, which no route does without its own check first: it measures that a writer which
+	 * skipped the routes' comparison still cannot store a declared EUR row as USD, not that the
+	 * application reaches this throw. Separates « refused before the first row » from « written ».
+	 */
+	it('persist refuses a writer that skipped the comparison, before the first row', async () => {
+		expect.assertions(2);
+		const { userId, usdId } = await seedUser('persist');
+		const batchId = await batchFor(userId, usdId);
+		await expect(
+			persistImportedTransactions({
+				userId,
+				accountId: usdId,
+				importBatchId: batchId,
+				source: 'csv',
+				transactions: parseCsvTransactions(GENERIC_DECLARING_EUR).transactions
+			})
+		).rejects.toBeInstanceOf(DeclaredCurrencyMismatchError);
+		expect(await storedIn(userId, usdId)).toEqual([]);
+	});
+
+	/**
+	 * The persist check's calibration: rows that declare NOTHING still land in the USD account, as
+	 * bank sync and a file with no currency column always have. Separates « compared with the
+	 * declaration » from « refused for any non-EUR bucket ».
+	 */
+	it('persist still writes undeclared rows into the USD account, stored USD', async () => {
+		expect.assertions(1);
+		const { userId, usdId } = await seedUser('persist-undeclared');
+		await persistImportedTransactions({
+			userId,
+			accountId: usdId,
+			importBatchId: await batchFor(userId, usdId),
+			source: 'csv',
+			transactions: parseCsvTransactions(
+				['date,label,amount', '2026-06-03,Boulangerie Mercier,-4.20'].join('\n')
+			).transactions
+		});
+		expect((await storedIn(userId, usdId)).map((row) => row.currency)).toEqual(['USD']);
+	});
+});
+
+async function batchFor(userId: string, accountId: string): Promise<string> {
+	return createImportBatch({
+		userId,
+		accountId,
+		source: 'csv',
+		fileName: 'releve.csv',
+		profile: 'generic',
+		rowCount: 1,
+		invalidRows: 0,
+		period: { from: null, to: null }
+	});
+}

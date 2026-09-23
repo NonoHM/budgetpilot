@@ -19,6 +19,7 @@ import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/ma
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { resolveImportOffer } from '$lib/server/import/offerPrecedence';
+import { declaredCurrencyRefusal } from '$lib/server/import/declaredCurrency';
 import {
 	buildInvalidRowDetails,
 	getHiddenInvalidRowsCount
@@ -314,6 +315,17 @@ export const actions: Actions = {
 						: m.import_account_error_required(),
 				keepDesignation: true
 			});
+		}
+
+		/**
+		 * #600: the currency the file DECLARES, against the account the user just chose. Same call as
+		 * `/import`'s, right after the destination resolves and before the collision question, the
+		 * memorised correspondance and every write. `keepDesignation` because the repair is choosing
+		 * another account on this screen, not designating the columns again.
+		 */
+		const currencyRefusal = declaredCurrencyRefusal(result.transactions, bucket);
+		if (currencyRefusal) {
+			return fail(400, { error: refusalLabel(currencyRefusal), keepDesignation: true });
 		}
 
 		if (formData.get('confirmCollision') !== '1') {

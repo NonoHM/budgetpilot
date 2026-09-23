@@ -289,6 +289,9 @@ export function parseRevolutRows({
 			amountCents: absAmountCents,
 			category: effectiveCategory,
 			source: 'csv',
+			// The `Devise` cell, which the check above has just required to be EUR. Carried out so the
+			// destination can be compared with it (#600); it used to stop at that check.
+			declaredCurrency: currency,
 			metadata: {
 				reference: '',
 				notes,

@@ -140,6 +140,7 @@ export function parseResolvedRows({
 		// BEFORE the date and the amount so the refusal names the reason the row cannot be
 		// imported at all, rather than a downstream complaint about a value we were never going
 		// to keep.
+		let declaredCurrency: string | undefined;
 		if (currencyColumn) {
 			const declared = sanitizeImportedText(record[currencyColumn] ?? '');
 			// An EMPTY cell is not a declaration. A file with the column present and the value
@@ -153,6 +154,10 @@ export function parseResolvedRows({
 				);
 				return;
 			}
+			// The declaration LEAVES the parse (#600). It used to stop at the check above, so the row
+			// was then denominated by whatever account it landed in. The accepted CODE rather than the
+			// cell: the check above is case-insensitive, and `eur` names the same currency.
+			if (declared) declaredCurrency = acceptedCurrency;
 		}
 
 		if (date === null) {
@@ -208,6 +213,9 @@ export function parseResolvedRows({
 			amountCents,
 			category: categorization.category,
 			source: 'csv',
+			// Spread so an undeclared row carries no key at all, the same absence as a file with no
+			// currency column.
+			...(declaredCurrency ? { declaredCurrency } : {}),
 			metadata: {
 				reference: '',
 				notes: label,

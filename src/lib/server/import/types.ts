@@ -154,6 +154,21 @@ export interface ImportedTransaction extends Transaction {
 	 * is exactly why it is one of the three write paths that habitually bypass an invariant.
 	 */
 	splitParts?: ImportedSplitPart[];
+	/**
+	 * The currency THIS ROW's file declared for it, as an ISO 4217 code, or absent when it declared
+	 * none (no currency column, or a blank cell). #600.
+	 *
+	 * Carried out of the parse because the parse is the only place it is known, and the row is
+	 * denominated later by the account it lands in (`persistImportedTransactions`). Before this the
+	 * value was read, checked against EUR and forgotten, so a file declaring EUR filed into a USD
+	 * account stored USD. `declaredCurrencyRefusal` is the one comparison with the destination.
+	 *
+	 * Absent rather than null, and that is the file-evidence rule rather than tidiness: a file that
+	 * declares nothing exhibits nothing, so the destination's currency applies by design and there is
+	 * nothing to compare. Not in `metadata`, for the reason `splitParts` gives: metadata is
+	 * traceability, and this decides what the money is denominated in.
+	 */
+	declaredCurrency?: string;
 }
 
 export interface CsvImportSummary {

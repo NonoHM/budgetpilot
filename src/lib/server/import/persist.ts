@@ -13,6 +13,7 @@ import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
 import { isUniqueConstraintViolation, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import { replaceSplits } from '$lib/server/transactions/splits';
 import type { ImportedTransaction } from './types';
+import { declaredCurrencyRefusal, DeclaredCurrencyMismatchError } from './declaredCurrency';
 
 /**
  * Shared import persistence — the single write path for every transaction source that
@@ -624,6 +625,12 @@ export async function persistImportedTransactions(
 		where: { id: input.accountId },
 		select: { currency: true, exponent: true, providerAccountId: true }
 	});
+
+	// #600, the third call of the one comparison, on the rows about to be denominated by this
+	// bucket. Both routes refuse before reaching here, so this throws only for a writer that skipped
+	// them, and it throws BEFORE the first row, so such a writer stores nothing wrong.
+	const contradicted = declaredCurrencyRefusal(input.transactions, bucket);
+	if (contradicted) throw new DeclaredCurrencyMismatchError(contradicted);
 
 	// Every key for this batch, computed HERE rather than at parse time, and the reasons are in
 	// `dedupeRecompute.ts`. The short version: the CSV path cannot know its `accountId` at parse

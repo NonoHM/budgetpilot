@@ -51,6 +51,12 @@ const CATEGORY_COLUMN = 'category';
  * to detect. Somewhere to store a currency now exists; what is still missing is a moment where the
  * user says which one, and that belongs to the import destination feature rather than here.
  *
+ * **Accepting EUR here is half the check.** The other half is the account the file lands in, which
+ * this parser cannot see. So an accepted declaration leaves the parse on each row
+ * (`ImportedTransaction.declaredCurrency`) and `declaredCurrencyRefusal` compares it with the
+ * destination before anything is written. Before #600 it stopped here, and a file saying EUR filed
+ * into a USD account stored USD.
+ *
  * ## Only this profile can see it
  *
  * `maison`, `maison-v2` and `banque-populaire` match on exact ordered equality against a fixed
