@@ -1,5 +1,35 @@
 # Changelog
 
+## [1.1.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.1.0...budgetpilot-v1.1.1) (2026-09-23)
+
+
+### Bug Fixes
+
+* **ci:** remove the expired-in-practice CVE-2026-14456 acknowledgement ([#665](https://github.com/NonoHM/budgetpilot/issues/665)) ([40797be](https://github.com/NonoHM/budgetpilot/commit/40797be4d36bfca29bf3c16d24df944620ad39fd)), closes [#579](https://github.com/NonoHM/budgetpilot/issues/579)
+* **import:** ask the date reading on the auto path instead of defaulting silently ([#668](https://github.com/NonoHM/budgetpilot/issues/668)) ([3ad30fd](https://github.com/NonoHM/budgetpilot/commit/3ad30fdfe91a61ffcdd3087f59b9f85135740f84))
+* **import:** re-import your own export lands back on the account it came from ([#674](https://github.com/NonoHM/budgetpilot/issues/674)) ([a282314](https://github.com/NonoHM/budgetpilot/commit/a282314b091de4f8b0c61e411f0802d83af4e205))
+* **import:** refuse a control character in a label before it crashes the write ([#663](https://github.com/NonoHM/budgetpilot/issues/663)) ([9d069e6](https://github.com/NonoHM/budgetpilot/commit/9d069e65737ae4366a6558abee902bc8a1b5631d))
+* **import:** refuse a control character in a label before it crashes the write ([#663](https://github.com/NonoHM/budgetpilot/issues/663)) ([9d069e6](https://github.com/NonoHM/budgetpilot/commit/9d069e65737ae4366a6558abee902bc8a1b5631d))
+* **import:** refuse or ask before writing a file that names more than one account ([#672](https://github.com/NonoHM/budgetpilot/issues/672)) ([3923c82](https://github.com/NonoHM/budgetpilot/commit/3923c822335fd9b76d520598d3aabd7b2b23c02e))
+* **test:** migrate to vitest 5 / vitest-browser-svelte 3's async render() ([#682](https://github.com/NonoHM/budgetpilot/issues/682)) ([df3c9aa](https://github.com/NonoHM/budgetpilot/commit/df3c9aabdd5878285c2fe90169e24125bc454788))
+
+
+### Documentation
+
+* calibrate the measurement that proves a fix, not only the gate ([#655](https://github.com/NonoHM/budgetpilot/issues/655)) ([28d6a9d](https://github.com/NonoHM/budgetpilot/commit/28d6a9d5d1397f3378853fc73ec92f78d47976d8))
+* compress AGENTS.md and record the five missing assertion rules ([#658](https://github.com/NonoHM/budgetpilot/issues/658)) ([2ad98b3](https://github.com/NonoHM/budgetpilot/commit/2ad98b3d82c5d722aa0bb9977545f9a11164abeb))
+
+
+### Maintenance
+
+* bump distroless/nodejs24-debian13 from `774b7d0` to `7781e8b` ([#593](https://github.com/NonoHM/budgetpilot/issues/593)) ([9593963](https://github.com/NonoHM/budgetpilot/commit/9593963e2b2898524343eb47b9b79ecabf655806))
+* bump the actions-patch-minor group across 1 directory with 3 updates ([#681](https://github.com/NonoHM/budgetpilot/issues/681)) ([4a1a31e](https://github.com/NonoHM/budgetpilot/commit/4a1a31e184e50f390fdb981f1ccc74c65feba9e3))
+* bump the npm-lint-tooling group across 1 directory with 3 updates ([#656](https://github.com/NonoHM/budgetpilot/issues/656)) ([558b5c7](https://github.com/NonoHM/budgetpilot/commit/558b5c7929234cccc07970162c9b81ce6cd28aa4))
+* bump the npm-lint-tooling group with 2 updates ([#678](https://github.com/NonoHM/budgetpilot/issues/678)) ([53b72d9](https://github.com/NonoHM/budgetpilot/commit/53b72d9ed1289cc4ebc7b29bb890814a5ee21249))
+* bump the npm-patch-minor group with 4 updates ([#680](https://github.com/NonoHM/budgetpilot/issues/680)) ([93e44cd](https://github.com/NonoHM/budgetpilot/commit/93e44cd20f91b9dab503a89b64737e5b9a040e55))
+* **deps:** bump Node to the 24.21.0 LTS patch, block the 25.x major ([#675](https://github.com/NonoHM/budgetpilot/issues/675)) ([65e242d](https://github.com/NonoHM/budgetpilot/commit/65e242dbef5282c59f37906b7899b68f3381c401))
+* **deps:** group the vitest ecosystem so a major bump lands as one PR ([#677](https://github.com/NonoHM/budgetpilot/issues/677)) ([1622323](https://github.com/NonoHM/budgetpilot/commit/1622323168f9bc40b2d21338aa1623a3c1e5a927))
+
 ## [1.1.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.0.0...budgetpilot-v1.1.0) (2026-09-19)
 
 
