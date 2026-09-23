@@ -427,8 +427,11 @@ clean refusals; a scanner seeing zero packages passes; a fuzzer reaching no acce
 - Branch protection is on and is never bypassed. `main` is never committed to directly.
 - **Never arm `gh pr merge --auto` before the PR has been read.** Treat an armed PR as
   merged: further work goes on a new branch.
-- `Closes #A and #B` closes only #A; repeat the keyword. And never write a closing keyword
-  beside an issue number unless you mean it now, including in a sentence about future work.
+- `Closes #A and #B` closes only #A; repeat the keyword. GitHub closes on `close`, `closes`,
+  `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves` or `resolved` directly before an issue
+  number, whatever words precede it. Put one there only to close that issue on merge, which rules
+  out « not fixed #N » and « will fix #N »; for an issue left open, write « left open: #N » or
+  « filed as #N ». A convention: no check reads a commit message or a PR body.
 - `CHANGELOG.md` is release-please's file. Never edit it by hand.
 
 ## Before citing an industry pattern
