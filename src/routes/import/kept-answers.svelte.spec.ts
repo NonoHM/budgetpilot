@@ -236,4 +236,50 @@ describe('the answers kept for the file in hand', () => {
 			confirmCollision: '1'
 		});
 	});
+
+	it('declining a duplicate statement withdraws the account and keeps the reading', async () => {
+		// SEPARATES: « « Ne pas importer » gives the destination back to the user » FROM « the echo
+		// re-posts the account they just declined », under which the next press raises the SAME
+		// collision and the account question never comes back: found by the contradiction pass on
+		// this branch, a regression against main, where that press asked the account again.
+		//
+		// The reading is KEPT, and asserted as kept: it is a fact about the file, and the collision
+		// is about where the file goes. Dropping it would re-ask a question nothing has put in doubt.
+		const existing: CollidingBatchView = {
+			batchId: 'batch-1',
+			fileName: 'releve.csv',
+			periodStart: '2026-01-06',
+			periodEnd: '2026-02-07',
+			transactionCount: 2,
+			debitCents: 5790,
+			creditCents: 0,
+			createdAt: '2026-08-15T21:50:00.000Z'
+		};
+		const fetchSpy = vi.fn(
+			async () => new Response(JSON.stringify({ type: 'failure', status: 400, data: '[{}]' }))
+		);
+		vi.stubGlobal('fetch', fetchSpy);
+		const section = await mount({
+			collision: existing,
+			incoming: { ...existing },
+			answers: answers({ accountId: 'acc-deux', dateOrder: 'month-first' })
+		});
+		await userEvent.upload(section.querySelector('input[type=file]') as HTMLInputElement, file());
+		(section.querySelector('form[method="POST"]') as HTMLFormElement).requestSubmit();
+		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+		expect(posted(section, 'accountId')).toEqual(['acc-deux']);
+
+		await userEvent.click(
+			page
+				.getByRole('button', { name: m.import_collision_cancel() })
+				.last()
+				.element() as HTMLElement
+		);
+
+		expect({
+			answersFor: posted(section, 'answersFor'),
+			accountId: posted(section, 'accountId'),
+			dateOrder: posted(section, 'dateOrder')
+		}).toStrictEqual({ answersFor: [KEY], accountId: [], dateOrder: ['month-first'] });
+	});
 });

@@ -677,6 +677,15 @@
 			? (form.answers as KeptAnswers | undefined)
 			: undefined
 	);
+	/**
+	 * The echo whose ACCOUNT the user declined at the duplicate-statement dialog (`cancelCollision`).
+	 * Compared by identity: the next reply is a new object, so the withdrawal lasts exactly until the
+	 * server answers again. `$state.raw` so the stored reference IS the reply's, not a proxy of it.
+	 */
+	let declinedAnswers = $state.raw<KeptAnswers | undefined>(undefined);
+	const keptAccountId = $derived(
+		keptAnswers && keptAnswers !== declinedAnswers ? keptAnswers.accountId : null
+	);
 
 	/**
 	 * THE STATE DIES WITH THE FILE IT WAS GIVEN FOR, same rule as `answeredFor` and
@@ -991,7 +1000,16 @@
 		carriedCollision = null;
 		clearPendingCollision();
 
-		if (!carried) return;
+		if (!carried) {
+			// DECLINING GIVES THE DESTINATION BACK. The collision is about where this file goes, so
+			// the account it was accepted with is withdrawn from the echo and from the control, and
+			// the next press asks the account again. Kept, it would raise the same collision on every
+			// press. The reading is not withdrawn: it is a fact about the file, which nothing here
+			// puts in doubt.
+			declinedAnswers = keptAnswers;
+			chosenAccountId = null;
+			return;
+		}
 		setPendingDesignation({
 			file: carried.repost.file,
 			view: carried.repost.view,
@@ -1094,7 +1112,7 @@
 			 */
 			if (keptAnswers) {
 				body.set('answersFor', keptAnswers.key);
-				if (keptAnswers.accountId) body.set('accountId', keptAnswers.accountId);
+				if (keptAccountId) body.set('accountId', keptAccountId);
 				if (keptAnswers.dateOrder) body.set('dateOrder', keptAnswers.dateOrder);
 				if (keptAnswers.accountColumnAnswer) {
 					body.set('accountColumnAnswer', keptAnswers.accountColumnAnswer);
@@ -1299,8 +1317,8 @@
 {#snippet keptAnswerInputs()}
 	{#if keptAnswers}
 		<input type="hidden" name="answersFor" value={keptAnswers.key} />
-		{#if keptAnswers.accountId}
-			<input type="hidden" name="accountId" value={keptAnswers.accountId} />
+		{#if keptAccountId}
+			<input type="hidden" name="accountId" value={keptAccountId} />
 		{/if}
 		{#if keptAnswers.dateOrder}
 			<input type="hidden" name="dateOrder" value={keptAnswers.dateOrder} />

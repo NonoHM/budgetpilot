@@ -439,3 +439,58 @@ test('an answer given for one statement is not applied to the next one picked', 
 		await archiveAccounts(page, created);
 	}
 });
+
+test('declining a duplicate statement asks the account again', async ({ page }) => {
+	// SEPARATES: « « Ne pas importer » gives the destination back, and the next press asks which
+	// account » FROM « the declined account rides the next press », which raises the same duplicate
+	// warning forever: a user who declined because they picked the wrong account could only confirm
+	// or decline again. Found by the contradiction pass on this branch, a regression against main.
+	const created: string[] = [];
+	const statement = [
+		'date;label;amount;category',
+		'2026-05-03;BOULANGERIE L1 DECLINE;-6,20;Autre',
+		'2026-05-04;PRIMEUR L1 DECLINE;-13,10;Autre'
+	].join('\n');
+	try {
+		await page.goto('/import');
+		created.push(await makeAccount(page, 'BP Decline un'));
+		created.push(await makeAccount(page, 'BP Decline deux'));
+		await page.goto('/import');
+
+		const form = page.locator('form[method="POST"]').first();
+		const question = page.getByTestId('import-account-question').first();
+
+		// Into the first account.
+		await offerAFile(page, form, statement);
+		await question.locator('button').first().click();
+		await page
+			.getByRole('option', { name: /Decline un/ })
+			.first()
+			.click();
+		await form.getByRole('button', { name: m.import_submit() }).click();
+		await expect(page.getByText(/lignes importées dans BP Decline un/).first()).toBeVisible({
+			timeout: 15_000
+		});
+
+		// The same statement into the second: the duplicate warning, declined.
+		await page.goto('/import');
+		await offerAFile(page, form, statement);
+		await question.locator('button').first().click();
+		await page
+			.getByRole('option', { name: /Decline deux/ })
+			.first()
+			.click();
+		await form.getByRole('button', { name: m.import_submit() }).click();
+		const decline = page.getByRole('button', { name: m.import_collision_cancel() });
+		await expect(decline).toBeVisible({ timeout: 15_000 });
+		await decline.click();
+
+		// The next press asks which account, with none chosen, rather than warning again.
+		await pressImport(page, form);
+		await expect(question).toBeVisible({ timeout: 15_000 });
+		await expect(question.locator('button').first()).not.toContainText('Decline');
+		await expect(page.getByRole('button', { name: m.import_collision_confirm() })).toHaveCount(0);
+	} finally {
+		await archiveAccounts(page, created);
+	}
+});
