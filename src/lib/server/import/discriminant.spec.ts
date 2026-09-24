@@ -1,10 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { ParsedCsvRow } from './types';
 import {
+	COUNTERPARTY_ACCOUNT_HEADERS,
 	DISCRIMINANT_LENGTH,
 	assertDiscriminantFree,
 	findDiscriminantColumn
 } from './discriminant';
+import { REAL_HEADERS } from './profiles/realHeaders.fixture';
+import { parseRows } from './utils/csv';
+import { foldComparableHeader } from './utils/encoding';
 
 /**
  * `parseRows` returns the HEADER as `rows[0]`, so every fixture here is built the same way the
@@ -164,6 +168,162 @@ describe('findDiscriminantColumn', () => {
 		});
 		expect(findDiscriminantColumn([])).toStrictEqual({ kind: 'nothing-to-decide' });
 	});
+});
+
+/**
+ * #702. N26's export, recorded in `realHeaders.fixture.ts`, carries `Partner Iban`: the IBAN of
+ * the OTHER party to each transfer. Header and row are the recorded ones, parsed by the real
+ * `parseRows`; only the Partner Iban cell is varied, with this file's two verified IBANs, so the
+ * grammar is satisfied on every row and only the header can tell the column apart from an own
+ * account column.
+ */
+describe('a counterparty account column (#702)', () => {
+	const [, n26Header, n26Row] = REAL_HEADERS.find(([name]) => name === 'N26')!;
+	const header = parseRows(n26Header)[0].cells;
+	const recordedRow = parseRows(n26Row)[0].cells;
+	const partner = header.indexOf('Partner Iban');
+
+	/** The recorded row once per value, with the Partner Iban cell replaced. */
+	function n26(partnerIbans: string[], extra?: { header: string; values: string[] }) {
+		return rowsOf(
+			extra ? [...header, extra.header] : header,
+			partnerIbans.map((iban, i) => {
+				const cells = recordedRow.map((cell, index) => (index === partner ? iban : cell));
+				return extra ? [...cells, extra.values[i]] : cells;
+			})
+		);
+	}
+
+	it('finds the Partner Iban column in the recorded header', () => {
+		// The premise of every case below: without it, `partner` is -1, nothing is replaced, and the
+		// cases measure the recorded row's own IBAN rather than the values they name.
+		expect(partner).toBe(3);
+	});
+
+	// SEPARATES: « the counterparty column is not a candidate » FROM « a constant counterparty IBAN
+	// pins the file to the counterparty's account ». The one-row statement is the recorded row
+	// itself: every one-row N26 file is constant by construction.
+	it('does not read a one-row statement’s counterparty IBAN as the file’s account', () => {
+		expect(findDiscriminantColumn(rowsOf(header, [recordedRow]))).toStrictEqual({
+			kind: 'nothing-to-decide'
+		});
+	});
+
+	it('does not read a constant counterparty IBAN as the file’s account', () => {
+		expect(findDiscriminantColumn(n26([ACCOUNT_A, ACCOUNT_A]))).toStrictEqual({
+			kind: 'nothing-to-decide'
+		});
+	});
+
+	// SEPARATES: « the counterparty column is not evidence about the holder's accounts » FROM « an
+	// ordinary N26 statement of transfers to two people is a PROVEN multi-account export ».
+	it('does not read varying counterparty IBANs as two of the holder’s accounts', () => {
+		expect(findDiscriminantColumn(n26([ACCOUNT_A, ACCOUNT_B]))).toStrictEqual({
+			kind: 'nothing-to-decide'
+		});
+	});
+
+	// THE CALIBRATION, in the same file shape: an own account column beside the counterparty one is
+	// still read, at ITS index. SEPARATES « the counterparty column is skipped » FROM « a file
+	// carrying a counterparty column is skipped whole », which would pass the three cases above.
+	it('still reads a constant own account column that sits beside it', () => {
+		expect(
+			findDiscriminantColumn(
+				n26([ACCOUNT_B, ACCOUNT_A], { header: 'Compte', values: [ACCOUNT_A, ACCOUNT_A] })
+			)
+		).toStrictEqual({ kind: 'resolved', index: header.length, fragment: '0185' });
+	});
+
+	// SEPARATES: « a constant counterparty column cannot pin the file » FROM « it pins the file and
+	// hides a proven two-account own column behind it », which is the order rule in
+	// `findDiscriminantColumn`'s doc (a constant column wins) applied to the wrong column.
+	it('does not let a constant counterparty IBAN hide a varying own account column', () => {
+		expect(
+			findDiscriminantColumn(
+				n26([ACCOUNT_A, ACCOUNT_A], { header: 'Compte', values: [ACCOUNT_A, ACCOUNT_B] })
+			)
+		).toStrictEqual({ kind: 'contradictory', index: header.length });
+	});
+});
+
+/**
+ * #702, over the WHOLE set rather than the one header that prompted it, so a member added later is
+ * covered the day it is added and a member that could never match fails here rather than silently.
+ */
+describe('every header in COUNTERPARTY_ACCOUNT_HEADERS', () => {
+	it('is a non-empty set', () => {
+		// An empty set turns every `it.each` below into zero tests, which reads as green.
+		expect(COUNTERPARTY_ACCOUNT_HEADERS.length).toBeGreaterThan(0);
+	});
+
+	// SEPARATES: « the member matches what the fold produces » FROM « the member is written in a
+	// form `foldComparableHeader` never returns, so it matches no header and excludes nothing ».
+	it.each(COUNTERPARTY_ACCOUNT_HEADERS)('is written in the fold’s own form: %s', (member) => {
+		expect(foldComparableHeader(member)).toBe(member);
+	});
+
+	// SEPARATES: « the member is a header a real export carries » FROM « it was added from
+	// recollection ». A header naming the other party throws away a column that decides where rows
+	// are filed, so it earns its place with a recorded header row, never with a memory of one.
+	it.each(COUNTERPARTY_ACCOUNT_HEADERS)(
+		'is carried by a recorded real header row: %s',
+		(member) => {
+			const recorded = REAL_HEADERS.flatMap(([, headerRow]) =>
+				parseRows(headerRow)[0].cells.map((cell) => foldComparableHeader(cell))
+			);
+			expect(recorded).toContain(member);
+		}
+	);
+
+	const SHAPES: Array<[shape: string, values: [string, string]]> = [
+		['a constant IBAN', [ACCOUNT_A, ACCOUNT_A]],
+		['two different IBANs', [ACCOUNT_A, ACCOUNT_B]],
+		['a constant digit run', ['12344417', '12344417']],
+		['two different digit runs', ['12349032', '12340185']]
+	];
+	const SPELLINGS: Array<[spelling: string, spell: (member: string) => string]> = [
+		['as listed', (member) => member],
+		['upper cased', (member) => member.toUpperCase()],
+		['padded', (member) => `  ${member.replace(/ /g, '  ')} `]
+	];
+	const cases = COUNTERPARTY_ACCOUNT_HEADERS.flatMap((member) =>
+		SPELLINGS.flatMap(([spelling, spell]) =>
+			SHAPES.map(([shape, values]) => [spell(member), spelling, shape, values] as const)
+		)
+	);
+
+	// SEPARATES: « a counterparty column is no candidate in ANY state » FROM « it is skipped only
+	// when constant », which the varying shapes catch, and FROM « it is skipped only when spelled
+	// exactly as listed », which the spellings catch.
+	it.each(cases)('is no candidate: %j %s, carrying %s', (spelled, _spelling, _shape, values) => {
+		const result = findDiscriminantColumn(
+			rowsOf(
+				['Date', 'Libelle', 'Montant', spelled],
+				values.map((value, i) => [`0${i + 1}/06/2026`, 'A', '-1,00', value])
+			)
+		);
+		expect(result).toStrictEqual({ kind: 'nothing-to-decide' });
+	});
+
+	// THE CALIBRATION, same shapes, through the same helper: the account headers this tree carries
+	// that are NOT in the set still read. Without it an exclusion firing on every header would pass
+	// every case above. `IBAN` is here on purpose: it does not say whose account it is, so it stays
+	// a candidate (see the set's own doc).
+	it.each(['Compte', 'Numero de compte', 'accountNum', 'IBAN'])(
+		'leaves a header outside the set a candidate: %s',
+		(own) => {
+			const result = findDiscriminantColumn(
+				rowsOf(
+					['Date', 'Libelle', 'Montant', own],
+					[
+						['01/06/2026', 'A', '-1,00', ACCOUNT_A],
+						['02/06/2026', 'B', '-2,00', ACCOUNT_A]
+					]
+				)
+			);
+			expect(result).toStrictEqual({ kind: 'resolved', index: 3, fragment: '0185' });
+		}
+	);
 });
 
 describe('assertDiscriminantFree', () => {

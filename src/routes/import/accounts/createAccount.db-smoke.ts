@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
+import { REAL_HEADERS } from '$lib/server/import/profiles/realHeaders.fixture';
 import { POST } from './+server';
 
 /**
@@ -176,6 +177,23 @@ describe('creating an account from the designation screen', () => {
 		});
 		expect(created.discriminant).toBe('5678');
 		expect(created.discriminant).not.toBe('9999');
+	});
+
+	it('does not store the counterparty’s fragment as the new account’s own (#702)', async () => {
+		// SEPARATES: « the fragment is read from a column naming the holder's account » FROM « a
+		// constant counterparty IBAN becomes the new account's discriminant », which rank 1 then
+		// treats as CERTAIN on every later statement. N26's recorded header and row
+		// (`realHeaders.fixture.ts`): a one-row statement, so `Partner Iban` is constant by
+		// construction. The calibration is the row existing, so the null is a refusal to read the
+		// column rather than the absence of a row.
+		expect.assertions(2);
+		const [, n26Header, n26Row] = REAL_HEADERS.find(([name]) => name === 'N26')!;
+		await POST(eventOf(mine, { name: 'Compte N26', csvFile: fileOf(`${n26Header}\n${n26Row}`) }));
+		const created = await prisma.account.findFirstOrThrow({
+			where: { userId: mine, name: 'Compte N26' }
+		});
+		expect(created.name).toBe('Compte N26');
+		expect(created.discriminant).toBeNull();
 	});
 
 	it('refuses a missing name, and says what to do', async () => {

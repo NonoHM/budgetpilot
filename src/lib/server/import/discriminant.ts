@@ -1,5 +1,6 @@
 import type { ParsedCsvRow } from './types';
 import type { FileVerdict } from '$lib/domain/fileVerdict';
+import { foldComparableHeader } from './utils/encoding';
 export { ACCOUNT_COLUMN_ANSWERS, readAccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 export type { AccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 
@@ -29,6 +30,38 @@ export type DiscriminantResult = FileVerdict<
 >;
 
 /**
+ * Headers that name the COUNTERPARTY's account: the other party to each row, never the holder.
+ *
+ * **Not a candidate at all, and that is the file-evidence rule rather than a preference.** Which
+ * of the user's accounts a statement belongs to is a question about the HOLDER, and a column
+ * naming the other party says nothing about it whatever its values do: constant, it names the one
+ * party every row paid (#702: a short statement, or a month of transfers to the holder's own
+ * savings account, which rank 1 then filed the statement INTO); varying, it names several people,
+ * which is not evidence of several accounts of the holder's. So the column is neither `resolved`,
+ * `contradictory` nor `ambiguous`: it is skipped before the grammar is read, and a file carrying
+ * nothing else reaches `nothing-to-decide` exactly as a file with no identifier column does.
+ *
+ * **What earns a place here is a header that says WHOSE account it is, recorded from a real
+ * export.** Every member is written in `foldComparableHeader`'s form, which is the fold for
+ * matching a bank's spelling against a vocabulary we chose, and every member is carried by a
+ * header row in `profiles/realHeaders.fixture.ts`; `discriminant.spec.ts` asserts both over the
+ * whole set, so a member added from recollection, or written in a form the fold never produces,
+ * fails there rather than matching nothing.
+ *
+ * **A bare `IBAN` is deliberately NOT here.** It does not say whose account it is: a bank that
+ * exports the holder's own IBAN on every row and one that exports the payee's both call it that.
+ * Excluding it would throw away the holder's own column; keeping it keeps #702's shape open for
+ * whichever bank means the other party. Neither is proven by the header, so it stays a candidate
+ * and the constancy decides, as it does for every header not listed here.
+ */
+export const COUNTERPARTY_ACCOUNT_HEADERS = ['partner iban'] as const;
+
+/** Whether `header` is one of `COUNTERPARTY_ACCOUNT_HEADERS`, however the bank spelled it. */
+function namesCounterpartyAccount(header: string): boolean {
+	return (COUNTERPARTY_ACCOUNT_HEADERS as readonly string[]).includes(foldComparableHeader(header));
+}
+
+/**
  * **The grammar narrows the candidates. The constancy is the evidence.**
  *
  * A column of well-formed account identifiers that differ per row is a multi-account export, not a
@@ -46,11 +79,17 @@ export type DiscriminantResult = FileVerdict<
  * ## Why `resolved` wins over `contradictory`/`ambiguous`, measured rather than assumed
  *
  * A file can carry two qualifying columns, one constant and one varying, and the order they are
- * read in is then a decision rather than a detail. It is decided by a real header row already in
+ * read in is then a decision rather than a detail. It was decided by a real header row already in
  * this tree: `profiles/realHeaders.fixture.ts` records N26 exporting `Partner Iban`, the
  * COUNTERPARTY's IBAN, one per row, well formed and different on every transfer. A rule that let
  * variation win would refuse an ordinary single-account N26 statement as a multi-account export.
  * So a constant qualifying column pins the file and a varying one elsewhere cannot unpin it.
+ *
+ * Since #702 that particular column never reaches this order: `COUNTERPARTY_ACCOUNT_HEADERS` skips
+ * it by header, because the order alone protected only the file that ALSO carried a constant own
+ * column. N26 carries none, so its varying `Partner Iban` was refused as a proven multi-account
+ * export and a constant one pinned the file to the counterparty. The order stays for the
+ * counterparty column a header does not name.
  *
  * THE COST OF THAT ORDER, NAMED RATHER THAN LEFT TO BE FOUND: a genuine two-account export that
  * also carries a constant eight-digit column which is not an account number (a customer number, an
@@ -87,6 +126,9 @@ export function findDiscriminantColumn(rows: ParsedCsvRow[]): DiscriminantResult
 	let varying: { index: number; proven: boolean } | null = null;
 
 	for (let index = 0; index < columnCount; index += 1) {
+		// Before the grammar, so a counterparty column is no candidate in any of the three states.
+		if (namesCounterpartyAccount(rows[0].cells[index] ?? '')) continue;
+
 		const values: string[] = [];
 		let qualifies = true;
 

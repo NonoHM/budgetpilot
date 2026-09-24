@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { decideAutoAccount } from './autoAccount';
+import { REAL_HEADERS } from './profiles/realHeaders.fixture';
 import { headersOf, sourceFingerprintFor } from './sourceSignature';
 import type { ParsedCsvRow } from './types';
+import { parseRows } from './utils/csv';
 
 /**
  * WHICH ACCOUNT AN AUTO-DETECTED STATEMENT LANDS IN, against a real engine.
@@ -214,6 +216,41 @@ describe('the auto path’s destination, now that the file is read too', () => {
 		});
 		expect(decision.kind).toBe('refused');
 		expect(decision.kind === 'refused' && decision.reason).toBe('not-found');
+	});
+
+	it('does not file a statement into the account its counterparty column names (#702)', async () => {
+		// SEPARATES: « a counterparty IBAN is not evidence about which of the holder's accounts the
+		// statement belongs to » FROM « a constant counterparty IBAN is rank 1 certainty ». The
+		// realistic shape: an N26 statement of the main account whose rows all pay the holder's own
+		// savings account, so `Partner Iban` is constant and names an account the user HOLDS. Before
+		// #702 the main account's rows were filed into the savings account, silently and with rank 1
+		// confidence. Header is N26's recorded one (`realHeaders.fixture.ts`), parsed by the real
+		// `parseRows`; the savings account is created SECOND so « first candidate » cannot pass.
+		expect.assertions(2);
+		const [, n26Header, n26Row] = REAL_HEADERS.find(([name]) => name === 'N26')!;
+		const header = parseRows(n26Header)[0].cells;
+		const recorded = parseRows(n26Row)[0].cells;
+		const partner = header.indexOf('Partner Iban');
+		const savingsIban = 'FR7630001007941234567890185';
+		const main = await makeAccount(mine, 'N26 principal', 'csv');
+		const savings = await makeAccount(mine, 'N26 épargne', 'csv', '0185');
+		const rows: ParsedCsvRow[] = [header, recorded, recorded].map((cells, index) => ({
+			cells: index === 0 ? cells : cells.map((cell, i) => (i === partner ? savingsIban : cell)),
+			line: index + 1
+		}));
+		const decision = await decideAutoAccount({ userId: mine, source: 'csv', rows });
+		// The premise: without it nothing is replaced and the case measures the recorded row's IBAN.
+		expect(partner).toBe(3);
+		// ONE comparison carrying every figure, so a red prints the account it filed into rather than
+		// hiding the second figure behind the first. Two accounts of the source and a file that names
+		// none of them: the question, with both.
+		const nameOf = (id: string) => ({ [main.id]: 'main', [savings.id]: 'savings' })[id] ?? id;
+		expect({
+			kind: decision.kind,
+			filedInto: decision.kind === 'account' ? nameOf(decision.bucket.accountId) : null,
+			options:
+				decision.kind === 'ask' ? decision.offer.options.map((o) => nameOf(o.id)).sort() : null
+		}).toEqual({ kind: 'ask', filedInto: null, options: ['main', 'savings'] });
 	});
 
 	it('refuses an archived account differently, so the user knows what to do', async () => {

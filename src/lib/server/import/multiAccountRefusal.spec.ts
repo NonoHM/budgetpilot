@@ -15,6 +15,8 @@
 import { describe, expect, it } from 'vitest';
 import { parseCsvTransactions } from './csv';
 import type { CsvRefusal } from './refusals';
+import { REAL_HEADERS } from './profiles/realHeaders.fixture';
+import { parseRows } from './utils/csv';
 
 const HEADER = 'date,label,amount,compte';
 
@@ -158,5 +160,40 @@ describe('order against the other auto-path question, #433s ambiguous-date-order
 
 		expect(result.transactions).toHaveLength(0);
 		expect(result.invalidRows[0]?.fact.code).toBe('ambiguous-date-order');
+	});
+});
+
+/**
+ * #702 at the parse door. N26's recorded header (`realHeaders.fixture.ts`) carries `Partner Iban`,
+ * the OTHER party's IBAN. A statement of transfers to two different people fills it with two
+ * verified IBANs, which is exactly the shape `PROVEN_TWO_ACCOUNTS` refuses, so before #702 an
+ * ordinary single-account N26 statement was refused as a multi-account export. Header and row are
+ * the recorded ones; only the Partner Iban cell is replaced, with the pair `PROVEN_TWO_ACCOUNTS`
+ * carries.
+ */
+describe('a counterparty account column at the parse door (#702)', () => {
+	const [, n26Header, n26Row] = REAL_HEADERS.find(([name]) => name === 'N26')!;
+	const partner = parseRows(n26Header)[0].cells.indexOf('Partner Iban');
+
+	function n26(partnerIbans: string[]): string {
+		const recorded = parseRows(n26Row)[0].cells;
+		const lines = partnerIbans.map((iban) =>
+			recorded.map((cell, index) => `"${index === partner ? iban : cell}"`).join(',')
+		);
+		return [n26Header, ...lines].join('\n');
+	}
+
+	// SEPARATES: « a varying counterparty column is not evidence against a single account » FROM
+	// « an N26 statement of transfers to two people is refused as a proven multi-account file ».
+	it('imports a statement whose rows pay two different counterparties', () => {
+		expect.assertions(3);
+
+		const result = parseCsvTransactions(
+			n26(['FR7630001007941234567890185', 'FR3730001007949876543210192'])
+		);
+
+		expect(partner).toBe(3);
+		expect(result.invalidRows).toHaveLength(0);
+		expect(result.transactions).toHaveLength(2);
 	});
 });
