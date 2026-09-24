@@ -485,12 +485,22 @@ export const actions: Actions = {
 
 		if (offer.rung === 'currency') {
 			/**
-			 * #600, refused before any question left open below it. `answers` goes back WITHOUT the
-			 * account, exactly as for a refused account above: it is the account this file cannot go
-			 * into, so the page stops posting it and the next press asks the account again.
+			 * #600, refused before any question left open below it, AND WITH THE CONTROL THAT ANSWERS
+			 * IT. The sentence ends « Choisissez un compte en EUR », so the account question comes
+			 * back on the same screen, the same offer #476's question draws. MEASURED by a browser
+			 * walk before this, at 390 and at 1280: the refusal carried no account control, and the
+			 * only way back to the question was pressing « Importer le relevé » again, which nothing
+			 * said.
+			 *
+			 * `answers` goes back WITHOUT the account, exactly as for a refused account above: it is
+			 * the account this file cannot go into, so the row reopens unanswered rather than
+			 * pre-filled with the choice just refused.
 			 */
 			return fail(400, {
 				error: refusalLabel(offer.fact),
+				account: accountOfferFrom(
+					await buildAccountOffer({ userId: user.id, rows: importData.rows, source })
+				),
 				answers: keptAnswers(answerKey, answers, { accountId: false })
 			});
 		}

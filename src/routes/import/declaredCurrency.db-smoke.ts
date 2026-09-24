@@ -308,6 +308,31 @@ describe('#600: a declared currency the destination contradicts is refused befor
 	});
 
 	/**
+	 * THE WAY FORWARD after the refusal (item 6). The sentence ends « Choisissez un compte en EUR »,
+	 * and a user who reads nothing else must find a control that does it on the same screen. MEASURED
+	 * by a browser walk before this: the refusal came with no account control at all, and pressing
+	 * « Importer le relevé » again was the only way back to the question, with nothing saying so.
+	 *
+	 * Separates « the refusal carries the account question, offering the accounts this file CAN go
+	 * into » from « a sentence naming a choice the screen does not offer ».
+	 */
+	it('/import: the currency refusal carries the account question, with the EUR accounts in it', async () => {
+		expect.assertions(3);
+		const { userId, usdId, eurId, jointId } = await seedUser('recovery');
+		const refused = await postImport(userId, {
+			csvFile: fileOf(GENERIC_DECLARING_EUR),
+			accountId: usdId
+		});
+		const offered = (
+			refused.data?.account as { options: Array<{ id: string }> } | undefined
+		)?.options.map((option) => option.id);
+		console.info(`[#600 recovery] refusal offers: ${JSON.stringify(offered ?? null)}`);
+		expect(refused.data?.error).toBe(EUR_INTO_USD);
+		expect(offered).toContain(eurId);
+		expect(offered).toContain(jointId);
+	});
+
+	/**
 	 * THE ORDER, through the route (the owner's second addition): a file whose dates read both ways
 	 * AND which declares EUR, for a user holding two statement accounts and the synced USD one.
 	 *

@@ -53,7 +53,7 @@
 		type CompletedImport,
 		type ReplaceOutcome
 	} from '$lib/import/completedImport.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -688,6 +688,33 @@
 	const keptAccountId = $derived(
 		keptAnswers && keptAnswers !== declinedAnswers ? keptAnswers.accountId : null
 	);
+
+	/**
+	 * AN ACCOUNT THE SERVER DID NOT KEEP IS NOT SHOWN AS CHOSEN.
+	 *
+	 * The server keeps an answered account in `answers` only when it accepted it. When a reply puts
+	 * the account question back on screen WITHOUT the account the user just chose, that account was
+	 * refused for this file (#600: the file declares a currency the account does not hold), and the
+	 * row must reopen unanswered. MEASURED by a browser walk before this: the row came back reading
+	 * « Compte, Checking USD », so pressing Import again posted the refused account and met the same
+	 * refusal.
+	 *
+	 * Read on each new REPLY only (`untrack` for the rest), so a choice the user makes after the reply
+	 * is never undone by it.
+	 */
+	$effect(() => {
+		const reply = keptAnswers;
+		untrack(() => {
+			if (
+				reply &&
+				accountOffer &&
+				chosenAccountId !== null &&
+				reply.accountId !== chosenAccountId
+			) {
+				chosenAccountId = null;
+			}
+		});
+	});
 
 	/**
 	 * THE STATE DIES WITH THE FILE IT WAS GIVEN FOR, same rule as `answeredFor` and
