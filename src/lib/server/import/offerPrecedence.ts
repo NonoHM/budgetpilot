@@ -20,11 +20,31 @@ import type { CsvRefusalFact } from './refusals';
  * the route's control flow, so neither knew the other had been answered, and the page posted only
  * the answer to the question on screen. Six presses at each width alternated between the two.
  *
- * A question is now `open` or `answered`, and only an OPEN question is asked. The next question is
- * therefore the first unanswered one in the order below, which is the single definition of « what
- * to ask next ». Nothing here decides whether an answer counts: the route binds each answer to the
- * file it was given for (`answerBinding.ts`) and passes `answered` only for an answer that survived
- * that check.
+ * A question is `open` or `answered`, and only an OPEN question is asked. Nothing here decides
+ * whether an answer counts: the route binds each answer to the file it was given for
+ * (`answerBinding.ts`).
+ *
+ * ## What this function decides, and what is decided before it is called
+ *
+ * It decides the ORDER between whatever pending facts it is handed. It does NOT enforce « an
+ * answered question is never asked again » on its own, and `answered` ranks exactly like an absent
+ * question: MEASURED by the contradiction pass on this branch, swapping `{ state: 'answered' }` for
+ * `null` changes no output over 576 input combinations (calibration: `open` for `null` changed 42).
+ * That guarantee lives where the answer is CONSUMED, because the answer changes what is computed:
+ * - the date reading: `csv.ts` refuses an ambiguous column only when no answer was passed
+ *   (`!options.dateOrder`), and otherwise parses with it, so an answered file never yields the fact;
+ * - the account column: `csv.ts`'s `accountColumnAnswer` branches turn `is-account` into the
+ *   `multi-account-file` refusal and let `not-account` parse on;
+ * - the account: `decideAutoAccount` resolves a posted answer before it looks for a question;
+ * - and the page, which posts every kept answer back (`keptAnswers`).
+ * Moving it here would need `csv.ts` to report a question it has already answered, which this
+ * PR does not do.
+ *
+ * Nor are all pairs below reachable on `/import`. `csv.ts` returns exactly ONE fact per empty
+ * parse, so `multiAccount`, `accountColumn` and `dateOrder` never arrive together: which of those
+ * three a file raises first is decided inside `csv.ts`, by the order of its own checks, and this
+ * ladder only ranks them against the facts computed OUTSIDE the parse (`split`, `header`, `generic`
+ * and `account`). Centralising `csv.ts`'s own facts is D1's work.
  *
  * ## The order, and why each rung sits where it does
  *
@@ -44,10 +64,11 @@ import type { CsvRefusalFact } from './refusals';
  *    an empty parse, the date reading: `csv.ts` refuses an ambiguous column only on a file that
  *    would otherwise have imported, so an open date question means the rows are there.
  * 6. **`account`** (#476): two or more accounts of the file's source and nothing in the file
- *    decides. Ahead of the date question because a later refusal about the destination (#600's
- *    declared currency) needs the account, and asking the reading of a file about to be refused
- *    wastes the user's answer. A posted account that does not resolve (`refused`) holds this
- *    rung's place: it is not an answer, and nothing below it is asked on its strength.
+ *    decides. Ahead of the date question so that a refusal about the destination can sit between
+ *    the two: #600 (open, not built) proposes refusing a file whose declared currency the chosen
+ *    account cannot hold, which needs the account, and asking the reading of a file about to be
+ *    refused would waste the user's answer. A posted account that does not resolve (`refused`)
+ *    holds this rung's place: it is not an answer, and nothing below it is asked on its strength.
  * 7. **`dateOrder`**: the last question, asked once nothing above it is pending.
  *
  * The duplicate-statement confirmation (#343) is not a rung. It needs the destination AND the

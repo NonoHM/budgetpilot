@@ -78,12 +78,16 @@ export function readBoundAnswers(formData: FormData, key: string): BoundAnswers 
 }
 
 /**
- * What the page keeps while the same file is in hand (`KeptAnswers`): the key, and the answers the
- * server ACCEPTED for that file. The page posts these back with the next request, beside the answer
- * to whichever question is on screen, so no answered question is ever asked twice for one file.
+ * What the page keeps while the same file is in hand (`KeptAnswers`): the key, and the answers this
+ * request carried bound to that file. The page posts these back with the next request, beside the
+ * answer to whichever question is on screen, so no answered question is ever asked twice for one
+ * file.
  *
- * Echoed by the server rather than remembered by the page, so what is kept is what was accepted:
- * an account that did not resolve is not echoed, and the page stops posting it.
+ * Only the ACCOUNT has an acceptance test of its own: it is echoed only when it resolved against
+ * this user's accounts, so a refused account is not echoed and the page stops posting it. The date
+ * reading and the account-column answer are echoed whenever they were bound and in their closed
+ * set, even on a file that never raised their question. That is harmless rather than accepted: the
+ * echo is keyed to the same bytes, and the parse ignores an answer its file does not need.
  */
 export function keptAnswers(
 	key: string,

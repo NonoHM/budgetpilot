@@ -654,7 +654,8 @@
 	);
 
 	/**
-	 * EVERY ANSWER THE SERVER ACCEPTED FOR THE FILE IN HAND, posted back with the next request.
+	 * EVERY ANSWER THE SERVER KEPT FOR THE FILE IN HAND, posted back with the next request (which
+	 * ones, and on what test, is `answerBinding.ts`'s `keptAnswers`).
 	 *
 	 * The loop this ends, measured on 1.1.1: a file whose dates read both ways, from a user holding
 	 * two accounts of its bank, alternated between the date question and the account question for
@@ -662,9 +663,10 @@
 	 * question was on screen. Answer the date, the account question came back without the date
 	 * answer, and so on.
 	 *
-	 * The server echoes what it accepted (`answers`) with every question it asks, keyed by the
-	 * file's digest, and never asks an answered question again (`offerPrecedence.ts`). So an answer
-	 * reaches the request from exactly ONE place: from this echo once accepted, from its own
+	 * The server echoes what it kept (`answers`) with every question it asks, keyed by the file's
+	 * digest, and a question it has an answer for is not raised again (`offerPrecedence.ts` says
+	 * where that is decided). So an answer reaches the request from exactly ONE place: from this
+	 * echo once kept, from its own
 	 * question's control while that question is on screen. Never both, which is what keeps each
 	 * field single in the form.
 	 *
