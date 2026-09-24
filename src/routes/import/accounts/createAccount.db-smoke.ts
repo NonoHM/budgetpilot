@@ -53,13 +53,22 @@ function requestOf(fields: Record<string, string | File>): Request {
 	return new Request('http://localhost/import/accounts', { method: 'POST', body });
 }
 
+/**
+ * ONE ADDRESS PER USER, not one for the file (#693). This endpoint is rate limited alongside the
+ * other two import doors, per user AND per address (`IMPORT_RATE_LIMIT_MAX_ATTEMPTS`, default 60,
+ * in `auth/rateLimit.ts`). The users are created fresh each run, so the address was the one
+ * dimension that carried over: with a fixed `127.0.0.1` and the default, the fifth run of this file
+ * inside one window measured 7 of 8 tests red on 429s (SQLite, 2026-09-24),
+ * and the eighth stayed green because a 429 is not a 5xx. The same shape the #600 work gives its
+ * own import db-smoke. The value is hashed, never parsed.
+ */
+const clientAddressOf = (userId: string) => `client-${userId}`;
+
 function eventOf(userId: string, fields: Record<string, string | File>) {
 	return {
 		locals: { user: { id: userId } },
 		request: requestOf(fields),
-		// This endpoint is rate limited alongside the other two import doors, so it reads the
-		// caller's address. One fixed address keeps every test here a single caller.
-		getClientAddress: () => '127.0.0.1'
+		getClientAddress: () => clientAddressOf(userId)
 	} as unknown as Parameters<typeof POST>[0];
 }
 
@@ -188,7 +197,7 @@ describe('creating an account from the designation screen', () => {
 		const before = await prisma.account.count();
 		const response = await POST({
 			locals: { user: { id: mine } },
-			getClientAddress: () => '127.0.0.1',
+			getClientAddress: () => clientAddressOf(mine),
 			request: new Request('http://localhost/import/accounts', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
