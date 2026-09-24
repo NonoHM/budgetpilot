@@ -47,6 +47,7 @@ import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/co
 import { buildAccountOffer, type AccountOffer } from '$lib/server/import/accountOffer';
 import type { ParsedCsvRow } from '$lib/server/import/types';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
+import { isSamplePadding } from '$lib/domain/columnDesignation';
 import type { PageServerLoad } from './$types';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
 import type { ImportSummaryResult } from '$lib/domain/importSummary';
@@ -536,7 +537,9 @@ export const actions: Actions = {
 						? {
 								column: offer.fact.column,
 								header: headerCells[offer.fact.column] ?? '',
-								samples: (offerSamples[offer.fact.column] ?? []).filter((value) => value !== '')
+								samples: (offerSamples[offer.fact.column] ?? []).filter(
+									(value) => !isSamplePadding(value)
+								)
 							}
 						: undefined,
 				importResult: buildImportResult(

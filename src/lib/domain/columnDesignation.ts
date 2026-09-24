@@ -128,6 +128,26 @@ export interface DesignationFile {
 }
 
 /**
+ * What `DesignationFile.samples` pads a column holding fewer than three values with. ONE
+ * definition, written by `importSampleValues` and read by every surface that must not render it.
+ *
+ * The padding exists for `ColumnCard`, which draws exactly three lines and prints `(vide)` on a
+ * padded one. Every OTHER reader of `samples` meets it as a value that is not in the file: #485's
+ * account dialog joined it into « 10000001, 10000002, », and #669's reading cards announced
+ * « Trois exemples : 1 juin 2026, 2 juin 2026, . ». Two spellings of `value !== ''` had grown by
+ * then, which is how a third reader would have forgotten it.
+ *
+ * Safe as an exact comparison because `importSampleValues` never pushes a blank cell: a real
+ * value is always non-blank, so `''` in `samples` can only be the padding.
+ */
+export const SAMPLE_PADDING = '';
+
+/** Whether one entry of `DesignationFile.samples` is padding rather than a cell of the file. */
+export function isSamplePadding(value: string): boolean {
+	return value === SAMPLE_PADDING;
+}
+
+/**
  * `DesignationFile` with every key REQUIRED TO BE WRITTEN, and every value type left alone.
  *
  * The mapping is deliberately NOT homomorphic. `{ [K in keyof T]: T[K] }` preserves the optional

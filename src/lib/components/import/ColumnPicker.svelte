@@ -2,6 +2,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import type { MappingRole } from '$lib/domain/mappingRoles';
 	import {
+		isSamplePadding,
 		isUnavailableFor,
 		roleHolding,
 		type ResolvedDesignationFile,
@@ -292,25 +293,26 @@
 	);
 
 	/**
-	 * The designated column's three raw samples, read both ways, PAIRED with `DateReadingCard`'s own
+	 * The designated column's raw samples, read both ways, PAIRED with `DateReadingCard`'s own
 	 * `{ raw, pretty }` shape. `file.samples` is the one copy of the raw values in this component;
 	 * `dateReading` carries only the two prettified arrays, never a second copy of the raw side.
+	 *
+	 * **Paired FIRST, filtered SECOND, and the order is the whole fix (#669).** `samples` is padded
+	 * to three with `SAMPLE_PADDING`, which is `ColumnCard`'s « (vide) » and a value this file does
+	 * not contain. Dropped from the raw array alone, the survivors would shift against the pretty
+	 * array and print one cell beside its neighbour's conversion; dropped as a PAIR, position is
+	 * kept by construction. A two-row file therefore offers two readings, not two and a bare arrow.
 	 */
 	const readingRawSamples = $derived(
 		designatedIndex !== null ? (file.samples[designatedIndex] ?? []) : []
 	);
-	const dayFirstPairs = $derived(
-		readingRawSamples.map((raw, index) => ({
-			raw,
-			pretty: dateReading?.dayFirstPretty[index] ?? ''
-		}))
-	);
-	const monthFirstPairs = $derived(
-		readingRawSamples.map((raw, index) => ({
-			raw,
-			pretty: dateReading?.monthFirstPretty[index] ?? ''
-		}))
-	);
+	function pairsFor(pretty: readonly string[] | undefined) {
+		return readingRawSamples
+			.map((raw, index) => ({ raw, pretty: pretty?.[index] ?? '' }))
+			.filter((pair) => !isSamplePadding(pair.raw));
+	}
+	const dayFirstPairs = $derived(pairsFor(dateReading?.dayFirstPretty));
+	const monthFirstPairs = $derived(pairsFor(dateReading?.monthFirstPretty));
 
 	/**
 	 * `committed`: true once THIS open-to-close session has applied anything, across both steps.
