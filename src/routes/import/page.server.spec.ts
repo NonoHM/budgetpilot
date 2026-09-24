@@ -6,6 +6,7 @@ import { computeNameKey } from '$lib/server/naming/nameKey';
 import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
+import { answerKeyFor } from '$lib/server/import/answerBinding';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1949,7 +1950,18 @@ async function runImportWithFile(content: string) {
 	return runImport(formData);
 }
 
+/**
+ * Posts answers BOUND to the file they ride with, as the page does: `answersFor` is the file's own
+ * key. For tests about what an answer DOES; what binding does is tested with the raw form below,
+ * against keys the server itself issued.
+ */
 async function runImportWithFileAndFields(content: string, fields: Record<string, string>) {
+	const file = new File([content], 'export.csv', { type: 'text/csv' });
+	return runImportWithRawFields(content, { answersFor: await answerKeyFor(file), ...fields });
+}
+
+/** Posts exactly these fields beside the file, bound or not. */
+async function runImportWithRawFields(content: string, fields: Record<string, string>) {
 	const formData = new FormData();
 	formData.set('csvFile', new File([content], 'export.csv', { type: 'text/csv' }));
 	for (const [key, value] of Object.entries(fields)) formData.set(key, value);
@@ -2312,6 +2324,137 @@ describe('two accounts of one source, on the auto path', () => {
 	});
 
 	/**
+	 * THE LOOP, at the action, and THE BINDING that keeps its fix from becoming a worse defect.
+	 *
+	 * A file whose dates read both ways, from a user holding two accounts of its source, asked the
+	 * date reading and the account in turn forever on 1.1.1, because each request carried only the
+	 * answer to the question on screen. The page now posts every answer the server accepted for the
+	 * file in hand, keyed by `answersFor`; these tests hold the server to its half: one question per
+	 * round trip in `offerPrecedence.ts`'s order, each answered one kept, and an answer keyed to
+	 * another file never applied.
+	 */
+	describe('both questions on one file, and the file each answer belongs to', () => {
+		const AMBIGUOUS = 'date;label;amount;category\n06/01/2026;AUCHAN;-42,10;Autre';
+		/** Same bank, same header row, same name on upload: a different statement. */
+		const OTHER_AMBIGUOUS = 'date;label;amount;category\n07/02/2026;SNCF;-30,00;Autre';
+
+		type Reply = {
+			status?: number;
+			data?: {
+				error?: string;
+				account?: { options: { id: string }[] };
+				reading?: { dateColumn: number };
+				answers?: { key: string; accountId: string | null; dateOrder: string | null };
+			};
+			importResult?: { importedRows: number };
+		};
+
+		it('asks the account, then the date, then imports, keeping each answer', async () => {
+			// SEPARATES: « every answer the server accepted rides the next request and is not asked
+			// again » FROM the alternation measured on 1.1.1. Three round trips, each asserted on the
+			// question it asks, and the rows asserted on the account they landed in.
+			seedTwoCsvAccounts();
+
+			const first = (await runImportWithFile(AMBIGUOUS)) as unknown as Reply;
+			expect(first.data?.account?.options.map((option) => option.id).sort()).toEqual([
+				'account-courant',
+				'account-livret'
+			]);
+			expect(first.data?.reading).toBeUndefined();
+			const key = first.data?.answers?.key ?? '';
+			expect(key).toMatch(/^[0-9a-f]{64}$/);
+
+			const second = (await runImportWithRawFields(AMBIGUOUS, {
+				answersFor: key,
+				accountId: 'account-livret'
+			})) as unknown as Reply;
+			expect(second.data?.error).toBe(m.import_error_ambiguous_date_order());
+			expect(second.data?.account).toBeUndefined();
+			expect(second.data?.reading?.dateColumn).toBe(0);
+			// The accepted account, echoed so the page keeps posting it.
+			expect(second.data?.answers).toStrictEqual({
+				key,
+				accountId: 'account-livret',
+				dateOrder: null,
+				accountColumnAnswer: null
+			});
+
+			const third = (await runImportWithRawFields(AMBIGUOUS, {
+				answersFor: key,
+				accountId: 'account-livret',
+				dateOrder: 'day-first'
+			})) as unknown as Reply;
+			expect(third.importResult?.importedRows).toBe(1);
+			expect(db.state.transactions.map((transaction) => transaction.accountId)).toEqual([
+				'account-livret'
+			]);
+		});
+
+		it('never applies an answer keyed to another file, and asks this one its own questions', async () => {
+			// SEPARATES: « an answer is applied only to the file it was given for » FROM « an answer
+			// rides whatever file arrives beside it », which files the second statement into the
+			// account chosen for the first with a summary that looks right. The key is the one the
+			// server itself issued for the FIRST file: the stale answer a page would carry.
+			seedTwoCsvAccounts();
+			const first = (await runImportWithFile(AMBIGUOUS)) as unknown as Reply;
+			const staleKey = first.data?.answers?.key ?? '';
+			expect(staleKey).toMatch(/^[0-9a-f]{64}$/);
+
+			const second = (await runImportWithRawFields(OTHER_AMBIGUOUS, {
+				answersFor: staleKey,
+				accountId: 'account-livret',
+				dateOrder: 'day-first'
+			})) as unknown as Reply;
+
+			// Asked the ACCOUNT, from scratch, and nothing written.
+			expect(second.status).toBe(400);
+			expect(second.data?.error).toBe(m.import_account_error_ambiguous_auto());
+			expect(second.data?.answers?.key).not.toBe(staleKey);
+			expect(second.data?.answers?.accountId).toBeNull();
+			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		it('never applies an answer that names no file at all', async () => {
+			// SEPARATES: « an unkeyed answer is dropped » FROM « a missing key reads as a match ».
+			seedTwoCsvAccounts();
+
+			const result = (await runImportWithRawFields(AMBIGUOUS, {
+				accountId: 'account-livret',
+				dateOrder: 'day-first'
+			})) as unknown as Reply;
+
+			expect(result.data?.error).toBe(m.import_account_error_ambiguous_auto());
+			expect(result.data?.answers?.accountId).toBeNull();
+			expect(result.data?.answers?.dateOrder).toBeNull();
+			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		it('stops echoing an account that does not resolve, and keeps the date', async () => {
+			// SEPARATES: « what the page keeps is what the server accepted » FROM « the page keeps
+			// what it posted », under which a refused account would be re-posted on every press.
+			seedTwoCsvAccounts();
+			const first = (await runImportWithFile(AMBIGUOUS)) as unknown as Reply;
+			const key = first.data?.answers?.key ?? '';
+
+			const result = (await runImportWithRawFields(AMBIGUOUS, {
+				answersFor: key,
+				accountId: 'account-of-nobody',
+				dateOrder: 'day-first'
+			})) as unknown as Reply;
+
+			expect(result.status).toBe(400);
+			expect(result.data?.error).toBe(m.import_account_error_required());
+			expect(result.data?.answers).toStrictEqual({
+				key,
+				accountId: null,
+				dateOrder: 'day-first',
+				accountColumnAnswer: null
+			});
+			expect(db.state.transactions).toHaveLength(0);
+		});
+	});
+
+	/**
 	 * #485: a file carrying several accounts used to import ANYWAY, with a sentence added after
 	 * the write. It is refused or asked BEFORE the write now, following `discriminant.ts`'s kind:
 	 * `contradictory` (a verified IBAN pair) refuses outright, `ambiguous` (a bare digit run) asks.
@@ -2427,11 +2570,10 @@ describe('two accounts of one source, on the auto path', () => {
 	 * THE SECOND PAIR THE PLAN NAMES: the account question (#476, source ambiguity) and the
 	 * duplicate-statement confirmation (#343, `findCollidingBatch`) can both apply to one re-upload
 	 * — the same file, imported a second time, once the caller has stopped naming an account. The
-	 * order is a control-flow fact rather than a `resolveZeroTransactionOffer`-shaped priority
-	 * (each check is an early `return` in `decideAutoAccount`'s own caller, not a set of facts
-	 * computed together and then ranked), so it is tested here directly against the real collision
-	 * detector rather than through that module: `decision.kind === 'ask'` (`+page.server.ts`) is
-	 * checked and returned on BEFORE `formData.get('confirmCollision')` is ever read.
+	 * account question is a rung of `resolveImportOffer`; the collision is not, because it needs the
+	 * destination and the parsed rows and so can only be raised once that function answers `none`.
+	 * That seam is control flow in the route, so it is tested here directly against the real
+	 * collision detector rather than through the ranking module.
 	 */
 	it('asks which account before ever raising the duplicate-statement confirmation', async () => {
 		expect.assertions(4);

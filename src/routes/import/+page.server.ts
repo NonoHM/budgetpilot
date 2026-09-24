@@ -18,7 +18,7 @@ import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
 import { decideAutoAccount } from '$lib/server/import/autoAccount';
-import { readAccountColumnAnswer } from '$lib/server/import/discriminant';
+import { answerKeyFor, keptAnswers, readBoundAnswers } from '$lib/server/import/answerBinding';
 import {
 	ImportFileError,
 	IMPORT_FILE_MAX_BYTES,
@@ -27,8 +27,7 @@ import {
 } from '$lib/server/import/file';
 import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
 import { refusedForBounds } from '$lib/server/import/refusals';
-import { resolveZeroTransactionOffer } from '$lib/server/import/offerPrecedence';
-import { readDateOrderAnswer } from '$lib/server/import/dateOrder';
+import { resolveImportOffer } from '$lib/server/import/offerPrecedence';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
@@ -344,6 +343,16 @@ export const actions: Actions = {
 		// exactly what it costs them today and not more.
 		const useMapping = verdict?.kind === 'recognised';
 
+		/**
+		 * EVERY ANSWER THIS REQUEST CARRIES, read only if it was given for THIS file.
+		 *
+		 * The page posts each answer the server accepted for the file in hand, keyed by the file's
+		 * digest (`answerBinding.ts`). A key that is not this file's drops every answer at once, so
+		 * an account chosen for one statement can never file the rows of the next one.
+		 */
+		const answerKey = await answerKeyFor(importFile);
+		const answers = readBoundAnswers(formData, answerKey);
+
 		const result = parseCsvTransactionRows(importData.rows, {
 			maxBytes: IMPORT_FILE_MAX_BYTES,
 			profile: useMapping ? 'mapped' : 'auto',
@@ -353,75 +362,145 @@ export const actions: Actions = {
 				...rule,
 				type: rule.type === 'income' || rule.type === 'expense' ? rule.type : 'any'
 			})),
-			// Absent until now: nothing on this route ever posted the field, because nothing could
-			// ask. The reading offer below is the caller; `readDateOrderAnswer` is the same closed-set
-			// validator `/import/columns` already reads its own answer through.
-			dateOrder: readDateOrderAnswer(formData.get('dateOrder')),
+			// The reading offer below is the caller, through the same closed-set validator
+			// `/import/columns` reads its own answer with, and only once bound to this file.
+			dateOrder: answers.dateOrder ?? undefined,
 			// #485's account-column offer below is the caller. Unlike `dateOrder`, no suppression
 			// flag: this door has no prior mechanism that could have already asked the question.
-			accountColumnAnswer: readAccountColumnAnswer(formData.get('accountColumnAnswer'))
+			accountColumnAnswer: answers.accountColumnAnswer ?? undefined
 		});
 
-		if (result.transactions.length === 0) {
-			// BEFORE the designation offer, because the plate puts it there and because the shape is
-			// knowable from the bytes. §1q table B: « La détection doit refuser le fichier AVANT cet
-			// écran et le nommer sur /imports. » A file whose money sits in two columns cannot be
-			// expressed by naming one of them, so opening the screen would be asking the user to do
-			// work and telling them afterwards that it could not have helped.
-			//
-			// NOT when the parse refused on the file's DIMENSIONS. A refusal naming the two money
-			// columns cannot change the outcome for a file that is simply too big, so the work has no
-			// reachable purpose there, and that is precisely the file on which it is most expensive.
-			// The resource ceiling in `readImportFile` caps what this can cost; this decides whether it
-			// has a reason to run at all. Two different questions, and bounding answers only the first.
-			const splitPair = refusedForBounds(result)
+		/**
+		 * WHICH ACCOUNT THIS AUTO-DETECTED FILE LANDS IN, decided before anything is written.
+		 *
+		 * There is no account row on this path: `/import` imports a recognised file without ever
+		 * showing the designation screen. The destination used to be `(name: 'Compte import CSV',
+		 * source)`, and the boot backfill renames those buckets, so that lookup silently stopped
+		 * matching and made a second one. MEASURED: `created=true`, `buckets=2`.
+		 *
+		 * Looked up WITHOUT creating: a run the user abandons at the collision dialog must leave no
+		 * row behind, and creating here would make the next run report their destination choice as
+		 * « ignored », since that sentence is derived from whether the bucket was created.
+		 *
+		 * Decided whether or not the parse produced rows, because the account question is a rung of
+		 * `offerPrecedence.ts` and not a step of this function's control flow: it is asked BEFORE the
+		 * date reading, and a file whose dates are in question has produced nothing yet. Where it
+		 * ranks against the other questions is that module's decision, never this call site's.
+		 */
+		const source = getImportSource(result.summary.profile);
+		const decision = await decideAutoAccount({
+			userId: user.id,
+			source,
+			rows: importData.rows,
+			// The bound answer to a previous `ask`, when the user has given one for this file.
+			chosenId: answers.accountId
+		});
+		const kept = keptAnswers(answerKey, answers, {
+			accountId: answers.accountId !== null && decision.kind === 'account'
+		});
+
+		// The zero-transaction facts, each only on a parse that produced nothing: `csv.ts` returns
+		// exactly one fact per `emptyResult`, which is what the `.length === 1` guards rely on.
+		const produced = result.transactions.length > 0;
+		const onlyFact =
+			!produced && result.invalidRows.length === 1 ? result.invalidRows[0].fact : null;
+		/**
+		 * #433's auto-path remainder (plate 7l). The parse door already refused to guess: an
+		 * ambiguous column under a recognised profile comes back as this ONE fact, and `csv.ts` only
+		 * reaches it when the file would otherwise have imported cleanly.
+		 */
+		const dateOrderRefusal = onlyFact?.code === 'ambiguous-date-order' ? onlyFact : null;
+		/**
+		 * #485, PROVEN. Refused outright on a verified IBAN pair (or on a bare digit run the user has
+		 * just confirmed names accounts): "which account" has no answer this screen can collect that
+		 * would let the file import as several accounts.
+		 */
+		const multiAccountRefusal = onlyFact?.code === 'multi-account-file' ? onlyFact : null;
+		/** #485, UNPROVEN. The one offer this refusal DOES carry: whether the column names accounts. */
+		const accountColumnRefusal = onlyFact?.code === 'ambiguous-account-column' ? onlyFact : null;
+		// BEFORE the designation offer, because the plate puts it there and because the shape is
+		// knowable from the bytes. §1q table B: « La détection doit refuser le fichier AVANT cet
+		// écran et le nommer sur /imports. » NOT when the parse refused on the file's DIMENSIONS: a
+		// refusal naming the two money columns cannot change the outcome for a file that is simply
+		// too big, and that is precisely the file on which it is most expensive.
+		const splitPair =
+			produced || refusedForBounds(result)
 				? null
 				: detectSplitAmountPair(headerCells, importData.rows);
+		const splitFact = splitPair
+			? ({
+					code: 'amount-split-across-columns',
+					columns: splitPair.map((name) => `« ${name} »`).join(' et ')
+				} as const)
+			: null;
+
+		/**
+		 * THE ONE ORDER, read from `offerPrecedence.ts`: which refusal or question this request
+		 * answers with, the next UNANSWERED question in the order that module defines. A question is
+		 * `answered` only by an answer bound to this file, and an answered question is never asked
+		 * again, which is what ends the date/account alternation measured on 1.1.1.
+		 */
+		const offer = resolveImportOffer({
+			produced,
+			split: splitFact,
+			multiAccount: multiAccountRefusal,
+			accountColumn: accountColumnRefusal
+				? { state: 'open', fact: accountColumnRefusal }
+				: answers.accountColumnAnswer
+					? { state: 'answered' }
+					: null,
+			account:
+				decision.kind === 'ask'
+					? { state: 'open', fact: decision.offer }
+					: decision.kind === 'refused'
+						? { state: 'refused', reason: decision.reason }
+						: kept.accountId !== null
+							? { state: 'answered' }
+							: null,
+			dateOrder: dateOrderRefusal
+				? { state: 'open', fact: dateOrderRefusal }
+				: answers.dateOrder
+					? { state: 'answered' }
+					: null
+		});
+
+		if (offer.rung === 'account') {
+			if (offer.question.state === 'refused') {
+				// The two refusals `resolveImportBucketAccountById` tells apart, answered with the same
+				// two sentences the designation screen uses. Not-yours and not-found are one answer
+				// because the asker may not be the owner; archived is its owner's own account and
+				// only that sentence says what to do next. `answers` goes back WITHOUT the refused
+				// account, so the page stops posting it and the next press asks again.
+				return fail(400, {
+					error:
+						offer.question.reason === 'archived'
+							? m.import_account_error_archived()
+							: m.import_account_error_required(),
+					answers: kept
+				});
+			}
+			/**
+			 * THE REFUSAL CARRIES THE CONTROL THAT ANSWERS IT, which is the whole of #476.
+			 *
+			 * The designation screen is not reachable from here by design (ruling A1: it does not
+			 * open for a recognised file), so the offer is the same shape the designation screen's
+			 * account row is given, drawn on this page instead. `account` and not `designation`: the
+			 * columns are known, and submitting a designation would write a `ColumnMapping` under
+			 * this file's fingerprint that shadows the built-in profile for ever.
+			 */
+			return fail(400, {
+				error: m.import_account_error_ambiguous_auto(),
+				account: accountOfferFrom(offer.question.fact),
+				answers: kept
+			});
+		}
+
+		if (offer.rung !== 'none') {
+			// Every rung left here is reached only on a parse that produced nothing: the four facts
+			// above are computed only then, and `generic` is defined by it.
 			// As in the correction branch: one array, shared by `samples` and `dateReadings`.
 			const offerSamples = importSampleValues(importData.rows);
 			const offerFirstRow = importFirstDataRow(importData.rows);
-			/**
-			 * THE FOURTH OFFER, #433's auto-path remainder (plate 7l). The parse door (`csv.ts`)
-			 * already refused to guess: an ambiguous column under a recognised profile comes back as
-			 * this ONE fact and nothing else, because `csv.ts` only reaches it when the file would
-			 * otherwise have imported cleanly (structural refusals win first).
-			 *
-			 * `result.invalidRows.length === 1` rather than `.some`: this refusal is the WHOLE story
-			 * for this parse (the door returns `emptyResult` with exactly one fact), so checking there
-			 * is nothing else is free and catches a future door change that starts emitting it
-			 * alongside something else, which would silently change what this offer means.
-			 */
-			const dateOrderRefusal =
-				result.invalidRows.length === 1 &&
-				result.invalidRows[0].fact.code === 'ambiguous-date-order'
-					? result.invalidRows[0].fact
-					: null;
-			/**
-			 * #485, PROVEN. The door refuses outright on a verified IBAN pair (or on a bare digit
-			 * run the user has just confirmed names accounts), and there is nothing to offer beside
-			 * the sentence: unlike a reading, "which account" has no answer this screen can collect
-			 * that would let the file import as several accounts. Same `.length === 1` guard as
-			 * `dateOrderRefusal`, same reason.
-			 */
-			const multiAccountRefusal =
-				result.invalidRows.length === 1 && result.invalidRows[0].fact.code === 'multi-account-file'
-					? result.invalidRows[0].fact
-					: null;
-			/**
-			 * #485, UNPROVEN. The one offer this refusal DOES carry: whether the column names
-			 * accounts at all. Same `.length === 1` guard, same reason.
-			 */
-			const accountColumnRefusal =
-				result.invalidRows.length === 1 &&
-				result.invalidRows[0].fact.code === 'ambiguous-account-column'
-					? result.invalidRows[0].fact
-					: null;
-			const splitFact = splitPair
-				? ({
-						code: 'amount-split-across-columns',
-						columns: splitPair.map((name) => `« ${name} »`).join(' et ')
-					} as const)
-				: null;
 			const splitRefusal: ImportInvalidRowDetail[] = splitFact
 				? [
 						{
@@ -434,20 +513,11 @@ export const actions: Actions = {
 					]
 				: [];
 
-			/**
-			 * THE ONE ORDER, read from `offerPrecedence.ts` rather than a ternary chain written by
-			 * hand at this call site: `/import/columns` reads the SAME function below, over its own
-			 * subset of these five facts, so the two doors cannot drift into two different answers
-			 * for a file that raises the same pair on both.
-			 */
-			const offer = resolveZeroTransactionOffer({
-				split: splitFact,
-				multiAccount: multiAccountRefusal,
-				accountColumn: accountColumnRefusal,
-				dateOrder: dateOrderRefusal
-			});
-
 			return fail(400, {
+				// What the page keeps for this file, so the answer to the question asked here rides
+				// the next request beside every answer already accepted. Only a QUESTION needs it; a
+				// refusal carries it too because it costs nothing and a stale page state costs a loop.
+				answers: kept,
 				error:
 					offer.rung === 'split' || offer.rung === 'multiAccount'
 						? refusalLabel(offer.fact)
@@ -465,8 +535,8 @@ export const actions: Actions = {
 				// unchanged. Every other rung is excluded for its own reason — `dateOrder` per plate
 				// 7l (recognition covers mapping, not reading, so there is no column left to
 				// redesignate), `multiAccount`/`accountColumn` one level over (naming columns cannot
-				// answer "does this file cover more than one account" either) — and `resolve
-				// ZeroTransactionOffer`'s order is what guarantees at most one of them is ever true.
+				// answer "does this file cover more than one account" either) — and `resolveImportOffer`'s
+				// order is what guarantees at most one of them is ever true.
 				designation:
 					offer.rung === 'generic' && offersDesignation(result, headerCells)
 						? {
@@ -571,66 +641,11 @@ export const actions: Actions = {
 		 * re-import of an already-imported file. That run is the one every user performs, and a
 		 * warning shown on it is a warning nobody reads by the third month.
 		 */
-		/**
-		 * WHICH ACCOUNT THIS AUTO-DETECTED FILE LANDS IN, asked once and before anything is written.
-		 *
-		 * There is no account row on this path: `/import` imports a recognised file without ever
-		 * showing the designation screen, so nothing here can ask the user. The destination used to
-		 * be `(name: 'Compte import CSV', source)`, and the boot backfill renames those buckets, so
-		 * that lookup silently stopped matching and made a second one. MEASURED on this branch:
-		 * `created=true`, `buckets=2`.
-		 *
-		 * Looked up WITHOUT creating: a run the user abandons at the collision dialog must leave no
-		 * row behind, and creating here would make the next run report their destination choice as
-		 * « ignored », since that sentence is derived from whether the bucket was created.
-		 *
-		 * Two accounts of one source is the state this piece newly makes reachable, and a file alone
-		 * cannot say which. Refusing here rather than taking the first is the whole point of the
-		 * piece: the refusal names the screen that CAN ask, and it is a 400 the user can read.
-		 */
-		const source = getImportSource(result.summary.profile);
-		const decision = await decideAutoAccount({
-			userId: user.id,
-			source,
-			rows: importData.rows,
-			// The answer to a previous `ask`, when the user has given one. Absent on the first run
-			// and on every run of an install with one account per bank, which is the ordinary path.
-			chosenId: asString(formData.get('accountId'))
-		});
-
-		if (decision.kind === 'refused') {
-			// The two refusals `resolveImportBucketAccountById` tells apart, answered here with the
-			// same two sentences the designation screen uses. Not-yours and not-found are one answer
-			// because the asker may not be the owner; archived is its owner's own account and only
-			// that sentence says what to do next.
-			return fail(400, {
-				error:
-					decision.reason === 'archived'
-						? m.import_account_error_archived()
-						: m.import_account_error_required()
-			});
-		}
-
-		if (decision.kind === 'ask') {
-			/**
-			 * THE REFUSAL CARRIES THE CONTROL THAT ANSWERS IT, which is the whole of #476.
-			 *
-			 * Before this the same 400 carried a sentence naming the designation screen and nothing
-			 * else. That screen is not reachable from here by design (ruling A1: it does not open for
-			 * a recognised file) and `/import/columns` bounces a direct visit, so a user holding two
-			 * accounts at one bank could not complete the import at all. The offer is the same shape
-			 * the designation screen's account row is given, drawn on this page instead.
-			 *
-			 * `account` and not `designation`: the columns are known, so nothing here asks about
-			 * them. Sending this file to the designation screen would make the user re-answer
-			 * columns they never answered, and submitting it would write a `ColumnMapping` under this
-			 * file's fingerprint that shadows the built-in profile for ever, which is a durable
-			 * change bought to settle a one-off question.
-			 */
-			return fail(400, {
-				error: m.import_account_error_ambiguous_auto(),
-				account: accountOfferFrom(decision.offer)
-			});
+		// Unreachable: an `ask` or a `refused` decision is the account rung, and `none` means no rung
+		// was pending. Asserted rather than assumed, because « the order above covers this » is a
+		// claim about two pieces of code that nothing keeps in step, and it narrows the type below.
+		if (decision.kind === 'ask' || decision.kind === 'refused') {
+			throw new Error('offerPrecedence answered none over a pending account question');
 		}
 
 		if (formData.get('confirmCollision') !== '1') {
@@ -658,6 +673,8 @@ export const actions: Actions = {
 			if (collision) {
 				return fail(409, {
 					collision,
+					// « Importer quand même » re-posts this run, answers included, from here.
+					answers: kept,
 					// The same three figures for the file in hand. They are equal to the other side's
 					// by construction, and showing both is the point: the identity IS the evidence,
 					// and a warning that asserts a resemblance without showing it asks to be believed.
@@ -850,11 +867,6 @@ function getImportSource(profile: string): string {
 	if (profile === 'banque-populaire') return 'banque_populaire';
 	if (profile === 'revolut') return 'revolut';
 	return 'csv';
-}
-
-/** A form field as a non-empty string, or null. A `File` is not an answer to a text field. */
-function asString(value: FormDataEntryValue | null): string | null {
-	return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 function isUploadedFile(value: FormDataEntryValue | null): value is File {
