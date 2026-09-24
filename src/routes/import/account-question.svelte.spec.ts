@@ -234,25 +234,30 @@ describe('the account question beside an import refusal', () => {
 		// screen and reads as nothing happening. The primary stays live rather than being disabled,
 		// which is the ruling the designation screen records: a disabled control explains nothing and
 		// cannot be asked why.
+		//
+		// COUNTED ON THE REQUESTS, #701. This used to read `event.defaultPrevented` from a `submit`
+		// listener, which cannot separate the two states: `enhance` prevents the default of EVERY
+		// submission and posts through `fetch` itself, so the flag was true whether the page refused
+		// the press or posted it. Break-checked on 2026-09-24: making the guard answer AND post (the
+		// focus moves, `cancel()` is skipped) left the old assertion green and turns this one red,
+		// 2 requests for 1. The second clause is its own break: dropping the row's `focus()` reddens
+		// the focus read and nothing else. The keyboard press at both widths is the sibling in
+		// `pending-upload.svelte.spec.ts`, « sends nothing, and does not go busy, on a press the page
+		// refuses itself »; this is the pointer press.
 		await page.viewport(1280, 800);
 		const { section } = await mount(1280);
 		await chooseAndSubmit(section);
+		const requests = () => vi.mocked(fetch).mock.calls.length;
+		// The first press is what makes the refusal describe the file in hand, and it posts.
+		await expect.poll(requests).toBe(1);
 
-		// Recorded rather than blocked: `preventDefault` does not stop other listeners on the same
-		// element, so a listener asserting it was never called would be asserting about listener
-		// order. What decides whether the browser posts is `defaultPrevented`, so that is what is
-		// read, and the listener prevents it a second time so a regression cannot navigate the test
-		// runner away.
-		let prevented: boolean | null = null;
-		section.querySelector('form')!.addEventListener('submit', (event) => {
-			prevented = event.defaultPrevented;
-			event.preventDefault();
-		});
 		await userEvent.click(section.querySelector('button[type=submit]') as HTMLElement);
-
-		expect(prevented).toBe(true);
 		// And the user is shown WHERE: the row took the focus rather than the page saying nothing.
-		expect(document.activeElement).toBe(questionIn(section)!.querySelector('button'));
+		// Waited for, so the count below is read after the page has answered the press.
+		const row = questionIn(section)!.querySelector('button');
+		await expect.poll(() => document.activeElement).toBe(row);
+
+		expect(requests()).toBe(1);
 	});
 
 	it('says what is missing, in the row, when the primary is pressed unanswered', async () => {
