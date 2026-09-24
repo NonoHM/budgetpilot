@@ -407,7 +407,9 @@ describe('#600: a declared currency the destination contradicts is refused befor
 	 * THE THIRD CALL, in `persistImportedTransactions`. This test performs the parse and the write
 	 * ITSELF, which no route does without its own check first: it measures that a writer which
 	 * skipped the routes' comparison still cannot store a declared EUR row as USD, not that the
-	 * application reaches this throw. Separates « refused before the first row » from « written ».
+	 * application reaches this throw. Separates « refused before the first transaction row » from
+	 * « written ». The batch this test created first is still there: the backstop protects rows, not
+	 * the batch (see the comment at the throw).
 	 */
 	it('persist refuses a writer that skipped the comparison, before the first row', async () => {
 		expect.assertions(2);

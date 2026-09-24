@@ -34,9 +34,13 @@ export type DeclaredCurrencyMismatch = Extract<
  * reading open is asked the reading first (on `/import`, before the destination is known; on
  * `/import/columns`, on the designation screen before the POST), and is refused afterwards.
  *
- * `persistImportedTransactions` calls it a THIRD time, on the rows it is about to write and the
- * account it read them against, and throws. Unreachable from both routes, which refuse first; it
- * exists so a future writer cannot skip the comparison by forgetting to call it.
+ * `persistImportedTransactions` calls it a THIRD time, as a backstop, and throws. The two route
+ * calls are the control: they run before anything is written and compare the file-level
+ * declaration. The backstop sees only the rows it is handed, so it protects transaction rows, and
+ * only for a writer whose rows carry `declaredCurrency`. It runs after the batch (and possibly a
+ * by-source bucket, a saved mapping or a counted mapping use) has been written, and nothing catches
+ * it, so reaching it means a 500 and an empty batch. No caller reaches it today; the persist
+ * comment says the rest, and #662 (D3) owns an uncaught throw there.
  *
  * ASVS v5.0.0-2.2.1: the declared currency is input validated against an expected structure, the
  * destination's own denomination, at the server boundary.
@@ -71,8 +75,9 @@ export function rowDeclarations(
 }
 
 /**
- * Thrown by `persistImportedTransactions` when a caller reached it without comparing. A class
- * rather than a message to match on, for the reason `ImportBucketAccountError` gives.
+ * Thrown by `persistImportedTransactions`, before the first transaction row, when a writer reached
+ * it without comparing. Not caught anywhere yet (#662). A class rather than a message to match on,
+ * for the reason `ImportBucketAccountError` gives.
  */
 export class DeclaredCurrencyMismatchError extends Error {
 	readonly fact: DeclaredCurrencyMismatch;

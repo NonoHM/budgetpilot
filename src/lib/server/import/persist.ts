@@ -630,9 +630,17 @@ export async function persistImportedTransactions(
 		select: { currency: true, exponent: true, providerAccountId: true }
 	});
 
-	// #600, the third call of the one comparison, on the rows about to be denominated by this
-	// bucket. Both routes refuse before reaching here, so this throws only for a writer that skipped
-	// them, and it throws BEFORE the first row, so such a writer stores nothing wrong.
+	// #600, a BACKSTOP and not the control. The control is the routes' own call, before anything is
+	// written. This one sees only the rows it is handed, so it protects TRANSACTION ROWS, and only
+	// from a writer whose rows carry `declaredCurrency`: it cannot see a declaration made on a row the
+	// parse refused (the file-level `declaredCurrencies` can, and only the routes hold it).
+	//
+	// What it does NOT protect, stated rather than implied: by the time it runs, both routes have
+	// created the batch, `/import` may have created a by-source bucket, and either route may have
+	// counted a use of a column mapping (`/import/columns` may have saved one). Nothing catches the
+	// throw, so a writer reaching it would answer with a 500 and leave an empty batch behind. No
+	// caller reaches it today, since both routes refuse first; turning an uncaught throw here into a
+	// sentence is D3's work (#662).
 	const contradicted = declaredCurrencyRefusal(rowDeclarations(input.transactions), bucket);
 	if (contradicted) throw new DeclaredCurrencyMismatchError(contradicted);
 

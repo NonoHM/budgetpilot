@@ -64,13 +64,15 @@ They are not interchangeable, and the type system now says so: the resolved file
 
 Two currencies an imported row can be said to be in.
 
-- **The declared currency** is what the FILE says, in a `currency` or `Devise` column, per row. A
-  blank cell or a missing column declares nothing.
+- **The declared currency** is what the FILE says, read off every row: a `currency` or `Devise`
+  column, or an amount column named for its currency, such as N26's `Amount (EUR)`. A blank cell
+  or a missing column declares nothing.
 - **The account's currency** is what the destination `Account` holds. Every stored row is
   denominated by it.
 
-When the file declares nothing, the account's currency applies, by design. When the file declares
-one and the account holds another, the import is refused, naming both.
+When the file declares nothing, the account's currency applies, by design. This application's own
+export is that case: its header (`MAISON_V3_HEADER`) carries no currency column. When the file
+declares one and the account holds another, the import is refused, naming both.
 
 > **What confusing this cost.** The parse checked the declared currency against EUR and then
 > forgot it, and the write denominated every row by the account. A file saying EUR, filed into a
