@@ -100,7 +100,12 @@ describe.each([1280, 390] as const)(
 	'the /import submit at %i while the statement is out',
 	(width) => {
 		// SEPARATES: « the control says it is occupied » FROM « nothing answers the press », which was the
-		// defect at both widths. Break: drop `loading` from the Button and this reads `false`.
+		// defect at both widths. Break-checked: dropping `loading` turns this red at both widths.
+		//
+		// THE FIGURES BELOW ARE FROM THE BREAK-CHECK of 2026-09-24, one clause at a time. Dropping
+		// `loading` reddens every test that waits for the busy state (6 per width). Dropping
+		// `busyLabel` reddens « native disabled », « focus » and « verb » and leaves this one green,
+		// because `loading` alone still sets `aria-busy`: the two props are separate clauses.
 		it('carries aria-busy', async () => {
 			const { section } = await mountAt(width);
 			const submit = await pressImport(section);
@@ -110,7 +115,11 @@ describe.each([1280, 390] as const)(
 
 		// SEPARATES: « occupied » FROM « disabled ». The native attribute sends focus to the body at the
 		// moment the user is waiting at the control they pressed, which the plate forbids by name.
-		// Break: pass `disabled={uploading}` and this goes red.
+		// Break-checked: dropping `busyLabel` turns this red, since `Button` then falls back to the
+		// plain `loading` spinner, which IS natively disabled. Passing `disabled={uploading}` from here
+		// leaves it GREEN, and that is the contract working rather than a blind spot: a busy `Button`
+		// computes `disabled` as false whatever its host passes, which `busy-and-failure.svelte.spec.ts`
+		// owns.
 		it('does not carry the native disabled attribute', async () => {
 			const { section } = await mountAt(width);
 			const submit = await pressImport(section);
@@ -140,7 +149,11 @@ describe.each([1280, 390] as const)(
 		});
 
 		// SEPARATES: « a second press while the first is out sends nothing » FROM « it posts the
-		// statement again ». Counted on the requests, not on the button's rendering.
+		// statement again », which measured 3 requests for three presses before the fix. Counted on
+		// the requests, not on the button's rendering. TWO guards stand behind this press, the busy
+		// `Button`'s swallow and `submitUpload`'s `cancel()`, and break-checked, removing the
+		// `cancel()` alone leaves this green: the swallow holds. The test below is the one that sees
+		// the `cancel()`.
 		it('sends no second request on a second press', async () => {
 			const { section } = await mountAt(width);
 			const submit = await pressImport(section);
@@ -156,8 +169,8 @@ describe.each([1280, 390] as const)(
 		// THE FORM'S OWN GUARD, which the test above cannot see: the Button swallows ITS clicks, and a
 		// form can be submitted without its button (`requestSubmit`, or the other mount's form, which is
 		// a second `<form>` element). SEPARATES: « the page refuses a second submission while one is out »
-		// FROM « only the pressed button refuses ». Break: drop the `cancel()` in `submitUpload` and
-		// this counts 2 while the test above stays green.
+		// FROM « only the pressed button refuses ». Break-checked: dropping the `cancel()` for a busy
+		// upload turns this red at both widths and nothing else.
 		it('refuses a second submission of either form while one is out', async () => {
 			const { section, sections } = await mountAt(width);
 			await pressImport(section);
@@ -174,8 +187,8 @@ describe.each([1280, 390] as const)(
 		// (read in its source), posted anyway. With the occupancy contract wired,
 		// that request would also have painted « Import en cours… » over a press the page had just
 		// answered with « choose an account ». SEPARATES: « the local refusal is the whole answer » FROM
-		// « it is answered locally AND posted ». Break: call the account guard after the `uploading`
-		// flip, or drop it from `submitUpload`, and this counts 2.
+		// « it is answered locally AND posted ». Break-checked: restoring the pre-move behaviour (the
+		// guard answers, the post goes ahead) counts 2 at both widths and reddens nothing else.
 		it('sends nothing, and does not go busy, on a press the page refuses itself', async () => {
 			await page.viewport(width, width === 1280 ? 800 : 844);
 			const rendered = await render(Page, { data: DATA, form: ACCOUNT_REFUSAL as never });
@@ -198,6 +211,8 @@ describe.each([1280, 390] as const)(
 
 		// SEPARATES: « the occupancy ends with the answer » FROM « the control stays occupied for ever »,
 		// which is what a guard with no reset would ship: a page that can never import twice.
+		// Break-checked: emptying the `finally` reddens this and the test above, which needs its first
+		// press released.
 		it('is released when the answer arrives', async () => {
 			const { section } = await mountAt(width);
 			const submit = await pressImport(section);
