@@ -1457,6 +1457,7 @@
 	"import_datesheet_option_month_first": "Month then day",
 	"import_datesheet_marker_current": "Current reading",
 	"import_datesheet_option_aria": "{order}. Examples: {examples}.",
+	"import_datesheet_not_a_date": "not a date",
 	"import_datesheet_change_column": "Change column",
 	"import_designate_date_change_order": "Change the date order",
 	"import_designate_date_row_aria_unconfirmed": "Date, column designated: {header}, dates read {order}, order to confirm, not selected",
