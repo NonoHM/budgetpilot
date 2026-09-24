@@ -582,3 +582,93 @@ describe('#645: the Date row names the reading in force once it is confirmed', (
 		);
 	});
 });
+
+/**
+ * #683, plate 7b: once the reading is ANSWERED, the Date row opens the column list, and the column
+ * list's foot carries « Changer l'ordre des dates » back to the reading. Before this the key existed
+ * in both catalogues and in no source file, and `openPicker`'s docstring claimed the link.
+ *
+ * The journey is the acceptance, per AGENTS.md: answer, reopen, change the answer through the link,
+ * and observe the row and the submitted payload move. The route it takes is `chooseReading`, the
+ * path #639 and #668 break-checked; the link adds no writer of the reading.
+ */
+describe('#683: the column list leads back to an answered reading', () => {
+	const changeOrder = () =>
+		page.getByRole('button', { name: m.import_designate_date_change_order() });
+
+	it('separates an answer that can be revised from the column list from one that cannot', async () => {
+		const onSubmit = vi.fn();
+		const { container } = await mount({ initialAssignment: DATE_DESIGNATED, onSubmit });
+
+		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
+		await page.getByRole('option', { name: /Mois puis jour/ }).click();
+		expect(cardOf(container).textContent).toContain('4 mars 2026');
+
+		// Answered: the row now opens the COLUMN list, and the link is the way back.
+		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
+		await expect.element(page.getByRole('option', { name: /Libell/ })).toBeVisible();
+		await changeOrder().click();
+
+		await expect.element(page.getByText(m.import_datesheet_title())).toBeVisible();
+		const options = page.getByRole('option').elements();
+		expect(options).toHaveLength(2);
+		// It reopens on the answer in force, not on the application default.
+		expect(options[1].getAttribute('aria-selected')).toBe('true');
+
+		await page.getByRole('option', { name: /Jour puis mois/ }).click();
+		expect(cardOf(container).textContent).toContain('3 avril 2026');
+		expect(cardOf(container).textContent).not.toContain('4 mars 2026');
+
+		await page.getByTestId('designation-primary').click();
+		expect(onSubmit).toHaveBeenCalledTimes(1);
+		expect(onSubmit.mock.calls[0][0]).toMatchObject({ dateOrder: 'day-first' });
+	});
+
+	it('separates the anchored panel (1280) from the sheet: the link leads back there too', async () => {
+		// The two widths mount two different `ColumnPicker`s, each with its own handlers, so a link
+		// wired into one is not evidence about the other.
+		await page.viewport(1280, 900);
+		const { container } = await mount({ initialAssignment: DATE_DESIGNATED, wide: true });
+
+		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
+		await page.getByRole('option', { name: /Mois puis jour/ }).click();
+		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
+		await expect.element(page.getByTestId('column-picker-panel')).toBeVisible();
+		await changeOrder().click();
+		await page.getByRole('option', { name: /Jour puis mois/ }).click();
+
+		expect(cardOf(container).textContent).toContain('3 avril 2026');
+		expect(cardOf(container).textContent).not.toContain('4 mars 2026');
+	});
+
+	it('separates an unanswered reading from an answered one: no link, the row itself asks', async () => {
+		await mount({ initialAssignment: DATE_DESIGNATED });
+
+		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
+		await page.getByRole('button', { name: m.import_datesheet_change_column() }).click();
+
+		// The planted positive: this IS the column list, so an absent link is not an absent list.
+		await expect.element(page.getByRole('option', { name: /Libell/ })).toBeVisible();
+		expect(changeOrder().elements()).toHaveLength(0);
+	});
+
+	it('separates an answered column from one that proves its order: no link on a proof', async () => {
+		await mount({ file: PROVEN, initialAssignment: DATE_DESIGNATED });
+
+		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
+
+		await expect.element(page.getByRole('option', { name: /Libell/ })).toBeVisible();
+		expect(changeOrder().elements()).toHaveLength(0);
+	});
+
+	it('separates the Date picker from any other role: no link under the Libelle list', async () => {
+		await mount({ initialAssignment: DATE_DESIGNATED });
+		await page.getByRole('button', { name: /^Date, colonne désignée/ }).click();
+		await page.getByRole('option', { name: /Mois puis jour/ }).click();
+
+		await page.getByRole('button', { name: /^Libell/ }).click();
+
+		await expect.element(page.getByRole('option', { name: /Libell/ })).toBeVisible();
+		expect(changeOrder().elements()).toHaveLength(0);
+	});
+});

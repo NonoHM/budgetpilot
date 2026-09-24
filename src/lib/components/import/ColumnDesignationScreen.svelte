@@ -582,8 +582,10 @@
 	 * imperative that opens a list of columns is a false affordance. Step 1 in every other state,
 	 * including once the question is answered, because what that row then offers is the column.
 	 *
-	 * Step 1 stays one tap from step 2 through its foot TapLink, which is what makes this safe
-	 * rather than a trap.
+	 * Once answered, step 1 stays one tap from step 2 through its foot TapLink, « Changer l'ordre des
+	 * dates » (`canChangeOrder`, #683), which is what makes this safe rather than a trap. That
+	 * sentence stood here before the link existed; the way back was then only re-choosing the same
+	 * column, which re-asks (see `choose`).
 	 */
 	function openPicker(role: MappingRole) {
 		pickerStep =
@@ -760,6 +762,21 @@
 			retained: appliedReading
 		};
 	});
+
+	/**
+	 * Whether step 1 offers « Changer l'ordre des dates » (plate 7b, #683): a reading was ANSWERED
+	 * about the designated column and the sheet has the evidence to ask again.
+	 *
+	 * **Not on a column that proves its order, and that departs from 7b's « proven or confirmed ».**
+	 * An answer about a proven column is discarded twice, by `readingForState` here and by
+	 * `decideDateOrder` on the server, because a proof outranks a statement (#613). A link offering
+	 * to change it would take an answer and apply nothing, which is the control that appears to
+	 * decide and does not (#619). Unanswered is excluded too, as 7b draws it: the row itself opens
+	 * the question there.
+	 */
+	const canChangeOrder = $derived(
+		dateState === 'ambiguous' && dateAnswered && dateReadingPairs !== null
+	);
 
 	function stateOf(
 		role: MappingRole
@@ -1201,6 +1218,9 @@
 							onChoose={choose}
 							onChooseReading={chooseReading}
 							onChangeColumn={() => (pickerStep = 'columns')}
+							onChangeOrder={role === 'date' && canChangeOrder
+								? () => (pickerStep = 'reading')
+								: undefined}
 							onClose={closeWithoutChoosing}
 							onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}
 						/>
@@ -1687,6 +1707,9 @@
 		onChoose={choose}
 		onChooseReading={chooseReading}
 		onChangeColumn={() => (pickerStep = 'columns')}
+		onChangeOrder={openRole === 'date' && canChangeOrder
+			? () => (pickerStep = 'reading')
+			: undefined}
 		onClose={closeWithoutChoosing}
 		onToggleHeaderRow={() => (hasHeaderRow = !hasHeaderRow)}
 	/>

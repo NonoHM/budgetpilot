@@ -199,6 +199,53 @@ describe('the foot TapLink is a re-ask, not a back', () => {
 	});
 });
 
+/**
+ * #683, plate 7b: step 1's foot TapLink « Changer l'ordre des dates », the way BACK to the reading
+ * once it is answered. Same contract as step 2's « Changer de colonne »: ABSENT unless the caller
+ * supplies the handler, never rendered inert, and it re-asks rather than closing.
+ */
+describe("step 1's foot TapLink reopens the reading, and exists only when the caller offers it", () => {
+	it('separates a caller that offers the reading from one that does not: absent without onChangeOrder', async () => {
+		await mountSheet();
+		await expect
+			.element(page.getByRole('heading', { name: m.import_columns_picker_title_date() }))
+			.toBeVisible();
+		expect(
+			page.getByRole('button', { name: m.import_designate_date_change_order() }).elements()
+		).toHaveLength(0);
+	});
+
+	it('separates "change the order" from "close": it calls onChangeOrder and not onClose', async () => {
+		let changeOrderCalls = 0;
+		let closeCalls = 0;
+		await mountSheet({
+			onChangeOrder: () => changeOrderCalls++,
+			onClose: () => closeCalls++
+		});
+		await page.getByRole('button', { name: m.import_designate_date_change_order() }).click();
+		expect(changeOrderCalls).toBe(1);
+		expect(closeCalls).toBe(0);
+	});
+
+	it('separates a foot link from an option: it sits outside the listbox, on a 48 px line', async () => {
+		await mountSheet({ onChangeOrder: () => {} });
+		const link = page.getByRole('button', { name: m.import_designate_date_change_order() });
+		await expect.element(link).toBeVisible();
+		expect(link.element().closest('[role="listbox"]')).toBeNull();
+		expect((link.element().parentElement as HTMLElement).getBoundingClientRect().height).toBe(48);
+	});
+
+	it('separates step 1 from step 2: the link is never drawn on the reading body', async () => {
+		await mountSheet({ step: 'reading', dateReading: DATE_READING, onChangeOrder: () => {} });
+		await expect
+			.element(page.getByRole('heading', { name: m.import_datesheet_title() }))
+			.toBeVisible();
+		expect(
+			page.getByRole('button', { name: m.import_designate_date_change_order() }).elements()
+		).toHaveLength(0);
+	});
+});
+
 describe('keyboard: arrows move focus and selection follows it', () => {
 	it('separates ArrowDown from a click: pressing it while day-first is active chooses month-first', async () => {
 		const chosen: string[] = [];
