@@ -104,6 +104,24 @@ cannot be recomputed, so « the same statement twice » and « two statements ag
 figures » are no longer distinguishable. The interface says _peut-être_ because that is what is
 known.
 
+## Account column, and the counterparty's
+
+Two columns a statement can carry that both hold an account identifier.
+
+- **The account column** names the HOLDER's account: the statement's own. It is the only column
+  that can say which of the user's accounts a statement belongs to.
+- **The counterparty's account column** names the OTHER party to each row: who was paid, or who
+  paid. N26 calls it `Partner Iban`. It says nothing about which account the statement belongs to,
+  whatever its values do.
+
+Both pass the same grammar (an IBAN or a long digit run), so only the header tells them apart.
+
+> **What confusing this cost.** Before #702 the account column was read by its values alone. An N26
+> statement whose rows all paid the holder's own savings account was filed INTO the savings account
+> when the two shared a source, silently and with full confidence, and an account created from a
+> one-row statement stored the counterparty's four characters as its own. An ordinary N26 statement
+> paying two people was refused as a file spanning two accounts.
+
 ## Pressed
 
 The state a control shows while a finger or a pointer is on it. Distinct from **selected**
