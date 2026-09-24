@@ -53,7 +53,11 @@
 	}: {
 		/** Which reading this card offers. Fixes both the visible title and the spoken order name. */
 		order: 'day-first' | 'month-first';
-		/** The file's own three raw values, read this way. Always three, one per line. */
+		/**
+		 * The file's own raw values, read this way: ONE TO THREE, one per line. Fewer than three is
+		 * a short column, never padding (#669): the caller drops `SAMPLE_PADDING` before it gets here,
+		 * and the card reserves the missing lines rather than drawing them.
+		 */
 		pairs: { raw: string; pretty: string }[];
 		/** Whether this is the retained reading: the one already assumed or confirmed. */
 		current: boolean;
@@ -66,14 +70,25 @@
 			: m.import_datesheet_option_month_first()
 	);
 
+	/**
+	 * The examples as ONE parameter, joined the way `ColumnCard` joins its own, because their number
+	 * varies. Three fixed slots announced a two-row file as « 1 juin 2026, 2 juin 2026, . » (#669),
+	 * and the count word the key used to open with would have been false on the same file.
+	 */
 	const ariaLabel = $derived(
 		m.import_datesheet_option_aria({
 			order: title,
-			p1: pairs[0]?.pretty ?? '',
-			p2: pairs[1]?.pretty ?? '',
-			p3: pairs[2]?.pretty ?? ''
+			examples: pairs.map((pair) => pair.pretty).join(', ')
 		})
 	);
+
+	/**
+	 * The lines this card holds whatever it is given: 107 px is three line boxes, and the plate rules
+	 * that this card does not change height. A short column leaves the rest RESERVED and empty,
+	 * which is air, not a line claiming a value.
+	 */
+	const LINES = 3;
+	const reserved = $derived(Math.max(0, LINES - pairs.length));
 </script>
 
 <!--
@@ -139,6 +154,9 @@
 					<span class="text-zinc-400">→</span>
 					<span class="text-zinc-900">{pair.pretty}</span>
 				</span>
+			{/each}
+			{#each { length: reserved }, position (position)}
+				<span class="block h-[17px]"></span>
 			{/each}
 		</div>
 	</div>

@@ -2,6 +2,7 @@ import { resolveProfile } from './registry';
 import { mappedDateColumns, parseMappedRows } from './profiles/mapped';
 import { decideDateOrder, detectDateOrder } from './dateOrder';
 import { findDiscriminantColumn } from './discriminant';
+import { SAMPLE_PADDING } from '$lib/domain/columnDesignation';
 import type {
 	CsvImportOptions,
 	CsvImportProfile,
@@ -96,6 +97,9 @@ export function importHeaderCells(rows: ParsedCsvRow[]): string[] {
  * renders from an empty string. Returning a ragged array would push that decision out to every
  * call site. A column that is genuinely empty throughout still reads « (vide) » three times, which
  * is the honest answer there rather than the misleading one.
+ *
+ * The pad is `SAMPLE_PADDING`, and any reader that is not `ColumnCard` filters it with
+ * `isSamplePadding` rather than restating the comparison (#669).
  */
 export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] {
 	const normalized = normalizeParsedRows(rows);
@@ -118,7 +122,9 @@ export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] 
 	}
 
 	return samples.map((values) =>
-		values.length === count ? values : [...values, ...Array(count - values.length).fill('')]
+		values.length === count
+			? values
+			: [...values, ...Array(count - values.length).fill(SAMPLE_PADDING)]
 	);
 }
 

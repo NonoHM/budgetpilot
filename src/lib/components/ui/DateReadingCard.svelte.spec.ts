@@ -49,6 +49,14 @@ describe('DateReadingCard.svelte: 107 px at both widths, and it does not move', 
 		expect(card.getBoundingClientRect().width).toBe(350);
 	});
 
+	it('stays 107 px on a short column with two pairs, because the third line is reserved (#669)', async () => {
+		// Separates "a short column reserves its missing line" from "the card shrinks by one line
+		// box", which is 88 px and moves the second card under a finger already on the glass.
+		const { card } = await mount({ pairs: BASE.pairs.slice(0, 2) });
+
+		expect(card.getBoundingClientRect().height).toBe(107);
+	});
+
 	it('stays 107 px when the card is the current reading and shows the marker', async () => {
 		// Separates "the marker line is the same fixed 20px header row" from "the marker adds a row".
 		const { card } = await mount({ current: true });
@@ -175,15 +183,13 @@ describe('DateReadingCard.svelte: the current marker', () => {
 });
 
 describe('DateReadingCard.svelte: the accessible name announces converted values only', () => {
-	it('composes order and the three PRETTY values, never the raw ones', async () => {
+	it('composes order and the PRETTY values, never the raw ones', async () => {
 		const { card } = await mount({});
 
 		const label = card.getAttribute('aria-label') ?? '';
 		// U+202F (narrow no-break space) before the colon, not an ASCII space: French typography,
 		// the same character the catalogue already uses in `import_columns_card_aria_examples`.
-		expect(label).toBe(
-			'Jour puis mois. Trois exemples : 3 avril 2026, 11 avril 2026, 2 avril 2026.'
-		);
+		expect(label).toBe('Jour puis mois. Exemples : 3 avril 2026, 11 avril 2026, 2 avril 2026.');
 		// Separates "announces converted values" from "announces everything": the raw side is
 		// identical between the two cards and would spend three values distinguishing nothing.
 		for (const pair of BASE.pairs) {

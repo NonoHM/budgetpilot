@@ -2,6 +2,7 @@
 	import * as m from '$lib/paraglide/messages';
 	import type { MappingRole } from '$lib/domain/mappingRoles';
 	import {
+		isSamplePadding,
 		isUnavailableFor,
 		roleHolding,
 		type ResolvedDesignationFile,
@@ -123,6 +124,7 @@
 		onChoose,
 		onChooseReading,
 		onChangeColumn,
+		onChangeOrder,
 		onClose,
 		onToggleHeaderRow
 	}: {
@@ -172,6 +174,13 @@
 		onChooseReading?: (order: 'day-first' | 'month-first') => void;
 		/** The step 2 foot TapLink: a re-ask for step 1, never a close. See the class docstring. */
 		onChangeColumn?: () => void;
+		/**
+		 * Step 1's foot TapLink, plate 7b's « Changer l'ordre des dates »: a re-ask for step 2, never
+		 * a close, and step 2's `onChangeColumn` turned round (#683). ABSENT when omitted, for the
+		 * same reason: the caller alone knows whether there is an answered reading to go back to,
+		 * and a link that leads nowhere is the false affordance the plate forbids.
+		 */
+		onChangeOrder?: () => void;
 		/**
 		 * Fired for every close this component originates that is not already an `onChoose`: the
 		 * header's close control, and `BottomSheet`'s own Escape/backdrop/swipe.
@@ -292,25 +301,26 @@
 	);
 
 	/**
-	 * The designated column's three raw samples, read both ways, PAIRED with `DateReadingCard`'s own
+	 * The designated column's raw samples, read both ways, PAIRED with `DateReadingCard`'s own
 	 * `{ raw, pretty }` shape. `file.samples` is the one copy of the raw values in this component;
 	 * `dateReading` carries only the two prettified arrays, never a second copy of the raw side.
+	 *
+	 * **Paired FIRST, filtered SECOND, and the order is the whole fix (#669).** `samples` is padded
+	 * to three with `SAMPLE_PADDING`, which is `ColumnCard`'s « (vide) » and a value this file does
+	 * not contain. Dropped from the raw array alone, the survivors would shift against the pretty
+	 * array and print one cell beside its neighbour's conversion; dropped as a PAIR, position is
+	 * kept by construction. A two-row file therefore offers two readings, not two and a bare arrow.
 	 */
 	const readingRawSamples = $derived(
 		designatedIndex !== null ? (file.samples[designatedIndex] ?? []) : []
 	);
-	const dayFirstPairs = $derived(
-		readingRawSamples.map((raw, index) => ({
-			raw,
-			pretty: dateReading?.dayFirstPretty[index] ?? ''
-		}))
-	);
-	const monthFirstPairs = $derived(
-		readingRawSamples.map((raw, index) => ({
-			raw,
-			pretty: dateReading?.monthFirstPretty[index] ?? ''
-		}))
-	);
+	function pairsFor(pretty: readonly string[] | undefined) {
+		return readingRawSamples
+			.map((raw, index) => ({ raw, pretty: pretty?.[index] ?? '' }))
+			.filter((pair) => !isSamplePadding(pair.raw));
+	}
+	const dayFirstPairs = $derived(pairsFor(dateReading?.dayFirstPretty));
+	const monthFirstPairs = $derived(pairsFor(dateReading?.monthFirstPretty));
 
 	/**
 	 * `committed`: true once THIS open-to-close session has applied anything, across both steps.
@@ -609,15 +619,34 @@
 				<TapLink onclick={() => (query = '')}>{m.import_columns_search_clear()}</TapLink>
 			</div>
 		{/if}
-
-		<!--
-			The white fade and home indicator area under the last card. `role="presentation"` as well
-			as `aria-hidden`: the second removes it from the accessibility tree, and the first is what
-			keeps it out of the listbox's content model for a checker reading the markup rather than
-			the tree.
-		-->
-		<div class="h-14 shrink-0" role="presentation" aria-hidden="true"></div>
 	</div>
+
+	<!--
+		Plate 7b's « Changer l'ordre des dates » (#683). OUT OF the listbox, like step 2's own foot
+		link and for the same reason: a listbox's children must be options, and a TapLink is not one.
+		The mirror image of step 2's « Changer de colonne »: a re-ask for the other step, never a back.
+
+		ABSENT, not inert, unless the caller supplies `onChangeOrder`. The screen supplies it only once
+		the reading has been ANSWERED, which is a deliberate reading of 7b's « proven or confirmed »:
+		a column that PROVES its order has no answer to change, since `decideDateOrder` and
+		`readingForState` both let the proof outrank any answer, so a link there would open a
+		question whose answer is silently discarded. See the screen's `canChangeOrder`.
+	-->
+	{#if onChangeOrder}
+		<div class="px-5 pt-2">
+			<div class="flex h-12 items-center">
+				<TapLink onclick={onChangeOrder}>{m.import_designate_date_change_order()}</TapLink>
+			</div>
+		</div>
+	{/if}
+
+	<!--
+		The white fade and home indicator area under the last thing in the body. Outside the listbox
+		since #683, so it stays UNDER the foot link rather than between the last card and it; it was
+		inside, as `role="presentation"` plus `aria-hidden`, only because the last card was then the
+		last thing in the body.
+	-->
+	<div class="h-14 shrink-0" aria-hidden="true"></div>
 {/snippet}
 
 {#snippet readingBody()}

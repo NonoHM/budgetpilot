@@ -122,6 +122,67 @@ describe('step "reading" renders the second body instead of the first, in the sa
 	});
 });
 
+/**
+ * #669. `importSampleValues` pads a column holding fewer than three values with `''`, and the
+ * reading step used to build its pairs from the padded array, so a two-row file announced
+ * « Jour puis mois. Trois exemples : 1 juin 2026, 2 juin 2026, . » and drew a third line holding
+ * a bare arrow.
+ *
+ * The SENTENCE is compared, never a fragment: every `toContain` still finds « 1 juin 2026 » in the
+ * malformed name, which is how the defect sat under a green suite.
+ */
+describe('#669: a column with fewer than three values shows the values it has, and no padding', () => {
+	const TWO_ROW_FILE = {
+		...FILE,
+		samples: [['01/06/2026', '02/06/2026', ''], FILE.samples[1], FILE.samples[2]],
+		rowCount: 2
+	};
+	const TWO_ROW_READING = {
+		dayFirstPretty: ['1 juin 2026', '2 juin 2026', ''],
+		monthFirstPretty: ['6 janvier 2026', '6 février 2026', ''],
+		retained: 'day-first' as const
+	};
+
+	it('separates two real examples from two plus a padded one: each name lists exactly the two', async () => {
+		await mountSheet({ step: 'reading', dateReading: TWO_ROW_READING, file: TWO_ROW_FILE });
+		const options = page.getByRole('option');
+		await expect.element(options.nth(0)).toBeVisible();
+
+		expect(options.nth(0).element().getAttribute('aria-label')).toBe(
+			'Jour puis mois. Exemples : 1 juin 2026, 2 juin 2026.'
+		);
+		expect(options.nth(1).element().getAttribute('aria-label')).toBe(
+			'Mois puis jour. Exemples : 6 janvier 2026, 6 février 2026.'
+		);
+	});
+
+	it('separates a drawn pair from a padded one: the card prints two readings and no bare arrow', async () => {
+		await mountSheet({ step: 'reading', dateReading: TWO_ROW_READING, file: TWO_ROW_FILE });
+		const options = page.getByRole('option');
+		await expect.element(options.nth(0)).toBeVisible();
+
+		// Every line box the card draws, with the reserved (empty) ones dropped: the card keeps its
+		// 107 px by reserving a third line, and a reserved line is air, not a pair. A padded pair is
+		// NOT dropped by this filter, because it draws its arrow.
+		const drawn = [
+			...options.nth(0).element().querySelectorAll('[data-testid="date-reading-card-lines"] > span')
+		]
+			.map((line) => (line.textContent ?? '').replace(/\s+/g, ' ').trim())
+			.filter((text) => text !== '');
+		expect(drawn).toEqual(['01/06/2026 → 1 juin 2026', '02/06/2026 → 2 juin 2026']);
+	});
+
+	it('separates a count the subline claims from the count it shows: no « 3 » above two values', async () => {
+		await mountSheet({ step: 'reading', dateReading: TWO_ROW_READING, file: TWO_ROW_FILE });
+		await expect
+			.element(page.getByText(m.import_datesheet_subline({ header: 'Date operation' })))
+			.toBeVisible();
+		expect(m.import_datesheet_subline({ header: 'Date operation' })).toBe(
+			'«\u202FDate operation\u202F» · premières valeurs'
+		);
+	});
+});
+
 describe('the foot TapLink is a re-ask, not a back', () => {
 	it('separates "change column" from "close": it calls onChangeColumn and not onClose', async () => {
 		let changeColumnCalls = 0;
@@ -135,6 +196,53 @@ describe('the foot TapLink is a re-ask, not a back', () => {
 		await userEvent.click(page.getByText(m.import_datesheet_change_column()));
 		expect(changeColumnCalls).toBe(1);
 		expect(closeCalls).toBe(0);
+	});
+});
+
+/**
+ * #683, plate 7b: step 1's foot TapLink « Changer l'ordre des dates », the way BACK to the reading
+ * once it is answered. Same contract as step 2's « Changer de colonne »: ABSENT unless the caller
+ * supplies the handler, never rendered inert, and it re-asks rather than closing.
+ */
+describe("step 1's foot TapLink reopens the reading, and exists only when the caller offers it", () => {
+	it('separates a caller that offers the reading from one that does not: absent without onChangeOrder', async () => {
+		await mountSheet();
+		await expect
+			.element(page.getByRole('heading', { name: m.import_columns_picker_title_date() }))
+			.toBeVisible();
+		expect(
+			page.getByRole('button', { name: m.import_designate_date_change_order() }).elements()
+		).toHaveLength(0);
+	});
+
+	it('separates "change the order" from "close": it calls onChangeOrder and not onClose', async () => {
+		let changeOrderCalls = 0;
+		let closeCalls = 0;
+		await mountSheet({
+			onChangeOrder: () => changeOrderCalls++,
+			onClose: () => closeCalls++
+		});
+		await page.getByRole('button', { name: m.import_designate_date_change_order() }).click();
+		expect(changeOrderCalls).toBe(1);
+		expect(closeCalls).toBe(0);
+	});
+
+	it('separates a foot link from an option: it sits outside the listbox, on a 48 px line', async () => {
+		await mountSheet({ onChangeOrder: () => {} });
+		const link = page.getByRole('button', { name: m.import_designate_date_change_order() });
+		await expect.element(link).toBeVisible();
+		expect(link.element().closest('[role="listbox"]')).toBeNull();
+		expect((link.element().parentElement as HTMLElement).getBoundingClientRect().height).toBe(48);
+	});
+
+	it('separates step 1 from step 2: the link is never drawn on the reading body', async () => {
+		await mountSheet({ step: 'reading', dateReading: DATE_READING, onChangeOrder: () => {} });
+		await expect
+			.element(page.getByRole('heading', { name: m.import_datesheet_title() }))
+			.toBeVisible();
+		expect(
+			page.getByRole('button', { name: m.import_designate_date_change_order() }).elements()
+		).toHaveLength(0);
 	});
 });
 
