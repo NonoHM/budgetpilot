@@ -35,17 +35,17 @@ import { answerDateReadingIfAsked } from './date-reading';
 /**
  * **390x844, and the viewport is part of the test rather than a convenience.**
  *
- * The suite runs `Desktop Chrome` by default. The picker is a `BottomSheet`, and that component is
- * `lg:hidden` by construction: the referential's answer at desktop is an anchored Dropdown, not a
- * sheet, so the sheet makes itself inert above 1024 rather than rendering in the wrong place.
+ * The suite runs `Desktop Chrome` by default. Below 1024 the picker is a `BottomSheet`, which is
+ * `lg:hidden` by construction; from 1024 the screen mounts `ColumnPicker` with
+ * `variant="anchored"` instead, the referential's anchored Dropdown. Two surfaces, so two
+ * journeys: this block at the width the sheet was designed and measured at, and `at 1280x800`
+ * further down for the anchored one.
  *
- * The consequence is a real gap and it is filed rather than worked around here: **at 1280 the four
- * role rows are triggers that open nothing.** Neither the component specs nor the desktop geometry
- * spec could see it, because both assert that the four buttons EXIST and neither opens one. This
- * e2e is the level where a trigger and the thing it triggers are in the same test.
- *
- * So the flow is exercised at the width it was designed and measured at, and the desktop picker is
- * its own issue.
+ * Before #334 there was no anchored variant, and at 1280 the role rows opened nothing. Neither the
+ * component specs nor the desktop geometry spec saw it, because both asserted that the buttons
+ * EXIST and neither opened one. An e2e is the level where a trigger and the thing it triggers are
+ * in the same test, which is why each width's journey clicks a row and then picks from what it
+ * opened.
  */
 test.describe.configure({ mode: 'serial' });
 

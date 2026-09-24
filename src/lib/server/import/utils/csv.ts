@@ -106,6 +106,10 @@ function isTimeOnlyRemainder(remainder: string): boolean {
  *
  * An IMPOSSIBLE date is still normalised — `31/02/2026` becomes `2026-02-31` — so that the same
  * downstream check refuses it. Only an UNACCOUNTED-FOR remainder is returned as-is.
+ *
+ * **So a non-empty result is not evidence of validity, and an ISO-shaped one is not either**:
+ * `CARD_PAYMENT` comes back unchanged and `31/13/2026` comes back as `2026-13-31`, and the only
+ * validity test is `isValidIsoDate` on the result, as `readDateCell` below pairs them (#632).
  */
 export function normalizeDate(value: string, dateOrder: DateOrder = DEFAULT_DATE_ORDER): string {
 	const trimmed = value.trim();
