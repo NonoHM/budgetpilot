@@ -1,5 +1,6 @@
 import type { AccountOffer } from './accountOffer';
 import type { CsvRefusalFact } from './refusals';
+import type { DeclaredCurrencyMismatch } from './declaredCurrency';
 
 /**
  * THE ONE ORDER in which a door refuses a file or asks about it.
@@ -65,11 +66,16 @@ import type { CsvRefusalFact } from './refusals';
  *    would otherwise have imported, so an open date question means the rows are there.
  * 6. **`account`** (#476): two or more accounts of the file's source and nothing in the file
  *    decides. Ahead of the date question so that a refusal about the destination can sit between
- *    the two: #600 (open, not built) proposes refusing a file whose declared currency the chosen
- *    account cannot hold, which needs the account, and asking the reading of a file about to be
- *    refused would waste the user's answer. A posted account that does not resolve (`refused`)
- *    holds this rung's place: it is not an answer, and nothing below it is asked on its strength.
- * 7. **`dateOrder`**: the last question, asked once nothing above it is pending.
+ *    the two, which rung 7 is. A posted account that does not resolve (`refused`) holds this
+ *    rung's place: it is not an answer, and nothing below it is asked on its strength.
+ * 7. **`currency`** (#600): the file DECLARES a currency and the destination holds another
+ *    (`declaredCurrencyRefusal`). A refusal the file proves, so it comes before any question that
+ *    is still open: asking the reading of a file about to be refused would spend the user's answer
+ *    on nothing. Below `account` because it needs the destination: while the account is the open
+ *    question there is no destination to compare with, and the route passes no fact. It arises on a
+ *    parse that produced rows and on one whose only fact is the open date question, because
+ *    `csv.ts` carries the file's declaration out of that empty parse (`declaredCurrencies`).
+ * 8. **`dateOrder`**: the last question, asked once nothing above it is pending.
  *
  * The duplicate-statement confirmation (#343) is not a rung. It needs the destination AND the
  * parsed rows, so it can only be raised once this function answers `none`, and the route raises it
@@ -83,6 +89,7 @@ export const OFFER_RUNGS = [
 	'accountColumn',
 	'generic',
 	'account',
+	'currency',
 	'dateOrder'
 ] as const;
 
@@ -112,6 +119,9 @@ export interface ImportOffers {
 	multiAccount?: MultiAccountFact | null;
 	accountColumn?: Question<AccountColumnFact> | null;
 	account?: AccountQuestion | null;
+	/** The file's declared currency against a KNOWN destination; null when they agree, when the file
+	 *  declares nothing, or when no destination is known yet. */
+	currency?: DeclaredCurrencyMismatch | null;
 	dateOrder?: Question<DateOrderFact> | null;
 }
 
@@ -122,6 +132,7 @@ export type ImportOffer =
 	| { rung: 'accountColumn'; fact: AccountColumnFact }
 	| { rung: 'generic' }
 	| { rung: 'account'; question: Exclude<AccountQuestion, { state: 'answered' }> }
+	| { rung: 'currency'; fact: DeclaredCurrencyMismatch }
 	| { rung: 'dateOrder'; fact: DateOrderFact }
 	/** Nothing refuses and nothing is left to ask: the door goes on to write. */
 	| { rung: 'none' };
@@ -150,6 +161,8 @@ function pendingAt(rung: OfferRung, offers: ImportOffers): ImportOffer | null {
 			const question = offers.account;
 			return question && question.state !== 'answered' ? { rung, question } : null;
 		}
+		case 'currency':
+			return offers.currency ? { rung, fact: offers.currency } : null;
 		case 'dateOrder':
 			return offers.dateOrder?.state === 'open' ? { rung, fact: offers.dateOrder.fact } : null;
 	}

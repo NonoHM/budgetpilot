@@ -364,6 +364,28 @@ export const actions: Actions = {
 			accountId: answers.accountId !== null && decision.kind === 'account'
 		});
 
+		/**
+		 * #600: the currency the FILE declares against the destination, as soon as the destination
+		 * is known, and whether or not the parse produced rows: `csv.ts` carries the declaration out
+		 * of the empty parse that leaves the date question open, so this can outrank that question.
+		 * Its place in the order is `offerPrecedence.ts`'s decision (the `currency` rung), never this
+		 * call site's.
+		 *
+		 * The destination is the account the decision names, or, for a `by-source` decision with no
+		 * account yet, the bucket `resolveImportBucketAccountBySource` creates below, which is always
+		 * the default denomination. While the account is the open question there is no destination,
+		 * and no fact: the account is asked first.
+		 */
+		const destination =
+			decision.kind === 'account'
+				? decision.bucket
+				: decision.kind === 'by-source'
+					? (decision.existing ?? DEFAULT_DENOMINATION)
+					: null;
+		const currencyRefusal = destination
+			? declaredCurrencyRefusal(result.summary.declaredCurrencies ?? [], destination)
+			: null;
+
 		// The zero-transaction facts, each only on a parse that produced nothing: `csv.ts` returns
 		// exactly one fact per `emptyResult`, which is what the `.length === 1` guards rely on.
 		const produced = result.transactions.length > 0;
@@ -422,6 +444,7 @@ export const actions: Actions = {
 						: kept.accountId !== null
 							? { state: 'answered' }
 							: null,
+			currency: currencyRefusal,
 			dateOrder: dateOrderRefusal
 				? { state: 'open', fact: dateOrderRefusal }
 				: answers.dateOrder
@@ -457,6 +480,18 @@ export const actions: Actions = {
 				error: m.import_account_error_ambiguous_auto(),
 				account: accountOfferFrom(offer.question.fact),
 				answers: kept
+			});
+		}
+
+		if (offer.rung === 'currency') {
+			/**
+			 * #600, refused before any question left open below it. `answers` goes back WITHOUT the
+			 * account, exactly as for a refused account above: it is the account this file cannot go
+			 * into, so the page stops posting it and the next press asks the account again.
+			 */
+			return fail(400, {
+				error: refusalLabel(offer.fact),
+				answers: keptAnswers(answerKey, answers, { accountId: false })
 			});
 		}
 
@@ -599,27 +634,6 @@ export const actions: Actions = {
 		// claim about two pieces of code that nothing keeps in step, and it narrows the type below.
 		if (decision.kind === 'ask' || decision.kind === 'refused') {
 			throw new Error('offerPrecedence answered none over a pending account question');
-		}
-
-		/**
-		 * #600: a currency the file DECLARES, against the account it is about to be filed into.
-		 *
-		 * HERE, the first line where the destination is known, and before the collision question and
-		 * every write, so a refused run leaves no batch, no bucket and no use counted against a
-		 * correspondance. `declaredCurrency.ts` says why this is not a rung of `offerPrecedence.ts`.
-		 *
-		 * A `by-source` decision with no account yet lands in the bucket
-		 * `resolveImportBucketAccountBySource` creates below, which is always the default
-		 * denomination: that is the currency it will hold, so that is the one compared.
-		 */
-		const destination =
-			decision.kind === 'account' ? decision.bucket : (decision.existing ?? DEFAULT_DENOMINATION);
-		const currencyRefusal = declaredCurrencyRefusal(
-			result.summary.declaredCurrencies ?? [],
-			destination
-		);
-		if (currencyRefusal) {
-			return fail(400, { error: refusalLabel(currencyRefusal) });
 		}
 
 		if (formData.get('confirmCollision') !== '1') {

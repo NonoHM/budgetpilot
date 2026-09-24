@@ -9,6 +9,7 @@ import {
 import { parseCsvTransactions } from '$lib/server/import/csv';
 import { DeclaredCurrencyMismatchError } from '$lib/server/import/declaredCurrency';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
+import * as m from '$lib/paraglide/messages';
 import { answerKeyFor } from '$lib/server/import/answerBinding';
 import { createStatementAccount } from '$lib/server/accounts/service';
 import { actions as importActions } from './+page.server';
@@ -304,6 +305,49 @@ describe('#600: a declared currency the destination contradicts is refused befor
 			confirmCollision: '1'
 		});
 		expect((accepted.importResult as { profile?: string } | undefined)?.profile).toBe('mapped');
+	});
+
+	/**
+	 * THE ORDER, through the route (the owner's second addition): a file whose dates read both ways
+	 * AND which declares EUR, for a user holding two statement accounts and the synced USD one.
+	 *
+	 * Before: the account question, then (with USD answered) the DATE question, and only once that
+	 * was answered the currency refusal, so the user answered a question about a file already
+	 * doomed. After: the refusal comes right after the account, before any reading is asked.
+	 *
+	 * The calibration is the same file answered with a EUR account, which must still be asked its
+	 * reading: separates « the refusal outranks the date question » from « the date question is no
+	 * longer asked at all ».
+	 */
+	it('/import: an ambiguous file declaring EUR is refused into USD before its dates are asked', async () => {
+		expect.assertions(7);
+		const { userId, usdId, eurId } = await seedUser('order');
+		const AMBIGUOUS_DECLARING_EUR = [
+			'date,label,amount,currency',
+			'01/02/2026,Boulangerie Mercier,-4.20,EUR',
+			'03/02/2026,Virement salaire,1850.00,EUR'
+		].join('\n');
+		const file = () => fileOf(AMBIGUOUS_DECLARING_EUR);
+
+		const asked = await postImport(userId, { csvFile: file() });
+		expect(asked.data?.error).toBe(m.import_account_error_ambiguous_auto());
+
+		const intoUsd = await postImport(userId, { csvFile: file(), accountId: usdId });
+		console.info(
+			`[#600 order] ambiguous EUR file, USD answered: error="${String(intoUsd.data?.error)}"`
+		);
+		expect(intoUsd.status).toBe(400);
+		expect(intoUsd.data?.error).toBe(EUR_INTO_USD);
+		expect(intoUsd.data?.reading).toBeUndefined();
+		// The refused account is not kept, so the page stops posting it and the next press asks the
+		// account again rather than refusing the same answer for ever.
+		expect(
+			(intoUsd.data?.answers as { accountId?: string | null } | undefined)?.accountId
+		).toBeNull();
+		expect(await storedIn(userId, usdId)).toEqual([]);
+
+		const intoEur = await postImport(userId, { csvFile: file(), accountId: eurId });
+		expect(intoEur.data?.error).toBe(m.import_error_ambiguous_date_order());
 	});
 
 	/**

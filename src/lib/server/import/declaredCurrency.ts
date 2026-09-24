@@ -22,17 +22,17 @@ export type DeclaredCurrencyMismatch = Extract<
  * saying EUR, filed into a bank-synced USD account, stored USD. Measured on all three doors that
  * reach a declared currency (`generic`, `mapped`, `revolut`): `declaredCurrency.db-smoke.ts`.
  *
- * ## Where it is called, and why not in `resolveZeroTransactionOffer`
+ * ## Where it is called
  *
- * It needs the DESTINATION, and on both doors the destination is resolved after the parse has
- * produced rows: `/import` decides it in `decideAutoAccount`, which runs after the zero-transaction
- * branch, and `/import/columns` resolves the posted `accountId` after its own. So it runs on the
- * path that HAS transactions, right after the destination and before the collision question and
- * every write. `offerPrecedence.ts` ranks why a parse produced NOTHING, and this file produced rows.
- *
- * The cost of that position, stated rather than discovered: a file that also leaves its date
- * reading open is asked the reading first (on `/import`, before the destination is known; on
- * `/import/columns`, on the designation screen before the POST), and is refused afterwards.
+ * - **`/import`**: its answer is the `currency` rung of `offerPrecedence.ts`, between the account
+ *   question and the date question, so a file this refuses is never asked its reading first. The
+ *   route computes it as soon as `decideAutoAccount` knows the destination, whether or not the parse
+ *   produced rows, from the file-level declaration `csv.ts` carries even out of the empty parse that
+ *   leaves the date question open.
+ * - **`/import/columns`**: after the chosen account resolves, before the collision question and
+ *   every write. Not ranked against the date question there, and it cannot be on the server: the
+ *   designation screen asks the reading in the browser before this door is posted. Putting the
+ *   refusal first on that screen is a screen design question, not a server one.
  *
  * `persistImportedTransactions` calls it a THIRD time, as a backstop, and throws. The two route
  * calls are the control: they run before anything is written and compare the file-level
