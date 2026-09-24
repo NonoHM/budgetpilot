@@ -279,6 +279,30 @@ a worse surprise than being told the limit was reached.
 If you do reach it, the refusal says so and points at the issue tracking the
 removal screen.
 
+## How many uploads one account may make
+
+`IMPORT_RATE_LIMIT_MAX_ATTEMPTS` is **optional**: leave it out and you get 60.
+It bounds how many uploads the import pages accept per account, and per
+address, in 15 minutes. Past that, the import page says there were too many
+attempts and to try again in a few minutes.
+
+60 clears any batch a person uploads by hand. A household importing a year of
+monthly statements across three accounts sends about three dozen files in one
+sitting. Set it lower than 36 and the startup log says so, because at that
+point you are refusing an ordinary sitting.
+
+**240 is a hard ceiling and a higher value stops the app at startup** rather
+than being quietly reduced. Retrying an import gains an attacker nothing
+secret: every import page needs a session, and a refusal says nothing about
+anyone else's data. What a retry buys is server time. With
+[the spreadsheet limit](#upload-size) at its own ceiling, opening one
+spreadsheet holds the server for about a second, and nothing else is answered
+meanwhile. At 240 uploads per 15 minutes, one account can then hold the server
+for about a quarter of that time. Much higher, and one account could hold it
+for the whole window.
+
+Any value other than 60 is named in the startup log, alongside the default.
+
 ## Backup size
 
 `BACKUP_MAX_JSON_NODES` is **optional**: leave it out and you get 2,000,000,
@@ -408,8 +432,10 @@ not apply, with nothing anywhere connecting the two.
 
 ### This limit is per upload, not per server
 
-Worth knowing before you raise it. Nothing queues or rate-limits imports, so
-two people importing at once, or one person with two tabs, both happen.
+Worth knowing before you raise it. Nothing queues imports, so two people
+importing at once, or one person with two tabs, both happen. The limit on
+[how many uploads one account may make](#how-many-uploads-one-account-may-make)
+counts uploads over 15 minutes; it does not stop two from running at once.
 
 Memory does not add up the way you would expect, because the imports do not
 actually overlap: the server parses them one after another, so two 32 MB
