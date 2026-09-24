@@ -1460,6 +1460,7 @@
 	"import_datesheet_change_column": "Change column",
 	"import_designate_date_change_order": "Change the date order",
 	"import_designate_date_row_aria_unconfirmed": "Date, column designated: {header}, dates read {order}, order to confirm, not selected",
+	"import_designate_date_row_aria_confirmed": "Date, column designated: {header}, dates read {order}, first row: {pretty}",
 	"import_designate_announce_date_assumed": "Date: {header}. Date order to confirm. {count}.",
 	"import_designate_announce_date_day_first": "Date: {header}. Dates read day then month. First row: {pretty}. {count}.",
 	"import_designate_announce_date_month_first": "Date: {header}. Dates read month then day. First row: {pretty}. {count}.",

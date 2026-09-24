@@ -690,7 +690,14 @@
 		// A cell that is not a date under the order in force has no conversion to show. The row falls
 		// back to reserving the line rather than printing the raw value twice.
 		if (!raw || !iso) return null;
-		return { raw, pretty: formatReadingDate(iso, getLocale()), order: appliedReading };
+		// `null` for a column whose FORMAT settles the reading (ISO): `appliedReading` is the default
+		// there only because `readingForState` is total, and the row must not name a day/month order
+		// for a column that has none (#645). Every other reaching state has a real order.
+		return {
+			raw,
+			pretty: formatReadingDate(iso, getLocale()),
+			order: dateState === 'proven-shape' ? null : appliedReading
+		};
 	});
 
 	/**

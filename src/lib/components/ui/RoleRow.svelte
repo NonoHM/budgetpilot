@@ -124,7 +124,7 @@
 		 * this file (`columnHeader`, `sampleValue`) and is deliberately NOT "nothing" here.
 		 */
 		interpretation?:
-			| { raw: string; pretty: string; order: 'day-first' | 'month-first' }
+			| { raw: string; pretty: string; order: 'day-first' | 'month-first' | null }
 			| 'inconsistent'
 			| 'no-dates'
 			| 'empty'
@@ -145,6 +145,10 @@
 		 * to check it against.
 		 *
 		 * Measured 2026-09-16, four cases, one wrong. See `DateOrder` on the server for who decides.
+		 *
+		 * **`null` is « no day/month order exists », never « unknown ».** A column whose FORMAT settles
+		 * its reading (ISO, `proven-shape`) reads the same under both orders, so naming one would be a
+		 * claim about a column that makes none. The name then falls back to the plain designated form.
 		 */
 		/**
 		 * Whether the reading in `interpretation` is asserted rather than merely assumed. Ignored
@@ -183,21 +187,31 @@
 				return m.import_columns_row_aria_candidates({ role: name, count: candidateCount ?? 0 });
 			case 'designated': {
 				if (interpretation && typeof interpretation === 'object') {
-					if (!interpretationConfirmed) {
+					const order =
+						interpretation.order === null
+							? null
+							: interpretation.order === 'month-first'
+								? m.import_datesheet_option_month_first()
+								: m.import_datesheet_option_day_first();
+					if (order !== null && !interpretationConfirmed) {
 						// The order the caller APPLIED, stated rather than derived. It cannot be derived
 						// here: `02/02/2026` reads identically both ways, and `ambiguous` is defined as
 						// every component being at or below 12, so a cell whose day equals its month is
 						// the canonical case rather than a corner. A row that worked the order out from
 						// its two strings announced the wrong reading to the one user who cannot see the
 						// cards to check it against.
-						return m.import_designate_date_row_aria_unconfirmed({
-							header: designatedName,
-							order:
-								interpretation.order === 'month-first'
-									? m.import_datesheet_option_month_first()
-									: m.import_datesheet_option_day_first()
-						});
+						return m.import_designate_date_row_aria_unconfirmed({ header: designatedName, order });
 					}
+					// #645. CONFIRMED, by an answer or by the file's own proof: the name keeps the
+					// reading and adds the first row under it, which is what line 3 shows. It used to
+					// fall through to « exemple 01/02/2026 », so the reading left the name at the moment
+					// a screen-reader user gave it, while a sighted user kept reading it on line 3.
+					if (order !== null)
+						return m.import_designate_date_row_aria_confirmed({
+							header: designatedName,
+							order,
+							pretty: interpretation.pretty
+						});
 				} else if (interpretation === 'no-dates') {
 					return m.import_designate_date_row_aria_no_dates({ header: designatedName });
 				} else if (interpretation === 'empty') {

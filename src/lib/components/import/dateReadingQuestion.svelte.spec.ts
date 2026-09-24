@@ -97,6 +97,25 @@ const FOUR_COLUMN = {
 	]
 };
 
+/**
+ * The same file with column 0 in ISO, whose FORMAT settles the reading (`proven-shape`): both
+ * readings of every cell are the same date, and no day/month order exists to state.
+ */
+const ISO = {
+	...FILE,
+	samples: [['2026-06-05', '2026-08-07', '2026-10-09'], FILE.samples[1], FILE.samples[2]],
+	firstRow: ['2026-04-03', 'CARREFOUR', '-12,90'],
+	dateStates: ['proven-shape', 'no-dates', 'no-dates'] as const,
+	dateReadings: [
+		{
+			dayFirst: ['2026-04-03', '2026-06-05', '2026-08-07', '2026-10-09'],
+			monthFirst: ['2026-04-03', '2026-06-05', '2026-08-07', '2026-10-09']
+		},
+		FILE.dateReadings[1],
+		FILE.dateReadings[2]
+	]
+};
+
 const DATE_DESIGNATED: RoleAssignment = { date: 0, label: 1, amount: 2, category: null };
 
 const ACCOUNTS = [
@@ -518,5 +537,48 @@ describe('the date reading question can be answered', () => {
 		const card = cardOf(container);
 		expect(card.textContent).toContain('3 avril 2026');
 		expect(card.textContent).not.toContain('4 mars 2026');
+	});
+});
+
+/**
+ * #645, walked as the issue measured it: the Date row's accessible name, read off the DOM, before
+ * and after the reading is confirmed. Before this, answering took the reading OUT of the name
+ * (« exemple 03/04/2026 ») while line 3 kept showing it, so the one user who cannot see line 3 lost
+ * the answer the moment they gave it.
+ */
+describe('#645: the Date row names the reading in force once it is confirmed', () => {
+	const NNBSP = String.fromCharCode(0x202f);
+	const dateRow = () => page.getByRole('button', { name: /^Date, colonne désignée/ });
+
+	it('separates answered from unconfirmed: the name keeps the reading, now with the first row', async () => {
+		await mount({ initialAssignment: DATE_DESIGNATED });
+		// The planted positive: the unconfirmed name states the order, so a row whose name never
+		// carried one could not pass the second half.
+		expect(dateRow().element().getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, ordre à confirmer, non sélectionné`
+		);
+
+		await dateRow().click();
+		await page.getByRole('option', { name: /Mois puis jour/ }).click();
+
+		expect(dateRow().element().getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues Mois puis jour, première ligne${NNBSP}: 4 mars 2026`
+		);
+	});
+
+	it('separates a proven column from an answered one: the order the file proved is named, unasked', async () => {
+		await mount({ file: PROVEN, initialAssignment: DATE_DESIGNATED });
+
+		expect(dateRow().element().getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, première ligne${NNBSP}: 3 avril 2026`
+		);
+	});
+
+	it('separates an ISO column from a proven one: no day/month order is claimed for it', async () => {
+		await mount({ file: ISO, initialAssignment: DATE_DESIGNATED });
+
+		expect(dateRow().element().getAttribute('aria-label')).toBe(
+			'Date, colonne désignée : Date operation, exemple 2026-04-03'
+		);
 	});
 });

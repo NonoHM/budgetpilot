@@ -1460,6 +1460,7 @@
 	"import_datesheet_change_column": "Changer de colonne",
 	"import_designate_date_change_order": "Changer l’ordre des dates",
 	"import_designate_date_row_aria_unconfirmed": "Date, colonne désignée : {header}, dates lues {order}, ordre à confirmer, non sélectionné",
+	"import_designate_date_row_aria_confirmed": "Date, colonne désignée : {header}, dates lues {order}, première ligne : {pretty}",
 	"import_designate_announce_date_assumed": "Date : {header}. Ordre des dates à confirmer. {count}.",
 	"import_designate_announce_date_day_first": "Date : {header}. Dates lues jour puis mois. Première ligne : {pretty}. {count}.",
 	"import_designate_announce_date_month_first": "Date : {header}. Dates lues mois puis jour. Première ligne : {pretty}. {count}.",

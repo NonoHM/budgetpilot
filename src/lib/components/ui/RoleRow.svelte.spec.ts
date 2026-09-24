@@ -794,20 +794,60 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 		);
 	});
 
-	it('a confirmed reading keeps the existing designated aria, unchanged', async () => {
-		// Not asked for by the task, and pinned here so a later change to the unconfirmed branch
-		// does not silently start firing for the confirmed one too.
+	/**
+	 * #645. Measured on `/import/columns` before this: the name stated the reading while it was
+	 * UNCONFIRMED and dropped it the moment it was confirmed, answering or proving it, falling back
+	 * to « exemple 01/02/2026 » while line 3 showed `01/02/2026 → 2 janvier 2026`.
+	 *
+	 * Separates « the confirmed name states the order the caller applied » from « it states one it
+	 * derived »: `02/02/2026` reads identically both ways, and the planted positive is the same cell
+	 * under the other order, which must name the other reading.
+	 */
+	it('confirmed: states the order the caller applied and the first row under it', async () => {
+		const monthFirst = await mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			sampleValue: '02/02/2026',
+			interpretation: { raw: '02/02/2026', pretty: '2 février 2026', order: 'month-first' },
+			interpretationConfirmed: true
+		});
+		expect(monthFirst.row.getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues Mois puis jour, première ligne${NNBSP}: 2 février 2026`
+		);
+		monthFirst.container.remove();
+
+		const dayFirst = await mount({
+			role: 'date',
+			state: 'designated',
+			columnHeader: 'Date operation',
+			sampleValue: '02/02/2026',
+			interpretation: { raw: '02/02/2026', pretty: '2 février 2026', order: 'day-first' },
+			interpretationConfirmed: true
+		});
+		expect(dayFirst.row.getAttribute('aria-label')).toBe(
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, première ligne${NNBSP}: 2 février 2026`
+		);
+	});
+
+	/**
+	 * A column whose FORMAT settles its reading (ISO, `proven-shape`) has no day/month order to
+	 * name, so the caller states `order: null` and the row keeps the plain designated name. Separates
+	 * « no order stated » from « the default order stated as if the file had one »: « dates lues
+	 * Jour puis mois » about `2026-06-24` is a claim about a column that makes none.
+	 */
+	it('confirmed with no order to state: the plain designated name, no reading claimed', async () => {
 		const { row } = await mount({
 			role: 'date',
 			state: 'designated',
 			columnHeader: 'Date operation',
-			sampleValue: '24/06/2026',
-			interpretation: { raw: '24/06/2026', pretty: '24 juin 2026', order: 'day-first' },
+			sampleValue: '2026-06-24',
+			interpretation: { raw: '2026-06-24', pretty: '24 juin 2026', order: null },
 			interpretationConfirmed: true
 		});
 
 		expect(row.getAttribute('aria-label')).toBe(
-			'Date, colonne désignée : Date operation, exemple 24/06/2026'
+			'Date, colonne désignée : Date operation, exemple 2026-06-24'
 		);
 	});
 });
