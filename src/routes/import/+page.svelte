@@ -20,6 +20,7 @@
 	import { refusalLabel, scopeLabel } from '$lib/i18n/refusalLabel';
 	import { goto } from '$app/navigation';
 	import { applyAction, deserialize, enhance } from '$app/forms';
+	import type { SubmitFunction } from '@sveltejs/kit';
 	import DuplicateStatementDialog from '$lib/components/import/DuplicateStatementDialog.svelte';
 	import AccountColumnDialog from '$lib/components/import/AccountColumnDialog.svelte';
 	import type {
@@ -312,6 +313,46 @@
 	 * asked: is this the same choice the server described?
 	 */
 	let submittedFile = $state<File | undefined>(undefined);
+
+	/**
+	 * #395: the upload is OUT, from the submission to the answer. One flag for the two mounts.
+	 *
+	 * Measured before this existed: the form was a bare `use:enhance` and the submit received
+	 * neither `loading` nor `busyLabel`, so a press showed nothing at either width, and pressing
+	 * again while the statement parsed posted it again (three presses, three requests). Planche 5f's
+	 * answer is `Button`'s occupancy contract, which this flag drives on both mounts.
+	 *
+	 * TWO GUARDS, AND EACH INSPECTS SOMETHING THE OTHER CANNOT. The busy `Button` swallows presses
+	 * on ITSELF. `submitUpload` refuses a submission of EITHER `<form>` while one is out, which the
+	 * button cannot see: the other mount is a second form element with its own submit, and a form
+	 * can be submitted without its button. Both are client side and neither is the control: see the
+	 * PR for what the server makes of a second POST that gets through (ASVS v5.0.0-2.3.1).
+	 *
+	 * THE PAGE'S OWN QUESTIONS ARE ASKED HERE, BEFORE THE FLAG, and no longer in `onsubmit`.
+	 * `enhance` never reads `defaultPrevented` (read in its source, `handle_submit`), so a guard that
+	 * only prevented the default was answered locally AND posted, and with the flag wired that post
+	 * would have painted « Import en cours… » over a press the page had just answered with
+	 * « choose an account ». `cancel()` is the only refusal `enhance` honours.
+	 *
+	 * Released in a `finally`, so an answer that throws while being applied cannot leave the page
+	 * unable to import again.
+	 */
+	let uploading = $state(false);
+	const submitUpload: SubmitFunction = ({ cancel, formElement }) => {
+		if (uploading || accountAnswerMissing(formElement) || accountColumnAnswerMissing()) {
+			cancel();
+			return;
+		}
+		submittedFile = csvFiles?.[0];
+		uploading = true;
+		return async ({ update }) => {
+			try {
+				await update();
+			} finally {
+				uploading = false;
+			}
+		};
+	};
 	const offersDesignation = $derived(
 		designation !== undefined && csvFiles?.[0] !== undefined && csvFiles[0] === submittedFile
 	);
@@ -463,14 +504,13 @@
 	 * would spend a round trip to be told again what this page already knows, and the banner it came
 	 * back with is the one already on screen, so the press would read as nothing happening.
 	 */
-	function accountAnswerMissing(event: SubmitEvent) {
+	function accountAnswerMissing(formElement: HTMLFormElement) {
 		// `chosenAccount` and not `chosenAccountId`: the ROW derives its state from the resolved
 		// option, so guarding on the raw id would let the two disagree when the id no longer names
 		// an offered account, and the primary would post an answer the screen shows as unanswered.
 		if (!offersAccountChoice || chosenAccount) return false;
-		event.preventDefault();
 		accountErrorShown = true;
-		const row = (event.currentTarget as HTMLElement).querySelector<HTMLElement>(
+		const row = formElement.querySelector<HTMLElement>(
 			'[data-testid="import-account-question"] button'
 		);
 		row?.scrollIntoView({ block: 'center', behavior: 'auto' });
@@ -667,9 +707,8 @@
 	 * as `accountAnswerMissing`: there is no safe default here, unlike `retainedDateOrder`'s
 	 * day-first assumption, because guessing IS the defect #485 exists to remove.
 	 */
-	function accountColumnAnswerMissing(event: SubmitEvent): boolean {
+	function accountColumnAnswerMissing(): boolean {
 		if (!offersAccountColumn || accountColumnAnswer) return false;
-		event.preventDefault();
 		accountColumnDismissed = false;
 		return true;
 	}
@@ -1291,12 +1330,7 @@
 				class="mt-6 grid gap-4"
 				method="POST"
 				enctype="multipart/form-data"
-				use:enhance
-				onsubmit={(event) => {
-					if (accountAnswerMissing(event)) return;
-					if (accountColumnAnswerMissing(event)) return;
-					submittedFile = csvFiles?.[0];
-				}}
+				use:enhance={submitUpload}
 			>
 				{@render correctionNotice()}
 				<div class="rounded-xl border border-zinc-200 bg-zinc-50 p-3 text-sm text-zinc-600">
@@ -1448,8 +1482,13 @@
 					</div>
 				{/if}
 
-				<Button type="submit" variant={offersDesignation ? 'secondary' : 'primary'}
-					>{m.import_submit()}</Button
+				<!-- `busyLabel` reuses the designation screen's « Import en cours… »: the same action, in
+				     its course, so one verb for it on both screens. -->
+				<Button
+					type="submit"
+					variant={offersDesignation ? 'secondary' : 'primary'}
+					loading={uploading}
+					busyLabel={m.import_columns_submitting()}>{m.import_submit()}</Button
 				>
 			</form>
 		</div>
@@ -1772,17 +1811,7 @@
 			{m.import_supported_profiles_list()}
 		</div>
 
-		<form
-			class="grid gap-4"
-			method="POST"
-			enctype="multipart/form-data"
-			use:enhance
-			onsubmit={(event) => {
-				if (accountAnswerMissing(event)) return;
-				if (accountColumnAnswerMissing(event)) return;
-				submittedFile = csvFiles?.[0];
-			}}
-		>
+		<form class="grid gap-4" method="POST" enctype="multipart/form-data" use:enhance={submitUpload}>
 			{@render correctionNotice()}
 			<FileDropZone
 				name="csvFile"
@@ -1921,6 +1950,8 @@
 			<Button
 				type="submit"
 				variant={offersDesignation ? 'secondary' : 'primary'}
+				loading={uploading}
+				busyLabel={m.import_columns_submitting()}
 				class="h-11 w-full !rounded-xl">{m.import_submit()}</Button
 			>
 		</form>

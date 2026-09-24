@@ -266,7 +266,12 @@
 			headers: { 'x-sveltekit-action': 'true' }
 		})
 			.then(async (response) => {
-				submitting = false;
+				// `submitting` IS NOT CLEARED HERE, and it used to be (#395). Cleared before the body was
+				// read and before `goto`, the screen came back live between the answer and the
+				// navigation: the primary read « Importer 1 ligne » again and a press posted the
+				// statement a second time, measured in `pending-import.svelte.spec.ts`. The plate's
+				// wording is « résultat, ou retour à 2 », so it is cleared only on the branches that
+				// STAY on this screen: an applied refusal, the unexpected shape, and the `catch`.
 				// Typed at the call rather than cast after it: `deserialize` returns `unknown` data by
 				// default, and a cast downstream would let the action's payload drift from what
 				// `/import` draws without anything failing.
@@ -342,6 +347,9 @@
 				}
 
 				if (actionResult.type !== 'success') {
+					// Before applying, so the refusal's banner arrives over a screen already live again.
+					// A `redirect` also lands here and navigates away, where a cleared flag costs nothing.
+					submitting = false;
 					await applyAction(actionResult);
 					return;
 				}
@@ -352,6 +360,7 @@
 				// word left the primary looking inert. Staying here keeps the designations intact.
 				const carried = actionResult.data;
 				if (!carried?.importResult) {
+					submitting = false;
 					localError = m.import_columns_error_unexpected();
 					return;
 				}
