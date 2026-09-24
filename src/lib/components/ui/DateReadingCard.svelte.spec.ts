@@ -23,7 +23,15 @@ const BASE = {
 	current: false
 };
 
+/**
+ * THE VIEWPORT IS SET, NOT INHERITED (#709). A container width moves the card and never a media
+ * query, so an `lg:` class applies only when the VIEWPORT is at `lg`. `page.viewport` also persists
+ * from one test to the next in this file, so a mount that set nothing would measure whichever width
+ * the previous test left behind. Every mount here is the 390 phone, holding a 350 px card.
+ */
 async function mount(props: Record<string, unknown>) {
+	await page.viewport(390, 844);
+	expect(window.innerWidth).toBe(390);
 	const { container } = await render(DateReadingCard, { ...BASE, ...props });
 	container.style.width = '350px';
 	const card = container.querySelector('[role="option"]') as HTMLElement;
@@ -83,6 +91,15 @@ describe('DateReadingCard.svelte: 107 px at both widths, and it does not move', 
 	it('is 107 px at 1280 px width too, because the card does not scale with the viewport', async () => {
 		// Separates "the card is evidence, fixed at both widths" from "the card is a row, which
 		// scales" (86 -> 74, 68 -> 56 elsewhere on this screen per the plate).
+		//
+		// #709: this used to widen the CONTAINER and set no viewport, so no `lg:` class could apply
+		// and the test measured the phone twice. Break-checked on 2026-09-24, one clause each:
+		// `lg:py-2` on the card (a card that scales at `lg`) was green before and is red here, 99 px,
+		// with the 390 tests above green; `max-lg:py-2` (a card that changes below `lg` only) reddened
+		// this test too before the fix, because it ran below `lg`, and now reddens the 390 tests and
+		// leaves this one green.
+		await page.viewport(1280, 800);
+		expect(window.innerWidth).toBe(1280);
 		const { container } = await render(DateReadingCard, BASE);
 		container.style.width = '1280px';
 		const card = container.querySelector('[role="option"]') as HTMLElement;
