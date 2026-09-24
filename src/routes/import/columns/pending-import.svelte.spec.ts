@@ -42,6 +42,11 @@ import Page from './+page.svelte';
  *
  * `goto` is held open by the test, so « between the answer and the navigation » is a state the test
  * holds rather than a race it hopes to win.
+ *
+ * BREAK MATRIX, 2026-09-24, one clause at a time. Putting the reset back at the top of the handler
+ * reddens the two « between » tests (the second measured 2 requests). Removing the reset from the
+ * refusal branch, the unreadable-answer branch, and the `catch` each reddens that branch's test and
+ * nothing else.
  */
 const VIEW: DesignationFile = {
 	name: 'releve.csv',
@@ -174,6 +179,20 @@ describe('how long the designation screen stays occupied', () => {
 
 		await expect.poll(() => forms.applyAction.mock.calls.length).toBe(1);
 		await expect.poll(() => primary().hasAttribute('aria-busy')).toBe(false);
+		expect(cancel().hasAttribute('aria-disabled')).toBe(false);
+	});
+
+	// THE THIRD BRANCH THAT STAYS: a success whose payload carries no summary. SEPARATES: « the
+	// screen comes back live with the sentence » FROM « it shows the sentence over a screen still
+	// inert », which is what moving the reset out of the top of the handler would ship if this branch
+	// were forgotten.
+	it('comes back live after an answer it cannot read', async () => {
+		answer = async () =>
+			new Response(JSON.stringify({ type: 'success', status: 200, data: {} }), { status: 200 });
+		await pressImport();
+
+		await expect.element(page.getByText(m.import_columns_error_unexpected())).toBeVisible();
+		expect(primary().hasAttribute('aria-busy')).toBe(false);
 		expect(cancel().hasAttribute('aria-disabled')).toBe(false);
 	});
 });

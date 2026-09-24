@@ -24,6 +24,20 @@ import type { RoleAssignment } from '$lib/domain/columnDesignation';
  *
  * Clicks go through `element.click()` rather than a locator: Playwright treats `aria-disabled` as
  * not enabled and would wait for ever on the very state under test.
+ *
+ * BREAK MATRIX, 2026-09-24, one clause at a time over `components/import`, `RoleRow`'s spec and
+ * `routes/import/columns` (281 green unbroken). Each break reddened ITS OWN test at every width it
+ * runs at, and only one break reached a test in another file:
+ *   Cancel's `aria-disabled` removed: its test, plus the route's « stays occupied » test.
+ *   Cancel's swallow removed: « does not leave when Cancel is pressed ».
+ *   Back's `softDisabled` removed: both back-arrow tests.
+ *   `RoleRow`'s `aria-disabled` removed: « marks every role row ».
+ *   `RoleRow`'s swallow removed: « opens no picker ».
+ *   The screen not passing `busy` to `RoleRow`: both row tests.
+ *   `AccountRow`'s `aria-disabled` removed, then its swallow: its own test each time.
+ * The « restores » test is red under none of those, because none of them leaves a control stuck
+ * off; `busy={true}` on the rows reddens it at both widths (and 42 tests elsewhere, which can no
+ * longer open a picker at all).
  */
 
 const HEADERS = ['Date operation', 'Date valeur', 'Libelle', 'Montant', 'Categorie'];
