@@ -1,5 +1,8 @@
 import { assertBootstrapTokenConfigured } from '$lib/server/auth/bootstrapToken';
-import { assertRateLimitSecretConfigured } from '$lib/server/auth/rateLimit';
+import {
+	assertImportRateLimitConfigured,
+	assertRateLimitSecretConfigured
+} from '$lib/server/auth/rateLimit';
 import { assertBackupBoundConfigured } from '$lib/server/backup/parseBounds';
 import { assertEncryptionKeyConfigured } from '$lib/server/crypto';
 import { assertDatabaseConfigured } from '$lib/server/database/bootCheck';
@@ -78,7 +81,8 @@ export const ENVIRONMENT_CHECKS: Check[] = [
 	['IMPORT_XLSX_MAX_UNCOMPRESSED_MB', assertXlsxBoundConfigured],
 	['BACKUP_MAX_JSON_NODES', assertBackupBoundConfigured],
 	['CSV_MAX_COLUMNS', assertCsvColumnBoundConfigured],
-	['COLUMN_MAPPINGS_PER_USER', assertColumnMappingCapConfigured]
+	['COLUMN_MAPPINGS_PER_USER', assertColumnMappingCapConfigured],
+	['IMPORT_RATE_LIMIT_MAX_ATTEMPTS', assertImportRateLimitConfigured]
 ];
 
 /**
