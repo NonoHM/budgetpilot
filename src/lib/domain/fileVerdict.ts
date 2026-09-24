@@ -7,8 +7,8 @@
  *
  * `import/dateOrder.ts`'s `DateOrderVerdict` was the only inhabitant of this shape until #485 gave
  * `import/discriminant.ts`'s `DiscriminantResult` the same four states (`basis: 'iban'` proves a
- * contradiction, `basis: 'digit-run'` only exhibits one). AGENTS.md's own rule against a shared
- * generic — "collapsing them would merge refusing with asking" — is about the OUTCOME a caller
+ * contradiction, `basis: 'digit-run'` only exhibits one). AGENTS.md's former rule against a shared
+ * generic — "collapsing them would merge refusing with asking" — was about the OUTCOME a caller
  * takes, never about this taxonomy: refusing and asking are two different `decide*` functions
  * consuming this type, not two states inside it. One inhabitant is a coincidence; a second
  * genuinely wanting the same four states, independently, is the pattern the rule is about

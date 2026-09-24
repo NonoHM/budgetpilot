@@ -204,10 +204,10 @@ Tooling enforces formatting; do not restate it. What tooling cannot check:
   merely ABSENT FROM it: `06/01/2026` exhibits its own, a missing currency column exhibits nothing.
   "Refused, never guessed" reads well and refuses the ordinary case.
   **The four outcomes are a TYPE, not a convention, and that is the enforcement.**
-  `import/dateOrder.ts` returns `resolved`, `mixed`, `ambiguous` or `nothing-to-decide`, with no
-  constructor for "I guessed"; `import/discriminant.ts` is the same idea at three states. NOT one
-  shared generic yet: collapsing them would merge refusing with asking. The failure this replaces
-  is measured in #433.
+  `domain/fileVerdict.ts`'s `FileVerdict` is `resolved`, `contradictory`, `ambiguous` or
+  `nothing-to-decide`, with no constructor for "I guessed"; `import/dateOrder.ts` and
+  `import/discriminant.ts` both inhabit it. `contradictory` (refuse) and `ambiguous` (ask) stay
+  two states, never merged. The failure this replaces is measured in #433.
 - Prefer the existing component and the existing helper. Check before adding either.
 - Any number an operator might need to move is read from the environment: a default, a hard
   ceiling, refusal rather than clamping, and a boot warning when it differs.
@@ -427,8 +427,11 @@ clean refusals; a scanner seeing zero packages passes; a fuzzer reaching no acce
 - Branch protection is on and is never bypassed. `main` is never committed to directly.
 - **Never arm `gh pr merge --auto` before the PR has been read.** Treat an armed PR as
   merged: further work goes on a new branch.
-- `Closes #A and #B` closes only #A; repeat the keyword. And never write a closing keyword
-  beside an issue number unless you mean it now, including in a sentence about future work.
+- `Closes #A and #B` closes only #A; repeat the keyword. GitHub closes on `close`, `closes`,
+  `closed`, `fix`, `fixes`, `fixed`, `resolve`, `resolves` or `resolved` directly before an issue
+  number, whatever words precede it. Put one there only to close that issue on merge, which rules
+  out « not fixed #N » and « will fix #N »; for an issue left open, write « left open: #N » or
+  « filed as #N ». A convention: no check reads a commit message or a PR body.
 - `CHANGELOG.md` is release-please's file. Never edit it by hand.
 
 ## Before citing an industry pattern
