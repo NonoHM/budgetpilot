@@ -295,6 +295,33 @@ describe('#600: a declared currency the destination contradicts is refused befor
 	});
 
 	/**
+	 * CONTRADICTION PASS F3, through the route. `currency` blank, `devise` reading EUR. MEASURED
+	 * before the fix: 200, stored `["USD","USD"]`. Separates « every declaring column is read »
+	 * from « only the first one present ».
+	 */
+	it('/import: devise declaring EUR beside a blank currency column refuses the file into USD', async () => {
+		expect.assertions(3);
+		const { userId, usdId } = await seedUser('devise');
+		const refused = await postImport(userId, {
+			csvFile: fileOf(
+				[
+					'date,label,amount,currency,devise',
+					'2026-06-03,Boulangerie Mercier,-4.20,,EUR',
+					'2026-06-14,Virement salaire,1850.00,,EUR'
+				].join('\n')
+			),
+			accountId: usdId
+		});
+		const usdRows = await storedIn(userId, usdId);
+		console.info(
+			`[#600 F3] devise beside blank currency into USD: status=${refused.status ?? 200} stored=${JSON.stringify(usdRows.map((row) => row.currency))}`
+		);
+		expect(usdRows).toEqual([]);
+		expect(refused.status).toBe(400);
+		expect(refused.data?.error).toBe(EUR_INTO_USD);
+	});
+
+	/**
 	 * CONTRADICTION PASS F2, through the route. The only row declaring EUR is refused for its date
 	 * and the other row leaves the cell blank. MEASURED before the fix: 200, stored `["USD"]`, while
 	 * the same file with a valid first date was refused. Separates « the file's declaration is read

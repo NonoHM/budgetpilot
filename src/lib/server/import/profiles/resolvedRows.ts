@@ -49,8 +49,9 @@ export interface ResolvedRowsInput {
 	columns: ResolvedColumnNames;
 	/** How an ambiguous date cell is read. Absent reads day-first. */
 	dateOrder?: DateOrder;
-	/** The folded header declaring a currency, when the file has one. */
-	currencyColumn: string | undefined;
+	/** EVERY folded header declaring a currency (`currencyColumnsIn`), empty when the file has none.
+	 *  A list since #600's F3: reading only the first let a blank `currency` hide `devise`. */
+	currencyColumns: string[];
 	acceptedCurrency: string;
 	profile: ResolvedCsvImportProfile;
 	warnings: string[];
@@ -80,7 +81,7 @@ export function parseResolvedRows({
 	hasHeaderRow,
 	dateOrder,
 	columns,
-	currencyColumn,
+	currencyColumns,
 	acceptedCurrency,
 	profile,
 	warnings,
@@ -107,16 +108,14 @@ export function parseResolvedRows({
 	// pass F2). A row refused below for its date or its amount still said which currency the file is
 	// in. Rows of the wrong width are left out: their cells do not sit under the header they would be
 	// read through. See `currencyDeclaration.ts`.
-	const declarationIndex = currencyColumn ? headers.indexOf(currencyColumn) : -1;
-	const declaredCurrencies =
-		declarationIndex < 0
-			? []
-			: acceptedDeclarations(
-					dataRows
-						.filter((parsedRow) => parsedRow.cells.length === headers.length)
-						.map((parsedRow) => parsedRow.cells[declarationIndex] ?? ''),
-					acceptedCurrency
-				);
+	// Every declaring column, F3.
+	const declarationIndices = currencyColumns.map((column) => headers.indexOf(column));
+	const declaredCurrencies = acceptedDeclarations(
+		dataRows
+			.filter((parsedRow) => parsedRow.cells.length === headers.length)
+			.flatMap((parsedRow) => declarationIndices.map((index) => parsedRow.cells[index] ?? '')),
+		acceptedCurrency
+	);
 
 	dataRows.forEach((parsedRow) => {
 		const row = parsedRow.cells;
@@ -157,8 +156,12 @@ export function parseResolvedRows({
 		// BEFORE the date and the amount so the refusal names the reason the row cannot be
 		// imported at all, rather than a downstream complaint about a value we were never going
 		// to keep.
+		//
+		// EVERY declaring column (#600, F3). A row whose columns disagree names a currency the
+		// profile does not accept in at least one of them, and is refused on that value, exactly as
+		// a row whose single column names it: same code, same scope.
 		let declaredCurrency: string | undefined;
-		if (currencyColumn) {
+		for (const currencyColumn of currencyColumns) {
 			const declared = sanitizeImportedText(record[currencyColumn] ?? '');
 			// An EMPTY cell is not a declaration. A file with the column present and the value
 			// blank is the same situation as a file with no column, and must still import.

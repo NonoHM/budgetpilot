@@ -11,14 +11,17 @@ import { parseResolvedRows } from './resolvedRows';
 import { detectSignIndicatorColumn } from '../signIndicator';
 import { refusalCellValue } from '../utils/safety';
 import { foldComparableHeader } from '../utils/encoding';
+import { ACCEPTED_CURRENCY, currencyColumnsIn } from '../currencyDeclaration';
 
 /** The one column that is optional and still matched by its exact name: it has no role in
  *  building a transaction, so an absent or unrecognised category simply falls back to the
  *  sentinel rather than refusing anything. Aliasing it belongs with the mapping path. */
 const CATEGORY_COLUMN = 'category';
 
-/**
- * The names a file may use to declare what currency its amounts are in.
+/*
+ * The names a file may use to declare what currency its amounts are in: `CURRENCY_COLUMNS` in
+ * `currencyDeclaration.ts`, shared with `mapped.ts` since #600. This note stays with the profile it
+ * was written about.
  *
  * ## Why this exists, and why it REFUSES rather than converts
  *
@@ -64,8 +67,6 @@ const CATEGORY_COLUMN = 'category';
  * reaches them: it falls through to here. A currency guard in those three would be unreachable,
  * which is a guard in costume rather than a guard. Their EUR assumption is documented instead.
  */
-const CURRENCY_COLUMNS = ['currency', 'devise'];
-const ACCEPTED_CURRENCY = 'EUR';
 
 export function matchesGenericHeader(): boolean {
 	return true;
@@ -183,8 +184,9 @@ export function parseGenericRows({
 		};
 	}
 
-	// Which header, if any, declares the currency. Absent is the common case and is fine.
-	const currencyColumn = CURRENCY_COLUMNS.find((name) => headers.includes(name));
+	// Which headers, if any, declare the currency: every one present, not the first (#600, F3).
+	// Absent is the common case and is fine.
+	const currencyColumns = currencyColumnsIn(headers);
 
 	return parseResolvedRows({
 		rows,
@@ -199,7 +201,7 @@ export function parseGenericRows({
 			amount: columns.amount as string,
 			category: CATEGORY_COLUMN
 		},
-		currencyColumn,
+		currencyColumns,
 		acceptedCurrency: ACCEPTED_CURRENCY,
 		profile: 'generic',
 		warnings,

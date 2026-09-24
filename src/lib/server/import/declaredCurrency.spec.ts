@@ -250,6 +250,72 @@ describe('the file declares a currency on every row it wrote one, surviving or n
 	});
 });
 
+/**
+ * EVERY DECLARING COLUMN, on every row (contradiction pass F3).
+ *
+ * `currency` and `devise` are both names a file may declare its currency under, and only the first
+ * one present used to be read. MEASURED through the route before this: `currency` blank and
+ * `devise` reading EUR, into a USD account, stored `["USD","USD"]`.
+ *
+ * A row whose two columns DISAGREE is refused on that row, as `unsupported-currency` naming the
+ * value the profile does not accept: the same refusal, at the same scope, as a row whose one
+ * column names that currency. A file-scoped refusal was the alternative, and it would stop a file
+ * mixing euro rows with one foreign row from importing its euro rows, which it does today.
+ */
+describe('both currency columns are read on every row', () => {
+	const BOTH = 'date,label,amount,currency,devise';
+
+	/** Separates « the second column is read » from « only the first one present is ». */
+	it('takes the declaration from devise when currency is blank', () => {
+		expect.assertions(2);
+		const result = parseCsvTransactions([BOTH, '2026-06-03,A,-4.20,,EUR'].join('\n'));
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+		expect(result.transactions.map((transaction) => transaction.declaredCurrency)).toEqual(['EUR']);
+	});
+
+	/** Separates « a disagreement refuses the row » from « the first column wins silently ». */
+	it('refuses a row whose two columns disagree, naming the value it cannot hold', () => {
+		expect.assertions(2);
+		const result = parseCsvTransactions([BOTH, '2026-06-03,A,-4.20,EUR,GBP'].join('\n'));
+		expect(result.transactions).toEqual([]);
+		expect(result.invalidRows.map((refusal) => refusal.fact)).toEqual([
+			{ code: 'unsupported-currency', currency: 'GBP' }
+		]);
+	});
+
+	/** The calibration: two columns that agree, in any case, are one declaration. */
+	it('accepts a row whose two columns agree', () => {
+		expect.assertions(2);
+		const result = parseCsvTransactions([BOTH, '2026-06-03,A,-4.20,EUR,eur'].join('\n'));
+		expect(result.transactions).toHaveLength(1);
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+	});
+
+	/** The designated door reads the same two columns (`mapped.ts`). */
+	it('mapped reads devise when currency is blank', () => {
+		expect.assertions(1);
+		const result = parseCsvTransactions(
+			['poste_1,poste_2,poste_3,Currency,Devise', '2026-06-03,A,-4.20,,EUR'].join('\n'),
+			{
+				profile: 'mapped',
+				columnMapping: {
+					matchBy: 'name',
+					dateColumn: 'poste_1',
+					labelColumn: 'poste_2',
+					amountColumn: 'poste_3',
+					categoryColumn: null,
+					dateIndex: null,
+					labelIndex: null,
+					amountIndex: null,
+					categoryIndex: null,
+					columnCount: 5
+				}
+			}
+		);
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+	});
+});
+
 describe('declaredCurrencyRefusal: the one comparison', () => {
 	/** Separates « a contradicted declaration is refused, naming both » from « accepted ». */
 	it('refuses a declaration the destination contradicts, naming both currencies', () => {

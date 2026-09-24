@@ -1,6 +1,29 @@
 import { sanitizeImportedText } from './utils/safety';
 
 /**
+ * The FOLDED header names a `generic` or designated file may declare its currency under.
+ *
+ * ONE definition. `generic.ts` and `mapped.ts` each carried a copy until #600, and `generic.ts`'s
+ * docstring still carries the reason the column exists at all.
+ */
+export const CURRENCY_COLUMNS = ['currency', 'devise'] as const;
+
+/** The one currency a declaring column may name and still import. Anything else is refused on its
+ *  row (`unsupported-currency`). */
+export const ACCEPTED_CURRENCY = 'EUR';
+
+/**
+ * EVERY declaring column this file carries, in `CURRENCY_COLUMNS` order.
+ *
+ * All of them rather than the first one found, which is what both profiles did before the
+ * contradiction pass on #600 (F3): a file carrying `currency` blank and `devise` reading EUR had
+ * only the blank column read, and filed into a USD account stored USD.
+ */
+export function currencyColumnsIn(foldedHeaders: readonly string[]): string[] {
+	return CURRENCY_COLUMNS.filter((name) => foldedHeaders.includes(name));
+}
+
+/**
  * WHICH CURRENCY A FILE DECLARES, read off every row (#600).
  *
  * A file-level decision in AGENTS.md's sense: the currency a statement is in is a property of the
