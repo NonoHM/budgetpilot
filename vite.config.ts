@@ -65,6 +65,16 @@ export default defineConfig(({ mode }) => {
 							enabled: true,
 							provider: playwright(),
 							instances: [{ browser: 'chromium', headless: true }],
+							// Explicit because Vitest's default differs between CI and a laptop (#691).
+							// `headless` above is per instance, so the top-level `browser.headless` falls
+							// back to `isCI`, and `browser.ui` then defaults to `!isCI`. Off CI, Vitest
+							// injects its UI into the page Playwright drives and scales the test iframe
+							// into a pane beside a splitter that overlaps the iframe's left edge. A
+							// userEvent click on an element against the frame's left edge then lands on
+							// that splitter, in the parent page, and the component never sees it:
+							// seven tests in six specs failed locally and passed on CI for that reason
+							// alone. With the UI off both sides run the iframe unscaled at 0,0.
+							ui: false,
 							locators: { exact: false }
 						},
 						include: ['src/**/*.svelte.{test,spec}.{js,ts}'],
