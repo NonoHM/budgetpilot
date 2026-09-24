@@ -137,6 +137,40 @@ describe('the answers kept for the file in hand', () => {
 		expect(posted(section, 'accountId')).toEqual(['acc-livret']);
 	});
 
+	it.each([
+		[1280, 0],
+		[390, 1]
+	] as const)(
+		'posts an answer given on this page once, when the next reply echoes it (%i)',
+		async (width, mount) => {
+			// SEPARATES: « an accepted answer reaches the form from the echo ALONE » FROM « its control
+			// keeps posting it too », which puts two copies of one field in the request and leaves
+			// `FormData.get` to pick one: two sources for one answer is how they come to disagree.
+			// Walked across two replies, because only then does the page hold both the control's state
+			// and the server's echo of it.
+			await page.viewport(width, width === 390 ? 844 : 800);
+			const { container, rerender } = await render(Page, {
+				data: DATA,
+				form: {
+					error: m.import_error_ambiguous_account_column(),
+					accountColumn: { column: 3, header: 'compte', samples: ['10000001', '10000002'] },
+					answers: answers({})
+				} as never
+			});
+			const section = container.querySelectorAll('main > section')[mount] as HTMLElement;
+			await chooseAndSubmit(section);
+			await userEvent.click(
+				page.getByRole('button', { name: m.import_account_column_deny() }).element() as HTMLElement
+			);
+			expect(posted(section, 'accountColumnAnswer')).toEqual(['not-account']);
+
+			// The server accepted it and moved on to the account question.
+			await rerender({ data: DATA, form: ACCOUNT_ASKED as never });
+
+			expect(posted(section, 'accountColumnAnswer')).toEqual(['not-account']);
+		}
+	);
+
 	it('posts nothing kept once a different file is picked, even under the same name', async () => {
 		// SEPARATES: « the kept answers die with the file they were given for » FROM « they ride
 		// whatever the picker holds ». By identity, never by name: a bank exporting `releve.csv`
