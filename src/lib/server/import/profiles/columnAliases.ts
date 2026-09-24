@@ -1,4 +1,5 @@
 import { foldComparableHeader } from '../utils/encoding';
+import { ACCEPTED_CURRENCY } from '../currencyDeclaration';
 /**
  * Ordered aliases for the three columns a transaction cannot be built without.
  *
@@ -69,6 +70,36 @@ export const REQUIRED_COLUMN_ALIASES = {
 	label: ['label', 'libelle', 'description', 'partner name'],
 	amount: ['amount', 'montant', 'amount (eur)']
 } as const;
+
+/**
+ * The amount aliases whose NAME declares the currency of every amount under them, and which one.
+ *
+ * `amount (eur)` is N26's `Amount (EUR)`: the column is the money, and its name says what the money
+ * is in. That is a declaration exactly as a `currency` column is (#600, contradiction pass F1), and
+ * a file declaring EUR must not be filed into an account held in another currency.
+ *
+ * Typed to the accepted currency, so an alias naming another one cannot be added here without that
+ * type changing: a file whose amount header declares a currency the import does not accept has no
+ * honest reading yet. `declaredCurrency.spec.ts` checks that every amount alias above whose name
+ * carries a code in parentheses is listed here.
+ */
+export const CURRENCY_DECLARING_AMOUNT_ALIASES: Readonly<Record<string, typeof ACCEPTED_CURRENCY>> =
+	{
+		'amount (eur)': ACCEPTED_CURRENCY
+	};
+
+/**
+ * The currency an amount column's NAME declares, or undefined when the name declares none.
+ *
+ * Folded with `foldComparableHeader` here, so the answer does not depend on which fold the caller's
+ * profile applied: `generic` hands over the alias itself, `mapped` the file's header folded exact.
+ */
+export function amountHeaderDeclaration(amountHeader: string): string | undefined {
+	const folded = foldComparableHeader(amountHeader);
+	return Object.hasOwn(CURRENCY_DECLARING_AMOUNT_ALIASES, folded)
+		? CURRENCY_DECLARING_AMOUNT_ALIASES[folded]
+		: undefined;
+}
 
 export type RequiredRole = keyof typeof REQUIRED_COLUMN_ALIASES;
 

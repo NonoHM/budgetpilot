@@ -295,6 +295,34 @@ describe('#600: a declared currency the destination contradicts is refused befor
 	});
 
 	/**
+	 * CONTRADICTION PASS F1, through the route: N26's own header, whose `Amount (EUR)` names the
+	 * currency. MEASURED by the contradiction pass before the fix: 200, stored `["USD","USD"]`.
+	 * Separates « a currency declared in the amount header is compared » from « only a currency
+	 * column is ».
+	 */
+	it('/import: N26 Amount (EUR) refuses the file into USD', async () => {
+		expect.assertions(3);
+		const { userId, usdId } = await seedUser('n26');
+		const refused = await postImport(userId, {
+			csvFile: fileOf(
+				[
+					'"Booking Date","Value Date","Partner Name","Partner Iban","Type","Payment Reference","Account Name","Amount (EUR)","Original Amount","Original Currency","Exchange Rate"',
+					'"2026-06-03","2026-06-03","Boulangerie Mercier","","MasterCard Payment","","Main Account","-4.20","","",""',
+					'"2026-06-14","2026-06-14","Virement salaire","","Credit Transfer","","Main Account","1850.00","","",""'
+				].join('\n')
+			),
+			accountId: usdId
+		});
+		const usdRows = await storedIn(userId, usdId);
+		console.info(
+			`[#600 F1] N26 Amount (EUR) into USD: status=${refused.status ?? 200} stored=${JSON.stringify(usdRows.map((row) => row.currency))}`
+		);
+		expect(usdRows).toEqual([]);
+		expect(refused.status).toBe(400);
+		expect(refused.data?.error).toBe(EUR_INTO_USD);
+	});
+
+	/**
 	 * CONTRADICTION PASS F3, through the route. `currency` blank, `devise` reading EUR. MEASURED
 	 * before the fix: 200, stored `["USD","USD"]`. Separates « every declaring column is read »
 	 * from « only the first one present ».

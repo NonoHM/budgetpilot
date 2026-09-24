@@ -23,6 +23,7 @@ import {
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
 import { acceptedDeclarations } from '../currencyDeclaration';
+import { amountHeaderDeclaration } from './columnAliases';
 
 /**
  * Which FOLDED header fills each role, once something upstream has decided.
@@ -108,12 +109,17 @@ export function parseResolvedRows({
 	// pass F2). A row refused below for its date or its amount still said which currency the file is
 	// in. Rows of the wrong width are left out: their cells do not sit under the header they would be
 	// read through. See `currencyDeclaration.ts`.
-	// Every declaring column, F3.
+	// Every declaring column, F3, and the amount column's own NAME, F1: N26's `Amount (EUR)`
+	// declares EUR for every row under it, exactly as a `currency` column reading EUR would.
+	const amountDeclares = amountHeaderDeclaration(columns.amount);
 	const declarationIndices = currencyColumns.map((column) => headers.indexOf(column));
 	const declaredCurrencies = acceptedDeclarations(
-		dataRows
-			.filter((parsedRow) => parsedRow.cells.length === headers.length)
-			.flatMap((parsedRow) => declarationIndices.map((index) => parsedRow.cells[index] ?? '')),
+		[
+			...(amountDeclares ? [amountDeclares] : []),
+			...dataRows
+				.filter((parsedRow) => parsedRow.cells.length === headers.length)
+				.flatMap((parsedRow) => declarationIndices.map((index) => parsedRow.cells[index] ?? ''))
+		],
 		acceptedCurrency
 	);
 
@@ -160,7 +166,9 @@ export function parseResolvedRows({
 		// EVERY declaring column (#600, F3). A row whose columns disagree names a currency the
 		// profile does not accept in at least one of them, and is refused on that value, exactly as
 		// a row whose single column names it: same code, same scope.
-		let declaredCurrency: string | undefined;
+		// The amount header's declaration applies to every row; a declaring column may still refuse
+		// the row below if it names a currency the profile does not accept.
+		let declaredCurrency: string | undefined = amountDeclares;
 		for (const currencyColumn of currencyColumns) {
 			const declared = sanitizeImportedText(record[currencyColumn] ?? '');
 			// An EMPTY cell is not a declaration. A file with the column present and the value

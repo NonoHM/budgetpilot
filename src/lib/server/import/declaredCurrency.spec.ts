@@ -9,6 +9,12 @@ import { MAISON_V2_HEADER } from './profiles/maison-v2';
 import { MAISON_V3_HEADER } from './profiles/maison-v3';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import type { ColumnMappingInput } from './mapping/model';
+import { CURRENCY_COLUMNS } from './currencyDeclaration';
+import {
+	CURRENCY_DECLARING_AMOUNT_ALIASES,
+	REQUIRED_COLUMN_ALIASES
+} from './profiles/columnAliases';
+import { REAL_HEADERS } from './profiles/realHeaders.fixture';
 
 /**
  * #600, at the parse: a currency the file DECLARES leaves the parse on every row it was read from.
@@ -313,6 +319,102 @@ describe('both currency columns are read on every row', () => {
 			}
 		);
 		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+	});
+});
+
+/**
+ * EVERY WAY THE ALIAS TABLES LET A FILE DECLARE A CURRENCY (contradiction pass F1).
+ *
+ * A declaration is not only a `currency` column. `columnAliases.ts` accepts `amount (eur)` as the
+ * amount, and an amount column NAMED for its currency declares it for every row. Only the column
+ * form was read, so N26's own export, `Amount (EUR)`, filed into a USD account stored USD
+ * (MEASURED through the route by the contradiction pass: 200, `["USD","USD"]`).
+ *
+ * The forms are ENUMERATED from the tables rather than listed here: every `CURRENCY_COLUMNS`
+ * spelling, and every amount alias in `CURRENCY_DECLARING_AMOUNT_ALIASES`. A detector below keeps
+ * that second table honest, so an amount alias carrying a currency in its name cannot be added to
+ * the alias table without being declared.
+ */
+describe('every declaring form the alias tables allow is read, on both doors that read them', () => {
+	const FORMS = [
+		...CURRENCY_COLUMNS.map((column) => ({
+			form: `a ${column} column`,
+			header: `date,label,amount,${column}`,
+			row: '2026-06-03,A,-4.20,EUR'
+		})),
+		...Object.keys(CURRENCY_DECLARING_AMOUNT_ALIASES).map((alias) => ({
+			form: `an amount header named ${alias}`,
+			header: `date,label,${alias}`,
+			row: '2026-06-03,A,-4.20'
+		}))
+	];
+
+	/** The population is not empty: a table that lost its entries would make the tests vacuous. */
+	it('enumerates at least one column form and one header form', () => {
+		expect.assertions(2);
+		expect(CURRENCY_COLUMNS.length).toBeGreaterThan(0);
+		expect(Object.keys(CURRENCY_DECLARING_AMOUNT_ALIASES).length).toBeGreaterThan(0);
+	});
+
+	/** Separates « this form declares, through the generic door » from « read and dropped ». */
+	it.each(FORMS)('generic reads $form as a declaration', ({ header, row }) => {
+		expect.assertions(2);
+		const result = parseCsvTransactions([header, row].join('\n'));
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+		expect(result.transactions.map((transaction) => transaction.declaredCurrency)).toEqual(['EUR']);
+	});
+
+	/** The same forms through a DESIGNATION: the user names the columns, the name still declares. */
+	it.each(FORMS)('mapped reads $form as a declaration', ({ header, row }) => {
+		expect.assertions(1);
+		const [date, label, amount] = header.split(',');
+		const result = parseCsvTransactions([header, row].join('\n'), {
+			profile: 'mapped',
+			columnMapping: {
+				matchBy: 'name',
+				dateColumn: date,
+				labelColumn: label,
+				amountColumn: amount,
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null,
+				columnCount: header.split(',').length
+			}
+		});
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+	});
+
+	/**
+	 * THE DETECTOR over the alias table: every amount alias whose name carries a parenthesised
+	 * three-letter code is a declaring alias. Calibrated by the positive it must find, N26's.
+	 */
+	it('declares every amount alias whose name carries a currency code', () => {
+		expect.assertions(2);
+		const named = REQUIRED_COLUMN_ALIASES.amount.filter((alias) => /\([a-z]{3}\)$/.test(alias));
+		expect(named).toContain('amount (eur)');
+		expect(named.filter((alias) => !(alias in CURRENCY_DECLARING_AMOUNT_ALIASES))).toEqual([]);
+	});
+
+	/**
+	 * N26, as it exports. `Original Currency` is the currency of a foreign card payment's ORIGINAL
+	 * amount, not the account's, so a row reading `USD` there is not a declaration and not refused.
+	 * Separates « the amount header declares » from « any header containing "currency" does ».
+	 */
+	it('reads N26 as declaring EUR, and its Original Currency as nothing', () => {
+		expect.assertions(3);
+		const [, header] = REAL_HEADERS.find(([name]) => name === 'N26')!;
+		const result = parseCsvTransactions(
+			[
+				header,
+				'"2026-06-03","2026-06-03","Boulangerie Mercier","","MasterCard Payment","","Main Account","-4.20","","",""',
+				'"2026-06-04","2026-06-04","Librairie","","MasterCard Payment","","Main Account","-9.10","-10.00","USD","1.0989"'
+			].join('\n')
+		);
+		expect(result.transactions).toHaveLength(2);
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+		expect(result.invalidRows).toEqual([]);
 	});
 });
 
