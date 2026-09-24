@@ -83,6 +83,7 @@
 		lostHeader,
 		interpretation,
 		interpretationConfirmed = false,
+		busy = false,
 		onOpen
 	}: {
 		role: MappingRole;
@@ -152,6 +153,14 @@
 		 * carries the warning triangle, which stays reserved for `ambiguous`/`missingColumn`.
 		 */
 		interpretationConfirmed?: boolean;
+		/**
+		 * The screen's import is out: plate 1q B « Envoi », « Les rangées aussi : focusables, non
+		 * activables ». `aria-disabled`, never the native attribute, so the row keeps its tab stop and
+		 * its name, and the press is swallowed here rather than by the caller, the rule `Button` and
+		 * `IconButton` already apply to `softDisabled`. Dimmed exactly as `AccountRow` is in the same
+		 * state, because the plate draws the two rows as one kind.
+		 */
+		busy?: boolean;
 		onOpen?: () => void;
 	} = $props();
 
@@ -408,10 +417,16 @@
 		aria-haspopup="listbox"
 		aria-expanded={expanded}
 		aria-label={accessibleName}
+		aria-disabled={busy ? 'true' : undefined}
 		class="flex w-full {heightClass} items-center gap-2.5 text-left focus-visible:ring-4 focus-visible:ring-zinc-400 focus-visible:ring-offset-2 focus-visible:ring-offset-white focus-visible:outline-none {expanded
 			? 'bg-zinc-100 transition-none'
-			: 'bg-transparent transition-colors duration-[120ms] ease-out active:bg-zinc-100'}"
-		onclick={onOpen}
+			: 'bg-transparent transition-colors duration-[120ms] ease-out active:bg-zinc-100'} {busy
+			? 'cursor-default opacity-45'
+			: ''}"
+		onclick={() => {
+			if (busy) return;
+			onOpen?.();
+		}}
 	>
 		<span class="flex min-w-0 flex-1 flex-col gap-1">
 			<span class="flex h-5 items-center gap-1.5">

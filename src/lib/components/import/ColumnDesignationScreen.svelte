@@ -1178,6 +1178,7 @@
 									interpretationConfirmed: dateInterpretationConfirmed
 								}
 							: {}}
+						busy={submitting}
 						onOpen={() => openPicker(role)}
 					/>
 					{#if wide && openRole === role}
@@ -1358,10 +1359,23 @@
 			<TapLink onclick={onCancel}>{m.import_columns_recap_back()}</TapLink>
 		</div>
 	{:else}
+		<!--
+			Plate 1q B « Envoi »: `aria-disabled` while the import is out, « même raison » as the primary,
+			and that reason is the banner's second line (« Import en cours. L'écran se fermera de
+			lui-même. »), which is what `aria-describedby` points at. The press is swallowed here: leaving
+			mid-import drops the answer on a screen that no longer exists.
+		-->
 		<button
 			type="button"
-			class="h-12 flex-1 rounded-[14px] border border-zinc-200 bg-white text-[15px] font-semibold text-zinc-700"
-			onclick={onCancel}
+			class="h-12 flex-1 rounded-[14px] border border-zinc-200 bg-white text-[15px] font-semibold {submitting
+				? 'cursor-default text-zinc-400'
+				: 'text-zinc-700'}"
+			aria-disabled={submitting ? 'true' : undefined}
+			aria-describedby={submitting ? CONSEQUENCE_ID : undefined}
+			onclick={() => {
+				if (submitting) return;
+				onCancel?.();
+			}}
 		>
 			{pageState === 'tooFewColumns' ? m.import_columns_other_file() : m.import_columns_cancel()}
 		</button>
@@ -1557,7 +1571,13 @@
 		data-testid="designation-screen"
 	>
 		<header class="flex h-14 items-center gap-1 pr-4 pl-1" data-testid="designation-header">
-			<IconButton label={m.import_columns_back()} onclick={onCancel}>
+			<!-- Same rule and same reason as « Annuler », plate 1q B « Envoi ». -->
+			<IconButton
+				label={m.import_columns_back()}
+				softDisabled={submitting}
+				aria-describedby={submitting ? CONSEQUENCE_ID : undefined}
+				onclick={onCancel}
+			>
 				<svg viewBox="0 0 20 20" class="h-5 w-5" fill="none" aria-hidden="true">
 					<path
 						d="M12 4l-6 6 6 6"

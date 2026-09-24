@@ -63,7 +63,11 @@
 		onOpen?: () => void;
 		expanded?: boolean;
 		panelId?: string;
-		/** The import is in flight: the row goes inert and stays readable. */
+		/**
+		 * The import is in flight: the row goes inert and stays readable. Inert means `aria-disabled`
+		 * AND a swallowed press, plate 1q B « Envoi »: `pointer-events-none` alone refused the pointer
+		 * while Enter still opened the panel mid-import (#395).
+		 */
 		busy?: boolean;
 	} = $props();
 
@@ -112,7 +116,11 @@
 	aria-label={accessibleName}
 	aria-describedby={hintId}
 	aria-busy={busy ? 'true' : undefined}
-	onclick={onOpen}
+	aria-disabled={busy ? 'true' : undefined}
+	onclick={() => {
+		if (busy) return;
+		onOpen?.();
+	}}
 >
 	<span class="flex min-w-0 flex-1 flex-col gap-1 lg:gap-0.5">
 		<span class="truncate text-[13.5px] font-semibold text-zinc-900">
