@@ -26,8 +26,96 @@ const MAX_ATTEMPTS = 5;
  *
  * This is a judgement against a usage figure, not a derivation, and it is written down here so the
  * next person changing it knows which number it was chosen against.
+ *
+ * It is the DEFAULT of `IMPORT_RATE_LIMIT_MAX_ATTEMPTS`, read by `resolveImportMaxAttempts` below.
+ * An operator who sets nothing gets exactly this, so making it configurable changed no install.
  */
-export const IMPORT_MAX_ATTEMPTS = 60;
+export const IMPORT_DEFAULT_MAX_ATTEMPTS = 60;
+
+/**
+ * The value above which a configured import limit is REFUSED at boot rather than clamped.
+ *
+ * WHAT A CEILING ON A RATE LIMITER HAS TO ANSWER is what an attacker gains by retrying. At the
+ * import doors the answer is narrow: every door sits behind a session, a refusal says nothing about
+ * anyone else's data, and nothing secret is being guessed. The one thing a retry buys is SERVER
+ * TIME, so the ceiling is set against time, and the time is already measured next door:
+ * `import/zipBounds.ts` records an .xlsx parse holding the only thread for 340 ms at its default
+ * bound and 1054 ms at its own ceiling. Nothing serialises imports (#283), so this limiter is the
+ * only thing bounding how much of that one account can buy per window.
+ *
+ *   attempts per 15 min | thread held at 340 ms | thread held at 1054 ms
+ *   60 (default)        |  20 s  ( 2 %)         |  63 s  ( 7 %)
+ *   240 (ceiling)       |  82 s  ( 9 %)         | 253 s  (28 %)
+ *   854                 | 290 s  (32 %)         | 900 s (100 %)
+ *
+ * 240 keeps the worst case, one account on one address uploading the most expensive file the
+ * configuration allows as fast as the limiter permits, to 28 % of the window, so nearly three
+ * quarters of the server's time stays with everyone else. Near 854 the same account holds the
+ * thread for the whole window, and the limiter stops being an availability control at all. The
+ * ceiling is four times the default, which is sixteen uploads a minute, well past any batch a
+ * person uploads by hand.
+ *
+ * Refused rather than clamped for the reason `backup/parseBounds.ts` gives: a security limit an
+ * operator can raise is a limit an operator can remove, and a clamp reads as configured while
+ * something else is in force.
+ */
+export const IMPORT_MAX_ATTEMPTS_CEILING = 240;
+
+/**
+ * The honest batch the default was chosen against, quoted so the boot warning can say what a
+ * lowered limit starts refusing: a year of monthly statements across three accounts.
+ */
+export const HONEST_IMPORT_BATCH_ATTEMPTS = 36;
+
+export const IMPORT_MAX_ATTEMPTS_ENV = 'IMPORT_RATE_LIMIT_MAX_ATTEMPTS';
+
+/**
+ * Reads the configured import limit, or throws. Read per call rather than cached at import, matching
+ * `resolveCsvMaxColumns` and `resolveBackupMaxJsonNodes`. It THROWS on a bad value rather than
+ * falling back, because a fallback would mean the limit in force is not the one configured.
+ */
+export function resolveImportMaxAttempts(): number {
+	const raw = process.env[IMPORT_MAX_ATTEMPTS_ENV];
+	if (raw === undefined || raw.trim() === '') return IMPORT_DEFAULT_MAX_ATTEMPTS;
+
+	const attempts = Number(raw);
+	if (!Number.isInteger(attempts) || attempts < 1) {
+		throw new Error(
+			`${IMPORT_MAX_ATTEMPTS_ENV} must be a whole number of at least 1 (got ${JSON.stringify(raw)}). It bounds how many uploads the import pages accept per account, and per address, in 15 minutes. The default is ${IMPORT_DEFAULT_MAX_ATTEMPTS}.`
+		);
+	}
+
+	if (attempts > IMPORT_MAX_ATTEMPTS_CEILING) {
+		throw new Error(
+			`${IMPORT_MAX_ATTEMPTS_ENV}=${attempts} is above the hard ceiling of ${IMPORT_MAX_ATTEMPTS_CEILING}. This is a rate limit on expensive work: at the ceiling, one account uploading the most expensive spreadsheet the configuration allows can already hold the server for about a quarter of every 15 minutes. The value is refused rather than clamped so that a limit you set is the limit that runs. The number and the measurements that chose it are in src/lib/server/auth/rateLimit.ts.`
+		);
+	}
+
+	return attempts;
+}
+
+/**
+ * Boot check, called from the boot collector beside the other bounds. Refuses to start on an
+ * out-of-range value, and reports any departure from the default in both directions.
+ */
+export function assertImportRateLimitConfigured(): void {
+	const attempts = resolveImportMaxAttempts();
+	if (attempts === IMPORT_DEFAULT_MAX_ATTEMPTS) return;
+
+	console.warn(
+		`[budgetpilot] ${IMPORT_MAX_ATTEMPTS_ENV}=${attempts} differs from the default of ${IMPORT_DEFAULT_MAX_ATTEMPTS}. It bounds how many uploads the import pages accept per account, and per address, in 15 minutes.`
+	);
+
+	if (attempts > IMPORT_DEFAULT_MAX_ATTEMPTS) {
+		console.warn(
+			`[budgetpilot] ${IMPORT_MAX_ATTEMPTS_ENV} is RAISED above the default, so one account may hold the server for longer than the default allows. The measured costs and what each value buys are in src/lib/server/auth/rateLimit.ts.`
+		);
+	} else if (attempts < HONEST_IMPORT_BATCH_ATTEMPTS) {
+		console.warn(
+			`[budgetpilot] ${IMPORT_MAX_ATTEMPTS_ENV} is LOWERED below ${HONEST_IMPORT_BATCH_ATTEMPTS}, a year of monthly statements across three accounts. A household importing its statements in one sitting may now be refused, and is told to wait rather than that a limit was lowered.`
+		);
+	}
+}
 
 // The secret is read lazily rather than at module load. It used to throw from this module's
 // top-level body, which is why hooks.server.ts imported it for its side effect alone — and why
@@ -79,7 +167,7 @@ function windowMsForKind(kind: AttemptKind): number {
 }
 
 function maxAttemptsForKind(kind: AttemptKind): number {
-	return kind === 'IMPORT' ? IMPORT_MAX_ATTEMPTS : MAX_ATTEMPTS;
+	return kind === 'IMPORT' ? resolveImportMaxAttempts() : MAX_ATTEMPTS;
 }
 
 function hashRateLimitKey(value: string): string {
