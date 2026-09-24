@@ -246,3 +246,196 @@ test('the collision dialog keeps the account the user chose', async ({ page }) =
 		await archiveAccounts(page, created);
 	}
 });
+
+/**
+ * A statement whose every date reads both ways, in the generic profile's shape
+ * (`scripts/synthetic/make-synthetic.mjs`'s `ambiguous-generic.csv`): day and month both at or
+ * below 12 in every cell, so the file asks how its dates read. Invented labels, and a period of its
+ * own so no other spec in this shared database collides with it.
+ *
+ * One YEAR per caller: the collision guard compares the period and the counts, so the same
+ * statement imported by two tests into two accounts raises the duplicate warning on the second,
+ * which is not the state either test is about. MEASURED: the 390 run met the dialog after 1280.
+ */
+const ambiguousDatesCsv = (year: number) =>
+	[
+		'date,label,amount,category',
+		`01/03/${year},Primeur L1 Sainte Anne,-17.45,Alimentation`,
+		`04/03/${year},Peage L1 Cevennes,-12.60,Transport`,
+		`09/03/${year},Remboursement L1 Teleconsultation,49.00,Sante`
+	].join('\n');
+const AMBIGUOUS_DATES_CSV = ambiguousDatesCsv(2025);
+
+/** A second statement of the same shape and another period: a different file, same bank. */
+const OTHER_AMBIGUOUS_DATES_CSV = [
+	'date,label,amount,category',
+	'02/04/2025,Boulangerie L1 Doriane,-8.40,Alimentation',
+	'07/04/2025,Pharmacie L1 Doriane,-21.00,Sante'
+].join('\n');
+
+/**
+ * Presses the primary once and waits for THE ANSWER to that press, not for a question to appear.
+ * Waiting on a question would return at once while the previous question is still on screen, and
+ * the loop below would read the old state as the new one.
+ */
+async function pressImport(
+	page: import('@playwright/test').Page,
+	form: ReturnType<import('@playwright/test').Page['locator']>
+) {
+	const answered = page.waitForResponse(
+		(response) =>
+			response.request().method() === 'POST' && new URL(response.url()).pathname === '/import'
+	);
+	await form.getByRole('button', { name: m.import_submit() }).click();
+	// The body read, then two frames: `enhance` deserialises the reply and applies it only after the
+	// body arrives, and the page renders it on the next frame. Reading the screen before that reads
+	// the PREVIOUS reply, which is the one thing this helper exists to prevent.
+	await (await answered).finished();
+	await page.evaluate(
+		() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+	);
+}
+
+/**
+ * Answers whichever question the page is showing, the way a person would, and says which one it
+ * was: `null` when neither question is on screen.
+ */
+async function answerTheQuestionOnScreen(
+	page: import('@playwright/test').Page,
+	mount: number,
+	account: RegExp
+): Promise<'account' | 'date' | null> {
+	const accountQuestion = page.getByTestId('import-account-question').nth(mount);
+	const readingQuestion = page.getByTestId('import-reading-question').nth(mount);
+	if (await accountQuestion.isVisible()) {
+		await accountQuestion.locator('button').first().click();
+		await page.getByRole('option', { name: account }).first().click();
+		return 'account';
+	}
+	if (await readingQuestion.isVisible()) {
+		await readingQuestion.locator('button').first().click();
+		await page
+			.getByRole('option', { name: new RegExp(`^${m.import_datesheet_option_day_first()}`) })
+			.first()
+			.click();
+		return 'date';
+	}
+	return null;
+}
+
+for (const width of [1280, 390] as const) {
+	test(`a file asking both the account and the date reading imports once each is answered (${width})`, async ({
+		page
+	}) => {
+		// SEPARATES: « each question, once answered, stays answered for the same file, and the
+		// import completes » FROM « the page stops posting one answer when it shows the other
+		// question », which is the loop measured on `main` since 1.1.1: six presses at each width
+		// alternated between the two questions and stored nothing.
+		//
+		// BOUNDED, and the bound is the whole assertion: the upload press plus one press per
+		// question is three. A page that re-asks an answered question needs a fourth press and
+		// fails here with the sequence of questions it showed, which is the evidence.
+		await page.setViewportSize({ width, height: width === 390 ? 844 : 800 });
+		const mount = width === 390 ? 1 : 0;
+		await page.goto('/import');
+		const created = [
+			await makeAccount(page, `BP Courant L1 ${width}`),
+			await makeAccount(page, `BP Livret L1 ${width}`)
+		];
+		try {
+			await page.goto('/import');
+			const form = page.locator('form[method="POST"]').nth(mount);
+			await form.locator('input[name="csvFile"]').setInputFiles({
+				name: 'releve-l1.csv',
+				mimeType: 'text/csv',
+				buffer: Buffer.from(ambiguousDatesCsv(width === 390 ? 2024 : 2023), 'utf-8')
+			});
+			await pressImport(page, form);
+
+			// The VISIBLE copy: this page renders its content twice, and at 390 the first copy in the
+			// document is the hidden desktop mount.
+			const summary = page
+				.getByText(new RegExp(`3 lignes importées dans BP Livret L1 ${width} `))
+				.filter({ visible: true });
+			// After each answer, wait until the page shows ONE of the three states it can be in, so
+			// the loop never reads a screen that has not rendered the reply yet.
+			const settled = () =>
+				expect(
+					summary
+						.or(page.getByTestId('import-account-question').filter({ visible: true }))
+						.or(page.getByTestId('import-reading-question').filter({ visible: true }))
+						.first()
+				).toBeVisible({ timeout: 15_000 });
+			const asked: string[] = [];
+			let presses = 1;
+			await settled();
+			while (presses < 7 && !(await summary.first().isVisible())) {
+				const question = await answerTheQuestionOnScreen(page, mount, /Livret L1/);
+				asked.push(question ?? 'none');
+				if (question === null) break;
+				await pressImport(page, form);
+				presses += 1;
+				await settled();
+			}
+
+			expect({ presses, asked, imported: await summary.first().isVisible() }).toEqual({
+				presses: 3,
+				asked: ['account', 'date'],
+				imported: true
+			});
+		} finally {
+			await archiveAccounts(page, created);
+		}
+	});
+}
+
+test('an answer given for one statement is not applied to the next one picked', async ({
+	page
+}) => {
+	// SEPARATES: « the account chosen for file A dies when file B is picked, and B is asked its own
+	// questions » FROM « A's answer rides B's upload », which files B's rows into A's account with
+	// nothing on screen saying so. Asserted on WHERE B's rows landed: in the account chosen for B,
+	// never in the one chosen for A.
+	await page.goto('/import');
+	const created = [
+		await makeAccount(page, 'BP Courant L1 stale'),
+		await makeAccount(page, 'BP Livret L1 stale')
+	];
+	try {
+		await page.goto('/import');
+		const form = page.locator('form[method="POST"]').first();
+		await form.locator('input[name="csvFile"]').setInputFiles({
+			name: 'releve-l1.csv',
+			mimeType: 'text/csv',
+			buffer: Buffer.from(AMBIGUOUS_DATES_CSV, 'utf-8')
+		});
+		await pressImport(page, form);
+		// File A: the account question, answered with the Livret.
+		expect(await answerTheQuestionOnScreen(page, 0, /Livret L1 stale/)).toBe('account');
+		await pressImport(page, form);
+
+		// File B, picked under the same name, as a bank exporting `releve.csv` monthly does.
+		await form.locator('input[name="csvFile"]').setInputFiles({
+			name: 'releve-l1.csv',
+			mimeType: 'text/csv',
+			buffer: Buffer.from(OTHER_AMBIGUOUS_DATES_CSV, 'utf-8')
+		});
+		await pressImport(page, form);
+
+		// B is asked which account from scratch: the row names no account.
+		const question = page.getByTestId('import-account-question').first();
+		await expect(question).toBeVisible();
+		await expect(question.locator('button').first()).not.toContainText('Livret');
+
+		expect(await answerTheQuestionOnScreen(page, 0, /Courant L1 stale/)).toBe('account');
+		await pressImport(page, form);
+		expect(await answerTheQuestionOnScreen(page, 0, /Courant L1 stale/)).toBe('date');
+		await pressImport(page, form);
+
+		await expect(page.getByText(/2 lignes importées dans BP Courant L1 stale/).first()).toBeVisible(
+			{ timeout: 15_000 }
+		);
+	} finally {
+		await archiveAccounts(page, created);
+	}
+});

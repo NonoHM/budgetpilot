@@ -9,6 +9,7 @@
 	import ColumnPicker from '$lib/components/import/ColumnPicker.svelte';
 	import { formatReadingDate } from '$lib/domain/dateFormat';
 	import { DEFAULT_DATE_ORDER, type DateOrder } from '$lib/domain/dateReading';
+	import type { KeptAnswers } from '$lib/domain/keptAnswers';
 	import type { ResolvedDesignationFile } from '$lib/domain/columnDesignation';
 	import FileDropZone from '$lib/components/ui/FileDropZone.svelte';
 	import Badge from '$lib/components/ui/Badge.svelte';
@@ -653,6 +654,31 @@
 	);
 
 	/**
+	 * EVERY ANSWER THE SERVER ACCEPTED FOR THE FILE IN HAND, posted back with the next request.
+	 *
+	 * The loop this ends, measured on 1.1.1: a file whose dates read both ways, from a user holding
+	 * two accounts of its bank, alternated between the date question and the account question for
+	 * as long as the user kept pressing, because each hidden answer existed only while its own
+	 * question was on screen. Answer the date, the account question came back without the date
+	 * answer, and so on.
+	 *
+	 * The server echoes what it accepted (`answers`) with every question it asks, keyed by the
+	 * file's digest, and never asks an answered question again (`offerPrecedence.ts`). So an answer
+	 * reaches the request from exactly ONE place: from this echo once accepted, from its own
+	 * question's control while that question is on screen. Never both, which is what keeps each
+	 * field single in the form.
+	 *
+	 * Guarded on file identity like every offer on this page: a different file in the picker posts
+	 * nothing kept, and the server drops any answer whose key is not the file's own, so a stale
+	 * answer is refused twice over rather than once.
+	 */
+	const keptAnswers = $derived(
+		form && 'answers' in form && csvFiles?.[0] !== undefined && csvFiles[0] === submittedFile
+			? (form.answers as KeptAnswers | undefined)
+			: undefined
+	);
+
+	/**
 	 * THE STATE DIES WITH THE FILE IT WAS GIVEN FOR, same rule as `answeredFor` and
 	 * `dateOrderAnsweredFor` above, and the same defect if it did not: a second, unrelated
 	 * ambiguous file would silently inherit "not an account" from the first one's answer.
@@ -1052,34 +1078,28 @@
 			}
 		} else {
 			/**
-			 * THE ANSWER GIVEN ON THIS PAGE, WITHOUT WHICH CONFIRMING IS A LOOP.
+			 * THE ANSWERS THIS RUN WAS ACCEPTED WITH, WITHOUT WHICH CONFIRMING IS A LOOP.
 			 *
 			 * `carried` covers the run handed over by the designation screen and is null for a
-			 * collision this page's own action raised, which is now a reachable state: two accounts
-			 * of one bank, a statement already imported into the first, re-imported into the second.
-			 * The guard fires because the period and the counts are identical while the deduplication
-			 * keys are scoped by account and do not match.
+			 * collision this page's own action raised: two accounts of one bank, a statement already
+			 * imported into the first, re-imported into the second. The guard fires because the
+			 * period and the counts are identical while the deduplication keys are scoped by account.
 			 *
-			 * Dropping the id here re-posts a run with no account, the server answers with the
-			 * ambiguity refusal, the row re-renders still showing the chosen account, and pressing
-			 * the primary raises the same collision again. The only way out was the workaround this
-			 * branch removed from the documentation, which is #476 reappearing one screen later.
-			 * Reproduced in `e2e/import-account-ambiguous.spec.ts` before this line existed.
+			 * Dropping the account re-posts a run with no account and the server asks it again;
+			 * dropping the reading re-refuses with `ambiguous-date-order`, and « Importer quand même »
+			 * reopens the very question it was pressed to get past. Both were found by a walk
+			 * (`e2e/import-account-ambiguous.spec.ts`). Read from the collision reply's own echo, which
+			 * is exactly what the server accepted for this file, rather than from the controls, which
+			 * describe only the question that was last on screen.
 			 */
-			if (chosenAccountId) body.set('accountId', chosenAccountId);
-			/**
-			 * THE SAME SHAPE, ONE FIELD OVER, #433's remainder. A collision on this page's own
-			 * action is only reachable AFTER the date order was already answered or defaulted (the
-			 * ambiguous-date-order refusal happens before any collision check), so `retainedDateOrder`
-			 * always describes what the parse that raised this collision actually used.
-			 *
-			 * FOUND BY A BROWSER WALK: dropping this field re-posts a run with no reading answer,
-			 * the server re-refuses with `ambiguous-date-order`, and "Importer quand même" reopens
-			 * the very question it was pressed to get past, forever. `decideDateOrder` ignores this
-			 * value for a proven or nothing-to-decide column, so posting it unconditionally is safe
-			 * on every file, not only an ambiguous one.
-			 */
-			body.set('dateOrder', retainedDateOrder);
+			if (keptAnswers) {
+				body.set('answersFor', keptAnswers.key);
+				if (keptAnswers.accountId) body.set('accountId', keptAnswers.accountId);
+				if (keptAnswers.dateOrder) body.set('dateOrder', keptAnswers.dateOrder);
+				if (keptAnswers.accountColumnAnswer) {
+					body.set('accountColumnAnswer', keptAnswers.accountColumnAnswer);
+				}
+			}
 		}
 
 		try {
@@ -1274,6 +1294,23 @@
 	{/if}
 {/snippet}
 
+<!-- `keptAnswers`: what the server accepted for the file in hand, posted back beside the answer to
+     the question on screen. One snippet for both mounts, so the two forms cannot post differently. -->
+{#snippet keptAnswerInputs()}
+	{#if keptAnswers}
+		<input type="hidden" name="answersFor" value={keptAnswers.key} />
+		{#if keptAnswers.accountId}
+			<input type="hidden" name="accountId" value={keptAnswers.accountId} />
+		{/if}
+		{#if keptAnswers.dateOrder}
+			<input type="hidden" name="dateOrder" value={keptAnswers.dateOrder} />
+		{/if}
+		{#if keptAnswers.accountColumnAnswer}
+			<input type="hidden" name="accountColumnAnswer" value={keptAnswers.accountColumnAnswer} />
+		{/if}
+	{/if}
+{/snippet}
+
 {#snippet correctionNotice()}
 	{#if data.correction}
 		<input type="hidden" name="correctMappingId" value={data.correction.mappingId} />
@@ -1457,10 +1494,12 @@
 
 				<!-- #485. NO fallback value, unlike `dateOrder` above: omitted entirely until answered,
 				     because there is no safe default to post while unanswered, and posting one would
-				     recreate the exact silent guess this feature exists to remove. -->
-				{#if accountColumnAnswer}
+				     recreate the exact silent guess this feature exists to remove. Only while its own
+				     question is current: once accepted, it rides `keptAnswerInputs` instead. -->
+				{#if offersAccountColumn && accountColumnAnswer}
 					<input type="hidden" name="accountColumnAnswer" value={accountColumnAnswer} />
 				{/if}
+				{@render keptAnswerInputs()}
 
 				{#if offersDesignation}
 					<!-- The file nothing recognised. A refusal that offers the repair rather than
@@ -1923,9 +1962,10 @@
 			{/if}
 
 			<!-- #485. NO fallback value, unlike `dateOrder` above: see the desktop mount's comment. -->
-			{#if accountColumnAnswer}
+			{#if offersAccountColumn && accountColumnAnswer}
 				<input type="hidden" name="accountColumnAnswer" value={accountColumnAnswer} />
 			{/if}
+			{@render keptAnswerInputs()}
 
 			{#if offersDesignation}
 				<!-- The file nothing recognised. A refusal that offers the repair rather than

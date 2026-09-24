@@ -18,7 +18,7 @@ import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/mapping/store';
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
-import { resolveZeroTransactionOffer } from '$lib/server/import/offerPrecedence';
+import { resolveImportOffer } from '$lib/server/import/offerPrecedence';
 import {
 	buildInvalidRowDetails,
 	getHiddenInvalidRowsCount
@@ -196,12 +196,14 @@ export const actions: Actions = {
 				result.invalidRows[0].fact.code === 'ambiguous-account-column'
 					? result.invalidRows[0].fact
 					: null;
-			// THE ONE ORDER, same function `/import` reads: no `split`/`dateOrder` on this door (see
-			// `offerPrecedence.ts`'s own docstring for why), so those two are simply never passed.
-			const offer = resolveZeroTransactionOffer({
+			// THE ONE ORDER, same function `/import` reads: no `split`, `account` or `dateOrder` on this
+			// door (see `offerPrecedence.ts`'s own docstring for why), so those are simply never passed.
+			// `produced: false` because this branch is the empty parse.
+			const offer = resolveImportOffer({
+				produced: false,
 				header: headerRefusal?.fact ?? null,
 				multiAccount: multiAccountRefusal,
-				accountColumn: accountColumnRefusal
+				accountColumn: accountColumnRefusal ? { state: 'open', fact: accountColumnRefusal } : null
 			});
 			/**
 			 * #485's `accountColumn` rung REFUSES rather than asks on this door, and DOES NOT carry
