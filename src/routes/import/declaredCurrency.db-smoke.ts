@@ -9,6 +9,7 @@ import {
 import { parseCsvTransactions } from '$lib/server/import/csv';
 import { DeclaredCurrencyMismatchError } from '$lib/server/import/declaredCurrency';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
+import { answerKeyFor } from '$lib/server/import/answerBinding';
 import { createStatementAccount } from '$lib/server/accounts/service';
 import { actions as importActions } from './+page.server';
 import { actions as columnsActions } from './columns/+page.server';
@@ -100,8 +101,19 @@ function eventOf(userId: string, fields: Record<string, string | File>) {
 
 type ActionOutcome = { status?: number; data?: Record<string, unknown> } & Record<string, unknown>;
 
+/**
+ * `/import` reads an answer only when it is BOUND to the file in the same request
+ * (`answerBinding.ts`, #718): the page posts back as `answersFor` the key the server handed it with
+ * the question. The key is `answerKeyFor` of the bytes, so it is computed here by the same function
+ * rather than retyped; without it every posted `accountId` is dropped and the file is asked again.
+ */
 async function postImport(userId: string, fields: Record<string, string | File>) {
-	return (await importActions.default!(eventOf(userId, fields))) as ActionOutcome;
+	const file = fields.csvFile;
+	const bound =
+		file instanceof File && !('answersFor' in fields)
+			? { ...fields, answersFor: await answerKeyFor(file) }
+			: fields;
+	return (await importActions.default!(eventOf(userId, bound))) as ActionOutcome;
 }
 
 async function postColumns(userId: string, fields: Record<string, string | File>) {
