@@ -109,6 +109,10 @@ scripts/security/
 # already merged once that way (#112).
 e2e/.audit390/
 
+# Vitest browser-mode failure screenshots. `browser.screenshotFailures` defaults to on once
+# `browser.ui` is off (vite.config.ts, #691), and it writes them under the repository root.
+.vitest/
+
 # Serena MCP local project state. project.yml is meant to be versioned with the project
 # (per Serena's own docs); cache, memories and project.local.yml are local-only.
 .serena/
