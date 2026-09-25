@@ -1,5 +1,6 @@
 import type { ParsedCsvRow } from './types';
 import type { FileVerdict } from '$lib/domain/fileVerdict';
+import { foldComparableHeader } from './utils/encoding';
 export { ACCOUNT_COLUMN_ANSWERS, readAccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 export type { AccountColumnAnswer } from '$lib/domain/accountColumnAnswer';
 
@@ -29,6 +30,91 @@ export type DiscriminantResult = FileVerdict<
 >;
 
 /**
+ * Headers that name the COUNTERPARTY's account: the other party to each row, never the holder.
+ *
+ * **Not a candidate at all, and that is the file-evidence rule rather than a preference.** Which
+ * of the user's accounts a statement belongs to is a question about the HOLDER, and a column
+ * naming the other party says nothing about it whatever its values do: constant, it names the one
+ * party every row paid (#702: a short statement, or a month of transfers to the holder's own
+ * savings account, which rank 1 then filed the statement INTO); varying, it names several people,
+ * which is not evidence of several accounts of the holder's. So the column is neither `resolved`,
+ * `contradictory` nor `ambiguous`: it is skipped before the grammar is read, and a file carrying
+ * nothing else reaches `nothing-to-decide` exactly as a file with no identifier column does.
+ *
+ * **What earns a place here is a header that says WHOSE account it is, recorded from a real
+ * export.** Every member is written in `foldComparableHeader`'s form, which is the fold for
+ * matching a bank's spelling against a vocabulary we chose, and every member is carried by a
+ * header row in `profiles/realHeaders.fixture.ts`; `discriminant.spec.ts` asserts both over the
+ * whole set, so a member added from recollection, or written in a form the fold never produces,
+ * fails there rather than matching nothing.
+ *
+ * **A bare `IBAN` is deliberately NOT here.** It does not say whose account it is: a bank that
+ * exports the holder's own IBAN on every row and one that exports the payee's both call it that.
+ * Excluding it would throw away the holder's own column; keeping it keeps #702's shape open for
+ * whichever bank means the other party. Neither is proven by the header, so it stays a candidate
+ * and the constancy decides, as it does for every header not listed here.
+ *
+ * **Where this bites, and where it cannot.** A card payment has no counterparty account, and a
+ * column is disqualified by ANY empty cell (see `findDiscriminantColumn`), so on a statement whose
+ * card rows leave the counterparty cell empty the column was never a candidate in the first place:
+ * the defect and this exclusion both act only on a statement where EVERY row carries a counterparty
+ * (transfers only, or one row). How often an N26 statement has that shape is not measured here.
+ *
+ * **It needs `rows[0]` to be the header.** The column is named by the header row alone, so a file
+ * with a title line above its header, or one the user declared headerless, gives this nothing to
+ * read and the column is judged by its values, as before #702. A known limit; no N26 layout
+ * recorded in `profiles/realHeaders.fixture.ts` carries a title line.
+ */
+export const COUNTERPARTY_ACCOUNT_HEADERS = ['partner iban'] as const;
+
+/**
+ * Account headers whose party the WORD does not prove and the header ROW does: each names the
+ * other party only when the payee header it is paired with sits in the same row.
+ *
+ * N26's legacy export spells its counterparty column like an ordinary account number, `Account
+ * number`, `Kontonummer`, `Numéro de compte`, and nothing in those words says whose account it
+ * is: a bank can use the same words for the HOLDER's own column (no recorded export here does,
+ * and none proves otherwise). So the word alone stays a candidate, and what proves the party is the
+ * layout: beside a payee column (`Payee`, `Empfänger`, `Bénéficiaire`), the account number is the
+ * payee's. The sources for that reading are named on `N26_LEGACY_HEADERS` in
+ * `profiles/realHeaders.fixture.ts`.
+ *
+ * **Pairs, not two independent sets.** A payee set crossed with an account set would also exclude
+ * `Payee` beside `Kontonummer`, a row nothing records; each pair here is one recorded layout.
+ * `partner iban` is not repeated as a pair with `partner name`: it needs no second header to prove
+ * its party, and a second spelling of one rule hides which copy does the work.
+ *
+ * THE COST, NAMED: a bank whose own export pairs one of these payee headers with ITS HOLDER's
+ * account number would lose that column as evidence. No recorded row does that; the fixture's
+ * `RECORDED_ACCOUNT_COLUMNS` is where one would be recorded, and the spec reads it.
+ *
+ * Every member is in `foldComparableHeader`'s form and every pair is carried by one recorded
+ * header row; `discriminant.spec.ts` asserts both.
+ */
+export const COUNTERPARTY_LAYOUTS = [
+	{ payee: 'payee', account: 'account number' },
+	{ payee: 'empfanger', account: 'kontonummer' },
+	{ payee: 'beneficiaire', account: 'numero de compte' }
+] as const;
+
+/**
+ * The indices of the header row's columns that name the other party: the one place both sets
+ * above are read.
+ */
+function counterpartyColumns(header: readonly string[]): Set<number> {
+	const folded = header.map((cell) => foldComparableHeader(cell));
+	const excluded = new Set<number>();
+	folded.forEach((cell, index) => {
+		const selfDescribing = (COUNTERPARTY_ACCOUNT_HEADERS as readonly string[]).includes(cell);
+		const byLayout = COUNTERPARTY_LAYOUTS.some(
+			(layout) => layout.account === cell && folded.includes(layout.payee)
+		);
+		if (selfDescribing || byLayout) excluded.add(index);
+	});
+	return excluded;
+}
+
+/**
  * **The grammar narrows the candidates. The constancy is the evidence.**
  *
  * A column of well-formed account identifiers that differ per row is a multi-account export, not a
@@ -46,11 +132,17 @@ export type DiscriminantResult = FileVerdict<
  * ## Why `resolved` wins over `contradictory`/`ambiguous`, measured rather than assumed
  *
  * A file can carry two qualifying columns, one constant and one varying, and the order they are
- * read in is then a decision rather than a detail. It is decided by a real header row already in
+ * read in is then a decision rather than a detail. It was decided by a real header row already in
  * this tree: `profiles/realHeaders.fixture.ts` records N26 exporting `Partner Iban`, the
  * COUNTERPARTY's IBAN, one per row, well formed and different on every transfer. A rule that let
  * variation win would refuse an ordinary single-account N26 statement as a multi-account export.
  * So a constant qualifying column pins the file and a varying one elsewhere cannot unpin it.
+ *
+ * Since #702 that particular column never reaches this order: `COUNTERPARTY_ACCOUNT_HEADERS` skips
+ * it by header, because the order alone protected only the file that ALSO carried a constant own
+ * column. N26 carries none, so its varying `Partner Iban` was refused as a proven multi-account
+ * export and a constant one pinned the file to the counterparty. The order stays for the
+ * counterparty column a header does not name.
  *
  * THE COST OF THAT ORDER, NAMED RATHER THAN LEFT TO BE FOUND: a genuine two-account export that
  * also carries a constant eight-digit column which is not an account number (a customer number, an
@@ -85,8 +177,12 @@ export function findDiscriminantColumn(rows: ParsedCsvRow[]): DiscriminantResult
 
 	const columnCount = dataRows.reduce((widest, row) => Math.max(widest, row.cells.length), 0);
 	let varying: { index: number; proven: boolean } | null = null;
+	const counterparty = counterpartyColumns(rows[0].cells);
 
 	for (let index = 0; index < columnCount; index += 1) {
+		// Before the grammar, so a counterparty column is no candidate in any of the three states.
+		if (counterparty.has(index)) continue;
+
 		const values: string[] = [];
 		let qualifies = true;
 
