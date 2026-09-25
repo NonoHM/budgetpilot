@@ -2,11 +2,16 @@ import { describe, expect, it } from 'vitest';
 import type { ParsedCsvRow } from './types';
 import {
 	COUNTERPARTY_ACCOUNT_HEADERS,
+	COUNTERPARTY_LAYOUTS,
 	DISCRIMINANT_LENGTH,
 	assertDiscriminantFree,
 	findDiscriminantColumn
 } from './discriminant';
-import { REAL_HEADERS } from './profiles/realHeaders.fixture';
+import {
+	N26_LEGACY_HEADERS,
+	REAL_HEADERS,
+	RECORDED_ACCOUNT_COLUMNS
+} from './profiles/realHeaders.fixture';
 import { parseRows } from './utils/csv';
 import { foldComparableHeader } from './utils/encoding';
 
@@ -268,7 +273,7 @@ describe('every header in COUNTERPARTY_ACCOUNT_HEADERS', () => {
 	it.each(COUNTERPARTY_ACCOUNT_HEADERS)(
 		'is carried by a recorded real header row: %s',
 		(member) => {
-			const recorded = REAL_HEADERS.flatMap(([, headerRow]) =>
+			const recorded = [...REAL_HEADERS, ...N26_LEGACY_HEADERS].flatMap(([, headerRow]) =>
 				parseRows(headerRow)[0].cells.map((cell) => foldComparableHeader(cell))
 			);
 			expect(recorded).toContain(member);
@@ -324,6 +329,161 @@ describe('every header in COUNTERPARTY_ACCOUNT_HEADERS', () => {
 			expect(result).toStrictEqual({ kind: 'resolved', index: 3, fragment: '0185' });
 		}
 	);
+});
+
+/**
+ * #702's second set: account headers whose party only the header ROW proves, enumerated whole.
+ * Every recorded row, current and legacy, is read, so a pair carried by no recorded layout fails.
+ */
+describe('every pair in COUNTERPARTY_LAYOUTS', () => {
+	const RECORDED_HEADER_ROWS = [...REAL_HEADERS, ...N26_LEGACY_HEADERS].map(([, headerRow]) =>
+		parseRows(headerRow)[0].cells.map((cell) => foldComparableHeader(cell))
+	);
+
+	it('is a non-empty set', () => {
+		expect(COUNTERPARTY_LAYOUTS.length).toBeGreaterThan(0);
+	});
+
+	// SEPARATES: « both headers match what the fold produces » FROM « one is written in a form the
+	// fold never returns, so the pair matches no row and excludes nothing ».
+	it.each(COUNTERPARTY_LAYOUTS)('is written in the fold’s own form: $payee / $account', (pair) => {
+		expect([foldComparableHeader(pair.payee), foldComparableHeader(pair.account)]).toStrictEqual([
+			pair.payee,
+			pair.account
+		]);
+	});
+
+	// SEPARATES: « the pair is one recorded layout » FROM « two headers that never share a row ».
+	it.each(COUNTERPARTY_LAYOUTS)(
+		'is carried by one recorded header row: $payee / $account',
+		(pair) => {
+			expect(
+				RECORDED_HEADER_ROWS.some((row) => row.includes(pair.payee) && row.includes(pair.account))
+			).toBe(true);
+		}
+	);
+
+	const SHAPES: Array<[shape: string, values: [string, string]]> = [
+		['a constant IBAN', [ACCOUNT_A, ACCOUNT_A]],
+		['two different IBANs', [ACCOUNT_A, ACCOUNT_B]],
+		['a constant digit run', ['12344417', '12344417']],
+		['two different digit runs', ['12349032', '12340185']]
+	];
+	const SPELLINGS: Array<[spelling: string, spell: (member: string) => string]> = [
+		['as listed', (member) => member],
+		['upper cased', (member) => member.toUpperCase()],
+		['padded', (member) => `  ${member.replace(/ /g, '  ')} `]
+	];
+	const cases = COUNTERPARTY_LAYOUTS.flatMap((pair) =>
+		SPELLINGS.flatMap(([spelling, spell]) =>
+			SHAPES.map(
+				([shape, values]) =>
+					[spell(pair.payee), spell(pair.account), spelling, shape, values] as const
+			)
+		)
+	);
+
+	function withPayee(payee: string | null, account: string, values: readonly string[]) {
+		const header =
+			payee === null ? ['Date', 'Montant', account] : ['Date', payee, 'Montant', account];
+		return findDiscriminantColumn(
+			rowsOf(
+				header,
+				values.map((value, i) =>
+					payee === null
+						? [`0${i + 1}/06/2026`, '-1,00', value]
+						: [`0${i + 1}/06/2026`, 'Paul Mercier', '-1,00', value]
+				)
+			)
+		);
+	}
+
+	// SEPARATES: « beside its payee column, the account column is no candidate in ANY state » FROM
+	// « it is skipped only when constant » and « only when spelled as listed ».
+	it.each(cases)(
+		'is no candidate beside %j: %j %s, carrying %s',
+		(payee, account, _s, _h, values) => {
+			expect(withPayee(payee, account, values)).toStrictEqual({ kind: 'nothing-to-decide' });
+		}
+	);
+
+	// THE HOLDER CALIBRATION: the same account word in a row WITHOUT a payee column is still read.
+	// `Numéro de compte` is the holder's column in other banks' exports; without this, excluding
+	// the word unconditionally would pass every case above.
+	it.each(COUNTERPARTY_LAYOUTS)('leaves $account a candidate with no payee column', (pair) => {
+		expect(withPayee(null, pair.account, [ACCOUNT_A, ACCOUNT_A])).toStrictEqual({
+			kind: 'resolved',
+			index: 2,
+			fragment: '0185'
+		});
+	});
+
+	// SEPARATES: « a pair is one layout » FROM « any payee header excludes any listed account
+	// header », the cross product nothing records.
+	const crossed = COUNTERPARTY_LAYOUTS.flatMap((pair) =>
+		COUNTERPARTY_LAYOUTS.filter((other) => other !== pair).map(
+			(other) => [other.payee, pair.account] as const
+		)
+	);
+	it.each(crossed)('leaves %j beside %j a candidate', (payee, account) => {
+		expect(withPayee(payee, account, [ACCOUNT_A, ACCOUNT_A])).toStrictEqual({
+			kind: 'resolved',
+			index: 3,
+			fragment: '0185'
+		});
+	});
+});
+
+/**
+ * #702, the direction the header sets cannot check for themselves: every account column a
+ * recorded header row carries (`RECORDED_ACCOUNT_COLUMNS`), read in ITS OWN recorded row. A
+ * counterparty column recorded there and missing from the discriminant's sets goes red here, which
+ * the sets' own membership tests cannot notice. The other cells carry a word, so only the column
+ * under test can qualify.
+ */
+describe('every recorded account column, read in its own recorded row', () => {
+	const RECORDED_ROWS = new Map<string, string>([
+		...REAL_HEADERS.map(([name, headerRow]) => [name, headerRow] as [string, string]),
+		...N26_LEGACY_HEADERS
+	]);
+
+	function recordedFile(row: string, column: string, values: readonly string[]) {
+		const header = parseRows(RECORDED_ROWS.get(row) ?? '')[0]?.cells ?? [];
+		const index = header.indexOf(column);
+		return {
+			index,
+			rows: rowsOf(
+				header,
+				values.map((value) => header.map((_, i) => (i === index ? value : 'x')))
+			)
+		};
+	}
+
+	// The premise: every entry names a recorded row and a column of it. Without it `index` is -1,
+	// no column carries the values, and every counterparty case below is green for nothing.
+	it.each(RECORDED_ACCOUNT_COLUMNS)('names a column of a recorded row: %s %s', (row, column) => {
+		expect(recordedFile(row, column, [ACCOUNT_A]).index).toBeGreaterThanOrEqual(0);
+	});
+
+	/** What a HOLDER's column yields for each shape; a counterparty column yields nothing. */
+	const SHAPES: Array<[shape: string, values: [string, string], holder: object]> = [
+		['a constant IBAN', [ACCOUNT_A, ACCOUNT_A], { kind: 'resolved', fragment: '0185' }],
+		['two different IBANs', [ACCOUNT_A, ACCOUNT_B], { kind: 'contradictory' }],
+		['a constant digit run', ['12344417', '12344417'], { kind: 'resolved', fragment: '4417' }],
+		['two different digit runs', ['12349032', '12340185'], { kind: 'ambiguous' }]
+	];
+	const cases = RECORDED_ACCOUNT_COLUMNS.flatMap(([row, column, party]) =>
+		SHAPES.map(([shape, values, holder]) => [row, column, party, shape, values, holder] as const)
+	);
+
+	// SEPARATES: « the column is read as the party its recorded row says it names » FROM « it is
+	// read by its values alone », per column and per shape.
+	it.each(cases)('%s %s (%s), carrying %s', (row, column, party, _shape, values, holder) => {
+		const file = recordedFile(row, column, values);
+		expect(findDiscriminantColumn(file.rows)).toStrictEqual(
+			party === 'counterparty' ? { kind: 'nothing-to-decide' } : { ...holder, index: file.index }
+		);
+	});
 });
 
 describe('assertDiscriminantFree', () => {

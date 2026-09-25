@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import { decideAutoAccount } from './autoAccount';
-import { REAL_HEADERS } from './profiles/realHeaders.fixture';
+import { N26_LEGACY_HEADERS, REAL_HEADERS } from './profiles/realHeaders.fixture';
 import { headersOf, sourceFingerprintFor } from './sourceSignature';
 import type { ParsedCsvRow } from './types';
 import { parseRows } from './utils/csv';
@@ -252,6 +252,28 @@ describe('the auto path’s destination, now that the file is read too', () => {
 				decision.kind === 'ask' ? decision.offer.options.map((o) => nameOf(o.id)).sort() : null
 		}).toEqual({ kind: 'ask', filedInto: null, options: ['main', 'savings'] });
 	});
+
+	// The same shape for N26's LEGACY layouts (`N26_LEGACY_HEADERS`), whose counterparty column is
+	// spelled like an ordinary account number and is told apart only by the payee column beside it.
+	it.each(N26_LEGACY_HEADERS)(
+		'does not file a %s statement into the account its counterparty column names (#702)',
+		async (_name, headerRow) => {
+			expect.assertions(1);
+			const line =
+				'"2026-08-01","Paul Mercier","FR7630001007941234567890185","Outgoing Transfer","","","-10.00","","",""';
+			const rows = parseRows([headerRow, line, line].join('\n'));
+			const main = await makeAccount(mine, 'N26 principal', 'csv');
+			const savings = await makeAccount(mine, 'N26 épargne', 'csv', '0185');
+			const decision = await decideAutoAccount({ userId: mine, source: 'csv', rows });
+			const nameOf = (id: string) => ({ [main.id]: 'main', [savings.id]: 'savings' })[id] ?? id;
+			expect({
+				kind: decision.kind,
+				filedInto: decision.kind === 'account' ? nameOf(decision.bucket.accountId) : null,
+				options:
+					decision.kind === 'ask' ? decision.offer.options.map((o) => nameOf(o.id)).sort() : null
+			}).toEqual({ kind: 'ask', filedInto: null, options: ['main', 'savings'] });
+		}
+	);
 
 	it('refuses an archived account differently, so the user knows what to do', async () => {
 		// SEPARATES: « archived is answered as archived » FROM « archived is answered as not-found ».

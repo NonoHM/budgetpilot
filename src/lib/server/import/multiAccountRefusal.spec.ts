@@ -13,9 +13,10 @@
  * `discriminant.spec.ts` and `sourceSignature.spec.ts`.
  */
 import { describe, expect, it } from 'vitest';
-import { parseCsvTransactions } from './csv';
+import { parseCsvTransactionRows, parseCsvTransactions } from './csv';
+import type { UntrustedColumnMapping } from './mapping/model';
 import type { CsvRefusal } from './refusals';
-import { REAL_HEADERS } from './profiles/realHeaders.fixture';
+import { N26_LEGACY_HEADERS, REAL_HEADERS } from './profiles/realHeaders.fixture';
 import { parseRows } from './utils/csv';
 
 const HEADER = 'date,label,amount,compte';
@@ -172,6 +173,9 @@ describe('order against the other auto-path question, #433s ambiguous-date-order
  * carries.
  */
 describe('a counterparty account column at the parse door (#702)', () => {
+	/** The verified pair `PROVEN_TWO_ACCOUNTS` carries. */
+	const ACCOUNT_A_IBAN = 'FR7630001007941234567890185';
+	const ACCOUNT_B_IBAN = 'FR3730001007949876543210192';
 	const [, n26Header, n26Row] = REAL_HEADERS.find(([name]) => name === 'N26')!;
 	const partner = parseRows(n26Header)[0].cells.indexOf('Partner Iban');
 
@@ -188,12 +192,61 @@ describe('a counterparty account column at the parse door (#702)', () => {
 	it('imports a statement whose rows pay two different counterparties', () => {
 		expect.assertions(3);
 
-		const result = parseCsvTransactions(
-			n26(['FR7630001007941234567890185', 'FR3730001007949876543210192'])
-		);
+		const result = parseCsvTransactions(n26([ACCOUNT_A_IBAN, ACCOUNT_B_IBAN]));
 
 		expect(partner).toBe(3);
 		expect(result.invalidRows).toHaveLength(0);
 		expect(result.transactions).toHaveLength(2);
 	});
+
+	/**
+	 * N26's LEGACY layouts (`N26_LEGACY_HEADERS`) import only through the designation screen, since
+	 * no label alias matches their payee column, so this is the mapped parse that screen performs.
+	 * The third column names the other party (sources on the fixture). A statement paying two
+	 * people was refused as `multi-account-file` even once the user answered « not an account »,
+	 * because a verified IBAN pair that differs is refused before any answer is read.
+	 */
+	const BY_POSITION: UntrustedColumnMapping = {
+		matchBy: 'position',
+		dateColumn: null,
+		labelColumn: null,
+		amountColumn: null,
+		categoryColumn: null,
+		dateIndex: 0,
+		labelIndex: 1,
+		amountIndex: 6,
+		categoryIndex: null,
+		columnCount: 10
+	};
+	const ANSWERS = { none: undefined, 'not-account': 'not-account' } as const;
+	const legacyCases = N26_LEGACY_HEADERS.flatMap(([name, header]) =>
+		(Object.keys(ANSWERS) as Array<keyof typeof ANSWERS>).map(
+			(answer) => [name, answer, header] as const
+		)
+	);
+
+	// SEPARATES: « a legacy counterparty column is no evidence against a single account » FROM
+	// « it is proof of two accounts that no answer can clear ».
+	it.each(legacyCases)(
+		'imports a %s statement paying two counterparties (answer: %s)',
+		(_name, answer, header) => {
+			expect.assertions(1);
+
+			const lines = [ACCOUNT_A_IBAN, ACCOUNT_B_IBAN].map(
+				(iban, i) =>
+					`"2026-08-0${i + 1}","Paul Mercier","${iban}","Outgoing Transfer","","","-1${i}.00","","",""`
+			);
+			const result = parseCsvTransactionRows(parseRows([header, ...lines].join('\n')), {
+				profile: 'mapped',
+				columnMapping: BY_POSITION,
+				categorizationRules: [],
+				accountColumnAnswer: ANSWERS[answer]
+			});
+
+			expect({
+				refusals: result.invalidRows.map((row) => row.fact.code),
+				imported: result.transactions.length
+			}).toStrictEqual({ refusals: [], imported: 2 });
+		}
+	);
 });

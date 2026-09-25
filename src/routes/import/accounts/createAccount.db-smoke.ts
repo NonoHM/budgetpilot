@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { env } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
-import { REAL_HEADERS } from '$lib/server/import/profiles/realHeaders.fixture';
+import { N26_LEGACY_HEADERS, REAL_HEADERS } from '$lib/server/import/profiles/realHeaders.fixture';
 import { POST } from './+server';
 
 /**
@@ -178,6 +178,24 @@ describe('creating an account from the designation screen', () => {
 		expect(created.discriminant).toBe('5678');
 		expect(created.discriminant).not.toBe('9999');
 	});
+
+	// The same, for N26's LEGACY layouts (`N26_LEGACY_HEADERS`), whose counterparty column is
+	// spelled like an ordinary account number: `Account number`, `Kontonummer`, `Numéro de compte`.
+	// Only the payee column in the same header row says whose it is. Synthetic one-row statements.
+	it.each(N26_LEGACY_HEADERS)(
+		'does not store the counterparty’s fragment from a %s statement (#702)',
+		async (name, header) => {
+			expect.assertions(2);
+			const row =
+				'"2026-08-01","Paul Mercier","FR7630001007941234567890185","Outgoing Transfer","","","-10.00","","",""';
+			await POST(eventOf(mine, { name: `Compte ${name}`, csvFile: fileOf(`${header}\n${row}`) }));
+			const created = await prisma.account.findFirstOrThrow({
+				where: { userId: mine, name: `Compte ${name}` }
+			});
+			expect(created.name).toBe(`Compte ${name}`);
+			expect(created.discriminant).toBeNull();
+		}
+	);
 
 	it('does not store the counterparty’s fragment as the new account’s own (#702)', async () => {
 		// SEPARATES: « the fragment is read from a column naming the holder's account » FROM « a

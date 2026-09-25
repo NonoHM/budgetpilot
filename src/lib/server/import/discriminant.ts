@@ -56,9 +56,50 @@ export type DiscriminantResult = FileVerdict<
  */
 export const COUNTERPARTY_ACCOUNT_HEADERS = ['partner iban'] as const;
 
-/** Whether `header` is one of `COUNTERPARTY_ACCOUNT_HEADERS`, however the bank spelled it. */
-function namesCounterpartyAccount(header: string): boolean {
-	return (COUNTERPARTY_ACCOUNT_HEADERS as readonly string[]).includes(foldComparableHeader(header));
+/**
+ * Account headers whose party the WORD does not prove and the header ROW does: each names the
+ * other party only when the payee header it is paired with sits in the same row.
+ *
+ * N26's legacy export spells its counterparty column like an ordinary account number, `Account
+ * number`, `Kontonummer`, `Numéro de compte`, and `Numéro de compte` is the HOLDER's column in
+ * other banks' exports. So the word alone stays a candidate, and what proves the party is the
+ * layout: beside a payee column (`Payee`, `Empfänger`, `Bénéficiaire`), the account number is the
+ * payee's. The sources for that reading are named on `N26_LEGACY_HEADERS` in
+ * `profiles/realHeaders.fixture.ts`.
+ *
+ * **Pairs, not two independent sets.** A payee set crossed with an account set would also exclude
+ * `Payee` beside `Kontonummer`, a row nothing records; each pair here is one recorded layout.
+ * `partner iban` is not repeated as a pair with `partner name`: it needs no second header to prove
+ * its party, and a second spelling of one rule hides which copy does the work.
+ *
+ * THE COST, NAMED: a bank whose own export pairs one of these payee headers with ITS HOLDER's
+ * account number would lose that column as evidence. No recorded row does that; the fixture's
+ * `RECORDED_ACCOUNT_COLUMNS` is where one would be recorded, and the spec reads it.
+ *
+ * Every member is in `foldComparableHeader`'s form and every pair is carried by one recorded
+ * header row; `discriminant.spec.ts` asserts both.
+ */
+export const COUNTERPARTY_LAYOUTS = [
+	{ payee: 'payee', account: 'account number' },
+	{ payee: 'empfanger', account: 'kontonummer' },
+	{ payee: 'beneficiaire', account: 'numero de compte' }
+] as const;
+
+/**
+ * The indices of the header row's columns that name the other party: the one place both sets
+ * above are read.
+ */
+function counterpartyColumns(header: readonly string[]): Set<number> {
+	const folded = header.map((cell) => foldComparableHeader(cell));
+	const excluded = new Set<number>();
+	folded.forEach((cell, index) => {
+		const selfDescribing = (COUNTERPARTY_ACCOUNT_HEADERS as readonly string[]).includes(cell);
+		const byLayout = COUNTERPARTY_LAYOUTS.some(
+			(layout) => layout.account === cell && folded.includes(layout.payee)
+		);
+		if (selfDescribing || byLayout) excluded.add(index);
+	});
+	return excluded;
 }
 
 /**
@@ -124,10 +165,11 @@ export function findDiscriminantColumn(rows: ParsedCsvRow[]): DiscriminantResult
 
 	const columnCount = dataRows.reduce((widest, row) => Math.max(widest, row.cells.length), 0);
 	let varying: { index: number; proven: boolean } | null = null;
+	const counterparty = counterpartyColumns(rows[0].cells);
 
 	for (let index = 0; index < columnCount; index += 1) {
 		// Before the grammar, so a counterparty column is no candidate in any of the three states.
-		if (namesCounterpartyAccount(rows[0].cells[index] ?? '')) continue;
+		if (counterparty.has(index)) continue;
 
 		const values: string[] = [];
 		let qualifies = true;
