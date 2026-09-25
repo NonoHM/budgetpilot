@@ -67,10 +67,16 @@ export async function assertEnvironmentConfigured(): Promise<void> {
 }
 
 /**
- * Exported so each bound's own spec can assert its check is reached at boot by comparing the
- * FUNCTION REFERENCE, rather than by grepping hooks.server.ts for its name. Those specs used to
- * scan the source text, which was honest about being a proxy and calibrated as one; an identity
- * comparison is not a proxy at all, and it does not break when the wiring moves file.
+ * Exported so a bound's own spec can assert its check is registered here by comparing the
+ * FUNCTION REFERENCE. Every bound below (a default, a ceiling, a boot warning) has that assertion
+ * in its spec. The checks above them, for the database, the secrets and address forwarding, have
+ * none, except RATE_LIMIT_HASH_SECRET, which the import limit's spec uses as its calibration.
+ *
+ * The older bound specs used to scan this file's text for the check's name, which the import line
+ * at the top satisfies on its own: deleting an entry below left them green (#715). An identity
+ * comparison is not a proxy, and it does not break when the wiring moves file. The one link still
+ * read as text is `init` calling `assertEnvironmentConfigured`, scanned in the xlsx and backup
+ * bounds' specs.
  */
 export const ENVIRONMENT_CHECKS: Check[] = [
 	['DATABASE_URL / DATABASE_PROVIDER', assertDatabaseConfigured],

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
 import { strToU8, zipSync } from 'fflate';
@@ -13,6 +13,12 @@ import {
 	ZipBoundError
 } from './zipBounds';
 import { ImportFileError, readImportFile } from './file';
+import { ENVIRONMENT_CHECKS } from '../env/assertConfigured';
+
+// The boot collector imports every check's module, and several of them reach the Prisma client.
+// Nothing here queries a database, so the client is replaced rather than constructed: the wiring
+// test below needs the collector's LIST, not a connection.
+vi.mock('$lib/server/db', () => ({ prisma: {} }));
 
 /**
  * The uncompressed-size bound for `.xlsx` uploads (#254, ASVS 5.0 `v5.0.0-5.2.3`).
@@ -321,28 +327,32 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 	});
 
 	it('the boot check is actually wired into the init hook', () => {
-		expect.assertions(4);
+		expect.assertions(3);
 
 		// WITHOUT THIS THE CEILING IS DECORATION. Every other test here calls the resolver or the
 		// asserter directly, so all of them pass on a build where boot never invokes it, and a
 		// ceiling that never runs at boot refuses nothing: an operator's out-of-range value would
 		// simply throw on their first import instead, months later, as a 500.
 		//
-		// The wiring is now two links — init calls the boot collector, the collector calls this —
-		// so both are asserted. Still a source scan rather than an import of the collector: that
-		// pulls in the Prisma client through bootstrapToken and rateLimit, which costs seconds in
-		// the full parallel run for a fact that is textual. Structural, therefore a proxy, so it
-		// is calibrated below rather than trusted.
-		const hooks = readFileSync(new URL('../../../hooks.server.ts', import.meta.url), 'utf8');
-		const collector = readFileSync(new URL('../env/assertConfigured.ts', import.meta.url), 'utf8');
-		const callsBootCheck = (source: string) => /\bassertXlsxBoundConfigured\b/.test(source);
+		// The wiring is two links: init calls the boot collector, the collector calls this.
+		//
+		// The collector link is compared by FUNCTION REFERENCE (#715). It used to be a source scan
+		// for the name, which the import line at the top of the collector satisfies on its own:
+		// deleting this check's entry from `ENVIRONMENT_CHECKS` left the scan, and this whole file,
+		// green (21 of 21, 2026-09-25). Break-checked the same day: deleting the entry reddens this
+		// test, registered 0 times.
+		expect(ENVIRONMENT_CHECKS.filter(([, run]) => run === assertXlsxBoundConfigured)).toHaveLength(
+			1
+		);
 
-		expect(collector).toContain("from '$lib/server/import/zipBounds'");
-		expect(callsBootCheck(collector)).toBe(true);
-		expect(/await assertEnvironmentConfigured\(\)/.test(hooks)).toBe(true);
-		// The calibration: the same predicate must report FALSE on a source that does not name it,
+		// The init link is still a source scan, because `init` cannot be called here without
+		// standing up the whole server. Structural, therefore a proxy, so it is calibrated below.
+		const hooks = readFileSync(new URL('../../../hooks.server.ts', import.meta.url), 'utf8');
+		const callsCollector = (source: string) => /await assertEnvironmentConfigured\(\)/.test(source);
+		expect(callsCollector(hooks)).toBe(true);
+		// The calibration: the same predicate must report FALSE on a source that does not call it,
 		// or "it is wired" is a statement about a regex that matches anything.
-		expect(callsBootCheck('export const CHECKS = [somethingElse];')).toBe(false);
+		expect(callsCollector('export const init = async () => {};')).toBe(false);
 	});
 
 	it('the configured value is what the import path actually enforces', () => {
