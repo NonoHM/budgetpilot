@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { render } from 'vitest-browser-svelte';
 import '../../../routes/layout.css';
 import DateReadingCard from './DateReadingCard.svelte';
+import * as m from '$lib/paraglide/messages';
 
 /**
  * The stylesheet import is not decoration, same reason as `ColumnCard.svelte.spec.ts`: a geometry
@@ -227,6 +228,108 @@ describe('DateReadingCard.svelte: the accessible name announces converted values
 		const { card } = await mount({});
 
 		expect(card.querySelector('[aria-hidden="true"]')).not.toBeNull();
+	});
+});
+
+/**
+ * #705. A REAL cell (not padding, which #669 removed upstream) that does not convert under this
+ * reading reaches the card as `pretty: ''`, the producers' contract for "not a date read this way".
+ * The card used to print that empty string on both surfaces: a bare arrow on screen, and an empty
+ * slot in the spoken list, « Mois puis jour. Exemples : 1 décembre 2026, , 1 février 2026. ».
+ *
+ * `13/01/2026` is the cell: a date day first, no month 13 month first. The SENTENCE is compared
+ * whole, never a fragment, because every `toContain` still finds both real dates in the name that
+ * carries the gap.
+ *
+ * Padding coming back is NOT this block's to catch: it is dropped upstream, and the two #669 tests
+ * in `ColumnPicker.svelte.spec.ts` redden when that filter is removed (break-checked 2026-09-24).
+ * Since #705 it would read « pas une date » here rather than a gap, a false verdict on a cell the
+ * file does not contain, so that filter matters more now, not less.
+ */
+describe('#705: a real cell that is not a date under this reading is named, never an empty slot', () => {
+	const MONTH_FIRST_WITH_A_NON_DATE = {
+		order: 'month-first' as const,
+		pairs: [
+			{ raw: '12/01/2026', pretty: '1 décembre 2026' },
+			{ raw: '13/01/2026', pretty: '' },
+			{ raw: '02/01/2026', pretty: '1 février 2026' }
+		]
+	};
+
+	function drawnLines(card: HTMLElement) {
+		return [...card.querySelectorAll('[data-testid="date-reading-card-lines"] > span')]
+			.map((line) => (line.textContent ?? '').replace(/\s+/g, ' ').trim())
+			.filter((text) => text !== '');
+	}
+
+	it('separates a named slot from an empty one: the whole spoken sentence', async () => {
+		// Break: speak `pair.pretty` raw again in the name. Red, the empty slot comes back.
+		const { card } = await mount(MONTH_FIRST_WITH_A_NON_DATE);
+
+		expect(card.getAttribute('aria-label')).toBe(
+			'Mois puis jour. Exemples : 1 décembre 2026, pas une date, 1 février 2026.'
+		);
+	});
+
+	it('separates a named line from a bare arrow: every drawn line, whole', async () => {
+		// Break: draw `pair.pretty` raw again in the line. Red, « 13/01/2026 → » comes back.
+		const { card } = await mount(MONTH_FIRST_WITH_A_NON_DATE);
+
+		expect(drawnLines(card)).toEqual([
+			'12/01/2026 → 1 décembre 2026',
+			'13/01/2026 → pas une date',
+			'02/01/2026 → 1 février 2026'
+		]);
+	});
+
+	it('separates a name that says what the card shows from one that disagrees with it', async () => {
+		// The name is rebuilt from what the EYE reads after each arrow, through the production
+		// message, so the two surfaces are compared with each other rather than each with a literal.
+		// Break-checked 2026-09-24: another word for the gap in the name only, red here and in the
+		// whole-sentence test; the line drawn from `pair.pretty` again, red here and in the line
+		// test. Never red alone while both literals stand: what it adds is that it survives a
+		// catalogue rewording, which reddens both literals and leaves this one meaningful.
+		const { card } = await mount(MONTH_FIRST_WITH_A_NON_DATE);
+
+		const afterArrow = drawnLines(card).map((line) => line.slice(line.indexOf('→') + 1).trim());
+		expect(card.getAttribute('aria-label')).toBe(
+			m.import_datesheet_option_aria({
+				order: m.import_datesheet_option_month_first(),
+				examples: afterArrow.join(', ')
+			})
+		);
+	});
+
+	function spansOf(card: HTMLElement) {
+		const spans = [...card.querySelectorAll('span')];
+		const find = (text: string) => {
+			const found = spans.find((el) => el.textContent?.trim() === text);
+			expect(found, text).toBeDefined();
+			return getComputedStyle(found!);
+		};
+		return {
+			verdict: find('pas une date'),
+			date: find('1 décembre 2026'),
+			raw: find('13/01/2026')
+		};
+	}
+
+	it('separates a verdict from a value by colour: the raw side’s grey, not the date’s ink', async () => {
+		// Canvas « Carte de lecture, valeur non convertible »: zinc-500, the raw side's grey, 4.8:1
+		// on white. Break: give the verdict the date's `text-zinc-900`. Red.
+		const { verdict, date, raw } = spansOf((await mount(MONTH_FIRST_WITH_A_NON_DATE)).card);
+
+		expect(verdict.color).toBe(raw.color);
+		expect(verdict.color).not.toBe(date.color);
+	});
+
+	it('separates a verdict from a value by shape, so colour is not the only means (WCAG 1.4.1)', async () => {
+		// Break: drop `italic` from the verdict. Red here alone, and the colour break is red in the
+		// colour test alone (break-checked 2026-09-24): two clauses, two tests.
+		const { verdict, date } = spansOf((await mount(MONTH_FIRST_WITH_A_NON_DATE)).card);
+
+		expect(verdict.fontStyle).toBe('italic');
+		expect(date.fontStyle).toBe('normal');
 	});
 });
 

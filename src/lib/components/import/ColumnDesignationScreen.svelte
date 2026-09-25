@@ -734,8 +734,8 @@
 	 * on one line, so a value dropped from one array and not the other would pair a raw cell with
 	 * its NEIGHBOUR's conversion: a card that reads correctly and states a conversion the import
 	 * never made. Nothing is therefore filtered out. A cell that is not a date under one order maps
-	 * to the empty string, and the card is responsible for drawing a blank rather than this being
-	 * responsible for hiding it.
+	 * to the empty string, and the card is responsible for naming it « pas une date » (#705, one
+	 * definition in `DateReadingCard`) rather than this being responsible for hiding it.
 	 *
 	 * Index 0 of `dateReadings` is the FIRST DATA ROW, which is what the Date row's line 3 prints
 	 * and not what the cards print, so it is sliced off here. That the two surfaces show different

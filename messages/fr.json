@@ -1457,6 +1457,7 @@
 	"import_datesheet_option_month_first": "Mois puis jour",
 	"import_datesheet_marker_current": "Lecture retenue",
 	"import_datesheet_option_aria": "{order}. Exemples : {examples}.",
+	"import_datesheet_not_a_date": "pas une date",
 	"import_datesheet_change_column": "Changer de colonne",
 	"import_designate_date_change_order": "Changer l’ordre des dates",
 	"import_designate_date_row_aria_unconfirmed": "Date, colonne désignée : {header}, dates lues {order}, ordre à confirmer, non sélectionné",
