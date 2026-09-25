@@ -304,9 +304,22 @@ export function parseImportRows(
 	const dateColumns = parser
 		? parser.dateColumns(normalizedRows[0].cells)
 		: mappedDateColumns(options.columnMapping, normalizedRows[0].cells);
-	const verdict = detectDateOrder(
-		dateColumnCells(normalizedRows, dateColumns, options.hasHeaderRow)
-	);
+	const dateCells = dateColumnCells(normalizedRows, dateColumns, options.hasHeaderRow);
+	const verdict = detectDateOrder(dateCells.values);
+	/**
+	 * THE COLUMN THE READING QUESTION IS ABOUT: the one whose cell the verdict's sample came from.
+	 * One value, read by the question below and by the summary's disclosure, so the two cannot
+	 * name different columns. `dateColumns[0]` (the profile's first-listed column) only where no
+	 * question arises, which is where the disclosure reads it and finds nothing to say.
+	 *
+	 * It used to be `dateColumns[0]` always. On a Banque Populaire file whose `Date operation` is
+	 * blank, or a Revolut file whose first row is pending with no `Date de fin`, the evidence came
+	 * from a sibling column while the offer pointed at the blank one: the row's line 2 read an
+	 * empty cell and the sheet's cards were empty (#667). The reading applied is unaffected either
+	 * way: one column's evidence settles every declared column, as `detectDateOrder` records.
+	 */
+	const questionColumn =
+		verdict.kind === 'ambiguous' ? dateCells.columns[verdict.sampleIndex] : dateColumns[0];
 
 	const decision = decideDateOrder(verdict, options.dateOrder);
 
@@ -427,12 +440,9 @@ export function parseImportRows(
 	 * existing day-first default for an unanswered column, and this flag is what lets this branch
 	 * leave it alone without also leaving the silent `mapped` reuse unasked forever.
 	 *
-	 * `dateColumns[0]` rather than every declared column: a registered profile with more than one
-	 * date candidate (banque-populaire, revolut) still designates ONE column as ITS date column,
-	 * and that is what the reading offer's `assignment.date` needs to point at. A profile whose
-	 * first-listed column is blank on the evidence row while a later one supplies it is a narrower,
-	 * separately filed gap (#667): the applied reading is still correct file-wide, only the reading
-	 * offer's own evidence cards can render empty.
+	 * `questionColumn`, one column rather than every declared one: the reading offer's
+	 * `assignment.date` points at one column, and it must be the column whose cell raised the
+	 * question (#667, see `questionColumn`'s own comment above).
 	 */
 	if (
 		verdict.kind === 'ambiguous' &&
@@ -445,7 +455,7 @@ export function parseImportRows(
 			[
 				{
 					code: 'ambiguous-date-order',
-					column: dateColumns[0],
+					column: questionColumn,
 					sample: refusalCellValue(verdict.sample)
 				}
 			],
@@ -464,7 +474,7 @@ export function parseImportRows(
 	// whose order was in fact decided. This closes that, and plate 7l's summary line rests on it.
 	//
 	// PLATE 7L'S DISCLOSURE, computed at the one door that knows both halves it needs: which column
-	// (`dateColumns[0]`, the same index `dateColumnCells` just read) and whether an ANSWER is what
+	// (`questionColumn`, the one the question named) and whether an ANSWER is what
 	// settled it, which is exactly the one branch `decideDateOrder` takes an override through
 	// (`verdict.kind === 'ambiguous' && options.dateOrder`). A proven or defaulted column leaves
 	// this undefined, never a value the summary would have to know not to render.
@@ -472,7 +482,7 @@ export function parseImportRows(
 	// The header text is left undisclosed (not synthesised) for a headerless file: there is no
 	// message variant for that combination in 7i, and the applied reading is unaffected either way.
 	const dateOrderHeader =
-		options.hasHeaderRow !== false ? (normalizedRows[0].cells[dateColumns[0]] ?? '').trim() : '';
+		options.hasHeaderRow !== false ? (normalizedRows[0].cells[questionColumn] ?? '').trim() : '';
 	const dateOrderDisclosure: CsvImportSummary['dateOrderDisclosure'] =
 		verdict.kind === 'ambiguous' && options.dateOrder && decision.kind === 'read' && dateOrderHeader
 			? { header: dateOrderHeader, order: decision.order }
@@ -485,7 +495,8 @@ export function parseImportRows(
 }
 
 /**
- * The cells of the declared date columns, in file order, for the detector.
+ * The cells of the declared date columns, in file order, for the detector, and beside each one the
+ * column it came from, POSITION FOR POSITION, so the verdict's `sampleIndex` names a column (#667).
  *
  * A column index this file does not carry yields nothing rather than an `undefined` the detector
  * would have to defend against: a declaration naming an absent column is an ordinary state (a
@@ -501,15 +512,19 @@ function dateColumnCells(
 	rows: ParsedCsvRow[],
 	columns: number[],
 	hasHeaderRow: boolean | undefined
-): string[] {
+): { values: string[]; columns: number[] } {
 	const values: string[] = [];
+	const cellColumns: number[] = [];
 	for (let row = hasHeaderRow === false ? 0 : 1; row < rows.length; row++)
 		for (const column of columns) {
 			const cell = rows[row].cells[column];
-			if (cell !== undefined) values.push(cell);
+			if (cell !== undefined) {
+				values.push(cell);
+				cellColumns.push(column);
+			}
 		}
 
-	return values;
+	return { values, columns: cellColumns };
 }
 
 function profileErrorLabel(profile: CsvImportProfile): string {

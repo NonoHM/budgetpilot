@@ -7,6 +7,7 @@ import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { answerKeyFor } from '$lib/server/import/answerBinding';
+import { isSamplePadding } from '$lib/domain/columnDesignation';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1745,6 +1746,179 @@ describe('/import actions', () => {
 		 * and it must not be confused with the ambiguous case merely because both are 0 rows away
 		 * from a normal import today: this file has 6 valid rows and no refusal at all.
 		 */
+		/**
+		 * #667: THE QUESTION NAMES THE COLUMN ITS EVIDENCE CAME FROM, not the profile's first-listed
+		 * date column. Inline synthetic literals, shaped on the two profiles that declare more than
+		 * one date column. Banque Populaire lists `Date operation` first; Revolut lists `Date de fin`
+		 * (`Completed Date`), which a pending row leaves blank.
+		 *
+		 * Measured before the fix, through this action: the offer pointed at the first-listed column
+		 * in all three shapes, so the row's line 2 read an empty cell (`firstRow[dateColumn]` was
+		 * `''`) and the sheet's cards carried 1, 0 and 1 values instead of 2. Zero is the empty
+		 * evidence cards the issue names: the question showing the user nothing to decide from.
+		 */
+		describe('on a profile with more than one date column (#667)', () => {
+			const BP_HEADER = [
+				'Date de comptabilisation',
+				'Libelle simplifie',
+				'Libelle operation',
+				'Reference',
+				'Informations complementaires',
+				'Type operation',
+				'Categorie',
+				'Sous categorie',
+				'Debit',
+				'Credit',
+				'Date operation',
+				'Date de valeur',
+				'Pointage operation'
+			].join(';');
+			const bp = (booked: string, operation: string, value: string, n: number) =>
+				`${booked};MERCERIE;PAIEMENT CB MERCERIE;REF${n};;Carte;Loisirs;Divers;-24,90;;${operation};${value};`;
+			const REVOLUT_HEADER =
+				'Type,Produit,Date de début,Date de fin,Description,Montant,Frais,Devise,État,Solde';
+			const revolut = (started: string, completed: string, state: string) =>
+				`CARD_PAYMENT,Current,${started},${completed},PRIMEUR,-4.50,0.00,EUR,${state},100.00`;
+
+			type ReadingData = {
+				data: {
+					reading?: {
+						headers: string[];
+						samples: string[][];
+						firstRow: string[];
+						dateColumn: number;
+					};
+				};
+			};
+
+			/** What the sheet shows: the offer's column, its header, the row's raw cell, the cards. */
+			async function offerFor(content: string) {
+				const reading = ((await runImportWithFile(content)) as unknown as ReadingData).data.reading;
+				if (!reading) throw new Error('no reading offer: the fixture no longer asks');
+				const column = reading.dateColumn;
+				return {
+					header: reading.headers[column],
+					rowCell: reading.firstRow[column],
+					// `ColumnPicker`'s own filter, through the one definition of the padding.
+					cards: (reading.samples[column] ?? []).filter((value) => !isSamplePadding(value))
+				};
+			}
+
+			it('points at the column that carries the dates when the first-listed one is blank throughout', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					bp('06/01/2026', '', '07/01/2026', 1),
+					bp('03/02/2026', '', '04/02/2026', 2)
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date de comptabilisation',
+					rowCell: '06/01/2026',
+					cards: ['06/01/2026', '03/02/2026']
+				});
+			});
+
+			it('points at the column the first ambiguous cell sits in when the first-listed one is blank on that row', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					bp('06/01/2026', '', '07/01/2026', 1),
+					bp('03/02/2026', '02/02/2026', '04/02/2026', 2)
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date de comptabilisation',
+					rowCell: '06/01/2026',
+					cards: ['06/01/2026', '03/02/2026']
+				});
+			});
+
+			it('points at the start date of a Revolut file whose first row is pending', async () => {
+				expect.assertions(1);
+				const content = [
+					REVOLUT_HEADER,
+					revolut('06/01/2026 10:00:00', '', 'EN ATTENTE'),
+					revolut('03/02/2026 10:00:00', '03/02/2026 11:00:00', 'TERMINÉ')
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date de début',
+					rowCell: '06/01/2026 10:00:00',
+					cards: ['06/01/2026 10:00:00', '03/02/2026 10:00:00']
+				});
+			});
+
+			/**
+			 * A SHORT ROW BEFORE THE EVIDENCE. Row 1 stops after its second cell, so it carries no
+			 * `Date operation` and no `Date de valeur` at all, and the detector's input has fewer cells
+			 * than the declared columns times the rows. Separates « each cell's column recorded beside
+			 * it » from « columns recorded per declared slot, shifting against the cells as soon as one
+			 * is missing », which points the question at `Date operation` here. Found by the break
+			 * suite: no other test has a ragged row ahead of the sample.
+			 */
+			it('points at the right column when a short row precedes the evidence', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					'05/01/2026;MERCERIE',
+					bp('06/01/2026', '', '07/01/2026', 1),
+					bp('03/02/2026', '', '04/02/2026', 2)
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date de comptabilisation',
+					rowCell: '05/01/2026',
+					cards: ['05/01/2026', '06/01/2026', '03/02/2026']
+				});
+			});
+
+			/**
+			 * The calibration, and the guard on the other side: a file whose first-listed column
+			 * carries the first ambiguous cell keeps pointing at it. Separates « the question follows
+			 * the evidence » from « the question moved off the profile's preferred column ».
+			 */
+			it('keeps the first-listed column when that column supplies the evidence', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					bp('06/01/2026', '05/01/2026', '07/01/2026', 1),
+					bp('03/02/2026', '02/02/2026', '04/02/2026', 2)
+				].join('\n');
+
+				expect(await offerFor(content)).toStrictEqual({
+					header: 'Date operation',
+					rowCell: '05/01/2026',
+					cards: ['05/01/2026', '02/02/2026']
+				});
+			});
+
+			/**
+			 * The summary line after the answer names the same column the question did (plate 7l's
+			 * disclosure). Separates « one column for the question and the disclosure » from « the
+			 * question fixed, the disclosure still naming the blank column ».
+			 */
+			it('names the same column in the summary once the reading is answered', async () => {
+				expect.assertions(1);
+				const content = [
+					BP_HEADER,
+					bp('06/01/2026', '', '07/01/2026', 1),
+					bp('03/02/2026', '', '04/02/2026', 2)
+				].join('\n');
+
+				const result = (await runImportWithFileAndFields(content, {
+					dateOrder: 'month-first'
+				})) as unknown as {
+					importResult?: { dateOrderDisclosure?: { header: string; order: string } | null };
+				};
+
+				expect(result.importResult?.dateOrderDisclosure).toStrictEqual({
+					header: 'Date de comptabilisation',
+					order: 'month-first'
+				});
+			});
+		});
+
 		it('does not offer the reading sheet for a column that proves its own order', async () => {
 			const result = await runImportWithFile('Date,Description,Amount\n24/06/2026,COFFEE,-4.50');
 

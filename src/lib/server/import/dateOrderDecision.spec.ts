@@ -26,7 +26,7 @@ const CONTRADICTORY: DateOrderVerdict = {
 	dayFirstEvidence: '24/06/2026',
 	monthFirstEvidence: '06/24/2026'
 };
-const AMBIGUOUS: DateOrderVerdict = { kind: 'ambiguous', sample: '06/01/2026' };
+const AMBIGUOUS: DateOrderVerdict = { kind: 'ambiguous', sample: '06/01/2026', sampleIndex: 0 };
 const NOTHING: DateOrderVerdict = { kind: 'nothing-to-decide' };
 
 describe('decideDateOrder', () => {
