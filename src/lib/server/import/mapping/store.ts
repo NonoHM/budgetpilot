@@ -52,7 +52,7 @@ export function resolveColumnMappingsPerUser(): number {
 
 	if (cap > COLUMN_MAPPINGS_PER_USER_CEILING) {
 		throw new Error(
-			`${COLUMN_MAPPINGS_PER_USER_ENV}=${cap} is above the hard ceiling of ${COLUMN_MAPPINGS_PER_USER_CEILING}. Nothing deletes a column mapping yet, so this cap is the only thing bounding a table one upload can grow. The value is refused rather than clamped so that a bound you set is the bound that runs. See issue #326.`
+			`${COLUMN_MAPPINGS_PER_USER_ENV}=${cap} is above the hard ceiling of ${COLUMN_MAPPINGS_PER_USER_CEILING}. It bounds how many column mappings one user may hold, and nothing removes one automatically. The value is refused rather than clamped so that a bound you set is the bound that runs.`
 		);
 	}
 
@@ -60,8 +60,9 @@ export function resolveColumnMappingsPerUser(): number {
 }
 
 /**
- * Boot check, called from `hooks.server.ts` beside the other two bounds. Refuses to start on an
- * out-of-range value, and reports any departure from the default.
+ * Boot check, registered in `ENVIRONMENT_CHECKS` (`server/env/assertConfigured.ts`), the collector
+ * `init` in `hooks.server.ts` awaits before the server listens. Refuses to start on an out-of-range
+ * value, and reports any departure from the default.
  *
  * At boot rather than on first use, which is where `resolveColumnMappingsPerUser` would otherwise
  * surface it: an operator typo would then appear as one user's import failing, months later, with
@@ -77,7 +78,7 @@ export function assertColumnMappingCapConfigured(): void {
 
 	if (cap > COLUMN_MAPPINGS_PER_USER_DEFAULT) {
 		console.warn(
-			`[budgetpilot] ${COLUMN_MAPPINGS_PER_USER_ENV} is RAISED above the default, and nothing deletes a column mapping yet (issue #326), so this cap is the only thing bounding a table one upload can grow.`
+			`[budgetpilot] ${COLUMN_MAPPINGS_PER_USER_ENV} is RAISED above the default, so one user may now hold ${cap} column mappings. Nothing removes one automatically: the user deletes them in Settings.`
 		);
 	}
 }
