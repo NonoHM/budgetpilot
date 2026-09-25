@@ -518,6 +518,60 @@ describe('every way a file can declare a currency is read, on both doors that re
 	});
 });
 
+/**
+ * THE FILE SAYING EURO IN OTHER WORDS (second contradiction pass F4, a widening decided in the PR).
+ *
+ * `€` and `Euro` in a currency cell were refused per row as `unsupported-currency`, while the
+ * blank rows of the same file stored under the account's currency, so a file saying euro in
+ * words still filed euros as dollars. A zero-width or no-break space around `EUR` did the same.
+ * They are read as `EUR` through a CLOSED allow list; anything else is still refused.
+ */
+describe('a currency cell saying euro in other words', () => {
+	it.each([
+		{ said: '€', cell: '€' },
+		{ said: 'Euro', cell: 'Euro' },
+		{ said: 'EURO in capitals', cell: 'EURO' },
+		{ said: 'EUR followed by a zero-width space', cell: 'EUR\u200b' },
+		{ said: 'EUR inside no-break spaces', cell: '\u00a0EUR\u00a0' }
+	])('reads $said as EUR', ({ cell }) => {
+		// SEPARATES: « the file's word for euro is its declaration » FROM « refused per row, while
+		// its blank rows take the account's currency ».
+		expect.assertions(3);
+		const result = parseCsvTransactions(
+			['date,label,amount,currency', `2026-06-03,A,-4.20,${cell}`].join('\n')
+		);
+		expect(result.invalidRows).toEqual([]);
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+		expect(result.transactions.map((transaction) => transaction.declaredCurrency)).toEqual(['EUR']);
+	});
+
+	it('reads a Revolut Devise cell writing € as EUR, and carries EUR out, not the symbol', () => {
+		// SEPARATES: « Revolut reads its currency cell through the same one reading » FROM « it keeps
+		// its own exact `EUR` test », and « the row carries the CODE » FROM « it carries `€` », which
+		// the persist backstop would then compare with `EUR` and refuse.
+		expect.assertions(2);
+		const result = parseCsvTransactions(
+			[
+				REVOLUT_HEADERS.join(','),
+				'CARD_PAYMENT,Current,2026-06-03 09:21:00,2026-06-03 09:21:00,A,-4.20,0.00,€,TERMINÉ,1200.00'
+			].join('\n')
+		);
+		expect(result.summary.declaredCurrencies).toEqual(['EUR']);
+		expect(result.transactions.map((transaction) => transaction.declaredCurrency)).toEqual(['EUR']);
+	});
+
+	it('still refuses a word that is not on the list', () => {
+		// The calibration: the list is closed, so « Yen » is refused exactly as before.
+		expect.assertions(1);
+		const result = parseCsvTransactions(
+			['date,label,amount,currency', '2026-06-03,A,-4.20,Yen'].join('\n')
+		);
+		expect(result.invalidRows.map((refusal) => refusal.fact)).toEqual([
+			{ code: 'unsupported-currency', currency: 'Yen' }
+		]);
+	});
+});
+
 describe('declaredCurrencyRefusal: the one comparison', () => {
 	/** Separates « a contradicted declaration is refused, naming both » from « accepted ». */
 	it('refuses a declaration the destination contradicts, naming both currencies', () => {

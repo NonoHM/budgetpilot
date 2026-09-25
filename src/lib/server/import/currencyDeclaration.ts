@@ -82,17 +82,37 @@ export function currencyColumnsIn(foldedHeaders: readonly string[]): string[] {
  * nothing here can promise a file declares only one: today the accepted set is EUR alone, so the
  * list is `[]` or `['EUR']`.
  */
-export function acceptedDeclarations(
-	cells: Iterable<string>,
-	accepted: string,
-	/** The profile's own acceptance test, so a cell counts here exactly when its row accepts it.
-	 *  Case-insensitive by default, which is `resolvedRows.ts`'s rule; Revolut's is exact. */
-	accepts: (declared: string) => boolean = (declared) => declared.toUpperCase() === accepted
-): string[] {
+export function acceptedDeclarations(cells: Iterable<string>, accepted: string): string[] {
 	const found = new Set<string>();
 	for (const cell of cells) {
-		const declared = sanitizeImportedText(cell);
-		if (declared && accepts(declared)) found.add(accepted);
+		if (currencyOfCell(cell) === accepted) found.add(accepted);
 	}
 	return [...found];
+}
+
+/**
+ * Invisible characters a spreadsheet leaves around a code: zero-width space, non-joiner, joiner,
+ * word joiner, byte-order mark, no-break space, narrow no-break space, figure space. Stripped
+ * before comparing, so `EUR` followed by a zero-width space is the code it looks like.
+ */
+const INVISIBLE_AROUND_A_CODE = /[\u200b-\u200d\u2060\ufeff\u00a0\u202f\u2007]/g;
+
+/**
+ * The file's own words for the euro, a CLOSED allow list, case-folded (#600, second contradiction
+ * pass F4). DECIDED IN THE PR, and reversible: `€` and `Euro` in a currency cell are the file saying
+ * euro, and refusing them per row while the file's blank rows took a USD account's currency filed
+ * euros as dollars. Anything not on this list and not a code is still refused on its row.
+ */
+const WORDS_FOR_THE_EURO: ReadonlySet<string> = new Set(['€', 'euro']);
+
+/**
+ * THE ONE READING of a currency cell, for every profile that reads one (`generic`, `mapped`,
+ * `revolut`): null when the cell is blank (it declares nothing), `EUR` for the file's words for the
+ * euro, and otherwise the cell's text upper-cased, which the caller compares with the currency it
+ * accepts and refuses on its row when they differ.
+ */
+export function currencyOfCell(cell: string): string | null {
+	const text = sanitizeImportedText(cell).replace(INVISIBLE_AROUND_A_CODE, '').trim();
+	if (!text) return null;
+	return WORDS_FOR_THE_EURO.has(text.toLowerCase()) ? 'EUR' : text.toUpperCase();
 }

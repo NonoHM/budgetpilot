@@ -558,6 +558,34 @@ describe('#600: a declared currency the destination contradicts is refused befor
 	});
 
 	/**
+	 * SECOND CONTRADICTION PASS F4, through the route: a file writing `€` in its currency column,
+	 * with a blank cell on another row. MEASURED before the fix: the `€` row refused as
+	 * `unsupported-currency` and the blank row stored `["USD"]`. Separates « `€` is the file saying
+	 * euro » from « a symbol the import does not read ».
+	 */
+	it('/import: a currency column writing € refuses the file into USD', async () => {
+		expect.assertions(3);
+		const { userId, usdId } = await seedUser('euro-sign');
+		const refused = await postImport(userId, {
+			csvFile: fileOf(
+				[
+					'date,label,amount,currency',
+					'2026-06-03,Boulangerie,-4.20,€',
+					'2026-06-14,Salaire,1850.00,'
+				].join('\n')
+			),
+			accountId: usdId
+		});
+		const usdRows = await storedIn(userId, usdId);
+		console.info(
+			`[#600 C2-F4] € column into USD: status=${refused.status ?? 200} stored=${JSON.stringify(usdRows.map((row) => row.currency))}`
+		);
+		expect(usdRows).toEqual([]);
+		expect(refused.status).toBe(400);
+		expect(refused.data?.error).toBe(EUR_INTO_USD);
+	});
+
+	/**
 	 * CONTRADICTION PASS F3, through the route. `currency` blank, `devise` reading EUR. MEASURED
 	 * before the fix: 200, stored `["USD","USD"]`. Separates « every declaring column is read »
 	 * from « only the first one present ».

@@ -22,7 +22,7 @@ import {
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
-import { acceptedDeclarations, amountHeaderCurrency } from '../currencyDeclaration';
+import { acceptedDeclarations, amountHeaderCurrency, currencyOfCell } from '../currencyDeclaration';
 
 /**
  * Which FOLDED header fills each role, once something upstream has decided.
@@ -180,22 +180,24 @@ export function parseResolvedRows({
 		}
 		let declaredCurrency: string | undefined = amountDeclares;
 		for (const currencyColumn of currencyColumns) {
-			const declared = sanitizeImportedText(record[currencyColumn] ?? '');
+			// Read through `currencyOfCell`, the one reading of a currency cell: `€`, `Euro` and a
+			// code wrapped in invisible spaces are EUR, a blank cell is null (#600, F4).
+			const cell = record[currencyColumn] ?? '';
+			const code = currencyOfCell(cell);
 			// An EMPTY cell is not a declaration. A file with the column present and the value
 			// blank is the same situation as a file with no column, and must still import.
-			if (declared && declared.toUpperCase() !== acceptedCurrency) {
+			if (code && code !== acceptedCurrency) {
 				addRefusal(
 					refusals,
 					{ kind: 'row', line },
-					{ code: 'unsupported-currency', currency: refusalCellValue(declared) },
+					{ code: 'unsupported-currency', currency: refusalCellValue(cell) },
 					currencyColumn
 				);
 				return;
 			}
 			// The declaration LEAVES the parse (#600). It used to stop at the check above, so the row
-			// was then denominated by whatever account it landed in. The accepted CODE rather than the
-			// cell: the check above is case-insensitive, and `eur` names the same currency.
-			if (declared) declaredCurrency = acceptedCurrency;
+			// was then denominated by whatever account it landed in.
+			if (code) declaredCurrency = acceptedCurrency;
 		}
 
 		if (date === null) {
