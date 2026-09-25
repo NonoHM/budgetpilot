@@ -251,6 +251,18 @@ describe('#600: a declared currency the destination contradicts is refused befor
 	});
 
 	/**
+	 * SECOND CONTRADICTION PASS F3: the designation screen can only say which accounts are in EUR if
+	 * the refusal tells it which currency the file declared. Separates « the refusal hands the screen
+	 * the declared currency » from « the screen reopens the panel knowing nothing was refused ».
+	 */
+	it('/import/columns names the declared currency on the refusal', async () => {
+		expect.assertions(1);
+		const { userId, usdId } = await seedUser('columns-declared');
+		const refused = await DOORS[1].post(userId, usdId);
+		expect(refused.data?.declaredCurrency).toBe('EUR');
+	});
+
+	/**
 	 * THE REMEMBERED MAPPING, `/import`'s third caller and its most common repeat-import path: the
 	 * file matches no profile, so `/import` parses it through a `ColumnMapping` this user saved on
 	 * an earlier designation (`useMapping`, by header fingerprint) and shows no screen at all.

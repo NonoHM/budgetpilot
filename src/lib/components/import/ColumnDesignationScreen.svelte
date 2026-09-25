@@ -136,6 +136,7 @@
 		accountHint = null,
 		accountHintAboutFile = false,
 		accountPrefill = '',
+		declaredCurrency = null,
 		onCreateAccount,
 		onCancel,
 		onModify,
@@ -281,6 +282,12 @@
 		 * compte ».
 		 */
 		accounts?: readonly AccountPickerOption[];
+		/**
+		 * The currency the file declared, after the `/import/columns` currency refusal (#600): the
+		 * account panel then says each account's currency and mutes the others, the same rule as on
+		 * `/import`. Null everywhere else.
+		 */
+		declaredCurrency?: string | null;
 		/**
 		 * What resolution already worked out, if anything. The user can always change it.
 		 *
@@ -1120,6 +1127,7 @@
 			selectedId={chosenAccountId}
 			panelId="account-picker-panel"
 			initialFocus={accountPanelFocus}
+			{declaredCurrency}
 			onChoose={chooseAccount}
 			onClose={closeAccountPanel}
 			onCreate={openCreateSheet}

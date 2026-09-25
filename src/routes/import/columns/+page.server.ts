@@ -328,7 +328,13 @@ export const actions: Actions = {
 			bucket
 		);
 		if (currencyRefusal) {
-			return fail(400, { error: refusalLabel(currencyRefusal), keepDesignation: true });
+			// With the currency the file declared, so the screen's account panel can say which accounts
+			// are in it, exactly as `/import`'s does (#600, second contradiction pass F3).
+			return fail(400, {
+				error: refusalLabel(currencyRefusal),
+				keepDesignation: true,
+				declaredCurrency: currencyRefusal.declared
+			});
 		}
 
 		if (formData.get('confirmCollision') !== '1') {
