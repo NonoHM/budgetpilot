@@ -61,6 +61,19 @@ export function parseRows(content: string): ParsedCsvRow[] {
 	return rows;
 }
 
+/**
+ * The index of the file's first DATA row, given the answer about line 1. THE ONE DEFINITION.
+ *
+ * `false` is the only answer that makes line 1 data: an absent answer means a header row, which is
+ * what detection assumes and what every caller that predates the « Première ligne » switch meant.
+ * Every reader of the rows asks here rather than restating the comparison, because the parse, the
+ * date verdict and the designation screen's facts must agree about which line is the first
+ * transaction, and #735 was the screen skipping a line the parse read.
+ */
+export function firstDataRowIndex(hasHeaderRow: boolean | undefined): 0 | 1 {
+	return hasHeaderRow === false ? 0 : 1;
+}
+
 export function normalizeParsedRows(rows: ParsedCsvRow[]): ParsedCsvRow[] {
 	return rows.map((row, rowIndex) => ({
 		line: row.line,

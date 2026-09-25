@@ -7,7 +7,14 @@ import { computeDedupeKeyHash } from '$lib/server/import/dedupeKey';
 import { fingerprintFor } from '$lib/server/import/mapping/fingerprint';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { answerKeyFor } from '$lib/server/import/answerBinding';
-import { isSamplePadding } from '$lib/domain/columnDesignation';
+import {
+	DESIGNATION_ROW_FACTS,
+	designationView,
+	isSamplePadding,
+	type DesignationFile,
+	type DesignationRowFact
+} from '$lib/domain/columnDesignation';
+import { readWithHeaderRow } from '$lib/domain/headerRowReading';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -1700,6 +1707,70 @@ describe('/import actions', () => {
 			};
 
 			expect(result.data.designation).toBeUndefined();
+		});
+
+		/**
+		 * #735: THE FILE THE SCREEN DRAWS ONCE THE USER SAYS LINE 1 IS DATA. The offer is built with
+		 * line 1 read as headers (detection's guess), and the « Première ligne » switch is the user's
+		 * answer. Every per-row fact the screen reads must describe the file under the ANSWER.
+		 *
+		 * Synthetic, headerless, three lines, and the only proof of the date order is on line 1
+		 * (`24/05/2025`: 24 cannot be a month). Measured through this action before the fix, after
+		 * `readWithHeaderRow(view, false)`: `dateStates[0]` was `ambiguous`, so the sheet asked a
+		 * question line 1 answers; `firstRow` was line 2, so the Date row stated « 06/01/2025 → 1 juin
+		 * 2025 » under the name « première ligne »; the cards, their readings, the coverage and the
+		 * preview all skipped line 1. The import then wrote 6 January, day-first.
+		 *
+		 * ONE TEST PER FACT, so a fact that is right cannot hide behind one that is red, and each
+		 * fact's break reddens its own line. The expected values are read off the three lines by
+		 * hand, never computed by the code under test.
+		 */
+		describe('once line 1 is declared data (#735)', () => {
+			const HEADERLESS = [
+				'24/05/2025,Fleuriste Bellevue,-31.00',
+				'06/01/2025,Pharmacie du Pont,-18.90',
+				'03/02/2025,Primeur Sainte Anne,-17.45'
+			];
+			const NOT_A_DATE = [null, null, null, null];
+
+			const EXPECTED: Record<DesignationRowFact, unknown> = {
+				samples: [
+					['24/05/2025', '06/01/2025', '03/02/2025'],
+					['Fleuriste Bellevue', 'Pharmacie du Pont', 'Primeur Sainte Anne'],
+					['-31.00', '-18.90', '-17.45']
+				],
+				// The four role rows read one transaction, and it is line 1 now.
+				firstRow: ['24/05/2025', 'Fleuriste Bellevue', '-31.00'],
+				previewRows: HEADERLESS.map((line) => line.split(',')),
+				coverage: [3, 3, 3],
+				// Line 1 proves day-first, so the column is never asked about.
+				dateStates: ['proven-day', 'no-dates', 'no-dates'],
+				// Index 0 is line 1's cell (the Date row's line 3), then the three card values.
+				dateReadings: [
+					{
+						dayFirst: ['2025-05-24', '2025-05-24', '2025-01-06', '2025-02-03'],
+						monthFirst: [null, null, '2025-06-01', '2025-03-02']
+					},
+					{ dayFirst: NOT_A_DATE, monthFirst: NOT_A_DATE },
+					{ dayFirst: NOT_A_DATE, monthFirst: NOT_A_DATE }
+				]
+			};
+
+			async function declaredData() {
+				const result = (await runImportWithFile(HEADERLESS.join('\n'))) as unknown as {
+					data: { designation?: DesignationFile };
+				};
+				const payload = result.data.designation;
+				if (!payload) throw new Error('no designation offer: the fixture no longer reaches it');
+				return readWithHeaderRow(designationView(payload), false);
+			}
+
+			// Enumerated from the registry: a fact added to it without an expectation here fails to
+			// compile, and one added with an expectation is checked through the real action.
+			it.each(DESIGNATION_ROW_FACTS)('%s follows the switch', async (fact) => {
+				expect.assertions(1);
+				expect((await declaredData())[fact]).toStrictEqual(EXPECTED[fact]);
+			});
 		});
 	});
 

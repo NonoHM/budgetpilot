@@ -14,7 +14,7 @@ import type {
 	ParsedCsvRow,
 	ResolvedCsvImportProfile
 } from './types';
-import { emptyResult, normalizeParsedRows, parseRows } from './utils/csv';
+import { emptyResult, firstDataRowIndex, normalizeParsedRows, parseRows } from './utils/csv';
 import { resolveCsvMaxColumns } from './columnBounds';
 import { CSV_MAX_ROWS } from './resourceBounds';
 export { CSV_MAX_ROWS };
@@ -101,7 +101,11 @@ export function importHeaderCells(rows: ParsedCsvRow[]): string[] {
  * The pad is `SAMPLE_PADDING`, and any reader that is not `ColumnCard` filters it with
  * `isSamplePadding` rather than restating the comparison (#669).
  */
-export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] {
+export function importSampleValues(
+	rows: ParsedCsvRow[],
+	count = 3,
+	hasHeaderRow?: boolean
+): string[][] {
 	const normalized = normalizeParsedRows(rows);
 	const header = normalized.length === 0 ? [] : normalized[0].cells;
 	const samples: string[][] = header.map(() => []);
@@ -110,7 +114,11 @@ export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] 
 	// a dense statement — exits after `count` rows, which is what the old slice did; a sparse
 	// column is the case that costs more, and it is the case that was wrong.
 	let satisfied = 0;
-	for (let row = 1; row < normalized.length && satisfied < samples.length; row++) {
+	for (
+		let row = firstDataRowIndex(hasHeaderRow);
+		row < normalized.length && satisfied < samples.length;
+		row++
+	) {
 		const cells = normalized[row].cells;
 		for (let column = 0; column < samples.length; column++) {
 			if (samples[column].length >= count) continue;
@@ -149,10 +157,10 @@ export function importSampleValues(rows: ParsedCsvRow[], count = 3): string[][] 
  * An empty cell stays empty here. The row renders « (vide) », which is honest, and the rows still
  * describe one line of the file.
  */
-export function importFirstDataRow(rows: ParsedCsvRow[]): string[] {
+export function importFirstDataRow(rows: ParsedCsvRow[], hasHeaderRow?: boolean): string[] {
 	const normalized = normalizeParsedRows(rows);
 	const header = normalized.length === 0 ? [] : normalized[0].cells;
-	const first = normalized[1]?.cells ?? [];
+	const first = normalized[firstDataRowIndex(hasHeaderRow)]?.cells ?? [];
 	return header.map((_, column) => first[column] ?? '');
 }
 
@@ -175,12 +183,16 @@ export function importFirstDataRow(rows: ParsedCsvRow[]): string[] {
  * Padded to the header width for the same reason `importFirstDataRow` is: a short row must draw
  * empty cells under the right columns rather than shifting every value one to the left.
  */
-export function importPreviewRows(rows: ParsedCsvRow[], count = 5): string[][] {
+export function importPreviewRows(
+	rows: ParsedCsvRow[],
+	count = 5,
+	hasHeaderRow?: boolean
+): string[][] {
 	const normalized = normalizeParsedRows(rows);
 	if (normalized.length === 0) return [];
 	const header = normalized[0].cells;
 	return normalized
-		.slice(1, 1 + Math.max(0, count))
+		.slice(firstDataRowIndex(hasHeaderRow), firstDataRowIndex(hasHeaderRow) + Math.max(0, count))
 		.map((row) => header.map((_, column) => row.cells[column] ?? ''));
 }
 
@@ -195,12 +207,12 @@ export function importPreviewRows(rows: ParsedCsvRow[], count = 5): string[][] {
  * not be counted as carrying a value, or a column would be described as having values beside three
  * « (vide) » lines.
  */
-export function importSampleCoverage(rows: ParsedCsvRow[]): number[] {
+export function importSampleCoverage(rows: ParsedCsvRow[], hasHeaderRow?: boolean): number[] {
 	const normalized = normalizeParsedRows(rows);
 	const header = normalized.length === 0 ? [] : normalized[0].cells;
 	const filled = header.map(() => 0);
 
-	for (let row = 1; row < normalized.length; row++) {
+	for (let row = firstDataRowIndex(hasHeaderRow); row < normalized.length; row++) {
 		const cells = normalized[row].cells;
 		for (let column = 0; column < filled.length; column++) {
 			if ((cells[column] ?? '').trim() !== '') filled[column]++;
@@ -226,8 +238,7 @@ export function parseImportRows(
 	// user's own answer about a title row is honoured here for the same reason it is honoured in
 	// the row loop: a headerless file's first line is a transaction, and subtracting it reports a
 	// count the user cannot find in their spreadsheet.
-	const dataRowCount =
-		options.hasHeaderRow === false ? normalizedRows.length : normalizedRows.length - 1;
+	const dataRowCount = normalizedRows.length - firstDataRowIndex(options.hasHeaderRow);
 
 	if (dataRowCount > maxRows)
 		return emptyResult(
@@ -515,7 +526,7 @@ function dateColumnCells(
 ): { values: string[]; columns: number[] } {
 	const values: string[] = [];
 	const cellColumns: number[] = [];
-	for (let row = hasHeaderRow === false ? 0 : 1; row < rows.length; row++)
+	for (let row = firstDataRowIndex(hasHeaderRow); row < rows.length; row++)
 		for (const column of columns) {
 			const cell = rows[row].cells[column];
 			if (cell !== undefined) {

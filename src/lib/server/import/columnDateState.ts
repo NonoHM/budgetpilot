@@ -1,5 +1,10 @@
 import { detectDateOrder } from './dateOrder';
-import { isDateCellUnderEitherReading, normalizeParsedRows, readDateCell } from './utils/csv';
+import {
+	firstDataRowIndex,
+	isDateCellUnderEitherReading,
+	normalizeParsedRows,
+	readDateCell
+} from './utils/csv';
 import type { ParsedCsvRow } from './types';
 
 /**
@@ -123,7 +128,7 @@ export function importColumnDateStates(
 	// A cell a short row never had is skipped rather than pushed as an empty string: a ragged file
 	// is ordinary, and counting absent cells as blanks would report a populated column as `empty`
 	// whenever enough rows are short.
-	for (let row = hasHeaderRow === false ? 0 : 1; row < normalized.length; row++) {
+	for (let row = firstDataRowIndex(hasHeaderRow); row < normalized.length; row++) {
 		const cells = normalized[row].cells;
 		for (let column = 0; column < width; column++) {
 			const cell = cells[column];

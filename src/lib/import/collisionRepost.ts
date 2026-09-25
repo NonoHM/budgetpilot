@@ -1,6 +1,7 @@
 import type { PendingDesignation } from './pendingDesignation.svelte';
 import type { PendingCollision } from './pendingCollision.svelte';
 import type { RoleAssignment } from '$lib/domain/columnDesignation';
+import { declareHeaderRow } from '$lib/domain/headerRowReading';
 // TYPE ONLY, as in the two stores this bridges.
 import type { DateOrder } from '$lib/server/import/dateOrder';
 
@@ -36,8 +37,10 @@ export function buildCollisionRepost(
 	return {
 		file: pending.file,
 		// The view carries the USER's answer, not detection's, so declining the dialog reopens the
-		// designation screen the way they left it rather than the way it was guessed.
-		view: { ...pending.view, detectedHeaderRow: result.hasHeaderRow },
+		// designation screen the way they left it rather than the way it was guessed. Through
+		// `declareHeaderRow`, which moves the per-row facts and the count WITH the answer: rewriting
+		// the flag alone reopened the screen describing line 1 as headers under « données » (#735).
+		view: declareHeaderRow(pending.view, result.hasHeaderRow),
 		assignment: result.assignment,
 		// The user's own choice, carried on BOTH legs: confirming re-posts it, declining reopens the
 		// screen already showing it. Re-deriving it from `resolution` on the way back would replace

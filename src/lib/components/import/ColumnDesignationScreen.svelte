@@ -462,8 +462,8 @@
 	function defersToReading(role: MappingRole, columnIndex: number): boolean {
 		return (
 			role === 'date' &&
-			(file.dateStates?.[columnIndex] ?? null) === 'ambiguous' &&
-			(file.dateReadings?.[columnIndex] ?? null) !== undefined
+			(effectiveFile.dateStates?.[columnIndex] ?? null) === 'ambiguous' &&
+			(effectiveFile.dateReadings?.[columnIndex] ?? null) !== undefined
 		);
 	}
 
@@ -561,7 +561,7 @@
 
 		// The FIRST DATA ROW under the reading just chosen, which is the cell the row's line 3 will
 		// state. Index 0 of `dateReadings` is that row by that field's own contract.
-		const iso = file.dateReadings?.[column]?.[readingKey(order)]?.[0] ?? null;
+		const iso = effectiveFile.dateReadings?.[column]?.[readingKey(order)]?.[0] ?? null;
 		const pretty = iso ? formatReadingDate(iso, getLocale()) : null;
 		// A cell that is not a date under the reading in force has no first line to name, and a
 		// sentence reading « Première ligne : . » would be a false figure in the live region. The
@@ -648,7 +648,9 @@
 	}
 
 	const dateColumn = $derived(assignment.date);
-	const dateState = $derived(dateColumn === null ? null : (file.dateStates?.[dateColumn] ?? null));
+	const dateState = $derived(
+		dateColumn === null ? null : (effectiveFile.dateStates?.[dateColumn] ?? null)
+	);
 
 	/**
 	 * The order this screen is currently reading the date column under.
@@ -698,11 +700,11 @@
 		//
 		// Reading the same source makes the pair true by construction, and a missing `firstRow` now
 		// reserves the line instead of pairing two different cells.
-		const raw = file.firstRow?.[dateColumn] ?? '';
+		const raw = effectiveFile.firstRow?.[dateColumn] ?? '';
 		// The payload keys the two readings as `dayFirst`/`monthFirst`; the order VALUE is
 		// `day-first`/`month-first`. One translation, here, rather than a second spelling of the
 		// order anywhere else.
-		const iso = file.dateReadings?.[dateColumn]?.[readingKey(appliedReading)]?.[0] ?? null;
+		const iso = effectiveFile.dateReadings?.[dateColumn]?.[readingKey(appliedReading)]?.[0] ?? null;
 		// A cell that is not a date under the order in force has no conversion to show. The row falls
 		// back to reserving the line rather than printing the raw value twice.
 		if (!raw || !iso) return null;
@@ -742,7 +744,7 @@
 	/**
 	 * What the second step's two cards show, in the shape `ColumnPicker` declares.
 	 *
-	 * ## Parallel to `file.samples[dateColumn]`, POSITION FOR POSITION, and that is the contract
+	 * ## Parallel to `effectiveFile.samples[dateColumn]`, POSITION FOR POSITION, and that is the contract
 	 *
 	 * The picker prints the raw cell from `samples` and the converted date from here, side by side
 	 * on one line, so a value dropped from one array and not the other would pair a raw cell with
@@ -761,7 +763,7 @@
 	 */
 	const dateReadingPairs = $derived.by(() => {
 		if (dateColumn === null) return null;
-		const readings = file.dateReadings?.[dateColumn];
+		const readings = effectiveFile.dateReadings?.[dateColumn];
 		if (!readings) return null;
 		const prettyFor = (order: DateOrder) =>
 			readings[readingKey(order)]
@@ -822,7 +824,7 @@
 		// POSITIONAL, and handoff §3.2 is why: the four rows are one transaction read vertically,
 		// which is the stated reason this screen carries no rows-preview at 390. `samples` is chosen
 		// to discriminate and would put a Montant from row 9 beside a Date from row 1.
-		return file.firstRow?.[index] ?? file.samples[index]?.[0] ?? '';
+		return effectiveFile.firstRow?.[index] ?? effectiveFile.samples[index]?.[0] ?? '';
 	}
 
 	// The INITIAL value is the whole point, so the warning is suppressed rather than worked around,
