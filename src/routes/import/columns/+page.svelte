@@ -429,7 +429,8 @@
 
 		`flex-1 min-h-0` hands the screen the room that is LEFT. Its grid is
 		`[auto_minmax(0,1fr)_auto_auto]`, so the loss lands on the body, which is the only region
-		designed to give and which carries 125 px of air in every state.
+		designed to give. It carries 87 px of air in states 0 and 1, 25 in state 2, and none on a
+		correction, where it already scrolls (`ColumnDesignationScreen`'s docstring has the figures).
 	-->
 	<!--
 		`h-dvh` at mobile, `h-full` from `lg`. The screen owns the whole viewport at 390, where it

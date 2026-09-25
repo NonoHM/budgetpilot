@@ -137,7 +137,7 @@ describe('the four regions, and their sum is the screen', () => {
 		// A `1fr` track has `min-height: auto`, refuses to shrink below its content, and the cap is
 		// then silently ignored: the page grows and the banner leaves the screen, in exactly the
 		// states with the most content. Measured under BREAK 1: the body reads 636 either way in
-		// these states because the content is only 449, so this assertion is NOT what catches it.
+		// these states because the content is only 549, so this assertion is NOT what catches it.
 		// The one that does is the overflow test below, run against a deliberately overfull body.
 		const { body } = await mount();
 
@@ -146,7 +146,7 @@ describe('the four regions, and their sum is the screen', () => {
 	});
 });
 
-describe("the body's 449 of 636, which is the plate's promise", () => {
+describe("the body's 549 of 636, and 611 in state 2", () => {
 	const contentHeight = (body: HTMLElement) => {
 		const last = body.lastElementChild as HTMLElement;
 		const paddingBottom = parseFloat(getComputedStyle(body).paddingBottom);
@@ -404,6 +404,35 @@ describe('5c, the consent to replace and the confirmation that carries it', () =
 		const top = (el: Element) => el.getBoundingClientRect().top;
 		expect(top(consent)).toBeLessThan(top(banner));
 		expect(top(banner)).toBeLessThan(top(primary));
+	});
+
+	/**
+	 * THE BODY SCROLLS ON THE CORRECTION PATH, and these two figures record that rather than promise
+	 * it. Planche 7c says the body never scrolls and 5c gives it 580 available; neither carries the
+	 * account row (+82) or the storey's real height. Measured by #684's M9 on the running app at
+	 * 390x844 before this test existed, and this test reads the same figures through the component:
+	 * the storey is 60 px (96 with the cost note), so state 2's 611 of content sits in a 576 px body,
+	 * 35 over, or in a 540 px one, 71 over.
+	 *
+	 * Asserted as one [clientHeight, scrollHeight] pair so neither figure can go unevaluated behind
+	 * the other. When a layout ruling moves the storey or the body, these change with it: they are a
+	 * measurement of the tree, not the design's intent.
+	 *
+	 * Break checks, run 2026-09-25: dropping the storey's `pt-3` reddens both, reading [588, 611]
+	 * and [552, 611], and separates « the storey costs 60 » from « it costs 48 »; passing no cost
+	 * note reddens only the second, reading [576, 611], and separates « the note adds 36 » from « the
+	 * note is free ».
+	 */
+	it('leaves the body 576 px for 611 of content in state 2, so it scrolls by 35', async () => {
+		const { body } = await withConsent();
+
+		expect([body.clientHeight, body.scrollHeight]).toStrictEqual([576, 611]);
+	});
+
+	it('leaves the body 540 px for 611 when the cost note shows, so it scrolls by 71', async () => {
+		const { body } = await withConsent({ replaces: { ...REPLACES, hasUserWork: true } });
+
+		expect([body.clientHeight, body.scrollHeight]).toStrictEqual([540, 611]);
 	});
 
 	// The label NAMES the import it destroys. « Supprimer l'ancien import » names nothing once a
