@@ -333,6 +333,29 @@ describe('#600: a declared currency the destination contradicts is refused befor
 	});
 
 	/**
+	 * THE PANEL CAN SAY WHICH ACCOUNTS ARE IN EUROS (canvas C3kxndh3wM3SwYtRQwpsGr). The refusal asks
+	 * for « un compte en EUR », so each offered option carries the currency its account holds, and
+	 * the offer carries the currency the file declared, which is what the panel mutes the others
+	 * against. Separates « the server hands the screen what it needs to answer the sentence » from
+	 * « the screen is asked to name a currency nobody sent it ».
+	 */
+	it('/import: the refusal offers each account with its currency, and names the declared one', async () => {
+		expect.assertions(3);
+		const { userId, usdId, eurId } = await seedUser('recovery-currency');
+		const refused = await postImport(userId, {
+			csvFile: fileOf(GENERIC_DECLARING_EUR),
+			accountId: usdId
+		});
+		const account = refused.data?.account as
+			{ options: Array<{ id: string; currency?: string }>; declaredCurrency?: string } | undefined;
+		const currencyOf = (id: string) =>
+			account?.options.find((option) => option.id === id)?.currency;
+		expect(currencyOf(eurId)).toBe('EUR');
+		expect(currencyOf(usdId)).toBe('USD');
+		expect(account?.declaredCurrency).toBe('EUR');
+	});
+
+	/**
 	 * THE ORDER, through the route (the owner's second addition): a file whose dates read both ways
 	 * AND which declares EUR, for a user holding two statement accounts and the synced USD one.
 	 *

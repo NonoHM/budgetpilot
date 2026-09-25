@@ -49,8 +49,20 @@ const CURRENCY = {
 } as const;
 const ACCOUNT_OFFER: AccountOffer = {
 	options: [
-		{ id: 'account-courant', name: 'Compte courant', discriminant: null, transactionCount: 0 },
-		{ id: 'account-livret', name: 'Livret', discriminant: null, transactionCount: 0 }
+		{
+			id: 'account-courant',
+			name: 'Compte courant',
+			discriminant: null,
+			transactionCount: 0,
+			currency: 'EUR'
+		},
+		{
+			id: 'account-livret',
+			name: 'Livret',
+			discriminant: null,
+			transactionCount: 0,
+			currency: 'EUR'
+		}
 	],
 	resolution: { rank: 3, kind: 'orphan' },
 	memory: null,

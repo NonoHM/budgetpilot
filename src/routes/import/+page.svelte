@@ -1448,6 +1448,14 @@
 
 						`allowCreate={false}`: this host does not mount the create sheet, and an action that
 						opens nothing is a dead control shipped inside the fix for a dead end.
+
+						#600: the same question comes back WITH the currency refusal, and `declaredCurrency`
+						lets the panel say which accounts are in the declared currency (a private
+						Claude Design canvas). Deviations from that canvas,
+						kept deliberately: the page frame around this form (header, card, navigation) is the
+						page as it ships and is owned by the imports-page plates, not by this state; the
+						row's chevron points down where the canvas draws it right at rest, the direction
+						rule #686 records as undecided across the three chooser rows.
 					-->
 					<div class="relative" data-testid="import-account-question">
 						<AccountRow
@@ -1464,6 +1472,7 @@
 							selectedId={chosenAccountId}
 							panelId="import-account-panel-desktop"
 							allowCreate={false}
+							declaredCurrency={accountOffer.declaredCurrency ?? null}
 							onChoose={chooseAccount}
 							onClose={closeAccountPanel}
 						/>
@@ -1940,6 +1949,7 @@
 						selectedId={chosenAccountId}
 						panelId="import-account-panel-mobile"
 						allowCreate={false}
+						declaredCurrency={accountOffer.declaredCurrency ?? null}
 						onChoose={chooseAccount}
 						onClose={closeAccountPanel}
 					/>

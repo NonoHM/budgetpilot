@@ -45,6 +45,12 @@ export interface AccountOfferOption {
 	name: string;
 	discriminant: string | null;
 	transactionCount: number;
+	/**
+	 * The ISO code the account holds (#600). Required, so the one writer below cannot forget it: a
+	 * refusal asking for « un compte en EUR » is unanswerable from a panel that does not say which
+	 * accounts are in euros.
+	 */
+	currency: string;
 }
 
 /**
@@ -100,6 +106,7 @@ export async function buildAccountOffer(input: {
 			source: true,
 			discriminant: true,
 			archivedAt: true,
+			currency: true,
 			_count: { select: { transactions: true } }
 		},
 		orderBy: [{ name: 'asc' }, { id: 'asc' }]
@@ -160,7 +167,8 @@ export async function buildAccountOffer(input: {
 			// screenshot, which is what the eleven assertions over this module could not see.
 			name: displayAccountName(account),
 			discriminant: account.discriminant ?? null,
-			transactionCount: account._count.transactions
+			transactionCount: account._count.transactions,
+			currency: account.currency
 		})),
 		resolution,
 		memory

@@ -32,8 +32,20 @@ const DATA: PageData = { user: null, correction: null } as unknown as PageData;
 
 const ACCOUNT_OFFER = {
 	options: [
-		{ id: 'acc-courant', name: 'Compte courant', discriminant: null, transactionCount: 12 },
-		{ id: 'acc-usd', name: 'Checking USD', discriminant: null, transactionCount: 3 }
+		{
+			id: 'acc-courant',
+			name: 'Compte courant',
+			discriminant: null,
+			transactionCount: 12,
+			currency: 'EUR'
+		},
+		{
+			id: 'acc-usd',
+			name: 'Checking USD',
+			discriminant: null,
+			transactionCount: 3,
+			currency: 'USD'
+		}
 	],
 	resolution: { rank: 3, candidates: [] },
 	prefillName: 'CSV',
@@ -58,7 +70,7 @@ const ACCOUNT_ASKED = {
 /** The server's reply to the USD answer: refused, the question back, the account not kept. */
 const CURRENCY_REFUSED = {
 	error: refusalLabel({ code: 'declared-currency-mismatch', declared: 'EUR', destination: 'USD' }),
-	account: ACCOUNT_OFFER,
+	account: { ...ACCOUNT_OFFER, declaredCurrency: 'EUR' },
 	answers: answers(null)
 };
 
@@ -111,5 +123,28 @@ describe('after the currency refusal, the account question is back and unanswere
 			'Checking USD'
 		);
 		expect(posted(section, 'accountId')).toEqual(['']);
+	});
+
+	it('mutes, in the reopened panel, the account the declared currency rules out', async () => {
+		// SEPARATES: « the page hands the panel the currency the refusal named » FROM « the panel is
+		// reopened with every account reading alike », which is the canvas's one addition
+		// (a private Claude Design canvas): the sentence asks for a EUR account
+		// and the panel must say which accounts those are.
+		await page.viewport(1280, 800);
+		const rendered = await render(Page, { data: DATA, form: ACCOUNT_ASKED as never });
+		const section = rendered.container.querySelectorAll('main > section')[0] as HTMLElement;
+		await userEvent.upload(section.querySelector('input[type=file]') as HTMLInputElement, file());
+		await userEvent.click(section.querySelector('button[type=submit]') as HTMLElement);
+		await rendered.rerender({ data: DATA, form: CURRENCY_REFUSED as never });
+		await userEvent.click(
+			section.querySelector('[data-testid="import-account-question"] button') as HTMLElement
+		);
+
+		const nameOf = (label: RegExp) =>
+			[...section.querySelectorAll('[role="option"]')]
+				.find((option) => label.test(option.getAttribute('aria-label') ?? ''))
+				?.querySelector(':scope > span > span');
+		expect(nameOf(/^Compte courant, EUR,/)?.className).toContain('text-zinc-900');
+		expect(nameOf(/^Checking USD, USD,/)?.className).toContain('text-zinc-500');
 	});
 });

@@ -11,6 +11,8 @@
 		 */
 		discriminant?: string | null;
 		transactionCount: number;
+		/** The ISO code the account holds (#600). Optional only for hosts that predate it. */
+		currency?: string;
 	}
 
 	let idCounter = 0;
@@ -96,10 +98,17 @@
 		allowCreate = true,
 		onChoose,
 		onClose,
-		onCreate
+		onCreate,
+		declaredCurrency = null
 	}: {
 		open?: boolean;
 		options: readonly AccountPickerOption[];
+		/**
+		 * The currency the file declared, when the panel is open after the currency refusal (#600).
+		 * Accounts held in another currency keep their place and stay choosable, drawn in zinc-500:
+		 * #476's offer lists every destination, and muting is what the refusal proved, no more.
+		 */
+		declaredCurrency?: string | null;
 		/** The account currently chosen, so the panel can open ON it rather than on the first. */
 		selectedId?: string | null;
 		/** Must match the row's `aria-controls`, so the trigger names the thing it opens. */
@@ -198,9 +207,43 @@
 				});
 	}
 
+	/**
+	 * WHETHER THE SECOND LINE LEADS WITH THE CURRENCY (#600, a private
+	 * Claude Design canvas).
+	 *
+	 * Whenever the destinations do NOT all hold one currency, on every host of this panel, and in
+	 * the refusal state whatever they hold. The general rule rather than « only after the refusal »:
+	 * the currency is a property of the account being chosen, and a user holding a USD and a EUR
+	 * account needs it on the FIRST question as much as after a refusal, which is also what stops
+	 * the refusal from happening. Never for a user whose accounts all share one currency, where
+	 * « EUR » on every line says nothing. The refusal state keeps it even then, because the sentence
+	 * above names a currency and a panel of USD accounts has to say that none of them is in it.
+	 *
+	 * DEVIATIONS FROM THE CANVAS, each kept for a reason recorded elsewhere rather than redrawn here:
+	 * - the accessible name reads « Compte courant, EUR, ···0185 · 42 transactions », where the
+	 *   canvas writes a comma before the count: the second line is ONE catalogue string
+	 *   (`secondaryOf`), and splitting it for the name would put a second joining rule beside it;
+	 * - the panel keeps brique 10 as registered (the trigger's own width per 6h, the zinc-900
+	 *   border, no shadow), where the canvas draws it 310 px wide with a zinc-200 border and a
+	 *   shadow: the canvas is about the options, and repainting the panel is a referential change.
+	 */
+	const leadsWithCurrency = $derived(
+		declaredCurrency != null ||
+			new Set(options.map((option) => option.currency).filter(Boolean)).size > 1
+	);
+
+	/** An account the currency refusal rules out: drawn muted, never removed. */
+	function isMuted(option: AccountPickerOption): boolean {
+		return (
+			declaredCurrency != null && option.currency != null && option.currency !== declaredCurrency
+		);
+	}
+
 	/** Both lines, because the second one may not be a description. See the docstring. */
 	function nameOf(option: AccountPickerOption): string {
-		return `${option.name}, ${secondaryOf(option)}`;
+		return leadsWithCurrency && option.currency
+			? `${option.name}, ${option.currency}, ${secondaryOf(option)}`
+			: `${option.name}, ${secondaryOf(option)}`;
 	}
 
 	function choose(index: number): void {
@@ -290,12 +333,22 @@
 						onmouseenter={() => (activeIndex = index)}
 					>
 						<span class="flex min-w-0 flex-1 flex-col justify-center">
-							<span class="truncate text-[13.5px] font-semibold text-zinc-900">{option.name}</span>
+							<span
+								class="truncate text-[13.5px] font-semibold {isMuted(option)
+									? 'text-zinc-500'
+									: 'text-zinc-900'}">{option.name}</span
+							>
 							<!--
 								Never zinc-400: at 11.5 px it fails contrast. zinc-500 on white is about
-								4.8:1, with no margin to give away.
+								4.8:1, with no margin to give away. The muted name above uses the same
+								zinc-500, for the same reason.
 							-->
-							<span class="truncate text-[11.5px] text-zinc-500">{secondaryOf(option)}</span>
+							<span class="truncate text-[11.5px] text-zinc-500"
+								>{#if leadsWithCurrency && option.currency}<span
+										class="font-semibold {isMuted(option) ? '' : 'text-zinc-900'}"
+										>{option.currency}</span
+									>&#32;·&#32;{/if}{secondaryOf(option)}</span
+							>
 						</span>
 						{#if option.id === selectedId}
 							<!-- A check, not merely a zinc-100 ground: a ground alone is information

@@ -498,9 +498,14 @@ export const actions: Actions = {
 			 */
 			return fail(400, {
 				error: refusalLabel(offer.fact),
-				account: accountOfferFrom(
-					await buildAccountOffer({ userId: user.id, rows: importData.rows, source })
-				),
+				// With the currency the file declared, so the panel can say which accounts are in it
+				// (a private Claude Design canvas).
+				account: {
+					...accountOfferFrom(
+						await buildAccountOffer({ userId: user.id, rows: importData.rows, source })
+					),
+					declaredCurrency: offer.fact.declared
+				},
 				answers: keptAnswers(answerKey, answers, { accountId: false })
 			});
 		}
