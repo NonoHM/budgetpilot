@@ -47,6 +47,9 @@
 	 *    ---
 	 *    844
 	 *
+	 * On a correction, Planche 5c's consent storey sits between the body and the banner and is paid
+	 * out of the body: 60 px, or 96 with its cost note, so the body is 576 or 540. See below.
+	 *
 	 * **Not `position: sticky; bottom: 0`.** A bottom-sticky element is painted at the scrollport's
 	 * bottom edge for as long as its containing block extends past that edge, so "sticky and must
 	 * not cover content" are not jointly satisfiable and no offset fixes it. This repository has
@@ -64,35 +67,46 @@
 	 * stops being redundant the day somebody removes the overflow. What must not be claimed is that
 	 * a test guards it. None does, and none can while the body scrolls.
 	 *
-	 * ## The body's 449 of 636, which is the plate's promise
+	 * ## The body's 549 of 636, and the one path where it stops fitting
 	 *
 	 *     16   padding-top
 	 *     40   file block      (60 in state 3c, which adds a third line)
 	 *     14   gap
-	 *    355   designation card
+	 *     68   account row     (#480; 68 in its error state too)
+	 *     14   gap
+	 *    373   designation card
 	 *     24   padding-bottom
 	 *    ---
-	 *    449, leaving 187 px of air, and THE SCREEN DOES NOT SCROLL IN ANY STATE.
+	 *    549 in states 0 and 1, leaving 87 px of air. State 2 adds the 48 px memorisation link and
+	 *    its 14 px gap: 611, leaving 25.
 	 *
-	 * The card ends at 425 of 636 (16 + 40 + 14 + 355). Both figures are asserted.
+	 * The card ends at 525 of 636 (16 + 40 + 14 + 68 + 14 + 373). All three figures are asserted in
+	 * `ColumnDesignationScreen.svelte.spec.ts`; `npx vitest run` on that file re-derives them.
 	 *
-	 * **Was 511**, with a 48 px « Format du fichier » row and its 14 px gap. That row was a grey
+	 * **THE BODY SCROLLS ON A CORRECTION**, which Planche 7c says it never does. 5c's storey leaves
+	 * 576 px for state 2's 611, 35 over, or 540 with the cost note, 71 over. Asserted in the same
+	 * spec's 5c block. Measured on the running app by #684's M9 first, and the spec reads the same
+	 * figures. 7c's own budget (511 → 529, 611 → 629) still counts the « Format du fichier » row and
+	 * has no line for the account row; the correction lives in `docs/reference/design-referential.md`
+	 * « Plate figures that do not reconcile ».
+	 *
+	 * **Was 511** before #384, with a 48 px « Format du fichier » row and its 14 px gap. That row was a grey
 	 * heading with nothing under it, at both widths, in every state, since the screen shipped: a
 	 * visible empty affordance is a promise, and it had been making one for months. Deleted rather
 	 * than kept warm. The date format, the decimal separator and the delimiter are still designed and
 	 * still out of scope; when one is built it arrives with its own layout rather than inheriting a
 	 * slot sized for nothing.
 	 *
-	 * The 62 px it frees are the ones the correction checkbox needs at 390, where the body carries
-	 * only 25 px of air in state 2. That placement is the design brief's question rather than this
-	 * change's — what this does is make the space measurable instead of occupied.
+	 * The 62 px it freed were meant for the correction checkbox at 390. The account row (#480) spent
+	 * them first, 82 px of them, and the checkbox went into its own storey outside the body, which is
+	 * why a correction scrolls. Where it should sit is the design's question, not this file's.
 	 *
 	 * ## No text input anywhere
 	 *
 	 * Consequence rather than coincidence: the virtual keyboard never opens, so the visual-viewport
-	 * case that governs every other form screen in this product does not arise and the body is 636
-	 * px in every state. The single exception is the search field above 20 columns, which lives in
-	 * the picker and not here.
+	 * case that governs every other form screen in this product does not arise: the body's height
+	 * moves only with 5c's consent storey, never with a keyboard. The single exception is the search
+	 * field above 20 columns, which lives in the picker and not here.
 	 *
 	 * ## The screen iterates over the FOUR ROLES, never over the N columns
 	 *
@@ -1066,8 +1080,10 @@
 {#snippet accountBlock()}
 	<!--
 		THE FIRST ROW OF THE BODY, above the roles list and OUTSIDE it.
-		6b: « Sur l'écran de désignation, première rangée du corps ». Measured cost +81 px, and the
-		body begins to scroll by 50, which is stated here rather than hidden.
+		6b: « Sur l'écran de désignation, première rangée du corps ». Measured cost +82 px, the 68 px
+		row and the 14 px body gap; 6b published +81 with the row inside the card. The ordinary path
+		still fits because deleting the « Format du fichier » row had freed 62. A correction does
+		not: see the docstring's body budget.
 
 		Not inside the designation card, and not a fifth `RoleRow`. `RoleRow` takes a `MappingRole`,
 		a CLOSED union of four the plate verifies as a constraint (« Quatre rôles, ensemble fermé.
@@ -1150,9 +1166,10 @@
 
 {#snippet designationCard()}
 	<!--
-		355 at 390: 16 label + 10 gap + 3x68 rows + 2 hairlines + 12 + 1 separator + 12 + 68, plus 28
-		padding and 2 border.
-		307 at 1280: the same stack with 56 px rows. Only the row height and the radius change, which
+		373 at 390: 16 label + 10 gap + 86 (the Date row, which carries a reading line) + 2x68 rows
+		+ 2 hairlines + 12 + 1 separator + 12 + 68, plus 28 padding and 2 border.
+		325 at 1280: the same stack with 74 and 56 px rows. Both asserted, in this component's spec
+		and in its desktop spec. Only the row height and the radius change, which
 		is what "same control surface" has to mean if it means anything.
 
 		Radius 24 on a mobile page card and 8 on a desktop one, from the referential's rule 5. No
@@ -1289,7 +1306,7 @@
 	{:else if pageState === 'complete' || pageState === 'submitting'}
 		<!--
 			48 px: a TapLink and nothing else. With its 14 px gap that is the 62 px state 2 adds,
-			taking the body to 611 of 636.
+			taking the body to 611 of 636, or of 576 on a correction, where it scrolls.
 
 			## THE SENTENCE MOVED, AND ONLY THE SENTENCE
 
@@ -1341,8 +1358,9 @@
 	{#if replaces && !recap}
 		<!--
 			Planche 5c. It sits INSIDE the footer, which is the region that does not scroll, and above
-			the count and the primary. At 549 px of body for 580 the same control placed as the last
-			card is off screen at the moment of the press, and the user would be validating a deletion
+			the count and the primary. State 2 already fills 611 of the 636 px body, so the same control
+			placed as the last card would be off screen at the moment of the press, and the user
+			would be validating a deletion
 			they cannot see; placed among the role cards it reads as one more designation.
 
 			The order of the four storeys IS the meaning: the box (an option), the count (a fact), the
@@ -1463,7 +1481,13 @@
 				`pt-4 pb-3` and not `pt-6 pb-4`, and the 12 px it reclaims is the whole reason.
 				MEASURED at 1280x800 with the account row in the column: the primary's bottom edge
 				landed at 805.5 against a fold of 800, so the screen stopped keeping its own action
-				reachable without a scroll. 12 px brings it to 793.5.
+				reachable without a scroll. 12 px brought it to 793.5.
+
+				Re-measured by #684's M9 on the running app, 2026-09-25: 773.5 in state 2. THE NEXT
+				STOREY DID BREAK IT: with 5c's consent storey the primary ends at 837.5, and at 873.5
+				with the cost note, below the fold on every correction. No test re-derives these three:
+				the frame's top is the app layout's header, which no component spec mounts. The method
+				is in the PR that closed #684.
 
 				**THIS IS SHAVING TO FIT AND IT IS RECORDED AS SUCH.** It leaves a 6.5 px margin, which
 				is smaller than one line of anything, so the next storey added to this column breaks it
@@ -1535,8 +1559,10 @@
 						it was about: `position: sticky; bottom: 0` and « must not cover content » are not
 						jointly satisfiable, and no offset fixes it. The 390 chrome obeys the V2
 						sheet-footer rule instead, keeping its footer outside the scrolling region
-						entirely; here the column simply scrolls, which costs 56 px of scroll on the
-						tallest state and covers nothing.
+						entirely; here the column simply scrolls and covers nothing. Measured by #684's
+						M9 (the frame's scrollHeight less its clientHeight): 24 px in state 2, 88 on a
+						correction, 124 with the cost note, and the last two take the primary below
+						the fold (see the heading block above).
 
 						The count and the primary stay welded, which is what the amendment actually asked
 						for. What is given up is the box following the viewport, which was never the
@@ -1618,14 +1644,15 @@
 			<h1 class="text-[16px] font-bold">{heading}</h1>
 		</header>
 
-		<!-- The ONLY scrolling region, and in practice it never does: 511 of 636 in every state. -->
+		<!-- The ONLY scrolling region. An ordinary import fits (549 of 636, 611 in state 2); a
+		     correction scrolls, 611 of 576 or of 540. Figures and their tests: the docstring. -->
 		<div
 			class="flex flex-col gap-[14px] overflow-y-auto px-5 pt-4 pb-6"
 			data-testid="designation-body"
 		>
 			<!--
 				`shrink-0` on every body child, and it is not decoration. A flex column shrinks its
-				items before it scrolls, so without this an overfull body SQUASHES the 355 px card
+				items before it scrolls, so without this an overfull body SQUASHES the 373 px card
 				instead of scrolling, and the card's fixed height quietly stops being fixed. Found by
 				the overflow calibration in this component's spec.
 			-->
@@ -1658,9 +1685,10 @@
 
 		<!--
 			88 = 12 top padding + 48 controls + 28 home indicator area, and 5c adds one storey in front
-			of it when a correction is replacing something. The 87 px freed by deleting the
-			« Format du fichier » row are what pay for it: the body goes from 636 to 580 available for
-			549 used, and 31 px of air remain.
+			of it when a correction is replacing something. The body pays for it: the storey is 60 px,
+			96 with its cost note, so state 2's 611 sits in 576 or 540 and the body scrolls by 35 or
+			71. The 62 px the « Format du fichier » deletion freed were spent first by the account
+			row's 82. Asserted in this component's spec, 5c block.
 		-->
 		<footer class="flex items-stretch gap-3 px-5 pt-3 pb-7" data-testid="designation-footer">
 			{@render actions()}
