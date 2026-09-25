@@ -79,7 +79,7 @@ export const AMBIGUOUS_DATE_PATTERN = /^(\d{2})[/.-](\d{2})[/.-](\d{4})([\s\S]*)
 export type DateOrderVerdict = FileVerdict<
 	{ order: DateOrder; evidence: string },
 	{ dayFirstEvidence: string; monthFirstEvidence: string },
-	{ sample: string }
+	{ sample: string; sampleIndex: number }
 >;
 
 /**
@@ -139,6 +139,14 @@ export type DateOrderVerdict = FileVerdict<
  * the person being asked, and this repository has measured the cost of showing someone a screen
  * whose evidence they cannot verify.
  *
+ * **The question also says WHERE its sample sits** (`sampleIndex`, a position in `values`), because
+ * the input is the union of every declared column and the sample alone cannot say which column
+ * raised the question. `parseImportRows` maps the position back to a column and points the reading
+ * offer and the summary's disclosure at it. Pointing them at the profile's first-listed date column
+ * instead showed a blank row cell and empty evidence cards whenever that column was blank where the
+ * evidence was (#667). Only the question carries a position: it is the one verdict a screen opens
+ * on a column.
+ *
  * @param values The cells of the file's date column, in file order. Pure: it reads no clock, no
  *   locale and no ambient state, so a stored verdict can always be recomputed from the same
  *   column. See `AGENTS.md` under « Code style ».
@@ -147,8 +155,9 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
 	let dayFirstEvidence: string | undefined;
 	let monthFirstEvidence: string | undefined;
 	let ambiguousSample: string | undefined;
+	let ambiguousIndex = -1;
 
-	for (const value of values) {
+	for (const [index, value] of values.entries()) {
 		const match = AMBIGUOUS_DATE_PATTERN.exec(value.trim());
 		if (!match) continue;
 
@@ -162,7 +171,10 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
 
 		if (firstCannotBeMonth) dayFirstEvidence ??= match[0];
 		else if (secondCannotBeMonth) monthFirstEvidence ??= match[0];
-		else ambiguousSample ??= match[0];
+		else if (ambiguousSample === undefined) {
+			ambiguousSample = match[0];
+			ambiguousIndex = index;
+		}
 	}
 
 	// Checked before either single answer: a file that proves both readings is refused rather
@@ -172,7 +184,8 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
 	if (dayFirstEvidence) return { kind: 'resolved', order: 'day-first', evidence: dayFirstEvidence };
 	if (monthFirstEvidence)
 		return { kind: 'resolved', order: 'month-first', evidence: monthFirstEvidence };
-	if (ambiguousSample) return { kind: 'ambiguous', sample: ambiguousSample };
+	if (ambiguousSample)
+		return { kind: 'ambiguous', sample: ambiguousSample, sampleIndex: ambiguousIndex };
 	return { kind: 'nothing-to-decide' };
 }
 

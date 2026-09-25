@@ -26,8 +26,8 @@ import type { UntrustedColumnMapping } from './mapping/model';
  *
  * ## THE PROPERTY, and why it is movement rather than the rule that reaches it
  *
- * An ambiguous fixture must do more than be shaped like a question. `detectDateOrder` takes
- * `ambiguousSample ??= match[0]`, so the FIRST ambiguous cell in file order becomes the evidence
+ * An ambiguous fixture must do more than be shaped like a question. `detectDateOrder` keeps the
+ * first ambiguous cell it meets, so the FIRST ambiguous cell in file order becomes the evidence
  * a question screen puts in front of a user. `02/02/2026` is perfectly ambiguous and reads
  * identically under both answers, so a ledger opening on it would illustrate the question with
  * the one cell where the question does not matter.
