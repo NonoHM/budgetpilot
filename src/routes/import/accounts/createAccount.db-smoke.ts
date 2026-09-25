@@ -271,7 +271,21 @@ describe('creating an account from the designation screen', () => {
 		// Written as a property over the cases rather than case by case, because the case that
 		// regresses is the one nobody thought to list. The last audit drove 49 actions through two
 		// hostile passes with zero 5xx and that standard does not regress.
-		expect.assertions(2);
+		//
+		// THE CALIBRATION IS IN THE SAME PASS (#721). The limiter answers before the handler reads
+		// anything, and its 429 is not a 5xx, so a battery refused wholesale by the limiter reported
+		// « zero server errors » having read nothing: measured green with
+		// `IMPORT_RATE_LIMIT_MAX_ATTEMPTS=1` while 10 of this file's 12 tests were red on 429s. So
+		// each case must have got past the limiter, counted rather than assumed. The three figures
+		// are asserted as ONE value so all three are always computed and shown, rather than the
+		// second being skipped whenever the first is red.
+		//
+		// Break-checked on 2026-09-25 (SQLite), one clause each: the limiter forced to refuse
+		// (`IMPORT_RATE_LIMIT_MAX_ATTEMPTS=1`) separates « the battery reached the handler » from « it
+		// read only the limiter », and is red on `pastLimiter` 0 of 10; the handler's name refusal
+		// answering 500 instead of 400 separates « no refusal is a server error » from « one is », and
+		// is red on `serverErrors`.
+		expect.assertions(1);
 		const hostile: Record<string, string | File>[] = [
 			{},
 			{ name: '' },
@@ -288,9 +302,14 @@ describe('creating an account from the designation screen', () => {
 		for (const fields of hostile) {
 			statuses.push((await POST(eventOf(mine, fields))).status);
 		}
-		// The absolute figure beside the emptiness claim: a loop that ran zero times reports zero
-		// 5xx just as loudly as one that ran ten.
-		expect(statuses).toHaveLength(10);
-		expect(statuses.filter((status) => status >= 500)).toStrictEqual([]);
+		// `sent` is the absolute figure beside the emptiness claim: a loop that ran zero times reports
+		// zero 5xx just as loudly as one that ran ten. `pastLimiter` is the calibration: 429 is the
+		// limiter's answer in `+server.ts` and the handler never gives it, so every other status was
+		// produced by code that read the request.
+		expect({
+			sent: statuses.length,
+			pastLimiter: statuses.filter((status) => status !== 429).length,
+			serverErrors: statuses.filter((status) => status >= 500)
+		}).toStrictEqual({ sent: 10, pastLimiter: 10, serverErrors: [] });
 	});
 });
