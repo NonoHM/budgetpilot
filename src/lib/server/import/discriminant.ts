@@ -53,6 +53,17 @@ export type DiscriminantResult = FileVerdict<
  * Excluding it would throw away the holder's own column; keeping it keeps #702's shape open for
  * whichever bank means the other party. Neither is proven by the header, so it stays a candidate
  * and the constancy decides, as it does for every header not listed here.
+ *
+ * **Where this bites, and where it cannot.** A card payment has no counterparty account, and a
+ * column is disqualified by ANY empty cell (see `findDiscriminantColumn`), so on a statement whose
+ * card rows leave the counterparty cell empty the column was never a candidate in the first place:
+ * the defect and this exclusion both act only on a statement where EVERY row carries a counterparty
+ * (transfers only, or one row). How often an N26 statement has that shape is not measured here.
+ *
+ * **It needs `rows[0]` to be the header.** The column is named by the header row alone, so a file
+ * with a title line above its header, or one the user declared headerless, gives this nothing to
+ * read and the column is judged by its values, as before #702. A known limit; no N26 layout
+ * recorded in `profiles/realHeaders.fixture.ts` carries a title line.
  */
 export const COUNTERPARTY_ACCOUNT_HEADERS = ['partner iban'] as const;
 
@@ -61,8 +72,9 @@ export const COUNTERPARTY_ACCOUNT_HEADERS = ['partner iban'] as const;
  * other party only when the payee header it is paired with sits in the same row.
  *
  * N26's legacy export spells its counterparty column like an ordinary account number, `Account
- * number`, `Kontonummer`, `Numéro de compte`, and `Numéro de compte` is the HOLDER's column in
- * other banks' exports. So the word alone stays a candidate, and what proves the party is the
+ * number`, `Kontonummer`, `Numéro de compte`, and nothing in those words says whose account it
+ * is: a bank can use the same words for the HOLDER's own column (no recorded export here does,
+ * and none proves otherwise). So the word alone stays a candidate, and what proves the party is the
  * layout: beside a payee column (`Payee`, `Empfänger`, `Bénéficiaire`), the account number is the
  * payee's. The sources for that reading are named on `N26_LEGACY_HEADERS` in
  * `profiles/realHeaders.fixture.ts`.

@@ -111,10 +111,13 @@ Two columns a statement can carry that both hold an account identifier.
 - **The account column** names the HOLDER's account: the statement's own. It is the only column
   that can say which of the user's accounts a statement belongs to.
 - **The counterparty's account column** names the OTHER party to each row: who was paid, or who
-  paid. N26 calls it `Partner Iban`. It says nothing about which account the statement belongs to,
-  whatever its values do.
+  paid. N26 calls it `Partner Iban`, and its legacy export `Account number`, `Kontonummer` or
+  `Numéro de compte`. It says nothing about which account the statement belongs to, whatever its
+  values do.
 
-Both pass the same grammar (an IBAN or a long digit run), so only the header tells them apart.
+Both pass the same grammar (an IBAN or a long digit run), so only the header tells them apart, and
+sometimes only the header ROW: nothing in `Numéro de compte` says whose account it is, and in
+N26's export it names the other party because a `Bénéficiaire` column sits beside it.
 
 > **What confusing this cost.** Before #702 the account column was read by its values alone. An N26
 > statement whose rows all paid the holder's own savings account was filed INTO the savings account
