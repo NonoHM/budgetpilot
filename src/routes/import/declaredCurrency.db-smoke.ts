@@ -12,6 +12,7 @@ import { refusalLabel } from '$lib/i18n/refusalLabel';
 import * as m from '$lib/paraglide/messages';
 import { answerKeyFor } from '$lib/server/import/answerBinding';
 import { createStatementAccount } from '$lib/server/accounts/service';
+import { N26_LEGACY_HEADERS } from '$lib/server/import/profiles/realHeaders.fixture';
 import { actions as importActions } from './+page.server';
 import { actions as columnsActions } from './columns/+page.server';
 
@@ -396,6 +397,89 @@ describe('#600: a declared currency the destination contradicts is refused befor
 
 		const intoEur = await postImport(userId, { csvFile: file(), accountId: eurId });
 		expect(intoEur.data?.error).toBe(m.import_error_ambiguous_date_order());
+	});
+
+	/**
+	 * SECOND CONTRADICTION PASS F1, through both designated doors: N26's legacy French and German
+	 * exports name their amount column `Montant (EUR)` and `Betrag (EUR)`. MEASURED before the fix:
+	 * `/import/columns` and `/import`'s remembered-mapping reuse both stored `["USD","USD"]` into the
+	 * USD account. Separates « an amount header named for its currency declares, in any language »
+	 * from « only `Amount (EUR)` does ».
+	 */
+	const N26_LEGACY = (name: string) =>
+		N26_LEGACY_HEADERS.find(([label]) => label === name)![1]
+			.split(',')
+			.map((cell) => cell.slice(1, -1));
+	function legacyFile(name: string, amountHeader: string, labelHeader: string) {
+		const cells = N26_LEGACY(name);
+		const row = (date: string, label: string, amount: string) =>
+			cells
+				.map((cell) =>
+					cell === cells[0]
+						? date
+						: cell === labelHeader
+							? label
+							: cell === amountHeader
+								? amount
+								: ''
+				)
+				.map((cell) => `"${cell}"`)
+				.join(',');
+		return [
+			cells.map((cell) => `"${cell}"`).join(','),
+			row('2026-06-03', 'Boulangerie Mercier', '-4.20'),
+			row('2026-06-14', 'Virement salaire', '1850.00')
+		].join('\n');
+	}
+	const legacyDesignation = (name: string, labelHeader: string, amountHeader: string) => {
+		const cells = N26_LEGACY(name);
+		return {
+			dateIndex: '0',
+			labelIndex: String(cells.indexOf(labelHeader)),
+			amountIndex: String(cells.indexOf(amountHeader))
+		};
+	};
+
+	it('/import/columns: N26 legacy FR Montant (EUR) refuses the file into USD', async () => {
+		expect.assertions(3);
+		const { userId, usdId } = await seedUser('n26-fr');
+		const refused = await postColumns(userId, {
+			csvFile: fileOf(legacyFile('N26 legacy FR', 'Montant (EUR)', 'Bénéficiaire')),
+			...legacyDesignation('N26 legacy FR', 'Bénéficiaire', 'Montant (EUR)'),
+			remember: 'false',
+			accountId: usdId
+		});
+		const usdRows = await storedIn(userId, usdId);
+		console.info(
+			`[#600 C2-F1] N26 legacy FR designated into USD: status=${refused.status ?? 200} stored=${JSON.stringify(usdRows.map((row) => row.currency))}`
+		);
+		expect(usdRows).toEqual([]);
+		expect(refused.status).toBe(400);
+		expect(refused.data?.error).toBe(EUR_INTO_USD);
+	});
+
+	it('/import through a remembered mapping: N26 legacy DE Betrag (EUR) refuses the file into USD', async () => {
+		expect.assertions(3);
+		const { userId, usdId, eurId } = await seedUser('n26-de');
+		const content = legacyFile('N26 legacy DE', 'Betrag (EUR)', 'Empfänger');
+		// Saved the way a user saves one: designated on `/import/columns`, memorisation on.
+		await postColumns(userId, {
+			csvFile: fileOf(content),
+			...legacyDesignation('N26 legacy DE', 'Empfänger', 'Betrag (EUR)'),
+			accountId: eurId
+		});
+		const refused = await postImport(userId, {
+			csvFile: fileOf(content),
+			accountId: usdId,
+			confirmCollision: '1'
+		});
+		const usdRows = await storedIn(userId, usdId);
+		console.info(
+			`[#600 C2-F1] N26 legacy DE remembered into USD: status=${refused.status ?? 200} stored=${JSON.stringify(usdRows.map((row) => row.currency))}`
+		);
+		expect(usdRows).toEqual([]);
+		expect(refused.status).toBe(400);
+		expect(refused.data?.error).toBe(EUR_INTO_USD);
 	});
 
 	/**

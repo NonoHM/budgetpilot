@@ -22,8 +22,7 @@ import {
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
-import { acceptedDeclarations } from '../currencyDeclaration';
-import { amountHeaderDeclaration } from './columnAliases';
+import { acceptedDeclarations, amountHeaderCurrency } from '../currencyDeclaration';
 
 /**
  * Which FOLDED header fills each role, once something upstream has decided.
@@ -109,9 +108,10 @@ export function parseResolvedRows({
 	// pass F2). A row refused below for its date or its amount still said which currency the file is
 	// in. Rows of the wrong width are left out: their cells do not sit under the header they would be
 	// read through. See `currencyDeclaration.ts`.
-	// Every declaring column, F3, and the amount column's own NAME, F1: N26's `Amount (EUR)`
-	// declares EUR for every row under it, exactly as a `currency` column reading EUR would.
-	const amountDeclares = amountHeaderDeclaration(columns.amount);
+	// Every declaring column, F3, and the amount column's own NAME, F1: N26's `Amount (EUR)`, and its
+	// legacy `Montant (EUR)` and `Betrag (EUR)`, declare EUR for every row under them, exactly as a
+	// `currency` column reading EUR would (`amountHeaderCurrency`, one rule, any language).
+	const amountDeclares = amountHeaderCurrency(columns.amount);
 	const declarationIndices = currencyColumns.map((column) => headers.indexOf(column));
 	const declaredCurrencies = acceptedDeclarations(
 		[
@@ -166,8 +166,18 @@ export function parseResolvedRows({
 		// EVERY declaring column (#600, F3). A row whose columns disagree names a currency the
 		// profile does not accept in at least one of them, and is refused on that value, exactly as
 		// a row whose single column names it: same code, same scope.
-		// The amount header's declaration applies to every row; a declaring column may still refuse
-		// the row below if it names a currency the profile does not accept.
+		// The amount header's declaration applies to every row. A header naming a currency the
+		// profile does not accept is refused on every row, as a `currency` column naming it is; a
+		// declaring column may still refuse the row below.
+		if (amountDeclares && amountDeclares !== acceptedCurrency) {
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'unsupported-currency', currency: refusalCellValue(amountDeclares) },
+				columns.amount
+			);
+			return;
+		}
 		let declaredCurrency: string | undefined = amountDeclares;
 		for (const currencyColumn of currencyColumns) {
 			const declared = sanitizeImportedText(record[currencyColumn] ?? '');
