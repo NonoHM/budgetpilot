@@ -55,26 +55,31 @@ import type { DeclaredCurrencyMismatch } from './declaredCurrency';
  * 2. **`header`**: the file matched no recognised shape. Same reasoning one rung down.
  * 3. **`multiAccount`** (PROVEN, `discriminant.ts`'s `contradictory`): refused outright; the file
  *    cannot be imported as fewer than two accounts, whatever else is true of it.
- * 4. **`accountColumn`** (UNPROVEN, `contradictory`'s sibling `ambiguous`): asks whether a column
+ * 4. **`currency`** (#600): the file DECLARES a currency and a destination ALREADY KNOWN holds
+ *    another (`declaredCurrencyRefusal`). A refusal the file proves, so it comes before every
+ *    question: the account-column question, a generic « nothing imported », and the date reading
+ *    would each spend the user's attention on a file already refused. MEASURED by the second
+ *    contradiction pass on a restored `csv` bucket held in USD: the account-column question was
+ *    asked first, and the currency refusal came once it was answered.
+ *    It can only be pending once the destination is known, so it never competes with an OPEN
+ *    `account` question: while the account is the question there is no destination to compare
+ *    with and the route passes no fact, and rung 7 is asked first. It arises on a parse that
+ *    produced rows and on one whose only fact is a question `csv.ts` withheld the rows to ask,
+ *    because `csv.ts` carries the file's declaration out of that empty parse (`declaredCurrencies`).
+ * 5. **`accountColumn`** (UNPROVEN, `contradictory`'s sibling `ambiguous`): asks whether a column
  *    names accounts. Ahead of every other question because its answer can turn the file into
  *    rung 3's refusal, and asking anything else first would spend an answer on a refused file.
  *    MEASURED in `multiAccountRefusal.spec.ts`'s "order against #433" cases.
- * 5. **`generic`**: the parse produced nothing and no question BELOW explains why. Above the
- *    account question for the reason rung 4 is above it: an account chosen for a file that cannot
+ * 6. **`generic`**: the parse produced nothing and no question BELOW explains why. Above the
+ *    account question for the reason rung 5 is above it: an account chosen for a file that cannot
  *    import is an answer spent on nothing. Its definition names the one question that CAN explain
  *    an empty parse, the date reading: `csv.ts` refuses an ambiguous column only on a file that
  *    would otherwise have imported, so an open date question means the rows are there.
- * 6. **`account`** (#476): two or more accounts of the file's source and nothing in the file
- *    decides. Ahead of the date question so that a refusal about the destination can sit between
- *    the two, which rung 7 is. A posted account that does not resolve (`refused`) holds this
- *    rung's place: it is not an answer, and nothing below it is asked on its strength.
- * 7. **`currency`** (#600): the file DECLARES a currency and the destination holds another
- *    (`declaredCurrencyRefusal`). A refusal the file proves, so it comes before any question that
- *    is still open: asking the reading of a file about to be refused would spend the user's answer
- *    on nothing. Below `account` because it needs the destination: while the account is the open
- *    question there is no destination to compare with, and the route passes no fact. It arises on a
- *    parse that produced rows and on one whose only fact is the open date question, because
- *    `csv.ts` carries the file's declaration out of that empty parse (`declaredCurrencies`).
+ * 7. **`account`** (#476): two or more accounts of the file's source and nothing in the file
+ *    decides. Ahead of the date question, so that once it is answered the currency refusal
+ *    (rung 4) is decided before the reading is asked. A posted account that does not resolve
+ *    (`refused`) holds this rung's place: it is not an answer, and nothing below it is asked on
+ *    its strength.
  * 8. **`dateOrder`**: the last question, asked once nothing above it is pending.
  *
  * The duplicate-statement confirmation (#343) is not a rung. It needs the destination AND the
@@ -86,10 +91,10 @@ export const OFFER_RUNGS = [
 	'split',
 	'header',
 	'multiAccount',
+	'currency',
 	'accountColumn',
 	'generic',
 	'account',
-	'currency',
 	'dateOrder'
 ] as const;
 

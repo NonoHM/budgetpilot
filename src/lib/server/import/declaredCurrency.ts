@@ -24,11 +24,12 @@ export type DeclaredCurrencyMismatch = Extract<
  *
  * ## Where it is called
  *
- * - **`/import`**: its answer is the `currency` rung of `offerPrecedence.ts`, between the account
- *   question and the date question, so a file this refuses is never asked its reading first. The
- *   route computes it as soon as `decideAutoAccount` knows the destination, whether or not the parse
- *   produced rows, from the file-level declaration `csv.ts` carries even out of the empty parse that
- *   leaves the date question open.
+ * - **`/import`**: its answer is the `currency` rung of `offerPrecedence.ts`, ranked before every
+ *   question, so a file this refuses is never asked whether a column names accounts, nor its date
+ *   reading, first. It needs the destination, so while the account is the open question it is not
+ *   computed and the account is asked first. The route computes it as soon as `decideAutoAccount`
+ *   knows the destination, whether or not the parse produced rows, from the file-level declaration
+ *   `csv.ts` carries even out of the empty parse that withheld the rows to ask a question.
  * - **`/import/columns`**: after the chosen account resolves, before the collision question and
  *   every write. Not ranked against the date question there, and it cannot be on the server: the
  *   designation screen asks the reading in the browser before this door is posted. Putting the

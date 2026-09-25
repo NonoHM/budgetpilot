@@ -26,10 +26,10 @@ const EXPECTED_ORDER = [
 	'split',
 	'header',
 	'multiAccount',
+	'currency',
 	'accountColumn',
 	'generic',
 	'account',
-	'currency',
 	'dateOrder'
 ] as const satisfies readonly OfferRung[];
 
@@ -225,6 +225,23 @@ describe('resolveImportOffer', () => {
 	 * These are the two states a real `/import` reaches (the table above covers every pair; this
 	 * names the one the rule is about).
 	 */
+	/**
+	 * SECOND CONTRADICTION PASS F2: with the destination already known (a restored `csv` bucket held
+	 * in USD, reached by source with nothing to ask), a file declaring EUR was asked whether its
+	 * digit column names accounts, and refused for its currency only once that was answered.
+	 * Separates « a refusal the file proves comes before any question » from « the account-column
+	 * question spends an answer on a file already refused ».
+	 */
+	it('refuses the contradicted currency before the account-column question', () => {
+		expect(
+			resolveImportOffer({
+				produced: false,
+				currency: CURRENCY,
+				accountColumn: { state: 'open', fact: ACCOUNT_COLUMN }
+			})
+		).toStrictEqual({ rung: 'currency', fact: CURRENCY });
+	});
+
 	describe('a declared currency the destination contradicts is refused before the date question', () => {
 		it('account answered, date open, currency contradicted: refuses, and asks nothing', () => {
 			// SEPARATES: « refused before the reading is asked » FROM « the reading is asked, answered,

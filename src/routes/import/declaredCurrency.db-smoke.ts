@@ -511,6 +511,41 @@ describe('#600: a declared currency the destination contradicts is refused befor
 	});
 
 	/**
+	 * SECOND CONTRADICTION PASS F2, through the route. The destination is KNOWN without a question:
+	 * the user's one statement account is held in USD, which only a restore can produce
+	 * (`createStatementAccount` always writes EUR, a backup carries its own currency), so the fixture
+	 * sets it the way the restore leaves it. The file declares EUR and carries a digit column the
+	 * door cannot read as accounts or not. MEASURED before the fix: the reply was the account-column
+	 * question, and the currency refusal came only after it was answered.
+	 */
+	it('/import: a known USD destination refuses a EUR file before asking about its account column', async () => {
+		expect.assertions(2);
+		const user = await prisma.user.create({
+			data: {
+				email: `declared-restored-${Date.now()}@example.test`,
+				passwordHash: 'x',
+				role: 'USER'
+			}
+		});
+		const restored = await createStatementAccount({ userId: user.id, name: 'Compte restauré' });
+		await prisma.account.update({ where: { id: restored.id }, data: { currency: 'USD' } });
+		const asked = await postImport(user.id, {
+			csvFile: fileOf(
+				[
+					'date,label,amount,compte,currency',
+					'2026-06-01,Salaire,2500.50,12349032,EUR',
+					'2026-06-02,Courses,-42.10,12340185,EUR'
+				].join('\n')
+			)
+		});
+		console.info(
+			`[#600 C2-F2] restored USD bucket, EUR file: error="${String(asked.data?.error)}"`
+		);
+		expect(asked.data?.error).toBe(EUR_INTO_USD);
+		expect(await prisma.transaction.count({ where: { userId: user.id } })).toBe(0);
+	});
+
+	/**
 	 * CONTRADICTION PASS F3, through the route. `currency` blank, `devise` reading EUR. MEASURED
 	 * before the fix: 200, stored `["USD","USD"]`. Separates « every declaring column is read »
 	 * from « only the first one present ».
