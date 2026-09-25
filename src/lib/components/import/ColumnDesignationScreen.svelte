@@ -1487,7 +1487,7 @@
 				STOREY DID BREAK IT: with 5c's consent storey the primary ends at 837.5, and at 873.5
 				with the cost note, below the fold on every correction. No test re-derives these three:
 				the frame's top is the app layout's header, which no component spec mounts. The method
-				is in the PR that closed #684.
+				is in PR #729's body.
 
 				**THIS IS SHAVING TO FIT AND IT IS RECORDED AS SUCH.** It leaves a 6.5 px margin, which
 				is smaller than one line of anything, so the next storey added to this column breaks it
