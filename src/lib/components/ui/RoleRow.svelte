@@ -187,12 +187,15 @@
 				return m.import_columns_row_aria_candidates({ role: name, count: candidateCount ?? 0 });
 			case 'designated': {
 				if (interpretation && typeof interpretation === 'object') {
+					// #728. The reading sits MID-SENTENCE in both names below (« dates lues jour puis
+					// mois »), so it is the in-sentence form and never the sheet option's title, which
+					// starts with a capital because it stands alone as a choice.
 					const order =
 						interpretation.order === null
 							? null
 							: interpretation.order === 'month-first'
-								? m.import_datesheet_option_month_first()
-								: m.import_datesheet_option_day_first();
+								? m.import_datesheet_reading_in_sentence_month_first()
+								: m.import_datesheet_reading_in_sentence_day_first();
 					if (order !== null && !interpretationConfirmed) {
 						// The order the caller APPLIED, stated rather than derived. It cannot be derived
 						// here: `02/02/2026` reads identically both ways, and `ambiguous` is defined as

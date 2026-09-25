@@ -1455,6 +1455,8 @@
 	"import_datesheet_subline_no_header": "Column {count} · first values",
 	"import_datesheet_option_day_first": "Day then month",
 	"import_datesheet_option_month_first": "Month then day",
+	"import_datesheet_reading_in_sentence_day_first": "day then month",
+	"import_datesheet_reading_in_sentence_month_first": "month then day",
 	"import_datesheet_marker_current": "Current reading",
 	"import_datesheet_option_aria": "{order}. Examples: {examples}.",
 	"import_datesheet_not_a_date": "not a date",
