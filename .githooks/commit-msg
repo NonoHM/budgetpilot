@@ -1,0 +1,4 @@
+#!/bin/sh
+# Refuses a commit whose MESSAGE carries a private reference or a secret. See pre-commit beside
+# this file, and scripts/private-references-git.mjs for the logic.
+exec node "$(dirname "$0")/../scripts/private-references-git.mjs" commit-msg "$1"

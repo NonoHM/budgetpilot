@@ -2,22 +2,33 @@ import { describe, expect, it } from 'vitest';
 import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import {
+	EXAMPLE_IBANS,
+	HOW_TO_READ,
+	PUBLIC_ROLE_ADDRESSES,
+	findPrivateReferences,
+	type Finding
+} from '../../../scripts/private-references.mjs';
 
 /**
  * No private reference in anything published. AGENTS.md carries the rule and the reasoning, in
  * « Never publish anything derived from a real statement »; this file is the half of it that is
- * enforced.
+ * enforced for tracked files. The matcher itself (the three patterns, the reserved domains and the
+ * allowlist) lives in `scripts/private-references.mjs`, the one definition every guard imports;
+ * this file keeps its OWN planted sample and its own exact expectation, so the test and the thing
+ * under test do not share a source.
  *
  * THREE KINDS, each one something a public reader cannot open and that identifies the owner:
  * a claude.ai address (a session, an artifact or a Claude Design canvas), an absolute path inside
  * somebody's home directory (it carries a username), and an email address that could reach a
  * person. A reserved test domain and a short list of published role addresses are the only
- * addresses a tracked file may carry.
+ * addresses a tracked file may carry. A FOURTH KIND rides on the same matcher: a secret scanner's
+ * inline skip tag, refused because it would silence the secret half of the guards for its line.
  *
- * TWO SURFACES, and the boundary is the same one `emDashesInProse.spec.ts` draws. Tracked files
- * are read here. Commit messages, PR bodies, issues and comments are not files, so nothing in this
- * repository sees them before they are posted, and AGENTS.md says so rather than implying a check
- * that does not exist.
+ * THIS FILE READS TRACKED FILES ONLY. Commit messages, PR bodies, issues and comments are not
+ * files; the guards that read them are the Claude Code hook, the git hooks and the scheduled scan,
+ * each tested in `privateReferencesGuards.spec.ts`, and AGENTS.md « Where this is enforced, and
+ * where it is not » names what none of them sees.
  *
  * EVERY TRACKED FILE IS READ, and that is the difference from the em dash gate rather than an
  * oversight. That gate reads prose a reader meets; this one reads what a clone carries, because a
@@ -46,7 +57,8 @@ import { fileURLToPath } from 'node:url';
  * the one matcher the tree scan uses, in the same call that reads the tree, so the detector that
  * reported the tree clean is the detector that just found each planted kind.
  *
- * BREAK-CHECKED, each clause separately, restored from a pre-break copy (2026-09-26):
+ * BREAK-CHECKED, each clause separately, restored from a pre-break copy (2026-09-26, when the
+ * patterns still lived in this file; the clauses are unchanged by the move):
  *
  * - Pattern (a) replaced by one that matches nothing: the calibration test goes red, missing the
  *   planted claude.ai address; the tree test stays green. Separates a detector that sees a
@@ -77,119 +89,6 @@ import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
 
-type Kind = 'claude-address' | 'home-path' | 'personal-email';
-
-/**
- * One pattern per kind, and the only place each is spelled. Every one is written so that its own
- * source text cannot match it, because this file is in the population it scans.
- */
-const PATTERNS: Record<Kind, RegExp> = {
-	// (a) The host followed by a slash, so an address with a path. The bare word, as AGENTS.md
-	// uses it in prose (« a claude.ai session »), is not an address and is not matched.
-	'claude-address': /claude\.ai\//gi,
-	// (b) A home-directory path with a name after it: Linux, macOS, and a Windows profile directory
-	// with either separator, escaped or not. The lookbehind keeps a URL path segment out (a
-	// `/home/` route under some host is preceded by a word character), while `file:///` and a path
-	// opening a string or a line are still found.
-	'home-path':
-		/(?<![\w.-])\/(?:home|Users)\/[A-Za-z0-9._-]+|\b[A-Za-z]:(?:\\{1,2}|\/)[Uu][Ss][Ee][Rr][Ss](?:\\{1,2}|\/)/g,
-	// (c) Anything shaped like an address. Which domains are allowed is decided afterwards, by
-	// `isPublishableAddress`, so the shape and the policy can be broken separately.
-	'personal-email': /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g
-};
-
-/** Second-level names reserved for documentation by RFC 2606; a subdomain of one is reserved too. */
-const RESERVED_DOMAINS = ['example.com', 'example.org', 'example.net'];
-
-/**
- * Top-level names that are never delegated on the public internet, so an address under one cannot
- * reach anybody. `.test`, `.example`, `.invalid` and `.localhost`: RFC 2606 and RFC 6761. `.local`:
- * multicast DNS, RFC 6762. `.internal`: reserved by ICANN for private use. `.lan`: undelegated, and
- * named among private-use names in RFC 6762 Appendix G; `docs/database-providers.md` uses it for a
- * database host.
- */
-const RESERVED_SUFFIXES = [
-	'.test',
-	'.example',
-	'.invalid',
-	'.localhost',
-	'.local',
-	'.internal',
-	'.lan'
-];
-
-/**
- * Addresses a vendor PUBLISHES for anyone to write to. Kept short on purpose: an entry is a
- * decision, and it carries its reason and the file that needs it. The last test asserts each entry
- * still appears there, so an entry cannot outlive its reason unnoticed.
- */
-const PUBLIC_ROLE_ADDRESSES: { address: string; file: string; reason: string }[] = [
-	{
-		address: 'support.api@enablebanking.com',
-		file: 'docs/bank-sync.md',
-		reason:
-			"Enable Banking's published API support address, named so an operator can ask the " +
-			'provider directly. A role address, not a person.'
-	}
-];
-
-function isReservedDomain(domain: string): boolean {
-	const lower = domain.toLowerCase();
-	return (
-		RESERVED_DOMAINS.some((reserved) => lower === reserved || lower.endsWith(`.${reserved}`)) ||
-		RESERVED_SUFFIXES.some((suffix) => lower.endsWith(suffix))
-	);
-}
-
-function isPublishableAddress(address: string): boolean {
-	const lower = address.toLowerCase();
-	if (PUBLIC_ROLE_ADDRESSES.some((entry) => entry.address === lower)) return true;
-	return isReservedDomain(lower.slice(lower.lastIndexOf('@') + 1));
-}
-
-/** How to tell a true positive from an artefact, per kind. Printed beside every finding. */
-const HOW_TO_READ: Record<Kind, string> = {
-	'claude-address':
-		'always a true positive: no public reader can open it and it identifies the account. Name ' +
-		'what it is (« a private Claude Design canvas ») and keep the address in the gitignored ' +
-		'notes under docs/superpowers/.',
-	'home-path':
-		'a true positive when the segment after the home directory is a username on some machine. ' +
-		'An artefact only when it is a fixed path inside a container image rather than anybody’s ' +
-		'account; write a repository-relative path, or a placeholder, instead of the absolute one.',
-	'personal-email':
-		'a true positive when the address could reach a person or name an account. An artefact when ' +
-		'the shape is not an address at all (an ssh remote, a password in a URL, an image asset ' +
-		'suffix). Move a fixture to a reserved domain (example.test, example.com, .invalid); a ' +
-		"vendor's published role address goes in PUBLIC_ROLE_ADDRESSES with its reason."
-};
-
-interface Finding {
-	kind: Kind;
-	line: number;
-	match: string;
-}
-
-/** The one matcher. The tree scan and the calibration both call it and nothing else. */
-function findPrivateReferences(text: string): Finding[] {
-	const lineStarts = [0];
-	for (let i = 0; i < text.length; i += 1) if (text[i] === '\n') lineStarts.push(i + 1);
-	const lineOf = (offset: number) => {
-		let line = 0;
-		while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) line += 1;
-		return line + 1;
-	};
-
-	const findings: Finding[] = [];
-	for (const kind of Object.keys(PATTERNS) as Kind[]) {
-		for (const match of text.matchAll(PATTERNS[kind])) {
-			if (kind === 'personal-email' && isPublishableAddress(match[0])) continue;
-			findings.push({ kind, line: lineOf(match.index), match: match[0] });
-		}
-	}
-	return findings.sort((a, b) => a.line - b.line);
-}
-
 /**
  * The planted sample. Every positive is assembled at run time, because a literal one in this file
  * would be a finding against this file. The negatives are literal on purpose: each is a shape the
@@ -202,12 +101,18 @@ const CALIBRATION_SAMPLE = [
 	`cwd: ${['', 'Users', 'someone', 'repo'].join('/')}`,
 	`cwd: ${['C:', 'Users', 'someone'].join('\\')}`,
 	`contact: ${['sophie.martin', 'gmail.com'].join('@')}`,
+	`token = "x" # ${['trufflehog', 'ignore'].join(':')}`,
+	`paid to ${['DE44', '5001', '0517', '5407', '3249', '31'].join(' ')} on the 3rd`,
+	`<img alt="x" src="${'https'}://${['collect', 'example'].join('.')}/t.gif?u=1">`,
 	// Negatives, one per admission rule.
 	'the bare word claude.ai, as prose names it',
 	'a@example.test USER@Example.COM x@db.example.lan v@budgetpilot.invalid',
 	'postgres://user:hunter2@db.internal:5432/app',
 	'support.api@enablebanking.com',
-	'https://example.com/home/page/'
+	'Co-Authored-By: Claude <noreply@anthropic.com>',
+	'https://example.com/home/page/',
+	'IBAN FR76 3000 6000 0112 3456 7890 189, a published example; FR76 3000 6000 0112 3456 7890 188 fails mod-97',
+	'![build](https://github.com/o/r/badge.svg) [a link, not an image](https://collect.example/x)'
 ].join('\n');
 
 const EXPECTED_CALIBRATION: Finding[] = [
@@ -215,7 +120,14 @@ const EXPECTED_CALIBRATION: Finding[] = [
 	{ kind: 'home-path', line: 2, match: ['', 'home', 'someone'].join('/') },
 	{ kind: 'home-path', line: 3, match: ['', 'Users', 'someone'].join('/') },
 	{ kind: 'home-path', line: 4, match: ['C:', 'Users', ''].join('\\') },
-	{ kind: 'personal-email', line: 5, match: ['sophie.martin', 'gmail.com'].join('@') }
+	{ kind: 'personal-email', line: 5, match: ['sophie.martin', 'gmail.com'].join('@') },
+	{ kind: 'scanner-bypass', line: 6, match: ['trufflehog', 'ignore'].join(':') },
+	{ kind: 'iban', line: 7, match: ['DE44', '5001', '0517', '5407', '3249', '31'].join(' ') },
+	{
+		kind: 'external-image',
+		line: 8,
+		match: `<img alt="x" src="${'https'}://${['collect', 'example'].join('.')}/t.gif?u=1`
+	}
 ];
 
 function trackedFiles(): string[] {
@@ -284,13 +196,29 @@ describe('no private reference in anything published', () => {
 	});
 
 	it('keeps each allowlisted address only while the file its reason names still uses it', () => {
-		expect.assertions(PUBLIC_ROLE_ADDRESSES.length);
+		// Only an entry naming a FILE can be re-read. An entry naming a surface that is not a file (a
+		// commit trailer) has nothing here to check it against, which the module says beside it.
+		const fileEntries = PUBLIC_ROLE_ADDRESSES.flatMap((entry) => ('file' in entry ? [entry] : []));
+		expect.assertions(fileEntries.length + 1);
 
-		for (const entry of PUBLIC_ROLE_ADDRESSES) {
+		expect(fileEntries.length).toBeGreaterThan(0);
+		for (const entry of fileEntries) {
 			expect(
 				readFileSync(`${REPO_ROOT}${entry.file}`, 'utf8').toLowerCase(),
 				`${entry.address} is allowlisted for ${entry.file}, which no longer carries it`
 			).toContain(entry.address);
+		}
+	});
+
+	it('keeps each example IBAN only while the file its reason names still uses it', () => {
+		expect.assertions(EXAMPLE_IBANS.length + 1);
+
+		expect(EXAMPLE_IBANS.length).toBeGreaterThan(0);
+		for (const entry of EXAMPLE_IBANS) {
+			expect(
+				readFileSync(`${REPO_ROOT}${entry.file}`, 'utf8').replace(/ /g, ''),
+				`${entry.iban} is allowlisted for ${entry.file}, which no longer carries it`
+			).toContain(entry.iban);
 		}
 	});
 });

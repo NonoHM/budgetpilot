@@ -120,7 +120,9 @@ project with financial data.
 
 **[How this project's security is verified, and by whom](./docs/explanation/security-verification.md)**
 gathers all of it in one place, including what is deliberately NOT covered and where this
-project stands under the EU Cyber Resilience Act.
+project stands under the EU Cyber Resilience Act. How secrets and private data are kept out
+of the repository's own commits, pull requests and issues is in
+**[what keeps private data out of what this repository publishes](./docs/explanation/confidentiality-guards.md)**.
 
 ## Self-assessed against OWASP ASVS 5.0.0 Level 2
 
