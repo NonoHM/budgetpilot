@@ -158,6 +158,11 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			return m.import_refusal_invalid_balance();
 		case 'unsupported-currency':
 			return m.import_refusal_unsupported_currency();
+		case 'declared-currency-mismatch':
+			return m.import_refusal_declared_currency_mismatch({
+				declared: fact.declared,
+				destination: fact.destination
+			});
 		case 'state-not-completed':
 			return m.import_refusal_state_not_completed();
 		case 'footer-ignored':

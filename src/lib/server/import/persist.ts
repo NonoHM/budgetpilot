@@ -13,6 +13,11 @@ import { assignDedupeKeysForBatch } from '$lib/server/import/dedupeRecompute';
 import { isUniqueConstraintViolation, withConcurrentWriteRetry } from '$lib/server/database/upsert';
 import { replaceSplits } from '$lib/server/transactions/splits';
 import type { ImportedTransaction } from './types';
+import {
+	declaredCurrencyRefusal,
+	DeclaredCurrencyMismatchError,
+	rowDeclarations
+} from './declaredCurrency';
 
 /**
  * Shared import persistence — the single write path for every transaction source that
@@ -624,6 +629,20 @@ export async function persistImportedTransactions(
 		where: { id: input.accountId },
 		select: { currency: true, exponent: true, providerAccountId: true }
 	});
+
+	// #600, a BACKSTOP and not the control. The control is the routes' own call, before anything is
+	// written. This one sees only the rows it is handed, so it protects TRANSACTION ROWS, and only
+	// from a writer whose rows carry `declaredCurrency`: it cannot see a declaration made on a row the
+	// parse refused (the file-level `declaredCurrencies` can, and only the routes hold it).
+	//
+	// What it does NOT protect, stated rather than implied: by the time it runs, both routes have
+	// created the batch, `/import` may have created a by-source bucket, and either route may have
+	// counted a use of a column mapping (`/import/columns` may have saved one). Nothing catches the
+	// throw, so a writer reaching it would answer with a 500 and leave an empty batch behind. No
+	// caller reaches it today, since both routes refuse first; turning an uncaught throw here into a
+	// sentence is D3's work (#662).
+	const contradicted = declaredCurrencyRefusal(rowDeclarations(input.transactions), bucket);
+	if (contradicted) throw new DeclaredCurrencyMismatchError(contradicted);
 
 	// Every key for this batch, computed HERE rather than at parse time, and the reasons are in
 	// `dedupeRecompute.ts`. The short version: the CSV path cannot know its `accountId` at parse

@@ -21,6 +21,8 @@ import {
 import { detectSplitAmountPair } from '$lib/server/import/splitAmount';
 import { refusedForBounds } from '$lib/server/import/refusals';
 import { resolveImportOffer } from '$lib/server/import/offerPrecedence';
+import { declaredCurrencyRefusal } from '$lib/server/import/declaredCurrency';
+import { DEFAULT_DENOMINATION } from '$lib/domain/money';
 import { isImportRateLimited, recordImportAttempt } from '$lib/server/auth/rateLimit';
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import {
@@ -362,6 +364,28 @@ export const actions: Actions = {
 			accountId: answers.accountId !== null && decision.kind === 'account'
 		});
 
+		/**
+		 * #600: the currency the FILE declares against the destination, as soon as the destination
+		 * is known, and whether or not the parse produced rows: `csv.ts` carries the declaration out
+		 * of the empty parse that leaves the date question open, so this can outrank that question.
+		 * Its place in the order is `offerPrecedence.ts`'s decision (the `currency` rung), never this
+		 * call site's.
+		 *
+		 * The destination is the account the decision names, or, for a `by-source` decision with no
+		 * account yet, the bucket `resolveImportBucketAccountBySource` creates below, which is always
+		 * the default denomination. While the account is the open question there is no destination,
+		 * and no fact: the account is asked first.
+		 */
+		const destination =
+			decision.kind === 'account'
+				? decision.bucket
+				: decision.kind === 'by-source'
+					? (decision.existing ?? DEFAULT_DENOMINATION)
+					: null;
+		const currencyRefusal = destination
+			? declaredCurrencyRefusal(result.summary.declaredCurrencies ?? [], destination)
+			: null;
+
 		// The zero-transaction facts, each only on a parse that produced nothing: `csv.ts` returns
 		// exactly one fact per `emptyResult`, which is what the `.length === 1` guards rely on.
 		const produced = result.transactions.length > 0;
@@ -420,6 +444,7 @@ export const actions: Actions = {
 						: kept.accountId !== null
 							? { state: 'answered' }
 							: null,
+			currency: currencyRefusal,
 			dateOrder: dateOrderRefusal
 				? { state: 'open', fact: dateOrderRefusal }
 				: answers.dateOrder
@@ -455,6 +480,33 @@ export const actions: Actions = {
 				error: m.import_account_error_ambiguous_auto(),
 				account: accountOfferFrom(offer.question.fact),
 				answers: kept
+			});
+		}
+
+		if (offer.rung === 'currency') {
+			/**
+			 * #600, refused before any question left open below it, AND WITH THE CONTROL THAT ANSWERS
+			 * IT. The sentence ends « Choisissez un compte en EUR », so the account question comes
+			 * back on the same screen, the same offer #476's question draws. MEASURED by a browser
+			 * walk before this, at 390 and at 1280: the refusal carried no account control, and the
+			 * only way back to the question was pressing « Importer le relevé » again, which nothing
+			 * said.
+			 *
+			 * `answers` goes back WITHOUT the account, exactly as for a refused account above: it is
+			 * the account this file cannot go into, so the row reopens unanswered rather than
+			 * pre-filled with the choice just refused.
+			 */
+			return fail(400, {
+				error: refusalLabel(offer.fact),
+				// With the currency the file declared, so the panel can say which accounts are in it
+				// (a private Claude Design canvas).
+				account: {
+					...accountOfferFrom(
+						await buildAccountOffer({ userId: user.id, rows: importData.rows, source })
+					),
+					declaredCurrency: offer.fact.declared
+				},
+				answers: keptAnswers(answerKey, answers, { accountId: false })
 			});
 		}
 

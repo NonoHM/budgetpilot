@@ -22,6 +22,7 @@ import {
 	sanitizeImportedText,
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
+import { acceptedDeclarations, amountHeaderCurrency, currencyOfCell } from '../currencyDeclaration';
 
 /**
  * Which FOLDED header fills each role, once something upstream has decided.
@@ -48,8 +49,9 @@ export interface ResolvedRowsInput {
 	columns: ResolvedColumnNames;
 	/** How an ambiguous date cell is read. Absent reads day-first. */
 	dateOrder?: DateOrder;
-	/** The folded header declaring a currency, when the file has one. */
-	currencyColumn: string | undefined;
+	/** EVERY folded header declaring a currency (`currencyColumnsIn`), empty when the file has none.
+	 *  A list since #600's F3: reading only the first let a blank `currency` hide `devise`. */
+	currencyColumns: string[];
 	acceptedCurrency: string;
 	profile: ResolvedCsvImportProfile;
 	warnings: string[];
@@ -79,7 +81,7 @@ export function parseResolvedRows({
 	hasHeaderRow,
 	dateOrder,
 	columns,
-	currencyColumn,
+	currencyColumns,
 	acceptedCurrency,
 	profile,
 	warnings,
@@ -101,6 +103,26 @@ export function parseResolvedRows({
 	// Row 0 is skipped only when it IS a header. A headerless file's first line is a transaction,
 	// and slicing it away unconditionally is what ate one row per import.
 	const dataRows = rows.slice(firstDataRowIndex(hasHeaderRow));
+
+	// THE FILE'S DECLARATION, read off EVERY data row before any row is judged (#600, contradiction
+	// pass F2). A row refused below for its date or its amount still said which currency the file is
+	// in. Rows of the wrong width are left out: their cells do not sit under the header they would be
+	// read through. See `currencyDeclaration.ts`.
+	// Every declaring column, F3, and the amount column's own NAME, F1: N26's `Amount (EUR)`, and its
+	// legacy `Montant (EUR)` and `Betrag (EUR)`, declare EUR for every row under them, exactly as a
+	// `currency` column reading EUR would (`amountHeaderCurrency`, one rule, any language).
+	const amountDeclares = amountHeaderCurrency(columns.amount);
+	const declarationIndices = currencyColumns.map((column) => headers.indexOf(column));
+	const declaredCurrencies = acceptedDeclarations(
+		[
+			...(amountDeclares ? [amountDeclares] : []),
+			...dataRows
+				.filter((parsedRow) => parsedRow.cells.length === headers.length)
+				.flatMap((parsedRow) => declarationIndices.map((index) => parsedRow.cells[index] ?? ''))
+		],
+		acceptedCurrency
+	);
+
 	dataRows.forEach((parsedRow) => {
 		const row = parsedRow.cells;
 		const line = parsedRow.line;
@@ -140,19 +162,42 @@ export function parseResolvedRows({
 		// BEFORE the date and the amount so the refusal names the reason the row cannot be
 		// imported at all, rather than a downstream complaint about a value we were never going
 		// to keep.
-		if (currencyColumn) {
-			const declared = sanitizeImportedText(record[currencyColumn] ?? '');
+		//
+		// EVERY declaring column (#600, F3). A row whose columns disagree names a currency the
+		// profile does not accept in at least one of them, and is refused on that value, exactly as
+		// a row whose single column names it: same code, same scope.
+		// The amount header's declaration applies to every row. A header naming a currency the
+		// profile does not accept is refused on every row, as a `currency` column naming it is; a
+		// declaring column may still refuse the row below.
+		if (amountDeclares && amountDeclares !== acceptedCurrency) {
+			addRefusal(
+				refusals,
+				{ kind: 'row', line },
+				{ code: 'unsupported-currency', currency: refusalCellValue(amountDeclares) },
+				columns.amount
+			);
+			return;
+		}
+		let declaredCurrency: string | undefined = amountDeclares;
+		for (const currencyColumn of currencyColumns) {
+			// Read through `currencyOfCell`, the one reading of a currency cell: `€`, `Euro` and a
+			// code wrapped in invisible spaces are EUR, a blank cell is null (#600, F4).
+			const cell = record[currencyColumn] ?? '';
+			const code = currencyOfCell(cell);
 			// An EMPTY cell is not a declaration. A file with the column present and the value
 			// blank is the same situation as a file with no column, and must still import.
-			if (declared && declared.toUpperCase() !== acceptedCurrency) {
+			if (code && code !== acceptedCurrency) {
 				addRefusal(
 					refusals,
 					{ kind: 'row', line },
-					{ code: 'unsupported-currency', currency: refusalCellValue(declared) },
+					{ code: 'unsupported-currency', currency: refusalCellValue(cell) },
 					currencyColumn
 				);
 				return;
 			}
+			// The declaration LEAVES the parse (#600). It used to stop at the check above, so the row
+			// was then denominated by whatever account it landed in.
+			if (code) declaredCurrency = acceptedCurrency;
 		}
 
 		if (date === null) {
@@ -208,6 +253,9 @@ export function parseResolvedRows({
 			amountCents,
 			category: categorization.category,
 			source: 'csv',
+			// Spread so an undeclared row carries no key at all, the same absence as a file with no
+			// currency column.
+			...(declaredCurrency ? { declaredCurrency } : {}),
 			metadata: {
 				reference: '',
 				notes: label,
@@ -243,19 +291,22 @@ export function parseResolvedRows({
 		transactions,
 		warnings,
 		invalidRows: refusals,
-		summary: buildSummary({
-			profile,
-			// The rows the parser actually READ, which is every row when there is no header.
-			totalRows: dataRows.length,
-			validRows: transactions.length,
-			invalidRows: refusals.length,
-			// Every refusal this loop produces is scoped to a row and every row produces at most one,
-			// so there is nothing here that is not a row.
-			fileLevelRefusals: 0,
-			duplicateRows,
-			totalDebitCents,
-			totalCreditCents,
-			dates: validDates
-		})
+		summary: {
+			...buildSummary({
+				profile,
+				// The rows the parser actually READ, which is every row when there is no header.
+				totalRows: dataRows.length,
+				validRows: transactions.length,
+				invalidRows: refusals.length,
+				// Every refusal this loop produces is scoped to a row and every row produces at most
+				// one, so there is nothing here that is not a row.
+				fileLevelRefusals: 0,
+				duplicateRows,
+				totalDebitCents,
+				totalCreditCents,
+				dates: validDates
+			}),
+			declaredCurrencies
+		}
 	};
 }

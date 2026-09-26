@@ -60,6 +60,25 @@ They are not interchangeable, and the type system now says so: the resolved file
 > was found by an outside reviewer, because every collision fixture in the repository kept the two
 > values equal and a wrong read therefore agreed with a right one.
 
+## Declared currency, and the account's
+
+Two currencies an imported row can be said to be in.
+
+- **The declared currency** is what the FILE says, read off every row: a `currency` or `Devise`
+  column (where `€` and `Euro` read as EUR), or an amount column whose name ends with a currency
+  code, such as N26's `Amount (EUR)` or `Montant (EUR)`. A blank cell or a missing column declares
+  nothing.
+- **The account's currency** is what the destination `Account` holds. Every stored row is
+  denominated by it.
+
+When the file declares nothing, the account's currency applies, by design. This application's own
+export is that case: its header (`MAISON_V3_HEADER`) carries no currency column. When the file
+declares one and the account holds another, the import is refused, naming both.
+
+> **What confusing this cost.** The parse checked the declared currency against EUR and then
+> forgot it, and the write denominated every row by the account. A file saying EUR, filed into a
+> bank-synced USD account, stored every amount as dollars with a summary reporting success (#600).
+
 ## Profile
 
 The parser that read a statement: `generic`, `banque-populaire`, `revolut`, `maison`, `mapped`.

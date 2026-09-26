@@ -395,6 +395,7 @@
 	"import_refusal_invalid_fee": "invalid fee",
 	"import_refusal_invalid_balance": "invalid balance",
 	"import_refusal_unsupported_currency": "unsupported Revolut currency",
+	"import_refusal_declared_currency_mismatch": "This statement is in {declared}, this account in {destination}. Choose an account in {declared}.",
 	"import_refusal_state_not_completed": "Revolut state not completed",
 	"import_refusal_debit_credit_both": "debit and credit both filled",
 	"import_refusal_debit_credit_empty": "debit and credit both empty",

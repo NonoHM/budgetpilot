@@ -120,6 +120,12 @@ export type CsvRefusalFact =
 	| { code: 'invalid-fee' }
 	| { code: 'invalid-balance' }
 	| { code: 'unsupported-currency'; currency: string }
+	// #600. The file DECLARES a currency and the account chosen for it holds another. File scoped:
+	// decided once, against the destination, before any row is written, by `declaredCurrencyRefusal`
+	// and nowhere else. BOTH values are rendered, because the sentence has to tell the user which
+	// account to choose instead. `declared` is lifted from the file and goes through
+	// `refusalCellValue`; `destination` is the stored `Account.currency`.
+	| { code: 'declared-currency-mismatch'; declared: string; destination: string }
 	| { code: 'state-not-completed'; state: string }
 	| { code: 'footer-ignored' }
 	| { code: 'debit-credit-both' }
@@ -189,6 +195,7 @@ export const CSV_REFUSAL_CODES = [
 	'invalid-fee',
 	'invalid-balance',
 	'unsupported-currency',
+	'declared-currency-mismatch',
 	'state-not-completed',
 	'footer-ignored',
 	'debit-credit-both',

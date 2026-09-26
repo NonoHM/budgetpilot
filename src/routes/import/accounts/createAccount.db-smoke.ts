@@ -128,6 +128,23 @@ describe('creating an account from the designation screen', () => {
 		expect(await prisma.account.count({ where: { userId: mine, name: 'Livret A' } })).toBe(1);
 	});
 
+	it('hands back the currency the created account holds (#600)', async () => {
+		// SEPARATES: « the new option says its currency like every other » FROM « the freshly created
+		// account is the one line in the panel with no currency », which the second contradiction
+		// pass on #600 found (F3): the panel leads each line with the currency after a currency
+		// refusal, and this option was appended without one. The figure is read back from the ROW,
+		// so the answer cannot drift from what was written.
+		expect.assertions(2);
+		const response = await POST(eventOf(mine, { name: 'Compte en euros' }));
+		const body = (await response.json()) as { account: { id: string; currency?: string } };
+		const stored = await prisma.account.findUniqueOrThrow({
+			where: { id: body.account.id },
+			select: { currency: true }
+		});
+		expect(stored.currency).toBe('EUR');
+		expect(body.account.currency).toBe(stored.currency);
+	});
+
 	it('cannot set a field the sheet does not show', async () => {
 		// SEPARATES: « the create wrote only the name » FROM « a posted field reached the column ».
 		// The calibration is the first assertion: the row EXISTS, so the nulls below are refusals
