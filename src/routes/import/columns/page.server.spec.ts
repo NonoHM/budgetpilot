@@ -338,6 +338,32 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		expect(result.data?.keepDesignation).toBe(true);
 	});
 
+	it('refuses an archive that is not a workbook with its own sentence, not « empty » (#595)', async () => {
+		expect.assertions(2);
+		const { strToU8, zipSync } = await import('fflate');
+		const archive = zipSync({ 'notes.txt': strToU8('une archive, pas un classeur') });
+		const form = new FormData();
+		form.set(
+			'csvFile',
+			new File([archive as Uint8Array<ArrayBuffer>], 'releve.xlsx', {
+				type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+			})
+		);
+		form.set('accountId', 'account-1');
+
+		const result = (await actions.default({
+			request: new Request('http://localhost/import/columns', { method: 'POST', body: form }),
+			locals: { user: { id: 'user-a', email: 'a@example.test', role: 'USER' } },
+			getClientAddress: () => '127.0.0.1'
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		} as any)) as unknown as { status?: number; data?: { error?: string } };
+
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(
+			"Ce fichier .xlsx n'est pas un classeur lisible. Exportez-le de nouveau, ou en CSV."
+		);
+	});
+
 	it('deletes NOTHING when the import is refused', async () => {
 		expect.assertions(2);
 
