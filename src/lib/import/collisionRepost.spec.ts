@@ -73,6 +73,37 @@ describe('buildCollisionRepost', () => {
 		expect(buildCollisionRepost(PENDING, ANSWER).view.detectedHeaderRow).toBe(false);
 	});
 
+	/**
+	 * #735. The reopened view DESCRIBES the file under that answer, not merely carries it: the
+	 * facts for line 1 as data and the count with line 1 in it. Separates « the view was declared »
+	 * from « the flag was rewritten over facts about the other reading », which is what rewriting
+	 * `detectedHeaderRow` alone did: the screen reopened on « Importer 2 lignes » for three.
+	 */
+	it('reopens a view whose facts and count describe line 1 as data', () => {
+		expect.assertions(2);
+		const asData = {
+			samples: [
+				['a', '1'],
+				['b', '2'],
+				['c', '3']
+			],
+			firstRow: ['a', 'b', 'c'],
+			previewRows: [['a', 'b', 'c']],
+			coverage: [2, 2, 2],
+			dateStates: ['no-dates', 'no-dates', 'no-dates'] as const,
+			dateReadings: []
+		};
+		const pending = {
+			...PENDING,
+			view: { ...PENDING.view, otherHeaderRowFacts: asData }
+		} as unknown as PendingDesignation;
+
+		const view = buildCollisionRepost(pending, ANSWER).view;
+
+		expect(view.samples).toStrictEqual(asData.samples);
+		expect(view.rowCount).toBe(3);
+	});
+
 	// The consent travels because answering re-posts the run. Without it a correction imports beside
 	// the import it came to replace, or deletes one the user had chosen to keep.
 	it('carries the consent as answered, beside the server-resolved batch id', () => {

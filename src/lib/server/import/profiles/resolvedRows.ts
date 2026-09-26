@@ -12,7 +12,7 @@ import type {
 } from '../types';
 import type { CsvRefusal } from '../refusals';
 import type { DateOrder } from '../dateOrder';
-import { addRefusal, buildSummary, readDateCell, toRecord } from '../utils/csv';
+import { addRefusal, buildSummary, firstDataRowIndex, readDateCell, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildCsvFields,
@@ -100,7 +100,7 @@ export function parseResolvedRows({
 
 	// Row 0 is skipped only when it IS a header. A headerless file's first line is a transaction,
 	// and slicing it away unconditionally is what ate one row per import.
-	const dataRows = hasHeaderRow === false ? rows : rows.slice(1);
+	const dataRows = rows.slice(firstDataRowIndex(hasHeaderRow));
 	dataRows.forEach((parsedRow) => {
 		const row = parsedRow.cells;
 		const line = parsedRow.line;
