@@ -40,15 +40,18 @@ if (/(^|[/\\])dev\.db(\?|$)/.test(process.env.DATABASE_URL)) {
 /** Full length, because the column holds the whole SHA-256 of a header row, never truncated. */
 const SHARED_FINGERPRINT = 'a'.repeat(64);
 const OTHER_FINGERPRINT = 'b'.repeat(64);
-/** The four characters a statement would carry. Written once, asserted absent everywhere. */
+/**
+ * The four characters a statement would carry. Written once, and asserted absent from the two
+ * exported arrays whose tables hold a discriminant column, never from the export as a whole (#740).
+ */
 const FRAGMENT = '4417';
 
 const createdUserIds: string[] = [];
 
-async function freshUser(): Promise<string> {
+async function freshUser(emailPrefix = 'signatures'): Promise<string> {
 	const user = await prisma.user.create({
 		data: {
-			email: `signatures-${crypto.randomUUID()}@budgetpilot.invalid`,
+			email: `${emailPrefix}-${crypto.randomUUID()}@budgetpilot.invalid`,
 			passwordHash: 'db-smoke-not-a-real-hash'
 		},
 		select: { id: true }
@@ -71,8 +74,15 @@ afterAll(async () => {
 });
 
 describe('the import memory through a real engine', () => {
-	it('exports the fragment-free rows only, with the engine applying the filter', async () => {
-		const userId = await freshUser();
+	it('exports the fragment-free rows only, even when the email spells the fragment', async () => {
+		// The email spells the fragment ON PURPOSE, and this is the regression for #740. The
+		// assertion here used to be `not.toContain(FRAGMENT)` over `JSON.stringify(payload)`, a
+		// haystack that concatenates the email and every cuid, so it went red whenever a random
+		// value happened to spell the fragment (once in CI, on a UUID ending in the fragment). With
+		// the email pinned to contain it, that shape is red on EVERY run instead of on a rare one,
+		// and only assertions on the elements themselves can pass. AGENTS.md « Before writing »
+		// names the shape.
+		const userId = await freshUser(`signatures-${FRAGMENT}`);
 		const plain = await seedAccount(userId, 'Compte courant', null);
 		const bearing = await seedAccount(userId, 'Compte joint', FRAGMENT);
 		await prisma.importSourceSignature.createMany({
@@ -88,9 +98,31 @@ describe('the import memory through a real engine', () => {
 		// really carries a fragment, so "one is exported" is a filter working rather than a query
 		// finding nothing.
 		expect(await prisma.importSourceSignature.count({ where: { userId } })).toBe(2);
-		expect(payload.importSourceSignatures).toHaveLength(1);
-		expect(payload.importSourceSignatures[0].fingerprint).toBe(SHARED_FINGERPRINT);
-		expect(JSON.stringify(payload)).not.toContain(FRAGMENT);
+		// The two tables with a discriminant column are Account and ImportSourceSignature, so their
+		// two arrays are where the fragment could leave, and each is asserted to BE the expected
+		// fragment-free rows. Whole rows rather than a missing key: a field added to either export
+		// select turns this red, which is the moment to decide whether it can carry a fragment.
+		// Break checks (#740): dropping the export's `discriminant: null` filter separates "the
+		// engine filtered the signatures" from "every row was read out"; selecting the account's
+		// `discriminant` separates "column left behind" from "column exported".
+		expect(payload.importSourceSignatures).toEqual([
+			{ fingerprint: SHARED_FINGERPRINT, accountId: plain.id, useCount: 0 }
+		]);
+		const accountRow = { currency: 'EUR', exponent: 2, source: 'csv' };
+		const noLinks = {
+			netWorthAccountId: null,
+			bankConnectionId: null,
+			providerAccountId: null,
+			providerCashAccountType: null
+		};
+		expect([...payload.accounts].sort((a, b) => a.name.localeCompare(b.name))).toEqual([
+			{ id: plain.id, name: 'Compte courant', ...accountRow, ...noLinks },
+			{ id: bearing.id, name: 'Compte joint', ...accountRow, ...noLinks }
+		]);
+		// The pinned email really is in the export, so the concatenation this replaced cannot pass.
+		// Break check: unpinning the email separates a haystack that spells the fragment from one
+		// that does not, and only this line sees it.
+		expect(payload.userEmail).toContain(FRAGMENT);
 	});
 
 	it('restores two fragment-free rows sharing one fingerprint, which the unique index permits', async () => {
