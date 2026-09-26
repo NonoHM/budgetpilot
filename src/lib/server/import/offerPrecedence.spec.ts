@@ -26,6 +26,7 @@ const EXPECTED_ORDER = [
 	'split',
 	'header',
 	'multiAccount',
+	'currency',
 	'accountColumn',
 	'generic',
 	'account',
@@ -41,10 +42,27 @@ const ACCOUNT_COLUMN = {
 	sample: '10000001'
 } as const;
 const DATE_ORDER = { code: 'ambiguous-date-order', column: 0, sample: '06/01/2026' } as const;
+const CURRENCY = {
+	code: 'declared-currency-mismatch',
+	declared: 'EUR',
+	destination: 'USD'
+} as const;
 const ACCOUNT_OFFER: AccountOffer = {
 	options: [
-		{ id: 'account-courant', name: 'Compte courant', discriminant: null, transactionCount: 0 },
-		{ id: 'account-livret', name: 'Livret', discriminant: null, transactionCount: 0 }
+		{
+			id: 'account-courant',
+			name: 'Compte courant',
+			discriminant: null,
+			transactionCount: 0,
+			currency: 'EUR'
+		},
+		{
+			id: 'account-livret',
+			name: 'Livret',
+			discriminant: null,
+			transactionCount: 0,
+			currency: 'EUR'
+		}
 	],
 	resolution: { rank: 3, kind: 'orphan' },
 	memory: null,
@@ -75,6 +93,13 @@ const PENDING: Record<OfferRung, { offers: ImportOffers; offer: ImportOffer }> =
 	account: {
 		offers: { produced: true, account: { state: 'open', fact: ACCOUNT_OFFER } },
 		offer: { rung: 'account', question: { state: 'open', fact: ACCOUNT_OFFER } }
+	},
+	// #600's refusal: the file declares a currency the destination cannot hold. Computed only once
+	// the destination is known, so it arises on a parse that produced rows, and on one whose date
+	// question is still open (`csv.ts` carries the declaration out of that empty parse).
+	currency: {
+		offers: { produced: true, currency: CURRENCY },
+		offer: { rung: 'currency', fact: CURRENCY }
 	},
 	dateOrder: {
 		offers: { produced: false, dateOrder: { state: 'open', fact: DATE_ORDER } },
@@ -190,6 +215,55 @@ describe('resolveImportOffer', () => {
 					produced: true,
 					accountColumn: { state: 'answered' },
 					account: { state: 'open', fact: ACCOUNT_OFFER }
+				})
+			).toStrictEqual({ rung: 'account', question: { state: 'open', fact: ACCOUNT_OFFER } });
+		});
+	});
+
+	/**
+	 * THE OWNER'S RULE, as the ladder sees it: a refusal the file proves comes before any question.
+	 * These are the two states a real `/import` reaches (the table above covers every pair; this
+	 * names the one the rule is about).
+	 */
+	/**
+	 * SECOND CONTRADICTION PASS F2: with the destination already known (a restored `csv` bucket held
+	 * in USD, reached by source with nothing to ask), a file declaring EUR was asked whether its
+	 * digit column names accounts, and refused for its currency only once that was answered.
+	 * Separates « a refusal the file proves comes before any question » from « the account-column
+	 * question spends an answer on a file already refused ».
+	 */
+	it('refuses the contradicted currency before the account-column question', () => {
+		expect(
+			resolveImportOffer({
+				produced: false,
+				currency: CURRENCY,
+				accountColumn: { state: 'open', fact: ACCOUNT_COLUMN }
+			})
+		).toStrictEqual({ rung: 'currency', fact: CURRENCY });
+	});
+
+	describe('a declared currency the destination contradicts is refused before the date question', () => {
+		it('account answered, date open, currency contradicted: refuses, and asks nothing', () => {
+			// SEPARATES: « refused before the reading is asked » FROM « the reading is asked, answered,
+			// and the file is refused afterwards », which spends the user's answer on a refused file.
+			expect(
+				resolveImportOffer({
+					produced: false,
+					account: { state: 'answered' },
+					currency: CURRENCY,
+					dateOrder: { state: 'open', fact: DATE_ORDER }
+				})
+			).toStrictEqual({ rung: 'currency', fact: CURRENCY });
+		});
+
+		it('account still open: asks the account first, since the refusal needs it', () => {
+			// No currency fact can exist yet (the destination is the open question), so this is the
+			// ordering the rule reaches through: the account, then the refusal, then the reading.
+			expect(
+				resolveImportOffer({
+					produced: false,
+					account: { state: 'open', fact: ACCOUNT_OFFER },
+					dateOrder: { state: 'open', fact: DATE_ORDER }
 				})
 			).toStrictEqual({ rung: 'account', question: { state: 'open', fact: ACCOUNT_OFFER } });
 		});
