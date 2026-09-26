@@ -19,6 +19,7 @@ import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/ma
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { resolveImportOffer } from '$lib/server/import/offerPrecedence';
+import { emptyParseFacts } from '$lib/server/import/offerFacts';
 import { declaredCurrencyRefusal } from '$lib/server/import/declaredCurrency';
 import {
 	buildInvalidRowDetails,
@@ -185,24 +186,20 @@ export const actions: Actions = {
 			// beside a direction column. Naming it is the difference between a refusal that
 			// teaches and one that only blocks. Row-scoped refusals are deliberately not surfaced
 			// here: sixty-six of them are a summary, not a banner. See #343.
-			const headerRefusal = result.invalidRows.find((row) => row.scope.kind === 'header');
-			// #485, PROVEN or just confirmed: refused outright, no offer, same reasoning as `/import`.
-			const multiAccountRefusal =
-				result.invalidRows.length === 1 && result.invalidRows[0].fact.code === 'multi-account-file'
-					? result.invalidRows[0].fact
-					: null;
-			// #485, UNPROVEN: the one offer this branch gains.
-			const accountColumnRefusal =
-				result.invalidRows.length === 1 &&
-				result.invalidRows[0].fact.code === 'ambiguous-account-column'
-					? result.invalidRows[0].fact
-					: null;
+			// The facts through the one definition `/import` reads too (`offerFacts.ts`): the first
+			// header-scoped refusal, and #485's two, PROVEN (refused outright, no offer) and UNPROVEN
+			// (the one offer this branch gains).
+			const {
+				header: headerRefusal,
+				multiAccount: multiAccountRefusal,
+				accountColumn: accountColumnRefusal
+			} = emptyParseFacts(result);
 			// THE ONE ORDER, same function `/import` reads: no `split`, `account` or `dateOrder` on this
 			// door (see `offerPrecedence.ts`'s own docstring for why), so those are simply never passed.
 			// `produced: false` because this branch is the empty parse.
 			const offer = resolveImportOffer({
 				produced: false,
-				header: headerRefusal?.fact ?? null,
+				header: headerRefusal,
 				multiAccount: multiAccountRefusal,
 				accountColumn: accountColumnRefusal ? { state: 'open', fact: accountColumnRefusal } : null
 			});
@@ -210,7 +207,7 @@ export const actions: Actions = {
 			 * #485's `accountColumn` rung REFUSES rather than asks on this door, and DOES NOT carry
 			 * an offer: `/import/columns` has no interactive control for it (#670), and shipping the
 			 * "confirm before importing" sentence with no way to confirm is the exact dead end
-			 * `DESIGNATION_CANNOT_REPAIR` names in `/import`'s own action, applied to the door the
+			 * `designationCanHelp` (`offerFacts.ts`) names for `/import`'s offer, applied to the door the
 			 * user is already ON rather than one they would be sent to. `not-account`/`is-account`
 			 * are never posted from this door for the same reason: nothing here can answer.
 			 *

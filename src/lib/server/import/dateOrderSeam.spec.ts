@@ -594,7 +594,7 @@ describe('a registered profile asks instead of silently defaulting on an ambiguo
 	/**
 	 * THE MIXED CASE STILL REFUSES ITS OWN WAY. Separates « ambiguous and mixed are the same
 	 * branch » from « mixed keeps its own refusal and its own repairable path » (`mixed-date-order`
-	 * is not in `DESIGNATION_CANNOT_REPAIR`; `ambiguous-date-order` must be, checked at the route).
+	 * is `repairable` in `DESIGNATION_REACH`; `ambiguous-date-order` is not, checked at the route).
 	 */
 	it('leaves a column proving both readings on its own mixed-date-order refusal', () => {
 		expect.assertions(2);

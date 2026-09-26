@@ -19,6 +19,7 @@ import { resolveCsvMaxColumns } from './columnBounds';
 import { CSV_MAX_ROWS } from './resourceBounds';
 export { CSV_MAX_ROWS };
 import { refusalCellValue } from './utils/safety';
+import type { CsvRefusalFact } from './refusals';
 export { sanitizeImportedText } from './utils/safety';
 export type {
 	CsvImportOptions,
@@ -222,15 +223,21 @@ export function importSampleCoverage(rows: ParsedCsvRow[], hasHeaderRow?: boolea
 	return filled;
 }
 
-export function parseImportRows(
+/**
+ * THE FILE'S OWN REFUSAL, taken before any profile reads a column: no data row, too many rows, too
+ * many columns. The one definition, called by `parseImportRows` below and by `/import`'s correction
+ * door, which decides before the parse and must not parse through the correspondance the user has
+ * just disowned (#351). What it CAN consult is this, because no mapping decides a file's
+ * dimensions: the two doors then refuse the same file for the same reason.
+ *
+ * `dataRowCount` rides with the fact because the summary reports it (see below).
+ */
+export function fileDimensionRefusal(
 	rows: ParsedCsvRow[],
-	options: CsvImportOptions = {}
-): CsvImportResult {
-	const warnings: string[] = [];
-	const maxRows = options.maxRows ?? CSV_MAX_ROWS;
+	options: Pick<CsvImportOptions, 'maxRows' | 'maxColumns' | 'hasHeaderRow'> = {}
+): { fact: CsvRefusalFact; dataRowCount: number } | null {
 	const normalizedRows = normalizeParsedRows(rows);
-
-	if (normalizedRows.length < 2) return emptyResult([{ code: 'file-empty' }], warnings);
+	if (normalizedRows.length < 2) return { fact: { code: 'file-empty' }, dataRowCount: 0 };
 
 	// The rows a refusal below is about, computed ONCE and used both to decide the cap and to
 	// report it. A file refused by a cap used to report zero rows read, which is a statement about
@@ -240,25 +247,31 @@ export function parseImportRows(
 	// count the user cannot find in their spreadsheet.
 	const dataRowCount = normalizedRows.length - firstDataRowIndex(options.hasHeaderRow);
 
+	const maxRows = options.maxRows ?? CSV_MAX_ROWS;
 	if (dataRowCount > maxRows)
-		return emptyResult(
-			[{ code: 'too-many-rows', max: maxRows }],
-			warnings,
-			'generic',
-			dataRowCount
-		);
+		return { fact: { code: 'too-many-rows', max: maxRows }, dataRowCount };
 
 	// Beside the row cap and BEFORE profile resolution: the column count is a property of the
 	// file, so the answer must not depend on which profile happened to match. See
 	// columnBounds.ts for why the parser does not need this and the designation screen does.
 	const maxColumns = options.maxColumns ?? resolveCsvMaxColumns();
 	if (normalizedRows[0].cells.length > maxColumns)
-		return emptyResult(
-			[{ code: 'too-many-columns', max: maxColumns }],
-			warnings,
-			'generic',
-			dataRowCount
-		);
+		return { fact: { code: 'too-many-columns', max: maxColumns }, dataRowCount };
+
+	return null;
+}
+
+export function parseImportRows(
+	rows: ParsedCsvRow[],
+	options: CsvImportOptions = {}
+): CsvImportResult {
+	const warnings: string[] = [];
+	const dimensions = fileDimensionRefusal(rows, options);
+	if (dimensions)
+		return emptyResult([dimensions.fact], warnings, 'generic', dimensions.dataRowCount);
+
+	const normalizedRows = normalizeParsedRows(rows);
+	const dataRowCount = normalizedRows.length - firstDataRowIndex(options.hasHeaderRow);
 
 	const requestedProfile = options.profile ?? 'auto';
 

@@ -306,8 +306,9 @@ describe('the tracked generators produce the corpus the date-order figures are c
 	 * CAUSE B of #622: one declared column contradicting itself, and nothing left to try.
 	 *
 	 * Separates "designating repairs it" from "designating the same column again is the only move
-	 * available and it changes nothing". This is the row `DESIGNATION_CANNOT_REPAIR` exists to
-	 * prevent offering, and the one it cannot recognise today.
+	 * available and it changes nothing". This is the row the designation gate exists to
+	 * refuse offering, and the one it cannot recognise today: `DESIGNATION_REACH` classifies a CODE,
+	 * and this row shares `mixed-date-order` with cause A, which designating does repair.
 	 */
 	it('refuses a file whose only date column contradicts itself, designation or not', () => {
 		expect.assertions(2);
