@@ -1,0 +1,6 @@
+#!/bin/sh
+# Refuses a commit whose STAGED added lines carry a private reference or a secret. The logic, the
+# gitleaks handling and the reasons are in scripts/private-references-git.mjs. Activated by
+# `git config core.hooksPath .githooks` (scripts/setup.mjs does it; CONTRIBUTING.md « Git hooks »).
+# Any failure, node missing included, exits non-zero, and git then refuses the commit.
+exec node "$(dirname "$0")/../scripts/private-references-git.mjs" pre-commit

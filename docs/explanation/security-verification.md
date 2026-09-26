@@ -120,6 +120,10 @@ suite's own cleanup did.
   [operations](../operations.md). 0.11.0 is not signed: that signing run
   failed, and it is recorded rather than quietly omitted.
 
+Secrets and private data in what the repository itself publishes (files,
+commit messages, pull requests, issues) have their own guards, described in
+[what keeps private data out of what this repository publishes](./confidentiality-guards.md).
+
 One thing worth knowing about that list: **a green Dependabot is not
 evidence about what ships.** Dependabot classifies a package by where it is
 declared; the image contains the result of dependency resolution. Three

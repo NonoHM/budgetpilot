@@ -40,6 +40,31 @@ all three, so the build fails on the two you skipped.
 server, or stuck on any of this? See
 [docs/getting-started.md](./docs/getting-started.md).
 
+## Git hooks
+
+The repository tracks two git hooks under `.githooks/`. `pre-commit` reads the
+lines you stage and `commit-msg` reads your message. Each refuses a commit that
+carries a secret (through [gitleaks](https://github.com/gitleaks/gitleaks)) or a
+private reference: a claude.ai address, a path inside a home directory, a
+personal email address, an IBAN, an image from an outside host, or a secret
+scanner's skip tag. [Confidentiality guards](./docs/explanation/confidentiality-guards.md)
+explains what each guard covers and what none does.
+
+`npm run setup` activates them. In an existing clone, run this once from the
+repository root (it also covers every worktree of that clone):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hooks need gitleaks 8.19.0 or later on your `PATH` (`pacman -S gitleaks`,
+`brew install gitleaks`, or a release binary). Without it every commit is
+refused, with the install instruction. To commit without the secret scan, set
+`BP_SKIP_GITLEAKS=1` for that command; the hook then says that secrets are not
+being scanned. Nothing skips the private-reference check.
+
+The same checks run on every pull request, where no local setting can skip them.
+
 ## Before opening a PR
 
 Run the full validation suite locally. It must be 100% green:

@@ -33,6 +33,23 @@
 						"type": "command",
 						"command": "$CLAUDE_PROJECT_DIR/.claude/hooks/git-remote-current.sh",
 						"statusMessage": "Checking the branch point against origin"
+					},
+					{
+						"type": "command",
+						"command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/private-references.mjs\" || exit 2",
+						"timeout": 10,
+						"statusMessage": "Checking for private references before publishing"
+					}
+				]
+			},
+			{
+				"matcher": "mcp__.*github.*",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/private-references.mjs\" || exit 2",
+						"timeout": 10,
+						"statusMessage": "Checking for private references before publishing"
 					}
 				]
 			}
