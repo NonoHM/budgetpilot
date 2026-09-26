@@ -402,25 +402,31 @@ export function parseImportRows(
 		// written to stdout reaches nobody and is indistinguishable from never having run. The gap is
 		// recorded on the issue instead of manufactured as a log line nothing reads.
 		if (discriminant.kind === 'contradictory' || options.accountColumnAnswer === 'is-account') {
-			return emptyResult(
-				[{ code: 'multi-account-file', column: discriminant.index }],
-				warnings,
-				parser ? parser.profile : 'mapped',
-				dataRowCount
+			return carryDeclaration(
+				emptyResult(
+					[{ code: 'multi-account-file', column: discriminant.index }],
+					warnings,
+					parser ? parser.profile : 'mapped',
+					dataRowCount
+				),
+				parsed
 			);
 		}
 		if (options.accountColumnAnswer !== 'not-account') {
-			return emptyResult(
-				[
-					{
-						code: 'ambiguous-account-column',
-						column: discriminant.index,
-						sample: refusalCellValue(normalizedRows[1]?.cells[discriminant.index] ?? '')
-					}
-				],
-				warnings,
-				parser ? parser.profile : 'mapped',
-				dataRowCount
+			return carryDeclaration(
+				emptyResult(
+					[
+						{
+							code: 'ambiguous-account-column',
+							column: discriminant.index,
+							sample: refusalCellValue(normalizedRows[1]?.cells[discriminant.index] ?? '')
+						}
+					],
+					warnings,
+					parser ? parser.profile : 'mapped',
+					dataRowCount
+				),
+				parsed
 			);
 		}
 		// 'not-account': the column is confirmed noise, and `parsed` proceeds untouched, exactly as
@@ -462,17 +468,22 @@ export function parseImportRows(
 		parsed.transactions.length > 0 &&
 		parsed.summary.fileLevelRefusals === 0
 	) {
-		return emptyResult(
-			[
-				{
-					code: 'ambiguous-date-order',
-					column: questionColumn,
-					sample: refusalCellValue(verdict.sample)
-				}
-			],
-			warnings,
-			parser ? parser.profile : 'mapped',
-			dataRowCount
+		// #667's `questionColumn` names the column, and #600's `carryDeclaration` carries the file's
+		// declared currency out of this empty parse: both kept.
+		return carryDeclaration(
+			emptyResult(
+				[
+					{
+						code: 'ambiguous-date-order',
+						column: questionColumn,
+						sample: refusalCellValue(verdict.sample)
+					}
+				],
+				warnings,
+				parser ? parser.profile : 'mapped',
+				dataRowCount
+			),
+			parsed
 		);
 	}
 
@@ -485,23 +496,44 @@ export function parseImportRows(
 	// whose order was in fact decided. This closes that, and plate 7l's summary line rests on it.
 	//
 	// PLATE 7L'S DISCLOSURE, computed at the one door that knows both halves it needs: which column
-	// (`questionColumn`, the one the question named) and whether an ANSWER is what
-	// settled it, which is exactly the one branch `decideDateOrder` takes an override through
-	// (`verdict.kind === 'ambiguous' && options.dateOrder`). A proven or defaulted column leaves
-	// this undefined, never a value the summary would have to know not to render.
+	// (`questionColumn`, the one the question named) and what became of the ANSWER, which
+	// `decideDateOrder` reports and this reads rather than restating: `applied` is the one branch an
+	// override settles, `overruled` is an answer the file's proof contradicted (#619). A proven
+	// column with no disagreeing answer, or a defaulted one, leaves this undefined, never a value
+	// the summary would have to know not to render. ONE fact, so the two lines can never both show.
 	//
-	// The header text is left undisclosed (not synthesised) for a headerless file: there is no
-	// message variant for that combination in 7i, and the applied reading is unaffected either way.
+	// The header text is left undisclosed (not synthesised) for a headerless file on the answered
+	// line: there is no message variant for that combination in 7i. The overruled line names the
+	// proving cell instead of a column, so it needs no header and shows on a headerless file too.
+	// The cell is untrusted and serialised into the page, so it is bounded like every refusal cell.
 	const dateOrderHeader =
 		options.hasHeaderRow !== false ? (normalizedRows[0].cells[questionColumn] ?? '').trim() : '';
 	const dateOrderDisclosure: CsvImportSummary['dateOrderDisclosure'] =
-		verdict.kind === 'ambiguous' && options.dateOrder && decision.kind === 'read' && dateOrderHeader
-			? { header: dateOrderHeader, order: decision.order }
-			: undefined;
+		decision.answer === 'overruled'
+			? { kind: 'overruled', order: decision.order, proof: refusalCellValue(decision.proof) }
+			: decision.answer === 'applied' && dateOrderHeader
+				? { kind: 'answered', header: dateOrderHeader, order: decision.order }
+				: undefined;
 
 	return {
 		...parsed,
 		summary: { ...parsed.summary, dateOrder: decision.order, dateOrderDisclosure }
+	};
+}
+
+/**
+ * An empty result the door returns AFTER the parse ran, carrying the file's declared currency out.
+ *
+ * #600: the currency a file declares is a fact about the file, read off every row by the profile
+ * (`declaredCurrencies`), and it does not stop being true because the door then withheld the rows
+ * to ask a question. `/import` ranks the currency refusal ABOVE the date question
+ * (`offerPrecedence.ts`), and it can only do that if the declaration leaves the empty parse that
+ * raised the question. Nothing else of `parsed` is carried: the rows stay withheld.
+ */
+function carryDeclaration(result: CsvImportResult, parsed: CsvImportResult): CsvImportResult {
+	return {
+		...result,
+		summary: { ...result.summary, declaredCurrencies: parsed.summary.declaredCurrencies }
 	};
 }
 

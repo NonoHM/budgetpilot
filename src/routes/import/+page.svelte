@@ -53,7 +53,7 @@
 		type CompletedImport,
 		type ReplaceOutcome
 	} from '$lib/import/completedImport.svelte';
-	import { onMount } from 'svelte';
+	import { onMount, untrack } from 'svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -199,6 +199,18 @@
 	const dateOrderDisclosureLine = $derived.by(() => {
 		const disclosure = importResult?.dateOrderDisclosure;
 		if (!disclosure) return null;
+		// #619. The answer the file overruled takes THIS slot and REPLACES the answered line: one
+		// fact on the wire, one line on the screen, so the two can never both be drawn. It names
+		// the reading applied (the in-sentence form, as the Date row's name does, #728) and the
+		// cell that proves it, so the user can check the claim in their own file.
+		if (disclosure.kind === 'overruled')
+			return m.import_summary_date_reading_overruled({
+				order:
+					disclosure.order === 'month-first'
+						? m.import_datesheet_reading_in_sentence_month_first()
+						: m.import_datesheet_reading_in_sentence_day_first(),
+				sample: disclosure.proof
+			});
 		return disclosure.order === 'day-first'
 			? m.import_summary_date_reading_day_first({ header: disclosure.header })
 			: m.import_summary_date_reading_month_first({ header: disclosure.header });
@@ -688,6 +700,33 @@
 	const keptAccountId = $derived(
 		keptAnswers && keptAnswers !== declinedAnswers ? keptAnswers.accountId : null
 	);
+
+	/**
+	 * AN ACCOUNT THE SERVER DID NOT KEEP IS NOT SHOWN AS CHOSEN.
+	 *
+	 * The server keeps an answered account in `answers` only when it accepted it. When a reply puts
+	 * the account question back on screen WITHOUT the account the user just chose, that account was
+	 * refused for this file (#600: the file declares a currency the account does not hold), and the
+	 * row must reopen unanswered. MEASURED by a browser walk before this: the row came back reading
+	 * « Compte, Checking USD », so pressing Import again posted the refused account and met the same
+	 * refusal.
+	 *
+	 * Read on each new REPLY only (`untrack` for the rest), so a choice the user makes after the reply
+	 * is never undone by it.
+	 */
+	$effect(() => {
+		const reply = keptAnswers;
+		untrack(() => {
+			if (
+				reply &&
+				accountOffer &&
+				chosenAccountId !== null &&
+				reply.accountId !== chosenAccountId
+			) {
+				chosenAccountId = null;
+			}
+		});
+	});
 
 	/**
 	 * THE STATE DIES WITH THE FILE IT WAS GIVEN FOR, same rule as `answeredFor` and
@@ -1421,6 +1460,14 @@
 
 						`allowCreate={false}`: this host does not mount the create sheet, and an action that
 						opens nothing is a dead control shipped inside the fix for a dead end.
+
+						#600: the same question comes back WITH the currency refusal, and `declaredCurrency`
+						lets the panel say which accounts are in the declared currency (a private
+						Claude Design canvas). Deviations from that canvas,
+						kept deliberately: the page frame around this form (header, card, navigation) is the
+						page as it ships and is owned by the imports-page plates, not by this state; the
+						row's chevron points down where the canvas draws it right at rest, the direction
+						rule #686 records as undecided across the three chooser rows.
 					-->
 					<div class="relative" data-testid="import-account-question">
 						<AccountRow
@@ -1437,6 +1484,7 @@
 							selectedId={chosenAccountId}
 							panelId="import-account-panel-desktop"
 							allowCreate={false}
+							declaredCurrency={accountOffer.declaredCurrency ?? null}
 							onChoose={chooseAccount}
 							onClose={closeAccountPanel}
 						/>
@@ -1639,6 +1687,12 @@
 							states a proof and must never read as a question. `dateOrderDisclosureLine` is
 							null for the ordinary proven or defaulted import, so this renders on the minority
 							of statements whose date order nobody but a human could settle.
+
+							#619's overruled line takes this same slot and treatment, built to a private
+							Claude Design canvas. DEVIATION from that canvas, measured in a browser: it drew
+							the line on two lines at 390, and the ruled sentence wraps to THREE in this card's
+							width at text-sm. Kept as ruled (string and treatment are both ruled, and three
+							lines is under the four AGENTS.md sets); flagged to the controller.
 						-->
 						{#if dateOrderDisclosureLine}
 							<p class="mt-1 text-sm text-zinc-500">{dateOrderDisclosureLine}</p>
@@ -1913,6 +1967,7 @@
 						selectedId={chosenAccountId}
 						panelId="import-account-panel-mobile"
 						allowCreate={false}
+						declaredCurrency={accountOffer.declaredCurrency ?? null}
 						onChoose={chooseAccount}
 						onClose={closeAccountPanel}
 					/>

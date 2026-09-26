@@ -11,14 +11,17 @@ import { parseResolvedRows } from './resolvedRows';
 import { detectSignIndicatorColumn } from '../signIndicator';
 import { refusalCellValue } from '../utils/safety';
 import { foldComparableHeader } from '../utils/encoding';
+import { ACCEPTED_CURRENCY, currencyColumnsIn } from '../currencyDeclaration';
 
 /** The one column that is optional and still matched by its exact name: it has no role in
  *  building a transaction, so an absent or unrecognised category simply falls back to the
  *  sentinel rather than refusing anything. Aliasing it belongs with the mapping path. */
 const CATEGORY_COLUMN = 'category';
 
-/**
- * The names a file may use to declare what currency its amounts are in.
+/*
+ * The names a file may use to declare what currency its amounts are in: `CURRENCY_COLUMNS` in
+ * `currencyDeclaration.ts`, shared with `mapped.ts` since #600. This note stays with the profile it
+ * was written about.
  *
  * ## Why this exists, and why it REFUSES rather than converts
  *
@@ -51,6 +54,12 @@ const CATEGORY_COLUMN = 'category';
  * to detect. Somewhere to store a currency now exists; what is still missing is a moment where the
  * user says which one, and that belongs to the import destination feature rather than here.
  *
+ * **Accepting EUR here is half the check.** The other half is the account the file lands in, which
+ * this parser cannot see. So an accepted declaration leaves the parse on each row
+ * (`ImportedTransaction.declaredCurrency`) and `declaredCurrencyRefusal` compares it with the
+ * destination before anything is written. Before #600 it stopped here, and a file saying EUR filed
+ * into a USD account stored USD.
+ *
  * ## Only this profile can see it
  *
  * `maison`, `maison-v2` and `banque-populaire` match on exact ordered equality against a fixed
@@ -58,8 +67,6 @@ const CATEGORY_COLUMN = 'category';
  * reaches them: it falls through to here. A currency guard in those three would be unreachable,
  * which is a guard in costume rather than a guard. Their EUR assumption is documented instead.
  */
-const CURRENCY_COLUMNS = ['currency', 'devise'];
-const ACCEPTED_CURRENCY = 'EUR';
 
 export function matchesGenericHeader(): boolean {
 	return true;
@@ -177,8 +184,9 @@ export function parseGenericRows({
 		};
 	}
 
-	// Which header, if any, declares the currency. Absent is the common case and is fine.
-	const currencyColumn = CURRENCY_COLUMNS.find((name) => headers.includes(name));
+	// Which headers, if any, declare the currency: every one present, not the first (#600, F3).
+	// Absent is the common case and is fine.
+	const currencyColumns = currencyColumnsIn(headers);
 
 	return parseResolvedRows({
 		rows,
@@ -193,7 +201,7 @@ export function parseGenericRows({
 			amount: columns.amount as string,
 			category: CATEGORY_COLUMN
 		},
-		currencyColumn,
+		currencyColumns,
 		acceptedCurrency: ACCEPTED_CURRENCY,
 		profile: 'generic',
 		warnings,

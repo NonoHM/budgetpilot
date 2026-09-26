@@ -78,7 +78,8 @@ const REPO_ROOT = fileURLToPath(new URL('../../../../', import.meta.url));
  * the denominator #621 exists to settle. Adding a fixture should oblige the next person to state
  * the new denominator here rather than let it drift under a `toBeGreaterThan`.
  */
-const CORPUS_FILE_COUNT = 31;
+// 32 since `declared-eur.csv` (#600).
+const CORPUS_FILE_COUNT = 32;
 
 /** The fixtures whose every date must read both ways. See `AMBIGUOUS_LEDGER`. */
 const AMBIGUOUS_FIXTURES = [

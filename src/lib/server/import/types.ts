@@ -3,6 +3,7 @@ import type { CategorizationRuleInput } from '$lib/server/categorization/rules';
 import type { CsvRefusal } from './refusals';
 import type { UntrustedColumnMapping } from './mapping/model';
 import type { DateOrder } from './dateOrder';
+import type { DateOrderDisclosure } from '$lib/domain/importSummary';
 import type { AccountColumnAnswer } from './discriminant';
 
 export interface CsvImportOptions {
@@ -154,6 +155,21 @@ export interface ImportedTransaction extends Transaction {
 	 * is exactly why it is one of the three write paths that habitually bypass an invariant.
 	 */
 	splitParts?: ImportedSplitPart[];
+	/**
+	 * The currency THIS ROW's file declared for it, as an ISO 4217 code, or absent when it declared
+	 * none (no currency column, or a blank cell). #600.
+	 *
+	 * Carried out of the parse because the parse is the only place it is known, and the row is
+	 * denominated later by the account it lands in (`persistImportedTransactions`). Before this the
+	 * value was read, checked against EUR and forgotten, so a file declaring EUR filed into a USD
+	 * account stored USD. `declaredCurrencyRefusal` is the one comparison with the destination.
+	 *
+	 * Absent rather than null, and that is the file-evidence rule rather than tidiness: a file that
+	 * declares nothing exhibits nothing, so the destination's currency applies by design and there is
+	 * nothing to compare. Not in `metadata`, for the reason `splitParts` gives: metadata is
+	 * traceability, and this decides what the money is denominated in.
+	 */
+	declaredCurrency?: string;
 }
 
 export interface CsvImportSummary {
@@ -171,20 +187,35 @@ export interface CsvImportSummary {
 	 */
 	dateOrder?: DateOrder;
 	/**
-	 * The column and reading to disclose on the import summary, plate 7l — present only where the
-	 * reading was CHOSEN rather than proven or defaulted.
+	 * What to disclose about the date reading on the import summary, plate 7l — present only where
+	 * an ANSWER was applied or overruled.
 	 *
-	 * "Chosen" is exactly the one branch `decideDateOrder` reaches through an override: the column
-	 * left the question genuinely open (`ambiguous`) and an answer settled it. A proven column is
-	 * arithmetic and disclosing it every month is noise (7l); a defaulted column was never chosen
-	 * by anyone, and stating a "reading" nobody answered is the silent default #433 names, wearing
-	 * a summary line instead of a refusal.
+	 * `answered` is exactly the one branch `decideDateOrder` reaches through an override: the column
+	 * left the question genuinely open (`ambiguous`) and an answer settled it. `overruled` is an
+	 * answer the file's proof contradicted (#619): the proof wins and the user is told. A proven
+	 * column nobody contradicted is arithmetic and disclosing it every month is noise (7l); a
+	 * defaulted column was never chosen by anyone, and stating a "reading" nobody answered is the
+	 * silent default #433 names, wearing a summary line instead of a refusal.
 	 *
 	 * Absent, never `null`, for the same reason `dateOrder` is optional: most parses have nothing
 	 * to disclose, and an object some parses omit is a smaller lie than a field always present and
 	 * usually null.
 	 */
-	dateOrderDisclosure?: { header: string; order: DateOrder };
+	dateOrderDisclosure?: DateOrderDisclosure;
+	/**
+	 * The currencies this FILE declares, read off every row whether or not the row became a
+	 * transaction (`currencyDeclaration.ts`), as ISO codes. Empty or absent when it declares none,
+	 * which takes the destination account's currency by design (#600's ruling).
+	 *
+	 * THE AUTHORITY the routes compare with the destination (`declaredCurrencyRefusal`). The
+	 * per-row `ImportedTransaction.declaredCurrency` feeds only the persist backstop, and is the
+	 * weaker of the two for the reason F2 measured: a declaring row refused for its date leaves no
+	 * transaction to carry its claim.
+	 *
+	 * Optional because only the profiles that can read a currency set it (`generic`, `mapped`,
+	 * `revolut`); the others cannot be handed a file carrying one (`declaredCurrency.spec.ts`).
+	 */
+	declaredCurrencies?: string[];
 	/**
 	 * The DATA rows this parse read, which is every row a refusal can be about.
 	 *

@@ -33,7 +33,9 @@ describe('refusal catalogue coverage', () => {
 		// 44 since `multi-account-file` and `ambiguous-account-column` (#485): a discriminant
 		// column PROVEN or merely EXHIBITING more than one account, refused or asked before any
 		// row is written rather than reported after the fact.
-		expect(CSV_REFUSAL_CODES).toHaveLength(44);
+		// 45 since `declared-currency-mismatch` (#600): a currency the file declares, contradicted by
+		// the account it is filed into, refused before anything is written.
+		expect(CSV_REFUSAL_CODES).toHaveLength(45);
 
 		const missingFr = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in fr));
 		const missingEn = CSV_REFUSAL_CODES.filter((c) => !(KEY(c) in en));

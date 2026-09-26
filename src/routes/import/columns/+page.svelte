@@ -280,6 +280,7 @@
 					{
 						error?: string;
 						keepDesignation?: boolean;
+						declaredCurrency?: string;
 						collision?: CollidingBatchView;
 						incoming?: CollisionFigures;
 					}
@@ -461,6 +462,9 @@
 				accountHint={accountOffer.hint}
 				accountHintAboutFile={accountOffer.hintAboutFile}
 				accountPrefill={pending.account?.prefillName ?? ''}
+				declaredCurrency={form && 'declaredCurrency' in form
+					? ((form.declaredCurrency as string | undefined) ?? null)
+					: null}
 				onCreateAccount={createAccount}
 				initialAssignment={pending.initialAssignment}
 				candidates={pending.candidates as Partial<Record<MappingRole, number[]>>}
