@@ -20,67 +20,55 @@ All screenshots use fake demo data, not a real user's finances.
 
 ## What it does
 
-- **Manual and CSV import**, with bank-specific profiles and duplicate detection.
+- **Manual entry, and CSV or Excel (XLSX) import**, with duplicate detection. Some banks are recognised on their own; for any other, you tell the app once what each column means and it can remember. When a file's dates can be read two ways, it asks instead of guessing.
 - **Optional automatic bank sync** (PSD2, via Enable Banking). Off by default. HTTPS only, explicit host allowlist, no credential scraping, ever.
-- **Budgets**: monthly, per category, with alerts when you're close to the limit.
+- **Budgets**: monthly, per category, flagged when you get close to the limit.
 - **[Net worth tracking](docs/using/net-worth.md)** across multiple accounts, with history over time.
 - **[Savings goals](docs/using/savings-goals.md)**, with pace tracking and an optional link to a real account.
 - **[Cash flow forecasting](docs/using/cash-flow-forecast.md)**: a deterministic projection of your upcoming balance, based on recurring income and expenses it actually detects from your history. No machine learning involved, nothing sent anywhere.
-- **[Categorization rules](docs/using/rules.md)** (text or regex), applied automatically on import, never overriding something you fixed by hand. 157 ship with the app.
+- **[Categorization rules](docs/using/rules.md)** (text or regex), applied automatically on import, never overriding something you fixed by hand. A ready-made set ships with the app.
 - **[Split transactions](docs/using/split-transactions.md)**: one payment across several categories, so an 80 € supermarket trip can be 50 € Groceries and 30 € Shopping. Budgets and reports count the parts, your totals stay exactly the same, and the CSV export carries the split back out and in again.
-- **Tags**: free labels that cut across categories, so "Portugal 2026" can hold a train, a restaurant and a hotel while each keeps its own category. Filter the list by one, tag a whole filtered set at once, and undo that in a click.
+- **Tags**: free labels that cut across categories, so "Portugal 2026" can hold a train, a restaurant and a hotel while each keeps its own category. Filter the list by one, tag a whole filtered set at once, and undo that in one step.
 - **Optional local AI advice** via Ollama. By default, only anonymized aggregates reach the model. An opt-in setting can add the labels of your largest expenses, never your full transaction history.
 - **Backup and restore**: a full export of your own data, nothing held hostage.
 - French and English, out of the box.
 
 ## Known limitations
 
-Better to read these now than find them later. Every one has an open issue, so
-you can follow or fix any of them.
+Better to read these now than find them later. Each one links to its issue, or
+to the page that explains it, so you can follow or fix any of them.
 
-**Read this one first.** If your bank writes dates the American way (month
-first) or uses a dot for decimals, your statement will import on the wrong
-dates instead of being refused. `01/06` is a valid date either way round, and
-nothing in the file says which was meant. It is the only limitation here that
-you cannot spot on screen. [#433](https://github.com/NonoHM/budgetpilot/issues/433)
+**Read this one first.** BudgetPilot works in euros. Statement lines in another
+currency are refused, but amounts in another currency that arrive through bank
+sync end up in euro totals, and nothing on screen tells you.
+[#313](https://github.com/NonoHM/budgetpilot/issues/313),
+[#695](https://github.com/NonoHM/budgetpilot/issues/695). Support for several
+currencies is tracked in [#746](https://github.com/NonoHM/budgetpilot/issues/746).
 
 The rest are visible, and none of them costs you data:
 
 - The budgets page shows what you spent **in the categories you have
-  budgeted**, not everything you spent. The screen does not say so yet.
+  budgeted**, not everything you spent, and the screen does not say so.
   [#434](https://github.com/NonoHM/budgetpilot/issues/434)
 - Reports compare part of this month against **all** of last month, so early in
   a month the comparison looks better than it is.
   [#435](https://github.com/NonoHM/budgetpilot/issues/435)
 - Net worth history cannot be edited or deleted, so a mistyped past balance
   stays on the curve. [#436](https://github.com/NonoHM/budgetpilot/issues/436)
-- Rules cannot be reordered. 157 ship switched on, so two of them will often
-  match the same transaction and nothing tells you which one won.
+- Rules cannot be reordered. The ready-made set ships switched on, so two rules
+  will often match the same transaction and nothing tells you which one won.
   [#437](https://github.com/NonoHM/budgetpilot/issues/437)
 - The first account created is the admin, and there is no way to make anyone
   else one. [#438](https://github.com/NonoHM/budgetpilot/issues/438)
 - Account email addresses have to be plain ASCII on every database engine. See
   [configuration](docs/configuration.md#database).
-- Bank sync needs HTTPS, three settings that must agree, an activation step on
-  the provider's side, and the private key delivered into the container. Almost
-  every way of getting it wrong is silent. Enable Banking's Control Panel
-  refuses an `http://` redirect URL outright, with "uses unsupported scheme", so
-  a plain-http instance cannot even finish registering an application; you need
-  a TLS reverse proxy in front of BudgetPilot. Then `ORIGIN`,
-  `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS` and the URL registered in the Control
-  Panel must be the **same origin, character for character**, port included.
-  Behind a proxy on 443 that origin carries no port. A wrong `ORIGIN` answers
-  403 "Cross-site POST form submissions are forbidden" on the **Connect**
-  button, which reads like a login or session problem; a wrong registered URL
-  shows only "Invalid operation."; only `BANK_SYNC_REDIRECT_ALLOWED_ORIGINS`
-  names itself on screen. On top of that, a PRODUCTION application is created
-  **Inactive** and answers 403 "Application is not active" to everything,
-  including the bank list, until you activate it by linking your own accounts.
-  And no base compose file mounts `keys/`, so the key has to arrive through the
-  `docker-compose.keys.yml` overlay or inline, readable by uid 65532. The app
-  reports all of this as "try again later" and writes nothing to the logs.
-  Follow [bank sync](docs/bank-sync.md) step by step rather than diagnosing from
-  the logs.
+- Bank sync is demanding to set up, and most mistakes are silent. It needs a
+  TLS reverse proxy (the provider refuses an `http://` redirect URL), three
+  settings that must match **character for character**, an activation step on
+  the provider's side, and the private key mounted into the container. When one
+  of them is wrong, the screen often cannot tell you which, and nothing is
+  written to the logs. Follow [bank sync](docs/bank-sync.md) step by step rather
+  than diagnosing from the logs.
 
 ## Quick start
 
@@ -121,7 +109,7 @@ docker compose -f docker-compose.prebuilt.yml up -d
 
 `up -d` starts what you already have; it does not fetch a new version. The `pull` is what makes the version above the one you actually run.
 
-Open **http://localhost:3000** and create your account. Registration is closed by default, so the form asks for a token: it's the `BOOTSTRAP_TOKEN` you just generated (`grep BOOTSTRAP_TOKEN .env`). The first account created becomes the admin. The interface starts in French, switch to English from Settings.
+Open **http://localhost:3000** and create your account. Registration is closed by default, so the form asks for a token: it's the `BOOTSTRAP_TOKEN` you just generated (`grep BOOTSTRAP_TOKEN .env`). The first account created becomes the admin. The interface follows your browser's language, French or English (any other language gets English), and you can change it in Settings.
 
 On Windows, run all of this from Git Bash or WSL. **Port 3000 already taken?** Change `APP_PORT` in `.env` to a free port, then `docker compose -f docker-compose.prebuilt.yml up -d` again, and open the new port. Nothing else to change. Want to run it from a source checkout instead? The [full walkthrough](docs/getting-started.md) covers that, plus running it without Docker.
 
@@ -147,7 +135,7 @@ I'm not a professional developer. I built this over several months with Claude, 
 
 This isn't trying to replace Monarch, YNAB, or the other well-established players in this space. Open source alternatives exist too (Firefly III, Actual Budget, to name two), and they're more mature and, in some areas, better built than this. BudgetPilot is just my take on it, local-first and privacy-first by default, and I'm putting it out there in case it's useful to someone else too.
 
-CSV import is still where most of the remaining work is. Four bank profiles are recognised automatically and any other bank is imported by telling the app what its columns mean, but the format coverage below is real and contributions there are especially welcome.
+Import is where most of the remaining work is. Banque Populaire and Revolut statements, and the app's own CSV format, are recognised automatically; any other bank is imported by telling the app what its columns mean. Contributions there are especially welcome.
 
 ## Tech stack
 
