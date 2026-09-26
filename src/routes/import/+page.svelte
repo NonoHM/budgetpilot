@@ -199,6 +199,18 @@
 	const dateOrderDisclosureLine = $derived.by(() => {
 		const disclosure = importResult?.dateOrderDisclosure;
 		if (!disclosure) return null;
+		// #619. The answer the file overruled takes THIS slot and REPLACES the answered line: one
+		// fact on the wire, one line on the screen, so the two can never both be drawn. It names
+		// the reading applied (the in-sentence form, as the Date row's name does, #728) and the
+		// cell that proves it, so the user can check the claim in their own file.
+		if (disclosure.kind === 'overruled')
+			return m.import_summary_date_reading_overruled({
+				order:
+					disclosure.order === 'month-first'
+						? m.import_datesheet_reading_in_sentence_month_first()
+						: m.import_datesheet_reading_in_sentence_day_first(),
+				sample: disclosure.proof
+			});
 		return disclosure.order === 'day-first'
 			? m.import_summary_date_reading_day_first({ header: disclosure.header })
 			: m.import_summary_date_reading_month_first({ header: disclosure.header });
@@ -1639,6 +1651,12 @@
 							states a proof and must never read as a question. `dateOrderDisclosureLine` is
 							null for the ordinary proven or defaulted import, so this renders on the minority
 							of statements whose date order nobody but a human could settle.
+
+							#619's overruled line takes this same slot and treatment, built to a private
+							Claude Design canvas. DEVIATION from that canvas, measured in a browser: it drew
+							the line on two lines at 390, and the ruled sentence wraps to THREE in this card's
+							width at text-sm. Kept as ruled (string and treatment are both ruled, and three
+							lines is under the four AGENTS.md sets); flagged to the controller.
 						-->
 						{#if dateOrderDisclosureLine}
 							<p class="mt-1 text-sm text-zinc-500">{dateOrderDisclosureLine}</p>
