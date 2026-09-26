@@ -854,6 +854,78 @@ describe('persistImportedTransactions', () => {
 		expect(prismaMock.transaction.create).not.toHaveBeenCalled();
 	});
 
+	/**
+	 * D3, the three failure branches no db-smoke can reach on demand: the rules failing after every
+	 * row landed, a read failing before the first row, and the ledger failing to answer at all. Each
+	 * one separates « the count said » from « the count was written », which is #660's defect.
+	 */
+	it('writes the count BEFORE the rules, so a rules failure cannot cost it (#660)', async () => {
+		expect.assertions(2);
+		const boom = new Error('rules unavailable');
+		applyCategoryRulesMock.mockRejectedValueOnce(boom);
+
+		const caught = await rejectionOf(
+			persistImportedTransactions({
+				userId: 'user-1',
+				accountId: 'account-1',
+				importBatchId: 'batch-1',
+				source: 'csv',
+				transactions: [baseTransaction({ label: 'Courses' })]
+			})
+		);
+
+		expect(prismaMock.importBatch.updateMany).toHaveBeenCalledWith({
+			where: { id: 'batch-1', userId: 'user-1' },
+			data: { importedRows: 1, duplicateRows: 0 }
+		});
+		expect(caught).toMatchObject({ failure: { kind: 'failed', landedRows: 1 }, cause: boom });
+	});
+
+	it('reports 0 landed, not an unknown, when a read fails before the first row', async () => {
+		expect.assertions(3);
+		const down = new Error('connection refused');
+		prismaMock.account.findFirst.mockRejectedValueOnce(down);
+
+		const caught = await rejectionOf(
+			persistImportedTransactions({
+				userId: 'user-1',
+				accountId: 'account-1',
+				importBatchId: 'batch-1',
+				source: 'csv',
+				transactions: [baseTransaction({ label: 'Courses' })]
+			})
+		);
+
+		expect(caught).toMatchObject({
+			name: 'ImportWriteError',
+			failure: { kind: 'failed', landedRows: 0 }
+		});
+		expect(caught.cause).toBe(down);
+		expect(prismaMock.transaction.create).not.toHaveBeenCalled();
+	});
+
+	it('reports the count as UNKNOWN when the ledger cannot be read after a row failed', async () => {
+		expect.assertions(2);
+		const rowFailure = new Error('row refused');
+		prismaMock.transaction.create.mockRejectedValueOnce(rowFailure);
+		prismaMock.transaction.count.mockRejectedValueOnce(new Error('connection lost'));
+
+		const caught = await rejectionOf(
+			persistImportedTransactions({
+				userId: 'user-1',
+				accountId: 'account-1',
+				importBatchId: 'batch-1',
+				source: 'csv',
+				transactions: [baseTransaction({ label: 'Courses' })]
+			})
+		);
+
+		// Null, never 0: « nothing was saved » would be a guess stated as a fact.
+		expect(caught).toMatchObject({ failure: { kind: 'failed', landedRows: null } });
+		// The loop's failure is the cause kept: it is why the ledger was being asked at all.
+		expect(caught.cause).toBe(rowFailure);
+	});
+
 	it('folds parseDuplicateRows into the returned duplicateRows count', async () => {
 		const result = await persistImportedTransactions({
 			userId: 'user-1',
