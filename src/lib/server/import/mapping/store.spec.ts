@@ -117,7 +117,7 @@ describe('COLUMN_MAPPINGS_PER_USER at boot', () => {
 		// '0' and '1' are the pair where `< 1` and `< 0` disagree; '1' is accepted and is in the
 		// expectation below as `no refusal` so that pair is visible.
 		const refusal = (raw: string) =>
-			`${NAME} must be a whole number of at least 1 (got ${JSON.stringify(raw)}). It bounds how many remembered column mappings one user may hold. The default is ${COLUMN_MAPPINGS_PER_USER_DEFAULT}.`;
+			`${NAME} must be a whole number of at least 1, written in the digits 0 to 9 only (got ${JSON.stringify(raw)}). It bounds how many remembered column mappings one user may hold. The default is ${COLUMN_MAPPINGS_PER_USER_DEFAULT}.`;
 		const inputs = ['0', '-1', '1.5', 'many', '1'];
 
 		const got = Object.fromEntries(

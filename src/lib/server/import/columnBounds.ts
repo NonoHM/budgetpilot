@@ -1,3 +1,5 @@
+import { readOperatorBound } from '$lib/server/env/operatorBound';
+
 /**
  * How many columns an imported file may declare.
  *
@@ -65,15 +67,11 @@ export const WIDEST_REALISTIC_EXPORT_COLUMNS = 40;
  * `resolveBackupMaxJsonNodes` and the xlsx bound.
  */
 export function resolveCsvMaxColumns(): number {
-	const raw = process.env[CSV_MAX_COLUMNS_ENV];
-	if (raw === undefined || raw.trim() === '') return CSV_DEFAULT_MAX_COLUMNS;
-
-	const columns = Number(raw);
-	if (!Number.isInteger(columns) || columns < 1) {
-		throw new Error(
-			`${CSV_MAX_COLUMNS_ENV} must be a whole number of at least 1 (got ${JSON.stringify(raw)}). It bounds how many columns an imported file may declare. The default is ${CSV_DEFAULT_MAX_COLUMNS}.`
-		);
-	}
+	const columns = readOperatorBound({
+		name: CSV_MAX_COLUMNS_ENV,
+		fallback: CSV_DEFAULT_MAX_COLUMNS,
+		purpose: 'It bounds how many columns an imported file may declare.'
+	});
 
 	if (columns > CSV_MAX_COLUMNS_CEILING) {
 		throw new Error(
@@ -85,8 +83,9 @@ export function resolveCsvMaxColumns(): number {
 }
 
 /**
- * Boot check, called from `hooks.server.ts` beside the backup bound. Refuses to start on an
- * out-of-range value, and reports any departure from the default in both directions.
+ * Boot check, registered in `ENVIRONMENT_CHECKS` (`server/env/assertConfigured.ts`), the collector
+ * `init` in `hooks.server.ts` awaits before the server listens. Refuses to start on an out-of-range
+ * value, and reports any departure from the default in both directions.
  */
 export function assertCsvColumnBoundConfigured(): void {
 	const columns = resolveCsvMaxColumns();

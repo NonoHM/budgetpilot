@@ -932,8 +932,8 @@
 	 *
 	 * The cap FIGURE is deliberately not in the sentence. It is read from the environment
 	 * (`COLUMN_MAPPINGS_PER_USER`), so a literal here would be wrong on any instance that moved it,
-	 * and there is nothing the user can do with the number until a remembered-correspondance list
-	 * exists to delete from (#326).
+	 * and the number is not what the user acts on: the banner's link to the Settings list, where a
+	 * correspondance is removed (#326), is.
 	 */
 	const capReached = $derived(carriedImport?.capReached === true);
 
