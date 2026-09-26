@@ -1474,6 +1474,7 @@
 	"import_recap_date_reading_month_first": "Dates lues mois puis jour",
 	"import_summary_date_reading_day_first": "Dates lues jour puis mois — {header}",
 	"import_summary_date_reading_month_first": "Dates lues mois puis jour — {header}",
+	"import_summary_date_reading_overruled": "Dates lues {order} : {sample} le prouve, votre réponse n'a pas été appliquée.",
 	"import_designate_date_reading_no_dates": "Aucune date dans cette colonne",
 	"import_designate_date_reading_empty": "Colonne vide",
 	"import_designate_date_row_aria_no_dates": "Date, colonne désignée : {header}, aucune date dans cette colonne",

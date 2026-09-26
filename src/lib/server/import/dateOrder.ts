@@ -199,7 +199,16 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
  * decision is what the PARSER does, and only the second one has a default in it.
  */
 export type DateOrderDecision =
-	| { kind: 'read'; order: DateOrder }
+	/**
+	 * `applied`: the answer settled a column the file left open. `unused`: no answer, or one that
+	 * could change nothing (an ISO file, or a proof that agrees with it).
+	 */
+	| { kind: 'read'; order: DateOrder; answer: 'applied' | 'unused' }
+	/**
+	 * The file PROVED the other order, so the answer was not applied (#619). Carries the proving
+	 * cell, because the user is told, and a claim is only checkable beside the value it rests on.
+	 */
+	| { kind: 'read'; order: DateOrder; answer: 'overruled'; proof: string }
 	/** The column proved both readings. Carries both cells, because neither is wrong alone. */
 	| { kind: 'refuse'; dayFirst: string; monthFirst: string };
 
@@ -234,6 +243,14 @@ export type DateOrderDecision =
  * import. Returning the default rather than the override keeps the two indistinguishable, which
  * is what they are.
  *
+ * ## An answer the proof overrules is REPORTED, never dropped (#619)
+ *
+ * The precedence above is unchanged. What the decision adds is what became of the answer, because
+ * a user who answered a question about their file and was overruled without being told is worse
+ * off than one never asked: they have a reason to believe the dates follow their answer. The
+ * decision is the one place that knows both halves, so it is where `overruled` is defined, and the
+ * summary's disclosure reads it rather than restating the comparison.
+ *
  * Pure: no clock, no locale, no ambient state, so a decision is recomputable from the column it
  * was taken over. See `AGENTS.md` under « Code style ».
  */
@@ -249,11 +266,17 @@ export function decideDateOrder(
 			monthFirst: verdict.monthFirstEvidence
 		};
 
-	if (verdict.kind === 'resolved') return { kind: 'read', order: verdict.order };
+	// The proof wins, and an answer it contradicts is REPORTED rather than dropped (#619). An
+	// answer the proof agrees with overrules nothing and is not news.
+	if (verdict.kind === 'resolved')
+		return override && override !== verdict.order
+			? { kind: 'read', order: verdict.order, answer: 'overruled', proof: verdict.evidence }
+			: { kind: 'read', order: verdict.order, answer: 'unused' };
 
 	// The one branch an override can reach. `nothing-to-decide` falls past it to the default,
 	// because there is no ambiguous cell for an answer to be about.
-	if (verdict.kind === 'ambiguous' && override) return { kind: 'read', order: override };
+	if (verdict.kind === 'ambiguous' && override)
+		return { kind: 'read', order: override, answer: 'applied' };
 
-	return { kind: 'read', order: DEFAULT_DATE_ORDER };
+	return { kind: 'read', order: DEFAULT_DATE_ORDER, answer: 'unused' };
 }

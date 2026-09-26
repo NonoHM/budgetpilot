@@ -763,6 +763,25 @@ describe('the reading the user answered decides how the file is read', () => {
 	});
 
 	/**
+	 * #619, THROUGH THE ROUTE THAT STILL PRODUCES IT. This door reads `dateOrder` off the form with
+	 * no binding to the file, so a request posted by hand (or by a page whose own screen state has
+	 * drifted from the file) can pair an answer with a column that proves the other order. The proof
+	 * still wins, as the test above asserts; this separates « the summary says the answer was not
+	 * applied, naming the proving cell » from « the answer was discarded in silence ».
+	 */
+	it('tells the user when the file overruled the answer it was posted with', async () => {
+		expect.assertions(1);
+		const result = (await submit(PROVES_DAY_FIRST, true, { dateOrder: 'month-first' })) as {
+			importResult?: { dateOrderDisclosure?: unknown };
+		};
+		expect(result.importResult?.dateOrderDisclosure).toStrictEqual({
+			kind: 'overruled',
+			order: 'day-first',
+			proof: '24/06/2026'
+		});
+	});
+
+	/**
 	 * THE DIRECTION THIS IS NOT GOING, second half. A column proving BOTH readings has no true
 	 * answer to give, so an answer must not rescue it: honouring one would import half the rows
 	 * wrong with the user's own choice as the alibi.

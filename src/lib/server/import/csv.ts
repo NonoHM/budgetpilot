@@ -496,19 +496,24 @@ export function parseImportRows(
 	// whose order was in fact decided. This closes that, and plate 7l's summary line rests on it.
 	//
 	// PLATE 7L'S DISCLOSURE, computed at the one door that knows both halves it needs: which column
-	// (`questionColumn`, the one the question named) and whether an ANSWER is what
-	// settled it, which is exactly the one branch `decideDateOrder` takes an override through
-	// (`verdict.kind === 'ambiguous' && options.dateOrder`). A proven or defaulted column leaves
-	// this undefined, never a value the summary would have to know not to render.
+	// (`questionColumn`, the one the question named) and what became of the ANSWER, which
+	// `decideDateOrder` reports and this reads rather than restating: `applied` is the one branch an
+	// override settles, `overruled` is an answer the file's proof contradicted (#619). A proven
+	// column with no disagreeing answer, or a defaulted one, leaves this undefined, never a value
+	// the summary would have to know not to render. ONE fact, so the two lines can never both show.
 	//
-	// The header text is left undisclosed (not synthesised) for a headerless file: there is no
-	// message variant for that combination in 7i, and the applied reading is unaffected either way.
+	// The header text is left undisclosed (not synthesised) for a headerless file on the answered
+	// line: there is no message variant for that combination in 7i. The overruled line names the
+	// proving cell instead of a column, so it needs no header and shows on a headerless file too.
+	// The cell is untrusted and serialised into the page, so it is bounded like every refusal cell.
 	const dateOrderHeader =
 		options.hasHeaderRow !== false ? (normalizedRows[0].cells[questionColumn] ?? '').trim() : '';
 	const dateOrderDisclosure: CsvImportSummary['dateOrderDisclosure'] =
-		verdict.kind === 'ambiguous' && options.dateOrder && decision.kind === 'read' && dateOrderHeader
-			? { header: dateOrderHeader, order: decision.order }
-			: undefined;
+		decision.answer === 'overruled'
+			? { kind: 'overruled', order: decision.order, proof: refusalCellValue(decision.proof) }
+			: decision.answer === 'applied' && dateOrderHeader
+				? { kind: 'answered', header: dateOrderHeader, order: decision.order }
+				: undefined;
 
 	return {
 		...parsed,

@@ -3,6 +3,7 @@ import type { CategorizationRuleInput } from '$lib/server/categorization/rules';
 import type { CsvRefusal } from './refusals';
 import type { UntrustedColumnMapping } from './mapping/model';
 import type { DateOrder } from './dateOrder';
+import type { DateOrderDisclosure } from '$lib/domain/importSummary';
 import type { AccountColumnAnswer } from './discriminant';
 
 export interface CsvImportOptions {
@@ -186,20 +187,21 @@ export interface CsvImportSummary {
 	 */
 	dateOrder?: DateOrder;
 	/**
-	 * The column and reading to disclose on the import summary, plate 7l — present only where the
-	 * reading was CHOSEN rather than proven or defaulted.
+	 * What to disclose about the date reading on the import summary, plate 7l — present only where
+	 * an ANSWER was applied or overruled.
 	 *
-	 * "Chosen" is exactly the one branch `decideDateOrder` reaches through an override: the column
-	 * left the question genuinely open (`ambiguous`) and an answer settled it. A proven column is
-	 * arithmetic and disclosing it every month is noise (7l); a defaulted column was never chosen
-	 * by anyone, and stating a "reading" nobody answered is the silent default #433 names, wearing
-	 * a summary line instead of a refusal.
+	 * `answered` is exactly the one branch `decideDateOrder` reaches through an override: the column
+	 * left the question genuinely open (`ambiguous`) and an answer settled it. `overruled` is an
+	 * answer the file's proof contradicted (#619): the proof wins and the user is told. A proven
+	 * column nobody contradicted is arithmetic and disclosing it every month is noise (7l); a
+	 * defaulted column was never chosen by anyone, and stating a "reading" nobody answered is the
+	 * silent default #433 names, wearing a summary line instead of a refusal.
 	 *
 	 * Absent, never `null`, for the same reason `dateOrder` is optional: most parses have nothing
 	 * to disclose, and an object some parses omit is a smaller lie than a field always present and
 	 * usually null.
 	 */
-	dateOrderDisclosure?: { header: string; order: DateOrder };
+	dateOrderDisclosure?: DateOrderDisclosure;
 	/**
 	 * The currencies this FILE declares, read off every row whether or not the row became a
 	 * transaction (`currencyDeclaration.ts`), as ISO codes. Empty or absent when it declares none,
