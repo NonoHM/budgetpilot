@@ -13,6 +13,26 @@ export const CURRENCY_COLUMNS = ['currency', 'devise'] as const;
 export const ACCEPTED_CURRENCY = 'EUR';
 
 /**
+ * THE CLOSED ALLOW LIST for the currency an account created from a statement may be held in
+ * (#741), as the PAIR the account stores, or null when the code is not on it.
+ *
+ * The currency refusal asks for « un compte en EUR », and its « Nouveau compte » creates that
+ * account. The code arrives from the browser, which read it off the refusal, so it is a claim:
+ * validated positively here against the one currency a file may declare and still import, never
+ * stored as posted. A code off the list is refused rather than defaulted, because an account in a
+ * currency no file can be imported into answers nothing the refusal asked.
+ *
+ * The exponent is written beside the code rather than looked up: EUR is written in hundredths, and
+ * a runtime table's answer would be a stored value that moves with the ICU data a Node release
+ * ships (AGENTS.md, « stored and later recomputed »).
+ */
+export function accountDenominationFor(
+	declared: string
+): { currency: string; exponent: number } | null {
+	return declared === ACCEPTED_CURRENCY ? { currency: ACCEPTED_CURRENCY, exponent: 2 } : null;
+}
+
+/**
  * The ISO 4217 codes this runtime knows, which is what separates `(EUR)` from `(TTC)`.
  *
  * NOT `isValidCurrencyCode` (`domain/money.ts`), which checks ISO 4217's GRAMMAR only and says so:

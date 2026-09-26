@@ -143,12 +143,21 @@ const REFUSAL_MESSAGES: Record<AccountWriteRefusal, string> = {
  * `userId` is in the SAME where clause rather than checked afterwards, and the folded key is what
  * is compared rather than the two strings: `nameKey` exists because a collation decides what equals
  * what, and MySQL's default answers differently from SQLite's.
+ *
+ * ## The denomination is a PAIR, and absent means the application default
+ *
+ * #741: an account created from the currency refusal is held in the currency the file declared,
+ * because the refusal asked for exactly that. One field and not two, for the reason
+ * `ImportBucketInput.denomination` gives: an optional currency beside an optional exponent is the
+ * shape that lets a caller supply one. The caller resolves it through `accountDenominationFor`,
+ * the closed allow list, never from a posted string.
  */
 export async function createStatementAccount(input: {
 	userId: string;
 	name: string;
 	/** From the server's own read of the file. Never from a request body. */
 	discriminant?: string | null;
+	denomination?: { currency: string; exponent: number };
 }): Promise<{ id: string; name: string; discriminant: string | null; currency: string }> {
 	const name = input.name.trim();
 	if (name.length === 0) throw new AccountWriteError('name-required');
@@ -160,6 +169,7 @@ export async function createStatementAccount(input: {
 
 	const fragment = input.discriminant?.trim().slice(-DISCRIMINANT_LENGTH) || null;
 	const nameKey = computeNameKey(name);
+	const denomination = input.denomination ?? DEFAULT_DENOMINATION;
 
 	const held = await prisma.account.findMany({
 		where: { userId: input.userId },
@@ -181,7 +191,10 @@ export async function createStatementAccount(input: {
 	try {
 		return await prisma.account.create({
 			data: {
-				...DEFAULT_DENOMINATION,
+				// The two columns named, not spread: a spread of a caller's object writes whatever keys it
+				// carries at run time, and the allow list below is the point of this create.
+				currency: denomination.currency,
+				exponent: denomination.exponent,
 				userId: input.userId,
 				name,
 				nameKey,

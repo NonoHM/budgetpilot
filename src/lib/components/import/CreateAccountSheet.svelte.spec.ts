@@ -296,4 +296,34 @@ describe('the create account sheet', () => {
 		await mount({ prefill: '' });
 		expect((field().element() as HTMLInputElement).maxLength).toBe(120);
 	});
+
+	it('names the currency the account will be held in, when its host says one (#741)', async () => {
+		// SEPARATES: « the sheet opened from the currency refusal says the account will be in the
+		// declared currency » FROM « it reads as everywhere else ». The sentence is compared WHOLE and
+		// is in the field's description, so a screen reader meets it with the field it is about.
+		await mount({ prefill: 'Livret A', currency: 'EUR' });
+		const sentence = m.import_account_create_currency({ currency: 'EUR' });
+		const line = [...document.querySelectorAll('[role="dialog"] p')].find(
+			(paragraph) => paragraph.textContent?.trim() === sentence
+		);
+		expect(line?.id).toBeTruthy();
+		expect(
+			(field().element() as HTMLElement).getAttribute('aria-describedby')?.split(' ')
+		).toContain(line?.id);
+	});
+
+	it('says nothing about a currency when its host names none', async () => {
+		// SEPARATES: « the line belongs to the host that names a currency » FROM « every sheet grows a
+		// line », which would put an unasked sentence on the designation screen. The hint beside it is
+		// counted, so the absence is read over a sheet that rendered its lines.
+		await mount({ prefill: 'Livret A' });
+		const lines = [...document.querySelectorAll('[role="dialog"] p')].map((paragraph) =>
+			paragraph.textContent?.trim()
+		);
+		expect(lines).toContain(m.import_account_create_hint());
+		expect(lines).not.toContain(m.import_account_create_currency({ currency: 'EUR' }));
+		expect((field().element() as HTMLElement).getAttribute('aria-describedby')?.split(' ')).toEqual(
+			[expect.stringMatching(/^create-account-hint-/)]
+		);
+	});
 });

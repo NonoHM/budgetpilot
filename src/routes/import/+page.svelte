@@ -5,7 +5,11 @@
 	import Button from '$lib/components/Button.svelte';
 	import AlertBanner from '$lib/components/AlertBanner.svelte';
 	import AccountRow from '$lib/components/import/AccountRow.svelte';
-	import AccountPicker from '$lib/components/import/AccountPicker.svelte';
+	import AccountPicker, {
+		type AccountPickerOption
+	} from '$lib/components/import/AccountPicker.svelte';
+	import CreateAccountSheet from '$lib/components/import/CreateAccountSheet.svelte';
+	import { requestAccountCreation } from '$lib/import/createAccountRequest';
 	import ColumnPicker from '$lib/components/import/ColumnPicker.svelte';
 	import { formatReadingDate } from '$lib/domain/dateFormat';
 	import { DEFAULT_DATE_ORDER, type DateOrder } from '$lib/domain/dateReading';
@@ -53,7 +57,7 @@
 		type CompletedImport,
 		type ReplaceOutcome
 	} from '$lib/import/completedImport.svelte';
-	import { onMount, untrack } from 'svelte';
+	import { onMount, tick, untrack } from 'svelte';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
 
@@ -420,6 +424,7 @@
 			chosenAccountId = null;
 			accountErrorShown = false;
 			accountPanelOpen = false;
+			createdAccounts = [];
 			answeredFor = undefined;
 		}
 	});
@@ -436,9 +441,105 @@
 	 */
 	let accountPanelOpen = $state(false);
 	let accountErrorShown = $state(false);
+	/**
+	 * Where the focus lands when the panel opens: the list, except on the return from a cancelled
+	 * creation, which puts the user back on the footer action they left. The designation screen's
+	 * rule, for the same reason (`AccountPicker`'s `initialFocus`).
+	 */
+	let accountPanelFocus = $state<'list' | 'footer'>('list');
+
+	/**
+	 * #741: THE REFUSAL'S WAY FORWARD. The currency refusal asks for « un compte en EUR », and a user
+	 * holding none had no control on this screen that could follow it. The panel's « Nouveau compte »
+	 * is offered in THAT state only: the plain account question already lists every destination the
+	 * user holds, and the canvas (a private Claude Design canvas) draws the footer on the refusal
+	 * alone. `declaredCurrency` is set by the server's `currency` rung and by nothing else, so it is
+	 * the state rather than a second spelling of it.
+	 */
+	const declaredCurrency = $derived(accountOffer?.declaredCurrency ?? null);
+
+	/**
+	 * Accounts created here, appended after the server's options, exactly as the designation screen
+	 * holds its own: the server's list is what it answered, and this page cannot re-derive it without
+	 * another request. Deduplicated by id, so a later reply that already lists the account does not
+	 * show it twice.
+	 */
+	let createdAccounts = $state<AccountPickerOption[]>([]);
+	const shownAccountOptions = $derived<readonly AccountPickerOption[]>([
+		...(accountOffer?.options ?? []),
+		...createdAccounts.filter(
+			(created) => !accountOffer?.options.some((option) => option.id === created.id)
+		)
+	]);
 	const chosenAccount = $derived(
-		accountOffer?.options.find((option) => option.id === chosenAccountId)
+		shownAccountOptions.find((option) => option.id === chosenAccountId)
 	);
+
+	/**
+	 * THE BANNER CLEARS ONCE THE CHOSEN ACCOUNT ANSWERS IT. The refusal names one currency and asks
+	 * for an account in it; with such an account on the row, the sentence is about a choice that no
+	 * longer stands, and pressing « Importer le relevé » is the next step. The canvas draws the
+	 * created account; the same rule holds for an existing account in that currency, so it is written
+	 * once, on the currency, rather than on how the account arrived.
+	 */
+	const currencyRefusalAnswered = $derived(
+		declaredCurrency !== null && chosenAccount?.currency === declaredCurrency
+	);
+
+	let createOpen = $state(false);
+	/** 5f's contract, owned by the page because the page owns the request. See `CreateAccountSheet`. */
+	let createPhase = $state<'idle' | 'busy' | 'error'>('idle');
+	let createError = $state<string | null>(null);
+	let createErrorField = $state<string | null>(null);
+
+	function openCreateSheet() {
+		accountPanelOpen = false;
+		accountPanelFocus = 'list';
+		createPhase = 'idle';
+		createError = null;
+		createErrorField = null;
+		createOpen = true;
+	}
+
+	/** Cancelling reopens the panel on the action it was opened from, as on the designation screen. */
+	function cancelCreate() {
+		createOpen = false;
+		accountPanelFocus = 'footer';
+		accountPanelOpen = true;
+	}
+
+	/**
+	 * « Créer et sélectionner »: the account is created IN THE DECLARED CURRENCY, chosen, and the
+	 * focus returns to the row, which now names it.
+	 *
+	 * The same endpoint the designation screen posts to, with the same file, so the server reads the
+	 * identifier fragment itself. `currency` is the refusal's own, handed back: the endpoint resolves
+	 * it against its closed allow list and refuses anything else.
+	 */
+	async function submitCreate(name: string) {
+		const file = submittedFile;
+		if (!file || declaredCurrency === null) return;
+		createPhase = 'busy';
+		createError = null;
+		createErrorField = null;
+		const answer = await requestAccountCreation({ name, file, currency: declaredCurrency });
+		if (!answer.ok) {
+			createPhase = 'error';
+			createError = answer.error;
+			createErrorField = answer.field ?? null;
+			return;
+		}
+		const created = answer.account;
+		createdAccounts = [...createdAccounts, created];
+		createPhase = 'idle';
+		createOpen = false;
+		chooseAccount(created.id);
+		// After the sheet has gone: brique 15 restores the focus it found on opening, which was the
+		// footer action, now removed with the panel. The row is where the user continues.
+		await tick();
+		focusVisibleAccountRow();
+	}
+
 	const accountRowState = $derived<'ok' | 'todo' | 'error'>(
 		chosenAccount ? 'ok' : accountErrorShown ? 'error' : 'todo'
 	);
@@ -474,6 +575,9 @@
 	 * sits low on the page rather than that the panel opens downwards.
 	 */
 	function toggleAccountPanel() {
+		// The list, always, when the ROW opened the panel: `footer` belongs to the return from a
+		// cancelled creation only.
+		accountPanelFocus = 'list';
 		accountPanelOpen = !accountPanelOpen;
 		if (!accountPanelOpen) return;
 		// The VISIBLE mount, found by `offsetParent`: this page renders both, and the hidden one is
@@ -498,11 +602,17 @@
 	 * The sibling host records this as measured: focus enters the panel on the listbox, Escape
 	 * removes the listbox, and without this the focus lands on `<body>`, which puts a keyboard user
 	 * back at the top of the document. `ColumnDesignationScreen.svelte` calls it `closeAccountPanel`
-	 * and does the same thing; this is the copy the new `allowCreate` docstring warns about, kept to
-	 * three lines rather than the sixty the create sheet would have cost.
+	 * and does the same thing. Since #741 this page also carries the create sheet's choreography
+	 * (`openCreateSheet`, `cancelCreate`, `submitCreate`), the second copy `AccountPicker`'s
+	 * `allowCreate` docstring warned about: the request is shared (`requestAccountCreation`), the
+	 * focus choreography is not yet a brique of its own.
 	 */
 	function closeAccountPanel() {
 		accountPanelOpen = false;
+		focusVisibleAccountRow();
+	}
+
+	function focusVisibleAccountRow() {
 		const visible = [
 			...document.querySelectorAll<HTMLElement>('[data-testid="import-account-question"]')
 		].find((element) => element.offsetParent !== null);
@@ -1444,7 +1554,7 @@
 					noFileLabel={m.common_file_dropzone_no_file()}
 				/>
 
-				{#if form?.error}
+				{#if form?.error && !currencyRefusalAnswered}
 					<AlertBanner variant="error">{form.error}</AlertBanner>
 				{/if}
 
@@ -1458,8 +1568,10 @@
 						provenance line repeating it would say one thing twice, in the one place a user is
 						already being told that something went wrong.
 
-						`allowCreate={false}`: this host does not mount the create sheet, and an action that
-						opens nothing is a dead control shipped inside the fix for a dead end.
+						`allowCreate` only in the currency-refusal state (#741): there the refusal asks for an
+						account in a currency the user may not hold, and « Nouveau compte » is the one way
+						forward from this screen. Everywhere else the question lists every destination the
+						user holds and the footer stays off, as the canvas draws it.
 
 						#600: the same question comes back WITH the currency refusal, and `declaredCurrency`
 						lets the panel say which accounts are in the declared currency (a private
@@ -1480,13 +1592,15 @@
 						/>
 						<AccountPicker
 							open={accountPanelOpen}
-							options={accountOffer.options}
+							options={shownAccountOptions}
 							selectedId={chosenAccountId}
 							panelId="import-account-panel-desktop"
-							allowCreate={false}
-							declaredCurrency={accountOffer.declaredCurrency ?? null}
+							initialFocus={accountPanelFocus}
+							allowCreate={declaredCurrency !== null}
+							{declaredCurrency}
 							onChoose={chooseAccount}
 							onClose={closeAccountPanel}
+							onCreate={openCreateSheet}
 						/>
 						<!-- The answer rides the ordinary submit. Rendered only while the offer is current, so
 						     an id chosen for one file can never be posted with another. -->
@@ -1935,7 +2049,7 @@
 				noFileLabel={m.common_file_dropzone_no_file()}
 			/>
 
-			{#if form?.error}
+			{#if form?.error && !currencyRefusalAnswered}
 				<AlertBanner variant="error">{form.error}</AlertBanner>
 			{/if}
 
@@ -1949,8 +2063,7 @@
 					provenance line repeating it would say one thing twice, in the one place a user is
 					already being told that something went wrong.
 
-					`allowCreate={false}`: this host does not mount the create sheet, and an action that
-					opens nothing is a dead control shipped inside the fix for a dead end.
+					`allowCreate` in the currency-refusal state only (#741), as at 1280.
 				-->
 				<div class="relative" data-testid="import-account-question">
 					<AccountRow
@@ -1963,13 +2076,15 @@
 					/>
 					<AccountPicker
 						open={accountPanelOpen}
-						options={accountOffer.options}
+						options={shownAccountOptions}
 						selectedId={chosenAccountId}
 						panelId="import-account-panel-mobile"
-						allowCreate={false}
-						declaredCurrency={accountOffer.declaredCurrency ?? null}
+						initialFocus={accountPanelFocus}
+						allowCreate={declaredCurrency !== null}
+						{declaredCurrency}
 						onChoose={chooseAccount}
 						onClose={closeAccountPanel}
+						onCreate={openCreateSheet}
 					/>
 					<!-- The answer rides the ordinary submit. Rendered only while the offer is current, so
 					     an id chosen for one file can never be posted with another. -->
@@ -2321,6 +2436,30 @@
 	neither button submits anything itself, both just record the answer and close, and the primary
 	submit two forms up is what actually re-posts, carrying the hidden input set above.
 -->
+<!--
+	#741's create sheet, ONCE, outside both upload forms: the sheet carries its own `<form>`, and a
+	form inside a form is not HTML; and this page renders its upload form twice, so a sheet per chrome
+	would be two focus traps. Mounted only while the refusal that offers it is on screen.
+
+	DEVIATIONS FROM THE CANVAS (a private Claude Design canvas), kept deliberately: the canvas draws
+	a bottom sheet at 390 and a 440 px modal with a 12 px radius at 1280; this is the sheet exactly as
+	the designation screen already shows it, brique 15's compact variant (a centred card at 390) at
+	plate 6h's 340 px at 1280, which `CreateAccountSheet.svelte.spec.ts` pins. Repainting it is a
+	referential change for both hosts, not one this state can make for one of them.
+-->
+{#if offersAccountChoice && declaredCurrency !== null}
+	<CreateAccountSheet
+		open={createOpen}
+		prefill={accountOffer?.prefillName ?? ''}
+		state={createPhase}
+		error={createError}
+		errorField={createErrorField}
+		currency={declaredCurrency}
+		onSubmit={submitCreate}
+		onCancel={cancelCreate}
+	/>
+{/if}
+
 {#if accountColumnOffer}
 	<AccountColumnDialog
 		open={accountColumnDialogOpen}

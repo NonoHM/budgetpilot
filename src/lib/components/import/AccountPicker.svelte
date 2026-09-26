@@ -131,18 +131,19 @@
 		/**
 		 * Whether this host can offer to create an account.
 		 *
-		 * True everywhere it has been used so far, and false on `/import`, where the account
-		 * question is asked beside a refusal and the create SHEET is not mounted. The alternative
-		 * was to render the action anyway and leave it inert, which is a dead control shipped inside
-		 * the fix for a dead end.
+		 * True on the designation screen. On `/import`, true in the currency-refusal state only
+		 * (#741), where the refusal asks for an account in a currency the user may hold none of, and
+		 * false on the plain account question, which lists every destination the user holds. The
+		 * alternative to a prop was to render the action anyway and leave it inert, which is a dead
+		 * control shipped inside the fix for a dead end.
 		 *
 		 * **This is a REFERENTIAL GAP wearing a prop.** The account question is a row, this panel, a
 		 * create sheet and the focus choreography that makes the three one control, and that
-		 * choreography lives inside `ColumnDesignationScreen.svelte` rather than in a brique of its
-		 * own. `/import` is its second host, which is the point at which it should become one:
-		 * copying the choreography is how three expressions of one rule end up agreeing by review.
-		 * Recorded here rather than done, because extracting it means editing the designation screen,
-		 * which the change that needed this does not otherwise touch.
+		 * choreography lives inside `ColumnDesignationScreen.svelte` and, since #741, a second copy
+		 * in `/import/+page.svelte`, rather than in a brique of its own. The request both copies send
+		 * is one function (`requestAccountCreation`); the choreography is still two, which is how
+		 * three expressions of one rule end up agreeing by review. Extracting it edits the
+		 * designation screen's focus paths, which #741 does not otherwise touch.
 		 */
 		allowCreate?: boolean;
 		onChoose?: (accountId: string) => void;

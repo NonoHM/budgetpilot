@@ -22,8 +22,9 @@ import { actions as columnsActions } from './columns/+page.server';
  * ## What this measured first, before anything was fixed (M1)
  *
  * Whether it could happen at all. A CSV import reaches a non-EUR account only through an account the
- * bank-sync connector created, because `createStatementAccount` takes no currency and every
- * statement account is EUR. So the fixture seeds one exactly the way `banking/sync/service.ts` does,
+ * bank-sync connector created, because `createStatementAccount` took no currency and every
+ * statement account was EUR (since #741 it takes the declared one, from an allow list of EUR
+ * alone, so that is still true). So the fixture seeds one exactly the way `banking/sync/service.ts` does,
  * through `resolveImportBucketAccount` with the provider's source, a `providerAccountId` and the
  * provider's currency, and then asks the question through the REAL ROUTE ACTIONS, the same functions
  * a browser POST reaches. Nothing in this file resolves a destination or parses a file itself.

@@ -12,6 +12,7 @@ import {
 	type AccountWriteRefusal
 } from '$lib/server/accounts/service';
 import { findDiscriminantColumn } from '$lib/server/import/discriminant';
+import { accountDenominationFor } from '$lib/server/import/currencyDeclaration';
 import {
 	IMPORT_FILE_MAX_BYTES,
 	isSupportedImportFile,
@@ -49,12 +50,24 @@ import type { RequestHandler } from './$types';
  * gained by omitting it: a null is not shared, so the « two accounts may not hold one fragment »
  * invariant is untouched, and the create stays reusable by a caller that has no file at all.
  *
- * ## The closed allow list is the two lines that read the body
+ * ## The closed allow list is the three lines that read the body
  *
- * `name` and `csvFile`. Nothing else is read, so `source`, `discriminant`, `netWorthAccountId`,
- * `archivedAt` and `institution` cannot be set whatever the request carries. Validating positively
- * rather than stripping a deny list is the difference between a rule about this endpoint and a
- * claim about every field the schema will ever have.
+ * `name`, `csvFile` and `currency`. Nothing else is read, so `source`, `discriminant`,
+ * `netWorthAccountId`, `archivedAt` and `institution` cannot be set whatever the request carries.
+ * Validating positively rather than stripping a deny list is the difference between a rule about
+ * this endpoint and a claim about every field the schema will ever have.
+ *
+ * ## `currency` is the one value posted rather than recomputed, and why that is safe (#741)
+ *
+ * `/import`'s currency refusal hands the page the currency the file declared, and its « Nouveau
+ * compte » posts it back so the account is created in it. It is not re-read from the file here,
+ * because which currency a file declares depends on the columns it is read through (a remembered
+ * mapping on `/import`, the user's designation on `/import/columns`), and this door has neither.
+ * So it is a claim, resolved through `accountDenominationFor`, the closed allow list: absent means
+ * the application default, as before; anything off the list is refused and nothing is written.
+ * What keeps money in the right currency is not this line: every import compares the file's own
+ * declaration with its destination on the server (`declaredCurrencyRefusal`), so an account created
+ * in a currency the file did not declare is refused at the next import, like any other wrong choice.
  */
 export const POST: RequestHandler = async ({ locals, request, getClientAddress }) => {
 	const user = requireUser(locals.user);
@@ -79,10 +92,31 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 
 	const posted = formData.get('name');
 	const name = typeof posted === 'string' ? posted : '';
+
+	// Absent is the designation screen's request, which names no currency: the default. Present, in
+	// any shape, it must be on the allow list or nothing is created (a file or an empty string is not
+	// a currency). Refused with the generic sentence and no `field`, because the name is not what is
+	// wrong and the page, not the user, posted this value.
+	const postedCurrency = formData.get('currency');
+	const denomination =
+		postedCurrency === null
+			? undefined
+			: typeof postedCurrency === 'string'
+				? accountDenominationFor(postedCurrency)
+				: null;
+	if (denomination === null) {
+		return json({ error: m.import_account_create_error_generic() }, { status: 400 });
+	}
+
 	const discriminant = await fragmentFromFile(formData.get('csvFile'));
 
 	try {
-		const account = await createStatementAccount({ userId: user.id, name, discriminant });
+		const account = await createStatementAccount({
+			userId: user.id,
+			name,
+			discriminant,
+			denomination
+		});
 		return json({
 			account: {
 				id: account.id,

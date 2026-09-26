@@ -1656,6 +1656,7 @@
 	"import_account_create_field": "Account name",
 	"import_account_create_hint": "This name only appears in BudgetPilot.",
 	"import_account_create_hint_examples": "For example: Current account, Savings.",
+	"import_account_create_currency": "In {currency}, like this statement.",
 	"import_account_create_submit": "Create and select",
 	"import_account_create_submitting": "Creating…",
 	"import_account_create_error_generic": "The account could not be created. Your file and your designations are kept. Try again.",
