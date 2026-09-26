@@ -69,6 +69,10 @@ import { fileURLToPath } from 'node:url';
  *   Separates an allowlist that is load-bearing from one that is decoration.
  * - The reader skipping files containing a NUL: the count test goes red, 1057 read against 1133
  *   tracked. Separates a scan of every tracked file from a scan of the text ones.
+ * - The allowlisted address removed from `docs/bank-sync.md` (the sentence reworded to name no
+ *   address): only the staleness test goes red, naming the entry and its file; the tree test stays
+ *   green because nothing offends. Separates an allowlist entry whose reason still holds from one
+ *   that outlived it and would silently admit the address anywhere.
  */
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));

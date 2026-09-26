@@ -111,8 +111,9 @@ lands on `main`.
 file and fails on a claude.ai address, a home-directory path, or an email outside the reserved
 domains and its short allowlist of public role addresses. Commit messages, PR bodies, issues and
 comments are not files, so no gate here sees them before they are posted: for those it is a
-convention, and the check is to grep your own text for `claude.ai` before sending it. OWASP AISVS
-1.0 Appendix C (AC.3.1, AC.4.2), ANSSI PA-102 (R25, R30), CNIL « Gérer son code source ».
+convention, and the check is to grep your own text for `claude.ai` before sending it. This is the
+repository's reading of OWASP AISVS 1.0 Appendix C, AC.4.2 (a secret scan on every change carrying
+AI-generated code), which the gate covers only for tracked files.
 
 ## Security boundaries
 
@@ -470,8 +471,8 @@ Standards this repository is held to, and where each one binds.
   application's security requirements.
 - **[OWASP AISVS](https://owasp.org/www-project-artificial-intelligence-security-verification-standard/)**
   for the optional Ollama path: prompt construction, model output handling, and the boundary
-  between user data and prompt. Its Appendix C (AI for code generation) also binds how this
-  repository is DEVELOPED: see « Never publish anything derived from a real statement ».
+  between user data and prompt. Its Appendix C, « AI-Assisted Secure Coding », also binds how
+  this repository is DEVELOPED: see « Never publish anything derived from a real statement ».
 - **[OWASP WSTG](https://owasp.org/www-project-web-security-testing-guide/)** for the testing
   method behind the import parser's injection work, including the save-and-reopen cycle.
 - **[WCAG 2.2 AA](https://www.w3.org/TR/WCAG22/)** for the interface. Contrast, focus visibility,
