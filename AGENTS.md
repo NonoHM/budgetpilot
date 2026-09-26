@@ -97,6 +97,23 @@ Deterministic, with no `Math.random` and no `Date.now`, so a test can pin a byte
 Mercier, who does not exist. Only the header SHAPES are taken from reality, and those identify
 nobody.
 
+**The same rule for what the TOOLING knows.** A published surface names only what any reader can
+open: public URLs, repository paths, issue numbers, and the reserved test domains (`example.test`,
+`example.com`, `.invalid`). A Claude Design canvas, a claude.ai session or artifact, an absolute
+local path, a scratchpad, a username or a personal address is named by what it IS (« a private
+Claude Design canvas »), and its address stays in the gitignored notes under `docs/superpowers/`.
+The link being private does not make it harmless: it identifies the owner's account, and the edit
+history keeps it after the body is corrected. **A commit message on a branch is already
+published**: this repository squash-merges with the commit messages, so a line in any branch commit
+lands on `main`.
+
+**Where this is enforced, and where it is not.** `privateReferences.spec.ts` reads every tracked
+file and fails on a claude.ai address, a home-directory path, or an email outside the reserved
+domains and its short allowlist of public role addresses. Commit messages, PR bodies, issues and
+comments are not files, so no gate here sees them before they are posted: for those it is a
+convention, and the check is to grep your own text for `claude.ai` before sending it. OWASP AISVS
+1.0 Appendix C (AC.3.1, AC.4.2), ANSSI PA-102 (R25, R30), CNIL « Gérer son code source ».
+
 ## Security boundaries
 
 - Never accept a `userId` from the client. Derive it from `locals.user.id`, and scope every
@@ -453,7 +470,8 @@ Standards this repository is held to, and where each one binds.
   application's security requirements.
 - **[OWASP AISVS](https://owasp.org/www-project-artificial-intelligence-security-verification-standard/)**
   for the optional Ollama path: prompt construction, model output handling, and the boundary
-  between user data and prompt.
+  between user data and prompt. Its Appendix C (AI for code generation) also binds how this
+  repository is DEVELOPED: see « Never publish anything derived from a real statement ».
 - **[OWASP WSTG](https://owasp.org/www-project-web-security-testing-guide/)** for the testing
   method behind the import parser's injection work, including the save-and-reopen cycle.
 - **[WCAG 2.2 AA](https://www.w3.org/TR/WCAG22/)** for the interface. Contrast, focus visibility,
