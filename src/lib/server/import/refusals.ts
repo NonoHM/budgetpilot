@@ -224,16 +224,94 @@ const _everyCodeIsListed: MissingFromArray extends never ? true : never = true;
 void _everyCodeIsListed;
 
 /**
- * The refusal codes that are about a file's DIMENSIONS rather than its contents.
+ * What naming the columns can do about a refusal, which is the whole of « can a designation help
+ * this file? » (#351, #628).
  *
- * One definition, here beside the union, so that a future bound refusal is added in one place
- * rather than in a condition somewhere downstream that nobody re-reads.
+ * - `repairable`: a different choice of columns can change the outcome. The file matched nothing,
+ *   a role is missing, or the values of the column read as that role failed, which is what a
+ *   wrong column produces.
+ * - `unrepairable`: a fact about something no column choice changes: the money's shape (sign in a
+ *   sibling column, split across two), its currency, the date READING of a column already known,
+ *   or which accounts the file covers. Each of those has its own answer on `/import`, or none.
+ * - `dimensions`: unrepairable AND about the file's size or emptiness. Decided before any profile
+ *   reads a column (`fileDimensionRefusal` in `csv.ts`), so it is the one class the correction
+ *   door can consult without parsing through the correspondance the user has just disowned.
  */
-const BOUND_REFUSAL_CODES = ['too-many-rows', 'too-many-columns'] as const;
+export type DesignationReach = 'repairable' | 'unrepairable' | 'dimensions';
 
 /**
- * Whether this parse produced nothing because the file was too big to read, as opposed to
- * unreadable.
+ * EVERY CODE OF THE UNION, CLASSIFIED ONCE. A `Record` over the union, so a code added to
+ * `CsvRefusalFact` does not compile until it is classified here, and `offerFacts.spec.ts` checks
+ * the table against `CSV_REFUSAL_CODES` in both directions.
+ *
+ * This replaces two lists that disagreed (#628): a private cannot-repair set in `/import`'s action
+ * that did not carry the two bound codes, and the bound list `refusedForBounds` read. They were one
+ * rule with two members, and `dimensions` is the member they shared.
+ */
+export const DESIGNATION_REACH = {
+	'file-too-large': 'dimensions',
+	// No data row: the screen rests on the preview (handoff §6), and no column holds a transaction.
+	'file-empty': 'dimensions',
+	'too-many-rows': 'dimensions',
+	'too-many-columns': 'dimensions',
+	// The designation screen exists for this file.
+	'header-not-recognized': 'repairable',
+	// A different column may prove one reading (#622's cause A). The column contradicting itself
+	// (cause B) carries the same code, so the class cannot tell the two apart; D2 names the column.
+	'mixed-date-order': 'repairable',
+	// Plate 7l: recognition covers mapping, not reading. The reading offer answers it.
+	'ambiguous-date-order': 'unrepairable',
+	'multi-account-file': 'unrepairable',
+	// Its own question on `/import`; naming columns does not answer it.
+	'ambiguous-account-column': 'unrepairable',
+	'unknown-column': 'repairable',
+	'duplicate-column': 'repairable',
+	'missing-required-column': 'repairable',
+	'bad-column-count': 'repairable',
+	'ambiguous-column-mapping': 'repairable',
+	// The four closed roles cannot express either shape (#320, #343).
+	'amount-sign-in-separate-column': 'unrepairable',
+	'amount-split-across-columns': 'unrepairable',
+	'invalid-date': 'repairable',
+	'invalid-amount': 'repairable',
+	'zero-amount': 'repairable',
+	'invalid-total-amount': 'repairable',
+	'type-amount-mismatch': 'repairable',
+	'invalid-nature': 'repairable',
+	'invalid-fee': 'repairable',
+	'invalid-balance': 'repairable',
+	// A fact about the money, not about which column carries it.
+	'unsupported-currency': 'unrepairable',
+	// Repaired by choosing another account, on the screen the user is already on.
+	'declared-currency-mismatch': 'unrepairable',
+	'state-not-completed': 'repairable',
+	'footer-ignored': 'repairable',
+	'debit-credit-both': 'repairable',
+	'debit-credit-empty': 'repairable',
+	'category-too-long': 'repairable',
+	'control-character': 'repairable',
+	'split-column-unreadable': 'repairable',
+	'split-out-of-bounds': 'repairable',
+	'split-inconsistent': 'repairable',
+	'split-incomplete': 'repairable',
+	'split-too-many-lines': 'repairable',
+	'split-duplicate-positions': 'repairable',
+	'split-parent-category-inconsistent': 'repairable',
+	'split-reserved-category-on-part': 'repairable',
+	'split-sign-opposite': 'repairable',
+	'split-sum-mismatch': 'repairable',
+	'mapping-columns-missing': 'repairable',
+	'mapping-invalid': 'repairable',
+	'transaction-invalid': 'repairable'
+} as const satisfies Record<CsvRefusalCode, DesignationReach>;
+
+export function designationReach(code: CsvRefusalCode): DesignationReach {
+	return DESIGNATION_REACH[code];
+}
+
+/**
+ * Whether this parse produced nothing because of the file's dimensions, as opposed to its
+ * contents: `DESIGNATION_REACH`'s `dimensions` member, read rather than restated.
  *
  * It exists so the split-amount detector does not run on a file the parser already refused on its
  * dimensions. That detector turns "no valid transactions" into a refusal naming the two money
@@ -246,11 +324,9 @@ const BOUND_REFUSAL_CODES = ['too-many-rows', 'too-many-columns'] as const;
  * imports this module and the reverse would be a cycle.
  *
  * ONE PRODUCTION CALLER TODAY, and that is a deliberate departure from "no abstraction for a single
- * caller": what is centralised is not a helper but the LIST above, and a predicate the route
+ * caller": what is centralised is not a helper but the TABLE above, and a predicate the route
  * inlines is a list the route owns. The rule belongs with the catalogue it reads.
  */
 export function refusedForBounds(result: { invalidRows: CsvRefusal[] }): boolean {
-	return result.invalidRows.some((refusal) =>
-		(BOUND_REFUSAL_CODES as readonly string[]).includes(refusal.fact.code)
-	);
+	return result.invalidRows.some((refusal) => designationReach(refusal.fact.code) === 'dimensions');
 }

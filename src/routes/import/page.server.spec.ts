@@ -1583,7 +1583,7 @@ describe('/import actions', () => {
 	 *
 	 * The rescue existed and was reachable only from a file NOTHING recognised. A file whose headers
 	 * matched and whose values then failed ended on the same sentence with no way forward, and the
-	 * two are indistinguishable from the outside. Nothing covered `offersDesignation` at any level
+	 * two are indistinguishable from the outside. Nothing covered the offer's gate (now `designationCanHelp`) at any level
 	 * before this block, which is why the routing could be wrong for a whole chantier.
 	 */
 	describe('the designation offer on a file that produced nothing', () => {
@@ -1710,6 +1710,60 @@ describe('/import actions', () => {
 		});
 
 		/**
+		 * #628: A FILE REFUSED ON ITS DIMENSIONS. No arrangement of columns changes a row count, and
+		 * the offer used to be built anyway because the old cannot-repair list did not carry the two
+		 * bound codes. Each test asserts the absence of the offer AND the reason the summary states,
+		 * so a refusal for some other cause cannot pass for this one.
+		 *
+		 * Break (the bound codes classified `repairable` in `refusals.ts`): red, separating « the
+		 * gate reads the classification » from « the gate reads a private list ».
+		 */
+		describe('on a file refused on its dimensions (#628)', () => {
+			type Refused = {
+				data: {
+					designation?: unknown;
+					importResult: { invalidRowDetails: ImportInvalidRowDetail[] };
+				};
+			};
+
+			it('is not offered over the row bound, and the summary names the bound', async () => {
+				expect.assertions(2);
+				const rows = Array.from(
+					{ length: 1001 },
+					(_, i) => `2026-03-${String((i % 28) + 1).padStart(2, '0')},MERCERIE ${i},-4.20`
+				);
+				const result = (await runImportWithFile(
+					['date,label,amount', ...rows].join('\n')
+				)) as unknown as Refused;
+
+				expect(result.data.designation).toBeUndefined();
+				expect(result.data.importResult.invalidRowDetails.map((row) => row.fact.code)).toEqual([
+					'too-many-rows'
+				]);
+			});
+
+			it('is not offered over the column bound, and the summary names the bound', async () => {
+				expect.assertions(2);
+				// 513 columns against the default bound of 512 (`CSV_MAX_COLUMNS` unset in this suite).
+				const header = [
+					'date',
+					'label',
+					'amount',
+					...Array.from({ length: 510 }, (_, i) => `c${i}`)
+				];
+				const row = ['2026-03-01', 'MERCERIE', '-4.20', ...Array.from({ length: 510 }, () => '')];
+				const result = (await runImportWithFile(
+					`${header.join(',')}\n${row.join(',')}`
+				)) as unknown as Refused;
+
+				expect(result.data.designation).toBeUndefined();
+				expect(result.data.importResult.invalidRowDetails.map((row) => row.fact.code)).toEqual([
+					'too-many-columns'
+				]);
+			});
+		});
+
+		/**
 		 * #735: THE FILE THE SCREEN DRAWS ONCE THE USER SAYS LINE 1 IS DATA. The offer is built with
 		 * line 1 read as headers (detection's guess), and the « Première ligne » switch is the user's
 		 * answer. Every per-row fact the screen reads must describe the file under the ANSWER.
@@ -1771,6 +1825,154 @@ describe('/import actions', () => {
 				expect.assertions(1);
 				expect((await declaredData())[fact]).toStrictEqual(EXPECTED[fact]);
 			});
+		});
+	});
+
+	/**
+	 * #351: THE CORRECTION DOOR CARRIES THE UPLOAD DOOR'S GUARD. It decides before any column is
+	 * read, deliberately, so it cannot consult a parse through the mapping the user just disowned;
+	 * what it CAN consult is the file's own dimensions, which no mapping decides. Measured before
+	 * the fix: a header-only file opened the screen with `rowCount: 0` and « Importer 0 lignes ».
+	 *
+	 * Break (the correction branch skips `designationCanHelp`): red on both refusals, separating
+	 * « one guard at two doors » from « a guard at the upload door only ».
+	 */
+	describe('the correction door, on a file no designation can help (#351)', () => {
+		const HEADERS = ['Jour', 'Intitule operation', 'Somme', 'Detail'];
+
+		function seedCorrection() {
+			db.state.columnMappings.push({
+				id: 'mapping-351',
+				userId: testUser.id,
+				fingerprint: fingerprintFor(HEADERS, 'name'),
+				matchBy: 'name' as const,
+				dateColumn: 'jour',
+				labelColumn: 'detail',
+				amountColumn: 'somme',
+				categoryColumn: null,
+				dateIndex: null,
+				labelIndex: null,
+				amountIndex: null,
+				categoryIndex: null,
+				columnCount: 4,
+				useCount: 0,
+				lastUsedAt: null as Date | null
+			} as (typeof db.state.columnMappings)[number]);
+		}
+
+		type Corrected = {
+			data: {
+				designation?: unknown;
+				importResult?: { invalidRowDetails: ImportInvalidRowDetail[] };
+			};
+		};
+
+		it('refuses a header-only file before the screen, with the upload door answer', async () => {
+			expect.assertions(3);
+			seedCorrection();
+
+			const result = (await runImportWithFileAndFields(HEADERS.join(';'), {
+				correctMappingId: 'mapping-351'
+			})) as unknown as Corrected;
+
+			expect(result.data.designation).toBeUndefined();
+			expect(result.data.importResult?.invalidRowDetails.map((row) => row.fact.code)).toEqual([
+				'file-empty'
+			]);
+			// Nothing read through the disowned correspondance, and nothing written.
+			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		it('refuses a file over the row bound before the screen', async () => {
+			expect.assertions(2);
+			seedCorrection();
+			const rows = Array.from({ length: 1001 }, (_, i) => `24/06/2026;CB ${i};-24,90;PAIEMENT CB`);
+
+			const result = (await runImportWithFileAndFields([HEADERS.join(';'), ...rows].join('\n'), {
+				correctMappingId: 'mapping-351'
+			})) as unknown as Corrected;
+
+			expect(result.data.designation).toBeUndefined();
+			expect(result.data.importResult?.invalidRowDetails.map((row) => row.fact.code)).toEqual([
+				'too-many-rows'
+			]);
+		});
+
+		it('still opens the screen on a file it can read, so the guard is not a wall', async () => {
+			expect.assertions(1);
+			seedCorrection();
+
+			const result = (await runImportWithFileAndFields(
+				`${HEADERS.join(';')}\n24/06/2026;CARREFOUR MARKET;-24,90;PAIEMENT CB 22/06`,
+				{ correctMappingId: 'mapping-351' }
+			)) as unknown as Corrected;
+
+			expect(result.data.designation).toBeDefined();
+		});
+	});
+
+	/**
+	 * #712: A PROFILE THAT READS THE DEBIT/CREDIT PAIR IS NOT A SPLIT FILE. Synthetic, the shape of
+	 * `scripts/synthetic/make-synthetic.mjs`'s `ambiguous-banque-populaire.csv` reduced to one
+	 * debit and one credit, both dated so they read both ways. Measured before the fix, through this
+	 * action: 400 with the split sentence and no reading question.
+	 *
+	 * Break (the split detector runs whatever the profile read): red, separating « the pair was
+	 * already read » from « the parse was empty so the money must be unreadable ».
+	 */
+	describe('a Banque Populaire file whose rows wait on the date question (#712)', () => {
+		const BP_HEADER =
+			'Date de comptabilisation;Libelle simplifie;Libelle operation;Reference;Informations complementaires;Type operation;Categorie;Sous categorie;Debit;Credit;Date operation;Date de valeur;Pointage operation';
+		const bpRow = (date: string, label: string, debit: string, credit: string, n: number) =>
+			`${date};${label};PAIEMENT ${label};REF00010${n};PAUL MERCIER;Virement;Divers;Divers;${debit};${credit};${date};${date};`;
+		const AMBIGUOUS_WITH_CREDIT = [
+			BP_HEADER,
+			bpRow('03/02/2026', 'PRIMEUR SAINTE ANNE', '-17,45', '', 0),
+			bpRow('05/02/2026', 'REMBOURSEMENT TELECONSULTATION', '', '49,00', 1)
+		].join('\n');
+
+		it('asks the date reading rather than refusing the file as split', async () => {
+			expect.assertions(3);
+			const result = (await runImportWithFile(AMBIGUOUS_WITH_CREDIT)) as unknown as {
+				data: { error: string; reading?: { dateColumn: number }; designation?: unknown };
+			};
+
+			expect(result.data.error).toBe(m.import_error_ambiguous_date_order());
+			expect(result.data.reading).toBeDefined();
+			expect(result.data.designation).toBeUndefined();
+		});
+
+		it('imports both rows, the credit included, once the reading is answered', async () => {
+			expect.assertions(2);
+			const result = await runImportWithFileAndFields(AMBIGUOUS_WITH_CREDIT, {
+				dateOrder: 'day-first'
+			});
+
+			expect(result.importResult.importedRows).toBe(2);
+			expect(db.state.transactions.map((row) => row.type).sort()).toEqual(['expense', 'income']);
+		});
+
+		/**
+		 * The other half of the same rule. With the split detector silent for this profile, a Banque
+		 * Populaire file whose dates nothing reads (a two-digit year, as the corpus's
+		 * `unreadable-dates-banque-populaire.csv`) must not be sent to the designation screen either:
+		 * the screen's one amount role cannot express the pair, and `/import/columns` would refuse it
+		 * as split AFTER the user did the work (plate 1q, table B). The sentence is the plain one,
+		 * because « BudgetPilot cannot read this shape yet » is false for a shape it reads.
+		 */
+		it('neither calls a file it reads split nor offers a screen that cannot express it', async () => {
+			expect.assertions(2);
+			const shortYear = [
+				BP_HEADER,
+				bpRow('03/02/26', 'PRIMEUR SAINTE ANNE', '-17,45', '', 0),
+				bpRow('05/02/26', 'REMBOURSEMENT TELECONSULTATION', '', '49,00', 1)
+			].join('\n');
+			const result = (await runImportWithFile(shortYear)) as unknown as {
+				data: { error: string; designation?: unknown };
+			};
+
+			expect(result.data.error).toBe(m.import_error_no_valid_transactions());
+			expect(result.data.designation).toBeUndefined();
 		});
 	});
 

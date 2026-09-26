@@ -45,7 +45,8 @@ import type { DeclaredCurrencyMismatch } from './declaredCurrency';
  * parse, so `multiAccount`, `accountColumn` and `dateOrder` never arrive together: which of those
  * three a file raises first is decided inside `csv.ts`, by the order of its own checks, and this
  * ladder only ranks them against the facts computed OUTSIDE the parse (`split`, `header`, `generic`
- * and `account`). Centralising `csv.ts`'s own facts is D1's work.
+ * and `account`). `emptyParseFacts` (`offerFacts.ts`) is the one reader of that one fact; moving
+ * the order into this ladder is #717.
  *
  * ## The order, and why each rung sits where it does
  *
@@ -111,10 +112,10 @@ export type Question<Fact> = { state: 'open'; fact: Fact } | { state: 'answered'
 export type AccountQuestion =
 	Question<AccountOffer> | { state: 'refused'; reason: 'not-found' | 'archived' };
 
-type SplitFact = Extract<CsvRefusalFact, { code: 'amount-split-across-columns' }>;
-type MultiAccountFact = Extract<CsvRefusalFact, { code: 'multi-account-file' }>;
-type AccountColumnFact = Extract<CsvRefusalFact, { code: 'ambiguous-account-column' }>;
-type DateOrderFact = Extract<CsvRefusalFact, { code: 'ambiguous-date-order' }>;
+export type SplitFact = Extract<CsvRefusalFact, { code: 'amount-split-across-columns' }>;
+export type MultiAccountFact = Extract<CsvRefusalFact, { code: 'multi-account-file' }>;
+export type AccountColumnFact = Extract<CsvRefusalFact, { code: 'ambiguous-account-column' }>;
+export type DateOrderFact = Extract<CsvRefusalFact, { code: 'ambiguous-date-order' }>;
 
 export interface ImportOffers {
 	/** Whether the parse produced at least one transaction. What `generic` is defined against. */

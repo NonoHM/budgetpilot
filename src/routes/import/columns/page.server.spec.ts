@@ -861,7 +861,7 @@ describe('a file naming more than one account, on the designation door', () => {
 
 	// #670: this door has no control to answer the ask, so it must not ship the "confirm before
 	// importing" sentence with nothing to confirm with. It refuses instead, naming the recourse,
-	// which is the OTHER honest outcome `DESIGNATION_CANNOT_REPAIR`'s own principle leaves open
+	// which is the OTHER honest outcome `designationCanHelp`'s own principle leaves open
 	// (silently dropping the column was the third option, and it reopens #485 on this one door).
 	it('refuses with the recourse named, rather than asking a question nothing here can answer', async () => {
 		expect.assertions(4);
@@ -909,5 +909,98 @@ describe('a file naming more than one account, on the designation door', () => {
 		const result = await submit(single, true);
 		expect(result.status).toBeUndefined();
 		expect(persist.createImportBatch).toHaveBeenCalledTimes(1);
+	});
+});
+
+/**
+ * THE HEADER-SCOPED REFUSAL THIS DOOR NAMES (#343), read through `emptyParseFacts`.
+ *
+ * Nothing drove this door to it before D1 moved the predicate into `offerFacts.ts`: a break reading
+ * the wrong scope stayed green over every spec. Debit designated as the amount of a file whose
+ * credits sit in a sibling column is the shape the mapped parser refuses as split.
+ *
+ * The expected sentence is the parser's OWN header fact through the production label, so this
+ * asserts which fact the door picks, not a retyped copy of the pair's wording. Break (`header`
+ * read from row-scoped refusals): red, separating « the door names the file-level fact » from
+ * « the door says nothing valid to import ».
+ */
+describe('a file whose money the designation splits, on the designation door', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+	});
+
+	it('names the split rather than the generic sentence', async () => {
+		expect.assertions(2);
+		const split = [
+			'date,label,debit,credit',
+			'2026-06-01,Mercerie Lafayette,-45.20,',
+			'2026-06-03,Salaire,,2450.00'
+		].join('\n');
+		// The same two production steps the door takes, so the oracle is the parser's fact and not
+		// a sentence typed here: the indices `submit` posts, then the mapped parse.
+		const { importHeaderCells, parseCsvTransactionRows } = await import('$lib/server/import/csv');
+		const { parseRows } = await import('$lib/server/import/utils/csv');
+		const { mappingFromPostedIndices } = await import('$lib/server/import/mapping/designation');
+		const rows = parseRows(split);
+		const designated = mappingFromPostedIndices({
+			headers: importHeaderCells(rows),
+			posted: { date: '0', label: '1', amount: '2' },
+			hasHeaderRow: true
+		});
+		if (!designated.ok) throw new Error('the fixture no longer designates');
+		const parsed = parseCsvTransactionRows(rows, {
+			profile: 'mapped',
+			columnMapping: designated.mapping,
+			hasHeaderRow: true
+		});
+		const headerFact = parsed.invalidRows.find((row) => row.scope.kind === 'header')?.fact;
+		if (!headerFact) throw new Error('the fixture no longer produces a header refusal');
+
+		const result = await submit(split, true);
+
+		expect(headerFact.code).toBe('amount-split-across-columns');
+		expect(result.data?.error).toBe(refusalLabel(headerFact));
+	});
+});
+
+/**
+ * THE STEP ORDER, FROM THE SIDE THAT SKIPS A STEP. ASVS v5.0.0-2.3.1: « Verify that the application
+ * will only process business logic flows for the same user in the expected sequential step order
+ * and without skipping steps. »
+ *
+ * `/import` refuses a file over the row bound and never offers this screen for it (#628). A client
+ * can still post it here directly, with four valid indices and an account, skipping the step that
+ * refused it. This door re-reads the file and must refuse it for the same reason, before any write.
+ *
+ * Break (`fileDimensionRefusal` returns null in `parseImportRows`): red, separating « the bound is
+ * decided where the file is read, at every door » from « the bound lives at the door that offered
+ * the screen ».
+ */
+describe('a file over the row bound, posted straight to the designation door', () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		persist.resolveImportBucketAccountById.mockResolvedValue({
+			accountId: 'account-1',
+			currency: 'EUR',
+			exponent: 2,
+			providerAccountId: null,
+			bankConnectionId: null
+		});
+	});
+
+	it('is refused before any write, and the correspondance is not memorised', async () => {
+		expect.assertions(5);
+		const rows = Array.from(
+			{ length: 1001 },
+			(_, i) => `2026-06-${String((i % 28) + 1).padStart(2, '0')},Mercerie ${i},-4.20`
+		);
+
+		const result = await submit(['date,label,amount', ...rows].join('\n'), true);
+
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(m.import_error_no_valid_transactions());
+		expect(persist.createImportBatch).not.toHaveBeenCalled();
+		expect(persist.persistImportedTransactions).not.toHaveBeenCalled();
+		expect(store.saveColumnMapping).not.toHaveBeenCalled();
 	});
 });
