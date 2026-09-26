@@ -1,0 +1,163 @@
+# What this repository has ALREADY published, scanned after the fact, daily. The before-the-fact
+# guards (the Claude Code hook, the git hooks, the pull request check) cannot see text typed into
+# the GitHub web UI, nor anything published before they existed.
+#
+# Three jobs, independent on purpose: a control that fails must not be able to take the other two
+# down with it.
+#
+# - private-references: the shared matcher (scripts/private-references.mjs) over every issue and
+#   pull request title, body, comment, review and review comment, release, commit comment, and
+#   every commit message on main, against .private-references-baseline.
+# - gitleaks-history: secrets in the full history of every branch and tag, against
+#   .gitleaks-baseline.json, with inline allow tags ignored.
+# - trufflehog: secrets in the repository, its issues and its pull request comments, verified
+#   results only, with inline ignore tags ignored.
+#
+# THE LOGS ARE PUBLIC. Each job prints a location, a kind and a redacted form, never a value;
+# TruffleHog's JSON (which carries the raw secret and the committer's address) goes to a file that
+# is read by jq and never printed, uploaded or attached. No issue is opened: a red run is the alert.
+#
+# Every job calibrates on a planted positive in the same run, and fails if the detector misses it.
+name: Published text scan
+
+on:
+  schedule:
+    - cron: '41 5 * * *' # daily; the odd minute avoids the top-of-hour crush
+  workflow_dispatch:
+
+concurrency:
+  group: published-text-scan
+
+permissions:
+  contents: read
+
+jobs:
+  private-references:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    steps:
+      # Full history, because every commit message on main is read and the count is checked
+      # against `git rev-list --count HEAD`.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Matcher over issues, pull requests, comments, releases and commit messages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: node scripts/published-text-scan.mjs "$GITHUB_REPOSITORY" .private-references-baseline
+
+  gitleaks-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install gitleaks (pinned, checksum verified, calibrated)
+        run: |
+          ./scripts/install-gitleaks.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      # `--all`: every branch and tag the checkout fetched, not only HEAD, because a secret removed
+      # from main's tip is still in the history a clone receives. The baseline holds the findings
+      # reviewed as test fixtures; `--redact` keeps values out of this public log.
+      - name: gitleaks over the full history of every ref
+        run: |
+          token=$(openssl rand -hex 16)
+          echo "::stop-commands::${token}"
+          set +e
+          gitleaks git --log-opts="--all" --baseline-path .gitleaks-baseline.json \
+            --redact --ignore-gitleaks-allow --no-banner --verbose .
+          status=$?
+          set -e
+          echo "::${token}::"
+          exit "$status"
+
+  trufflehog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+    env:
+      # 3.97.9, pinned by index digest so a moved tag cannot change what runs.
+      IMAGE: ghcr.io/trufflesecurity/trufflehog@sha256:52e67fef4d054ecff5c2ce4b4ae376626d1ef54aa0898b53cac19c25e92e14db
+    steps:
+      # A planted credential, assembled at run time so no file carries one, must be reported by
+      # this exact image before a clean scan from it is believed. Verification is off here: the
+      # plant points at an .invalid host and would only time out.
+      - name: Calibrate on a planted credential
+        run: |
+          mkdir -p "$RUNNER_TEMP/planted"
+          printf 'DATABASE_URL=postgres://%s:%s@%s:5432/app\n' planted "pw$(openssl rand -hex 8)" db.planted.invalid \
+            > "$RUNNER_TEMP/planted/app.env"
+          set +e
+          docker run --rm -v "$RUNNER_TEMP/planted:/scan:ro" "$IMAGE" filesystem /scan \
+            --results=unverified,unknown --no-verification --no-update --fail --json \
+            > "$RUNNER_TEMP/calibration.jsonl" 2> /dev/null
+          status=$?
+          set -e
+          found=$(jq -s 'length' "$RUNNER_TEMP/calibration.jsonl")
+          echo "calibration: exit $status, $found result(s), expected 183 and 1"
+          [ "$status" -eq 183 ] && [ "$found" -eq 1 ]
+
+      # `--results=verified`: a result TruffleHog confirmed live against its provider. Unverified
+      # results are dominated by the test fixtures' throwaway database URLs, whose verification
+      # times out rather than failing, which would redden this job every day for nothing.
+      # `--no-ignore-tag` so an inline ignore comment cannot hide a finding, and
+      # `--fail-on-scan-errors` so a scan that broke part-way does not pass for a clean one.
+      # `--issue-comments` covers issue bodies and comments, `--pr-comments` pull request bodies and
+      # comments (the flags' own help text); the private-references job above counts what it read.
+      - name: TruffleHog over the repository, its issues and its pull requests
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          set +e
+          docker run --rm -e GITHUB_TOKEN "$IMAGE" github --repo="$REPO_URL" \
+            --issue-comments --pr-comments --results=verified --no-ignore-tag \
+            --fail --fail-on-scan-errors --no-update --json --log-level=2 \
+            > "$RUNNER_TEMP/results.jsonl" 2> "$RUNNER_TEMP/trufflehog.log"
+          status=$?
+          set -e
+          # What it read, from its own log: the issue and pull request passes, and the totals.
+          for pass in 'Scanning issues' 'Scanning pull requests'; do
+            if ! grep -q "\"msg\":\"${pass}\"" "$RUNNER_TEMP/trufflehog.log"; then
+              echo "TruffleHog never logged « ${pass} », so it did not read them; refusing a clean result" >&2
+              exit 1
+            fi
+          done
+          # The log mixes JSON lines with plain ones, so each line is parsed on its own.
+          jq -rR 'fromjson? | select(.msg == "finished scanning") | "read \(.chunks) chunks, \(.bytes) bytes; \(.verified_secrets) verified, \(.unverified_secrets) unverified (not gated)"' \
+            "$RUNNER_TEMP/trufflehog.log"
+          chunks=$(jq -nR '[inputs | fromjson? | select(.msg == "finished scanning") | .chunks] | first // 0' "$RUNNER_TEMP/trufflehog.log")
+          if [ "$chunks" -eq 0 ]; then
+            echo "TruffleHog read 0 chunks; refusing a clean result" >&2
+            exit 1
+          fi
+          # Detector and location only. The JSON also carries the raw secret and the committer's
+          # address, and neither may reach this public log; a file name in a link is inside a
+          # stop-commands block so it cannot act as a workflow command.
+          token=$(openssl rand -hex 16)
+          echo "::stop-commands::${token}"
+          jq -r '"\(.DetectorName) verified=\(.Verified) at \(.SourceMetadata.Data.Github.link // "unknown location")"' \
+            "$RUNNER_TEMP/results.jsonl"
+          echo "::${token}::"
+          exit "$status"

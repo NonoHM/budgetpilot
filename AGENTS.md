@@ -107,13 +107,14 @@ history keeps it after the body is corrected. **A commit message on a branch is 
 published**: this repository squash-merges with the commit messages, so a line in any branch commit
 lands on `main`.
 
-**Where this is enforced, and where it is not.** `privateReferences.spec.ts` reads every tracked
-file and fails on a claude.ai address, a home-directory path, or an email outside the reserved
-domains and its short allowlist of public role addresses. Commit messages, PR bodies, issues and
-comments are not files, so no gate here sees them before they are posted: for those it is a
-convention, and the check is to grep your own text for `claude.ai` before sending it. This is the
-repository's reading of OWASP AISVS 1.0 Appendix C, AC.4.2 (a secret scan on every change carrying
-AI-generated code), which the gate covers only for tracked files.
+**Where this is enforced, and where it is not.** One matcher, `scripts/private-references.mjs`,
+refuses a claude.ai address, a home-directory path, a personal email, an IBAN, an outside image
+and a scanner skip tag, and gitleaks refuses secrets: before a command runs (the Claude Code
+hook), before a commit exists (`.githooks/`, activated by `git config core.hooksPath .githooks`),
+on every pull request, and daily over everything already published. Not covered: text typed in
+the GitHub web UI until the next daily scan, images and PDFs, and personal data with no pattern
+(#755). [Confidentiality guards](docs/explanation/confidentiality-guards.md) is the single
+description of which guard owns what; update it with any guard.
 
 ## Security boundaries
 

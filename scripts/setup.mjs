@@ -1,6 +1,7 @@
 // Interactive first-run setup: generates .env from .env.example, filling in
 // the three required secrets and the optional-feature toggles. Replaces the
 // manual "copy .env.example, run openssl three times, paste" flow.
+import { execFileSync } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { existsSync } from 'node:fs';
@@ -79,7 +80,27 @@ function setEnvValue(content, key, value) {
 }
 
 console.log('BudgetPilot setup\n');
-console.log("This walks you through creating your .env file. It won't touch anything else.\n");
+console.log(
+	'This walks you through creating your .env file, after activating the git hooks. It touches nothing else.\n'
+);
+
+// The tracked git hooks refuse a commit carrying a private reference or a secret
+// (scripts/private-references-git.mjs). Git runs no tracked hook until core.hooksPath points at it,
+// so setup is where a fresh clone gets them. Printed either way, because a guard that is silently
+// off is worse than none; a copy that is not a git checkout (a release archive) has no commits to
+// guard and says so. Not printed as an indented command line: verify-documented-setup.mjs runs
+// every such line, and this step has already run.
+try {
+	execFileSync('git', ['config', 'core.hooksPath', '.githooks'], { cwd: rootDir, stdio: 'pipe' });
+	console.log(
+		'Git hooks activated (core.hooksPath = .githooks). They need gitleaks installed; see CONTRIBUTING.md.\n'
+	);
+} catch (error) {
+	console.log(
+		`Git hooks NOT activated (${error instanceof Error ? error.message.split('\n')[0] : error}). ` +
+			'In a git checkout, run: git config core.hooksPath .githooks\n'
+	);
+}
 
 if (existsSync(envPath)) {
 	console.log(

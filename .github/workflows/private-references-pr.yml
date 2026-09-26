@@ -1,0 +1,79 @@
+# Private references and secrets in a pull request, checked where no local setting can skip it.
+#
+# The Claude Code hook and the git hooks run on the author's machine, so `--no-verify`, an
+# unactivated clone or a commit made in the web UI walks past them. This check reads what a squash
+# merge copies onto main: the added lines of the diff, EVERY commit message on the branch, and the
+# pull request title and body. It runs the shared matcher (scripts/private-references.mjs) and
+# gitleaks, both calibrated on a planted positive in the same run, through
+# scripts/private-references-git.mjs, the same file the local hooks call.
+#
+# Runs on `edited` as well, because a body changed after the last push is what the squash message is
+# built from. Title and body reach the script through `env:` and never through `${{ }}` inside
+# `run:`, so no text in them can become shell (GitHub's « Script injections »).
+#
+# `pull_request_target`, NOT `pull_request`, and that is the point rather than a convenience: under
+# `pull_request` the branch being checked supplies the scanner, so a pull request that edits
+# scripts/private-references.mjs would be judged by its own edit. Here the workflow and the scripts
+# come from the base branch, and the pull request's commits are FETCHED as data and never checked
+# out or executed (OWASP CICD-SEC-4, poisoned pipeline execution). The token is read-only, and
+# checkout keeps no credentials. The cost is the usual one for this trigger: a change to this file
+# takes effect only once it is on main, so it does not check the pull request that introduces it.
+#
+# For this to BLOCK a merge, the job has to be a required status check in the branch ruleset; a
+# check nobody requires reports and cannot refuse. That is a repository setting, not a file.
+name: Private references (pull request)
+
+on:
+  pull_request_target:
+    types: [opened, edited, synchronize, reopened]
+
+concurrency:
+  group: private-references-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  private-references:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # The BASE branch, with full history so the base commit is readable. No `ref:` naming the pull
+      # request: its code is never checked out.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      # The pull request's commits as objects only. Refused if the fetched head is not the one this
+      # event names, so a push racing the run cannot swap what is scanned.
+      - name: Fetch the pull request's commits as data
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REPO_URL: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          git fetch --no-tags "$REPO_URL" "+refs/pull/${PR_NUMBER}/head:refs/remotes/pr/head"
+          fetched=$(git rev-parse refs/remotes/pr/head)
+          if [ "$fetched" != "$HEAD_SHA" ]; then
+            echo "fetched $fetched but the event names $HEAD_SHA; a newer push will run this again" >&2
+            exit 1
+          fi
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install gitleaks (pinned, checksum verified, calibrated)
+        run: |
+          ./scripts/install-gitleaks.sh "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+
+      - name: Scan the diff, every commit message, the title and the body
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: node scripts/private-references-git.mjs pull-request
