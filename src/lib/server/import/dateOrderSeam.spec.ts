@@ -393,23 +393,67 @@ describe('the summary discloses a chosen reading, never a proven or defaulted on
 			{ dateOrder: 'month-first' }
 		);
 
-		expect(answered.summary.dateOrderDisclosure).toEqual({
+		expect(answered.summary.dateOrderDisclosure).toStrictEqual({
+			kind: 'answered',
 			header: 'date',
 			order: 'month-first'
 		});
 	});
 
 	/**
-	 * Separates « a proven column never discloses » from « it discloses whenever an override is
-	 * present ». The override is passed here and `decideDateOrder` already ignores it for a proven
-	 * column (asserted above); this is the summary-line half of the same rule.
+	 * #619. Separates « the file's proof won and the summary says the answer was not applied »
+	 * from « the proof won in silence », which is what this test asserted until #619: an answer
+	 * the file contradicts was discarded with nothing on screen. The proof still wins; the
+	 * disclosure names the reading applied and the cell that proves it, bounded like every cell a
+	 * summary shows.
 	 */
-	it('discloses nothing when the file proved its own order, even with an answer in hand', () => {
+	it('discloses an answer the file overruled, with the proving cell', () => {
 		expect.assertions(2);
 
 		const proven = parseCsvTransactions(
 			['date,label,amount', '24/06/2026,CARREFOUR,-24.90'].join('\n'),
 			{ dateOrder: 'month-first' }
+		);
+
+		expect(proven.summary.dateOrder).toBe('day-first');
+		expect(proven.summary.dateOrderDisclosure).toStrictEqual({
+			kind: 'overruled',
+			order: 'day-first',
+			proof: '24/06/2026'
+		});
+	});
+
+	/**
+	 * The proving cell is UNTRUSTED text on its way to the page, and `AMBIGUOUS_DATE_PATTERN` keeps
+	 * the whole trimmed cell, not the ten characters of its date. Separates « bounded like every
+	 * refusal cell » from « the upload chooses how much of itself the summary serialises »: a
+	 * 600-character cell must not reach the disclosure at 600 characters.
+	 */
+	it('bounds the proving cell it discloses', () => {
+		expect.assertions(2);
+
+		const proven = parseCsvTransactions(
+			['date,label,amount', `24/06/2026 ${'x'.repeat(600)},CARREFOUR,-24.90`].join('\n'),
+			{ dateOrder: 'month-first' }
+		);
+		const disclosure = proven.summary.dateOrderDisclosure;
+		const proof = disclosure?.kind === 'overruled' ? disclosure.proof : '';
+
+		expect(proof.startsWith('24/06/2026')).toBe(true);
+		expect(proof.length).toBeLessThanOrEqual(80);
+	});
+
+	/**
+	 * Separates « a proven column with an agreeing answer discloses nothing » from « any answer on
+	 * a proven file discloses ». A proven column is arithmetic and disclosing it every month is
+	 * noise (7l); only a DISAGREEMENT is news.
+	 */
+	it('discloses nothing when the file proved the order the answer gave', () => {
+		expect.assertions(2);
+
+		const proven = parseCsvTransactions(
+			['date,label,amount', '24/06/2026,CARREFOUR,-24.90'].join('\n'),
+			{ dateOrder: 'day-first' }
 		);
 
 		expect(proven.summary.dateOrder).toBe('day-first');

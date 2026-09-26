@@ -1473,6 +1473,7 @@
 	"import_recap_date_reading_month_first": "Dates read month then day",
 	"import_summary_date_reading_day_first": "Dates read day then month — {header}",
 	"import_summary_date_reading_month_first": "Dates read month then day — {header}",
+	"import_summary_date_reading_overruled": "Dates read {order}: {sample} proves it, so your answer was not applied.",
 	"import_designate_date_reading_no_dates": "No dates in this column",
 	"import_designate_date_reading_empty": "Empty column",
 	"import_designate_date_row_aria_no_dates": "Date, column designated: {header}, no dates in this column",
