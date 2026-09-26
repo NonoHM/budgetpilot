@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { deflateRawSync } from 'node:zlib';
-import { readFileSync } from 'node:fs';
 import { strToU8, zipSync } from 'fflate';
 import {
 	assertXlsxBoundConfigured,
@@ -326,8 +325,8 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 		expect(lowered.join('\n')).toContain(String(LARGEST_MEASURED_LEGITIMATE_BYTES));
 	});
 
-	it('the boot check is actually wired into the init hook', () => {
-		expect.assertions(3);
+	it('the boot check is registered with the boot collector', () => {
+		expect.assertions(1);
 
 		// WITHOUT THIS THE CEILING IS DECORATION. Every other test here calls the resolver or the
 		// asserter directly, so all of them pass on a build where boot never invokes it, and a
@@ -341,18 +340,12 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 		// deleting this check's entry from `ENVIRONMENT_CHECKS` left the scan, and this whole file,
 		// green (21 of 21, 2026-09-25). Break-checked the same day: deleting the entry reddens this
 		// test, registered 0 times.
+		//
+		// The init link is asserted once, for every check, in `src/hooks.server.init.spec.ts`,
+		// which calls `init` with the collector spied (#738). It used to be a source scan here.
 		expect(ENVIRONMENT_CHECKS.filter(([, run]) => run === assertXlsxBoundConfigured)).toHaveLength(
 			1
 		);
-
-		// The init link is still a source scan, because `init` cannot be called here without
-		// standing up the whole server. Structural, therefore a proxy, so it is calibrated below.
-		const hooks = readFileSync(new URL('../../../hooks.server.ts', import.meta.url), 'utf8');
-		const callsCollector = (source: string) => /await assertEnvironmentConfigured\(\)/.test(source);
-		expect(callsCollector(hooks)).toBe(true);
-		// The calibration: the same predicate must report FALSE on a source that does not call it,
-		// or "it is wired" is a statement about a regex that matches anything.
-		expect(callsCollector('export const init = async () => {};')).toBe(false);
 	});
 
 	it('the configured value is what the import path actually enforces', () => {
