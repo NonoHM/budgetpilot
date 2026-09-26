@@ -242,8 +242,8 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 		expect(lowered.join('\n')).toContain(String(LARGEST_EXPORTABLE_JSON_NODES));
 	});
 
-	it('the boot check is wired into the init hook, and the bound into the restore action', () => {
-		expect.assertions(6);
+	it('the boot check is registered with the boot collector, and the bound wired into the restore action', () => {
+		expect.assertions(4);
 
 		// WITHOUT THIS THE CEILING IS DECORATION, and the bound with it. Every other test here calls
 		// the module directly, so all of them pass on a build where nothing invokes it.
@@ -254,31 +254,26 @@ describe('the bound is configurable, and the configuration cannot remove it', ()
 		// for the name, which the import line at the top of the collector satisfies on its own:
 		// deleting this check's entry from `ENVIRONMENT_CHECKS` left the scan, and this whole file,
 		// green (12 of 12, 2026-09-25). Break-checked the same day: deleting the entry reddens this
-		// test, registered 0 times. The init link and the restore action are still source scans,
-		// calibrated below.
+		// test, registered 0 times. The init link is asserted once, for every check, in
+		// `src/hooks.server.init.spec.ts`, which calls `init` with the collector spied (#738). The
+		// restore action is still a source scan, calibrated below.
 		expect(
 			ENVIRONMENT_CHECKS.filter(([, run]) => run === assertBackupBoundConfigured)
 		).toHaveLength(1);
 
-		const hooks = readFileSync(new URL('../../../hooks.server.ts', import.meta.url), 'utf8');
 		const settings = readFileSync(
 			new URL('../../../routes/settings/+page.server.ts', import.meta.url),
 			'utf8'
 		);
 		const calls = (source: string, name: string) => new RegExp(`\\b${name}\\b`).test(source);
 
-		expect(/await assertEnvironmentConfigured\(\)/.test(hooks)).toBe(true);
 		expect(calls(settings, 'countJsonNodes')).toBe(true);
 		// The ORDER is the fix, not the presence: after `JSON.parse` the bound guards nothing,
 		// which is the entire defect #276 describes.
 		expect(settings.indexOf('countJsonNodes(rawText)')).toBeLessThan(
 			settings.indexOf('JSON.parse(rawText)')
 		);
-		// Calibration, both halves: the same predicate must report false on a source that does not
-		// name the thing.
+		// Calibration: the same predicate must report false on a source that does not name the thing.
 		expect(calls('const parsed = JSON.parse(rawText);', 'countJsonNodes')).toBe(false);
-		expect(
-			/await assertEnvironmentConfigured\(\)/.test('export const init = async () => {};')
-		).toBe(false);
 	});
 });
