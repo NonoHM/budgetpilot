@@ -29,6 +29,22 @@ import {
  *
  * Every planted positive is assembled at run time: this file is tracked, so a literal one would be
  * a finding against it.
+ *
+ * BREAK-CHECKED (2026-09-26), one clause at a time, each restored byte-identical from a pre-break
+ * copy; every break below turned the named test red, and each separates the guard doing that
+ * thing from the same guard silently not doing it:
+ * - hook: findings ignored (« carrying a claude-address »); unparsable input passed (« not
+ *   JSON »); unreadable body file passed (« cannot read »); unseen stdin passed (« from stdin »);
+ *   `|| exit 2` dropped from the registered line (« cannot start »); `--no-verify` allowed;
+ *   curl to the API ignored; MCP input ignored; the claude.ai pattern blinded, which the hook's
+ *   calibration turns into a refusal of even a clean commit (« lets a clean commit through »).
+ * - git hooks: no staged line read; no message read; removed lines read as well (« ADDED lines
+ *   only »); missing gitleaks passed; BP_SKIP_GITLEAKS also skipping the matcher (« no skip »);
+ *   gitleaks' non-zero exit ignored; gitleaks calibration always passing (« planted token »).
+ * - pull request mode: commit messages, the title, the body, each ignored in turn.
+ * - scheduled scan: a short read accepted; a stale baseline entry accepted; the full match
+ *   printed instead of the redacted one. Run live against GitHub with the external-image pattern
+ *   blinded, the scan refused on its calibration before reporting anything.
  */
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -367,7 +383,16 @@ function makeRepo(name: string, gitleaks: 'absent' | 'clean' | 'leak' | 'old' | 
 			return [];
 		}
 	};
-	return { dir, git, gitleaksCalls };
+	/** The pull request mode, as the workflow runs it, over this repository's own commits. */
+	const pullRequest = (extraEnv: Record<string, string>) => {
+		const result = spawnSync(
+			process.execPath,
+			[join(REPO_ROOT, 'scripts/private-references-git.mjs'), 'pull-request'],
+			{ cwd: dir, env: { ...env, GITHUB_ACTIONS: '', ...extraEnv }, encoding: 'utf8' }
+		);
+		return { status: result.status, output: `${result.stdout}${result.stderr}` };
+	};
+	return { dir, git, gitleaksCalls, pullRequest };
 }
 
 const SKIP = { BP_SKIP_GITLEAKS: '1' };
@@ -468,6 +493,61 @@ describe('git hooks: pre-commit reads the staged lines, commit-msg reads the mes
 		const result = repo.git(['commit', '-q', '-m', 'docs: a'], SKIP);
 		expect(result.status).not.toBe(0);
 		expect(result.output).toContain('[claude-address]');
+	});
+});
+
+describe('pull request check: what a squash merge copies onto main', () => {
+	function branch(name: string, message: string) {
+		const repo = makeRepo(name, 'clean');
+		writeFileSync(join(repo.dir, 'a.md'), 'base\n');
+		repo.git(['add', 'a.md']);
+		repo.git(['commit', '-q', '--no-verify', '-m', 'base']);
+		const base = repo.git(['rev-parse', 'HEAD']).output.trim();
+		writeFileSync(join(repo.dir, 'a.md'), 'base\nchange\n');
+		repo.git(['add', 'a.md']);
+		repo.git(['commit', '-q', '--no-verify', '-m', message]);
+		const head = repo.git(['rev-parse', 'HEAD']).output.trim();
+		return { repo, base, head };
+	}
+
+	it('passes a clean pull request and says what it read', () => {
+		const { repo, base, head } = branch('pr-clean', 'feat: clean');
+		const result = repo.pullRequest({
+			BASE_SHA: base,
+			HEAD_SHA: head,
+			PR_TITLE: 't',
+			PR_BODY: 'b'
+		});
+		expect(result.output).toContain('read 3 texts (1 commit messages, the title and the body)');
+		expect(result.status).toBe(0);
+	});
+
+	it.each([
+		['a commit message', { message: `feat: x\n\nCanvas: ${CLAUDE_LINK}`, title: 't', body: 'b' }],
+		['the title', { message: 'feat: x', title: `see ${CLAUDE_LINK}`, body: 'b' }],
+		['the body', { message: 'feat: x', title: 't', body: `drawn on ${CLAUDE_LINK}` }]
+	])('refuses a link in %s', (where, { message, title, body }) => {
+		const { repo, base, head } = branch(`pr-${where.replace(/ /g, '-')}`, message);
+		const result = repo.pullRequest({
+			BASE_SHA: base,
+			HEAD_SHA: head,
+			PR_TITLE: title,
+			PR_BODY: body
+		});
+		expect(result.status).toBe(1);
+		expect(result.output).toContain('[claude-address]');
+	});
+
+	it('refuses to run on commit ids it cannot trust', () => {
+		const { repo } = branch('pr-bad-ids', 'feat: x');
+		const result = repo.pullRequest({
+			BASE_SHA: 'main',
+			HEAD_SHA: 'HEAD',
+			PR_TITLE: '',
+			PR_BODY: ''
+		});
+		expect(result.status).toBe(1);
+		expect(result.output).toContain('must be full commit ids');
 	});
 });
 

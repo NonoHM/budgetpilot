@@ -287,7 +287,7 @@ function pullRequest() {
 	const matcherText = matcherCheck(
 		[...messages, ...pr],
 		false,
-		`commit messages (${shas.length}) and the title and body`
+		`texts (${shas.length} commit messages, the title and the body)`
 	);
 	const secretsDiff = gitleaks(['git', `--log-opts=${base}..${head}`, '.'], { allowSkip: false });
 	const secretsText = gitleaks(['stdin'], {
