@@ -2,18 +2,11 @@ import { fail, type Actions } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import { requireUser } from '$lib/server/auth';
 import { prisma } from '$lib/server/db';
+import { importHeaderCells, parseCsvTransactionRows } from '$lib/server/import/csv';
 import {
-	importFirstDataRow,
-	importHeaderCells,
-	importSampleCoverage,
-	importPreviewRows,
-	importSampleValues,
-	parseCsvTransactionRows
-} from '$lib/server/import/csv';
-import {
-	importColumnDateReadings,
-	importColumnDateStates
-} from '$lib/server/import/columnDateState';
+	designationFactsAsDetected,
+	designationRowFacts
+} from '$lib/server/import/designationFacts';
 import { applyColumnMapping } from '$lib/server/import/mapping/apply';
 import { readColumnMapping, recordColumnMappingUse } from '$lib/server/import/mapping/store';
 import { correctionMatchesFile, designationAssignment } from '$lib/server/import/mapping/recap';
@@ -138,23 +131,6 @@ export const load: PageServerLoad = async ({ locals, url }) => {
  * module reaching for an ambient locale on the server. `namedAt` on this same payload already
  * follows the convention.
  */
-/**
- * The cells whose two readings the screen needs, per column: the ROW's value first, then the CARD's.
- *
- * Index 0 is the first data row's cell, which is the value the Date row's line 2 prints and line 3
- * converts. Indices 1..n are `importSampleValues`'s own choices, which are what the picker's cards
- * print. They are DIFFERENT cells on a sparse column by design (`importSampleValues` picks the
- * first NON-EMPTY value per column, precisely so a sparse column does not render three blanks), so
- * converting the samples and printing them beside the row's value would show a conversion of a cell
- * the row never displayed.
- *
- * Built here rather than in the component so the raw value and its reading come from one array and
- * cannot drift apart.
- */
-function dateCellsPerColumn(firstRow: string[], samples: string[][]): string[][] {
-	return samples.map((values, column) => [firstRow[column] ?? '', ...values]);
-}
-
 async function accountOfferPayload(userId: string, rows: ParsedCsvRow[], source?: string) {
 	return accountOfferFrom(await buildAccountOffer({ userId, rows, source }));
 }
@@ -280,29 +256,16 @@ export const actions: Actions = {
 			return fail(400, { error: m.import_columns_correct_wrong_file() });
 		}
 		if (correcting) {
-			// Computed ONCE and shared with `dateReadings` below: the two must describe the same
-			// cells, or a card would print one value and convert another.
-			const correctingSamples = importSampleValues(importData.rows);
-			const correctingFirstRow = importFirstDataRow(importData.rows);
 			return fail(400, {
 				designation: {
 					account: await accountOfferPayload(user.id, importData.rows),
 					name: importFile.name,
 					headers: headerCells,
-					samples: correctingSamples,
-					// 7k: the whole-column verdict ships WITH the offer, one per column, so the screen never
-					// holds a state the submit could contradict and never computes one itself.
-					dateStates: importColumnDateStates(importData.rows),
-					// Both readings of the SAME cells the cards show, so the pair on a card can never
-					// disagree with the value printed beside it.
-					dateReadings: importColumnDateReadings(
-						dateCellsPerColumn(correctingFirstRow, correctingSamples)
-					),
-					previewRows: importPreviewRows(importData.rows),
-					coverage: importSampleCoverage(importData.rows),
-					firstRow: correctingFirstRow,
-					rowCount: Math.max(0, importData.rows.length - 1),
-					detectedHeaderRow: true
+					// Every per-row fact, for line 1 as headers AND as data (#735): the « Première
+					// ligne » switch swaps them in the browser, and `designationRowFacts` is the one
+					// definition of both.
+					...designationFactsAsDetected(importData.rows),
+					rowCount: Math.max(0, importData.rows.length - 1)
 				},
 				// Null per role where the remembered column is not in this file. A neighbour picked by
 				// proximity would put the money column somewhere plausible and silent.
@@ -498,9 +461,10 @@ export const actions: Actions = {
 		if (offer.rung !== 'none') {
 			// Every rung left here is reached only on a parse that produced nothing: the four facts
 			// above are computed only then, and `generic` is defined by it.
-			// As in the correction branch: one array, shared by `samples` and `dateReadings`.
-			const offerSamples = importSampleValues(importData.rows);
-			const offerFirstRow = importFirstDataRow(importData.rows);
+			// Line 1 read as headers, which is what this route detects. The reading and account
+			// offers read these directly; the designation offer adds the other answer's (#735).
+			const offerFacts = designationRowFacts(importData.rows, true);
+			const offerSamples = offerFacts.samples;
 			const splitRefusal: ImportInvalidRowDetail[] = splitFact
 				? [
 						{
@@ -550,20 +514,9 @@ export const actions: Actions = {
 								),
 								name: importFile.name,
 								headers: headerCells,
-								samples: offerSamples,
-								// 7k: the whole-column verdict ships WITH the offer, one per column, so the screen
-								// never holds a state the submit could contradict and never computes one itself.
-								dateStates: importColumnDateStates(importData.rows),
-								// Both readings of the SAME cells the cards show, so the pair on a card can never
-								// disagree with the value printed beside it.
-								dateReadings: importColumnDateReadings(
-									dateCellsPerColumn(offerFirstRow, offerSamples)
-								),
-								previewRows: importPreviewRows(importData.rows),
-								coverage: importSampleCoverage(importData.rows),
-								firstRow: offerFirstRow,
-								rowCount: Math.max(0, result.summary.totalRows),
-								detectedHeaderRow: true
+								// Every per-row fact, for both answers about line 1 (#735).
+								...designationFactsAsDetected(importData.rows, offerFacts),
+								rowCount: Math.max(0, result.summary.totalRows)
 							}
 						: undefined,
 				// Plate 7l: opens `ColumnPicker` at `step: 'reading'` alone, no column list, no back
@@ -577,11 +530,9 @@ export const actions: Actions = {
 						? {
 								name: importFile.name,
 								headers: headerCells,
-								samples: offerSamples,
-								dateReadings: importColumnDateReadings(
-									dateCellsPerColumn(offerFirstRow, offerSamples)
-								),
-								firstRow: offerFirstRow,
+								samples: offerFacts.samples,
+								dateReadings: offerFacts.dateReadings,
+								firstRow: offerFacts.firstRow,
 								detectedHeaderRow: true,
 								rowCount: Math.max(0, result.summary.totalRows),
 								dateColumn: offer.fact.column

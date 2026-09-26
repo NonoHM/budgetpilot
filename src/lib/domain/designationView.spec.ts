@@ -50,7 +50,30 @@ const PAYLOAD: Required<DesignationFile> = {
 		{ dayFirst: [null, null, null], monthFirst: [null, null, null] }
 	],
 	rowCount: 66,
-	detectedHeaderRow: true
+	detectedHeaderRow: true,
+	// The same file read with line 1 as data (#735): the header cells become the first transaction.
+	otherHeaderRowFacts: {
+		samples: [
+			['zone_1', '01/02/2026', '03/04/2026'],
+			['zone_2', 'CARREFOUR', 'SNCF'],
+			['zone_3', '-12,90', '-45,00']
+		],
+		firstRow: ['zone_1', 'zone_2', 'zone_3'],
+		previewRows: [
+			['zone_1', 'zone_2', 'zone_3'],
+			['01/02/2026', 'CARREFOUR', '-12,90']
+		],
+		coverage: [67, 67, 67],
+		dateStates: ['ambiguous', 'no-dates', 'no-dates'],
+		dateReadings: [
+			{
+				dayFirst: [null, '2026-02-01', '2026-04-03'],
+				monthFirst: [null, '2026-01-02', '2026-03-04']
+			},
+			{ dayFirst: [null, null, null], monthFirst: [null, null, null] },
+			{ dayFirst: [null, null, null], monthFirst: [null, null, null] }
+		]
+	}
 };
 
 describe('designationView', () => {
