@@ -128,8 +128,9 @@ export function resolveBackupMaxJsonNodes(): number {
 }
 
 /**
- * Boot check, called from `hooks.server.ts`. Refuses to start on an out-of-range value, and reports
- * any departure from the default, in both directions.
+ * Boot check, registered in `ENVIRONMENT_CHECKS` (`server/env/assertConfigured.ts`), the collector
+ * `init` in `hooks.server.ts` awaits before the server listens. Refuses to start on an out-of-range
+ * value, and reports any departure from the default, in both directions.
  *
  * The lowered direction matters more here than it does for the xlsx bound, because below
  * `LARGEST_EXPORTABLE_JSON_NODES` the application refuses to restore files it produced itself, and

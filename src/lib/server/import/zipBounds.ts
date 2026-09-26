@@ -159,8 +159,9 @@ export function resolveXlsxMaxUncompressedBytes(): number {
 }
 
 /**
- * Boot check, called from `hooks.server.ts`. Refuses to start on an out-of-range value, and reports
- * any departure from the default.
+ * Boot check, registered in `ENVIRONMENT_CHECKS` (`server/env/assertConfigured.ts`), the collector
+ * `init` in `hooks.server.ts` awaits before the server listens. Refuses to start on an out-of-range
+ * value, and reports any departure from the default.
  *
  * The warning is the half that is easy to leave out and it is worth more than the refusal. Someone
  * who raised this bound to make a failing import go away will not remember doing so when an upload

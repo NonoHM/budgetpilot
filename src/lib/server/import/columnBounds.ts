@@ -85,8 +85,9 @@ export function resolveCsvMaxColumns(): number {
 }
 
 /**
- * Boot check, called from `hooks.server.ts` beside the backup bound. Refuses to start on an
- * out-of-range value, and reports any departure from the default in both directions.
+ * Boot check, registered in `ENVIRONMENT_CHECKS` (`server/env/assertConfigured.ts`), the collector
+ * `init` in `hooks.server.ts` awaits before the server listens. Refuses to start on an out-of-range
+ * value, and reports any departure from the default in both directions.
  */
 export function assertCsvColumnBoundConfigured(): void {
 	const columns = resolveCsvMaxColumns();
