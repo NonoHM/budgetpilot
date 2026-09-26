@@ -30,6 +30,7 @@ import {
 } from '$lib/server/import/persist';
 import { writeImport } from '$lib/server/import/writeImport';
 import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
+import { importFileErrorLabel } from '$lib/i18n/importFileErrorLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
@@ -92,8 +93,10 @@ export const actions: Actions = {
 		try {
 			importData = await readImportFile(importFile, { maxBytes: IMPORT_FILE_MAX_BYTES });
 		} catch (caught) {
+			// The same sentence per code as `/import` (#595). This door used to answer « vide » for every
+			// code, which called an unreadable workbook empty.
 			if (caught instanceof ImportFileError)
-				return fail(400, { error: m.import_error_empty_file() });
+				return fail(400, { error: importFileErrorLabel(caught) });
 			throw caught;
 		}
 		if (importData.rows.length === 0) {

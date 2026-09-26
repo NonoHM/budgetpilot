@@ -380,6 +380,7 @@
 	"import_error_write_partly_saved_one": "L'import s'est arrêté après {count} transaction enregistrée. Supprimez-le dans Imports, puis réessayez.",
 	"import_error_write_partly_saved_many": "L'import s'est arrêté après {count} transactions enregistrées. Supprimez-le dans Imports, puis réessayez.",
 	"import_error_write_maybe_saved": "L'import s'est arrêté et des transactions ont pu être enregistrées. Vérifiez dans Imports avant de réessayer.",
+	"import_error_unreadable_workbook": "Ce fichier .xlsx n'est pas un classeur lisible. Exportez-le de nouveau, ou en CSV.",
 	"import_refusal_unknown_column": "Colonne non autorisée : {column}",
 	"import_refusal_duplicate_column": "Colonne dupliquée : {column}",
 	"import_refusal_missing_required_column": "Colonne requise absente : {role}",

@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { strToU8, zipSync } from 'fflate';
 import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
@@ -2363,6 +2364,27 @@ describe('/import: a failed write answers with a sentence, never a 500', () => {
 		expect(result.status).toBe(500);
 		expect(result.data.error).toBe(
 			"L'import n'a pas abouti et aucune transaction n'a été enregistrée. Réessayez."
+		);
+	});
+
+	it('refuses an archive that is not a workbook with its own sentence (#595)', async () => {
+		expect.assertions(2);
+		// fflate writes a real central directory; `zipStored` below is hand-assembled, and the issue
+		// records a hand-assembled archive being refused earlier, as malformed, for another reason.
+		const archive = zipSync({ 'notes.txt': strToU8('une archive, pas un classeur') });
+		const formData = new FormData();
+		formData.set(
+			'csvFile',
+			new File([archive as Uint8Array<ArrayBuffer>], 'export.xlsx', {
+				type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+			})
+		);
+
+		const result = await runImport(formData);
+
+		expect(result.status).toBe(400);
+		expect(result.data.error).toBe(
+			"Ce fichier .xlsx n'est pas un classeur lisible. Exportez-le de nouveau, ou en CSV."
 		);
 	});
 });

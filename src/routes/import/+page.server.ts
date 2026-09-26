@@ -35,6 +35,7 @@ export type { ImportInvalidRowDetail } from '$lib/server/import/invalidRowDetail
 import { resolveImportBucketAccountBySource } from '$lib/server/import/persist';
 import { writeImport } from '$lib/server/import/writeImport';
 import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
+import { importFileErrorLabel } from '$lib/i18n/importFileErrorLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { buildAccountOffer, type AccountOffer } from '$lib/server/import/accountOffer';
 import type { ParsedCsvRow } from '$lib/server/import/types';
@@ -891,23 +892,7 @@ async function readUploadedImportFile(file: File) {
 	try {
 		return await readImportFile(file, { maxBytes: IMPORT_FILE_MAX_BYTES });
 	} catch (caught) {
-		if (caught instanceof ImportFileError) return { error: importFileErrorMessage(caught) };
+		if (caught instanceof ImportFileError) return { error: importFileErrorLabel(caught) };
 		throw caught;
 	}
-}
-
-function importFileErrorMessage(err: ImportFileError): string {
-	if (err.code === 'too_large') {
-		return m.import_error_too_large({ size: err.params?.size ?? 0, max: err.params?.max ?? 0 });
-	}
-	if (err.code === 'expands_too_far') {
-		// Megabytes rather than bytes: the figures here are in the millions, and the number the
-		// user can act on is "how much bigger than allowed", not the exact byte count.
-		return m.import_error_expands_too_far({
-			size: Math.ceil((err.params?.size ?? 0) / 1_000_000),
-			max: Math.floor((err.params?.max ?? 0) / 1_000_000)
-		});
-	}
-	if (err.code === 'bad_extension') return m.import_error_bad_extension();
-	return m.import_error_empty_file();
 }
