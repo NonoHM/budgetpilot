@@ -1,4 +1,5 @@
 import { prisma } from '$lib/server/db';
+import { readOperatorBound } from '$lib/server/env/operatorBound';
 import { candidateFingerprints } from './fingerprint';
 import {
 	boundedColumnName,
@@ -10,10 +11,13 @@ import {
 /**
  * The most column mappings one user may hold.
  *
- * Every distinct header shape a user uploads creates a row and nothing deletes one, so an upload
- * loop of files differing by one character in one header would otherwise create unlimited rows. A
- * minimal valid CSV is a few dozen bytes against a 256 000 byte cap, and there is no rate limit on
- * the import route.
+ * Every distinct header shape a user uploads creates a row, and nothing removes one on its own. The
+ * three paths that delete a mapping are the user's own choice (the Settings « Colonnes mémorisées »
+ * list, through `deleteColumnMapping`), a backup restore replacing the user's mappings with the
+ * backup's, and deleting the account (the `User` relation cascades). So an upload loop of files
+ * differing by one character in one header would otherwise create unlimited rows. A minimal valid
+ * CSV is a few dozen bytes against a 256 000 byte cap, and the import rate limit
+ * (`IMPORT_RATE_LIMIT_MAX_ATTEMPTS`) bounds how fast rows arrive, not how many accumulate.
  *
  * **Refused rather than evicted.** Silently dropping the oldest mapping means a user's regular
  * bank stops being recognised because they once imported twenty odd files, which is the same
@@ -21,15 +25,18 @@ import {
  *
  * 50 against a realistic ceiling of about fifteen: five banks, three format changes each.
  *
- * **THE ESCAPE HATCH IS OWED AND IS NOT HERE YET.** A cap with no way to free a row is a permanent
- * block, and a refusal that tells someone they can never import a new bank again, with no next
- * step, is worse than the cap it enforces. Until #326 ships a removal list on the settings page,
- * the refusal message says one is coming and names that issue. **Do not raise this number instead
- * of building that screen.**
+ * **The escape hatch is the Settings list, and the refusal names it.** A cap with no way to free a
+ * row is a permanent block: a refusal telling someone they can never import a new bank again, with
+ * no next step, is worse than the cap it enforces. #326 shipped that list and `deleteColumnMapping`,
+ * and the import page's cap-reached banner links to Settings (« Supprimez-en une dans Paramètres »).
+ * **Do not raise this number instead of pointing a user at that list.**
  */
 export const COLUMN_MAPPINGS_PER_USER_DEFAULT = 50;
 
-/** Above this the cap stops being a cap: see #326 for what has to exist before it is raised. */
+/**
+ * Above this the cap stops being a cap. No measurement chose 500 (#327 introduced it without one):
+ * it is ten times the default, and a user who reaches it frees rows one at a time in Settings.
+ */
 export const COLUMN_MAPPINGS_PER_USER_CEILING = 500;
 
 export const COLUMN_MAPPINGS_PER_USER_ENV = 'COLUMN_MAPPINGS_PER_USER';
@@ -40,15 +47,11 @@ export const COLUMN_MAPPINGS_PER_USER_ENV = 'COLUMN_MAPPINGS_PER_USER';
  * bound you set is the bound that runs.
  */
 export function resolveColumnMappingsPerUser(): number {
-	const raw = process.env[COLUMN_MAPPINGS_PER_USER_ENV];
-	if (raw === undefined || raw.trim() === '') return COLUMN_MAPPINGS_PER_USER_DEFAULT;
-
-	const cap = Number(raw);
-	if (!Number.isInteger(cap) || cap < 1) {
-		throw new Error(
-			`${COLUMN_MAPPINGS_PER_USER_ENV} must be a whole number of at least 1 (got ${JSON.stringify(raw)}). It bounds how many remembered column mappings one user may hold. The default is ${COLUMN_MAPPINGS_PER_USER_DEFAULT}.`
-		);
-	}
+	const cap = readOperatorBound({
+		name: COLUMN_MAPPINGS_PER_USER_ENV,
+		fallback: COLUMN_MAPPINGS_PER_USER_DEFAULT,
+		purpose: 'It bounds how many remembered column mappings one user may hold.'
+	});
 
 	if (cap > COLUMN_MAPPINGS_PER_USER_CEILING) {
 		throw new Error(

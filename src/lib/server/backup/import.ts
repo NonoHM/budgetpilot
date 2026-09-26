@@ -731,8 +731,10 @@ function assertReferentialIntegrity(payload: BackupExport): void {
 	// The PER-ARRAY bound, and it is owed separately from the document-wide one. BACKUP_MAX_JSON_NODES
 	// bounds this array incidentally, and an incidental bound is not the bound for this array: the
 	// same argument that gave the split count its own MIN/MAX check rather than leaning on the node
-	// count. Nothing deletes a mapping yet (#326), so a restore is the one path that could plant
-	// thousands in a single request.
+	// count. An import saves at most one mapping per request and `saveColumnMapping` counts against
+	// the cap first, so a restore is the one path that could plant thousands in a single request.
+	// (The restore deletes the user's own mappings before writing these, which is why the cap is
+	// compared with this array alone rather than with what the user held.)
 	const mappingCap = resolveColumnMappingsPerUser();
 	if (payload.columnMappings.length > mappingCap) {
 		throw new BackupImportError(
