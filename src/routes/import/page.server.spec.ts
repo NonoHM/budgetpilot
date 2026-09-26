@@ -85,6 +85,8 @@ const db = vi.hoisted(() => {
 		// The correspondance this import was read through, which is what the correction pairing is
 		// resolved against.
 		columnMappingId?: string | null;
+		// The account the batch is filed on. The write step resolves the batch against it (#596).
+		accountId?: string | null;
 	};
 	type Rule = {
 		id: string;
@@ -145,6 +147,7 @@ const db = vi.hoisted(() => {
 		id?: string;
 		userId?: string;
 		columnMappingId?: string;
+		accountId?: string;
 	};
 	type TransactionCreateArgs = {
 		data: Omit<Transaction, 'id' | 'manualCategory'> & { manualCategory?: string | null };
@@ -161,6 +164,12 @@ const db = vi.hoisted(() => {
 		// How many rows of the batch being corrected carry a split or a tag. Set per test rather
 		// than derived, because this fake models neither table.
 		userWorkCount: 0,
+		/**
+		 * A write the database refuses: `transaction.create` throws for a row with this label. The
+		 * one fault D3's route tests inject, because a fault is what reaches the write step's catch
+		 * and no file this fake can parse produces one.
+		 */
+		failCreateOnLabel: null as string | null,
 		nextId: 1
 	};
 
@@ -187,6 +196,7 @@ const db = vi.hoisted(() => {
 			// failed to fire. Both defaults are stated rather than inferred.
 			state.nextId = 1;
 			state.userWorkCount = 0;
+			state.failCreateOnLabel = null;
 		},
 		prisma: {
 			// The import doors are rate limited, so the action counts and records attempts. Modelled
@@ -389,7 +399,7 @@ const db = vi.hoisted(() => {
 				 */
 				findFirst: vi.fn(async ({ where }: { where: BatchFindFirstWhere }) => {
 					const unmodelled = Object.keys(where).filter(
-						(key) => !['id', 'userId', 'columnMappingId'].includes(key)
+						(key) => !['id', 'userId', 'columnMappingId', 'accountId'].includes(key)
 					);
 					if (unmodelled.length > 0) {
 						throw new Error(`importBatch.findFirst: unmodelled where ${unmodelled.join(',')}`);
@@ -400,7 +410,8 @@ const db = vi.hoisted(() => {
 								(where.id === undefined || batch.id === where.id) &&
 								(where.userId === undefined || batch.userId === where.userId) &&
 								(where.columnMappingId === undefined ||
-									(batch.columnMappingId ?? null) === where.columnMappingId)
+									(batch.columnMappingId ?? null) === where.columnMappingId) &&
+								(where.accountId === undefined || (batch.accountId ?? null) === where.accountId)
 						) ?? null
 					);
 				}),
@@ -427,7 +438,33 @@ const db = vi.hoisted(() => {
 					if (!batch) throw new Error('batch not found');
 					Object.assign(batch, data);
 					return batch;
-				})
+				}),
+				/**
+				 * The write step's counters (#660), scoped by `userId` (#596). Faithful: an absent clause
+				 * filters nothing, as in Prisma, and a clause this cannot express throws.
+				 */
+				updateMany: vi.fn(
+					async ({
+						where,
+						data
+					}: {
+						where: { id?: string; userId?: string };
+						data: Partial<Batch>;
+					}) => {
+						const unmodelled = Object.keys(where).filter((key) => !['id', 'userId'].includes(key));
+						if (unmodelled.length > 0) {
+							throw new Error(`importBatch.updateMany: unmodelled where ${unmodelled.join(',')}`);
+						}
+						let count = 0;
+						for (const batch of state.batches) {
+							if (where.id !== undefined && batch.id !== where.id) continue;
+							if (where.userId !== undefined && batch.userId !== where.userId) continue;
+							Object.assign(batch, data);
+							count += 1;
+						}
+						return { count };
+					}
+				)
 			},
 			categorizationRule: {
 				findMany: vi.fn(async () => state.rules.filter((rule) => rule.active))
@@ -553,6 +590,17 @@ const db = vi.hoisted(() => {
 					if (where.OR) {
 						return state.userWorkCount;
 					}
+					// The write step's ledger count (#660): the rows one batch holds, scoped by user.
+					if (where.dedupeKeyHash === undefined) {
+						if (where.importBatchId === undefined) {
+							throw new Error('transaction.count: unmodelled where without importBatchId');
+						}
+						return state.transactions.filter(
+							(transaction) =>
+								transaction.userId === where.userId &&
+								transaction.importBatchId === where.importBatchId
+						).length;
+					}
 					const hashes = where.dedupeKeyHash?.in ?? [];
 					return state.transactions.filter(
 						(transaction) =>
@@ -600,6 +648,9 @@ const db = vi.hoisted(() => {
 					);
 				}),
 				create: vi.fn(async ({ data }: TransactionCreateArgs) => {
+					if (state.failCreateOnLabel !== null && data.label === state.failCreateOnLabel) {
+						throw new Error('Connection terminated unexpectedly');
+					}
 					if (
 						data.dedupeKey &&
 						state.transactions.some((transaction) => transaction.dedupeKey === data.dedupeKey)
@@ -1115,7 +1166,11 @@ describe('/import actions', () => {
 		});
 		expect(db.state.batches[0].periodStart).toBeInstanceOf(Date);
 		expect(db.state.transactions[0].importBatchId).toBe(db.state.batches[0].id);
-		expect(db.prisma.importBatch.update).toHaveBeenCalled();
+		// The counters go through `updateMany` scoped by the user (#596). That the scope REFUSES a
+		// foreign batch is asserted against real engines in `writeStep.db-smoke.ts`, not here.
+		expect(db.prisma.importBatch.updateMany).toHaveBeenCalledWith(
+			expect.objectContaining({ where: { id: db.state.batches[0].id, userId: testUser.id } })
+		);
 	});
 
 	it('ignores duplicates on a second import of the same CSV', async () => {
@@ -2252,6 +2307,63 @@ describe('/import actions', () => {
 				'mapping-columns-missing'
 			);
 		});
+	});
+});
+
+/**
+ * D3: the write step owns its failures, seen from the route. Before it, `persistImportedTransactions`
+ * was called with no catch around it, so a throw reached SvelteKit's default handler: a bare 500,
+ * the same page a database outage shows, while rows it had already written stayed in the ledger
+ * (#662), and a real archive that is not a workbook did the same one call earlier (#595).
+ *
+ * The fault is injected into the fake (`failCreateOnLabel`) because no file this fake can parse
+ * makes a write throw; what is under test is what the ROUTE says once one does. The counts against
+ * real engines are `writeStep.db-smoke.ts`.
+ */
+describe('/import: a failed write answers with a sentence, never a 500', () => {
+	const THREE_ROWS =
+		'date;label;amount\n2026-06-01;CAFE FICTIF;-2,50\n2026-06-02;PANNE FICTIVE;-3,00\n2026-06-03;EPICERIE FICTIVE;-4,00';
+
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+		// The write step logs a sanitised line for an operator; silenced so the run stays readable.
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+	});
+
+	it('names the 1 row saved before the second one failed', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'PANNE FICTIVE';
+
+		const result = await runImportWithFile(THREE_ROWS);
+
+		expect(result.status).toBe(500);
+		expect(result.data.error).toBe(
+			"L'import s'est arrêté après 1 transaction enregistrée. Supprimez-le dans Imports, puis réessayez."
+		);
+	});
+
+	it('leaves the history saying 1, which is what the ledger holds (#660)', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'PANNE FICTIVE';
+
+		await runImportWithFile(THREE_ROWS);
+
+		// CALIBRATION: one row reached the ledger before the fault.
+		expect(db.state.transactions).toHaveLength(1);
+		expect(db.state.batches[0].importedRows).toBe(1);
+	});
+
+	it('says nothing was saved when the first row fails', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'CAFE FICTIF';
+
+		const result = await runImportWithFile(THREE_ROWS);
+
+		expect(result.status).toBe(500);
+		expect(result.data.error).toBe(
+			"L'import n'a pas abouti et aucune transaction n'a été enregistrée. Réessayez."
+		);
 	});
 });
 

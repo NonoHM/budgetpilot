@@ -32,11 +32,9 @@ import {
 } from '$lib/server/import/invalidRowDetails';
 // Re-exported: this type was declared here and `page.server.spec.ts` names it from this module.
 export type { ImportInvalidRowDetail } from '$lib/server/import/invalidRowDetails';
-import {
-	createImportBatch,
-	persistImportedTransactions,
-	resolveImportBucketAccountBySource
-} from '$lib/server/import/persist';
+import { resolveImportBucketAccountBySource } from '$lib/server/import/persist';
+import { writeImport } from '$lib/server/import/writeImport';
+import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { buildAccountOffer, type AccountOffer } from '$lib/server/import/accountOffer';
 import type { ParsedCsvRow } from '$lib/server/import/types';
@@ -723,32 +721,36 @@ export const actions: Actions = {
 			}
 			bucket = { accountId: resolved.bucket.accountId, created: resolved.created };
 		}
-		const batchId = await createImportBatch({
-			userId: user.id,
-			accountId: bucket.accountId,
-			source,
-			fileName: importFile.name,
-			profile: result.summary.profile,
-			rowCount: result.summary.totalRows,
-			invalidRows: result.summary.invalidRows,
-			period: result.summary.period,
-			// Only when the mapping actually read this file. `useMapping` is the same condition the
-			// parser was given, so the link cannot claim a correspondance a different profile parsed.
-			columnMappingId: useMapping ? (remembered?.id ?? null) : null,
-			// What this import APPLIED, so a later reinterpretation has a fact rather than a guess.
-			// Taken from the summary the parser returned, never recomputed here: a second derivation
-			// would be a second answer, and the batch would record one the import did not use.
-			dateOrder: result.summary.dateOrder ?? null
-		});
-
-		const persisted = await persistImportedTransactions({
-			userId: user.id,
-			accountId: bucket.accountId,
-			importBatchId: batchId,
-			source,
+		const written = await writeImport({
+			batch: {
+				userId: user.id,
+				accountId: bucket.accountId,
+				source,
+				fileName: importFile.name,
+				profile: result.summary.profile,
+				rowCount: result.summary.totalRows,
+				invalidRows: result.summary.invalidRows,
+				period: result.summary.period,
+				// Only when the mapping actually read this file. `useMapping` is the same condition the
+				// parser was given, so the link cannot claim a correspondance a different profile parsed.
+				columnMappingId: useMapping ? (remembered?.id ?? null) : null,
+				// What this import APPLIED, so a later reinterpretation has a fact rather than a guess.
+				// Taken from the summary the parser returned, never recomputed here: a second derivation
+				// would be a second answer, and the batch would record one the import did not use.
+				dateOrder: result.summary.dateOrder ?? null
+			},
 			transactions: result.transactions,
 			parseDuplicateRows: result.summary.duplicateRows
 		});
+		// #662: a failed write is a sentence that says what landed, never a bare 500. 500 because it
+		// is the server's failure rather than the file's; the currency backstop is the file's, and is
+		// the same refusal and status this route gives before writing (#600).
+		if (!written.ok) {
+			return fail(written.failure.kind === 'currency' ? 400 : 500, {
+				error: importWriteFailureLabel(written.failure)
+			});
+		}
+		const { batchId, persisted } = written;
 
 		return {
 			importResult: {

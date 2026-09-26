@@ -25,11 +25,11 @@ import {
 	getHiddenInvalidRowsCount
 } from '$lib/server/import/invalidRowDetails';
 import {
-	createImportBatch,
 	ImportBucketAccountError,
-	persistImportedTransactions,
 	resolveImportBucketAccountById
 } from '$lib/server/import/persist';
+import { writeImport } from '$lib/server/import/writeImport';
+import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
@@ -427,27 +427,34 @@ export const actions: Actions = {
 			if (saved.ok) await recordColumnMappingUse(user.id, saved.id);
 		}
 
-		const batchId = await createImportBatch({
-			userId: user.id,
-			accountId: bucket.accountId,
-			source: 'csv',
-			fileName: importFile.name,
-			profile: result.summary.profile,
-			rowCount: result.summary.totalRows,
-			invalidRows: result.summary.invalidRows,
-			period: result.summary.period,
-			columnMappingId,
-			// As on the upload path: the order the parse applied, read off its own summary.
-			dateOrder: result.summary.dateOrder ?? null
-		});
-		const persisted = await persistImportedTransactions({
-			userId: user.id,
-			accountId: bucket.accountId,
-			importBatchId: batchId,
-			source: 'csv',
+		const written = await writeImport({
+			batch: {
+				userId: user.id,
+				accountId: bucket.accountId,
+				source: 'csv',
+				fileName: importFile.name,
+				profile: result.summary.profile,
+				rowCount: result.summary.totalRows,
+				invalidRows: result.summary.invalidRows,
+				period: result.summary.period,
+				columnMappingId,
+				// As on the upload path: the order the parse applied, read off its own summary.
+				dateOrder: result.summary.dateOrder ?? null
+			},
 			transactions: result.transactions,
 			parseDuplicateRows: result.summary.duplicateRows
 		});
+		// #662, as on `/import`: a failed write is a sentence that says what landed. RETURNED BEFORE
+		// the replace below, so a correction whose write failed never deletes the import it was meant
+		// to replace: write-then-delete holds on the failure branch too. `keepDesignation` because the
+		// designations are not what failed; the repair the sentence names is on `/imports`.
+		if (!written.ok) {
+			return fail(written.failure.kind === 'currency' ? 400 : 500, {
+				error: importWriteFailureLabel(written.failure),
+				keepDesignation: true
+			});
+		}
+		const { batchId, persisted } = written;
 
 		/**
 		 * The replace, and the one guard between it and a silent loss of transactions.

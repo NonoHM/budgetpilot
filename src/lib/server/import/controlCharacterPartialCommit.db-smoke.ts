@@ -8,7 +8,9 @@ import {
 import type { ImportedTransaction } from './types';
 
 /**
- * #652's regression test for the COUNTING BUG, not for the NUL. Kept deliberately narrow:
+ * #652's measurement of the COUNTING BUG, not of the NUL, and since D3 (#660) its regression test:
+ * the PostgreSQL branch below used to pin `importedRows` at 0 over two committed rows, and now pins
+ * it at the ledger's own count. Kept deliberately narrow:
  * `persistImportedTransactions` is called directly with a hand-built `ImportedTransaction`, the
  * same way `banking/sync/service.ts` and `accountIdSurvival.db-smoke.ts` do, bypassing every CSV
  * profile's `hasStrandedControlCharacter` refusal on purpose — those refuse a control character
@@ -95,8 +97,9 @@ describe('#652 task 1 — mid-batch throw vs importedRows', () => {
 				`[TASK1-NUL] THREW: committed=${committedCount} importedRows=${batch.importedRows} message=${(caught as Error).message}`
 			);
 			expect(committedCount, 'rows before the throw are already committed').toBe(2);
-			expect(batch.importedRows, 'counter never advanced past its @default(0)').toBe(0);
-			expect(String((caught as Error).message)).toMatch(/./);
+			// #660: read from the ledger, so it says 2, not the `@default(0)` a skipped write left.
+			expect(batch.importedRows, 'the counter is what the ledger holds').toBe(2);
+			expect((caught as { failure?: unknown }).failure).toEqual({ kind: 'failed', landedRows: 2 });
 		} else {
 			console.error(
 				`[TASK1-NUL] NO THROW: committed=${committedCount} importedRows=${batch.importedRows}`
@@ -147,7 +150,8 @@ describe('#652 task 1 — mid-batch throw vs importedRows', () => {
 		);
 		expect(caught !== null, 'did this engine throw on a lone surrogate').toBe(caught !== null);
 		expect(committedCount).toBe(caught !== null ? 1 : 2);
-		expect(batch.importedRows).toBe(caught !== null ? 0 : 2);
+		// #660: whatever this engine did, the counter is the ledger's count.
+		expect(batch.importedRows).toBe(committedCount);
 	});
 
 	it('control: a dedupeKeyHash collision (against an already-stored row) is caught gracefully, never thrown past persistTransaction', async () => {

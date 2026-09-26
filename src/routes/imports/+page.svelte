@@ -39,12 +39,14 @@
 		fileName: string | null;
 		/**
 		 * #652: the dialog branches on the LIVE row count (`_count.transactions`, sent down as
-		 * `transactionCount`), never on `importedRows`. `importedRows` is a counter written once
-		 * after `persistImportedTransactions`'s row loop finishes; a throw mid-loop leaves it at
-		 * its `@default(0)` while some rows already committed. The delete action itself was never
-		 * wrong — `deleteImportBatch` deletes by `importBatchId`, not by this counter — but the
-		 * dialog read the same stale counter and told a user "this import created no
-		 * transactions" while about to destroy real ones.
+		 * `transactionCount`), never on `importedRows`. `importedRows` is a fact about the PAST:
+		 * what the ledger held when the import finished or stopped (read back from the ledger
+		 * since #660, so a throw mid-loop no longer leaves it at `@default(0)`). The dialog needs
+		 * the verdict on the PRESENT, what the delete will destroy, and the two diverge as soon as
+		 * the user deletes a row by hand. The delete action itself was never wrong —
+		 * `deleteImportBatch` deletes by `importBatchId`, not by this counter — but the dialog once
+		 * read the counter and told a user "this import created no transactions" while about to
+		 * destroy real ones.
 		 */
 		transactionCount: number;
 		createdAt: string;
