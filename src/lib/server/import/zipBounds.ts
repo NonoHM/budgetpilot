@@ -1,4 +1,5 @@
 import { inflateRawSync } from 'node:zlib';
+import { readOperatorBound } from '$lib/server/env/operatorBound';
 
 /**
  * The uncompressed-size bound for `.xlsx` uploads: ASVS 5.0 `v5.0.0-5.2.3`, and the fix for #254.
@@ -137,17 +138,11 @@ const MEGABYTE = 1_000_000;
  * what turns this throw into a refusal to start, so in practice no request ever sees it.
  */
 export function resolveXlsxMaxUncompressedBytes(): number {
-	const raw = process.env[XLSX_MAX_UNCOMPRESSED_ENV];
-	if (raw === undefined || raw.trim() === '') {
-		return XLSX_DEFAULT_MAX_UNCOMPRESSED_MB * MEGABYTE;
-	}
-
-	const megabytes = Number(raw);
-	if (!Number.isInteger(megabytes) || megabytes < 1) {
-		throw new Error(
-			`${XLSX_MAX_UNCOMPRESSED_ENV} must be a whole number of megabytes, at least 1 (got ${JSON.stringify(raw)}). It bounds how much XML an uploaded .xlsx may expand to. The default is ${XLSX_DEFAULT_MAX_UNCOMPRESSED_MB}.`
-		);
-	}
+	const megabytes = readOperatorBound({
+		name: XLSX_MAX_UNCOMPRESSED_ENV,
+		fallback: XLSX_DEFAULT_MAX_UNCOMPRESSED_MB,
+		purpose: 'It is a number of megabytes, and bounds how much XML an uploaded .xlsx may expand to.'
+	});
 
 	if (megabytes > XLSX_MAX_UNCOMPRESSED_CEILING_MB) {
 		throw new Error(

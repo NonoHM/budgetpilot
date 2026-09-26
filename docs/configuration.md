@@ -232,6 +232,18 @@ tooling is built around a database server. [Using PostgreSQL or
 MySQL](./database-providers.md) walks through both, including what switching
 an existing install actually costs.
 
+## Writing a limit
+
+`CSV_MAX_COLUMNS`, `COLUMN_MAPPINGS_PER_USER`,
+`IMPORT_RATE_LIMIT_MAX_ATTEMPTS`, `BACKUP_MAX_JSON_NODES` and
+`IMPORT_XLSX_MAX_UNCOMPRESSED_MB` each take a whole number of at least 1. Write
+it with the digits 0 to 9 and nothing else.
+
+Any other spelling stops the app at startup, with a message naming the
+variable: `0x10`, `1e2`, `12.0`, `+5` and `1_000` are all refused rather than
+read as a number you did not write. Spaces around the number are ignored, and
+an empty value is the same as leaving the variable out.
+
 ## How many columns a statement may have
 
 `CSV_MAX_COLUMNS` is **optional**: leave it out and you get 512. It bounds how

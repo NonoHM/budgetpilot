@@ -1,3 +1,5 @@
+import { readOperatorBound } from '$lib/server/env/operatorBound';
+
 /**
  * The structural bound on a restored backup, before `JSON.parse` runs: the fix for #276.
  *
@@ -108,15 +110,11 @@ export function countJsonNodes(text: string): number {
  * back, because a fallback would mean the bound in force is not the bound the operator configured.
  */
 export function resolveBackupMaxJsonNodes(): number {
-	const raw = process.env[BACKUP_MAX_JSON_NODES_ENV];
-	if (raw === undefined || raw.trim() === '') return BACKUP_DEFAULT_MAX_JSON_NODES;
-
-	const nodes = Number(raw);
-	if (!Number.isInteger(nodes) || nodes < 1) {
-		throw new Error(
-			`${BACKUP_MAX_JSON_NODES_ENV} must be a whole number of at least 1 (got ${JSON.stringify(raw)}). It bounds how many separate values a restored backup may contain. The default is ${BACKUP_DEFAULT_MAX_JSON_NODES}.`
-		);
-	}
+	const nodes = readOperatorBound({
+		name: BACKUP_MAX_JSON_NODES_ENV,
+		fallback: BACKUP_DEFAULT_MAX_JSON_NODES,
+		purpose: 'It bounds how many separate values a restored backup may contain.'
+	});
 
 	if (nodes > BACKUP_MAX_JSON_NODES_CEILING) {
 		throw new Error(

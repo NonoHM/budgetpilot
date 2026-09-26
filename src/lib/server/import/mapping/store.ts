@@ -1,4 +1,5 @@
 import { prisma } from '$lib/server/db';
+import { readOperatorBound } from '$lib/server/env/operatorBound';
 import { candidateFingerprints } from './fingerprint';
 import {
 	boundedColumnName,
@@ -46,15 +47,11 @@ export const COLUMN_MAPPINGS_PER_USER_ENV = 'COLUMN_MAPPINGS_PER_USER';
  * bound you set is the bound that runs.
  */
 export function resolveColumnMappingsPerUser(): number {
-	const raw = process.env[COLUMN_MAPPINGS_PER_USER_ENV];
-	if (raw === undefined || raw.trim() === '') return COLUMN_MAPPINGS_PER_USER_DEFAULT;
-
-	const cap = Number(raw);
-	if (!Number.isInteger(cap) || cap < 1) {
-		throw new Error(
-			`${COLUMN_MAPPINGS_PER_USER_ENV} must be a whole number of at least 1 (got ${JSON.stringify(raw)}). It bounds how many remembered column mappings one user may hold. The default is ${COLUMN_MAPPINGS_PER_USER_DEFAULT}.`
-		);
-	}
+	const cap = readOperatorBound({
+		name: COLUMN_MAPPINGS_PER_USER_ENV,
+		fallback: COLUMN_MAPPINGS_PER_USER_DEFAULT,
+		purpose: 'It bounds how many remembered column mappings one user may hold.'
+	});
 
 	if (cap > COLUMN_MAPPINGS_PER_USER_CEILING) {
 		throw new Error(
