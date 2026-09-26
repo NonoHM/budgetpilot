@@ -124,7 +124,14 @@ const db = vi.hoisted(() => ({
 const deleteBatch = vi.hoisted(() => ({ deleteImportBatch: vi.fn(async () => true) }));
 
 vi.mock('$lib/server/import/mapping/store', () => store);
-vi.mock('$lib/server/import/persist', () => persist);
+// `ImportWriteError` is the REAL class, for the reason `ImportBucketAccountError` above gives: the
+// write step's classifier branches on `instanceof`, and a stand-in would make every failure read as
+// an unrecognised one.
+vi.mock('$lib/server/import/persist', async (importOriginal) => ({
+	ImportWriteError: (await importOriginal<typeof import('$lib/server/import/persist')>())
+		.ImportWriteError,
+	...persist
+}));
 vi.mock('$lib/server/import/collision', () => collision);
 vi.mock('$lib/server/import/deleteBatch', () => deleteBatch);
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
@@ -303,6 +310,32 @@ describe('a corrected import replaces the batch it was launched from', () => {
 
 		// The ordering IS the control, so it is asserted rather than assumed from reading the code.
 		expect(order).toEqual(['write', 'delete']);
+	});
+
+	/**
+	 * D3 (#662): the write itself failed, after two rows landed. Before, the throw left this action
+	 * uncaught, so the delete below it never ran either, but the user met a bare 500 and the error
+	 * page replaced the screen holding their designations. Now it is a sentence, and the ordering
+	 * guarantee still has to hold on this branch: a correction whose write failed must not delete the
+	 * import it was meant to replace.
+	 */
+	it('deletes NOTHING and names the rows saved when the write fails midway', async () => {
+		expect.assertions(4);
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const { ImportWriteError } = await import('$lib/server/import/persist');
+		persist.persistImportedTransactions.mockRejectedValueOnce(
+			new ImportWriteError({ kind: 'failed', landedRows: 2 })
+		);
+
+		const result = await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+
+		expect(deleteBatch.deleteImportBatch).not.toHaveBeenCalled();
+		expect(result.status).toBe(500);
+		expect(result.data?.error).toBe(
+			"L'import s'est arrêté après 2 transactions enregistrées. Supprimez-le dans Imports, puis réessayez."
+		);
+		// The designations stay on screen: the repair is on `/imports`, not a new designation.
+		expect(result.data?.keepDesignation).toBe(true);
 	});
 
 	it('deletes NOTHING when the import is refused', async () => {

@@ -22,7 +22,9 @@ const prismaMock = vi.hoisted(() => ({
 	},
 	importBatch: {
 		create: vi.fn(),
-		update: vi.fn()
+		findFirst: vi.fn(),
+		update: vi.fn(),
+		updateMany: vi.fn()
 	},
 	category: {
 		findFirst: vi.fn(),
@@ -30,9 +32,34 @@ const prismaMock = vi.hoisted(() => ({
 	},
 	transaction: {
 		findFirst: vi.fn(),
-		create: vi.fn()
+		create: vi.fn(),
+		count: vi.fn()
 	}
 }));
+
+/**
+ * The write step's ledger count (#660), answered from what `transaction.create` actually RETURNED in
+ * this test, never a constant: a constant would decide `importedRows` for the code under test. A
+ * create the test makes reject is not in the ledger, and is not counted.
+ */
+function mockLedgerCount() {
+	prismaMock.transaction.count.mockImplementation(
+		async () =>
+			prismaMock.transaction.create.mock.settledResults.filter(
+				(result) => result.type === 'fulfilled'
+			).length
+	);
+}
+
+/** Awaits a rejection and returns it, so its `cause` can be compared by identity. */
+async function rejectionOf(promise: Promise<unknown>): Promise<Error & { cause?: unknown }> {
+	try {
+		await promise;
+	} catch (caught) {
+		return caught as Error & { cause?: unknown };
+	}
+	throw new Error('expected a rejection');
+}
 
 const applyCategoryRulesMock = vi.hoisted(() => vi.fn());
 const replaceSplitsMock = vi.hoisted(() => vi.fn());
@@ -459,6 +486,10 @@ describe('createImportBatch', () => {
 		vi.clearAllMocks();
 		// resolveCategoryByName probes for an existing folded match before upserting.
 		prismaMock.category.findFirst.mockResolvedValue(null);
+		// The account the batch is filed on, resolved for this user first (#596). Refusing a foreign
+		// one is asserted against real engines in `writeStep.db-smoke.ts`, where the where clause is
+		// what decides it rather than this mock.
+		prismaMock.account.findFirst.mockResolvedValue({ id: 'account-1' });
 	});
 
 	it('maps period ISO strings to UTC-midnight Dates and returns the created batch id', async () => {
@@ -541,7 +572,8 @@ describe('persistImportedTransactions', () => {
 		// The bucket every row of an import lands in. Deliberately NOT the application default: a
 		// transaction takes its denomination from the account it lands in, and a euro-at-2 bucket
 		// cannot tell that apart from the default.
-		prismaMock.account.findUniqueOrThrow.mockResolvedValue({ currency: 'GBP', exponent: 2 });
+		prismaMock.account.findFirst.mockResolvedValue({ currency: 'GBP', exponent: 2 });
+		prismaMock.importBatch.findFirst.mockResolvedValue({ id: 'batch-1' });
 		prismaMock.category.findFirst.mockResolvedValue(null);
 		prismaMock.transaction.findFirst.mockResolvedValue(null);
 		// resolveCategoryByName is one upsert keyed on the folded name.
@@ -553,7 +585,8 @@ describe('persistImportedTransactions', () => {
 		prismaMock.transaction.create.mockImplementation(
 			async ({ data }: { data: { label: string } }) => ({ id: `tx-${data.label}` })
 		);
-		prismaMock.importBatch.update.mockResolvedValue({});
+		prismaMock.importBatch.updateMany.mockResolvedValue({ count: 1 });
+		mockLedgerCount();
 		applyCategoryRulesMock.mockResolvedValue(0);
 		replaceSplitsMock.mockResolvedValue({ ok: true });
 	});
@@ -621,8 +654,11 @@ describe('persistImportedTransactions', () => {
 		// `providerAccountId` joined this read when key construction moved here: a bank row keys
 		// on the provider's per-account entry reference, scoped by that account, so the key
 		// cannot be built without it.
-		expect(prismaMock.account.findUniqueOrThrow).toHaveBeenCalledWith({
-			where: { id: 'account-1' },
+		//
+		// `userId` in the same where clause (#596): the read that denominates every row is scoped to
+		// the user. That a foreign account is REFUSED is `writeStep.db-smoke.ts`'s job.
+		expect(prismaMock.account.findFirst).toHaveBeenCalledWith({
+			where: { id: 'account-1', userId: 'user-1' },
 			select: { currency: true, exponent: true, providerAccountId: true }
 		});
 		expect(prismaMock.transaction.create).toHaveBeenCalledWith(
@@ -735,7 +771,7 @@ describe('persistImportedTransactions', () => {
 		//
 		// A mock cannot model a predicate it does not have, so asserting "the create succeeded"
 		// is worth nothing here. The claim has to be about the KEYS of the payload.
-		prismaMock.account.findUniqueOrThrow.mockResolvedValue({
+		prismaMock.account.findFirst.mockResolvedValue({
 			currency: 'EUR',
 			exponent: 2,
 			providerAccountId: 'prov-1'
@@ -795,8 +831,8 @@ describe('persistImportedTransactions', () => {
 			transactions: [baseTransaction({ label: 'Courses' })]
 		});
 
-		expect(prismaMock.importBatch.update).toHaveBeenCalledWith({
-			where: { id: 'batch-1' },
+		expect(prismaMock.importBatch.updateMany).toHaveBeenCalledWith({
+			where: { id: 'batch-1', userId: 'user-1' },
 			data: { importedRows: 1, duplicateRows: 0 }
 		});
 	});
@@ -830,8 +866,8 @@ describe('persistImportedTransactions', () => {
 
 		expect(result.duplicateRows).toBe(3);
 		expect(result.importedRows).toBe(0);
-		expect(prismaMock.importBatch.update).toHaveBeenCalledWith({
-			where: { id: 'batch-1' },
+		expect(prismaMock.importBatch.updateMany).toHaveBeenCalledWith({
+			where: { id: 'batch-1', userId: 'user-1' },
 			data: { importedRows: 0, duplicateRows: 3 }
 		});
 	});
@@ -865,7 +901,9 @@ describe('persistImportedTransactions', () => {
 		// duplicate would drop a real transaction and say nothing.
 		prismaMock.transaction.findFirst.mockResolvedValue(null);
 
-		await expect(
+		// Still a failure rather than a duplicate: it leaves as the write step's own error (D3), with
+		// the violation kept as its cause and nothing counted as landed.
+		const caught = await rejectionOf(
 			persistImportedTransactions({
 				userId: 'user-1',
 				accountId: 'account-1',
@@ -873,7 +911,12 @@ describe('persistImportedTransactions', () => {
 				source: 'csv',
 				transactions: [baseTransaction({ label: 'Courses' })]
 			})
-		).rejects.toThrow('Unique constraint failed');
+		);
+		expect(caught).toMatchObject({
+			name: 'ImportWriteError',
+			failure: { kind: 'failed', landedRows: 0 }
+		});
+		expect(caught.cause).toBe(p2002);
 	});
 
 	it('rethrows a P2002 on a row carrying no deduplication key, rather than calling it a duplicate', async () => {
@@ -884,7 +927,7 @@ describe('persistImportedTransactions', () => {
 		// on any provider. So this conflict is a constraint the code did not anticipate, and
 		// counting it as a duplicate would drop a real transaction and report it as one the user
 		// already had.
-		await expect(
+		const caught = await rejectionOf(
 			persistImportedTransactions({
 				userId: 'user-1',
 				accountId: 'account-1',
@@ -897,13 +940,19 @@ describe('persistImportedTransactions', () => {
 					})
 				]
 			})
-		).rejects.toBe(p2002);
+		);
+		expect(caught).toMatchObject({
+			name: 'ImportWriteError',
+			failure: { kind: 'failed', landedRows: 0 }
+		});
+		expect(caught.cause).toBe(p2002);
 	});
 
 	it('rethrows any error from transaction.create that is not a P2002 unique-constraint violation', async () => {
-		prismaMock.transaction.create.mockRejectedValueOnce(new Error('database is on fire'));
+		const fire = new Error('database is on fire');
+		prismaMock.transaction.create.mockRejectedValueOnce(fire);
 
-		await expect(
+		const caught = await rejectionOf(
 			persistImportedTransactions({
 				userId: 'user-1',
 				accountId: 'account-1',
@@ -911,7 +960,12 @@ describe('persistImportedTransactions', () => {
 				source: 'csv',
 				transactions: [baseTransaction({ label: 'Courses' })]
 			})
-		).rejects.toThrow('database is on fire');
+		);
+		expect(caught).toMatchObject({
+			name: 'ImportWriteError',
+			failure: { kind: 'failed', landedRows: 0 }
+		});
+		expect(caught.cause).toBe(fire);
 	});
 
 	it('resolves the category with a single upsert on the folded key', async () => {
@@ -1014,16 +1068,22 @@ describe('persistImportedTransactions', () => {
 		 * parent and is refused — on every expense, which is most of what anyone imports.
 		 */
 		it('is refused loudly rather than imported without its parts', async () => {
-			expect.assertions(1);
+			expect.assertions(2);
 
 			replaceSplitsMock.mockResolvedValue({ ok: false, reason: 'sum' });
 
-			await expect(
+			const caught = await rejectionOf(
 				importSplit([
 					{ category: 'Bricolage', amountCents: -5000 },
 					{ category: 'Jardin', amountCents: -3000 }
 				])
-			).rejects.toThrow(/replaceSplits: sum/);
+			);
+			// The parent is already in the ledger when the parts are refused, so it is counted: 1.
+			expect(caught).toMatchObject({
+				name: 'ImportWriteError',
+				failure: { kind: 'failed', landedRows: 1 }
+			});
+			expect(String((caught.cause as Error).message)).toMatch(/replaceSplits: sum/);
 		});
 
 		/**
@@ -1099,11 +1159,12 @@ describe('anonymizeImportCell', () => {
 describe('persistImportedTransactions builds the deduplication key', () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		prismaMock.account.findUniqueOrThrow.mockResolvedValue({
+		prismaMock.account.findFirst.mockResolvedValue({
 			currency: 'EUR',
 			exponent: 2,
 			providerAccountId: null
 		});
+		prismaMock.importBatch.findFirst.mockResolvedValue({ id: 'batch-1' });
 		prismaMock.category.findFirst.mockResolvedValue(null);
 		prismaMock.transaction.findFirst.mockResolvedValue(null);
 		prismaMock.category.upsert.mockImplementation(
@@ -1112,7 +1173,8 @@ describe('persistImportedTransactions builds the deduplication key', () => {
 		prismaMock.transaction.create.mockImplementation(
 			async ({ data }: { data: { label: string } }) => ({ id: `tx-${data.label}` })
 		);
-		prismaMock.importBatch.update.mockResolvedValue({});
+		prismaMock.importBatch.updateMany.mockResolvedValue({ count: 1 });
+		mockLedgerCount();
 		applyCategoryRulesMock.mockResolvedValue(0);
 		replaceSplitsMock.mockResolvedValue({ ok: true });
 	});
@@ -1194,7 +1256,7 @@ describe('persistImportedTransactions builds the deduplication key', () => {
 	});
 
 	it('gives a bank row with an entry reference the provider key and no ordinal', async () => {
-		prismaMock.account.findUniqueOrThrow.mockResolvedValue({
+		prismaMock.account.findFirst.mockResolvedValue({
 			currency: 'EUR',
 			exponent: 2,
 			providerAccountId: 'prov-1'
@@ -1221,7 +1283,7 @@ describe('persistImportedTransactions builds the deduplication key', () => {
 		// The source-conditional fold, at the write path. enablebanking strips accents before
 		// keying while storing the raw label, so a recompute of this row must reach the same
 		// string. A CSV-only fixture measures an identity here and can never fail.
-		prismaMock.account.findUniqueOrThrow.mockResolvedValue({
+		prismaMock.account.findFirst.mockResolvedValue({
 			currency: 'EUR',
 			exponent: 2,
 			providerAccountId: 'prov-1'
