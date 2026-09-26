@@ -81,6 +81,10 @@ import {
  *   Separates an allowlist that is load-bearing from one that is decoration.
  * - The reader skipping files containing a NUL: the count test goes red, 1057 read against 1133
  *   tracked. Separates a scan of every tracked file from a scan of the text ones.
+ * - Added with the IBAN, image and skip-tag kinds (2026-09-26): each kind's pattern blinded, and
+ *   the mod-97 check dropped, turn the calibration red (a blind kind, or a planted invalid IBAN
+ *   now counted). EXAMPLE_IBANS not admitted turns the tree red on the test fixtures, and every
+ *   image host refused turns it red on the README badges: both lists are load-bearing.
  * - The allowlisted address removed from `docs/bank-sync.md` (the sentence reworded to name no
  *   address): only the staleness test goes red, naming the entry and its file; the tree test stays
  *   green because nothing offends. Separates an allowlist entry whose reason still holds from one
