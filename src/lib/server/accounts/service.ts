@@ -149,7 +149,7 @@ export async function createStatementAccount(input: {
 	name: string;
 	/** From the server's own read of the file. Never from a request body. */
 	discriminant?: string | null;
-}): Promise<{ id: string; name: string; discriminant: string | null }> {
+}): Promise<{ id: string; name: string; discriminant: string | null; currency: string }> {
 	const name = input.name.trim();
 	if (name.length === 0) throw new AccountWriteError('name-required');
 	// Counted in CODE POINTS, like `persist.ts` cuts: a name of 120 emoji is 120 characters to the
@@ -197,7 +197,7 @@ export async function createStatementAccount(input: {
 				providerCashAccountType: null,
 				archivedAt: null
 			},
-			select: { id: true, name: true, discriminant: true }
+			select: { id: true, name: true, discriminant: true, currency: true }
 		});
 	} catch (caught) {
 		// The read above cannot see a row a concurrent request has not committed yet, so the

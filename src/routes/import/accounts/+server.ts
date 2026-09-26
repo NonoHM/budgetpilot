@@ -91,7 +91,10 @@ export const POST: RequestHandler = async ({ locals, request, getClientAddress }
 				// Zero by construction rather than by a second query. An account that has just been
 				// created has no transactions, and reading the count back would let the option show a
 				// figure whose only possible value is the one written here.
-				transactionCount: 0
+				transactionCount: 0,
+				// Read back from the row the create wrote, so the new option says its currency like every
+				// other one in the panel (#600, second contradiction pass F3).
+				currency: account.currency
 			}
 		});
 	} catch (caught) {

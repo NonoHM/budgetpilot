@@ -18,10 +18,7 @@ import {
 } from '../mapping/model';
 import { parseResolvedRows } from './resolvedRows';
 import { foldExactHeader } from '../utils/encoding';
-
-/** The currency columns and the accepted value, shared with `generic` for the same reason. */
-const CURRENCY_COLUMNS = ['currency', 'devise'];
-const ACCEPTED_CURRENCY = 'EUR';
+import { ACCEPTED_CURRENCY, currencyColumnsIn } from '../currencyDeclaration';
 
 export interface MappedParseInput extends CsvProfileParseInput {
 	columnMapping: UntrustedColumnMapping | undefined;
@@ -176,7 +173,8 @@ export function parseMappedRows({
 		dateOrder,
 		headers,
 		columns: verdict.columns,
-		currencyColumn: CURRENCY_COLUMNS.find((name) => headers.includes(name)),
+		// Every declaring column, the same ones `generic` reads (`currencyColumnsIn`, #600 F3).
+		currencyColumns: currencyColumnsIn(headers),
 		acceptedCurrency: ACCEPTED_CURRENCY,
 		profile: 'mapped',
 		warnings,
