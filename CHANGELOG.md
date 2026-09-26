@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.2.0](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.1.1...budgetpilot-v1.2.0) (2026-09-26)
+
+
+### Features
+
+* **config:** read the import rate limit from IMPORT_RATE_LIMIT_MAX_ATTEMPTS ([#711](https://github.com/NonoHM/budgetpilot/issues/711)) ([eecd085](https://github.com/NonoHM/budgetpilot/commit/eecd085cc33c96194dba4e89be95add0f9fa0a1d))
+
+
+### Bug Fixes
+
+* **import:** ask each /import question once per file, and bind every answer to that file ([#718](https://github.com/NonoHM/budgetpilot/issues/718)) ([6c947df](https://github.com/NonoHM/budgetpilot/commit/6c947dfd0c5b1e44950bb822ee4294c2e165e7f9))
+* **import:** finish the date-reading question: short columns, the confirmed name, the way back (D5, 3 of 5) ([#704](https://github.com/NonoHM/budgetpilot/issues/704)) ([dec8772](https://github.com/NonoHM/budgetpilot/commit/dec877273b6c2b30532da4e32072099680dab0dc))
+* **import:** make every per-row designation fact follow the « Première ligne » switch ([#747](https://github.com/NonoHM/budgetpilot/issues/747)) ([65d22df](https://github.com/NonoHM/budgetpilot/commit/65d22df64779acb075bac3711f87fefc3d921e06))
+* **import:** name a reading card's non-date cell instead of leaving an empty slot ([#705](https://github.com/NonoHM/budgetpilot/issues/705)) ([#726](https://github.com/NonoHM/budgetpilot/issues/726)) ([b282e3d](https://github.com/NonoHM/budgetpilot/commit/b282e3dd7062f0845cfa38a5fb4a67c4d2d4642d))
+* **import:** never read a counterparty account column as the statement's own account ([#725](https://github.com/NonoHM/budgetpilot/issues/725)) ([67877af](https://github.com/NonoHM/budgetpilot/commit/67877afb069127a8556a04ad9efcfc76fa5fa62b))
+* **import:** one answer to whether a designation can help a file ([#756](https://github.com/NonoHM/budgetpilot/issues/756)) ([06cd8e1](https://github.com/NonoHM/budgetpilot/commit/06cd8e1f2647457db9dfd5a8551a66acdb8908da)), closes [#351](https://github.com/NonoHM/budgetpilot/issues/351) [#628](https://github.com/NonoHM/budgetpilot/issues/628) [#712](https://github.com/NonoHM/budgetpilot/issues/712)
+* **import:** point the reading question at the column its evidence came from ([#739](https://github.com/NonoHM/budgetpilot/issues/739)) ([aed4d03](https://github.com/NonoHM/budgetpilot/commit/aed4d03962b18c115bbc08f55529a181405a3fd3))
+* **import:** refuse a declared currency the destination account contradicts ([#600](https://github.com/NonoHM/budgetpilot/issues/600)) ([#742](https://github.com/NonoHM/budgetpilot/issues/742)) ([9cdb542](https://github.com/NonoHM/budgetpilot/commit/9cdb542e25056e504e7ae8e5d5f489aa7c38af30))
+* **import:** speak the Date row's reading in lower case mid-sentence ([#728](https://github.com/NonoHM/budgetpilot/issues/728)) ([#730](https://github.com/NonoHM/budgetpilot/issues/730)) ([36067ce](https://github.com/NonoHM/budgetpilot/commit/36067cebb9e3e3d37ef28b6c14e4e3fac2ed7bd2))
+* **import:** tell the user when the file's proof overrules their date answer ([#749](https://github.com/NonoHM/budgetpilot/issues/749)) ([d87e342](https://github.com/NonoHM/budgetpilot/commit/d87e342ee790e4f39db1cccb9c5445f11a327a08))
+* **import:** the pending state on /import and on the designation screen ([#395](https://github.com/NonoHM/budgetpilot/issues/395)) ([#697](https://github.com/NonoHM/budgetpilot/issues/697)) ([d9185bf](https://github.com/NonoHM/budgetpilot/commit/d9185bfeae53ec27fad8212537221f4dad7e47f6))
+
+
+### Documentation
+
+* **agents:** no private references in anything published, gated over tracked files ([#748](https://github.com/NonoHM/budgetpilot/issues/748)) ([0be808f](https://github.com/NonoHM/budgetpilot/commit/0be808f7ad7f7e7ee0a1a7ee0ce2103693a5a1a9))
+* **import:** the designation screen's body budget, measured and corrected ([#729](https://github.com/NonoHM/budgetpilot/issues/729)) ([1612cbd](https://github.com/NonoHM/budgetpilot/commit/1612cbdfaac0706f06cd1265e9484945e292b13d))
+* **readme:** correct what 1.2 made untrue, and keep volatile facts out ([#751](https://github.com/NonoHM/budgetpilot/issues/751)) ([57b2e4d](https://github.com/NonoHM/budgetpilot/commit/57b2e4d130cdb7e29f8fd2e8c6253f0e2e6ff121))
+* records hygiene before 1.2 (H1) ([#690](https://github.com/NonoHM/budgetpilot/issues/690)) ([a512e64](https://github.com/NonoHM/budgetpilot/commit/a512e6461dcc35c9cdcbeb673e5bd02c3d4f4285))
+* **referential:** record Planche 7f's superseded reading line, and make the reconciliation table the home for design corrections ([#688](https://github.com/NonoHM/budgetpilot/issues/688)) ([24ce1e7](https://github.com/NonoHM/budgetpilot/commit/24ce1e7e47c528cf70de294f973f7d08ee7d56cd))
+* **referential:** register the eight components added since 2026-08-19 (C1) ([#706](https://github.com/NonoHM/budgetpilot/issues/706)) ([615ca2b](https://github.com/NonoHM/budgetpilot/commit/615ca2b697112810387c1b58cb8f4baa4b1972d0))
+
 ## [1.1.1](https://github.com/NonoHM/budgetpilot/compare/budgetpilot-v1.1.0...budgetpilot-v1.1.1) (2026-09-23)
 
 
