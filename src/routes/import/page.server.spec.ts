@@ -1980,10 +1980,11 @@ describe('/import actions', () => {
 				const result = (await runImportWithFileAndFields(content, {
 					dateOrder: 'month-first'
 				})) as unknown as {
-					importResult?: { dateOrderDisclosure?: { header: string; order: string } | null };
+					importResult?: { dateOrderDisclosure?: unknown };
 				};
 
 				expect(result.importResult?.dateOrderDisclosure).toStrictEqual({
+					kind: 'answered',
 					header: 'Date de comptabilisation',
 					order: 'month-first'
 				});
@@ -2060,6 +2061,71 @@ describe('/import actions', () => {
 			expect(result.data.error).toBe(m.import_error_ambiguous_date_order());
 			expect(result.data.reading).toBeDefined();
 			expect(db.state.transactions).toHaveLength(0);
+		});
+
+		/**
+		 * #619, THROUGH THE ROUTE THAT STILL PRODUCES IT ON THIS DOOR. An answer is bound to the
+		 * file's bytes (`answerBinding.ts`), not to the columns it was asked about, so a mapping
+		 * remembered BETWEEN the question and the answer changes which column the answer meets.
+		 *
+		 * Request 1: no mapping; the file is read by the generic profile, whose `Date` column
+		 * carries only `06/01/2026`, and the question is asked. Between the two requests the user
+		 * designates the same header shape elsewhere with `Valeur` as the date, which carries
+		 * `24/01/2026` and proves day-first. Request 2 posts the bound answer « month-first » and
+		 * is read through that mapping. The proof wins, and the summary says so.
+		 *
+		 * Separates « the summary names the overruled answer and its proof » from « the answer was
+		 * discarded in silence », and « the proof won » from « the answer won ».
+		 */
+		describe('when a mapping remembered between question and answer overrules it', () => {
+			const CONTENT = 'Date,Valeur,Description,Amount\n06/01/2026,24/01/2026,COFFEE,-4.50';
+
+			async function askThenAnswerThroughMapping() {
+				const asked = (await runImportWithFile(CONTENT)) as unknown as {
+					data: { reading?: unknown };
+				};
+				if (!asked.data.reading) throw new Error('request 1 no longer asks the reading question');
+				db.state.columnMappings.push({
+					id: `mapping-valeur-${testUser.id}`,
+					userId: testUser.id,
+					fingerprint: fingerprintFor(['Date', 'Valeur', 'Description', 'Amount'], 'name'),
+					matchBy: 'name',
+					dateColumn: 'valeur',
+					labelColumn: 'description',
+					amountColumn: 'amount',
+					categoryColumn: null,
+					dateIndex: null,
+					labelIndex: null,
+					amountIndex: null,
+					categoryIndex: null,
+					columnCount: 4,
+					useCount: 0,
+					lastUsedAt: null
+				});
+				return (await runImportWithFileAndFields(CONTENT, {
+					dateOrder: 'month-first'
+				})) as unknown as {
+					importResult?: { dateOrderDisclosure?: unknown };
+				};
+			}
+
+			it('tells the user the file overruled the answer', async () => {
+				expect.assertions(1);
+				const answered = await askThenAnswerThroughMapping();
+				expect(answered.importResult?.dateOrderDisclosure).toStrictEqual({
+					kind: 'overruled',
+					order: 'day-first',
+					proof: '24/01/2026'
+				});
+			});
+
+			it('still reads the file the way it proves', async () => {
+				expect.assertions(1);
+				await askThenAnswerThroughMapping();
+				expect(db.state.transactions.map((row) => row.date)).toStrictEqual([
+					new Date('2026-01-24T00:00:00.000Z')
+				]);
+			});
 		});
 
 		/**

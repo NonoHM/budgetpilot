@@ -2,6 +2,20 @@ import type { CsvRefusalFact, CsvRefusalScope } from '$lib/server/import/refusal
 import type { DateOrder } from '$lib/domain/dateReading';
 
 /**
+ * What the import summary states about how the dates were read. ONE fact with two kinds, so the
+ * summary can never draw both lines (the controller's ruling on #619: the overruled line REPLACES
+ * the answered one).
+ *
+ * - `answered`: the file left the order open and the user's answer settled it (plate 7l). Names
+ *   the column the question was about.
+ * - `overruled`: the user's answer disagreed with a cell that PROVES the other order, so the file
+ *   won (#619). Names that cell, bounded, so the user can check the claim against their file.
+ */
+export type DateOrderDisclosure =
+	| { kind: 'answered'; header: string; order: DateOrder }
+	| { kind: 'overruled'; order: DateOrder; proof: string };
+
+/**
  * The shape of an import summary, named once so both routes that produce one produce the same.
  *
  * Type-only import from `$lib/server`, as `$lib/i18n/refusalLabel.ts` already does: a refusal fact
@@ -110,13 +124,13 @@ export interface ImportSummaryResult {
 	 */
 	rememberedMapping: boolean;
 	/**
-	 * The column and reading to state on the summary, plate 7l. Null unless the reading was CHOSEN
-	 * rather than proven or defaulted: `CsvImportSummary.dateOrderDisclosure`'s docstring holds the
-	 * one rule, and this is the same fact carried across the server/client boundary.
+	 * What the summary states about the date reading, plate 7l. Null unless an answer was APPLIED
+	 * or OVERRULED: `CsvImportSummary.dateOrderDisclosure`'s docstring holds the one rule, and this
+	 * is the same fact carried across the server/client boundary.
 	 *
 	 * Null and not absent, unlike its server-side source: this interface is a wire shape rather
 	 * than an internal one, and `satisfies` catches an omitted field but not a forgotten optional
 	 * one left implicitly undefined.
 	 */
-	dateOrderDisclosure: { header: string; order: DateOrder } | null;
+	dateOrderDisclosure: DateOrderDisclosure | null;
 }

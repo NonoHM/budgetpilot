@@ -40,7 +40,7 @@ const BASE: ImportSummaryResult = {
 	hiddenInvalidRowsCount: 0,
 	accountName: null,
 	rememberedMapping: false,
-	dateOrderDisclosure: { header: 'Date operation', order: 'month-first' }
+	dateOrderDisclosure: { kind: 'answered', header: 'Date operation', order: 'month-first' }
 };
 
 const DATA: PageData = { user: null, correction: null };
@@ -88,7 +88,10 @@ describe('the chosen date reading is disclosed on the summary', () => {
 	/** The sibling reading, so the test cannot pass on a hard-coded string. */
 	it('states the day-first reading when that is what was chosen', async () => {
 		await page.viewport(1280, 800);
-		await show({ ...BASE, dateOrderDisclosure: { header: 'Date operation', order: 'day-first' } });
+		await show({
+			...BASE,
+			dateOrderDisclosure: { kind: 'answered', header: 'Date operation', order: 'day-first' }
+		});
 
 		await expect
 			.element(
@@ -115,5 +118,68 @@ describe('the chosen date reading is disclosed on the summary', () => {
 		await show({ ...BASE, dateOrderDisclosure: null });
 
 		expect(lines().elements().length).toBe(0);
+	});
+});
+
+/**
+ * #619: AN ANSWER THE FILE OVERRULED, drawn in the SAME slot and REPLACING the answered line.
+ *
+ * Built to a private Claude Design canvas: plate 7l's treatment (zinc-500, text-sm, mt-1, no glyph,
+ * no control) in both chromes. The sentence is compared WHOLE (`exact`), because it is a message a
+ * person reads and a doubled or dropped parameter would still contain every fragment.
+ */
+describe('an answer the file overruled is stated on the summary (#619)', () => {
+	const OVERRULED: ImportSummaryResult = {
+		...BASE,
+		dateOrderDisclosure: { kind: 'overruled', order: 'day-first', proof: '24/05/2025' }
+	};
+	/** Any answered line, whatever its reading or column: « Dates lues … — {header} ». */
+	const ANSWERED_LINE = () => page.getByText(/^Dates lues .* — /);
+	const sentence = () =>
+		page.getByText(
+			m.import_summary_date_reading_overruled({
+				order: m.import_datesheet_reading_in_sentence_day_first(),
+				sample: '24/05/2025'
+			}),
+			{ exact: true }
+		);
+
+	/** Desktop chrome: separates « drawn at 1280 » from « drawn only in the mobile copy ». */
+	it('states at 1280 the reading applied and the cell that proves it', async () => {
+		await page.viewport(1280, 800);
+		await show(OVERRULED);
+
+		await expect.element(sentence().first()).toBeVisible();
+	});
+
+	/** Mobile chrome, same claim, other copy. */
+	it('states at 390 the reading applied and the cell that proves it', async () => {
+		await page.viewport(390, 844);
+		await show(OVERRULED);
+
+		await expect.element(sentence().last()).toBeVisible();
+	});
+
+	/**
+	 * THE REPLACEMENT. Separates « the overruled line takes the slot » from « it is added beside a
+	 * line claiming the answer was applied », which would state two contradictory things at once.
+	 * The count of the overruled sentence is asserted beside the zero, so the zero is a state.
+	 */
+	it('never draws the answered line beside it', async () => {
+		await page.viewport(390, 844);
+		await show(OVERRULED);
+		await expect.element(sentence().last()).toBeVisible();
+
+		expect(sentence().elements().length).toBe(2);
+		expect(ANSWERED_LINE().elements().length).toBe(0);
+	});
+
+	// The calibration of the zero above: the same pattern finds both copies of an answered line.
+	it('finds the answered line with the pattern the replacement test uses', async () => {
+		await page.viewport(390, 844);
+		await show(BASE);
+		await expect.element(lines().last()).toBeVisible();
+
+		expect(ANSWERED_LINE().elements().length).toBe(2);
 	});
 });
