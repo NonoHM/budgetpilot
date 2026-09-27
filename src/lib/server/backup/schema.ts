@@ -237,7 +237,11 @@ const backupBankConnectionSchema = z
 		aspspName: z.string().max(200).nullable().optional(),
 		aspspCountry: z.string().max(10).nullable().optional(),
 		consentExpiresAt: isoDateString.nullable(),
-		lastSyncAt: isoDateString.nullable()
+		lastSyncAt: isoDateString.nullable(),
+		// The fetch cursor (#763). Absent from exports predating it, and ABSENT is not NULL: the
+		// restore falls back to `lastSyncAt` for an absent one, which is what those versions
+		// used as their cursor, and keeps a present NULL (no complete sync on record).
+		lastCompleteSyncAt: isoDateString.nullable().optional()
 	})
 	.strict();
 

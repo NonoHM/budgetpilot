@@ -206,7 +206,8 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 				aspspName: true,
 				aspspCountry: true,
 				consentExpiresAt: true,
-				lastSyncAt: true
+				lastSyncAt: true,
+				lastCompleteSyncAt: true
 			}
 		}),
 		prisma.recurringStreamAction.findMany({
@@ -335,7 +336,10 @@ export async function buildBackupExport(userId: string): Promise<BackupExport> {
 			consentExpiresAt: connection.consentExpiresAt
 				? connection.consentExpiresAt.toISOString()
 				: null,
-			lastSyncAt: connection.lastSyncAt ? connection.lastSyncAt.toISOString() : null
+			lastSyncAt: connection.lastSyncAt ? connection.lastSyncAt.toISOString() : null,
+			lastCompleteSyncAt: connection.lastCompleteSyncAt
+				? connection.lastCompleteSyncAt.toISOString()
+				: null
 		})),
 		recurringStreamActions: recurringStreamActions.map((action) => ({
 			...action,

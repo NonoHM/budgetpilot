@@ -648,7 +648,10 @@ describe('buildBackupExport', () => {
 			provider: 'enablebanking',
 			status: 'active',
 			consentExpiresAt: new Date('2026-12-01T00:00:00.000Z'),
-			lastSyncAt: null,
+			// Two different instants, so the export cannot pass by writing one column's value into
+			// both fields (#763: the attempt and the fetch cursor are different facts).
+			lastSyncAt: new Date('2026-11-02T00:00:00.000Z'),
+			lastCompleteSyncAt: new Date('2026-11-01T00:00:00.000Z'),
 			credentialsEncrypted: 'iv:tag:super-secret',
 			providerSessionId: 'session-super-secret'
 		});
@@ -661,7 +664,8 @@ describe('buildBackupExport', () => {
 				provider: 'enablebanking',
 				status: 'active',
 				consentExpiresAt: '2026-12-01T00:00:00.000Z',
-				lastSyncAt: null
+				lastSyncAt: '2026-11-02T00:00:00.000Z',
+				lastCompleteSyncAt: '2026-11-01T00:00:00.000Z'
 			}
 		]);
 		expect(JSON.stringify(result)).not.toContain('super-secret');
@@ -674,7 +678,8 @@ describe('buildBackupExport', () => {
 					aspspName: true,
 					aspspCountry: true,
 					consentExpiresAt: true,
-					lastSyncAt: true
+					lastSyncAt: true,
+					lastCompleteSyncAt: true
 				}
 			})
 		);
@@ -890,6 +895,7 @@ describe('restoreBackup', () => {
 				status: 'active' | 'expired' | 'revoked' | 'error';
 				consentExpiresAt: string | null;
 				lastSyncAt: string | null;
+				lastCompleteSyncAt?: string | null;
 			}>,
 			recurringStreamActions: [] as Array<{
 				id: string;
@@ -1470,6 +1476,53 @@ describe('restoreBackup', () => {
 		expect(connection.id).not.toBe('file-bank-1');
 		expect(connection.credentialsEncrypted).toBeUndefined();
 		expect(connection.providerSessionId).toBeUndefined();
+	});
+
+	it('restores the fetch cursor as written, keeps a written NULL, and falls back to lastSyncAt only when the file predates the cursor (#763)', async () => {
+		expect.assertions(1);
+
+		const payload = buildValidPayload();
+		payload.bankConnections = [
+			{
+				id: 'file-bank-cursor',
+				provider: 'enablebanking',
+				status: 'expired',
+				consentExpiresAt: null,
+				lastSyncAt: '2026-06-02T00:00:00.000Z',
+				lastCompleteSyncAt: '2026-06-01T00:00:00.000Z'
+			},
+			{
+				id: 'file-bank-no-complete-sync',
+				provider: 'enablebanking',
+				status: 'error',
+				consentExpiresAt: null,
+				lastSyncAt: '2026-06-03T00:00:00.000Z',
+				lastCompleteSyncAt: null
+			},
+			{
+				// A file written before the cursor existed: the field is ABSENT, not null.
+				id: 'file-bank-before-cursor',
+				provider: 'enablebanking',
+				status: 'revoked',
+				consentExpiresAt: null,
+				lastSyncAt: '2026-06-04T00:00:00.000Z'
+			}
+		];
+
+		await restoreBackup('user-a', payload);
+
+		// Keyed by status, which is distinct per row above, so each cursor is read off its own row.
+		const cursors = Object.fromEntries(
+			db.store.bankConnections.map((c) => [
+				c.status,
+				(c.lastCompleteSyncAt as Date | null | undefined)?.toISOString() ?? c.lastCompleteSyncAt
+			])
+		);
+		expect(cursors).toEqual({
+			expired: '2026-06-01T00:00:00.000Z',
+			error: null,
+			revoked: '2026-06-04T00:00:00.000Z'
+		});
 	});
 
 	it('rétrograde une connexion bancaire "active" en "expired" à la restauration (jamais fonctionnelle avec des secrets importés)', async () => {
