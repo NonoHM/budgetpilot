@@ -200,6 +200,13 @@ export function isValidIsoDate(value: string): boolean {
 export const STORABLE_YEARS = { first: 1000, last: 9999 } as const;
 
 /**
+ * The first storable day, as an ISO date: the floor of every « all time » period (#758). Derived,
+ * so the period cannot start somewhere the range does not, which is how a 1970 floor silently
+ * dropped every row from 1000 to 1969 out of the all-time totals.
+ */
+export const FIRST_STORABLE_DAY = `${String(STORABLE_YEARS.first).padStart(4, '0')}-01-01`;
+
+/**
  * Whether a year is inside `STORABLE_YEARS`. THE ONE COMPARISON: every path that decides whether a
  * date may be written asks here, the import row reader (`readRowDate`), the domain's own
  * `validateTransaction`, the bank connector and the restore validator, so the bound cannot differ

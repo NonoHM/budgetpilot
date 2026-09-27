@@ -1041,17 +1041,17 @@ describe("PeriodFilter — the preset set is the caller's", () => {
 		expect(page.getByRole('button', { name: 'Filtres' }).elements().length).toBe(0);
 	});
 
-	it('arming the all-time preset writes the epoch floor and opens the grid on today, not 1970', async () => {
+	it('arming the all-time preset writes the floor and opens the grid on today, not on the floor', async () => {
 		expect.assertions(2);
 		// Separates "an unbounded start is shown as unbounded" from "the reader is dropped in
-		// January 1970 and has to walk back". Both states fill the Du field identically, so the
+		// January of the floor year and has to walk forward". Both states fill the Du field identically, so the
 		// caption is the only thing that tells them apart.
 		await render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.click(page.getByRole('button', { name: 'Toujours' }));
 
-		expect((page.getByLabelText('Du').element() as HTMLInputElement).value).toBe('01/01/1970');
+		expect((page.getByLabelText('Du').element() as HTMLInputElement).value).toBe('01/01/1000');
 		expect(page.getByTestId('rc-month-caption').element().textContent).toContain('juin 2026');
 	});
 });

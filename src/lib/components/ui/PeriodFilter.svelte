@@ -10,7 +10,7 @@
 	import BottomSheet from '../BottomSheet.svelte';
 	import { formatPeriodLabel, type PeriodCopy } from '$lib/domain/periodLabel';
 	import {
-		PERIOD_EPOCH_FLOOR,
+		PERIOD_FLOOR,
 		PERIOD_PRESET_IDS,
 		matchPeriodPreset,
 		periodPresetRange,
@@ -240,19 +240,19 @@
 	/**
 	 * What the GRID is told, which is not always what the fields say.
 	 *
-	 * An epoch floor is withheld. The all-time period has no start the reader picked, and passing 1970 as a
-	 * placed bound makes bits-ui move the month on screen to January 1970 through its own
+	 * The period floor is withheld. The all-time period has no start the reader picked, and passing the
+	 * floor as a placed bound makes bits-ui move the month on screen to its January through its own
 	 * `bind:placeholder` write-back. MEASURED rather than reasoned: with the floor passed through,
 	 * `reopeningMonthAnchor` correctly returned 2026-06-17 and the caption still read January
-	 * 1970, because the anchor rule and the library are two different writers of the same view
+	 * of the floor year (1970 when this was measured), because the anchor rule and the library are two different writers of the same view
 	 * state and the library writes last.
 	 *
 	 * So the anchor rule alone could not fix it, and the fix is here rather than there. The Du field
-	 * still reads 01/01/1970: the field is what will be APPLIED and must stay honest. The grid draws
+	 * still reads the floor (01/01/1000 since #758): the field is what will be APPLIED and must stay honest. The grid draws
 	 * one bound instead of two, which is the truthful picture of a range with no chosen start.
 	 */
 	const calendarValue = $derived<RangeCalendarRange>({
-		start: draftFrom === PERIOD_EPOCH_FLOOR ? null : draftFrom,
+		start: draftFrom === PERIOD_FLOOR ? null : draftFrom,
 		end: draftTo
 	});
 
