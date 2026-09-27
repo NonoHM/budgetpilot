@@ -288,7 +288,7 @@ async function validateInput(
  *
  * Through `isStorableIsoDate`, the one reading every date writer shares (#758): a calendar date
  * whose year an engine stores faithfully. It used to test the digit shape alone, so `0026-05-01`
- * was stored (MariaDB reads it back in 2026's neighbouring century) and `2026-02-30` rolled over
+ * was stored (MariaDB reads it back as 2026) and `2026-02-30` rolled over
  * to March 2. `storableDateColumns.spec.ts` probes this writer beside every other.
  */
 export function parseTargetDate(raw: string | undefined): Date | null | false {

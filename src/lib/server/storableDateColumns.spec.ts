@@ -18,7 +18,8 @@ const { backupExportSchema, isoDateString, RESTORE_DATE_KINDS } =
 	await import('$lib/server/backup/schema');
 
 /**
- * #758: EVERY `DateTime` COLUMN, and every writer that puts a date it did not compute into one.
+ * #758: EVERY `DateTime` COLUMN, and every writer that puts a date a user or a provider supplied
+ * into one.
  *
  * ## Why the columns are read from the schema
  *
@@ -32,15 +33,19 @@ const { backupExportSchema, isoDateString, RESTORE_DATE_KINDS } =
  *
  * - `clock`: the server computes the value (`@default(now())`, `@updatedAt`, `new Date()`, an
  *   expiry from a duration). Nothing a user or a provider supplies reaches it, except through a
- *   restore, which is checked separately below.
+ *   restore, which is checked separately below. « Computed » is not « in range »: an operator's
+ *   `SESSION_TTL_DAYS` or `INVITATION_TTL_HOURS` can push an expiry past 9999, which is #754's to
+ *   bound, not this file's. What this file holds to the range is every value a user or a provider
+ *   supplies.
  * - `parsed`: a string from a form, a file or a provider becomes the value. Each such writer is
  *   named with its production parser and PROBED: it must accept the first storable day and a
- *   leap day, and refuse year 0000 (PostgreSQL `22008`), year 0026 (MariaDB reads it back as 2026's
- *   neighbour century) and 0999 (the last year outside the range).
+ *   leap day, and refuse year 0000 (PostgreSQL `22008`), year 0026 (MariaDB reads it back as
+ *   2026) and 0999 (the last year outside the range).
  *
  * What this cannot see, stated rather than implied: a writer that parses a date and is not listed
  * against its column. Classifying a column `clock` is a claim this file cannot check. The restore
- * half below IS structural, because the backup schema can be walked.
+ * half below is structural for the fields it can see: it finds every field that IS the shared
+ * `isoDateString` by identity, and cannot see a date field added as a bare `z.string()`.
  *
  * Breaks, each separately: the range check removed from any one parser reddens that writer's
  * « refuses » probes alone (separates « this writer asks the range » from « it parses its own
@@ -151,6 +156,9 @@ const COLUMNS: Record<string, Column> = {
 	},
 	'Transaction.createdAt': CLOCK,
 	'Transaction.updatedAt': CLOCK,
+	// The file import's period is the span of its storable rows. The bank sync's batch period is
+	// NOT parsed: `banking/sync/service.ts` builds it from `lastSyncAt` and the clock, so it is not a
+	// writer of a supplied date and is not listed here.
 	'ImportBatch.periodStart': { kind: 'parsed', writers: [IMPORT_PERIOD('from')] },
 	'ImportBatch.periodEnd': { kind: 'parsed', writers: [IMPORT_PERIOD('to')] },
 	'ImportBatch.createdAt': CLOCK,
@@ -311,9 +319,10 @@ describe('every DateTime column is held to the storable range', () => {
 	);
 
 	/**
-	 * THE RESTORE HALF, structural. Separates « every date a backup carries is read through the one
-	 * range-checked reader » from « a date field was added to the backup with a bare `z.string()` »
-	 * (it would not be found by identity), and from « a restored column is missing from the map ».
+	 * THE RESTORE HALF, structural for what it can see. Separates « every field built on the shared
+	 * `isoDateString` maps to a classified column, and back » from « a restored column is missing
+	 * from the map » or « a mapped path is not the shared reader ». It does NOT catch a date field
+	 * added as a bare `z.string()`: that field is not `isoDateString`, so the walk never finds it.
 	 */
 	it('every backup date field is isoDateString and maps to a classified column', () => {
 		expect.assertions(4);

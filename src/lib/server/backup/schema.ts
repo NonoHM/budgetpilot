@@ -79,6 +79,11 @@ function isRangeIssue(issue: z.core.$ZodIssue): boolean {
  * - anything else, alone or beside a range issue: `invalid`. A file with a date to correct AND
  *   another fault is not described by the date sentence, which would send its owner to fix one
  *   date and meet the refusal again.
+ *
+ * « Only fault » means only the SCHEMA's faults, which are all this function sees. A file that
+ * passes the schema can still be refused afterwards by `restoreBackup`'s own checks
+ * (`BackupImportError`, referential integrity and the like), so a file whose dates are corrected
+ * is not promised to restore.
  */
 export function restoreRefusal(error: z.ZodError): RestoreRefusal {
 	if (error.issues.length === 0 || !error.issues.every(isRangeIssue)) return { reason: 'invalid' };

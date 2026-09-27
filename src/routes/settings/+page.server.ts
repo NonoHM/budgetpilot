@@ -413,7 +413,7 @@ export const actions: Actions = {
 					refusal.reason === 'date-out-of-range'
 						? m.settings_error_restore_date_out_of_range({
 								...STORABLE_YEAR_BOUNDS,
-								kinds: refusal.kinds.map(restoreDateKindLabel).join(', ')
+								kinds: restoreDateKindsSentence(refusal.kinds)
 							})
 						: m.settings_error_restore_corrupted()
 			});
@@ -825,9 +825,10 @@ function accountRefusalSentence(reason: AccountWriteRefusal): string {
 }
 
 /**
- * A kind of record a restore refusal names (#758), in the words the app already uses for that
- * section wherever one exists. A switch with no default arm, so a kind added to
- * `RESTORE_DATE_KINDS` fails to compile until it is named here.
+ * A kind of record a restore refusal names (#758). Dedicated keys rather than the navigation's
+ * labels, which were capitalised as headings and, in English, did not name the record (« Upcoming »):
+ * these sit mid-sentence inside a parenthesis, lower case in both locales. A switch with no default
+ * arm, so a kind added to `RESTORE_DATE_KINDS` fails to compile until it is named here.
  */
 function restoreDateKindLabel(kind: RestoreDateKind): string {
 	switch (kind) {
@@ -836,15 +837,21 @@ function restoreDateKindLabel(kind: RestoreDateKind): string {
 		case 'bankConnections':
 			return m.settings_restore_kind_bank_connections();
 		case 'importBatches':
-			return m.nav_imports();
+			return m.settings_restore_kind_imports();
 		case 'transactions':
-			return m.nav_transactions();
+			return m.settings_restore_kind_transactions();
+		// Two kinds, one word for the reader: a net worth line and its snapshots are both patrimoine.
 		case 'netWorthAccounts':
 		case 'netWorthSnapshots':
-			return m.nav_net_worth();
+			return m.settings_restore_kind_net_worth();
 		case 'savingsGoals':
-			return m.savings_goals_title();
+			return m.settings_restore_kind_savings_goals();
 		case 'recurringStreamActions':
-			return m.nav_upcoming_bills();
+			return m.settings_restore_kind_upcoming_bills();
 	}
+}
+
+/** The kinds at fault as the sentence lists them: labelled, then each label once, in file order. */
+function restoreDateKindsSentence(kinds: readonly RestoreDateKind[]): string {
+	return [...new Set(kinds.map(restoreDateKindLabel))].join(', ');
 }
