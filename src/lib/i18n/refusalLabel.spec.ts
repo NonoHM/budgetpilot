@@ -398,7 +398,8 @@ describe('what a refusal carries, and where the reader sees it (#692)', () => {
 
 	/**
 	 * The absolute figure beside the empty list above: a swap loop that read no field would agree
-	 * with every classification. 33 fields over 45 codes, per catalogue.
+	 * with every classification. 35 fields over 46 codes, per catalogue (33 over 45 before #758 added
+	 * `date-out-of-range`, whose value the sentence quotes and whose column the field cell shows).
 	 */
 	it('read every carried field, in both catalogues', () => {
 		const kinds = swaps.map(({ shown }) =>
@@ -409,7 +410,7 @@ describe('what a refusal carries, and where the reader sees it (#692)', () => {
 			sentence: kinds.filter((kind) => kind === 'sentence').length,
 			by: kinds.filter((kind) => kind === 'by').length,
 			withheld: kinds.filter((kind) => kind === 'withheld').length
-		}).toEqual({ sentence: 44, by: 18, withheld: 4 });
+		}).toEqual({ sentence: 46, by: 20, withheld: 4 });
 	});
 
 	it('names the currency and no bank, since three producers share the sentence', () => {
