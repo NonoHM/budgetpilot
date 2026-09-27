@@ -784,6 +784,18 @@ function classify(segment, here, result, depth) {
 		);
 		return { kind: 'refused' };
 	}
+	// Nor a word it cannot see beside a publishing verb: `nice $G issue comment …` runs whatever
+	// $G holds, with the arguments of a publishing command.
+	if (
+		args.some((word) => !isLiteral(word)) &&
+		PUBLISHING_VERB.test(args.map(literalPart).join(' '))
+	) {
+		result.refusals.push(
+			`« ${name} » is given a variable or a substitution beside a publishing verb, so this hook ` +
+				`cannot tell what it runs. Write the command out. ${FORMS}`
+		);
+		return { kind: 'refused' };
+	}
 	return { kind: 'other' };
 }
 

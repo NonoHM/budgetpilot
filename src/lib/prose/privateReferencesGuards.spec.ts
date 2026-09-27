@@ -1270,6 +1270,10 @@ describe('re-review of 2026-09-27: publishing commands validated against an allo
 		);
 	});
 
+	it('refuses a wrapper given a variable beside a publishing verb', () => {
+		refused(`G=g; nice $G issue comment 1 --body-file ${clean()}`, 'is given a variable');
+	});
+
 	it('E: refuses a second stdin redirect next to a heredoc', () => {
 		refused(
 			`gh issue comment 1 --body-file - <<'EOF' < ${link()}\nclean\nEOF`,
