@@ -139,6 +139,18 @@
 	let draftToDisplay = $state('');
 
 	/**
+	 * The draft's start is the all-time FLOOR (#758), which « Du » never displays.
+	 *
+	 * `PERIOD_FLOOR` (1000-01-01) is an internal bound, the start the all-time query needs and not a
+	 * date anybody chose: « Du : 01/01/1000 » read as a bug, and the epoch it replaced read no better.
+	 * So while this is set the field is EMPTY, with its ordinary placeholder, and the draft's start
+	 * is still the floor, which is what Appliquer sends. Set by the all-time preset and by opening on
+	 * a range that starts on the floor; cleared by every other write to the start (the field, the
+	 * grid, another preset), so a typed date always wins.
+	 */
+	let startIsFloor = $state(false);
+
+	/**
 	 * Which field was written last. Feeds `reopeningMonthAnchor`, whose one exception is that a panel
 	 * reopened after the END was written shows the END's month — bringing it back to the start would
 	 * make the reader walk their own path a second time.
@@ -210,10 +222,13 @@
 		openStart: (date) => m.transactions_period_open_start({ date }),
 		openEnd: (date) => m.transactions_period_open_end({ date }),
 		custom: m.transactions_period_custom(),
-		invalid: m.transactions_period_invalid_value()
+		invalid: m.transactions_period_invalid_value(),
+		allTime: m.reports_period_all_time()
 	};
 
-	const label = $derived(formatPeriodLabel({ from, to, invalid, locale, allowCustomRung, copy }));
+	const label = $derived(
+		formatPeriodLabel({ from, to, invalid, locale, allowCustomRung, todayIso, copy })
+	);
 
 	/**
 	 * Active means a range is set at all, invalid or not. An invalid range is still something the
@@ -234,7 +249,7 @@
 	 */
 
 	/** ISO or null, derived one-way from the typed buffers. A half-typed date is simply not a date. */
-	const draftFrom = $derived(toIsoOrNull(draftFromDisplay));
+	const draftFrom = $derived(startIsFloor ? PERIOD_FLOOR : toIsoOrNull(draftFromDisplay));
 	const draftTo = $derived(toIsoOrNull(draftToDisplay));
 
 	/**
@@ -247,12 +262,12 @@
 	 * of the floor year (1970 when this was measured), because the anchor rule and the library are two different writers of the same view
 	 * state and the library writes last.
 	 *
-	 * So the anchor rule alone could not fix it, and the fix is here rather than there. The Du field
-	 * still reads the floor (01/01/1000 since #758): the field is what will be APPLIED and must stay honest. The grid draws
-	 * one bound instead of two, which is the truthful picture of a range with no chosen start.
+	 * So the anchor rule alone could not fix it, and the fix is here rather than there. The grid
+	 * draws one bound instead of two, which is the truthful picture of a range with no chosen start,
+	 * and the « Du » field agrees by showing none (`startIsFloor`).
 	 */
 	const calendarValue = $derived<RangeCalendarRange>({
-		start: draftFrom === PERIOD_FLOOR ? null : draftFrom,
+		start: startIsFloor ? null : draftFrom,
 		end: draftTo
 	});
 
@@ -336,7 +351,8 @@
 			close({ restoreFocus: false });
 			return;
 		}
-		draftFromDisplay = isoToDisplay(from);
+		startIsFloor = from === PERIOD_FLOOR;
+		draftFromDisplay = startIsFloor ? '' : isoToDisplay(from);
 		draftToDisplay = isoToDisplay(to);
 		// Reopening restores the preset's armed state when the live range still IS that preset, so a
 		// panel closed on "Ce mois-ci" does not come back with nothing marked.
@@ -358,7 +374,8 @@
 	 */
 	function armPreset(id: PeriodPresetId): void {
 		const range = periodPresetRange(id, todayIso);
-		draftFromDisplay = isoToDisplay(range.from);
+		startIsFloor = range.from === PERIOD_FLOOR;
+		draftFromDisplay = startIsFloor ? '' : isoToDisplay(range.from);
 		draftToDisplay = isoToDisplay(range.to);
 		armedPreset = id;
 		lastEdited = 'from';
@@ -401,6 +418,8 @@
 	 */
 	function onCalendarChange(next: RangeCalendarRange): void {
 		disarmPreset();
+		// Any grid write places a start, or clears it; either way it is no longer the floor.
+		startIsFloor = false;
 
 		if (swallowSwapCompletion) {
 			swallowSwapCompletion = false;
@@ -428,7 +447,10 @@
 	}
 
 	function applyDraft(): void {
-		const range = { from: displayToIso(draftFromDisplay), to: displayToIso(draftToDisplay) };
+		const range = {
+			from: startIsFloor ? PERIOD_FLOOR : displayToIso(draftFromDisplay),
+			to: displayToIso(draftToDisplay)
+		};
 		close({ restoreFocus: true });
 		onApply(range);
 	}
@@ -782,6 +804,7 @@
 						bind:value={draftFromDisplay}
 						oninput={() => {
 							disarmPreset();
+							startIsFloor = false;
 							lastEdited = 'from';
 						}}
 						onkeydown={onKeydown}

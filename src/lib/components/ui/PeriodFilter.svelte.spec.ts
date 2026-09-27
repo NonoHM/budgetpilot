@@ -1041,17 +1041,86 @@ describe("PeriodFilter — the preset set is the caller's", () => {
 		expect(page.getByRole('button', { name: 'Filtres' }).elements().length).toBe(0);
 	});
 
-	it('arming the all-time preset writes the floor and opens the grid on today, not on the floor', async () => {
-		expect.assertions(2);
+	it('arming the all-time preset opens the grid on today, not on the floor', async () => {
+		expect.assertions(1);
 		// Separates "an unbounded start is shown as unbounded" from "the reader is dropped in
-		// January of the floor year and has to walk forward". Both states fill the Du field identically, so the
-		// caption is the only thing that tells them apart.
+		// January of the floor year and has to walk forward".
 		await render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS }));
 
 		await userEvent.click(page.getByRole('button', { name: 'Période' }));
 		await userEvent.click(page.getByRole('button', { name: 'Toujours' }));
 
-		expect((page.getByLabelText('Du').element() as HTMLInputElement).value).toBe('01/01/1000');
 		expect(page.getByTestId('rc-month-caption').element().textContent).toContain('juin 2026');
+	});
+});
+
+/**
+ * #758: « Toujours » has no start the reader chose, and the field says so by showing none.
+ *
+ * The all-time period starts on an INTERNAL floor, `PERIOD_FLOOR` (1000-01-01), which the query
+ * needs and the reader does not: « Du : 01/01/1000 » reads as a bug, and the epoch it replaced read
+ * no better. So the « Du » field stays empty, with its ordinary placeholder, while the preset is
+ * armed or the applied range starts on the floor, and Apply still sends the floor. No plate names a
+ * string for this state, so none is added.
+ *
+ * Breaks, each separately: the preset feeding the floor to the field again (red on the arming and
+ * typing tests), and opening on an applied floor doing so (red on the reopening test), each
+ * separating « no date shown » from « the internal floor shown »; Apply sending the empty buffer (red on the
+ * apply test, separating « the all-time range is applied » from « a half range the server
+ * refuses »); typing into « Du » not taking over from the floor (red on the last test).
+ */
+describe('PeriodFilter — « Toujours » shows no start date', () => {
+	it('arming « Toujours » leaves « Du » empty, with its placeholder, and fills « Au » with today', async () => {
+		expect.assertions(3);
+		await render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS }));
+
+		await userEvent.click(page.getByRole('button', { name: 'Période' }));
+		await userEvent.click(page.getByRole('button', { name: 'Toujours' }));
+
+		const fromInput = page.getByLabelText('Du').element() as HTMLInputElement;
+		expect(fromInput.value).toBe('');
+		expect(fromInput.placeholder).toBe('jj/mm/aaaa');
+		expect((page.getByLabelText('Au').element() as HTMLInputElement).value).toBe('17/06/2026');
+	});
+
+	it('Appliquer sends the floor as the start, so the all-time range is what is applied', async () => {
+		expect.assertions(1);
+		const onApply = vi.fn();
+		await render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS, onApply }));
+
+		await userEvent.click(page.getByRole('button', { name: 'Période' }));
+		await userEvent.click(page.getByRole('button', { name: 'Toujours' }));
+		await userEvent.click(page.getByRole('button', { name: 'Appliquer' }));
+
+		expect(onApply).toHaveBeenCalledWith({ from: '1000-01-01', to: '2026-06-17' });
+	});
+
+	it('reopening on an applied all-time range leaves « Du » empty and « Toujours » pressed', async () => {
+		expect.assertions(2);
+		await render(
+			PeriodFilter,
+			base({ presets: REPORTING_PERIOD_PRESET_IDS, from: '1000-01-01', to: '2026-06-17' })
+		);
+
+		await userEvent.click(page.getByRole('button', { name: /^Période/ }).first());
+
+		expect((page.getByLabelText('Du').element() as HTMLInputElement).value).toBe('');
+		// Exact: the trigger itself now reads « Période : Toujours ».
+		await expect
+			.element(page.getByRole('button', { name: 'Toujours', exact: true }))
+			.toHaveAttribute('aria-pressed', 'true');
+	});
+
+	it('a date typed into « Du » after « Toujours » is the start that is applied', async () => {
+		expect.assertions(1);
+		const onApply = vi.fn();
+		await render(PeriodFilter, base({ presets: REPORTING_PERIOD_PRESET_IDS, onApply }));
+
+		await userEvent.click(page.getByRole('button', { name: 'Période' }));
+		await userEvent.click(page.getByRole('button', { name: 'Toujours' }));
+		await userEvent.type(page.getByLabelText('Du'), '01/03/2026');
+		await userEvent.click(page.getByRole('button', { name: 'Appliquer' }));
+
+		expect(onApply).toHaveBeenCalledWith({ from: '2026-03-01', to: '2026-06-17' });
 	});
 });
