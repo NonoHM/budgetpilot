@@ -70,6 +70,22 @@ export function scopeLabel(scope: CsvRefusalScope): string {
 	}
 }
 
+/**
+ * THE ONE CHOICE between a sentence quoting the cell it refused and the same sentence without it
+ * (#692). A cell blank after trimming would quote as « «  » », which reads as a rendering fault
+ * rather than as « this cell was empty », so the sentence drops the value instead. Every sentence
+ * that quotes a refused cell and can meet a blank one goes through here, so the two variants
+ * cannot drift apart per code.
+ */
+function withCellValue(
+	value: string,
+	quoting: (value: string) => string,
+	withoutValue: () => string
+): string {
+	const trimmed = value.trim();
+	return trimmed === '' ? withoutValue() : quoting(trimmed);
+}
+
 export function refusalLabel(fact: CsvRefusalFact): string {
 	switch (fact.code) {
 		case 'file-too-large':
@@ -117,7 +133,7 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 			// back to. One function cannot disagree with itself.
 			return m.import_refusal_missing_required_column({ role: roleLabel(fact.role) });
 		case 'bad-column-count':
-			return m.import_refusal_bad_column_count();
+			return m.import_refusal_bad_column_count({ actual: fact.actual, expected: fact.expected });
 		case 'ambiguous-column-mapping':
 			return m.import_refusal_ambiguous_column_mapping({
 				role: roleLabel(fact.role),
@@ -157,14 +173,28 @@ export function refusalLabel(fact: CsvRefusalFact): string {
 		case 'invalid-balance':
 			return m.import_refusal_invalid_balance();
 		case 'unsupported-currency':
-			return m.import_refusal_unsupported_currency();
+			// No bank in the sentence (#692): Revolut, the generic file and the designated file all
+			// produce this code, and a sentence shared by several producers names none of them.
+			return withCellValue(
+				fact.currency,
+				(currency) => m.import_refusal_unsupported_currency({ currency }),
+				m.import_refusal_unsupported_currency_no_value
+			);
 		case 'declared-currency-mismatch':
 			return m.import_refusal_declared_currency_mismatch({
 				declared: fact.declared,
 				destination: fact.destination
 			});
 		case 'state-not-completed':
-			return m.import_refusal_state_not_completed();
+			// Revolut IS named here, because Revolut is this code's one producer. The state is shown
+			// because it is the difference between « wait for it to settle » (pending) and « it will
+			// never import » (reverted, declined), and it sits in Revolut's ninth column, past the
+			// eight cells the row preview shows.
+			return withCellValue(
+				fact.state,
+				(state) => m.import_refusal_state_not_completed({ state }),
+				m.import_refusal_state_not_completed_no_value
+			);
 		case 'footer-ignored':
 			return m.import_refusal_footer_ignored();
 		case 'debit-credit-both':
