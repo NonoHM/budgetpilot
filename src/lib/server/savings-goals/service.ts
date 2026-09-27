@@ -1,4 +1,5 @@
 import { DEFAULT_DENOMINATION } from '$lib/domain/money';
+import { isStorableIsoDate } from '$lib/domain/transaction';
 import { error } from '@sveltejs/kit';
 import * as m from '$lib/paraglide/messages';
 import {
@@ -282,16 +283,20 @@ async function validateInput(
 	return { name, targetAmountCents, netWorthAccountId, currentAmountCents, targetDate };
 }
 
-/** Empty/absent = no deadline (null). Malformed date = false (rejected by the caller). */
-function parseTargetDate(raw: string | undefined): Date | null | false {
+/**
+ * Empty/absent = no deadline (null). Malformed date = false (rejected by the caller).
+ *
+ * Through `isStorableIsoDate`, the one reading every date writer shares (#758): a calendar date
+ * whose year an engine stores faithfully. It used to test the digit shape alone, so `0026-05-01`
+ * was stored (MariaDB reads it back in 2026's neighbouring century) and `2026-02-30` rolled over
+ * to March 2. `storableDateColumns.spec.ts` probes this writer beside every other.
+ */
+export function parseTargetDate(raw: string | undefined): Date | null | false {
 	const trimmed = (raw ?? '').trim();
 	if (!trimmed) return null;
-	if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return false;
+	if (!isStorableIsoDate(trimmed)) return false;
 
-	const parsed = new Date(`${trimmed}T12:00:00.000Z`);
-	if (Number.isNaN(parsed.getTime())) return false;
-
-	return parsed;
+	return new Date(`${trimmed}T12:00:00.000Z`);
 }
 
 function toRecord(

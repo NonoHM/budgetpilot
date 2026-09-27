@@ -270,8 +270,10 @@ export const DESIGNATION_REACH = {
 	'amount-split-across-columns': 'unrepairable',
 	'invalid-date': 'repairable',
 	// #758. The column read IS a date column: the cell parsed as a calendar date, and only its year
-	// is refused. Naming another column cannot change the year the file wrote, so the designation
-	// screen has nothing to offer; the sentence names the cell instead.
+	// is refused. A file can carry several date columns (a value date beside an operation date), so
+	// designating another one COULD import these rows, but under that other column's dates: a
+	// different date, not a repair of this one, and the substitution `readRowDate` refuses to make
+	// silently. So no offer; the sentence names the cell. Revisit if a real statement needs it.
 	'date-out-of-range': 'unrepairable',
 	'invalid-amount': 'repairable',
 	'zero-amount': 'repairable',

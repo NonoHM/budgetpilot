@@ -933,7 +933,9 @@ describe('tags', () => {
  *
  * Breaks, each separately: the range refinement removed (red on every « refuses » case, which then
  * reads `success: true`); the classifier answering `invalid` for everything (red on the reason
- * assertions, separating « the user is told it is a date » from « told the file is corrupt »).
+ * assertions, separating « the user is told it is a date » from « told the file is corrupt »); the
+ * classifier ignoring the other issues (red on the mixed case, separating « every reason is the
+ * range » from « one of them is »).
  */
 describe('restore refuses a year no engine stores faithfully', () => {
 	it.each([
@@ -949,7 +951,10 @@ describe('restore refuses a year no engine stores faithfully', () => {
 		const result = backupExportSchema.safeParse(payload);
 
 		expect(result.success).toBe(false);
-		expect(result.success ? null : restoreRefusal(result.error)).toBe('date-out-of-range');
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({
+			reason: 'date-out-of-range',
+			kinds: ['transactions']
+		});
 	});
 
 	it.each(['1000-01-01T00:00:00.000Z', '9999-12-31T23:59:59.999Z'])(
@@ -975,7 +980,45 @@ describe('restore refuses a year no engine stores faithfully', () => {
 
 		const result = backupExportSchema.safeParse(payload);
 
-		expect(result.success ? null : restoreRefusal(result.error)).toBe('date-out-of-range');
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({
+			reason: 'date-out-of-range',
+			kinds: ['importBatches']
+		});
+	});
+
+	/**
+	 * The sentence names every kind of record at fault, once each and in the file's order, so the
+	 * owner of an export knows where to look. Separates « names both » from « names the first ».
+	 */
+	it('names every kind of record carrying an out-of-range date, once each', () => {
+		expect.assertions(1);
+		const payload = buildValidPayload();
+		payload.importBatches[0].periodStart = '0000-01-16T00:00:00.000Z' as never;
+		payload.importBatches[0].periodEnd = '0000-01-17T00:00:00.000Z' as never;
+		payload.transactions[0].date = '0026-05-01T00:00:00.000Z';
+
+		const result = backupExportSchema.safeParse(payload);
+
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({
+			reason: 'date-out-of-range',
+			kinds: ['importBatches', 'transactions']
+		});
+	});
+
+	/**
+	 * A file with an out-of-range date AND another fault is not described by the date sentence: it
+	 * would send the owner to fix one date and meet the refusal again. Separates « every issue is the
+	 * range » from « one of them is ».
+	 */
+	it('calls a file invalid when the range is not its only fault', () => {
+		expect.assertions(1);
+		const payload = buildValidPayload();
+		payload.transactions[0].date = '0026-05-01T00:00:00.000Z';
+		payload.transactions[0].amountCents = 42.5;
+
+		const result = backupExportSchema.safeParse(payload);
+
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({ reason: 'invalid' });
 	});
 
 	/**
@@ -989,6 +1032,6 @@ describe('restore refuses a year no engine stores faithfully', () => {
 
 		const result = backupExportSchema.safeParse(payload);
 
-		expect(result.success ? null : restoreRefusal(result.error)).toBe('invalid');
+		expect(result.success ? null : restoreRefusal(result.error)).toEqual({ reason: 'invalid' });
 	});
 });

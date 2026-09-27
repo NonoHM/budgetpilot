@@ -29,7 +29,7 @@ const DATE_OUT_OF_RANGE = 'date-out-of-range';
  * a string that is not a date at all, so an unparseable value raises ONE issue, the first one, and
  * is never described as a date out of range.
  */
-const isoDateString = z
+export const isoDateString = z
 	.string()
 	.refine((value) => !Number.isNaN(Date.parse(value)), {
 		message: 'date ISO invalide'
@@ -43,18 +43,51 @@ const isoDateString = z
 	);
 
 /**
- * Why a backup was refused, as the route needs it: a date outside the storable years, which the
- * owner of a file exported before #758 can act on, or anything else, which is « corrupt ». Read
- * off the issue's own `params`, never off its message text.
+ * The top-level members of a backup that carry a date, in the file's order: the kinds of record a
+ * range refusal can name. `storableDateColumns.spec.ts` walks the schema and fails when a date
+ * field sits under a member missing here.
  */
-export function restoreRefusal(error: z.ZodError): 'date-out-of-range' | 'invalid' {
-	return error.issues.some(
-		(issue) =>
-			issue.code === 'custom' &&
-			(issue.params as { refusal?: unknown } | undefined)?.refusal === DATE_OUT_OF_RANGE
-	)
-		? 'date-out-of-range'
-		: 'invalid';
+export const RESTORE_DATE_KINDS = [
+	'exportedAt',
+	'bankConnections',
+	'importBatches',
+	'transactions',
+	'netWorthAccounts',
+	'netWorthSnapshots',
+	'savingsGoals',
+	'recurringStreamActions'
+] as const;
+export type RestoreDateKind = (typeof RESTORE_DATE_KINDS)[number];
+
+export type RestoreRefusal =
+	{ reason: 'date-out-of-range'; kinds: RestoreDateKind[] } | { reason: 'invalid' };
+
+function isRangeIssue(issue: z.core.$ZodIssue): boolean {
+	return (
+		issue.code === 'custom' &&
+		(issue.params as { refusal?: unknown } | undefined)?.refusal === DATE_OUT_OF_RANGE
+	);
+}
+
+/**
+ * Why a backup was refused, as the route needs it. Read off each issue's own `params`, never off
+ * its message text, and over EVERY issue Zod collected:
+ *
+ * - every issue is a date outside the storable years: `date-out-of-range`, naming each kind of
+ *   record at fault once, in the file's order. The owner of an export written before #758 (an
+ *   install on SQLite stored such rows faithfully) can find and correct them.
+ * - anything else, alone or beside a range issue: `invalid`. A file with a date to correct AND
+ *   another fault is not described by the date sentence, which would send its owner to fix one
+ *   date and meet the refusal again.
+ */
+export function restoreRefusal(error: z.ZodError): RestoreRefusal {
+	if (error.issues.length === 0 || !error.issues.every(isRangeIssue)) return { reason: 'invalid' };
+	const atFault = new Set(error.issues.map((issue) => issue.path[0]));
+	const kinds = RESTORE_DATE_KINDS.filter((kind) => atFault.has(kind));
+	// A range issue under a member this list does not know is a schema this function has not been
+	// told about; the generic sentence is the safe answer, and the spec above names the gap.
+	if (kinds.length !== atFault.size) return { reason: 'invalid' };
+	return { reason: 'date-out-of-range', kinds };
 }
 
 /**

@@ -24,7 +24,11 @@ import { isReauthRateLimited, recordReauthAttempt } from '$lib/server/auth/rateL
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
 import { BackupImportError, restoreBackup } from '$lib/server/backup/import';
-import { backupExportSchema, restoreRefusal } from '$lib/server/backup/schema';
+import {
+	backupExportSchema,
+	restoreRefusal,
+	type RestoreDateKind
+} from '$lib/server/backup/schema';
 import { STORABLE_YEAR_BOUNDS } from '$lib/i18n/refusalLabel';
 import { countJsonNodes, resolveBackupMaxJsonNodes } from '$lib/server/backup/parseBounds';
 import {
@@ -401,11 +405,16 @@ export const actions: Actions = {
 		const parsed = backupExportSchema.safeParse(rawJson);
 		if (!parsed.success) {
 			// #758: a date no engine stores faithfully is not corruption. An install on SQLite
-			// accepted such a row before the import parser refused it, and exported it faithfully.
+			// accepted such a row before the import parser refused it, and exported it faithfully;
+			// the sentence names the kinds of record to look in.
+			const refusal = restoreRefusal(parsed.error);
 			return fail(400, {
 				restoreError:
-					restoreRefusal(parsed.error) === 'date-out-of-range'
-						? m.settings_error_restore_date_out_of_range(STORABLE_YEAR_BOUNDS)
+					refusal.reason === 'date-out-of-range'
+						? m.settings_error_restore_date_out_of_range({
+								...STORABLE_YEAR_BOUNDS,
+								kinds: refusal.kinds.map(restoreDateKindLabel).join(', ')
+							})
 						: m.settings_error_restore_corrupted()
 			});
 		}
@@ -812,5 +821,30 @@ function accountRefusalSentence(reason: AccountWriteRefusal): string {
 		// so adding a form that DOES would be a compile error here rather than a wrong sentence.
 		case 'discriminant-taken':
 			return m.import_account_create_error_fragment_taken();
+	}
+}
+
+/**
+ * A kind of record a restore refusal names (#758), in the words the app already uses for that
+ * section wherever one exists. A switch with no default arm, so a kind added to
+ * `RESTORE_DATE_KINDS` fails to compile until it is named here.
+ */
+function restoreDateKindLabel(kind: RestoreDateKind): string {
+	switch (kind) {
+		case 'exportedAt':
+			return m.settings_restore_kind_export_date();
+		case 'bankConnections':
+			return m.settings_restore_kind_bank_connections();
+		case 'importBatches':
+			return m.nav_imports();
+		case 'transactions':
+			return m.nav_transactions();
+		case 'netWorthAccounts':
+		case 'netWorthSnapshots':
+			return m.nav_net_worth();
+		case 'savingsGoals':
+			return m.savings_goals_title();
+		case 'recurringStreamActions':
+			return m.nav_upcoming_bills();
 	}
 }

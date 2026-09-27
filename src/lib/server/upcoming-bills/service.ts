@@ -26,7 +26,11 @@ import {
 } from '$lib/domain/upcomingBills';
 import { getInitials } from '$lib/domain/initials';
 import { normalizeStoredRecurringLabel, truncateStoredLabel } from '$lib/domain/recurrence';
-import type { Transaction, TransactionNature } from '$lib/domain/transaction';
+import {
+	isStorableIsoDate,
+	type Transaction,
+	type TransactionNature
+} from '$lib/domain/transaction';
 import { splitIndicatorsByTransactionId, type SplitIndicator } from '$lib/domain/allocation';
 import { readDashboardDataForRange } from '$lib/server/budget/dashboard';
 import { FORECAST_LOOKBACK_MONTHS } from '$lib/server/forecast';
@@ -64,7 +68,6 @@ import { normalizeId } from '$lib/server/transactions/where';
  */
 
 const MONTH_PATTERN = /^\d{4}-\d{2}$/;
-const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const MS_PER_DAY = 86_400_000;
 
 /** Rolling half-window of the widget, in days, on both sides of today (locked decisions 4 & 5). */
@@ -1028,7 +1031,7 @@ function parseDirection(raw: string): FlowDirection {
 	throw error(400, m.upcoming_bills_error_invalid_action());
 }
 
-function parseDueDate(kind: StreamActionKind, raw: string | null): Date | null {
+export function parseDueDate(kind: StreamActionKind, raw: string | null): Date | null {
 	// Not trusted to be a string either: a number or an object from a form body would throw a
 	// TypeError out of `.trim()` and become a 500. Absent (null/undefined) is a legitimate value —
 	// it is what an `exclude` must carry — but anything else is a malformed payload, refused as
@@ -1045,13 +1048,11 @@ function parseDueDate(kind: StreamActionKind, raw: string | null): Date | null {
 		return null;
 	}
 
-	if (!ISO_DATE_PATTERN.test(trimmed)) throw error(400, m.upcoming_bills_error_invalid_date());
-	const parsed = new Date(`${trimmed}T00:00:00.000Z`);
-	if (Number.isNaN(parsed.getTime()) || toIsoDate(parsed) !== trimmed) {
-		throw error(400, m.upcoming_bills_error_invalid_date());
-	}
+	// Through `isStorableIsoDate`, the one reading every date writer shares (#758): the calendar
+	// check this function spelled out for itself, plus the storable range it did not have.
+	if (!isStorableIsoDate(trimmed)) throw error(400, m.upcoming_bills_error_invalid_date());
 
-	return parsed;
+	return new Date(`${trimmed}T00:00:00.000Z`);
 }
 
 function toIsoDate(date: Date): string {

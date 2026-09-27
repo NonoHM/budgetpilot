@@ -989,7 +989,7 @@ describe('/settings', () => {
 
 			expect(result.status).toBe(400);
 			expect(result.data.restoreError).toBe(
-				'Cette sauvegarde contient une date hors des années 1000 à 9999. Vos données n’ont pas été modifiées.'
+				'Cette sauvegarde contient une date hors des années 1000 à 9999 (date d’export). Vos données n’ont pas été modifiées.'
 			);
 			expect(backupImport.restoreBackup).not.toHaveBeenCalled();
 		});
