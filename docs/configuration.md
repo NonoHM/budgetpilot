@@ -232,6 +232,18 @@ tooling is built around a database server. [Using PostgreSQL or
 MySQL](./database-providers.md) walks through both, including what switching
 an existing install actually costs.
 
+## Writing a limit
+
+`CSV_MAX_COLUMNS`, `COLUMN_MAPPINGS_PER_USER`,
+`IMPORT_RATE_LIMIT_MAX_ATTEMPTS`, `BACKUP_MAX_JSON_NODES` and
+`IMPORT_XLSX_MAX_UNCOMPRESSED_MB` each take a whole number of at least 1. Write
+it with the digits 0 to 9 and nothing else.
+
+Any other spelling stops the app at startup, with a message naming the
+variable: `0x10`, `1e2`, `12.0`, `+5` and `1_000` are all refused rather than
+read as a number you did not write. Spaces around the number are ignored, and
+an empty value is the same as leaving the variable out.
+
 ## How many columns a statement may have
 
 `CSV_MAX_COLUMNS` is **optional**: leave it out and you get 512. It bounds how
@@ -269,15 +281,21 @@ column names.
 
 50 is generous on purpose. Five banks with three format changes each is fifteen.
 
-**Nothing deletes a remembered answer yet.** A screen to review and remove them
-is owed, and until it exists this limit is the only thing bounding a table that
-one upload can grow. That is also why reaching it is refused rather than solved
-by quietly forgetting your oldest answer: forgetting one would mean your regular
-bank stops being recognised because you once imported twenty odd files, which is
-a worse surprise than being told the limit was reached.
+**Nothing forgets a remembered answer on its own.** You remove one in
+**Settings > Remembered columns** (see
+[Forget a remembered answer](./using/imports.md#forget-a-remembered-answer)). Restoring a backup
+replaces your answers with the backup's, and deleting your account removes them
+with it. Nothing else does, so this limit is what bounds a table that every new
+set of column names grows.
 
-If you do reach it, the refusal says so and points at the issue tracking the
-removal screen.
+Reaching it is refused rather than solved by quietly forgetting your oldest
+answer: forgetting one would mean your regular bank stops being recognised
+because you once imported twenty odd files, which is a worse surprise than being
+told the limit was reached.
+
+If you do reach it, the statement still imports. The import page says its
+columns were not remembered and links to Settings, where you can remove an
+answer you no longer need.
 
 ## How many uploads one account may make
 

@@ -133,3 +133,10 @@ e2e/.audit390/
 
 # Scratch for scripts/test-env.sh: generated Compose overlay and synthetic fixtures.
 /.test-env/
+
+# Scanner reports never enter the tree: every job and hook writes them to a temporary
+# directory ($RUNNER_TEMP, mktemp). These catch one written here by hand.
+*.sarif
+gitleaks-*.json
+gitleaks-report*
+trufflehog-*

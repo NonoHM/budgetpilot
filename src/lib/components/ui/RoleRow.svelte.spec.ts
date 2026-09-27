@@ -705,7 +705,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 	 * Separates « the row announces the reading the caller APPLIED » from « the row announces a
 	 * reading it worked out from the two strings it was handed ». `02/02/2026` reads identically
 	 * both ways, so no comparison of raw against pretty can tell them apart: the second behaviour
-	 * announces « Jour puis mois » to a screen reader whatever was chosen.
+	 * announces « jour puis mois » to a screen reader whatever was chosen.
 	 *
 	 * This is not a corner. `ambiguous` is DEFINED as every component being at or below 12 on both
 	 * sides, so a cell whose day equals its month is the canonical ambiguous cell, and it is the one
@@ -721,7 +721,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 			interpretationConfirmed: false
 		});
 		expect(monthFirst.row.getAttribute('aria-label')).toBe(
-			`Date, colonne désignée${NNBSP}: Date operation, dates lues Mois puis jour, ordre à confirmer, non sélectionné`
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues mois puis jour, ordre à confirmer, non sélectionné`
 		);
 		monthFirst.container.remove();
 
@@ -735,7 +735,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 			interpretationConfirmed: false
 		});
 		expect(dayFirst.row.getAttribute('aria-label')).toBe(
-			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, ordre à confirmer, non sélectionné`
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues jour puis mois, ordre à confirmer, non sélectionné`
 		);
 		dayFirst.container.remove();
 	});
@@ -749,7 +749,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 			interpretationConfirmed: false
 		});
 		expect(dayFirst.row.getAttribute('aria-label')).toBe(
-			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, ordre à confirmer, non sélectionné`
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues jour puis mois, ordre à confirmer, non sélectionné`
 		);
 		dayFirst.container.remove();
 
@@ -764,7 +764,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 			interpretationConfirmed: false
 		});
 		expect(monthFirst.row.getAttribute('aria-label')).toBe(
-			`Date, colonne désignée${NNBSP}: Date operation, dates lues Mois puis jour, ordre à confirmer, non sélectionné`
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues mois puis jour, ordre à confirmer, non sélectionné`
 		);
 	});
 
@@ -802,6 +802,10 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 	 * Separates « the confirmed name states the order the caller applied » from « it states one it
 	 * derived »: `02/02/2026` reads identically both ways, and the planted positive is the same cell
 	 * under the other order, which must name the other reading.
+	 *
+	 * #728. The reading sits MID-SENTENCE here, after « dates lues », so it is the lower-case form
+	 * and not the sheet option's title. Measured before the fix: « …, dates lues Jour puis mois,
+	 * première ligne : … ». Compared as the whole sentence, so a capital anywhere in it reddens.
 	 */
 	it('confirmed: states the order the caller applied and the first row under it', async () => {
 		const monthFirst = await mount({
@@ -813,7 +817,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 			interpretationConfirmed: true
 		});
 		expect(monthFirst.row.getAttribute('aria-label')).toBe(
-			`Date, colonne désignée${NNBSP}: Date operation, dates lues Mois puis jour, première ligne${NNBSP}: 2 février 2026`
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues mois puis jour, première ligne${NNBSP}: 2 février 2026`
 		);
 		monthFirst.container.remove();
 
@@ -826,7 +830,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 			interpretationConfirmed: true
 		});
 		expect(dayFirst.row.getAttribute('aria-label')).toBe(
-			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, première ligne${NNBSP}: 2 février 2026`
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues jour puis mois, première ligne${NNBSP}: 2 février 2026`
 		);
 	});
 
@@ -834,7 +838,7 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 	 * A column whose FORMAT settles its reading (ISO, `proven-shape`) has no day/month order to
 	 * name, so the caller states `order: null` and the row keeps the plain designated name. Separates
 	 * « no order stated » from « the default order stated as if the file had one »: « dates lues
-	 * Jour puis mois » about `2026-06-24` is a claim about a column that makes none.
+	 * jour puis mois » about `2026-06-24` is a claim about a column that makes none.
 	 */
 	it('confirmed with no order to state: the plain designated name, no reading claimed', async () => {
 		const { row } = await mount({
@@ -849,5 +853,93 @@ describe('RoleRow.svelte: the accessible name follows the interpretation, for th
 		expect(row.getAttribute('aria-label')).toBe(
 			'Date, colonne désignée : Date operation, exemple 2026-06-24'
 		);
+	});
+});
+
+/**
+ * #728, the other catalogue. The block above pins « jour puis mois » in French; this one pins the
+ * English sentence the same row speaks, so the two catalogues cannot drift apart unseen: every
+ * other spec here renders French, so a capitalised reading in English alone would stay green.
+ *
+ * The locale is PINNED to French by `vitest.client.setup.ts` through the cookie Paraglide reads on
+ * every `getLocale()`. This block moves the cookie to `en` for its mounts and restores it in a
+ * `finally`, so a failed assertion cannot leave every later spec in this file rendering English.
+ *
+ * BREAKS, run 2026-09-25 over this file and `dateReadingQuestion.svelte.spec.ts`, read per test:
+ * 1. The row back on the option titles: 7 red, every whole-sentence name in both files.
+ * 2. The English in-sentence key capitalised, French left alone: 2 red, only the two here.
+ * 3. The French one capitalised, English left alone: 5 red, every French name, none here.
+ * 4. The unconfirmed name alone left on the title: 4 red, all unconfirmed; the confirmed stay
+ *    green, which is what separates this block's two tests.
+ * 5. The French in-sentence readings swapped: 5 red, through the palindromic planted positive.
+ */
+describe('RoleRow.svelte: the Date row speaks the reading in lower case mid-sentence, in English too (#728)', () => {
+	async function inEnglish(body: () => Promise<void>) {
+		document.cookie = 'PARAGLIDE_LOCALE=en; path=/';
+		try {
+			await body();
+		} finally {
+			document.cookie = 'PARAGLIDE_LOCALE=fr; path=/';
+		}
+	}
+
+	// Separates « the confirmed branch speaks the lower-case reading » from « it speaks the sheet
+	// option's title ». The two orders on one palindromic cell separate the two readings.
+	it('confirmed, both readings, compared as whole sentences', async () => {
+		await inEnglish(async () => {
+			const dayFirst = await mount({
+				role: 'date',
+				state: 'designated',
+				columnHeader: 'Date operation',
+				sampleValue: '02/02/2026',
+				interpretation: { raw: '02/02/2026', pretty: '2 February 2026', order: 'day-first' },
+				interpretationConfirmed: true
+			});
+			expect(dayFirst.row.getAttribute('aria-label')).toBe(
+				'Date, column designated: Date operation, dates read day then month, first row: 2 February 2026'
+			);
+			dayFirst.container.remove();
+
+			const monthFirst = await mount({
+				role: 'date',
+				state: 'designated',
+				columnHeader: 'Date operation',
+				sampleValue: '02/02/2026',
+				interpretation: { raw: '02/02/2026', pretty: '2 February 2026', order: 'month-first' },
+				interpretationConfirmed: true
+			});
+			expect(monthFirst.row.getAttribute('aria-label')).toBe(
+				'Date, column designated: Date operation, dates read month then day, first row: 2 February 2026'
+			);
+		});
+	});
+
+	// Separates « both branches take the reading from one definition » from « the unconfirmed
+	// branch was left on the option's title », which the confirmed test cannot see.
+	it('unconfirmed, both readings, compared as whole sentences', async () => {
+		await inEnglish(async () => {
+			const dayFirst = await mount({
+				role: 'date',
+				state: 'designated',
+				columnHeader: 'Date operation',
+				interpretation: { raw: '02/02/2026', pretty: '2 February 2026', order: 'day-first' },
+				interpretationConfirmed: false
+			});
+			expect(dayFirst.row.getAttribute('aria-label')).toBe(
+				'Date, column designated: Date operation, dates read day then month, order to confirm, not selected'
+			);
+			dayFirst.container.remove();
+
+			const monthFirst = await mount({
+				role: 'date',
+				state: 'designated',
+				columnHeader: 'Date operation',
+				interpretation: { raw: '02/02/2026', pretty: '2 February 2026', order: 'month-first' },
+				interpretationConfirmed: false
+			});
+			expect(monthFirst.row.getAttribute('aria-label')).toBe(
+				'Date, column designated: Date operation, dates read month then day, order to confirm, not selected'
+			);
+		});
 	});
 });

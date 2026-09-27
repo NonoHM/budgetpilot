@@ -25,6 +25,92 @@ construction, `X` an argued exception, `N/A` not applicable with a stated reason
 
 ---
 
+## 2026-09-26, the write step owns its failures
+
+Branch `fix/d3-write-failures` (#660, #662, #596, #595). **Letters below are quoted from
+`scripts/security/asvs-5.0-l2-report.md`**, which describes the assessment of 2026-08-13 and not a
+current state. The import's write step (`createImportBatch`, then `persistImportedTransactions`)
+used to let any failure reach SvelteKit's default handler as a bare 500 while rows it had already
+written stayed in the ledger, with the batch's count at 0. It now resolves both references it is
+handed with `userId` in the same where clause, counts what landed from the ledger, and returns a
+failure the two import routes render as a sentence. **No row's letter moves**; one exception gains
+a site, and three rows change how they are held.
+
+### `v5.0.0-2.3.3`: `X` an argued exception, now at two sites
+
+> Verify that transactions are being used at the business logic level such that either a
+> business logic operation succeeds in its entirety or it is rolled back to the previous correct
+> state.
+
+**The second site is the import's row loop itself**, and it is recorded here rather than wrapped,
+for the reason the 2026-08-17 entry gives for the first: the row writer catches a unique violation
+and carries on, and on PostgreSQL a constraint violation aborts the enclosing transaction, so one
+transaction around the loop would turn one duplicate row into a failed import. An import that fails
+midway therefore leaves the rows written before the failure.
+
+**What stands in for the rollback is disclosure and a repair.** The batch's `importedRows` is read
+back from the ledger rather than accumulated, so the history names what landed; the failure leaves
+the write step as a typed value carrying that count; and the screen says how many transactions were
+saved and to delete the import from `/imports` before trying again. That delete is one transaction
+and removes every row the import filed, which is the previous correct state the requirement asks
+for, reached by the user rather than by the database. The argument is on
+`persistImportedTransactions`'s docstring, and `writeStep.db-smoke.ts` performs the repair on three
+engines.
+
+### `v5.0.0-8.2.2`: `L1`, evidence added
+
+> Verify that the application ensures that data-specific access is restricted to consumers with
+> explicit permissions to specific data items to mitigate insecure direct object reference (IDOR)
+> and broken object level authorization (BOLA).
+
+The property was held by the write step's CALLERS, which resolve the account and the batch for the
+session's user first (#596). It is now held by the write step too: `createImportBatch` and
+`persistImportedTransactions` resolve `accountId` and `importBatchId` with `userId` in the same where
+clause, before any row, and the batch must also be filed on the account being written to. Attacked
+in `writeStep.db-smoke.ts` on SQLite, PostgreSQL and MariaDB, one clause per test: before the change
+a foreign account received 2 rows, a foreign batch had 2 rows filed under it, and a foreign account
+received a batch; after it, each is refused as not-found with 0 rows written.
+
+### `v5.0.0-16.5.1` and `v5.0.0-16.5.3`: `A`, held by this code on the write path
+
+> Verify that a generic message is returned to the consumer when an unexpected or
+> security-sensitive error occurs, ensuring no exposure of sensitive internal system data such as
+> stack traces, queries, secret keys, and tokens.
+
+> Verify that the application fails gracefully and securely, including when an exception occurs,
+> preventing fail-open conditions such as processing a transaction despite errors resulting from
+> validation logic.
+
+On the import write path the generic message was SvelteKit's default body. It is now a sentence
+from the catalogue chosen by what the ledger holds, and the underlying error is never part of it:
+`ImportWriteError` carries it as `cause` and its message names no value. Failing closed: the write
+step's result has no success fields on its failure branch, so neither route can reach the summary
+or the correction's delete after a failed write (`columns/page.server.spec.ts` asserts the delete
+is not called).
+
+### `v5.0.0-16.3.4` and `v5.0.0-16.2.5`: `C` and `A`, one path now logged by this code
+
+> Verify that the application logs unexpected errors and security control failures such as
+> backend TLS failures.
+
+> Verify that when logging sensitive data, the application enforces logging based on the data's
+> protection level. For example, it may not be allowed to log certain data, such as credentials or
+> payment details. Other data, such as session tokens, may only be logged by being hashed or
+> masked, either in full or partially.
+
+`16.3.4` was met by the framework's default `handleError`, which printed the whole error. Catching
+the write failure takes it off that path, so `writeImport.ts` logs one line itself: the stage, the
+error names, a short code such as a SQLSTATE, and the count that landed. **Never the message**,
+because a Prisma message can quote the arguments of the failed call, which here are a user's
+transactions; `writeImport.spec.ts` asserts a label in the cause's message does not reach the log
+while its code does.
+
+### The chapters checked with nothing to add
+
+V3 web frontend, V6 authentication, V7 session management and V11 cryptography were read against
+this branch and none moves. A real archive that is not a workbook (#595) is now an `ImportFileError`
+with its own sentence rather than a 500; that is `16.5.1` again on the parse side, and no new row.
+
 ## 2026-08-24, the write paths that name an account
 
 **Verdict letters below are quoted from `scripts/security/asvs-5.0-l2-report.md`, which describes

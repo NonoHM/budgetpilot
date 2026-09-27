@@ -79,7 +79,7 @@ export const AMBIGUOUS_DATE_PATTERN = /^(\d{2})[/.-](\d{2})[/.-](\d{4})([\s\S]*)
 export type DateOrderVerdict = FileVerdict<
 	{ order: DateOrder; evidence: string },
 	{ dayFirstEvidence: string; monthFirstEvidence: string },
-	{ sample: string }
+	{ sample: string; sampleIndex: number }
 >;
 
 /**
@@ -139,6 +139,14 @@ export type DateOrderVerdict = FileVerdict<
  * the person being asked, and this repository has measured the cost of showing someone a screen
  * whose evidence they cannot verify.
  *
+ * **The question also says WHERE its sample sits** (`sampleIndex`, a position in `values`), because
+ * the input is the union of every declared column and the sample alone cannot say which column
+ * raised the question. `parseImportRows` maps the position back to a column and points the reading
+ * offer and the summary's disclosure at it. Pointing them at the profile's first-listed date column
+ * instead showed a blank row cell and empty evidence cards whenever that column was blank where the
+ * evidence was (#667). Only the question carries a position: it is the one verdict a screen opens
+ * on a column.
+ *
  * @param values The cells of the file's date column, in file order. Pure: it reads no clock, no
  *   locale and no ambient state, so a stored verdict can always be recomputed from the same
  *   column. See `AGENTS.md` under « Code style ».
@@ -147,8 +155,9 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
 	let dayFirstEvidence: string | undefined;
 	let monthFirstEvidence: string | undefined;
 	let ambiguousSample: string | undefined;
+	let ambiguousIndex = -1;
 
-	for (const value of values) {
+	for (const [index, value] of values.entries()) {
 		const match = AMBIGUOUS_DATE_PATTERN.exec(value.trim());
 		if (!match) continue;
 
@@ -162,7 +171,10 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
 
 		if (firstCannotBeMonth) dayFirstEvidence ??= match[0];
 		else if (secondCannotBeMonth) monthFirstEvidence ??= match[0];
-		else ambiguousSample ??= match[0];
+		else if (ambiguousSample === undefined) {
+			ambiguousSample = match[0];
+			ambiguousIndex = index;
+		}
 	}
 
 	// Checked before either single answer: a file that proves both readings is refused rather
@@ -172,7 +184,8 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
 	if (dayFirstEvidence) return { kind: 'resolved', order: 'day-first', evidence: dayFirstEvidence };
 	if (monthFirstEvidence)
 		return { kind: 'resolved', order: 'month-first', evidence: monthFirstEvidence };
-	if (ambiguousSample) return { kind: 'ambiguous', sample: ambiguousSample };
+	if (ambiguousSample)
+		return { kind: 'ambiguous', sample: ambiguousSample, sampleIndex: ambiguousIndex };
 	return { kind: 'nothing-to-decide' };
 }
 
@@ -186,7 +199,16 @@ export function detectDateOrder(values: readonly string[]): DateOrderVerdict {
  * decision is what the PARSER does, and only the second one has a default in it.
  */
 export type DateOrderDecision =
-	| { kind: 'read'; order: DateOrder }
+	/**
+	 * `applied`: the answer settled a column the file left open. `unused`: no answer, or one that
+	 * could change nothing (an ISO file, or a proof that agrees with it).
+	 */
+	| { kind: 'read'; order: DateOrder; answer: 'applied' | 'unused' }
+	/**
+	 * The file PROVED the other order, so the answer was not applied (#619). Carries the proving
+	 * cell, because the user is told, and a claim is only checkable beside the value it rests on.
+	 */
+	| { kind: 'read'; order: DateOrder; answer: 'overruled'; proof: string }
 	/** The column proved both readings. Carries both cells, because neither is wrong alone. */
 	| { kind: 'refuse'; dayFirst: string; monthFirst: string };
 
@@ -221,6 +243,14 @@ export type DateOrderDecision =
  * import. Returning the default rather than the override keeps the two indistinguishable, which
  * is what they are.
  *
+ * ## An answer the proof overrules is REPORTED, never dropped (#619)
+ *
+ * The precedence above is unchanged. What the decision adds is what became of the answer, because
+ * a user who answered a question about their file and was overruled without being told is worse
+ * off than one never asked: they have a reason to believe the dates follow their answer. The
+ * decision is the one place that knows both halves, so it is where `overruled` is defined, and the
+ * summary's disclosure reads it rather than restating the comparison.
+ *
  * Pure: no clock, no locale, no ambient state, so a decision is recomputable from the column it
  * was taken over. See `AGENTS.md` under « Code style ».
  */
@@ -236,11 +266,17 @@ export function decideDateOrder(
 			monthFirst: verdict.monthFirstEvidence
 		};
 
-	if (verdict.kind === 'resolved') return { kind: 'read', order: verdict.order };
+	// The proof wins, and an answer it contradicts is REPORTED rather than dropped (#619). An
+	// answer the proof agrees with overrules nothing and is not news.
+	if (verdict.kind === 'resolved')
+		return override && override !== verdict.order
+			? { kind: 'read', order: verdict.order, answer: 'overruled', proof: verdict.evidence }
+			: { kind: 'read', order: verdict.order, answer: 'unused' };
 
 	// The one branch an override can reach. `nothing-to-decide` falls past it to the default,
 	// because there is no ambiguous cell for an answer to be about.
-	if (verdict.kind === 'ambiguous' && override) return { kind: 'read', order: override };
+	if (verdict.kind === 'ambiguous' && override)
+		return { kind: 'read', order: override, answer: 'applied' };
 
-	return { kind: 'read', order: DEFAULT_DATE_ORDER };
+	return { kind: 'read', order: DEFAULT_DATE_ORDER, answer: 'unused' };
 }

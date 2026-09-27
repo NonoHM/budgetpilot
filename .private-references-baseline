@@ -1,0 +1,23 @@
+# Findings of the shared private-reference matcher that were published BEFORE the guards existed,
+# reviewed and kept. Read by scripts/published-text-scan.mjs, which fails on any finding not listed
+# here AND on any line here that no longer matches anything.
+#
+# Format: <sha256 of location, kind, match and the whole line> <location> -- <reason>
+# The fingerprint names nothing and admits exactly one line in one place; editing that line makes
+# it a new finding. Add a line only for a finding someone has read and ruled on.
+#
+# DECISION RECORD, 2026-09-26 (docs/explanation/confidentiality-guards.md, « Decisions and
+# deviations »). The session trailers below stay in main's history rather than being expunged.
+# SLSA v1.2 source track, « Safe Expunging Process », asks that content removal follow a documented
+# process; the process here concluded not to remove, for three reasons. A rewrite does not remove
+# the text from forks, from cached pull request refs or from anywhere a commit id was already
+# quoted (GitHub's « Removing sensitive data from a repository »). Branch protection forbids the
+# force push a rewrite needs, and lifting it is a larger risk than the text. And each address
+# points to a PRIVATE session that no public reader can open; what it leaks is that the owner used
+# Claude Code, which the attribution trailers on the same commits already say.
+046335a79d7513dbb25cb240499f111101016b2620b102389c3437723d089511 commit 4bd10ec17efe -- a Claude-Session trailer written before attribution.sessionUrl was set to false; kept, see the decision record above
+5a2fbb276ad158c64cf94259f48efc14d471d53e546ce36f3e7ee373d3d9c91d commit b71b95ac6f3c -- Claude-Session trailers written before attribution.sessionUrl was set to false; kept, see the decision record above
+968414dbb58f8b8beaddac2532765a49347bf43484414cef422a8c6e84bfa4b7 commit cfab7a80cb72 -- Claude-Session trailers repeated by a squash merge, written before attribution.sessionUrl was set to false; kept, see the decision record above
+cf2e006eddf0ab2fb04283b97e9d8bcc3c9b66451b44d5c88e06df35a293b3ad commit 0978e8405d33 -- the squash of #100, describing the trailer with the host followed by « ... »; it names no session
+10c099b7b5dd60fd1d0a81572a16be526c992138099ac350d73a1db09e5ca6bc #100 title and body -- the host followed by « ... » in a sentence describing the trailer setting; it names no session
+c486b0ece79b78345dd96afb925c71a9fb061ecf6136119e7b40144648099181 #74 title and body -- the home directory of the app user INSIDE the container image, not an account on any machine

@@ -85,6 +85,9 @@ async function importFile(
 	const batch = await prisma.importBatch.create({
 		data: {
 			userId,
+			// Filed on the account written to, as `createImportBatch` always files it: the write step
+			// refuses a batch filed elsewhere, or on none (#596).
+			accountId,
 			source,
 			fileName,
 			profile: parsed.summary.profile,

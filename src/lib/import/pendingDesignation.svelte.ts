@@ -66,7 +66,19 @@ export interface PendingDesignation {
 	 * console selects an account that is already yours or is refused as not-found.
 	 */
 	account: {
-		options: { id: string; name: string; discriminant: string | null; transactionCount: number }[];
+		options: {
+			id: string;
+			name: string;
+			discriminant: string | null;
+			transactionCount: number;
+			/** The ISO code the account holds (#600). */
+			currency?: string;
+		}[];
+		/**
+		 * The currency the file DECLARED, sent only with the currency refusal (#600): the panel mutes
+		 * the accounts held in another one. Absent everywhere else.
+		 */
+		declaredCurrency?: string;
 		resolution: AccountResolution;
 		/** ISO, formatted on the screen where the negotiated locale is known. */
 		memory: { useCount: number; lastUsedAt: string | null } | null;

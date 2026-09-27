@@ -27,6 +27,7 @@ import {
 	UNCLASSIFIED_CATEGORY
 } from '../utils/safety';
 import { foldComparableHeader } from '../utils/encoding';
+import { acceptedDeclarations, currencyOfCell } from '../currencyDeclaration';
 
 /**
  * Revolut's ten columns, in the spellings this profile accepts.
@@ -162,6 +163,17 @@ export function parseRevolutRows({
 	let totalCreditCents = 0;
 	const validDates: string[] = [];
 
+	// THE FILE'S DECLARATION, read off every row of the right width before any row is judged, so a
+	// row refused below for its state, date or amount still declares (#600, contradiction pass F2).
+	// Through `currencyOfCell`, the same reading the row loop applies. See `currencyDeclaration.ts`.
+	const declaredCurrencies = acceptedDeclarations(
+		rows
+			.slice(1)
+			.filter((parsedRow) => parsedRow.cells.length === headers.length)
+			.map((parsedRow) => normalizeRevolutRecord(toRecord(headers, parsedRow.cells)).Devise ?? ''),
+		'EUR'
+	);
+
 	rows.slice(1).forEach((parsedRow) => {
 		const row = parsedRow.cells;
 		const line = parsedRow.line;
@@ -189,7 +201,9 @@ export function parseRevolutRows({
 			return;
 		}
 
-		if (currency !== 'EUR') {
+		// `currencyOfCell`, the one reading of a currency cell shared with `generic` and `mapped`
+		// (#600, F4): Revolut writes `EUR`, and a file saying `€` or `Euro` is read the same way.
+		if (currencyOfCell(currency) !== 'EUR') {
 			addRefusal(
 				refusals,
 				{ kind: 'row', line },
@@ -289,6 +303,10 @@ export function parseRevolutRows({
 			amountCents: absAmountCents,
 			category: effectiveCategory,
 			source: 'csv',
+			// The `Devise` cell as the check above READ it, which is EUR, and never the cell's raw text:
+			// a cell writing `€` passed that check, and carrying `€` here would make the persist
+			// backstop compare `€` with `EUR`. Carried out so the destination can be compared (#600).
+			declaredCurrency: 'EUR',
 			metadata: {
 				reference: '',
 				notes,
@@ -326,17 +344,20 @@ export function parseRevolutRows({
 		transactions,
 		warnings,
 		invalidRows: refusals,
-		summary: buildSummary({
-			profile: 'revolut',
-			totalRows: rows.length - 1,
-			validRows: transactions.length,
-			invalidRows: refusals.length,
-			fileLevelRefusals: 0,
-			duplicateRows,
-			totalDebitCents,
-			totalCreditCents,
-			dates: validDates
-		})
+		summary: {
+			...buildSummary({
+				profile: 'revolut',
+				totalRows: rows.length - 1,
+				validRows: transactions.length,
+				invalidRows: refusals.length,
+				fileLevelRefusals: 0,
+				duplicateRows,
+				totalDebitCents,
+				totalCreditCents,
+				dates: validDates
+			}),
+			declaredCurrencies
+		}
 	};
 }
 

@@ -19,16 +19,18 @@ import { recordColumnMappingUse, saveColumnMapping } from '$lib/server/import/ma
 import { MAPPING_ROLES } from '$lib/server/import/mapping/model';
 import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { resolveImportOffer } from '$lib/server/import/offerPrecedence';
+import { emptyParseFacts } from '$lib/server/import/offerFacts';
+import { declaredCurrencyRefusal } from '$lib/server/import/declaredCurrency';
 import {
 	buildInvalidRowDetails,
 	getHiddenInvalidRowsCount
 } from '$lib/server/import/invalidRowDetails';
 import {
-	createImportBatch,
 	ImportBucketAccountError,
-	persistImportedTransactions,
 	resolveImportBucketAccountById
 } from '$lib/server/import/persist';
+import { writeImport } from '$lib/server/import/writeImport';
+import { importFileErrorLabel } from '$lib/i18n/importFileErrorLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
@@ -91,8 +93,10 @@ export const actions: Actions = {
 		try {
 			importData = await readImportFile(importFile, { maxBytes: IMPORT_FILE_MAX_BYTES });
 		} catch (caught) {
+			// The same sentence per code as `/import` (#595). This door used to answer « vide » for every
+			// code, which called an unreadable workbook empty.
 			if (caught instanceof ImportFileError)
-				return fail(400, { error: m.import_error_empty_file() });
+				return fail(400, { error: importFileErrorLabel(caught) });
 			throw caught;
 		}
 		if (importData.rows.length === 0) {
@@ -184,24 +188,20 @@ export const actions: Actions = {
 			// beside a direction column. Naming it is the difference between a refusal that
 			// teaches and one that only blocks. Row-scoped refusals are deliberately not surfaced
 			// here: sixty-six of them are a summary, not a banner. See #343.
-			const headerRefusal = result.invalidRows.find((row) => row.scope.kind === 'header');
-			// #485, PROVEN or just confirmed: refused outright, no offer, same reasoning as `/import`.
-			const multiAccountRefusal =
-				result.invalidRows.length === 1 && result.invalidRows[0].fact.code === 'multi-account-file'
-					? result.invalidRows[0].fact
-					: null;
-			// #485, UNPROVEN: the one offer this branch gains.
-			const accountColumnRefusal =
-				result.invalidRows.length === 1 &&
-				result.invalidRows[0].fact.code === 'ambiguous-account-column'
-					? result.invalidRows[0].fact
-					: null;
+			// The facts through the one definition `/import` reads too (`offerFacts.ts`): the first
+			// header-scoped refusal, and #485's two, PROVEN (refused outright, no offer) and UNPROVEN
+			// (the one offer this branch gains).
+			const {
+				header: headerRefusal,
+				multiAccount: multiAccountRefusal,
+				accountColumn: accountColumnRefusal
+			} = emptyParseFacts(result);
 			// THE ONE ORDER, same function `/import` reads: no `split`, `account` or `dateOrder` on this
 			// door (see `offerPrecedence.ts`'s own docstring for why), so those are simply never passed.
 			// `produced: false` because this branch is the empty parse.
 			const offer = resolveImportOffer({
 				produced: false,
-				header: headerRefusal?.fact ?? null,
+				header: headerRefusal,
 				multiAccount: multiAccountRefusal,
 				accountColumn: accountColumnRefusal ? { state: 'open', fact: accountColumnRefusal } : null
 			});
@@ -209,7 +209,7 @@ export const actions: Actions = {
 			 * #485's `accountColumn` rung REFUSES rather than asks on this door, and DOES NOT carry
 			 * an offer: `/import/columns` has no interactive control for it (#670), and shipping the
 			 * "confirm before importing" sentence with no way to confirm is the exact dead end
-			 * `DESIGNATION_CANNOT_REPAIR` names in `/import`'s own action, applied to the door the
+			 * `designationCanHelp` (`offerFacts.ts`) names for `/import`'s offer, applied to the door the
 			 * user is already ON rather than one they would be sent to. `not-account`/`is-account`
 			 * are never posted from this door for the same reason: nothing here can answer.
 			 *
@@ -316,6 +316,26 @@ export const actions: Actions = {
 			});
 		}
 
+		/**
+		 * #600: the currency the file DECLARES, against the account the user just chose. Same call as
+		 * `/import`'s, right after the destination resolves and before the collision question, the
+		 * memorised correspondance and every write. `keepDesignation` because the repair is choosing
+		 * another account on this screen, not designating the columns again.
+		 */
+		const currencyRefusal = declaredCurrencyRefusal(
+			result.summary.declaredCurrencies ?? [],
+			bucket
+		);
+		if (currencyRefusal) {
+			// With the currency the file declared, so the screen's account panel can say which accounts
+			// are in it, exactly as `/import`'s does (#600, second contradiction pass F3).
+			return fail(400, {
+				error: refusalLabel(currencyRefusal),
+				keepDesignation: true,
+				declaredCurrency: currencyRefusal.declared
+			});
+		}
+
 		if (formData.get('confirmCollision') !== '1') {
 			// The account the user CHOSE, which is now the same object the write path below uses.
 			//
@@ -400,33 +420,43 @@ export const actions: Actions = {
 			// which of a user's mappings read it. A user who opted out of memorisation gets no link,
 			// and rightly: there is nothing memorised to correct.
 			if (saved.ok) columnMappingId = saved.id;
-			// The run that designates IS a use, and the recap says « utilisée N fois » out loud. A
-			// mapping created at zero would tell the user, on the very screen built to let them check
-			// it, that the import they are looking at never happened.
-			if (saved.ok) await recordColumnMappingUse(user.id, saved.id);
 		}
 
-		const batchId = await createImportBatch({
-			userId: user.id,
-			accountId: bucket.accountId,
-			source: 'csv',
-			fileName: importFile.name,
-			profile: result.summary.profile,
-			rowCount: result.summary.totalRows,
-			invalidRows: result.summary.invalidRows,
-			period: result.summary.period,
-			columnMappingId,
-			// As on the upload path: the order the parse applied, read off its own summary.
-			dateOrder: result.summary.dateOrder ?? null
-		});
-		const persisted = await persistImportedTransactions({
-			userId: user.id,
-			accountId: bucket.accountId,
-			importBatchId: batchId,
-			source: 'csv',
+		const written = await writeImport({
+			batch: {
+				userId: user.id,
+				accountId: bucket.accountId,
+				source: 'csv',
+				fileName: importFile.name,
+				profile: result.summary.profile,
+				rowCount: result.summary.totalRows,
+				invalidRows: result.summary.invalidRows,
+				period: result.summary.period,
+				columnMappingId,
+				// As on the upload path: the order the parse applied, read off its own summary.
+				dateOrder: result.summary.dateOrder ?? null
+			},
 			transactions: result.transactions,
 			parseDuplicateRows: result.summary.duplicateRows
 		});
+		// #662, as on `/import`: a failed write is a sentence that says what landed. RETURNED BEFORE
+		// the replace below, so a correction whose write failed never deletes the import it was meant
+		// to replace: write-then-delete holds on the failure branch too. `keepDesignation` because the
+		// designations are not what failed; the repair the sentence names is on `/imports`.
+		if (!written.ok) {
+			return fail(written.failure.kind === 'currency' ? 400 : 500, {
+				// The failure, not a sentence: see `/import`'s same branch for why the page renders it.
+				writeFailure: written.failure,
+				keepDesignation: true
+			});
+		}
+		const { batchId, persisted } = written;
+
+		// The run that designates IS a use, and the recap says « utilisée N fois » out loud. A mapping
+		// created at zero would tell the user, on the very screen built to let them check it, that the
+		// import they are looking at never happened. Counted AFTER the write succeeded (D3): a run
+		// whose write failed did not use the correspondance to import anything.
+		if (columnMappingId) await recordColumnMappingUse(user.id, columnMappingId);
 
 		/**
 		 * The replace, and the one guard between it and a silent loss of transactions.

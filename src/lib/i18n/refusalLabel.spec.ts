@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { refusalLabel, scopeLabel, violationLabel } from './refusalLabel';
 import { roleLabel } from '$lib/domain/columnMappingLabels';
-import { CSV_REFUSAL_CODES, type CsvRefusalFact } from '$lib/server/import/refusals';
+import {
+	CSV_REFUSAL_CODES,
+	type CsvRefusalCode,
+	type CsvRefusalFact
+} from '$lib/server/import/refusals';
 import { TRANSACTION_VALIDATION_CODES } from '$lib/domain/transaction';
+import { getLocale, overwriteGetLocale } from '$lib/paraglide/runtime';
 
 /**
  * The renderer is the only place a refusal becomes language, so this file is what stops a
@@ -18,68 +23,201 @@ import { TRANSACTION_VALIDATION_CODES } from '$lib/domain/transaction';
  * real.
  */
 
+type FactOf<C extends CsvRefusalCode> = Extract<CsvRefusalFact, { code: C }>;
+type FieldOf<C extends CsvRefusalCode> = Exclude<keyof FactOf<C>, 'code'>;
+
 /**
- * One fact per code, with a payload where the union demands one. Built as a Record keyed by
- * the code so the type checker refuses a fixture set that has drifted from the union: add a
- * code and this object fails to compile until it gets an entry.
+ * Where a value a refusal CARRIES reaches the reader (#692).
+ *
+ * - `'sentence'`: the rendered sentence itself shows it.
+ * - `{ by }`: the sentence does not, and another element on the screen that shows this refusal
+ *   does. Named precisely enough to go and look at.
+ * - `{ withheld }`: nothing on the screen shows it, and why that is the answer rather than a gap.
  */
-const FACTS: { [C in CsvRefusalFact['code']]: Extract<CsvRefusalFact, { code: C }> } = {
-	'file-too-large': { code: 'file-too-large', bytes: 512_000 },
-	'file-empty': { code: 'file-empty' },
-	'too-many-rows': { code: 'too-many-rows', max: 5000 },
-	'too-many-columns': { code: 'too-many-columns', max: 512 },
-	'header-not-recognized': { code: 'header-not-recognized', profile: 'Revolut' },
-	'unknown-column': { code: 'unknown-column', column: 'wibble' },
-	'duplicate-column': { code: 'duplicate-column', column: 'date' },
-	'missing-required-column': { code: 'missing-required-column', role: 'amount' },
-	'bad-column-count': { code: 'bad-column-count', expected: 5, actual: 4 },
+type Shown = 'sentence' | { by: string } | { withheld: string };
+
+/**
+ * EVERY CODE, AND EVERY FIELD OF EVERY CODE, CLASSIFIED ONCE. The one list of codes in this file.
+ *
+ * Typed per code AND per field, the pattern `DESIGNATION_REACH` uses one level down: a code added
+ * to `CsvRefusalFact` fails to compile here until it has an entry, and so does a field added to an
+ * existing code. Each field carries two values of its own type; `FACTS` below is built from the
+ * first, and the classification test swaps in the second.
+ *
+ * The question each `Shown` answers is AGENTS.md's « ask what the server KNOWS that the reader
+ * cannot see »: a value the server holds and no element shows is a sentence withholding it.
+ */
+const FIELD_DISPLAY: {
+	[C in CsvRefusalCode]: {
+		[F in FieldOf<C>]: { shown: Shown; values: readonly [FactOf<C>[F], FactOf<C>[F]] };
+	};
+} = {
+	'file-too-large': { bytes: { shown: 'sentence', values: [512_000, 256_001] } },
+	'file-empty': {},
+	'too-many-rows': { max: { shown: 'sentence', values: [5000, 4000] } },
+	'too-many-columns': { max: { shown: 'sentence', values: [512, 256] } },
+	'header-not-recognized': { profile: { shown: 'sentence', values: ['Revolut', 'N26'] } },
+	'declared-currency-mismatch': {
+		declared: { shown: 'sentence', values: ['EUR', 'GBP'] },
+		destination: { shown: 'sentence', values: ['USD', 'CHF'] }
+	},
+	'unknown-column': { column: { shown: 'sentence', values: ['wibble', 'wobble'] } },
+	'duplicate-column': { column: { shown: 'sentence', values: ['date', 'libelle'] } },
+	'missing-required-column': { role: { shown: 'sentence', values: ['amount', 'label'] } },
+	'bad-column-count': {
+		expected: { shown: 'sentence', values: [5, 7] },
+		actual: { shown: 'sentence', values: [4, 6] }
+	},
 	'ambiguous-column-mapping': {
-		code: 'ambiguous-column-mapping',
-		role: 'date',
-		columns: 'dateop, booking date'
+		role: { shown: 'sentence', values: ['date', 'amount'] },
+		columns: { shown: 'sentence', values: ['dateop, booking date', 'montant, amount'] }
 	},
-	'amount-sign-in-separate-column': { code: 'amount-sign-in-separate-column', column: 'sens' },
+	'amount-sign-in-separate-column': {
+		column: { shown: 'sentence', values: ['sens', 'direction'] }
+	},
 	'amount-split-across-columns': {
-		code: 'amount-split-across-columns',
-		columns: '« Debit » et « Credit »'
+		columns: { shown: 'sentence', values: ['« Debit » et « Credit »', '« Sortie » et « Entrée »'] }
 	},
-	'mapping-columns-missing': { code: 'mapping-columns-missing', roles: ['label', 'amount'] },
-	'mapping-invalid': { code: 'mapping-invalid', reason: 'roles-share-a-column' },
-	'invalid-date': { code: 'invalid-date', column: 'date', value: '01.06.2026' },
-	'invalid-amount': { code: 'invalid-amount', column: 'montant' },
-	'zero-amount': { code: 'zero-amount', column: 'montant' },
-	'invalid-total-amount': { code: 'invalid-total-amount', column: 'montant_total' },
-	'type-amount-mismatch': { code: 'type-amount-mismatch' },
-	'invalid-nature': { code: 'invalid-nature', value: 'wibble' },
-	'invalid-fee': { code: 'invalid-fee' },
-	'invalid-balance': { code: 'invalid-balance' },
-	'unsupported-currency': { code: 'unsupported-currency', currency: 'JPY' },
-	'state-not-completed': { code: 'state-not-completed', state: 'PENDING' },
-	'footer-ignored': { code: 'footer-ignored' },
-	'debit-credit-both': { code: 'debit-credit-both' },
-	'debit-credit-empty': { code: 'debit-credit-empty' },
-	'category-too-long': { code: 'category-too-long' },
-	'control-character': { code: 'control-character' },
-	'split-column-unreadable': { code: 'split-column-unreadable' },
-	'split-out-of-bounds': { code: 'split-out-of-bounds' },
-	'split-inconsistent': { code: 'split-inconsistent' },
-	'split-incomplete': { code: 'split-incomplete' },
-	'split-too-many-lines': { code: 'split-too-many-lines' },
-	'split-duplicate-positions': { code: 'split-duplicate-positions' },
-	'split-parent-category-inconsistent': { code: 'split-parent-category-inconsistent' },
-	'split-reserved-category-on-part': { code: 'split-reserved-category-on-part' },
-	'split-sign-opposite': { code: 'split-sign-opposite' },
-	'split-sum-mismatch': { code: 'split-sum-mismatch' },
-	'transaction-invalid': { code: 'transaction-invalid', violations: ['label-too-long'] },
+	'mapping-columns-missing': {
+		roles: { shown: 'sentence', values: [['label', 'amount'], ['date']] }
+	},
+	'mapping-invalid': {
+		reason: {
+			shown: {
+				withheld:
+					'a validator code the reader cannot act on; the sentence says what they can do (refusals.ts)'
+			},
+			values: ['roles-share-a-column', 'mapping-absent']
+		}
+	},
+	'invalid-date': {
+		column: {
+			shown: { by: "the rows table's field cell: every producer sets `field` to this column" },
+			values: ['date', 'Date de fin']
+		},
+		value: { shown: 'sentence', values: ['01.06.2026', '31.02.2026'] }
+	},
+	// The three amount codes: the field cell shows `CsvRefusal.field`, which is the internal key
+	// (« amount ») on the house format and on generic files rather than the header. That spelling
+	// is #761's, not this table's.
+	'invalid-amount': {
+		column: {
+			shown: { by: "the rows table's field cell (`CsvRefusal.field`)" },
+			values: ['montant', 'Montant']
+		}
+	},
+	'zero-amount': {
+		column: {
+			shown: { by: "the rows table's field cell (`CsvRefusal.field`)" },
+			values: ['montant', 'Debit']
+		}
+	},
+	'invalid-total-amount': {
+		column: {
+			shown: { by: "the rows table's field cell (`CsvRefusal.field`)" },
+			values: ['montant_total', 'total']
+		}
+	},
+	'type-amount-mismatch': {},
+	'invalid-nature': {
+		value: {
+			// `nature` is the house format's sixth column, inside the preview's first eight cells.
+			shown: { by: "the rows table's row preview (`invalidRowDetails.ts`)" },
+			values: ['wibble', 'wobble']
+		}
+	},
+	'invalid-fee': {},
+	'invalid-balance': {},
+	// #692: the value is the ONLY place the refused currency reaches the reader. A currency
+	// declared by the amount header (`resolvedRows.ts`) is in no row, so no preview can show it.
+	'unsupported-currency': { currency: { shown: 'sentence', values: ['JPY', 'GBP'] } },
+	// #692: Revolut's ninth column, past the preview's eight cells on a full row.
+	'state-not-completed': { state: { shown: 'sentence', values: ['PENDING', 'REVERTED'] } },
+	'footer-ignored': {},
+	'debit-credit-both': {},
+	'debit-credit-empty': {},
+	'category-too-long': {},
+	'control-character': {},
+	'split-column-unreadable': {},
+	'split-out-of-bounds': {},
+	'split-inconsistent': {},
+	'split-incomplete': {},
+	'split-too-many-lines': {},
+	'split-duplicate-positions': {},
+	'split-parent-category-inconsistent': {},
+	'split-reserved-category-on-part': {},
+	'split-sign-opposite': {},
+	'split-sum-mismatch': {},
+	'transaction-invalid': {
+		violations: { shown: 'sentence', values: [['label-too-long'], ['category-required']] }
+	},
 	'mixed-date-order': {
-		code: 'mixed-date-order',
-		dayFirst: '24/06/2026',
-		monthFirst: '06/24/2026'
+		dayFirst: { shown: 'sentence', values: ['24/06/2026', '25/06/2026'] },
+		monthFirst: { shown: 'sentence', values: ['06/24/2026', '06/25/2026'] }
 	},
-	'ambiguous-date-order': { code: 'ambiguous-date-order', column: 0, sample: '06/01/2026' },
-	'multi-account-file': { code: 'multi-account-file', column: 3 },
-	'ambiguous-account-column': { code: 'ambiguous-account-column', column: 3, sample: '10000001' }
+	// The route answers both date-order and account-column facts with a control, and the control
+	// is what shows the evidence. The sentences render only when no control was built.
+	'ambiguous-date-order': {
+		column: {
+			shown: { by: 'the reading offer, opened on this column (`reading.dateColumn`)' },
+			values: [0, 2]
+		},
+		sample: {
+			shown: { by: "the reading offer's cards, which show this column's samples" },
+			values: ['06/01/2026', '07/02/2026']
+		}
+	},
+	'multi-account-file': {
+		column: {
+			shown: {
+				withheld:
+					'an index, not a header, and no element names it on either door; left open on #761'
+			},
+			values: [3, 4]
+		}
+	},
+	'ambiguous-account-column': {
+		column: {
+			shown: {
+				by: '`AccountColumnDialog` names the header on /import; `import_error_account_column_unanswerable` on /import/columns'
+			},
+			values: [3, 4]
+		},
+		sample: {
+			shown: { by: "`AccountColumnDialog`'s evidence line, the column's own samples" },
+			values: ['10000001', '10000002']
+		}
+	}
 };
+
+/**
+ * A fact built from the table, with `values[which]` in every field, or `values[1]` in the one
+ * field `swap` names. The one cast in this file: the table's type is what guarantees every field
+ * of the code is present, and `Object.entries` cannot carry that through.
+ */
+function factFrom<C extends CsvRefusalCode>(code: C, swap?: string): FactOf<C> {
+	const fields = Object.entries(FIELD_DISPLAY[code]) as Array<[string, { values: unknown[] }]>;
+	return Object.fromEntries([
+		['code', code],
+		...fields.map(([name, entry]) => [name, entry.values[name === swap ? 1 : 0]])
+	]) as FactOf<C>;
+}
+
+/** One fact per code, from the table above rather than from a second list. */
+const FACTS = Object.fromEntries(CSV_REFUSAL_CODES.map((code) => [code, factFrom(code)])) as {
+	[C in CsvRefusalCode]: FactOf<C>;
+};
+
+/** Renders in one catalogue, then puts back whatever locale the setup pinned. */
+function inLocale<T>(locale: 'en' | 'fr', render: () => T): T {
+	const pinned = getLocale();
+	overwriteGetLocale(() => locale);
+	try {
+		return render();
+	} finally {
+		overwriteGetLocale(() => pinned);
+	}
+}
 
 describe('refusalLabel', () => {
 	it('renders the catalogue rather than the key, on a value known by hand', () => {
@@ -88,15 +226,15 @@ describe('refusalLabel', () => {
 		expect(refusalLabel({ code: 'file-empty' })).toBe('CSV vide ou sans données');
 	});
 
-	it('renders every code in the union, and there are 44 of them', () => {
+	it('renders every code in the union, and there are 45 of them', () => {
 		const rendered = CSV_REFUSAL_CODES.map((code) => refusalLabel(FACTS[code]));
 
 		// The absolute figure beside the emptiness assertion: a run that rendered nothing at all
 		// would satisfy "none is empty" perfectly. 44 since #485 added 'multi-account-file' and
-		// 'ambiguous-account-column'.
-		expect(rendered).toHaveLength(44);
-		expect(CSV_REFUSAL_CODES).toHaveLength(44);
-		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(44);
+		// 'ambiguous-account-column'; 45 since #600 added 'declared-currency-mismatch'.
+		expect(rendered).toHaveLength(45);
+		expect(CSV_REFUSAL_CODES).toHaveLength(45);
+		expect(rendered.filter((label) => label.trim().length > 0)).toHaveLength(45);
 		// A key leaking through would render as the key itself.
 		expect(rendered.filter((label) => label.startsWith('import_refusal_'))).toEqual([]);
 	});
@@ -106,7 +244,7 @@ describe('refusalLabel', () => {
 
 		// Two guards in sequence are indistinguishable to a user when they render the same
 		// sentence, which is the whole reason the contract names them separately.
-		expect(new Set(rendered).size).toBe(44);
+		expect(new Set(rendered).size).toBe(45);
 	});
 
 	it('renders the payload of the five facts whose sentence names a value', () => {
@@ -191,5 +329,107 @@ describe('scopeLabel', () => {
 		// transaction rows that were never examined.
 		expect(scopeLabel({ kind: 'header' })).not.toMatch(/^\d+$/);
 		expect(scopeLabel({ kind: 'file' })).not.toMatch(/^\d+$/);
+	});
+});
+
+/**
+ * #692: a refusal says what it knows. The family was measured on the issue: 12 of 44 codes carried
+ * a value their sentence did not show. `FIELD_DISPLAY` answers each one, and these tests hold the
+ * catalogue to the answer.
+ *
+ * Breaks, each separating two states:
+ * - `{currency}` dropped from `import_refusal_unsupported_currency` in either catalogue: the swap
+ *   test reddens on `unsupported-currency.currency` (sentence shows it / does not).
+ * - « Revolut » back in the currency sentence: the equality tests redden (neutral / bank-named).
+ * - a code added to the union without an entry: `FIELD_DISPLAY` does not compile (`npm run check`).
+ */
+describe('what a refusal carries, and where the reader sees it (#692)', () => {
+	const LOCALES = ['fr', 'en'] as const;
+
+	/** Every (locale, code, field) the table classifies, with the sentence before and after a swap. */
+	const swaps = LOCALES.flatMap((locale) =>
+		CSV_REFUSAL_CODES.flatMap((code) =>
+			Object.entries(FIELD_DISPLAY[code] as Record<string, { shown: Shown }>).map(
+				([field, { shown }]) => ({
+					locale,
+					code,
+					field,
+					shown,
+					before: inLocale(locale, () => refusalLabel(factFrom(code))),
+					after: inLocale(locale, () => refusalLabel(factFrom(code, field)))
+				})
+			)
+		)
+	);
+
+	it('classifies every code of the union and no other', () => {
+		expect(Object.keys(FIELD_DISPLAY).sort()).toEqual([...CSV_REFUSAL_CODES].sort());
+	});
+
+	it('changes the sentence for exactly the fields it says the sentence shows, in both catalogues', () => {
+		const disagreements = swaps
+			.filter(({ shown, before, after }) => (shown === 'sentence') !== (before !== after))
+			.map(
+				({ locale, code, field, shown }) =>
+					`${locale} ${code}.${field}: table says ${JSON.stringify(shown)}`
+			);
+
+		expect(disagreements).toEqual([]);
+	});
+
+	/**
+	 * The absolute figure beside the empty list above: a swap loop that read no field would agree
+	 * with every classification. 33 fields over 45 codes, per catalogue.
+	 */
+	it('read every carried field, in both catalogues', () => {
+		const kinds = swaps.map(({ shown }) =>
+			shown === 'sentence' ? 'sentence' : 'by' in shown ? 'by' : 'withheld'
+		);
+
+		expect({
+			sentence: kinds.filter((kind) => kind === 'sentence').length,
+			by: kinds.filter((kind) => kind === 'by').length,
+			withheld: kinds.filter((kind) => kind === 'withheld').length
+		}).toEqual({ sentence: 44, by: 18, withheld: 4 });
+	});
+
+	it('names the currency and no bank, since three producers share the sentence', () => {
+		const fact = { code: 'unsupported-currency', currency: 'GBP' } as const;
+
+		expect(inLocale('fr', () => refusalLabel(fact))).toBe('devise non prise en charge : « GBP »');
+		expect(inLocale('en', () => refusalLabel(fact))).toBe('unsupported currency: “GBP”');
+	});
+
+	it('names the Revolut state, since Revolut is its one producer', () => {
+		const fact = { code: 'state-not-completed', state: 'PENDING' } as const;
+
+		expect(inLocale('fr', () => refusalLabel(fact))).toBe('état Revolut non terminé : « PENDING »');
+		expect(inLocale('en', () => refusalLabel(fact))).toBe('Revolut state not completed: “PENDING”');
+	});
+
+	/**
+	 * A blank cell is a value the reader cannot be shown: quoting it renders « «  » ». The sentence
+	 * without the value is the answer, chosen by one function for both codes. Whitespace alone is
+	 * blank too, since a quoted run of spaces reads exactly as an empty pair.
+	 */
+	it.each(['', '   '])('drops the quotes rather than quote a blank cell (%j)', (blank) => {
+		const currency = { code: 'unsupported-currency', currency: blank } as const;
+		const state = { code: 'state-not-completed', state: blank } as const;
+
+		expect(inLocale('fr', () => refusalLabel(currency))).toBe('devise non prise en charge');
+		expect(inLocale('en', () => refusalLabel(currency))).toBe('unsupported currency');
+		expect(inLocale('fr', () => refusalLabel(state))).toBe('état Revolut non terminé');
+		expect(inLocale('en', () => refusalLabel(state))).toBe('Revolut state not completed');
+	});
+
+	it('gives the column count it read and the one the header declares', () => {
+		const fact = { code: 'bad-column-count', expected: 10, actual: 9 } as const;
+
+		expect(inLocale('fr', () => refusalLabel(fact))).toBe(
+			'nombre de colonnes incorrect : 9 au lieu de 10'
+		);
+		expect(inLocale('en', () => refusalLabel(fact))).toBe(
+			'incorrect column count: 9 instead of 10'
+		);
 	});
 });

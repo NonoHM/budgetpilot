@@ -184,3 +184,81 @@ describe('the account picker panel', () => {
 		expect(container.querySelector('[data-testid="account-panel"]')).toBeNull();
 	});
 });
+
+/**
+ * #600, THE CURRENCY EACH ACCOUNT HOLDS (a private Claude Design
+ * canvas, « Refus de devise, choix du compte »).
+ *
+ * The currency refusal tells the user « Choisissez un compte en EUR », and the options showed
+ * `···0185 · 42 transactions` with no currency: nothing on the panel said which accounts are in
+ * euros. The lead appears whenever the destinations do NOT all share one currency, and in the
+ * refusal state (a declared currency is passed) whatever they hold; accounts not in the declared
+ * currency keep their place and stay choosable, drawn in zinc-500.
+ */
+describe('the currency each account holds', () => {
+	const MIXED = [
+		{
+			id: 'c1',
+			name: 'Compte courant',
+			currency: 'EUR',
+			discriminant: '0185',
+			transactionCount: 42
+		},
+		{ id: 'c2', name: 'Checking USD', currency: 'USD', discriminant: '4417', transactionCount: 18 }
+	];
+	const lines = (container: HTMLElement, index: number) =>
+		panelOf(container)
+			.querySelectorAll('[role="option"]')
+			[index]?.querySelectorAll(':scope > span > span');
+
+	it('leads the second line with the currency when the destinations hold more than one', async () => {
+		// SEPARATES: « each option says its currency » FROM « the second line is the identifier and
+		// the count alone », which leaves « choose an account in EUR » unanswerable from the panel.
+		const container = await mount({ options: MIXED });
+		expect(lines(container, 0)?.[1]?.textContent?.trim()).toBe(
+			`EUR · ${m.import_account_option_detail_many({ fragment: '0185', count: 42 })}`
+		);
+	});
+
+	it('puts the currency in the accessible name too', async () => {
+		// SEPARATES: « the currency is part of the option's NAME » FROM « it is drawn and not said ».
+		await mount({ options: MIXED });
+		const option = page.getByRole('option', {
+			name: `Compte courant, EUR, ${m.import_account_option_detail_many({ fragment: '0185', count: 42 })}`
+		});
+		await expect.element(option).toBeInTheDocument();
+	});
+
+	it('draws no lead when every destination holds the same currency', async () => {
+		// SEPARATES: « the lead appears when it tells two accounts apart » FROM « it is on every line
+		// of every user », where « EUR » repeated on each option says nothing.
+		const container = await mount({
+			options: MIXED.map((option) => ({ ...option, currency: 'EUR' }))
+		});
+		expect(lines(container, 1)?.[1]?.textContent?.trim()).toBe(
+			m.import_account_option_detail_many({ fragment: '4417', count: 18 })
+		);
+	});
+
+	it('mutes the accounts not in the declared currency, and keeps them choosable', async () => {
+		// SEPARATES: « the accounts the refusal rules out read as such » FROM « every account reads
+		// alike after the refusal ». Muted, never removed: #476's offer lists every destination.
+		const container = await mount({ options: MIXED, declaredCurrency: 'EUR' });
+		expect(lines(container, 0)?.[0]?.className).toContain('text-zinc-900');
+		expect(lines(container, 1)?.[0]?.className).toContain('text-zinc-500');
+		expect(panelOf(container).querySelectorAll('[role="option"]')).toHaveLength(2);
+	});
+
+	it('shows the lead in the refusal state even when every destination holds one currency', async () => {
+		// SEPARATES: « after the refusal, the currency is always said » FROM « it hides when all the
+		// accounts share one », which would leave a user holding only USD accounts unable to see that
+		// none of them is in the currency the sentence asks for.
+		const container = await mount({
+			options: MIXED.map((option) => ({ ...option, currency: 'USD' })),
+			declaredCurrency: 'EUR'
+		});
+		expect(lines(container, 0)?.[1]?.textContent?.trim()).toBe(
+			`USD · ${m.import_account_option_detail_many({ fragment: '0185', count: 42 })}`
+		);
+	});
+});

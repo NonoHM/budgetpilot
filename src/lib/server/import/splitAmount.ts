@@ -1,5 +1,29 @@
-import type { ParsedCsvRow } from './types';
+import type { ParsedCsvRow, ResolvedCsvImportProfile } from './types';
 import { parseAmountCents } from './utils/money';
+
+/**
+ * WHICH PROFILES READ THEIR MONEY FROM A DEBIT/CREDIT PAIR THEMSELVES.
+ *
+ * `detectSplitAmountPair` explains an empty parse by the money being split across two columns
+ * nobody can read. For a file whose profile READ the pair, that explanation is false: Banque
+ * Populaire sums `Debit` and `Credit` row by row. Measured in #712: its statement with one credit
+ * row and dates that read both ways was refused as split, because the date question had withheld
+ * every row and the detector took the empty parse for unreadable money.
+ *
+ * The same fact closes the designation screen to such a file (`designationCanHelp`): the screen's
+ * one amount role cannot express a pair, and `/import/columns` would refuse it after the work.
+ *
+ * A `Record` over every profile name the summary can report, so a new profile does not compile
+ * until it says whether it reads a pair. `generic` stands for « nothing recognised » too, and
+ * `mapped` reads one designated amount column (its own complement check refuses the pair).
+ */
+export const PROFILE_READS_AMOUNT_PAIR = {
+	'banque-populaire': true,
+	revolut: false,
+	maison: false,
+	generic: false,
+	mapped: false
+} as const satisfies Record<ResolvedCsvImportProfile, boolean>;
 
 /**
  * Which column, if any, carries the amounts the designated one is missing.

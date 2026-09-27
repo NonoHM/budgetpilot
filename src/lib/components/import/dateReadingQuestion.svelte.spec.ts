@@ -555,14 +555,14 @@ describe('#645: the Date row names the reading in force once it is confirmed', (
 		// The planted positive: the unconfirmed name states the order, so a row whose name never
 		// carried one could not pass the second half.
 		expect(dateRow().element().getAttribute('aria-label')).toBe(
-			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, ordre à confirmer, non sélectionné`
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues jour puis mois, ordre à confirmer, non sélectionné`
 		);
 
 		await dateRow().click();
 		await page.getByRole('option', { name: /Mois puis jour/ }).click();
 
 		expect(dateRow().element().getAttribute('aria-label')).toBe(
-			`Date, colonne désignée${NNBSP}: Date operation, dates lues Mois puis jour, première ligne${NNBSP}: 4 mars 2026`
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues mois puis jour, première ligne${NNBSP}: 4 mars 2026`
 		);
 	});
 
@@ -570,7 +570,7 @@ describe('#645: the Date row names the reading in force once it is confirmed', (
 		await mount({ file: PROVEN, initialAssignment: DATE_DESIGNATED });
 
 		expect(dateRow().element().getAttribute('aria-label')).toBe(
-			`Date, colonne désignée${NNBSP}: Date operation, dates lues Jour puis mois, première ligne${NNBSP}: 3 avril 2026`
+			`Date, colonne désignée${NNBSP}: Date operation, dates lues jour puis mois, première ligne${NNBSP}: 3 avril 2026`
 		);
 	});
 
