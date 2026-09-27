@@ -29,7 +29,7 @@ describe('importWriteFailureLabel', () => {
 
 	it('says transactions may have been saved when the count is unknown', () => {
 		expect(importWriteFailureLabel({ kind: 'maybe-saved' })).toBe(
-			"L'import s'est arrêté et des transactions ont pu être enregistrées. Vérifiez dans Imports avant de réessayer."
+			"L'import s'est arrêté : des transactions ont pu être enregistrées. Vérifiez Imports avant de réessayer."
 		);
 	});
 
