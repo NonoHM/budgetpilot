@@ -800,7 +800,8 @@ describe('syncBankConnection', () => {
 		status: 'active' as const,
 		aspspName: 'Bank A',
 		consentExpiresAt: new Date(NOW.getTime() + 1000 * 60 * 60 * 24 * 30),
-		lastSyncAt: null as Date | null
+		lastSyncAt: null as Date | null,
+		lastCompleteSyncAt: null as Date | null
 	};
 
 	it('throws not_found for a connection belonging to another user', async () => {
@@ -931,7 +932,12 @@ describe('syncBankConnection', () => {
 		expect(result).toEqual({ outcome: 'synced', importedRows: 6, duplicateRows: 2 });
 		expect(prismaMock.bankConnection.update).toHaveBeenCalledWith({
 			where: { id: 'conn-1' },
-			data: { lastSyncAt: NOW, lastSyncStatus: 'ok', lastSyncError: null }
+			data: {
+				lastSyncAt: NOW,
+				lastCompleteSyncAt: NOW,
+				lastSyncStatus: 'ok',
+				lastSyncError: null
+			}
 		});
 	});
 
@@ -1006,9 +1012,14 @@ describe('syncBankConnection', () => {
 		}
 	});
 
-	it('uses a lastSyncAt - 7 day overlap range on a subsequent sync', async () => {
-		const lastSyncAt = new Date('2026-07-10T00:00:00.000Z');
-		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({ ...activeConnection, lastSyncAt });
+	it('starts a subsequent sync from the last COMPLETE sync minus 7 days, never from lastSyncAt (#763)', async () => {
+		// Two different instants: an attempt after the last complete sync. A window read off
+		// `lastSyncAt` would start on 2026-07-08; the cursor's starts on 2026-07-03.
+		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+			...activeConnection,
+			lastSyncAt: new Date('2026-07-15T00:00:00.000Z'),
+			lastCompleteSyncAt: new Date('2026-07-10T00:00:00.000Z')
+		});
 		prismaMock.account.findMany.mockResolvedValueOnce([
 			{ id: 'account-1', providerAccountId: 'acc-1' }
 		]);
@@ -1027,7 +1038,98 @@ describe('syncBankConnection', () => {
 		);
 
 		const [, , range] = fetchTransactions.mock.calls[0];
-		expect(range.from).toBe('2026-07-03'); // lastSyncAt - 7 days
+		expect(range.from).toBe('2026-07-03'); // lastCompleteSyncAt - 7 days
+	});
+
+	it('asks for the whole first-sync window again after a first sync that failed (#763)', async () => {
+		// The shape #763 leaves behind: an attempt on record and no complete sync. The window must
+		// be the one a never-attempted connection gets, so the oracle is that run, not a constant.
+		const rangeFor = async (lastSyncAt: Date | null) => {
+			prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+				...activeConnection,
+				lastSyncAt,
+				lastCompleteSyncAt: null
+			});
+			prismaMock.account.findMany.mockResolvedValueOnce([
+				{ id: 'account-1', providerAccountId: 'acc-1' }
+			]);
+			prismaMock.bankConnection.update.mockResolvedValue({});
+			persistMock.createImportBatch.mockResolvedValue('batch-1');
+			persistMock.persistImportedTransactions.mockResolvedValue({
+				importedRows: 0,
+				duplicateRows: 0
+			});
+			const fetchTransactions = vi.fn().mockResolvedValue([{ id: 't1' }]);
+			await syncBankConnection(
+				{ userId: 'user-1', connectionId: 'conn-1', force: true },
+				{
+					env: ENABLED_ENV,
+					now: () => NOW,
+					getConnector: () => fakeConnector({ fetchTransactions })
+				}
+			);
+			return fetchTransactions.mock.calls[0][2];
+		};
+
+		const neverAttempted = await rangeFor(null);
+		const afterFailedFirstSync = await rangeFor(new Date(NOW.getTime() - 60 * 60 * 1000));
+		expect(afterFailedFirstSync).toEqual(neverAttempted);
+		// Calibration: the two ranges are not equal because the window ignores its input. A
+		// complete sync one hour ago gives a different, narrower window.
+		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+			...activeConnection,
+			lastSyncAt: new Date(NOW.getTime() - 60 * 60 * 1000),
+			lastCompleteSyncAt: new Date(NOW.getTime() - 60 * 60 * 1000)
+		});
+		prismaMock.account.findMany.mockResolvedValueOnce([
+			{ id: 'account-1', providerAccountId: 'acc-1' }
+		]);
+		const fetchTransactions = vi.fn().mockResolvedValue([]);
+		await syncBankConnection(
+			{ userId: 'user-1', connectionId: 'conn-1', force: true },
+			{
+				env: ENABLED_ENV,
+				now: () => NOW,
+				getConnector: () => fakeConnector({ fetchTransactions })
+			}
+		);
+		expect(fetchTransactions.mock.calls[0][2].from > neverAttempted.from).toBe(true);
+	});
+
+	it('writes the fetch cursor on no path but a complete sync: not in the throttle claim, not on a failure (#763)', async () => {
+		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
+			...activeConnection,
+			lastSyncAt: new Date(NOW.getTime() - 7 * 60 * 60 * 1000)
+		});
+		prismaMock.account.findMany.mockResolvedValueOnce([
+			{ id: 'account-1', providerAccountId: 'acc-1' },
+			{ id: 'account-2', providerAccountId: 'acc-2' }
+		]);
+		prismaMock.bankConnection.update.mockResolvedValue({});
+		persistMock.createImportBatch.mockResolvedValue('batch-1');
+		persistMock.persistImportedTransactions.mockResolvedValue({
+			importedRows: 1,
+			duplicateRows: 0
+		});
+		// The first bucket lands, the second one fails: the partial sync of the issue.
+		const fetchTransactions = vi
+			.fn()
+			.mockResolvedValueOnce([{ id: 't1' }])
+			.mockRejectedValueOnce(new Error('provider down'));
+
+		const result = await syncBankConnection(
+			{ userId: 'user-1', connectionId: 'conn-1' },
+			{ env: ENABLED_ENV, now: () => NOW, getConnector: () => fakeConnector({ fetchTransactions }) }
+		);
+
+		expect(result).toEqual({ outcome: 'error' });
+		expect(persistMock.persistImportedTransactions).toHaveBeenCalledTimes(1);
+		const writes = [
+			...prismaMock.bankConnection.updateMany.mock.calls,
+			...prismaMock.bankConnection.update.mock.calls
+		].map(([args]) => Object.keys((args as { data: object }).data));
+		// Calibration: the claim and the failure write were both seen, so an empty list cannot pass.
+		expect(writes).toEqual([['lastSyncAt'], ['lastSyncAt', 'lastSyncStatus', 'lastSyncError']]);
 	});
 
 	it('skips createImportBatch/persistImportedTransactions when the bucket has no transactions', async () => {
@@ -1221,7 +1323,12 @@ describe('syncBankConnection', () => {
 			expect(netWorthMock.recordSyncedBalance).not.toHaveBeenCalled();
 			expect(prismaMock.bankConnection.update).toHaveBeenCalledWith({
 				where: { id: 'conn-1' },
-				data: { lastSyncAt: NOW, lastSyncStatus: 'ok', lastSyncError: null }
+				data: {
+					lastSyncAt: NOW,
+					lastCompleteSyncAt: NOW,
+					lastSyncStatus: 'ok',
+					lastSyncError: null
+				}
 			});
 			warnSpy.mockRestore();
 		});

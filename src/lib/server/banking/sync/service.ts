@@ -49,8 +49,9 @@ const MAX_FIRST_SYNC_LOOKBACK_DAYS = 3650;
  * First-sync backfill window in days. BANK_SYNC_FIRST_LOOKBACK_DAYS overrides the
  * 90-day default (bounded 1..3650) — meant for sandbox/dev datasets frozen in the past
  * (Enable Banking's Mock ASPSP serves 2020-2021 bookings), not for production tuning:
- * the range only widens ONE historical fetch and never touches the 6h unattended-call
- * throttle, so the PSD2 budget is unaffected.
+ * the range only widens the fetches made until a first sync completes (every attempt
+ * before that asks for the whole window again, #763) and never touches the 6h
+ * unattended-call throttle, so the PSD2 budget is unaffected.
  */
 function getFirstSyncLookbackDays(env: NodeJS.ProcessEnv): number {
 	const parsed = Number.parseInt(env.BANK_SYNC_FIRST_LOOKBACK_DAYS ?? '', 10);
@@ -60,6 +61,32 @@ function getFirstSyncLookbackDays(env: NodeJS.ProcessEnv): number {
 	return parsed;
 }
 const LAST_SYNC_ERROR_MAX_LENGTH = 200;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The window a sync asks the bank for, and the only place it is decided.
+ *
+ * It reads the fetch CURSOR, `lastCompleteSyncAt`, and cannot read anything else: `lastSyncAt` is
+ * not a parameter, so no caller can hand it in. Before #763 the window started from `lastSyncAt`,
+ * which the throttle claim writes BEFORE anything is fetched and the error path writes after a
+ * failure. A first sync that failed partway therefore moved the next window to the failed attempt
+ * minus the overlap, and the rest of its lookback was never fetched. Measured with the mock
+ * connector against a real engine: all three savings rows of a 90-day first sync missing after
+ * the next successful sync (`failedSyncNeverSkipsDays.db-smoke.ts`).
+ *
+ * With no complete sync on record, the whole first-sync lookback. Otherwise the last complete
+ * sync minus the overlap, which re-covers anything booked late and is absorbed by deduplication.
+ */
+function syncFetchRange(
+	lastCompleteSyncAt: Date | null,
+	currentTime: Date,
+	env: NodeJS.ProcessEnv
+): { from: string; to: string } {
+	const from = lastCompleteSyncAt
+		? new Date(lastCompleteSyncAt.getTime() - RESYNC_OVERLAP_DAYS * DAY_MS)
+		: new Date(currentTime.getTime() - getFirstSyncLookbackDays(env) * DAY_MS);
+	return { from: toIsoDate(from), to: toIsoDate(currentTime) };
+}
 
 export type BankSyncErrorCode =
 	| 'disabled'
@@ -257,8 +284,8 @@ export async function completeBankAuthorization(
 
 	let connectionId: string | null = null;
 	if (request.renewsConnectionId) {
-		// Renewal: refresh the existing connection in place. lastSyncAt is kept (throttle
-		// and overlap window stay honest); stale error state is cleared.
+		// Renewal: refresh the existing connection in place. lastSyncAt and lastCompleteSyncAt
+		// are kept (the throttle and the fetch cursor stay honest); stale error state is cleared.
 		const renewed = await prisma.bankConnection.updateMany({
 			where: { id: request.renewsConnectionId, userId: input.userId, provider: request.provider },
 			data: {
@@ -441,7 +468,8 @@ export async function syncBankConnection(
 		// Atomically claim the throttle slot: the read above can race with a concurrent
 		// sync on the same connection, so re-check + claim in one guarded update — only
 		// one of two simultaneous requests can win when lastSyncAt still matches what we
-		// just read (Prisma's DateTime equality compares exact instants).
+		// just read (Prisma's DateTime equality compares exact instants). It claims with the
+		// ATTEMPT column only: nothing has been fetched yet, so the cursor is not touched (#763).
 		const claimed = await prisma.bankConnection.updateMany({
 			where: { id: connection.id, userId: input.userId, lastSyncAt: connection.lastSyncAt },
 			data: { lastSyncAt: currentTime }
@@ -466,14 +494,7 @@ export async function syncBankConnection(
 		select: { id: true, providerAccountId: true, netWorthAccountId: true, currency: true }
 	});
 
-	const overlapMs = connection.lastSyncAt
-		? RESYNC_OVERLAP_DAYS * 24 * 60 * 60 * 1000
-		: getFirstSyncLookbackDays(env) * 24 * 60 * 60 * 1000;
-	const fromAnchor = connection.lastSyncAt ?? currentTime;
-	const range = {
-		from: toIsoDate(new Date(fromAnchor.getTime() - overlapMs)),
-		to: toIsoDate(currentTime)
-	};
+	const range = syncFetchRange(connection.lastCompleteSyncAt, currentTime, env);
 
 	try {
 		let importedRows = 0;
@@ -538,12 +559,24 @@ export async function syncBankConnection(
 			}
 		}
 
+		// The ONE write of the fetch cursor on this path, and it is the last statement of the try:
+		// every bucket has been fetched and written by the time it runs. A throw anywhere above
+		// skips it, and so does a process that dies mid-sync, so the next window still starts from
+		// the last sync that got this far (#763).
 		await prisma.bankConnection.update({
 			where: { id: connection.id },
-			data: { lastSyncAt: currentTime, lastSyncStatus: 'ok', lastSyncError: null }
+			data: {
+				lastSyncAt: currentTime,
+				lastCompleteSyncAt: currentTime,
+				lastSyncStatus: 'ok',
+				lastSyncError: null
+			}
 		});
 		return { outcome: 'synced', importedRows, duplicateRows };
 	} catch (caught) {
+		// `lastSyncAt` records the ATTEMPT, so the throttle counts a failed call against the PSD2
+		// budget like any other. The cursor is deliberately absent: a failure fetched nothing it
+		// can vouch for.
 		await prisma.bankConnection.update({
 			where: { id: connection.id },
 			data: {

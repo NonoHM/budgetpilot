@@ -302,7 +302,14 @@ model BankConnection {
   /// End of the PSD2 consent window granted by the bank (~180 days for most). NULL when
   /// unknown. Past this date the connection requires a re-authorization by the user.
   consentExpiresAt     DateTime?
+  /// When a sync was last ATTEMPTED, whatever its outcome. Feeds the 6h throttle and the
+  /// « last sync » line on screen, and never the fetch window (#763).
   lastSyncAt           DateTime?
+  /// The fetch cursor: the instant of the most recent sync that fetched AND wrote every
+  /// bucket. The next sync asks the bank from this instant minus the overlap, or for the
+  /// whole first-sync lookback when it is NULL. Written only by a sync that completed and by
+  /// a backup restore, never by the throttle claim or a failure (#763).
+  lastCompleteSyncAt   DateTime?
   lastSyncStatus       String?
   lastSyncError        String? @db.Text
   createdAt            DateTime             @default(now())

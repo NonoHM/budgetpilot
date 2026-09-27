@@ -447,9 +447,10 @@ snapshot.
 - **Consent expires**, typically after 90 days, and your bank decides when. The
   connection card shows "expires soon" 14 days ahead and offers a renewal that
   reuses the same bank without losing your imported history.
-- **The first sync backfills 90 days.** After that, each sync re-fetches the
-  last 7 days on top of the new ones, and duplicate detection absorbs the
-  overlap.
+- **The first sync backfills 90 days.** After that, each sync starts 7 days
+  before the last sync that completed, and duplicate detection absorbs the
+  overlap. A sync that fails does not move that starting point, so the next one
+  fetches the days the failed one missed.
 - **Deleting a connection keeps the transactions it already imported.** They're
   yours, and they stay.
 
