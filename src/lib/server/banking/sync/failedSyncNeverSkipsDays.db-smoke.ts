@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { env as privateEnv } from '$env/dynamic/private';
 import { prisma } from '$lib/server/db';
+import { migrationsPathFor, resolveDatabaseProvider } from '$lib/server/database/provider';
 import { MockBankConnector } from '$lib/server/banking/connectors/mock';
 import type {
 	AuthorizationCallbackInput,
@@ -239,5 +242,74 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
 		expect((await sync(controlUser, controlConnection, control, thirdAt)).outcome).toBe('synced');
 
 		expect(await ledger(failingUser)).toEqual(await ledger(controlUser));
+	});
+});
+
+/**
+ * The backfill that seeds the cursor on an existing install, run as the file this engine ships.
+ *
+ * `migrate deploy` has already applied it to this database, over no rows. So the statement is read
+ * off disk and run again over rows shaped like the states a pre-#763 install can hold, which is the
+ * only way to see it act on something. It only fills a NULL, and the row holding a cursor already
+ * is what proves that.
+ */
+describe('#763: the backfill seeds the cursor only where the last sync succeeded', () => {
+	it('copies lastSyncAt after a success, leaves NULL after a failure or an unfinished attempt, and never overwrites a cursor', async () => {
+		const provider = resolveDatabaseProvider(process.env);
+		const file = resolve(
+			process.cwd(),
+			migrationsPathFor(provider),
+			'20260927120100_bank_sync_cursor_backfill/migration.sql'
+		);
+		const statement = readFileSync(file, 'utf8')
+			.split('\n')
+			.filter((line) => !line.startsWith('--'))
+			.join('\n')
+			.trim();
+		// Calibration: one statement, and it is the UPDATE, so a comment-only read cannot pass.
+		expect(statement.match(/;/g)?.length).toBe(1);
+		expect(statement.startsWith('UPDATE')).toBe(true);
+
+		const attempt = new Date('2026-07-19T08:00:00.000Z');
+		const earlier = new Date('2026-07-01T08:00:00.000Z');
+		const seed = async (lastSyncStatus: string | null, lastCompleteSyncAt: Date | null) => {
+			const row = await prisma.bankConnection.create({
+				data: {
+					userId: failingUser,
+					provider: 'mock',
+					status: 'active',
+					lastSyncAt: attempt,
+					lastSyncStatus,
+					lastCompleteSyncAt
+				},
+				select: { id: true }
+			});
+			return row.id;
+		};
+		const succeeded = await seed('ok', null);
+		const failed = await seed('error', null);
+		const neverFinished = await seed(null, null);
+		const alreadySeeded = await seed('ok', earlier);
+
+		await prisma.$executeRawUnsafe(statement);
+
+		const rows = await prisma.bankConnection.findMany({
+			where: { userId: failingUser },
+			select: { id: true, lastCompleteSyncAt: true }
+		});
+		const cursorOf = (id: string) =>
+			rows.find((row) => row.id === id)?.lastCompleteSyncAt?.toISOString() ?? null;
+		expect(rows).toHaveLength(4);
+		expect({
+			succeeded: cursorOf(succeeded),
+			failed: cursorOf(failed),
+			neverFinished: cursorOf(neverFinished),
+			alreadySeeded: cursorOf(alreadySeeded)
+		}).toEqual({
+			succeeded: attempt.toISOString(),
+			failed: null,
+			neverFinished: null,
+			alreadySeeded: earlier.toISOString()
+		});
 	});
 });
