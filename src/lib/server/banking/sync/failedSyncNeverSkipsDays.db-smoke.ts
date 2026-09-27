@@ -77,17 +77,21 @@ const SYNC_ENV = {
 	BANK_SYNC_REDIRECT_ALLOWED_ORIGINS: ORIGIN
 } as unknown as NodeJS.ProcessEnv;
 
-/** The account the injected failure targets: the SECOND bucket, so the first one lands. */
-const FAILING_ACCOUNT = 'mock-savings';
-
 /**
  * The mock connector as the sync path meets a real provider: Enable Banking returns the accounts
  * on the authorisation itself, and `completeBankAuthorization` creates the buckets from that list
- * only. The failure switch stands in for a provider error on one account partway through a sync.
+ * only. The failure switch stands in for a provider error partway through a sync.
+ *
+ * It fails by POSITION (the Nth fetch after arming), never by account name: the sync reads its
+ * buckets with no `orderBy`, and PostgreSQL returned them in the other order from SQLite in a full
+ * suite run, which made a name-targeted failure hit the first bucket instead of the second.
  */
 class FailableMockConnector extends MockBankConnector implements BankConnector {
-	failNextFetchOf: string | null = null;
-	fetchCalls = 0;
+	private fetchesUntilFailure: number | null = null;
+
+	failFetch(position: number): void {
+		this.fetchesUntilFailure = position;
+	}
 
 	override async completeAuthorization(
 		input: AuthorizationCallbackInput
@@ -102,10 +106,12 @@ class FailableMockConnector extends MockBankConnector implements BankConnector {
 		accountId: string,
 		range: FetchTransactionsRange
 	): Promise<ImportedTransaction[]> {
-		this.fetchCalls += 1;
-		if (this.failNextFetchOf === accountId) {
-			this.failNextFetchOf = null;
-			throw new Error('injected provider failure');
+		if (this.fetchesUntilFailure !== null) {
+			this.fetchesUntilFailure -= 1;
+			if (this.fetchesUntilFailure === 0) {
+				this.fetchesUntilFailure = null;
+				throw new Error('injected provider failure');
+			}
 		}
 		return super.fetchTransactions(connection, accountId, range);
 	}
@@ -178,8 +184,13 @@ async function ledger(userId: string): Promise<string[]> {
 		.sort();
 }
 
-function countFor(lines: string[], providerAccountId: string): number {
-	return lines.filter((line) => line.startsWith(`${providerAccountId}|`)).length;
+/** Rows per provider account, in the order of `accounts`. */
+function countsPerAccount(lines: string[], accounts: string[]): number[] {
+	return accounts.map((account) => lines.filter((line) => line.startsWith(`${account}|`)).length);
+}
+
+function accountsOf(lines: string[]): string[] {
+	return [...new Set(lines.map((line) => line.split('|')[0]))].sort();
 }
 
 let failingUser: string;
@@ -199,7 +210,8 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
 
 		const failing = new FailableMockConnector();
 		const failingConnection = await connect(failingUser, failing);
-		failing.failNextFetchOf = FAILING_ACCOUNT;
+		// The second fetch fails: the first account lands, the second does not.
+		failing.failFetch(2);
 		expect(await sync(failingUser, failingConnection, failing, firstAt)).toEqual({
 			outcome: 'error'
 		});
@@ -208,13 +220,18 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
 		const controlConnection = await connect(controlUser, control);
 		expect((await sync(controlUser, controlConnection, control, firstAt)).outcome).toBe('synced');
 
-		// Calibration: the failure fired, and it left the failing ledger short on exactly the
-		// account it targeted.
+		// Calibration: the failure fired partway. Of the two accounts, exactly one is complete and
+		// the other is empty, whichever order the engine returned the buckets in.
 		const expected = await ledger(controlUser);
-		const afterFailure = await ledger(failingUser);
-		expect(countFor(expected, FAILING_ACCOUNT)).toBeGreaterThan(0);
-		expect(countFor(afterFailure, FAILING_ACCOUNT)).toBe(0);
-		expect(countFor(afterFailure, 'mock-checking')).toBe(countFor(expected, 'mock-checking'));
+		const accounts = accountsOf(expected);
+		expect(accounts).toHaveLength(2);
+		const full = countsPerAccount(expected, accounts);
+		expect(full.every((count) => count > 0)).toBe(true);
+		const partial = countsPerAccount(await ledger(failingUser), accounts);
+		expect([
+			[full[0], 0],
+			[0, full[1]]
+		]).toContainEqual(partial);
 
 		expect((await sync(failingUser, failingConnection, failing, secondAt)).outcome).toBe('synced');
 		expect((await sync(controlUser, controlConnection, control, secondAt)).outcome).toBe('synced');
@@ -238,15 +255,16 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
 		expect((await sync(failingUser, failingConnection, failing, firstAt)).outcome).toBe('synced');
 		expect((await sync(controlUser, controlConnection, control, firstAt)).outcome).toBe('synced');
 
-		// Fails on the FIRST account fetched, so nothing of that run lands anywhere.
-		failing.failNextFetchOf = 'mock-checking';
+		// Fails on the FIRST fetch, so nothing of that run lands anywhere.
+		const beforeFailure = await ledger(failingUser);
+		failing.failFetch(1);
 		expect((await sync(failingUser, failingConnection, failing, failedAt)).outcome).toBe('error');
 		expect((await sync(controlUser, controlConnection, control, failedAt)).outcome).toBe('synced');
 
-		// Calibration: the control gained rows at `failedAt` and the failing ledger did not.
+		// Calibration: the failed run wrote nothing, and the control gained rows at `failedAt`.
 		const afterFailure = await ledger(failingUser);
-		const controlAfterFailure = await ledger(controlUser);
-		expect(controlAfterFailure.length).toBeGreaterThan(afterFailure.length);
+		expect(afterFailure).toEqual(beforeFailure);
+		expect((await ledger(controlUser)).length).toBeGreaterThan(afterFailure.length);
 
 		expect((await sync(failingUser, failingConnection, failing, thirdAt)).outcome).toBe('synced');
 		expect((await sync(controlUser, controlConnection, control, thirdAt)).outcome).toBe('synced');
