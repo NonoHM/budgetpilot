@@ -18,21 +18,11 @@ export type CsvRefusalScope = { kind: 'file' } | { kind: 'header' } | { kind: 'r
  * clean tree gets deleted by the first person who meets it, taking the working half
  * with it. Adding a `{ message: string }` member here is a visible type change.
  *
- * Several members carry a value that the message rendered by this PR does not display:
- * `invalid-date`, `invalid-amount`, `zero-amount` and `invalid-total-amount` carry `column`;
- * `invalid-nature` carries `value`; `unsupported-currency` carries `currency`;
- * `state-not-completed` carries `state`; `bad-column-count` carries `expected` and `actual`.
- * That is deliberate, not an oversight: PR1's whole constraint is that no user-visible
- * string changes, and today's sentences simply do not contain those values. The fact still
- * carries the data because a later consumer needs it (the column-mapping path, and the
- * field-highlight mechanism on `CsvRefusal`), while the message goes on rendering today's
- * wording unchanged. Do not delete an unrendered payload as dead: turning one into visible
- * text is a copy change for that later task to make, not a cleanup of this one.
- *
- * Only three members render their payload today, and they are the exception rather than the
- * rule: `unknown-column` and `duplicate-column` through the catalogue's `{column}` placeholder,
- * and `missing-required-column` through `{role}`, because those three are the only ones whose
- * existing sentence already names the value.
+ * Where each carried value reaches the reader, in the sentence or in another element of the
+ * screen, or why it does not, is classified once per code AND per field in
+ * `refusalLabel.spec.ts`'s `FIELD_DISPLAY`, which fails to compile on an unclassified code or
+ * field (#692). Do not delete a payload the sentence does not render as dead: that table names
+ * the element that does, or the reason nothing does.
  *
  * A role is NOT a column, and the two placeholders are named apart for that reason. `{column}`
  * carries bytes lifted from the user's file and is shown as written; `{role}` carries one of our
