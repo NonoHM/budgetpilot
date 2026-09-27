@@ -1656,6 +1656,7 @@
 	"import_account_create_field": "Nom du compte",
 	"import_account_create_hint": "Ce nom n'apparaît que dans BudgetPilot.",
 	"import_account_create_hint_examples": "Par exemple : Compte courant, Livret A.",
+	"import_account_create_currency": "En {currency}, comme ce relevé.",
 	"import_account_create_submit": "Créer et sélectionner",
 	"import_account_create_submitting": "Création…",
 	"import_account_create_error_generic": "Le compte n'a pas pu être créé. Votre fichier et vos désignations sont conservés. Réessayez.",

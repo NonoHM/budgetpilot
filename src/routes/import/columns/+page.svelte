@@ -21,7 +21,10 @@
 	import { applyAction, deserialize } from '$app/forms';
 	import type { ActionData } from './$types';
 	import { accountAnswerFor } from '$lib/import/accountHint';
-	import type { AccountPickerOption } from '$lib/components/import/AccountPicker.svelte';
+	import {
+		requestAccountCreation,
+		type AccountCreationAnswer
+	} from '$lib/import/createAccountRequest';
 	import { getLocale } from '$lib/paraglide/runtime';
 
 	/**
@@ -156,49 +159,13 @@
 	});
 
 	/**
-	 * « Créer et sélectionner », posted to the endpoint that owns the write.
-	 *
-	 * The FILE goes with it, and that is the point rather than an accident of what is in hand: the
-	 * fragment stored on the new account is what rank 1 will later treat as certain, so it has to be
-	 * read from the bytes by the server rather than claimed by this page. The endpoint reads `name`
-	 * and `csvFile` and nothing else.
-	 *
-	 * Resolves rather than throws, in both directions. The screen owns 6g's three states and needs an
-	 * ANSWER to move between them; an exception would leave it in flight for ever. The two cases with
-	 * no server answer at all are the ones that used to be silent everywhere in this flow: the fetch
-	 * rejecting, and a body that is not the JSON this endpoint returns (a crash outside it, or the
-	 * login page served after a session expired, which `fetch` follows on its own).
-	 *
-	 * ASVS 5.0 V16.5.1: the caught value is never rendered and never interpolated, so nothing
-	 * internal can reach the screen through this path.
+	 * « Créer et sélectionner », through the one request both hosts of the create sheet share
+	 * (`requestAccountCreation`, which says what it sends and why it resolves rather than throws).
+	 * No currency: this screen creates the account in the application default, as it always has.
 	 */
-	async function createAccount(
-		name: string
-	): Promise<
-		{ ok: true; account: AccountPickerOption } | { ok: false; error: string; field?: string | null }
-	> {
+	async function createAccount(name: string): Promise<AccountCreationAnswer> {
 		if (!pending) return { ok: false, error: m.import_account_create_error_generic() };
-		const body = new FormData();
-		body.set('name', name);
-		body.set('csvFile', pending.file);
-		try {
-			const response = await fetch(resolve('/import/accounts'), { method: 'POST', body });
-			const payload = (await response.json()) as {
-				account?: AccountPickerOption;
-				error?: string;
-				field?: string | null;
-			};
-			if (response.ok && payload.account) return { ok: true, account: payload.account };
-			return {
-				ok: false,
-				error: payload.error ?? m.import_account_create_error_generic(),
-				field: payload.field ?? null
-			};
-		} catch {
-			// No `field`: a fetch that never returned is not a refusal about the name, and putting it
-			// under the input would tell the user to edit their way out of a network failure.
-			return { ok: false, error: m.import_account_create_error_generic() };
-		}
+		return requestAccountCreation({ name, file: pending.file });
 	}
 
 	function submit(result: {
