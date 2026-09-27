@@ -26,11 +26,11 @@ import {
 	getHiddenInvalidRowsCount
 } from '$lib/server/import/invalidRowDetails';
 import {
-	createImportBatch,
 	ImportBucketAccountError,
-	persistImportedTransactions,
 	resolveImportBucketAccountById
 } from '$lib/server/import/persist';
+import { writeImport } from '$lib/server/import/writeImport';
+import { importFileErrorLabel } from '$lib/i18n/importFileErrorLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import { periodsOverlap } from '$lib/domain/periodOverlap';
@@ -93,8 +93,10 @@ export const actions: Actions = {
 		try {
 			importData = await readImportFile(importFile, { maxBytes: IMPORT_FILE_MAX_BYTES });
 		} catch (caught) {
+			// The same sentence per code as `/import` (#595). This door used to answer « vide » for every
+			// code, which called an unreadable workbook empty.
 			if (caught instanceof ImportFileError)
-				return fail(400, { error: m.import_error_empty_file() });
+				return fail(400, { error: importFileErrorLabel(caught) });
 			throw caught;
 		}
 		if (importData.rows.length === 0) {
@@ -418,33 +420,43 @@ export const actions: Actions = {
 			// which of a user's mappings read it. A user who opted out of memorisation gets no link,
 			// and rightly: there is nothing memorised to correct.
 			if (saved.ok) columnMappingId = saved.id;
-			// The run that designates IS a use, and the recap says « utilisée N fois » out loud. A
-			// mapping created at zero would tell the user, on the very screen built to let them check
-			// it, that the import they are looking at never happened.
-			if (saved.ok) await recordColumnMappingUse(user.id, saved.id);
 		}
 
-		const batchId = await createImportBatch({
-			userId: user.id,
-			accountId: bucket.accountId,
-			source: 'csv',
-			fileName: importFile.name,
-			profile: result.summary.profile,
-			rowCount: result.summary.totalRows,
-			invalidRows: result.summary.invalidRows,
-			period: result.summary.period,
-			columnMappingId,
-			// As on the upload path: the order the parse applied, read off its own summary.
-			dateOrder: result.summary.dateOrder ?? null
-		});
-		const persisted = await persistImportedTransactions({
-			userId: user.id,
-			accountId: bucket.accountId,
-			importBatchId: batchId,
-			source: 'csv',
+		const written = await writeImport({
+			batch: {
+				userId: user.id,
+				accountId: bucket.accountId,
+				source: 'csv',
+				fileName: importFile.name,
+				profile: result.summary.profile,
+				rowCount: result.summary.totalRows,
+				invalidRows: result.summary.invalidRows,
+				period: result.summary.period,
+				columnMappingId,
+				// As on the upload path: the order the parse applied, read off its own summary.
+				dateOrder: result.summary.dateOrder ?? null
+			},
 			transactions: result.transactions,
 			parseDuplicateRows: result.summary.duplicateRows
 		});
+		// #662, as on `/import`: a failed write is a sentence that says what landed. RETURNED BEFORE
+		// the replace below, so a correction whose write failed never deletes the import it was meant
+		// to replace: write-then-delete holds on the failure branch too. `keepDesignation` because the
+		// designations are not what failed; the repair the sentence names is on `/imports`.
+		if (!written.ok) {
+			return fail(written.failure.kind === 'currency' ? 400 : 500, {
+				// The failure, not a sentence: see `/import`'s same branch for why the page renders it.
+				writeFailure: written.failure,
+				keepDesignation: true
+			});
+		}
+		const { batchId, persisted } = written;
+
+		// The run that designates IS a use, and the recap says « utilisée N fois » out loud. A mapping
+		// created at zero would tell the user, on the very screen built to let them check it, that the
+		// import they are looking at never happened. Counted AFTER the write succeeded (D3): a run
+		// whose write failed did not use the correspondance to import anything.
+		if (columnMappingId) await recordColumnMappingUse(user.id, columnMappingId);
 
 		/**
 		 * The replace, and the one guard between it and a silent loss of transactions.

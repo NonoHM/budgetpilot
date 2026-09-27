@@ -40,11 +40,9 @@ import {
 } from '$lib/server/import/invalidRowDetails';
 // Re-exported: this type was declared here and `page.server.spec.ts` names it from this module.
 export type { ImportInvalidRowDetail } from '$lib/server/import/invalidRowDetails';
-import {
-	createImportBatch,
-	persistImportedTransactions,
-	resolveImportBucketAccountBySource
-} from '$lib/server/import/persist';
+import { resolveImportBucketAccountBySource } from '$lib/server/import/persist';
+import { writeImport } from '$lib/server/import/writeImport';
+import { importFileErrorLabel } from '$lib/i18n/importFileErrorLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { buildAccountOffer, type AccountOffer } from '$lib/server/import/accountOffer';
 import type { ParsedCsvRow } from '$lib/server/import/types';
@@ -52,6 +50,7 @@ import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { isSamplePadding } from '$lib/domain/columnDesignation';
 import type { PageServerLoad } from './$types';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
+import { IMPORTED_COUNT_SELECT, importedCountOf } from '$lib/server/import/importedCount';
 import type { ImportSummaryResult } from '$lib/domain/importSummary';
 
 /**
@@ -91,7 +90,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// statement minutes apart as its ordinary shape. The same discriminant the delete
 					// confirmation and the withheld retraction already use, so all three name one import
 					// identically rather than describing it three ways.
-					// `importedRows` so the destructive confirmation of Planche 5c can say what it
+					// The imported count so the destructive confirmation of Planche 5c can say what it
 					// removes. The primary's own count is the NEW file's rows and this is the OLD
 					// import's: two different numbers, and the confirmation names both because that is
 					// what a confirmation for a compound act owes its reader.
@@ -99,7 +98,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// ASVS 5.0 v5.0.0-2.2.1: the widening is a SELECTED COLUMN and not a widened where
 					// clause. The lookup is still scoped by `userId` and by `columnMappingId`, so this
 					// reads one more field of a batch the caller already owns.
-					select: { id: true, createdAt: true, importedRows: true }
+					//
+					// The rows FILED under the batch, not the stored counter (D3, `importedCount.ts`): this
+					// number is what the delete destroys, and a counter at 0 over filed rows would make a
+					// destructive confirmation understate its own cost.
+					select: { id: true, createdAt: true, ...IMPORTED_COUNT_SELECT }
 				})
 			: null;
 	// What the replacement destroys BEYOND the rows, so the control can name it and can stay SILENT
@@ -126,7 +129,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// Formatted on the page, where the negotiated locale is known. Null exactly when
 					// `batchId` is, so the label and the control appear and disappear together.
 					replacedAt: correctingBatch?.createdAt.toISOString() ?? null,
-					replacedRows: correctingBatch?.importedRows ?? 0,
+					replacedRows: correctingBatch ? importedCountOf(correctingBatch) : 0,
 					hasUserWork: userWorkCount > 0
 				}
 			: null
@@ -709,12 +712,6 @@ export const actions: Actions = {
 			}
 		}
 
-		// Counted only once the file actually produced transactions, and only for the mapping that
-		// parsed it. A file refused by every row still "used" the mapping in some sense, and the
-		// recap sentence this feeds says « utilisée N fois » about a designation that WORKED, so
-		// counting a refusal there would overstate how much the user should trust it.
-		if (useMapping && remembered) await recordColumnMappingUse(user.id, remembered.id);
-
 		// An account that is already decided is NOT resolved again. `decideAutoAccount` returns a
 		// bucket only when the file named one of this source's own accounts or the user answered
 		// with one, and both are resolutions this path may not repeat: re-asking by source would
@@ -739,32 +736,45 @@ export const actions: Actions = {
 			}
 			bucket = { accountId: resolved.bucket.accountId, created: resolved.created };
 		}
-		const batchId = await createImportBatch({
-			userId: user.id,
-			accountId: bucket.accountId,
-			source,
-			fileName: importFile.name,
-			profile: result.summary.profile,
-			rowCount: result.summary.totalRows,
-			invalidRows: result.summary.invalidRows,
-			period: result.summary.period,
-			// Only when the mapping actually read this file. `useMapping` is the same condition the
-			// parser was given, so the link cannot claim a correspondance a different profile parsed.
-			columnMappingId: useMapping ? (remembered?.id ?? null) : null,
-			// What this import APPLIED, so a later reinterpretation has a fact rather than a guess.
-			// Taken from the summary the parser returned, never recomputed here: a second derivation
-			// would be a second answer, and the batch would record one the import did not use.
-			dateOrder: result.summary.dateOrder ?? null
-		});
-
-		const persisted = await persistImportedTransactions({
-			userId: user.id,
-			accountId: bucket.accountId,
-			importBatchId: batchId,
-			source,
+		const written = await writeImport({
+			batch: {
+				userId: user.id,
+				accountId: bucket.accountId,
+				source,
+				fileName: importFile.name,
+				profile: result.summary.profile,
+				rowCount: result.summary.totalRows,
+				invalidRows: result.summary.invalidRows,
+				period: result.summary.period,
+				// Only when the mapping actually read this file. `useMapping` is the same condition the
+				// parser was given, so the link cannot claim a correspondance a different profile parsed.
+				columnMappingId: useMapping ? (remembered?.id ?? null) : null,
+				// What this import APPLIED, so a later reinterpretation has a fact rather than a guess.
+				// Taken from the summary the parser returned, never recomputed here: a second derivation
+				// would be a second answer, and the batch would record one the import did not use.
+				dateOrder: result.summary.dateOrder ?? null
+			},
 			transactions: result.transactions,
 			parseDuplicateRows: result.summary.duplicateRows
 		});
+		// #662: a failed write is a sentence that says what landed, never a bare 500. 500 because it
+		// is the server's failure rather than the file's; the currency backstop is the file's, and is
+		// the same refusal and status this route gives before writing (#600).
+		if (!written.ok) {
+			// The FAILURE, not a sentence: the page renders it, because a partial failure names the
+			// import by a timestamp that has to be formatted in the reader's time zone, by the same
+			// function `/imports` names it with (D3, `importTimestamp.ts`).
+			return fail(written.failure.kind === 'currency' ? 400 : 500, {
+				writeFailure: written.failure
+			});
+		}
+		const { batchId, persisted } = written;
+
+		// Counted only once the write SUCCEEDED, and only for the mapping that parsed it. The recap
+		// sentence this feeds says « utilisée N fois » about a designation that WORKED: a file refused
+		// by every row, or a write that failed after the parse (D3), is not one, and counting it would
+		// overstate how much the user should trust the correspondance.
+		if (useMapping && remembered) await recordColumnMappingUse(user.id, remembered.id);
 
 		return {
 			importResult: {
@@ -850,23 +860,7 @@ async function readUploadedImportFile(file: File) {
 	try {
 		return await readImportFile(file, { maxBytes: IMPORT_FILE_MAX_BYTES });
 	} catch (caught) {
-		if (caught instanceof ImportFileError) return { error: importFileErrorMessage(caught) };
+		if (caught instanceof ImportFileError) return { error: importFileErrorLabel(caught) };
 		throw caught;
 	}
-}
-
-function importFileErrorMessage(err: ImportFileError): string {
-	if (err.code === 'too_large') {
-		return m.import_error_too_large({ size: err.params?.size ?? 0, max: err.params?.max ?? 0 });
-	}
-	if (err.code === 'expands_too_far') {
-		// Megabytes rather than bytes: the figures here are in the millions, and the number the
-		// user can act on is "how much bigger than allowed", not the exact byte count.
-		return m.import_error_expands_too_far({
-			size: Math.ceil((err.params?.size ?? 0) / 1_000_000),
-			max: Math.floor((err.params?.max ?? 0) / 1_000_000)
-		});
-	}
-	if (err.code === 'bad_extension') return m.import_error_bad_extension();
-	return m.import_error_empty_file();
 }

@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { strToU8, zipSync } from 'fflate';
 import { anonymizeDetailText } from '$lib/server/transactions/anonymize';
 import { UNCLASSIFIED_CATEGORY } from '$lib/domain/categories';
 import { assignDedupeKeys } from '$lib/server/import/dedupeRecompute';
@@ -85,6 +86,8 @@ const db = vi.hoisted(() => {
 		// The correspondance this import was read through, which is what the correction pairing is
 		// resolved against.
 		columnMappingId?: string | null;
+		// The account the batch is filed on. The write step resolves the batch against it (#596).
+		accountId?: string | null;
 	};
 	type Rule = {
 		id: string;
@@ -145,6 +148,7 @@ const db = vi.hoisted(() => {
 		id?: string;
 		userId?: string;
 		columnMappingId?: string;
+		accountId?: string;
 	};
 	type TransactionCreateArgs = {
 		data: Omit<Transaction, 'id' | 'manualCategory'> & { manualCategory?: string | null };
@@ -161,6 +165,12 @@ const db = vi.hoisted(() => {
 		// How many rows of the batch being corrected carry a split or a tag. Set per test rather
 		// than derived, because this fake models neither table.
 		userWorkCount: 0,
+		/**
+		 * A write the database refuses: `transaction.create` throws for a row with this label. The
+		 * one fault D3's route tests inject, because a fault is what reaches the write step's catch
+		 * and no file this fake can parse produces one.
+		 */
+		failCreateOnLabel: null as string | null,
 		nextId: 1
 	};
 
@@ -187,6 +197,7 @@ const db = vi.hoisted(() => {
 			// failed to fire. Both defaults are stated rather than inferred.
 			state.nextId = 1;
 			state.userWorkCount = 0;
+			state.failCreateOnLabel = null;
 		},
 		prisma: {
 			// The import doors are rate limited, so the action counts and records attempts. Modelled
@@ -387,23 +398,42 @@ const db = vi.hoisted(() => {
 				 * reddens the cross-user test rather than throwing "unmodelled where" in every test
 				 * in this file before reaching it. A clause this cannot express at all still throws.
 				 */
-				findFirst: vi.fn(async ({ where }: { where: BatchFindFirstWhere }) => {
-					const unmodelled = Object.keys(where).filter(
-						(key) => !['id', 'userId', 'columnMappingId'].includes(key)
-					);
-					if (unmodelled.length > 0) {
-						throw new Error(`importBatch.findFirst: unmodelled where ${unmodelled.join(',')}`);
+				findFirst: vi.fn(
+					async ({
+						where,
+						select
+					}: {
+						where: BatchFindFirstWhere;
+						select?: { _count?: { select: { transactions: true } } };
+					}) => {
+						const unmodelled = Object.keys(where).filter(
+							(key) => !['id', 'userId', 'columnMappingId', 'accountId'].includes(key)
+						);
+						if (unmodelled.length > 0) {
+							throw new Error(`importBatch.findFirst: unmodelled where ${unmodelled.join(',')}`);
+						}
+						const found =
+							state.batches.find(
+								(batch) =>
+									(where.id === undefined || batch.id === where.id) &&
+									(where.userId === undefined || batch.userId === where.userId) &&
+									(where.columnMappingId === undefined ||
+										(batch.columnMappingId ?? null) === where.columnMappingId) &&
+									(where.accountId === undefined || (batch.accountId ?? null) === where.accountId)
+							) ?? null;
+						// The imported count a screen shows (D3, `importedCount.ts`): the rows this fake's
+						// own ledger files under the batch, never the stored counter.
+						if (!found || !select?._count) return found;
+						return {
+							...found,
+							_count: {
+								transactions: state.transactions.filter(
+									(transaction) => transaction.importBatchId === found.id
+								).length
+							}
+						};
 					}
-					return (
-						state.batches.find(
-							(batch) =>
-								(where.id === undefined || batch.id === where.id) &&
-								(where.userId === undefined || batch.userId === where.userId) &&
-								(where.columnMappingId === undefined ||
-									(batch.columnMappingId ?? null) === where.columnMappingId)
-						) ?? null
-					);
-				}),
+				),
 				create: vi.fn(async ({ data }: BatchCreateArgs) => {
 					const batch = {
 						id: id('batch'),
@@ -427,7 +457,62 @@ const db = vi.hoisted(() => {
 					if (!batch) throw new Error('batch not found');
 					Object.assign(batch, data);
 					return batch;
-				})
+				}),
+				/**
+				 * The write step's removal of a batch it filed nothing under (D3). Faithful to the three
+				 * clauses the production call sends, `transactions: { none: {} }` included, and loud on
+				 * any other: a fake that ignored « holds no rows » would let a delete of a batch WITH rows
+				 * pass here.
+				 */
+				deleteMany: vi.fn(
+					async ({
+						where
+					}: {
+						where: { id?: string; userId?: string; transactions?: { none: object } };
+					}) => {
+						const unmodelled = Object.keys(where).filter(
+							(key) => !['id', 'userId', 'transactions'].includes(key)
+						);
+						if (unmodelled.length > 0) {
+							throw new Error(`importBatch.deleteMany: unmodelled where ${unmodelled.join(',')}`);
+						}
+						const doomed = state.batches.filter(
+							(batch) =>
+								(where.id === undefined || batch.id === where.id) &&
+								(where.userId === undefined || batch.userId === where.userId) &&
+								(where.transactions === undefined ||
+									!state.transactions.some((transaction) => transaction.importBatchId === batch.id))
+						);
+						for (const batch of doomed) state.batches.splice(state.batches.indexOf(batch), 1);
+						return { count: doomed.length };
+					}
+				),
+				/**
+				 * The write step's counters (#660), scoped by `userId` (#596). Faithful: an absent clause
+				 * filters nothing, as in Prisma, and a clause this cannot express throws.
+				 */
+				updateMany: vi.fn(
+					async ({
+						where,
+						data
+					}: {
+						where: { id?: string; userId?: string };
+						data: Partial<Batch>;
+					}) => {
+						const unmodelled = Object.keys(where).filter((key) => !['id', 'userId'].includes(key));
+						if (unmodelled.length > 0) {
+							throw new Error(`importBatch.updateMany: unmodelled where ${unmodelled.join(',')}`);
+						}
+						let count = 0;
+						for (const batch of state.batches) {
+							if (where.id !== undefined && batch.id !== where.id) continue;
+							if (where.userId !== undefined && batch.userId !== where.userId) continue;
+							Object.assign(batch, data);
+							count += 1;
+						}
+						return { count };
+					}
+				)
 			},
 			categorizationRule: {
 				findMany: vi.fn(async () => state.rules.filter((rule) => rule.active))
@@ -553,6 +638,17 @@ const db = vi.hoisted(() => {
 					if (where.OR) {
 						return state.userWorkCount;
 					}
+					// The write step's ledger count (#660): the rows one batch holds, scoped by user.
+					if (where.dedupeKeyHash === undefined) {
+						if (where.importBatchId === undefined) {
+							throw new Error('transaction.count: unmodelled where without importBatchId');
+						}
+						return state.transactions.filter(
+							(transaction) =>
+								transaction.userId === where.userId &&
+								transaction.importBatchId === where.importBatchId
+						).length;
+					}
 					const hashes = where.dedupeKeyHash?.in ?? [];
 					return state.transactions.filter(
 						(transaction) =>
@@ -600,6 +696,9 @@ const db = vi.hoisted(() => {
 					);
 				}),
 				create: vi.fn(async ({ data }: TransactionCreateArgs) => {
+					if (state.failCreateOnLabel !== null && data.label === state.failCreateOnLabel) {
+						throw new Error('Connection terminated unexpectedly');
+					}
 					if (
 						data.dedupeKey &&
 						state.transactions.some((transaction) => transaction.dedupeKey === data.dedupeKey)
@@ -690,7 +789,9 @@ describe('/import load', () => {
 				source: 'csv',
 				profile: 'generic',
 				rowCount: 3,
-				importedRows: 3,
+				// 0 while 3 rows are FILED under it (below), which is the damaged state a lost connection
+				// or a restore leaves: the confirmation must name the 3 the delete destroys (D3).
+				importedRows: 0,
 				duplicateRows: 0,
 				invalidRows: 0,
 				// The load reads this to NAME the batch on the control that deletes it, so a fixture
@@ -700,6 +801,13 @@ describe('/import load', () => {
 				createdAt: SEEDED_AT,
 				columnMappingId: 'mapping-1'
 			} as (typeof db.state.batches)[number]);
+			for (const n of [1, 2, 3]) {
+				db.state.transactions.push({
+					id: `filed-${n}`,
+					importBatchId: 'batch-1',
+					userId: testUser.id
+				} as (typeof db.state.transactions)[number]);
+			}
 		}
 
 		async function loadWith(search: string) {
@@ -726,7 +834,8 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: 'batch-1',
 				replacedAt: SEEDED_AT.toISOString(),
-				// 3, which is what the seed above writes as `importedRows`. The confirmation of
+				// 3, the rows the seed FILES under the batch, while its stored counter says 0: separates
+				// « read from the ledger » (D3) from « read from the counter ». The confirmation of
 				// Planche 5c names this number beside a different one, the rows about to be imported,
 				// so a fixture where the two agreed could not tell them apart.
 				replacedRows: 3,
@@ -1115,7 +1224,11 @@ describe('/import actions', () => {
 		});
 		expect(db.state.batches[0].periodStart).toBeInstanceOf(Date);
 		expect(db.state.transactions[0].importBatchId).toBe(db.state.batches[0].id);
-		expect(db.prisma.importBatch.update).toHaveBeenCalled();
+		// The counters go through `updateMany` scoped by the user (#596). That the scope REFUSES a
+		// foreign batch is asserted against real engines in `writeStep.db-smoke.ts`, not here.
+		expect(db.prisma.importBatch.updateMany).toHaveBeenCalledWith(
+			expect.objectContaining({ where: { id: db.state.batches[0].id, userId: testUser.id } })
+		);
 	});
 
 	it('ignores duplicates on a second import of the same CSV', async () => {
@@ -2245,6 +2358,24 @@ describe('/import actions', () => {
 		});
 
 		/**
+		 * D3: « utilisée N fois » counts designations that WORKED, so a run whose write failed is not
+		 * one. The use used to be counted before the write, so a failed write still incremented it.
+		 * Separates « counted after the rows landed » from « counted before the write ».
+		 */
+		it('counts no use when the write fails', async () => {
+			expect.assertions(2);
+			vi.spyOn(console, 'error').mockImplementation(() => {});
+			const row = rememberFor(testUser.id);
+			db.state.failCreateOnLabel = 'CARREFOUR MARKET';
+
+			const result = await runImportWithFile(UNRECOGNISED);
+
+			// CALIBRATION: the write did fail, through the sentence and not a 500.
+			expect(result.status).toBe(500);
+			expect(row.useCount).toBe(0);
+		});
+
+		/**
 		 * #433's CONTRADICTION-PASS FINDING, closed. A remembered mapping is reapplied SILENTLY —
 		 * no designation screen opens for this reuse — and `ColumnMapping` carries no `dateOrder`
 		 * field, so nothing was ever asked or remembered about this file's reading. Before this,
@@ -2457,6 +2588,98 @@ describe('/import actions', () => {
 	});
 });
 
+/**
+ * D3: the write step owns its failures, seen from the route. Before it, `persistImportedTransactions`
+ * was called with no catch around it, so a throw reached SvelteKit's default handler: a bare 500,
+ * the same page a database outage shows, while rows it had already written stayed in the ledger
+ * (#662), and a real archive that is not a workbook did the same one call earlier (#595).
+ *
+ * The fault is injected into the fake (`failCreateOnLabel`) because no file this fake can parse
+ * makes a write throw; what is under test is what the ROUTE says once one does. The counts against
+ * real engines are `writeStep.db-smoke.ts`.
+ */
+describe('/import: a failed write answers with a sentence, never a 500', () => {
+	const THREE_ROWS =
+		'date;label;amount\n2026-06-01;CAFE FICTIF;-2,50\n2026-06-02;PANNE FICTIVE;-3,00\n2026-06-03;EPICERIE FICTIVE;-4,00';
+
+	beforeEach(() => {
+		db.reset();
+		vi.clearAllMocks();
+		// The write step logs a sanitised line for an operator; silenced so the run stays readable.
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+	});
+
+	it('names the 1 row saved before the second one failed, and the batch they are in', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'PANNE FICTIVE';
+
+		const result = await runImportWithFile(THREE_ROWS);
+
+		expect(result.status).toBe(500);
+		// The FAILURE, not a sentence (D3): the page renders it, naming the import by the instant of
+		// the batch the row landed in, formatted with the history's own function. The sentence is
+		// `write-failure-banner.svelte.spec.ts`'s claim.
+		expect(result.data.writeFailure).toEqual({
+			kind: 'partly-saved',
+			landedRows: 1,
+			createdAt: (db.state.batches[0].createdAt as Date).toISOString()
+		});
+	});
+
+	it('leaves the history saying 1, which is what the ledger holds (#660)', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'PANNE FICTIVE';
+
+		await runImportWithFile(THREE_ROWS);
+
+		// CALIBRATION: one row reached the ledger before the fault.
+		expect(db.state.transactions).toHaveLength(1);
+		expect(db.state.batches[0].importedRows).toBe(1);
+	});
+
+	it('says nothing was saved when the first row fails', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'CAFE FICTIF';
+
+		const result = await runImportWithFile(THREE_ROWS);
+
+		expect(result.status).toBe(500);
+		expect(result.data.writeFailure).toEqual({ kind: 'nothing-saved' });
+	});
+
+	it('leaves no « Importé 0 » batch behind when nothing was saved', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'CAFE FICTIF';
+
+		await runImportWithFile(THREE_ROWS);
+
+		// CALIBRATION: nothing reached the ledger.
+		expect(db.state.transactions).toHaveLength(0);
+		expect(db.state.batches).toHaveLength(0);
+	});
+
+	it('refuses an archive that is not a workbook with its own sentence (#595)', async () => {
+		expect.assertions(2);
+		// fflate writes a real central directory; `zipStored` below is hand-assembled, and the issue
+		// records a hand-assembled archive being refused earlier, as malformed, for another reason.
+		const archive = zipSync({ 'notes.txt': strToU8('une archive, pas un classeur') });
+		const formData = new FormData();
+		formData.set(
+			'csvFile',
+			new File([archive as Uint8Array<ArrayBuffer>], 'export.xlsx', {
+				type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+			})
+		);
+
+		const result = await runImport(formData);
+
+		expect(result.status).toBe(400);
+		expect(result.data.error).toBe(
+			"Ce fichier .xlsx n'est pas un classeur lisible. Exportez-le de nouveau, ou en CSV."
+		);
+	});
+});
+
 async function runImportWithFile(content: string) {
 	const formData = new FormData();
 	formData.set('csvFile', new File([content], 'export.csv', { type: 'text/csv' }));
@@ -2515,6 +2738,7 @@ async function runImport(formData: FormData) {
 		status?: number;
 		data: {
 			error: string;
+			writeFailure?: unknown;
 			correction?: { batchId: string; deleteOldImport: boolean } | null;
 			importResult?: {
 				fileName?: string;

@@ -52,18 +52,19 @@ export interface InvalidRowGroup {
  *
  * Each is checked against its own emit site rather than guessed:
  *  - `value`     — the rejected cell, on `invalid-date` and `invalid-nature`.
- *  - `currency`  — read per row, because `resolvedRows` checks the column on every line and a
- *                  file may mix.
- *  - `state`     — same, on the Revolut profile.
- *  - `actual`    — the column count this row happened to have, on `bad-column-count`. Its
- *                  sentence names no figure, so splitting on it would produce groups a reader
- *                  cannot tell apart.
  *
- * Everything absent from this list is a fact about the file — `column` on `unknown-column`,
- * `roles` on `mapping-columns-missing`, `violations` on `transaction-invalid` — and stays in the
+ * THE HEADING IS THE FIRST MEMBER'S SENTENCE, so a field the sentence names cannot be left out of
+ * the key: the group would print the first row's value over rows that carry another. That is why
+ * `currency`, `state` and `actual` left this list in #692, the day their sentences started naming
+ * them: a file mixing USD and GBP rows is two reasons, and one heading reading « USD » over a GBP
+ * row is a false statement about that row. `value` on `invalid-date` is the same shape and is still
+ * here; that one is left open on #761.
+ *
+ * Everything absent from this list is part of the reason — `column` on `unknown-column`,
+ * `roles` on `mapping-columns-missing`, `currency` on `unsupported-currency` — and stays in the
  * key, because two of them are two problems.
  */
-const PER_ROW_PAYLOAD = new Set(['value', 'currency', 'state', 'actual']);
+const PER_ROW_PAYLOAD = new Set(['value']);
 
 function reasonKey(fact: ImportInvalidRowDetail['fact']): string {
 	return (

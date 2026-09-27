@@ -112,7 +112,16 @@ async function runImport(profile: Profile, body: string, fileName: string) {
 		source: profile.source
 	});
 	const batch = await prisma.importBatch.create({
-		data: { userId, source: profile.source, fileName, profile: profile.name, rowCount: 1 }
+		data: {
+			userId,
+			// Filed on the account written to, as `createImportBatch` always files it: the write step
+			// refuses a batch filed elsewhere, or on none (#596).
+			accountId: bucket.accountId,
+			source: profile.source,
+			fileName,
+			profile: profile.name,
+			rowCount: 1
+		}
 	});
 	return persistImportedTransactions({
 		userId,

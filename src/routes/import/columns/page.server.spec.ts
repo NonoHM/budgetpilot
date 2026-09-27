@@ -28,6 +28,9 @@ const store = vi.hoisted(() => ({
 
 const persist = vi.hoisted(() => ({
 	createImportBatch: vi.fn(async () => 'batch-1'),
+	// D3: removes a batch a failed write filed nothing under. Its where clause is asserted against
+	// real engines in `writeStep.db-smoke.ts`.
+	deleteEmptyImportBatch: vi.fn(async () => true),
 	/**
 	 * The account the USER CHOSE, resolved once and used by both the collision check and the write.
 	 *
@@ -124,7 +127,21 @@ const db = vi.hoisted(() => ({
 const deleteBatch = vi.hoisted(() => ({ deleteImportBatch: vi.fn(async () => true) }));
 
 vi.mock('$lib/server/import/mapping/store', () => store);
-vi.mock('$lib/server/import/persist', () => persist);
+// `ImportWriteError` is the REAL class, for the reason `ImportBucketAccountError` above gives: the
+// write step's classifier branches on `instanceof`, and a stand-in would make every failure read as
+// an unrecognised one.
+vi.mock('$lib/server/import/persist', async (importOriginal) => ({
+	ImportWriteError: (await importOriginal<typeof import('$lib/server/import/persist')>())
+		.ImportWriteError,
+	...persist,
+	// The write step asks for the batch WITH its creation instant (D3: a partial failure names the
+	// import by it). Delegates to the `createImportBatch` mock so every test that sets that one keeps
+	// governing the id; the instant is fixed.
+	createImportBatchRow: async (input: unknown) => ({
+		id: await (persist.createImportBatch as (input: unknown) => Promise<string>)(input),
+		createdAt: new Date('2026-09-27T11:31:05.000Z')
+	})
+}));
 vi.mock('$lib/server/import/collision', () => collision);
 vi.mock('$lib/server/import/deleteBatch', () => deleteBatch);
 vi.mock('$lib/server/db', () => ({ prisma: db.prisma }));
@@ -166,7 +183,7 @@ async function submit(csv: string, hasHeaderRow: boolean, extra: Record<string, 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any)) as unknown as {
 		status?: number;
-		data?: { error?: string; keepDesignation?: boolean };
+		data?: { error?: string; keepDesignation?: boolean; writeFailure?: unknown };
 		replaced?: {
 			kind: 'none' | 'deleted' | 'withheld' | 'withheldOtherPeriod';
 			replacedAt?: string;
@@ -303,6 +320,82 @@ describe('a corrected import replaces the batch it was launched from', () => {
 
 		// The ordering IS the control, so it is asserted rather than assumed from reading the code.
 		expect(order).toEqual(['write', 'delete']);
+	});
+
+	/**
+	 * D3 (#662): the write itself failed, after two rows landed. Before, the throw left this action
+	 * uncaught, so the delete below it never ran either, but the user met a bare 500 and the error
+	 * page replaced the screen holding their designations. Now it is a sentence, and the ordering
+	 * guarantee still has to hold on this branch: a correction whose write failed must not delete the
+	 * import it was meant to replace.
+	 */
+	it('deletes NOTHING and names the rows saved when the write fails midway', async () => {
+		expect.assertions(4);
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const { ImportWriteError } = await import('$lib/server/import/persist');
+		persist.persistImportedTransactions.mockRejectedValueOnce(
+			new ImportWriteError({ kind: 'failed', landedRows: 2 })
+		);
+
+		const result = await submit(WITH_HEADER, true, { replaceBatchId: 'batch-old' });
+
+		expect(deleteBatch.deleteImportBatch).not.toHaveBeenCalled();
+		expect(result.status).toBe(500);
+		// The FAILURE travels, not a sentence: the page renders it with the history's formatter, in
+		// the reader's time zone (D3). The instant is the new batch's, never the one being replaced.
+		expect(result.data?.writeFailure).toEqual({
+			kind: 'partly-saved',
+			landedRows: 2,
+			createdAt: '2026-09-27T11:31:05.000Z'
+		});
+		// The designations stay on screen: the repair is on `/imports`, not a new designation.
+		expect(result.data?.keepDesignation).toBe(true);
+	});
+
+	/**
+	 * D3: the recap says « utilisée N fois » about designations that WORKED. A run whose write
+	 * failed is not one, so the use is counted only once the write succeeded. Separates « counted
+	 * after the rows landed » from « counted before the write ».
+	 */
+	it('counts no use of the saved correspondance when the write fails', async () => {
+		expect.assertions(2);
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const { ImportWriteError } = await import('$lib/server/import/persist');
+		persist.persistImportedTransactions.mockRejectedValueOnce(
+			new ImportWriteError({ kind: 'failed', landedRows: 0 })
+		);
+
+		const result = await submit(WITH_HEADER, true);
+
+		// CALIBRATION: the write did fail, and the correspondance was saved (so a use was possible).
+		expect(result.status).toBe(500);
+		expect(store.recordColumnMappingUse).not.toHaveBeenCalled();
+	});
+
+	it('refuses an archive that is not a workbook with its own sentence, not « empty » (#595)', async () => {
+		expect.assertions(2);
+		const { strToU8, zipSync } = await import('fflate');
+		const archive = zipSync({ 'notes.txt': strToU8('une archive, pas un classeur') });
+		const form = new FormData();
+		form.set(
+			'csvFile',
+			new File([archive as Uint8Array<ArrayBuffer>], 'releve.xlsx', {
+				type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+			})
+		);
+		form.set('accountId', 'account-1');
+
+		const result = (await actions.default({
+			request: new Request('http://localhost/import/columns', { method: 'POST', body: form }),
+			locals: { user: { id: 'user-a', email: 'a@example.test', role: 'USER' } },
+			getClientAddress: () => '127.0.0.1'
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+		} as any)) as unknown as { status?: number; data?: { error?: string } };
+
+		expect(result.status).toBe(400);
+		expect(result.data?.error).toBe(
+			"Ce fichier .xlsx n'est pas un classeur lisible. Exportez-le de nouveau, ou en CSV."
+		);
 	});
 
 	it('deletes NOTHING when the import is refused', async () => {

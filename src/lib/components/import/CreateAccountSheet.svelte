@@ -60,6 +60,7 @@
 		state: phase = 'idle',
 		error = null,
 		errorField = null,
+		currency = null,
 		onSubmit,
 		onCancel
 	}: {
@@ -87,6 +88,16 @@
 		 * control the user has to edit and left the input unmarked.
 		 */
 		errorField?: string | null;
+		/**
+		 * The currency the account will be held in, when the host creates it in the one a file
+		 * declared (#741, `/import`'s currency refusal). Null everywhere else, where the account is
+		 * created in the default and the sheet says nothing about it, as before.
+		 *
+		 * Said because it is the one fact the refusal turned on and the field does not show: the
+		 * banner behind the sheet asked for an account in this currency, and this line is what tells
+		 * the user the one they are naming is it.
+		 */
+		currency?: string | null;
 		onSubmit?: (name: string) => void;
 		onCancel?: () => void;
 	} = $props();
@@ -95,6 +106,7 @@
 	const fieldId = `create-account-name-${uid}`;
 	const hintId = `create-account-hint-${uid}`;
 	const fieldErrorId = `create-account-error-${uid}`;
+	const currencyId = `create-account-currency-${uid}`;
 
 	// The INITIAL value is the whole point: the prefill is a suggestion the user owns from the
 	// moment the sheet opens, exactly as the designation screen owns its resolved account.
@@ -170,6 +182,13 @@
 	 */
 	const shownFieldError = $derived(
 		fieldError ?? (phase === 'error' && errorField === 'name' && !serverErrorSeen ? error : null)
+	);
+
+	/** Every line under the field the input is described by, the error first when there is one. */
+	const describedBy = $derived(
+		[shownFieldError ? fieldErrorId : null, hintId, currency ? currencyId : null]
+			.filter(Boolean)
+			.join(' ')
 	);
 
 	function press() {
@@ -265,7 +284,7 @@
 				maxlength={MAX_ACCOUNT_NAME_LENGTH}
 				autocomplete="off"
 				aria-invalid={shownFieldError ? 'true' : undefined}
-				aria-describedby={shownFieldError ? `${fieldErrorId} ${hintId}` : hintId}
+				aria-describedby={describedBy}
 				oninput={() => {
 					fieldError = null;
 					serverErrorSeen = true;
@@ -279,6 +298,15 @@
 				<p id={fieldErrorId} class="mt-1.5 text-[12.5px] text-rose-700">{shownFieldError}</p>
 			{/if}
 			<p id={hintId} class="mt-1.5 text-[12.5px] text-zinc-500">{hint}</p>
+			{#if currency}
+				<!--
+					zinc-700 and not the hint's zinc-500, as the canvas draws it (a private Claude Design
+					canvas): the hint is advice about the name, this is a fact about the account.
+				-->
+				<p id={currencyId} class="mt-1 text-[12.5px] text-zinc-700">
+					{m.import_account_create_currency({ currency })}
+				</p>
+			{/if}
 		</div>
 
 		{#if phase === 'error' && error && !serverErrorSeen && errorField !== 'name'}

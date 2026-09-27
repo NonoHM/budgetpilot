@@ -7,6 +7,7 @@ import { findCollidingPairs } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
 import type { PageServerLoad } from './$types';
 import { displayAccountName } from '$lib/server/accounts/projection';
+import { IMPORTED_COUNT_SELECT, importedCountOf } from '$lib/server/import/importedCount';
 
 export const load: PageServerLoad = async ({ locals, url }) => {
 	const user = requireUser(locals.user);
@@ -21,13 +22,14 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			source: true,
 			profile: true,
 			rowCount: true,
-			importedRows: true,
 			duplicateRows: true,
 			invalidRows: true,
 			periodStart: true,
 			periodEnd: true,
 			createdAt: true,
-			_count: { select: { transactions: true } },
+			// The imported count and the delete dialog's live count are ONE figure now: the rows filed
+			// under the batch, never the stored counter (D3, `importedCount.ts`).
+			...IMPORTED_COUNT_SELECT,
 			/**
 			 * WHICH ACCOUNT THIS IMPORT LANDED ON, which is the question `/imports` could not answer
 			 * before piece 4 gave `ImportBatch` an `accountId`.
@@ -77,13 +79,13 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 			source: batch.source,
 			profile: batch.profile,
 			rowCount: batch.rowCount,
-			importedRows: batch.importedRows,
+			importedRows: importedCountOf(batch),
 			duplicateRows: batch.duplicateRows,
 			invalidRows: batch.invalidRows,
 			periodStart: batch.periodStart?.toISOString().slice(0, 10) ?? null,
 			periodEnd: batch.periodEnd?.toISOString().slice(0, 10) ?? null,
 			createdAt: batch.createdAt.toISOString(),
-			transactionCount: batch._count.transactions,
+			transactionCount: importedCountOf(batch),
 			// PROJECTED HERE, never on the page. The substitution reads a Paraglide message, so a page
 			// that computed it would need the stored name on the client to decide not to show it, and
 			// sending a name the user must not see is how it ends up in a screenshot.
