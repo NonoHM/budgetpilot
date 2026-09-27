@@ -8,8 +8,8 @@
 # - private-references: the shared matcher (scripts/private-references.mjs) over every issue and
 #   pull request title, body, comment, review and review comment, release, commit comment, and
 #   every commit message on main, against .private-references-baseline.
-# - gitleaks-history: secrets in the full history of every branch and tag, against
-#   .gitleaks-baseline.json, with inline allow tags ignored.
+# - gitleaks-history: secrets in the full history of every branch and tag, against the reviewed
+#   fingerprints in .gitleaksignore, with inline allow tags ignored.
 # - trufflehog: secrets in the repository, its issues and its pull request comments, verified
 #   results only, with inline ignore tags ignored.
 #
@@ -74,20 +74,14 @@ jobs:
           ./scripts/install-gitleaks.sh "$RUNNER_TEMP/bin"
           echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
 
-      # `--all`: every branch and tag the checkout fetched, not only HEAD, because a secret removed
-      # from main's tip is still in the history a clone receives. The baseline holds the findings
-      # reviewed as test fixtures; `--redact` keeps values out of this public log.
+      # Every branch and tag the checkout fetched, not only HEAD, because a secret removed from
+      # main's tip is still in the history a clone receives. The script scans a bare mirror twice:
+      # without `.gitleaksignore`, where the findings must be exactly the reviewed ones it lists
+      # (a new one fails, and so does an entry nothing matches), and with it, where gitleaks must
+      # report nothing. Reports go to a temporary directory; only counts and fingerprints (commit,
+      # file, rule, line: no value) reach this public log, inside `::stop-commands::`.
       - name: gitleaks over the full history of every ref
-        run: |
-          token=$(openssl rand -hex 16)
-          echo "::stop-commands::${token}"
-          set +e
-          gitleaks git --log-opts="--all" --baseline-path .gitleaks-baseline.json \
-            --redact --ignore-gitleaks-allow --no-banner --verbose .
-          status=$?
-          set -e
-          echo "::${token}::"
-          exit "$status"
+        run: node scripts/private-references-git.mjs history
 
   trufflehog:
     runs-on: ubuntu-latest
@@ -111,10 +105,10 @@ jobs:
           set +e
           docker run --rm -v "$RUNNER_TEMP/planted:/scan:ro" "$IMAGE" filesystem /scan \
             --results=unverified,unknown --no-verification --no-update --fail --json \
-            > "$RUNNER_TEMP/calibration.jsonl" 2> /dev/null
+            > "$RUNNER_TEMP/trufflehog-calibration.jsonl" 2> /dev/null
           status=$?
           set -e
-          found=$(jq -s 'length' "$RUNNER_TEMP/calibration.jsonl")
+          found=$(jq -s 'length' "$RUNNER_TEMP/trufflehog-calibration.jsonl")
           echo "calibration: exit $status, $found result(s), expected 183 and 1"
           [ "$status" -eq 183 ] && [ "$found" -eq 1 ]
 
@@ -134,20 +128,20 @@ jobs:
           docker run --rm -e GITHUB_TOKEN "$IMAGE" github --repo="$REPO_URL" \
             --issue-comments --pr-comments --results=verified --no-ignore-tag \
             --fail --fail-on-scan-errors --no-update --json --log-level=2 \
-            > "$RUNNER_TEMP/results.jsonl" 2> "$RUNNER_TEMP/trufflehog.log"
+            > "$RUNNER_TEMP/trufflehog-results.jsonl" 2> "$RUNNER_TEMP/trufflehog-scan.log"
           status=$?
           set -e
           # What it read, from its own log: the issue and pull request passes, and the totals.
           for pass in 'Scanning issues' 'Scanning pull requests'; do
-            if ! grep -q "\"msg\":\"${pass}\"" "$RUNNER_TEMP/trufflehog.log"; then
+            if ! grep -q "\"msg\":\"${pass}\"" "$RUNNER_TEMP/trufflehog-scan.log"; then
               echo "TruffleHog never logged « ${pass} », so it did not read them; refusing a clean result" >&2
               exit 1
             fi
           done
           # The log mixes JSON lines with plain ones, so each line is parsed on its own.
           jq -rR 'fromjson? | select(.msg == "finished scanning") | "read \(.chunks) chunks, \(.bytes) bytes; \(.verified_secrets) verified, \(.unverified_secrets) unverified (not gated)"' \
-            "$RUNNER_TEMP/trufflehog.log"
-          chunks=$(jq -nR '[inputs | fromjson? | select(.msg == "finished scanning") | .chunks] | first // 0' "$RUNNER_TEMP/trufflehog.log")
+            "$RUNNER_TEMP/trufflehog-scan.log"
+          chunks=$(jq -nR '[inputs | fromjson? | select(.msg == "finished scanning") | .chunks] | first // 0' "$RUNNER_TEMP/trufflehog-scan.log")
           if [ "$chunks" -eq 0 ]; then
             echo "TruffleHog read 0 chunks; refusing a clean result" >&2
             exit 1
@@ -158,6 +152,6 @@ jobs:
           token=$(openssl rand -hex 16)
           echo "::stop-commands::${token}"
           jq -r '"\(.DetectorName) verified=\(.Verified) at \(.SourceMetadata.Data.Github.link // "unknown location")"' \
-            "$RUNNER_TEMP/results.jsonl"
+            "$RUNNER_TEMP/trufflehog-results.jsonl"
           echo "::${token}::"
           exit "$status"

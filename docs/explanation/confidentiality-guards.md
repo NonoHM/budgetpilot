@@ -145,3 +145,22 @@ forks, from pull request refs or from anywhere a commit id was already quoted,
 branch protection forbids the force push it would need, and each address points
 to a private session no public reader can open. The decision record, with its
 date, is at the top of `.private-references-baseline`.
+
+### Four test values in the first commit are kept, as fingerprints only
+
+gitleaks reports four findings in the history of every branch: throwaway keys in
+the test environment file, a category rule field named `key`, and a test
+password, all in the first commit and none a real credential. They are kept, for
+the same reasons as the session trailers above.
+
+They are listed in `.gitleaksignore`, the mechanism gitleaks documents, as one
+fingerprint per finding (commit, file, rule and line) under a comment giving the
+reason. The file holds nothing else: a full gitleaks report was committed here
+first and replaced, because each entry also carried the author, the email, the
+date and the commit message, which a list of reviewed findings does not need.
+
+Every gitleaks call reads the file. The daily scan also checks it: without the
+file, the findings in the history must be exactly the ones it lists, so a new
+finding fails the scan and so does an entry that no longer matches anything.
+gitleaks accepts a comment only as a whole line; a comment after a fingerprint
+on the same line stops that fingerprint from matching.

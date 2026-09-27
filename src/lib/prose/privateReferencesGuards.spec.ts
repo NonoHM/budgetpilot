@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import {
 	chmodSync,
 	mkdirSync,
@@ -380,6 +380,9 @@ function makeRepo(
 			'--no-banner',
 			'--verbose',
 			'--exit-code',
+			'--gitleaks-ignore-path',
+			'--report-path',
+			'--report-format',
 			...(gitleaks === 'lacking-flag' ? [] : ['--ignore-gitleaks-allow'])
 		];
 		writeFileSync(
@@ -489,9 +492,11 @@ describe('git hooks: pre-commit reads the staged lines, commit-msg reads the mes
 		repo.git(['add', 'a.md']);
 		const result = repo.git(['commit', '-q', '-m', 'docs: a']);
 		expect(result.status).toBe(0);
+		// Every call names the repository's .gitleaksignore, which holds the reviewed findings.
+		const ignore = `--gitleaks-ignore-path ${join(repo.dir, '.gitleaksignore')}`;
 		expect(repo.gitleaksCalls()).toEqual([
-			'git --pre-commit --staged --redact --no-banner --verbose --ignore-gitleaks-allow',
-			'stdin --redact --no-banner --verbose --ignore-gitleaks-allow'
+			`git --pre-commit --staged --redact --no-banner --verbose --ignore-gitleaks-allow ${ignore}`,
+			`stdin --redact --no-banner --verbose --ignore-gitleaks-allow ${ignore}`
 		]);
 	});
 
@@ -1000,5 +1005,170 @@ describe('review of 2026-09-26', () => {
 			expect(result.status).not.toBe(0);
 			expect(result.output).toContain('[claude-address]');
 		});
+	});
+});
+
+/**
+ * The reviewed historical secrets findings live in `.gitleaksignore` as fingerprints only (commit,
+ * file, rule, line), the mechanism gitleaks documents, instead of a committed gitleaks report that
+ * also carried author, email, date and message.
+ */
+describe('.gitleaksignore and the history scan', () => {
+	it('holds only fingerprints, each after a whole-line reason comment', () => {
+		const lines = readFileSync(join(REPO_ROOT, '.gitleaksignore'), 'utf8').split('\n');
+		const fingerprints = lines
+			.map((line, index) => ({ line: line.trim(), index }))
+			.filter(({ line }) => line !== '' && !line.startsWith('#'));
+		expect(fingerprints.length).toBeGreaterThan(0);
+		for (const { line, index } of fingerprints) {
+			// gitleaks 8.30.1 takes an inline comment as part of the fingerprint (measured), so a
+			// line carrying anything else would silently stop matching.
+			expect(line, `line ${index + 1}`).toMatch(/^[0-9a-f]{40}:[^:\s#]+:[A-Za-z0-9-]+:\d+$/);
+			expect(lines[index - 1] ?? '', `the line before ${index + 1}`).toMatch(/^# \S/);
+		}
+	});
+
+	it('replaces the committed gitleaks report entirely', () => {
+		const tracked = execFileSync('git', ['ls-files'], { cwd: REPO_ROOT, encoding: 'utf8' });
+		expect(tracked.split('\n')).not.toContain('.gitleaks-baseline.json');
+		expect(tracked.split('\n')).toContain('.gitleaksignore');
+		for (const name of ['private-references-pr.yml', 'published-text-scan.yml']) {
+			const text = readFileSync(join(REPO_ROOT, '.github/workflows', name), 'utf8');
+			expect(text, name).not.toContain('--baseline-path');
+		}
+	});
+
+	it('ignores every scanner report name the jobs use, and neither reviewed list', () => {
+		const ignored = (name: string) =>
+			spawnSync('git', ['check-ignore', '-q', name], { cwd: REPO_ROOT }).status === 0;
+		for (const name of [
+			'results.sarif',
+			'gitleaks-report.json',
+			'gitleaks-history-all.json',
+			'trufflehog-results.jsonl',
+			'trufflehog-scan.log'
+		]) {
+			expect(ignored(name), name).toBe(true);
+		}
+		for (const name of ['.gitleaksignore', '.private-references-baseline']) {
+			expect(ignored(name), name).toBe(false);
+		}
+	});
+
+	it('writes the new workflows reports under $RUNNER_TEMP, and runs gitleaks only through the script', () => {
+		for (const name of ['private-references-pr.yml', 'published-text-scan.yml']) {
+			const text = readFileSync(join(REPO_ROOT, '.github/workflows', name), 'utf8');
+			const code = text.split('\n').filter((line) => !line.trim().startsWith('#'));
+			// Each report PATH on its own: one line can name a path in $RUNNER_TEMP and another not.
+			const paths = code.flatMap(
+				(line) => line.match(/[^\s"'<>=]*[.](?:jsonl|sarif|log|json)(?![\w.])/g) ?? []
+			);
+			expect(paths.length, `${name} report paths`).toBeGreaterThan(
+				name === 'published-text-scan.yml' ? 0 : -1
+			);
+			for (const path of paths) expect(path, `${name}: ${path}`).toMatch(/^\$RUNNER_TEMP\//);
+			const direct = code.filter((line) => /^\s*(run:\s*)?gitleaks\s/.test(line));
+			expect(direct, name).toEqual([]);
+		}
+	});
+
+	/** A throwaway repository with its own `.gitleaksignore`, and a gitleaks stand-in in node. */
+	function historyRepo(name: string, ignoreLines: string[]) {
+		const dir = join(scratch, name);
+		const bin = join(scratch, `${name}-bin`);
+		mkdirSync(dir);
+		mkdirSync(bin);
+		for (const tool of ['git', 'sh', 'dirname', 'cat']) {
+			const found = spawnSync('sh', ['-c', `command -v ${tool}`], {
+				encoding: 'utf8'
+			}).stdout.trim();
+			symlinkSync(found, join(bin, tool));
+		}
+		symlinkSync(process.execPath, join(bin, 'node'));
+		// Models what was measured on the real 8.30.1: the report is the true findings minus the
+		// fingerprints the ignore file lists, with the exit code asked for when any are left.
+		const standIn = [
+			'#!/usr/bin/env node',
+			"const fs = require('fs');",
+			'const args = process.argv.slice(2);',
+			'const at = (flag) => args[args.indexOf(flag) + 1];',
+			"if (args[0] === 'version') { console.log('8.30.1'); process.exit(0); }",
+			"if (args.includes('--help')) {",
+			"  for (const f of ['--pre-commit','--staged','--log-opts','--redact','--no-banner','--verbose','--exit-code','--gitleaks-ignore-path','--report-path','--report-format','--ignore-gitleaks-allow']) console.log('      ' + f + ' string   a flag');",
+			'  process.exit(0);',
+			'}',
+			"if (args[0] === 'stdin') { fs.readFileSync(0); process.exit(42); }",
+			"const truth = (process.env.STANDIN_TRUTH || '').split(',').filter(Boolean);",
+			"const listed = process.env.STANDIN_IGNORES_FLAG === '1' ? [] : fs.readFileSync(at('--gitleaks-ignore-path'), 'utf8').split(String.fromCharCode(10)).map((l) => l.trim()).filter((l) => l && !l.startsWith('#'));",
+			'const found = truth.filter((f) => !listed.includes(f));',
+			"fs.writeFileSync(at('--report-path'), JSON.stringify(found.map((f) => ({ Fingerprint: f }))));",
+			"process.stderr.write('3 commits scanned.' + String.fromCharCode(10));",
+			"process.exit(found.length > 0 ? Number(at('--exit-code')) : 0);"
+		].join(String.fromCharCode(10));
+		writeFileSync(join(bin, 'gitleaks'), standIn);
+		chmodSync(join(bin, 'gitleaks'), 0o755);
+		const env = {
+			PATH: bin,
+			HOME: scratch,
+			GIT_CONFIG_NOSYSTEM: '1',
+			GIT_CONFIG_GLOBAL: '/dev/null'
+		};
+		const git = (args: string[]) => spawnSync('git', args, { cwd: dir, env });
+		git(['init', '-q', '-b', 'main']);
+		git(['config', 'user.name', 'Test']);
+		git(['config', 'user.email', 'test@example.test']);
+		writeFileSync(join(dir, 'a.md'), 'plain\n');
+		git(['add', 'a.md']);
+		git(['commit', '-q', '--no-verify', '-m', 'seed']);
+		writeFileSync(join(dir, '.gitleaksignore'), `${ignoreLines.join('\n')}\n`);
+		return (truth: string[], extra: Record<string, string> = {}) => {
+			const run = spawnSync(
+				process.execPath,
+				[join(REPO_ROOT, 'scripts/private-references-git.mjs'), 'history'],
+				{
+					cwd: dir,
+					env: { ...env, GITHUB_ACTIONS: '', STANDIN_TRUTH: truth.join(','), ...extra },
+					encoding: 'utf8'
+				}
+			);
+			return { status: run.status, output: `${run.stdout}${run.stderr}` };
+		};
+	}
+
+	const fp = (n: number) => `${'a'.repeat(39)}${n}:app.env:generic-api-key:${n}`;
+	const reviewed = (...ns: number[]) => ns.flatMap((n) => [`# reviewed finding ${n}`, fp(n)]);
+
+	it('passes when the findings without the file are exactly the ones it lists', () => {
+		const run = historyRepo('history-exact', reviewed(1, 2))([fp(1), fp(2)]);
+		expect(run.output).toContain(
+			'2 findings without the ignore file, 2 listed, 0 new, 0 stale, 0 with the file'
+		);
+		expect(run.status).toBe(0);
+	});
+
+	it('fails on a new finding, naming its fingerprint', () => {
+		const run = historyRepo('history-new', reviewed(1, 2))([fp(1), fp(2), fp(3)]);
+		expect(run.status).toBe(1);
+		expect(run.output).toContain(`new finding at ${fp(3)}`);
+	});
+
+	it('fails on an entry nothing matches any more', () => {
+		const run = historyRepo('history-stale', reviewed(1, 2))([fp(1)]);
+		expect(run.status).toBe(1);
+		expect(run.output).toContain(`stale entry ${fp(2)}`);
+	});
+
+	it('fails when gitleaks does not honour the ignore file', () => {
+		const run = historyRepo('history-unhonoured', reviewed(1))([fp(1)], {
+			STANDIN_IGNORES_FLAG: '1'
+		});
+		expect(run.status).toBe(1);
+		expect(run.output).toContain('did not honour --gitleaks-ignore-path');
+	});
+
+	it('refuses a fingerprint line carrying an inline comment', () => {
+		const run = historyRepo('history-inline', ['# reason', `${fp(1)} # inline`])([fp(1)]);
+		expect(run.status).toBe(1);
+		expect(run.output).toContain('not shaped commit:file:rule:line');
 	});
 });
