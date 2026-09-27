@@ -941,7 +941,18 @@ describe('syncBankConnection', () => {
 		});
 	});
 
-	it('uses a ~90 day lookback range on the first sync (no lastSyncAt)', async () => {
+	/**
+	 * How many calendar days a range asks the bank for, both ends included: what an ASPSP
+	 * counts when it caps history at N days. Exact, with no tolerance, because the defect this
+	 * separates is exactly one day wide: `today - 90` is a 91-day span, which a bank capping at
+	 * 90 days refuses (422 WRONG_TRANSACTIONS_PERIOD at Enable Banking).
+	 */
+	const calendarDaysAsked = (range: { from: string; to: string }) =>
+		(Date.parse(`${range.to}T00:00:00.000Z`) - Date.parse(`${range.from}T00:00:00.000Z`)) /
+			(24 * 60 * 60 * 1000) +
+		1;
+
+	it('asks for exactly 90 calendar days, today included, on the first sync', async () => {
 		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
 			...activeConnection,
 			lastSyncAt: null
@@ -965,10 +976,7 @@ describe('syncBankConnection', () => {
 
 		const [, , range] = fetchTransactions.mock.calls[0];
 		expect(range.to).toBe('2026-07-19');
-		const fromDate = new Date(`${range.from}T00:00:00.000Z`);
-		const daysBack = (NOW.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000);
-		expect(daysBack).toBeGreaterThan(89);
-		expect(daysBack).toBeLessThan(91);
+		expect(calendarDaysAsked(range)).toBe(90);
 	});
 
 	it('honors BANK_SYNC_FIRST_LOOKBACK_DAYS on the first sync, ignoring out-of-bounds values', async () => {
@@ -997,18 +1005,15 @@ describe('syncBankConnection', () => {
 				}
 			);
 			const [, , range] = fetchTransactions.mock.calls[0];
-			const fromDate = new Date(`${range.from}T00:00:00.000Z`);
-			return (NOW.getTime() - fromDate.getTime()) / (24 * 60 * 60 * 1000);
+			return calendarDaysAsked(range);
 		};
 
-		// ±1 day tolerance: the range's `from` is truncated to an ISO date.
-		expect(await runFirstSync('2200')).toBeGreaterThan(2199);
-		expect(await runFirstSync('2200')).toBeLessThan(2201);
+		expect(await runFirstSync('2200')).toBe(2200);
+		// The lower bound: one day is today alone.
+		expect(await runFirstSync('1')).toBe(1);
 		// Invalid or out-of-bounds values fall back to the 90-day default.
 		for (const invalid of ['0', '999999', 'not-a-number']) {
-			const daysBack = await runFirstSync(invalid);
-			expect(daysBack).toBeGreaterThan(89);
-			expect(daysBack).toBeLessThan(91);
+			expect(await runFirstSync(invalid)).toBe(90);
 		}
 	});
 

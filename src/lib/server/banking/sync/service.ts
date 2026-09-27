@@ -76,6 +76,13 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  *
  * With no complete sync on record, the whole first-sync lookback. Otherwise the last complete
  * sync minus the overlap, which re-covers anything booked late and is absorbed by deduplication.
+ *
+ * THE LOOKBACK COUNTS TODAY: N days is today and the N - 1 days before it, the way a bank that
+ * caps history at N days counts them. `today - N` would be an N + 1 day span, which such a bank
+ * refuses outright (Enable Banking answers 422 WRONG_TRANSACTIONS_PERIOD, reported against a
+ * 90-day default in securo-finance/securo#655; Actual Budget subtracts 89 for the same reason).
+ * The day matters more since #763: a refused first sync no longer moves the cursor, so a window
+ * the bank will never accept would be asked for again on every sync.
  */
 function syncFetchRange(
 	lastCompleteSyncAt: Date | null,
@@ -84,7 +91,7 @@ function syncFetchRange(
 ): { from: string; to: string } {
 	const from = lastCompleteSyncAt
 		? new Date(lastCompleteSyncAt.getTime() - RESYNC_OVERLAP_DAYS * DAY_MS)
-		: new Date(currentTime.getTime() - getFirstSyncLookbackDays(env) * DAY_MS);
+		: new Date(currentTime.getTime() - (getFirstSyncLookbackDays(env) - 1) * DAY_MS);
 	return { from: toIsoDate(from), to: toIsoDate(currentTime) };
 }
 
