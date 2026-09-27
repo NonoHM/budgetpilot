@@ -61,8 +61,6 @@ must exist, and every row must name a guard or an issue.
   whose new commits carry a secret in a provider format it knows. It is the only
   guard nobody can skip from their own machine, and the only one that acts
   before anything is published. It reads secrets only, not private references.
-  To check it: `gh api repos/NonoHM/budgetpilot --jq
-'.security_and_analysis.secret_scanning_push_protection.status'`.
 - **The pull request check**, `.github/workflows/private-references-pr.yml`,
   reads the diff, every commit message, the title and the body, which is what a
   squash merge copies onto `main`. It runs the base branch's copy of the
@@ -95,6 +93,15 @@ while the command that wrote it carried none.
 To search for the address, write the dot as a character class
 (`grep 'claude[.]ai/'`). A backslash before the dot does not help: the matcher
 undoes backslash escapes, so that search is refused like the address itself.
+
+Push protection is a repository setting rather than a file, so no test reads
+it. Its state is read from the repository settings:
+
+```bash
+gh api repos/NonoHM/budgetpilot --jq '.security_and_analysis.secret_scanning_push_protection.status'
+```
+
+It answers `enabled` while the guard is on.
 
 ## References
 
