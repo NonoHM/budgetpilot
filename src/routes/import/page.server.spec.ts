@@ -398,24 +398,42 @@ const db = vi.hoisted(() => {
 				 * reddens the cross-user test rather than throwing "unmodelled where" in every test
 				 * in this file before reaching it. A clause this cannot express at all still throws.
 				 */
-				findFirst: vi.fn(async ({ where }: { where: BatchFindFirstWhere }) => {
-					const unmodelled = Object.keys(where).filter(
-						(key) => !['id', 'userId', 'columnMappingId', 'accountId'].includes(key)
-					);
-					if (unmodelled.length > 0) {
-						throw new Error(`importBatch.findFirst: unmodelled where ${unmodelled.join(',')}`);
+				findFirst: vi.fn(
+					async ({
+						where,
+						select
+					}: {
+						where: BatchFindFirstWhere;
+						select?: { _count?: { select: { transactions: true } } };
+					}) => {
+						const unmodelled = Object.keys(where).filter(
+							(key) => !['id', 'userId', 'columnMappingId', 'accountId'].includes(key)
+						);
+						if (unmodelled.length > 0) {
+							throw new Error(`importBatch.findFirst: unmodelled where ${unmodelled.join(',')}`);
+						}
+						const found =
+							state.batches.find(
+								(batch) =>
+									(where.id === undefined || batch.id === where.id) &&
+									(where.userId === undefined || batch.userId === where.userId) &&
+									(where.columnMappingId === undefined ||
+										(batch.columnMappingId ?? null) === where.columnMappingId) &&
+									(where.accountId === undefined || (batch.accountId ?? null) === where.accountId)
+							) ?? null;
+						// The imported count a screen shows (D3, `importedCount.ts`): the rows this fake's
+						// own ledger files under the batch, never the stored counter.
+						if (!found || !select?._count) return found;
+						return {
+							...found,
+							_count: {
+								transactions: state.transactions.filter(
+									(transaction) => transaction.importBatchId === found.id
+								).length
+							}
+						};
 					}
-					return (
-						state.batches.find(
-							(batch) =>
-								(where.id === undefined || batch.id === where.id) &&
-								(where.userId === undefined || batch.userId === where.userId) &&
-								(where.columnMappingId === undefined ||
-									(batch.columnMappingId ?? null) === where.columnMappingId) &&
-								(where.accountId === undefined || (batch.accountId ?? null) === where.accountId)
-						) ?? null
-					);
-				}),
+				),
 				create: vi.fn(async ({ data }: BatchCreateArgs) => {
 					const batch = {
 						id: id('batch'),
@@ -771,7 +789,9 @@ describe('/import load', () => {
 				source: 'csv',
 				profile: 'generic',
 				rowCount: 3,
-				importedRows: 3,
+				// 0 while 3 rows are FILED under it (below), which is the damaged state a lost connection
+				// or a restore leaves: the confirmation must name the 3 the delete destroys (D3).
+				importedRows: 0,
 				duplicateRows: 0,
 				invalidRows: 0,
 				// The load reads this to NAME the batch on the control that deletes it, so a fixture
@@ -781,6 +801,13 @@ describe('/import load', () => {
 				createdAt: SEEDED_AT,
 				columnMappingId: 'mapping-1'
 			} as (typeof db.state.batches)[number]);
+			for (const n of [1, 2, 3]) {
+				db.state.transactions.push({
+					id: `filed-${n}`,
+					importBatchId: 'batch-1',
+					userId: testUser.id
+				} as (typeof db.state.transactions)[number]);
+			}
 		}
 
 		async function loadWith(search: string) {
@@ -807,7 +834,8 @@ describe('/import load', () => {
 				mappingId: 'mapping-1',
 				batchId: 'batch-1',
 				replacedAt: SEEDED_AT.toISOString(),
-				// 3, which is what the seed above writes as `importedRows`. The confirmation of
+				// 3, the rows the seed FILES under the batch, while its stored counter says 0: separates
+				// « read from the ledger » (D3) from « read from the counter ». The confirmation of
 				// Planche 5c names this number beside a different one, the rows about to be imported,
 				// so a fixture where the two agreed could not tell them apart.
 				replacedRows: 3,

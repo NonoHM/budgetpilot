@@ -39,14 +39,11 @@
 		fileName: string | null;
 		/**
 		 * #652: the dialog branches on the LIVE row count (`_count.transactions`, sent down as
-		 * `transactionCount`), never on `importedRows`. `importedRows` is a fact about the PAST:
-		 * what the ledger held when the import finished or stopped (read back from the ledger
-		 * since #660, so a throw mid-loop no longer leaves it at `@default(0)`). The dialog needs
-		 * the verdict on the PRESENT, what the delete will destroy, and the two diverge as soon as
-		 * the user deletes a row by hand. The delete action itself was never wrong —
-		 * `deleteImportBatch` deletes by `importBatchId`, not by this counter — but the dialog once
-		 * read the counter and told a user "this import created no transactions" while about to
-		 * destroy real ones.
+		 * `transactionCount`), never on the stored counter. Since D3 the page's `importedRows` is
+		 * that same live count, both read through `importedCount.ts`: the stored
+		 * `ImportBatch.importedRows` can say 0 over rows the delete is about to destroy (a lost
+		 * connection, a batch damaged before D3, a restore), and this dialog once told a user
+		 * "this import created no transactions" while about to destroy real ones.
 		 */
 		transactionCount: number;
 		createdAt: string;

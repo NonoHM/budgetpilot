@@ -27,6 +27,21 @@ why every control that names an import names it by that, to the second.
 > delete anything: it was a disclosure that revealed a second button. Filed as #380 and closed by
 > naming the control after the timestamp.
 
+## Imported count, and the stored counter
+
+**The imported count** is how many transactions an import holds: the rows filed under its batch,
+counted when a screen asks (`importedCount.ts`). Every screen that names it reads that.
+
+**The stored counter** is `ImportBatch.importedRows`: what the write step recorded when the import
+finished or stopped. A fact about that moment, kept for the backup round trip, read by no screen.
+
+> **What confusing this cost.** The history read the counter, and the counter can say 0 over rows
+> that are in the ledger: a write that dies midway can take the counter's write with it, a batch
+> damaged before the write step owned its failures kept its default, and a restore copies the
+> counter as exported. The history then read « Importé 0 » over transactions that spend like any
+> others, and the delete confirmation once told a user an import had created none while about to
+> destroy real ones (#652, #660).
+
 ## Delete, not cancel
 
 Removing an import and its transactions. **The word is delete**, in every string a user reads and in

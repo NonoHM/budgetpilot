@@ -51,6 +51,7 @@ import { refusalLabel } from '$lib/i18n/refusalLabel';
 import { isSamplePadding } from '$lib/domain/columnDesignation';
 import type { PageServerLoad } from './$types';
 import { readAccountDisplayName } from '$lib/server/accounts/service';
+import { IMPORTED_COUNT_SELECT, importedCountOf } from '$lib/server/import/importedCount';
 import type { ImportSummaryResult } from '$lib/domain/importSummary';
 
 /**
@@ -90,7 +91,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// statement minutes apart as its ordinary shape. The same discriminant the delete
 					// confirmation and the withheld retraction already use, so all three name one import
 					// identically rather than describing it three ways.
-					// `importedRows` so the destructive confirmation of Planche 5c can say what it
+					// The imported count so the destructive confirmation of Planche 5c can say what it
 					// removes. The primary's own count is the NEW file's rows and this is the OLD
 					// import's: two different numbers, and the confirmation names both because that is
 					// what a confirmation for a compound act owes its reader.
@@ -98,7 +99,11 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// ASVS 5.0 v5.0.0-2.2.1: the widening is a SELECTED COLUMN and not a widened where
 					// clause. The lookup is still scoped by `userId` and by `columnMappingId`, so this
 					// reads one more field of a batch the caller already owns.
-					select: { id: true, createdAt: true, importedRows: true }
+					//
+					// The rows FILED under the batch, not the stored counter (D3, `importedCount.ts`): this
+					// number is what the delete destroys, and a counter at 0 over filed rows would make a
+					// destructive confirmation understate its own cost.
+					select: { id: true, createdAt: true, ...IMPORTED_COUNT_SELECT }
 				})
 			: null;
 	// What the replacement destroys BEYOND the rows, so the control can name it and can stay SILENT
@@ -125,7 +130,7 @@ export const load: PageServerLoad = async ({ locals, url }) => {
 					// Formatted on the page, where the negotiated locale is known. Null exactly when
 					// `batchId` is, so the label and the control appear and disappear together.
 					replacedAt: correctingBatch?.createdAt.toISOString() ?? null,
-					replacedRows: correctingBatch?.importedRows ?? 0,
+					replacedRows: correctingBatch ? importedCountOf(correctingBatch) : 0,
 					hasUserWork: userWorkCount > 0
 				}
 			: null
