@@ -2,6 +2,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import { prisma } from '$lib/server/db';
 import {
 	createImportBatch,
+	deleteEmptyImportBatch,
 	persistImportedTransactions,
 	resolveImportBucketAccount
 } from './persist';
@@ -466,6 +467,33 @@ describe('#662: a write that saves nothing leaves no batch in the history', () =
 
 		expect(await prisma.importBatch.count({ where: { userId: userA, fileName } })).toBe(0);
 		expect(retried).toEqual({ ok: false, failure: { kind: 'nothing-saved' } });
+	});
+
+	/**
+	 * « Holds no rows » is a clause of the delete itself, so the removal cannot take a batch that
+	 * has transactions whatever its caller believed (a row landing between a failure and the
+	 * cleanup). Called directly, because no caller hands it such a batch outside that race.
+	 * Separates « the delete checks the rows » from « the delete trusts its caller ».
+	 */
+	it('never removes a batch that holds rows, even when asked to', async () => {
+		expect.assertions(3);
+		const accountId = await bucketOf(userA, 'd3-guard');
+		const fileName = `guard-${Date.now()}.csv`;
+		await writeImport({
+			batch: batchFor(accountId, fileName),
+			transactions: statementWithRefusedSplit('ABRI'),
+			parseDuplicateRows: 0
+		});
+		const held = await prisma.importBatch.findFirstOrThrow({
+			where: { userId: userA, fileName },
+			select: { id: true }
+		});
+		const empty = await createImportBatch(batchFor(accountId, `${fileName}.empty`));
+
+		// CALIBRATION: the same call does remove an empty batch.
+		expect(await deleteEmptyImportBatch(userA, empty)).toBe(true);
+		expect(await deleteEmptyImportBatch(userA, held.id)).toBe(false);
+		expect(await prisma.transaction.count({ where: { importBatchId: held.id } })).toBe(3);
 	});
 
 	it('CALIBRATION: keeps the batch when rows did land', async () => {
