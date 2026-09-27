@@ -31,11 +31,16 @@ must exist, and every row must name a guard or an issue.
 ### Where each guard runs
 
 - **The agent hook**, `.claude/hooks/private-references.mjs`, runs before the
-  assistant executes a command. It reads what a `git commit`, a `gh` write, a
-  `curl` to the GitHub API or a GitHub MCP tool would publish, including any
-  file passed as a body, and refuses on a finding. It fails closed: input it
-  cannot parse, a file it cannot read or a value it cannot evaluate is a refusal.
-  It also refuses `--no-verify` and any change to `core.hooksPath`.
+  assistant executes any command. It reads every command line, whatever the
+  command, for every kind except home paths, which command lines name without
+  publishing them. For a command that publishes (a `git` commit, merge or tag,
+  a `gh` write, a `curl` or `wget` to the GitHub API, a GitHub MCP tool), it
+  also reads every file passed as a body, stdin redirects included. It fails
+  closed: input it cannot
+  parse, a file it cannot read, a value or a command word it cannot evaluate,
+  and a scan that does not finish in time are all refusals. It also refuses any
+  abbreviation of `--no-verify`, a change to `core.hooksPath`, and the
+  `GIT_CONFIG_*` variables that could override it.
 - **The git hooks**, under `.githooks/`, read the staged lines and the commit
   message whoever typed them, and run gitleaks. `CONTRIBUTING.md` explains how
   to activate them.
@@ -49,7 +54,22 @@ must exist, and every row must name a guard or an issue.
 - **The unit suite** reads every tracked file on every run.
 
 Every guard runs a planted positive through its own scanning path in the same
-run, and refuses to report clean if the detector misses it.
+run, and refuses to report clean if the detector misses it. The matcher also
+reads a decoded copy of each text, so a reference written with `\/` escapes,
+as `%2F`, as `&#47;`, with a `\u` escape or as UTF-16 is found like a plain one.
+
+### Checking a guard by hand in an assistant session
+
+The agent hook reads every command line, so a command that spells a planted
+address is refused before it runs, even one that only searches for it. Build
+the address at run time instead, so the command line never contains it:
+
+```bash
+printf 'claude.a%s/x' i > planted.txt
+```
+
+The file then carries a claude.ai address for the guard under test to find,
+while the command that wrote it carried none.
 
 ## References
 

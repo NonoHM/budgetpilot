@@ -131,6 +131,31 @@ function matcherCheck(sources, perLine, what) {
 	return findings.length === 0;
 }
 
+/**
+ * The flags the hooks and the pull request mode pass, per gitleaks subcommand. A build is accepted
+ * by CAPABILITY: its own help for each subcommand must list every one of them. An unknown flag
+ * would otherwise surface only as exit 126 on the first real commit.
+ */
+const GITLEAKS_NEEDS = {
+	git: ['--pre-commit', '--staged', '--log-opts', ...GITLEAKS_COMMON, '--exit-code'],
+	stdin: [...GITLEAKS_COMMON, '--exit-code']
+};
+
+/** @returns {string | null} what is missing, or null when every flag is listed */
+function missingCapability() {
+	for (const [subcommand, flags] of Object.entries(GITLEAKS_NEEDS)) {
+		const help = spawnSync('gitleaks', [subcommand, '--help'], { encoding: 'utf8' });
+		if (help.status !== 0) return `« gitleaks ${subcommand} --help » exited ${help.status}`;
+		const text = `${help.stdout}${help.stderr}`;
+		const absent = flags.find(
+			(flag) => !new RegExp(`(^|\\s)${flag}(?=[\\s=\\[,]|$)`, 'm').test(text)
+		);
+		if (absent)
+			return `gitleaks ${subcommand} --help does not list ${absent}, which the hooks pass`;
+	}
+	return null;
+}
+
 /** @param {string} text */
 function versionOf(text) {
 	const match = /(\d+)\.(\d+)\.(\d+)/.exec(text);
@@ -155,9 +180,11 @@ function gitleaks(args, { input, allowSkip }) {
 		console.error(`private-references: BLOCKED, gitleaks is not installed. ${INSTALL}`);
 		return false;
 	}
+	// A printed version number is checked when there is one; a distribution build prints a sentence
+	// instead (Arch: « version is set by build process »), and is judged by what it can do below.
 	const found = versionOf(`${version.stdout}${version.stderr}`);
 	const tooOld =
-		!found ||
+		found !== null &&
 		found[0] * 1e6 + found[1] * 1e3 + found[2] <
 			GITLEAKS_MINIMUM[0] * 1e6 + GITLEAKS_MINIMUM[1] * 1e3 + GITLEAKS_MINIMUM[2];
 	if (tooOld) {
@@ -165,6 +192,11 @@ function gitleaks(args, { input, allowSkip }) {
 			`private-references: BLOCKED, gitleaks reports version « ${version.stdout.trim()} » and ` +
 				`these hooks need ${GITLEAKS_MINIMUM.join('.')} or later. ${INSTALL}`
 		);
+		return false;
+	}
+	const missing = missingCapability();
+	if (missing) {
+		console.error(`private-references: BLOCKED, ${missing}. ${INSTALL}`);
 		return false;
 	}
 	if (!calibrateGitleaks()) return false;

@@ -52,7 +52,12 @@ export const PATTERNS = {
 		/(?<![\w.-])\/(?:home|Users)\/[A-Za-z0-9._-]+|\b[A-Za-z]:(?:\\{1,2}|\/)[Uu][Ss][Ee][Rr][Ss](?:\\{1,2}|\/)/g,
 	// (c) Anything shaped like an address. Which domains are allowed is decided afterwards, by
 	// `isPublishableAddress`, so the shape and the policy can be broken separately.
-	'personal-email': /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g,
+	// LINEAR BY CONSTRUCTION, and measured (review of 2026-09-26): the unanchored form retried the
+	// local part from every letter of a run with no `@`, 29.5 s on 2e5 letters, which starved the
+	// hook's watchdog. The lookbehind lets a match start only where a run starts, and every
+	// quantifier is bounded by the RFC 5321 limits (64 for the local part, 63 per label).
+	'personal-email':
+		/(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9-]{1,63}(?:\.[A-Za-z0-9-]{1,63}){0,8}\.[A-Za-z]{2,24}/g,
 	// (d) The two inline tags that tell a secret scanner to skip a line: gitleaks' allow comment and
 	// TruffleHog's ignore comment. Not a private reference itself, but the one thing that turns the
 	// secret half of these guards off for a line while every run still reports clean, so a NEW one
@@ -69,9 +74,10 @@ export const PATTERNS = {
 	// (f) An image rendered from an outside host: a Markdown image whose URL is absolute, or an HTML `<img
 	// src=..>`. Rendering it makes the reader's client fetch that URL, which is a known way for an
 	// agent-written body to carry data out in the URL. Only images, not links; the host is judged
-	// by `IMAGE_HOSTS` afterwards.
+	// by `IMAGE_HOSTS` afterwards. Every quantifier is bounded, so a line of 1e5 image openers costs
+	// a constant per opener rather than a scan to the end of the line from each one.
 	'external-image':
-		/!\[[^\]\n]*\]\(\s*<?https?:\/\/[^)\s>]+|<img\b[^>\n]*\bsrc\s*=\s*["']?https?:\/\/[^"'\s>]+/gi
+		/!\[[^\]\n]{0,300}\]\(\s{0,10}<?https?:\/\/[^)\s>]{1,2000}|<img\b[^>\n]{0,500}\bsrc\s{0,5}=\s{0,5}["']?https?:\/\/[^"'\s>]{1,2000}/gi
 };
 
 /**
@@ -361,21 +367,49 @@ export const HOW_TO_READ = {
 		'host, which goes in IMAGE_HOSTS with the reason; otherwise link the page instead of embedding it.'
 };
 
+/** @param {number} code */
+function decodedChar(code) {
+	// A decoded line break would shift every line number after it, so it becomes a space.
+	if (code === 10 || code === 13 || code > 0x10ffff) return ' ';
+	return String.fromCodePoint(code);
+}
+
 /**
- * The one matcher. Every guard calls it and nothing else.
+ * The same text with the encodings a reference hides behind undone, so `https:\/\/`, a backslash-u escape of `/`,
+ * a `%2F`, a `&#47;` and a UTF-16 byte stream (a NUL after every ASCII byte, as a file read one
+ * byte per character yields) all match the patterns above. No line break is added or removed, so a
+ * line number from this copy is a line number in the original.
  *
+ * @param {string} text
+ */
+export function decodedForScan(text) {
+	let out = text.includes('\0') ? text.replace(/\0/g, '') : text;
+	out = out.replace(/\\u([0-9A-Fa-f]{4})/g, (_, hex) => decodedChar(parseInt(hex, 16)));
+	out = out.replace(/\\\//g, '/');
+	out = out.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => decodedChar(parseInt(hex, 16)));
+	out = out.replace(/&#(\d{1,7});/g, (_, dec) => decodedChar(Number(dec)));
+	out = out.replace(/&#[xX]([0-9A-Fa-f]{1,6});/g, (_, hex) => decodedChar(parseInt(hex, 16)));
+	return out;
+}
+
+/**
  * @param {string} text
  * @returns {Finding[]}
  */
-export function findPrivateReferences(text) {
+function findIn(text) {
 	/** @type {number[]} */
 	const lineStarts = [0];
 	for (let i = 0; i < text.length; i += 1) if (text[i] === '\n') lineStarts.push(i + 1);
-	/** @param {number} offset */
-	const lineOf = (offset) => {
-		let line = 0;
-		while (line + 1 < lineStarts.length && lineStarts[line + 1] <= offset) line += 1;
-		return line + 1;
+	/** Binary search, so a text with many findings costs a logarithm per finding, not a line count. */
+	const lineOf = (/** @type {number} */ offset) => {
+		let low = 0;
+		let high = lineStarts.length - 1;
+		while (low < high) {
+			const mid = (low + high + 1) >> 1;
+			if (lineStarts[mid] <= offset) low = mid;
+			else high = mid - 1;
+		}
+		return low + 1;
 	};
 
 	/** @type {Finding[]} */
@@ -384,6 +418,29 @@ export function findPrivateReferences(text) {
 		for (const match of text.matchAll(PATTERNS[kind])) {
 			if (COUNTS[kind] && !COUNTS[kind](match[0])) continue;
 			findings.push({ kind, line: lineOf(match.index ?? 0), match: match[0] });
+		}
+	}
+	return findings;
+}
+
+/**
+ * The one matcher. Every guard calls it and nothing else. It reads the text as given AND its
+ * decoded copy (`decodedForScan`), and reports a finding once however many of the two found it.
+ *
+ * @param {string} text
+ * @returns {Finding[]}
+ */
+export function findPrivateReferences(text) {
+	const findings = findIn(text);
+	const decoded = decodedForScan(text);
+	if (decoded !== text) {
+		const seen = new Set(findings.map((f) => `${f.kind}\0${f.line}\0${f.match}`));
+		for (const finding of findIn(decoded)) {
+			const key = `${finding.kind}\0${finding.line}\0${finding.match}`;
+			if (!seen.has(key)) {
+				seen.add(key);
+				findings.push(finding);
+			}
 		}
 	}
 	return findings.sort((a, b) => a.line - b.line);
@@ -430,8 +487,10 @@ export function redact(finding) {
  */
 const CLAUDE_HOST = ['claude', 'ai'].join('.');
 export const PLANTED_SAMPLE = [
-	`see https://${CLAUDE_HOST}/design/p/0000`,
-	`cwd ${['', 'home', 'planted', 'repo'].join('/')}`,
+	// JSON-escaped and percent-encoded on purpose: found only through the decoded copy, so a
+	// calibration that passes proves the decoding runs, and still proves each pattern fires.
+	`see https:\\/\\/${CLAUDE_HOST}\\/design\\/p\\/0000`,
+	`cwd ${['', 'home', 'planted', 'repo'].join('%2F')}`,
 	`contact ${['planted.person', 'gmail.com'].join('@')}`,
 	`key = "x" # ${['gitleaks', 'allow'].join(':')}`,
 	// The ISO 13616 example with its account digits rearranged and the check digits recomputed:

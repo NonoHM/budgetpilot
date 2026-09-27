@@ -18,6 +18,7 @@ import {
 	scanItems,
 	type ScanSource
 } from '../../../scripts/published-text-scan.mjs';
+import { findPrivateReferences } from '../../../scripts/private-references.mjs';
 
 /**
  * The three guards that read what `privateReferences.spec.ts` cannot, because it is not a file:
@@ -45,6 +46,19 @@ import {
  * - scheduled scan: a short read accepted; a stale baseline entry accepted; the full match
  *   printed instead of the redacted one. Run live against GitHub with the external-image pattern
  *   blinded, the scan refused on its calibration before reporting anything.
+ *
+ * BREAK-CHECKED AGAIN (2026-09-27) after the review's fixes, each red on its « review » test:
+ * the command line not read; the verb read undequoted; a substituted command word allowed; only
+ * the first word taken as a verb; a `-c` string not read; a quoted `<<` taken as a heredoc; any
+ * heredoc approving stdin; a pipe into the segment ignored; a `<` redirect not read; any `$( )`
+ * holding `<<` read as a heredoc; the decoded copy, percent, `\u` and hexadecimal-entity decoding
+ * each dropped; the quadratic address and unbounded image patterns restored (30 s and 14 s); a
+ * killed worker read as clean; gist files, release assets, tags and attached curl values each
+ * unread; only the full `--no-verify` refused; GIT_CONFIG variables allowed; `-uno` and merge's
+ * `-n` misread; NULs kept; the gitleaks capability check skipped; a sentence version refused.
+ * Two greens, read: removing the hook's calibration changes nothing while the matcher is healthy
+ * (blinding a pattern with calibration present refuses even a clean commit, so it is live); and
+ * the hook's JSON-strings step was redundant with the decoded copy, so it was deleted.
  */
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -182,7 +196,9 @@ describe('Claude Code hook: blocks a commit or a post that carries a private ref
 
 		expect(bash(`curl -X POST ${url} -d '{"body":"clean"}'`).status).toBe(0);
 		// The same data to any other host is not a GitHub write and is not this hook's business.
-		expect(bash(`curl -X POST https://example.test/x -d 'see ${CLAUDE_LINK}'`).status).toBe(0);
+		// The same body FILE sent to any other host is not a GitHub write, so the hook does not open
+		// it. (A link typed INTO any command line is refused whatever the host: review finding 1.)
+		expect(bash(`curl -X POST https://example.test/x --data-binary @${file}`).status).toBe(0);
 	});
 
 	it('refuses an image from an outside host in a body, and admits GitHub-hosted ones', () => {
@@ -330,7 +346,10 @@ describe('Claude Code hook: blocks a commit or a post that carries a private ref
 });
 
 /** A throwaway repository whose hooks are this tree's `.githooks`, and a PATH we control. */
-function makeRepo(name: string, gitleaks: 'absent' | 'clean' | 'leak' | 'old' | 'blind') {
+function makeRepo(
+	name: string,
+	gitleaks: 'absent' | 'clean' | 'leak' | 'old' | 'blind' | 'distro' | 'lacking-flag'
+) {
 	const dir = join(scratch, name);
 	const bin = join(scratch, `${name}-bin`);
 	mkdirSync(dir);
@@ -345,10 +364,28 @@ function makeRepo(name: string, gitleaks: 'absent' | 'clean' | 'leak' | 'old' | 
 		// A stand-in recording how it was called, so the flags the hooks pass are asserted rather than
 		// assumed. It reads stdin, as the real `gitleaks stdin` does.
 		const exit = gitleaks === 'leak' ? 1 : 0;
-		const version = gitleaks === 'old' ? '8.18.4' : '8.30.1';
+		// The Arch package prints this sentence instead of a number (measured 2026-09-27).
+		const version =
+			gitleaks === 'old'
+				? '8.18.4'
+				: gitleaks === 'distro'
+					? 'version is set by build process'
+					: '8.30.1';
+		// Help lists the flags the hooks pass, as the real `git --help` and `stdin --help` do.
+		const flags = [
+			'--pre-commit',
+			'--staged',
+			'--log-opts',
+			'--redact',
+			'--no-banner',
+			'--verbose',
+			'--exit-code',
+			...(gitleaks === 'lacking-flag' ? [] : ['--ignore-gitleaks-allow'])
+		];
 		writeFileSync(
 			join(bin, 'gitleaks'),
-			`#!/bin/sh\nif [ "$1" = version ]; then echo ${version}; exit 0; fi\n` +
+			`#!/bin/sh\nif [ "$1" = version ]; then echo "${version}"; exit 0; fi\n` +
+				`case "$*" in *--help*) printf '      %s string   a flag\\n' ${flags.join(' ')}; exit 0;; esac\n` +
 				// The calibration run asks for exit code 42 on a finding; a blind gitleaks returns 0.
 				`case "$*" in *"--exit-code 42"*) cat > /dev/null; exit ${gitleaks === 'blind' ? 0 : 42};; esac\n` +
 				`echo "$*" >> ${argsLog}\ncat > /dev/null\n` +
@@ -465,6 +502,26 @@ describe('git hooks: pre-commit reads the staged lines, commit-msg reads the mes
 		const result = repo.git(['commit', '-q', '-m', 'docs: a']);
 		expect(result.status).not.toBe(0);
 		expect(result.output).toContain('did not report the planted token');
+		expect(repo.gitleaksCalls()).toEqual([]);
+	});
+
+	it('accepts a distribution build whose version is a sentence, judged by what it can do', () => {
+		const repo = makeRepo('gitleaks-distro', 'distro');
+		writeFileSync(join(repo.dir, 'a.md'), 'plain\n');
+		repo.git(['add', 'a.md']);
+		const result = repo.git(['commit', '-q', '-m', 'docs: a']);
+		expect(result.output).not.toContain('BLOCKED');
+		expect(result.status).toBe(0);
+		expect(repo.gitleaksCalls()).toHaveLength(2);
+	});
+
+	it('refuses a gitleaks whose help does not list a flag the hooks pass, naming the flag', () => {
+		const repo = makeRepo('gitleaks-lacking-flag', 'lacking-flag');
+		writeFileSync(join(repo.dir, 'a.md'), 'plain\n');
+		repo.git(['add', 'a.md']);
+		const result = repo.git(['commit', '-q', '-m', 'docs: a']);
+		expect(result.status).not.toBe(0);
+		expect(result.output).toContain('does not list --ignore-gitleaks-allow');
 		expect(repo.gitleaksCalls()).toEqual([]);
 	});
 
@@ -683,5 +740,265 @@ describe('scheduled scan of published text', () => {
 		);
 		expect(result.status).toBe(1);
 		expect(result.output).toContain('HTTP 502');
+	});
+});
+
+/**
+ * The adversarial review of 2026-09-26, one describe per finding, each test written to reproduce
+ * the reviewer's case before the fix and seen red first.
+ */
+describe('review of 2026-09-26', () => {
+	const linkFile = () => {
+		const path = join(scratch, `link-${Math.random().toString(36).slice(2)}.md`);
+		writeFileSync(path, `drawn on ${CLAUDE_LINK}\n`);
+		return path;
+	};
+	const cleanFile = () => {
+		const path = join(scratch, `clean-${Math.random().toString(36).slice(2)}.md`);
+		writeFileSync(path, 'nothing private\n');
+		return path;
+	};
+
+	describe('1: a quoted or escaped verb, a variable verb, and text on any command line', () => {
+		it.each([
+			['g\\h issue comment 5 --body-file'],
+			["'g'h issue comment 5 --body-file"],
+			['"g"h issue comment 5 --body-file'],
+			["gi''t commit -F"]
+		])('reads the file behind %s', (prefix) => {
+			const result = bash(`${prefix} ${linkFile()}`);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('[claude-address] in the ');
+		});
+
+		it.each([
+			['G=gh; $G issue comment 5 --body-file'],
+			['$(printf gh) issue comment 5 --body-file']
+		])('refuses a command word built from a variable or a substitution: %s', (prefix) => {
+			const result = bash(`${prefix} ${cleanFile()}`);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('command word is built from');
+		});
+
+		it('refuses a link on a command line that publishes nothing', () => {
+			const result = bash(`echo 'see ${CLAUDE_LINK}' > ${join(scratch, 'notes.txt')}`);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('[claude-address] in the command text');
+		});
+
+		it('admits the calibration idiom, which never spells the address', () => {
+			const result = bash(`printf 'claude.a%s/x' i`);
+			expect(result.stderr).toBe('');
+			expect(result.status).toBe(0);
+		});
+	});
+
+	describe('2: no wrapper list, the first git, gh, curl or wget word is what is read', () => {
+		it.each([
+			['nice -n 5 gh issue comment 5 --body-file FILE'],
+			['timeout -s KILL 60 gh issue comment 5 --body-file FILE'],
+			['flock /tmp/x.lock gh issue comment 5 --body-file FILE'],
+			['setsid gh issue comment 5 --body-file FILE'],
+			['ionice -c3 gh issue comment 5 --body-file FILE'],
+			['script -qc "gh issue comment 5 --body-file FILE" /dev/null'],
+			['env -S "gh issue comment 5 --body-file FILE"'],
+			['gh -R o/r issue comment 5 --body-file FILE'],
+			['gh --repo=o/r issue comment 5 --body-file FILE']
+		])('%s', (template) => {
+			const result = bash(template.replace('FILE', linkFile()));
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('[claude-address] in the --body-file file');
+		});
+	});
+
+	describe('3: a quoted << is text, not a heredoc', () => {
+		it.each([
+			["git commit -m 'fix: use a << b to shift'"],
+			['gh issue comment 1 --body "read a << EOF as text"']
+		])('%s', (command) => {
+			const result = bash(command);
+			expect(result.stderr).toBe('');
+			expect(result.status).toBe(0);
+		});
+	});
+
+	describe('4: stdin is accepted only from a redirect in the same segment, never through a pipe', () => {
+		it('refuses a piped body even when another segment has a heredoc', () => {
+			const command = `cat <<'EOF' > /dev/null\nclean\nEOF\ncat ${linkFile()} | gh issue comment 1 --body-file -`;
+			const result = bash(command);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('reads its body from stdin');
+		});
+
+		it('refuses stdin that only a heredoc in ANOTHER segment could have supplied', () => {
+			const command = `cat <<'EOF' > /dev/null\nclean\nEOF\ngh issue comment 1 --body-file -`;
+			const result = bash(command);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('reads its body from stdin');
+		});
+
+		it('refuses stdin through a pipe even when the same segment also redirects', () => {
+			const result = bash(`cat notes | gh issue comment 1 --body-file - < ${cleanFile()}`);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('reads its body from stdin');
+		});
+
+		it('reads the file a < redirect feeds it', () => {
+			const result = bash(`gh issue comment 1 --body-file - < ${linkFile()}`);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('[claude-address] in the stdin redirect file');
+			expect(bash(`gh issue comment 1 --body-file - < ${cleanFile()}`).status).toBe(0);
+		});
+
+		it('admits a heredoc in the same segment', () => {
+			const result = bash(`gh issue comment 1 --body-file - <<'EOF'\nclean\nEOF`);
+			expect(result.stderr).toBe('');
+			expect(result.status).toBe(0);
+		});
+	});
+
+	describe('5: a $( ) in published text is read only as cat of a heredoc or a file', () => {
+		it('refuses a heredoc piped through another command', () => {
+			const result = bash(`git commit -m "$(cat <<'E' | tr a-z A-Z\nclean\nE\n)"`);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('cannot evaluate');
+		});
+
+		it('admits the plain heredoc form Claude Code writes', () => {
+			const result = bash(`git commit -m "$(cat <<'EOF'\nfix: x\n\nbody, don't (really)\nEOF\n)"`);
+			expect(result.stderr).toBe('');
+			expect(result.status).toBe(0);
+		});
+	});
+
+	describe('6: an escaped or encoded reference is decoded before it is matched', () => {
+		// Assembled at run time: the decoded copy of a literal would be a finding against this file.
+		const host = ['claude', 'ai'].join('.');
+		const home = (separator: string) => ['', 'home', 'someone', 'x'].join(separator);
+		it.each([
+			['JSON-escaped slashes', `{"body":"see https:\\/\\/${host}\\/design\\/p"}`, 'claude-address'],
+			['a \\u escape', `{"body":"cwd ${home('\\u002F')}"}`, 'home-path'],
+			['percent-encoding', `see ${home('%2F')}`, 'home-path'],
+			['a numeric entity', `see ${home('&#47;')}`, 'home-path']
+		])('%s in a body file', (_label, content, kind) => {
+			const path = join(scratch, `encoded-${kind}-${Math.random().toString(36).slice(2)}.json`);
+			writeFileSync(path, content);
+			const result = bash(`gh issue comment 1 --body-file ${path}`);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain(`[${kind}] in the --body-file file`);
+		});
+
+		it('finds a reference stored as UTF-16, whose bytes interleave NULs', () => {
+			const text = Buffer.from(`see ${CLAUDE_LINK}`, 'utf16le').toString('latin1');
+			expect(findPrivateReferences(text).map((f) => f.kind)).toEqual(['claude-address']);
+		});
+
+		// Outside JSON, as the tree gate, the git hooks and the daily scan read it: only the matcher's
+		// own decoding can find these.
+		it.each([
+			['a \\u escape', home('\\u002F')],
+			['a hexadecimal entity', home('&#x2F;')]
+		])('finds %s in plain text', (_label, encoded) => {
+			const findings = findPrivateReferences(`line one\ncwd ${encoded}`);
+			expect(findings).toEqual([
+				{ kind: 'home-path', line: 2, match: ['', 'home', 'someone'].join('/') }
+			]);
+		});
+	});
+
+	describe('7: the matcher is linear, and a stalled scan blocks', () => {
+		// Measured before the fix: 29.5 s for 2e5 letters, 114 ms for 1e4 image openers.
+		it.each([
+			['2e5 letters with no @', 'a'.repeat(2e5)],
+			['1e5 image openers', '!['.repeat(1e5)],
+			['2e5 characters inside an img tag', `<img ${'a'.repeat(2e5)}`],
+			['a 2e5-character dotted domain', `x@${'a.'.repeat(1e5)}`]
+		])(
+			'scans %s in under a second',
+			(_label, text) => {
+				const started = performance.now();
+				findPrivateReferences(text);
+				expect(performance.now() - started).toBeLessThan(1000);
+			},
+			60_000
+		);
+
+		it('exits 2 when the scanning process does not finish in time', () => {
+			const result = spawnSync(process.execPath, [HOOK], {
+				input: JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'ls' }, cwd: scratch }),
+				env: {
+					...process.env,
+					BP_PRIVATE_REFS_STALL_FOR_TEST: '1',
+					BP_PRIVATE_REFS_TIMEOUT_MS: '500'
+				},
+				encoding: 'utf8'
+			});
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('did not finish');
+		});
+	});
+
+	describe('8: the other ways to publish', () => {
+		it.each([
+			['gh gist create FILE'],
+			['gh gist create --desc x FILE'],
+			['gh release upload v1 FILE'],
+			['gh release create v1 FILE#label --notes x'],
+			['git tag -a v1 -F FILE']
+		])('%s', (template) => {
+			const result = bash(template.replace('FILE', linkFile()));
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('[claude-address]');
+		});
+
+		it.each([['-d@FILE'], ["'-Fbody=<FILE'"]])('curl %s with the value attached', (flag) => {
+			const url = 'https://api.github.com/repos/o/r/issues/1/comments';
+			const result = bash(`curl -X POST ${url} ${flag.replace('FILE', linkFile())}`);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('[claude-address]');
+		});
+	});
+
+	describe('9: abbreviations and environment variables that skip the git hooks', () => {
+		it.each([
+			['git commit --no-verif -m x', 'no-verify'],
+			['git commit --no-ve -m x', 'no-verify'],
+			['git merge --no-verif feature', 'no-verify'],
+			[
+				`export GIT_CONFIG_PARAMETERS="'core.hookspath=/dev/null'" && git commit -m x`,
+				'GIT_CONFIG_PARAMETERS'
+			],
+			['export GIT_CONFIG_COUNT=1 && git commit -m x', 'GIT_CONFIG_COUNT']
+		])('%s', (command, reason) => {
+			const result = bash(command);
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain(reason);
+		});
+	});
+
+	describe('10: short options read per subcommand', () => {
+		it.each([['git commit -uno -m "fix: x"'], ['git merge -n feature'], ['git commit -sS -m x']])(
+			'%s is not a skipped hook',
+			(command) => {
+				const result = bash(command);
+				expect(result.stderr).toBe('');
+				expect(result.status).toBe(0);
+			}
+		);
+	});
+
+	describe('11: a staged UTF-16 file', () => {
+		it('is refused like any other when it carries a reference', () => {
+			const repo = makeRepo('utf16', 'absent');
+			const bom = Buffer.from([0xff, 0xfe]);
+			writeFileSync(
+				join(repo.dir, 'u.txt'),
+				Buffer.concat([bom, Buffer.from(`line\nsee ${CLAUDE_LINK}\n`, 'utf16le')])
+			);
+			repo.git(['add', 'u.txt']);
+			const result = repo.git(['commit', '-q', '-m', 'docs: a'], SKIP);
+			expect(result.status).not.toBe(0);
+			expect(result.output).toContain('[claude-address]');
+		});
 	});
 });

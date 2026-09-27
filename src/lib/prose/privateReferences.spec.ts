@@ -108,6 +108,10 @@ const CALIBRATION_SAMPLE = [
 	`token = "x" # ${['trufflehog', 'ignore'].join(':')}`,
 	`paid to ${['DE44', '5001', '0517', '5407', '3249', '31'].join(' ')} on the 3rd`,
 	`<img alt="x" src="${'https'}://${['collect', 'example'].join('.')}/t.gif?u=1">`,
+	// Encoded forms, found only through the matcher's decoded copy.
+	`json: "https:\\/\\/${CLAUDE_HOST}\\/design"`,
+	`utf16: ${Buffer.from(['', 'home', 'someone'].join('/'), 'utf16le').toString('latin1')}`,
+	`url: ${['', 'Users', 'someone'].join('%2F')}`,
 	// Negatives, one per admission rule.
 	'the bare word claude.ai, as prose names it',
 	'a@example.test USER@Example.COM x@db.example.lan v@budgetpilot.invalid',
@@ -131,7 +135,10 @@ const EXPECTED_CALIBRATION: Finding[] = [
 		kind: 'external-image',
 		line: 8,
 		match: `<img alt="x" src="${'https'}://${['collect', 'example'].join('.')}/t.gif?u=1`
-	}
+	},
+	{ kind: 'claude-address', line: 9, match: `${CLAUDE_HOST}/` },
+	{ kind: 'home-path', line: 10, match: ['', 'home', 'someone'].join('/') },
+	{ kind: 'home-path', line: 11, match: ['', 'Users', 'someone'].join('/') }
 ];
 
 function trackedFiles(): string[] {
