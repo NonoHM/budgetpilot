@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { importWriteFailureLabel } from './importWriteLabel';
 import { refusalLabel } from './refusalLabel';
+import { importTimestamp } from './importTimestamp';
+
+/** One instant for both partial cases. The banner and the history reading it identically is
+ * `write-failure-banner.svelte.spec.ts`'s claim, against the rendered row. */
+const CREATED_AT = '2026-09-27T13:31:05.000Z';
 
 /**
  * The sentence each write failure shows, compared WHOLE: a substring assertion passes over a
@@ -16,14 +21,18 @@ describe('importWriteFailureLabel', () => {
 	});
 
 	it('names one saved transaction in the singular', () => {
-		expect(importWriteFailureLabel({ kind: 'partly-saved', landedRows: 1 })).toBe(
-			"L'import s'est arrêté après 1 transaction enregistrée. Supprimez-le dans Imports, puis réessayez."
+		expect(
+			importWriteFailureLabel({ kind: 'partly-saved', landedRows: 1, createdAt: CREATED_AT })
+		).toBe(
+			`Import du ${importTimestamp(CREATED_AT)} arrêté après 1 transaction. Supprimez-le dans Imports.`
 		);
 	});
 
 	it('names several saved transactions in the plural', () => {
-		expect(importWriteFailureLabel({ kind: 'partly-saved', landedRows: 39 })).toBe(
-			"L'import s'est arrêté après 39 transactions enregistrées. Supprimez-le dans Imports, puis réessayez."
+		expect(
+			importWriteFailureLabel({ kind: 'partly-saved', landedRows: 39, createdAt: CREATED_AT })
+		).toBe(
+			`Import du ${importTimestamp(CREATED_AT)} arrêté après 39 transactions. Supprimez-le dans Imports.`
 		);
 	});
 

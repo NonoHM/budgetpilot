@@ -2,6 +2,7 @@
 	import { goto } from '$app/navigation';
 	import { resolve } from '$app/paths';
 	import * as m from '$lib/paraglide/messages';
+	import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
 	import { MAPPING_ROLES, type MappingRole } from '$lib/domain/mappingRoles';
 	import type { RoleAssignment } from '$lib/domain/columnDesignation';
 	// TYPE ONLY. See `domain/columnDesignation.ts`: erased before the bundler sees it.
@@ -56,7 +57,13 @@
 	 * interpolated, so a stack trace or an internal path cannot reach the page through this route.
 	 */
 	let localError = $state<string | null>(null);
-	const shownError = $derived(form?.error ?? localError);
+	const shownError = $derived(
+		form?.error ??
+			(form && 'writeFailure' in form && form.writeFailure
+				? importWriteFailureLabel(form.writeFailure)
+				: undefined) ??
+			localError
+	);
 
 	/**
 	 * Which chrome the one screen wears, resolved from `matchMedia` rather than from CSS.

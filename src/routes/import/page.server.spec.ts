@@ -2609,16 +2609,21 @@ describe('/import: a failed write answers with a sentence, never a 500', () => {
 		vi.spyOn(console, 'error').mockImplementation(() => {});
 	});
 
-	it('names the 1 row saved before the second one failed', async () => {
+	it('names the 1 row saved before the second one failed, and the batch they are in', async () => {
 		expect.assertions(2);
 		db.state.failCreateOnLabel = 'PANNE FICTIVE';
 
 		const result = await runImportWithFile(THREE_ROWS);
 
 		expect(result.status).toBe(500);
-		expect(result.data.error).toBe(
-			"L'import s'est arrêté après 1 transaction enregistrée. Supprimez-le dans Imports, puis réessayez."
-		);
+		// The FAILURE, not a sentence (D3): the page renders it, naming the import by the instant of
+		// the batch the row landed in, formatted with the history's own function. The sentence is
+		// `write-failure-banner.svelte.spec.ts`'s claim.
+		expect(result.data.writeFailure).toEqual({
+			kind: 'partly-saved',
+			landedRows: 1,
+			createdAt: (db.state.batches[0].createdAt as Date).toISOString()
+		});
 	});
 
 	it('leaves the history saying 1, which is what the ledger holds (#660)', async () => {
@@ -2639,9 +2644,7 @@ describe('/import: a failed write answers with a sentence, never a 500', () => {
 		const result = await runImportWithFile(THREE_ROWS);
 
 		expect(result.status).toBe(500);
-		expect(result.data.error).toBe(
-			"L'import n'a pas abouti et aucune transaction n'a été enregistrée. Réessayez."
-		);
+		expect(result.data.writeFailure).toEqual({ kind: 'nothing-saved' });
 	});
 
 	it('leaves no « Importé 0 » batch behind when nothing was saved', async () => {
@@ -2735,6 +2738,7 @@ async function runImport(formData: FormData) {
 		status?: number;
 		data: {
 			error: string;
+			writeFailure?: unknown;
 			correction?: { batchId: string; deleteOldImport: boolean } | null;
 			importResult?: {
 				fileName?: string;

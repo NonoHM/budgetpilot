@@ -30,7 +30,6 @@ import {
 	resolveImportBucketAccountById
 } from '$lib/server/import/persist';
 import { writeImport } from '$lib/server/import/writeImport';
-import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
 import { importFileErrorLabel } from '$lib/i18n/importFileErrorLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { deleteImportBatch } from '$lib/server/import/deleteBatch';
@@ -446,7 +445,8 @@ export const actions: Actions = {
 		// designations are not what failed; the repair the sentence names is on `/imports`.
 		if (!written.ok) {
 			return fail(written.failure.kind === 'currency' ? 400 : 500, {
-				error: importWriteFailureLabel(written.failure),
+				// The failure, not a sentence: see `/import`'s same branch for why the page renders it.
+				writeFailure: written.failure,
 				keepDesignation: true
 			});
 		}

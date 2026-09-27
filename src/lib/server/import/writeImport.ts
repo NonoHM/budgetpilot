@@ -1,6 +1,6 @@
 import { DeclaredCurrencyMismatchError, type DeclaredCurrencyMismatch } from './declaredCurrency';
 import {
-	createImportBatch,
+	createImportBatchRow,
 	deleteEmptyImportBatch,
 	ImportWriteError,
 	persistImportedTransactions,
@@ -18,26 +18,36 @@ import type { ImportedTransaction } from './types';
  * for « some landed » (delete the import first, or the retry files the rest beside a partial
  * batch). `maybe-saved` is the member for not knowing, and it is where anything unrecognised goes:
  * a classifier that defaulted to « nothing » would claim what nobody checked.
+ *
+ * `partly-saved` carries the batch's `createdAt` as an ISO instant: the sentence names WHICH import
+ * to delete by the timestamp `/imports` names it by (`CONTEXT.md`, « Import »), and it is formatted
+ * where it is rendered, by the history's own function, so the two read identically in the reader's
+ * time zone. Never a formatted string from here.
  */
 export type ImportWriteRefusal =
 	| { kind: 'currency'; fact: DeclaredCurrencyMismatch }
 	| { kind: 'nothing-saved' }
-	| { kind: 'partly-saved'; landedRows: number }
+	| { kind: 'partly-saved'; landedRows: number; createdAt: string }
 	| { kind: 'maybe-saved' };
 
 export type ImportWriteOutcome =
 	| { ok: true; batchId: string; persisted: PersistImportedTransactionsResult }
 	| { ok: false; failure: ImportWriteRefusal };
 
-/** Maps what the write step threw to what may be said about it. Pure, and total. */
-export function classifyWriteFailure(caught: unknown): ImportWriteRefusal {
+/**
+ * Maps what the write step threw to what may be said about it. Pure, and total. `batchCreatedAt`
+ * is the batch the rows were filed under, named by a partial failure.
+ */
+export function classifyWriteFailure(caught: unknown, batchCreatedAt: Date): ImportWriteRefusal {
 	if (caught instanceof DeclaredCurrencyMismatchError)
 		return { kind: 'currency', fact: caught.fact };
 	if (caught instanceof ImportWriteError) {
 		if (caught.failure.kind === 'not-found') return { kind: 'nothing-saved' };
 		const { landedRows } = caught.failure;
 		if (landedRows === null) return { kind: 'maybe-saved' };
-		return landedRows === 0 ? { kind: 'nothing-saved' } : { kind: 'partly-saved', landedRows };
+		return landedRows === 0
+			? { kind: 'nothing-saved' }
+			: { kind: 'partly-saved', landedRows, createdAt: batchCreatedAt.toISOString() };
 	}
 	return { kind: 'maybe-saved' };
 }
@@ -58,8 +68,9 @@ export async function writeImport(input: {
 	parseDuplicateRows: number;
 }): Promise<ImportWriteOutcome> {
 	let batchId: string;
+	let batchCreatedAt: Date;
 	try {
-		batchId = await createImportBatch(input.batch);
+		({ id: batchId, createdAt: batchCreatedAt } = await createImportBatchRow(input.batch));
 	} catch (caught) {
 		// Before the batch exists no row can be filed under it, so « nothing » is known here even
 		// for an error this module does not recognise. It is the only place that holds.
@@ -78,7 +89,7 @@ export async function writeImport(input: {
 		});
 		return { ok: true, batchId, persisted };
 	} catch (caught) {
-		const failure = classifyWriteFailure(caught);
+		const failure = classifyWriteFailure(caught, batchCreatedAt);
 		// The currency backstop is a refusal the route states in full, not a fault to report.
 		if (failure.kind !== 'currency') logWriteFailure(caught, 'rows');
 		// NOTHING LANDED, KNOWN: the batch holds no rows, so it goes. Left in place it reads

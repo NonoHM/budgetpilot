@@ -623,6 +623,17 @@ export async function deleteEmptyImportBatch(
  * its callers', which is the shape #596 names. `writeStep.db-smoke.ts` is the attack.
  */
 export async function createImportBatch(input: CreateImportBatchInput): Promise<string> {
+	return (await createImportBatchRow(input)).id;
+}
+
+/**
+ * `createImportBatch`, returning the instant the batch was created as well: the timestamp `/imports`
+ * names the import BY (`CONTEXT.md`, « Import »), which the write step's failure sentence needs to
+ * say which import to delete (D3). Read off the row the database wrote, never the clock here.
+ */
+export async function createImportBatchRow(
+	input: CreateImportBatchInput
+): Promise<{ id: string; createdAt: Date }> {
 	const account = await prisma.account.findFirst({
 		where: { id: input.accountId, userId: input.userId },
 		select: { id: true }
@@ -654,7 +665,7 @@ export async function createImportBatch(input: CreateImportBatchInput): Promise<
 			dateOrder: input.dateOrder ?? null
 		}
 	});
-	return batch.id;
+	return { id: batch.id, createdAt: batch.createdAt };
 }
 
 export interface PersistImportedTransactionsInput {

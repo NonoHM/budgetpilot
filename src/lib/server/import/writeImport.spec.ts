@@ -2,14 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeclaredCurrencyMismatchError } from './declaredCurrency';
 
 const persist = vi.hoisted(() => ({
-	createImportBatch: vi.fn(),
-	persistImportedTransactions: vi.fn()
+	createImportBatchRow: vi.fn(),
+	persistImportedTransactions: vi.fn(),
+	deleteEmptyImportBatch: vi.fn(async () => true)
 }));
+
+/** The instant the batch row was created, as the database returns it. */
+const CREATED_AT = new Date('2026-09-27T13:31:05.000Z');
 
 vi.mock('./persist', async (importOriginal) => ({
 	...(await importOriginal<typeof import('./persist')>()),
-	createImportBatch: persist.createImportBatch,
-	persistImportedTransactions: persist.persistImportedTransactions
+	createImportBatchRow: persist.createImportBatchRow,
+	persistImportedTransactions: persist.persistImportedTransactions,
+	deleteEmptyImportBatch: persist.deleteEmptyImportBatch
 }));
 
 const { ImportWriteError } = await import('./persist');
@@ -31,41 +36,48 @@ const MISMATCH = {
  */
 describe('classifyWriteFailure', () => {
 	it('keeps the currency refusal as the fact the route already renders', () => {
-		expect(classifyWriteFailure(new DeclaredCurrencyMismatchError(MISMATCH))).toEqual({
+		expect(classifyWriteFailure(new DeclaredCurrencyMismatchError(MISMATCH), CREATED_AT)).toEqual({
 			kind: 'currency',
 			fact: MISMATCH
 		});
 	});
 
 	it('says nothing was saved for a reference that did not resolve', () => {
-		expect(classifyWriteFailure(new ImportWriteError({ kind: 'not-found' }))).toEqual({
+		expect(classifyWriteFailure(new ImportWriteError({ kind: 'not-found' }), CREATED_AT)).toEqual({
 			kind: 'nothing-saved'
 		});
 	});
 
 	it('says nothing was saved when the ledger holds 0 rows for the batch', () => {
-		expect(classifyWriteFailure(new ImportWriteError({ kind: 'failed', landedRows: 0 }))).toEqual({
+		expect(
+			classifyWriteFailure(new ImportWriteError({ kind: 'failed', landedRows: 0 }), CREATED_AT)
+		).toEqual({
 			kind: 'nothing-saved'
 		});
 	});
 
 	it('names the count when the ledger holds some rows', () => {
-		expect(classifyWriteFailure(new ImportWriteError({ kind: 'failed', landedRows: 3 }))).toEqual({
+		expect(
+			classifyWriteFailure(new ImportWriteError({ kind: 'failed', landedRows: 3 }), CREATED_AT)
+		).toEqual({
 			kind: 'partly-saved',
-			landedRows: 3
+			landedRows: 3,
+			createdAt: CREATED_AT.toISOString()
 		});
 	});
 
 	it('says rows may have been saved when the ledger could not be read', () => {
 		expect(
-			classifyWriteFailure(new ImportWriteError({ kind: 'failed', landedRows: null }))
+			classifyWriteFailure(new ImportWriteError({ kind: 'failed', landedRows: null }), CREATED_AT)
 		).toEqual({ kind: 'maybe-saved' });
 	});
 
 	it('says rows may have been saved for an error it does not recognise, never « nothing »', () => {
 		// Fails SAFE. `persistImportedTransactions` wraps every throw today, so this branch is reached
 		// only by a future writer that does not; « nothing was saved » there would be a guess.
-		expect(classifyWriteFailure(new Error('connection reset'))).toEqual({ kind: 'maybe-saved' });
+		expect(classifyWriteFailure(new Error('connection reset'), CREATED_AT)).toEqual({
+			kind: 'maybe-saved'
+		});
 	});
 });
 
@@ -89,7 +101,7 @@ describe('writeImport', () => {
 	it('says nothing was saved when the batch itself could not be created, and writes no row', async () => {
 		// A raw error from `createImportBatch` is the one raw error this module classifies itself:
 		// no batch id exists, so no row can have been filed under one.
-		persist.createImportBatch.mockRejectedValueOnce(new Error('connection reset'));
+		persist.createImportBatchRow.mockRejectedValueOnce(new Error('connection reset'));
 
 		const outcome = await writeImport({ batch, transactions: [], parseDuplicateRows: 0 });
 
@@ -98,19 +110,23 @@ describe('writeImport', () => {
 	});
 
 	it('carries the persist step’s count out as partly-saved', async () => {
-		persist.createImportBatch.mockResolvedValueOnce('batch-1');
+		persist.createImportBatchRow.mockResolvedValueOnce({ id: 'batch-1', createdAt: CREATED_AT });
 		persist.persistImportedTransactions.mockRejectedValueOnce(
 			new ImportWriteError({ kind: 'failed', landedRows: 2 })
 		);
 
 		const outcome = await writeImport({ batch, transactions: [], parseDuplicateRows: 0 });
 
-		expect(outcome).toEqual({ ok: false, failure: { kind: 'partly-saved', landedRows: 2 } });
+		// The batch's own instant rides with the count, as an ISO string the page formats (D3).
+		expect(outcome).toEqual({
+			ok: false,
+			failure: { kind: 'partly-saved', landedRows: 2, createdAt: CREATED_AT.toISOString() }
+		});
 	});
 
 	it('logs the failure without the cause’s message, which can quote a user’s rows', async () => {
 		const error = vi.spyOn(console, 'error').mockImplementation(() => {});
-		persist.createImportBatch.mockResolvedValueOnce('batch-1');
+		persist.createImportBatchRow.mockResolvedValueOnce({ id: 'batch-1', createdAt: CREATED_AT });
 		const cause = Object.assign(new Error('Invalid value for label: CARTE SUPERETTE FICTIVE'), {
 			code: 'P2000'
 		});
@@ -127,7 +143,7 @@ describe('writeImport', () => {
 	});
 
 	it('returns the batch and the persisted figures on success', async () => {
-		persist.createImportBatch.mockResolvedValueOnce('batch-1');
+		persist.createImportBatchRow.mockResolvedValueOnce({ id: 'batch-1', createdAt: CREATED_AT });
 		const persisted = {
 			importedRows: 1,
 			duplicateRows: 0,

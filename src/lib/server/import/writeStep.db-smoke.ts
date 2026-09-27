@@ -334,7 +334,7 @@ function batchFor(accountId: string, fileName: string) {
 
 describe('#662: what the partial-import sentence tells the user to do', () => {
 	it('a CORRECTED file lands all 4 rows once the partial import is deleted', async () => {
-		expect.assertions(4);
+		expect.assertions(5);
 		const accountId = await bucketOf(userA, 'd3-repair');
 		const fileName = `repair-${Date.now()}.csv`;
 
@@ -344,12 +344,19 @@ describe('#662: what the partial-import sentence tells the user to do', () => {
 			parseDuplicateRows: 0
 		});
 		// The sentence's own premise: three rows landed, and the screen is told so.
-		expect(failed).toEqual({ ok: false, failure: { kind: 'partly-saved', landedRows: 3 } });
+		expect(failed).toEqual({
+			ok: false,
+			failure: { kind: 'partly-saved', landedRows: 3, createdAt: expect.any(String) }
+		});
 
-		// « Supprimez-le dans Imports »: the delete `/imports` performs.
+		// « Supprimez-le dans Imports »: the delete `/imports` performs, on the import the sentence
+		// names. The instant it carries is THAT batch's, which is what `/imports` titles its row by.
 		const partial = await prisma.importBatch.findFirstOrThrow({
 			where: { userId: userA, fileName },
-			select: { id: true }
+			select: { id: true, createdAt: true }
+		});
+		expect(failed.ok ? null : failed.failure).toMatchObject({
+			createdAt: partial.createdAt.toISOString()
 		});
 		expect(await deleteImportBatch(userA, partial.id)).toBe(true);
 
@@ -397,8 +404,9 @@ describe('#662: what the partial-import sentence tells the user to do', () => {
 			parseDuplicateRows: 0
 		});
 
-		expect(first).toEqual({ ok: false, failure: { kind: 'partly-saved', landedRows: 3 } });
-		expect(retried).toEqual({ ok: false, failure: { kind: 'partly-saved', landedRows: 3 } });
+		const partialFailure = { kind: 'partly-saved', landedRows: 3, createdAt: expect.any(String) };
+		expect(first).toEqual({ ok: false, failure: partialFailure });
+		expect(retried).toEqual({ ok: false, failure: partialFailure });
 		expect(await prisma.transaction.count({ where: { userId: userA, accountId } })).toBe(3);
 	});
 });

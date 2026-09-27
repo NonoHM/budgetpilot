@@ -42,7 +42,6 @@ import {
 export type { ImportInvalidRowDetail } from '$lib/server/import/invalidRowDetails';
 import { resolveImportBucketAccountBySource } from '$lib/server/import/persist';
 import { writeImport } from '$lib/server/import/writeImport';
-import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
 import { importFileErrorLabel } from '$lib/i18n/importFileErrorLabel';
 import { describeIncomingBatch, findCollidingBatch } from '$lib/server/import/collision';
 import { buildAccountOffer, type AccountOffer } from '$lib/server/import/accountOffer';
@@ -762,8 +761,11 @@ export const actions: Actions = {
 		// is the server's failure rather than the file's; the currency backstop is the file's, and is
 		// the same refusal and status this route gives before writing (#600).
 		if (!written.ok) {
+			// The FAILURE, not a sentence: the page renders it, because a partial failure names the
+			// import by a timestamp that has to be formatted in the reader's time zone, by the same
+			// function `/imports` names it with (D3, `importTimestamp.ts`).
 			return fail(written.failure.kind === 'currency' ? 400 : 500, {
-				error: importWriteFailureLabel(written.failure)
+				writeFailure: written.failure
 			});
 		}
 		const { batchId, persisted } = written;

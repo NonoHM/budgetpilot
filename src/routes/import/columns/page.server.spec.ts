@@ -133,7 +133,14 @@ vi.mock('$lib/server/import/mapping/store', () => store);
 vi.mock('$lib/server/import/persist', async (importOriginal) => ({
 	ImportWriteError: (await importOriginal<typeof import('$lib/server/import/persist')>())
 		.ImportWriteError,
-	...persist
+	...persist,
+	// The write step asks for the batch WITH its creation instant (D3: a partial failure names the
+	// import by it). Delegates to the `createImportBatch` mock so every test that sets that one keeps
+	// governing the id; the instant is fixed.
+	createImportBatchRow: async (input: unknown) => ({
+		id: await (persist.createImportBatch as (input: unknown) => Promise<string>)(input),
+		createdAt: new Date('2026-09-27T11:31:05.000Z')
+	})
 }));
 vi.mock('$lib/server/import/collision', () => collision);
 vi.mock('$lib/server/import/deleteBatch', () => deleteBatch);
@@ -176,7 +183,7 @@ async function submit(csv: string, hasHeaderRow: boolean, extra: Record<string, 
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
 	} as any)) as unknown as {
 		status?: number;
-		data?: { error?: string; keepDesignation?: boolean };
+		data?: { error?: string; keepDesignation?: boolean; writeFailure?: unknown };
 		replaced?: {
 			kind: 'none' | 'deleted' | 'withheld' | 'withheldOtherPeriod';
 			replacedAt?: string;
@@ -334,9 +341,13 @@ describe('a corrected import replaces the batch it was launched from', () => {
 
 		expect(deleteBatch.deleteImportBatch).not.toHaveBeenCalled();
 		expect(result.status).toBe(500);
-		expect(result.data?.error).toBe(
-			"L'import s'est arrêté après 2 transactions enregistrées. Supprimez-le dans Imports, puis réessayez."
-		);
+		// The FAILURE travels, not a sentence: the page renders it with the history's formatter, in
+		// the reader's time zone (D3). The instant is the new batch's, never the one being replaced.
+		expect(result.data?.writeFailure).toEqual({
+			kind: 'partly-saved',
+			landedRows: 2,
+			createdAt: '2026-09-27T11:31:05.000Z'
+		});
 		// The designations stay on screen: the repair is on `/imports`, not a new designation.
 		expect(result.data?.keepDesignation).toBe(true);
 	});
