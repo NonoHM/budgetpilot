@@ -956,6 +956,44 @@ describe('/settings', () => {
 			expect(backupImport.restoreBackup).not.toHaveBeenCalled();
 		});
 
+		/**
+		 * #758: a backup whose date no engine stores faithfully is refused with THAT reason, not as
+		 * « corrompu ». Such a file is not corrupt: an install on SQLite accepted a year 0000 row
+		 * before #758 and exported it faithfully, and « corrompu » would send its owner looking for
+		 * damage that is not there. Separates the range sentence from the generic one, and « refused
+		 * before any write » from « restored ».
+		 */
+		it('rejette une sauvegarde portant une date hors plage, en le disant, sans appeler restoreBackup', async () => {
+			expect.assertions(3);
+
+			const file = buildBackupFile(
+				JSON.stringify({
+					formatVersion: 1,
+					exportedAt: '0999-12-31T00:00:00.000Z',
+					userEmail: 'user-a@example.test',
+					accounts: [],
+					categories: [],
+					importBatches: [],
+					transactions: [],
+					monthlyBudgets: [],
+					categoryRules: [],
+					categorizationRules: [],
+					categoryNatureMappings: []
+				})
+			);
+
+			const result = (await runRestoreAction(buildBackupFormData(file))) as {
+				status: number;
+				data: { restoreError: string };
+			};
+
+			expect(result.status).toBe(400);
+			expect(result.data.restoreError).toBe(
+				'Cette sauvegarde contient une date hors des années 1000 à 9999. Vos données n’ont pas été modifiées.'
+			);
+			expect(backupImport.restoreBackup).not.toHaveBeenCalled();
+		});
+
 		it('rejette un payload contenant un champ non déclaré (ex. userId injecté) sans appeler restoreBackup', async () => {
 			expect.assertions(3);
 

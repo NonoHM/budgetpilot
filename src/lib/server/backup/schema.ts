@@ -1,6 +1,6 @@
 import { isValidCurrencyCode } from '$lib/domain/money';
 import { z } from 'zod';
-import { TRANSACTION_NATURES } from '$lib/domain/transaction';
+import { isStorableYear, TRANSACTION_NATURES } from '$lib/domain/transaction';
 import { DEFAULT_CATEGORY_KEYS } from '$lib/domain/categories';
 import { NET_WORTH_ACCOUNT_TYPES } from '$lib/domain/netWorth';
 import { TAG_COLOR_TOKENS, MAX_TAGS_PER_TRANSACTION } from '$lib/domain/tags';
@@ -15,9 +15,47 @@ const categorizationRuleKind = z.enum(['income', 'expense', 'any']);
  * is automatically rejected, even if present in the payload.
  */
 
-const isoDateString = z.string().refine((value) => !Number.isNaN(Date.parse(value)), {
-	message: 'date ISO invalide'
-});
+/** Carried on the issue a date outside `STORABLE_YEARS` raises, so the route can say so. */
+const DATE_OUT_OF_RANGE = 'date-out-of-range';
+
+/**
+ * Every date a backup carries lands in a `DateTime` column, so every one of them is held to
+ * `STORABLE_YEARS` (#758), the same bound the import parser applies to a row: MariaDB reads a
+ * year 0000 value back as 2000, PostgreSQL throws `22008` for it and reads year 10000 back as an
+ * Invalid Date. The same principle as `MAX_PORTABLE_STRING` below: refuse, before any write, what
+ * one supported engine cannot store faithfully.
+ *
+ * Judged on the UTC year, because that is what is stored. The second refinement answers `true` for
+ * a string that is not a date at all, so an unparseable value raises ONE issue, the first one, and
+ * is never described as a date out of range.
+ */
+const isoDateString = z
+	.string()
+	.refine((value) => !Number.isNaN(Date.parse(value)), {
+		message: 'date ISO invalide'
+	})
+	.refine(
+		(value) => {
+			const time = Date.parse(value);
+			return Number.isNaN(time) || isStorableYear(new Date(time).getUTCFullYear());
+		},
+		{ message: 'année hors plage', params: { refusal: DATE_OUT_OF_RANGE } }
+	);
+
+/**
+ * Why a backup was refused, as the route needs it: a date outside the storable years, which the
+ * owner of a file exported before #758 can act on, or anything else, which is « corrupt ». Read
+ * off the issue's own `params`, never off its message text.
+ */
+export function restoreRefusal(error: z.ZodError): 'date-out-of-range' | 'invalid' {
+	return error.issues.some(
+		(issue) =>
+			issue.code === 'custom' &&
+			(issue.params as { refusal?: unknown } | undefined)?.refusal === DATE_OUT_OF_RANGE
+	)
+		? 'date-out-of-range'
+		: 'invalid';
+}
 
 /**
  * The narrowest width any provider gives a `String` column that carries no native-type

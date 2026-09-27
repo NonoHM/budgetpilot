@@ -908,6 +908,7 @@
 	"settings_error_restore_invalid_json": "Le fichier n’est pas un JSON valide.",
 	"settings_error_restore_unsupported_format": "Format de sauvegarde non supporté.",
 	"settings_error_restore_corrupted": "Fichier de sauvegarde invalide ou corrompu.",
+	"settings_error_restore_date_out_of_range": "Cette sauvegarde contient une date hors des années {first} à {last}. Vos données n’ont pas été modifiées.",
 	"settings_error_restore_duplicate": "Le fichier contient un doublon de catégorie. Import annulé, vos données n'ont pas été modifiées.",
 	"settings_success_restored": "Vos données ont été restaurées à partir de la sauvegarde.",
 	"settings_backup_error_unknown_account": "La transaction « {id} » référence un compte inconnu du fichier.",

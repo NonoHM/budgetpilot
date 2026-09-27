@@ -24,7 +24,8 @@ import { isReauthRateLimited, recordReauthAttempt } from '$lib/server/auth/rateL
 import { resolveClientAddress } from '$lib/server/net/clientAddress';
 import { prisma } from '$lib/server/db';
 import { BackupImportError, restoreBackup } from '$lib/server/backup/import';
-import { backupExportSchema } from '$lib/server/backup/schema';
+import { backupExportSchema, restoreRefusal } from '$lib/server/backup/schema';
+import { STORABLE_YEAR_BOUNDS } from '$lib/i18n/refusalLabel';
 import { countJsonNodes, resolveBackupMaxJsonNodes } from '$lib/server/backup/parseBounds';
 import {
 	listTagsWithCounts,
@@ -399,7 +400,14 @@ export const actions: Actions = {
 
 		const parsed = backupExportSchema.safeParse(rawJson);
 		if (!parsed.success) {
-			return fail(400, { restoreError: m.settings_error_restore_corrupted() });
+			// #758: a date no engine stores faithfully is not corruption. An install on SQLite
+			// accepted such a row before the import parser refused it, and exported it faithfully.
+			return fail(400, {
+				restoreError:
+					restoreRefusal(parsed.error) === 'date-out-of-range'
+						? m.settings_error_restore_date_out_of_range(STORABLE_YEAR_BOUNDS)
+						: m.settings_error_restore_corrupted()
+			});
 		}
 
 		try {
