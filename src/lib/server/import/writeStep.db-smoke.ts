@@ -259,6 +259,55 @@ describe('#596: a foreign reference writes nothing and is refused as not-found',
 	});
 });
 
+describe('#596, one reference over: the correspondance a batch links to is the user’s', () => {
+	async function mappingOf(userId: string): Promise<string> {
+		const mapping = await prisma.columnMapping.create({
+			data: { userId, fingerprint: `d3-${Date.now()}-${Math.random()}`, columnCount: 3 }
+		});
+		return mapping.id;
+	}
+
+	function batchInput(accountId: string, columnMappingId: string) {
+		return {
+			userId: userA,
+			accountId,
+			source: 'csv',
+			fileName: `mapping-${columnMappingId}.csv`,
+			profile: 'mapped',
+			rowCount: 1,
+			invalidRows: 0,
+			period: { from: null, to: null },
+			columnMappingId
+		};
+	}
+
+	it('CALIBRATION: links the user’s own correspondance', async () => {
+		expect.assertions(1);
+		const own = await mappingOf(userA);
+		const batchId = await createImportBatch(batchInput(await bucketOf(userA, 'd3-own-map'), own));
+
+		const batch = await prisma.importBatch.findUniqueOrThrow({ where: { id: batchId } });
+		expect(batch.columnMappingId).toBe(own);
+	});
+
+	it('refuses another user’s columnMappingId and writes no batch', async () => {
+		expect.assertions(3);
+		const foreign = await mappingOf(userB);
+
+		let caught: (Error & { failure?: unknown }) | null = null;
+		try {
+			await createImportBatch(batchInput(await bucketOf(userA, 'd3-foreign-map'), foreign));
+		} catch (error) {
+			caught = error as Error & { failure?: unknown };
+		}
+
+		// Harm first: a batch of A's linked to B's correspondance would open B's recap from A's history.
+		expect(await prisma.importBatch.count({ where: { columnMappingId: foreign } })).toBe(0);
+		expect(caught?.name).toBe('ImportWriteError');
+		expect(caught?.failure).toEqual({ kind: 'not-found' });
+	});
+});
+
 describe('#662: the repair the partial-import sentence names works', () => {
 	it('deleting the partial import leaves none of its rows, and the next run lands all 4', async () => {
 		expect.assertions(4);

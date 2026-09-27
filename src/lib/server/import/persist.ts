@@ -598,8 +598,9 @@ export class ImportWriteError extends Error {
 /**
  * Creates the ImportBatch row a persistence run reports into; returns its id.
  *
- * #596, one function over: the account the batch is filed on is read with `userId` in the SAME
- * where clause before the batch exists, so a foreign `accountId` creates no batch at all. Every
+ * #596, one function over: the account the batch is filed on, and the correspondance it links to
+ * when there is one, are read with `userId` in the SAME where clause before the batch exists, so a
+ * foreign `accountId` or `columnMappingId` creates no batch at all. Every
  * caller resolves the account first today; this makes the property the function's own rather than
  * its callers', which is the shape #596 names. `writeStep.db-smoke.ts` is the attack.
  */
@@ -609,6 +610,16 @@ export async function createImportBatch(input: CreateImportBatchInput): Promise<
 		select: { id: true }
 	});
 	if (!account) throw new ImportWriteError({ kind: 'not-found' });
+	// The same claim for the correspondance the batch links to: a batch of this user's linked to
+	// another user's mapping would open THAT user's recap from this user's `/imports`. Checked only
+	// when one is named; null is the ordinary case of every auto-detected profile.
+	if (input.columnMappingId) {
+		const mapping = await prisma.columnMapping.findFirst({
+			where: { id: input.columnMappingId, userId: input.userId },
+			select: { id: true }
+		});
+		if (!mapping) throw new ImportWriteError({ kind: 'not-found' });
+	}
 
 	const batch = await prisma.importBatch.create({
 		data: {
