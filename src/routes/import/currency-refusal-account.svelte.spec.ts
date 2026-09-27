@@ -148,3 +148,113 @@ describe('after the currency refusal, the account question is back and unanswere
 		expect(nameOf(/^Checking USD, USD,/)?.className).toContain('text-zinc-500');
 	});
 });
+
+/**
+ * #741, THE REFUSAL'S WAY FORWARD. A user holding no account in the declared currency was told
+ * « Choisissez un compte en EUR » over a panel that could not produce one. The panel's « Nouveau
+ * compte » is now offered in the currency-refusal state, and ONLY there (a private Claude Design
+ * canvas draws it on the refusal alone).
+ */
+describe('#741: « Nouveau compte » on the currency refusal', () => {
+	/** Uploads, submits, and lands on `reply`, with the account panel opened, at 1280. */
+	async function panelAfter(reply: object) {
+		await page.viewport(1280, 800);
+		const rendered = await render(Page, { data: DATA, form: ACCOUNT_ASKED as never });
+		const section = rendered.container.querySelectorAll('main > section')[0] as HTMLElement;
+		await userEvent.upload(section.querySelector('input[type=file]') as HTMLInputElement, file());
+		await userEvent.click(section.querySelector('button[type=submit]') as HTMLElement);
+		await rendered.rerender({ data: DATA, form: reply as never });
+		await userEvent.click(
+			section.querySelector('[data-testid="import-account-question"] button') as HTMLElement
+		);
+		return section;
+	}
+
+	/** The footer actions in the open panel, counted by their visible name. */
+	const footerActions = (section: HTMLElement) =>
+		[...section.querySelectorAll('[data-testid="account-panel"] button')].filter(
+			(button) => button.textContent?.trim() === m.import_account_new()
+		);
+
+	it('is absent from the plain account question', async () => {
+		// SEPARATES: « the footer belongs to the refusal state » FROM « the footer is always shown »
+		// (the break: `allowCreate` true on every mount). The options are counted beside it, so a
+		// zero here is a panel that rendered and not a panel that did not open.
+		const section = await panelAfter(ACCOUNT_ASKED);
+		expect(section.querySelectorAll('[data-testid="account-panel"] [role="option"]').length).toBe(
+			2
+		);
+		expect(footerActions(section).length).toBe(0);
+	});
+
+	it('is offered, once, on the currency refusal', async () => {
+		// SEPARATES: « the refusal offers the way forward » FROM « the footer is never shown », the
+		// dead end #741 measured. Also the calibration of the count the test above reads as zero.
+		const section = await panelAfter(CURRENCY_REFUSED);
+		expect(footerActions(section).length).toBe(1);
+	});
+
+	it('creates the account in the declared currency, chooses it, and clears the banner', async () => {
+		const section = await panelAfter(CURRENCY_REFUSED);
+		const created = {
+			id: 'acc-new',
+			name: 'Compte joint',
+			discriminant: null,
+			transactionCount: 0,
+			currency: 'EUR'
+		};
+		const fetchSpy = vi.fn(async () => new Response(JSON.stringify({ account: created })));
+		vi.stubGlobal('fetch', fetchSpy);
+
+		await userEvent.click(footerActions(section)[0] as HTMLElement);
+		// The one line the sheet gains, compared WHOLE: a substring would pass over a doubled tail.
+		// SEPARATES: « the sheet says which currency the account will be in » FROM « the sheet reads
+		// as on the designation screen », where nothing names it.
+		expect(
+			[...document.querySelectorAll('[role="dialog"] p')].map((line) => line.textContent?.trim())
+		).toContain(m.import_account_create_currency({ currency: 'EUR' }));
+		await userEvent.fill(page.getByLabelText(m.import_account_create_field()), 'Compte joint');
+		await userEvent.click(page.getByRole('button', { name: m.import_account_create_submit() }));
+
+		await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1));
+		const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, { body: FormData }];
+		// SEPARATES: « the refusal's own currency is posted » FROM « the account is created in the
+		// default », which the endpoint does with no `currency` field (the break: the field not set).
+		// Its stored consequence is asserted through the route in `accounts/declaredCurrency.db-smoke.ts`.
+		expect({
+			url: String(url).endsWith('/import/accounts'),
+			name: init.body.get('name'),
+			currency: init.body.get('currency'),
+			file: (init.body.get('csvFile') as File | null)?.name
+		}).toStrictEqual({ url: true, name: 'Compte joint', currency: 'EUR', file: 'releve.csv' });
+
+		const row = section.querySelector('[data-testid="import-account-question"] button');
+		// SEPARATES: « the created account is chosen, by its name ALONE » FROM « the row still asks »,
+		// and from a row carrying a provenance line under the name (the live rule: a created account
+		// has none).
+		await vi.waitFor(() =>
+			expect(row?.getAttribute('aria-label')).toBe(
+				m.import_account_row_aria({ account: 'Compte joint' })
+			)
+		);
+		expect(row?.getAttribute('aria-describedby')).toBeNull();
+		// The answer rides the next « Importer le relevé ».
+		expect(posted(section, 'accountId')).toEqual(['acc-new']);
+		// SEPARATES: « the banner clears once an account in the declared currency is chosen » FROM
+		// « the refusal still stands over its own answer » (the break: the banner's condition without
+		// `currencyRefusalAnswered`). The next test is this zero's calibration on the same banner.
+		expect(section.querySelectorAll('[role="alert"]').length).toBe(0);
+	});
+
+	it('keeps the banner while the chosen account is still in another currency', async () => {
+		// Choosing the USD account answers nothing the refusal asked, so the sentence stays.
+		const section = await panelAfter(CURRENCY_REFUSED);
+		await userEvent.click(page.getByRole('option', { name: /Checking USD/ }).element());
+		expect(posted(section, 'accountId')).toEqual(['acc-usd']);
+		expect(
+			[...section.querySelectorAll('[role="alert"] span.min-w-0')].map((banner) =>
+				banner.textContent?.trim()
+			)
+		).toEqual([CURRENCY_REFUSED.error]);
+	});
+});

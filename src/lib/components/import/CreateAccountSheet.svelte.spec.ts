@@ -296,4 +296,37 @@ describe('the create account sheet', () => {
 		await mount({ prefill: '' });
 		expect((field().element() as HTMLInputElement).maxLength).toBe(120);
 	});
+
+	it('names the currency the account will be held in, when its host says one (#741)', async () => {
+		// SEPARATES: « the sheet opened from the currency refusal says the account will be in the
+		// declared currency » FROM « it reads as everywhere else ». The sentence is compared WHOLE and
+		// is in the field's description, so a screen reader meets it with the field it is about.
+		await mount({ prefill: 'Livret A', currency: 'EUR' });
+		const sentence = m.import_account_create_currency({ currency: 'EUR' });
+		const line = [...document.querySelectorAll('[role="dialog"] p')].find(
+			(paragraph) => paragraph.textContent?.trim() === sentence
+		);
+		expect(line?.id).toBeTruthy();
+		expect(
+			(field().element() as HTMLElement).getAttribute('aria-describedby')?.split(' ')
+		).toContain(line?.id);
+	});
+
+	it('says nothing about a currency when its host names none', async () => {
+		// SEPARATES: « the line belongs to the host that names a currency » FROM « every sheet grows a
+		// line » (the break: the line rendered whatever `currency` holds), which would put an unasked
+		// sentence on the designation screen. Asserted as WHAT the field's lines ARE rather than as the
+		// absence of one sentence: an always-rendered line reads « En null, … » here, which a
+		// `not.toContain` of the EUR sentence passes straight over.
+		await mount({ prefill: 'Livret A' });
+		const input = field().element() as HTMLElement;
+		expect(
+			[...(input.parentElement?.querySelectorAll('p') ?? [])].map((line) =>
+				line.textContent?.trim()
+			)
+		).toEqual([m.import_account_create_hint()]);
+		expect((field().element() as HTMLElement).getAttribute('aria-describedby')?.split(' ')).toEqual(
+			[expect.stringMatching(/^create-account-hint-/)]
+		);
+	});
 });
