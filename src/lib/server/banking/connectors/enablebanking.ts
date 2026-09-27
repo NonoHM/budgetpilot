@@ -3,6 +3,7 @@ import { constantTimeEquals } from '$lib/server/banking/constantTime';
 import { filterBalancesByCurrency, selectPreferredBalance } from '$lib/domain/bankBalance';
 import type { ImportedTransaction, ImportedTransactionType } from '$lib/server/import/types';
 import { parseMoney, DEFAULT_CURRENCY, isValidCurrencyCode } from '$lib/domain/money';
+import { isStorableIsoDate } from '$lib/domain/transaction';
 import {
 	buildPreviewRowId,
 	sanitizeImportedText,
@@ -365,6 +366,12 @@ function mapTransaction(
 		transaction.booking_date ?? transaction.value_date ?? transaction.transaction_date ?? null;
 	if (!date) {
 		throw new Error('Enable Banking transaction has no usable date');
+	}
+	// #758. The provider's string reached `persist.ts` unchecked, where a year 0000 row reads back
+	// as 2000 on MariaDB and throws `22008` on PostgreSQL. Refused by the same predicate every CSV
+	// row and every restore passes, and the same way this function refuses an unknown indicator.
+	if (!isStorableIsoDate(date)) {
+		throw new Error('Enable Banking transaction has an unusable date');
 	}
 
 	const remittance = (transaction.remittance_information ?? []).join(' ').trim();

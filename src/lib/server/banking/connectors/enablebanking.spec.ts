@@ -506,6 +506,65 @@ describe('EnableBankingConnector — fetchTransactions', () => {
 		expect(transactions[0].metadata.bankOperationType).toBe('PAIEMENTCARTE');
 	});
 
+	/**
+	 * #758 on the bank path. `booking_date` is provider-supplied and reached `persist.ts` with no
+	 * check at all, where MariaDB reads a year 0000 row back as 2000 and PostgreSQL throws `22008`.
+	 * The connector refuses a transaction it cannot read the same way it refuses an unknown
+	 * indicator or an unparseable amount: a throw the sync service records as a failed sync, never
+	 * a row written under another year. Separates « refused, naming the date » from « mapped ».
+	 */
+	it.each(['0000-01-16', '0999-12-31', 'not-a-date'])(
+		'refuses a booking_date of %s rather than mapping it',
+		async (bookingDate) => {
+			expect.assertions(1);
+			const fetchImpl = vi.fn().mockResolvedValue(
+				txPage([
+					{
+						entry_reference: 'ref-year',
+						booking_date: bookingDate,
+						status: 'BOOK',
+						credit_debit_indicator: 'DBIT',
+						transaction_amount: { currency: 'EUR', amount: '10.00' },
+						creditor: { name: 'Marchand' }
+					}
+				])
+			);
+			const { connector } = makeConnector({ fetchImpl });
+
+			await expect(
+				connector.fetchTransactions(activeConnection, 'acc-1', {
+					from: '2026-01-01',
+					to: '2026-01-31'
+				})
+			).rejects.toThrow('Enable Banking transaction has an unusable date');
+		}
+	);
+
+	/** The control: the first storable day maps unchanged, so the refusal above is about the year. */
+	it('maps a booking_date on the first storable day unchanged', async () => {
+		expect.assertions(1);
+		const fetchImpl = vi.fn().mockResolvedValue(
+			txPage([
+				{
+					entry_reference: 'ref-first-day',
+					booking_date: '1000-01-01',
+					status: 'BOOK',
+					credit_debit_indicator: 'DBIT',
+					transaction_amount: { currency: 'EUR', amount: '10.00' },
+					creditor: { name: 'Marchand' }
+				}
+			])
+		);
+		const { connector } = makeConnector({ fetchImpl });
+
+		const transactions = await connector.fetchTransactions(activeConnection, 'acc-1', {
+			from: '2026-01-01',
+			to: '2026-01-31'
+		});
+
+		expect(transactions.map((tx) => tx.date)).toEqual(['1000-01-01']);
+	});
+
 	it('mappe CRDT en revenu positif et DBIT en dépense négative', async () => {
 		const fetchImpl = vi.fn().mockResolvedValue(
 			txPage([
