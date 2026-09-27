@@ -441,6 +441,35 @@ const db = vi.hoisted(() => {
 					return batch;
 				}),
 				/**
+				 * The write step's removal of a batch it filed nothing under (D3). Faithful to the three
+				 * clauses the production call sends, `transactions: { none: {} }` included, and loud on
+				 * any other: a fake that ignored « holds no rows » would let a delete of a batch WITH rows
+				 * pass here.
+				 */
+				deleteMany: vi.fn(
+					async ({
+						where
+					}: {
+						where: { id?: string; userId?: string; transactions?: { none: object } };
+					}) => {
+						const unmodelled = Object.keys(where).filter(
+							(key) => !['id', 'userId', 'transactions'].includes(key)
+						);
+						if (unmodelled.length > 0) {
+							throw new Error(`importBatch.deleteMany: unmodelled where ${unmodelled.join(',')}`);
+						}
+						const doomed = state.batches.filter(
+							(batch) =>
+								(where.id === undefined || batch.id === where.id) &&
+								(where.userId === undefined || batch.userId === where.userId) &&
+								(where.transactions === undefined ||
+									!state.transactions.some((transaction) => transaction.importBatchId === batch.id))
+						);
+						for (const batch of doomed) state.batches.splice(state.batches.indexOf(batch), 1);
+						return { count: doomed.length };
+					}
+				),
+				/**
 				 * The write step's counters (#660), scoped by `userId` (#596). Faithful: an absent clause
 				 * filters nothing, as in Prisma, and a clause this cannot express throws.
 				 */
@@ -2585,6 +2614,17 @@ describe('/import: a failed write answers with a sentence, never a 500', () => {
 		expect(result.data.error).toBe(
 			"L'import n'a pas abouti et aucune transaction n'a été enregistrée. Réessayez."
 		);
+	});
+
+	it('leaves no « Importé 0 » batch behind when nothing was saved', async () => {
+		expect.assertions(2);
+		db.state.failCreateOnLabel = 'CAFE FICTIF';
+
+		await runImportWithFile(THREE_ROWS);
+
+		// CALIBRATION: nothing reached the ledger.
+		expect(db.state.transactions).toHaveLength(0);
+		expect(db.state.batches).toHaveLength(0);
 	});
 
 	it('refuses an archive that is not a workbook with its own sentence (#595)', async () => {

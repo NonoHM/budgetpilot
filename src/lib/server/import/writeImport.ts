@@ -1,6 +1,7 @@
 import { DeclaredCurrencyMismatchError, type DeclaredCurrencyMismatch } from './declaredCurrency';
 import {
 	createImportBatch,
+	deleteEmptyImportBatch,
 	ImportWriteError,
 	persistImportedTransactions,
 	type CreateImportBatchInput,
@@ -80,6 +81,18 @@ export async function writeImport(input: {
 		const failure = classifyWriteFailure(caught);
 		// The currency backstop is a refusal the route states in full, not a fault to report.
 		if (failure.kind !== 'currency') logWriteFailure(caught, 'rows');
+		// NOTHING LANDED, KNOWN: the batch holds no rows, so it goes. Left in place it reads
+		// « Importé 0 » in `/imports`, one more each time the user follows « Réessayez ». Not for
+		// `partly-saved` (it holds rows, and deleting them is the user's decision the sentence names)
+		// nor for `maybe-saved` (nobody knows what it holds). Best effort: a database that just failed
+		// the write may fail this too, and the batch then honestly shows what it holds, which is 0.
+		if (failure.kind === 'nothing-saved' || failure.kind === 'currency') {
+			try {
+				await deleteEmptyImportBatch(input.batch.userId, batchId);
+			} catch (cleanup) {
+				logWriteFailure(cleanup, 'cleanup');
+			}
+		}
 		return { ok: false, failure };
 	}
 }
@@ -93,7 +106,7 @@ export async function writeImport(input: {
  * The name and a short code (`P2003`, a SQLSTATE) are what an operator looks up; neither can carry
  * a label or an amount.
  */
-function logWriteFailure(caught: unknown, stage: 'batch' | 'rows'): void {
+function logWriteFailure(caught: unknown, stage: 'batch' | 'rows' | 'cleanup'): void {
 	const failure = caught instanceof ImportWriteError ? caught.failure : null;
 	const cause = caught instanceof ImportWriteError ? caught.cause : caught;
 	console.error(

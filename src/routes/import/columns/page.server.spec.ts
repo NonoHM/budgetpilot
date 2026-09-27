@@ -28,6 +28,9 @@ const store = vi.hoisted(() => ({
 
 const persist = vi.hoisted(() => ({
 	createImportBatch: vi.fn(async () => 'batch-1'),
+	// D3: removes a batch a failed write filed nothing under. Its where clause is asserted against
+	// real engines in `writeStep.db-smoke.ts`.
+	deleteEmptyImportBatch: vi.fn(async () => true),
 	/**
 	 * The account the USER CHOSE, resolved once and used by both the collision check and the write.
 	 *

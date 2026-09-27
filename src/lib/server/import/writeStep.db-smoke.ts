@@ -308,30 +308,38 @@ describe('#596, one reference over: the correspondance a batch links to is the u
 	});
 });
 
-describe('#662: the repair the partial-import sentence names works', () => {
-	it('deleting the partial import leaves none of its rows, and the next run lands all 4', async () => {
+/** The four rows every #662 test below writes, the third one a répartition refused after its parent landed. */
+function statementWithRefusedSplit(prefix: string): ImportedTransaction[] {
+	return [
+		row(`${prefix}1`, `${prefix} FICTIF 1`),
+		row(`${prefix}2`, `${prefix} FICTIF 2`),
+		rowWithRefusedSplit(`${prefix}3`, `${prefix} FICTIF 3`),
+		row(`${prefix}4`, `${prefix} FICTIF 4`)
+	];
+}
+
+function batchFor(accountId: string, fileName: string) {
+	return {
+		userId: userA,
+		accountId,
+		source: 'csv',
+		fileName,
+		profile: 'maison',
+		rowCount: 4,
+		invalidRows: 0,
+		period: { from: null, to: null }
+	};
+}
+
+describe('#662: what the partial-import sentence tells the user to do', () => {
+	it('a CORRECTED file lands all 4 rows once the partial import is deleted', async () => {
 		expect.assertions(4);
 		const accountId = await bucketOf(userA, 'd3-repair');
 		const fileName = `repair-${Date.now()}.csv`;
-		const batch = {
-			userId: userA,
-			accountId,
-			source: 'csv',
-			fileName,
-			profile: 'maison',
-			rowCount: 4,
-			invalidRows: 0,
-			period: { from: null, to: null }
-		};
 
 		const failed = await writeImport({
-			batch,
-			transactions: [
-				row('r1', 'MARCHE FICTIF 1'),
-				row('r2', 'MARCHE FICTIF 2'),
-				rowWithRefusedSplit('r3', 'MARCHE FICTIF 3'),
-				row('r4', 'MARCHE FICTIF 4')
-			],
+			batch: batchFor(accountId, fileName),
+			transactions: statementWithRefusedSplit('MARCHE'),
 			parseDuplicateRows: 0
 		});
 		// The sentence's own premise: three rows landed, and the screen is told so.
@@ -344,19 +352,133 @@ describe('#662: the repair the partial-import sentence names works', () => {
 		});
 		expect(await deleteImportBatch(userA, partial.id)).toBe(true);
 
-		// « puis réessayez »: the corrected file lands every row, and none is miscounted as a
-		// duplicate of a row the delete removed.
+		// A file whose cause is FIXED lands every row, none miscounted as a duplicate of a row the
+		// delete removed. This measures a corrected file, not the literal retry: see the next test.
 		const retried = await writeImport({
-			batch,
+			batch: batchFor(accountId, fileName),
 			transactions: [
-				row('r1', 'MARCHE FICTIF 1'),
-				row('r2', 'MARCHE FICTIF 2'),
-				row('r3', 'MARCHE FICTIF 3'),
-				row('r4', 'MARCHE FICTIF 4')
+				row('MARCHE1', 'MARCHE FICTIF 1'),
+				row('MARCHE2', 'MARCHE FICTIF 2'),
+				row('MARCHE3', 'MARCHE FICTIF 3'),
+				row('MARCHE4', 'MARCHE FICTIF 4')
 			],
 			parseDuplicateRows: 0
 		});
 		expect(retried.ok && retried.persisted.importedRows).toBe(4);
 		expect(await prisma.transaction.count({ where: { userId: userA, accountId } })).toBe(4);
+	});
+
+	/**
+	 * THE LITERAL INSTRUCTION, recorded rather than assumed. « Supprimez-le dans Imports, puis
+	 * réessayez » with the SAME file, when the cause is in the file (here a répartition the write
+	 * refuses): the retry stops at the same row with the same 3 landed. The sentence repairs a
+	 * transient cause, a lost connection; a cause in the file needs the file changed, and the
+	 * sentence cannot know which it was.
+	 */
+	it('the SAME file, retried after the delete, stops again after the same 3 rows', async () => {
+		expect.assertions(3);
+		const accountId = await bucketOf(userA, 'd3-literal');
+		const fileName = `literal-${Date.now()}.csv`;
+
+		const first = await writeImport({
+			batch: batchFor(accountId, fileName),
+			transactions: statementWithRefusedSplit('HALLE'),
+			parseDuplicateRows: 0
+		});
+		const partial = await prisma.importBatch.findFirstOrThrow({
+			where: { userId: userA, fileName },
+			select: { id: true }
+		});
+		await deleteImportBatch(userA, partial.id);
+		const retried = await writeImport({
+			batch: batchFor(accountId, fileName),
+			transactions: statementWithRefusedSplit('HALLE'),
+			parseDuplicateRows: 0
+		});
+
+		expect(first).toEqual({ ok: false, failure: { kind: 'partly-saved', landedRows: 3 } });
+		expect(retried).toEqual({ ok: false, failure: { kind: 'partly-saved', landedRows: 3 } });
+		expect(await prisma.transaction.count({ where: { userId: userA, accountId } })).toBe(3);
+	});
+});
+
+/**
+ * D3 contradiction pass, item 2: a write that saved NOTHING leaves no batch behind. Before, the
+ * batch created for it stayed in `/imports` reading « Importé 0 », once per retry. A row whose date
+ * cannot be written fails before its insert on all three engines, so nothing lands.
+ */
+describe('#662: a write that saves nothing leaves no batch in the history', () => {
+	function undatable(id: string, label: string): ImportedTransaction {
+		return { ...row(id, label), date: 'pas-une-date' };
+	}
+
+	it('removes the batch when the first row fails before anything landed', async () => {
+		expect.assertions(2);
+		const accountId = await bucketOf(userA, 'd3-empty');
+		const fileName = `empty-${Date.now()}.csv`;
+
+		const outcome = await writeImport({
+			batch: batchFor(accountId, fileName),
+			transactions: [undatable('e1', 'VIDE FICTIF 1'), row('e2', 'VIDE FICTIF 2')],
+			parseDuplicateRows: 0
+		});
+
+		expect(await prisma.importBatch.count({ where: { userId: userA, fileName } })).toBe(0);
+		expect(outcome).toEqual({ ok: false, failure: { kind: 'nothing-saved' } });
+	});
+
+	it('removes the batch the currency backstop refused before its first row', async () => {
+		expect.assertions(2);
+		const accountId = await bucketOf(userA, 'd3-currency');
+		const fileName = `currency-${Date.now()}.csv`;
+
+		const outcome = await writeImport({
+			batch: batchFor(accountId, fileName),
+			transactions: [{ ...row('u1', 'DEVISE FICTIVE'), declaredCurrency: 'USD' }],
+			parseDuplicateRows: 0
+		});
+
+		expect(await prisma.importBatch.count({ where: { userId: userA, fileName } })).toBe(0);
+		expect(outcome.ok ? null : outcome.failure.kind).toBe('currency');
+	});
+
+	/**
+	 * The literal « Réessayez » of the nothing-saved sentence, with a cause in the file: each retry
+	 * fails the same way, and none of them leaves a batch. Separates « one empty batch per retry »
+	 * (before) from « none ».
+	 */
+	it('leaves no batch after the SAME file is retried and fails again', async () => {
+		expect.assertions(2);
+		const accountId = await bucketOf(userA, 'd3-empty-retry');
+		const fileName = `empty-retry-${Date.now()}.csv`;
+		const statement = () => [undatable('x1', 'REPRISE FICTIVE 1'), row('x2', 'REPRISE FICTIVE 2')];
+
+		await writeImport({
+			batch: batchFor(accountId, fileName),
+			transactions: statement(),
+			parseDuplicateRows: 0
+		});
+		const retried = await writeImport({
+			batch: batchFor(accountId, fileName),
+			transactions: statement(),
+			parseDuplicateRows: 0
+		});
+
+		expect(await prisma.importBatch.count({ where: { userId: userA, fileName } })).toBe(0);
+		expect(retried).toEqual({ ok: false, failure: { kind: 'nothing-saved' } });
+	});
+
+	it('CALIBRATION: keeps the batch when rows did land', async () => {
+		expect.assertions(1);
+		const accountId = await bucketOf(userA, 'd3-kept');
+		const fileName = `kept-${Date.now()}.csv`;
+
+		await writeImport({
+			batch: batchFor(accountId, fileName),
+			transactions: statementWithRefusedSplit('GARDE'),
+			parseDuplicateRows: 0
+		});
+
+		expect(await prisma.importBatch.count({ where: { userId: userA, fileName } })).toBe(1);
 	});
 });

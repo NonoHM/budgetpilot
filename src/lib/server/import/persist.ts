@@ -596,6 +596,24 @@ export class ImportWriteError extends Error {
 }
 
 /**
+ * Removes a batch the write step created and filed nothing under (#662, D3 contradiction pass).
+ *
+ * « Holds no rows » is a clause of the DELETE itself, not a check before it, so this cannot remove a
+ * batch that has transactions, whatever its caller believed: a row landing between a count and a
+ * delete would otherwise be orphaned. Scoped by `userId` in the same where clause (#596). Returns
+ * whether a batch was removed.
+ */
+export async function deleteEmptyImportBatch(
+	userId: string,
+	importBatchId: string
+): Promise<boolean> {
+	const removed = await prisma.importBatch.deleteMany({
+		where: { id: importBatchId, userId, transactions: { none: {} } }
+	});
+	return removed.count === 1;
+}
+
+/**
  * Creates the ImportBatch row a persistence run reports into; returns its id.
  *
  * #596, one function over: the account the batch is filed on, and the correspondance it links to
