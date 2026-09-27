@@ -42,8 +42,10 @@ export const KINDS = [
  */
 export const PATTERNS = {
 	// (a) The host followed by a slash, so an address with a path. The bare word, as AGENTS.md
-	// uses it in prose (« a claude.ai session »), is not an address and is not matched.
-	'claude-address': /claude\.ai\//gi,
+	// uses it in prose (« a claude.ai session »), is not an address and is not matched. Written with
+	// character classes: the decoded copy undoes backslash escapes, so `\.` and `\/` here would
+	// make this line a finding against its own file.
+	'claude-address': /claude[.]ai[/]/gi,
 	// (b) A home-directory path with a name after it: Linux, macOS, and a Windows profile directory
 	// with either separator, escaped or not. The lookbehind keeps a URL path segment out (a
 	// `/home/` route under some host is preceded by a word character), while `file:///` and a path
@@ -374,21 +376,62 @@ function decodedChar(code) {
 	return String.fromCodePoint(code);
 }
 
+/** The named HTML entities that spell a character a reference needs. */
+const NAMED_ENTITIES = { period: '.', sol: '/', colon: ':', commat: '@', amp: '&' };
+
 /**
- * The same text with the encodings a reference hides behind undone, so `https:\/\/`, a backslash-u escape of `/`,
- * a `%2F`, a `&#47;` and a UTF-16 byte stream (a NUL after every ASCII byte, as a file read one
- * byte per character yields) all match the patterns above. No line break is added or removed, so a
- * line number from this copy is a line number in the original.
+ * HTML comments removed, their line breaks kept. Linear: one search for each opener and its
+ * closer, and an opener with no closer ends the search, since none after it can close either.
+ *
+ * @param {string} text
+ */
+function withoutComments(text) {
+	let out = '';
+	let at = 0;
+	for (;;) {
+		const open = text.indexOf('<!--', at);
+		if (open < 0) break;
+		const close = text.indexOf('-->', open + 4);
+		if (close < 0) break;
+		out += text.slice(at, open) + text.slice(open, close + 3).replace(/[^\n]/g, '');
+		at = close + 3;
+	}
+	return at === 0 ? text : out + text.slice(at);
+}
+
+/** @param {string} text */
+function decodedOnce(text) {
+	let out = text.includes('\0') ? text.replace(/\0/g, '') : text;
+	out = withoutComments(out);
+	out = out.replace(/\\u([0-9A-Fa-f]{4})/g, (_, hex) => decodedChar(parseInt(hex, 16)));
+	// CommonMark's backslash escape of any ASCII punctuation, which also covers JSON's escaped slash.
+	out = out.replace(/\\([!-/:-@[-`{-~])/g, '$1');
+	out = out.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => decodedChar(parseInt(hex, 16)));
+	out = out.replace(/&#(\d{1,7});/g, (_, dec) => decodedChar(Number(dec)));
+	out = out.replace(/&#[xX]([0-9A-Fa-f]{1,6});/g, (_, hex) => decodedChar(parseInt(hex, 16)));
+	out = out.replace(
+		/&(period|sol|colon|commat|amp);/g,
+		(_, name) => NAMED_ENTITIES[/** @type {keyof typeof NAMED_ENTITIES} */ (name)]
+	);
+	return out;
+}
+
+/**
+ * The same text with the encodings a reference hides behind undone: JSON and CommonMark backslash
+ * escapes, `\u` escapes, percent-encoding, numeric and named entities, HTML comments, and a UTF-16
+ * byte stream (a NUL after every ASCII byte, as a file read one byte per character yields). Decoded
+ * again until nothing changes, at most three passes, so a `%252F` or an `&amp;#47;` is undone too.
+ * No line break is added or removed, so a line number from this copy is one in the original.
  *
  * @param {string} text
  */
 export function decodedForScan(text) {
-	let out = text.includes('\0') ? text.replace(/\0/g, '') : text;
-	out = out.replace(/\\u([0-9A-Fa-f]{4})/g, (_, hex) => decodedChar(parseInt(hex, 16)));
-	out = out.replace(/\\\//g, '/');
-	out = out.replace(/%([0-9A-Fa-f]{2})/g, (_, hex) => decodedChar(parseInt(hex, 16)));
-	out = out.replace(/&#(\d{1,7});/g, (_, dec) => decodedChar(Number(dec)));
-	out = out.replace(/&#[xX]([0-9A-Fa-f]{1,6});/g, (_, hex) => decodedChar(parseInt(hex, 16)));
+	let out = text;
+	for (let pass = 0; pass < 3; pass += 1) {
+		const next = decodedOnce(out);
+		if (next === out) break;
+		out = next;
+	}
 	return out;
 }
 

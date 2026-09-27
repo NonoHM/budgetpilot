@@ -33,14 +33,26 @@ must exist, and every row must name a guard or an issue.
 - **The agent hook**, `.claude/hooks/private-references.mjs`, runs before the
   assistant executes any command. It reads every command line, whatever the
   command, for every kind except home paths, which command lines name without
-  publishing them. For a command that publishes (a `git` commit, merge or tag,
-  a `gh` write, a `curl` or `wget` to the GitHub API, a GitHub MCP tool), it
-  also reads every file passed as a body, stdin redirects included. It fails
-  closed: input it cannot
-  parse, a file it cannot read, a value or a command word it cannot evaluate,
-  and a scan that does not finish in time are all refusals. It also refuses any
-  abbreviation of `--no-verify`, a change to `core.hooksPath`, and the
-  `GIT_CONFIG_*` variables that could override it.
+  publishing them. A command that could publish, because it names `git`, `gh`,
+  `curl` or `wget` anywhere, is then checked against a closed list of accepted
+  forms, and refused with the forms to use when any part of it matches none:
+  - read-only and local `git` and `gh` commands, and `curl` or `wget` that send
+    nothing;
+  - `git commit`, `merge`, annotated `tag` and `push` with literal arguments,
+    the message as `-m "<text>"`, `-F <path>`, or from a quoted heredoc;
+  - `gh issue`, `gh pr` and `gh release` writes with literal flags, the body as
+    `--body-file <path>` or from a quoted heredoc;
+  - `gh api <path>` with literal fields, `-F body=@<path>` or `--input <path>`;
+  - beside those, only commands that cannot run what they are given, such as
+    `grep`, `jq` or `head`, and `cd` to a literal directory.
+
+  The body of an accepted form, file or heredoc, is then read with every kind.
+  The hook fails closed: input it cannot parse, a file it cannot read, and a
+  scan that does not finish in time are all refusals. It also refuses any
+  abbreviation of `--no-verify`, a change to `core.hooksPath` or to git's
+  `include` settings, and the `GIT_CONFIG_*` variables that could override
+  them. A GitHub MCP tool's every string is read.
+
 - **The git hooks**, under `.githooks/`, read the staged lines and the commit
   message whoever typed them, and run gitleaks. `CONTRIBUTING.md` explains how
   to activate them.
@@ -55,8 +67,10 @@ must exist, and every row must name a guard or an issue.
 
 Every guard runs a planted positive through its own scanning path in the same
 run, and refuses to report clean if the detector misses it. The matcher also
-reads a decoded copy of each text, so a reference written with `\/` escapes,
-as `%2F`, as `&#47;`, with a `\u` escape or as UTF-16 is found like a plain one.
+reads a decoded copy of each text, undoing backslash escapes (JSON and
+CommonMark), `\u` escapes, percent-encoding, numeric and named entities, HTML
+comments and UTF-16, repeated until nothing changes, so a reference hidden
+behind any of them is found like a plain one.
 
 ### Checking a guard by hand in an assistant session
 
@@ -70,6 +84,10 @@ printf 'claude.a%s/x' i > planted.txt
 
 The file then carries a claude.ai address for the guard under test to find,
 while the command that wrote it carried none.
+
+To search for the address, write the dot as a character class
+(`grep 'claude[.]ai/'`). A backslash before the dot does not help: the matcher
+undoes backslash escapes, so that search is refused like the address itself.
 
 ## References
 

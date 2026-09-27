@@ -59,6 +59,19 @@ import { findPrivateReferences } from '../../../scripts/private-references.mjs';
  * Two greens, read: removing the hook's calibration changes nothing while the matcher is healthy
  * (blinding a pattern with calibration present refuses even a clean commit, so it is live); and
  * the hook's JSON-strings step was redundant with the decoded copy, so it was deleted.
+ *
+ * BREAK-CHECKED THIRD (2026-09-27), after the allow-list redesign and findings A to K, each red on
+ * its test: no command treated as able to publish; redirect targets unread; unquoted heredoc
+ * bodies allowed (including on a command that publishes nothing); process substitutions not
+ * validated; function definitions and a non-literal gh verb allowed; a second stdin redirect
+ * allowed; a writer beside a body file allowed; backticks allowed; include configuration and `-c`
+ * on a publishing command allowed; one decoding pass, and CommonMark escapes, named entities and
+ * HTML comments each kept; every command validated (J); the budget counted from the scan start;
+ * the accepted forms not named; `git status` not read-only. Re-run on the rewritten hook: the
+ * command line unread, a substituted command word, a pipe into a stdin body, a piped heredoc read
+ * as cat, a killed worker read as clean, --no-verify abbreviations, GIT_CONFIG variables, `-uno`,
+ * and merge's `-n`. For `.gitleaksignore`: stale entries, new findings and an unhonoured file each
+ * accepted, the hooks not pointed at it, report names not ignored, a report written into the tree.
  */
 
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
@@ -182,23 +195,26 @@ describe('Claude Code hook: blocks a commit or a post that carries a private ref
 		expect(call('nothing private').status).toBe(0);
 	});
 
-	it('reads curl aimed at the GitHub API, inline data and @file alike', () => {
+	// Changed on purpose by the allow-list ruling (2026-09-27): curl and wget used to be READ when
+	// aimed at the GitHub API and passed otherwise; they are now accepted only when they send
+	// nothing, to any host, and a body to GitHub goes through gh api, which the hook can read.
+	it('refuses curl or wget sending data, clean or not, and lets a read through', () => {
 		const url = 'https://api.github.com/repos/o/r/issues/1/comments';
-		const inline = bash(`curl -X POST ${url} -d '{"body":"see ${CLAUDE_LINK}"}'`);
-		expect(inline.status).toBe(2);
-		expect(inline.stderr).toContain('[claude-address] in the -d value');
-
 		const file = join(scratch, 'curl-body.json');
-		writeFileSync(file, JSON.stringify({ body: `from ${HOME_PATH}` }));
-		const fromFile = bash(`curl -X POST ${url} --data-binary @${file}`);
-		expect(fromFile.status).toBe(2);
-		expect(fromFile.stderr).toContain('[home-path] in the --data-binary file');
-
-		expect(bash(`curl -X POST ${url} -d '{"body":"clean"}'`).status).toBe(0);
-		// The same data to any other host is not a GitHub write and is not this hook's business.
-		// The same body FILE sent to any other host is not a GitHub write, so the hook does not open
-		// it. (A link typed INTO any command line is refused whatever the host: review finding 1.)
-		expect(bash(`curl -X POST https://example.test/x --data-binary @${file}`).status).toBe(0);
+		writeFileSync(file, JSON.stringify({ body: 'clean' }));
+		for (const command of [
+			`curl -X POST ${url} -d '{"body":"clean"}'`,
+			`curl ${url} --data-binary @${file}`,
+			`curl -X POST https://example.test/x --data-binary @${file}`,
+			`wget --post-file=${file} ${url}`
+		]) {
+			const result = bash(command);
+			expect(result.status, command).toBe(2);
+			expect(result.stderr, command).toContain('sending data is not accepted');
+		}
+		const read = bash(`curl -sS ${url} | jq length`);
+		expect(read.stderr).toBe('');
+		expect(read.status).toBe(0);
 	});
 
 	it('refuses an image from an outside host in a body, and admits GitHub-hosted ones', () => {
@@ -798,7 +814,10 @@ describe('review of 2026-09-26', () => {
 		});
 	});
 
-	describe('2: no wrapper list, the first git, gh, curl or wget word is what is read', () => {
+	// Changed on purpose by the allow-list ruling (2026-09-27): a wrapper around a tool was READ
+	// (its file scanned); it is now refused, because a command that can run what it is given is not
+	// an accepted form. The tool run directly, with --repo, is still read.
+	describe('2: a wrapper around a tool is refused; the tool run directly is read', () => {
 		it.each([
 			['nice -n 5 gh issue comment 5 --body-file FILE'],
 			['timeout -s KILL 60 gh issue comment 5 --body-file FILE'],
@@ -806,7 +825,14 @@ describe('review of 2026-09-26', () => {
 			['setsid gh issue comment 5 --body-file FILE'],
 			['ionice -c3 gh issue comment 5 --body-file FILE'],
 			['script -qc "gh issue comment 5 --body-file FILE" /dev/null'],
-			['env -S "gh issue comment 5 --body-file FILE"'],
+			['env -S "gh issue comment 5 --body-file FILE"']
+		])('%s', (template) => {
+			const result = bash(template.replace('FILE', cleanFile()));
+			expect(result.status).toBe(2);
+			expect(result.stderr).toContain('can run what it is given');
+		});
+
+		it.each([
 			['gh -R o/r issue comment 5 --body-file FILE'],
 			['gh --repo=o/r issue comment 5 --body-file FILE']
 		])('%s', (template) => {
@@ -848,11 +874,14 @@ describe('review of 2026-09-26', () => {
 			expect(result.stderr).toContain('reads its body from stdin');
 		});
 
-		it('reads the file a < redirect feeds it', () => {
-			const result = bash(`gh issue comment 1 --body-file - < ${linkFile()}`);
-			expect(result.status).toBe(2);
-			expect(result.stderr).toContain('[claude-address] in the stdin redirect file');
-			expect(bash(`gh issue comment 1 --body-file - < ${cleanFile()}`).status).toBe(0);
+		// Changed on purpose by the allow-list ruling (2026-09-27): a < redirect as the body was READ;
+		// it is not an accepted form now, and the file goes in --body-file instead.
+		it('refuses a < redirect as the body, clean or not', () => {
+			for (const file of [linkFile(), cleanFile()]) {
+				const result = bash(`gh issue comment 1 --body-file - < ${file}`);
+				expect(result.status).toBe(2);
+				expect(result.stderr).toContain('reads its body from stdin');
+			}
 		});
 
 		it('admits a heredoc in the same segment', () => {
@@ -944,9 +973,18 @@ describe('review of 2026-09-26', () => {
 	});
 
 	describe('8: the other ways to publish', () => {
+		// Changed on purpose by the allow-list ruling (2026-09-27): gist files were READ; a gist is
+		// outside the repository and not an accepted form now.
+		it.each([['gh gist create FILE'], ['gh gist create --desc x FILE']])(
+			'%s is refused',
+			(template) => {
+				const result = bash(template.replace('FILE', cleanFile()));
+				expect(result.status).toBe(2);
+				expect(result.stderr).toContain('gh gist create is not one of the accepted forms');
+			}
+		);
+
 		it.each([
-			['gh gist create FILE'],
-			['gh gist create --desc x FILE'],
 			['gh release upload v1 FILE'],
 			['gh release create v1 FILE#label --notes x'],
 			['git tag -a v1 -F FILE']
@@ -956,12 +994,17 @@ describe('review of 2026-09-26', () => {
 			expect(result.stderr).toContain('[claude-address]');
 		});
 
-		it.each([['-d@FILE'], ["'-Fbody=<FILE'"]])('curl %s with the value attached', (flag) => {
-			const url = 'https://api.github.com/repos/o/r/issues/1/comments';
-			const result = bash(`curl -X POST ${url} ${flag.replace('FILE', linkFile())}`);
-			expect(result.status).toBe(2);
-			expect(result.stderr).toContain('[claude-address]');
-		});
+		// Changed on purpose (2026-09-27): these were READ; curl sending data is now refused, and
+		// the attached forms must still be recognised as sending.
+		it.each([['-d@FILE'], ["'-Fbody=<FILE'"], ['-sSd@FILE']])(
+			'curl %s with the value attached is recognised as sending',
+			(flag) => {
+				const url = 'https://api.github.com/repos/o/r/issues/1/comments';
+				const result = bash(`curl ${url} ${flag.replace('FILE', cleanFile())}`);
+				expect(result.status).toBe(2);
+				expect(result.stderr).toContain('sending data is not accepted');
+			}
+		);
 	});
 
 	describe('9: abbreviations and environment variables that skip the git hooks', () => {
@@ -1170,5 +1213,182 @@ describe('.gitleaksignore and the history scan', () => {
 		const run = historyRepo('history-inline', ['# reason', `${fp(1)} # inline`])([fp(1)]);
 		expect(run.status).toBe(1);
 		expect(run.output).toContain('not shaped commit:file:rule:line');
+	});
+});
+
+/**
+ * The re-review of 2026-09-27 (findings A to K) and the architectural ruling that followed: a
+ * command that could publish is ALLOWED only when every part of it matches a closed list of
+ * forms; everything else that could publish is refused, naming the form to use. Each test below
+ * reproduced its finding before the change.
+ */
+describe('re-review of 2026-09-27: publishing commands validated against an allow list', () => {
+	const file = (content: string) => {
+		const path = join(scratch, `f-${Math.random().toString(36).slice(2)}.md`);
+		writeFileSync(path, content);
+		return path;
+	};
+	const link = () => file(`drawn on ${CLAUDE_LINK}\n`);
+	const clean = () => file('nothing private\n');
+	const refused = (command: string, reason: string) => {
+		const result = bash(command);
+		expect(result.status, command).toBe(2);
+		expect(result.stderr, command).toContain(reason);
+	};
+
+	it('A: reads a command in a redirect target, and refuses a here-string body', () => {
+		refused(`: > "$(gh issue comment 1 --body-file ${link()})"`, 'substitution');
+		refused(`gh issue comment 1 --body-file - <<< "$(cat ${link()})"`, 'reads its body from stdin');
+		refused(`BODY=x; gh issue comment 1 --body-file - <<< "$BODY"`, 'reads its body from stdin');
+	});
+
+	it('B: refuses an unquoted heredoc, whose body the shell expands', () => {
+		refused(`gh issue comment 1 --body-file - <<EOF\n$(cat ${link()})\nEOF`, 'unquoted heredoc');
+		// On a command that publishes nothing, the body is still run by the shell.
+		refused(
+			`cat <<EOF > /dev/null\n$(gh issue comment 1 --body-file ${link()})\nEOF`,
+			'unquoted heredoc'
+		);
+	});
+
+	it('C: refuses process substitution as a body', () => {
+		refused(`gh issue comment 1 --body-file <(cat ${link()})`, 'substitution');
+		refused(`gh api repos/o/r/issues/1/comments --input <(cat ${link()})`, 'substitution');
+		// A process substitution is a command like any other: one that publishes is refused.
+		refused(`diff <(gh issue comment 1 --body-file ${link()}) /dev/null`, 'inside a substitution');
+	});
+
+	it('D: refuses a variable in the verb position and a function wrapping a tool', () => {
+		refused(`X=issue; gh $X comment 1 --body-file ${clean()}`, 'not literal');
+		refused(`c(){ gh "$@"; }; c issue comment 1 --body-file ${clean()}`, 'function');
+	});
+
+	it('refuses a pipe into a body read from stdin, even beside a quoted heredoc', () => {
+		refused(
+			`cat ${link()} | gh issue comment 1 --body-file - <<'EOF'\nclean\nEOF`,
+			'reads its body from stdin'
+		);
+	});
+
+	it('E: refuses a second stdin redirect next to a heredoc', () => {
+		refused(
+			`gh issue comment 1 --body-file - <<'EOF' < ${link()}\nclean\nEOF`,
+			'reads its body from stdin'
+		);
+	});
+
+	it('F: refuses a body file another part of the command can write', () => {
+		const body = clean();
+		refused(
+			`cp ${link()} ${body} && gh issue comment 1 --body-file ${body}`,
+			'written by this same command'
+		);
+	});
+
+	it('G: refuses backticks in a command that can publish', () => {
+		refused('echo `echo \\`gh issue comment 1 --body-file x\\``', 'backtick');
+	});
+
+	it('H: refuses configuration that could point git at other hooks', () => {
+		refused('git -c include.path=/tmp/x commit -m "fix: x"', 'configuration');
+		refused('git config include.path /tmp/x', 'include');
+		refused('git config --add includeIf.gitdir:/x.path /tmp/y', 'include');
+	});
+
+	it('J: does not refuse a command that cannot publish, or grep for a quote', () => {
+		for (const command of [
+			'$PYTHON --version',
+			`grep -c "don't" ${clean()}`,
+			'npm run check && git status --short'
+		]) {
+			const result = bash(command);
+			expect(result.stderr, command).toBe('');
+			expect(result.status, command).toBe(0);
+		}
+	});
+
+	it('K: counts the time limit from the hook start, not from the scan start', async () => {
+		const { spawn } = await import('node:child_process');
+		const child = spawn(process.execPath, [HOOK], {
+			env: { ...process.env, BP_PRIVATE_REFS_TIMEOUT_MS: '500' }
+		});
+		let stderr = '';
+		child.stderr.on('data', (chunk) => (stderr += chunk));
+		// The input arrives after the whole budget has gone.
+		await new Promise((done) => setTimeout(done, 800));
+		child.stdin.end(JSON.stringify({ tool_name: 'Bash', tool_input: { command: 'ls' } }));
+		const status = await new Promise((done) => child.on('close', done));
+		expect(status).toBe(2);
+		expect(stderr).toContain('did not finish');
+	});
+
+	it('names the accepted forms when it refuses', () => {
+		refused(`nice -n 5 gh issue comment 5 --body-file ${clean()}`, 'git commit -F <path>');
+	});
+
+	// Routine commands the controller and the sessions actually run. None may be refused.
+	it.each([
+		['git status --short'],
+		['git log --oneline -3 && git diff --stat HEAD'],
+		['git fetch -q origin && git rev-parse origin/main && git ls-remote origin refs/heads/main'],
+		['git add -A && git commit -q -F CLEAN'],
+		[
+			`git commit -m "$(cat <<'EOF'\nfix: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)"`
+		],
+		['git push -q --force-with-lease origin ci/private-references-guards'],
+		['git rebase origin/main'],
+		['git switch -c ci/x origin/main'],
+		['git config core.hooksPath .githooks'],
+		["gh pr view 757 --json headRefOid,state --jq '.state'"],
+		['gh pr checks 757 -R NonoHM/budgetpilot 2>&1 | head -20'],
+		['gh pr create --base main --head ci/x --title "ci: x" --body-file CLEAN'],
+		['gh pr edit 757 -R NonoHM/budgetpilot --body-file CLEAN > /dev/null'],
+		['gh pr merge 757 --squash'],
+		["gh issue view 755 --json number,title,state --jq '.title'"],
+		['gh issue comment 5 --body-file CLEAN'],
+		["gh api repos/NonoHM/budgetpilot/pulls/757 --jq '.body'"],
+		["gh api --paginate 'repos/o/r/issues?state=all&per_page=100' --jq '.[] | .number'"],
+		['gh api repos/o/r/issues/1/comments -X POST -F body=@CLEAN'],
+		['gh run list --limit 5'],
+		[
+			'curl -sS -H "Authorization: Bearer $(gh auth token)" https://api.github.com/repos/o/r/pulls/1 | jq -r .body'
+		],
+		['npx vitest run --project server src/lib/prose/ 2>&1 | tail -3'],
+		['cd /tmp && git status'],
+		['ls -la && grep -rn "gh issue" docs | head'],
+		['flock /tmp/x.lock npm run check > /tmp/check.log 2>&1; echo $?'],
+		['docker images | head -3'],
+		["printf 'claude.a%s/x' i"],
+		["git log -1 --format=%B | grep -c 'claude[.]ai'"]
+	])('routine: %s', (template) => {
+		const command = template.replaceAll('CLEAN', clean());
+		const result = bash(command);
+		expect(result.stderr, command).toBe('');
+		expect(result.status, command).toBe(0);
+	});
+});
+
+describe('the matcher decodes to a fixpoint (re-review finding I)', () => {
+	const host = ['claude', 'ai'];
+	it.each([
+		['a CommonMark escape', `see ${host.join('\\.')}/x`],
+		['named entities', `see ${host.join('&period;')}&sol;x`],
+		['an HTML comment inside the host', `see ${host[0]}<!-- c -->.${host[1]}/x`],
+		['double percent-encoding', `see https:%252F%252F${host.join('.')}%252Fx`]
+	])('finds %s', (_label, text) => {
+		expect(findPrivateReferences(text).map((f) => f.kind)).toEqual(['claude-address']);
+	});
+
+	it('keeps line numbers when a comment spans lines', () => {
+		const text = `one\n<!-- a\nb -->\nsee ${host.join('.')}/x`;
+		expect(findPrivateReferences(text)).toEqual([
+			{ kind: 'claude-address', line: 4, match: `${host.join('.')}/` }
+		]);
+	});
+
+	it('stays linear on unclosed comments', () => {
+		const started = performance.now();
+		findPrivateReferences('<!--'.repeat(5e4));
+		expect(performance.now() - started).toBeLessThan(1000);
 	});
 });
