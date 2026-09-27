@@ -58,8 +58,10 @@ export async function readImportFile(
 
 	// The .xlsx extension alone isn't trustworthy (a client can name any file this way):
 	// check the real ZIP file signature before handing the buffer to read-excel-file, whose
-	// parser throws a raw, untranslated error on non-ZIP content (invalid signature: 0x...)
-	// that would otherwise bubble up as an unhandled 500 instead of a clean, translated error.
+	// parser throws a raw, untranslated error on non-ZIP content (invalid signature: 0x...).
+	// This refuses NON-ZIP content only. `PK\x03\x04` opens every ZIP-based format, so an
+	// archive that is not a workbook passes here and is refused by `readSheetOrRefuse` below
+	// (#595): this check prevents one class of 500, not both.
 	if (!(await hasXlsxSignature(file))) {
 		throw new ImportFileError(
 			'Le fichier doit utiliser l’extension .csv ou .xlsx.',
@@ -119,8 +121,21 @@ export function isSupportedImportFile(fileName: string): boolean {
 	return getImportFileFormat(fileName) !== null;
 }
 
-export type ImportFileErrorCode =
-	'too_large' | 'bad_extension' | 'empty' | 'expands_too_far' | 'exceeds_resource_ceiling';
+/**
+ * Every code `readImportFile` refuses with, as a list the type is built from, so a spec can
+ * enumerate it: a code added here is covered by `importFileErrorLabel.spec.ts` without anyone
+ * remembering to add it there.
+ */
+export const IMPORT_FILE_ERROR_CODES = [
+	'too_large',
+	'bad_extension',
+	'empty',
+	'expands_too_far',
+	'exceeds_resource_ceiling',
+	'unreadable_workbook'
+] as const;
+
+export type ImportFileErrorCode = (typeof IMPORT_FILE_ERROR_CODES)[number];
 
 export class ImportFileError extends Error {
 	/** Stable code for translation on the route side; the French message stays for logs/tests. */
@@ -178,7 +193,7 @@ async function readXlsxImportFile(file: File): Promise<ReadImportFileResult> {
 		throw caught;
 	}
 
-	const sheet = await readSheet(buffer);
+	const sheet = await readSheetOrRefuse(buffer);
 	const rows = sheet
 		.map((row, index) => ({ cells: row.map((cell) => formatCellValue(cell)), line: index + 1 }))
 		.filter((row) => row.cells.some((cell) => cell.trim() !== ''));
@@ -205,6 +220,29 @@ async function readXlsxImportFile(file: File): Promise<ReadImportFileResult> {
 		sourceLines: rows.map((row) => row.cells.join(';')),
 		previewRowsByLine: buildPreviewRowsByLine(normalizedRows)
 	};
+}
+
+/**
+ * `readSheet`, with its failures made a refusal (#595).
+ *
+ * Reached only by a real ZIP archive that is within the expansion bound, so a throw from here means
+ * the archive does not hold a workbook this parser can read: the part it names is missing
+ * (`xl/_rels/workbook.xml.rels` for an archive of text files) or cannot be parsed. That is a fact
+ * about the upload, and the user can act on it by exporting again, so it is an `ImportFileError`
+ * with its own code rather than a raw `Error` the routes rethrow into a 500.
+ *
+ * The parser's message is NOT carried into the refusal. It names paths inside the archive, which is
+ * noise to the reader and, for a crafted upload, text the uploader chose.
+ */
+async function readSheetOrRefuse(buffer: Buffer) {
+	try {
+		return await readSheet(buffer);
+	} catch {
+		throw new ImportFileError(
+			'Le fichier .xlsx n’est pas un classeur lisible.',
+			'unreadable_workbook'
+		);
+	}
 }
 
 function formatCellValue(value: CellValue | null): string {

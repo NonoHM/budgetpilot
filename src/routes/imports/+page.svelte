@@ -15,6 +15,7 @@
 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
 	import * as m from '$lib/paraglide/messages';
 	import { getLocale } from '$lib/paraglide/runtime';
+	import { importTimestamp } from '$lib/i18n/importTimestamp';
 	import { formatCents } from '$lib/domain/budget';
 	import { importProfileLabel } from '$lib/domain/importProfileLabel';
 	import type { CollidingBatchView } from '$lib/domain/importCollision';
@@ -39,12 +40,11 @@
 		fileName: string | null;
 		/**
 		 * #652: the dialog branches on the LIVE row count (`_count.transactions`, sent down as
-		 * `transactionCount`), never on `importedRows`. `importedRows` is a counter written once
-		 * after `persistImportedTransactions`'s row loop finishes; a throw mid-loop leaves it at
-		 * its `@default(0)` while some rows already committed. The delete action itself was never
-		 * wrong — `deleteImportBatch` deletes by `importBatchId`, not by this counter — but the
-		 * dialog read the same stale counter and told a user "this import created no
-		 * transactions" while about to destroy real ones.
+		 * `transactionCount`), never on the stored counter. Since D3 the page's `importedRows` is
+		 * that same live count, both read through `importedCount.ts`: the stored
+		 * `ImportBatch.importedRows` can say 0 over rows the delete is about to destroy (a lost
+		 * connection, a batch damaged before D3, a restore), and this dialog once told a user
+		 * "this import created no transactions" while about to destroy real ones.
 		 */
 		transactionCount: number;
 		createdAt: string;
@@ -135,25 +135,12 @@
 	$effect(() => () => clearNoAnswerTimer());
 
 	/**
-	 * The timestamp this page identifies an import BY, so it is rendered to the second.
-	 *
-	 * MEASURED, and it is why this is not `timeStyle: 'short'` like everywhere else. Running the
-	 * correction journey end to end produced two rows both reading « 17 août 2026 à 14:10 »: a
-	 * repair happens minutes after the import that went wrong, so the two land in the same minute
-	 * often enough that it cannot be called an edge. A discriminant that is not unique identifies
-	 * nothing, and a confirmation naming both candidates while calling itself irreversible is worse
-	 * than one naming neither, because it reads as precise.
-	 *
-	 * This deviates from the plate, which writes the title as « Supprimer l'import du 1 juillet 2026
-	 * à 10:59 ? ». The deviation is forced by the plate's own rule that the discriminant be unique,
-	 * so the rule is kept and the example is not.
-	 *
-	 * One function for the row and for the dialog title, deliberately: they are two renderings of
-	 * one identity and a second formatter is how they start disagreeing.
+	 * The timestamp this page identifies an import BY, to the second. The function is shared
+	 * (`$lib/i18n/importTimestamp.ts`, where the measurement behind « to the second » lives) because
+	 * the write-failure banner on both import doors names the import to delete with it, and the
+	 * user compares that name with this row.
 	 */
-	function formatDate(iso: string): string {
-		return new Date(iso).toLocaleString(getLocale(), { dateStyle: 'long', timeStyle: 'medium' });
-	}
+	const formatDate = importTimestamp;
 
 	function formatDateOnly(iso: string): string {
 		return new Date(iso).toLocaleDateString(getLocale(), { dateStyle: 'long' });

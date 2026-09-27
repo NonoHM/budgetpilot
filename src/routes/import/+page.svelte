@@ -58,8 +58,22 @@
 		type ReplaceOutcome
 	} from '$lib/import/completedImport.svelte';
 	import { onMount, tick, untrack } from 'svelte';
+	import { importWriteFailureLabel } from '$lib/i18n/importWriteLabel';
 
 	let { data, form }: { data: PageData; form: ActionData } = $props();
+
+	/**
+	 * The refusal the banner shows, for BOTH mounts. A failed write arrives as a structured
+	 * `writeFailure` rather than a sentence (D3): its partial case names the import to delete by the
+	 * timestamp `/imports` shows, which is formatted here, in the reader's time zone, by the
+	 * history's own function inside `importWriteFailureLabel`.
+	 */
+	const formError = $derived(
+		form?.error ??
+			(form && 'writeFailure' in form && form.writeFailure
+				? importWriteFailureLabel(form.writeFailure)
+				: undefined)
+	);
 
 	/**
 	 * An import performed on `/import/columns`, whose action result cannot arrive here as `form`.
@@ -1554,8 +1568,8 @@
 					noFileLabel={m.common_file_dropzone_no_file()}
 				/>
 
-				{#if form?.error && !currencyRefusalAnswered}
-					<AlertBanner variant="error">{form.error}</AlertBanner>
+				{#if formError && !currencyRefusalAnswered}
+					<AlertBanner variant="error">{formError}</AlertBanner>
 				{/if}
 
 				{#if offersAccountChoice && accountOffer}
@@ -2049,8 +2063,8 @@
 				noFileLabel={m.common_file_dropzone_no_file()}
 			/>
 
-			{#if form?.error && !currencyRefusalAnswered}
-				<AlertBanner variant="error">{form.error}</AlertBanner>
+			{#if formError && !currencyRefusalAnswered}
+				<AlertBanner variant="error">{formError}</AlertBanner>
 			{/if}
 
 			{#if offersAccountChoice && accountOffer}

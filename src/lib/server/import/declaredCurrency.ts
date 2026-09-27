@@ -39,9 +39,9 @@ export type DeclaredCurrencyMismatch = Extract<
  * calls are the control: they run before anything is written and compare the file-level
  * declaration. The backstop sees only the rows it is handed, so it protects transaction rows, and
  * only for a writer whose rows carry `declaredCurrency`. It runs after the batch (and possibly a
- * by-source bucket, a saved mapping or a counted mapping use) has been written, and nothing catches
- * it, so reaching it means a 500 and an empty batch. No caller reaches it today; the persist
- * comment says the rest, and #662 (D3) owns an uncaught throw there.
+ * by-source bucket, a saved mapping or a counted mapping use) has been written. Since D3 (#662) both
+ * routes catch it through `writeImport.ts` and answer with the same sentence as their own refusal,
+ * so reaching it means that sentence and an empty batch, not a 500. No caller reaches it today.
  *
  * ASVS v5.0.0-2.2.1: the declared currency is input validated against an expected structure, the
  * destination's own denomination, at the server boundary.
@@ -77,8 +77,8 @@ export function rowDeclarations(
 
 /**
  * Thrown by `persistImportedTransactions`, before the first transaction row, when a writer reached
- * it without comparing. Not caught anywhere yet (#662). A class rather than a message to match on,
- * for the reason `ImportBucketAccountError` gives.
+ * it without comparing. Caught by `writeImport.ts` (#662). A class rather than a message to match
+ * on, for the reason `ImportBucketAccountError` gives.
  */
 export class DeclaredCurrencyMismatchError extends Error {
 	readonly fact: DeclaredCurrencyMismatch;
