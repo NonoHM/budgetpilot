@@ -1046,6 +1046,8 @@ describe('syncBankConnection', () => {
 		expect(range.from).toBe('2026-07-03'); // lastCompleteSyncAt - 7 days
 	});
 
+	// This case and the one before it are reddened by a window read off `lastSyncAt`: anchored on
+	// the attempt vs. on the last complete sync.
 	it('asks for the whole first-sync window again after a first sync that failed (#763)', async () => {
 		// The shape #763 leaves behind: an attempt on record and no complete sync. The window must
 		// be the one a never-attempted connection gets, so the oracle is that run, not a constant.
@@ -1102,6 +1104,8 @@ describe('syncBankConnection', () => {
 	});
 
 	it('writes the fetch cursor on no path but a complete sync: not in the throttle claim, not on a failure (#763)', async () => {
+		// Reddened separately by the cursor written in the claim (moved before anything is
+		// persisted) and by the cursor written on the failure (moved over what was not fetched).
 		prismaMock.bankConnection.findFirst.mockResolvedValueOnce({
 			...activeConnection,
 			lastSyncAt: new Date(NOW.getTime() - 7 * 60 * 60 * 1000)

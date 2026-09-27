@@ -44,6 +44,16 @@ import { completeBankAuthorization, startBankAuthorization, syncBankConnection }
  * Each case first asserts the failing ledger is SHORT of the control after the failed sync alone.
  * Without that, an injected failure that never fired would leave the two ledgers equal and the
  * final assertion green for the wrong reason.
+ *
+ * ## What reddens the two sync cases (each break run separately, SQLite, PostgreSQL, MariaDB)
+ *
+ * - the error path writing the cursor: a failure moves the window vs. it leaves it;
+ * - the throttle claim writing the cursor: moved before anything is persisted vs. after;
+ * - the window reading `lastSyncAt`: anchored on the attempt vs. on the last complete sync.
+ *
+ * A complete sync that stops writing the cursor stays GREEN here, and that is the fourth meaning
+ * rather than a hole: every sync then fetches the whole lookback, and deduplication makes the
+ * ledgers agree. `service.spec.ts` asserts the write itself.
  */
 
 if (!process.env.DATABASE_URL) {
@@ -252,6 +262,9 @@ describe('#763: a failed bank sync never skips the days it did not fetch', () =>
  * off disk and run again over rows shaped like the states a pre-#763 install can hold, which is the
  * only way to see it act on something. It only fills a NULL, and the row holding a cursor already
  * is what proves that.
+ *
+ * Reddened on each engine's own file by copying after a failure too (a failed attempt stored as a
+ * complete sync vs. no cursor) and by dropping the NULL guard (a cursor overwritten vs. kept).
  */
 describe('#763: the backfill seeds the cursor only where the last sync succeeded', () => {
 	it('copies lastSyncAt after a success, leaves NULL after a failure or an unfinished attempt, and never overwrites a cursor', async () => {
