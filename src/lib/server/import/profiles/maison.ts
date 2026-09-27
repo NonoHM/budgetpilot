@@ -7,7 +7,7 @@ import type {
 	ImportedTransactionType
 } from '../types';
 import type { CsvRefusal } from '../refusals';
-import { addRefusal, buildSummary, emptyResult, readDateCell, toRecord } from '../utils/csv';
+import { addRefusal, buildSummary, emptyResult, readRowDate, toRecord } from '../utils/csv';
 import { parseAmountCents } from '../utils/money';
 import {
 	buildPreviewRowId,
@@ -92,16 +92,12 @@ export function parseMaisonRows({
 
 		const record = toRecord(headers, row);
 
-		const date = readDateCell(record.date ?? '', dateOrder);
-		if (date === null) {
-			addRefusal(
-				refusals,
-				{ kind: 'row', line },
-				{ code: 'invalid-date', column: 'date', value: refusalCellValue(record.date ?? '') },
-				'date'
-			);
+		const dateReading = readRowDate([{ column: 'date', value: record.date }], dateOrder);
+		if (dateReading.kind === 'refused') {
+			addRefusal(refusals, { kind: 'row', line }, dateReading.fact, dateReading.fact.column);
 			return;
 		}
+		const date = dateReading.date;
 
 		// Checked on the RAW cell, before sanitizing strips it: #652, a control character reaching
 		// a stored label crashes the write on PostgreSQL, and this refuses the row rather than

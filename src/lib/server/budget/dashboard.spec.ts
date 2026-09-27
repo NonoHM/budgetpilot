@@ -391,6 +391,28 @@ describe('écritures dashboard', () => {
 	});
 
 	/**
+	 * #758 on the manual path. A date input admits year 0050, `isValidIsoDate` accepts it, and
+	 * MariaDB reads such a row back as 1950. Separates « refused before any write, naming the range »
+	 * from « written » (the defect). The sentence is compared whole: it is what the user reads.
+	 */
+	it('rejette une date manuelle dont l’année sort de la plage stockable', async () => {
+		expect.assertions(2);
+
+		await expect(
+			createManualTransaction(userId, {
+				date: '0050-06-15',
+				label: 'Courses',
+				amount: '-42,10',
+				category: 'Alimentation'
+			})
+		).rejects.toMatchObject({
+			status: 400,
+			body: { message: 'année hors plage (de 1000 à 9999)' }
+		});
+		expect(db.prisma.transaction.create).not.toHaveBeenCalled();
+	});
+
+	/**
 	 * Two violations, and the assertion is the ORDER, not merely the two sentences: label
 	 * ('label-too-long') is pushed before category ('category-required') by
 	 * `validateTransaction`'s source order, which is the opposite of alphabetical

@@ -54,11 +54,16 @@ export type TransactionValidationCode =
 	| 'label-too-long'
 	| 'category-required'
 	| 'category-too-long'
-	| 'invalid-nature';
+	| 'invalid-nature'
+	// #758. A calendar-valid date whose year no engine stores faithfully. Distinct from
+	// `invalid-iso-date` because the date IS one, and saying otherwise would send the reader
+	// looking for a malformed cell.
+	| 'date-out-of-range';
 
 export const TRANSACTION_VALIDATION_CODES = [
 	'id-required',
 	'invalid-iso-date',
+	'date-out-of-range',
 	'amount-cents-required',
 	'zero-amount',
 	'amount-too-large',
@@ -155,6 +160,70 @@ export function isValidIsoDate(value: string): boolean {
 }
 
 /**
+ * THE YEARS A DATE MAY CARRY INTO A `DateTime` COLUMN, inclusive, decided once (#758).
+ *
+ * ## What was measured
+ *
+ * Every year the import parser reaches (0000 to 9999, and past 9999 on a restore) was written
+ * through the real write path and read back on all three engines, 2026-09-27:
+ * - SQLite stores and reads back every one of them.
+ * - PostgreSQL throws `22008` for year 0000 (it has no year zero), and stores year 10000 but reads
+ *   it back as an Invalid Date.
+ * - MariaDB keeps `0000-01-16` in the column and the application reads it back as `2000-01-16`;
+ *   every year from 0001 to 0099 comes back between 1950 and 2049; it throws `1292` for
+ *   `0000-02-29` and for year 10000.
+ * `storableYears.db-smoke.ts` re-measures the boundary on each engine.
+ *
+ * ## Why 1000 and not 0100, which also measured faithful
+ *
+ * MariaDB documents `DATETIME` as supporting values between `1000-01-01` and `9999-12-31`, and
+ * MySQL, whose leg CI also names, documents the same range and says that « "supported" means that
+ * although earlier values might work, there is no guarantee ». 0100 to 0999 happened to read back
+ * correctly on the version measured; 0001 to 0099 are the same « might work » and do not. A bound
+ * resting on the undocumented behaviour of one engine version is a guess, so the bound is the
+ * documented one.
+ *
+ * ## What the comparable products do
+ *
+ * Firefly III refuses a transaction date before 1970 (`app/Rules/IsDateOrTime.php`), a bound
+ * stricter than any engine needs. Actual Budget puts no bound on its import parser, and stores a
+ * date as the integer `YYYYMMDD` (`toDateRepr` in `loot-core/src/server/models.ts`), which reads
+ * back correctly only for four-digit years without a leading zero: `0999-12-31` becomes the
+ * integer 9991231 and comes back as `9991-23-1`. Both, in their own way, keep to 1000 and above.
+ * The citations with their commits are in the PR that closed #758.
+ *
+ * ## Why 1970 was not taken from Firefly III
+ *
+ * Every engine stores 1000 to 1969 exactly, and a statement from before 1970 is a real statement.
+ * The range exists to refuse what would be written WRONG, not what is merely old.
+ */
+export const STORABLE_YEARS = { first: 1000, last: 9999 } as const;
+
+/**
+ * Whether a year is inside `STORABLE_YEARS`. THE ONE COMPARISON: every path that decides whether a
+ * date may be written asks here, the import row reader (`readRowDate`), the domain's own
+ * `validateTransaction`, the bank connector and the restore validator, so the bound cannot differ
+ * between the path that refuses a row and the one that refuses a backup.
+ *
+ * Pure: no clock, no locale.
+ */
+export function isStorableYear(year: number): boolean {
+	return Number.isInteger(year) && year >= STORABLE_YEARS.first && year <= STORABLE_YEARS.last;
+}
+
+/**
+ * A calendar-valid ISO `yyyy-mm-dd` whose year is storable. False for anything that is not a date,
+ * so « storable » is never true of a non-date.
+ *
+ * The year is the first four characters, which `isValidIsoDate` guarantees are the year: its
+ * pattern is four digits, a dash, and it rejects any string whose round trip through `Date`
+ * differs.
+ */
+export function isStorableIsoDate(value: string): boolean {
+	return isValidIsoDate(value) && isStorableYear(Number(value.slice(0, 4)));
+}
+
+/**
  * NO CHECK FOR A CONTROL CHARACTER HERE, AND NONE BELONGS HERE (#652).
  *
  * A stranded control character in `label` throws `SQLSTATE 22021` on PostgreSQL when
@@ -172,6 +241,7 @@ export function validateTransaction(transaction: Transaction): TransactionValida
 
 	if (!transaction.id.trim()) violations.push('id-required');
 	if (!isValidIsoDate(transaction.date)) violations.push('invalid-iso-date');
+	else if (!isStorableIsoDate(transaction.date)) violations.push('date-out-of-range');
 	if (!Number.isInteger(transaction.amountCents)) violations.push('amount-cents-required');
 	if (transaction.amountCents === 0) violations.push('zero-amount');
 	if (Math.abs(transaction.amountCents) > 100_000_000) violations.push('amount-too-large');

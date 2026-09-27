@@ -102,6 +102,11 @@ export type CsvRefusalFact =
 	// cell the parser could not read, and it is in the sentence because the expected form alone
 	// does not tell someone looking at `01.06.2026` which of their columns the app was reading.
 	| { code: 'invalid-date'; column: string; value: string }
+	// #758. The cell IS a date, and its year is outside `STORABLE_YEARS`: an engine would store it
+	// wrong (MariaDB reads year 0000 back as 2000) or refuse the whole import (PostgreSQL, `22008`).
+	// `column` is the column the date was READ from, and `value` the cell as written, both rendered
+	// for the reason `invalid-date` gives. Produced by `readRowDate` and nowhere else.
+	| { code: 'date-out-of-range'; column: string; value: string }
 	| { code: 'invalid-amount'; column: string }
 	| { code: 'zero-amount'; column: string }
 	| { code: 'invalid-total-amount'; column: string }
@@ -177,6 +182,7 @@ export const CSV_REFUSAL_CODES = [
 	'amount-sign-in-separate-column',
 	'amount-split-across-columns',
 	'invalid-date',
+	'date-out-of-range',
 	'invalid-amount',
 	'zero-amount',
 	'invalid-total-amount',
@@ -263,6 +269,10 @@ export const DESIGNATION_REACH = {
 	'amount-sign-in-separate-column': 'unrepairable',
 	'amount-split-across-columns': 'unrepairable',
 	'invalid-date': 'repairable',
+	// #758. The column read IS a date column: the cell parsed as a calendar date, and only its year
+	// is refused. Naming another column cannot change the year the file wrote, so the designation
+	// screen has nothing to offer; the sentence names the cell instead.
+	'date-out-of-range': 'unrepairable',
 	'invalid-amount': 'repairable',
 	'zero-amount': 'repairable',
 	'invalid-total-amount': 'repairable',
