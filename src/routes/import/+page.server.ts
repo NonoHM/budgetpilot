@@ -708,12 +708,6 @@ export const actions: Actions = {
 			}
 		}
 
-		// Counted only once the file actually produced transactions, and only for the mapping that
-		// parsed it. A file refused by every row still "used" the mapping in some sense, and the
-		// recap sentence this feeds says « utilisée N fois » about a designation that WORKED, so
-		// counting a refusal there would overstate how much the user should trust it.
-		if (useMapping && remembered) await recordColumnMappingUse(user.id, remembered.id);
-
 		// An account that is already decided is NOT resolved again. `decideAutoAccount` returns a
 		// bucket only when the file named one of this source's own accounts or the user answered
 		// with one, and both are resolutions this path may not repeat: re-asking by source would
@@ -768,6 +762,12 @@ export const actions: Actions = {
 			});
 		}
 		const { batchId, persisted } = written;
+
+		// Counted only once the write SUCCEEDED, and only for the mapping that parsed it. The recap
+		// sentence this feeds says « utilisée N fois » about a designation that WORKED: a file refused
+		// by every row, or a write that failed after the parse (D3), is not one, and counting it would
+		// overstate how much the user should trust the correspondance.
+		if (useMapping && remembered) await recordColumnMappingUse(user.id, remembered.id);
 
 		return {
 			importResult: {

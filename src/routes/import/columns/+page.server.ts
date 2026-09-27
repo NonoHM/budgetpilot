@@ -421,10 +421,6 @@ export const actions: Actions = {
 			// which of a user's mappings read it. A user who opted out of memorisation gets no link,
 			// and rightly: there is nothing memorised to correct.
 			if (saved.ok) columnMappingId = saved.id;
-			// The run that designates IS a use, and the recap says « utilisée N fois » out loud. A
-			// mapping created at zero would tell the user, on the very screen built to let them check
-			// it, that the import they are looking at never happened.
-			if (saved.ok) await recordColumnMappingUse(user.id, saved.id);
 		}
 
 		const written = await writeImport({
@@ -455,6 +451,12 @@ export const actions: Actions = {
 			});
 		}
 		const { batchId, persisted } = written;
+
+		// The run that designates IS a use, and the recap says « utilisée N fois » out loud. A mapping
+		// created at zero would tell the user, on the very screen built to let them check it, that the
+		// import they are looking at never happened. Counted AFTER the write succeeded (D3): a run
+		// whose write failed did not use the correspondance to import anything.
+		if (columnMappingId) await recordColumnMappingUse(user.id, columnMappingId);
 
 		/**
 		 * The replace, and the one guard between it and a silent loss of transactions.

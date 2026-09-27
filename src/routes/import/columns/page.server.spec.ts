@@ -338,6 +338,26 @@ describe('a corrected import replaces the batch it was launched from', () => {
 		expect(result.data?.keepDesignation).toBe(true);
 	});
 
+	/**
+	 * D3: the recap says « utilisée N fois » about designations that WORKED. A run whose write
+	 * failed is not one, so the use is counted only once the write succeeded. Separates « counted
+	 * after the rows landed » from « counted before the write ».
+	 */
+	it('counts no use of the saved correspondance when the write fails', async () => {
+		expect.assertions(2);
+		vi.spyOn(console, 'error').mockImplementation(() => {});
+		const { ImportWriteError } = await import('$lib/server/import/persist');
+		persist.persistImportedTransactions.mockRejectedValueOnce(
+			new ImportWriteError({ kind: 'failed', landedRows: 0 })
+		);
+
+		const result = await submit(WITH_HEADER, true);
+
+		// CALIBRATION: the write did fail, and the correspondance was saved (so a use was possible).
+		expect(result.status).toBe(500);
+		expect(store.recordColumnMappingUse).not.toHaveBeenCalled();
+	});
+
 	it('refuses an archive that is not a workbook with its own sentence, not « empty » (#595)', async () => {
 		expect.assertions(2);
 		const { strToU8, zipSync } = await import('fflate');

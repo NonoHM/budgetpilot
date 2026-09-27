@@ -2301,6 +2301,24 @@ describe('/import actions', () => {
 		});
 
 		/**
+		 * D3: « utilisée N fois » counts designations that WORKED, so a run whose write failed is not
+		 * one. The use used to be counted before the write, so a failed write still incremented it.
+		 * Separates « counted after the rows landed » from « counted before the write ».
+		 */
+		it('counts no use when the write fails', async () => {
+			expect.assertions(2);
+			vi.spyOn(console, 'error').mockImplementation(() => {});
+			const row = rememberFor(testUser.id);
+			db.state.failCreateOnLabel = 'CARREFOUR MARKET';
+
+			const result = await runImportWithFile(UNRECOGNISED);
+
+			// CALIBRATION: the write did fail, through the sentence and not a 500.
+			expect(result.status).toBe(500);
+			expect(row.useCount).toBe(0);
+		});
+
+		/**
 		 * #433's CONTRADICTION-PASS FINDING, closed. A remembered mapping is reapplied SILENTLY —
 		 * no designation screen opens for this reuse — and `ColumnMapping` carries no `dateOrder`
 		 * field, so nothing was ever asked or remembered about this file's reading. Before this,
